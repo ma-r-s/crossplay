@@ -1,5 +1,6 @@
 #include "CrossPointSettings.h"
 
+#include <BoardConfig.h>
 #include <I18n.h>
 #include <Logging.h>
 #include <ObfuscationUtils.h>
@@ -40,6 +41,12 @@ void CrossPointSettings::validateFrontButtonMapping(CrossPointSettings& settings
       }
     }
   }
+}
+
+uint8_t CrossPointSettings::defaultUiScale() {
+  // Touch boards get larger touch targets out of the box; button-only boards
+  // keep the compact density.
+  return BoardConfig::hasTouch() ? UI_SCALE_MEDIUM : UI_SCALE_SMALL;
 }
 
 uint8_t CrossPointSettings::sleepTimeoutEnumToMinutes(const uint8_t legacyValue) {

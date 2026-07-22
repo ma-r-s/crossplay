@@ -237,6 +237,8 @@ bool HalGPIO::wasTouchTap(float& nx, float& ny) const { return inputMgr.wasTouch
 
 bool HalGPIO::wasTouchDown(float& nx, float& ny) const { return inputMgr.wasTouchPressedAt(nx, ny); }
 
+bool HalGPIO::wasTouchReleased() const { return inputMgr.wasTouchReleased(); }
+
 bool HalGPIO::isTouchTapCandidate(float& nx, float& ny, unsigned long& heldMs) const {
   return inputMgr.isTouchTapCandidate(nx, ny, heldMs);
 }
