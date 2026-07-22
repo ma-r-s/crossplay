@@ -574,6 +574,10 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
   props.action = ACTION_ROW;
   props.inputMask = fui::InputTouch;  // physical buttons stay in loop()
   props.valueInset = 8;               // air between the value and the row edge
+  // Rows are two lines tall by design; long labels wrap onto the second line
+  // (early, at 60% of the band) instead of truncating.
+  props.labelText = screen.theme().bodyText;
+  props.labelText.maxLines = 2;
   const auto rows = fui::listVisibleRows(screen.body(), screen.theme().rowHeight, screen.theme().listRowGap);
   visibleRows = rows > 0 ? rows : 1;
   topIndex = scrollListBy(topIndex, 0, visibleRows, settingsCount);  // clamp to range
