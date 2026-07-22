@@ -17,11 +17,12 @@ inline freeink::ui::ThemeTokens uiThemeTokens(const freeink::ui::GfxRendererTarg
   tokens.listRowRadius = static_cast<uint8_t>(metrics.listRowRadius);
   tokens.listInset = static_cast<int16_t>(metrics.listInset);
   tokens.listSidePadding = static_cast<int16_t>(metrics.listSidePadding);
+  tokens.listSelectionStyle = static_cast<fui::SelectionStyle>(metrics.listSelectionStyle);
+  tokens.listScrollWidth = static_cast<int16_t>(metrics.listScrollWidth);
+  tokens.listScrollSide = static_cast<uint8_t>(metrics.listScrollSide);
+  tokens.headerSidePadding = static_cast<int16_t>(metrics.headerSidePadding);
+  tokens.headerUnderline = static_cast<uint8_t>(metrics.headerUnderlineSize);
+  tokens.headerTitleAlign = static_cast<fui::TextAlign>(metrics.headerTitleAlign);
   tokens.bodyText.bold = metrics.listTitleBold;
-  if (metrics.listSelectionLight) {
-    tokens.listRow.selected.background = fui::Paint::dither(fui::Color::LightGray);
-    tokens.listRow.selected.foreground = fui::Paint::solid(fui::Color::Black);
-    tokens.listRow.active = tokens.listRow.selected;
-  }
   return tokens;
 }

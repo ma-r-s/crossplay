@@ -469,8 +469,17 @@ void SettingsActivity::render(RenderLock&&) {
 
   const auto& metrics = UITheme::getInstance().getMetrics();
 
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_SETTINGS_TITLE),
-                 CROSSPOINT_VERSION);
+  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_SETTINGS_TITLE));
+
+  // Version line at the bottom right, above the button hints — footer
+  // content, not header content (becomes part of the screen when this
+  // activity migrates to FreeInkApp).
+  {
+    const int versionWidth = renderer.getTextWidth(SMALL_FONT_ID, CROSSPOINT_VERSION);
+    const int versionY = pageHeight - metrics.buttonHintsHeight - renderer.getLineHeight(SMALL_FONT_ID) - 4;
+    renderer.drawText(SMALL_FONT_ID, pageWidth - metrics.contentSidePadding - versionWidth, versionY,
+                      CROSSPOINT_VERSION, true);
+  }
 
   std::vector<TabInfo> tabs;
   tabs.reserve(categoryCount);

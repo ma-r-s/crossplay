@@ -60,13 +60,16 @@ class OpdsBookBrowserActivity final : public Activity {
   // a Back press, both pumped from the download's progress callback.
   bool cancelDownload = false;
 
-  static void browsingScreen(UiApp::ScreenType& screen, void* user);
-  static void downloadScreen(UiApp::ScreenType& screen, void* user);
+  // Single screen fn dispatching on `state`: every state shares the themed
+  // header and gets built through FreeInkUI.
+  static void rootScreen(UiApp::ScreenType& screen, void* user);
   static void onRowEvent(const freeink::ui::ActionEvent& event, void* user);
   static void onSearchEvent(const freeink::ui::ActionEvent& event, void* user);
   static void onCancelEvent(const freeink::ui::ActionEvent& event, void* user);
+  void screenHeader(UiApp::ScreenType& screen, bool withSearch);
   void buildBrowsingScreen(UiApp::ScreenType& screen);
   void buildDownloadScreen(UiApp::ScreenType& screen);
+  void buildStatusScreen(UiApp::ScreenType& screen);
   freeink::ui::InputSnapshot touchSnapshot() const;
   void activateSelected();
 

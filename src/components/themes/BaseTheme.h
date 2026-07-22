@@ -42,12 +42,19 @@ struct ThemeMetrics {
   // through FreeInkApp: the theme supplies geometry and selection style, the
   // uiScale fonts supply the sizes. Plain data by design — the eventual
   // SD-card theme files will provide exactly these values.
-  int listRowGap;           // vertical gap between rows
-  int listRowRadius;        // row corner radius (RoundedRaff cards, Lyra pill)
-  int listInset;            // horizontal inset of the whole list band
-  int listSidePadding;      // text inset within a row
-  bool listSelectionLight;  // LightGray pill + black text vs black fill + white text
-  bool listTitleBold;       // bold row titles (RoundedRaff)
+  int listRowGap;          // vertical gap between rows
+  int listRowRadius;       // row corner radius (RoundedRaff cards, Lyra pill)
+  int listInset;           // horizontal inset of the whole list band
+  int listSidePadding;     // text inset within a row
+  int listSelectionStyle;  // 0=invert fill, 1=light pill, 2=underline, 3=triangle (fui::SelectionStyle order)
+  int listScrollWidth;     // scroll indicator thickness
+  int listScrollSide;      // 0 = right edge, 1 = left edge
+  bool listTitleBold;      // bold row titles (RoundedRaff)
+  // FreeInkUI header shape, same contract as the list fields above.
+  int headerSidePadding;    // title text inset
+  int headerUnderlineSize;  // bottom rule thickness (Lyra), 0 = none
+  int headerTitleAlign;     // 0 = left, 1 = center, 2 = right (fui::TextAlign order)
+  int headerBatterySide;    // 0 = right edge, 1 = left edge
   int menuRowHeight;
   int menuSpacing;
 
@@ -132,8 +139,14 @@ constexpr ThemeMetrics values = {.batteryWidth = 15,
                                  .listRowRadius = 0,
                                  .listInset = 0,
                                  .listSidePadding = 20,
-                                 .listSelectionLight = false,
+                                 .listSelectionStyle = 0,  // invert fill
+                                 .listScrollWidth = 4,
+                                 .listScrollSide = 0,
                                  .listTitleBold = false,
+                                 .headerSidePadding = 20,
+                                 .headerUnderlineSize = 0,
+                                 .headerTitleAlign = 1,  // centered
+                                 .headerBatterySide = 0,
                                  .menuRowHeight = 45,
                                  .menuSpacing = 8,
                                  .tabSpacing = 10,
@@ -197,8 +210,6 @@ class BaseTheme {
   void drawProgressBar(const GfxRenderer& renderer, Rect rect, size_t current, size_t total) const;
   void drawBatteryLeft(const GfxRenderer& renderer, Rect rect,
                        bool showPercentage = true) const;  // Left aligned (reader mode)
-  void drawBatteryRight(const GfxRenderer& renderer, Rect rect,
-                        bool showPercentage = true) const;  // Right aligned (UI headers)
   virtual void fillBatteryIcon(const GfxRenderer& renderer, Rect rect, uint16_t percentage) const;
   virtual void drawButtonHints(GfxRenderer& renderer, const char* btn1, const char* btn2, const char* btn3,
                                const char* btn4) const;

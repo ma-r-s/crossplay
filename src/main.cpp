@@ -293,7 +293,11 @@ void setup() {
   halTiltSensor.begin();
   halClock.begin();
 
+#if FREEINK_DEVICE_X4 || FREEINK_DEVICE_X3
   LOG_INF("MAIN", "Hardware detect: %s", gpio.deviceIsX3() ? "X3" : "X4");
+#else
+  LOG_INF("MAIN", "Device: %s", BoardConfig::ACTIVE.name);
+#endif
 
   // SD Card Initialization
   // We need 6 open files concurrently when parsing a new chapter
