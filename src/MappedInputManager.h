@@ -49,8 +49,16 @@ class MappedInputManager {
   RowTouch colTouch(int& col, int left, int colStep, int colCount, int yStart, int yEnd, int colWidth = 0) const;
 
   SwipeDir wasSwipe() const;
+  // Exit-to-home intent. Boards with a capacitive home key (X4 Pro) use the
+  // key's press edge; everywhere else it's the bottom-edge up-swipe.
   bool wasHomeGesture() const;
+  // Contextual menu intent (the reader menu). Home-key boards move this to the
+  // bottom-edge up-swipe (freed by the home key); others keep the top-edge
+  // down-swipe.
   bool wasMenuGesture() const;
+  // Frontlight quick panel: top-edge down-swipe, only on home-key boards where
+  // that edge is no longer the menu gesture.
+  bool wasLightPanelGesture() const;
   bool wasAnyPressed() const;
   bool wasAnyReleased() const;
   unsigned long getHeldTime() const;
@@ -76,6 +84,8 @@ class MappedInputManager {
 
   bool mapButton(Button button, bool (HalGPIO::*fn)(uint8_t) const) const;
   bool wasBackGesture() const;
+  bool wasTopEdgeDownSwipe() const;
+  bool wasBottomEdgeUpSwipe() const;
   // Fetch the pending swipe (if any) and map both endpoints to logical screen coords
   bool decodeSwipe(int& sx, int& sy, int& ex, int& ey) const;
   bool listItemFromPoint(int x, int y, int& index, int itemCount, int selectedIndex, int listTop, int listHeight,

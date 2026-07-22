@@ -270,6 +270,13 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t tiltPageTurn = TILT_OFF;
   // Touch screen reader zones/gestures on boards with a touch controller.
   uint8_t touchReaderControls = TOUCH_READER_ON;
+  // Frontlight quick-panel state (boards with FREEINK_CAP_FRONTLIGHT, e.g. X4
+  // Pro). Applied at boot, edited only from the frontlight panel; persisted as
+  // category-less entries so they stay out of the Settings screen. Writes are
+  // debounced by the panel (saved once on exit), not per slider tick.
+  uint8_t frontlightBrightness = 60;
+  uint8_t frontlightWarmth = 50;  // 0 = cool .. 100 = warm
+  uint8_t frontlightOn = 0;
   // Language setting (Language enum index, default 0 = EN)
   uint8_t language = 0;
   // Quick Resume: keep current content visible with moon icon instead of showing a static sleep screen.

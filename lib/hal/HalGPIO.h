@@ -39,6 +39,13 @@ class HalGPIO {
   inline bool deviceIsX4() const { return _deviceType == DeviceType::X4; }
   bool isXteinkDevice() const;
 
+  // True when the board's page buttons sit on the left/right screen edges
+  // (X3, X4 Pro) rather than an off-screen vertical rocker. Drives side-hint
+  // placement, the flipped large-step direction in selection activities, and
+  // the keyboard's side-gutter reserve. Keyed off the active BoardConfig
+  // profile, not the X3/X4 runtime detection.
+  bool hasEdgeSideButtons() const;
+
   // Start button GPIO and setup SPI for screen and SD card
   void begin();
 
@@ -52,6 +59,10 @@ class HalGPIO {
   unsigned long getHeldTime() const;
   unsigned long getPowerButtonHeldTime() const;
   bool hasTouch() const;
+  // Capacitive home key under the bezel, reported by the touch controller
+  // (e.g. X4 Pro's GT911 key). Press edge, one event per press.
+  bool hasHomeKey() const;
+  bool wasHomeKeyPressed() const;
   bool wasTouchTap(float& nx, float& ny) const;
   bool wasTouchDown(float& nx, float& ny) const;
   // Raw release edge, reported even when the contact was not a tap (swipe end,

@@ -1,6 +1,7 @@
 #include "ActivityManager.h"
 
 #include <FontCacheManager.h>
+#include <HalFrontlight.h>
 #include <HalPowerManager.h>
 
 #include <algorithm>
@@ -17,6 +18,7 @@
 #include "reader/ReaderActivity.h"
 #include "settings/OpdsServerListActivity.h"
 #include "settings/SettingsActivity.h"
+#include "util/FrontlightPanelActivity.h"
 #include "util/FullScreenMessageActivity.h"
 
 static portMUX_TYPE activityManagerSpinlock = portMUX_INITIALIZER_UNLOCKED;
@@ -71,6 +73,14 @@ void ActivityManager::loop() {
         return;
       }
       goHome();
+      return;
+    }
+
+    // Frontlight quick panel: global top-edge down-swipe on boards where the
+    // home key freed that edge (X4 Pro). Pushed, so it returns to whatever
+    // was underneath — including mid-book.
+    if (Frontlight.present() && currentActivity->name != "FrontlightPanel" && mappedInput.wasLightPanelGesture()) {
+      pushActivity(std::make_unique<FrontlightPanelActivity>(renderer, mappedInput));
       return;
     }
 

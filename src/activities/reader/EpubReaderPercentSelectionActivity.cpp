@@ -104,11 +104,11 @@ void EpubReaderPercentSelectionActivity::loop() {
   buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Left}, [this] { adjustPercent(-kSmallStep); });
   buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Right}, [this] { adjustPercent(kSmallStep); });
 
-  // On X3 the side buttons sit on the left/right edges of the screen rather than as a vertical up/down
-  // rocker (X4), so BTN_UP is physically the left button and BTN_DOWN the right one. Flip the large-step
-  // direction there so the left button decreases and the right button increases, matching the layout.
-  const int upDelta = gpio.deviceIsX3() ? -kLargeStep : kLargeStep;
-  const int downDelta = gpio.deviceIsX3() ? kLargeStep : -kLargeStep;
+  // On edge-button boards (X3, X4 Pro) the side buttons sit on the left/right edges of the screen rather
+  // than as a vertical up/down rocker (X4), so BTN_UP is physically the left button and BTN_DOWN the right
+  // one. Flip the large-step direction there so the left button decreases and the right button increases.
+  const int upDelta = gpio.hasEdgeSideButtons() ? -kLargeStep : kLargeStep;
+  const int downDelta = gpio.hasEdgeSideButtons() ? kLargeStep : -kLargeStep;
   buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Up}, [this, upDelta] { adjustPercent(upDelta); });
   buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Down},
                                        [this, downDelta] { adjustPercent(downDelta); });

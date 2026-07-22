@@ -96,6 +96,13 @@ inline freeink::ui::InputSnapshot touchSnapshotFrom(const MappedInputManager& ma
   freeink::ui::InputSnapshot snap{};
   int tx = 0;
   int ty = 0;
+  // Live contact position: only InputDrag-masked elements (sliders) react, so
+  // carrying it in every snapshot is free for ordinary screens.
+  if (mappedInput.isScreenTouchHeld(tx, ty)) {
+    snap.touchHeld = true;
+    snap.touchX = static_cast<int16_t>(tx);
+    snap.touchY = static_cast<int16_t>(ty);
+  }
   if (mappedInput.wasScreenTouchDown(tx, ty)) {
     snap.touchPressed = true;
     snap.touchX = static_cast<int16_t>(tx);
