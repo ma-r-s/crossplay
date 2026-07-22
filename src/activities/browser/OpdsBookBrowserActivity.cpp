@@ -17,6 +17,7 @@
 #include "components/UIScale.h"
 #include "components/UITheme.h"
 #include "components/UIThemeTokens.h"
+#include "components/UiAppHelpers.h"
 #include "components/icons/search32.h"
 #include "fontIds.h"
 #include "network/HttpDownloader.h"
@@ -34,18 +35,6 @@ constexpr fui::ActionId ACTION_CANCEL = 3;
 constexpr int DOWNLOAD_PROGRESS_STEP_PERCENT = 5;
 constexpr unsigned long DOWNLOAD_PROGRESS_MIN_UPDATE_MS = 5000;
 
-// Bind the uiScale fonts before FreeInkApp's constructor derives its theme
-// metrics from the body font's line height.
-fui::GfxRendererTarget makeUiTarget(const GfxRenderer& renderer) {
-  fui::GfxRendererTarget target(renderer);
-  const auto spec = uiScaleSpec();
-  target.setFont(fui::GfxRendererTarget::FONT_SMALL, spec.smallFontId);
-  target.setFont(fui::GfxRendererTarget::FONT_BODY, spec.bodyFontId);
-  // Title scales with the body font; the transient states' legacy header
-  // draws with the same font so the title never changes size across screens.
-  target.setFont(fui::GfxRendererTarget::FONT_TITLE, spec.bodyFontId);
-  return target;
-}
 }  // namespace
 
 OpdsBookBrowserActivity::OpdsBookBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
@@ -125,30 +114,6 @@ void OpdsBookBrowserActivity::onCancelEvent(const fui::ActionEvent&, void* user)
   self->cancelDownload = true;
 }
 
-fui::InputSnapshot OpdsBookBrowserActivity::touchSnapshot() const {
-  fui::InputSnapshot snap{};
-  int tx = 0;
-  int ty = 0;
-  if (mappedInput.wasScreenTouchDown(tx, ty)) {
-    snap.touchPressed = true;
-    snap.touchX = static_cast<int16_t>(tx);
-    snap.touchY = static_cast<int16_t>(ty);
-  }
-  if (mappedInput.wasScreenTapped(tx, ty)) {
-    snap.touchReleased = true;
-    snap.touchX = static_cast<int16_t>(tx);
-    snap.touchY = static_cast<int16_t>(ty);
-  } else if (mappedInput.wasScreenTouchReleased()) {
-    // Raw release the tap classifier didn't report (swipe end, drag-off),
-    // delivered off-target: nothing dispatches, but routing drops its
-    // pressed-element state instead of ghosting it onto the next render.
-    snap.touchReleased = true;
-    snap.touchX = -1;
-    snap.touchY = -1;
-  }
-  return snap;
-}
-
 void OpdsBookBrowserActivity::loop() {
   if (state == BrowserState::WIFI_SELECTION || state == BrowserState::SEARCH_INPUT) {
     return;
@@ -203,7 +168,7 @@ void OpdsBookBrowserActivity::loop() {
     // (rows, header search button); route the snapshot and let the registered
     // handlers dispatch.
     if (uiReady) {
-      const fui::InputSnapshot snap = touchSnapshot();
+      const fui::InputSnapshot snap = touchSnapshotFrom(mappedInput);
       if (snap.touchPressed || snap.touchReleased) {
         const bool activeBefore = app.touchActive();
         const auto event = app.route(snap);
@@ -214,33 +179,33 @@ void OpdsBookBrowserActivity::loop() {
     }
 
     if (!entries.empty()) {
+      // Swipes scroll the viewport; the selection stays put (it may scroll
+      // off-screen) and button navigation pulls the view back to it.
       const auto swipe = mappedInput.wasSwipe();
-      if (swipe == MappedInputManager::SwipeDir::Up) {
-        selectorIndex = ButtonNavigator::nextPageIndex(selectorIndex, entries.size(), visibleRows);
-        requestUpdate();
-        return;
-      }
-      if (swipe == MappedInputManager::SwipeDir::Down) {
-        selectorIndex = ButtonNavigator::previousPageIndex(selectorIndex, entries.size(), visibleRows);
-        requestUpdate();
+      if (swipe == MappedInputManager::SwipeDir::Up || swipe == MappedInputManager::SwipeDir::Down) {
+        const int delta = swipe == MappedInputManager::SwipeDir::Up ? visibleRows : -visibleRows;
+        const int next = scrollListBy(topIndex, delta, visibleRows, static_cast<int>(entries.size()));
+        if (next != topIndex) {
+          topIndex = next;
+          requestUpdate();
+        }
         return;
       }
 
-      buttonNavigator.onNextRelease([this] {
-        selectorIndex = ButtonNavigator::nextIndex(selectorIndex, entries.size());
+      const auto moveSelection = [this](const int index) {
+        selectorIndex = index;
+        topIndex = followListSelection(selectorIndex, topIndex, visibleRows, static_cast<int>(entries.size()));
         requestUpdate();
+      };
+      buttonNavigator.onNextRelease(
+          [this, &moveSelection] { moveSelection(ButtonNavigator::nextIndex(selectorIndex, entries.size())); });
+      buttonNavigator.onPreviousRelease(
+          [this, &moveSelection] { moveSelection(ButtonNavigator::previousIndex(selectorIndex, entries.size())); });
+      buttonNavigator.onNextContinuous([this, &moveSelection] {
+        moveSelection(ButtonNavigator::nextPageIndex(selectorIndex, entries.size(), visibleRows));
       });
-      buttonNavigator.onPreviousRelease([this] {
-        selectorIndex = ButtonNavigator::previousIndex(selectorIndex, entries.size());
-        requestUpdate();
-      });
-      buttonNavigator.onNextContinuous([this] {
-        selectorIndex = ButtonNavigator::nextPageIndex(selectorIndex, entries.size(), visibleRows);
-        requestUpdate();
-      });
-      buttonNavigator.onPreviousContinuous([this] {
-        selectorIndex = ButtonNavigator::previousPageIndex(selectorIndex, entries.size(), visibleRows);
-        requestUpdate();
+      buttonNavigator.onPreviousContinuous([this, &moveSelection] {
+        moveSelection(ButtonNavigator::previousPageIndex(selectorIndex, entries.size(), visibleRows));
       });
     }
   }
@@ -310,12 +275,10 @@ void OpdsBookBrowserActivity::buildBrowsingScreen(UiApp::ScreenType& screen) {
   props.action = ACTION_ROW;
   props.inputMask = fui::InputTouch;  // physical buttons stay in loop()
   props.valueInset = 8;               // air between the nav chevron and the row edge
-  // Page-based scrolling: buttons and swipes page by full screens, and
-  // topIndex snaps to the selection's page so both inputs agree on what is
-  // visible.
   const auto rows = fui::listVisibleRows(screen.body(), screen.theme().rowHeight, screen.theme().listRowGap);
   visibleRows = rows > 0 ? rows : 1;
-  props.topIndex = static_cast<uint16_t>(selectorIndex / visibleRows * visibleRows);
+  topIndex = scrollListBy(topIndex, 0, visibleRows, static_cast<int>(entries.size()));  // clamp to range
+  props.topIndex = static_cast<uint16_t>(topIndex);
   screen.list(props);
 }
 
@@ -452,6 +415,7 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
   }
 
   selectorIndex = 0;
+  topIndex = 0;
   state = entries.empty() ? BrowserState::ERROR : BrowserState::BROWSING;
   if (entries.empty()) errorMessage = tr(STR_NO_ENTRIES);
   requestUpdate();
@@ -537,7 +501,7 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book) {
         mappedInput.update();
         if (mappedInput.wasReleased(MappedInputManager::Button::Back)) cancelDownload = true;
         if (uiReady) {
-          const fui::InputSnapshot snap = touchSnapshot();
+          const fui::InputSnapshot snap = touchSnapshotFrom(mappedInput);
           if (snap.touchPressed || snap.touchReleased) app.route(snap);
         }
         const int percent = total > 0 ? static_cast<int>(static_cast<uint64_t>(downloaded) * 100 / total) : 0;

@@ -56,6 +56,7 @@ class OpdsBookBrowserActivity final : public Activity {
   // snapshots against it while this is true (the two run on different tasks).
   std::atomic<bool> uiReady{false};
   int visibleRows = 1;  // rows per page at the current scale; set by the screen builder
+  int topIndex = 0;     // viewport scroll position, decoupled from the selection
   // Read by HttpDownloader between chunks; set by the Cancel button handler or
   // a Back press, both pumped from the download's progress callback.
   bool cancelDownload = false;
@@ -70,7 +71,6 @@ class OpdsBookBrowserActivity final : public Activity {
   void buildBrowsingScreen(UiApp::ScreenType& screen);
   void buildDownloadScreen(UiApp::ScreenType& screen);
   void buildStatusScreen(UiApp::ScreenType& screen);
-  freeink::ui::InputSnapshot touchSnapshot() const;
   void activateSelected();
 
   void checkAndConnectWifi();
