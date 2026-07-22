@@ -16,6 +16,7 @@
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UIScale.h"
 #include "components/UITheme.h"
+#include "components/UIThemeTokens.h"
 #include "components/icons/search24.h"
 #include "fontIds.h"
 #include "network/HttpDownloader.h"
@@ -72,6 +73,7 @@ void OpdsBookBrowserActivity::onEnter() {
 
   uiReady = false;
   visibleRows = 1;
+  app.setTheme(uiThemeTokens(uiTarget));
   app.on(ACTION_ROW, &OpdsBookBrowserActivity::onRowEvent, this);
   app.on(ACTION_SEARCH, &OpdsBookBrowserActivity::onSearchEvent, this);
   app.on(ACTION_CANCEL, &OpdsBookBrowserActivity::onCancelEvent, this);
@@ -289,11 +291,10 @@ void OpdsBookBrowserActivity::buildBrowsingScreen(UiApp::ScreenType& screen) {
   props.selectedIndex = static_cast<int16_t>(selectorIndex);
   props.action = ACTION_ROW;
   props.inputMask = fui::InputTouch;  // physical buttons stay in loop()
-  props.sidePadding = static_cast<int16_t>(metrics.contentSidePadding);
   // Page-based scrolling: buttons and swipes page by full screens, and
   // topIndex snaps to the selection's page so both inputs agree on what is
   // visible.
-  const auto rows = fui::listVisibleRows(screen.body(), screen.theme().rowHeight, 0);
+  const auto rows = fui::listVisibleRows(screen.body(), screen.theme().rowHeight, screen.theme().listRowGap);
   visibleRows = rows > 0 ? rows : 1;
   props.topIndex = static_cast<uint16_t>(selectorIndex / visibleRows * visibleRows);
   screen.list(props);

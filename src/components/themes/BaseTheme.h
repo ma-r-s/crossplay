@@ -38,6 +38,16 @@ struct ThemeMetrics {
   int contentSidePadding;
   int listRowHeight;
   int listWithSubtitleRowHeight;
+  // FreeInkUI list shape, consumed by uiThemeTokens() for screens rendered
+  // through FreeInkApp: the theme supplies geometry and selection style, the
+  // uiScale fonts supply the sizes. Plain data by design — the eventual
+  // SD-card theme files will provide exactly these values.
+  int listRowGap;           // vertical gap between rows
+  int listRowRadius;        // row corner radius (RoundedRaff cards, Lyra pill)
+  int listInset;            // horizontal inset of the whole list band
+  int listSidePadding;      // text inset within a row
+  bool listSelectionLight;  // LightGray pill + black text vs black fill + white text
+  bool listTitleBold;       // bold row titles (RoundedRaff)
   int menuRowHeight;
   int menuSpacing;
 
@@ -118,6 +128,12 @@ constexpr ThemeMetrics values = {.batteryWidth = 15,
                                  .contentSidePadding = 20,
                                  .listRowHeight = 30,
                                  .listWithSubtitleRowHeight = 50,
+                                 .listRowGap = 0,
+                                 .listRowRadius = 0,
+                                 .listInset = 0,
+                                 .listSidePadding = 20,
+                                 .listSelectionLight = false,
+                                 .listTitleBold = false,
                                  .menuRowHeight = 45,
                                  .menuSpacing = 8,
                                  .tabSpacing = 10,
