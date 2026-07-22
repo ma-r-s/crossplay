@@ -25,10 +25,24 @@
 #include "activities/network/WifiSelectionActivity.h"
 #include "activities/util/IntervalSelectionActivity.h"
 #include "components/UITheme.h"
+#include "components/UIThemeTokens.h"
+#include "components/UiAppHelpers.h"
 #include "fontIds.h"
+
+namespace fui = freeink::ui;
+
+namespace {
+constexpr fui::ActionId ACTION_ROW = 1;
+constexpr fui::ActionId ACTION_TAB = 2;
+}  // namespace
 
 const StrId SettingsActivity::categoryNames[categoryCount] = {StrId::STR_CAT_DISPLAY, StrId::STR_CAT_READER,
                                                               StrId::STR_CAT_CONTROLS, StrId::STR_CAT_SYSTEM};
+
+SettingsActivity::SettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
+    : Activity("Settings", renderer, mappedInput),
+      uiTarget(makeUiTarget(renderer)),
+      app(uiTarget, uiTarget.deviceContext()) {}
 
 void SettingsActivity::rebuildSettingsLists() {
   displaySettings.clear();
@@ -113,8 +127,58 @@ void SettingsActivity::onEnter() {
 
   rebuildSettingsLists();
 
+  uiReady = false;
+  visibleRows = 1;
+  topIndex = 0;
+  app.setTheme(uiThemeTokens(uiTarget));
+  app.on(ACTION_ROW, &SettingsActivity::onRowEvent, this);
+  app.on(ACTION_TAB, &SettingsActivity::onTabEvent, this);
+  app.setScreen(&SettingsActivity::settingsScreen, this);
+
   // Trigger first update
   requestUpdate();
+}
+
+void SettingsActivity::selectCategory(const int categoryIndex) {
+  selectedCategoryIndex = categoryIndex;
+  switch (selectedCategoryIndex) {
+    case 0:
+      currentSettings = &displaySettings;
+      break;
+    case 1:
+      currentSettings = &readerSettings;
+      break;
+    case 2:
+      currentSettings = &controlsSettings;
+      break;
+    case 3:
+      currentSettings = &systemSettings;
+      break;
+  }
+  settingsCount = static_cast<int>(currentSettings->size());
+  topIndex = 0;
+}
+
+void SettingsActivity::onTabEvent(const fui::ActionEvent& event, void* user) {
+  auto* self = static_cast<SettingsActivity*>(user);
+  if (self->optionPopup.isActive()) return;
+  if (event.value < 0 || event.value >= categoryCount) return;
+  self->selectedSettingIndex = 0;
+  self->selectCategory(event.value);
+  // The switched-to tab repaints as the selected pill; a flash overlay on top
+  // of it just repaints the pill in the focused style.
+  self->app.clearTapFlash();
+}
+
+void SettingsActivity::onRowEvent(const fui::ActionEvent& event, void* user) {
+  auto* self = static_cast<SettingsActivity*>(user);
+  if (self->optionPopup.isActive()) return;
+  if (event.value < 0 || event.value >= static_cast<int16_t>(self->settingsCount)) return;
+  self->selectedSettingIndex = event.value + 1;
+  // Most rows repaint a different surface (popup, sub-activity, new value);
+  // a lingering tap flash would gray an unrelated element.
+  self->app.clearTapFlash();
+  self->toggleCurrentSetting();
 }
 
 void SettingsActivity::onExit() {
@@ -123,28 +187,26 @@ void SettingsActivity::onExit() {
   UITheme::getInstance().reload();  // Re-apply theme in case it was changed
 }
 
+void SettingsActivity::applyUiSettingChange(uint8_t CrossPointSettings::* valuePtr) {
+  // Theme and UI-scale changes take effect immediately, on this screen —
+  // reload the theme and re-derive the app's fonts and tokens so the very
+  // next repaint is in the new look.
+  if (valuePtr == &CrossPointSettings::uiTheme) {
+    UITheme::getInstance().reload();
+  } else if (valuePtr != &CrossPointSettings::uiScale) {
+    return;
+  }
+  const auto spec = uiScaleSpec();
+  uiTarget.setFont(fui::GfxRendererTarget::FONT_SMALL, spec.smallFontId);
+  uiTarget.setFont(fui::GfxRendererTarget::FONT_BODY, spec.bodyFontId);
+  uiTarget.setFont(fui::GfxRendererTarget::FONT_TITLE, spec.titleFontId);
+  app.setTheme(uiThemeTokens(uiTarget));
+}
+
 void SettingsActivity::loop() {
   if (optionPopup.handleInput(mappedInput, [this] { requestUpdate(); })) return;
 
   bool hasChangedCategory = false;
-
-  auto applyCategorySelection = [this] {
-    switch (selectedCategoryIndex) {
-      case 0:
-        currentSettings = &displaySettings;
-        break;
-      case 1:
-        currentSettings = &readerSettings;
-        break;
-      case 2:
-        currentSettings = &controlsSettings;
-        break;
-      case 3:
-        currentSettings = &systemSettings;
-        break;
-    }
-    settingsCount = static_cast<int>(currentSettings->size());
-  };
 
   // Handle actions with early return
   if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
@@ -170,111 +232,47 @@ void SettingsActivity::loop() {
     return;
   }
 
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  int tx = 0;
-  int ty = 0;
-  const int tabTop = metrics.topPadding + metrics.headerHeight;
-  const int listTop = metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing;
-  const int listHeight =
-      renderer.getScreenHeight() - (metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight +
-                                    metrics.buttonHintsHeight + metrics.verticalSpacing * 2);
-  auto buildTabs = [&]() {
-    std::vector<TabInfo> tabs;
-    tabs.reserve(categoryCount);
-    for (int i = 0; i < categoryCount; i++) {
-      tabs.push_back({I18N.get(categoryNames[i]), selectedCategoryIndex == i});
-    }
-    return tabs;
-  };
-  auto settingIndexFromPoint = [&](const int x, const int y, int& settingIndex) {
-    (void)x;
-    if (settingsCount <= 0 || y < listTop || y >= listTop + listHeight) return false;
-    const int rowStep = GUI.getListRowStep(false);
-    if (rowStep <= 0) return false;
-    const int pageItems = GUI.getListPageItems(listHeight, false);
-    const int selectedRow = std::max(0, selectedSettingIndex - 1);
-    const int pageStart = selectedRow / pageItems * pageItems;
-    const int row = (y - listTop) / rowStep;
-    const int touched = pageStart + row;
-    if (row < 0 || row >= pageItems || touched < 0 || touched >= settingsCount) return false;
-    settingIndex = touched + 1;
-    return true;
-  };
-
-  if (mappedInput.wasScreenTouchDown(tx, ty)) {
-    int touchedCategory = -1;
-    const auto tabs = buildTabs();
-    if (GUI.tabIndexFromPoint(renderer, Rect{0, tabTop, renderer.getScreenWidth(), metrics.tabBarHeight}, tabs, tx, ty,
-                              touchedCategory)) {
-      if (selectedCategoryIndex != touchedCategory || selectedSettingIndex != 0) {
-        selectedCategoryIndex = touchedCategory;
-        selectedSettingIndex = 0;
-        applyCategorySelection();
-        requestUpdate();
-      }
-      return;
-    }
-
-    int touchedSetting = -1;
-    if (settingIndexFromPoint(tx, ty, touchedSetting)) {
-      if (selectedSettingIndex != touchedSetting) {
-        selectedSettingIndex = touchedSetting;
-        requestUpdate();
-      }
-      return;
+  // Touch goes through the FreeInkApp: render() registered the tab and row
+  // hit rects; route the snapshot and let the handlers dispatch.
+  if (uiReady) {
+    const fui::InputSnapshot snap = touchSnapshotFrom(mappedInput);
+    if (snap.touchPressed || snap.touchReleased) {
+      const auto event = app.route(snap);
+      // No pressed-state repaint here: it would cost a second e-ink refresh
+      // per tap and paint a transient double pill on tab switches whose
+      // erased black leaves a partial-refresh ghost.
+      if (app.invalidated()) requestUpdate();
+      if (event) return;  // dispatched to onTabEvent/onRowEvent
     }
   }
 
-  if (mappedInput.wasScreenTapped(tx, ty)) {
-    int tappedCategory = -1;
-    const auto tabs = buildTabs();
-    if (GUI.tabIndexFromPoint(renderer, Rect{0, tabTop, renderer.getScreenWidth(), metrics.tabBarHeight}, tabs, tx, ty,
-                              tappedCategory)) {
-      selectedCategoryIndex = tappedCategory;
-      selectedSettingIndex = 0;
-      applyCategorySelection();
-      requestUpdate();
-      return;
-    }
-
-    int tappedSetting = -1;
-    if (settingIndexFromPoint(tx, ty, tappedSetting)) {
-      selectedSettingIndex = tappedSetting;
-      toggleCurrentSetting();
-      requestUpdate();
-      return;
-    }
-  }
-
-  // Handle navigation
-  const auto& navMetrics = UITheme::getInstance().getMetrics();
-  const int settingsListHeight =
-      renderer.getScreenHeight() - (navMetrics.topPadding + navMetrics.headerHeight + navMetrics.tabBarHeight +
-                                    navMetrics.buttonHintsHeight + navMetrics.verticalSpacing * 2);
-  const int settingsPageItems = GUI.getListPageItems(settingsListHeight, false);
+  // Swipes scroll the viewport; the selection stays put (it may scroll
+  // off-screen) and button navigation pulls the view back to it.
   const auto swipe = mappedInput.wasSwipe();
-  if (swipe == MappedInputManager::SwipeDir::Up) {
-    selectedSettingIndex = selectedSettingIndex == 0 ? 1
-                                                     : ButtonNavigator::nextPageIndex(
-                                                           selectedSettingIndex, settingsCount + 1, settingsPageItems);
-    requestUpdate();
-    return;
-  }
-  if (swipe == MappedInputManager::SwipeDir::Down) {
-    selectedSettingIndex =
-        ButtonNavigator::previousPageIndex(selectedSettingIndex, settingsCount + 1, settingsPageItems);
-    requestUpdate();
+  if (swipe == MappedInputManager::SwipeDir::Up || swipe == MappedInputManager::SwipeDir::Down) {
+    const int delta = swipe == MappedInputManager::SwipeDir::Up ? visibleRows : -visibleRows;
+    const int next = scrollListBy(topIndex, delta, visibleRows, settingsCount);
+    if (next != topIndex) {
+      topIndex = next;
+      requestUpdate();
+    }
     return;
   }
 
-  buttonNavigator.onNextRelease([this] {
-    selectedSettingIndex = ButtonNavigator::nextIndex(selectedSettingIndex, settingsCount + 1);
+  // Buttons walk the tab band (index 0) plus the rows (1..settingsCount).
+  const auto moveSelection = [this](const int index) {
+    selectedSettingIndex = index;
+    if (selectedSettingIndex == 0) {
+      topIndex = 0;
+    } else {
+      topIndex = followListSelection(selectedSettingIndex - 1, topIndex, visibleRows, settingsCount);
+    }
     requestUpdate();
-  });
-
-  buttonNavigator.onPreviousRelease([this] {
-    selectedSettingIndex = ButtonNavigator::previousIndex(selectedSettingIndex, settingsCount + 1);
-    requestUpdate();
+  };
+  buttonNavigator.onNextRelease(
+      [this, &moveSelection] { moveSelection(ButtonNavigator::nextIndex(selectedSettingIndex, settingsCount + 1)); });
+  buttonNavigator.onPreviousRelease([this, &moveSelection] {
+    moveSelection(ButtonNavigator::previousIndex(selectedSettingIndex, settingsCount + 1));
   });
 
   buttonNavigator.onNextContinuous([this, &hasChangedCategory] {
@@ -291,7 +289,7 @@ void SettingsActivity::loop() {
 
   if (hasChangedCategory) {
     selectedSettingIndex = (selectedSettingIndex == 0) ? 0 : 1;
-    applyCategorySelection();
+    selectCategory(selectedCategoryIndex);
   }
 }
 
@@ -324,6 +322,7 @@ void SettingsActivity::toggleCurrentSetting() {
                          syncQuickResumeTimeoutForSleepScreen(sleepScreenChanged, quickResumeTimeoutChanged);
                          SETTINGS.saveToFile();
                          rebuildSettingsLists();
+                         applyUiSettingChange(valuePtr);
                        });
       requestUpdate();
       return;
@@ -418,6 +417,7 @@ void SettingsActivity::toggleCurrentSetting() {
   syncQuickResumeTimeoutForSleepScreen(sleepScreenChanged, quickResumeTimeoutChanged);
   SETTINGS.saveToFile();
   rebuildSettingsLists();
+  applyUiSettingChange(setting.valuePtr);
   selectedSettingIndex = std::min(selectedSettingIndex, settingsCount);
 }
 
@@ -459,79 +459,147 @@ void SettingsActivity::openSleepTimeoutPicker() {
       });
 }
 
+std::string SettingsActivity::settingValueText(const SettingInfo& setting) {
+  if (setting.type == SettingType::TOGGLE && setting.valuePtr != nullptr) {
+    return SETTINGS.*(setting.valuePtr) ? tr(STR_STATE_ON) : tr(STR_STATE_OFF);
+  }
+  if (setting.type == SettingType::ENUM && setting.valuePtr != nullptr) {
+    return I18N.get(setting.enumValues[SETTINGS.*(setting.valuePtr)]);
+  }
+  if (setting.type == SettingType::ENUM && setting.valueGetter) {
+    const uint8_t value = setting.valueGetter();
+    if (!setting.enumStringValues.empty() && value < setting.enumStringValues.size()) {
+      return setting.enumStringValues[value];
+    }
+    if (value < setting.enumValues.size()) {
+      return I18N.get(setting.enumValues[value]);
+    }
+    return "";
+  }
+  if (setting.type == SettingType::VALUE && setting.valuePtr != nullptr) {
+    if (setting.nameId == StrId::STR_TIME_TO_SLEEP) {
+      if (SETTINGS.sleepTimeoutMinutes >= CrossPointSettings::SLEEP_TIMEOUT_NEVER_MINUTES) {
+        return tr(STR_SLEEP_NEVER);
+      }
+      char valueBuffer[32];
+      snprintf(valueBuffer, sizeof(valueBuffer), tr(STR_SLEEP_TIMER_VALUE_FORMAT),
+               static_cast<unsigned int>(SETTINGS.*(setting.valuePtr)));
+      return valueBuffer;
+    }
+    return std::to_string(SETTINGS.*(setting.valuePtr));
+  }
+  return "";
+}
+
+void SettingsActivity::settingsScreen(UiApp::ScreenType& screen, void* user) {
+  static_cast<SettingsActivity*>(user)->buildSettingsScreen(screen);
+}
+
+void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  // Content below the GUI.drawHeader band, above the button hints.
+  screen.setContentMargin(fui::Insets{static_cast<int16_t>(metrics.topPadding + metrics.headerHeight), 0,
+                                      static_cast<int16_t>(metrics.buttonHintsHeight), 0});
+
+  // Category tabs. The selected pill dims to a dither when the selection is
+  // down in the list (the legacy focused/unfocused tab distinction).
+  fui::TabItem tabs[categoryCount];
+  for (int i = 0; i < categoryCount; i++) {
+    tabs[i].label = I18N.get(categoryNames[i]);
+    tabs[i].value = static_cast<int16_t>(i);
+    tabs[i].selected = selectedCategoryIndex == i;
+  }
+  fui::TabBarProps tabProps;
+  tabProps.tabs = tabs;
+  tabProps.count = categoryCount;
+  tabProps.action = ACTION_TAB;
+  tabProps.inputMask = fui::InputTouch;
+  // Small text: four category labels share the band, the body font truncates.
+  tabProps.text = screen.theme().smallText;
+  // Pill wraps the label with real padding; the band grows with the scaled
+  // font when the theme's tabBarHeight is too short for it.
+  tabProps.tabInset = fui::Insets{2, 4, 4, 4};
+  tabProps.contentInset = fui::Insets{2, 10, 2, 10};
+  const int16_t tabLineHeight = screen.target().lineHeight(screen.theme().smallText.font);
+  const int16_t tabBand =
+      static_cast<int16_t>(metrics.tabBarHeight > tabLineHeight + 10 ? metrics.tabBarHeight : tabLineHeight + 10);
+  // Legacy Lyra two-state treatment: with the selection on the tab band, the
+  // band fills gray and the active tab is a solid pill; with the selection
+  // down in the list, the band is plain and the active tab keeps a gray box
+  // with an underline. The 1px rule under the band is always there.
+  const bool tabsFocused = selectedSettingIndex == 0;
+  tabProps.divider = true;
+  fui::StyleSet tabStyles;
+  tabStyles.explicitlySet = true;
+  tabStyles.normal.foreground = fui::Paint::solid(fui::Color::Black);
+  if (tabsFocused) {
+    tabStyles.selected.background = fui::Paint::solid(fui::Color::Black);
+    tabStyles.selected.foreground = fui::Paint::solid(fui::Color::White);
+    tabStyles.selected.radius = screen.theme().listRowRadius;
+  } else {
+    tabStyles.selected.background = fui::Paint::dither(fui::Color::LightGray);
+    tabStyles.selected.foreground = fui::Paint::solid(fui::Color::Black);
+    tabProps.selectedUnderline = 2;
+  }
+  // Focus/flash states keep the pill instead of falling back to an unset
+  // (blank) style.
+  tabStyles.focused = tabStyles.selected;
+  tabStyles.active = tabStyles.selected;
+  tabProps.tabStyles = tabStyles;
+  const fui::Rect tabRect = screen.takeTop(tabBand);
+  if (tabsFocused) {
+    screen.target().fill(tabRect, fui::Paint::dither(fui::Color::LightGray));
+  }
+  fui::tabBar(screen.frame(), tabRect, tabProps);
+  screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
+
+  // Settings rows. Values are built per render and owned for the draw only.
+  const auto& settings = *currentSettings;
+  std::vector<std::string> values(settings.size());
+  std::vector<fui::ListItem> items;
+  items.reserve(settings.size());
+  for (size_t i = 0; i < settings.size(); i++) {
+    values[i] = settingValueText(settings[i]);
+    fui::ListItem item;
+    item.label = I18N.get(settings[i].nameId);
+    if (!values[i].empty()) item.value = values[i].c_str();
+    item.actionValue = static_cast<int16_t>(i);
+    items.push_back(item);
+  }
+
+  fui::ListProps props;
+  props.items = items.data();
+  props.count = static_cast<uint16_t>(items.size());
+  props.selectedIndex = static_cast<int16_t>(selectedSettingIndex - 1);  // -1 = tab band focused
+  props.action = ACTION_ROW;
+  props.inputMask = fui::InputTouch;  // physical buttons stay in loop()
+  props.valueInset = 8;               // air between the value and the row edge
+  const auto rows = fui::listVisibleRows(screen.body(), screen.theme().rowHeight, screen.theme().listRowGap);
+  visibleRows = rows > 0 ? rows : 1;
+  topIndex = scrollListBy(topIndex, 0, visibleRows, settingsCount);  // clamp to range
+  props.topIndex = static_cast<uint16_t>(topIndex);
+  screen.list(props);
+}
+
 void SettingsActivity::render(RenderLock&&) {
   if (optionPopup.processRender(renderer, mappedInput)) return;
 
   renderer.clearScreen();
 
   const auto pageWidth = renderer.getScreenWidth();
-  const auto pageHeight = renderer.getScreenHeight();
-
   const auto& metrics = UITheme::getInstance().getMetrics();
 
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_SETTINGS_TITLE));
+  // Header via GUI.drawHeader (already FreeInkUI-themed) for the battery
+  // indicator; the rest of the screen renders through the app.
+  // Version rides in the header's trailing label slot: the footer position
+  // conflicts with button hints on non-touch devices.
+  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_SETTINGS_TITLE),
+                 CROSSPOINT_VERSION);
 
-  // Version line at the bottom right, above the button hints — footer
-  // content, not header content (becomes part of the screen when this
-  // activity migrates to FreeInkApp).
-  {
-    const int versionWidth = renderer.getTextWidth(SMALL_FONT_ID, CROSSPOINT_VERSION);
-    const int versionY = pageHeight - metrics.buttonHintsHeight - renderer.getLineHeight(SMALL_FONT_ID) - 4;
-    renderer.drawText(SMALL_FONT_ID, pageWidth - metrics.contentSidePadding - versionWidth, versionY,
-                      CROSSPOINT_VERSION, true);
-  }
+  uiReady = false;
+  app.render();
+  uiReady = true;
 
-  std::vector<TabInfo> tabs;
-  tabs.reserve(categoryCount);
-  for (int i = 0; i < categoryCount; i++) {
-    tabs.push_back({I18N.get(categoryNames[i]), selectedCategoryIndex == i});
-  }
-  GUI.drawTabBar(renderer, Rect{0, metrics.topPadding + metrics.headerHeight, pageWidth, metrics.tabBarHeight}, tabs,
-                 selectedSettingIndex == 0);
-
-  const auto& settings = *currentSettings;
-  GUI.drawList(
-      renderer,
-      Rect{0, metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing, pageWidth,
-           pageHeight - (metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight + metrics.buttonHintsHeight +
-                         metrics.verticalSpacing * 2)},
-      settingsCount, selectedSettingIndex - 1,
-      [&settings](int index) { return std::string(I18N.get(settings[index].nameId)); }, nullptr, nullptr,
-      [&settings](int i) {
-        const auto& setting = settings[i];
-        std::string valueText = "";
-        if (setting.type == SettingType::TOGGLE && setting.valuePtr != nullptr) {
-          const bool value = SETTINGS.*(setting.valuePtr);
-          valueText = value ? tr(STR_STATE_ON) : tr(STR_STATE_OFF);
-        } else if (setting.type == SettingType::ENUM && setting.valuePtr != nullptr) {
-          const uint8_t value = SETTINGS.*(setting.valuePtr);
-          valueText = I18N.get(setting.enumValues[value]);
-        } else if (setting.type == SettingType::ENUM && setting.valueGetter) {
-          const uint8_t value = setting.valueGetter();
-          if (!setting.enumStringValues.empty() && value < setting.enumStringValues.size()) {
-            valueText = setting.enumStringValues[value];
-          } else if (value < setting.enumValues.size()) {
-            valueText = I18N.get(setting.enumValues[value]);
-          }
-        } else if (setting.type == SettingType::VALUE && setting.valuePtr != nullptr) {
-          if (setting.nameId == StrId::STR_TIME_TO_SLEEP) {
-            char valueBuffer[32];
-            if (SETTINGS.sleepTimeoutMinutes >= CrossPointSettings::SLEEP_TIMEOUT_NEVER_MINUTES) {
-              valueText = tr(STR_SLEEP_NEVER);
-            } else {
-              snprintf(valueBuffer, sizeof(valueBuffer), tr(STR_SLEEP_TIMER_VALUE_FORMAT),
-                       static_cast<unsigned int>(SETTINGS.*(setting.valuePtr)));
-              valueText = valueBuffer;
-            }
-          } else {
-            valueText = std::to_string(SETTINGS.*(setting.valuePtr));
-          }
-        }
-        return valueText;
-      },
-      true);
-
-  // Draw help text
   const auto confirmLabel =
       (selectedSettingIndex == 0)
           ? I18N.get(categoryNames[(selectedCategoryIndex + 1) % categoryCount])

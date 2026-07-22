@@ -28,6 +28,7 @@ constexpr ThemeMetrics values = {.batteryWidth = 15,
                                  .headerUnderlineSize = 0,
                                  .headerTitleAlign = 0,  // left
                                  .headerBatterySide = 0,
+                                 .headerBatteryDetached = false,
                                  .menuRowHeight = 42,
                                  .menuSpacing = 6,
                                  .tabSpacing = 10,

@@ -1,8 +1,11 @@
 #pragma once
 #include <FreeInkUIGfxRenderer.h>
+#include <FreeInkUIIcon.h>
 
 #include "MappedInputManager.h"
 #include "components/UIScale.h"
+#include "components/UITheme.h"
+#include "components/icons/listIcons.h"
 
 // Shared glue for activities hosting a FreeInkApp: the font-bound render
 // target and the touch snapshot FreeInkApp routing consumes.
@@ -14,9 +17,7 @@ inline freeink::ui::GfxRendererTarget makeUiTarget(const GfxRenderer& renderer) 
   const auto spec = uiScaleSpec();
   target.setFont(freeink::ui::GfxRendererTarget::FONT_SMALL, spec.smallFontId);
   target.setFont(freeink::ui::GfxRendererTarget::FONT_BODY, spec.bodyFontId);
-  // Title scales with the body font so headers stay consistent across the
-  // app-rendered and GUI.drawHeader screens.
-  target.setFont(freeink::ui::GfxRendererTarget::FONT_TITLE, spec.bodyFontId);
+  target.setFont(freeink::ui::GfxRendererTarget::FONT_TITLE, spec.titleFontId);
   return target;
 }
 
@@ -24,6 +25,54 @@ inline freeink::ui::GfxRendererTarget makeUiTarget(const GfxRenderer& renderer) 
 // reports (swipe end, drag-off) delivered off-target: nothing dispatches,
 // but routing drops its pressed-element state instead of ghosting it onto
 // the next render.
+// Firmware UIIcon -> FreeInkUI bitmap for list rows (SDK-format icons only;
+// the legacy drawIcon assets use a different bit layout). Two crisp sizes:
+// 24 for single-line rows, 32 for label+subtitle rows.
+inline freeink::ui::BitmapRef listIconFor(const UIIcon icon, const int size = 24) {
+  if (size >= 32) {
+    switch (icon) {
+      case UIIcon::Folder:
+        return freeink::ui::bitmapFromIcon(icon_folder_32);
+      case UIIcon::Text:
+        return freeink::ui::bitmapFromIcon(icon_file_text_32);
+      case UIIcon::Image:
+        return freeink::ui::bitmapFromIcon(icon_image_32);
+      case UIIcon::Book:
+        return freeink::ui::bitmapFromIcon(icon_book_32);
+      case UIIcon::File:
+        return freeink::ui::bitmapFromIcon(icon_file_32);
+      case UIIcon::Wifi:
+        return freeink::ui::bitmapFromIcon(icon_wifi_32);
+      case UIIcon::Library:
+        return freeink::ui::bitmapFromIcon(icon_library_32);
+      case UIIcon::Hotspot:
+        return freeink::ui::bitmapFromIcon(icon_radio_tower_32);
+      default:
+        return {};
+    }
+  }
+  switch (icon) {
+    case UIIcon::Folder:
+      return freeink::ui::bitmapFromIcon(icon_folder_24);
+    case UIIcon::Text:
+      return freeink::ui::bitmapFromIcon(icon_file_text_24);
+    case UIIcon::Image:
+      return freeink::ui::bitmapFromIcon(icon_image_24);
+    case UIIcon::Book:
+      return freeink::ui::bitmapFromIcon(icon_book_24);
+    case UIIcon::File:
+      return freeink::ui::bitmapFromIcon(icon_file_24);
+    case UIIcon::Wifi:
+      return freeink::ui::bitmapFromIcon(icon_wifi_24);
+    case UIIcon::Library:
+      return freeink::ui::bitmapFromIcon(icon_library_24);
+    case UIIcon::Hotspot:
+      return freeink::ui::bitmapFromIcon(icon_radio_tower_24);
+    default:
+      return {};
+  }
+}
+
 // Scroll semantics shared by every FreeInkUI list screen: swipes move the
 // viewport (topIndex) without touching the selection; button navigation moves
 // the selection and pulls the viewport along just enough to keep it visible.

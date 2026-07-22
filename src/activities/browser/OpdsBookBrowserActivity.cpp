@@ -238,7 +238,7 @@ void OpdsBookBrowserActivity::screenHeader(UiApp::ScreenType& screen, const bool
     header.trailingAction = ACTION_SEARCH;
     // Optically align the icon with the title glyphs: text hangs low in its
     // line cell by the font's internal leading; drop the button to match.
-    const int titleFontId = uiScaleSpec().bodyFontId;
+    const int titleFontId = uiScaleSpec().titleFontId;
     header.actionOffsetY =
         static_cast<int16_t>((renderer.getLineHeight(titleFontId) - renderer.getTextHeight(titleFontId)) / 2);
   }

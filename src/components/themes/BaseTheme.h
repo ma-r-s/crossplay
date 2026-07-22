@@ -55,6 +55,10 @@ struct ThemeMetrics {
   int headerUnderlineSize;  // bottom rule thickness (Lyra), 0 = none
   int headerTitleAlign;     // 0 = left, 1 = center, 2 = right (fui::TextAlign order)
   int headerBatterySide;    // 0 = right edge, 1 = left edge
+  // Battery in its own corner strip (batteryBarHeight tall) with the title on
+  // the lower sub-band spanning the full width (Lyra), vs sharing the title
+  // line with a width reserve (Classic, RoundedRaff).
+  bool headerBatteryDetached;
   int menuRowHeight;
   int menuSpacing;
 
@@ -147,6 +151,7 @@ constexpr ThemeMetrics values = {.batteryWidth = 15,
                                  .headerUnderlineSize = 0,
                                  .headerTitleAlign = 1,  // centered
                                  .headerBatterySide = 0,
+                                 .headerBatteryDetached = false,
                                  .menuRowHeight = 45,
                                  .menuSpacing = 8,
                                  .tabSpacing = 10,

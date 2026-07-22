@@ -352,8 +352,12 @@ void BaseTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* t
   // centering, underline). Non-interactive frame: no hit rects registered.
   namespace fui = freeink::ui;
   const auto spec = uiScaleSpec();
-  fui::GfxRendererFrame<1> ui(renderer, spec.smallFontId, spec.bodyFontId, spec.bodyFontId);
+  fui::GfxRendererFrame<1> ui(renderer, spec.smallFontId, spec.bodyFontId, spec.titleFontId);
   const fui::ThemeTokens tokens = uiThemeTokens(ui.target);
+  // Header status text (battery percent, right label) stays at the fixed
+  // small font like the legacy headers; the uiScale small font is for list
+  // subtitles.
+  ui.target.setFont(fui::GfxRendererTarget::FONT_SMALL, SMALL_FONT_ID);
   const ThemeMetrics& metrics = UITheme::getInstance().getMetrics();
   const fui::Rect band{static_cast<int16_t>(rect.x), static_cast<int16_t>(rect.y), static_cast<int16_t>(rect.width),
                        static_cast<int16_t>(rect.height)};
@@ -383,11 +387,23 @@ void BaseTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* t
   props.styles = tokens.popup;
   props.sidePadding = tokens.headerSidePadding;
   const bool batteryLeft = metrics.headerBatterySide == 1;
-  const int16_t reserve = static_cast<int16_t>(batteryReserve + tokens.spaceMd);
-  if (batteryLeft) {
-    props.leftReserve = reserve;
+  const bool batteryDetached = metrics.headerBatteryDetached;
+  if (batteryDetached) {
+    // Battery in its own corner strip; the title owns the full width of the
+    // lower sub-band, so long book titles span the header (Lyra layout).
+    // Anchor the title with explicit clearance above the band's bottom rule
+    // instead of naive sub-band centering, which left the glyphs nearly
+    // touching it.
+    const int titleLineHeight = ui.target.lineHeight(fui::GfxRendererTarget::FONT_TITLE);
+    const int titleTop = static_cast<int>(band.height) - tokens.headerUnderline - tokens.spaceMd - titleLineHeight;
+    props.titleOffsetY = static_cast<int16_t>(titleTop - (static_cast<int>(band.height) - titleLineHeight) / 2);
   } else {
-    props.rightReserve = reserve;
+    const int16_t reserve = static_cast<int16_t>(batteryReserve + tokens.spaceMd);
+    if (batteryLeft) {
+      props.leftReserve = reserve;
+    } else {
+      props.rightReserve = reserve;
+    }
   }
   // Underline only under a titled header: an untitled band (Lyra home screen)
   // historically drew no rule, and the old themes keyed the line on the title.
@@ -405,9 +421,13 @@ void BaseTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* t
   battery.glyphWidth = static_cast<int16_t>(metrics.batteryWidth);
   battery.glyphHeight = static_cast<int16_t>(metrics.batteryHeight);
   battery.gap = batteryPercentSpacing;
-  const int16_t batteryX = batteryLeft ? static_cast<int16_t>(band.x + tokens.headerSidePadding)
-                                       : static_cast<int16_t>(band.right() - tokens.headerSidePadding - batteryReserve);
-  fui::batteryIndicator(ui.frame, fui::Rect{batteryX, band.y, batteryReserve, band.height}, battery);
+  // Detached: hug the corner (12px, the legacy inset) within the battery
+  // strip; shared line: sit on the content grid, centered in the band.
+  const int16_t batteryEdgeInset = batteryDetached ? 12 : tokens.headerSidePadding;
+  const int16_t batteryX = batteryLeft ? static_cast<int16_t>(band.x + batteryEdgeInset)
+                                       : static_cast<int16_t>(band.right() - batteryEdgeInset - batteryReserve);
+  const int16_t batteryH = batteryDetached ? static_cast<int16_t>(metrics.batteryBarHeight) : band.height;
+  fui::batteryIndicator(ui.frame, fui::Rect{batteryX, band.y, batteryReserve, batteryH}, battery);
 }
 
 void BaseTheme::drawSubHeader(const GfxRenderer& renderer, Rect rect, const char* label, const char* rightLabel) const {

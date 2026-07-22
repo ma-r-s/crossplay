@@ -1,5 +1,9 @@
 #pragma once
 
+#include <FreeInkApp.h>
+#include <FreeInkUIGfxRenderer.h>
+
+#include <atomic>
 #include <string>
 #include <vector>
 
@@ -86,6 +90,22 @@ class FontDownloadActivity : public Activity {
   int downloadingFamilyIndex_ = 0;
   std::string errorMessage_;
   bool cancelRequested_ = false;
+
+  // FreeInkApp hosts the family list (themed rows, touch routing); the other
+  // states keep their legacy centered-text rendering.
+  using UiApp = freeink::ui::FreeInkApp<20, 4>;
+  freeink::ui::GfxRendererTarget uiTarget_;  // must precede `app_`: the app holds a reference to it
+  UiApp app_;
+  // render() rebuilds the app's interaction table; loop() only routes touch
+  // snapshots against it while this is true (the two run on different tasks).
+  std::atomic<bool> uiReady_{false};
+  int visibleRows_ = 1;  // rows per page at the current scale; set by the screen builder
+  int topIndex_ = 0;     // viewport scroll position, decoupled from the selection
+
+  static void listScreen(UiApp::ScreenType& screen, void* user);
+  static void onRowEvent(const freeink::ui::ActionEvent& event, void* user);
+  void buildListScreen(UiApp::ScreenType& screen);
+  void activateSelected();
 
   void onWifiSelectionComplete(bool success);
   bool fetchAndParseManifest();

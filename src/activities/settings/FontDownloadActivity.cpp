@@ -14,16 +14,44 @@
 #include "activities/network/WifiSelectionActivity.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
+#include "components/UIThemeTokens.h"
+#include "components/UiAppHelpers.h"
 #include "fontIds.h"
 #include "network/HttpDownloader.h"
 
+namespace fui = freeink::ui;
+
+namespace {
+constexpr fui::ActionId ACTION_ROW = 1;
+}  // namespace
+
 FontDownloadActivity::FontDownloadActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
-    : Activity("FontDownload", renderer, mappedInput), fontInstaller_(sdFontSystem.registry()) {}
+    : Activity("FontDownload", renderer, mappedInput),
+      fontInstaller_(sdFontSystem.registry()),
+      uiTarget_(makeUiTarget(renderer)),
+      app_(uiTarget_, uiTarget_.deviceContext()) {}
+
+void FontDownloadActivity::onRowEvent(const fui::ActionEvent& event, void* user) {
+  auto* self = static_cast<FontDownloadActivity*>(user);
+  if (self->state_ != FAMILY_LIST) return;
+  if (event.value < 0 || event.value >= static_cast<int16_t>(self->listItemCount())) return;
+  self->selectedIndex_ = event.value;
+  // Activation starts a download or opens the delete prompt; a lingering
+  // flash would gray an unrelated row.
+  self->app_.clearTapFlash();
+  self->activateSelected();  // ends with requestUpdateAndWait itself
+}
 
 // --- Lifecycle ---
 
 void FontDownloadActivity::onEnter() {
   Activity::onEnter();
+  uiReady_ = false;
+  visibleRows_ = 1;
+  topIndex_ = 0;
+  app_.setTheme(uiThemeTokens(uiTarget_));
+  app_.on(ACTION_ROW, &FontDownloadActivity::onRowEvent, this);
+  app_.setScreen(&FontDownloadActivity::listScreen, this);
   WiFi.mode(WIFI_STA);
   startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
                          [this](const ActivityResult& result) { onWifiSelectionComplete(!result.isCancelled); });
@@ -420,94 +448,148 @@ bool FontDownloadActivity::isSelectedFamilyDeletable() const {
   return family.installed && !family.hasUpdate;
 }
 
+void FontDownloadActivity::activateSelected() {
+  if (families_.empty()) return;
+  if (isDownloadAllRow(selectedIndex_)) {
+    currentFileIndex_ = 0;
+    currentFileTotal_ = 0;
+    for (const auto& f : families_) {
+      if (!f.installed) currentFileTotal_ += f.files.size();
+    }
+    downloadAll();
+  } else if (isUpdateAllRow(selectedIndex_)) {
+    currentFileIndex_ = 0;
+    currentFileTotal_ = 0;
+    for (const auto& f : families_) {
+      if (f.hasUpdate) currentFileTotal_ += f.files.size();
+    }
+    updateAll();
+  } else {
+    auto& family = families_[familyIndexFromList(selectedIndex_)];
+    if (!family.installed || family.hasUpdate) {
+      currentFileIndex_ = 0;
+      currentFileTotal_ = family.files.size();
+      downloadFamily(family);
+    } else {
+      promptDeleteSelectedFamily();
+      return;
+    }
+  }
+  requestUpdateAndWait();
+}
+
+void FontDownloadActivity::listScreen(UiApp::ScreenType& screen, void* user) {
+  static_cast<FontDownloadActivity*>(user)->buildListScreen(screen);
+}
+
+void FontDownloadActivity::buildListScreen(UiApp::ScreenType& screen) {
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  // Content below the GUI.drawHeader band, above the button hints.
+  screen.setContentMargin(fui::Insets{static_cast<int16_t>(metrics.topPadding + metrics.headerHeight), 0,
+                                      static_cast<int16_t>(metrics.buttonHintsHeight), 0});
+  screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
+
+  if (families_.empty()) {
+    screen.centeredText(tr(STR_NO_FONTS_AVAILABLE), screen.theme().bodyText);
+    return;
+  }
+
+  const int listSize = listItemCount();
+  // Per-render owned strings for the composed labels; subtitles/values point
+  // at stable family fields and i18n constants.
+  std::vector<std::string> labels(listSize);
+  std::vector<fui::ListItem> items;
+  items.reserve(listSize);
+  for (int i = 0; i < listSize; i++) {
+    fui::ListItem item;
+    if (isDownloadAllRow(i)) {
+      labels[i] = std::string(tr(STR_DOWNLOAD_ALL)) + " (" + formatSize(totalDownloadSize()) + ")";
+      item.label = labels[i].c_str();
+    } else if (isUpdateAllRow(i)) {
+      labels[i] = std::string(tr(STR_UPDATE_ALL)) + " (" + formatSize(totalUpdateSize()) + ")";
+      item.label = labels[i].c_str();
+    } else {
+      const auto& family = families_[familyIndexFromList(i)];
+      item.label = family.name.c_str();
+      if (!family.description.empty()) item.subtitle = family.description.c_str();
+      if (family.hasUpdate) {
+        item.value = tr(STR_UPDATE_AVAILABLE);
+      } else if (family.installed) {
+        item.value = tr(STR_INSTALLED);
+        // Dimmed but still tappable (opens the delete prompt): visual-only
+        // disabled state, the row stays enabled for hit registration.
+        item.state = fui::StateDisabled;
+      }
+    }
+    item.actionValue = static_cast<int16_t>(i);
+    items.push_back(item);
+  }
+
+  fui::ListProps props;
+  props.items = items.data();
+  props.count = static_cast<uint16_t>(items.size());
+  props.selectedIndex = static_cast<int16_t>(selectedIndex_);
+  props.action = ACTION_ROW;
+  props.inputMask = fui::InputTouch;  // physical buttons stay in loop()
+  props.valueInset = 8;               // air between the status and the row edge
+  const auto rows = fui::listVisibleRows(screen.body(), screen.theme().rowHeight, screen.theme().listRowGap);
+  visibleRows_ = rows > 0 ? rows : 1;
+  topIndex_ = scrollListBy(topIndex_, 0, visibleRows_, listSize);  // clamp to range
+  props.topIndex = static_cast<uint16_t>(topIndex_);
+  screen.list(props);
+}
+
 // --- Input handling ---
 
 void FontDownloadActivity::loop() {
   if (state_ == FAMILY_LIST) {
-    auto activateSelected = [this] {
-      if (families_.empty()) return;
-      if (isDownloadAllRow(selectedIndex_)) {
-        currentFileIndex_ = 0;
-        currentFileTotal_ = 0;
-        for (const auto& f : families_) {
-          if (!f.installed) currentFileTotal_ += f.files.size();
-        }
-        downloadAll();
-      } else if (isUpdateAllRow(selectedIndex_)) {
-        currentFileIndex_ = 0;
-        currentFileTotal_ = 0;
-        for (const auto& f : families_) {
-          if (f.hasUpdate) currentFileTotal_ += f.files.size();
-        }
-        updateAll();
-      } else {
-        auto& family = families_[familyIndexFromList(selectedIndex_)];
-        if (!family.installed || family.hasUpdate) {
-          currentFileIndex_ = 0;
-          currentFileTotal_ = family.files.size();
-          downloadFamily(family);
-        } else {
-          promptDeleteSelectedFamily();
-          return;
-        }
-      }
-      requestUpdateAndWait();
-    };
-
     if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
       finish();
       return;
     }
 
     const int listSize = listItemCount();
-    const int pageItems = UITheme::getNumberOfItemsPerPage(renderer, true, false, true, false);
+
+    // Touch goes through the FreeInkApp: render() registered the row hit
+    // rects; route the snapshot and let onRowEvent dispatch.
+    if (uiReady_) {
+      const fui::InputSnapshot snap = touchSnapshotFrom(mappedInput);
+      if (snap.touchPressed || snap.touchReleased) {
+        const auto event = app_.route(snap);
+        if (app_.invalidated()) requestUpdate();
+        if (event) return;  // dispatched to onRowEvent
+      }
+    }
 
     if (!families_.empty()) {
-      const auto& metrics = UITheme::getInstance().getMetrics();
-      const int contentTop = metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing;
-      const int contentHeight =
-          renderer.getScreenHeight() - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing;
-      switch (handleListTouch(selectedIndex_, listSize, contentTop, contentHeight, true)) {
-        case ListTouchResult::Activated:
-          activateSelected();
-          return;
-        case ListTouchResult::Consumed:
-          return;
-        case ListTouchResult::None:
-          break;
-      }
-
+      // Swipes scroll the viewport; the selection stays put and button
+      // navigation pulls the view back to it.
       const auto swipe = mappedInput.wasSwipe();
-      if (swipe == MappedInputManager::SwipeDir::Up) {
-        selectedIndex_ = ButtonNavigator::nextPageIndex(selectedIndex_, listSize, pageItems);
-        requestUpdate();
-        return;
-      }
-      if (swipe == MappedInputManager::SwipeDir::Down) {
-        selectedIndex_ = ButtonNavigator::previousPageIndex(selectedIndex_, listSize, pageItems);
-        requestUpdate();
+      if (swipe == MappedInputManager::SwipeDir::Up || swipe == MappedInputManager::SwipeDir::Down) {
+        const int delta = swipe == MappedInputManager::SwipeDir::Up ? visibleRows_ : -visibleRows_;
+        const int next = scrollListBy(topIndex_, delta, visibleRows_, listSize);
+        if (next != topIndex_) {
+          topIndex_ = next;
+          requestUpdate();
+        }
         return;
       }
     }
 
-    buttonNavigator_.onNextRelease([this, listSize] {
-      selectedIndex_ = ButtonNavigator::nextIndex(selectedIndex_, listSize);
+    const auto moveSelection = [this, listSize](const int index) {
+      selectedIndex_ = index;
+      topIndex_ = followListSelection(selectedIndex_, topIndex_, visibleRows_, listSize);
       requestUpdate();
+    };
+    buttonNavigator_.onNextRelease(
+        [this, listSize, &moveSelection] { moveSelection(ButtonNavigator::nextIndex(selectedIndex_, listSize)); });
+    buttonNavigator_.onPreviousRelease(
+        [this, listSize, &moveSelection] { moveSelection(ButtonNavigator::previousIndex(selectedIndex_, listSize)); });
+    buttonNavigator_.onNextContinuous([this, listSize, &moveSelection] {
+      moveSelection(ButtonNavigator::nextPageIndex(selectedIndex_, listSize, visibleRows_));
     });
-
-    buttonNavigator_.onPreviousRelease([this, listSize] {
-      selectedIndex_ = ButtonNavigator::previousIndex(selectedIndex_, listSize);
-      requestUpdate();
-    });
-
-    buttonNavigator_.onNextContinuous([this, listSize, pageItems] {
-      selectedIndex_ = ButtonNavigator::nextPageIndex(selectedIndex_, listSize, pageItems);
-      requestUpdate();
-    });
-
-    buttonNavigator_.onPreviousContinuous([this, listSize, pageItems] {
-      selectedIndex_ = ButtonNavigator::previousPageIndex(selectedIndex_, listSize, pageItems);
-      requestUpdate();
+    buttonNavigator_.onPreviousContinuous([this, listSize, &moveSelection] {
+      moveSelection(ButtonNavigator::previousPageIndex(selectedIndex_, listSize, visibleRows_));
     });
 
     if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
@@ -593,50 +675,17 @@ void FontDownloadActivity::render(RenderLock&&) {
   if (state_ == LOADING_MANIFEST) {
     renderer.drawCenteredText(UI_10_FONT_ID, centerY, tr(STR_LOADING_FONT_LIST));
   } else if (state_ == FAMILY_LIST) {
-    if (families_.empty()) {
-      renderer.drawCenteredText(UI_10_FONT_ID, centerY, tr(STR_NO_FONTS_AVAILABLE));
-      const auto labels = mappedInput.mapLabels(tr(STR_BACK), "", "", "");
-      GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-    } else {
-      GUI.drawList(
-          renderer,
-          Rect{0, contentTop, pageWidth, pageHeight - contentTop - metrics.buttonHintsHeight - metrics.verticalSpacing},
-          listItemCount(), selectedIndex_,
-          [this](int index) -> std::string {
-            if (isDownloadAllRow(index)) {
-              return std::string(tr(STR_DOWNLOAD_ALL)) + " (" + formatSize(totalDownloadSize()) + ")";
-            }
-            if (isUpdateAllRow(index)) {
-              return std::string(tr(STR_UPDATE_ALL)) + " (" + formatSize(totalUpdateSize()) + ")";
-            }
-            return families_[familyIndexFromList(index)].name;
-          },
-          [this](int index) -> std::string {
-            if (isDownloadAllRow(index) || isUpdateAllRow(index)) return "";
-            return families_[familyIndexFromList(index)].description;
-          },
-          nullptr,
-          [this](int index) -> std::string {
-            if (isDownloadAllRow(index) || isUpdateAllRow(index)) return "";
-            const auto& f = families_[familyIndexFromList(index)];
-            if (f.hasUpdate) return tr(STR_UPDATE_AVAILABLE);
-            if (f.installed) return tr(STR_INSTALLED);
-            return "";
-          },
-          true,
-          [this](int index) -> bool {
-            if (isDownloadAllRow(index) || isUpdateAllRow(index)) return false;
-            const auto& f = families_[familyIndexFromList(index)];
-            return f.installed && !f.hasUpdate;
-          });
+    uiReady_ = false;
+    app_.render();
+    uiReady_ = true;
 
-      const auto labels = mappedInput.mapLabels(tr(STR_BACK),
-                                                isSelectedFamilyDeletable()      ? tr(STR_DELETE)
-                                                : isUpdateAllRow(selectedIndex_) ? tr(STR_UPDATE)
-                                                                                 : tr(STR_DOWNLOAD),
-                                                tr(STR_DIR_UP), tr(STR_DIR_DOWN));
-      GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-    }
+    const char* confirmLabel = families_.empty()                ? ""
+                               : isSelectedFamilyDeletable()    ? tr(STR_DELETE)
+                               : isUpdateAllRow(selectedIndex_) ? tr(STR_UPDATE)
+                                                                : tr(STR_DOWNLOAD);
+    const auto labels = mappedInput.mapLabels(tr(STR_BACK), confirmLabel, families_.empty() ? "" : tr(STR_DIR_UP),
+                                              families_.empty() ? "" : tr(STR_DIR_DOWN));
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   } else if (state_ == DOWNLOADING) {
     const auto& family = families_[downloadingFamilyIndex_];
 

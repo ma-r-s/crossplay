@@ -1,5 +1,9 @@
 #pragma once
 
+#include <FreeInkApp.h>
+#include <FreeInkUIGfxRenderer.h>
+
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -94,7 +98,22 @@ class WifiSelectionActivity final : public Activity {
   static constexpr unsigned long AUTO_CONNECTION_TIMEOUT_MS = 7000;
   unsigned long connectionStartTime = 0;
 
-  void renderNetworkList(const Rect* screen, const ThemeMetrics* metrics) const;
+  // FreeInkApp hosts the network list (themed rows, touch routing); every
+  // other state keeps its legacy centered-text rendering.
+  using UiApp = freeink::ui::FreeInkApp<20, 4>;
+  freeink::ui::GfxRendererTarget uiTarget;  // must precede `app`: the app holds a reference to it
+  UiApp app;
+  // render() rebuilds the app's interaction table; loop() only routes touch
+  // snapshots against it while this is true (the two run on different tasks).
+  std::atomic<bool> uiReady{false};
+  int visibleRows = 1;  // rows per page at the current scale; set by the screen builder
+  int topIndex = 0;     // viewport scroll position, decoupled from the selection
+
+  static void listScreen(UiApp::ScreenType& screen, void* user);
+  static void onRowEvent(const freeink::ui::ActionEvent& event, void* user);
+  void buildListScreen(UiApp::ScreenType& screen);
+
+  void renderNetworkList(const Rect* screen, const ThemeMetrics* metrics);
   void renderPasswordEntry(const Rect* screen, const ThemeMetrics* metrics) const;
   void renderConnecting(const Rect* screen, const ThemeMetrics* metrics) const;
   void renderConnected(const Rect* screen, const ThemeMetrics* metrics) const;
@@ -120,8 +139,7 @@ class WifiSelectionActivity final : public Activity {
   void onComplete(bool connected);
 
  public:
-  explicit WifiSelectionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, bool autoConnect = true)
-      : Activity("WifiSelection", renderer, mappedInput), allowAutoConnect(autoConnect) {}
+  explicit WifiSelectionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, bool autoConnect = true);
   void onEnter() override;
   void onExit() override;
   void loop() override;
