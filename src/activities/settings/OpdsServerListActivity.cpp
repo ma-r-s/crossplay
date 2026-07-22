@@ -94,6 +94,8 @@ void OpdsServerListActivity::onEnter() {
 void OpdsServerListActivity::onExit() { Activity::onExit(); }
 
 void OpdsServerListActivity::loop() {
+  if (optionPopup.handleInput(mappedInput, [this] { requestUpdate(); })) return;
+
   auto activateSelected = [this] { handleSelection(); };
 
   if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
@@ -181,11 +183,15 @@ void OpdsServerListActivity::handleSelection() {
     return;
   }
 
-  // "Filename format": tap cycles through the available formats.
+  // "Filename format": picker like every other multi-option setting.
   if (selectedIndex == serverCount + 2) {
-    SETTINGS.opdsFilenameFormat =
-        static_cast<uint8_t>((SETTINGS.opdsFilenameFormat + 1) % static_cast<uint8_t>(OpdsFilenameFormat::Count));
-    SETTINGS.saveToFile();
+    static const StrId formatLabels[] = {StrId::STR_FMT_AUTHOR_TITLE, StrId::STR_FMT_TITLE_AUTHOR,
+                                         StrId::STR_FMT_TITLE};
+    optionPopup.show(StrId::STR_OPDS_FILENAME_FORMAT, formatLabels, static_cast<int>(OpdsFilenameFormat::Count),
+                     SETTINGS.opdsFilenameFormat, [this](int idx) {
+                       SETTINGS.opdsFilenameFormat = static_cast<uint8_t>(idx);
+                       SETTINGS.saveToFile();
+                     });
     requestUpdate();
     return;
   }
@@ -268,6 +274,8 @@ void OpdsServerListActivity::buildListScreen(UiApp::ScreenType& screen) {
 }
 
 void OpdsServerListActivity::render(RenderLock&&) {
+  if (optionPopup.processRender(renderer, mappedInput)) return;
+
   renderer.clearScreen();
 
   const auto& metrics = UITheme::getInstance().getMetrics();

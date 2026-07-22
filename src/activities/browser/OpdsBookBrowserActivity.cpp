@@ -170,9 +170,11 @@ void OpdsBookBrowserActivity::loop() {
     if (uiReady) {
       const fui::InputSnapshot snap = touchSnapshotFrom(mappedInput);
       if (snap.touchPressed || snap.touchReleased) {
-        const bool activeBefore = app.touchActive();
         const auto event = app.route(snap);
-        if (app.invalidated() || app.touchActive() != activeBefore) requestUpdate();
+        // No pressed-state repaint: the render it triggers would drop a slow
+        // tap's release inside the uiReady window (tap-to-activate needed two
+        // taps), and it costs a second e-ink refresh per tap.
+        if (app.invalidated()) requestUpdate();
         if (event) return;  // dispatched to onRowEvent/onSearchEvent
         if (state != BrowserState::BROWSING) return;
       }

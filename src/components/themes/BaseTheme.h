@@ -147,7 +147,7 @@ constexpr ThemeMetrics values = {.batteryWidth = 15,
                                  .listScrollWidth = 4,
                                  .listScrollSide = 0,
                                  .listTitleBold = false,
-                                 .headerSidePadding = 20,
+                                 .headerSidePadding = 18,
                                  .headerUnderlineSize = 0,
                                  .headerTitleAlign = 1,  // centered
                                  .headerBatterySide = 0,
