@@ -60,9 +60,12 @@ class HalGPIO {
   unsigned long getPowerButtonHeldTime() const;
   bool hasTouch() const;
   // Capacitive home key under the bezel, reported by the touch controller
-  // (e.g. X4 Pro's GT911 key). Press edge, one event per press.
+  // (e.g. X4 Pro's GT911 key). Tap = short press (fires on release, the primary
+  // "home" action); LongPress = held ~700ms (a hold shortcut, e.g. reader menu).
   bool hasHomeKey() const;
   bool wasHomeKeyPressed() const;
+  bool wasHomeKeyTapped() const;
+  bool wasHomeKeyLongPressed() const;
   bool wasTouchTap(float& nx, float& ny) const;
   bool wasTouchDown(float& nx, float& ny) const;
   // Raw release edge, reported even when the contact was not a tap (swipe end,

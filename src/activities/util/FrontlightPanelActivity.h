@@ -9,9 +9,11 @@
 #include "util/ButtonNavigator.h"
 
 // Frontlight quick panel (boards with a frontlight + home key, e.g. X4 Pro).
-// Opened globally by the top-edge down-swipe: brightness and warmth sliders
-// driving the light live, plus an on/off toggle with a sun icon. State is
-// persisted once on exit (SPIFFS write throttling), not per slider tick.
+// Opened globally by the top-edge down-swipe: a top-anchored drop-down (only the
+// upper third of the screen) with brightness and warmth sliders driving the
+// light live, plus an on/off toggle with a sun icon. It renders as an overlay —
+// the content underneath stays on screen below the panel, and a tap there
+// dismisses it. State is persisted once on exit (SPIFFS write throttling).
 class FrontlightPanelActivity final : public Activity {
   using UiApp = freeink::ui::FreeInkApp<8, 4>;
 
@@ -27,12 +29,19 @@ class FrontlightPanelActivity final : public Activity {
   // Swallow the swipe/tap fallout of a slider drag so its release can't
   // trigger the back gesture and close the panel mid-adjustment.
   bool draggingSlider = false;
+  // Bottom edge of the drop-down (px). Content lays out above it; a tap at or
+  // below it dismisses the panel. Set by render() before the app lays out.
+  int panelBottom = 0;
 
   static void panelScreen(UiApp::ScreenType& screen, void* user);
   static void onBrightnessEvent(const freeink::ui::ActionEvent& event, void* user);
   static void onWarmthEvent(const freeink::ui::ActionEvent& event, void* user);
   static void onToggleEvent(const freeink::ui::ActionEvent& event, void* user);
   void buildPanelScreen(UiApp::ScreenType& screen);
+  // Height of the drop-down, derived from the content it holds (header +
+  // sliders + toggle). Same layout math as buildPanelScreen so the frame,
+  // content margin, and dismiss threshold all agree.
+  int computePanelBottom() const;
   void adjustBrightness(int delta);
   void toggleLight();
   void close();

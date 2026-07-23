@@ -23,6 +23,9 @@ class MappedInputManager {
   bool wasReleased(Button button) const;
   bool isPressed(Button button) const;
   bool hasTouch() const;
+  // True on boards with a capacitive home key (X4 Pro), where the bottom-edge
+  // up-swipe is the reader-menu gesture rather than the exit-to-home gesture.
+  bool hasHomeKey() const { return gpio.hasHomeKey(); }
   bool wasScreenTapped(int& x, int& y) const;
   bool wasScreenTouchDown(int& x, int& y) const;
   bool isScreenTouchHeld(int& x, int& y) const;
@@ -59,6 +62,9 @@ class MappedInputManager {
   // Frontlight quick panel: top-edge down-swipe, only on home-key boards where
   // that edge is no longer the menu gesture.
   bool wasLightPanelGesture() const;
+  // Reader-menu shortcut: a long press of the capacitive home key (home-key
+  // boards only). A short tap goes home; the hold opens the reader menu.
+  bool wasReaderMenuHold() const;
   bool wasAnyPressed() const;
   bool wasAnyReleased() const;
   unsigned long getHeldTime() const;

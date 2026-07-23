@@ -13,3 +13,4 @@ wifi = wifi
 library = library
 radio-tower = radio-tower
 sun = sun
+sun-dim = sun-dim

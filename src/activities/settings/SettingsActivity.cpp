@@ -62,6 +62,11 @@ void SettingsActivity::rebuildSettingsLists() {
   for (auto& setting : getSettingsList(&sdFontSystem.registry(), &dictionaries)) {
     if (setting.category == StrId::STR_NONE_OPT) continue;
     if (setting.category == StrId::STR_CAT_DISPLAY) {
+      // The sunlight fading fix is a grayscale-waveform compensation that does
+      // not apply on the X4 Pro (plain OTP waveform, no custom grayscale LUT).
+      if (setting.valuePtr == &CrossPointSettings::fadingFix && BoardConfig::isX4Pro()) {
+        continue;
+      }
       displaySettings.push_back(setting);
     } else if (setting.category == StrId::STR_CAT_READER) {
       readerSettings.push_back(setting);

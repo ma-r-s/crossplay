@@ -1,4 +1,5 @@
 #pragma once
+#include <BoardConfig.h>
 #include <FreeInkUIGfxRenderer.h>
 
 #include "UITheme.h"
@@ -20,6 +21,9 @@ inline freeink::ui::ThemeTokens uiThemeTokens(const freeink::ui::GfxRendererTarg
   tokens.listSelectionStyle = static_cast<fui::SelectionStyle>(metrics.listSelectionStyle);
   tokens.listScrollWidth = static_cast<int16_t>(metrics.listScrollWidth);
   tokens.listScrollSide = static_cast<uint8_t>(metrics.listScrollSide);
+  // The X4 Pro panel sits recessed behind the bezel, so an edge-hugging scroll
+  // indicator disappears under it. Push it inward far enough to clear the bezel.
+  tokens.listScrollInset = BoardConfig::isX4Pro() ? 7 : 0;
   tokens.headerSidePadding = static_cast<int16_t>(metrics.headerSidePadding);
   tokens.headerUnderline = static_cast<uint8_t>(metrics.headerUnderlineSize);
   tokens.headerTitleAlign = static_cast<fui::TextAlign>(metrics.headerTitleAlign);

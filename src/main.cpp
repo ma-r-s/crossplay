@@ -319,8 +319,12 @@ void setup() {
   OPDS_STORE.loadFromFile();
   UITheme::getInstance().reload();
   ButtonNavigator::setMappedInputManager(mappedInputManager);
-  // Frontlight PWM up + persisted state applied (no-op on boards without one).
-  Frontlight.begin(SETTINGS.frontlightBrightness, SETTINGS.frontlightWarmth, SETTINGS.frontlightOn != 0);
+  // Frontlight PWM up (no-op on boards without one). Brightness + warmth are always
+  // restored from persisted settings. The on/off state defaults to OFF at wake/boot —
+  // so the user isn't greeted by a surprise glow (or a silent battery drain) — unless
+  // "Restore Light on Wake" is enabled, which brings back the pre-sleep on/off state too.
+  const bool restoreLightOn = SETTINGS.frontlightRestoreOnWake != 0 && SETTINGS.frontlightOn != 0;
+  Frontlight.begin(SETTINGS.frontlightBrightness, SETTINGS.frontlightWarmth, restoreLightOn);
 
   const auto wakeupReason = gpio.getWakeupReason();
   switch (wakeupReason) {

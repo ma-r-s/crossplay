@@ -277,6 +277,10 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t frontlightBrightness = 60;
   uint8_t frontlightWarmth = 50;  // 0 = cool .. 100 = warm
   uint8_t frontlightOn = 0;
+  // When 0 (default), the frontlight always comes up OFF after a wake/boot (brightness
+  // and warmth are still remembered for when it's switched on). When 1, the on/off
+  // state from before sleep is restored too. Shown in Display settings on frontlight boards.
+  uint8_t frontlightRestoreOnWake = 0;
   // Language setting (Language enum index, default 0 = EN)
   uint8_t language = 0;
   // Quick Resume: keep current content visible with moon icon instead of showing a static sleep screen.

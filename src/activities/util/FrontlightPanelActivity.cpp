@@ -123,6 +123,13 @@ void FrontlightPanelActivity::loop() {
         if (event.dragPermille >= 0) draggingSlider = true;
         return;
       }
+      // No control took it. A tap released at/below the panel edge (in the
+      // preserved content underneath) dismisses — the drop-down behaves like a
+      // modal scrim. A drag-off release carries y = -1, so it never dismisses.
+      if (snap.touchReleased && !draggingSlider && snap.touchY >= panelBottom) {
+        close();
+        return;
+      }
     }
     if (draggingSlider) {
       // Drag ended (possibly off the slider): swallow the release's swipe so
@@ -147,6 +154,23 @@ void FrontlightPanelActivity::loop() {
                                        [this] { adjustBrightness(BRIGHTNESS_STEP); });
 }
 
+int FrontlightPanelActivity::computePanelBottom() const {
+  // Mirror buildPanelScreen's takeTop/spacer sequence so the frame, content
+  // margin, and dismiss threshold land on the same edge.
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const auto tokens = uiThemeTokens(uiTarget);
+  const int16_t lh = uiTarget.lineHeight(tokens.bodyText.font);
+  int y = metrics.topPadding + metrics.headerHeight;
+  y += tokens.spaceLg;                     // leading spacer
+  y += tokens.rowHeight + tokens.spaceSm;  // brightness label + sun toggle row
+  y += tokens.rowHeight + tokens.spaceLg;  // brightness slider
+  if (Frontlight.hasColorTemperature()) {
+    y += lh + tokens.spaceSm + tokens.rowHeight + tokens.spaceLg;  // warmth label + slider
+  }
+  y += tokens.spaceLg;  // trailing padding
+  return y;
+}
+
 void FrontlightPanelActivity::panelScreen(UiApp::ScreenType& screen, void* user) {
   static_cast<FrontlightPanelActivity*>(user)->buildPanelScreen(screen);
 }
@@ -154,17 +178,41 @@ void FrontlightPanelActivity::panelScreen(UiApp::ScreenType& screen, void* user)
 void FrontlightPanelActivity::buildPanelScreen(UiApp::ScreenType& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto& theme = screen.theme();
-  screen.setContentMargin(fui::Insets{static_cast<int16_t>(metrics.topPadding + metrics.headerHeight), 0,
-                                      static_cast<int16_t>(metrics.buttonHintsHeight), 0});
+  // Body spans from below the header down to the drop-down's bottom edge, so
+  // the app never lays out over the preserved content underneath.
+  const int16_t bottomInset = static_cast<int16_t>(renderer.getScreenHeight() - panelBottom);
+  screen.setContentMargin(
+      fui::Insets{static_cast<int16_t>(metrics.topPadding + metrics.headerHeight), 0, bottomInset, 0});
 
   const int16_t lh = screen.target().lineHeight(theme.bodyText.font);
+  const int16_t rowH = theme.rowHeight;
   const fui::Insets sideInset{0, static_cast<int16_t>(theme.spaceLg * 2), 0, static_cast<int16_t>(theme.spaceLg * 2)};
   char line[48];
 
   screen.spacer(theme.spaceLg);
 
+  // Header row: "Brightness NN%" on the left, a tappable sun icon on the right
+  // that toggles the light — bright `sun` when on, `sun-dim` when off (the icon
+  // itself is the state indicator). Sharing a row with the label frees the
+  // whole bottom toggle row, shrinking the panel.
+  const fui::Rect headerRow = screen.takeTop(rowH, theme.spaceSm).inset(sideInset);
   snprintf(line, sizeof(line), "%s  %u%%", tr(STR_BRIGHTNESS), static_cast<unsigned>(brightness));
-  screen.target().text(screen.takeTop(lh, theme.spaceSm).inset(sideInset), line, theme.bodyText);
+  const fui::BitmapRef sunIcon = fui::bitmapFromIcon(lightOn ? icon_sun_32 : icon_sun_dim_32);
+  const int16_t iconW = static_cast<int16_t>(sunIcon.width);
+  const int16_t iconH = static_cast<int16_t>(sunIcon.height);
+  const fui::Rect iconRect{static_cast<int16_t>(headerRow.x + headerRow.width - iconW),
+                           static_cast<int16_t>(headerRow.y + (rowH - iconH) / 2), iconW, iconH};
+  const fui::Rect labelRect{headerRow.x, static_cast<int16_t>(headerRow.y + (rowH - lh) / 2),
+                            static_cast<int16_t>(headerRow.width - iconW - theme.spaceMd), lh};
+  screen.target().text(labelRect, line, theme.bodyText);
+  // Generous hit target: the full header-row height and a wide band on the right
+  // (well beyond the 32px glyph) so the toggle is easy to hit. Stays within the
+  // header row so it never steals taps from the brightness slider below.
+  const int16_t hitW = static_cast<int16_t>(iconW + theme.spaceLg * 4);
+  const fui::Rect hitRect{static_cast<int16_t>(headerRow.right() - hitW), headerRow.y, hitW, rowH};
+  screen.frame().hit(hitRect, ACTION_TOGGLE);
+  screen.target().bitmap(iconRect, sunIcon, fui::BitmapMode::Center);
+
   fui::SliderProps brightnessSlider;
   brightnessSlider.value = brightness;
   brightnessSlider.max = 100;
@@ -184,33 +232,26 @@ void FrontlightPanelActivity::buildPanelScreen(UiApp::ScreenType& screen) {
   }
 
   screen.spacer(theme.spaceLg);
-
-  // On/off toggle: sun icon + explicit state label; the active (inverted)
-  // style doubles as the unambiguous "light is on" indicator.
-  const fui::Rect btnArea = screen.takeTop(theme.rowHeight);
-  const int16_t btnW = static_cast<int16_t>(btnArea.width / 3);
-  fui::ButtonProps toggle;
-  toggle.label = lightOn ? tr(STR_STATE_ON) : tr(STR_STATE_OFF);
-  toggle.icon = fui::bitmapFromIcon(icon_sun_24);
-  toggle.action = ACTION_TOGGLE;
-  toggle.state = lightOn ? fui::StateActive : fui::StateNormal;
-  screen.button(
-      toggle, fui::Rect{static_cast<int16_t>(btnArea.x + (btnArea.width - btnW) / 2), btnArea.y, btnW, btnArea.height});
 }
 
 void FrontlightPanelActivity::render(RenderLock&&) {
-  renderer.clearScreen();
+  // Overlay drop-down: keep the framebuffer content (the reader/menu we opened
+  // over) intact below the panel; only the top third is repainted. No full
+  // clearScreen — same as the theme popups draw over the current frame.
+  panelBottom = computePanelBottom();
+  const int pageWidth = renderer.getScreenWidth();
+  renderer.fillRect(0, 0, pageWidth, panelBottom, false);  // white the panel area only
 
   const auto& metrics = UITheme::getInstance().getMetrics();
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, renderer.getScreenWidth(), metrics.headerHeight},
-                 tr(STR_FRONTLIGHT));
+  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_FRONTLIGHT));
 
   uiReady = false;
   app.render();
   uiReady = true;
 
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), lightOn ? tr(STR_STATE_OFF) : tr(STR_STATE_ON), "-", "+");
-  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+  // Bottom edge of the drop-down: a solid rule separating it from the content
+  // (the scrim) underneath, reinforcing that a tap below dismisses.
+  renderer.fillRect(0, panelBottom - 2, pageWidth, 2, true);
 
   renderer.displayBuffer();
 }

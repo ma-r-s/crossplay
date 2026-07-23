@@ -146,6 +146,26 @@ void EpubReaderMenuActivity::loop() {
     return;
   }
 
+  // On home-key boards (X4 Pro) the bottom-edge up-swipe is the reader-menu
+  // gesture (not exit-to-home). Swiping it again dismisses the menu, mirroring
+  // Back — checked before the generic swipe-scroll so the "handle" gesture
+  // closes rather than scrolls. Other boards reach the menu via a different
+  // edge and already dismiss via the ActivityManager home gesture, so they
+  // keep the scroll behavior here.
+  if (mappedInput.hasHomeKey() && mappedInput.wasMenuGesture()) {
+    closeCancelled();
+    return;
+  }
+
+  // A home-key long press toggles the reader menu: the same hold that opens it
+  // closes it. The SDK fires the long event once per hold, so the opening hold
+  // (still down as the menu appears) does not immediately re-close it — only a
+  // fresh press-and-hold does.
+  if (mappedInput.wasReaderMenuHold()) {
+    closeCancelled();
+    return;
+  }
+
   // Touch goes through the FreeInkApp: render() registered the row hit rects;
   // route the snapshot and let onRowEvent dispatch.
   if (uiReady) {
