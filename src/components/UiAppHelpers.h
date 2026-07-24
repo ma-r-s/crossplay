@@ -10,6 +10,12 @@
 // Shared glue for activities hosting a FreeInkApp: the font-bound render
 // target and the touch snapshot FreeInkApp routing consumes.
 
+// Held duration past which a stationary touch release routes as a long-press
+// (InputSnapshot::longPress). Mirrors the physical-button hold-to-act
+// convention but shorter, since a finger hold has no button travel to absorb.
+// Rows must opt in via InputLongPress to receive it.
+inline constexpr unsigned long UI_TOUCH_LONG_PRESS_MS = 500;
+
 // Bind the uiScale fonts before FreeInkApp's constructor derives its theme
 // metrics from the body font's line height.
 inline freeink::ui::GfxRendererTarget makeUiTarget(const GfxRenderer& renderer) {
@@ -108,8 +114,12 @@ inline freeink::ui::InputSnapshot touchSnapshotFrom(const MappedInputManager& ma
     snap.touchX = static_cast<int16_t>(tx);
     snap.touchY = static_cast<int16_t>(ty);
   }
-  if (mappedInput.wasScreenTapped(tx, ty)) {
+  unsigned long heldMs = 0;
+  if (mappedInput.wasScreenTapped(tx, ty, heldMs)) {
     snap.touchReleased = true;
+    // A stationary press held past the threshold routes as a long-press so
+    // rows masked InputLongPress can offer a hold action (delete / forget).
+    snap.longPress = heldMs >= UI_TOUCH_LONG_PRESS_MS;
     snap.touchX = static_cast<int16_t>(tx);
     snap.touchY = static_cast<int16_t>(ty);
   } else if (mappedInput.wasScreenTouchReleased()) {

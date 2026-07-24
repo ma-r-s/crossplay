@@ -215,10 +215,10 @@ void FileBrowserActivity::onRowEvent(const fui::ActionEvent& event, void* user) 
   // Activation navigates or opens; a lingering flash would gray an unrelated
   // row on the next list.
   self->app.clearTapFlash();
-  self->activateSelected();
+  self->activateSelected(event.longPress);
 }
 
-void FileBrowserActivity::activateSelected() {
+void FileBrowserActivity::activateSelected(const bool forceDelete) {
   if (lockNextConfirmRelease) {
     lockNextConfirmRelease = false;
     return;
@@ -239,7 +239,7 @@ void FileBrowserActivity::activateSelected() {
     return;
   }
 
-  if (mode == Mode::Books && mappedInput.getHeldTime() >= GO_HOME_MS) {
+  if (mode == Mode::Books && (forceDelete || mappedInput.getHeldTime() >= GO_HOME_MS)) {
     // --- LONG PRESS ACTION: DELETE FILE OR DIRECTORY ---
     std::string cleanBasePath = basepath;
     if (cleanBasePath.back() != '/') cleanBasePath += "/";
@@ -481,8 +481,9 @@ void FileBrowserActivity::buildListScreen(UiApp::ScreenType& screen) {
   props.count = static_cast<uint16_t>(items.size());
   props.selectedIndex = static_cast<int16_t>(selectorIndex);
   props.action = ACTION_ROW;
-  props.inputMask = fui::InputTouch;  // physical buttons stay in loop()
-  props.valueInset = 8;               // air between the extension and the row edge
+  // Tap opens/navigates; long-press prompts delete (physical buttons stay in loop()).
+  props.inputMask = fui::InputTouch | fui::InputLongPress;
+  props.valueInset = 8;  // air between the extension and the row edge
   const auto rows = fui::listVisibleRows(screen.body(), screen.theme().rowHeight, screen.theme().listRowGap);
   visibleRows = rows > 0 ? rows : 1;
   topIndex = scrollListBy(topIndex, 0, visibleRows, static_cast<int>(files.size()));  // clamp to range

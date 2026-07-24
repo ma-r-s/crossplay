@@ -35,6 +35,17 @@ void WifiSelectionActivity::onRowEvent(const fui::ActionEvent& event, void* user
   if (self->state != WifiSelectionState::NETWORK_LIST) return;
   if (event.value < 0 || event.value >= static_cast<int16_t>(self->networks.size())) return;
   self->selectedNetworkIndex = static_cast<size_t>(event.value);
+  // Long-press a saved network to forget it (mirrors the Left-button hold in loop()).
+  if (event.longPress) {
+    if (self->networks[self->selectedNetworkIndex].hasSavedPassword) {
+      self->selectedSSID = self->networks[self->selectedNetworkIndex].ssid;
+      self->state = WifiSelectionState::FORGET_PROMPT;
+      self->forgetPromptSelection = 0;  // Default to "Cancel"
+      self->app.clearTapFlash();
+      self->requestUpdate();
+    }
+    return;
+  }
   // Selection leaves this screen (password entry / connecting); a lingering
   // flash would gray an unrelated row.
   self->app.clearTapFlash();
@@ -889,8 +900,9 @@ void WifiSelectionActivity::buildListScreen(UiApp::ScreenType& screen) {
   props.count = static_cast<uint16_t>(items.size());
   props.selectedIndex = static_cast<int16_t>(selectedNetworkIndex);
   props.action = ACTION_ROW;
-  props.inputMask = fui::InputTouch;  // physical buttons stay in loop()
-  props.valueInset = 8;               // air between the signal bars and the row edge
+  // Tap opens; long-press a saved network forgets it (physical buttons stay in loop()).
+  props.inputMask = fui::InputTouch | fui::InputLongPress;
+  props.valueInset = 8;  // air between the signal bars and the row edge
   const auto rows = fui::listVisibleRows(screen.body(), screen.theme().rowHeight, screen.theme().listRowGap);
   visibleRows = rows > 0 ? rows : 1;
   topIndex = scrollListBy(topIndex, 0, visibleRows, static_cast<int>(networks.size()));  // clamp to range

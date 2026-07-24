@@ -103,6 +103,14 @@ bool MappedInputManager::wasScreenTapped(int& x, int& y) const {
   return true;
 }
 
+bool MappedInputManager::wasScreenTapped(int& x, int& y, unsigned long& heldMs) const {
+  if (!wasScreenTapped(x, y)) return false;
+  // wasScreenTapped() just cached this release's hold duration via
+  // rememberTouchHeldTime(); surface it so list routing can flag long-presses.
+  heldMs = touchHeldOverrideMs;
+  return true;
+}
+
 bool MappedInputManager::wasScreenTouchDown(int& x, int& y) const {
   float nx = 0.0f;
   float ny = 0.0f;

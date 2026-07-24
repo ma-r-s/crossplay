@@ -34,6 +34,12 @@ void RecentBooksActivity::onRowEvent(const fui::ActionEvent& event, void* user) 
   auto* self = static_cast<RecentBooksActivity*>(user);
   if (event.value < 0 || event.value >= static_cast<int16_t>(self->recentBooks.size())) return;
   self->selectorIndex = static_cast<size_t>(event.value);
+  // Long-press prompts removal from the list (mirrors the Confirm-button hold in loop()).
+  if (event.longPress) {
+    self->app.clearTapFlash();
+    self->promptRemoveBook(self->recentBooks[self->selectorIndex].path, self->recentBooks[self->selectorIndex].title);
+    return;
+  }
   // Opening the book leaves this screen; a lingering flash would gray an
   // unrelated row when the list next appears.
   self->app.clearTapFlash();
@@ -205,7 +211,8 @@ void RecentBooksActivity::buildListScreen(UiApp::ScreenType& screen) {
   props.count = static_cast<uint16_t>(items.size());
   props.selectedIndex = static_cast<int16_t>(selectorIndex);
   props.action = ACTION_ROW;
-  props.inputMask = fui::InputTouch;  // physical buttons stay in loop()
+  // Tap opens; long-press prompts removal (physical buttons stay in loop()).
+  props.inputMask = fui::InputTouch | fui::InputLongPress;
   const auto rows = fui::listVisibleRows(screen.body(), screen.theme().rowHeight, screen.theme().listRowGap);
   visibleRows = rows > 0 ? rows : 1;
   topIndex = scrollListBy(topIndex, 0, visibleRows, static_cast<int>(recentBooks.size()));  // clamp to range

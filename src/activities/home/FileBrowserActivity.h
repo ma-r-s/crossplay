@@ -53,7 +53,9 @@ class FileBrowserActivity final : public Activity {
   static void listScreen(UiApp::ScreenType& screen, void* user);
   static void onRowEvent(const freeink::ui::ActionEvent& event, void* user);
   void buildListScreen(UiApp::ScreenType& screen);
-  void activateSelected();
+  // forceDelete routes the touch long-press to the delete branch; button
+  // navigation leaves it false and relies on getHeldTime() instead.
+  void activateSelected(bool forceDelete = false);
 
   // Data loading
   void loadFiles();

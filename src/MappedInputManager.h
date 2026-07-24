@@ -27,6 +27,9 @@ class MappedInputManager {
   // up-swipe is the reader-menu gesture rather than the exit-to-home gesture.
   bool hasHomeKey() const { return gpio.hasHomeKey(); }
   bool wasScreenTapped(int& x, int& y) const;
+  // Overload reporting how long the finger was held before release, so callers
+  // can classify a tap vs a long-press from a single release edge.
+  bool wasScreenTapped(int& x, int& y, unsigned long& heldMs) const;
   bool wasScreenTouchDown(int& x, int& y) const;
   bool isScreenTouchHeld(int& x, int& y) const;
   // Raw release edge, also true when the contact ended in a swipe or drag-off
