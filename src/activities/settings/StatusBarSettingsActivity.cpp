@@ -87,7 +87,6 @@ const StrId xtcStatusBarNames[XTC_STATUS_BAR_ITEMS] = {StrId::STR_HIDE, StrId::S
 constexpr int STATUS_BAR_CLOCK_ITEMS = 3;
 const StrId statusBarClockNames[STATUS_BAR_CLOCK_ITEMS] = {StrId::STR_HIDE, StrId::STR_DIR_RIGHT, StrId::STR_DIR_LEFT};
 
-const int verticalPreviewPadding = 50;
 const int verticalPreviewTextPadding = 40;
 }  // namespace
 
@@ -302,12 +301,15 @@ void StatusBarSettingsActivity::listScreen(UiApp::ScreenType& screen, void* user
 
 void StatusBarSettingsActivity::buildListScreen(UiApp::ScreenType& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  // Reserve the bottom band for the live status-bar preview (label + bar), so
-  // the list never runs underneath it, plus the button-hints row below that.
+  // Reserve the bottom band for the live status-bar preview footer (label +
+  // bar) so the list never runs underneath it, plus the button-hints row below.
+  // The preview is pinned directly above the hints (see render()), so the band
+  // is just the bar + its label, not a floating gap.
   const int statusBarHeight = UITheme::getInstance().getStatusBarHeight();
-  const auto previewBlock = static_cast<int16_t>(statusBarHeight + verticalPreviewPadding + verticalPreviewTextPadding);
+  const auto previewFooter =
+      static_cast<int16_t>(statusBarHeight + verticalPreviewTextPadding + metrics.verticalSpacing);
   screen.setContentMargin(fui::Insets{static_cast<int16_t>(metrics.topPadding + metrics.headerHeight), 0,
-                                      static_cast<int16_t>(metrics.buttonHintsHeight + previewBlock), 0});
+                                      static_cast<int16_t>(metrics.buttonHintsHeight + previewFooter), 0});
   screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
 
   // Per-render owned value strings; items point into them for the draw only.
@@ -368,12 +370,13 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
     title = tr(STR_EXAMPLE_CHAPTER);
   }
 
-  GUI.drawStatusBar(renderer, 75, 8, 32, title, verticalPreviewPadding, 0, false);
+  // Anchor the preview as a footer directly above the button hints.
+  GUI.drawStatusBar(renderer, 75, 8, 32, title, metrics.buttonHintsHeight, 0, false);
 
-  renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding,
-                    renderer.getScreenHeight() - UITheme::getInstance().getStatusBarHeight() - verticalPreviewPadding -
-                        verticalPreviewTextPadding,
-                    tr(STR_PREVIEW));
+  renderer.drawCenteredText(UI_10_FONT_ID,
+                            renderer.getScreenHeight() - UITheme::getInstance().getStatusBarHeight() -
+                                metrics.buttonHintsHeight - verticalPreviewTextPadding,
+                            tr(STR_PREVIEW));
 
   renderer.displayBuffer();
 }

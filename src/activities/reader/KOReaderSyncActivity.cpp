@@ -465,22 +465,20 @@ void KOReaderSyncActivity::resultScreen(UiApp::ScreenType& screen, void* user) {
 
 void KOReaderSyncActivity::buildResultScreen(UiApp::ScreenType& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
+  // Side padding is 0 here (like the other FreeInkApp screens): the action list
+  // supplies its own theme side padding, and the raw comparison text is indented
+  // to line up with the list rows below (see labelIndent).
   screen.setContentMargin(fui::Insets{static_cast<int16_t>(metrics.topPadding + metrics.headerHeight), 0,
                                       static_cast<int16_t>(metrics.buttonHintsHeight), 0});
   screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
 
   if (state == SHOWING_RESULT) {
-    // Two rich rows: chapter as the subtitle, page/percent as the value slot.
+    // Chapter names (remote requires the lazily-loaded Epub; local was
+    // pre-computed before the Epub was released).
     const int remoteTocIndex = epub->getTocIndexForSpineIndex(remotePosition.spineIndex);
-    std::string remoteChapter =
+    const std::string remoteChapter =
         (remoteTocIndex >= 0) ? epub->getTocItem(remoteTocIndex).title
                               : (std::string(tr(STR_SECTION_PREFIX)) + std::to_string(remotePosition.spineIndex + 1));
-    if (!remoteProgress.device.empty()) {
-      char deviceStr[64];
-      snprintf(deviceStr, sizeof(deviceStr), tr(STR_DEVICE_FROM_FORMAT), remoteProgress.device.c_str());
-      remoteChapter += "  ";
-      remoteChapter += deviceStr;
-    }
     const std::string localChapter =
         !localChapterName.empty() ? localChapterName
                                   : (std::string(tr(STR_SECTION_PREFIX)) + std::to_string(currentSpineIndex + 1));
@@ -491,25 +489,72 @@ void KOReaderSyncActivity::buildResultScreen(UiApp::ScreenType& screen) {
     char localVal[64];
     snprintf(localVal, sizeof(localVal), tr(STR_PAGE_TOTAL_OVERALL_FORMAT), currentPage + 1, totalPagesInSpine,
              localProgress.percentage * 100);
+    char deviceStr[80];
+    deviceStr[0] = '\0';
+    if (!remoteProgress.device.empty()) {
+      snprintf(deviceStr, sizeof(deviceStr), tr(STR_DEVICE_FROM_FORMAT), remoteProgress.device.c_str());
+    }
 
-    fui::ListItem items[2];
-    items[0].label = tr(STR_APPLY_REMOTE);
-    items[0].subtitle = remoteChapter.c_str();
-    items[0].value = remoteVal;
-    items[0].actionValue = 0;
-    items[1].label = tr(STR_UPLOAD_LOCAL);
-    items[1].subtitle = localChapter.c_str();
-    items[1].value = localVal;
-    items[1].actionValue = 1;
+    // Labeled, multi-line comparison flowing from the top. Indent everything to
+    // the list rows' content-left (the row inset + side padding the list adds
+    // below) so the "Remote"/"Local" labels sit directly above the row icons.
+    auto labelStyle = screen.theme().bodyText;
+    labelStyle.bold = true;
+    auto detailStyle = screen.theme().smallText;
+    const int16_t labelH = screen.target().lineHeight(labelStyle.font);
+    const int16_t detailH = screen.target().lineHeight(detailStyle.font);
+    const int16_t labelIndent = static_cast<int16_t>(screen.theme().listInset + screen.theme().listSidePadding);
+    const int16_t detailIndent = static_cast<int16_t>(labelIndent + screen.theme().spaceMd);
+    const auto textLine = [&](const char* text, const fui::TextStyle& style, int16_t height, int16_t indent,
+                              int16_t gap) {
+      fui::Rect r = screen.takeTop(height, gap);
+      r.x = static_cast<int16_t>(r.x + indent);
+      r.width = static_cast<int16_t>(r.width - indent);
+      screen.target().text(r, text, style);
+    };
+    const auto labelLine = [&](const char* text) {
+      textLine(text, labelStyle, labelH, labelIndent, screen.theme().spaceSm);
+    };
+    const auto detailLine = [&](const char* text) {
+      textLine(text, detailStyle, detailH, detailIndent, screen.theme().spaceXs);
+    };
 
-    fui::ListProps props;
-    props.items = items;
-    props.count = 2;
-    props.selectedIndex = static_cast<int16_t>(selectedOption);
-    props.action = ACTION_ROW;
-    props.inputMask = fui::InputTouch;  // physical buttons stay in loop()
-    props.valueInset = 8;
-    screen.list(props);
+    labelLine(tr(STR_REMOTE_LABEL));
+    detailLine(remoteChapter.c_str());
+    detailLine(remoteVal);
+    if (deviceStr[0] != '\0') detailLine(deviceStr);
+    screen.spacer(screen.theme().spaceLg);
+    labelLine(tr(STR_LOCAL_LABEL));
+    detailLine(localChapter.c_str());
+    detailLine(localVal);
+
+    // Two themed action rows flowing directly below the labels (not anchored to
+    // the bottom). Rendered through the list component so they inherit the
+    // active theme's row radius, insets, and selection style, matching every
+    // other selectable list in the UI. Apply Remote pulls (download), Upload
+    // Local pushes (upload); the selected row highlights for physical-button
+    // users and tap works either way.
+    screen.spacer(screen.theme().spaceMd);
+    fui::ListItem actions[2];
+    actions[0].label = tr(STR_APPLY_REMOTE);
+    actions[0].icon = fui::bitmapFromIcon(icon_download_24);
+    actions[0].actionValue = 0;
+    actions[1].label = tr(STR_UPLOAD_LOCAL);
+    actions[1].icon = fui::bitmapFromIcon(icon_upload_24);
+    actions[1].actionValue = 1;
+    fui::ListProps actionProps;
+    actionProps.items = actions;
+    actionProps.count = 2;
+    actionProps.selectedIndex = static_cast<int16_t>(selectedOption);
+    actionProps.action = ACTION_ROW;
+    actionProps.inputMask = fui::InputTouch;  // physical buttons stay in loop()
+    actionProps.scrollIndicator = false;      // never scrolls; no indicator needed
+    // Keep the theme's row inset + side padding so the selected-row highlight has
+    // the same padding around its icon/label as every other list in the UI; the
+    // labels above are indented to match this content-left.
+    const auto actionsBand =
+        static_cast<int16_t>(screen.theme().rowHeight * 2 + screen.theme().listRowGap + screen.theme().spaceSm);
+    screen.list(actionProps, actionsBand);
     return;
   }
 
@@ -522,17 +567,20 @@ void KOReaderSyncActivity::buildResultScreen(UiApp::ScreenType& screen) {
     screen.target().text(screen.takeTop(lineH, screen.theme().spaceSm), tr(STR_NO_REMOTE_MSG), centeredBold);
     screen.target().text(screen.takeTop(lineH, screen.theme().spaceMd), tr(STR_UPLOAD_PROMPT), centered);
 
-    // Centered upload button below the prompt.
-    fui::ButtonProps btn;
-    btn.label = tr(STR_UPLOAD);
-    btn.action = ACTION_ROW;
-    btn.inputMask = fui::InputTouch;
-    const int16_t btnH = screen.theme().rowHeight;
-    const fui::Rect body = screen.body();
-    const int16_t btnW = static_cast<int16_t>(body.width / 2);
-    const fui::Rect btnRect{static_cast<int16_t>(body.x + (body.width - btnW) / 2),
-                            static_cast<int16_t>(body.y + screen.theme().spaceMd), btnW, btnH};
-    screen.button(btn, btnRect);
+    // Single themed action row anchored to the bottom, matching the lists used
+    // everywhere else (inherits the theme's row radius + selection style).
+    fui::ListItem action;
+    action.label = tr(STR_UPLOAD_LOCAL);
+    action.actionValue = 0;
+    fui::ListProps actionProps;
+    actionProps.items = &action;
+    actionProps.count = 1;
+    actionProps.selectedIndex = 0;
+    actionProps.action = ACTION_ROW;
+    actionProps.inputMask = fui::InputTouch;
+    actionProps.scrollIndicator = false;
+    const auto actionsBand = static_cast<int16_t>(screen.theme().rowHeight + screen.theme().spaceMd);
+    screen.list(actionProps, actionsBand, fui::LayoutAnchor::Bottom);
   }
 }
 
