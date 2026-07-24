@@ -1,6 +1,9 @@
 #pragma once
 #include <Epub.h>
+#include <FreeInkApp.h>
+#include <FreeInkUIGfxRenderer.h>
 
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -24,17 +27,7 @@ class KOReaderSyncActivity final : public Activity {
   explicit KOReaderSyncActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& epubPath,
                                 int currentSpineIndex, int currentPage, int totalPagesInSpine,
                                 SavedProgressPosition localKoPos, std::string localChapterName,
-                                std::optional<uint16_t> currentParagraphIndex = std::nullopt)
-      : Activity("KOReaderSync", renderer, mappedInput),
-        epubPath(epubPath),
-        currentSpineIndex(currentSpineIndex),
-        currentPage(currentPage),
-        totalPagesInSpine(totalPagesInSpine),
-        currentParagraphIndex(currentParagraphIndex),
-        localChapterName(std::move(localChapterName)),
-        remoteProgress{},
-        remotePosition{},
-        localProgress(std::move(localKoPos)) {}
+                                std::optional<uint16_t> currentParagraphIndex = std::nullopt);
 
   void onEnter() override;
   void onExit() override;
@@ -98,4 +91,22 @@ class KOReaderSyncActivity final : public Activity {
   void ensureEpubLoaded();
   void saveProgressAndReturn(int spineIndex, int page);
   void returnToReader();
+
+  // FreeInkApp hosts the interactive states (SHOWING_RESULT compare rows and
+  // the NO_REMOTE_PROGRESS upload prompt) so they get themed rows/buttons and
+  // tap-flash; the header stays on GUI.drawHeader for the battery indicator and
+  // the purely-informational states keep their raw centered text.
+  using UiApp = freeink::ui::FreeInkApp<12, 4>;
+
+  freeink::ui::GfxRendererTarget uiTarget;  // must precede `app`: the app holds a reference to it
+  UiApp app;
+  // render() rebuilds the app's interaction table; loop() only routes touch
+  // snapshots against it while this is true (the two run on different tasks).
+  std::atomic<bool> uiReady{false};
+
+  static void resultScreen(UiApp::ScreenType& screen, void* user);
+  static void onResultRow(const freeink::ui::ActionEvent& event, void* user);
+  void buildResultScreen(UiApp::ScreenType& screen);
+  void chooseResultOption();
+  void startUpload();
 };

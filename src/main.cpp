@@ -323,7 +323,10 @@ void setup() {
   // restored from persisted settings. The on/off state defaults to OFF at wake/boot —
   // so the user isn't greeted by a surprise glow (or a silent battery drain) — unless
   // "Restore Light on Wake" is enabled, which brings back the pre-sleep on/off state too.
-  const bool restoreLightOn = SETTINGS.frontlightRestoreOnWake != 0 && SETTINGS.frontlightOn != 0;
+  // A silent restart is different: it's an automated heap-defrag reboot the user never
+  // asked for (e.g. leaving a WiFi activity), not a deliberate sleep, so we always bring
+  // the light back exactly as they left it rather than surprising them with darkness.
+  const bool restoreLightOn = SETTINGS.frontlightOn != 0 && (SETTINGS.frontlightRestoreOnWake != 0 || isSilentReboot);
   Frontlight.begin(SETTINGS.frontlightBrightness, SETTINGS.frontlightWarmth, restoreLightOn);
 
   const auto wakeupReason = gpio.getWakeupReason();
