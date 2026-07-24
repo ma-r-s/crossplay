@@ -48,7 +48,7 @@ static unsigned long lastX4ProPowerClickAt = 0;
 namespace {
 constexpr unsigned long X4PRO_POWER_DOUBLE_CLICK_MS = 500;
 constexpr unsigned long X4PRO_POWER_CLICK_MAX_HOLD_MS = 400;
-}
+}  // namespace
 
 // Fonts
 EpdFont notoserif14RegularFont(&notoserif_14_regular);
@@ -437,6 +437,11 @@ void setup() {
       activityManager.goToBoot();
       break;
   }
+
+  // Boot and retained sleep frames always use normal polarity. Restore the
+  // persisted UI preference only after that presentation, before the first
+  // Home/Reader activity paints.
+  display.setInverted(SETTINGS.screenInverted != 0);
 
   if (recoveryFirmwareMode) {
     // Skip normal home/reader routing: jump straight into the SD firmware picker.

@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "activities/Activity.h"
+#include "components/UiAppHelpers.h"
 #include "util/ButtonNavigator.h"
 
 struct Rect;
@@ -106,6 +107,8 @@ class WifiSelectionActivity final : public Activity {
   // render() rebuilds the app's interaction table; loop() only routes touch
   // snapshots against it while this is true (the two run on different tasks).
   std::atomic<bool> uiReady{false};
+  // Detects a hold on a network row and fires "forget" while the finger is down.
+  TouchLongPressRouter longPressTouch;
   int visibleRows = 1;  // rows per page at the current scale; set by the screen builder
   int topIndex = 0;     // viewport scroll position, decoupled from the selection
 

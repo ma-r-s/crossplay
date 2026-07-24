@@ -279,6 +279,7 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
                            "frontlightBrightness"),
         SettingInfo::Value(StrId::STR_WARMTH, &CrossPointSettings::frontlightWarmth, {0, 100, 5}, "frontlightWarmth"),
         SettingInfo::Toggle(StrId::STR_FRONTLIGHT, &CrossPointSettings::frontlightOn, "frontlightOn"),
+        SettingInfo::Toggle(StrId::STR_INVERTED, &CrossPointSettings::screenInverted, "screenInverted"),
 
         // --- KOReader Sync (web-only, uses KOReaderCredentialStore) ---
         SettingInfo::DynamicString(

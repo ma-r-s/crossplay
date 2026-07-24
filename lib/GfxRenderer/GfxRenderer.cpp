@@ -1357,6 +1357,12 @@ void GfxRenderer::drawBitmap(const Bitmap& bitmap, const int x, const int y, con
 
   free(outputRow);
   free(rowBytes);
+
+  const int sourceWidth = bitmap.getWidth() - cropPixX * 2;
+  const int sourceHeight = bitmap.getHeight() - cropPixY * 2;
+  const int renderedWidth = isScaled ? static_cast<int>(std::floor((sourceWidth - 1) * scale)) + 1 : sourceWidth;
+  const int renderedHeight = isScaled ? static_cast<int>(std::floor((sourceHeight - 1) * scale)) + 1 : sourceHeight;
+  preserveImagePolarity(x, y, renderedWidth, renderedHeight);
 }
 
 void GfxRenderer::drawBitmap1Bit(const Bitmap& bitmap, const int x, const int y, const int maxWidth,
@@ -1426,6 +1432,12 @@ void GfxRenderer::drawBitmap1Bit(const Bitmap& bitmap, const int x, const int y,
 
   free(outputRow);
   free(rowBytes);
+
+  const int renderedWidth =
+      isScaled ? static_cast<int>(std::floor((bitmap.getWidth() - 1) * scale)) + 1 : bitmap.getWidth();
+  const int renderedHeight =
+      isScaled ? static_cast<int>(std::floor((bitmap.getHeight() - 1) * scale)) + 1 : bitmap.getHeight();
+  preserveImagePolarity(x, y, renderedWidth, renderedHeight);
 }
 
 void GfxRenderer::fillPolygon(const int* xPoints, const int* yPoints, int numPoints, bool state) const {
@@ -1537,6 +1549,38 @@ bool GfxRenderer::glyphIntersectsStrip(int x0, int y0, int x1, int y1) const {
 void GfxRenderer::invertScreen() const {
   for (uint32_t i = 0; i < frameBufferSize; i++) {
     frameBuffer[i] = ~frameBuffer[i];
+  }
+}
+
+void GfxRenderer::preserveImagePolarity(const int x, const int y, const int width, const int height) const {
+  if (renderMode != BW || !display.isInverted() || _stripActive || width <= 0 || height <= 0) return;
+
+  int x0, y0, x1, y1;
+  rotateCoordinates(orientation, x, y, &x0, &y0, panelWidth, panelHeight);
+  rotateCoordinates(orientation, x + width - 1, y + height - 1, &x1, &y1, panelWidth, panelHeight);
+
+  const int left = std::max(0, std::min(x0, x1));
+  const int right = std::min(static_cast<int>(panelWidth) - 1, std::max(x0, x1));
+  const int top = std::max(0, std::min(y0, y1));
+  const int bottom = std::min(static_cast<int>(panelHeight) - 1, std::max(y0, y1));
+  if (left > right || top > bottom) return;
+
+  for (int py = top; py <= bottom; ++py) {
+    uint8_t* const row = frameBuffer + static_cast<uint32_t>(py) * panelWidthBytes;
+    int px = left;
+
+    while (px <= right && (px & 7) != 0) {
+      row[px >> 3] ^= static_cast<uint8_t>(1U << (7 - (px & 7)));
+      ++px;
+    }
+    while (px + 7 <= right) {
+      row[px >> 3] ^= 0xFF;
+      px += 8;
+    }
+    while (px <= right) {
+      row[px >> 3] ^= static_cast<uint8_t>(1U << (7 - (px & 7)));
+      ++px;
+    }
   }
 }
 

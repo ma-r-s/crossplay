@@ -1,6 +1,7 @@
 #include "FrontlightPanelActivity.h"
 
 #include <GfxRenderer.h>
+#include <HalDisplay.h>
 #include <HalFrontlight.h>
 #include <I18n.h>
 
@@ -18,6 +19,7 @@ namespace {
 constexpr fui::ActionId ACTION_BRIGHTNESS = 1;
 constexpr fui::ActionId ACTION_WARMTH = 2;
 constexpr fui::ActionId ACTION_TOGGLE = 3;
+constexpr fui::ActionId ACTION_INVERT = 4;
 constexpr int BRIGHTNESS_STEP = 5;
 
 uint8_t percentFromPermille(const int16_t permille) {
@@ -40,12 +42,14 @@ void FrontlightPanelActivity::onEnter() {
   brightness = Frontlight.brightness();
   warmth = Frontlight.warmth();
   lightOn = Frontlight.isOn();
+  inverted = display.isInverted();
 
   uiReady = false;
   app.setTheme(uiThemeTokens(uiTarget));
   app.on(ACTION_BRIGHTNESS, &FrontlightPanelActivity::onBrightnessEvent, this);
   app.on(ACTION_WARMTH, &FrontlightPanelActivity::onWarmthEvent, this);
   app.on(ACTION_TOGGLE, &FrontlightPanelActivity::onToggleEvent, this);
+  app.on(ACTION_INVERT, &FrontlightPanelActivity::onInvertEvent, this);
   app.setScreen(&FrontlightPanelActivity::panelScreen, this);
   requestUpdate();
 }
@@ -85,6 +89,10 @@ void FrontlightPanelActivity::onToggleEvent(const fui::ActionEvent&, void* user)
   static_cast<FrontlightPanelActivity*>(user)->toggleLight();
 }
 
+void FrontlightPanelActivity::onInvertEvent(const fui::ActionEvent&, void* user) {
+  static_cast<FrontlightPanelActivity*>(user)->toggleInversion();
+}
+
 void FrontlightPanelActivity::adjustBrightness(const int delta) {
   int next = static_cast<int>(brightness) + delta;
   if (next < 0) next = 0;
@@ -102,6 +110,13 @@ void FrontlightPanelActivity::adjustBrightness(const int delta) {
 void FrontlightPanelActivity::toggleLight() {
   lightOn = !lightOn;
   Frontlight.setOn(lightOn);
+  requestUpdate();
+}
+
+void FrontlightPanelActivity::toggleInversion() {
+  inverted = display.toggleInverted();
+  SETTINGS.screenInverted = inverted ? 1 : 0;
+  SETTINGS.saveToFile();
   requestUpdate();
 }
 
@@ -198,27 +213,29 @@ void FrontlightPanelActivity::buildPanelScreen(UiApp::ScreenType& screen) {
 
   screen.spacer(theme.spaceLg);
 
-  // Header row: "Brightness NN%" on the left, a tappable sun icon on the right
-  // that toggles the light — bright `sun` when on, `sun-dim` when off (the icon
-  // itself is the state indicator). Sharing a row with the label frees the
-  // whole bottom toggle row, shrinking the panel.
+  // Header row: "Brightness NN%" on the left, with direct inversion and
+  // frontlight controls on the right. Each 32px glyph sits in a generous,
+  // non-overlapping hit band spanning the full row height.
   const fui::Rect headerRow = screen.takeTop(rowH, theme.spaceSm).inset(sideInset);
   snprintf(line, sizeof(line), "%s  %u%%", tr(STR_BRIGHTNESS), static_cast<unsigned>(brightness));
-  const fui::BitmapRef sunIcon = fui::bitmapFromIcon(lightOn ? icon_sun_32 : icon_sun_dim_32);
+  const fui::BitmapRef sunIcon = fui::bitmapFromIcon(icon_sun_32);
+  const fui::BitmapRef moonIcon = fui::bitmapFromIcon(icon_moon_32);
   const int16_t iconW = static_cast<int16_t>(sunIcon.width);
   const int16_t iconH = static_cast<int16_t>(sunIcon.height);
-  const fui::Rect iconRect{static_cast<int16_t>(headerRow.x + headerRow.width - iconW),
+  const int16_t controlW = static_cast<int16_t>(iconW + theme.spaceLg * 2);
+  const fui::Rect sunHit{static_cast<int16_t>(headerRow.right() - controlW), headerRow.y, controlW, rowH};
+  const fui::Rect invertHit{static_cast<int16_t>(sunHit.x - controlW), headerRow.y, controlW, rowH};
+  const fui::Rect sunRect{static_cast<int16_t>(sunHit.x + (controlW - iconW) / 2),
+                          static_cast<int16_t>(headerRow.y + (rowH - iconH) / 2), iconW, iconH};
+  const fui::Rect moonRect{static_cast<int16_t>(invertHit.x + (controlW - iconW) / 2),
                            static_cast<int16_t>(headerRow.y + (rowH - iconH) / 2), iconW, iconH};
   const fui::Rect labelRect{headerRow.x, static_cast<int16_t>(headerRow.y + (rowH - lh) / 2),
-                            static_cast<int16_t>(headerRow.width - iconW - theme.spaceMd), lh};
+                            static_cast<int16_t>(headerRow.width - controlW * 2 - theme.spaceMd), lh};
   screen.target().text(labelRect, line, theme.bodyText);
-  // Generous hit target: the full header-row height and a wide band on the right
-  // (well beyond the 32px glyph) so the toggle is easy to hit. Stays within the
-  // header row so it never steals taps from the brightness slider below.
-  const int16_t hitW = static_cast<int16_t>(iconW + theme.spaceLg * 4);
-  const fui::Rect hitRect{static_cast<int16_t>(headerRow.right() - hitW), headerRow.y, hitW, rowH};
-  screen.frame().hit(hitRect, ACTION_TOGGLE);
-  screen.target().bitmap(iconRect, sunIcon, fui::BitmapMode::Center);
+  screen.frame().hit(invertHit, ACTION_INVERT, 0, fui::InputTouch, inverted ? fui::StateSelected : fui::StateNormal);
+  screen.frame().hit(sunHit, ACTION_TOGGLE);
+  screen.target().bitmap(moonRect, moonIcon, fui::BitmapMode::Center);
+  screen.target().bitmap(sunRect, sunIcon, fui::BitmapMode::Center);
 
   fui::SliderProps brightnessSlider;
   brightnessSlider.value = brightness;

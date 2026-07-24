@@ -280,6 +280,9 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t frontlightBrightness = 60;
   uint8_t frontlightWarmth = 50;  // 0 = cool .. 100 = warm
   uint8_t frontlightOn = 0;
+  // Output inversion selected from the frontlight quick panel. Sleep screens
+  // temporarily ignore it, but normal UI restores it after wake.
+  uint8_t screenInverted = 0;
   // When 0 (default), the frontlight always comes up OFF after a wake/boot (brightness
   // and warmth are still remembered for when it's switched on). When 1, the on/off
   // state from before sleep is restored too. Shown in Display settings on frontlight boards.

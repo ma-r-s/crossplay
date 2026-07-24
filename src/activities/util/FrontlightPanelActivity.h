@@ -26,6 +26,7 @@ class FrontlightPanelActivity final : public Activity {
   uint8_t brightness = 60;
   uint8_t warmth = 50;
   bool lightOn = false;
+  bool inverted = false;
   // Swallow the swipe/tap fallout of a slider drag so its release can't
   // trigger the back gesture and close the panel mid-adjustment.
   bool draggingSlider = false;
@@ -37,6 +38,7 @@ class FrontlightPanelActivity final : public Activity {
   static void onBrightnessEvent(const freeink::ui::ActionEvent& event, void* user);
   static void onWarmthEvent(const freeink::ui::ActionEvent& event, void* user);
   static void onToggleEvent(const freeink::ui::ActionEvent& event, void* user);
+  static void onInvertEvent(const freeink::ui::ActionEvent& event, void* user);
   void buildPanelScreen(UiApp::ScreenType& screen);
   // Height of the drop-down, derived from the content it holds (header +
   // sliders + toggle). Same layout math as buildPanelScreen so the frame,
@@ -44,6 +46,7 @@ class FrontlightPanelActivity final : public Activity {
   int computePanelBottom() const;
   void adjustBrightness(int delta);
   void toggleLight();
+  void toggleInversion();
   void close();
 
  public:

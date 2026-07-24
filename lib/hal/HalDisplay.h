@@ -38,6 +38,11 @@ class HalDisplay {
   void drawImageTransparent(const uint8_t* imageData, uint16_t x, uint16_t y, uint16_t w, uint16_t h,
                             bool fromProgmem = false) const;
 
+  // Persistent black/white output inversion provided by FreeInkDisplay.
+  void setInverted(bool inverted);
+  bool toggleInverted();
+  bool isInverted() const;
+
   void displayBuffer(RefreshMode mode = RefreshMode::FAST_REFRESH, bool turnOffScreen = false);
   // Non-blocking refresh (shadow-free): starts the panel waveform and returns
   // while the panel refreshes on its own. The framebuffer must stay untouched

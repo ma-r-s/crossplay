@@ -105,7 +105,7 @@ void RecentBooksActivity::loop() {
   // Touch goes through the FreeInkApp: render() registered the row hit rects;
   // route the snapshot and let onRowEvent dispatch.
   if (uiReady) {
-    const fui::InputSnapshot snap = touchSnapshotFrom(mappedInput);
+    const fui::InputSnapshot snap = longPressTouch.snapshot(mappedInput);
     if (snap.touchPressed || snap.touchReleased) {
       const auto event = app.route(snap);
       // No pressed-state repaint: the render it triggers would drop a slow
