@@ -18,10 +18,13 @@ class MappedInputManager {
 
   MappedInputManager(HalGPIO& gpio, const GfxRenderer& renderer) : gpio(gpio), renderer(renderer) {}
 
-  void update() const {
-    gpio.update();
-    advanceTouchSwallow();
-  }
+  void update() const { gpio.update(); }
+  // Advances the swallowCurrentTouch() latch. Call once per frame from the main
+  // loop (where gpio.update() is guaranteed); it holds through the swallowed
+  // contact's release-edge frame, then clears on the following idle frame so a
+  // fresh touch is delivered normally. Not folded into update() because some
+  // activities never call update() yet still read touch (ConfirmationActivity).
+  void advanceTouchSwallow() const;
   bool wasPressed(Button button) const;
   bool wasReleased(Button button) const;
   bool isPressed(Button button) const;
@@ -108,10 +111,6 @@ class MappedInputManager {
   bool listItemFromPoint(int x, int y, int& index, int itemCount, int selectedIndex, int listTop, int listHeight,
                          bool hasSubtitle) const;
   void rememberTouchHeldTime() const;
-  // Advances the swallowCurrentTouch() latch each update(): holds through the
-  // contact's release-edge frame, then clears on the following idle frame so a
-  // fresh touch is delivered normally.
-  void advanceTouchSwallow() const;
 
   mutable bool touchHeldOverrideValid = false;
   mutable unsigned long touchHeldOverrideMs = 0;

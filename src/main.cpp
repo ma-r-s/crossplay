@@ -501,6 +501,10 @@ void loop() {
 
   gpio.setSharedConfirmPowerShortPressEmitsPower(SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP);
   gpio.update();
+  // Advance the touch-swallow latch once per frame here, where gpio.update() is
+  // guaranteed: activities pump input via mappedInput.update() but some (e.g.
+  // ConfirmationActivity) don't, so the latch can't rely on that to clear.
+  mappedInputManager.advanceTouchSwallow();
   halTiltSensor.update(SETTINGS.tiltPageTurn, SETTINGS.orientation, activityManager.isReaderActivity());
 
   renderer.setFadingFix(SETTINGS.fadingFix);
