@@ -525,9 +525,12 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
   // Small text: four category labels share the band, the body font truncates.
   tabProps.text = screen.theme().smallText;
   // Pill wraps the label with real padding; the band grows with the scaled
-  // font when the theme's tabBarHeight is too short for it.
-  tabProps.tabInset = fui::Insets{2, 4, 4, 4};
-  tabProps.contentInset = fui::Insets{2, 10, 2, 10};
+  // font when the theme's tabBarHeight is too short for it. Keep the horizontal
+  // padding tight: four equal slots share the band, so wide labels (e.g.
+  // "Controls") truncate to an ellipsis at large UI scales when the pill eats
+  // too much width. Vertical padding stays for the pill height.
+  tabProps.tabInset = fui::Insets{2, 2, 4, 2};
+  tabProps.contentInset = fui::Insets{2, 4, 2, 4};
   const int16_t tabLineHeight = screen.target().lineHeight(screen.theme().smallText.font);
   const int16_t tabBand =
       static_cast<int16_t>(metrics.tabBarHeight > tabLineHeight + 10 ? metrics.tabBarHeight : tabLineHeight + 10);
