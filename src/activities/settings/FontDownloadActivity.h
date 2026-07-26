@@ -90,6 +90,9 @@ class FontDownloadActivity : public Activity {
   int downloadingFamilyIndex_ = 0;
   std::string errorMessage_;
   bool cancelRequested_ = false;
+  // Set when the cancel came from the home gesture (consumed by the download
+  // callback's own input pump); exit to home after the abort unwinds.
+  bool goHomeRequested_ = false;
 
   // FreeInkApp hosts the family list (themed rows, touch routing); the other
   // states keep their legacy centered-text rendering.
