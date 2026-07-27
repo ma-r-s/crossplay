@@ -80,6 +80,22 @@ inline TouchPageTurn detectTouchPageTurn(GfxRenderer& renderer, const MappedInpu
     return result;
   }
 
+  if (SETTINGS.touchReaderControls == CrossPointSettings::TOUCH_READER_SWIPE) {
+    // Swipe mode: horizontal swipes turn pages, taps do nothing. Swipe left =
+    // next page, swipe right = previous. The reading surface has no
+    // swipe-to-exit on any board (handleBackNavigation ignores the back
+    // gesture; home is the bottom-edge up-swipe or the capacitive key), so
+    // every right swipe pages back. heldMs stays 0: a slow swipe must never
+    // register as a long press (chapter skip).
+    const auto dir = input.wasSwipe();
+    if (dir == MappedInputManager::SwipeDir::Left) {
+      result.next = true;
+    } else if (dir == MappedInputManager::SwipeDir::Right) {
+      result.prev = true;
+    }
+    return result;
+  }
+
   int x = 0;
   int y = 0;
   if (!input.wasScreenTapped(x, y)) {
@@ -171,11 +187,18 @@ struct BackNavCallback {
 // - with backShortToFileBrowser: go to file browser.
 inline bool handleBackNavigation(const MappedInputManager& mappedInput, ActivityManager& activityManager,
                                  const char* filePath, BackNavCallback goHome) {
-  // Home-key readers (currently X4 Pro) deliberately have no swipe-to-exit
-  // path on the reading surface. Their physical Back input is unassigned, so
-  // the logical Back event here can only be the global left-edge swipe. Keep
-  // Back swipes available in menus and other activities, but require the
-  // capacitive Home key to leave the book itself.
+  // The reading surface deliberately has no swipe-to-exit path on any touch
+  // board: the bottom-edge up-swipe (or the capacitive home key on X4 Pro)
+  // already exits, and in swipe page-turn mode a right swipe must page back
+  // instead. Back swipes stay available in menus and other activities; only
+  // this reader-surface handler ignores them. Physical Back buttons are
+  // unaffected: isPressed() is button-only, and this guard skips just the
+  // gesture's own release frame.
+  if (mappedInput.wasBackGesture()) {
+    return false;
+  }
+  // Home-key readers additionally have no assigned physical Back input, so
+  // nothing below can fire; the capacitive Home key leaves the book.
   if (mappedInput.hasHomeKey()) {
     return false;
   }

@@ -66,6 +66,9 @@ class MappedInputManager {
   RowTouch colTouch(int& col, int left, int colStep, int colCount, int yStart, int yEnd, int colWidth = 0) const;
 
   SwipeDir wasSwipe() const;
+  // Back = left-to-right swipe anchored at the left edge. Public so swipe-mode
+  // page turns (reader) can exclude it from a plain SwipeDir::Right.
+  bool wasBackGesture() const;
   // Exit-to-home intent. Boards with a capacitive home key (X4 Pro) use the
   // key's press edge; everywhere else it's the bottom-edge up-swipe.
   bool wasHomeGesture() const;
@@ -103,7 +106,6 @@ class MappedInputManager {
   const GfxRenderer& renderer;
 
   bool mapButton(Button button, bool (HalGPIO::*fn)(uint8_t) const) const;
-  bool wasBackGesture() const;
   bool wasTopEdgeDownSwipe() const;
   bool wasBottomEdgeUpSwipe() const;
   // Fetch the pending swipe (if any) and map both endpoints to logical screen coords
