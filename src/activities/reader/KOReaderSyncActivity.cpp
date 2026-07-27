@@ -1,5 +1,6 @@
 #include "KOReaderSyncActivity.h"
 
+#include <BoardConfig.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
@@ -422,8 +423,23 @@ void KOReaderSyncActivity::onExit() {
   Activity::onExit();
 
   if (wifiActivated) {
+    if (esp_sntp_enabled()) {
+      esp_sntp_stop();
+    }
     WiFi.disconnect(false);
     delay(30);
+
+    // ESP.restart() only resets the S3; the X4 Pro's externally switched
+    // touch/frontlight rails stay powered across it. In practice that can
+    // leave the GT911 unresponsive after the reader resumes. The Pro has
+    // enough memory to tear WiFi down normally without the C3 heap-defrag
+    // restart used by X3/X4.
+    if (BoardConfig::isX4Pro()) {
+      WiFi.mode(WIFI_OFF);
+      LOG_DBG("KOSync", "WiFi stopped without silent restart on X4 Pro");
+      return;
+    }
+
     silentRestartToReader();
   }
 }

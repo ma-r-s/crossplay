@@ -171,6 +171,15 @@ struct BackNavCallback {
 // - with backShortToFileBrowser: go to file browser.
 inline bool handleBackNavigation(const MappedInputManager& mappedInput, ActivityManager& activityManager,
                                  const char* filePath, BackNavCallback goHome) {
+  // Home-key readers (currently X4 Pro) deliberately have no swipe-to-exit
+  // path on the reading surface. Their physical Back input is unassigned, so
+  // the logical Back event here can only be the global left-edge swipe. Keep
+  // Back swipes available in menus and other activities, but require the
+  // capacitive Home key to leave the book itself.
+  if (mappedInput.hasHomeKey()) {
+    return false;
+  }
+
   if (mappedInput.isPressed(MappedInputManager::Button::Back) && mappedInput.getHeldTime() >= GO_BACK_OR_HOME_MS) {
     if (SETTINGS.backShortToFileBrowser) {
       goHome.fn(goHome.ctx);

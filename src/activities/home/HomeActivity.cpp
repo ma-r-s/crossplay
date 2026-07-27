@@ -9,6 +9,7 @@
 #include <Utf8.h>
 #include <Xtc.h>
 
+#include <algorithm>
 #include <cstring>
 #include <vector>
 
@@ -230,21 +231,23 @@ void HomeActivity::loop() {
     return;
   }
 
-  int tx = 0;
-  int ty = 0;
-  if (!recentBooks.empty() && mappedInput.wasScreenTouchDown(tx, ty) && tx >= 0 && tx < renderer.getScreenWidth() &&
-      ty >= metrics.homeTopPadding && ty < metrics.homeTopPadding + metrics.homeCoverTileHeight) {
-    if (selectorIndex != 0) {
-      selectorIndex = 0;
-      requestUpdate();
+  const int coverColumnCount = std::max(1, metrics.homeRecentBooksCount);
+  const int recentCount = std::min(static_cast<int>(recentBooks.size()), coverColumnCount);
+  const int coverColumnWidth = (renderer.getScreenWidth() - 2 * metrics.contentSidePadding) / coverColumnCount;
+  int touchedBook = -1;
+  const auto coverTouch = mappedInput.colTouch(touchedBook, metrics.contentSidePadding, coverColumnWidth, recentCount,
+                                               metrics.homeTopPadding,
+                                               metrics.homeTopPadding + metrics.homeCoverTileHeight, coverColumnWidth);
+  if (coverTouch != MappedInputManager::RowTouch::None) {
+    if (coverTouch == MappedInputManager::RowTouch::Down) {
+      if (selectorIndex != touchedBook) {
+        selectorIndex = touchedBook;
+        requestUpdate();
+      }
+    } else {
+      selectorIndex = touchedBook;
+      activateSelection();
     }
-    return;
-  }
-
-  if (!recentBooks.empty() &&
-      mappedInput.wasTapInRect(0, metrics.homeTopPadding, renderer.getScreenWidth(), metrics.homeCoverTileHeight)) {
-    selectorIndex = 0;
-    activateSelection();
     return;
   }
 
