@@ -15,7 +15,10 @@
 // the content underneath stays on screen below the panel, and a tap there
 // dismisses it. State is persisted once on exit (SPIFFS write throttling).
 class FrontlightPanelActivity final : public Activity {
-  using UiApp = freeink::ui::FreeInkApp<8, 4>;
+  // 10 interactions: invert, sun toggle, 2 sliders, and a -/+ tap pair per
+  // slider (plus headroom); 6 handlers: the four controls + one step handler
+  // per slider.
+  using UiApp = freeink::ui::FreeInkApp<12, 6>;
 
   ButtonNavigator buttonNavigator;
 
@@ -39,12 +42,20 @@ class FrontlightPanelActivity final : public Activity {
   static void onWarmthEvent(const freeink::ui::ActionEvent& event, void* user);
   static void onToggleEvent(const freeink::ui::ActionEvent& event, void* user);
   static void onInvertEvent(const freeink::ui::ActionEvent& event, void* user);
+  // -/+ tap zones flanking the sliders; event.value carries the ±1 step.
+  static void onBrightnessStepEvent(const freeink::ui::ActionEvent& event, void* user);
+  static void onWarmthStepEvent(const freeink::ui::ActionEvent& event, void* user);
   void buildPanelScreen(UiApp::ScreenType& screen);
+  // Lays out one slider row: -/+ tap zones at the ends (1% fine steps) with
+  // the drag slider between them.
+  void addStepSlider(UiApp::ScreenType& screen, const freeink::ui::Rect& row, uint8_t value,
+                     freeink::ui::ActionId sliderAction, freeink::ui::ActionId stepAction);
   // Height of the drop-down, derived from the content it holds (header +
   // sliders + toggle). Same layout math as buildPanelScreen so the frame,
   // content margin, and dismiss threshold all agree.
   int computePanelBottom() const;
   void adjustBrightness(int delta);
+  void adjustWarmth(int delta);
   void toggleLight();
   void toggleInversion();
   void close();

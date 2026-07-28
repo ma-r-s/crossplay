@@ -16,8 +16,11 @@
 #include <Logging.h>
 #include <SPI.h>
 #include <WiFi.h>
+#include <XteinkDetect.h>
 #include <builtinFonts/all.h>
+#include <driver/gpio.h>
 #include <esp_sntp.h>
+#include <soc/soc_caps.h>
 
 #include <cstring>
 
@@ -278,6 +281,20 @@ void enterDeepSleep(bool fromTimeout = false) {
 }
 
 void setupDisplayAndFonts(bool seamless = false) {
+  // Resolve which panel controller this unit carries before the driver is
+  // selected in display.begin(). Newer X4 / X4 Pro batches ship a UC8179 in
+  // place of the SSD1677; XteinkDetect reads the OEM factory value (NVS
+  // hw_calib/screenType), falling back to a display-bus probe, and promotes
+  // ACTIVE.displayController when the UltraChip sibling is present. Runs once and
+  // is a compiled no-op on boards without a UC81xx sibling.
+  static bool controllerResolved = false;
+  if (!controllerResolved) {
+    controllerResolved = true;
+    if (freeink::applyXteinkDisplayController()) {
+      LOG_DBG("MAIN", "Panel controller: UltraChip UC81xx variant detected");
+    }
+  }
+
   display.begin(seamless);
   renderer.begin();
   activityManager.begin();
@@ -339,6 +356,24 @@ void setup() {
   silentRebootTarget = 0;
 
   gpio.begin();
+
+#if !SOC_PM_SUPPORT_EXT1_WAKEUP
+  // X4 battery latch: GPIO13 drives the battery MOSFET gate. Deep sleep holds
+  // it low to power off (see HalPowerManager::startDeepSleep); on known units
+  // the latch pulls itself on again at the next power-button press, but at
+  // least one hardware revision in the field does not self-latch and stays
+  // powered only while the button is physically held — the device dies a
+  // second or two after release, at whatever boot stage it happened to reach.
+  // Release any leftover sleep hold and actively drive the latch on. On
+  // self-latching units this drives the pin to the state it is already in.
+  if (gpio.isXteinkDevice() && !gpio.deviceIsX3()) {
+    constexpr gpio_num_t X4_BATTERY_LATCH = GPIO_NUM_13;
+    gpio_hold_dis(X4_BATTERY_LATCH);
+    gpio_set_direction(X4_BATTERY_LATCH, GPIO_MODE_OUTPUT);
+    gpio_set_level(X4_BATTERY_LATCH, 1);
+  }
+#endif
+
   powerManager.begin();
   halTiltSensor.begin();
   halClock.begin();

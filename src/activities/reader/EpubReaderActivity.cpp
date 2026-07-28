@@ -556,6 +556,37 @@ void EpubReaderActivity::loop() {
     }
   }
 
+  // Home-key boards (X4 Pro): a long hold of the capacitive key runs the same
+  // user-selected function as long-press Confirm — those boards have no front
+  // buttons, so this is the only way the setting can fire. The SDK emits the
+  // long event once per hold and a hold never emits a home tap, so no
+  // release-suppression is needed.
+  if (mappedInput.wasHomeKeyHold()) {
+    switch (SETTINGS.longPressMenuFunction) {
+      case CrossPointSettings::LP_MENU_BOOKMARK:
+        if (!showBookmarkMessage) {
+          addBookmark();
+          showBookmarkMessage = true;
+          bookmarkMessageTime = millis();
+          requestUpdate();
+        }
+        return;
+      case CrossPointSettings::LP_MENU_KOSYNC:
+        // If sync can't run (no credentials stored) this is a no-op; the
+        // reader menu stays reachable via the menu gesture.
+        launchKOReaderSync();
+        return;
+      case CrossPointSettings::LP_MENU_DICTIONARY:
+        if (!showDictionaryMessage) {
+          openDictionaryWordSelect();
+        }
+        return;
+      case CrossPointSettings::LP_MENU_DISABLED:
+      default:
+        break;
+    }
+  }
+
   // Short press Back restores position when viewing a footnote (takes priority over navigation)
   if (footnoteDepth > 0 && mappedInput.wasReleased(MappedInputManager::Button::Back) &&
       mappedInput.getHeldTime() < ReaderUtils::GO_BACK_OR_HOME_MS) {

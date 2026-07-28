@@ -157,15 +157,6 @@ void EpubReaderMenuActivity::loop() {
     return;
   }
 
-  // A home-key long press toggles the reader menu: the same hold that opens it
-  // closes it. The SDK fires the long event once per hold, so the opening hold
-  // (still down as the menu appears) does not immediately re-close it — only a
-  // fresh press-and-hold does.
-  if (mappedInput.wasReaderMenuHold()) {
-    closeCancelled();
-    return;
-  }
-
   // Touch goes through the FreeInkApp: render() registered the row hit rects;
   // route the snapshot and let onRowEvent dispatch.
   if (uiReady) {

@@ -121,10 +121,11 @@ inline TouchPageTurn detectTouchPageTurn(GfxRenderer& renderer, const MappedInpu
   return result;
 }
 
-// Reader menu opens on the menu edge-swipe, or a long press of the capacitive
-// home key on boards that have one (a short home tap still goes home).
+// Reader menu opens on the menu edge-swipe. On home-key boards a long press of
+// the capacitive key runs the user-selected long-press function instead
+// (SETTINGS.longPressMenuFunction), not the menu.
 inline bool isTouchMenuGesture(const MappedInputManager& input) {
-  return SETTINGS.touchReaderControls && input.hasTouch() && (input.wasMenuGesture() || input.wasReaderMenuHold());
+  return SETTINGS.touchReaderControls && input.hasTouch() && input.wasMenuGesture();
 }
 
 // One helper, blocking or deferred: the async form starts the refresh and

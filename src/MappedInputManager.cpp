@@ -311,11 +311,12 @@ bool MappedInputManager::wasMenuGesture() const {
 
 bool MappedInputManager::wasHomeGesture() const {
   // On home-key boards a SHORT tap is "go home"; a long hold is reserved for
-  // the reader-menu shortcut (wasReaderMenuHold), so it must not also fire here.
+  // the user-selected long-press function (wasHomeKeyHold), so it must not
+  // also fire here.
   return gpio.hasHomeKey() ? gpio.wasHomeKeyTapped() : wasBottomEdgeUpSwipe();
 }
 
-bool MappedInputManager::wasReaderMenuHold() const { return gpio.hasHomeKey() && gpio.wasHomeKeyLongPressed(); }
+bool MappedInputManager::wasHomeKeyHold() const { return gpio.hasHomeKey() && gpio.wasHomeKeyLongPressed(); }
 
 bool MappedInputManager::wasLightPanelGesture() const { return gpio.hasHomeKey() && wasTopEdgeDownSwipe(); }
 

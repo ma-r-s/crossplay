@@ -20,7 +20,11 @@ constexpr fui::ActionId ACTION_BRIGHTNESS = 1;
 constexpr fui::ActionId ACTION_WARMTH = 2;
 constexpr fui::ActionId ACTION_TOGGLE = 3;
 constexpr fui::ActionId ACTION_INVERT = 4;
+constexpr fui::ActionId ACTION_BRIGHTNESS_STEP = 5;
+constexpr fui::ActionId ACTION_WARMTH_STEP = 6;
 constexpr int BRIGHTNESS_STEP = 5;
+// Fine adjustment per -/+ tap on the slider end zones.
+constexpr int FINE_STEP = 1;
 
 uint8_t percentFromPermille(const int16_t permille) {
   int value = (static_cast<int>(permille) * 100 + 500) / 1000;
@@ -50,6 +54,8 @@ void FrontlightPanelActivity::onEnter() {
   app.on(ACTION_WARMTH, &FrontlightPanelActivity::onWarmthEvent, this);
   app.on(ACTION_TOGGLE, &FrontlightPanelActivity::onToggleEvent, this);
   app.on(ACTION_INVERT, &FrontlightPanelActivity::onInvertEvent, this);
+  app.on(ACTION_BRIGHTNESS_STEP, &FrontlightPanelActivity::onBrightnessStepEvent, this);
+  app.on(ACTION_WARMTH_STEP, &FrontlightPanelActivity::onWarmthStepEvent, this);
   app.setScreen(&FrontlightPanelActivity::panelScreen, this);
   requestUpdate();
 }
@@ -85,6 +91,14 @@ void FrontlightPanelActivity::onWarmthEvent(const fui::ActionEvent& event, void*
   Frontlight.setWarmth(self->warmth);
 }
 
+void FrontlightPanelActivity::onBrightnessStepEvent(const fui::ActionEvent& event, void* user) {
+  static_cast<FrontlightPanelActivity*>(user)->adjustBrightness(event.value * FINE_STEP);
+}
+
+void FrontlightPanelActivity::onWarmthStepEvent(const fui::ActionEvent& event, void* user) {
+  static_cast<FrontlightPanelActivity*>(user)->adjustWarmth(event.value * FINE_STEP);
+}
+
 void FrontlightPanelActivity::onToggleEvent(const fui::ActionEvent&, void* user) {
   static_cast<FrontlightPanelActivity*>(user)->toggleLight();
 }
@@ -104,6 +118,18 @@ void FrontlightPanelActivity::adjustBrightness(const int delta) {
     lightOn = true;
     Frontlight.setOn(true);
   }
+  requestUpdate();
+}
+
+void FrontlightPanelActivity::adjustWarmth(const int delta) {
+  // Mirrors the warmth slider handler: no light-on forcing — warmth alone is
+  // not an "I want light" intent the way brightness is.
+  int next = static_cast<int>(warmth) + delta;
+  if (next < 0) next = 0;
+  if (next > 100) next = 100;
+  if (next == warmth) return;
+  warmth = static_cast<uint8_t>(next);
+  Frontlight.setWarmth(warmth);
   requestUpdate();
 }
 
@@ -237,25 +263,46 @@ void FrontlightPanelActivity::buildPanelScreen(UiApp::ScreenType& screen) {
   screen.target().bitmap(moonRect, moonIcon, fui::BitmapMode::Center);
   screen.target().bitmap(sunRect, sunIcon, fui::BitmapMode::Center);
 
-  fui::SliderProps brightnessSlider;
-  brightnessSlider.value = brightness;
-  brightnessSlider.max = 100;
-  brightnessSlider.action = ACTION_BRIGHTNESS;
-  brightnessSlider.inputMask = fui::InputTouch | fui::InputDrag;
-  fui::slider(screen.frame(), screen.takeTop(theme.rowHeight, theme.spaceLg).inset(sideInset), brightnessSlider);
+  addStepSlider(screen, screen.takeTop(theme.rowHeight, theme.spaceLg).inset(sideInset), brightness, ACTION_BRIGHTNESS,
+                ACTION_BRIGHTNESS_STEP);
 
   if (Frontlight.hasColorTemperature()) {
     snprintf(line, sizeof(line), "%s  %u%%", tr(STR_WARMTH), static_cast<unsigned>(warmth));
     screen.target().text(screen.takeTop(lh, theme.spaceSm).inset(sideInset), line, theme.bodyText);
-    fui::SliderProps warmthSlider;
-    warmthSlider.value = warmth;
-    warmthSlider.max = 100;
-    warmthSlider.action = ACTION_WARMTH;
-    warmthSlider.inputMask = fui::InputTouch | fui::InputDrag;
-    fui::slider(screen.frame(), screen.takeTop(theme.rowHeight, theme.spaceLg).inset(sideInset), warmthSlider);
+    addStepSlider(screen, screen.takeTop(theme.rowHeight, theme.spaceLg).inset(sideInset), warmth, ACTION_WARMTH,
+                  ACTION_WARMTH_STEP);
   }
 
   screen.spacer(theme.spaceLg);
+}
+
+void FrontlightPanelActivity::addStepSlider(UiApp::ScreenType& screen, const fui::Rect& row, const uint8_t value,
+                                            const fui::ActionId sliderAction, const fui::ActionId stepAction) {
+  const auto& theme = screen.theme();
+
+  // -/+ tap zones at the row ends for 1% fine steps: a full-row-height square
+  // each, so they stay comfortable touch targets. The slider sits between them
+  // with a small gap, so its (min-touch-expanded) hit rect cannot overlap.
+  const int16_t stepW = row.height;
+  const fui::Rect minusHit{row.x, row.y, stepW, row.height};
+  const fui::Rect plusHit{static_cast<int16_t>(row.right() - stepW), row.y, stepW, row.height};
+
+  fui::TextStyle glyph = theme.bodyText;
+  glyph.align = fui::TextAlign::Center;
+  const int16_t lh = screen.target().lineHeight(glyph.font);
+  const int16_t glyphY = static_cast<int16_t>(row.y + (row.height - lh) / 2);
+  screen.target().text(fui::Rect{minusHit.x, glyphY, stepW, lh}, "-", glyph);
+  screen.target().text(fui::Rect{plusHit.x, glyphY, stepW, lh}, "+", glyph);
+  screen.frame().hit(minusHit, stepAction, -1, fui::InputTouch);
+  screen.frame().hit(plusHit, stepAction, +1, fui::InputTouch);
+
+  fui::SliderProps props;
+  props.value = value;
+  props.max = 100;
+  props.action = sliderAction;
+  props.inputMask = fui::InputTouch | fui::InputDrag;
+  const int16_t sideGap = static_cast<int16_t>(stepW + theme.spaceSm);
+  fui::slider(screen.frame(), row.inset(fui::Insets{0, sideGap, 0, sideGap}), props);
 }
 
 void FrontlightPanelActivity::render(RenderLock&&) {

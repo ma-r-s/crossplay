@@ -79,9 +79,10 @@ class MappedInputManager {
   // Frontlight quick panel: top-edge down-swipe, only on home-key boards where
   // that edge is no longer the menu gesture.
   bool wasLightPanelGesture() const;
-  // Reader-menu shortcut: a long press of the capacitive home key (home-key
-  // boards only). A short tap goes home; the hold opens the reader menu.
-  bool wasReaderMenuHold() const;
+  // Long press of the capacitive home key (home-key boards only). A short tap
+  // goes home; the hold runs the user-selected long-press function
+  // (SETTINGS.longPressMenuFunction) in the reader.
+  bool wasHomeKeyHold() const;
   bool wasAnyPressed() const;
   bool wasAnyReleased() const;
   unsigned long getHeldTime() const;
