@@ -465,14 +465,13 @@ void setup() {
     // visible in the boot log (BTN_UP = GPIO0 on the X4 Pro).
     const int8_t upPin = BoardConfig::ACTIVE.input.up;
     const int8_t downPin = BoardConfig::ACTIVE.input.down;
-    LOG_INF("MAIN", "Recovery check: up=%d(raw %d) down=%d(raw %d)", up,
-            upPin >= 0 ? digitalRead(upPin) : -1, down, downPin >= 0 ? digitalRead(downPin) : -1);
+    LOG_INF("MAIN", "Recovery check: up=%d(raw %d) down=%d(raw %d)", up, upPin >= 0 ? digitalRead(upPin) : -1, down,
+            downPin >= 0 ? digitalRead(downPin) : -1);
     // X4 Pro: BTN_DOWN (GPIO7) only — never the GPIO0 strap pin. Other boards: BTN_UP.
     const bool comboHeld = BoardConfig::isX4Pro() ? down : up;
     if (comboHeld) {
       recoveryFirmwareMode = true;
-      LOG_INF("MAIN", "Recovery firmware mode (%s + POWER held at boot)",
-              BoardConfig::isX4Pro() ? "DOWN" : "UP");
+      LOG_INF("MAIN", "Recovery firmware mode (%s + POWER held at boot)", BoardConfig::isX4Pro() ? "DOWN" : "UP");
     }
   }
 
