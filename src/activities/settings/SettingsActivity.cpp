@@ -524,13 +524,19 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
   tabProps.inputMask = fui::InputTouch;
   // Small text: four category labels share the band, the body font truncates.
   tabProps.text = screen.theme().smallText;
-  // Pill wraps the label with real padding; the band grows with the scaled
-  // font when the theme's tabBarHeight is too short for it. Keep the horizontal
-  // padding tight: four equal slots share the band, so wide labels (e.g.
-  // "Controls") truncate to an ellipsis at large UI scales when the pill eats
-  // too much width. Vertical padding stays for the pill height.
-  tabProps.tabInset = fui::Insets{2, 2, 4, 2};
-  tabProps.contentInset = fui::Insets{2, 4, 2, 4};
+  // Pill shape is theme-driven. Label-hugging (Lyra): the pill wraps the label
+  // with real padding, kept tight horizontally so wide labels (e.g. "Controls")
+  // still fit their quarter-width slot at large UI scales. Full-slot
+  // (RoundedRaff): the pill fills its slot like the legacy drawTabBar
+  // (slot minus a 4px frame, 8px clearance above the divider); zero horizontal
+  // contentInset disables the tabBar's label-width shrink.
+  if (metrics.tabPillFullSlot) {
+    tabProps.tabInset = fui::Insets{4, 4, 7, 4};
+    tabProps.contentInset = fui::Insets{2, 0, 2, 0};
+  } else {
+    tabProps.tabInset = fui::Insets{2, 2, 4, 2};
+    tabProps.contentInset = fui::Insets{2, 4, 2, 4};
+  }
   const int16_t tabLineHeight = screen.target().lineHeight(screen.theme().smallText.font);
   const int16_t tabBand =
       static_cast<int16_t>(metrics.tabBarHeight > tabLineHeight + 10 ? metrics.tabBarHeight : tabLineHeight + 10);
@@ -547,6 +553,12 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
     tabStyles.selected.background = fui::Paint::solid(fui::Color::Black);
     tabStyles.selected.foreground = fui::Paint::solid(fui::Color::White);
     tabStyles.selected.radius = screen.theme().listRowRadius;
+  } else if (metrics.tabPillFullSlot) {
+    // Legacy RoundedRaff unfocused treatment: same pill, dimmed to dark gray,
+    // text stays inverted; no underline.
+    tabStyles.selected.background = fui::Paint::dither(fui::Color::DarkGray);
+    tabStyles.selected.foreground = fui::Paint::solid(fui::Color::White);
+    tabStyles.selected.radius = screen.theme().listRowRadius;
   } else {
     tabStyles.selected.background = fui::Paint::dither(fui::Color::LightGray);
     tabStyles.selected.foreground = fui::Paint::solid(fui::Color::Black);
@@ -558,7 +570,9 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
   tabStyles.active = tabStyles.selected;
   tabProps.tabStyles = tabStyles;
   const fui::Rect tabRect = screen.takeTop(tabBand);
-  if (tabsFocused) {
+  // Focused band wash is the Lyra treatment; legacy RoundedRaff keeps the
+  // band plain in both states.
+  if (tabsFocused && !metrics.tabPillFullSlot) {
     screen.target().fill(tabRect, fui::Paint::dither(fui::Color::LightGray));
   }
   fui::tabBar(screen.frame(), tabRect, tabProps);

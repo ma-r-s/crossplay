@@ -64,6 +64,9 @@ struct ThemeMetrics {
 
   int tabSpacing;
   int tabBarHeight;
+  // Selected-tab pill fills its equal-width slot (legacy RoundedRaff tabs)
+  // instead of shrinking to hug the label (legacy Lyra tabs).
+  bool tabPillFullSlot = false;
 
   int scrollBarWidth;
   int scrollBarRightOffset;
