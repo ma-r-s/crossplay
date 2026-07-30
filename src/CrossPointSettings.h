@@ -176,12 +176,6 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
     QUICK_RESUME_SLEEP_SCREEN_COUNT
   };
 
-  // UI scale for list-style screens: sizes list fonts and row heights
-  // together so touch targets grow uniformly. Board-dependent default (see
-  // defaultUiScale in CrossPointSettings.cpp).
-  enum UI_SCALE { UI_SCALE_SMALL = 0, UI_SCALE_MEDIUM = 1, UI_SCALE_LARGE = 2, UI_SCALE_COUNT };
-  static uint8_t defaultUiScale();
-
   // Sleep screen settings
   uint8_t sleepScreen = DARK;
   // Sleep screen cover mode settings
@@ -261,8 +255,6 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t longPressMenuFunction = LP_MENU_DISABLED;
   // UI Theme
   uint8_t uiTheme = LYRA;
-  // UI scale (list fonts + row heights); touch boards default one step larger
-  uint8_t uiScale = defaultUiScale();
   // Sunlight fading compensation
   uint8_t fadingFix = 0;
   // Power button return from footnotes (1 = enabled, 0 = disabled)

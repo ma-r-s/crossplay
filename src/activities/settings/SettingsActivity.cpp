@@ -197,18 +197,12 @@ void SettingsActivity::onExit() {
 }
 
 void SettingsActivity::applyUiSettingChange(uint8_t CrossPointSettings::* valuePtr) {
-  // Theme and UI-scale changes take effect immediately, on this screen —
-  // reload the theme and re-derive the app's fonts and tokens so the very
-  // next repaint is in the new look.
-  if (valuePtr == &CrossPointSettings::uiTheme) {
-    UITheme::getInstance().reload();
-  } else if (valuePtr != &CrossPointSettings::uiScale) {
+  // Theme changes take effect immediately, on this screen — reload the theme
+  // and re-derive the app's tokens so the very next repaint is in the new look.
+  if (valuePtr != &CrossPointSettings::uiTheme) {
     return;
   }
-  const auto spec = uiScaleSpec();
-  uiTarget.setFont(fui::GfxRendererTarget::FONT_SMALL, spec.smallFontId);
-  uiTarget.setFont(fui::GfxRendererTarget::FONT_BODY, spec.bodyFontId);
-  uiTarget.setFont(fui::GfxRendererTarget::FONT_TITLE, spec.titleFontId);
+  UITheme::getInstance().reload();
   app.setTheme(uiThemeTokens(uiTarget));
 }
 
@@ -530,13 +524,17 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
   // body-size labels (legacy used the title font bold — bodyText is that size
   // at medium scale, and carries the theme's bold flag); zero horizontal
   // contentInset disables the tabBar's label-width shrink.
+  const bool tabsFocused = selectedSettingIndex == 0;
   if (metrics.tabPillFullSlot) {
     tabProps.text = screen.theme().bodyText;
     tabProps.tabInset = fui::Insets{4, 4, 7, 4};
     tabProps.contentInset = fui::Insets{2, 0, 2, 0};
   } else {
     tabProps.text = screen.theme().smallText;
-    tabProps.tabInset = fui::Insets{2, 2, 4, 2};
+    // Unfocused state: no bottom inset, so the pill (and the 2px selected
+    // underline drawn along its bottom edge) reaches the band's 1px divider —
+    // legacy Lyra drew the underline sitting on that rule, not floating above.
+    tabProps.tabInset = tabsFocused ? fui::Insets{2, 2, 4, 2} : fui::Insets{2, 2, 0, 2};
     tabProps.contentInset = fui::Insets{2, 4, 2, 4};
   }
   const int16_t tabLineHeight = screen.target().lineHeight(tabProps.text.font);
@@ -546,7 +544,6 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
   // band fills gray and the active tab is a solid pill; with the selection
   // down in the list, the band is plain and the active tab keeps a gray box
   // with an underline. The 1px rule under the band is always there.
-  const bool tabsFocused = selectedSettingIndex == 0;
   tabProps.divider = true;
   fui::StyleSet tabStyles;
   tabStyles.explicitlySet = true;
