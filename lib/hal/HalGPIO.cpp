@@ -92,10 +92,19 @@ HalGPIO::DeviceType detectDeviceTypeWithFingerprint() {
 
 void HalGPIO::begin() {
 #if FREEINK_DEVICE_X4 || FREEINK_DEVICE_X3
-  SPI.begin(EPD_SCLK, SPI_MISO, EPD_MOSI, EPD_CS);
-
   _deviceType = detectDeviceTypeWithFingerprint();
   BoardConfig::selectDevice(deviceIsX3() ? BoardConfig::Board::XteinkX3 : BoardConfig::Board::XteinkX4);
+
+  // Resolve the per-batch controller before SPI owns the display pins. FreeInk
+  // checks the OEM hw_calib/screenType value first, then falls back to its
+  // two-pass display-bus probe. X3's facade keys panel selection off the sibling
+  // board profile, so preserve a detected UC8279 through setDisplayX3().
+  freeink::applyXteinkDisplayController();
+  if (deviceIsX3() && BoardConfig::ACTIVE.displayController == BoardConfig::DisplayController::UC8279) {
+    BoardConfig::selectDevice(BoardConfig::Board::XteinkX3Uc8279);
+  }
+
+  SPI.begin(EPD_SCLK, SPI_MISO, EPD_MOSI, EPD_CS);
 
   if (deviceIsX4()) {
     pinMode(BAT_GPIO0, INPUT);
@@ -164,6 +173,7 @@ void HalGPIO::setSharedConfirmPowerShortPressEmitsPower(const bool enabled) {
 
 bool HalGPIO::isXteinkDevice() const {
   return BoardConfig::ACTIVE.board == BoardConfig::Board::XteinkX3 ||
+         BoardConfig::ACTIVE.board == BoardConfig::Board::XteinkX3Uc8279 ||
          BoardConfig::ACTIVE.board == BoardConfig::Board::XteinkX4;
 }
 
