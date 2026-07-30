@@ -7,7 +7,11 @@ class GfxRenderer;
 namespace RoundedRaffMetrics {
 constexpr ThemeMetrics values = {.batteryWidth = 15,
                                  .batteryHeight = 12,
-                                 .topPadding = 0,
+                                 // Legacy value was 0 (the old header drew its content 5px into the
+                                 // band, so it never showed). 15 drops the band clear of the X4 Pro
+                                 // bezel and centers the battery strip on the same line as Lyra's
+                                 // (5 + 40/2 == 15 + 20/2), so the header doesn't hug the top edge.
+                                 .topPadding = 15,
                                  .batteryBarHeight = 20,
                                  .headerHeight = 45,
                                  .verticalSpacing = 10,

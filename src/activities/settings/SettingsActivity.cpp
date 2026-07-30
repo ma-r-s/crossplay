@@ -522,22 +522,24 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
   tabProps.count = categoryCount;
   tabProps.action = ACTION_TAB;
   tabProps.inputMask = fui::InputTouch;
-  // Small text: four category labels share the band, the body font truncates.
-  tabProps.text = screen.theme().smallText;
-  // Pill shape is theme-driven. Label-hugging (Lyra): the pill wraps the label
-  // with real padding, kept tight horizontally so wide labels (e.g. "Controls")
-  // still fit their quarter-width slot at large UI scales. Full-slot
-  // (RoundedRaff): the pill fills its slot like the legacy drawTabBar
-  // (slot minus a 4px frame, 8px clearance above the divider); zero horizontal
+  // Pill shape and label size are theme-driven. Label-hugging (Lyra): small
+  // text so the pill wraps a compact label, kept tight horizontally so wide
+  // labels (e.g. "Controls") still fit their quarter-width slot at large UI
+  // scales. Full-slot (RoundedRaff): the pill fills its slot like the legacy
+  // drawTabBar (slot minus a 4px frame, 8px clearance above the divider) with
+  // body-size labels (legacy used the title font bold — bodyText is that size
+  // at medium scale, and carries the theme's bold flag); zero horizontal
   // contentInset disables the tabBar's label-width shrink.
   if (metrics.tabPillFullSlot) {
+    tabProps.text = screen.theme().bodyText;
     tabProps.tabInset = fui::Insets{4, 4, 7, 4};
     tabProps.contentInset = fui::Insets{2, 0, 2, 0};
   } else {
+    tabProps.text = screen.theme().smallText;
     tabProps.tabInset = fui::Insets{2, 2, 4, 2};
     tabProps.contentInset = fui::Insets{2, 4, 2, 4};
   }
-  const int16_t tabLineHeight = screen.target().lineHeight(screen.theme().smallText.font);
+  const int16_t tabLineHeight = screen.target().lineHeight(tabProps.text.font);
   const int16_t tabBand =
       static_cast<int16_t>(metrics.tabBarHeight > tabLineHeight + 10 ? metrics.tabBarHeight : tabLineHeight + 10);
   // Legacy Lyra two-state treatment: with the selection on the tab band, the
