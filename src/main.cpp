@@ -16,7 +16,6 @@
 #include <Logging.h>
 #include <SPI.h>
 #include <WiFi.h>
-#include <XteinkDetect.h>
 #include <builtinFonts/all.h>
 #include <driver/gpio.h>
 #include <esp_sntp.h>
@@ -281,20 +280,12 @@ void enterDeepSleep(bool fromTimeout = false) {
 }
 
 void setupDisplayAndFonts(bool seamless = false) {
-  // Resolve which panel controller this unit carries before the driver is
-  // selected in display.begin(). Newer X4 / X4 Pro batches ship a UC8179 in
-  // place of the SSD1677; XteinkDetect reads the OEM factory value (NVS
-  // hw_calib/screenType), falling back to a display-bus probe, and promotes
-  // ACTIVE.displayController when the UltraChip sibling is present. Runs once and
-  // is a compiled no-op on boards without a UC81xx sibling.
-  static bool controllerResolved = false;
-  if (!controllerResolved) {
-    controllerResolved = true;
-    if (freeink::applyXteinkDisplayController()) {
-      LOG_DBG("MAIN", "Panel controller: UltraChip UC81xx variant detected");
-    }
-  }
-
+  // NOTE: the panel controller is already resolved in HalGPIO::begin(), which
+  // runs freeink::applyXteinkDisplayController() BEFORE SPI.begin() claims the
+  // display pins (and switches the X3 profile to UC8279 when detected). Do NOT
+  // probe again here: this runs AFTER SPI owns the pins and re-resets the panel
+  // immediately before display.begin(), which froze the X3 (the display-bus
+  // probe leaves the panel/pins mid-teardown). One probe, before SPI, is enough.
   display.begin(seamless);
   renderer.begin();
   activityManager.begin();
