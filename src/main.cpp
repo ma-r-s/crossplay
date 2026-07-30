@@ -16,6 +16,7 @@
 #include <Logging.h>
 #include <SPI.h>
 #include <WiFi.h>
+#include <XteinkDetect.h>
 #include <builtinFonts/all.h>
 #include <driver/gpio.h>
 #include <esp_sntp.h>
@@ -280,12 +281,25 @@ void enterDeepSleep(bool fromTimeout = false) {
 }
 
 void setupDisplayAndFonts(bool seamless = false) {
-  // NOTE: the panel controller is already resolved in HalGPIO::begin(), which
-  // runs freeink::applyXteinkDisplayController() BEFORE SPI.begin() claims the
-  // display pins (and switches the X3 profile to UC8279 when detected). Do NOT
-  // probe again here: this runs AFTER SPI owns the pins and re-resets the panel
-  // immediately before display.begin(), which froze the X3 (the display-bus
-  // probe leaves the panel/pins mid-teardown). One probe, before SPI, is enough.
+#if !FREEINK_MCU_C3
+  // Resolve the panel controller before display.begin() selects the driver.
+  // GUARD RATIONALE (mirrors HalGPIO::begin's C3 block): on the C3 X3/X4,
+  // HalGPIO already runs applyXteinkDisplayController() BEFORE its SPI.begin(),
+  // so probing again here — after SPI owns the pins, right before display.begin()
+  // — re-resets the panel mid-teardown and FROZE the X3. But on the S3 X4 Pro,
+  // HalGPIO's C3-only block is skipped entirely (no probe, no SPI.begin there);
+  // the X4 Pro's SPI.begin() happens inside display.begin(), so THIS is the only
+  // spot the probe can run before it. Hence: probe here only on non-C3 boards.
+  // applyXteinkDisplayController() is a compiled no-op without a UC81xx sibling.
+  static bool controllerResolved = false;
+  if (!controllerResolved) {
+    controllerResolved = true;
+    if (freeink::applyXteinkDisplayController()) {
+      LOG_DBG("MAIN", "Panel controller: UltraChip UC81xx variant detected");
+    }
+  }
+#endif
+
   display.begin(seamless);
   renderer.begin();
   activityManager.begin();
