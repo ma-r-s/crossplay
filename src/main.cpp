@@ -434,9 +434,16 @@ void setup() {
       break;
   }
 
-  // Recovery firmware mode: hold left side button (BTN_UP) together with the power button at
-  // boot to skip directly to the SD-card firmware update screen. Useful on devices where USB
-  // flashing has been locked down (e.g. recent X3 firmware).
+  // Recovery firmware mode: hold the side button(s) together with the power button at boot to
+  // skip directly to the SD-card firmware update screen. Useful on devices where USB flashing
+  // has been locked down (e.g. recent X3 firmware).
+  //
+  // X4 Pro caveat: BTN_UP maps to GPIO0, an ESP32-S3 boot-strap pin that can read LOW at boot
+  // (weak/absent idle pull, or a stuck key), which would false-trigger recovery on every power-on
+  // and strand the device in the SD update screen. So on the X4 Pro gate recovery on BTN_DOWN
+  // (GPIO7) ONLY — a non-strap pin with a reliable idle-HIGH pull — and drop the strap pin from
+  // the gesture entirely, so GPIO0's state can never force recovery. Other boards keep the
+  // original single-button (BTN_UP) gesture.
   bool recoveryFirmwareMode = false;
   if (wakeupReason == HalGPIO::WakeupReason::PowerButton) {
     // Refresh the cached button state a few times — isPressed() needs ~half a second to settle
@@ -447,9 +454,20 @@ void setup() {
       gpio.update();
       delay(10);
     }
-    if (gpio.isPressed(HalGPIO::BTN_UP)) {
+    const bool up = gpio.isPressed(HalGPIO::BTN_UP);
+    const bool down = gpio.isPressed(HalGPIO::BTN_DOWN);
+    // Diagnostic: raw pin levels alongside the debounced state, so a stuck/floating strap pin is
+    // visible in the boot log (BTN_UP = GPIO0 on the X4 Pro).
+    const int8_t upPin = BoardConfig::ACTIVE.input.up;
+    const int8_t downPin = BoardConfig::ACTIVE.input.down;
+    LOG_INF("MAIN", "Recovery check: up=%d(raw %d) down=%d(raw %d)", up,
+            upPin >= 0 ? digitalRead(upPin) : -1, down, downPin >= 0 ? digitalRead(downPin) : -1);
+    // X4 Pro: BTN_DOWN (GPIO7) only — never the GPIO0 strap pin. Other boards: BTN_UP.
+    const bool comboHeld = BoardConfig::isX4Pro() ? down : up;
+    if (comboHeld) {
       recoveryFirmwareMode = true;
-      LOG_INF("MAIN", "Recovery firmware mode (UP + POWER held at boot)");
+      LOG_INF("MAIN", "Recovery firmware mode (%s + POWER held at boot)",
+              BoardConfig::isX4Pro() ? "DOWN" : "UP");
     }
   }
 

@@ -73,12 +73,15 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
   // holdPowerRails()); no-op on boards without a latch (X3). The hold keeps the
   // pin low through deep sleep; boot's holdPowerRails() releases it on wake.
   for (const int8_t pin : {BoardConfig::ACTIVE.power.latch0, BoardConfig::ACTIVE.power.latch1}) {
-    if (pin >= 0) {
-      const auto latch = static_cast<gpio_num_t>(pin);
-      gpio_set_direction(latch, GPIO_MODE_OUTPUT);
-      gpio_set_level(latch, 0);
-      gpio_hold_en(latch);
-    }
+    if (pin < 0) continue;
+    // Never drive a latch pin that is really a display/SD bus pin (e.g. GPIO13 is
+    // the X4 Pro's display CS) — pulling it low and holding it through sleep would
+    // clobber the bus. Matches holdPowerRails()'s guard on the assert side.
+    if (BoardConfig::latchConflictsWithBus(pin)) continue;
+    const auto latch = static_cast<gpio_num_t>(pin);
+    gpio_set_direction(latch, GPIO_MODE_OUTPUT);
+    gpio_set_level(latch, 0);
+    gpio_hold_en(latch);
   }
 #endif
 
