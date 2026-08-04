@@ -22,8 +22,6 @@
 #include <esp_sntp.h>
 #include <soc/soc_caps.h>
 
-#include "nvs.h"
-
 #include <cstring>
 
 #include "CrossPointSettings.h"
@@ -39,6 +37,7 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "images/LoadingIcon.h"
+#include "nvs.h"
 #include "util/ButtonNavigator.h"
 #include "util/ScreenshotUtil.h"
 
