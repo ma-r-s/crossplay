@@ -1,0 +1,149 @@
+#pragma once
+
+// Reader for the on-SD deck files. See docs/study-deck-format.md for the
+// layout and the reasoning behind it.
+//
+// Freestanding C++17 -- no Arduino, no HalStorage, no heap. All I/O goes
+// through the ByteSource interface, which is what lets host-tests/study parse a
+// real converted deck on a laptop. The device supplies a HalStorage-backed
+// source; the tests supply one over a plain file.
+//
+// Nothing here allocates. A Note is a fixed buffer the caller owns, because the
+// review path touches one note per card and a per-card heap round trip on a
+// device with no PSRAM headroom is exactly the kind of churn that fragments.
+
+#include <cstddef>
+#include <cstdint>
+
+#include "StudyFsrs.h"
+
+namespace study {
+
+// Random-access bytes. Returning false must mean "did not read `length`
+// bytes", never a short read, so callers can treat failure as fatal.
+class ByteSource {
+ public:
+  virtual ~ByteSource() = default;
+  virtual bool read(uint32_t offset, void* dst, uint32_t length) = 0;
+  virtual uint32_t size() const = 0;
+};
+
+// Writable source, for cards.dat. Split from ByteSource so deck.dat can be
+// opened through a handle that physically cannot write to it.
+class WritableByteSource : public ByteSource {
+ public:
+  virtual bool write(uint32_t offset, const void* src, uint32_t length) = 0;
+  virtual bool flush() = 0;
+};
+
+inline constexpr int kFieldCount = 7;
+
+// The largest note in Mario's 5001-card deck is 421 bytes; the mean is 125.
+// 512 leaves room for the seven NUL terminators and a longer deck, and a note
+// that would overflow is rejected rather than truncated -- a half-copied UTF-8
+// sequence renders as garbage and would be blamed on the font.
+inline constexpr uint32_t kMaxNoteBytes = 512;
+
+enum class Field : uint8_t {
+  Headword = 0,
+  Reading,
+  Meaning,
+  PartOfSpeech,
+  Sentence,
+  SentenceReading,
+  SentenceMeaning,
+};
+
+struct DeckMeta {
+  float params[kNumParams] = {};
+  float desiredRetention = 0.9f;
+  int32_t maximumInterval = 36500;
+  int32_t newPerDay = 20;
+  int32_t reviewsPerDay = 200;
+  int64_t collectionCreated = 0;  // epoch seconds of day zero
+  uint8_t rolloverHour = 4;
+  char name[64] = {};
+
+  // True when the deck shipped real optimized weights rather than zeros.
+  bool hasParams() const;
+};
+
+// One card's scheduling state. Mirrors the 32-byte record in cards.dat exactly;
+// see docs/study-deck-format.md.
+struct CardState {
+  int64_t ankiCardId = 0;
+  float stability = 0.0f;
+  float difficulty = 0.0f;
+  int32_t dueDay = 0;
+  int32_t lastReviewDay = -1;
+  uint16_t reps = 0;
+  uint16_t lapses = 0;
+  uint8_t state = 0;  // 0 new, 1 learning, 2 review, 3 relearning
+  uint8_t flags = 0;
+
+  bool isNew() const { return state == 0; }
+  Memory memory() const;
+  void setMemory(const Memory& m);
+};
+
+inline constexpr uint32_t kCardRecordSize = 32;
+
+// One note's text. Fields are NUL-terminated in place so they can be handed
+// straight to drawText and snprintf without a copy: string_view would need a
+// conversion at every one of those call sites, and the C API boundary is where
+// this codebase has been bitten before.
+class Note {
+ public:
+  const char* field(Field f) const;
+  uint16_t length(Field f) const;
+  bool empty(Field f) const { return length(f) == 0; }
+
+  // Where the example sentence emphasised its target word, in codepoints, or
+  // length 0 when it did not. Anki bolds it; there is no bold CJK face here,
+  // so the renderer underlines instead.
+  uint8_t emphasisOffset() const { return emphasisOffset_; }
+  uint8_t emphasisLength() const { return emphasisLength_; }
+
+ private:
+  friend class StudyDeck;
+  char bytes_[kMaxNoteBytes] = {};
+  uint16_t offsets_[kFieldCount] = {};
+  uint16_t lengths_[kFieldCount] = {};
+  uint8_t emphasisOffset_ = 0;
+  uint8_t emphasisLength_ = 0;
+};
+
+class StudyDeck {
+ public:
+  // Parse meta.dat. Must succeed before the FSRS parameters are meaningful.
+  bool openMeta(ByteSource& meta);
+  // Parse deck.dat's header. The index stays on disk and is read per note:
+  // 5001 entries is 20KB, which is not worth holding to save one 4-byte read.
+  bool openDeck(ByteSource& deck);
+
+  int noteCount() const { return noteCount_; }
+  const DeckMeta& meta() const { return meta_; }
+
+  // Read one note's text. `index` is 0..noteCount-1, and is also the card's
+  // index in cards.dat -- the converter writes them in the same order so the
+  // review path never needs a lookup.
+  bool loadNote(ByteSource& deck, int index, Note& out) const;
+
+  // Read and write one card's scheduling state.
+  bool loadCard(ByteSource& cards, int index, CardState& out) const;
+  bool storeCard(WritableByteSource& cards, int index, const CardState& in) const;
+
+ private:
+  DeckMeta meta_;
+  int noteCount_ = 0;
+  uint8_t fieldCount_ = 0;
+  uint32_t indexBase_ = 0;  // file offset of the note index
+};
+
+// Day numbering, shared with Anki: whole days since the collection was created,
+// counted from the deck's rollover hour. Keeping Anki's own numbering is what
+// lets a due date computed here and one computed on the phone agree without any
+// timezone conversation.
+int dayNumber(const DeckMeta& meta, int64_t nowEpochSeconds);
+
+}  // namespace study

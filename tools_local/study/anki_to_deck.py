@@ -298,9 +298,13 @@ def write_deck(notes, path):
         payload = bytearray()
         for i, text in enumerate(note["fields"]):
             encoded = text.encode("utf-8")
-            if i == 4 and note["bold"][1]:
+            if i == 4:
                 # The two emphasis bytes ride inside the sentence field's
                 # length, so a reader that ignores them still sees valid text.
+                # Appended *unconditionally*, including as (0, 0): if they were
+                # only present when Anki had a <b>, the reader could not tell a
+                # sentence ending in two low bytes from one carrying a span,
+                # and would chop two bytes off the wrong records.
                 encoded += bytes((min(note["bold"][0], 255), min(note["bold"][1], 255)))
             if len(encoded) > 0xFFFF:
                 encoded = encoded[:0xFFFF]
