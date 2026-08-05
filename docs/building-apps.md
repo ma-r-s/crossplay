@@ -388,6 +388,22 @@ after.
 source still says `TODO: maybe find a better pattern?`. Extending that set is
 the cheapest big win available to every app's appearance.
 
+**Arduino.h turns some ordinary method names into something else.** It defines
+`word(...)` as a function-like macro expanding to `makeWord(...)`, so a perfectly
+reasonable `Round::word()` becomes `Round::makeWord()` in every translation unit
+that reaches Arduino -- and *only* there. Insider's rules compiled, its screens
+compiled, every host test passed and the simulator ran the whole game; the
+device build failed at link with `undefined reference to
+insider::Round::makeWord()`, naming a method that appears in no source file.
+
+The shape is what to remember: the freestanding layers this fork is built around
+never see `Arduino.h`, so a collision like this is invisible to everything green
+and shows up once, at the end, as a linker error about a symbol you did not
+write. `bit(b)` is the other one defined there today. Only function-like macros
+are involved, so a *member* called `word` is fine and a *method* called `word()`
+is not. Run `pio run -e x4pro` before believing an app is done, not just the
+simulator.
+
 **Never put a file with `main()` under `src/`.** PlatformIO's `[base]` filter is
 `+<*>`, so a host test's `main()` links into the firmware and replaces the real
 one. Host tests live in `host-tests/`.

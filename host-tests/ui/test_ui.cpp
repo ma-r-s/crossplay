@@ -18,6 +18,7 @@
 #include "../../src/apps_local/chess/ChessScreens.h"
 #include "../../src/apps_local/connections/ConnectionsScreens.h"
 #include "../../src/apps_local/hackernews/HackerNewsScreens.h"
+#include "../../src/apps_local/insider/InsiderScreens.h"
 #include "../../src/apps_local/link/LinkScreens.h"
 #include "../../src/apps_local/player/PlayerAvatar.h"
 #include "../../src/apps_local/player/PlayerScreen.h"
@@ -1682,6 +1683,228 @@ void testStudyWarnsWhenAReviewDidNotSave() {
   CHECK(!quiet.target.drew("SOME REVIEWS DID NOT SAVE"));
 }
 
+// --- insider ---------------------------------------------------------------
+
+// The whole game rests on one screen keeping one secret, so that is what these
+// assert. A Citizen's card that leaked the word would look completely normal:
+// the layout is the same, the icon is the same, and the only difference is a
+// string that should not be there.
+
+void buildInsiderPass(Rendered& out, const insiderui::PassModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  insiderui::buildPass(screen, model);
+}
+
+void buildInsiderVote(Rendered& out, const insiderui::VoteModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  insiderui::buildVote(screen, model);
+}
+
+// Substring rather than whole-run equality: the word can share a run with
+// anything, and "did this string reach the panel at all" is the question.
+bool anyTextContains(const Rendered& out, const char* needle) {
+  for (const auto& run : out.target.texts) {
+    if (run.text.find(needle) != std::string::npos) return true;
+  }
+  return false;
+}
+
+// Taps the middle of whatever run drew `label`, so the tap follows the drawing
+// instead of a second copy of the layout maths.
+fui::ActionEvent tapTextCentre(Rendered& out, const char* label) {
+  const auto* run = out.target.find(label);
+  if (run == nullptr) return fui::ActionEvent{};
+  return out.tap(run->rect.x + run->rect.width / 2, run->rect.y + run->rect.height / 2);
+}
+
+void testInsiderCitizenIsNeverToldTheWord() {
+  insiderui::PassModel model;
+  model.seat = 2;
+  model.players = 5;
+  model.revealed = true;
+  model.role = insider::Role::Citizen;
+  model.word = "PEACOCK";
+  Rendered out;
+  buildInsiderPass(out, model);
+
+  CHECK(out.target.drew("CITIZEN"));
+  // The one assertion this whole app exists to keep true.
+  CHECK(!anyTextContains(out, "PEACOCK"));
+
+  // And the mirror: the two roles that are supposed to know it, do.
+  for (const insider::Role role : {insider::Role::Master, insider::Role::Insider}) {
+    insiderui::PassModel knows = model;
+    knows.role = role;
+    Rendered told;
+    buildInsiderPass(told, knows);
+    CHECK(told.target.drew("PEACOCK"));
+    CHECK(told.target.drew("THE WORD IS"));
+  }
+}
+
+void testInsiderFaceDownCardShowsNothingAtAll() {
+  // The state the device is in while it is being handed over. If the role or
+  // the word reached the panel here, the person passing it would see it.
+  insiderui::PassModel model;
+  model.seat = 1;
+  model.players = 5;
+  model.revealed = false;
+  model.role = insider::Role::Insider;
+  model.word = "PEACOCK";
+  Rendered out;
+  buildInsiderPass(out, model);
+
+  CHECK(!anyTextContains(out, "PEACOCK"));
+  CHECK(!anyTextContains(out, "INSIDER"));
+  CHECK(out.target.drew("PLAYER 2"));
+  CHECK(out.target.drew("TAP TO SEE YOUR ROLE"));
+}
+
+void testInsiderFaceDownCardTakesATapAnywhere() {
+  insiderui::PassModel model;
+  model.seat = 0;
+  model.players = 4;
+  Rendered out;
+  buildInsiderPass(out, model);
+  // Deliberately away from any label: the body is the target because the
+  // device is being put into somebody's hand as they tap it.
+  CHECK(out.tap(40, 700).action == insiderui::ActionAdvance);
+  CHECK(out.tap(440, 200).action == insiderui::ActionAdvance);
+}
+
+void testInsiderMasterCannotBeAccused() {
+  insiderui::VoteModel model;
+  model.players = 5;
+  model.masterSeat = 2;
+  Rendered out;
+  buildInsiderVote(out, model);
+
+  // The Master's seat is drawn -- it dims rather than disappearing -- and is
+  // not tappable. A hole in the grid and a live-but-wrong chip look the same
+  // from the code; only the routed action tells them apart.
+  CHECK(out.target.drew("MASTER"));
+  CHECK(tapTextCentre(out, "3").action == fui::NO_ACTION);
+
+  // Every other seat accuses itself and nobody else.
+  const char* labels[5] = {"1", "2", "3", "4", "5"};
+  for (int i = 0; i < 5; ++i) {
+    if (i == model.masterSeat) continue;
+    Rendered each;
+    buildInsiderVote(each, model);
+    const fui::ActionEvent event = tapTextCentre(each, labels[i]);
+    CHECK(event.action == insiderui::ActionAccuse);
+    CHECK(event.value == i);
+  }
+}
+
+void testInsiderVoteWaitsForAChoice() {
+  insiderui::VoteModel model;
+  model.players = 5;
+  model.masterSeat = 0;
+  Rendered idle;
+  buildInsiderVote(idle, model);
+  CHECK(idle.target.drew("CHOOSE SOMEBODY"));
+  // Dimmed, and genuinely inert: the label alone would be a lie the compiler
+  // cannot catch.
+  CHECK(tapTextCentre(idle, "CHOOSE SOMEBODY").action == fui::NO_ACTION);
+
+  model.chosen = 3;
+  Rendered ready;
+  buildInsiderVote(ready, model);
+  CHECK(ready.target.drew("ACCUSE PLAYER 4"));
+  CHECK(tapTextCentre(ready, "ACCUSE PLAYER 4").action == insiderui::ActionConfirmVote);
+
+  model.chosen = insider::kNoInsider;
+  Rendered nobody;
+  buildInsiderVote(nobody, model);
+  CHECK(nobody.target.drew("SAY NOBODY"));
+  CHECK(tapTextCentre(nobody, "SAY NOBODY").action == insiderui::ActionConfirmVote);
+}
+
+void testInsiderSteppersDieAtTheEnds() {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+
+  insiderui::MenuModel model;
+  insider::Record record;
+  model.record = &record;
+
+  model.players = insider::kMinPlayers;
+  Rendered floor;
+  {
+    toybox::Frame frame(floor.target, ctx, noInput, floor.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    insiderui::buildMenu(screen, model);
+  }
+  CHECK(floor.target.drew("4 PLAYERS"));
+  CHECK(tapTextCentre(floor, "-").action == fui::NO_ACTION);
+  const fui::ActionEvent up = tapTextCentre(floor, "+");
+  CHECK(up.action == insiderui::ActionPlayers);
+  CHECK(up.value == 1);
+
+  model.players = insider::kMaxPlayers;
+  Rendered ceiling;
+  {
+    toybox::Frame frame(ceiling.target, ctx, noInput, ceiling.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    insiderui::buildMenu(screen, model);
+  }
+  CHECK(ceiling.target.drew("8 PLAYERS"));
+  CHECK(tapTextCentre(ceiling, "+").action == fui::NO_ACTION);
+  const fui::ActionEvent down = tapTextCentre(ceiling, "-");
+  CHECK(down.action == insiderui::ActionPlayers);
+  CHECK(down.value == -1);
+}
+
+void testInsiderRevealAlwaysSaysTheWord() {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+
+  // Every ending, including the one nobody won, has to end with the word --
+  // otherwise a round that times out leaves the table with no answer at all.
+  const insider::Outcome endings[3] = {insider::Outcome::Won, insider::Outcome::Lost, insider::Outcome::OutOfTime};
+  for (const insider::Outcome ending : endings) {
+    insiderui::RevealModel model;
+    model.outcome = ending;
+    model.insiderSeat = 3;
+    model.accused = 1;
+    model.players = 5;
+    model.word = "PEACOCK";
+    Rendered out;
+    {
+      toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+      toybox::Screen screen(frame, toybox::themeTokens());
+      insiderui::buildReveal(screen, model);
+    }
+    CHECK(out.target.drew("PEACOCK"));
+    CHECK(out.target.drew("THE WORD WAS"));
+    CHECK(out.target.drew("THE INSIDER WAS"));
+  }
+
+  // And the round where the role was never dealt says so in words, rather than
+  // leaving the seat block empty and looking like a drawing bug.
+  insiderui::RevealModel none;
+  none.outcome = insider::Outcome::Won;
+  none.insiderSeat = insider::kNoInsider;
+  none.accused = insider::kNoInsider;
+  none.word = "PEACOCK";
+  Rendered out;
+  {
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    insiderui::buildReveal(screen, none);
+  }
+  CHECK(!out.target.drew("THE INSIDER WAS"));
+  CHECK(anyTextContains(out, "NO INSIDER"));
+  CHECK(out.target.drew("PEACOCK"));
+}
+
 }  // namespace
 
 int main() {
@@ -1725,6 +1948,13 @@ int main() {
   testStudyRecordShowsTheStreak();
   testStudyPanelSaysSoWhenItHasNothing();
   testStudyWarnsWhenAReviewDidNotSave();
+  testInsiderCitizenIsNeverToldTheWord();
+  testInsiderFaceDownCardShowsNothingAtAll();
+  testInsiderFaceDownCardTakesATapAnywhere();
+  testInsiderMasterCannotBeAccused();
+  testInsiderVoteWaitsForAChoice();
+  testInsiderSteppersDieAtTheEnds();
+  testInsiderRevealAlwaysSaysTheWord();
 
   std::printf("%d checks, %d failed\n", checksRun, checksFailed);
   return checksFailed == 0 ? 0 : 1;
