@@ -14,7 +14,7 @@ from gone.
 | `sim-shot.sh`   | Scripted headless run for agents: drives taps and keys, captures screenshots, prints the activity trace. Set `SIM_LOG_GREP` to widen it (`SIM_LOG_GREP=.` for everything); the default hides `LOG_INF`/`LOG_DBG`.        |
 | `sim-link.sh`   | Two simulators at once, for local multiplayer. No args gives two interactive windows; with args, headless with `-a`/`-b` screenshot suffixes.                                                                            |
 | `sim.sh`        | One-shot interactive launch. Prefer `dev.sh`.                                                                                                                                                                            |
-| `sync.sh`       | Reports how far behind CrossPoint we are, warns when upstream touched a file this fork also modifies, and checks whether the branch we are based on has been merged away. `--apply` syncs, then runs `check.sh`.         |
+| `sync.sh`       | Reports how far behind CrossPoint we are, warns when upstream touched a file this fork also modifies, and checks whether the branch we are based on has been merged away. `--apply` merges and verifies in a throwaway worktree at the committed tip, then lands as a fast-forward. Works with a dirty tree unless upstream touched a file you have uncommitted work in.         |
 | `sim_catchup.py`| Not run by hand. A `pre:` build hook that patches the fetched simulator library where it lags this branch. Prints when a patch stops applying, which is how we learn CrossPoint has fixed it.                            |
 
 Each simulator instance gets its own SD card via `CROSSPOINT_SIM_SD`
