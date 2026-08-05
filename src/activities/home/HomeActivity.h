@@ -66,9 +66,10 @@ class HomeActivity final : public Activity {
   void onOpdsBrowserOpen();
 
   int getMenuItemCount() const;
-  bool storeCoverBuffer();    // Store frame buffer for cover image
-  bool restoreCoverBuffer();  // Restore frame buffer from stored cover
-  void freeCoverBuffer();     // Free the stored cover buffer
+  int upstreamMenuRows() const;  // fork-local seam
+  bool storeCoverBuffer();       // Store frame buffer for cover image
+  bool restoreCoverBuffer();     // Restore frame buffer from stored cover
+  void freeCoverBuffer();        // Free the stored cover buffer
   void loadRecentBooks(int maxBooks);
   void loadRecentCovers(int coverHeight);
 

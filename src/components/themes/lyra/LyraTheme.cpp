@@ -1,5 +1,4 @@
 #include "LyraTheme.h"
-#include "../../icons/shelfIcons.h"  // fork-local seam
 
 #include <GfxRenderer.h>
 #include <HalGPIO.h>
@@ -12,6 +11,7 @@
 #include <string>
 #include <vector>
 
+#include "../../icons/shelfIcons.h"  // fork-local seam
 #include "RecentBooksStore.h"
 #include "components/UITheme.h"
 #include "components/icons/book.h"

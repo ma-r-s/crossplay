@@ -22,6 +22,23 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 
+// --- fork-local seam ---------------------------------------------------
+// How many rows indexToMenuItem() walks. NOT getMenuItemCount(), which also
+// counts the recent-book tiles above the menu -- the dispatch has already
+// subtracted those to get its menuIndex, so using it here subtracts them twice.
+// With one book on the card that put Games out of range and made Apps open it.
+int HomeActivity::upstreamMenuRows() const {
+  // Browse Files, Recents, File transfer, Settings, plus OPDS when configured,
+  // plus the Continue Reading row the RoundedRaff theme inserts at the top.
+  //
+  // (indexToMenuItem() does not know about that Continue Reading row, so
+  // upstream's own dispatch is off by one under that theme. Not ours to fix,
+  // but it is why this counts the row and that function does not.)
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const bool continueRow = metrics.homeContinueReadingInMenu && !recentBooks.empty();
+  return 4 + (hasOpdsServers ? 1 : 0) + (continueRow ? 1 : 0);
+}
+
 int HomeActivity::getMenuItemCount() const {
   // --- fork-local seam ---------------------------------------------------
   // The shelf's folders (GAMES, APPS) are appended after upstream's rows, so
@@ -130,7 +147,7 @@ void HomeActivity::onEnter() {
   // activity's name against HomeMenuItem, which cannot know about shelf rows,
   // so leaving GAMES would otherwise drop the cursor on Browse Files.
   if (const int shelfRow = shelf::lastFolderOnHome(); shelfRow >= 0) {
-    selectorIndex = getMenuItemCount() - shelf::folderCount() + shelfRow + base;
+    selectorIndex = base + upstreamMenuRows() + shelfRow;
   }
 
   // Trigger first update
@@ -208,8 +225,10 @@ void HomeActivity::loop() {
         break;
       default: {
         // fork-local seam: anything past upstream's rows is a shelf folder.
-        const int shelfRow = menuIndex - (getMenuItemCount() - shelf::folderCount());
-        if (shelfRow >= 0) shelf::openFolder(shelfRow, renderer, mappedInput);
+        const int shelfRow = menuIndex - upstreamMenuRows();
+        if (shelfRow >= 0 && shelfRow < shelf::folderCount()) {
+          shelf::openFolder(shelfRow, renderer, mappedInput);
+        }
         break;
       }
     }
