@@ -183,7 +183,7 @@ def main():
     print()
 
     problems = {
-        "a CJK glyph missing from at least one face": [],
+        "a glyph the headword face cannot draw": [],
         "a Latin glyph the built-in serif cannot draw": [],
         "headword too wide for the screen": [],
         f"sentence wrapping past {MAX_SENTENCE_LINES} lines": [],
@@ -195,10 +195,15 @@ def main():
         headword, sentence = fields[0], fields[4]
 
         for family in families:
+            # Every character, not just the CJK ones. The device draws the
+            # headword in the randomised CJK face whatever script it is, so a
+            # Latin headword needs Latin glyphs *in that face* -- and this check
+            # used to skip them, which is how a deck of English words passed
+            # while rendering nothing at all.
             missing_hw = {
                 c
                 for c in headword
-                if is_cjk(c) and ord(c) not in headword_fonts[family][0]
+                if c != " " and ord(c) not in headword_fonts[family][0]
             }
             missing_st = {
                 c
@@ -206,7 +211,7 @@ def main():
                 if is_cjk(c) and ord(c) not in sentence_fonts[family][0]
             }
             if missing_hw or missing_st:
-                problems["a CJK glyph missing from at least one face"].append(
+                problems["a glyph the headword face cannot draw"].append(
                     f"note {index} in {family}: {''.join(sorted(missing_hw | missing_st))!r}"
                 )
                 break
