@@ -28,7 +28,8 @@ class DungeonActivity final : public Activity {
  private:
   enum class View : uint8_t { Menu, Guide, Picker, Board, Won };
 
-  void openPuzzle(int index);
+  // Opens a campaign dungeon. The tutorial is not one and is refused here.
+  void openPuzzle(int requested);
   void settleWin();
   void routeBoardTap(int x, int y);
   void routeButton(int button);
@@ -49,9 +50,6 @@ class DungeonActivity final : public Activity {
   dungeonui::Layout layout;
   dungeonui::PickerLayout pickerLayout;
   View view = View::Menu;
-  // Which tier the picker is showing. Kept across visits so choosing a dungeon,
-  // playing it and coming back does not send you to tier 1 again.
-  int pickerTier = 0;
   // Which page of the adventurer's guide is showing. Not saved: the guide is
   // short and always read from the front.
   int guidePage = 0;

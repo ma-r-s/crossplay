@@ -50,9 +50,8 @@ void DungeonActivity::onEnter() {
   toybox::ensureFonts(renderer);
   if (!loadState()) {
     progress = dungeon::Progress{};
-    board.load(0);
+    board.load(dungeon::kCampaignFirst);
   }
-  pickerTier = board.puzzle().tier;
   view = View::Menu;
   recorded = false;
   requestUpdate();
@@ -60,7 +59,11 @@ void DungeonActivity::onEnter() {
 
 void DungeonActivity::onExit() { flushSave(); }
 
-void DungeonActivity::openPuzzle(const int index) {
+void DungeonActivity::openPuzzle(const int requested) {
+  // The tutorial is not a level. Every door into a board funnels through here,
+  // so this one guard is the whole of that rule -- a new door cannot get it
+  // wrong because there is no choice left at the call site.
+  const int index = dungeon::isPlayable(requested) ? requested : dungeon::kCampaignFirst;
   // Reopening the dungeon already in hand keeps its marks; moving to a
   // different one starts clean. Without this, tapping RESUME would wipe the
   // board it offered to resume.
@@ -69,7 +72,6 @@ void DungeonActivity::openPuzzle(const int index) {
     unsaved = 1;
     flushSave();
   }
-  pickerTier = board.puzzle().tier;
   recorded = false;
   view = View::Board;
   requestUpdate();
@@ -134,14 +136,14 @@ void DungeonActivity::routeButton(const int button) {
       requestUpdate();
       break;
     case ui::ButtonGuideNext:
-      // Past the last page is the tutorial itself. The guide teaches the rules
-      // and then hands over the board they apply to, which is the whole reason
-      // the tutorial is not a cell on the map.
+      // Past the last page is a real dungeon, never the one the guide taught
+      // on. That board is solved in front of the reader by page eight, so
+      // there would be nothing left of it to play.
       if (guidePage + 1 < ui::guidePageCount()) {
         ++guidePage;
         requestUpdate();
       } else {
-        openPuzzle(0);
+        openPuzzle(progress.nextUnsolved());
       }
       break;
     case ui::ButtonReset:
@@ -215,24 +217,6 @@ void DungeonActivity::loop() {
       if (slot >= 0) openPuzzle(1 + slot);
       break;
     }
-    case ui::ActionPage: {
-      // Value 0 means the tap landed on a grid that chooses a tier rather than
-      // a dungeon; anything else is a step.
-      if (action.value == 0) {
-        const int slot = pickerLayout.indexAt(tapX, tapY);
-        if (slot >= 0) {
-          pickerTier = slot / 8 + 1;
-          requestUpdate();
-        }
-        break;
-      }
-      const int next = pickerTier + action.value;
-      if (next >= 0 && next <= 8) {
-        pickerTier = next;
-        requestUpdate();
-      }
-      break;
-    }
     default:
       break;
   }
@@ -251,7 +235,7 @@ void DungeonActivity::render(RenderLock&&) {
       ui::BoardModel model;
       model.board = &board;
       model.solvedCount = progress.solvedCount();
-      model.total = dungeon::kPuzzleCount;
+      model.total = dungeon::kCampaignCount;
       model.solved = board.solved();
       ui::buildBoard(screen, model, layout);
       break;
@@ -265,15 +249,9 @@ void DungeonActivity::render(RenderLock&&) {
     }
     case View::Picker: {
       ui::PickerModel model;
-      model.tier = pickerTier;
-      model.firstIndex = dungeon::tierStart(pickerTier);
-      model.count = dungeon::tierCount(pickerTier);
       model.current = board.index();
       model.solvedCount = progress.solvedCount();
-      model.total = dungeon::kPuzzleCount;
-      for (int i = 0; i < model.count; ++i) {
-        if (progress.isSolved(model.firstIndex + i)) model.solved |= static_cast<uint16_t>(1u << i);
-      }
+      model.total = dungeon::kCampaignCount;
       model.progress = &progress;
       model.nextIndex = progress.nextUnsolved();
       ui::buildPicker(screen, model, pickerLayout);
@@ -286,7 +264,7 @@ void DungeonActivity::render(RenderLock&&) {
       model.dungeonName = dungeon::kPuzzles[lastCleared].name;
       model.cleared = &dungeon::kPuzzles[lastCleared];
       model.solvedCount = progress.solvedCount();
-      model.total = dungeon::kPuzzleCount;
+      model.total = dungeon::kCampaignCount;
       model.moreToPlay = progress.solvedCount() < dungeon::kPuzzleCount;
       ui::buildWin(screen, model);
       break;
@@ -295,9 +273,8 @@ void DungeonActivity::render(RenderLock&&) {
     default: {
       ui::MenuModel model;
       model.dungeonName = board.puzzle().name;
-      model.tier = board.puzzle().tier;
       model.solvedCount = progress.solvedCount();
-      model.total = dungeon::kPuzzleCount;
+      model.total = dungeon::kCampaignCount;
       model.hasProgress = board.touched();
       model.progress = &progress;
       ui::buildMenu(screen, model);
@@ -349,8 +326,11 @@ bool DungeonActivity::loadState() {
   if (file.read(&version, 1) != 1 || version != kSaveVersion) return false;
   SaveState state;
   if (file.read(reinterpret_cast<uint8_t*>(&state), sizeof(state)) != sizeof(state)) return false;
-  if (state.index >= dungeon::kPuzzleCount) {
-    LOG_ERR("DUNG", "Save names dungeon %d of %d", state.index, dungeon::kPuzzleCount);
+  if (!dungeon::isPlayable(state.index)) {
+    // Index 0 lands here too: saves written before the tutorial stopped being a
+    // level could name it, and restoring one would put an unplayable board in
+    // front of the player with no way to tell why.
+    LOG_ERR("DUNG", "Save names dungeon %d, which is not playable", state.index);
     return false;
   }
   progress.low = state.solvedLow;

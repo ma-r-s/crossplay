@@ -93,11 +93,15 @@ class Board {
   uint64_t floors_ = 0;
 };
 
-// How many of the bank's puzzles are in tier `tier` (0 for the tutorial, 1..8
-// for the campaign), and where that tier starts. The bank is stored in tier
-// order, so these are a scan rather than a table that could fall out of step.
-int tierStart(int tier);
-int tierCount(int tier);
+// kPuzzles[0] is the tutorial and it is NOT a level. It exists to be explained:
+// the adventurer's guide walks through it a step at a time, and nothing else in
+// the app may open it, count it or offer it. The campaign is everything after
+// it, and the number the player is shown is out of that.
+constexpr int kCampaignFirst = 1;
+constexpr int kCampaignCount = kPuzzleCount - kCampaignFirst;
+
+// True for a puzzle the player is allowed to open.
+constexpr bool isPlayable(const int index) { return index >= kCampaignFirst && index < kPuzzleCount; }
 
 // Bits set for solved puzzles, packed into two words. The save carries this and
 // the menu reads it; kPuzzleCount is 65, which is why it is not one.
@@ -106,10 +110,15 @@ struct Progress {
   uint64_t high = 0;
 
   bool isSolved(int index) const;
+  // Refuses the tutorial. It is not a level, so it can never be finished, and a
+  // guard here means no caller has to remember that.
   void markSolved(int index);
+  // Campaign dungeons finished, out of kCampaignCount. The tutorial is not one
+  // of them and is never counted.
   int solvedCount() const;
-  // The first unsolved puzzle, or kPuzzleCount - 1 when every one is done. This
-  // is what PLAY opens, so the player never has to pick before playing.
+  // The first unsolved campaign dungeon, or the last when every one is done.
+  // This is what PLAY opens, so the player never has to pick before playing --
+  // and it never opens the tutorial.
   int nextUnsolved() const;
 };
 

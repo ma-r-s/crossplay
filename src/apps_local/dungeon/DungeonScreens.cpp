@@ -402,7 +402,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   fui::TextStyle label;
   label.font = toybox::kUiFont;
   label.align = fui::TextAlign::Center;
-  screen.target().text(screen.takeTop(26, toybox::spaceBetween), model.tier == 0 ? "TUTORIAL" : "NEXT DUNGEON", label);
+  screen.target().text(screen.takeTop(26, toybox::spaceBetween), "NEXT DUNGEON", label);
 
   fui::TextStyle name;
   name.font = toybox::kDisplayFont;
@@ -410,31 +410,21 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   name.maxLines = 2;
   screen.target().text(screen.takeTop(90, toybox::kGutter), model.dungeonName, name);
 
-  // The whole campaign as the 8x8 grid the original lays it out in, with the
-  // tutorial as the single cell above it. Solid for done, hairline for not.
+  // The whole campaign as the 8x8 grid the original lays it out in.
   if (model.progress != nullptr) {
     const fui::Rect body = screen.body();
     constexpr int pipGap = 4;
-    // Nine rows: the tutorial, then eight tiers. Sized to whatever is left
-    // rather than to a constant, so the block cannot outgrow its space.
-    int pip = (body.height - 9 * pipGap - toybox::kGutter) / 9;
+    // Eight rows, one per tier. The tutorial had a pip of its own above these
+    // and it has gone with it: it is not a level, so it is not progress, and a
+    // cell that can never fill in reads as a bug.
+    int pip = (body.height - 8 * pipGap) / 8;
     if (pip > 30) pip = 30;
     if (pip < 8) pip = 8;
     const int gridWidth = 8 * pip + 7 * pipGap;
-    const int blockHeight = 9 * (pip + pipGap) + toybox::kGutter;
+    const int blockHeight = 8 * pip + 7 * pipGap;
     const int gridX = body.x + (body.width - gridWidth) / 2;
-    const int top = body.y + (body.height - blockHeight) / 2;
+    const int gridY = body.y + (body.height - blockHeight) / 2;
 
-    const fui::Rect tutorial =
-        fui::makeRect(static_cast<int16_t>(body.x + (body.width - pip) / 2), static_cast<int16_t>(top),
-                      static_cast<int16_t>(pip), static_cast<int16_t>(pip));
-    if (model.progress->isSolved(0)) {
-      screen.target().fill(tutorial, fui::Paint::solid(fui::Color::Black), 6);
-    } else {
-      screen.target().stroke(tutorial, fui::Paint::solid(fui::Color::Black), toybox::kHairline, 6);
-    }
-
-    const int gridY = top + pip + toybox::kGutter;
     for (int tier = 0; tier < 8; ++tier) {
       for (int slot = 0; slot < 8; ++slot) {
         // Index 0 is the tutorial, so the campaign starts at 1.
@@ -674,7 +664,7 @@ constexpr GuidePage kGuide[] = {
      {3, 1, 2, 2, false}},
 
     {"YOUR TURN",
-     "PLACE EVERY WALL AND THE DUNGEON IS YOURS. THIS ONE IS WAITING.",
+     "THAT IS EVERY RULE. SIXTY-FOUR DUNGEONS ARE WAITING FOR YOU.",
      {"###...", "#.....", "..#...", "#.####", "#...#.", "..#..."},
      {0, 0, 0, 0, false}},
 };
@@ -745,7 +735,11 @@ void buildGuide(toybox::Screen& screen, const GuideModel& model) {
 
   const int width = (actions.width - toybox::kGutter) / 2;
   const bool last = page == kGuidePages - 1;
-  const char* labels[2] = {page == 0 ? "BACK" : "PREV", last ? "PLAY IT" : "NEXT"};
+  // The last page opens a real dungeon, never this one. The board on these
+  // pages is the tutorial, and the tutorial is a lesson rather than a level:
+  // it is solved in front of you by page eight, so there would be nothing left
+  // to play.
+  const char* labels[2] = {page == 0 ? "BACK" : "PREV", last ? "PLAY" : "NEXT"};
   const int values[2] = {ButtonGuideBack, ButtonGuideNext};
   for (int i = 0; i < 2; ++i) {
     fui::ButtonProps props;
