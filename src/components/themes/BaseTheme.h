@@ -125,7 +125,26 @@ struct ThemeMetrics {
   int textFieldLineEndOffset;
 };
 
-enum UIIcon { None = 0, Folder, Text, Image, Book, File, Recent, Settings, Transfer, Library, Wifi, Hotspot, Bookmark };
+// fork-local seam: Games and Apps are appended last, so every value above keeps
+// its number and this merges as an addition rather than a renumbering. Their
+// bitmaps are in src/apps_local/ui/ToyboxIcons.h; see LOCAL_SCOPE.md.
+enum UIIcon {
+  None = 0,
+  Folder,
+  Text,
+  Image,
+  Book,
+  File,
+  Recent,
+  Settings,
+  Transfer,
+  Library,
+  Wifi,
+  Hotspot,
+  Bookmark,
+  Games,
+  Apps
+};
 
 // Default theme implementation (Classic Theme)
 // Additional themes can inherit from this and override methods as needed

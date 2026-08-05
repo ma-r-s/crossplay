@@ -30,6 +30,8 @@ TRACKED="crosspoint/feat-touch-ui"
 # scripts_local/ or docs/, which cannot conflict.
 OWNED=(
   "src/activities/home/HomeActivity.cpp"
+  "src/components/themes/BaseTheme.h"
+  "src/components/themes/lyra/LyraTheme.cpp"
   ".skills/SKILL.md"
   ".gitignore"
   "platformio.ini"
@@ -87,22 +89,6 @@ for f in "${OWNED[@]}"; do
 done
 [ "$HIT" -eq 0 ] && echo "  none -- this sync should merge cleanly"
 
-# Files we do not edit but whose behaviour we depend on. These never conflict,
-# which is exactly the danger: the Home seam paints the shelf's folder icons
-# using drawButtonMenu's row geometry, so a silent layout change there moves our
-# icons and no merge says a word. Visual, so no test catches it either.
-echo
-echo "upstream changes to layout this fork draws against (will NOT conflict):"
-WATCH=0
-for f in src/components/themes/BaseTheme.cpp src/components/themes/lyra/LyraTheme.cpp \
-         src/components/themes/roundedraff/RoundedRaffTheme.cpp; do
-  n=$(git rev-list --count "$MIRROR..$TRACKED" -- "$f")
-  if [ "$n" -gt 0 ]; then
-    echo "  ?? $f ($n commit(s)) -- check the Home row icons still line up"
-    WATCH=1
-  fi
-done
-[ "$WATCH" -eq 0 ] && echo "  none"
 
 # The simulator shim exists only because the simulator lags this branch. When
 # upstream fixes it there, the pre: hook says so on the next build; surface that

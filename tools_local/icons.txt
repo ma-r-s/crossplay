@@ -26,5 +26,11 @@ nearby      = radio
 # and nothing distinguished them. Adding enum variants would mean editing
 # BaseTheme.h and LyraTheme.cpp, which upstream touched 7 and 3 times in the
 # last 60 commits, so these are drawn over the rows instead.
-games       = gamepad-2
+# gamepad-2 was the obvious pick and it is mush at 32px in one bit: the D-pad
+# and buttons blob into the body. A joystick is a ball, a shaft and a base --
+# three shapes, no interior detail, and the same line weight as the folder and
+# book icons it sits under. Rejected alongside it: puzzle (reads as a browser
+# extension), swords (diagonal, fights the column), target (reads as a goal),
+# dices (heavier than its neighbours).
+games       = joystick
 apps        = layout-grid

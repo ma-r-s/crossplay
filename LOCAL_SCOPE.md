@@ -25,7 +25,7 @@ how much upstream-owned code it touches.
 - **Everything we add lives in new files**: `src/apps_local/`, `host-tests/`,
   `scripts_local/`, `tools_local/`, and our own `docs/`. New files never
   conflict.
-- **Five upstream files know we exist**, four of them pointers or one-liners.
+- **Seven upstream files know we exist**, most of them pointers or one-liners.
   The list is below, and none of them grows when we add an app.
 - **Before editing any other upstream file, stop and ask whether it can be done
   in `src/apps_local/` instead.** If it genuinely cannot, keep the edit as small
@@ -39,20 +39,18 @@ how much upstream-owned code it touches.
 | File                                   | Why                                                       | Size                 |
 | -------------------------------------- | --------------------------------------------------------- | -------------------- |
 | `src/activities/home/HomeActivity.cpp` | The shelf seam: Games and Apps as rows on Home            | 4 hooks, fixed       |
+| `src/components/themes/BaseTheme.h`    | Two values appended to the `UIIcon` palette: Games, Apps  | 1 block, appended    |
+| `src/components/themes/lyra/LyraTheme.cpp` | Two cases mapping them to bitmaps                     | 4 lines              |
 | `.skills/SKILL.md` (= `CLAUDE.md`)     | Four-line pointer here, so agents find the fork rules     | 4 lines              |
 | `.gitignore`                           | Ignore `qa-artifacts/` and the simulator's SD cards       | 3 lines, append-only |
 | `platformio.ini`                       | One `extra_configs` line pulling in `platformio.sim.ini`  | 1 line               |
 | `SCOPE.md`                             | One-line pointer here; it is the file that says "no games" | 2 lines              |
 
-There is also a **watch list**: `src/components/themes/*Theme.cpp`. We do not
-edit those, but the Home seam paints the shelf's folder icons using
-`drawButtonMenu`'s row geometry, so a layout change there moves our icons
-without conflicting and without failing a test. `sync.sh` reports commits to
-them separately.
-
-None of them grows when an app is added. Four of the five are pointers or
-one-liners; only `HomeActivity.cpp` is real code, and its hooks all append after
-upstream's rows so their indices never shift.
+None of them grows when an app is added -- the two theme edits are per *folder*,
+and there are two folders. Both are appends: values at the end of an enum keep
+every number above them, and a case in a switch merges as an addition.
+`HomeActivity.cpp`'s hooks likewise append after upstream's rows, so their
+indices never shift.
 
 Three deliberate near-misses, worth knowing so nobody "fixes" them:
 
@@ -86,7 +84,7 @@ All scoped to `src/apps_local/`.
 | Upstream rule                                    | What we do in local apps                  | Why                                                                                                                     |
 | ------------------------------------------------ | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | All user-facing text uses `tr()`                 | Raw `const char*` titles and strings      | Routing through `tr()` means editing `lib/I18n/translations/*.yaml` per app, which is per-app churn in an upstream file |
-| Icons are `UIIcon` enum variants added per app   | Shelf items carry a `freeink::Icon` generated from Lucide | Adding enum variants means editing `BaseTheme.h` and `LyraTheme.cpp` per app. An asset the shelf resolves gives us Lucide's 1735 icons instead of a growing enum. Folder rows on Home still take a `UIIcon`, because upstream's menu accepts nothing else |
+| Icons are `UIIcon` enum variants added per app   | Shelf items carry a `freeink::Icon` generated from Lucide | An asset the shelf resolves gives us Lucide's 1735 icons instead of an enum that grows per app. The two *folder* rows are the exception: upstream's Home menu accepts only a `UIIcon`, so Games and Apps are appended to that palette once and never again |
 | Apps register via `ActivityManager::goTo<App>()` | A function-pointer factory in the shelf   | Avoids editing `ActivityManager.{h,cpp}` per app                                                                        |
 | All rendering through the `GUI`/UITheme macro    | Apps draw their own surface via FreeInkUI | A board or a grid is the app's own material; chrome still goes through Toybox, which is a FreeInkUI theme               |
 

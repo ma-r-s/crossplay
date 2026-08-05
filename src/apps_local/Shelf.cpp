@@ -28,8 +28,8 @@ constexpr shelf::Item kApps[] = {};
 // shouts its own header, which is our side of the line. A third folder is one row here and
 // nothing else: the Home hook counts this table rather than knowing its length.
 constexpr shelf::Folder kFolders[] = {
-    {"Games", UIIcon::Folder, &icon_games_32, kGames, static_cast<int>(sizeof(kGames) / sizeof(shelf::Item)), true},
-    {"Apps", UIIcon::Folder, &icon_apps_32, kApps, static_cast<int>(sizeof(kApps) / sizeof(shelf::Item)), false},
+    {"Games", UIIcon::Games, &icon_games_32, kGames, static_cast<int>(sizeof(kGames) / sizeof(shelf::Item)), true},
+    {"Apps", UIIcon::Apps, &icon_apps_32, kApps, static_cast<int>(sizeof(kApps) / sizeof(shelf::Item)), false},
 };
 
 constexpr int kFolderCount = static_cast<int>(sizeof(kFolders) / sizeof(kFolders[0]));
