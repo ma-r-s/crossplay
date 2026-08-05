@@ -36,6 +36,8 @@ queue, and truncating it would destroy the only copy of that history.
 """
 
 import argparse
+import getpass
+import os
 import json
 import pathlib
 import shutil
@@ -251,12 +253,82 @@ def apply(db, reviews, cards, dry_run):
     return applied, skipped, missing, updated
 
 
+def sync_to_ankiweb(collection_path, username, password, sync_media):
+    """Push the collection to AnkiWeb using Anki's own client.
+
+    Deliberately Anki's code and not ours. AnkiWeb's sync is an undocumented
+    protobuf protocol with USN tracking, chunked transfer and a full-sync
+    fallback; a homemade client that gets it subtly wrong does not fail loudly,
+    it corrupts the collection on the server, which for most people is the only
+    copy. Anki ships that client as a Python package, so there is no reason to
+    write a second one.
+
+    Requires `anki` (pip install anki). Credentials are read from the
+    environment or prompted for, never stored and never logged.
+    """
+    try:
+        import anki.collection  # noqa: F401  (breaks a circular import)
+        from anki.collection import Collection
+    except ImportError:
+        sys.exit(
+            "syncing needs Anki's own library:\n"
+            "    pip install anki\n"
+            "or run this from a venv that has it."
+        )
+
+    if not username:
+        username = os.environ.get("ANKI_USERNAME") or input("AnkiWeb email: ").strip()
+    if not password:
+        password = os.environ.get("ANKI_PASSWORD") or getpass.getpass("AnkiWeb password: ")
+
+    col = Collection(str(collection_path))
+    try:
+        from anki.errors import SyncError
+
+        try:
+            auth = col.sync_login(username, password, None)
+        except SyncError as e:
+            print(f"\nAnkiWeb refused the login: {e}")
+            print("Reviews are already applied to the local collection -- nothing was lost.")
+            return False
+
+        try:
+            out = col.sync_collection(auth, sync_media)
+        except SyncError as e:
+            print(f"\nsync failed: {e}")
+            print("Reviews are already applied to the local collection -- nothing was lost.")
+            return False
+
+        # A "full sync required" answer means the two sides have diverged
+        # further than an incremental sync can reconcile, and resolving it means
+        # choosing which side wins. That is a decision for a human in front of
+        # Anki, not for a script holding their only copy.
+        if getattr(out, "required", 0) != 0:
+            print(
+                "\nAnkiWeb wants a FULL sync, which means choosing whether this\n"
+                "computer or AnkiWeb wins. Open Anki and sync there -- it will ask.\n"
+                "Your reviews are already in the local collection either way."
+            )
+            return False
+        print("\nsynced to AnkiWeb")
+        return True
+    finally:
+        col.close()
+
+
 def main():
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     ap.add_argument("deck", type=pathlib.Path, help="deck directory on the SD card")
     ap.add_argument("collection", type=pathlib.Path, help="collection.anki2")
+    ap.add_argument(
+        "--sync",
+        action="store_true",
+        help="after applying, push the collection to AnkiWeb using Anki's own client",
+    )
+    ap.add_argument("--username", help="AnkiWeb email (else $ANKI_USERNAME, else prompt)")
+    ap.add_argument("--sync-media", action="store_true", help="sync media as well as the collection")
     ap.add_argument(
         "--dry-run", action="store_true", help="report what would change, write nothing"
     )
@@ -303,8 +375,15 @@ def main():
     print(f"  updated   {updated} cards")
     if args.dry_run:
         print("\n(dry run -- nothing was written)")
+        return
+
+    if args.sync:
+        # Anki must not be running: it holds the collection open, and two
+        # writers is how a collection gets corrupted.
+        sync_to_ankiweb(args.collection, args.username, None, args.sync_media)
     else:
         print("\nOpen Anki and run Tools > Check Database to rebuild its caches.")
+        print("Pass --sync to push straight to AnkiWeb instead.")
 
 
 if __name__ == "__main__":

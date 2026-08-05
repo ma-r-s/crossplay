@@ -174,6 +174,30 @@ The sync is idempotent: a device review is keyed by the millisecond it was
 answered, which is also Anki's revlog primary key, so re-running it applies
 nothing the second time.
 
+### Syncing straight to AnkiWeb
+
+`deck_to_anki.py --sync` applies the device's reviews and then pushes the
+collection, using **Anki's own client** from the `anki` package rather than a
+hand-written one. That is not laziness. AnkiWeb's sync is an undocumented
+protobuf protocol with USN tracking, chunked transfer and a full-sync fallback,
+and a client that gets it subtly wrong does not fail loudly -- it corrupts the
+collection on the server, which for most people is the only copy.
+
+    deck_to_anki.py /Volumes/SDCARD/study/mandarin ~/…/collection.anki2 --sync
+
+Credentials come from `$ANKI_USERNAME` / `$ANKI_PASSWORD` or a prompt, and are
+never stored or logged. Anki must not be running: it holds the collection open,
+and two writers is how a collection gets corrupted.
+
+If AnkiWeb answers "full sync required" the script stops and says so, because
+resolving that means choosing whether this computer or the server wins -- a
+decision for a human in front of Anki, not a script holding their only copy.
+The reviews are already in the local collection either way.
+
+Doing the sync here rather than on the device is deliberate. The ESP32 could in
+principle speak the protocol; it should not, for the same reason as above,
+multiplied by having no way to show the user what went wrong.
+
 ### Retraining the parameters
 
 There is no optimiser here and there should not be one. Reviews reach the
