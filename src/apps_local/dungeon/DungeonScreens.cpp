@@ -385,100 +385,29 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model, Layout& layout)
   }
 }
 
-void buildMenu(toybox::Screen& screen, const MenuModel& model) {
-  char progress[12];
-  std::snprintf(progress, sizeof(progress), "%d/%d", model.solvedCount, model.total);
-  chrome(screen, "DUNGEONS", progress);
-  screen.insetContent(fui::Insets{toybox::kMargin, toybox::kMargin, toybox::kMargin, toybox::kMargin});
-
-  // Every block is reserved from the layout rather than positioned by
-  // arithmetic against the body's centre. The first version did the latter and
-  // the two halves collided: the tutorial pip landed on top of the dungeon's
-  // name and the grid ran under the buttons.
-  const fui::Rect actions = screen.takeBottom(toybox::kPillHeight, toybox::kGutter);
-
-  // What is up next, named. The dungeon's name is the only flavour this game
-  // has and it costs nothing to show it before the board does.
-  fui::TextStyle label;
-  label.font = toybox::kUiFont;
-  label.align = fui::TextAlign::Center;
-  screen.target().text(screen.takeTop(26, toybox::spaceBetween), "NEXT DUNGEON", label);
-
-  fui::TextStyle name;
-  name.font = toybox::kDisplayFont;
-  name.align = fui::TextAlign::Center;
-  name.maxLines = 2;
-  screen.target().text(screen.takeTop(90, toybox::kGutter), model.dungeonName, name);
-
-  // The whole campaign as the 8x8 grid the original lays it out in.
-  if (model.progress != nullptr) {
-    const fui::Rect body = screen.body();
-    constexpr int pipGap = 4;
-    // Eight rows, one per tier. The tutorial had a pip of its own above these
-    // and it has gone with it: it is not a level, so it is not progress, and a
-    // cell that can never fill in reads as a bug.
-    int pip = (body.height - 8 * pipGap) / 8;
-    if (pip > 30) pip = 30;
-    if (pip < 8) pip = 8;
-    const int gridWidth = 8 * pip + 7 * pipGap;
-    const int blockHeight = 8 * pip + 7 * pipGap;
-    const int gridX = body.x + (body.width - gridWidth) / 2;
-    const int gridY = body.y + (body.height - blockHeight) / 2;
-
-    for (int tier = 0; tier < 8; ++tier) {
-      for (int slot = 0; slot < 8; ++slot) {
-        // Index 0 is the tutorial, so the campaign starts at 1.
-        const int index = 1 + tier * 8 + slot;
-        const fui::Rect cell = fui::makeRect(static_cast<int16_t>(gridX + slot * (pip + pipGap)),
-                                             static_cast<int16_t>(gridY + tier * (pip + pipGap)),
-                                             static_cast<int16_t>(pip), static_cast<int16_t>(pip));
-        if (model.progress->isSolved(index)) {
-          screen.target().fill(cell, fui::Paint::solid(fui::Color::Black), 6);
-        } else {
-          screen.target().stroke(cell, fui::Paint::solid(fui::Color::Black), toybox::kHairline, 6);
-        }
-      }
-    }
-  }
-
-  const int width = (actions.width - 2 * toybox::kGutter) / 3;
-  const char* labels[3] = {"PLAY", "CHOOSE", "TUTORIAL"};
-  const int values[3] = {ButtonPlay, ButtonChoose, ButtonGuide};
-  for (int i = 0; i < 3; ++i) {
-    fui::ButtonProps props;
-    props.label = i == 0 && model.hasProgress ? "RESUME" : labels[i];
-    props.action = ActionButton;
-    props.value = static_cast<int16_t>(values[i]);
-    props.text = toybox::buttonText(screen.theme());
-    props.radius = toybox::kPillRadius;
-    screen.button(props, fui::makeRect(static_cast<int16_t>(actions.x + i * (width + toybox::kGutter)), actions.y,
-                                       static_cast<int16_t>(width), actions.height));
-  }
-}
-
-int PickerLayoutIndexAt(const PickerLayout& layout, const int x, const int y) {
-  if (layout.cell <= 0) return -1;
-  const int pitch = layout.cell + layout.gap;
-  if (x < layout.grid.x || y < layout.grid.y) return -1;
-  const int col = (x - layout.grid.x) / pitch;
-  const int row = (y - layout.grid.y) / pitch;
-  if (col < 0 || col >= layout.cols || row < 0 || row >= layout.rows) return -1;
+int PickerLayout::indexAt(const int x, const int y) const {
+  if (cell <= 0) return -1;
+  const int pitch = cell + gap;
+  if (x < grid.x || y < grid.y) return -1;
+  const int col = (x - grid.x) / pitch;
+  const int row = (y - grid.y) / pitch;
+  if (col < 0 || col >= cols || row < 0 || row >= rows) return -1;
   // A tap in the gap between two cells belongs to the one before it, which is
   // what makes a grid of small targets usable with a thumb.
-  return row * layout.cols + col;
+  return row * cols + col;
 }
 
 namespace {
 
-// A dungeon's cell on the map: its own monster, standing in a room that is
-// filled once the dungeon is cleared.
+// A dungeon's cell on the campaign grid: its own monster, standing in a room
+// that is filled once the dungeon is cleared.
 //
 // The monster is what makes this a map rather than a progress bar, and it is
-// free: which creature a dungeon has is already a pure function of its index,
-// so the grid shows sixty-four different things without a byte of new data.
-// This is the fork's rule about decoration -- a screenshot of this screen is
-// different on every device, because it is the player's own record drawn in the
-// game's own material.
+// free: which creature a dungeon has is already a pure function of its name, so
+// the grid shows sixty-four different things without a byte of new data. This
+// is the fork's rule about decoration -- a screenshot of it is different on
+// every device, because it is the player's own record drawn in the game's own
+// material.
 void mapCell(toybox::Screen& screen, const fui::Rect& box, const int index, const bool done, const bool current) {
   if (done) {
     screen.target().fill(box, fui::Paint::solid(fui::Color::Black), 8);
@@ -503,97 +432,112 @@ void mapCell(toybox::Screen& screen, const fui::Rect& box, const int index, cons
 
 }  // namespace
 
-int PickerLayout::indexAt(const int x, const int y) const { return PickerLayoutIndexAt(*this, x, y); }
+// The front door.
+//
+// The campaign IS the menu: the grid is the biggest thing on the screen and it
+// is tappable, so the separate CHOOSE screen it used to open has gone with it.
+// One screen fewer, and the grid stops being filler between a name and a row of
+// buttons.
+//
+// Two alternatives were built complete, rendered beside it and deleted: the
+// next dungeon as a solid slab with progress as eight tier bars, and that
+// dungeon's own empty board shown as a preview. The preview was the prettiest
+// single screen and it lost for showing you what you would see two taps later
+// anyway; the slab read best from across a room, and neither of them removed a
+// screen.
 
-void buildPicker(toybox::Screen& screen, const PickerModel& model, PickerLayout& layout) {
+void buildMenu(toybox::Screen& screen, const MenuModel& model, PickerLayout& layout) {
   layout = PickerLayout{};
   char progress[12];
   std::snprintf(progress, sizeof(progress), "%d/%d", model.solvedCount, model.total);
   chrome(screen, "DUNGEONS", progress);
   screen.insetContent(fui::Insets{toybox::kGutter, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 
-  // The foot of the screen names what PLAY would open, with its own monster
-  // beside it. Reserved first so nothing above can grow into it.
-  const fui::Rect nextBand = screen.takeBottom(52, toybox::kGutter);
+  fui::TextStyle label;
+  label.font = toybox::kSmallFont;
+  label.align = fui::TextAlign::Center;
 
-  // The tier lane. Wide enough for a digit in a chip, and taken out of the
-  // grid's width so the two together are centred rather than the grid alone --
-  // a grid centred on its own leaves the lane hanging off the left and the
-  // whole block reads as shifted.
-  constexpr int lane = 30;
-  constexpr int gap = 5;
-  const fui::Rect body = screen.body();
+  // MAP. The campaign is the front door: the grid is the biggest thing on the
+  // screen, it is tappable, and CHOOSE goes away because what it opened is
+  // already here. One screen fewer, and the grid stops being filler between a
+  // name and a row of buttons.
+  const fui::Rect actions = screen.takeBottom(toybox::kPillHeight, toybox::kGutter);
 
-  // The campaign, and only the campaign. The tutorial used to sit above this as
-  // a sixty-fifth cell, which said it was one more dungeon among the sixty-four
-  // -- and it is not, it is where the rules are explained. It lives behind the
-  // TUTORIAL button now, at the end of the guide.
-  int cell = (body.width - lane - 7 * gap) / 8;
-  if (cell > (body.height - 7 * gap) / 8) cell = (body.height - 7 * gap) / 8;
-  const int gridExtent = 8 * cell + 7 * gap;
-  const int blockWidth = lane + gridExtent;
-  const int left = body.x + (body.width - blockWidth) / 2;
-  const int top = body.y + (body.height - gridExtent) / 2;
-
-  layout.grid = fui::makeRect(static_cast<int16_t>(left + lane), static_cast<int16_t>(top),
-                              static_cast<int16_t>(gridExtent), static_cast<int16_t>(gridExtent));
-  layout.cell = static_cast<int16_t>(cell);
-  layout.gap = gap;
-  layout.cols = 8;
-  layout.rows = 8;
-  // One target for the whole grid, resolved back through the layout that drew
-  // it: sixty-four hit rects would not fit the interaction buffer.
-  screen.frame().hit(layout.grid, ActionPick, -1);
-
-  for (int tier = 0; tier < 8; ++tier) {
-    const int16_t rowY = static_cast<int16_t>(layout.grid.y + tier * (cell + gap));
-    int done = 0;
-    for (int slot = 0; slot < 8; ++slot) {
-      const int index = 1 + tier * 8 + slot;
-      const bool cleared = model.progress != nullptr && model.progress->isSolved(index);
-      if (cleared) ++done;
-      const fui::Rect box = fui::makeRect(static_cast<int16_t>(layout.grid.x + slot * (cell + gap)), rowY,
-                                          static_cast<int16_t>(cell), static_cast<int16_t>(cell));
-      mapCell(screen, box, index, cleared, model.current == index);
-    }
-
-    // The tier's number, in the same chip the board gives a clue that is done.
-    // One visual language for "this is finished", used in both places it means
-    // that, rather than a second mark somebody has to learn.
-    char label[3];
-    std::snprintf(label, sizeof(label), "%d", tier + 1);
-    const fui::Rect chip =
-        fui::makeRect(static_cast<int16_t>(left), rowY, static_cast<int16_t>(lane - 6), static_cast<int16_t>(cell));
-    fui::TextStyle number;
-    number.font = toybox::kUiFont;
-    number.align = fui::TextAlign::Center;
-    number.color = fui::Color::Black;
-    if (done == 8) {
-      screen.target().fill(chip, fui::Paint::solid(fui::Color::Black));
-      number.color = fui::Color::White;
-    }
-    screen.target().text(chip, label, number);
-  }
-
-  // What PLAY opens, named. The map answers "where can I go"; without this it
-  // does not answer "where am I", and that is the question somebody opening it
-  // usually has.
-  const dungeon::Puzzle& next = dungeon::kPuzzles[model.nextIndex];
-  const int16_t nextArt = 32;
+  // The next dungeon, named at the foot with its own creature beside it, as one
+  // line rather than a two-line display cut that breaks names in odd places.
+  const fui::Rect nextBand = screen.takeBottom(44, toybox::kMargin);
+  const int16_t art = 32;
   const fui::Rect artBox =
-      fui::makeRect(static_cast<int16_t>(nextBand.x),
-                    static_cast<int16_t>(nextBand.y + (nextBand.height - nextArt) / 2), nextArt, nextArt);
+      fui::makeRect(nextBand.x, static_cast<int16_t>(nextBand.y + (nextBand.height - art) / 2), art, art);
   screen.target().bitmap(artBox, fui::bitmapFromIcon(monsterArt(model.nextIndex)), fui::BitmapMode::Contain,
                          fui::Paint::solid(fui::Color::Black));
   fui::TextStyle nextText;
   nextText.align = fui::TextAlign::Left;
-  nextText.color = fui::Color::Black;
-  const int nextWidth = nextBand.width - nextArt - toybox::kGutter;
-  nextText.font = fitLabel(screen, next.name, nextWidth, nextText);
+  const int nextWidth = nextBand.width - art - toybox::kGutter;
+  nextText.font = fitLabel(screen, model.dungeonName, nextWidth, nextText);
   nextText.align = fui::TextAlign::Left;
   screen.target().text(fui::makeRect(static_cast<int16_t>(artBox.right() + toybox::kGutter), nextBand.y,
                                      static_cast<int16_t>(nextWidth), nextBand.height),
-                       next.name, nextText);
+                       model.dungeonName, nextText);
+  screen.target().text(screen.takeTop(24, toybox::kGutter), "TAP A DUNGEON", label);
+
+  if (model.progress != nullptr) {
+    const fui::Rect body = screen.body();
+    constexpr int lane = 30;
+    constexpr int gap = 5;
+    int cell = (body.width - lane - 7 * gap) / 8;
+    if (cell > (body.height - 7 * gap) / 8) cell = (body.height - 7 * gap) / 8;
+    const int extent = 8 * cell + 7 * gap;
+    const int left = body.x + (body.width - lane - extent) / 2;
+    layout.grid =
+        fui::makeRect(static_cast<int16_t>(left + lane), static_cast<int16_t>(body.y + (body.height - extent) / 2),
+                      static_cast<int16_t>(extent), static_cast<int16_t>(extent));
+    layout.cell = static_cast<int16_t>(cell);
+    layout.gap = gap;
+    layout.cols = 8;
+    layout.rows = 8;
+    screen.frame().hit(layout.grid, ActionPick, -1);
+
+    for (int tier = 0; tier < 8; ++tier) {
+      const int16_t rowY = static_cast<int16_t>(layout.grid.y + tier * (cell + gap));
+      int done = 0;
+      for (int slot = 0; slot < 8; ++slot) {
+        const int index = dungeon::kCampaignFirst + tier * 8 + slot;
+        const bool cleared = model.progress->isSolved(index);
+        if (cleared) ++done;
+        mapCell(screen,
+                fui::makeRect(static_cast<int16_t>(layout.grid.x + slot * (cell + gap)), rowY,
+                              static_cast<int16_t>(cell), static_cast<int16_t>(cell)),
+                index, cleared, model.nextIndex == index);
+      }
+      char tierLabel[3];
+      std::snprintf(tierLabel, sizeof(tierLabel), "%d", tier + 1);
+      const fui::Rect chip =
+          fui::makeRect(static_cast<int16_t>(left), rowY, static_cast<int16_t>(lane - 6), static_cast<int16_t>(cell));
+      fui::TextStyle number;
+      number.font = toybox::kUiFont;
+      number.align = fui::TextAlign::Center;
+      if (done == 8) {
+        screen.target().fill(chip, fui::Paint::solid(fui::Color::Black));
+        number.color = fui::Color::White;
+      }
+      screen.target().text(chip, tierLabel, number);
+    }
+  }
+
+  const int width = (actions.width - toybox::kGutter) / 2;
+  const char* labels[2] = {"PLAY", "TUTORIAL"};
+  const int values[2] = {ButtonPlay, ButtonGuide};
+  for (int i = 0; i < 2; ++i) {
+    fui::ButtonProps props;
+    props.label = i == 0 && model.hasProgress ? "RESUME" : labels[i];
+    props.action = ActionButton;
+    props.value = static_cast<int16_t>(values[i]);
+    props.text = toybox::buttonText(screen.theme());
+    props.radius = toybox::kPillRadius;
+    screen.button(props, fui::makeRect(static_cast<int16_t>(actions.x + i * (width + toybox::kGutter)), actions.y,
+                                       static_cast<int16_t>(width), actions.height));
+  }
 }
 
 namespace {

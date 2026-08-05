@@ -118,10 +118,6 @@ void DungeonActivity::routeButton(const int button) {
     case ui::ButtonPlay:
       openPuzzle(board.index());
       break;
-    case ui::ButtonChoose:
-      view = View::Picker;
-      requestUpdate();
-      break;
     case ui::ButtonGuide:
       guidePage = 0;
       view = View::Guide;
@@ -247,16 +243,6 @@ void DungeonActivity::render(RenderLock&&) {
       ui::buildGuide(screen, model);
       break;
     }
-    case View::Picker: {
-      ui::PickerModel model;
-      model.current = board.index();
-      model.solvedCount = progress.solvedCount();
-      model.total = dungeon::kCampaignCount;
-      model.progress = &progress;
-      model.nextIndex = progress.nextUnsolved();
-      ui::buildPicker(screen, model, pickerLayout);
-      break;
-    }
     case View::Won: {
       ui::WinModel model;
       // The dungeon just finished, not the one now loaded: settleWin has
@@ -277,7 +263,8 @@ void DungeonActivity::render(RenderLock&&) {
       model.total = dungeon::kCampaignCount;
       model.hasProgress = board.touched();
       model.progress = &progress;
-      ui::buildMenu(screen, model);
+      model.nextIndex = progress.nextUnsolved();
+      ui::buildMenu(screen, model, pickerLayout);
       break;
     }
   }

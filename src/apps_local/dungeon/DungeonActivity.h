@@ -26,7 +26,7 @@ class DungeonActivity final : public Activity {
   void render(RenderLock&&) override;
 
  private:
-  enum class View : uint8_t { Menu, Guide, Picker, Board, Won };
+  enum class View : uint8_t { Menu, Guide, Board, Won };
 
   // Opens a campaign dungeon. The tutorial is not one and is refused here.
   void openPuzzle(int requested);
