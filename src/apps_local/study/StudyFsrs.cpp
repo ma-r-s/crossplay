@@ -72,8 +72,8 @@ float Fsrs::recallStability(const float d, const float s, const float retr, cons
   const float easyBonus = (r == Rating::Easy) ? w_[16] : 1.0f;
   // Growth is largest when the card was nearly forgotten (low retr) and least
   // when it was answered while still fresh -- the spacing effect, made explicit.
-  return s * (1.0f + std::exp(w_[8]) * (11.0f - d) * std::pow(s, -w_[9]) *
-                         (std::exp((1.0f - retr) * w_[10]) - 1.0f) * hardPenalty * easyBonus);
+  return s * (1.0f + std::exp(w_[8]) * (11.0f - d) * std::pow(s, -w_[9]) * (std::exp((1.0f - retr) * w_[10]) - 1.0f) *
+                         hardPenalty * easyBonus);
 }
 
 float Fsrs::forgetStability(const float d, const float s, const float retr) const {

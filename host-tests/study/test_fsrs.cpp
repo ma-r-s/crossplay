@@ -28,14 +28,14 @@ void check(const bool ok, const char* what) {
 // Mario's "Mandarin: Vocabulary::Current" preset, lifted from the collection.
 // The vectors were produced by Anki running these, so anything else is a
 // different scheduler and the comparison would be meaningless.
-constexpr float kCurrentDeckParams[study::kNumParams] = {
-    0.3219f, 1.2066f, 3.0221f, 6.6069f, 7.4556f, 0.5159f, 1.7549f, 0.001f, 1.2577f, 0.3674f,
-    0.7788f, 1.9467f, 0.1041f, 0.2738f, 2.1961f, 0.3586f, 3.0137f, 0.3027f, 0.9353f};
+constexpr float kCurrentDeckParams[study::kNumParams] = {0.3219f, 1.2066f, 3.0221f, 6.6069f, 7.4556f, 0.5159f, 1.7549f,
+                                                         0.001f,  1.2577f, 0.3674f, 0.7788f, 1.9467f, 0.1041f, 0.2738f,
+                                                         2.1961f, 0.3586f, 3.0137f, 0.3027f, 0.9353f};
 
 // Tolerances. Anki stores stability rounded to three decimals, so an exact
 // float comparison would fail on rounding alone; 2% is well inside the
 // resolution at which a difference could change a displayed interval.
-constexpr float kStabilityTolerance = 0.02f;  // relative
+constexpr float kStabilityTolerance = 0.02f;   // relative
 constexpr float kDifficultyTolerance = 0.02f;  // absolute
 
 // 287 of 301 reproduce exactly. The 14 that do not are all heavily lapsed
