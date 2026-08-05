@@ -125,7 +125,7 @@ this bug mine or theirs".
 
 ```bash
 ./scripts/sync.sh           # report what changed upstream, change nothing
-./scripts/sync.sh --apply   # fast-forward base, merge into xteink, then verify
+./scripts/sync.sh --apply   # merge and verify in a trial worktree, then land
 ```
 
 ### The base is an unmerged upstream branch, on purpose
