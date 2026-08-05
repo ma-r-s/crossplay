@@ -236,8 +236,13 @@ void ChessActivity::refreshTurnLabel() {
     snprintf(turnLabel, sizeof(turnLabel), "YOUR MOVE");
     return;
   }
-  const char* them = opponentName();
-  if (them == nullptr || them[0] == '\0') {
+  // Their first word, not their whole name. A full name is three words now, and
+  // "SHAGGY SLEEPY GOATEE'S MOVE" ran past the capsule and dropped "MOVE" --
+  // losing the only word that said what the capsule was for. See
+  // player::shortName.
+  char them[player::kMaxShortNameLength + 1] = {};
+  player::shortName(opponentName(), them, sizeof(them));
+  if (them[0] == '\0') {
     snprintf(turnLabel, sizeof(turnLabel), "THEIR MOVE");
     return;
   }

@@ -4,6 +4,7 @@
 
 #include "../../components/UITheme.h"  // Rect
 #include "../link/LinkActivity.h"
+#include "../player/PlayerName.h"
 #include "../ui/ToyboxScreen.h"
 #include "BattleshipCore.h"
 #include "BattleshipScreens.h"
@@ -160,7 +161,9 @@ class BattleshipActivity final : public linkplay::LinkActivity {
   // state rather than written at each transition, because there are five doors
   // into this screen and only one of them would have remembered.
   const char* capsuleLabel();
-  const char* themWord() const;
+  // Not const: it fills `them` the way capsuleLabel() fills `capsule`, so the
+  // returned pointer stays valid past the call.
+  const char* themWord();
 
   void saveGame() const;
   bool loadGame();
@@ -198,6 +201,9 @@ class BattleshipActivity final : public linkplay::LinkActivity {
   // setting up, because both answer the same question: what now.
   char report[48] = {};
   char capsule[24] = {};
+  // What to call the opponent inside a sentence: their first word. Held rather
+  // than returned by value so themWord() can hand back a pointer.
+  char them[player::kMaxShortNameLength + 1] = {};
 
   // What the chrome left for the app's own surface, taken from the last paint.
   // The grids are derived from this rather than from the screen size, so the

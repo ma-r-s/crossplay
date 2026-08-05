@@ -11,11 +11,37 @@ Home
   Browse Files / Recent Books / File Transfer / Settings    (upstream's)
   ---------------
   Games >    chess, battleship, connections, solitaire
+             [ (face) SPIKY GRIM BEARD  > ]   the footer bar, opens PLAYER
   Apps  >    study, hacker news, ...
 ```
 
 Two folders, siblings, appended after upstream's rows. **Uniformly two taps to
 anything.**
+
+## The footer bar, and PLAYER
+
+The GAMES folder ends in a black bar carrying this device's face, its name, and
+a chevron. Tapping it opens **PLAYER**, the one screen in the fork that is
+neither a game nor a folder: the fork's System Settings, holding the one setting
+a device has, which is who it is.
+
+Two things about it are worth knowing.
+
+**It is a door, not a control.** The bar used to reroll the name in place, which
+meant the only way to look at your name was also the only way to lose it, and
+there was no way to _choose_ one -- you pulled the lever until something
+acceptable came out. Now the name comes apart into three words you can steer,
+and each word is also a feature of the face. See
+[`player/PlayerName.h`](../src/apps_local/player/PlayerName.h).
+
+**It is not an `Item`, and `shelf::openPlayer()` exists for that.** PLAYER is
+reached from a bar rather than a row, so it is in no folder -- but rule 3 still
+applies, and `leave()` still has to have somewhere to send it. `openPlayer()`
+records the current folder exactly the way `openItem()` does. That bookkeeping
+is the whole function; without it, Back from PLAYER lands on Home.
+
+Only a folder with `showsDeviceName` draws the bar (GAMES does, APPS does not),
+because the name exists for playing against somebody in the room.
 
 Games and Apps are siblings rather than Apps holding Games, and that was a
 correction. Nesting made a game three taps and an app two, for a reason no user

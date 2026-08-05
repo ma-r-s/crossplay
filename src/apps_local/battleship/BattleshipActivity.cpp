@@ -366,12 +366,16 @@ bshipui::PlaceModel BattleshipActivity::placeModel() const {
   return model;
 }
 
-const char* BattleshipActivity::themWord() const {
+const char* BattleshipActivity::themWord() {
   // Naming them matters: you learn who you are playing on the searching screen
   // and would otherwise spend the whole match being told only that somebody
   // else had shot at you.
-  const char* them = inMatch() ? opponentName() : nullptr;
-  return them != nullptr && them[0] != '\0' ? them : "THEY";
+  //
+  // Their first word, though. Every use of this is inside a sentence -- "%s
+  // SANK YOUR %s", "WAITING FOR %s" -- and a full name is three words now, so
+  // the sentence would be the part that got cut. See player::shortName.
+  player::shortName(inMatch() ? opponentName() : nullptr, them, sizeof(them));
+  return them[0] != '\0' ? them : "THEY";
 }
 
 const char* BattleshipActivity::capsuleLabel() {

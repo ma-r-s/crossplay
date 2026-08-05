@@ -7,6 +7,13 @@
 
 namespace linkplay {
 
+// The one place both constants are visible. A name too long for the wire is
+// silently truncated by Session, which does not break the link -- it delivers a
+// half name, and since the face is derived from the name, a half name is a
+// stranger's face. Adding a longer word is what would cause it, so the check
+// belongs where nobody has to remember to look.
+static_assert(player::kMaxNameLength <= kMaxNameBytes, "a rollable name must fit the wire; see PlayerName.h");
+
 namespace {
 
 // The two things one device ever tells another outside a move. They ride the

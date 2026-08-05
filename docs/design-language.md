@@ -146,6 +146,19 @@ and then on a space, balanced across two lines. Hyphenating a single word inside
 a tile was the first thing Mario rejected on sight, and he was right: a word
 split in half is unreadable in a way that a smaller word never is.
 
+**A name inside a sentence is a short name.** When the device name grew from two
+words to three, chess's status capsule went from "CALM FINCH'S MOVE" to "SHAGGY
+SLEEPY GOATEE'S MOVE" -- and what the component dropped was "MOVE", the one word
+that said what the capsule was for. Battleship had the same shape in "%s SANK
+YOUR %s". Neither was a truncation bug: both labels were built by concatenating
+a value whose length had quietly doubled.
+
+Shrinking the type was the wrong fix and so was shortening the word lists. The
+right one was `player::shortName()` -- call them by their first word. It always
+fits, it can never regress, it is warmer than the full name, and the full name is
+still on the seat card where you met them. **When a value grows and a layout
+breaks, ask whether that layout wanted the whole value.**
+
 **Centre on cap height, never on `getTextHeight()`.** It returns the font's
 **ascender**, and `drawText()` takes `y` as the top of the ascender box. So
 `(box - getTextHeight()) / 2` centres the _box_, not the letters, and capital ink
@@ -165,6 +178,38 @@ real threshold and looking at them. An earlier hand-drawn set was legible and no
 good; a set several people have refined beats one drawn from polygon coordinates
 in an afternoon. The lesson generalises: draw our own only where no good licensed
 option exists.
+
+The avatar parts in `assets_local/avatar/` are the exception that proves it: no
+icon set ships a face that comes apart into layers, so these are ours. What made
+them cheap anyway was refusing to write a pipeline for them -- they are SVGs on
+one shared 120x120 viewBox fed to the SDK's own `gen_icons.py`, so the whole
+canvas rasterises at the requested size and the layers stay in register with no
+per-part offsets to maintain. Forty-three parts at two sizes is 88KB of flash.
+
+**Hair is a mass, so draw it as one.** This started as a beard fix and turned
+out to govern the whole set. Drawn as an outline, a beard runs alongside the
+jaw, and two parallel strokes a few pixels apart on a 1-bit panel merge into one
+thick line: at 240px on the device the beard was simply not there. Three
+attempts at moving and widening the outline failed identically, which is the
+tell -- a symptom that survives every variant is not a variant problem.
+
+The same defect then explained every weak hairstyle. An outlined cap traces the
+skull, so its lower edge is a second line parallel to the first, and it reads as
+a **headband** rather than as hair. The only outlined styles that ever worked
+(spikes, tufts, a mohawk) worked because they *broke* the silhouette instead of
+tracing it. Every hairstyle is now solid, which does both and is the only
+treatment that survives the 48px row size.
+
+Two constraints fell out of drawing fourteen of them:
+
+- **No hairline may come below y=40 on the 120px canvas.** That is the top of
+  the brow zone. One fringe hung to y=60 and simply erased whichever eyes it was
+  paired with -- the face was gone and only the hair was left. A layered part
+  cannot be judged alone; it has to be rendered against the extremes of every
+  other layer.
+- **Solid black must not touch solid black across parts.** A goatee that reached
+  the neck lines merged into them and read as a bib from the mouth to the chest.
+  Adjacent masses need a gap, or they become one mass.
 
 **A light shape must be knocked out before it is stroked.** Drawing only the
 outline of a white piece leaves it hollow, so the surface underneath shows
@@ -236,6 +281,21 @@ and one pass over a file that was already being read.
 Test for anything decorative: **would a screenshot of it be identical on
 everyone's device?** If yes, it is wallpaper. Give it data or take it out.
 
+The avatar is the case where that test is passed by construction. A device's
+name is three words -- hair, eyes, mouth, fourteen options apiece and so 2744
+faces -- so the name _is_ a drawing
+instruction, and the face on the PLAYER screen and in both link seats is a pure
+function of a string that already exists. There is no avatar stored anywhere and
+none on the wire; the other device rebuilds your face from the name its radio
+already carried. Nothing can arrive stale, and a build with different word lists
+draws the plain head everyone starts from rather than the wrong person.
+
+Worth generalising: **when ornament has to carry data, look first for data the
+system is already moving.** The Connections grid needed a struct and a pass over
+a file. This needed neither, because the question "what should the ornament
+show" and the question "what does this device already tell other devices" turned
+out to have the same answer.
+
 ## The front door
 
 Every game gets a menu, and a menu of three equal rows tells you nothing about
@@ -266,6 +326,15 @@ grows and shrinks as the text changes, and reads as the thing vanishing and
 coming back rather than as the same object saying something new. `pill()` takes
 a `minWidth` for this; Chess passes the width of the longest status it can ever
 show.
+
+**Three things cannot share one centre line.** The shelf's player bar carries a
+face, a name and a chevron. Handing the name to the button as its label was the
+obvious move and it was wrong: the component centres a label across the whole
+rect, so at the widest name the lists can roll the text ran straight through the
+face on one side and the chevron on the other. A label that shares a bar with
+anything needs a band of its own, bounded by what it must not touch -- and the
+host test has to compare the drawn rects, not the text, because a fake font
+metric is narrower than the real one and collides with nothing.
 
 **A button is a region, not a screen.** "Tap anywhere to restart" meant a stray
 tap threw away a finished game you were still reading. If something is an action,

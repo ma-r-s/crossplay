@@ -200,7 +200,7 @@ doing themselves: 37 of their 85 source files touch FreeInkUI today. Ride that
 migration, do not race it.
 
 Worth knowing about the altitude difference. Upstream uses FreeInkUI as an
-*interaction runtime* -- `FreeInkApp<N,M>` owns the hit-test buffer and
+_interaction runtime_ -- `FreeInkApp<N,M>` owns the hit-test buffer and
 dispatches actions to handlers -- while still drawing chrome with the older
 `GUI.drawHeader`. We use the layer underneath it, `freeink::ui::Screen` and
 `Frame`, via Toybox. That is deliberate: it is what keeps the screen builders
@@ -382,8 +382,8 @@ the compiler during the move:
   the paint. Solitaire's win screen does exactly that. Do not add the override
   upstream to save four lines.
 - **Thirteen icons, and none of them are yours.** `UIIcon` is `None, Folder,
-  Text, Image, Book, File, Recent, Settings, Transfer, Library, Wifi, Hotspot,
-  Bookmark`. Every game currently draws `Book`, which is honestly wrong and is
+Text, Image, Book, File, Recent, Settings, Transfer, Library, Wifi, Hotspot,
+Bookmark`. Every game currently draws `Book`, which is honestly wrong and is
   the first thing to fix. Adding enum variants means editing `BaseTheme.h` and
   `LyraTheme.cpp` per app, so whatever replaces this has to arrive as an asset
   the shelf resolves, not as thirteen-plus-N enum entries.
@@ -529,7 +529,7 @@ Rules that are worth knowing:
   No new primitive, and the wait is invisible because both players are arranging
   during it. Ask what the DS would do before reaching for a new mechanism.
 - **Ask the session for the turn; never mirror it.** `linkPhase()` is live
-  because taking delivery and sending both move the turn *immediately*, so a
+  because taking delivery and sending both move the turn _immediately_, so a
   match can pass through two phases inside one loop. A copy taken at the top of
   the pass had battleship firing on the opponent's turn.
 - **`YourTurn` already means their move is on your board.** The phase machine
@@ -543,6 +543,17 @@ Rules that are worth knowing:
   code, no retry button, no "searching failed": they tap MULTIPLAYER and the next
   thing they see is a board. Searching never times out, because an error the
   player has to interpret is a bug and they can already see who is in the room.
+- **The name is the only identity, and it is free to derive things from.** The
+  device name (`player::name()`) already crosses the radio in Hello and Join, so
+  anything computable from it costs nothing to add: the opponent's avatar is a
+  pure function of `LinkModel::theirName` and no byte was added to the protocol
+  for it. Before widening a packet, check whether the answer is already in the
+  name.
+- **Put a name in a sentence with `player::shortName()`, never whole.** A name is
+  three words and up to twenty characters. "SHAGGY SLEEPY GOATEE'S MOVE" ran past
+  chess's status capsule and the component dropped _"MOVE"_ -- the word carrying
+  the meaning -- with no ellipsis and no log line. Battleship's "%s SANK YOUR %s"
+  had the same shape. Their first word always fits and reads better anyway.
 
 Tests live in `host-tests/link/`, and `test_play.cpp` drives the layer through
 the loop ordering a game author would plausibly get _wrong_, on a link that
@@ -575,13 +586,13 @@ what one shows when the other walks away.
 separate defects, all the same shape. Two rules, and each wants a different
 mechanism:
 
-- *Never write your save during a match.* The position on screen is the shared
+- _Never write your save during a match._ The position on screen is the shared
   game, and your save file is what you restore from when the match ends. No
   caller ever wants the other behaviour, so put the check inside your save
   function, not at each call site. Chess had this wrong in `Back` and again in
   `onExit` -- and `onExit` is the one that matters, because it runs on sleep,
   which the player triggers by doing nothing.
-- *Never restart a shared board alone.* This one is NOT a guard in your reset
+- _Never restart a shared board alone._ This one is NOT a guard in your reset
   function, because an agreed rematch legitimately resets during a match. The
   distinction is authorised versus unilateral, and only the caller's intent
   knows which. So give the intent one home -- chess funnels every "new game"
@@ -639,6 +650,23 @@ Perft ran suspiciously fast, so I fed it deliberately wrong expectations and
 confirmed it failed. Do this whenever a suite passes more easily than expected.
 A green suite that cannot go red is worse than no suite.
 
+Two of the avatar's mutations are worth keeping as examples, because both
+survived a test written specifically to catch them.
+
+**One survivor was a weak assertion.** `compose()` was made to write past the
+caller's buffer, and the test checked the byte immediately after the limit --
+which the mutation never touched, because it ran a cursor _past_ the end and
+wrote further along. Checking every byte to the end of the array killed it.
+
+**One survivor was a weak data structure, and no assertion could have fixed
+it.** The artwork table was two hand-kept columns, `{"SPIKY", &icon_hair_spiky}`,
+and the test compared the word column against the vocabulary. Swapping two icon
+pointers left the word column correct, so the test passed while every device
+quietly grew different hair. The fix was to delete the second column: one macro
+token now spells both the word and the bitmap names, so there is nothing left to
+desynchronise. **When a mutation survives, ask whether the answer is a better
+assertion or one less thing to assert** -- the second is worth looking for first.
+
 ### Look at the output, do not reason about it
 
 Every visual bug in this app was found by rendering and looking, and every one
@@ -695,26 +723,28 @@ can fail".
 
 ## 6. Where things live
 
-| What                          | Where                                             |
-| ----------------------------- | ------------------------------------------------- |
-| Apps and games, registry      | `src/apps_local/`, one row in `Shelf.cpp`         |
-| Navigation rules              | `docs/shelf.md`                                   |
-| Visual language               | `src/apps_local/ui/Toybox.h`, `ToyboxFonts.cpp`   |
-| Toybox numbers                | `src/apps_local/ui/ToyboxMetrics.h`               |
-| Toybox as FreeInkUI tokens    | `src/apps_local/ui/ToyboxTokens.h` (freestanding) |
-| Screen types                  | `src/apps_local/ui/ToyboxScreen.h` (freestanding) |
-| Renderer-side theme binding   | `src/apps_local/ui/ToyboxTheme.h`                 |
-| Screen builders               | `<app>/…Screens.cpp`, freestanding                |
-| The SDK's own UI docs         | `freeink-sdk/docs/freeink-ui.md`                  |
-| Local multiplayer             | `src/apps_local/link/`, freestanding              |
-| Multiplayer, the game's half  | inherit `link/LinkActivity.h` (not freestanding)  |
-| Host tests: rules             | `host-tests/chess/run.sh`                         |
-| Host tests: multiplayer       | `host-tests/link/run.sh`                          |
-| Host tests: battleship        | `host-tests/battleship/run.sh`                    |
-| Host tests: screens           | `host-tests/ui/run.sh`                            |
-| Asset generators              | `tools_local/`                                    |
-| Vendored assets + licences    | `assets_local/`                                   |
-| Simulator scripts             | `scripts_local/`, symlinked from `../scripts/`    |
-| Verify everything             | `./scripts/check.sh`                              |
-| Pull CrossPoint forward       | `./scripts/sync.sh`                               |
-| Upstream-owned files we touch | listed in `LOCAL_SCOPE.md`, keep it short         |
+| What                          | Where                                               |
+| ----------------------------- | --------------------------------------------------- |
+| Apps and games, registry      | `src/apps_local/`, one row in `Shelf.cpp`           |
+| Navigation rules              | `docs/shelf.md`                                     |
+| Visual language               | `src/apps_local/ui/Toybox.h`, `ToyboxFonts.cpp`     |
+| Toybox numbers                | `src/apps_local/ui/ToyboxMetrics.h`                 |
+| Toybox as FreeInkUI tokens    | `src/apps_local/ui/ToyboxTokens.h` (freestanding)   |
+| Screen types                  | `src/apps_local/ui/ToyboxScreen.h` (freestanding)   |
+| Renderer-side theme binding   | `src/apps_local/ui/ToyboxTheme.h`                   |
+| Screen builders               | `<app>/…Screens.cpp`, freestanding                  |
+| The SDK's own UI docs         | `freeink-sdk/docs/freeink-ui.md`                    |
+| Who this device is            | `src/apps_local/player/`, freestanding              |
+| Avatar artwork + generator    | `assets_local/avatar/`, `tools_local/gen_avatar.sh` |
+| Local multiplayer             | `src/apps_local/link/`, freestanding                |
+| Multiplayer, the game's half  | inherit `link/LinkActivity.h` (not freestanding)    |
+| Host tests: rules             | `host-tests/chess/run.sh`                           |
+| Host tests: multiplayer       | `host-tests/link/run.sh`                            |
+| Host tests: battleship        | `host-tests/battleship/run.sh`                      |
+| Host tests: screens           | `host-tests/ui/run.sh`                              |
+| Asset generators              | `tools_local/`                                      |
+| Vendored assets + licences    | `assets_local/`                                     |
+| Simulator scripts             | `scripts_local/`, symlinked from `../scripts/`      |
+| Verify everything             | `./scripts/check.sh`                                |
+| Pull CrossPoint forward       | `./scripts/sync.sh`                                 |
+| Upstream-owned files we touch | listed in `LOCAL_SCOPE.md`, keep it short           |
