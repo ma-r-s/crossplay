@@ -8,6 +8,7 @@
 #include "chess/ChessActivity.h"
 #include "connections/ConnectionsActivity.h"
 #include "hackernews/HackerNewsActivity.h"
+#include "insider/InsiderActivity.h"
 #include "player/PlayerActivity.h"
 #include "solitaire/SolitaireActivity.h"
 #include "study/StudyActivity.h"
@@ -23,6 +24,7 @@ constexpr shelf::Item kGames[] = {
     {"BATTLESHIP", &icon_battleship_32, &BattleshipActivity::create},
     {"CONNECTIONS", &icon_connections_32, &ConnectionsActivity::create},
     {"SOLITAIRE", &icon_solitaire_32, &SolitaireActivity::create},
+    {"INSIDER", &icon_insider_32, &InsiderActivity::create},
 };
 constexpr shelf::Item kApps[] = {
     {"STUDY", &icon_study_32, &StudyActivity::create},

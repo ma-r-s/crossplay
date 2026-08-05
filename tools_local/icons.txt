@@ -67,3 +67,16 @@ unreadable  = eye-off
 # mechanism, not the subject, and both read as generic list icons), brain
 # (memory is the mechanism too, and it is mush at 32px).
 study       = languages
+
+# Insider. The same mask the Insider's own role card carries at 96px, so the
+# row on the shelf and the card handed round the table are the one shape -- the
+# game is named after that person and the icon should be them.
+#
+# A horizontal double lobe with a notch between the eyes shares nothing with the
+# crown, hull, grid, suit, joystick, newspaper, letterforms or folded map, and
+# it was checked at 32px rather than assumed: the eye slits are thin but they
+# survive the threshold. Rejected: eye (the fork already means something by an
+# eye -- `unreadable` is eye-off -- and a bare eye says nothing about hiding),
+# drama (two overlapping masks is the interior detail that turned gamepad-2 to
+# mush), glasses (reads as spectacles, which is a different idea entirely).
+insider     = venetian-mask
