@@ -54,6 +54,10 @@ enum class Field : uint8_t {
   SentenceMeaning,
 };
 
+// Anki allows an arbitrary number of learning steps; six is well past what
+// anyone uses and keeps DeckMeta a fixed-size struct.
+inline constexpr int kMaxLearningSteps = 6;
+
 struct DeckMeta {
   float params[kNumParams] = {};
   float desiredRetention = 0.9f;
@@ -62,6 +66,13 @@ struct DeckMeta {
   int32_t reviewsPerDay = 200;
   int64_t collectionCreated = 0;  // epoch seconds of day zero
   uint8_t rolloverHour = 4;
+  // Learning and relearning steps, in minutes, read out of the deck's Anki
+  // preset. Mario's is 1m/10m and 10m. They travel with the deck for the same
+  // reason the FSRS weights do: they are per-preset and he changes them.
+  float learnSteps[kMaxLearningSteps] = {};
+  float relearnSteps[kMaxLearningSteps] = {};
+  uint8_t learnStepCount = 0;
+  uint8_t relearnStepCount = 0;
   char name[64] = {};
 
   // True when the deck shipped real optimized weights rather than zeros.
@@ -78,8 +89,11 @@ struct CardState {
   int32_t lastReviewDay = -1;
   uint16_t reps = 0;
   uint16_t lapses = 0;
-  uint8_t state = 0;  // 0 new, 1 learning, 2 review, 3 relearning
-  uint8_t flags = 0;
+  uint8_t state = 0;      // 0 new, 1 learning, 2 review, 3 relearning
+  uint8_t stepIndex = 0;  // position in the learning or relearning step list
+  // Minutes since dueDay began. Only meaningful while the card is inside a step
+  // list, where "come back in ten minutes" cannot be said in day numbering.
+  uint16_t dueMinute = 0;
 
   bool isNew() const { return state == 0; }
   Memory memory() const;

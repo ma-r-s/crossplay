@@ -16,13 +16,14 @@
 
 namespace {
 
-// Where the converter and the font pipeline put their output.
+// Where anki_to_deck.py and make_fonts.py put their output.
 constexpr const char* kDeckDir = "/study/mandarin";
 
-// The four rating buttons. App-specific rather than a Toybox token: no other
-// screen in this fork has a four-way grading bar, and a shared constant that
-// one caller uses is a shared constant nobody can change safely.
-constexpr int kRatingBarHeight = 132;
+// The footer. One height for both faces, because it is drawn on the question
+// side too: docs/design-language.md asks a layout to reserve the space a
+// control will arrive into, and a card that reflows when you reveal it is the
+// same defect as a board that reflows mid-game.
+constexpr int kFooterHeight = 128;
 
 // Latin type. The built-in serif covers U+0100-U+017F and U+01C4-U+021F, so
 // every tone-marked pinyin vowel in the deck draws -- checked against the
@@ -31,39 +32,8 @@ constexpr int kReadingFontId = NOTOSERIF_18_FONT_ID;
 constexpr int kMeaningFontId = NOTOSERIF_16_FONT_ID;
 constexpr int kSmallFontId = NOTOSERIF_12_FONT_ID;
 
-// A ByteSource over a HalFile. Every read seeks first: the deck index and the
-// record it points at are in different places, so sequential reads are the
-// exception rather than the rule.
-class FileSource final : public study::ByteSource {
- public:
-  explicit FileSource(HalFile& file) : file_(file), size_(static_cast<uint32_t>(file.size())) {}
-
-  bool read(const uint32_t offset, void* dst, const uint32_t length) override {
-    if (length == 0) return true;
-    if (offset > size_ || offset + length > size_) return false;
-    if (!file_.seekSet(offset)) return false;
-    return file_.read(dst, length) == static_cast<int>(length);
-  }
-  uint32_t size() const override { return size_; }
-
- private:
-  HalFile& file_;
-  uint32_t size_;
-};
-
-// xorshift32. The face has to differ from the last one often enough to be worth
-// having, and this is deterministic enough to reproduce a complaint about a
-// specific card by seeding it the same way.
-uint32_t nextRandom(uint32_t& state) {
-  state ^= state << 13;
-  state ^= state >> 17;
-  state ^= state << 5;
-  return state;
-}
-
-// Longest line the wrapper will assemble. The widest field in the deck is 178
-// bytes; 256 leaves room without putting a stack frame near the 256-byte
-// guidance twice over, since two of these are live at once.
+// Longest line the wrapper assembles. The widest field in the deck is 178
+// bytes; 256 leaves room, and two of these are live at once.
 constexpr int kLineBytes = 256;
 
 int utf8Length(const char* p) {
@@ -75,7 +45,6 @@ int utf8Length(const char* p) {
   return 1;  // a stray continuation byte: step one, never zero, or we spin
 }
 
-// Decode one codepoint and advance the pointer past it.
 uint32_t nextCodepoint(const char*& p) {
   const unsigned char c = static_cast<unsigned char>(*p);
   const int length = utf8Length(p);
@@ -102,16 +71,43 @@ bool isBreakable(const uint32_t codepoint) {
          (codepoint >= 0xFF00 && codepoint <= 0xFFEF);
 }
 
-void formatInterval(const int days, char* out, const size_t size) {
-  if (days < 1) {
-    std::snprintf(out, size, "<1d");
-  } else if (days < 30) {
-    std::snprintf(out, size, "%dd", days);
-  } else if (days < 365) {
-    std::snprintf(out, size, "%.1fmo", static_cast<double>(days) / 30.0);
-  } else {
-    std::snprintf(out, size, "%.1fy", static_cast<double>(days) / 365.0);
+// A ByteSource over a HalFile. Every read seeks first: the deck index and the
+// record it points at are in different places, so sequential reads are the
+// exception rather than the rule.
+class FileSource final : public study::WritableByteSource {
+ public:
+  explicit FileSource(HalFile& file) : file_(file), size_(static_cast<uint32_t>(file.size())) {}
+
+  bool read(const uint32_t offset, void* dst, const uint32_t length) override {
+    if (length == 0) return true;
+    if (offset > size_ || offset + length > size_) return false;
+    if (!file_.seekSet(offset)) return false;
+    return file_.read(dst, length) == static_cast<int>(length);
   }
+  bool write(const uint32_t offset, const void* src, const uint32_t length) override {
+    if (length == 0) return true;
+    if (offset + length > size_) return false;  // cards.dat never grows
+    if (!file_.seekSet(offset)) return false;
+    return file_.write(static_cast<const uint8_t*>(src), length) == length;
+  }
+  bool flush() override {
+    file_.flush();
+    return true;
+  }
+  uint32_t size() const override { return size_; }
+
+ private:
+  HalFile& file_;
+  uint32_t size_;
+};
+
+// xorshift32. Deterministic enough to reproduce a complaint about a specific
+// card by seeding it the same way.
+uint32_t nextRandom(uint32_t& state) {
+  state ^= state << 13;
+  state ^= state >> 17;
+  state ^= state << 5;
+  return state;
 }
 
 }  // namespace
@@ -124,25 +120,46 @@ void StudyActivity::onEnter() {
   Activity::onEnter();
   toybox::ensureFonts(renderer);
 
-  ready_ = openDeck();
-  if (ready_) {
-    // Anki's day numbering, so a due date here and one on the phone agree.
+  if (openDeck()) {
     today_ = study::dayNumber(deck_.meta(), static_cast<int64_t>(time(nullptr)));
+    startMinute_ = nowMinute();
     fsrs_ = study::Fsrs(deck_.meta().hasParams() ? deck_.meta().params : nullptr, deck_.meta().desiredRetention);
     fsrs_.setMaximumInterval(deck_.meta().maximumInterval);
+
+    study::Steps steps;
+    steps.learnCount = deck_.meta().learnStepCount;
+    steps.relearnCount = deck_.meta().relearnStepCount;
+    for (int i = 0; i < study::kMaxLearningSteps; ++i) {
+      steps.learn[i] = deck_.meta().learnSteps[i];
+      steps.relearn[i] = deck_.meta().relearnSteps[i];
+    }
+    if (steps.learnCount == 0 && steps.relearnCount == 0) steps = study::Steps::defaults();
+    scheduler_ = study::Scheduler(fsrs_, steps);
+
     shuffle_ = static_cast<uint32_t>(today_) * 2654435761u + 1u;
     buildQueue();
-    ready_ = loadCurrent();
+    view_ = takeNext() ? View::Card : View::Finished;
   }
   requestUpdate();
 }
 
 void StudyActivity::onExit() {
+  if (cardSource_) cardSource_->flush();
+  revlogFile_.flush();
   fonts_.unload(renderer);
   deckSource_.reset();
   cardSource_.reset();
   metaSource_.reset();
   Activity::onExit();
+}
+
+int StudyActivity::nowMinute() const {
+  const int64_t now = static_cast<int64_t>(time(nullptr));
+  const int64_t dayStart = deck_.meta().collectionCreated + static_cast<int64_t>(today_) * 86400;
+  const int64_t seconds = now - dayStart;
+  if (seconds < 0) return 0;
+  const int minutes = static_cast<int>(seconds / 60);
+  return minutes > 1439 ? 1439 : minutes;
 }
 
 bool StudyActivity::openDeck() {
@@ -154,8 +171,18 @@ bool StudyActivity::openDeck() {
   }
   std::snprintf(path, sizeof(path), "%s/deck.dat", kDeckDir);
   if (!Storage.openFileForRead("STUDY", path, deckFile_)) return false;
+
+  // O_RDWR without O_TRUNC: openFileForWrite truncates, which on cards.dat
+  // would erase every card's scheduling state the moment the app opened.
   std::snprintf(path, sizeof(path), "%s/cards.dat", kDeckDir);
-  if (!Storage.openFileForRead("STUDY", path, cardFile_)) return false;
+  cardFile_ = Storage.open(path, O_RDWR);
+  if (!cardFile_.isOpen()) {
+    LOG_ERR("STUDY", "Cannot open cards.dat for update");
+    return false;
+  }
+  std::snprintf(path, sizeof(path), "%s/revlog.dat", kDeckDir);
+  revlogFile_ = Storage.open(path, O_RDWR | O_CREAT);
+  if (!revlogFile_.isOpen()) LOG_ERR("STUDY", "Cannot open revlog.dat -- reviews will not be logged");
 
   metaSource_ = makeUniqueNoThrow<FileSource>(metaFile_);
   deckSource_ = makeUniqueNoThrow<FileSource>(deckFile_);
@@ -165,12 +192,8 @@ bool StudyActivity::openDeck() {
     return false;
   }
 
-  if (!deck_.openMeta(*metaSource_)) {
-    LOG_ERR("STUDY", "meta.dat is not a study deck");
-    return false;
-  }
-  if (!deck_.openDeck(*deckSource_)) {
-    LOG_ERR("STUDY", "deck.dat is not a study deck");
+  if (!deck_.openMeta(*metaSource_) || !deck_.openDeck(*deckSource_)) {
+    LOG_ERR("STUDY", "%s is not a study deck (or is a different format version)", kDeckDir);
     return false;
   }
   LOG_INF("STUDY", "Deck '%s': %d cards", deck_.meta().name, deck_.noteCount());
@@ -180,18 +203,19 @@ bool StudyActivity::openDeck() {
 void StudyActivity::buildQueue() {
   queueCount_ = 0;
   queuePos_ = 0;
-  dueCount_ = 0;
-  newCount_ = 0;
+  dueTotal_ = 0;
+  newTotal_ = 0;
 
-  // Read cards.dat in chunks rather than record by record. 5001 records is
+  // Read cards.dat in chunks rather than record by record: 5001 records is
   // 5001 seeks otherwise, against a file that is only 156KB.
   constexpr int kChunkRecords = 64;
   uint8_t chunk[kChunkRecords * study::kCardRecordSize];
   const int total = deck_.noteCount();
+  const int minute = nowMinute();
 
-  // Two passes: everything due today first, then new cards to top up. Reviews
-  // before new is Anki's own order, and it is the one that matters -- new
-  // cards first means the backlog never shrinks.
+  // Two passes: what is due today first, then new cards to top up. Reviews
+  // before new is Anki's order, and it is the one that matters -- new cards
+  // first means the backlog never shrinks.
   for (int pass = 0; pass < 2; ++pass) {
     const int limit = (pass == 0) ? deck_.meta().reviewsPerDay : deck_.meta().newPerDay;
     int taken = 0;
@@ -202,32 +226,75 @@ void StudyActivity::buildQueue() {
 
       for (int i = 0; i < count && queueCount_ < kMaxQueue && taken < limit; ++i) {
         const uint8_t* record = chunk + i * study::kCardRecordSize;
-        const uint8_t state = record[28];
-        int32_t dueDay;
-        std::memcpy(&dueDay, record + 16, sizeof(dueDay));
+        study::CardState probe;
+        std::memcpy(&probe.dueDay, record + 16, sizeof(probe.dueDay));
+        probe.state = record[28];
+        probe.dueMinute = static_cast<uint16_t>(record[30] | (record[31] << 8));
 
-        const bool isNew = state == 0;
-        if (pass == 0 && (isNew || dueDay > today_)) continue;
+        const bool isNew = probe.state == static_cast<uint8_t>(study::State::New);
+        if (pass == 0 && (isNew || !study::Scheduler::isDue(probe, today_, minute))) continue;
         if (pass == 1 && !isNew) continue;
 
         queue_[queueCount_++] = base + i;
         ++taken;
         if (isNew) {
-          ++newCount_;
+          ++newTotal_;
         } else {
-          ++dueCount_;
+          ++dueTotal_;
         }
       }
     }
   }
-  LOG_INF("STUDY", "Queue: %d due, %d new (day %d)", dueCount_, newCount_, today_);
+  LOG_INF("STUDY", "Queue: %d due, %d new (day %d, minute %d)", dueTotal_, newTotal_, today_, minute);
+}
+
+bool StudyActivity::takeNext() {
+  const int minute = nowMinute();
+
+  // A card whose step has elapsed comes first: that is the whole point of a
+  // one-minute step, and letting the main queue run first would turn every
+  // learning step into "at the end of the session".
+  int best = -1;
+  for (int i = 0; i < learningCount_; ++i) {
+    study::CardState probe;
+    probe.state = static_cast<uint8_t>(study::State::Learning);
+    probe.dueDay = learning_[i].dueDay;
+    probe.dueMinute = static_cast<uint16_t>(learning_[i].dueMinute);
+    if (study::Scheduler::isDue(probe, today_, minute)) {
+      best = i;
+      break;
+    }
+  }
+
+  // Nothing ripe: take from the main queue.
+  if (best < 0 && queuePos_ < queueCount_) {
+    currentIndex_ = queue_[queuePos_++];
+    return loadCurrent();
+  }
+
+  // Main queue empty and something is still in a step: show the one closest to
+  // due rather than making the user wait out a ten-minute timer holding a
+  // device that cannot notify them.
+  if (best < 0 && learningCount_ > 0) {
+    best = 0;
+    for (int i = 1; i < learningCount_; ++i) {
+      const bool earlier =
+          learning_[i].dueDay < learning_[best].dueDay ||
+          (learning_[i].dueDay == learning_[best].dueDay && learning_[i].dueMinute < learning_[best].dueMinute);
+      if (earlier) best = i;
+    }
+  }
+  if (best < 0) return false;
+
+  currentIndex_ = learning_[best].index;
+  learning_[best] = learning_[--learningCount_];
+  return loadCurrent();
 }
 
 bool StudyActivity::loadCurrent() {
-  if (queuePos_ >= queueCount_) return false;
-  const int index = queue_[queuePos_];
-  if (!deck_.loadNote(*deckSource_, index, note_)) return false;
-  if (!deck_.loadCard(*cardSource_, index, card_)) return false;
+  if (currentIndex_ < 0) return false;
+  if (!deck_.loadNote(*deckSource_, currentIndex_, note_)) return false;
+  if (!deck_.loadCard(*cardSource_, currentIndex_, card_)) return false;
 
   face_ = Face::Question;
 
@@ -240,37 +307,61 @@ bool StudyActivity::loadCurrent() {
     fonts_.prewarm(renderer, note_.field(study::Field::Headword), note_.field(study::Field::Sentence));
   }
 
-  const study::Memory memory = card_.memory();
-  const int elapsed = card_.lastReviewDay < 0 ? 0 : today_ - card_.lastReviewDay;
-  fsrs_.previewIntervals(memory, elapsed, intervals_);
+  scheduler_.preview(card_, today_, nowMinute(), preview_);
   return true;
 }
 
-void StudyActivity::advance() {
-  ++queuePos_;
-  if (!loadCurrent()) {
-    ready_ = queuePos_ < queueCount_;
+bool StudyActivity::persist(const int index, const study::CardState& card, const study::Rating rating,
+                            const study::Outcome& outcome) {
+  bool ok = deck_.storeCard(*cardSource_, index, outcome.card);
+  if (!ok) LOG_ERR("STUDY", "Failed to store card %d", index);
+
+  // revlog.dat is append-only and never rewritten: it is what deck_to_anki.py
+  // replays back into the collection, and what FSRS optimisation would retrain
+  // from. See docs/study-deck-format.md.
+  if (revlogFile_.isOpen()) {
+    uint8_t record[32] = {};
+    const int64_t nowMs = static_cast<int64_t>(time(nullptr)) * 1000;
+    const int16_t elapsed = static_cast<int16_t>(card.lastReviewDay < 0 ? 0 : today_ - card.lastReviewDay);
+    const int32_t interval = outcome.intervalDays > 0 ? outcome.intervalDays : -outcome.delayMinutes * 60;
+    std::memcpy(record, &card.ankiCardId, 8);
+    std::memcpy(record + 8, &nowMs, 8);
+    record[16] = static_cast<uint8_t>(rating);
+    record[17] = card.state;  // the state the card was in *before* the review
+    std::memcpy(record + 18, &elapsed, 2);
+    std::memcpy(record + 20, &interval, 4);
+    // tookMs is left zero: nothing here times the user, and inventing a
+    // plausible number would poison the data Anki reimports.
+    if (!revlogFile_.seekSet(revlogFile_.size()) || revlogFile_.write(record, sizeof(record)) != sizeof(record)) {
+      LOG_ERR("STUDY", "Failed to append to revlog.dat");
+      ok = false;
+    }
   }
-  requestUpdate();
+  return ok;
 }
 
 void StudyActivity::grade(const study::Rating rating) {
-  const study::Memory before = card_.memory();
-  const int elapsed = card_.lastReviewDay < 0 ? 0 : today_ - card_.lastReviewDay;
-  const study::Memory after = fsrs_.review(before, rating, elapsed);
+  const study::Outcome outcome = scheduler_.answer(card_, rating, today_, nowMinute());
 
-  card_.setMemory(after);
-  card_.lastReviewDay = today_;
-  card_.dueDay = today_ + fsrs_.intervalDays(after);
-  card_.state = 2;
-  if (card_.reps < 0xFFFF) ++card_.reps;
-  if (rating == study::Rating::Again && card_.lapses < 0xFFFF) ++card_.lapses;
+  if (!persist(currentIndex_, card_, rating, outcome)) writeFailed_ = true;
+  ++reviewedThisSession_;
+  if (rating == study::Rating::Again) ++againThisSession_;
 
-  // Persisting the graded card and appending to revlog.dat is the next slice;
-  // cards.dat is opened read-only here on purpose rather than half-written.
-  LOG_INF("STUDY", "Graded %d: S %.2f -> %.2f, due day %d", static_cast<int>(rating),
-          static_cast<double>(before.stability), static_cast<double>(after.stability), card_.dueDay);
-  advance();
+  LOG_INF("STUDY", "Graded %d: S %.2f -> %.2f, %s", static_cast<int>(rating), static_cast<double>(card_.stability),
+          static_cast<double>(outcome.card.stability), outcome.delayMinutes > 0 ? "back this session" : "scheduled");
+
+  // Still inside a step list: it comes back before the session ends.
+  if (outcome.delayMinutes > 0 && learningCount_ < kMaxLearning) {
+    learning_[learningCount_++] = {currentIndex_, outcome.card.dueDay, outcome.card.dueMinute};
+  }
+
+  // Flush every review rather than at exit. The device can lose power or sleep
+  // mid-session, and a review the user gave is not ours to lose.
+  cardSource_->flush();
+  revlogFile_.flush();
+
+  if (!takeNext()) view_ = View::Finished;
+  requestUpdate();
 }
 
 void StudyActivity::loop() {
@@ -278,23 +369,25 @@ void StudyActivity::loop() {
     shelf::leave(renderer, mappedInput);
     return;
   }
-  if (!ready_) return;
+  if (view_ != View::Card) return;
 
   int tapX = 0;
   int tapY = 0;
   if (!mappedInput.wasScreenTapped(tapX, tapY)) return;
 
+  const int footerTop = renderer.getScreenHeight() - kFooterHeight;
   if (face_ == Face::Question) {
-    // Anywhere reveals. A reveal target smaller than the card is something to
-    // aim at, for the only action the screen offers.
+    // The footer is the button, and it says so. A tap on the card reveals too:
+    // it is the only action the screen offers and it destroys nothing, so
+    // making the user aim would be friction for its own sake.
     face_ = Face::Answer;
     requestUpdate();
     return;
   }
 
-  if (tapY >= renderer.getScreenHeight() - kRatingBarHeight) {
-    // Slot from the same division that drew the buttons, so the hit region
-    // cannot drift from the pixels. See docs/building-apps.md.
+  if (tapY >= footerTop) {
+    // Slot from the same division that drew the cells, so the hit region cannot
+    // drift from the pixels. See docs/building-apps.md.
     const int width = renderer.getScreenWidth();
     const int slot = width > 0 ? tapX * 4 / width : 0;
     const int clamped = slot < 0 ? 0 : (slot > 3 ? 3 : slot);
@@ -325,9 +418,8 @@ int StudyActivity::drawWrapped(const int fontId, int y, const int maxWidth, cons
   const char* p = text;
   while (*p != '\0') {
     // One break unit: a whole word for Latin, a single character for CJK.
-    // Chinese is written without spaces, so a space-only rule would never
-    // find a break and every sentence would run off both edges -- which is
-    // exactly what the first render did.
+    // Chinese is written without spaces, so a space-only rule finds no break
+    // and every sentence runs off both edges.
     const char* unitEnd = p;
     if (isBreakable(nextCodepoint(unitEnd))) {
       unitEnd = p + utf8Length(p);
@@ -341,9 +433,8 @@ int StudyActivity::drawWrapped(const int fontId, int y, const int maxWidth, cons
     const int unitBytes = static_cast<int>(unitEnd - p);
     if (unitBytes <= 0 || unitBytes >= kLineBytes) break;
 
-    // Would it still fit? Measure the candidate rather than guessing from a
-    // character count: CJK glyphs are three bytes and full width, Latin ones
-    // are one byte and narrow.
+    // Measure the candidate rather than counting characters: a CJK glyph is
+    // three bytes and full width, a Latin one is one byte and narrow.
     char candidate[kLineBytes];
     std::memcpy(candidate, line, static_cast<size_t>(lineLength));
     std::memcpy(candidate + lineLength, p, static_cast<size_t>(unitBytes));
@@ -351,8 +442,7 @@ int StudyActivity::drawWrapped(const int fontId, int y, const int maxWidth, cons
 
     if (lineLength > 0 && renderer.getTextWidth(fontId, candidate) > maxWidth) {
       flush();
-      // A leading space after a break is the break itself; drop it.
-      while (*p == ' ') ++p;
+      while (*p == ' ') ++p;  // a leading space after a break is the break
       continue;
     }
     std::memcpy(line + lineLength, p, static_cast<size_t>(unitBytes));
@@ -369,61 +459,102 @@ void StudyActivity::drawCard(const Rect& body) {
   const int sentenceFont = fontsReady_ ? fonts_.sentenceFontId() : kMeaningFontId;
   const bool answer = face_ == Face::Answer;
 
-  // Lay the block out twice: once to measure, once to draw. E-ink holds an
-  // image for hours, so a block jammed against the header with the bottom half
-  // of the screen empty is a real defect rather than untidiness -- see
-  // docs/design-language.md. Measuring first is what lets it sit centred.
-  const auto layout = [&](int y, const bool measureOnly) {
-    y = drawWrapped(headwordFont, y, maxWidth, note_.field(study::Field::Headword), measureOnly);
+  // Anchored, not centred. docs/design-language.md: a block floating with equal
+  // slack above and below reads as unresolved, so the word hangs from the
+  // header and the footer is pinned to the bottom, leaving the slack as one
+  // deliberate zone -- which is where the sentence image will go when it lands.
+  int y = body.y + toybox::kMargin + 8;
+
+  y = drawWrapped(headwordFont, y, maxWidth, note_.field(study::Field::Headword));
+  if (answer) {
+    y += 6;
+    y = drawWrapped(kReadingFontId, y, maxWidth, note_.field(study::Field::Reading));
+    y += 2;
+    y = drawWrapped(kMeaningFontId, y, maxWidth, note_.field(study::Field::Meaning));
+    y = drawWrapped(kSmallFontId, y, maxWidth, note_.field(study::Field::PartOfSpeech));
+  }
+
+  if (!note_.empty(study::Field::Sentence)) {
+    // The rule, as the Anki template has it: the word above, the sentence it
+    // lives in below. Hairline against the footer's kRule, so the two dividers
+    // read as different weights rather than competing.
+    y += 20;
+    toybox::rule(renderer, y, toybox::kHairline);
+    y += 20;
+    y = drawWrapped(sentenceFont, y, maxWidth, note_.field(study::Field::Sentence));
     if (answer) {
-      y += 8;
-      y = drawWrapped(kReadingFontId, y, maxWidth, note_.field(study::Field::Reading), measureOnly);
-      y += 4;
-      y = drawWrapped(kMeaningFontId, y, maxWidth, note_.field(study::Field::Meaning), measureOnly);
-      y = drawWrapped(kSmallFontId, y, maxWidth, note_.field(study::Field::PartOfSpeech), measureOnly);
+      y += 6;
+      y = drawWrapped(kMeaningFontId, y, maxWidth, note_.field(study::Field::SentenceReading));
+      y += 2;
+      drawWrapped(kMeaningFontId, y, maxWidth, note_.field(study::Field::SentenceMeaning));
     }
-
-    if (!note_.empty(study::Field::Sentence)) {
-      // The rule, as the Anki template has it: the word above, the sentence it
-      // lives in below.
-      y += 22;
-      if (!measureOnly) toybox::rule(renderer, y, toybox::kHairline);
-      y += 22;
-      y = drawWrapped(sentenceFont, y, maxWidth, note_.field(study::Field::Sentence), measureOnly);
-      if (answer) {
-        y += 6;
-        y = drawWrapped(kMeaningFontId, y, maxWidth, note_.field(study::Field::SentenceReading), measureOnly);
-        y += 2;
-        y = drawWrapped(kMeaningFontId, y, maxWidth, note_.field(study::Field::SentenceMeaning), measureOnly);
-      }
-    }
-    return y;
-  };
-
-  const int height = layout(0, true);
-  int top = body.y + (body.height - height) / 2;
-  if (top < body.y + toybox::kMargin) top = body.y + toybox::kMargin;
-  layout(top, false);
+  }
 }
 
-void StudyActivity::drawRatingBar(const int y, const int height) {
-  const int width = renderer.getScreenWidth();
-  const int slot = width / 4;
-  static constexpr const char* kLabels[4] = {"AGAIN", "HARD", "GOOD", "EASY"};
+void StudyActivity::drawFooter(const Rect& footer) {
+  const int width = footer.width;
+  renderer.fillRect(0, footer.y, width, toybox::kRule, true);
+  const int inner = footer.y + toybox::kRule;
+  const int innerHeight = footer.height - toybox::kRule;
 
-  renderer.fillRect(0, y, width, toybox::kRule, true);
+  if (face_ == Face::Question) {
+    // One control, named. docs/design-language.md: a button is a region, and a
+    // control that cannot act dims rather than disappears -- so the four cells
+    // are not drawn empty here, they are replaced by the one thing that can
+    // happen.
+    toybox::drawCapsCentered(renderer, toybox::kUiFontId,
+                             (width - renderer.getTextWidth(toybox::kUiFontId, "SHOW ANSWER")) / 2, inner, innerHeight,
+                             "SHOW ANSWER", true);
+    return;
+  }
+
+  static constexpr const char* kLabels[4] = {"AGAIN", "HARD", "GOOD", "EASY"};
+  const int slot = width / 4;
   for (int i = 0; i < 4; ++i) {
     const int x = i * slot;
-    if (i > 0) renderer.fillRect(x, y, toybox::kHairline, height, true);
+    if (i > 0) renderer.fillRect(x, inner, toybox::kHairline, innerHeight, true);
 
-    char interval[16];
-    formatInterval(intervals_[i], interval, sizeof(interval));
-    const int intervalWidth = renderer.getTextWidth(kSmallFontId, interval);
-    renderer.drawText(kSmallFontId, x + (slot - intervalWidth) / 2, y + 18, interval, true);
+    char delay[16];
+    study::formatDelay(preview_[i].delayMinutes, preview_[i].intervalDays, delay, sizeof(delay));
+    const int delayWidth = renderer.getTextWidth(kSmallFontId, delay);
+    renderer.drawText(kSmallFontId, x + (slot - delayWidth) / 2, inner + 14, delay, true);
 
     const int labelWidth = renderer.getTextWidth(toybox::kUiFontId, kLabels[i]);
-    toybox::drawCapsCentered(renderer, toybox::kUiFontId, x + (slot - labelWidth) / 2, y + 56, height - 64, kLabels[i],
-                             true);
+    toybox::drawCapsCentered(renderer, toybox::kUiFontId, x + (slot - labelWidth) / 2, inner + 48, innerHeight - 56,
+                             kLabels[i], true);
+  }
+}
+
+void StudyActivity::drawFinished(const Rect& body) {
+  const int width = renderer.getScreenWidth();
+  int y = body.y + body.height / 3;
+
+  const char* headline = reviewedThisSession_ > 0 ? "DONE" : "NOTHING DUE";
+  const int headlineWidth = renderer.getTextWidth(toybox::kDisplayFontId, headline);
+  toybox::drawCapsCentered(renderer, toybox::kDisplayFontId, (width - headlineWidth) / 2, y, 64, headline, true);
+  y += 64 + 16;
+
+  toybox::rule(renderer, y, toybox::kRule);
+  y += 24;
+
+  // The session, in the app's own material: what you answered, and how much of
+  // it you had forgotten. Different every time, which is the test ornament has
+  // to pass here.
+  char line[96];
+  if (reviewedThisSession_ > 0) {
+    const int recalled = reviewedThisSession_ - againThisSession_;
+    std::snprintf(line, sizeof(line), "%d reviewed, %d recalled", reviewedThisSession_, recalled);
+    y = drawWrapped(kMeaningFontId, y, width - 2 * toybox::kMargin, line);
+    std::snprintf(line, sizeof(line), "%d%% right",
+                  reviewedThisSession_ > 0 ? recalled * 100 / reviewedThisSession_ : 0);
+    y = drawWrapped(kMeaningFontId, y, width - 2 * toybox::kMargin, line);
+  } else {
+    y = drawWrapped(kMeaningFontId, y, width - 2 * toybox::kMargin, "Nothing is due in this deck today.");
+  }
+
+  if (writeFailed_) {
+    y += 16;
+    drawWrapped(kSmallFontId, y, width - 2 * toybox::kMargin, "Some reviews could not be saved to the card.");
   }
 }
 
@@ -432,29 +563,38 @@ void StudyActivity::render(RenderLock&&) {
   const int width = renderer.getScreenWidth();
   const int height = renderer.getScreenHeight();
 
+  // The header never repaints its shape, only its text, so solid black is free
+  // here and ghosts nothing. docs/design-language.md, the one rule.
   char title[64];
-  if (ready_) {
-    std::snprintf(title, sizeof(title), "%d / %d", queuePos_ + 1, queueCount_);
+  if (view_ == View::Card) {
+    const int remaining = (queueCount_ - queuePos_) + learningCount_ + 1;
+    std::snprintf(title, sizeof(title), "%d LEFT", remaining);
   } else {
     std::snprintf(title, sizeof(title), "STUDY");
   }
   GUI.drawHeader(renderer, Rect{0, 0, width, toybox::kHeaderHeight}, title);
 
-  if (!ready_) {
-    const int bodyY = toybox::kHeaderHeight + 40;
-    const char* message = queueCount_ > 0 ? "Done for today." : "No deck on the card.";
-    UITheme::drawCenteredWrappedText(renderer, Rect{0, bodyY, width, height - bodyY - 80}, kMeaningFontId, message, 4);
-    const auto labels = mappedInput.mapLabels("Back", "", "", "");
-    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-    renderer.displayBuffer();
-    return;
+  const int bodyTop = toybox::kHeaderHeight;
+  const int footerTop = height - kFooterHeight;
+
+  switch (view_) {
+    case View::Card:
+      drawCard(Rect{0, bodyTop, width, footerTop - bodyTop});
+      drawFooter(Rect{0, footerTop, width, kFooterHeight});
+      break;
+    case View::Finished:
+      drawFinished(Rect{0, bodyTop, width, height - bodyTop});
+      break;
+    case View::NoDeck:
+    default: {
+      UITheme::drawCenteredWrappedText(renderer, Rect{0, bodyTop + 40, width, height - bodyTop - 120}, kMeaningFontId,
+                                       "No deck on the card. Convert one with anki_to_deck.py into /study/mandarin.",
+                                       4);
+      break;
+    }
   }
 
-  const int barTop = height - kRatingBarHeight;
-  drawCard(Rect{0, toybox::kHeaderHeight, width, barTop - toybox::kHeaderHeight});
-  if (face_ == Face::Answer) {
-    drawRatingBar(barTop, kRatingBarHeight);
-  }
-
+  const auto labels = mappedInput.mapLabels("Back", "", "", "");
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();
 }
