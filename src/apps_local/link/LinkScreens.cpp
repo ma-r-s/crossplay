@@ -48,6 +48,11 @@ const freeink::Icon& nearbyMark() { return icon_nearby_32; }
 fui::Rect withOpponentFace(toybox::Screen& screen, const fui::Rect& band, const char* theirName) {
   if (theirName == nullptr || theirName[0] == '\0') return band;
   const int16_t size = player::avatarPixels(player::AvatarSize::Row);
+  // A band too narrow to give the face its strip keeps the whole band and shows
+  // no face. Unreachable from either game today -- both hand over the full
+  // content width -- but the alternative is returning a negative width, and a
+  // Rect that cannot exist is worse than a face that is not drawn.
+  if (band.width < size + toybox::kGutter * 2) return band;
   // Centred in the band's height rather than pinned to its top: the band is a
   // capsule's height and the face is smaller, and a face resting on the top
   // edge reads as having slipped.

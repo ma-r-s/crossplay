@@ -55,9 +55,10 @@ bool validSlot(const int slot) { return slot >= 0 && slot < kSlotCount; }
 char cached[kMaxNameLength + 1] = {};
 
 uint32_t mix(uint32_t value) {
-  // Two rounds of xorshift. The seed is a clock, which walks upward in small
-  // steps, and an unmixed low bit would make consecutive rerolls pick adjacent
-  // words -- visibly not random when a player taps twice.
+  // Two rounds of xorshift, and only roll() needs it now that changing a name
+  // is a walk rather than a draw. It still earns its place: the seed is a boot
+  // clock, so two devices flashed and started together would otherwise land on
+  // neighbouring words and look like they came out of the same box.
   value ^= value << 13;
   value ^= value >> 17;
   value ^= value << 5;

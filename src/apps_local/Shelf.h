@@ -79,10 +79,10 @@ struct Folder {
   const freeink::Icon* mark;
   const Item* items;
   int count;
-  // Whether the footer shows this device's name. True for GAMES, because the
-  // name exists for playing against somebody in the room and this footer is the
-  // only place it can be rerolled. False elsewhere, where it would be a word
-  // with no job. Move this out when Settings owns the name properly.
+  // Whether the footer shows this device's face and name. True for GAMES,
+  // because the name exists for playing against somebody in the room and this
+  // bar is the only way into PLAYER, where it is changed. False elsewhere,
+  // where it would be a face with no job.
   bool showsDeviceName;
 };
 
