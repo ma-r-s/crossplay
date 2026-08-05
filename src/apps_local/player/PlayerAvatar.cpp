@@ -24,8 +24,7 @@ namespace fui = freeink::ui;
 // data error in the asset pipeline rather than something C++ can prevent.
 //
 // This is why tools_local/avatar.txt shouts its aliases.
-#define PART(GROUP, WORD) \
-  { #WORD, &icon_##GROUP##_##WORD##_48, &icon_##GROUP##_##WORD##_120 }
+#define PART(GROUP, WORD) {#WORD, &icon_##GROUP##_##WORD##_48, &icon_##GROUP##_##WORD##_120}
 
 struct Part {
   const char* word;
@@ -34,9 +33,9 @@ struct Part {
 };
 
 constexpr Part kHair[] = {
-    PART(hair, BALD), PART(hair, TUFTY),  PART(hair, SLICK), PART(hair, WAVY), PART(hair, CURLY),
+    PART(hair, BALD),  PART(hair, TUFTY), PART(hair, SLICK), PART(hair, WAVY), PART(hair, CURLY),
     PART(hair, SPIKY), PART(hair, PUNK),  PART(hair, MOP),   PART(hair, BUN),  PART(hair, BRAIDS),
-    PART(hair, PONY), PART(hair, BOB),    PART(hair, LONG),  PART(hair, AFRO),
+    PART(hair, PONY),  PART(hair, BOB),   PART(hair, LONG),  PART(hair, AFRO),
 };
 
 constexpr Part kEyes[] = {

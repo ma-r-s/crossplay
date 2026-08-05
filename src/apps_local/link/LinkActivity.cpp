@@ -192,6 +192,7 @@ linkui::LinkModel LinkActivity::linkModel() const {
     model.headline = linkHeadline();
   }
   model.yourName = "YOU";
+  model.yourFaceName = player::name();
   model.theirName = linkState().opponentName();
   model.you = you_;
   model.them = them_;

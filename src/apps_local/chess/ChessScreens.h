@@ -103,6 +103,10 @@ struct BoardModel {
   // The status capsule is only a button when the game is over. While one is
   // running it says whose move it is and must not respond to a tap.
   bool gameOver = false;
+  // Who you are playing, or null against the engine. Only the face is drawn
+  // from it -- the capsule already says the name -- and only in a match, so
+  // solo chess keeps the full-width capsule it always had.
+  const char* theirName = nullptr;
 };
 
 // Draws the board screen's chrome and returns the rect left for the board

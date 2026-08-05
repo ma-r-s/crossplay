@@ -45,6 +45,20 @@ void toyboxChrome(toybox::Screen& screen, const char* title) {
 
 const freeink::Icon& nearbyMark() { return icon_nearby_32; }
 
+fui::Rect withOpponentFace(toybox::Screen& screen, const fui::Rect& band, const char* theirName) {
+  if (theirName == nullptr || theirName[0] == '\0') return band;
+  const int16_t size = player::avatarPixels(player::AvatarSize::Row);
+  // Centred in the band's height rather than pinned to its top: the band is a
+  // capsule's height and the face is smaller, and a face resting on the top
+  // edge reads as having slipped.
+  player::drawAvatar(screen.target(),
+                     fui::makeRect(band.x, static_cast<int16_t>(band.y + (band.height - size) / 2), size, size),
+                     theirName, player::AvatarSize::Row);
+  const int16_t taken = static_cast<int16_t>(size + toybox::kGutter);
+  return fui::makeRect(static_cast<int16_t>(band.x + taken), band.y, static_cast<int16_t>(band.width - taken),
+                       band.height);
+}
+
 const char* seatValue(const SeatState state, const bool linked) {
   switch (state) {
     case SeatState::Looking:
@@ -155,7 +169,7 @@ fui::Rect buildLink(toybox::Screen& screen, const LinkModel& model) {
   you.value = seatValue(model.you, model.linked);
   you.action = fui::NO_ACTION;
   you.styles = fui::plainStyles(fui::Paint{});
-  drawSeatFace(screen, fui::makeRect(faceX, yourY, faceSize, rowHeight), model.yourName);
+  drawSeatFace(screen, fui::makeRect(faceX, yourY, faceSize, rowHeight), model.yourFaceName);
   fui::settingRow(screen.frame(), fui::makeRect(textX, yourY, textWidth, rowHeight), you);
 
   fui::SettingRowProps them;

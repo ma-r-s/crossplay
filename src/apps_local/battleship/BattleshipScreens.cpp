@@ -162,7 +162,7 @@ fui::Rect buildBoardChrome(toybox::Screen& screen, const BoardModel& model) {
   // Present but not pressable: dithered rather than absent, so the trigger does
   // not appear and disappear as you aim.
   if (!model.gameOver && !model.canFire) status.styles = toybox::disabledButtonStyles();
-  screen.button(status, screen.takeBottom(toybox::kPillHeight));
+  screen.button(status, linkui::withOpponentFace(screen, screen.takeBottom(toybox::kPillHeight), model.theirName));
 
   return screen.body();
 }

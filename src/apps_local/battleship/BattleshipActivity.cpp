@@ -403,6 +403,9 @@ bshipui::BoardModel BattleshipActivity::boardModel() {
   model.status = capsuleLabel();
   model.canFire = canAct() && aimCell >= 0 && !gameOver();
   model.gameOver = gameOver();
+  // Only in a match; the computer has no face. Same source as themWord(), so
+  // the capsule and the portrait beside it can never name two different people.
+  model.theirName = inMatch() ? opponentName() : nullptr;
   return model;
 }
 
