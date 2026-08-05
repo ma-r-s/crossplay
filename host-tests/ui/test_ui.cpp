@@ -17,7 +17,11 @@
 #include "../../src/apps_local/battleship/BattleshipScreens.h"
 #include "../../src/apps_local/chess/ChessScreens.h"
 #include "../../src/apps_local/connections/ConnectionsScreens.h"
+#include "../../src/apps_local/hackernews/HackerNewsScreens.h"
 #include "../../src/apps_local/link/LinkScreens.h"
+#include "../../src/apps_local/player/PlayerAvatar.h"
+#include "../../src/apps_local/player/PlayerScreen.h"
+#include "../../src/apps_local/ui/ToyboxIcons.h"
 
 namespace fui = freeink::ui;
 
@@ -46,8 +50,19 @@ class FakeTarget final : public fui::DrawTarget {
     fui::Color color;
   };
 
+  // An avatar is four stacked 1-bpp masks and no text at all, so without
+  // recording these there is nothing to assert about a face: it would draw, or
+  // not draw, or draw in the same colour as the bar behind it, and every one of
+  // those would look identical from here.
+  struct Blit {
+    fui::Rect rect;
+    const uint8_t* data;
+    fui::Color color;
+  };
+
   std::vector<TextRun> texts;
   std::vector<fui::Rect> fills;
+  std::vector<Blit> blits;
 
   fui::Size measureText(const fui::FontId, const char* text, const fui::TextStyle) const override {
     // A fixed 10x20 cell. Layout maths only needs a monotonic width; nothing
@@ -65,8 +80,51 @@ class FakeTarget final : public fui::DrawTarget {
   void text(const fui::Rect rect, const char* text, const fui::TextStyle style) override {
     if (text != nullptr) texts.push_back(TextRun{rect, text, style.color});
   }
-  void bitmap(const fui::Rect, const fui::BitmapRef, const fui::BitmapMode, const fui::Paint = {},
-              const fui::Rotation = fui::Rotation::None) override {}
+  void bitmap(const fui::Rect rect, const fui::BitmapRef bitmap, const fui::BitmapMode, const fui::Paint paint = {},
+              const fui::Rotation = fui::Rotation::None) override {
+    blits.push_back(Blit{rect, bitmap.data, paint.color});
+  }
+
+  // Where this exact face was painted, and in what colour. Returns a zero rect
+  // unless every one of its layers landed on the *same* rect in the *same*
+  // colour, which is the property that matters: the layers are separate
+  // bitmaps of one drawing, so a face out of register is a mouth on a forehead.
+  //
+  // Asked this way rather than "was something drawn near here" because the
+  // pointers come from player::avatarFor, so a pass means this name's face and
+  // no other.
+  fui::Rect faceRect(const player::Avatar& avatar, const fui::Color color) const {
+    fui::Rect agreed{};
+    bool first = true;
+    for (int i = 0; i < player::Avatar::kLayerCount; ++i) {
+      if (avatar.layer[i] == nullptr) continue;
+      bool found = false;
+      for (const auto& blit : blits) {
+        if (blit.data != avatar.layer[i]->bits || blit.color != color) continue;
+        if (first) {
+          agreed = blit.rect;
+          first = false;
+          found = true;
+          break;
+        }
+        if (blit.rect.x == agreed.x && blit.rect.y == agreed.y && blit.rect.width == agreed.width &&
+            blit.rect.height == agreed.height) {
+          found = true;
+          break;
+        }
+      }
+      if (!found) return fui::Rect{};
+    }
+    return agreed;
+  }
+
+  int layersOf(const player::Avatar& avatar) const {
+    int count = 0;
+    for (int i = 0; i < player::Avatar::kLayerCount; ++i) {
+      if (avatar.layer[i] != nullptr) count++;
+    }
+    return count;
+  }
 
   bool drew(const char* needle) const {
     for (const auto& run : texts) {
@@ -707,14 +765,14 @@ void testShelfFolderDrawsItsOwnNameAndRows() {
   model.title = "GAMES";
   model.items = items;
   model.count = 4;
-  model.playerName = "STORMY LYNX";
+  model.playerName = "SPIKY GRIM BEARD";
 
   Rendered menu;
   buildShelf(menu, model);
   CHECK(menu.target.drew("GAMES"));
   CHECK(menu.target.drew("CHESS"));
   CHECK(menu.target.drew("SOLITAIRE"));
-  CHECK(menu.target.drew("STORMY LYNX"));
+  CHECK(menu.target.drew("SPIKY GRIM BEARD"));
   CHECK(!menu.interactions.overflowed());
 
   const int firstRowY = toybox::kHeaderHeight + toybox::kGutter * 3 + toybox::kRowHeight / 2;
@@ -747,14 +805,16 @@ void testAFolderWithoutADeviceNameHasNoFooter() {
   Rendered menu;
   buildShelf(menu, model);
   CHECK(menu.target.drew("STUDY"));
-  CHECK(!menu.target.drew("STORMY LYNX"));
+  CHECK(!menu.target.drew("SPIKY GRIM BEARD"));
 
   // Not drawing the name is not enough: the control must not be there at all.
   // A footer built from a null label draws nothing visible, so an assertion on
-  // the text alone passes while an invisible reroll button sits at the bottom
+  // the text alone passes while an invisible door to PLAYER sits at the bottom
   // of the screen waiting to be pressed. Tap where it would be.
-  const int footerY = 800 - toybox::kMargin - toybox::kPillHeight / 2;
-  CHECK(menu.tap(240, footerY).action != shelfui::ActionRerollName);
+  const int footerY = 800 - toybox::kMargin - toybox::kRowHeight / 2;
+  CHECK(menu.tap(240, footerY).action != shelfui::ActionOpenPlayer);
+  // And nothing painted a face there either. The bar is gone, not blanked.
+  CHECK(menu.target.blits.empty());
 
   // The footer is not just hidden, its space is returned to the list. A folder
   // that reserved room for a control it never draws is dead space, and the list
@@ -762,7 +822,583 @@ void testAFolderWithoutADeviceNameHasNoFooter() {
   const fui::Rect withName = shelfui::listBand(device(), true);
   const fui::Rect without = shelfui::listBand(device(), false);
   CHECK(without.height > withName.height);
-  CHECK(without.height - withName.height == toybox::kPillHeight + toybox::kGutter);
+  CHECK(without.height - withName.height == toybox::kRowHeight + toybox::kGutter);
+}
+
+void testTheShelfFooterIsADoorWithAFaceOnIt() {
+  fui::ListItem items[1] = {};
+  items[0].label = "CHESS";
+
+  shelfui::MenuModel model;
+  model.title = "GAMES";
+  model.items = items;
+  model.count = 1;
+  model.playerName = "PUNK SLY GOATEE";
+
+  Rendered menu;
+  buildShelf(menu, model);
+
+  const FakeTarget::TextRun* bar = menu.target.find("PUNK SLY GOATEE");
+  CHECK(bar != nullptr);
+  if (bar == nullptr) return;
+
+  // It opens PLAYER. It used to reroll in place, which meant the only way to
+  // look at your name was also the only way to lose it.
+  const fui::ActionEvent event = menu.tap(240, bar->rect.y + bar->rect.height / 2);
+  CHECK(event.action == shelfui::ActionOpenPlayer);
+  // Both edges, because a bar this wide is exactly where a hit region computed
+  // separately from the paint goes dead at the ends -- which is how PLAY AGAIN
+  // shipped with dead outer thirds.
+  CHECK(menu.tap(toybox::kMargin + 2, bar->rect.y + bar->rect.height / 2).action == shelfui::ActionOpenPlayer);
+  CHECK(menu.tap(480 - toybox::kMargin - 2, bar->rect.y + bar->rect.height / 2).action == shelfui::ActionOpenPlayer);
+
+  // The face is the name's face, drawn in paper. This bar is filled solid
+  // black, so a face in ink would be perfectly invisible and nothing would say
+  // so -- the multiplayer mark went black-on-black once for exactly this
+  // reason, and then white-on-white when it moved.
+  const player::Avatar face = player::avatarFor("PUNK SLY GOATEE", player::AvatarSize::Row);
+  const int16_t size = player::avatarPixels(player::AvatarSize::Row);
+  const fui::Rect paper = menu.target.faceRect(face, fui::Color::White);
+  CHECK(paper.width == size && paper.height == size);
+  CHECK(menu.target.faceRect(face, fui::Color::Black).width == 0);
+  // Inside the bar, and at its left.
+  CHECK(paper.x >= toybox::kMargin);
+  CHECK(paper.bottom() <= 800 - toybox::kMargin);
+
+  // The name gets a band of its own that touches neither the face nor the
+  // chevron. This is asserted as geometry rather than as "the face is in the
+  // left quarter", which is what the previous version checked and why it passed
+  // while the widest name ran straight through both marks: the label was handed
+  // to the button, the button centred it across the whole bar, and the fake
+  // font here is narrower than the real one so nothing collided in the test.
+  //
+  // Three things cannot share one centre line. Comparing the rects compares
+  // what was actually drawn, at any font.
+  const fui::Rect chevron = menu.target.blits.back().rect;
+  CHECK(chevron.x > bar->rect.x);
+  CHECK(bar->rect.x >= paper.right());
+  CHECK(bar->rect.right() <= chevron.x);
+  // ...and with air, not merely abutting.
+  CHECK(bar->rect.x - paper.right() >= toybox::kGutter);
+  CHECK(chevron.x - bar->rect.right() >= toybox::kGutter);
+}
+
+// --- PLAYER ----------------------------------------------------------------
+
+void buildPlayer(Rendered& out, const playerui::PlayerModel& model) {
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, device(), noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  playerui::buildPlayer(screen, model);
+}
+
+playerui::PlayerModel playerModel() {
+  playerui::PlayerModel model;
+  model.name = "SPIKY GRIM BEARD";
+  model.words[0] = "SPIKY";
+  model.words[1] = "GRIM";
+  model.words[2] = "BEARD";
+  return model;
+}
+
+void testPlayerOffersThreeSeparateWords() {
+  Rendered out;
+  buildPlayer(out, playerModel());
+
+  CHECK(out.target.drew("PLAYER"));
+  CHECK(out.target.drew("SPIKY"));
+  CHECK(out.target.drew("GRIM"));
+  CHECK(out.target.drew("BEARD"));
+  CHECK(out.target.drew("BACK"));
+  CHECK(!out.interactions.overflowed());
+
+  // The name is not spelled out a second time. Two copies of one string are two
+  // things that can disagree, and the words already read as the name.
+  CHECK(!out.target.drew("SPIKY GRIM BEARD"));
+
+  // Each word rolls its own slot and nothing else. One action carrying the slot
+  // as its value, so a fourth slot would need no new branch -- but the values
+  // have to actually differ, or all three buttons roll the hair.
+  const char* words[3] = {"SPIKY", "GRIM", "BEARD"};
+  for (int slot = 0; slot < 3; ++slot) {
+    const FakeTarget::TextRun* run = out.target.find(words[slot]);
+    CHECK(run != nullptr);
+    if (run == nullptr) continue;
+    const fui::ActionEvent event = out.tap(run->rect.x + run->rect.width / 2, run->rect.y + run->rect.height / 2);
+    CHECK(event.action == playerui::ActionStepSlot);
+    CHECK(event.value == slot);
+  }
+}
+
+void testPlayerWordsTileTheRowWithoutGapsOrOverlap() {
+  Rendered out;
+  buildPlayer(out, playerModel());
+
+  const char* words[3] = {"SPIKY", "GRIM", "BEARD"};
+  const FakeTarget::TextRun* runs[3] = {};
+  for (int slot = 0; slot < 3; ++slot) runs[slot] = out.target.find(words[slot]);
+  CHECK(runs[0] != nullptr && runs[1] != nullptr && runs[2] != nullptr);
+  if (runs[0] == nullptr || runs[1] == nullptr || runs[2] == nullptr) return;
+
+  // Left to right in slot order, which is the whole reading of the name.
+  CHECK(runs[0]->rect.x < runs[1]->rect.x);
+  CHECK(runs[1]->rect.x < runs[2]->rect.x);
+  CHECK(runs[0]->rect.y == runs[1]->rect.y && runs[1]->rect.y == runs[2]->rect.y);
+
+  // Sweep the whole band a pixel at a time and ask what each column does. This
+  // is the assertion, rather than comparing rect edges, because what a player
+  // hits is the routed action and the label's rect is inset from the control
+  // that owns it. Three across a fixed band is where integer division shows up:
+  // the last one ends short of the margin, or two overlap and one swallows the
+  // other's taps.
+  const int y = runs[0]->rect.y + runs[0]->rect.height / 2;
+  // Right() is exclusive, so the last column inside the band is one short of
+  // the margin.
+  const int lastColumn = 480 - toybox::kMargin - 1;
+  int owner[481];
+  for (int x = toybox::kMargin; x <= lastColumn; ++x) {
+    const fui::ActionEvent event = out.tap(x, y);
+    owner[x] = event.action == playerui::ActionStepSlot ? event.value : -1;
+  }
+
+  // Both outer edges of the band belong to the outer words: no dead margin.
+  CHECK(owner[toybox::kMargin] == 0);
+  CHECK(owner[lastColumn] == 2);
+  // Every slot owns a contiguous run, in order, and nothing owns two runs.
+  int transitions = 0;
+  int deadColumns = 0;
+  int outOfOrder = 0;
+  int lastOwner = 0;
+  for (int x = toybox::kMargin; x <= lastColumn; ++x) {
+    if (owner[x] < 0) {
+      deadColumns++;
+      continue;
+    }
+    if (owner[x] != lastOwner) {
+      transitions++;
+      if (owner[x] < lastOwner) outOfOrder++;
+      lastOwner = owner[x];
+    }
+  }
+  CHECK(transitions == 2);
+  CHECK(outOfOrder == 0);
+  // Only the two gutters may be untappable, and only if the controls do not
+  // already cover them.
+  CHECK(deadColumns <= 2 * toybox::kGutter);
+}
+
+void testPlayerDrawsTheFaceItsNameDescribes() {
+  Rendered out;
+  buildPlayer(out, playerModel());
+
+  const player::Avatar face = player::avatarFor("SPIKY GRIM BEARD", player::AvatarSize::Portrait);
+  const fui::Rect drawn = out.target.faceRect(face, fui::Color::Black);
+
+  // Every layer on one rect, exactly kFaceSize, horizontally centred in the
+  // content band. The sampler is nearest-neighbour, so an integer multiple of
+  // the 120px asset doubles every pixel evenly and anything else leaves some
+  // strokes a pixel fatter than their neighbours.
+  CHECK(drawn.width == playerui::kFaceSize && drawn.height == playerui::kFaceSize);
+  CHECK(drawn.x == toybox::kMargin + (480 - 2 * toybox::kMargin - playerui::kFaceSize) / 2);
+  CHECK(drawn.y > toybox::kHeaderHeight);
+  CHECK(playerui::kFaceSize % player::avatarPixels(player::AvatarSize::Portrait) == 0);
+
+  // A different name is a different face. Without this the whole feature could
+  // be one static drawing and every assertion above would still pass.
+  Rendered other;
+  playerui::PlayerModel changed = playerModel();
+  changed.name = "BALD GLAD GRIN";
+  changed.words[0] = "BALD";
+  changed.words[1] = "GLAD";
+  changed.words[2] = "GRIN";
+  buildPlayer(other, changed);
+  const player::Avatar theirs = player::avatarFor("BALD GLAD GRIN", player::AvatarSize::Portrait);
+  CHECK(other.target.faceRect(theirs, fui::Color::Black).width == playerui::kFaceSize);
+  CHECK(face.layer[1] != theirs.layer[1]);
+  CHECK(face.layer[2] != theirs.layer[2]);
+  CHECK(face.layer[3] != theirs.layer[3]);
+  // The first face is not on this screen at all: the eyes and mouth it named
+  // are gone, not merely overdrawn.
+  CHECK(other.target.faceRect(face, fui::Color::Black).width == 0);
+}
+
+void testPlayerBackLeaves() {
+  Rendered out;
+  buildPlayer(out, playerModel());
+  const FakeTarget::TextRun* back = out.target.find("BACK");
+  CHECK(back != nullptr);
+  if (back == nullptr) return;
+  CHECK(out.tap(back->rect.x + back->rect.width / 2, back->rect.y + back->rect.height / 2).action ==
+        playerui::ActionLeavePlayer);
+  // The face is not a button. It is the biggest thing on the screen, so a
+  // stray hit region over it would swallow most taps aimed at nothing.
+  CHECK(out.tap(240, toybox::kHeaderHeight + toybox::kGutter * 4 + playerui::kFaceSize / 2).action == fui::NO_ACTION);
+}
+
+// --- the artwork and the vocabulary ----------------------------------------
+
+void testEveryWordHasTheArtworkItNames() {
+  // Two hand-maintained lists in two files: the words in PlayerName.cpp and the
+  // bitmaps in PlayerAvatar.cpp. A static_assert pins their lengths. Nothing
+  // but this pins their ORDER, and getting that wrong is silent -- swap two
+  // hair words and every device quietly grows different hair, with no build
+  // error and no visible defect until somebody who knows their own name looks
+  // at their own face.
+  int mismatched = 0;
+  for (int slot = 0; slot < player::kSlotCount; ++slot) {
+    for (uint8_t index = 0; index < player::wordCount(slot); ++index) {
+      const char* word = player::word(slot, index);
+      const char* art = player::artWord(slot, index);
+      if (word == nullptr || art == nullptr || std::strcmp(word, art) != 0) mismatched++;
+    }
+  }
+  CHECK(mismatched == 0);
+
+  // Every triple resolves to a full face at both sizes, so no combination has a
+  // hole in it.
+  int incomplete = 0;
+  for (uint8_t hair = 0; hair < player::wordCount(player::SlotHair); ++hair) {
+    for (uint8_t eyes = 0; eyes < player::wordCount(player::SlotEyes); ++eyes) {
+      for (uint8_t mouth = 0; mouth < player::wordCount(player::SlotMouth); ++mouth) {
+        player::Name name;
+        name.word[player::SlotHair] = hair;
+        name.word[player::SlotEyes] = eyes;
+        name.word[player::SlotMouth] = mouth;
+        for (const player::AvatarSize size : {player::AvatarSize::Row, player::AvatarSize::Portrait}) {
+          const player::Avatar avatar = player::avatarFor(name, size);
+          // Four layers for every triple, including BALD -- its drawing is
+          // deliberately empty, but it is a drawing, so the table has no holes
+          // and the draw loop has no special case.
+          for (int layer = 0; layer < player::Avatar::kLayerCount; ++layer) {
+            if (avatar.layer[layer] == nullptr) incomplete++;
+          }
+        }
+      }
+    }
+  }
+  CHECK(incomplete == 0);
+}
+
+void testAnUnreadableNameDrawsThePlainHead() {
+  // What a device running a different word list sends. It must come out as the
+  // portrait everyone starts from, not as the wrong person and not as nothing.
+  // PEERING is seven letters, so no future list can contain it -- the 20-char
+  // name budget caps a word at six. A sample built from a word that happens not
+  // to exist yet stops testing anything the day somebody adds it, which is what
+  // happened to the previous one when CROSS became a real pair of eyes.
+  const player::Avatar stranger = player::avatarFor("MOHAWK PEERING BEARD", player::AvatarSize::Row);
+  CHECK(stranger.layer[0] != nullptr);
+  CHECK(stranger.layer[1] == nullptr);
+  CHECK(stranger.layer[2] == nullptr);
+  // The third word IS one of ours, and a name we can half read draws the half
+  // we understand rather than being thrown away whole.
+  CHECK(stranger.layer[3] != nullptr);
+
+  const player::Avatar nobody = player::avatarFor("", player::AvatarSize::Row);
+  CHECK(nobody.layer[0] != nullptr);
+  for (int i = 1; i < player::Avatar::kLayerCount; ++i) CHECK(nobody.layer[i] == nullptr);
+}
+
+void testBothSeatsWearTheirOwnFace() {
+  // The payoff, and the reason the avatar is derived rather than stored: their
+  // name already crossed the radio, so their face costs no wire bytes and
+  // cannot arrive stale.
+  Rendered out;
+  linkui::LinkModel model = searchingModel();
+  model.yourName = "SPIKY GRIM BEARD";
+  model.theirName = "BALD SPECS GRIN";
+  model.them = linkui::SeatState::Ready;
+  model.linked = true;
+  buildLink(out, model);
+
+  const player::Avatar mine = player::avatarFor("SPIKY GRIM BEARD", player::AvatarSize::Row);
+  const player::Avatar theirs = player::avatarFor("BALD SPECS GRIN", player::AvatarSize::Row);
+  // Different names, so at least one layer differs -- otherwise this test would
+  // pass on a screen that drew the same face twice.
+  CHECK(mine.layer[1] != theirs.layer[1]);
+
+  int mineDrawn = 0;
+  int theirsDrawn = 0;
+  for (const auto& blit : out.target.blits) {
+    for (int i = 0; i < player::Avatar::kLayerCount; ++i) {
+      if (mine.layer[i] != nullptr && blit.data == mine.layer[i]->bits) mineDrawn++;
+      if (theirs.layer[i] != nullptr && blit.data == theirs.layer[i]->bits) theirsDrawn++;
+    }
+  }
+  // The base is shared, so it lands twice; each face's own layers land once.
+  CHECK(mineDrawn == out.target.layersOf(mine) + 1);
+  CHECK(theirsDrawn == out.target.layersOf(theirs) + 1);
+
+  // An empty seat still gets a head: "somebody will be here" is what LOOKING
+  // means, and the plain portrait says it without a special case.
+  Rendered searching;
+  buildLink(searching, searchingModel());
+  const player::Avatar vacant = player::avatarFor("", player::AvatarSize::Row);
+  CHECK(searching.target.layersOf(vacant) == 1);
+  int vacantDrawn = 0;
+  for (const auto& blit : searching.target.blits) {
+    if (blit.data == vacant.layer[0]->bits) vacantDrawn++;
+  }
+  // Both seats: yours (MARIO, which parses to nothing) and the empty one.
+  CHECK(vacantDrawn == 2);
+}
+
+// --- Hacker News -----------------------------------------------------------
+
+void buildHnReader(Rendered& out, const hnui::ReaderModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  hnui::buildReader(screen, model);
+}
+
+void buildHnNotice(Rendered& out, const hnui::NoticeModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  hnui::buildNotice(screen, model);
+}
+
+hnui::ReaderModel articleModel() {
+  hnui::ReaderModel model;
+  model.title = "ARTICLE";
+  model.text = "Some words that go on for a while and wrap onto more than one line of the panel.";
+  model.pageLabel = "1/3";
+  model.showingComments = false;
+  model.swapAvailable = true;
+  model.canPagePrev = false;
+  model.canPageNext = true;
+  return model;
+}
+
+bool drewText(const Rendered& out, const char* needle) {
+  for (const auto& run : out.target.texts) {
+    if (run.text.find(needle) != std::string::npos) return true;
+  }
+  return false;
+}
+
+void testHnReaderFooter() {
+  Rendered out;
+  hnui::ReaderModel model = articleModel();
+  model.canPagePrev = true;
+  buildHnReader(out, model);
+
+  // The middle button says where it goes, and it is the wide one because it is
+  // the only control here that changes what is being read.
+  CHECK(drewText(out, "COMMENTS"));
+  CHECK(drewText(out, "1/3"));
+
+  // Find the footer row and tap the far edges of each control. This is the
+  // PLAY AGAIN bug class: a button whose painted width and hit rect disagree is
+  // dead on its edges and looks perfectly fine in a screenshot.
+  const fui::Rect body = hnui::readerBody(device());
+  const int footerY = body.y + body.height + 24;
+
+  bool sawPrev = false;
+  bool sawNext = false;
+  bool sawSwap = false;
+  for (int x = 0; x < 480; ++x) {
+    const fui::ActionEvent event = out.tap(x, footerY);
+    if (event.action == hnui::ActionPagePrev) sawPrev = true;
+    if (event.action == hnui::ActionPageNext) sawNext = true;
+    if (event.action == hnui::ActionSwapView) sawSwap = true;
+  }
+  CHECK(sawPrev);
+  CHECK(sawNext);
+  CHECK(sawSwap);
+}
+
+void testHnReaderDisabledControls() {
+  Rendered out;
+  hnui::ReaderModel model = articleModel();
+  model.canPagePrev = false;  // page one: there is nowhere back to go
+  model.canPageNext = false;
+  buildHnReader(out, model);
+
+  const fui::Rect body = hnui::readerBody(device());
+  const int footerY = body.y + body.height + 24;
+  for (int x = 0; x < 480; ++x) {
+    const fui::ActionEvent event = out.tap(x, footerY);
+    // A dimmed control keeps its place in the bar so nothing moves, but it must
+    // not fire. Dimming is drawn in the fill, because there is no grey text on
+    // this panel and a coloured label would just draw solid black.
+    CHECK(event.action != hnui::ActionPagePrev);
+    CHECK(event.action != hnui::ActionPageNext);
+  }
+}
+
+void testHnReaderSwapLabelFollowsMode() {
+  Rendered article;
+  buildHnReader(article, articleModel());
+  CHECK(drewText(article, "COMMENTS"));
+  CHECK(!drewText(article, "ARTICLE  "));
+
+  Rendered comments;
+  hnui::ReaderModel model = articleModel();
+  model.showingComments = true;
+  buildHnReader(comments, model);
+  // One action, and the model decides which way it points, so the label and the
+  // effect cannot disagree.
+  CHECK(drewText(comments, "ARTICLE"));
+}
+
+void testHnReaderTextStaysInItsRect() {
+  Rendered out;
+  buildHnReader(out, articleModel());
+
+  // The Activity pages by counting the lines that fit in readerBody(). If the
+  // text were drawn anywhere else, a page turn would skip or repeat lines and
+  // nothing would report it.
+  const fui::Rect body = hnui::readerBody(device());
+  bool sawBodyText = false;
+  for (const auto& run : out.target.texts) {
+    if (run.text.find("Some words") == std::string::npos) continue;
+    sawBodyText = true;
+    CHECK(run.rect.y >= body.y);
+    CHECK(run.rect.y < body.y + body.height);
+    CHECK(run.rect.x >= body.x);
+  }
+  CHECK(sawBodyText);
+}
+
+void testHnNotice() {
+  Rendered unreadable;
+  hnui::NoticeModel model;
+  model.headline = "NOT READABLE HERE";
+  model.message = "This link is not a page of text.";
+  model.mark = &icon_unreadable_32;
+  model.actionLabel = "READ THE COMMENTS";
+  buildHnNotice(unreadable, model);
+
+  CHECK(drewText(unreadable, "NOT READABLE HERE"));
+  CHECK(drewText(unreadable, "READ THE COMMENTS"));
+
+  // The mark is a 1-bpp mask painted in one colour, so it is invisible on a
+  // background of that colour and nothing warns you. This one sits on paper, so
+  // it has to be black; drawn white it would be a blank square nobody notices.
+  bool markDrawnInInk = false;
+  for (const auto& blit : unreadable.target.blits) {
+    if (blit.color == fui::Color::Black) markDrawnInInk = true;
+  }
+  CHECK(markDrawnInInk);
+
+  // Comments are always reachable, which is the promise this screen exists to
+  // keep: the only button on it leads there.
+  bool foundWayOut = false;
+  for (int y = 0; y < 800; y += 4) {
+    for (int x = 0; x < 480; x += 8) {
+      if (unreadable.tap(x, y).action == hnui::ActionNotice) foundWayOut = true;
+    }
+  }
+  CHECK(foundWayOut);
+
+  // A busy notice has nothing to decide yet, so it offers no button at all.
+  Rendered busy;
+  hnui::NoticeModel loading;
+  loading.headline = "HACKER NEWS";
+  loading.message = "FETCHING THE FRONT PAGE";
+  buildHnNotice(busy, loading);
+  CHECK(drewText(busy, "FETCHING THE FRONT PAGE"));
+  for (int y = 0; y < 800; y += 4) {
+    CHECK(busy.tap(240, y).action != hnui::ActionNotice);
+  }
+}
+
+void testHnFitLines() {
+  // The fake target bills every character at 10px, so the arithmetic here is
+  // exact: a 200px line holds 20 characters.
+  FakeTarget target;
+  fui::TextStyle style;
+
+  const auto fit = [&](const char* text, int16_t width, int lines) {
+    return hnui::fitLines(target, text, width, lines, style);
+  };
+
+  // Fits outright: returned untouched, with no ellipsis bolted on.
+  CHECK(fit("Waymo in Dallas", 200, 2) == "Waymo in Dallas");
+  CHECK(fit("Waymo in Dallas", 150, 1) == "Waymo in Dallas");
+
+  // Wraps across two lines and still fits: also untouched. This is the case the
+  // first implementation got wrong -- it appended the ellipsis to the whole
+  // string and measured that against ONE line, so anything that wrapped was
+  // trimmed back to a single line and the front page read "In Memory of My...".
+  CHECK(fit("There Will Come Soft Rains", 150, 2) == "There Will Come Soft Rains");
+  CHECK(fit("There Will Come Soft Rains", 150, 1) != "There Will Come Soft Rains");
+
+  // Genuinely too long: cut on a space, never inside a word, and marked.
+  const std::string cut = fit("In Memory of My Wife Elise Cawley with Thanks for Many Years", 200, 2);
+  CHECK(cut.size() > 3);
+  CHECK(cut.rfind("...") == cut.size() - 3);
+  const std::string body = cut.substr(0, cut.size() - 3);
+  // Every word kept is a whole word from the original.
+  CHECK(std::string("In Memory of My Wife Elise Cawley with Thanks for Many Years").rfind(body, 0) == 0);
+  CHECK(!body.empty() && body.back() != ' ');
+
+  // Two lines really do hold more than one.
+  CHECK(fit("In Memory of My Wife Elise Cawley with Thanks", 200, 2).size() >
+        fit("In Memory of My Wife Elise Cawley with Thanks", 200, 1).size());
+
+  // A single word wider than the whole line cannot be broken on a space, so it
+  // is allowed through rather than looping forever hunting for a break.
+  const std::string huge = fit("Supercalifragilisticexpialidocious", 100, 2);
+  CHECK(!huge.empty());
+
+  // Degenerate inputs return something drawable rather than misbehaving.
+  CHECK(fit(nullptr, 200, 2).empty());
+  CHECK(fit("anything", 0, 2).empty());
+  CHECK(fit("anything", 200, 0).empty());
+  CHECK(fit("", 200, 2).empty());
+}
+
+void testHnList() {
+  Rendered out;
+  fui::ListItem items[3];
+  items[0].label = "First story";
+  items[0].subtitle = "412 points, 88 comments";
+  items[0].actionValue = 0;
+  items[1].label = "Second story";
+  items[1].subtitle = "12 points, 3 comments";
+  items[1].actionValue = 1;
+  items[2].label = "Third story";
+  items[2].subtitle = "9 points, 0 comments";
+  items[2].actionValue = 2;
+
+  hnui::ListModel model;
+  model.items = items;
+  model.count = 3;
+  model.selected = 1;
+
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  hnui::buildList(screen, model);
+
+  CHECK(drewText(out, "First story"));
+  CHECK(drewText(out, "412 points, 88 comments"));
+
+  // Every row opens, and each carries its own index: a row that routes the
+  // wrong value opens somebody else's story.
+  bool opened[3] = {false, false, false};
+  const fui::Rect band = hnui::listBand(ctx);
+  for (int y = band.y; y < band.y + band.height; ++y) {
+    const fui::ActionEvent event = out.tap(240, y);
+    if (event.action == hnui::ActionOpenStory && event.value >= 0 && event.value < 3) opened[event.value] = true;
+  }
+  CHECK(opened[0]);
+  CHECK(opened[1]);
+  CHECK(opened[2]);
+
+  // An empty front page says so rather than drawing a blank panel.
+  Rendered empty;
+  hnui::ListModel none;
+  toybox::Frame emptyFrame(empty.target, ctx, noInput, empty.interactions);
+  toybox::Screen emptyScreen(emptyFrame, toybox::themeTokens());
+  hnui::buildList(emptyScreen, none);
+  CHECK(drewText(empty, "NOTHING TO READ"));
 }
 
 }  // namespace
@@ -782,8 +1418,23 @@ int main() {
   testBattleshipStartMenu();
   testBattleshipCapsuleIsOnlyATriggerWhenItSaysSo();
   testBattleshipPlacementControls();
+  testHnReaderFooter();
+  testHnReaderDisabledControls();
+  testHnReaderSwapLabelFollowsMode();
+  testHnReaderTextStaysInItsRect();
+  testHnNotice();
+  testHnList();
+  testHnFitLines();
   testShelfFolderDrawsItsOwnNameAndRows();
   testAFolderWithoutADeviceNameHasNoFooter();
+  testTheShelfFooterIsADoorWithAFaceOnIt();
+  testPlayerOffersThreeSeparateWords();
+  testPlayerWordsTileTheRowWithoutGapsOrOverlap();
+  testPlayerDrawsTheFaceItsNameDescribes();
+  testPlayerBackLeaves();
+  testEveryWordHasTheArtworkItNames();
+  testAnUnreadableNameDrawsThePlainHead();
+  testBothSeatsWearTheirOwnFace();
 
   std::printf("%d checks, %d failed\n", checksRun, checksFailed);
   return checksFailed == 0 ? 0 : 1;

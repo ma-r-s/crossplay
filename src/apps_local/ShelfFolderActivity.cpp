@@ -74,11 +74,10 @@ void ShelfFolderActivity::loop() {
     shelf::openItem(folder, selected, renderer, mappedInput);
     return;
   }
-  if (event.action == shelfui::ActionRerollName) {
-    // Instant and reversible: the next tap is another name, so there is nothing
-    // to confirm and nothing to undo.
-    player::reroll();
-    requestUpdate();
+  if (event.action == shelfui::ActionOpenPlayer) {
+    // A destination, not an edit. Nothing about the name changes here any more;
+    // PLAYER owns it, and this bar is only how you get there.
+    shelf::openPlayer(renderer, mappedInput);
   }
 }
 

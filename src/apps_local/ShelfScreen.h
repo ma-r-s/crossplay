@@ -13,7 +13,7 @@ namespace shelfui {
 
 namespace fui = freeink::ui;
 
-enum : fui::ActionId { ActionOpen = 1, ActionRerollName = 2 };
+enum : fui::ActionId { ActionOpen = 1, ActionOpenPlayer = 2 };
 
 struct MenuModel {
   // Drawn at the right edge of each row, in the same order as `items`. Right
@@ -32,8 +32,18 @@ struct MenuModel {
   int topIndex = 0;
   // This device's name, shown to anyone it plays with. It lives here rather
   // than inside any game because it belongs to the device: a DS asked once and
-  // every game used it. The footer is also the only place it can be changed,
-  // which is why the hub is the fork's System Settings.
+  // every game used it.
+  //
+  // The footer it draws is a door, not a control. It used to reroll the name in
+  // place, which meant the only way to see your own name was also the only way
+  // to lose it, and there was no way to choose one -- you pulled the lever until
+  // something acceptable came out. Tapping it now opens PLAYER, where the name
+  // comes apart into three words you can steer. That screen is the fork's
+  // System Settings, and this bar is its entrance.
+  //
+  // The face beside it is derived from the name and stored nowhere; see
+  // player/PlayerAvatar.h.
+  //
   // Null when this folder does not show it; the footer disappears with it.
   const char* playerName = nullptr;
 };

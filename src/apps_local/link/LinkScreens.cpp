@@ -1,5 +1,6 @@
 #include "LinkScreens.h"
 
+#include "../player/PlayerAvatar.h"
 #include "../ui/ToyboxIcons.h"
 
 namespace linkui {
@@ -9,6 +10,22 @@ namespace {
 // read as one object with a connection rather than two unrelated rows.
 constexpr int16_t kRailWidth = toybox::kFrame;
 constexpr int16_t kRailGap = toybox::kGutter;
+
+// A seat shows a face, and this is the whole reason the avatar was worth
+// building. Their name already crossed the radio -- Hello and Join carry it --
+// and the face is a pure function of that string, so the person opposite has a
+// face for free. Nothing was added to LinkProtocol and there is nothing that
+// can arrive stale or wrong.
+//
+// An empty seat gets one too: parse("") knows no words, which draws the plain
+// head everyone starts from. That reads as "somebody will be here", which is
+// what LOOKING means, and it needed no special case to say it.
+void drawSeatFace(toybox::Screen& screen, const fui::Rect& row, const char* name) {
+  const int16_t size = player::avatarPixels(player::AvatarSize::Row);
+  player::drawAvatar(screen.target(),
+                     fui::makeRect(row.x, static_cast<int16_t>(row.y + (row.height - size) / 2), size, size),
+                     name == nullptr ? "" : name, player::AvatarSize::Row);
+}
 
 // Same doubled rule the other apps draw. Local rather than shared because
 // ChessScreens and ConnectionsScreens each keep their own; a fourth copy is
@@ -126,16 +143,20 @@ fui::Rect buildLink(toybox::Screen& screen, const LinkModel& model) {
   screen.target().fill(rail,
                        model.linked ? fui::Paint::solid(fui::Color::Black) : fui::Paint::solid(fui::Color::DarkGray));
 
-  const int16_t textX = static_cast<int16_t>(rail.x + kRailWidth + kRailGap);
+  const int16_t faceX = static_cast<int16_t>(rail.x + kRailWidth + kRailGap);
+  const int16_t faceSize = player::avatarPixels(player::AvatarSize::Row);
+  const int16_t textX = static_cast<int16_t>(faceX + faceSize + kRailGap);
   const int16_t textWidth = static_cast<int16_t>(card.right() - toybox::kFrame - textX);
+  const int16_t yourY = static_cast<int16_t>(card.y + toybox::kFrame);
+  const int16_t theirY = static_cast<int16_t>(card.bottom() - toybox::kFrame - rowHeight);
 
   fui::SettingRowProps you;
   you.label = model.yourName;
   you.value = seatValue(model.you, model.linked);
   you.action = fui::NO_ACTION;
   you.styles = fui::plainStyles(fui::Paint{});
-  fui::settingRow(screen.frame(),
-                  fui::makeRect(textX, static_cast<int16_t>(card.y + toybox::kFrame), textWidth, rowHeight), you);
+  drawSeatFace(screen, fui::makeRect(faceX, yourY, faceSize, rowHeight), model.yourName);
+  fui::settingRow(screen.frame(), fui::makeRect(textX, yourY, textWidth, rowHeight), you);
 
   fui::SettingRowProps them;
   // A seat nobody is in yet shows the shape of the absence, not a blank.
@@ -143,10 +164,8 @@ fui::Rect buildLink(toybox::Screen& screen, const LinkModel& model) {
   them.value = seatValue(model.them, model.linked);
   them.action = fui::NO_ACTION;
   them.styles = fui::plainStyles(fui::Paint{});
-  fui::settingRow(
-      screen.frame(),
-      fui::makeRect(textX, static_cast<int16_t>(card.bottom() - toybox::kFrame - rowHeight), textWidth, rowHeight),
-      them);
+  drawSeatFace(screen, fui::makeRect(faceX, theirY, faceSize, rowHeight), model.theirName);
+  fui::settingRow(screen.frame(), fui::makeRect(textX, theirY, textWidth, rowHeight), them);
 
   // What is left between the seats and the footer. Slack until a game puts
   // something in it.

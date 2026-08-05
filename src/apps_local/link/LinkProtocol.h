@@ -39,10 +39,18 @@ constexpr uint8_t kProtocolVersion = 1;
 constexpr size_t kHeaderBytes = 12;
 constexpr size_t kMaxPayloadBytes = 192;
 constexpr size_t kMaxPacketBytes = kHeaderBytes + kMaxPayloadBytes;
-// The name a device shows to others. Sized for the widest pair the name lists
-// can roll (apps_local/player/PlayerName.h), and still short enough to sit in a
-// header without truncation.
-constexpr size_t kMaxNameBytes = 15;
+// The name a device shows to others. Sized for the widest triple the name
+// lists can roll (apps_local/player/PlayerName.h), and still short enough to
+// sit in a header without truncation. LinkActivity.cpp static_asserts the two
+// against each other, because a name that overflows here is not a compile error
+// -- it is a face that comes out wrong on somebody else's device.
+//
+// This grew from 15 when a name went from two words to three. Nothing else had
+// to change: the name rides as a variable-length payload with its length in the
+// header, not as a fixed field, so an older build receiving a longer name
+// truncates it rather than misreading the packet. That is why there is no
+// kProtocolVersion bump here.
+constexpr size_t kMaxNameBytes = 20;
 // A note is deliberately one byte. Everything that has needed one so far is an
 // intent ("play again", "leaving"), and a wider channel would invite games to
 // route game state through it, which is what the turn-taking State is for.

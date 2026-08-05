@@ -96,6 +96,15 @@ void openFolder(int index, GfxRenderer& renderer, MappedInputManager& mappedInpu
 // so leave() can undo it.
 void openItem(int folder, int item, GfxRenderer& renderer, MappedInputManager& mappedInput);
 
+// Open PLAYER, the one screen in the fork that is not a game and not a folder.
+//
+// It is reached from the footer bar rather than from a row, so it is not an
+// Item and it is in no folder -- but it still has to come back where it came
+// from, so it records the current folder exactly the way openItem does. That
+// bookkeeping is the only reason this is not just a factory call at the tap
+// site: leave() has to have somewhere to send it.
+void openPlayer(GfxRenderer& renderer, MappedInputManager& mappedInput);
+
 // Go back one level: an app returns to its folder, a folder returns to Home.
 //
 // The current folder is module state rather than something each app carries,

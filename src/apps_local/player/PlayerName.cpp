@@ -15,20 +15,42 @@
 namespace player {
 namespace {
 
-// Short on purpose: the pair has to fit kMaxNameLength, and a name that has to
-// be truncated in a header is worse than a shorter one chosen deliberately.
-constexpr const char* kAdjectives[] = {
-    "BRAVE", "CALM",   "BOLD",   "KEEN",  "WILD",   "SWIFT",  "QUIET",  "SLY",   "GRAND",  "LUCKY", "NOBLE", "MERRY",
-    "SHARP", "STEADY", "CLEVER", "PROUD", "GENTLE", "FIERCE", "SILENT", "SUNNY", "STORMY", "IRON",  "AMBER", "JOLLY",
+// Six letters is the ceiling, and it is a drawing budget as much as a wire one:
+// three of these plus two spaces is kMaxNameLength exactly. Each word also has
+// to name something the artwork can actually show, so the lists and
+// assets_local/avatar/ are edited together or not at all.
+//
+// THE ORDER IS USER-VISIBLE, because tapping a word steps to the next one.
+// Each list is a walk rather than a bag: hair runs from none to most, eyes from
+// moods to the things you wear on them, mouths from expressions into facial
+// hair. Fourteen apiece is 2744 faces, which was the point -- eight per slot
+// gave everybody the same handful of faces.
+constexpr const char* kHair[] = {"BALD", "TUFTY", "SLICK",  "WAVY", "CURLY", "SPIKY", "PUNK",
+                                 "MOP",  "BUN",   "BRAIDS", "PONY", "BOB",   "LONG",  "AFRO"};
+constexpr const char* kEyes[] = {"GRIM", "SAD",   "SLY",  "SQUINT", "SLEEPY", "BLINK", "GLAD",
+                                 "WINK", "BEADY", "WIDE", "CROSS",  "BUSHY",  "SPECS", "SHADES"};
+constexpr const char* kMouth[] = {"GRIN",   "TEETH", "SMIRK",  "GLUM", "POUT",   "FROWN",  "GASP",
+                                  "TONGUE", "FANGS", "SCRUFF", "TASH", "GOATEE", "MUTTON", "BEARD"};
+
+struct List {
+  const char* const* words;
+  size_t count;
 };
 
-constexpr const char* kNouns[] = {
-    "FALCON", "OTTER",  "BADGER", "HERON", "FOX",   "WOLF",  "CRANE", "MOTH",  "PIKE",  "RAVEN", "STAG", "HARE",
-    "LYNX",   "MAGPIE", "SWIFT",  "TROUT", "ADDER", "BISON", "EAGLE", "FINCH", "GOOSE", "MOLE",  "NEWT", "OWL",
+constexpr List kLists[kSlotCount] = {
+    {kHair, sizeof(kHair) / sizeof(kHair[0])},
+    {kEyes, sizeof(kEyes) / sizeof(kEyes[0])},
+    {kMouth, sizeof(kMouth) / sizeof(kMouth[0])},
 };
 
-constexpr size_t kAdjectiveCount = sizeof(kAdjectives) / sizeof(kAdjectives[0]);
-constexpr size_t kNounCount = sizeof(kNouns) / sizeof(kNouns[0]);
+// kWordCount is what PlayerAvatar.cpp sizes its artwork tables against, so it
+// is the one number the two files agree on. Pin it to the lists here rather
+// than trusting anyone to update both.
+static_assert(kLists[SlotHair].count == kWordCount[SlotHair], "hair list and kWordCount disagree");
+static_assert(kLists[SlotEyes].count == kWordCount[SlotEyes], "eyes list and kWordCount disagree");
+static_assert(kLists[SlotMouth].count == kWordCount[SlotMouth], "mouth list and kWordCount disagree");
+
+bool validSlot(const int slot) { return slot >= 0 && slot < kSlotCount; }
 
 char cached[kMaxNameLength + 1] = {};
 
@@ -88,42 +110,117 @@ bool load(char* out, const size_t capacity) {
 
 }  // namespace
 
-size_t adjectiveCount() { return kAdjectiveCount; }
-size_t nounCount() { return kNounCount; }
+bool Name::known() const {
+  for (int slot = 0; slot < kSlotCount; ++slot) {
+    if (word[slot] >= kLists[slot].count) return false;
+  }
+  return true;
+}
 
-void compose(char* out, const size_t capacity, const uint32_t seed) {
+size_t wordCount(const int slot) { return validSlot(slot) ? kLists[slot].count : 0; }
+
+const char* word(const int slot, const uint8_t index) {
+  if (!validSlot(slot) || index >= kLists[slot].count) return nullptr;
+  return kLists[slot].words[index];
+}
+
+void compose(char* out, const size_t capacity, const Name& name) {
   if (out == nullptr || capacity == 0) return;
+  size_t written = 0;
+  out[0] = '\0';
+  for (int slot = 0; slot < kSlotCount; ++slot) {
+    const char* text = word(slot, name.word[slot]);
+    if (text == nullptr) continue;
+    // snprintf's return is what it *would* have written, so clamping here is
+    // what keeps `written` an index into the buffer rather than past its end.
+    const int n = snprintf(out + written, capacity - written, written == 0 ? "%s" : " %s", text);
+    if (n <= 0) break;
+    written += static_cast<size_t>(n);
+    if (written >= capacity - 1) break;
+  }
+}
+
+Name parse(const char* text) {
+  Name name;
+  if (text == nullptr) return name;
+  const char* cursor = text;
+  for (int slot = 0; slot < kSlotCount; ++slot) {
+    while (*cursor == ' ') cursor++;
+    const char* start = cursor;
+    while (*cursor != '\0' && *cursor != ' ') cursor++;
+    const size_t length = static_cast<size_t>(cursor - start);
+    if (length == 0) break;
+    for (size_t i = 0; i < kLists[slot].count; ++i) {
+      const char* candidate = kLists[slot].words[i];
+      if (strlen(candidate) == length && strncmp(candidate, start, length) == 0) {
+        name.word[slot] = static_cast<uint8_t>(i);
+        break;
+      }
+    }
+  }
+  return name;
+}
+
+void shortName(const char* name, char* out, const size_t capacity) {
+  if (out == nullptr || capacity == 0) return;
+  out[0] = '\0';
+  if (name == nullptr) return;
+  while (*name == ' ') name++;
+  size_t written = 0;
+  while (name[written] != '\0' && name[written] != ' ' && written + 1 < capacity) {
+    out[written] = name[written];
+    written++;
+  }
+  out[written] = '\0';
+}
+
+Name roll(const uint32_t seed) {
   const uint32_t rolled = mix(seed);
-  // Two independent draws from one roll: the halves of a mixed word are not
-  // correlated, so this is a pair rather than a diagonal through the lists.
-  const char* adjective = kAdjectives[rolled % kAdjectiveCount];
-  const char* noun = kNouns[(rolled >> 16) % kNounCount];
-  snprintf(out, capacity, "%s %s", adjective, noun);
+  Name name;
+  // Three draws from one mixed word. The bytes of a mixed value are not
+  // correlated, so this is three independent picks rather than a diagonal
+  // through the lists -- the same reason the two-word version took its noun
+  // from the high half.
+  for (int slot = 0; slot < kSlotCount; ++slot) {
+    const uint32_t slice = rolled >> (slot * 8);
+    name.word[slot] = static_cast<uint8_t>(slice % kLists[slot].count);
+  }
+  return name;
+}
+
+Name nextWord(const Name& current, const int slot) {
+  Name next = current;
+  if (!validSlot(slot)) return next;
+  const size_t count = kLists[slot].count;
+  const uint8_t was = current.word[slot];
+  // A word this build cannot read has no "next", so the walk starts over.
+  next.word[slot] = was >= count ? 0 : static_cast<uint8_t>((was + 1) % count);
+  return next;
 }
 
 const char* name() {
   if (cached[0] != '\0') return cached;
-  if (load(cached, sizeof(cached))) return cached;
-  // First run. Roll one and keep it, so a device is never nameless and the
-  // player never meets a naming screen they did not ask for.
-  compose(cached, sizeof(cached), seedFromClock());
+  char stored[kMaxNameLength + 1] = {};
+  if (load(stored, sizeof(stored)) && parse(stored).known()) {
+    memcpy(cached, stored, sizeof(cached));
+    return cached;
+  }
+  // Either first run, or a saved name this build cannot read -- which is
+  // exactly what a two-word name from before the face existed looks like.
+  // Rolling a fresh one is the whole migration: everything downstream may then
+  // assume the local name is three words it can draw.
+  compose(cached, sizeof(cached), roll(seedFromClock()));
   store(cached);
   LOG_INF("PLAYER", "named this device '%s'", cached);
   return cached;
 }
 
-const char* reroll() {
-  char next[kMaxNameLength + 1] = {};
-  // Tapping twice must not land back where it started, so keep rolling until it
-  // actually changes. The lists are large enough that this is one extra draw at
-  // worst.
-  for (int attempt = 0; attempt < 8; ++attempt) {
-    compose(next, sizeof(next), seedFromClock() + static_cast<uint32_t>(attempt) * 2654435761u);
-    if (strcmp(next, cached) != 0) break;
-  }
-  memcpy(cached, next, sizeof(cached));
+Name parts() { return parse(name()); }
+
+void stepSlot(const int slot) {
+  if (!validSlot(slot)) return;
+  compose(cached, sizeof(cached), nextWord(parts(), slot));
   store(cached);
-  return cached;
 }
 
 }  // namespace player
