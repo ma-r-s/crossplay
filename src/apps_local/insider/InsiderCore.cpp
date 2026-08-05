@@ -54,9 +54,7 @@ int Deck::draw(Rng& rng) {
 }
 
 void Round::deal(const int players, const int wordIndex, Rng& rng) {
-  players_ = static_cast<uint8_t>(players < kMinPlayers   ? kMinPlayers
-                                  : players > kMaxPlayers ? kMaxPlayers
-                                                          : players);
+  players_ = static_cast<uint8_t>(players < kMinPlayers ? kMinPlayers : players > kMaxPlayers ? kMaxPlayers : players);
   wordIndex_ = static_cast<int16_t>(wordIndex);
 
   // The bag: everyone but one is a Citizen, and one is the Insider.

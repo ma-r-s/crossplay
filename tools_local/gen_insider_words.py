@@ -4,7 +4,10 @@
     ./tools_local/gen_insider_words.py
 
 The output is committed, the same as the icon headers: a checkout should build
-without running any generator. Edit the .txt, run this, commit both.
+without running any generator. Edit the .txt, run this, run
+./bin/clang-format-fix, and commit both -- clang-format packs the one-word-per-
+line table this emits, so skipping it means the next person's format run shows
+five hundred lines of diff over an identical word list.
 
 The deck ships in flash rather than on the SD card. It is about 6KB, the card is
 not guaranteed to hold anything, and a party game that cannot deal a word
