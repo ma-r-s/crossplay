@@ -14,5 +14,10 @@ library = library
 radio-tower = radio-tower
 sun = sun
 moon = moon
+# sun-filled / moon-filled are not stock Lucide: copy sun.svg / moon.svg and add
+# fill="currentColor" to the <circle> (sun) / the single <path> (moon), drop the
+# copies into the svgdir, then regenerate. No permanent SVG source is kept.
+sun-filled = sun-filled
+moon-filled = moon-filled
 upload = upload
 download = download
