@@ -34,3 +34,36 @@ nearby      = radio
 # dices (heavier than its neighbours).
 games       = joystick
 apps        = layout-grid
+
+# The shelf's player bar. Without an affordance, a bar carrying a face and a
+# name reads as a status line rather than as somewhere you can go -- and the
+# thing it opens is the only settings screen in the fork, so being missable is
+# the whole failure. A chevron is the least it can be and still say "opens".
+opens       = chevron-right
+
+# Hacker News. `newspaper` shares no silhouette with the crown, hull, grid,
+# suit or joystick already on the shelf, and a folded broadsheet reads as
+# "things to read" without needing the label.
+hackernews  = newspaper
+
+# The mark for a link this device cannot show as text: a PDF, a video, a page
+# that is only JavaScript. It appears on a story row and on the screen that
+# offers the comments instead, and it is never used for anything else.
+#
+# `eye-off` is a negation with one unmistakable diagonal, which is all 1-bit at
+# 32px reliably carries. Rejected: file-x and square-x (the X is interior
+# detail inside an outline, the same mush that ruled out gamepad-2), ban (reads
+# as forbidden rather than unavailable, and blames the reader), image-off (says
+# pictures, when the missing thing is words).
+unreadable  = eye-off
+
+# The flashcard trainer. `languages` is Lucide's A-over-CJK-glyph mark, which
+# is what this app actually is: one script standing in for another. It is also
+# the only silhouette in the shelf built from letterforms, so it cannot be
+# confused with the crown, the hull, the grid or the suit at 32px.
+#
+# Rejected: graduation-cap (a triangle on a stem, too close to the crown at
+# this size), layers and gallery-vertical-end (a stack of cards is the
+# mechanism, not the subject, and both read as generic list icons), brain
+# (memory is the mechanism too, and it is mush at 32px).
+study       = languages
