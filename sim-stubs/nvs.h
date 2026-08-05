@@ -1,7 +1,8 @@
 #pragma once
-#include <stdint.h>
 #include <stddef.h>
-typedef uint32_t nvs_handle_t; typedef int esp_err_t;
+#include <stdint.h>
+typedef uint32_t nvs_handle_t;
+typedef int esp_err_t;
 #define ESP_OK 0
 #define ESP_ERR_NVS_NOT_FOUND 0x1102
 typedef enum { NVS_READONLY, NVS_READWRITE } nvs_open_mode_t;

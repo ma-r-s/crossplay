@@ -34,7 +34,9 @@ enum class XteinkVerdict : uint8_t { X4Confirmed, X3Confirmed, Inconclusive };
 // and the probe pins back in INPUT mode. Safe to call before any other
 // hardware bring-up. In builds without an Xteink profile this is a no-op
 // returning Inconclusive with zero scores.
-inline XteinkVerdict detectXteinkVerdict(uint8_t* score1 = nullptr, uint8_t* score2 = nullptr) { return XteinkVerdict::Inconclusive; }
+inline XteinkVerdict detectXteinkVerdict(uint8_t* score1 = nullptr, uint8_t* score2 = nullptr) {
+  return XteinkVerdict::Inconclusive;
+}
 
 // Run the X3 I2C fingerprint and return true if this board is an Xteink X3.
 // Leaves the I2C bus released and the probe pins back in INPUT mode. Safe to
@@ -58,7 +60,9 @@ enum class X3DisplayVerdict : uint8_t { Uc8253Assumed, Uc8279Confirmed, Inconclu
 // FLG byte from the first pass (for bring-up logging / threshold tuning on new
 // hardware). Only meaningful on a confirmed X3; in builds without
 // FREEINK_DEVICE_X3 this is a no-op returning Uc8253Assumed.
-inline X3DisplayVerdict detectX3DisplayController(uint8_t verBytes[5] = nullptr, uint8_t* flg = nullptr) { return X3DisplayVerdict::Uc8253Assumed; }
+inline X3DisplayVerdict detectX3DisplayController(uint8_t verBytes[5] = nullptr, uint8_t* flg = nullptr) {
+  return X3DisplayVerdict::Uc8253Assumed;
+}
 
 // --- Board-agnostic display-controller fingerprint ---------------------------
 // Newer production runs of several Xteink panels swap their default controller
@@ -81,11 +85,11 @@ DisplayControllerVerdict detectXteinkDisplayController(uint8_t verBytes[5] = nul
 // detectXteinkDisplayController() / applyXteinkDisplayController(); zeroed
 // until a probe has run (`valid` false).
 struct XteinkDisplayProbeDiag {
-  bool valid = false;        // a probe has run this boot
-  uint8_t ver[5] = {0};      // VER (0x70) bytes from the authoritative pass
-  uint8_t flg = 0;           // FLG (0x71) status byte from pass 1
-  uint8_t verdict = 0;       // DisplayControllerVerdict as its raw value
-  bool promoted = false;     // applyXteinkDisplayController() switched drivers
+  bool valid = false;     // a probe has run this boot
+  uint8_t ver[5] = {0};   // VER (0x70) bytes from the authoritative pass
+  uint8_t flg = 0;        // FLG (0x71) status byte from pass 1
+  uint8_t verdict = 0;    // DisplayControllerVerdict as its raw value
+  bool promoted = false;  // applyXteinkDisplayController() switched drivers
   // First 48 bytes of the controller MTP via RMTP (0xA2), captured on a
   // confirmed UltraChip part: [0x000] = 0xA5 refresh-enable key, 0x001-0x016 =
   // factory Command Default Setting (real PSR/TRES/GSST/CDI/TCON), 0x017-0x019

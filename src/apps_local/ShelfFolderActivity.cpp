@@ -93,8 +93,8 @@ void ShelfFolderActivity::render(RenderLock&&) {
 
   // Keep the selection on screen. The list is virtualized, so a selection below
   // the fold would otherwise be styled on a row that is never drawn.
-  topIndex = shelfui::topIndexFor(shelfui::listBand(device, self.showsDeviceName), tokens, selected,
-                                  topIndex, itemCount);
+  topIndex =
+      shelfui::topIndexFor(shelfui::listBand(device, self.showsDeviceName), tokens, selected, topIndex, itemCount);
 
   // Toybox chrome is capitals; upstream's Home list is Title Case. The registry
   // stores the Title Case name because that is the one a person reads on Home,

@@ -4,12 +4,15 @@
 
 #include "../activities/ActivityManager.h"
 #include "ShelfFolderActivity.h"
+#include "chess/ChessActivity.h"
 
 namespace {
 
-// Empty for now. Games arrive one at a time, each proven in the simulator
-// before the next; see docs/crosspoint-migration.md for the order.
-constexpr shelf::Item kGames[] = {};
+// Games arrive one at a time, each proven in the simulator before the next;
+// see docs/crosspoint-migration.md for the order.
+constexpr shelf::Item kGames[] = {
+    {"CHESS", UIIcon::Book, &ChessActivity::create},
+};
 constexpr shelf::Item kApps[] = {};
 
 // The two rows Home grows, in reading order. Titles are Title Case because
