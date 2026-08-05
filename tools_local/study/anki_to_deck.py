@@ -27,10 +27,11 @@ import unicodedata
 
 DECK_MAGIC = b"XSTUDYD\0"
 META_MAGIC = b"XSTUDYM\0"
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
 
 CARD_RECORD_SIZE = 32
 NUM_PARAMS = 19
+MAX_STEPS = 6
 
 # Card states, matching StudyCard::State on the device.
 STATE_NEW = 0
@@ -183,6 +184,13 @@ def parse_deck_config(blob):
             # Field 5 is the FSRS-5 weight vector: 19 little-endian floats.
             if field == 5 and len(chunk) == NUM_PARAMS * 4:
                 out["params"] = list(struct.unpack("<%df" % NUM_PARAMS, chunk))
+            # Fields 1 and 2 are the learning and relearning steps, in minutes,
+            # as packed float arrays. Mario's deck ships [1, 10] and [10].
+            elif field in (1, 2) and len(chunk) % 4 == 0 and chunk:
+                key = "learnSteps" if field == 1 else "relearnSteps"
+                out[key] = list(struct.unpack("<%df" % (len(chunk) // 4), chunk))[
+                    :MAX_STEPS
+                ]
         else:
             break
     return out
@@ -283,6 +291,7 @@ def collect_notes(db, deck_name, limit=None):
                 "stability": float(memory.get("s", 0.0)),
                 "difficulty": float(memory.get("d", 0.0)),
                 "due": due,
+                "ivl": ivl,
                 "reps": reps,
                 "lapses": lapses,
                 "ctype": ctype,
@@ -331,7 +340,14 @@ def write_cards(notes, path):
             # numbering, which is the numbering we keep. A new card's due is a
             # position in the new queue, not a day, so it is not carried over.
             due_day = note["due"] if learned else 0
-            last_day = -1
+            # Anki does not store "when was this last reviewed" on the card, but
+            # for a review card it is exactly due - ivl: the interval was
+            # counted forward from that day. Without this every card's first
+            # review on the device looks like a *same-day* review to FSRS, which
+            # takes the short-term stability path and inflates the interval --
+            # a card last seen forty days ago was being treated as one seen
+            # forty seconds ago.
+            last_day = (due_day - note["ivl"]) if (learned and note["ivl"] > 0) else -1
             f.write(
                 struct.pack(
                     "<qffiiHHBBH",
@@ -371,7 +387,17 @@ def write_meta(path, name, config, crt, rollover):
                 config.get("revPerDay", 200),
             )
         )
-        f.write(struct.pack("<qBB", crt, rollover, len(encoded)))
+        f.write(struct.pack("<qB", crt, rollover))
+        learn = config.get("learnSteps") or []
+        relearn = config.get("relearnSteps") or []
+        f.write(struct.pack("<BB", len(learn), len(relearn)))
+        f.write(
+            struct.pack("<%df" % MAX_STEPS, *(learn + [0.0] * MAX_STEPS)[:MAX_STEPS])
+        )
+        f.write(
+            struct.pack("<%df" % MAX_STEPS, *(relearn + [0.0] * MAX_STEPS)[:MAX_STEPS])
+        )
+        f.write(struct.pack("<B", len(encoded)))
         f.write(encoded)
 
 
@@ -481,6 +507,11 @@ def main():
         print(
             f"  FSRS      {len(config['params'])} parameters, retention {config.get('desiredRetention', 0.9):.2f}"
         )
+    learn = config.get("learnSteps") or []
+    relearn = config.get("relearnSteps") or []
+    print(
+        f"  steps     learn {learn or 'Anki default'}, relearn {relearn or 'Anki default'} (minutes)"
+    )
     print(f"  -> {args.out}")
 
 

@@ -8,7 +8,10 @@ namespace {
 
 constexpr uint8_t kDeckMagic[8] = {'X', 'S', 'T', 'U', 'D', 'Y', 'D', 0};
 constexpr uint8_t kMetaMagic[8] = {'X', 'S', 'T', 'U', 'D', 'Y', 'M', 0};
-constexpr uint16_t kFormatVersion = 1;
+// Bumped to 2 when meta.dat grew the learning steps. deck.dat's layout did
+// not change, but the two files are written as a set and a deck with v1 meta
+// beside v2 content is a state nobody should have to reason about.
+constexpr uint16_t kFormatVersion = 2;
 
 // Everything on disk is little-endian, and the ESP32-S3 is too, but a raw
 // reinterpret_cast on a byte buffer is an unaligned load -- which faults on
@@ -78,8 +81,9 @@ uint16_t Note::length(const Field f) const {
 }
 
 bool StudyDeck::openMeta(ByteSource& meta) {
-  // magic(8) + version(2) + reserved(2) + params(76) + f32 + 3*i32 + i64 + 2
-  uint8_t header[8 + 2 + 2 + kNumParams * 4 + 4 + 12 + 8 + 2];
+  // magic(8) + version(2) + reserved(2) + params(76) + retention(4) + 3*i32(12)
+  // + crt(8) + rollover(1) + step counts(2) + steps(48) + nameLength(1)
+  uint8_t header[8 + 2 + 2 + kNumParams * 4 + 4 + 12 + 8 + 1 + 2 + kMaxLearningSteps * 8 + 1];
   if (!meta.read(0, header, sizeof(header))) return false;
   if (std::memcmp(header, kMetaMagic, sizeof(kMetaMagic)) != 0) return false;
   if (readU16(header + 8) != kFormatVersion) return false;
@@ -96,7 +100,17 @@ bool StudyDeck::openMeta(ByteSource& meta) {
   p += 16;
   meta_.collectionCreated = readI64(p);
   meta_.rolloverHour = p[8];
-  const uint8_t nameLength = p[9];
+  p += 9;
+
+  meta_.learnStepCount = p[0] > kMaxLearningSteps ? kMaxLearningSteps : p[0];
+  meta_.relearnStepCount = p[1] > kMaxLearningSteps ? kMaxLearningSteps : p[1];
+  p += 2;
+  for (int i = 0; i < kMaxLearningSteps; ++i) {
+    meta_.learnSteps[i] = readF32(p + i * 4);
+    meta_.relearnSteps[i] = readF32(p + (kMaxLearningSteps + i) * 4);
+  }
+  p += kMaxLearningSteps * 8;
+  const uint8_t nameLength = p[0];
 
   const uint32_t nameOffset = static_cast<uint32_t>(sizeof(header));
   const uint32_t copyLength = nameLength < sizeof(meta_.name) - 1 ? nameLength : sizeof(meta_.name) - 1;
@@ -197,7 +211,8 @@ bool StudyDeck::loadCard(ByteSource& cards, const int index, CardState& out) con
   out.reps = readU16(record + 24);
   out.lapses = readU16(record + 26);
   out.state = record[28];
-  out.flags = record[29];
+  out.stepIndex = record[29];
+  out.dueMinute = readU16(record + 30);
   return true;
 }
 
@@ -212,7 +227,8 @@ bool StudyDeck::storeCard(WritableByteSource& cards, const int index, const Card
   std::memcpy(record + 24, &in.reps, 2);
   std::memcpy(record + 26, &in.lapses, 2);
   record[28] = in.state;
-  record[29] = in.flags;
+  record[29] = in.stepIndex;
+  std::memcpy(record + 30, &in.dueMinute, 2);
   return cards.write(static_cast<uint32_t>(index) * kCardRecordSize, record, sizeof(record));
 }
 

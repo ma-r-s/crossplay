@@ -19,6 +19,10 @@ c++ -std=c++17 -O2 -Wall -Wextra -Werror \
   "$SRC/StudyFsrs.cpp" test_fsrs.cpp -o "$BUILD_DIR/test_fsrs"
 c++ -std=c++17 -O2 -Wall -Wextra -Werror \
   "$SRC/StudyDeck.cpp" "$SRC/StudyFsrs.cpp" test_deck.cpp -o "$BUILD_DIR/test_deck"
+c++ -std=c++17 -O2 -Wall -Wextra -Werror \
+  "$SRC/StudyScheduler.cpp" "$SRC/StudyDeck.cpp" "$SRC/StudyFsrs.cpp" test_scheduler.cpp \
+  -o "$BUILD_DIR/test_scheduler"
 
 "$BUILD_DIR/test_fsrs"
 "$BUILD_DIR/test_deck" "$@"
+"$BUILD_DIR/test_scheduler"
