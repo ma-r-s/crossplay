@@ -61,6 +61,47 @@ uint32_t nextRandom(uint32_t& state) {
   return state;
 }
 
+// Longest line the wrapper will assemble. The widest field in the deck is 178
+// bytes; 256 leaves room without putting a stack frame near the 256-byte
+// guidance twice over, since two of these are live at once.
+constexpr int kLineBytes = 256;
+
+int utf8Length(const char* p) {
+  const unsigned char c = static_cast<unsigned char>(*p);
+  if (c < 0x80) return 1;
+  if ((c & 0xE0) == 0xC0) return 2;
+  if ((c & 0xF0) == 0xE0) return 3;
+  if ((c & 0xF8) == 0xF0) return 4;
+  return 1;  // a stray continuation byte: step one, never zero, or we spin
+}
+
+// Decode one codepoint and advance the pointer past it.
+uint32_t nextCodepoint(const char*& p) {
+  const unsigned char c = static_cast<unsigned char>(*p);
+  const int length = utf8Length(p);
+  uint32_t value = c;
+  if (length == 2) {
+    value = c & 0x1F;
+  } else if (length == 3) {
+    value = c & 0x0F;
+  } else if (length == 4) {
+    value = c & 0x07;
+  }
+  for (int i = 1; i < length; ++i) {
+    value = (value << 6) | (static_cast<unsigned char>(p[i]) & 0x3F);
+  }
+  p += length;
+  return value;
+}
+
+// May a line break happen either side of this character? True for spaces and
+// for CJK, which is written without spaces and breaks almost anywhere.
+bool isBreakable(const uint32_t codepoint) {
+  if (codepoint == ' ') return true;
+  return (codepoint >= 0x2E80 && codepoint <= 0x9FFF) || (codepoint >= 0xF900 && codepoint <= 0xFAFF) ||
+         (codepoint >= 0xFF00 && codepoint <= 0xFFEF);
+}
+
 void formatInterval(const int days, char* out, const size_t size) {
   if (days < 1) {
     std::snprintf(out, size, "<1d");
@@ -261,51 +302,108 @@ void StudyActivity::loop() {
   }
 }
 
-int StudyActivity::drawCentered(const int fontId, const int y, const int width, const char* text) const {
+int StudyActivity::drawWrapped(const int fontId, int y, const int maxWidth, const char* text,
+                               const bool measureOnly) const {
   if (text == nullptr || *text == '\0') return y;
-  const int textWidth = renderer.getTextWidth(fontId, text);
-  renderer.drawText(fontId, (width - textWidth) / 2, y, text, true);
-  return y + renderer.getTextHeight(fontId);
+
+  const int lineHeight = renderer.getTextHeight(fontId);
+  const int screenWidth = renderer.getScreenWidth();
+  char line[kLineBytes];
+  int lineLength = 0;
+
+  const auto flush = [&]() {
+    if (lineLength == 0) return;
+    line[lineLength] = '\0';
+    if (!measureOnly) {
+      const int textWidth = renderer.getTextWidth(fontId, line);
+      renderer.drawText(fontId, (screenWidth - textWidth) / 2, y, line, true);
+    }
+    y += lineHeight;
+    lineLength = 0;
+  };
+
+  const char* p = text;
+  while (*p != '\0') {
+    // One break unit: a whole word for Latin, a single character for CJK.
+    // Chinese is written without spaces, so a space-only rule would never
+    // find a break and every sentence would run off both edges -- which is
+    // exactly what the first render did.
+    const char* unitEnd = p;
+    if (isBreakable(nextCodepoint(unitEnd))) {
+      unitEnd = p + utf8Length(p);
+    } else {
+      while (*unitEnd != '\0') {
+        const char* peek = unitEnd;
+        if (isBreakable(nextCodepoint(peek))) break;
+        unitEnd = peek;
+      }
+    }
+    const int unitBytes = static_cast<int>(unitEnd - p);
+    if (unitBytes <= 0 || unitBytes >= kLineBytes) break;
+
+    // Would it still fit? Measure the candidate rather than guessing from a
+    // character count: CJK glyphs are three bytes and full width, Latin ones
+    // are one byte and narrow.
+    char candidate[kLineBytes];
+    std::memcpy(candidate, line, static_cast<size_t>(lineLength));
+    std::memcpy(candidate + lineLength, p, static_cast<size_t>(unitBytes));
+    candidate[lineLength + unitBytes] = '\0';
+
+    if (lineLength > 0 && renderer.getTextWidth(fontId, candidate) > maxWidth) {
+      flush();
+      // A leading space after a break is the break itself; drop it.
+      while (*p == ' ') ++p;
+      continue;
+    }
+    std::memcpy(line + lineLength, p, static_cast<size_t>(unitBytes));
+    lineLength += unitBytes;
+    p = unitEnd;
+  }
+  flush();
+  return y;
 }
 
 void StudyActivity::drawCard(const Rect& body) {
-  const int width = renderer.getScreenWidth();
-  int y = body.y + 24;
+  const int maxWidth = renderer.getScreenWidth() - 2 * toybox::kMargin;
+  const int headwordFont = fontsReady_ ? fonts_.headwordFontId() : kReadingFontId;
+  const int sentenceFont = fontsReady_ ? fonts_.sentenceFontId() : kMeaningFontId;
+  const bool answer = face_ == Face::Answer;
 
-  // The headword, in whichever of the five faces this card drew.
-  if (fontsReady_) {
-    y = drawCentered(fonts_.headwordFontId(), y, width, note_.field(study::Field::Headword));
-  } else {
-    y = drawCentered(kReadingFontId, y, width, note_.field(study::Field::Headword));
-  }
-
-  if (face_ == Face::Answer) {
-    y += 12;
-    y = drawCentered(kReadingFontId, y, width, note_.field(study::Field::Reading));
-    y += 6;
-    y = drawCentered(kMeaningFontId, y, width, note_.field(study::Field::Meaning));
-    y = drawCentered(kSmallFontId, y, width, note_.field(study::Field::PartOfSpeech));
-  }
-
-  // The rule, exactly as the Anki template has it: the word above, the
-  // sentence it lives in below.
-  y += 20;
-  toybox::rule(renderer, y, toybox::kHairline);
-  y += 20;
-
-  if (!note_.empty(study::Field::Sentence)) {
-    if (fontsReady_) {
-      y = drawCentered(fonts_.sentenceFontId(), y, width, note_.field(study::Field::Sentence));
-    } else {
-      y = drawCentered(kMeaningFontId, y, width, note_.field(study::Field::Sentence));
-    }
-    if (face_ == Face::Answer) {
+  // Lay the block out twice: once to measure, once to draw. E-ink holds an
+  // image for hours, so a block jammed against the header with the bottom half
+  // of the screen empty is a real defect rather than untidiness -- see
+  // docs/design-language.md. Measuring first is what lets it sit centred.
+  const auto layout = [&](int y, const bool measureOnly) {
+    y = drawWrapped(headwordFont, y, maxWidth, note_.field(study::Field::Headword), measureOnly);
+    if (answer) {
       y += 8;
-      y = drawCentered(kMeaningFontId, y, width, note_.field(study::Field::SentenceReading));
+      y = drawWrapped(kReadingFontId, y, maxWidth, note_.field(study::Field::Reading), measureOnly);
       y += 4;
-      drawCentered(kMeaningFontId, y, width, note_.field(study::Field::SentenceMeaning));
+      y = drawWrapped(kMeaningFontId, y, maxWidth, note_.field(study::Field::Meaning), measureOnly);
+      y = drawWrapped(kSmallFontId, y, maxWidth, note_.field(study::Field::PartOfSpeech), measureOnly);
     }
-  }
+
+    if (!note_.empty(study::Field::Sentence)) {
+      // The rule, as the Anki template has it: the word above, the sentence it
+      // lives in below.
+      y += 22;
+      if (!measureOnly) toybox::rule(renderer, y, toybox::kHairline);
+      y += 22;
+      y = drawWrapped(sentenceFont, y, maxWidth, note_.field(study::Field::Sentence), measureOnly);
+      if (answer) {
+        y += 6;
+        y = drawWrapped(kMeaningFontId, y, maxWidth, note_.field(study::Field::SentenceReading), measureOnly);
+        y += 2;
+        y = drawWrapped(kMeaningFontId, y, maxWidth, note_.field(study::Field::SentenceMeaning), measureOnly);
+      }
+    }
+    return y;
+  };
+
+  const int height = layout(0, true);
+  int top = body.y + (body.height - height) / 2;
+  if (top < body.y + toybox::kMargin) top = body.y + toybox::kMargin;
+  layout(top, false);
 }
 
 void StudyActivity::drawRatingBar(const int y, const int height) {

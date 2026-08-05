@@ -59,9 +59,13 @@ class StudyActivity final : public Activity {
 
   void drawCard(const Rect& body);
   void drawRatingBar(int y, int height);
-  // Centres text horizontally in `width`, measuring with the font it will draw
-  // with. Returns the baseline-independent top y the caller should advance past.
-  int drawCentered(int fontId, int y, int width, const char* text) const;
+
+  // Draw `text` centred and wrapped, one line at a time, and return the y
+  // below the last line. `measureOnly` runs the same layout without drawing,
+  // which is how the card block gets centred vertically: the height has to be
+  // known before the first line is placed, and re-deriving it a second way is
+  // how the two drift apart.
+  int drawWrapped(int fontId, int y, int maxWidth, const char* text, bool measureOnly = false) const;
 
   HalFile deckFile_;
   HalFile cardFile_;
