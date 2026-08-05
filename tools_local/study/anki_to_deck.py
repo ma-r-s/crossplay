@@ -89,6 +89,21 @@ FIELD_ORDER = [
     "sentenceMeaning",
 ]
 
+# Characters a few notes use that are typographically identical to an ASCII
+# letter but sit outside the built-in serif's coverage, so they would draw as a
+# box in the middle of a reading. Found by tools_local/study/check_deck.py
+# walking all 5001 notes -- four of them use the phonetic script g.
+#
+# Mapped rather than shipped: adding a glyph for U+0261 would mean widening the
+# built-in font, which is upstream's, for four cards that mean plain "g".
+LOOKALIKES = {
+    0x0261: "g",  # LATIN SMALL LETTER SCRIPT G
+    0x0269: "i",  # LATIN SMALL LETTER IOTA
+    0x02BC: "'",  # MODIFIER LETTER APOSTROPHE
+    0x2019: "'",  # RIGHT SINGLE QUOTATION MARK
+    0x0320: None,  # COMBINING MINUS SIGN BELOW: a phonetic mark, not pinyin
+}
+
 BOLD_RE = re.compile(r"<b>(.*?)</b>", re.IGNORECASE | re.DOTALL)
 TAG_RE = re.compile(r"<[^>]+>")
 SOUND_RE = re.compile(r"\[sound:[^\]]*\]")
@@ -121,6 +136,7 @@ def clean(text):
     # rather than precomposed vowels, and the two forms would otherwise need
     # different glyphs in every font we ship.
     text = unicodedata.normalize("NFC", text)
+    text = text.translate(LOOKALIKES)
     return WHITESPACE_RE.sub(" ", text).strip()
 
 
