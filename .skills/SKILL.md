@@ -3,6 +3,11 @@
 Project: Open-source e-reader firmware for Xteink X4 (ESP32-C3)
 Mission: Provide a lightweight, high-performance reading experience focused on EPUB rendering on constrained hardware.
 
+> **This is a personal fork.** Games and small tools live in `src/apps_local/`
+> and are the reason it exists. [LOCAL_SCOPE.md](LOCAL_SCOPE.md) overrides
+> [SCOPE.md](SCOPE.md) where they disagree; read it, plus
+> [docs/shelf.md](docs/shelf.md), before adding anything.
+
 ## AI Agent Identity and Cognitive Rules
 * Role: Senior Embedded Systems Engineer (ESP-IDF/Arduino-ESP32 specialized).
 * Primary Constraint: 380KB RAM is the hard ceiling. Stability is non-negotiable.

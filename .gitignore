@@ -4,6 +4,7 @@
 .vscode
 open-x4-sdk
 fs_
+fs_*/
 lib/EpdFont/fontsrc
 lib/I18n/I18nKeys.h
 lib/I18n/I18nStrings.h
@@ -33,3 +34,6 @@ lib/EpdFont/scripts/output/
 /sdkconfig.defaults
 sdkconfig.sticky
 sdkconfig.x4pro
+
+# fork-local: simulator screenshots and logs (scripts_local/)
+qa-artifacts/
