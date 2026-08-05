@@ -71,6 +71,9 @@ class InsiderActivity final : public Activity {
   uint32_t clockStartMs = 0;
   int lastClockTick = -1;
 
+  // Which page of the tutorial deck is showing.
+  int tutorialPage = 0;
+
   int chosen = insiderui::VoteModel::kNothingChosen;
   int accused = insider::kNoInsider;
   insider::Outcome outcome = insider::Outcome::Won;

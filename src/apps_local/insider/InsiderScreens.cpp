@@ -691,58 +691,242 @@ void buildReveal(toybox::Screen& screen, const RevealModel& model) {
 
 // ---------------------------------------------------------------------------
 
-void buildRules(toybox::Screen& screen) {
-  chrome(screen, "HOW TO PLAY", nullptr);
+// ---------------------------------------------------------------------------
+// The tutorial: five pages, one beat of a round each, read in the order it
+// happens. Tap anywhere to turn the page.
+//
+// The first page exists because of what the last one needed. "One role is
+// thrown away" is thrown away from nothing unless the reader has already been
+// told what the set of roles was and how many of each there are -- Mario read
+// the deck and could not tell, which is the whole reason the counts are now on
+// page one and the twist is drawn as a card going face down rather than as a
+// card crossed out.
+
+namespace {
+
+// --- the diagram vocabulary ------------------------------------------------
+//
+// Everything here is built from the game's own material -- seats, cards, the
+// clock -- rather than from generic tutorial art. A diagram made of the same
+// shapes the player is about to tap is the difference between a manual and a
+// rehearsal.
+
+// A role card, face up.
+void miniCard(toybox::Screen& screen, const fui::Rect& box, const freeink::Icon* art) {
+  screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), toybox::kRule, 8);
+  if (art == nullptr) return;
+  const int16_t size = static_cast<int16_t>(box.width - 24 < 48 ? box.width - 24 : 48);
+  screen.target().bitmap(fui::makeRect(static_cast<int16_t>(box.x + (box.width - size) / 2),
+                                       static_cast<int16_t>(box.y + (box.height - size) / 2), size, size),
+                         fui::bitmapFromIcon(*art), fui::BitmapMode::Contain, fui::Paint::solid(fui::Color::Black));
+}
+
+// A card face down: dithered ground and a question mark.
+//
+// Not a card with a cross through it, which was the first drawing and was
+// wrong. A cross says "this role is gone", and the whole point of the twist is
+// that you do not know WHICH role is gone -- that is what makes NOBODY worth
+// voting for. Face down carries the not-knowing; a cross does not.
+void faceDownCard(toybox::Screen& screen, const fui::Rect& box) {
+  screen.target().fill(box, fui::Paint::dither(fui::Color::LightGray), 8);
+  screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), toybox::kRule, 8);
+  const int16_t line = screen.target().lineHeight(toybox::kDisplayFont);
+  screen.target().text(fui::makeRect(box.x, static_cast<int16_t>(box.y + (box.height - line) / 2), box.width, line),
+                       "?", styled(toybox::kDisplayFont, fui::TextAlign::Center));
+}
+
+// The device itself, which is what actually travels round the table.
+void deviceGlyph(toybox::Screen& screen, const fui::Rect& box) {
+  screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), toybox::kRule, 6);
+  screen.target().fill(box.inset(fui::Insets{10, 8, 16, 8}), fui::Paint::dither(fui::Color::LightGray));
+}
+
+void arrowRight(toybox::Screen& screen, const int16_t x, const int16_t y, const int16_t len) {
+  const auto ink = fui::Paint::solid(fui::Color::Black);
+  screen.target().fill(fui::makeRect(x, static_cast<int16_t>(y - 1), static_cast<int16_t>(len - 8), toybox::kRule),
+                       ink);
+  screen.target().triangle(fui::Point{static_cast<int16_t>(x + len - 10), static_cast<int16_t>(y - 9)},
+                           fui::Point{static_cast<int16_t>(x + len), y},
+                           fui::Point{static_cast<int16_t>(x + len - 10), static_cast<int16_t>(y + 9)}, ink);
+}
+
+void arrowDown(toybox::Screen& screen, const int16_t x, const int16_t y, const int16_t len) {
+  const auto ink = fui::Paint::solid(fui::Color::Black);
+  screen.target().fill(fui::makeRect(static_cast<int16_t>(x - 1), y, toybox::kRule, static_cast<int16_t>(len - 8)),
+                       ink);
+  screen.target().triangle(fui::Point{static_cast<int16_t>(x - 9), static_cast<int16_t>(y + len - 10)},
+                           fui::Point{x, static_cast<int16_t>(y + len)},
+                           fui::Point{static_cast<int16_t>(x + 9), static_cast<int16_t>(y + len - 10)}, ink);
+}
+
+// The clock, at diagram scale: the same trough the questions screen draws.
+void miniClock(toybox::Screen& screen, const fui::Rect& box, const int tenths) {
+  screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), toybox::kRule, 8);
+  const fui::Rect inner = box.inset(fui::Insets{6, 6, 6, 6});
+  if (tenths <= 0) return;
+  screen.target().fill(fui::makeRect(inner.x, inner.y, static_cast<int16_t>(inner.width * tenths / 10), inner.height),
+                       fui::Paint::solid(fui::Color::Black), 4);
+  for (int i = 1; i < tenths; ++i) {
+    screen.target().fill(fui::makeRect(static_cast<int16_t>(inner.x + inner.width * i / 10), inner.y, 3, inner.height),
+                         fui::Paint::solid(fui::Color::White));
+  }
+}
+
+void seatRow(toybox::Screen& screen, const fui::Rect& box, const int count, const int filledAt) {
+  constexpr int16_t kGap = 8;
+  const int16_t chip = static_cast<int16_t>((box.width - (count - 1) * kGap) / count);
+  for (int i = 0; i < count; ++i) {
+    seat(screen, fui::makeRect(static_cast<int16_t>(box.x + i * (chip + kGap)), box.y, chip, chip), i,
+         i == filledAt ? SeatLook::Filled : SeatLook::Plain);
+  }
+}
+
+// Page dots plus the tap affordance.
+void tutorialFooter(toybox::Screen& screen, const fui::Rect& body, const int page, const int pages) {
+  constexpr int16_t kDot = 14;
+  constexpr int16_t kDotGap = 10;
+  const int16_t row = static_cast<int16_t>(pages * kDot + (pages - 1) * kDotGap);
+  const int16_t x = static_cast<int16_t>(body.x + (body.width - row) / 2);
+  const int16_t y = static_cast<int16_t>(body.bottom() - kDot);
+  for (int i = 0; i < pages; ++i) {
+    const fui::Rect at = fui::makeRect(static_cast<int16_t>(x + i * (kDot + kDotGap)), y, kDot, kDot);
+    if (i == page) {
+      screen.target().fill(at, fui::Paint::solid(fui::Color::Black), 7);
+    } else {
+      screen.target().stroke(at, fui::Paint::dither(fui::Color::DarkGray), toybox::kHairline, 7);
+    }
+  }
+  screen.target().text(fui::makeRect(body.x, static_cast<int16_t>(y - 34), body.width, 22),
+                       page + 1 == pages ? "TAP TO FINISH" : "TAP TO CONTINUE",
+                       styled(toybox::kTileFont, fui::TextAlign::Center));
+}
+
+void caption(toybox::Screen& screen, const fui::Rect& box, const char* text) {
+  layoutParagraph(screen, styled(toybox::kUiFont, fui::TextAlign::Center), text, box, true);
+}
+
+// The title band is a full line height, not the 34px I first guessed. The
+// display cut draws taller than that, so anything placed at +42 or +50 landed
+// on top of it -- twice, on two different pages, from the same wrong number.
+constexpr int16_t kTitleBand = 46;
+
+void pageTitle(toybox::Screen& screen, const fui::Rect& body, const char* title) {
+  screen.target().text(fui::makeRect(body.x, body.y, body.width, kTitleBand), title,
+                       styled(toybox::kDisplayFont, fui::TextAlign::Center));
+}
+
+// The whole deck is written for five players, and says so, because a diagram
+// with a number in it has to be a number of something. Five is the middle of
+// the four-to-eight range and the count the menu opens on.
+constexpr int kExamplePlayers = 5;
+
+}  // namespace
+
+int tutorialPages() { return 5; }
+
+void buildTutorial(toybox::Screen& screen, const TutorialModel& model) {
+  const int pages = tutorialPages();
+  char progress[16];
+  std::snprintf(progress, sizeof(progress), "%d OF %d", model.page + 1, pages);
+  chrome(screen, "HOW TO PLAY", progress);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
-
-  fui::ButtonProps back;
-  back.label = "BACK";
-  back.action = ActionBack;
-  back.text = styled(toybox::kUiFont, fui::TextAlign::Center, fui::Color::White);
-  back.styles = toybox::invertedStyles();
-  back.radius = 10;
-  screen.button(back, fui::LayoutAnchor::Bottom);
-
   const fui::Rect body = screen.body();
+  screen.frame().hit(body, ActionAdvance, 0);
+  tutorialFooter(screen, body, model.page, pages);
 
-  // Written as sentences, not as hand-broken lines. The first version guessed
-  // where 448px falls in this face and was wrong by about a third: every line
-  // ran off the right edge into an ellipsis the font has no glyph for, so it
-  // simply vanished, and the last paragraph ran off the bottom under the
-  // button. Guessing a wrap width is the same mistake as guessing a layout.
-  static const char* kParagraphs[] = {
-      "ONE OF YOU IS THE MASTER AND KNOWS A SECRET WORD. ONE OF YOU IS THE "
-      "INSIDER AND KNOWS IT TOO.",
-      "EVERYONE ASKS THE MASTER YES-OR-NO QUESTIONS UNTIL SOMEBODY SAYS THE "
-      "WORD. YOU HAVE FIVE MINUTES. IF IT IS NEVER FOUND, THE WHOLE TABLE "
-      "LOSES.",
-      "THE INSIDER WANTS THE WORD FOUND, BUT NOT TO BE THE ONE WHO FOUND IT.",
-      "THEN THE TABLE VOTES. NAME THE INSIDER AND EVERYONE ELSE WINS. NAME THE "
-      "WRONG PERSON AND THE INSIDER WINS ALONE.",
-      "ONE ROLE IS THROWN AWAY BEFORE THE DEAL, SO SOMETIMES THERE IS NO "
-      "INSIDER AND THE HONEST ANSWER IS NOBODY.",
-  };
-  constexpr int kCount = static_cast<int>(sizeof(kParagraphs) / sizeof(kParagraphs[0]));
-  constexpr int16_t kParaGap = 14;
+  const fui::Rect capBox = fui::makeRect(body.x, static_cast<int16_t>(body.y + 380), body.width, 150);
 
-  // Largest cut the whole page fits in, measured rather than chosen. The small
-  // slot is bound to the 14px button cut for this screen only (see
-  // InsiderActivity::render) because 20px is a display face and a screenful of
-  // it is a wall.
-  // The small slot, always -- which on this screen is the 14px cut (see
-  // InsiderActivity::render). Jersey at 20px is a display face: a screenful of
-  // it is a wall, and this page does not fit in it. Choosing between two cuts
-  // by measuring was tried and is not worth it here; the answer is the same
-  // every time, and a size that depends on the copy means the page quietly
-  // changes size when somebody edits a sentence.
-  fui::TextStyle style = styled(toybox::kSmallFont, fui::TextAlign::Left);
+  switch (model.page) {
+    case 0: {
+      // The roles, with their counts. This page exists because the twist at the
+      // end was meaningless without it: "one role is thrown away" is thrown
+      // away from nothing unless you have been told what the set of roles was.
+      pageTitle(screen, body, "THE ROLES");
+      screen.target().text(fui::makeRect(body.x, static_cast<int16_t>(body.y + kTitleBand + 6), body.width, 22),
+                           "IN A GAME OF FIVE", styled(toybox::kTileFont, fui::TextAlign::Center));
 
-  // Measured and drawn by the same function, so the height reserved for a
-  // paragraph is by construction the height it takes.
-  int16_t y = body.y;
-  for (int i = 0; i < kCount; ++i) {
-    const fui::Rect at = fui::makeRect(body.x, y, body.width, static_cast<int16_t>(body.bottom() - y));
-    y = static_cast<int16_t>(y + layoutParagraph(screen, style, kParagraphs[i], at, true) + kParaGap);
+      const freeink::Icon* art[3] = {&icon_roleMaster_96, &icon_roleInsider_96, &icon_roleCitizen_96};
+      const char* name[3] = {"MASTER", "INSIDER", "CITIZEN"};
+      const char* howMany[3] = {"1", "1", "3"};
+      constexpr int16_t kW = 138;
+      constexpr int16_t kGap = 16;
+      const int16_t total = static_cast<int16_t>(kW * 3 + kGap * 2);
+      int16_t x = static_cast<int16_t>(body.x + (body.width - total) / 2);
+      for (int i = 0; i < 3; ++i) {
+        const fui::Rect card = fui::makeRect(x, static_cast<int16_t>(body.y + kTitleBand + 40), kW, 190);
+        screen.target().stroke(card, fui::Paint::solid(fui::Color::Black), toybox::kRule, 8);
+        screen.target().bitmap(
+            fui::makeRect(static_cast<int16_t>(card.x + (kW - 56) / 2), static_cast<int16_t>(card.y + 16), 56, 56),
+            fui::bitmapFromIcon(*art[i]), fui::BitmapMode::Contain, fui::Paint::solid(fui::Color::Black));
+        screen.target().text(fui::makeRect(card.x, static_cast<int16_t>(card.y + 82), kW, 24), name[i],
+                             styled(toybox::kTileFont, fui::TextAlign::Center));
+        screen.target().text(fui::makeRect(card.x, static_cast<int16_t>(card.y + 116), kW, 44), howMany[i],
+                             styled(toybox::kDisplayFont, fui::TextAlign::Center));
+        x = static_cast<int16_t>(x + kW + kGap);
+      }
+      caption(screen, fui::makeRect(body.x, static_cast<int16_t>(body.y + 300), body.width, 150),
+              "THE MASTER AND THE INSIDER BOTH KNOW A SECRET WORD. THE CITIZENS KNOW NOTHING AT ALL.");
+      break;
+    }
+    case 1: {
+      pageTitle(screen, body, "THE DEAL");
+      constexpr int16_t kW = 96;
+      constexpr int16_t kGap = 44;
+      const int16_t total = static_cast<int16_t>(kW * 3 + kGap * 2);
+      int16_t x = static_cast<int16_t>(body.x + (body.width - total) / 2);
+      for (int i = 0; i < 3; ++i) {
+        deviceGlyph(screen, fui::makeRect(x, static_cast<int16_t>(body.y + 130), kW, 128));
+        if (i < 2) arrowRight(screen, static_cast<int16_t>(x + kW + 8), static_cast<int16_t>(body.y + 194), 28);
+        x = static_cast<int16_t>(x + kW + kGap);
+      }
+      caption(screen, capBox, "PASS IT ROUND. EACH OF YOU LOOKS AT YOUR OWN ROLE, THEN HANDS IT ON.");
+      break;
+    }
+    case 2:
+      pageTitle(screen, body, "THE QUESTIONS");
+      screen.target().text(fui::makeRect(body.x, static_cast<int16_t>(body.y + 100), body.width, 60), "? ? ?",
+                           styled(toybox::kDisplayFont, fui::TextAlign::Center));
+      miniClock(screen, fui::makeRect(body.x, static_cast<int16_t>(body.y + 190), body.width, 60), 6);
+      caption(screen, capBox, "ASK THE MASTER YES-OR-NO QUESTIONS. YOU HAVE FIVE MINUTES TO SAY THE WORD OUT LOUD.");
+      break;
+    case 3:
+      pageTitle(screen, body, "THE VOTE");
+      seatRow(screen, fui::makeRect(body.x, static_cast<int16_t>(body.y + 150), body.width, 72), kExamplePlayers, 3);
+      caption(screen, capBox, "FOUND IT IN TIME? NOW POINT AT WHOEVER YOU THINK THE INSIDER WAS.");
+      break;
+    case 4:
+    default: {
+      // The twist, shown as the thing that physically happens: the five role
+      // cards, then one of them turned face down and put aside before anybody
+      // is dealt anything. Drawing the whole set first is what makes the
+      // removal mean something.
+      pageTitle(screen, body, "THE TWIST");
+      constexpr int16_t kW = 76;
+      constexpr int16_t kH = 104;
+      constexpr int16_t kGap = 12;
+      const int16_t total = static_cast<int16_t>(kW * kExamplePlayers + kGap * (kExamplePlayers - 1));
+      int16_t x = static_cast<int16_t>(body.x + (body.width - total) / 2);
+      // Says what the stack is, because page one counts three Citizens and this
+      // draws four. Both are right -- the fourth is the one that goes back --
+      // but without the label a reader who counts sees a contradiction, and
+      // this deck exists to stop exactly that kind of confusion.
+      screen.target().text(fui::makeRect(body.x, static_cast<int16_t>(body.y + kTitleBand + 4), body.width, 22),
+                           "EVERY ROLE BUT THE MASTER", styled(toybox::kTileFont, fui::TextAlign::Center));
+      for (int i = 0; i < kExamplePlayers; ++i) {
+        miniCard(screen, fui::makeRect(x, static_cast<int16_t>(body.y + kTitleBand + 32), kW, kH),
+                 i == 1 ? &icon_roleInsider_96 : &icon_roleCitizen_96);
+        x = static_cast<int16_t>(x + kW + kGap);
+      }
+      arrowDown(screen, static_cast<int16_t>(body.x + body.width / 2), static_cast<int16_t>(body.y + 194), 34);
+      screen.target().text(fui::makeRect(body.x, static_cast<int16_t>(body.y + 236), body.width, 22),
+                           "ONE GOES BACK, FACE DOWN", styled(toybox::kTileFont, fui::TextAlign::Center));
+      faceDownCard(screen, fui::makeRect(static_cast<int16_t>(body.x + (body.width - kW) / 2),
+                                         static_cast<int16_t>(body.y + 266), kW, kH));
+      caption(screen, fui::makeRect(body.x, static_cast<int16_t>(body.y + 394), body.width, 150),
+              "NOBODY SEES WHICH ONE. IF IT WAS THE INSIDER, THERE IS NO INSIDER -- SO NOBODY IS AN ANSWER YOU CAN "
+              "VOTE FOR.");
+      break;
+    }
   }
 }
 

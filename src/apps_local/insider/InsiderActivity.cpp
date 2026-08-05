@@ -134,13 +134,26 @@ void InsiderActivity::routeAction(const int action, const int value) {
       break;
     case ui::ActionRules:
       view = View::Rules;
+      tutorialPage = 0;
       requestUpdate();
       break;
     case ui::ActionBack:
       goToMenu();
       break;
     case ui::ActionAdvance:
-      if (view == View::Pass) advancePass();
+      // One action drives both decks: the roles going round the table and the
+      // tutorial pages. They are the same gesture -- tap, next -- and giving
+      // them one action is what stops the two from drifting apart.
+      if (view == View::Pass) {
+        advancePass();
+      } else if (view == View::Rules) {
+        if (tutorialPage + 1 < ui::tutorialPages()) {
+          ++tutorialPage;
+          requestUpdate();
+        } else {
+          goToMenu();
+        }
+      }
       break;
     case ui::ActionFoundWord:
       if (view == View::Questions) {
@@ -237,9 +250,12 @@ void InsiderActivity::render(RenderLock&&) {
   toybox::Screen screen(frame, toybox::themeTokens());
 
   switch (view) {
-    case View::Rules:
-      ui::buildRules(screen);
+    case View::Rules: {
+      ui::TutorialModel model;
+      model.page = tutorialPage;
+      ui::buildTutorial(screen, model);
       break;
+    }
 
     case View::Pass: {
       ui::PassModel model;
