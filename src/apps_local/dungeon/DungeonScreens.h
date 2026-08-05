@@ -29,6 +29,9 @@ enum Button : int {
   ButtonReset = 2,
   ButtonMenu = 3,
   ButtonNext = 4,
+  ButtonGuide = 5,
+  ButtonGuideBack = 6,
+  ButtonGuideNext = 7,
 };
 
 // Where the board was drawn. Filled by the builder as it draws and read by the
@@ -98,6 +101,17 @@ struct PickerModel {
   int nextIndex = 0;
 };
 
+// The adventurer's guide: the rules, one at a time, each drawn rather than
+// described. The last page hands you the tutorial dungeon.
+//
+// This exists because the tutorial used to be a sixty-fifth cell on the map,
+// which said it was just another dungeon. It is not: it is where the rules are
+// explained, and the rules are the whole game.
+struct GuideModel {
+  int page = 0;
+  int pageCount = 0;
+};
+
 struct WinModel {
   const char* dungeonName = "";
   // The dungeon just finished, drawn as the map the player has this moment
@@ -119,6 +133,19 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model);
 // original arranges them. Fills `layout` as it draws, so a tap resolves through
 // the same geometry that placed the cells.
 void buildPicker(toybox::Screen& screen, const PickerModel& model, PickerLayout& layout);
+
+// One page of the guide. Page pageCount - 1 offers the tutorial instead of a
+// next page.
+void buildGuide(toybox::Screen& screen, const GuideModel& model);
+
+// How many pages the guide has. Lives here so the activity can bound its page
+// counter without knowing what is on them.
+int guidePageCount();
+
+// The walls page `page` shows, for the host test that checks the guide teaches
+// the real puzzle: every page must be a subset of the tutorial's solution, and
+// the last page must be it exactly. False if the page is out of range.
+bool guidePageWalls(int page, uint64_t& walls);
 
 // The payoff.
 void buildWin(toybox::Screen& screen, const WinModel& model);

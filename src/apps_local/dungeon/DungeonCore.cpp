@@ -14,9 +14,7 @@ int popcount(uint64_t value) {
 }
 
 // Bit r*8+c for a whole row, masked to the puzzle's width.
-uint64_t rowMask(const int row, const int size) {
-  return (uint64_t{(1u << size) - 1u}) << (row * 8);
-}
+uint64_t rowMask(const int row, const int size) { return (uint64_t{(1u << size) - 1u}) << (row * 8); }
 
 uint64_t colMask(const int col, const int size) {
   uint64_t mask = 0;
