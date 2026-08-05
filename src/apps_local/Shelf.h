@@ -67,10 +67,16 @@ struct Item {
 // Folder. That is rule 1, expressed as a type rather than a convention.
 struct Folder {
   const char* title;
-  // A folder row is drawn by upstream's Home menu, which takes a UIIcon and
-  // nothing else, so this one stays in their palette. Folder is also simply
-  // true: these are folders.
+  // Home draws this one, and upstream's menu takes a UIIcon and nothing else.
+  // Folder is honest: these are folders, in their list, in their language.
   UIIcon icon;
+  // Ours, drawn in the folder's own header where we own the whole screen.
+  // Home cannot use it: drawButtonMenu only indents the label when its own
+  // palette resolves a bitmap, so placing ours there means either overlapping
+  // the label or erasing upstream's icon first -- and erasing means copying the
+  // row's inset, its font's line height, the theme's private icon size and its
+  // selection fill. Five couplings to a private layout, for two icons.
+  const freeink::Icon* mark;
   const Item* items;
   int count;
   // Whether the footer shows this device's name. True for GAMES, because the
@@ -111,5 +117,8 @@ int lastFolderOnHome();
 // from the third game with the cursor on the first. Home has the same problem
 // and the same answer; see lastFolderOnHome().
 int lastItemIn(int index);
+
+// The icon for folder row `index`, for the Home seam to draw. Null-safe.
+const freeink::Icon* folderMark(int index);
 
 }  // namespace shelf

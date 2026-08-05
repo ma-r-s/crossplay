@@ -44,6 +44,12 @@ how much upstream-owned code it touches.
 | `platformio.ini`                       | One `extra_configs` line pulling in `platformio.sim.ini`  | 1 line               |
 | `SCOPE.md`                             | One-line pointer here; it is the file that says "no games" | 2 lines              |
 
+There is also a **watch list**: `src/components/themes/*Theme.cpp`. We do not
+edit those, but the Home seam paints the shelf's folder icons using
+`drawButtonMenu`'s row geometry, so a layout change there moves our icons
+without conflicting and without failing a test. `sync.sh` reports commits to
+them separately.
+
 None of them grows when an app is added. Four of the five are pointers or
 one-liners; only `HomeActivity.cpp` is real code, and its hooks all append after
 upstream's rows so their indices never shift.

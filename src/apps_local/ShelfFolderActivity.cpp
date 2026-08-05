@@ -113,6 +113,7 @@ void ShelfFolderActivity::render(RenderLock&&) {
 
   shelfui::MenuModel model;
   model.title = shouted;
+  model.mark = self.mark;
   model.items = items;
   model.icons = icons;
   model.count = itemCount;

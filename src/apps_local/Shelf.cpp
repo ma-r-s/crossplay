@@ -28,8 +28,8 @@ constexpr shelf::Item kApps[] = {};
 // shouts its own header, which is our side of the line. A third folder is one row here and
 // nothing else: the Home hook counts this table rather than knowing its length.
 constexpr shelf::Folder kFolders[] = {
-    {"Games", UIIcon::Folder, kGames, static_cast<int>(sizeof(kGames) / sizeof(shelf::Item)), true},
-    {"Apps", UIIcon::Folder, kApps, static_cast<int>(sizeof(kApps) / sizeof(shelf::Item)), false},
+    {"Games", UIIcon::Folder, &icon_games_32, kGames, static_cast<int>(sizeof(kGames) / sizeof(shelf::Item)), true},
+    {"Apps", UIIcon::Folder, &icon_apps_32, kApps, static_cast<int>(sizeof(kApps) / sizeof(shelf::Item)), false},
 };
 
 constexpr int kFolderCount = static_cast<int>(sizeof(kFolders) / sizeof(kFolders[0]));
@@ -46,6 +46,14 @@ constexpr bool everyItemHasAnIcon() {
   return true;
 }
 static_assert(everyItemHasAnIcon(), "every shelf item needs an icon; see tools_local/icons.txt");
+
+constexpr bool everyFolderHasAMark() {
+  for (const auto& folder : kFolders) {
+    if (folder.mark == nullptr) return false;
+  }
+  return true;
+}
+static_assert(everyFolderHasAMark(), "every shelf folder needs a mark; see tools_local/icons.txt");
 
 // Where leave() sends an app. Set when an item is opened, read when it leaves.
 // -1 means "nothing is open below Home", which is what a folder itself sees.
@@ -125,5 +133,9 @@ void leave(GfxRenderer& renderer, MappedInputManager& mappedInput) {
 int lastFolderOnHome() { return lastFolder; }
 
 int lastItemIn(const int index) { return index >= 0 && index < kFolderCount ? lastItem[index] : 0; }
+
+const freeink::Icon* folderMark(const int index) {
+  return index >= 0 && index < kFolderCount ? kFolders[index].mark : nullptr;
+}
 
 }  // namespace shelf
