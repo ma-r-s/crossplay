@@ -65,7 +65,10 @@ fi
 
 BEHIND=$(git rev-list --count "$MIRROR..$TRACKED")
 echo "$MIRROR is $BEHIND commit(s) behind $TRACKED"
-echo "this fork owns $(git diff --shortstat "$MIRROR..$WORK_BRANCH" | sed 's/^ *//')"
+# Measured against the upstream tip, not the mirror. Diffing a stale mirror
+# counts upstream's own changes as ours, and the mirror is stale exactly when
+# you are running this.
+echo "this fork owns $(git diff --shortstat "$TRACKED...$WORK_BRANCH" | sed 's/^ *//')"
 
 if [ "$BEHIND" -eq 0 ]; then
   echo "nothing to sync"
