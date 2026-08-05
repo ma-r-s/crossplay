@@ -31,13 +31,7 @@ constexpr int kFooterHeight = 128;
 constexpr const char* kPhotoLabel = "PHOTO";
 constexpr const char* kBackLabel = "BACK";
 
-// The theme centres its header title on y=47, not on the middle of the band it
-// is given -- measured off a render rather than derived, because the title is
-// placed by a FreeInkUI component through theme tokens this app does not see.
-// Centring the button on the band instead put it ten pixels high, which reads
-// as crooked long before anyone works out why.
-constexpr int kHeaderTextCentre = 47;
-constexpr int kPillHeight = 40;
+constexpr int kPillHeight = 34;
 constexpr int kPillPadding = 18;
 // The battery indicator owns the right-hand end of the header and the card
 // count owns the left, so the label sits between them. Both of those are drawn
@@ -378,8 +372,6 @@ bool StudyActivity::loadCurrent() {
   if (imageSource_ && images_.ready()) {
     image_ = images_.at(*imageSource_, currentIndex_);
   }
-  LOG_DBG("STUDY", "card %d: source=%d ready=%d image=%ux%u", currentIndex_, imageSource_ ? 1 : 0,
-          images_.ready() ? 1 : 0, image_.width, image_.height);
 
   scheduler_.preview(card_, today_, nowMinute(), preview_);
   return true;
@@ -571,7 +563,10 @@ void StudyActivity::drawCard(const Rect& body) {
   // slack above and below reads as unresolved, so the word hangs from the
   // header and the footer is pinned to the bottom, leaving the slack as one
   // deliberate zone -- which is where the sentence image will go when it lands.
-  int y = body.y + toybox::kMargin + 8;
+  // The theme's header is 13px taller than the one this screen used to assume,
+  // and the tallest card had nine pixels spare -- so the inset gives that back.
+  // Measured, not guessed: tools_local/study/measure_layout.py.
+  int y = body.y + 8;
 
   y = drawWrapped(headwordFont, y, maxWidth, note_.field(study::Field::Headword));
   if (answer) {
@@ -781,14 +776,25 @@ void StudyActivity::render(RenderLock&&) {
   } else {
     std::snprintf(title, sizeof(title), "STUDY");
   }
-  GUI.drawHeader(renderer, Rect{0, 0, width, toybox::kHeaderHeight}, title);
+  // The band, the rule and the battery come from the theme; the two things
+  // inside it are placed here.
+  //
+  // Not stubbornness. GUI.drawHeader does not centre its title in the band it
+  // is given -- measured, the title's cap sits 13px below centre while a pill
+  // centred in the same band sits on it. Matching the title would have made
+  // the two agree with each other and both look low, which is the thing that
+  // felt wrong in the first place. Passing an empty title and placing both
+  // ourselves is the smallest change that puts them where they belong, and the
+  // chrome is still the theme's.
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const Rect headerBand{0, metrics.topPadding, width, metrics.headerHeight};
+  GUI.drawHeader(renderer, headerBand, "");
 
-  // The photograph is offered in the header because it is the only band that
-  // is free on every card: measuring the answer side found a third of cards
-  // leave under 160px below the text and the tightest leaves nine, so anything
-  // drawn down there would collide. White on the black band, and the whole
-  // right-hand end is the target -- a label you have to aim at is worse than
-  // no label.
+  if (title[0] != '\0') {
+    toybox::drawCapsCentered(renderer, toybox::kUiFontId, toybox::kMargin, headerBand.y, headerBand.height, title,
+                             true);
+  }
+
   // One control, one place. It says PHOTO on the answer and BACK on the
   // photograph, so the thing you tap never moves between the two screens.
   //
@@ -802,14 +808,14 @@ void StudyActivity::render(RenderLock&&) {
     const int labelWidth = renderer.getTextWidth(toybox::kUiFontId, label);
     const int pillWidth = labelWidth + 2 * kPillPadding;
     const int pillX = (width - pillWidth) / 2;
-    const int pillY = kHeaderTextCentre - kPillHeight / 2;
+    const int pillY = headerBand.y + (headerBand.height - kPillHeight) / 2;
 
     renderer.fillRoundedRect(pillX, pillY, pillWidth, kPillHeight, kPillHeight / 2, White);
     renderer.drawRoundedRect(pillX, pillY, pillWidth, kPillHeight, toybox::kHairline, kPillHeight / 2, true);
     toybox::drawCapsCentered(renderer, toybox::kUiFontId, pillX + kPillPadding, pillY, kPillHeight, label, true);
   }
 
-  const int bodyTop = toybox::kHeaderHeight;
+  const int bodyTop = metrics.topPadding + metrics.headerHeight;
   const int footerTop = height - kFooterHeight;
 
   if (view_ == View::Image) {
