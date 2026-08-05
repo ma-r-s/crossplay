@@ -276,7 +276,8 @@ void StudyActivity::buildQueue() {
       }
     }
   }
-  LOG_INF("STUDY", "Queue: %d of %d due, %d new (day %d, minute %d)", queueCount_, dueTotal_, newTotal_, today_, minute);
+  LOG_INF("STUDY", "Queue: %d of %d due, %d new (day %d, minute %d)", queueCount_, dueTotal_, newTotal_, today_,
+          minute);
 }
 
 bool StudyActivity::takeNext() {
@@ -529,6 +530,35 @@ void StudyActivity::drawCard(const Rect& body) {
       y = drawWrapped(kMeaningFontId, y, maxWidth, note_.field(study::Field::SentenceReading));
       y += 2;
       drawWrapped(kMeaningFontId, y, maxWidth, note_.field(study::Field::SentenceMeaning));
+    }
+  }
+
+  if (answer) {
+    // The card's own record, anchored to the bottom of the body rather than
+    // left to float after the sentence. With the content anchored under the
+    // header and the footer pinned below, this is the third anchor that turns
+    // the leftover space into a composition instead of a gap -- which
+    // docs/design-language.md calls a real defect on a screen that holds its
+    // image for hours.
+    //
+    // It is information, not decoration: how often you have seen this card and
+    // how often you have lost it is exactly what you want when deciding
+    // between Hard and Good, and it is the one thing on screen that is yours.
+    char record[64];
+    const study::Memory memory = card_.memory();
+    if (memory.learned) {
+      char interval[16];
+      study::formatDelay(0, fsrs_.intervalDays(memory), interval, sizeof(interval));
+      std::snprintf(record, sizeof(record), "SEEN %u   LAPSED %u   NOW %s", card_.reps, card_.lapses, interval);
+    } else {
+      std::snprintf(record, sizeof(record), "NEW CARD");
+    }
+    const int recordWidth = renderer.getTextWidth(kSmallFontId, record);
+    const int recordY = body.y + body.height - renderer.getTextHeight(kSmallFontId) - toybox::kMargin;
+    // Only if it clears the sentence: a short card must not have its record
+    // land on top of its own translation.
+    if (recordY > y + 12) {
+      renderer.drawText(kSmallFontId, (renderer.getScreenWidth() - recordWidth) / 2, recordY, record, true);
     }
   }
 }

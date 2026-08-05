@@ -28,11 +28,11 @@ inline constexpr int kForecastDays = 14;
 
 struct DeckModel {
   const char* name = "";
-  int due = 0;        // cards waiting today
-  int fresh = 0;      // new cards available today
-  int reviewed = 0;   // answered in this session
-  int recalled = 0;   // of those, not Again
-  int total = 0;      // cards in the deck
+  int due = 0;       // cards waiting today
+  int fresh = 0;     // new cards available today
+  int reviewed = 0;  // answered in this session
+  int recalled = 0;  // of those, not Again
+  int total = 0;     // cards in the deck
   // Cards falling due on each of the next kForecastDays days, today first.
   // This is the ornament's data: it comes from the same pass over cards.dat
   // that builds the queue, so it costs nothing extra.
