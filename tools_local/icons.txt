@@ -10,3 +10,13 @@ chess       = crown       # the king. Lucide has no chess piece; `castle` is the
 battleship  = ship
 connections = grid-2x2    # four cells, four groups
 solitaire   = spade       # the card suit reads instantly at any size
+
+# The multiplayer mark. One symbol, everywhere two devices talk to each other:
+# the PLAY NEARBY row of every game and the shared link screen. Recognition is
+# the whole point, so it is never used for anything else.
+#
+# `radio` is symmetric arcs from a point -- a thing here, signalling both ways.
+# That is the shape the DS used for local play. `wifi` was rejected for reading
+# as the internet, `radio-tower` as one-to-many broadcast, and the topology
+# icons (share-2, waypoints, network) as diagrams rather than marks.
+nearby      = radio

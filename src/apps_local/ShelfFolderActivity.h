@@ -7,6 +7,8 @@
 // Deliberately thin. The list, its scrolling and its hit-testing are a FreeInkUI
 // list component, so this class is a registry read plus an action switch.
 
+#include <Icon.h>
+
 #include <memory>
 
 #include "../activities/Activity.h"
@@ -35,6 +37,7 @@ class ShelfFolderActivity final : public Activity {
 
   const int folder;
   freeink::ui::ListItem items[kMaxItems] = {};
+  const freeink::Icon* icons[kMaxItems] = {};
   int itemCount = 0;
   int selected = 0;
   int topIndex = 0;

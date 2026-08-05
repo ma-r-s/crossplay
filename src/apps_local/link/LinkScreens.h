@@ -70,6 +70,18 @@ struct LinkModel {
   bool offerPlayAgain = false;
 };
 
+// The multiplayer mark.
+//
+// One symbol for "this connects to another device", everywhere it happens: the
+// PLAY NEARBY row of every game's start menu, and this screen. The DS did the
+// same thing and it is the reason nobody ever had to explain local play -- you
+// learned the mark once.
+//
+// It lives here rather than in each game so there can only ever be one of it.
+// A game draws it with toybox::iconAtRowRight; this screen draws it beside the
+// headline.
+const freeink::Icon& nearbyMark();
+
 // What a seat's right-hand column reads. Split out because it is the only text
 // on the screen that changes with state, so it is worth asserting directly.
 const char* seatValue(SeatState state, bool linked);

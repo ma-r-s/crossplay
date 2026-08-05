@@ -5,6 +5,8 @@
 // the whole point of them being the same kind of thing. See ToyboxScreen.h for
 // why screens are written this way.
 
+#include <Icon.h>
+
 #include "ui/ToyboxScreen.h"
 
 namespace shelfui {
@@ -14,6 +16,10 @@ namespace fui = freeink::ui;
 enum : fui::ActionId { ActionOpen = 1, ActionRerollName = 2 };
 
 struct MenuModel {
+  // Drawn at the right edge of each row, in the same order as `items`. Right
+  // rather than left so every icon lines up on one axis and the labels start
+  // flush with the header above them.
+  const freeink::Icon* const* icons = nullptr;
   // The folder's own name, drawn in the header.
   const char* title = "";
   const fui::ListItem* items = nullptr;

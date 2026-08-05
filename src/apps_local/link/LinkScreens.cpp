@@ -1,5 +1,7 @@
 #include "LinkScreens.h"
 
+#include "../ui/ToyboxIcons.h"
+
 namespace linkui {
 namespace {
 
@@ -23,6 +25,8 @@ void toyboxChrome(toybox::Screen& screen, const char* title) {
 }
 
 }  // namespace
+
+const freeink::Icon& nearbyMark() { return icon_nearby_32; }
 
 const char* seatValue(const SeatState state, const bool linked) {
   switch (state) {
@@ -73,7 +77,31 @@ fui::Rect buildLink(toybox::Screen& screen, const LinkModel& model) {
   title.label = model.headline;
   title.action = fui::NO_ACTION;
   title.borderEdges = fui::EdgesNone;
-  screen.button(title, screen.takeTop(toybox::kPillHeight, toybox::kGutter * 2));
+  const fui::Rect headlineRow = screen.takeTop(toybox::kPillHeight, toybox::kGutter * 2);
+
+  // The mark gets its own strip rather than being laid over the label. The
+  // headline centres its text across whatever width it is given, so overlapping
+  // put "LOOKING FOR A PLAYER" hard against the arcs with no air at all.
+  const int16_t markStrip = static_cast<int16_t>(toybox::kIconSize + toybox::kGutter * 2);
+  const fui::Rect headline = fui::makeRect(headlineRow.x, headlineRow.y,
+                                           static_cast<int16_t>(headlineRow.width - markStrip), headlineRow.height);
+  screen.button(title, headline);
+
+  // The mark, inside the headline slab. This screen is the one every game
+  // shares, so it is where the symbol is learned; the seats below say who, the
+  // rail says whether, and this says what kind of thing is happening at all.
+  //
+  // Ink, not paper. The mark sits in the strip beside the headline slab, which
+  // is page background, so it draws black. It was white while it was laid over
+  // the slab, and moving it without rechecking what is behind it made it
+  // invisible twice in a row -- once black on black, once white on white.
+  // Nothing complains either way.
+  const fui::Rect markRect =
+      fui::makeRect(static_cast<int16_t>(headlineRow.right() - toybox::kIconSize - toybox::kGutter),
+                    static_cast<int16_t>(headlineRow.y + (headlineRow.height - toybox::kIconSize) / 2),
+                    toybox::kIconSize, toybox::kIconSize);
+  screen.target().bitmap(markRect, fui::bitmapFromIcon(nearbyMark()), fui::BitmapMode::Contain,
+                         fui::Paint::solid(fui::Color::Black));
 
   // The seats are one object, not two rows with a gulf between them. Compact,
   // framed, and anchored under the headline: the slack that is left becomes a
