@@ -132,14 +132,16 @@ void DungeonActivity::routeButton(const int button) {
       requestUpdate();
       break;
     case ui::ButtonGuideNext:
-      // Past the last page is a real dungeon, never the one the guide taught
-      // on. That board is solved in front of the reader by page eight, so
-      // there would be nothing left of it to play.
+      // Past the last page is the map you came from, not a dungeon. Dropping
+      // the reader straight into a board took the choice away: they had just
+      // been taught, and what they want next is to pick, not to be given the
+      // next unsolved thing on the list.
       if (guidePage + 1 < ui::guidePageCount()) {
         ++guidePage;
         requestUpdate();
       } else {
-        openPuzzle(progress.nextUnsolved());
+        view = View::Menu;
+        requestUpdate();
       }
       break;
     case ui::ButtonReset:
