@@ -82,7 +82,7 @@ fui::Rect buildLink(toybox::Screen& screen, const LinkModel& model) {
   // The mark gets its own strip rather than being laid over the label. The
   // headline centres its text across whatever width it is given, so overlapping
   // put "LOOKING FOR A PLAYER" hard against the arcs with no air at all.
-  const int16_t markStrip = static_cast<int16_t>(toybox::kIconSize + toybox::kGutter * 2);
+  const int16_t markStrip = static_cast<int16_t>(toybox::kIconSize + toybox::kGutter * 4);
   const fui::Rect headline = fui::makeRect(headlineRow.x, headlineRow.y,
                                            static_cast<int16_t>(headlineRow.width - markStrip), headlineRow.height);
   screen.button(title, headline);
@@ -97,7 +97,7 @@ fui::Rect buildLink(toybox::Screen& screen, const LinkModel& model) {
   // invisible twice in a row -- once black on black, once white on white.
   // Nothing complains either way.
   const fui::Rect markRect =
-      fui::makeRect(static_cast<int16_t>(headlineRow.right() - toybox::kIconSize - toybox::kGutter),
+      fui::makeRect(static_cast<int16_t>(headlineRow.right() - toybox::kIconSize),
                     static_cast<int16_t>(headlineRow.y + (headlineRow.height - toybox::kIconSize) / 2),
                     toybox::kIconSize, toybox::kIconSize);
   screen.target().bitmap(markRect, fui::bitmapFromIcon(nearbyMark()), fui::BitmapMode::Contain,

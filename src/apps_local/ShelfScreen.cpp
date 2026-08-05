@@ -1,5 +1,7 @@
 #include "ShelfScreen.h"
 
+#include <FreeInkUIIcon.h>
+
 namespace shelfui {
 
 // The footer holds the device's name and is the only way to change it, so the
@@ -28,6 +30,16 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   screen.header(header);
 
   const fui::Rect panel = screen.device().screen();
+
+  // Paper, because the header is a filled black band. Placed from the right
+  // edge, where nothing else in the header goes.
+  if (model.mark != nullptr) {
+    const fui::Rect markRect = fui::makeRect(static_cast<int16_t>(panel.width - toybox::kIconSize - toybox::kMargin),
+                                             static_cast<int16_t>((toybox::kHeaderHeight - toybox::kIconSize) / 2),
+                                             toybox::kIconSize, toybox::kIconSize);
+    screen.target().bitmap(markRect, fui::bitmapFromIcon(*model.mark), fui::BitmapMode::Contain,
+                           fui::Paint::solid(fui::Color::White));
+  }
   screen.target().fill(fui::makeRect(0, toybox::kHeaderHeight + 4, panel.width, toybox::kRule),
                        fui::Paint::solid(fui::Color::Black));
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});

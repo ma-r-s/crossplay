@@ -20,3 +20,11 @@ solitaire   = spade       # the card suit reads instantly at any size
 # as the internet, `radio-tower` as one-to-many broadcast, and the topology
 # icons (share-2, waypoints, network) as diagrams rather than marks.
 nearby      = radio
+
+# The two shelf rows on Home. Upstream's UIIcon palette is thirteen reading
+# icons -- folder, book, wifi, library, sun -- so both rows drew the same folder
+# and nothing distinguished them. Adding enum variants would mean editing
+# BaseTheme.h and LyraTheme.cpp, which upstream touched 7 and 3 times in the
+# last 60 commits, so these are drawn over the rows instead.
+games       = gamepad-2
+apps        = layout-grid

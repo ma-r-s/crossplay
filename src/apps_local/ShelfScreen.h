@@ -22,6 +22,10 @@ struct MenuModel {
   const freeink::Icon* const* icons = nullptr;
   // The folder's own name, drawn in the header.
   const char* title = "";
+  // Drawn beside the title. Home shows these rows with upstream's folder icon,
+  // in upstream's list, in upstream's language; this is where the folder gets
+  // to say what kind of folder it is.
+  const freeink::Icon* mark = nullptr;
   const fui::ListItem* items = nullptr;
   int count = 0;
   int selected = 0;
