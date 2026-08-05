@@ -13,6 +13,7 @@
 #include <cstring>
 #include <vector>
 
+#include "../../apps_local/Shelf.h"  // fork-local seam
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "MappedInputManager.h"
@@ -22,7 +23,12 @@
 #include "fontIds.h"
 
 int HomeActivity::getMenuItemCount() const {
-  int count = 4;  // File Browser, Recents, File transfer, Settings
+  // --- fork-local seam ---------------------------------------------------
+  // The shelf's folders (GAMES, APPS) are appended after upstream's rows, so
+  // upstream's indices never shift and indexToMenuItem()/menuItemToIndex() stay
+  // untouched. Everything below returns NONE for our indices, which is what the
+  // dispatch switch's default case picks up. See src/apps_local/Shelf.h.
+  int count = 4 + shelf::folderCount();  // File Browser, Recents, File transfer, Settings, + ours
   if (!recentBooks.empty()) {
     count += recentBooks.size();
   }
@@ -120,6 +126,13 @@ void HomeActivity::onEnter() {
   const auto base = static_cast<int>(recentBooks.size());
   selectorIndex = initialMenuItem == HomeMenuItem::NONE ? 0 : base + menuItemToIndex(initialMenuItem, hasOpdsServers);
 
+  // fork-local seam: goHome() restores the selection by matching the departing
+  // activity's name against HomeMenuItem, which cannot know about shelf rows,
+  // so leaving GAMES would otherwise drop the cursor on Browse Files.
+  if (const int shelfRow = shelf::lastFolderOnHome(); shelfRow >= 0) {
+    selectorIndex = getMenuItemCount() - shelf::folderCount() + shelfRow + base;
+  }
+
   // Trigger first update
   requestUpdate();
 }
@@ -193,8 +206,12 @@ void HomeActivity::loop() {
       case HomeMenuItem::SETTINGS_MENU:
         onSettingsOpen();
         break;
-      default:
+      default: {
+        // fork-local seam: anything past upstream's rows is a shelf folder.
+        const int shelfRow = menuIndex - (getMenuItemCount() - shelf::folderCount());
+        if (shelfRow >= 0) shelf::openFolder(shelfRow, renderer, mappedInput);
         break;
+      }
     }
   };
 
@@ -322,6 +339,14 @@ void HomeActivity::render(RenderLock&&) {
     // Insert Continue Reading at the top if enabled in theme
     menuItems.insert(menuItems.begin(), tr(STR_CONTINUE_READING));
     menuIcons.insert(menuIcons.begin(), Book);
+  }
+
+  // fork-local seam: the shelf's folders, appended last so upstream's indices
+  // hold. Raw titles rather than tr(): routing them through i18n would mean
+  // editing lib/I18n/translations/*.yaml per folder.
+  for (int i = 0; i < shelf::folderCount(); ++i) {
+    menuItems.push_back(shelf::folders()[i].title);
+    menuIcons.push_back(shelf::folders()[i].icon);
   }
 
   GUI.drawButtonMenu(
