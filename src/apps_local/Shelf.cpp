@@ -43,6 +43,10 @@ int openFolderIndex = -1;
 // leave GAMES and the cursor is sitting on Browse Files.
 int lastFolder = -1;
 
+// Per folder, the row that was opened last. Sized by the table so a third
+// folder needs no thought here.
+int lastItem[kFolderCount] = {};
+
 // Replaces the running activity, or logs and stays put. Every launch in this
 // file funnels through here so an OOM cannot leave the shelf thinking it opened
 // something it did not.
@@ -90,6 +94,7 @@ void openItem(const int folder, const int item, GfxRenderer& renderer, MappedInp
   // Recorded before the launch, not after: replaceActivity destroys the caller,
   // so there is no "after" to run in.
   openFolderIndex = folder;
+  lastItem[folder] = item;
   if (!replaceWith(parent.items[item].create(renderer, mappedInput), parent.items[item].title)) {
     openFolderIndex = -1;
   }
@@ -104,5 +109,7 @@ void leave(GfxRenderer& renderer, MappedInputManager& mappedInput) {
 }
 
 int lastFolderOnHome() { return lastFolder; }
+
+int lastItemIn(const int index) { return index >= 0 && index < kFolderCount ? lastItem[index] : 0; }
 
 }  // namespace shelf

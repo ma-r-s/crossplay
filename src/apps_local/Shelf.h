@@ -95,4 +95,10 @@ void leave(GfxRenderer& renderer, MappedInputManager& mappedInput);
 // exist; this is how leaving GAMES puts the cursor back on GAMES.
 int lastFolderOnHome();
 
+// Which row of folder `index` was opened last, or 0 if nothing has been. A
+// folder is destroyed when it launches something, so without this you come back
+// from the third game with the cursor on the first. Home has the same problem
+// and the same answer; see lastFolderOnHome().
+int lastItemIn(int index);
+
 }  // namespace shelf
