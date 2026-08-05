@@ -1905,6 +1905,64 @@ void testInsiderRevealAlwaysSaysTheWord() {
   CHECK(out.target.drew("PEACOCK"));
 }
 
+
+void testInsiderRulesLoseNoWords() {
+  // The bug this pins: the rules page drew every line into a rect it did not
+  // fit, the renderer ellipsised the tail into a glyph the Toybox face does not
+  // have, and the sentence simply stopped -- on screen and in no test. Nothing
+  // was reported except an [ERR] line nobody was reading.
+  //
+  // So the assertion is not "it looks right", it is "every word survived".
+  // Concatenating what was drawn and comparing it against the source is the
+  // only check that a wrapper cannot quietly pass by losing the end of a line.
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  Rendered out;
+  {
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    insiderui::buildRules(screen);
+  }
+
+  std::string drawn;
+  fui::Rect lowest{};
+  for (const auto& run : out.target.texts) {
+    if (run.text == "HOW TO PLAY" || run.text == "BACK") continue;
+    if (!drawn.empty()) drawn += ' ';
+    drawn += run.text;
+    if (run.rect.bottom() > lowest.bottom()) lowest = run.rect;
+  }
+
+  // Every sentence the page promises to say, in order and whole.
+  const char* kMust[] = {"MASTER AND KNOWS A SECRET WORD", "YES-OR-NO QUESTIONS", "FIVE MINUTES",
+                         "WANTS THE WORD FOUND",           "THE TABLE VOTES",     "THROWN AWAY BEFORE THE DEAL",
+                         "THE HONEST ANSWER IS NOBODY"};
+  for (const char* must : kMust) {
+    const bool present = drawn.find(must) != std::string::npos;
+    if (!present) std::printf("  rules page lost: %s\n", must);
+    CHECK(present);
+  }
+  // Nothing ellipsised: the renderer appends U+2026, which this face cannot
+  // draw, so its presence anywhere is the defect itself.
+  CHECK(drawn.find("\xE2\x80\xA6") == std::string::npos);
+
+  // And it all sits above the button rather than under it.
+  CHECK(!out.target.texts.empty());
+  CHECK(lowest.bottom() <= 800);
+
+  // Every line was drawn into a rect wide enough to hold it. The fake target
+  // records whatever it is handed and never truncates, so without this a line
+  // drawn into half the width it was measured against looks identical from
+  // here -- which is precisely the defect. FakeTarget::measureText is ten
+  // pixels a character, so that is the width to compare against.
+  for (const auto& run : out.target.texts) {
+    if (run.text == "HOW TO PLAY" || run.text == "BACK") continue;
+    const int needed = static_cast<int>(run.text.size()) * 10;
+    if (needed > run.rect.width) std::printf("  line needs %d in %d: %s\n", needed, run.rect.width, run.text.c_str());
+    CHECK(needed <= run.rect.width);
+  }
+}
+
 }  // namespace
 
 int main() {
@@ -1955,6 +2013,7 @@ int main() {
   testInsiderVoteWaitsForAChoice();
   testInsiderSteppersDieAtTheEnds();
   testInsiderRevealAlwaysSaysTheWord();
+  testInsiderRulesLoseNoWords();
 
   std::printf("%d checks, %d failed\n", checksRun, checksFailed);
   return checksFailed == 0 ? 0 : 1;

@@ -54,6 +54,61 @@ fui::FontId fitted(toybox::Screen& screen, const char* text, const int16_t width
   return toybox::kTileFont;
 }
 
+// Lays `text` out at `width` by greedy break-at-spaces, and draws each line as
+// its own single-line run. Returns the height consumed.
+//
+// Deliberately NOT the target's multi-line text(): that delegates to the
+// renderer's own wrapper, and predicting what that wrapper will do is a bet
+// this screen lost twice. First it broke a line short and ellipsised the tail
+// into a glyph the face does not have, so a sentence just stopped. Then a
+// safety margin of one spare line let it draw further than the height that had
+// been reserved, and a paragraph landed on top of the next one. Emitting the
+// lines here means the layout and the drawing are the same arithmetic, which
+// is the same rule as hit-testing sharing geometry with drawing.
+//
+// Pass draw = false to measure without drawing.
+int16_t layoutParagraph(toybox::Screen& screen, const fui::TextStyle& style, const char* text, const fui::Rect& box,
+                        const bool draw) {
+  const int16_t lineHeight = screen.target().lineHeight(style.font);
+
+  char line[96] = {};
+  int fill = 0;
+  int16_t y = box.y;
+
+  const char* at = text;
+  while (true) {
+    while (*at == ' ') ++at;
+    if (*at == '\0') break;
+    int n = 0;
+    while (at[n] != '\0' && at[n] != ' ') ++n;
+
+    const int kept = fill;
+    if (fill != 0 && fill + 1 < static_cast<int>(sizeof(line))) line[fill++] = ' ';
+    for (int i = 0; i < n && fill + 1 < static_cast<int>(sizeof(line)); ++i) line[fill++] = at[i];
+    line[fill] = '\0';
+
+    // Measure the assembled line, not the sum of its words. Adding up word
+    // widths and a space undercounts whatever the face does between glyphs, and
+    // the line then overflows the rect it is drawn into -- where it is
+    // ellipsised into a glyph this face does not have, so the tail vanishes
+    // with nothing to show for it but an [ERR] nobody is reading.
+    if (kept != 0 && screen.target().measureText(style.font, line, style).width > box.width) {
+      line[kept] = '\0';
+      if (draw) screen.target().text(fui::makeRect(box.x, y, box.width, lineHeight), line, style);
+      y = static_cast<int16_t>(y + lineHeight);
+      fill = 0;
+      for (int i = 0; i < n && fill + 1 < static_cast<int>(sizeof(line)); ++i) line[fill++] = at[i];
+      line[fill] = '\0';
+    }
+    at += n;
+  }
+  if (fill != 0) {
+    if (draw) screen.target().text(fui::makeRect(box.x, y, box.width, lineHeight), line, style);
+    y = static_cast<int16_t>(y + lineHeight);
+  }
+  return static_cast<int16_t>(y - box.y);
+}
+
 fui::TextStyle styled(const fui::FontId font, const fui::TextAlign align, const fui::Color color = fui::Color::Black) {
   fui::TextStyle style;
   style.font = font;
@@ -77,9 +132,8 @@ void brackets(toybox::Screen& screen, const fui::Rect& box, const int16_t arm) {
   screen.target().fill(fui::makeRect(static_cast<int16_t>(box.right() - w), box.y, w, arm), ink);
   screen.target().fill(fui::makeRect(box.x, static_cast<int16_t>(box.bottom() - w), arm, w), ink);
   screen.target().fill(fui::makeRect(box.x, static_cast<int16_t>(box.bottom() - arm), w, arm), ink);
-  screen.target().fill(fui::makeRect(static_cast<int16_t>(box.right() - arm), static_cast<int16_t>(box.bottom() - w),
-                                     arm, w),
-                       ink);
+  screen.target().fill(
+      fui::makeRect(static_cast<int16_t>(box.right() - arm), static_cast<int16_t>(box.bottom() - w), arm, w), ink);
   screen.target().fill(
       fui::makeRect(static_cast<int16_t>(box.right() - w), static_cast<int16_t>(box.bottom() - arm), w, arm), ink);
 }
@@ -108,11 +162,11 @@ void seat(toybox::Screen& screen, const fui::Rect& box, const int number, const 
 
   char label[4];
   std::snprintf(label, sizeof(label), "%d", number + 1);
-  const auto style = styled(toybox::kDisplayFont, fui::TextAlign::Center,
-                            filled ? fui::Color::White : fui::Color::Black);
+  const auto style =
+      styled(toybox::kDisplayFont, fui::TextAlign::Center, filled ? fui::Color::White : fui::Color::Black);
   const int16_t line = screen.target().lineHeight(toybox::kDisplayFont);
-  screen.target().text(
-      fui::makeRect(box.x, static_cast<int16_t>(box.y + (box.height - line) / 2), box.width, line), label, style);
+  screen.target().text(fui::makeRect(box.x, static_cast<int16_t>(box.y + (box.height - line) / 2), box.width, line),
+                       label, style);
 }
 
 const char* roleName(const Role role) {
@@ -241,9 +295,9 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
     arrow.text = styled(toybox::kDisplayFont, fui::TextAlign::Center, live ? fui::Color::White : fui::Color::Black);
     arrow.styles = live ? toybox::invertedStyles() : toybox::disabledStepperStyles();
     arrow.radius = 10;
-    screen.button(arrow, fui::makeRect(static_cast<int16_t>(body.right() - kStep * 2 - kStepGap +
-                                                            i * (kStep + kStepGap)),
-                                       body.y, kStep, kStep));
+    screen.button(
+        arrow, fui::makeRect(static_cast<int16_t>(body.right() - kStep * 2 - kStepGap + i * (kStep + kStepGap)), body.y,
+                             kStep, kStep));
   }
 
   const int16_t ruleY = static_cast<int16_t>(body.y + 92);
@@ -267,8 +321,9 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   const int16_t chairsW = static_cast<int16_t>(model.players * kChair + (model.players - 1) * kChairGap);
   const int16_t chairX = static_cast<int16_t>(body.x + (body.width - chairsW) / 2);
   for (int i = 0; i < model.players; ++i) {
-    seat(screen, fui::makeRect(static_cast<int16_t>(chairX + i * (kChair + kChairGap)),
-                               static_cast<int16_t>(body.y + 180), kChair, kChair),
+    seat(screen,
+         fui::makeRect(static_cast<int16_t>(chairX + i * (kChair + kChairGap)), static_cast<int16_t>(body.y + 180),
+                       kChair, kChair),
          i, SeatLook::Plain);
   }
 
@@ -281,8 +336,9 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   constexpr int16_t kGridH = 94;
   const fui::Rect grid = fui::makeRect(static_cast<int16_t>(body.x + (body.width - kGridW) / 2),
                                        static_cast<int16_t>(body.y + 312), kGridW, kGridH);
-  brackets(screen, fui::makeRect(static_cast<int16_t>(grid.x - 20), static_cast<int16_t>(grid.y - 20),
-                                 static_cast<int16_t>(kGridW + 40), static_cast<int16_t>(kGridH + 40)),
+  brackets(screen,
+           fui::makeRect(static_cast<int16_t>(grid.x - 20), static_cast<int16_t>(grid.y - 20),
+                         static_cast<int16_t>(kGridW + 40), static_cast<int16_t>(kGridH + 40)),
            30);
   recordGrid(screen, grid, record);
 
@@ -355,8 +411,8 @@ void buildPass(toybox::Screen& screen, const PassModel& model) {
     std::snprintf(who, sizeof(who), "PLAYER %d", model.seat + 1);
     screen.target().text(fui::makeRect(body.x, top, body.width, 52), who,
                          styled(toybox::kDisplayFont, fui::TextAlign::Center));
-    screen.target().text(fui::makeRect(body.x, static_cast<int16_t>(top + 60), body.width, 30),
-                         "TAP TO SEE YOUR ROLE", styled(toybox::kUiFont, fui::TextAlign::Center));
+    screen.target().text(fui::makeRect(body.x, static_cast<int16_t>(top + 60), body.width, 30), "TAP TO SEE YOUR ROLE",
+                         styled(toybox::kUiFont, fui::TextAlign::Center));
     screen.frame().hit(body, ActionAdvance, 0);
     return;
   }
@@ -386,8 +442,8 @@ void buildPass(toybox::Screen& screen, const PassModel& model) {
   constexpr int16_t kArt = 96;
   // Must match what the branches below actually advance y by, or the block
   // centres against a height it does not have and sits high in the card.
-  const int16_t blockH = knowsWord ? static_cast<int16_t>(kArt + 24 + 44 + 118 + 44)
-                                   : static_cast<int16_t>(kArt + 24 + 44 + 20 + 76);
+  const int16_t blockH =
+      knowsWord ? static_cast<int16_t>(kArt + 24 + 44 + 118 + 44) : static_cast<int16_t>(kArt + 24 + 44 + 20 + 76);
   int16_t y = static_cast<int16_t>(card.y + (card.height - blockH) / 2);
 
   screen.target().bitmap(fui::makeRect(static_cast<int16_t>(card.x + (card.width - kArt) / 2), y, kArt, kArt),
@@ -414,9 +470,9 @@ void buildPass(toybox::Screen& screen, const PassModel& model) {
   // thing on it is the one instruction that role needs.
   fui::TextStyle advice = styled(knowsWord ? toybox::kTileFont : toybox::kUiFont, fui::TextAlign::Center);
   advice.maxLines = 2;
-  screen.target().text(fui::makeRect(static_cast<int16_t>(card.x + 30), y, static_cast<int16_t>(card.width - 60),
-                                     knowsWord ? 44 : 76),
-                       roleAdvice(model.role), advice);
+  screen.target().text(
+      fui::makeRect(static_cast<int16_t>(card.x + 30), y, static_cast<int16_t>(card.width - 60), knowsWord ? 44 : 76),
+      roleAdvice(model.role), advice);
 }
 
 // ---------------------------------------------------------------------------
@@ -469,8 +525,8 @@ void buildQuestions(toybox::Screen& screen, const QuestionsModel& model) {
   screen.target().stroke(trough, fui::Paint::solid(fui::Color::Black), toybox::kFrame, 10);
 
   constexpr int kSegments = 10;
-  const fui::Rect inner = trough.inset(fui::Insets{toybox::kFrame + 2, toybox::kFrame + 2, toybox::kFrame + 2,
-                                                   toybox::kFrame + 2});
+  const fui::Rect inner =
+      trough.inset(fui::Insets{toybox::kFrame + 2, toybox::kFrame + 2, toybox::kFrame + 2, toybox::kFrame + 2});
   const int left = model.secondsLeft <= 0
                        ? 0
                        : (model.secondsLeft * kSegments + insider::kQuestionSeconds - 1) / insider::kQuestionSeconds;
@@ -516,8 +572,7 @@ void buildVote(toybox::Screen& screen, const VoteModel& model) {
   screen.button(go, fui::LayoutAnchor::Bottom);
 
   const fui::Rect hint = screen.takeBottom(44, toybox::kGutter);
-  screen.target().text(hint, "SOMETIMES THE ROLE WAS NEVER DEALT.",
-                       styled(toybox::kTileFont, fui::TextAlign::Center));
+  screen.target().text(hint, "SOMETIMES THE ROLE WAS NEVER DEALT.", styled(toybox::kTileFont, fui::TextAlign::Center));
 
   fui::ButtonProps nobody;
   nobody.label = "NOBODY WAS";
@@ -578,17 +633,17 @@ void buildReveal(toybox::Screen& screen, const RevealModel& model) {
   const fui::Rect capsule = fui::makeRect(body.x, body.y, body.width, 84);
   screen.target().fill(capsule, fui::Paint::solid(fui::Color::Black), toybox::kPillRadius);
   const int16_t line = screen.target().lineHeight(toybox::kDisplayFont);
-  screen.target().text(fui::makeRect(static_cast<int16_t>(capsule.x + 12),
-                                     static_cast<int16_t>(capsule.y + (capsule.height - line) / 2),
-                                     static_cast<int16_t>(capsule.width - 24), line),
-                       verdict, styled(toybox::kDisplayFont, fui::TextAlign::Center, fui::Color::White));
+  screen.target().text(
+      fui::makeRect(static_cast<int16_t>(capsule.x + 12), static_cast<int16_t>(capsule.y + (capsule.height - line) / 2),
+                    static_cast<int16_t>(capsule.width - 24), line),
+      verdict, styled(toybox::kDisplayFont, fui::TextAlign::Center, fui::Color::White));
 
   const int16_t seatsY = static_cast<int16_t>(body.y + 130);
   if (hadInsider) {
     screen.target().text(fui::makeRect(body.x, seatsY, body.width, 24), "THE INSIDER WAS",
                          styled(toybox::kTileFont, fui::TextAlign::Center));
-    const fui::Rect chip = fui::makeRect(static_cast<int16_t>(body.x + (body.width - 96) / 2),
-                                         static_cast<int16_t>(seatsY + 34), 96, 96);
+    const fui::Rect chip =
+        fui::makeRect(static_cast<int16_t>(body.x + (body.width - 96) / 2), static_cast<int16_t>(seatsY + 34), 96, 96);
     seat(screen, chip, model.insiderSeat, SeatLook::Filled);
   } else {
     fui::TextStyle style = styled(toybox::kUiFont, fui::TextAlign::Center);
@@ -639,37 +694,6 @@ void buildReveal(toybox::Screen& screen, const RevealModel& model) {
 void buildRules(toybox::Screen& screen) {
   chrome(screen, "HOW TO PLAY", nullptr);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
-  const fui::Rect body = screen.body();
-
-  // Short on purpose. The card each player is handed already tells them how to
-  // play their own role, which is the only rules text anybody reads at a table.
-  static const char* kLines[] = {
-      "ONE OF YOU IS THE MASTER AND KNOWS A",
-      "SECRET WORD. ONE OF YOU IS THE INSIDER",
-      "AND KNOWS IT TOO.",
-      "",
-      "EVERYONE ASKS THE MASTER YES-OR-NO",
-      "QUESTIONS UNTIL SOMEBODY SAYS THE WORD",
-      "OUT LOUD. YOU HAVE FIVE MINUTES.",
-      "",
-      "THE INSIDER WANTS THE WORD FOUND, BUT",
-      "NOT TO BE THE ONE WHO FOUND IT.",
-      "",
-      "THEN YOU VOTE. NAME THE INSIDER AND THE",
-      "TABLE WINS. NAME THE WRONG PERSON AND",
-      "THE INSIDER WINS.",
-      "",
-      "ONE ROLE IS THROWN AWAY BEFORE DEALING,",
-      "SO SOMETIMES THERE IS NO INSIDER AT ALL",
-      "AND THE RIGHT ANSWER IS NOBODY.",
-  };
-  constexpr int kCount = static_cast<int>(sizeof(kLines) / sizeof(kLines[0]));
-  const auto style = styled(toybox::kUiFont, fui::TextAlign::Left);
-  const int16_t line = screen.target().lineHeight(toybox::kUiFont);
-  for (int i = 0; i < kCount; ++i) {
-    screen.target().text(fui::makeRect(body.x, static_cast<int16_t>(body.y + i * line), body.width, line), kLines[i],
-                         style);
-  }
 
   fui::ButtonProps back;
   back.label = "BACK";
@@ -678,6 +702,48 @@ void buildRules(toybox::Screen& screen) {
   back.styles = toybox::invertedStyles();
   back.radius = 10;
   screen.button(back, fui::LayoutAnchor::Bottom);
+
+  const fui::Rect body = screen.body();
+
+  // Written as sentences, not as hand-broken lines. The first version guessed
+  // where 448px falls in this face and was wrong by about a third: every line
+  // ran off the right edge into an ellipsis the font has no glyph for, so it
+  // simply vanished, and the last paragraph ran off the bottom under the
+  // button. Guessing a wrap width is the same mistake as guessing a layout.
+  static const char* kParagraphs[] = {
+      "ONE OF YOU IS THE MASTER AND KNOWS A SECRET WORD. ONE OF YOU IS THE "
+      "INSIDER AND KNOWS IT TOO.",
+      "EVERYONE ASKS THE MASTER YES-OR-NO QUESTIONS UNTIL SOMEBODY SAYS THE "
+      "WORD. YOU HAVE FIVE MINUTES. IF IT IS NEVER FOUND, THE WHOLE TABLE "
+      "LOSES.",
+      "THE INSIDER WANTS THE WORD FOUND, BUT NOT TO BE THE ONE WHO FOUND IT.",
+      "THEN THE TABLE VOTES. NAME THE INSIDER AND EVERYONE ELSE WINS. NAME THE "
+      "WRONG PERSON AND THE INSIDER WINS ALONE.",
+      "ONE ROLE IS THROWN AWAY BEFORE THE DEAL, SO SOMETIMES THERE IS NO "
+      "INSIDER AND THE HONEST ANSWER IS NOBODY.",
+  };
+  constexpr int kCount = static_cast<int>(sizeof(kParagraphs) / sizeof(kParagraphs[0]));
+  constexpr int16_t kParaGap = 14;
+
+  // Largest cut the whole page fits in, measured rather than chosen. The small
+  // slot is bound to the 14px button cut for this screen only (see
+  // InsiderActivity::render) because 20px is a display face and a screenful of
+  // it is a wall.
+  // The small slot, always -- which on this screen is the 14px cut (see
+  // InsiderActivity::render). Jersey at 20px is a display face: a screenful of
+  // it is a wall, and this page does not fit in it. Choosing between two cuts
+  // by measuring was tried and is not worth it here; the answer is the same
+  // every time, and a size that depends on the copy means the page quietly
+  // changes size when somebody edits a sentence.
+  fui::TextStyle style = styled(toybox::kSmallFont, fui::TextAlign::Left);
+
+  // Measured and drawn by the same function, so the height reserved for a
+  // paragraph is by construction the height it takes.
+  int16_t y = body.y;
+  for (int i = 0; i < kCount; ++i) {
+    const fui::Rect at = fui::makeRect(body.x, y, body.width, static_cast<int16_t>(body.bottom() - y));
+    y = static_cast<int16_t>(y + layoutParagraph(screen, style, kParagraphs[i], at, true) + kParaGap);
+  }
 }
 
 }  // namespace insiderui
