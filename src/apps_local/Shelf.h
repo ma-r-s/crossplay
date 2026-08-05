@@ -36,6 +36,8 @@
 // ours. None of them should ever name a destination.
 // ---------------------------------------------------------------------------
 
+#include <Icon.h>
+
 #include <memory>
 
 #include "../components/themes/BaseTheme.h"  // UIIcon
@@ -51,14 +53,23 @@ namespace shelf {
 // upstream churn this whole directory exists to avoid.
 struct Item {
   const char* title;
-  UIIcon icon;
+  // A real icon, not a UIIcon. Upstream's palette has thirteen entries and none
+  // of them is a crown or a ship; adding variants would mean editing
+  // BaseTheme.h and LyraTheme.cpp per app, which is the churn this directory
+  // exists to avoid. These are generated from Lucide SVGs into
+  // ui/ToyboxIcons.h -- an asset the shelf resolves, so the palette is the
+  // 1735 icons Lucide ships rather than a growing enum.
+  const freeink::Icon* icon;
   std::unique_ptr<Activity> (*create)(GfxRenderer&, MappedInputManager&);
 };
 
 // A titled list of items. Note what is absent: a Folder cannot contain a
 // Folder. That is rule 1, expressed as a type rather than a convention.
 struct Folder {
-  const char* title;  // "GAMES" -- capitals, because Toybox chrome is capitals
+  const char* title;
+  // A folder row is drawn by upstream's Home menu, which takes a UIIcon and
+  // nothing else, so this one stays in their palette. Folder is also simply
+  // true: these are folders.
   UIIcon icon;
   const Item* items;
   int count;

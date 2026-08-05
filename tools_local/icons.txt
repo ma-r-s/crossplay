@@ -1,0 +1,12 @@
+# Icons for the shelf, generated into src/apps_local/ui/ToyboxIcons.h by
+# tools_local/gen_toybox_icons.sh. Format: alias = lucide-name.
+#
+# The label already says what the app is, so the icon's job is to be
+# recognisable and distinct at a glance in a 62px row -- not to be literal.
+# Picked for silhouette: a crown, a hull, a grid and a suit share no shape.
+
+chess       = crown       # the king. Lucide has no chess piece; `castle` is the
+                          # rook by name but a detailed building at 32px.
+battleship  = ship
+connections = grid-2x2    # four cells, four groups
+solitaire   = spade       # the card suit reads instantly at any size

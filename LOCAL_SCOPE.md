@@ -80,7 +80,7 @@ All scoped to `src/apps_local/`.
 | Upstream rule                                    | What we do in local apps                  | Why                                                                                                                     |
 | ------------------------------------------------ | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | All user-facing text uses `tr()`                 | Raw `const char*` titles and strings      | Routing through `tr()` means editing `lib/I18n/translations/*.yaml` per app, which is per-app churn in an upstream file |
-| Icons are `UIIcon` enum variants added per app   | Apps pick from the stock `UIIcon` palette | Adding variants means editing `BaseTheme.h` and `LyraTheme.cpp` per app                                                 |
+| Icons are `UIIcon` enum variants added per app   | Shelf items carry a `freeink::Icon` generated from Lucide | Adding enum variants means editing `BaseTheme.h` and `LyraTheme.cpp` per app. An asset the shelf resolves gives us Lucide's 1735 icons instead of a growing enum. Folder rows on Home still take a `UIIcon`, because upstream's menu accepts nothing else |
 | Apps register via `ActivityManager::goTo<App>()` | A function-pointer factory in the shelf   | Avoids editing `ActivityManager.{h,cpp}` per app                                                                        |
 | All rendering through the `GUI`/UITheme macro    | Apps draw their own surface via FreeInkUI | A board or a grid is the app's own material; chrome still goes through Toybox, which is a FreeInkUI theme               |
 

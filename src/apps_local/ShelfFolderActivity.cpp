@@ -1,5 +1,6 @@
 #include "ShelfFolderActivity.h"
 
+#include <FreeInkUIIcon.h>
 #include <Memory.h>
 
 #include "Shelf.h"
@@ -19,6 +20,9 @@ void ShelfFolderActivity::buildItems() {
   itemCount = self.count < kMaxItems ? self.count : kMaxItems;
   for (int i = 0; i < itemCount; ++i) {
     items[i].label = self.items[i].title;
+    if (self.items[i].icon != nullptr) {
+      items[i].icon = freeink::ui::bitmapFromIcon(*self.items[i].icon);
+    }
     items[i].actionValue = static_cast<int16_t>(i);
   }
   if (selected >= itemCount) selected = itemCount > 0 ? itemCount - 1 : 0;
