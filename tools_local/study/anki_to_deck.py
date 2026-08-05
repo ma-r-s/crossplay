@@ -371,17 +371,52 @@ def write_meta(path, name, config, crt, rollover):
         f.write(encoded)
 
 
-def write_glyphs(notes, path):
-    """Every codepoint the deck uses, for the font subsetter."""
-    seen = set()
+def is_cjk(ch):
+    o = ord(ch)
+    return 0x2E80 <= o <= 0x9FFF or 0xF900 <= o <= 0xFAFF or 0xFF00 <= o <= 0xFFEF
+
+
+def write_glyphs(notes, out_dir):
+    """Write the codepoint sets the font pipeline subsets against.
+
+    Split by *size*, not by script, because that is what costs SD card space.
+    A bitmap font stores one rendered bitmap per glyph per size, so a glyph at
+    the 100px headword size costs roughly ten times what it costs at the 34px
+    sentence size. The headword set is only the characters that ever appear as
+    a headword -- far fewer than the characters that appear in sentences -- so
+    keeping the two apart is most of the difference between a deck that fits
+    comfortably and one that does not.
+
+    Latin gets its own file: Mario's card template applies the random font only
+    to the hanzi, and the pinyin needs tone-marked vowels that four of the five
+    CJK faces do not carry at all.
+    """
+    headword, sentence, latin = set(), set(), set()
     for note in notes:
-        for text in note["fields"]:
-            seen.update(text)
-    # Digits and the interval labels the app draws itself.
-    seen.update("0123456789dmy<>?!.,:;-()[]'\"/ AGAINHARDGOODEASYagainhardgoodeasy")
-    ordered = "".join(sorted(seen))
-    path.write_text(ordered, encoding="utf-8")
-    return len(ordered)
+        for i, text in enumerate(note["fields"]):
+            for ch in text:
+                if not is_cjk(ch):
+                    latin.add(ch)
+                elif i == 0:
+                    headword.add(ch)
+                else:
+                    sentence.add(ch)
+    # A headword character also has to render at sentence size, because the
+    # word appears inside its own example sentence.
+    sentence |= headword
+    # Everything the app draws itself: intervals, counts, button labels.
+    latin.update("0123456789dmy%+/<>?!.,:;-()[]'\" AGAINHARDGOODEASYagainhardgoodeasy")
+
+    sizes = {}
+    for name, chars in (
+        ("headword", headword),
+        ("sentence", sentence),
+        ("latin", latin),
+    ):
+        path = out_dir / f"glyphs-{name}.txt"
+        path.write_text("".join(sorted(chars)), encoding="utf-8")
+        sizes[name] = len(chars)
+    return sizes
 
 
 def main():
@@ -427,7 +462,7 @@ def main():
     write_cards(notes, args.out / "cards.dat")
     write_meta(args.out / "meta.dat", name, config, crt, rollover)
     (args.out / "revlog.dat").touch()
-    glyphs = write_glyphs(notes, args.out / "glyphs.txt")
+    glyphs = write_glyphs(notes, args.out)
 
     learned = sum(1 for n in notes if n["stability"] > 0)
     print(
@@ -435,7 +470,9 @@ def main():
     )
     print(f"  content   {blob_size / 1024:.0f} KB")
     print(f"  state     {len(notes) * CARD_RECORD_SIZE / 1024:.0f} KB")
-    print(f"  glyphs    {glyphs} distinct codepoints")
+    print(
+        f"  glyphs    {glyphs['headword']} headword, {glyphs['sentence']} sentence, {glyphs['latin']} latin"
+    )
     if config.get("params"):
         print(
             f"  FSRS      {len(config['params'])} parameters, retention {config.get('desiredRetention', 0.9):.2f}"
