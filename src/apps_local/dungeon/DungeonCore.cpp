@@ -92,28 +92,13 @@ int Board::colWalls(const int col) const {
   return popcount(walls_ & colMask(col, size()));
 }
 
-int tierStart(const int tier) {
-  for (int i = 0; i < kPuzzleCount; ++i) {
-    if (kPuzzles[i].tier == tier) return i;
-  }
-  return 0;
-}
-
-int tierCount(const int tier) {
-  int count = 0;
-  for (int i = 0; i < kPuzzleCount; ++i) {
-    if (kPuzzles[i].tier == tier) ++count;
-  }
-  return count;
-}
-
 bool Progress::isSolved(const int index) const {
   if (index < 0 || index >= kPuzzleCount) return false;
   return index < 64 ? (low & (uint64_t{1} << index)) != 0 : (high & (uint64_t{1} << (index - 64))) != 0;
 }
 
 void Progress::markSolved(const int index) {
-  if (index < 0 || index >= kPuzzleCount) return;
+  if (!isPlayable(index)) return;
   if (index < 64) {
     low |= uint64_t{1} << index;
   } else {
@@ -121,10 +106,14 @@ void Progress::markSolved(const int index) {
   }
 }
 
-int Progress::solvedCount() const { return popcount(low) + popcount(high); }
+int Progress::solvedCount() const {
+  // Bit 0 is the tutorial. markSolved refuses it, so this is belt and braces
+  // against an old save that set it before the tutorial stopped being a level.
+  return popcount(low & ~uint64_t{1}) + popcount(high);
+}
 
 int Progress::nextUnsolved() const {
-  for (int i = 0; i < kPuzzleCount; ++i) {
+  for (int i = kCampaignFirst; i < kPuzzleCount; ++i) {
     if (!isSolved(i)) return i;
   }
   return kPuzzleCount - 1;

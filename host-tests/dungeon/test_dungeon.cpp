@@ -463,36 +463,61 @@ void testGuideTeachesTheRealPuzzle() {
 void testProgress() {
   dungeon::Progress progress;
   CHECK(progress.solvedCount() == 0);
-  CHECK(progress.nextUnsolved() == 0);
-  // Every index, including the ones past the 64-bit boundary the two words
-  // exist to cover. An off-by-one there would silently lose the last puzzle.
-  for (int i = 0; i < dungeon::kPuzzleCount; ++i) {
+  // Every campaign index, including the ones past the 64-bit boundary the two
+  // words exist to cover. An off-by-one there would silently lose the last
+  // dungeon, and the bank is 65 entries precisely so that boundary is crossed.
+  for (int i = dungeon::kCampaignFirst; i < dungeon::kPuzzleCount; ++i) {
     CHECK(!progress.isSolved(i));
     progress.markSolved(i);
     CHECK(progress.isSolved(i));
-    CHECK(progress.solvedCount() == i + 1);
-    CHECK(progress.nextUnsolved() == (i + 1 < dungeon::kPuzzleCount ? i + 1 : dungeon::kPuzzleCount - 1));
+    CHECK(progress.solvedCount() == i);
   }
+  CHECK(progress.isSolved(dungeon::kPuzzleCount - 1));  // the one past bit 63
   progress.markSolved(-1);
   progress.markSolved(dungeon::kPuzzleCount);
-  CHECK(progress.solvedCount() == dungeon::kPuzzleCount);
+  CHECK(progress.solvedCount() == dungeon::kCampaignCount);
   CHECK(!progress.isSolved(-1));
   CHECK(!progress.isSolved(dungeon::kPuzzleCount));
 }
 
-void testTiers() {
-  // The bank is stored in tier order and the menu depends on it.
-  int total = 0;
-  for (int tier = 0; tier <= 8; ++tier) {
-    const int start = dungeon::tierStart(tier);
-    const int count = dungeon::tierCount(tier);
-    total += count;
-    for (int i = 0; i < count; ++i) CHECK(dungeon::kPuzzles[start + i].tier == tier);
+// The tutorial is not a level. Nothing may offer it, count it or finish it.
+//
+// This is the whole of that rule, in the one place that can enforce it: the
+// activity funnels every door into a board through openPuzzle, and openPuzzle
+// asks isPlayable. What is testable here is that Progress can never point at
+// it, which is what PLAY, NEXT and the end of the guide all read.
+void testTutorialIsNotALevel() {
+  CHECK(!dungeon::isPlayable(0));
+  CHECK(dungeon::isPlayable(dungeon::kCampaignFirst));
+  CHECK(dungeon::isPlayable(dungeon::kPuzzleCount - 1));
+  CHECK(!dungeon::isPlayable(dungeon::kPuzzleCount));
+  CHECK(!dungeon::isPlayable(-1));
+  CHECK(dungeon::kCampaignCount == 64);
+  CHECK(dungeon::kPuzzles[0].tier == 0);
+  for (int i = dungeon::kCampaignFirst; i < dungeon::kPuzzleCount; ++i) CHECK(dungeon::kPuzzles[i].tier >= 1);
+
+  dungeon::Progress progress;
+  // Empty, part way, and complete: never the tutorial, and never counting it.
+  CHECK(progress.nextUnsolved() == dungeon::kCampaignFirst);
+  CHECK(progress.solvedCount() == 0);
+  progress.markSolved(0);
+  CHECK(!progress.isSolved(0));
+  CHECK(progress.solvedCount() == 0);
+  CHECK(progress.nextUnsolved() == dungeon::kCampaignFirst);
+
+  for (int i = dungeon::kCampaignFirst; i < dungeon::kPuzzleCount; ++i) {
+    progress.markSolved(i);
+    CHECK(progress.solvedCount() == i);
+    CHECK(dungeon::isPlayable(progress.nextUnsolved()));
   }
-  CHECK(total == dungeon::kPuzzleCount);
-  CHECK(dungeon::tierCount(0) == 1);
-  for (int tier = 1; tier <= 8; ++tier) CHECK(dungeon::tierCount(tier) == 8);
-  for (int i = 1; i < dungeon::kPuzzleCount; ++i) CHECK(dungeon::kPuzzles[i - 1].tier <= dungeon::kPuzzles[i].tier);
+  CHECK(progress.solvedCount() == dungeon::kCampaignCount);
+  CHECK(dungeon::isPlayable(progress.nextUnsolved()));
+
+  // A save from before the tutorial stopped being a level could have bit 0 set.
+  dungeon::Progress legacy;
+  legacy.low = 1;
+  CHECK(legacy.solvedCount() == 0);
+  CHECK(legacy.nextUnsolved() == dungeon::kCampaignFirst);
 }
 
 }  // namespace
@@ -507,7 +532,7 @@ int main() {
   testRestoreRoundTrip();
   testRestoreRejectsNonsense();
   testProgress();
-  testTiers();
+  testTutorialIsNotALevel();
   std::printf("%d checks, %d failed\n", checksRun, checksFailed);
   return checksFailed == 0 ? 0 : 1;
 }

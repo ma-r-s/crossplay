@@ -19,8 +19,7 @@ enum : fui::ActionId {
   // through it is the same geometry rather than a second copy of it.
   ActionBoard = 1,
   ActionButton = 2,
-  ActionPick = 3,  // value is a puzzle index
-  ActionPage = 4,  // value is -1 or +1
+  ActionPick = 3,  // value is a puzzle index, or -1 to resolve through the map
 };
 
 enum Button : int {
@@ -57,8 +56,6 @@ struct BoardModel {
 
 struct MenuModel {
   const char* dungeonName = "";
-  int tier = 0;
-  int slot = 0;
   int solvedCount = 0;
   int total = 0;
   bool hasProgress = false;
@@ -85,13 +82,8 @@ struct PickerLayout {
 };
 
 struct PickerModel {
-  // The tier being shown, 0 for the tutorial and 1..8 for the campaign.
-  int tier = 1;
-  int firstIndex = 0;
-  int count = 0;
+  // The dungeon in hand, ringed on the map.
   int current = -1;
-  // Bit i set when kPuzzles[firstIndex + i] is solved.
-  uint16_t solved = 0;
   int solvedCount = 0;
   int total = 0;
   // The whole campaign: this screen shows all of it at once.
