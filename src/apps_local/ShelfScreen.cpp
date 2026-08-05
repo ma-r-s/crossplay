@@ -27,8 +27,8 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   header.borderEdges = fui::EdgesNone;
   screen.header(header);
 
-  const fui::Rect band = screen.device().screen();
-  screen.target().fill(fui::makeRect(0, toybox::kHeaderHeight + 4, band.width, toybox::kRule),
+  const fui::Rect panel = screen.device().screen();
+  screen.target().fill(fui::makeRect(0, toybox::kHeaderHeight + 4, panel.width, toybox::kRule),
                        fui::Paint::solid(fui::Color::Black));
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 
@@ -46,15 +46,23 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   }
 
   fui::ListProps list;
-  // 32 into a 62px row: big enough to read a silhouette, small enough that the
-  // label is still the thing you see first.
-  list.iconSize = 32;
   list.items = model.items;
   list.count = static_cast<uint16_t>(model.count);
   list.topIndex = static_cast<uint16_t>(model.topIndex);
   list.selectedIndex = static_cast<int16_t>(model.selected);
   list.action = ActionOpen;
+
+  const fui::Rect rows = listBand(screen.device(), model.playerName != nullptr);
   screen.list(list);
+
+  // Icons sit at the right edge; see toybox::iconAtRowRight for why not the
+  // list's own left-hand slot.
+  if (model.icons != nullptr) {
+    for (int i = 0; i < model.count; ++i) {
+      if (model.icons[i] == nullptr) continue;
+      toybox::iconAtRowRight(screen, rows, i, *model.icons[i], i == model.selected);
+    }
+  }
 }
 
 }  // namespace shelfui

@@ -2,6 +2,8 @@
 
 #include <cstdio>
 
+#include "../link/LinkScreens.h"
+
 namespace bshipui {
 
 namespace {
@@ -84,7 +86,20 @@ fui::Rect buildStartMenu(toybox::Screen& screen, const StartModel& model) {
   // artwork rather than slack scattered around the rows.
   const int16_t listHeight =
       static_cast<int16_t>(count * toybox::kRowHeight + (count - 1) * toybox::kGutter / 2 + toybox::kGutter);
+  // The band the list is about to occupy, taken from the same content rect and
+  // height it will use. Needed to put the multiplayer mark on PLAY NEARBY.
+  const fui::Rect content = screen.contentRect();
+  const fui::Rect listBand =
+      fui::makeRect(content.x, static_cast<int16_t>(content.bottom() - listHeight), content.width, listHeight);
   screen.list(list, listHeight, fui::LayoutAnchor::Bottom);
+
+  // One symbol wherever two devices talk to each other, so it is learned once
+  // and recognised everywhere. See linkui::nearbyMark().
+  for (int i = 0; i < count; ++i) {
+    if (startRowAt(model, i) != StartRow::PlayNearby) continue;
+    toybox::iconAtRowRight(screen, listBand, i, linkui::nearbyMark(), i == model.selected);
+  }
+
   return screen.body();
 }
 

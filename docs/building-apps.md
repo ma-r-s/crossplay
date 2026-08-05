@@ -466,7 +466,12 @@ class MyActivity final : public linkplay::LinkActivity {
 ```
 
 `enterLink(GameId::MyGame)` when the player taps PLAY NEARBY, and that is the
-whole integration. `loop()` and `render()` are `final` on purpose: the tick has
+whole integration.
+
+The row is called **PLAY NEARBY** in every game, and it carries the mark below.
+Do not invent another wording: "click where it says multiplayer" only works if
+something says it, and NEARBY is what it is -- somebody in the room, not a
+server and not a friends list. `loop()` and `render()` are `final` on purpose: the tick has
 to run before every one of your early returns, and chess's first early return is
 a settings overlay, so a tick written anywhere else died whenever somebody
 opened one for ten seconds.
@@ -474,6 +479,35 @@ opened one for ten seconds.
 Battleship is the proof this is a layer rather than a pattern to copy. It writes
 those methods and **zero screens**; the two hundred lines chess used to hold now
 live in `LinkActivity` and neither game can drift from the other.
+
+#### The mark
+
+One symbol means "this connects to another device", and it appears in exactly
+two kinds of place:
+
+- the **PLAY NEARBY** row of a game's start menu, drawn with
+  `toybox::iconAtRowRight(screen, band, row, linkui::nearbyMark(), selected)`
+- the **shared link screen**, which `buildLink()` already draws for you
+
+That is the whole rule, and the reason for it is recognition rather than
+decoration. The DS never had to explain local play: you learned one mark and
+then you knew, on every box and every menu, which games would talk to the
+machine next to you. A mark only does that if it is never used for anything
+else, so **do not reach for `nearbyMark()` for any other purpose**, and do not
+give multiplayer a second symbol somewhere.
+
+It is `linkui::nearbyMark()` rather than a Lucide name in your code, so there is
+one place to change it and no game can drift to a different glyph. The glyph is
+`radio`: symmetric arcs from a point, a thing here signalling both ways. `wifi`
+was rejected for reading as the internet, `radio-tower` as one-to-many
+broadcast, and `share-2`/`waypoints`/`network` as topology diagrams rather than
+marks. See `tools_local/icons.txt`.
+
+**Check what is behind it.** The mark is a 1-bpp mask painted in one colour, so
+it is invisible on a background of that colour and nothing warns you. Drawing it
+took three attempts: black on the black headline slab, then white after moving
+it off the slab onto white paper, then finally right. Whenever a drawn element
+moves, re-check its background.
 
 Rules that are worth knowing:
 
