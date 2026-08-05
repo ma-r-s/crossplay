@@ -50,6 +50,23 @@ inline Faces toyboxFaces() { return Faces{}; }
 inline Faces serifBoardFaces() { return Faces{kSerifTileFontId, kUiFontId, kDisplayFontId}; }
 inline Faces serifMenuFaces() { return Faces{kSerifSmallFontId, kSerifTileFontId, kDisplayFontId}; }
 
+// For an app whose own surface is a page of prose. The body slot steps down to
+// the reading cut so a screenful is a screenful rather than a paragraph; the
+// header band keeps the display cut, because the top bar is the fork's chrome
+// and a shared one is what makes two apps feel like one device.
+inline Faces readingFaces() { return Faces{kTileFontId, kReadingFontId, kDisplayFontId}; }
+// Same, for a screen with buttons on it. A button is the device speaking rather
+// than the app, so it keeps Jersey; the small slot carries it, because three
+// slots is a working set and a list's dense footnote cut and a footer's button
+// cut are never wanted on the same screen. Rebinding is one assignment.
+inline Faces readingChromeFaces() { return Faces{kButtonFontId, kReadingFontId, kDisplayFontId}; }
+
+// And for a screen whose header band carries a story's title rather than the
+// app's name: the title slot takes the bold reading cut so a whole headline
+// fits and still reads as a headline. The app's own name stays in the display
+// cut on the screen where it *is* the title, which is the front page.
+inline Faces readerFaces() { return Faces{kButtonFontId, kReadingFontId, kReadingBoldFontId}; }
+
 inline fui::GfxRendererTarget makeTarget(const GfxRenderer& renderer, const Faces& faces = Faces{}) {
   fui::GfxRendererTarget target(renderer);
   // The small slot carries the dense cut, not a small UI face; see ToyboxTokens.h.
