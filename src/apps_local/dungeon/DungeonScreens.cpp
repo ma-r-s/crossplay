@@ -30,9 +30,18 @@ namespace {
 constexpr int kCell = 48;
 constexpr int kLane = 56;
 constexpr int kArtSize = 36;
-// How far a clue's box hangs past its cell, on each side. Negative: the box is
-// wider than the cell it belongs to.
-constexpr int kLaneOverhang = (kCell - kLane) / 2;
+// A clue's TEXT box is a lane square, because it has to hold a line of the
+// display cut. Its CHIP is sized to the cell pitch instead, and that difference
+// is the whole point: the box is wider than the cell, so a chip drawn at box
+// size overlaps its neighbours by (lane - cell) and the digits run into each
+// other. At the board's own 48px cell that was an exact touch and looked
+// deliberate; the guide draws at 42 and the same code welded six clue chips
+// into one black bar with the numbers melting together.
+//
+// Derived from the layout's cell rather than from kCell for the same reason:
+// this used to be a constant, and the constant was right for exactly one of
+// the two boards that use it.
+int laneOverhang(const int cell) { return (cell - kLane) / 2; }
 
 // Air between the clue lane and the board's frame.
 //
@@ -173,7 +182,7 @@ fui::FontId fitLabel(toybox::Screen& screen, const char* text, const int width, 
   return cuts[1];
 }
 
-void drawClue(toybox::Screen& screen, const fui::Rect& box, const int value, const int placed) {
+void drawClue(toybox::Screen& screen, const fui::Rect& box, const fui::Rect& chip, const int value, const int placed) {
   char text[4];
   std::snprintf(text, sizeof(text), "%d", value);
   fui::TextStyle style;
@@ -201,12 +210,12 @@ void drawClue(toybox::Screen& screen, const fui::Rect& box, const int value, con
   // and flush reads as a rail of settled clues instead of as crowding, and the
   // fills differ enough that no two neighbours merge.
   if (placed == value) {
-    screen.target().fill(box.inset(fui::Insets{4, 4, 4, 4}), fui::Paint::solid(fui::Color::Black));
+    screen.target().fill(chip, fui::Paint::solid(fui::Color::Black));
     style.color = fui::Color::White;
   } else if (placed > value) {
     // LightGray, not DarkGray. The number inside stays black, and 50% dither
     // under black type is close to no contrast at all.
-    screen.target().fill(box.inset(fui::Insets{4, 4, 4, 4}), fui::Paint::dither(fui::Color::LightGray));
+    screen.target().fill(chip, fui::Paint::dither(fui::Color::LightGray));
   }
 
   // The whole box, not a line-height slice of it: the target centres a run on
@@ -216,6 +225,33 @@ void drawClue(toybox::Screen& screen, const fui::Rect& box, const int value, con
   // line box is not the ink -- see the note on that constant.
   screen.target().text(fui::makeRect(box.x, static_cast<int16_t>(box.y - kClueLift), box.width, box.height), text,
                        style);
+}
+
+// Four corner marks around a rect, and nothing in between.
+//
+// This is how this fork flags a region: Toybox has drawn selection like it
+// since Chess. A rounded outline was the first attempt and it was wrong for a
+// screen made entirely of square cells and square chips -- the radius was the
+// only curve anywhere on the board, so it read as a stray UI element rather
+// than as a mark on the map. Brackets also leave what they point at completely
+// uncovered, which a ring round a single cell does not.
+void cornerBrackets(toybox::Screen& screen, const fui::Rect& box, const int arm = 18,
+                    const int weight = toybox::kFrame) {
+  const fui::Paint ink = fui::Paint::solid(fui::Color::Black);
+  const int16_t w = static_cast<int16_t>(weight);
+  const int16_t a = static_cast<int16_t>(arm);
+  const int16_t right = static_cast<int16_t>(box.right() - a);
+  const int16_t bottom = static_cast<int16_t>(box.bottom() - a);
+  const int16_t edgeX = static_cast<int16_t>(box.right() - w);
+  const int16_t edgeY = static_cast<int16_t>(box.bottom() - w);
+  screen.target().fill(fui::makeRect(box.x, box.y, a, w), ink);
+  screen.target().fill(fui::makeRect(box.x, box.y, w, a), ink);
+  screen.target().fill(fui::makeRect(right, box.y, a, w), ink);
+  screen.target().fill(fui::makeRect(edgeX, box.y, w, a), ink);
+  screen.target().fill(fui::makeRect(box.x, edgeY, a, w), ink);
+  screen.target().fill(fui::makeRect(box.x, bottom, w, a), ink);
+  screen.target().fill(fui::makeRect(right, edgeY, a, w), ink);
+  screen.target().fill(fui::makeRect(edgeX, bottom, w, a), ink);
 }
 
 // Where a guide page wants the eye. Cell coordinates; width 0 means nowhere.
@@ -243,14 +279,23 @@ void drawBoardSurface(toybox::Screen& screen, const dungeon::Board& board, const
     // A cell is shorter than a line of the display cut, so a clue drawn in one
     // had its ink clipped by the board's own edge at the last row -- and the
     // first render showed exactly that, the bottom of the last 5 sliced off.
-    const fui::Rect colBox = fui::makeRect(static_cast<int16_t>(layout.board.x + i * layout.cell + kLaneOverhang),
+    const int overhang = laneOverhang(layout.cell);
+    const fui::Rect colBox = fui::makeRect(static_cast<int16_t>(layout.board.x + i * layout.cell + overhang),
                                            static_cast<int16_t>(layout.board.y - kClueGap - kLane),
                                            static_cast<int16_t>(kLane), static_cast<int16_t>(kLane));
     const fui::Rect rowBox = fui::makeRect(static_cast<int16_t>(layout.board.x - kClueGap - kLane),
-                                           static_cast<int16_t>(layout.board.y + i * layout.cell + kLaneOverhang),
+                                           static_cast<int16_t>(layout.board.y + i * layout.cell + overhang),
                                            static_cast<int16_t>(kLane), static_cast<int16_t>(kLane));
-    drawClue(screen, colBox, puzzle.colClues[i], board.colWalls(i));
-    drawClue(screen, rowBox, puzzle.rowClues[i], board.rowWalls(i));
+    // The chip spans the cell along the lane and stops short of it across, so
+    // consecutive chips meet exactly and never overlap, whatever the cell size.
+    const fui::Rect colChip =
+        fui::makeRect(static_cast<int16_t>(layout.board.x + i * layout.cell), static_cast<int16_t>(colBox.y + 5),
+                      layout.cell, static_cast<int16_t>(kLane - 10));
+    const fui::Rect rowChip =
+        fui::makeRect(static_cast<int16_t>(rowBox.x + 5), static_cast<int16_t>(layout.board.y + i * layout.cell),
+                      static_cast<int16_t>(kLane - 10), layout.cell);
+    drawClue(screen, colBox, colChip, puzzle.colClues[i], board.colWalls(i));
+    drawClue(screen, rowBox, rowChip, puzzle.rowClues[i], board.rowWalls(i));
   }
 
   // White paper with a hairline lattice, inside a frame far heavier than
@@ -297,32 +342,32 @@ void drawBoardSurface(toybox::Screen& screen, const dungeon::Board& board, const
   }
 
   if (spotlight.lanes) {
-    // The two lanes, ringed separately. Ringing lanes and board together was
+    // The two lanes, bracketed separately. Ringing lanes and board together was
     // the first attempt and it enclosed nearly the whole screen, which points
     // at everything and therefore at nothing.
-    const fui::Insets grow{4, 4, 4, 4};
-    screen.target().stroke(
-        fui::makeRect(static_cast<int16_t>(layout.board.x + kLaneOverhang),
-                      static_cast<int16_t>(layout.board.y - kClueGap - kLane),
-                      static_cast<int16_t>(layout.board.width - 2 * kLaneOverhang), static_cast<int16_t>(kLane))
-            .inset(grow),
-        fui::Paint::solid(fui::Color::Black), toybox::kRule, 10);
-    screen.target().stroke(
-        fui::makeRect(static_cast<int16_t>(layout.board.x - kClueGap - kLane),
-                      static_cast<int16_t>(layout.board.y + kLaneOverhang), static_cast<int16_t>(kLane),
-                      static_cast<int16_t>(layout.board.height - 2 * kLaneOverhang))
-            .inset(grow),
-        fui::Paint::solid(fui::Color::Black), toybox::kRule, 10);
+    const int overhang = laneOverhang(layout.cell);
+    cornerBrackets(screen, fui::makeRect(static_cast<int16_t>(layout.board.x + overhang - 4),
+                                         static_cast<int16_t>(layout.board.y - kClueGap - kLane - 4),
+                                         static_cast<int16_t>(layout.board.width - 2 * overhang + 8),
+                                         static_cast<int16_t>(kLane + 8)));
+    cornerBrackets(screen,
+                   fui::makeRect(static_cast<int16_t>(layout.board.x - kClueGap - kLane - 4),
+                                 static_cast<int16_t>(layout.board.y + overhang - 4), static_cast<int16_t>(kLane + 8),
+                                 static_cast<int16_t>(layout.board.height - 2 * overhang + 8)));
   } else if (spotlight.width > 0) {
     // Drawn after every cell, in its own pass. Drawn inside the cell loop it
     // would be overdrawn by whichever neighbour rendered later, which is the
     // broken-rectangle bug this project has already paid for once.
-    const fui::Rect patch = fui::makeRect(static_cast<int16_t>(layout.board.x + spotlight.col * layout.cell),
-                                          static_cast<int16_t>(layout.board.y + spotlight.row * layout.cell),
-                                          static_cast<int16_t>(spotlight.width * layout.cell),
-                                          static_cast<int16_t>(spotlight.height * layout.cell));
-    screen.target().stroke(patch.inset(fui::Insets{-5, -5, -5, -5}), fui::Paint::solid(fui::Color::Black),
-                           toybox::kRule, 8);
+    // INSIDE the region, not around it. Around it was the first attempt and
+    // half of every bracket vanished: a region touching the board's edge has
+    // the 9px frame behind it, and a black mark on a black frame is not there
+    // -- with nothing to say so. Inside, the corners sit on the region's own
+    // floor, where they are always visible and still cover nothing that
+    // matters, because the furniture is centred in its cell.
+    cornerBrackets(screen, fui::makeRect(static_cast<int16_t>(layout.board.x + spotlight.col * layout.cell + 3),
+                                         static_cast<int16_t>(layout.board.y + spotlight.row * layout.cell + 3),
+                                         static_cast<int16_t>(spotlight.width * layout.cell - 6),
+                                         static_cast<int16_t>(spotlight.height * layout.cell - 6)));
   }
 }
 
@@ -410,9 +455,9 @@ namespace {
 // material.
 void mapCell(toybox::Screen& screen, const fui::Rect& box, const int index, const bool done, const bool current) {
   if (done) {
-    screen.target().fill(box, fui::Paint::solid(fui::Color::Black), 8);
+    screen.target().fill(box, fui::Paint::solid(fui::Color::Black));
   } else {
-    screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), toybox::kHairline, 8);
+    screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), toybox::kHairline);
   }
 
   // A cleared room is solid black, so its occupant has to be paper. Getting
@@ -424,10 +469,9 @@ void mapCell(toybox::Screen& screen, const fui::Rect& box, const int index, cons
   screen.target().bitmap(where, fui::bitmapFromIcon(monsterArt(index)), fui::BitmapMode::Contain,
                          fui::Paint::solid(done ? fui::Color::White : fui::Color::Black));
 
-  if (current) {
-    screen.target().stroke(box.inset(fui::Insets{-5, -5, -5, -5}), fui::Paint::solid(fui::Color::Black), toybox::kRule,
-                           10);
-  }
+  // The dungeon in hand gets the same brackets the guide points with, so the
+  // two places this app says "look here" say it the same way.
+  if (current) cornerBrackets(screen, box.inset(fui::Insets{-5, -5, -5, -5}), 12);
 }
 
 }  // namespace
@@ -471,9 +515,22 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model, PickerLayout& lay
       fui::makeRect(nextBand.x, static_cast<int16_t>(nextBand.y + (nextBand.height - art) / 2), art, art);
   screen.target().bitmap(artBox, fui::bitmapFromIcon(monsterArt(model.nextIndex)), fui::BitmapMode::Contain,
                          fui::Paint::solid(fui::Color::Black));
+  // The guide, at the size of a secondary action, sharing this line with the
+  // name rather than taking half the button bar below it.
+  constexpr int16_t kGuideWidth = 150;
+  fui::ButtonProps guide;
+  guide.label = "TUTORIAL";
+  guide.action = ActionButton;
+  guide.value = ButtonGuide;
+  guide.text = toybox::buttonText(screen.theme());
+  guide.radius = toybox::kPillRadius;
+  guide.styles = toybox::rowStyles();
+  screen.button(guide, fui::makeRect(static_cast<int16_t>(nextBand.right() - kGuideWidth), nextBand.y, kGuideWidth,
+                                     nextBand.height));
+
   fui::TextStyle nextText;
   nextText.align = fui::TextAlign::Left;
-  const int nextWidth = nextBand.width - art - toybox::kGutter;
+  const int nextWidth = nextBand.width - art - kGuideWidth - 2 * toybox::kGutter;
   nextText.font = fitLabel(screen, model.dungeonName, nextWidth, nextText);
   nextText.align = fui::TextAlign::Left;
   screen.target().text(fui::makeRect(static_cast<int16_t>(artBox.right() + toybox::kGutter), nextBand.y,
@@ -525,19 +582,16 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model, PickerLayout& lay
     }
   }
 
-  const int width = (actions.width - toybox::kGutter) / 2;
-  const char* labels[2] = {"PLAY", "TUTORIAL"};
-  const int values[2] = {ButtonPlay, ButtonGuide};
-  for (int i = 0; i < 2; ++i) {
-    fui::ButtonProps props;
-    props.label = i == 0 && model.hasProgress ? "RESUME" : labels[i];
-    props.action = ActionButton;
-    props.value = static_cast<int16_t>(values[i]);
-    props.text = toybox::buttonText(screen.theme());
-    props.radius = toybox::kPillRadius;
-    screen.button(props, fui::makeRect(static_cast<int16_t>(actions.x + i * (width + toybox::kGutter)), actions.y,
-                                       static_cast<int16_t>(width), actions.height));
-  }
+  // PLAY takes the whole bar. TUTORIAL had half of it, which is a lot of the
+  // screen's one loud control for something you read once -- it sits on the
+  // name line instead, at the size of a secondary action.
+  fui::ButtonProps play;
+  play.label = model.hasProgress ? "RESUME" : "PLAY";
+  play.action = ActionButton;
+  play.value = ButtonPlay;
+  play.text = toybox::buttonText(screen.theme());
+  play.radius = toybox::kPillRadius;
+  screen.button(play, actions);
 }
 
 namespace {
@@ -573,37 +627,37 @@ struct GuidePage {
 
 constexpr GuidePage kGuide[] = {
     {"THE MAP",
-     "A DUNGEON IS HIDDEN IN THIS GRID. YOU FIND IT BY PLACING WALLS.",
+     "SOMEWHERE IN THIS GRID IS A DUNGEON. YOU FIND IT BY PLACING WALLS, USING NOTHING BUT LOGIC.",
      {"......", "......", "......", "......", "......", "......"},
      {0, 0, 0, 0, false}},
 
     {"THE NUMBERS",
-     "EACH NUMBER IS HOW MANY WALLS BELONG IN THAT ROW OR COLUMN.",
+     "EACH NUMBER COUNTS THE WALLS IN ITS ROW OR COLUMN. TAP A SQUARE TO PLACE ONE.",
      {"###...", "#.....", "......", "#.....", "#.....", "......"},
      {0, 0, 0, 0, true}},
 
     {"YOUR NOTES",
-     "TAP FOR A WALL, AGAIN FOR A FLOOR NOTE, AGAIN TO CLEAR IT.",
+     "TAP AGAIN TO MARK FLOOR, ONCE MORE TO CLEAR. THOSE MARKS ARE YOUR NOTES, NOT THE ANSWER.",
      {"###ooo", "#ooooo", ".o....", "#.....", "#.....", "......"},
      {0, 0, 0, 0, false}},
 
     {"TREASURE",
-     "A CHEST SITS IN A 3x3 ROOM OF FLOOR WITH ONE WAY IN.",
+     "A CHEST SITS IN A 3x3 ROOM OF FLOOR. ONE WAY IN, ONE CHEST, AND NOTHING LIVING IN IT.",
      {"###ooo", "#ooooo", ".oooo.", "#.....", "#.....", "......"},
      {0, 3, 3, 3, false}},
 
     {"MONSTERS",
-     "EVERY MONSTER SITS IN A DEAD END, AND EVERY DEAD END HOLDS ONE.",
+     "EVERY MONSTER SITS IN A DEAD END, AND EVERY DEAD END HAS A MONSTER IN IT.",
      {"###ooo", "#ooooo", ".oooo.", "#.####", "#....#", "..#..."},
      {2, 0, 1, 1, false}},
 
     {"ONE DUNGEON",
-     "ALL THE FLOOR JOINS UP. TOUCHING AT A CORNER DOES NOT COUNT.",
+     "ALL THE FLOOR JOINS UP. SQUARES THAT ONLY TOUCH AT A CORNER ARE NOT JOINED.",
      {"###ooo", "#ooooo", ".oooo.", "#.####", "#o..##", "..#..."},
      {0, 0, 0, 0, false}},
 
     {"CORRIDORS",
-     "A CORRIDOR IS ONE SQUARE WIDE. NO 2x2 OF FLOOR OUTSIDE A ROOM.",
+     "CORRIDORS ARE ONE SQUARE WIDE. NO 2x2 OF OPEN FLOOR OUTSIDE A TREASURE ROOM.",
      {"###ooo", "#ooooo", ".oooo.", "#.####", "#ooo#.", "..#..."},
      {3, 1, 2, 2, false}},
 
@@ -660,22 +714,42 @@ void buildGuide(toybox::Screen& screen, const GuideModel& model) {
 
   const fui::Rect actions = screen.takeBottom(toybox::kPillHeight, toybox::kGutter);
 
-  // The words sit under the picture, because the picture is the rule and the
-  // sentence is its caption. Four lines is what the longest of them needs.
-  fui::TextStyle body;
-  body.font = toybox::kUiFont;
-  body.align = fui::TextAlign::Center;
-  // Three lines, and a band that holds three. It asked for four and the band
-  // held three, so the last line was drawn straight through the buttons -- the
-  // component clips to the rect it is given and says nothing about it.
-  body.maxLines = 3;
-  screen.target().text(screen.takeBottom(124, toybox::kMargin), content.body, body);
-
   const dungeon::Board board = guideBoard(page);
-  // A smaller cell than the real board: this one shares its screen with four
+  // A smaller cell than the real board: this page shares its screen with three
   // lines of type, and the guide is for reading rather than for tapping.
-  Layout layout = layoutBoard(screen.body(), board.size(), 42);
+  constexpr int kGuideCell = 44;
+  // Four lines, and a band that holds four.
+  //
+  // The band and the text have to be sized against each other or the component
+  // silently truncates: at this cut a line is about twenty-two characters, so
+  // three lines is sixty-six, and a sixty-eight character caption came back as
+  // "...AND NOTHIN" with no ellipsis and nothing in the log. Every caption in
+  // kGuide is written to fit four.
+  constexpr int kCaption = 132;
+
+  // The board and its caption are centred TOGETHER. Pinning the caption to the
+  // bottom of the screen and centring the board in whatever was left put a
+  // hand's width of white between them, and the page read as two unrelated
+  // things rather than as a picture with a line under it.
+  const fui::Rect body = screen.body();
+  const int extent = kLane + kClueGap + board.size() * kGuideCell;
+  const int block = extent + toybox::kMargin + kCaption;
+  const int top = body.y + (body.height - block) / 2;
+
+  Layout layout =
+      layoutBoard(fui::makeRect(body.x, static_cast<int16_t>(top), body.width, static_cast<int16_t>(extent)),
+                  board.size(), kGuideCell);
   drawBoardSurface(screen, board, layout, content.spotlight);
+
+  // The words go under the picture, because the picture is the rule and the
+  // sentence is its caption.
+  fui::TextStyle caption;
+  caption.font = toybox::kUiFont;
+  caption.align = fui::TextAlign::Center;
+  caption.maxLines = 4;
+  screen.target().text(fui::makeRect(body.x, static_cast<int16_t>(top + extent + toybox::kMargin), body.width,
+                                     static_cast<int16_t>(kCaption)),
+                       content.body, caption);
 
   const int width = (actions.width - toybox::kGutter) / 2;
   const bool last = page == kGuidePages - 1;
