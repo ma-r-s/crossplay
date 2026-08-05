@@ -89,7 +89,19 @@ struct RevealModel {
 
 void buildReveal(toybox::Screen& screen, const RevealModel& model);
 
-void buildRules(toybox::Screen& screen);
+// The tutorial, as a deck of pages you tap through: the round in the order it
+// happens, one beat a page, each a diagram made of the game's own material.
+//
+// Chosen by rendering it. Two other complete designs were built and thrown away
+// with it -- one page per role, and a three-page storyboard of paired panels --
+// because a screen whose shape is open is decided by looking at the options
+// side by side, not by describing them. See docs/building-apps.md.
+struct TutorialModel {
+  int page = 0;
+};
+
+int tutorialPages();
+void buildTutorial(toybox::Screen& screen, const TutorialModel& model);
 
 // Minutes and seconds, at the granularity the clock actually moves in.
 // Written into `out`, which needs 8 bytes.
