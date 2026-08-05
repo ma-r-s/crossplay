@@ -79,7 +79,12 @@ INTERVAL_STRUCT_SIZE = 12
 # Broad enough to cover every CJK codepoint the deck uses, and narrow enough
 # that the resident interval table stays at a handful of entries. Codepoints in
 # range but absent from the subset become empty records on disk.
-INTERVALS = "cjk,punctuation"
+# latin-ext is here because the device draws the headword in the randomised CJK
+# face whatever script it is. Without it the converter never rasterises an
+# ASCII codepoint, so "T恤" loses its T and a deck of English words draws
+# nothing at all -- silently, because a missing glyph is simply not painted.
+# The subset carries the letters; this is what lets them through.
+INTERVALS = "latin-ext,cjk,punctuation"
 
 
 def subset(src, codepoints, dest):
@@ -251,6 +256,15 @@ def main():
 
     headword = (args.deck / "glyphs-headword.txt").read_text(encoding="utf-8")
     sentence = (args.deck / "glyphs-sentence.txt").read_text(encoding="utf-8")
+    # The Latin set goes into both CJK cuts as well as its own.
+    #
+    # The device draws a headword in the randomised CJK face whatever script the
+    # headword is, so a face with no ASCII draws nothing at all for "T恤" or for
+    # a deck of English words -- silently, since a missing glyph is simply not
+    # painted. 131 codepoints against 2663 is nothing; a blank headword is not.
+    latin = (args.deck / "glyphs-latin.txt").read_text(encoding="utf-8")
+    headword += latin
+    sentence += latin
 
     total = 0
     for filename, family in FACES:
