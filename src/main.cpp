@@ -52,7 +52,7 @@ static unsigned long lastX4ProPowerClickAt = 0;
 
 namespace {
 constexpr unsigned long X4PRO_POWER_DOUBLE_CLICK_MS = 500;
-constexpr unsigned long X4PRO_POWER_CLICK_MAX_HOLD_MS = 400;
+constexpr unsigned long X4PRO_POWER_CLICK_MAX_HOLD_MS = 300;
 }  // namespace
 
 // Fonts
@@ -435,7 +435,7 @@ void setup() {
     case HalGPIO::WakeupReason::PowerButton: {
       LOG_DBG("MAIN", "Verifying power button press duration");
       const bool shortPressWakes = readWakeShortPressFromNvs();
-      if (!gpio.verifyPowerButtonWakeup(shortPressWakes ? 10 : 400, shortPressWakes)) {
+      if (!gpio.verifyPowerButtonWakeup(shortPressWakes ? 10 : 300, shortPressWakes)) {
         powerManager.startDeepSleep(gpio);
       }
       break;
@@ -712,7 +712,17 @@ void loop() {
     return;
   }
 
-  if (millis() >= allowSleepAt && gpio.isPressed(HalGPIO::BTN_POWER) &&
+  // A power-button hold carried over from the wake gesture must not count as an
+  // in-app long-press-to-sleep. Otherwise the device boots (restoring the light),
+  // then ~2 s later (allowSleepAt) the still-held button trips the sleep below
+  // without the user ever releasing — leaving them stuck on the sleep screen
+  // unless they release inside a narrow window between the wake-verify hold and
+  // this timeout. Only arm the held-power sleep after the button has been
+  // released at least once since wake, so a genuine in-session hold is required.
+  static bool powerReleasedSinceWake = false;
+  if (!gpio.isPressed(HalGPIO::BTN_POWER)) powerReleasedSinceWake = true;
+
+  if (powerReleasedSinceWake && millis() >= allowSleepAt && gpio.isPressed(HalGPIO::BTN_POWER) &&
       gpio.getPowerButtonHeldTime() > SETTINGS.getPowerButtonDuration()) {
     // If the screenshot combination is potentially being pressed, don't sleep
     if (gpio.isPressed(HalGPIO::BTN_DOWN)) {
