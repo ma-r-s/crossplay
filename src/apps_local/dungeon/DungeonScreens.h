@@ -55,9 +55,11 @@ struct BoardModel {
 
 struct MenuModel {
   const char* dungeonName = "";
-  // The dungeon PLAY would open, so the menu can show its board, its number and
-  // its creature rather than only its name.
-  int nextIndex = 0;
+  // The dungeon PLAY would open: the one you last tapped on the map, or the
+  // next unsolved if you have not tapped anything. Tapping a cell picks it, it
+  // does not open it -- so the map is a place to look before you commit rather
+  // than a set of sixty-four trapdoors.
+  int selectedIndex = 0;
   int solvedCount = 0;
   int total = 0;
   bool hasProgress = false;

@@ -50,6 +50,10 @@ class DungeonActivity final : public Activity {
   dungeonui::Layout layout;
   dungeonui::PickerLayout pickerLayout;
   View view = View::Menu;
+  // The dungeon the map has picked out and PLAY would open. Not the same as the
+  // one loaded in `board`: you can look around the map without disturbing the
+  // game you have in progress, and only PLAY commits.
+  int selected = dungeon::kCampaignFirst;
   // Which page of the adventurer's guide is showing. Not saved: the guide is
   // short and always read from the front.
   int guidePage = 0;
