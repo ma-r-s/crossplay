@@ -26,6 +26,15 @@ constexpr const char* kDeckDir = "/study/mandarin";
 // same defect as a board that reflows mid-game.
 constexpr int kFooterHeight = 128;
 
+// Shown in the header when a card carries a photograph, and the word is the
+// button: tapping anywhere in the header's right-hand end opens it.
+constexpr const char* kPhotoLabel = "PHOTO";
+// The battery indicator owns the right-hand end of the header and the card
+// count owns the left, so the label sits between them. Both of those are drawn
+// by the theme, not by this app, which is why the collision only showed up on
+// screen.
+constexpr int kPhotoTapHalfWidth = 90;
+
 // Latin type. The built-in serif covers U+0100-U+017F and U+01C4-U+021F, so
 // every tone-marked pinyin vowel in the deck draws -- checked against the
 // deck's own 131-codepoint Latin set before relying on it.
@@ -191,6 +200,14 @@ bool StudyActivity::openDeck() {
     revlogSource_ = makeUniqueNoThrow<FileSource>(revlogReadFile_);
   }
 
+  std::snprintf(path, sizeof(path), "%s/images.dat", kDeckDir);
+  if (Storage.openFileForRead("STUDY", path, imageFile_)) {
+    imageSource_ = makeUniqueNoThrow<FileSource>(imageFile_);
+    if (imageSource_ && images_.open(*imageSource_)) {
+      LOG_INF("STUDY", "Photographs: %d entries", images_.count());
+    }
+  }
+
   metaSource_ = makeUniqueNoThrow<FileSource>(metaFile_);
   deckSource_ = makeUniqueNoThrow<FileSource>(deckFile_);
   cardSource_ = makeUniqueNoThrow<FileSource>(cardFile_);
@@ -347,6 +364,13 @@ bool StudyActivity::loadCurrent() {
     fonts_.prewarm(renderer, note_.field(study::Field::Headword), note_.field(study::Field::Sentence));
   }
 
+  image_ = study::ImageRef{};
+  if (imageSource_ && images_.ready()) {
+    image_ = images_.at(*imageSource_, currentIndex_);
+  }
+  LOG_DBG("STUDY", "card %d: source=%d ready=%d image=%ux%u", currentIndex_, imageSource_ ? 1 : 0,
+          images_.ready() ? 1 : 0, image_.width, image_.height);
+
   scheduler_.preview(card_, today_, nowMinute(), preview_);
   return true;
 }
@@ -427,6 +451,12 @@ void StudyActivity::loop() {
     routeAction(interactions_.route(input));
     return;
   }
+  if (view_ == View::Image) {
+    // Anywhere goes back. There is one thing to do here and no way to be wrong.
+    view_ = View::Card;
+    requestUpdate();
+    return;
+  }
   if (view_ != View::Card) return;
 
   const int footerTop = renderer.getScreenHeight() - kFooterHeight;
@@ -435,6 +465,20 @@ void StudyActivity::loop() {
     // it is the only action the screen offers and it destroys nothing, so
     // making the user aim would be friction for its own sake.
     face_ = Face::Answer;
+    requestUpdate();
+    return;
+  }
+
+  // The card itself opens the photograph. The header only *says* PHOTO: taps in
+  // that band never reach here because the theme owns it, which no amount of
+  // reading the code revealed and one render made obvious.
+  //
+  // Making the body the target is the better design regardless. It is the
+  // largest thing on the screen, it does nothing else on the answer side, and
+  // docs/design-language.md's rule is that the commonest action should not be
+  // something you have to aim at. Grading still belongs to the footer alone.
+  if (cardHasImage() && tapY < footerTop) {
+    view_ = View::Image;
     requestUpdate();
     return;
   }
@@ -574,6 +618,38 @@ void StudyActivity::drawCard(const Rect& body) {
   }
 }
 
+void StudyActivity::drawImage(const Rect& body) {
+  const int width = renderer.getScreenWidth();
+  if (!image_.valid() || !imageSource_) {
+    UITheme::drawCenteredWrappedText(renderer, body, kMeaningFontId, "No photograph on this card.", 4);
+    return;
+  }
+
+  // Centred in the body. The picture was scaled and dithered at conversion
+  // time, so there is nothing to compute here beyond where to put it.
+  const int left = body.x + (width - image_.width) / 2;
+  const int top = body.y + (body.height - image_.height) / 2;
+
+  // A band at a time through a stack buffer: a whole 448x620 image is 34KB,
+  // and taking a heap block that size once per card is the churn that
+  // fragments a device with no room to spare. See StudyImages.h.
+  uint8_t band[study::kImageBandBytes];
+  int row = 0;
+  while (row < image_.height) {
+    const int rows = images_.readBand(*imageSource_, image_, row, band);
+    if (rows <= 0) break;
+    for (int y = 0; y < rows; ++y) {
+      const uint8_t* line = band + static_cast<size_t>(y) * image_.stride;
+      for (int x = 0; x < image_.width; ++x) {
+        if ((line[x >> 3] >> (7 - (x & 7))) & 1) {
+          renderer.drawPixel(left + x, top + row + y, true);
+        }
+      }
+    }
+    row += rows;
+  }
+}
+
 void StudyActivity::drawFooter(const Rect& footer) {
   const int width = footer.width;
   renderer.fillRect(0, footer.y, width, toybox::kRule, true);
@@ -683,7 +759,13 @@ void StudyActivity::render(RenderLock&&) {
   // The header never repaints its shape, only its text, so solid black is free
   // here and ghosts nothing. docs/design-language.md, the one rule.
   char title[64];
-  if (view_ == View::Card) {
+  if (view_ == View::Image) {
+    // The reading, not the headword: this header is drawn in the UI face, which
+    // is Latin-only, so a hanzi title comes out as a replacement box. The
+    // pinyin names the card just as well and is made of letters it can draw.
+    const char* reading = note_.field(study::Field::Reading);
+    std::snprintf(title, sizeof(title), "%s", (reading != nullptr && *reading) ? reading : kPhotoLabel);
+  } else if (view_ == View::Card) {
     const int remaining = (queueCount_ - queuePos_) + learningCount_ + 1;
     std::snprintf(title, sizeof(title), "%d LEFT", remaining);
   } else {
@@ -691,10 +773,28 @@ void StudyActivity::render(RenderLock&&) {
   }
   GUI.drawHeader(renderer, Rect{0, 0, width, toybox::kHeaderHeight}, title);
 
+  // The photograph is offered in the header because it is the only band that
+  // is free on every card: measuring the answer side found a third of cards
+  // leave under 160px below the text and the tightest leaves nine, so anything
+  // drawn down there would collide. White on the black band, and the whole
+  // right-hand end is the target -- a label you have to aim at is worse than
+  // no label.
+  if (view_ == View::Card && face_ == Face::Answer && cardHasImage()) {
+    // Black, not white: this header is upstream's GUI.drawHeader, which paints
+    // a white band with black type -- unlike the Toybox header on the deck
+    // screen, which is a solid black bar. Drawing white here was drawing
+    // nothing at all, and looked exactly like the card having no photograph.
+    const int labelWidth = renderer.getTextWidth(toybox::kUiFontId, kPhotoLabel);
+    toybox::drawCapsCentered(renderer, toybox::kUiFontId, (width - labelWidth) / 2, 0, toybox::kHeaderHeight,
+                             kPhotoLabel, true);
+  }
+
   const int bodyTop = toybox::kHeaderHeight;
   const int footerTop = height - kFooterHeight;
 
-  if (view_ == View::Card) {
+  if (view_ == View::Image) {
+    drawImage(Rect{0, bodyTop, width, height - bodyTop});
+  } else if (view_ == View::Card) {
     drawCard(Rect{0, bodyTop, width, footerTop - bodyTop});
     drawFooter(Rect{0, footerTop, width, kFooterHeight});
   } else {

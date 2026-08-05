@@ -23,6 +23,7 @@
 #include "StudyDeck.h"
 #include "StudyFonts.h"
 #include "StudyFsrs.h"
+#include "StudyImages.h"
 #include "StudyScheduler.h"
 #include "StudyScreens.h"
 #include "StudyStats.h"
@@ -54,7 +55,7 @@ class StudyActivity final : public Activity {
   // Deck is the front door and also the end state: one screen that reflects
   // where the session is, rather than a separate 'finished' page that says
   // the same things with none of the same context.
-  enum class View : uint8_t { Deck, Card, NoDeck };
+  enum class View : uint8_t { Deck, Card, Image, NoDeck };
   enum class Face : uint8_t { Question, Answer };
 
   bool openDeck();
@@ -75,6 +76,9 @@ class StudyActivity final : public Activity {
   void routeAction(const fui::ActionEvent& event);
 
   void drawCard(const Rect& body);
+  void drawImage(const Rect& body);
+  // The whole header band is the affordance when a card has a photograph.
+  bool cardHasImage() const { return image_.valid(); }
   void drawFooter(const Rect& footer);
   int drawWrapped(int fontId, int y, int maxWidth, const char* text, bool measureOnly = false) const;
 
@@ -93,6 +97,10 @@ class StudyActivity final : public Activity {
   study::Scheduler scheduler_;
   study::Stats stats_;
   std::unique_ptr<study::ByteSource> revlogSource_;
+  study::StudyImages images_;
+  std::unique_ptr<study::ByteSource> imageSource_;
+  HalFile imageFile_;
+  study::ImageRef image_;
   study::Note note_;
   study::CardState card_;
   study::Outcome preview_[4];

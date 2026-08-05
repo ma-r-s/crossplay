@@ -26,8 +26,12 @@ c++ -std=c++17 -O2 -Wall -Wextra -Werror \
 c++ -std=c++17 -O2 -Wall -Wextra -Werror \
   "$SRC/StudyStats.cpp" "$SRC/StudyDeck.cpp" "$SRC/StudyFsrs.cpp" test_stats.cpp \
   -o "$BUILD_DIR/test_stats"
+c++ -std=c++17 -O2 -Wall -Wextra -Werror \
+  "$SRC/StudyImages.cpp" "$SRC/StudyDeck.cpp" "$SRC/StudyFsrs.cpp" test_images.cpp \
+  -o "$BUILD_DIR/test_images"
 
 "$BUILD_DIR/test_fsrs"
 "$BUILD_DIR/test_deck" "$@"
 "$BUILD_DIR/test_scheduler"
 "$BUILD_DIR/test_stats"
+"$BUILD_DIR/test_images" "$@"
