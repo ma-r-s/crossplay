@@ -26,31 +26,25 @@ emits an empty record for the rest -- which is what lets us keep using a single
 broad interval, so the interval table that gets loaded into RAM stays tiny
 while the waste stays on the SD card where it is free.
 
-**Thresholding, which is OFF by default and should stay off.** The idea was
-that `GfxRenderer.cpp:448` draws a pixel for *any* non-zero coverage, so
-antialiased edges flood to solid black and a 20-stroke hanzi can blob. Because
-the on-disk format is 2-bit, remapping every sample to 0 or 3 would make "any
-coverage" and "50% coverage" the same test -- a correct 1-bit blit with no
-firmware change.
+**Monochrome rasterisation.** `GfxRenderer.cpp:448` draws a pixel for any
+non-zero coverage, so an antialiased edge floods to solid black: stems fatten,
+counters close, and a twenty-stroke hanzi turns to mush. The obvious fix -- the
+format is 2-bit, so collapse every sample to 0 or 3 and the renderer's test
+becomes a real threshold -- was tried, shipped, and was wrong. U+4E00 (yi,
+"one") is one thin horizontal stroke that the stock converter quantises to
+*light* along its whole length, so a 50% cut erased it and 我有一百块钱
+rendered as 我有 -百块钱: a different sentence.
 
-It does do that, and on a dense character it is visibly better: strokes stay
-apart where the stock path merges them. But it is wrong, and the way it is
-wrong is worse than the problem it fixes. U+4E00 (yi, "one") is a single thin
-horizontal stroke. The stock converter quantises it to *light* grey across its
-whole length, so a 50% cut erases it and leaves only the thick serif ends:
+No per-pixel rule could have worked, because the information was not in the
+antialiased bitmap. It is in the outline. `mono_cpfont.py` rasterises through
+FreeType with `FT_LOAD_TARGET_MONO`, so the hinter snaps each stem to a whole
+pixel *before* rasterising -- which is what CJK bitmap fonts have always done.
+Measured on SimSun at sentence size: U+4E00 goes from two fat rows (64 px of
+ink) to one clean stroke with its serif (33 px), and 统 from 314 px to 243 with
+its counters open.
 
-    stock                              thresholded
-    .............................##..  .............................##..
-    .###############################.  ............................####.
-    .###############################.  ..#..............................
-
-A fattened character is ugly. A character that loses its only stroke is a
-different word. So thresholding stays behind --threshold until it is replaced
-by the real fix: rasterising in monochrome through FreeType with hinting
-(FT_LOAD_TARGET_MONO), which snaps a thin stroke to exactly one pixel instead
-of either dropping it or flooding it. That means owning the rasteriser rather
-than post-processing someone else's output, which is a larger change than this
-file currently is.
+`--antialiased` keeps the old path for comparison, and `--threshold` the old
+mistake, because that comparison is how the mistake was found.
 """
 
 import argparse
@@ -60,6 +54,9 @@ import struct
 import subprocess
 import sys
 import tempfile
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import mono_cpfont  # noqa: E402  (needs the path line above)
 
 # The five faces Mario's HSK card template randomises between, and the family
 # name each becomes on the device. Order is the order they appear in the
@@ -166,8 +163,21 @@ def threshold_bitmaps(path):
     return changed, total
 
 
-def convert(script, font, name, size, out_dir, work):
-    """Run the stock converter for one face at one size."""
+def convert(script, font, name, size, out_dir, mono):
+    """Build one face at one size.
+
+    `mono` rasterises through FreeType's 1-bit hinting (mono_cpfont.py), which
+    is the default and the reason thin strokes survive. The antialiased path is
+    kept only so the two can be compared, because that comparison is how the
+    thresholding mistake was found in the first place.
+    """
+    output = out_dir / f"{name}_{size}.cpfont"
+    if mono:
+        repo_root = script.parents[3]
+        intervals = mono_cpfont.resolve_intervals(repo_root, INTERVALS)
+        mono_cpfont.build(repo_root, font, size, intervals, output)
+        return output
+
     result = subprocess.run(
         [
             sys.executable,
@@ -182,7 +192,7 @@ def convert(script, font, name, size, out_dir, work):
             "--name",
             name,
             "-o",
-            str(out_dir / f"{name}_{size}.cpfont"),
+            str(output),
         ],
         cwd=str(script.parent),
         capture_output=True,
@@ -192,7 +202,7 @@ def convert(script, font, name, size, out_dir, work):
         sys.exit(
             f"converting {name} at {size}px failed:\n{result.stdout}\n{result.stderr}"
         )
-    return out_dir / f"{name}_{size}.cpfont"
+    return output
 
 
 def main():
@@ -221,9 +231,14 @@ def main():
     ap.add_argument("--sentence-size", type=int, default=17)
     ap.add_argument("--only", help="build just this family (for a quick look)")
     ap.add_argument(
+        "--antialiased",
+        action="store_true",
+        help="rasterise the stock way instead of 1-bit. For comparing against the mono path.",
+    )
+    ap.add_argument(
         "--threshold",
         action="store_true",
-        help="collapse 2-bit samples to 0 or 3. Erases thin strokes -- see the module docstring.",
+        help="with --antialiased, collapse samples to 0 or 3. Erases thin strokes; see the docstring.",
     )
     args = ap.parse_args()
 
@@ -256,7 +271,7 @@ def main():
             ):
                 cut = tmp / f"{family}-{label}.ttf"
                 subset(src, chars, cut)
-                produced = convert(script, cut, family, size, out_dir, tmp)
+                produced = convert(script, cut, family, size, out_dir, mono=not args.antialiased)
                 note = ""
                 if args.threshold:
                     changed, samples = threshold_bitmaps(produced)
