@@ -7,7 +7,10 @@
 #include "battleship/BattleshipActivity.h"
 #include "chess/ChessActivity.h"
 #include "connections/ConnectionsActivity.h"
+#include "hackernews/HackerNewsActivity.h"
+#include "player/PlayerActivity.h"
 #include "solitaire/SolitaireActivity.h"
+#include "study/StudyActivity.h"
 #include "ui/ToyboxIcons.h"
 
 namespace {
@@ -21,7 +24,10 @@ constexpr shelf::Item kGames[] = {
     {"CONNECTIONS", &icon_connections_32, &ConnectionsActivity::create},
     {"SOLITAIRE", &icon_solitaire_32, &SolitaireActivity::create},
 };
-constexpr shelf::Item kApps[] = {};
+constexpr shelf::Item kApps[] = {
+    {"STUDY", &icon_study_32, &StudyActivity::create},
+    {"HACKER NEWS", &icon_hackernews_32, &HackerNewsActivity::create},
+};
 
 // The two rows Home grows, in reading order. Titles are Title Case because
 // these sit in upstream's Home list and have to look like it; the folder screen
@@ -118,6 +124,16 @@ void openItem(const int folder, const int item, GfxRenderer& renderer, MappedInp
   openFolderIndex = folder;
   lastItem[folder] = item;
   if (!replaceWith(parent.items[item].create(renderer, mappedInput), parent.items[item].title)) {
+    openFolderIndex = -1;
+  }
+}
+
+void openPlayer(GfxRenderer& renderer, MappedInputManager& mappedInput) {
+  // Only the folder footer offers it, and only a folder that shows the name, so
+  // lastFolder is the folder we are standing in. Recorded before the launch for
+  // the same reason openItem does it: replaceActivity destroys the caller.
+  openFolderIndex = lastFolder;
+  if (!replaceWith(PlayerActivity::create(renderer, mappedInput), "Player")) {
     openFolderIndex = -1;
   }
 }
