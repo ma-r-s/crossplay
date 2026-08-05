@@ -29,6 +29,16 @@ constexpr int kFooterHeight = 128;
 // Shown in the header when a card carries a photograph, and the word is the
 // button: tapping anywhere in the header's right-hand end opens it.
 constexpr const char* kPhotoLabel = "PHOTO";
+constexpr const char* kBackLabel = "BACK";
+
+// The theme centres its header title on y=47, not on the middle of the band it
+// is given -- measured off a render rather than derived, because the title is
+// placed by a FreeInkUI component through theme tokens this app does not see.
+// Centring the button on the band instead put it ten pixels high, which reads
+// as crooked long before anyone works out why.
+constexpr int kHeaderTextCentre = 47;
+constexpr int kPillHeight = 40;
+constexpr int kPillPadding = 18;
 // The battery indicator owns the right-hand end of the header and the card
 // count owns the left, so the label sits between them. Both of those are drawn
 // by the theme, not by this app, which is why the collision only showed up on
@@ -760,11 +770,11 @@ void StudyActivity::render(RenderLock&&) {
   // here and ghosts nothing. docs/design-language.md, the one rule.
   char title[64];
   if (view_ == View::Image) {
-    // The reading, not the headword: this header is drawn in the UI face, which
-    // is Latin-only, so a hanzi title comes out as a replacement box. The
-    // pinyin names the card just as well and is made of letters it can draw.
-    const char* reading = note_.field(study::Field::Reading);
-    std::snprintf(title, sizeof(title), "%s", (reading != nullptr && *reading) ? reading : kPhotoLabel);
+    // No title. The headword cannot be drawn here at all -- this header uses
+    // the Latin-only UI face, so a hanzi title came out as a replacement
+    // diamond in the top-left corner -- and the BACK pill already says
+    // everything this screen needs to.
+    title[0] = '\0';
   } else if (view_ == View::Card) {
     const int remaining = (queueCount_ - queuePos_) + learningCount_ + 1;
     std::snprintf(title, sizeof(title), "%d LEFT", remaining);
@@ -779,14 +789,24 @@ void StudyActivity::render(RenderLock&&) {
   // drawn down there would collide. White on the black band, and the whole
   // right-hand end is the target -- a label you have to aim at is worse than
   // no label.
-  if (view_ == View::Card && face_ == Face::Answer && cardHasImage()) {
-    // Black, not white: this header is upstream's GUI.drawHeader, which paints
-    // a white band with black type -- unlike the Toybox header on the deck
-    // screen, which is a solid black bar. Drawing white here was drawing
-    // nothing at all, and looked exactly like the card having no photograph.
-    const int labelWidth = renderer.getTextWidth(toybox::kUiFontId, kPhotoLabel);
-    toybox::drawCapsCentered(renderer, toybox::kUiFontId, (width - labelWidth) / 2, 0, toybox::kHeaderHeight,
-                             kPhotoLabel, true);
+  // One control, one place. It says PHOTO on the answer and BACK on the
+  // photograph, so the thing you tap never moves between the two screens.
+  //
+  // Drawn as a pill because a bare word does not read as something you can
+  // press -- and knocked out to white before it is stroked, since an outline
+  // alone would let whatever is behind it show through. See
+  // docs/design-language.md.
+  const bool offeringPhoto = view_ == View::Card && face_ == Face::Answer && cardHasImage();
+  if (offeringPhoto || view_ == View::Image) {
+    const char* label = (view_ == View::Image) ? kBackLabel : kPhotoLabel;
+    const int labelWidth = renderer.getTextWidth(toybox::kUiFontId, label);
+    const int pillWidth = labelWidth + 2 * kPillPadding;
+    const int pillX = (width - pillWidth) / 2;
+    const int pillY = kHeaderTextCentre - kPillHeight / 2;
+
+    renderer.fillRoundedRect(pillX, pillY, pillWidth, kPillHeight, kPillHeight / 2, White);
+    renderer.drawRoundedRect(pillX, pillY, pillWidth, kPillHeight, toybox::kHairline, kPillHeight / 2, true);
+    toybox::drawCapsCentered(renderer, toybox::kUiFontId, pillX + kPillPadding, pillY, kPillHeight, label, true);
   }
 
   const int bodyTop = toybox::kHeaderHeight;
