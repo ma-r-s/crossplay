@@ -1,4 +1,5 @@
 #include "LyraTheme.h"
+#include "../../icons/shelfIcons.h"  // fork-local seam
 
 #include <GfxRenderer.h>
 #include <HalGPIO.h>
@@ -67,6 +68,12 @@ const uint8_t* iconForName(UIIcon icon, int size) {
         return RecentIcon;
       case UIIcon::Settings:
         return Settings2Icon;
+      // fork-local seam: the shelf's two folders. Same generator, same format
+      // and the same 32px as every icon above.
+      case UIIcon::Games:
+        return ShelfGamesIcon;
+      case UIIcon::Apps:
+        return ShelfAppsIcon;
       case UIIcon::Transfer:
         return TransferIcon;
       case UIIcon::Library:

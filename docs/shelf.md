@@ -142,10 +142,35 @@ game put it on the first. If you touch that bookkeeping, drive it:
 
 The cursor should come back on the row you opened.
 
+## Two icon paths, opposite conventions
+
+Worth knowing before you add an icon anywhere new, because it costs an
+afternoon otherwise.
+
+- `fui::bitmapFromIcon` + `DrawTarget::bitmap`, which everything in
+  `apps_local` uses, takes **upright** bitmaps. The renderer maps logical
+  coordinates onto the panel.
+- `GfxRenderer::drawIcon`, which upstream's `drawButtonMenu` uses, rotates its
+  input by -90. Every bitmap in `src/components/icons/` is therefore stored
+  rotated the other way so it comes out upright.
+
+So the two Home folder icons exist twice: upright in `ui/ToyboxIcons.h` for the
+folder headers, and pre-rotated in `src/components/icons/shelfIcons.h` for the
+theme. `tools_local/gen_toybox_icons.sh` writes both; never hand-edit either.
+
+The joystick shipped lying on its side, then upside down, before this was
+understood. The direction was settled by rotating a freshly generated `folder`
+and comparing it against upstream's own stored `FolderIcon` -- not by
+byte-equality, since the Lucide source has moved since theirs was generated, but
+by looking at the shape.
+
 ## Adding a third folder
 
-One row in `kFolders`. Nothing else: the Home hook counts the table rather than
-knowing its length.
+One row in `kFolders`, plus its icon in two places: a `UIIcon` value appended in
+`BaseTheme.h` with a case in `LyraTheme.cpp` (Home draws it and accepts nothing
+else), and a line in `tools_local/icons.txt` for the folder's own header. Those
+are the only per-folder edits to upstream files this fork makes, which is
+affordable at two folders and would not be at ten.
 
 Resist it until there is something that genuinely belongs in neither. Two
 folders is a structure; four is a filing system, and a filing system is what you

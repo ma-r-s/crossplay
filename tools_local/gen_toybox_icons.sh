@@ -15,3 +15,16 @@ uv run --quiet --with pillow python freeink-sdk/libs/assets/Icons/tools/gen_icon
   --sizes 32 \
   --out src/apps_local/ui/ToyboxIcons.h
 echo "wrote src/apps_local/ui/ToyboxIcons.h"
+
+# The same two folder icons again, pre-rotated, for upstream's theme.
+#
+# There are two icon paths on this device with opposite conventions.
+# fui::bitmapFromIcon + DrawTarget::bitmap (everything in apps_local) takes
+# upright bitmaps and lets the renderer map logical coordinates to the panel.
+# GfxRenderer::drawIcon, which upstream's drawButtonMenu uses, rotates its input
+# by -90 -- so every bitmap in src/components/icons/ is stored rotated +90 to
+# come out upright. Feeding it an upright icon lands it on its side, which is
+# how the joystick first shipped lying down.
+uv run --quiet --with pillow python tools_local/rotate_icons.py \
+  src/apps_local/ui/ToyboxIcons.h src/components/icons/shelfIcons.h games apps
+echo "wrote src/components/icons/shelfIcons.h"
