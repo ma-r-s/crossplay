@@ -1,0 +1,30 @@
+# Artwork for the dungeon, generated into src/apps_local/dungeon/DungeonArt.h by
+# tools_local/gen_dungeon_art.sh. Format: alias = lucide-name.
+#
+# A board cell is 50px, so these are cut at 36: big enough to read across a
+# table, with room left for the cell's own outline. Nothing is scaled at
+# runtime -- downscaling a 1-bit bitmap destroys it.
+#
+# ONE CHEST, MANY MONSTERS. The chest is the same object in every dungeon and
+# has no reason to change; the monster is the dungeon's inhabitant, and the
+# original varies it. But only ever one kind per dungeon: a board carrying four
+# different creatures reads as clutter, and the monsters are a rule to satisfy
+# rather than a bestiary to study.
+#
+# Which monster a dungeon gets is decided in DungeonScreens.cpp, from its name
+# where the name says (a lich gets the skull) and by rotation otherwise.
+
+chest        = gem
+
+# The bestiary. Every one of these has to survive being a 36px 1-bit silhouette
+# with no interior detail, which is a harsher filter than it sounds: `rat` and
+# `coins` were both rejected on exactly that, their whiskers and inner numeral
+# breaking up into noise on the panel.
+monsterSkull = skull
+monsterGhost = ghost
+monsterBug   = bug
+monsterWorm  = worm
+monsterBird  = bird
+monsterFlame = flame
+monsterEye   = eye
+monsterBone  = bone

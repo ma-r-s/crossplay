@@ -68,6 +68,18 @@ unreadable  = eye-off
 # (memory is the mechanism too, and it is mush at 32px).
 study       = languages
 
+# Dungeons & Diagrams. A folded map is the only silhouette on the shelf built
+# from a zigzag, so it cannot be confused with the crown, hull, grid, suit,
+# joystick, newspaper or letterforms already there -- and the game is literally
+# the drawing of one.
+#
+# Rejected: brick-wall and castle (both grids of small rectangles at 32px, which
+# is where connections' grid-2x2 and the apps folder's layout-grid already
+# live), skull (it is the monster inside the game, and a mark should not also be
+# a piece), swords and pickaxe (diagonal, fighting the column, the same reason
+# swords lost to joystick).
+dungeon     = map
+
 # Insider. The same mask the Insider's own role card carries at 96px, so the
 # row on the shelf and the card handed round the table are the one shape -- the
 # game is named after that person and the icon should be them.
