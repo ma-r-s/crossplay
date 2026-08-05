@@ -76,6 +76,27 @@ void timeline(toybox::Screen& screen, const fui::Rect& box, const DeckModel& mod
     if (model.forecast[i] > peak) peak = model.forecast[i];
   }
 
+  // Nothing recorded and nothing scheduled: say so inside the panel. A fresh
+  // install with a backlog has an empty history *and* an empty forecast, and a
+  // bracketed empty box reads as a panel that failed to draw rather than as one
+  // with nothing yet to show. This is the first thing a new deck displays, so
+  // it is the state most worth getting right.
+  bool anyData = false;
+  for (int i = 0; i < kHistoryDays && model.history != nullptr && !anyData; ++i) {
+    if (model.history[i] > 0) anyData = true;
+  }
+  for (int i = 1; i < kForecastDays && model.forecast != nullptr && !anyData; ++i) {
+    if (model.forecast[i] > 0) anyData = true;
+  }
+  if (!anyData) {
+    fui::TextStyle empty;
+    empty.font = toybox::kTileFont;
+    empty.align = fui::TextAlign::Center;
+    screen.target().text(fui::makeRect(box.x, box.y + box.height / 2 - 12, box.width, 24), "NOTHING RECORDED YET",
+                         empty);
+    return;
+  }
+
   const int gap = 2;
   const int barWidth = (box.width - gap * (columns - 1)) / columns;
   if (barWidth <= 0) return;
