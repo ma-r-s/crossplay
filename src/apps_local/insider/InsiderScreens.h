@@ -48,7 +48,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model);
 // The pass-around. One model for both faces of it, because they are one screen
 // with the card turned over: `revealed` is the whole difference.
 struct PassModel {
-  int seat = 0;         // 0-based
+  int seat = 0;  // 0-based
   int players = 5;
   bool revealed = false;
   insider::Role role = insider::Role::Citizen;
