@@ -82,7 +82,8 @@ Outcome Scheduler::answer(const CardState& card, const Rating rating, const int 
         nextStep = count > 0 ? (state == State::New ? 0 : card.stepIndex) : -1;
         break;
       case Rating::Good:
-        nextStep = (state == State::New) ? (count > 1 ? 1 : -1) : (card.stepIndex + 1 < count ? card.stepIndex + 1 : -1);
+        nextStep =
+            (state == State::New) ? (count > 1 ? 1 : -1) : (card.stepIndex + 1 < count ? card.stepIndex + 1 : -1);
         break;
       case Rating::Easy:
         // Easy always leaves the step list, however many steps remain.

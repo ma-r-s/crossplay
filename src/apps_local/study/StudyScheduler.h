@@ -48,10 +48,10 @@ struct Steps {
 
 // What one answer produces.
 struct Outcome {
-  CardState card;             // the card's new state, ready to store
-  int32_t delayMinutes = 0;   // >0: comes back this session, in this many minutes
-  int32_t intervalDays = 0;   // >0: leaves for a future day
-  bool graduated = false;     // crossed from a step list into day-scale review
+  CardState card;            // the card's new state, ready to store
+  int32_t delayMinutes = 0;  // >0: comes back this session, in this many minutes
+  int32_t intervalDays = 0;  // >0: leaves for a future day
+  bool graduated = false;    // crossed from a step list into day-scale review
 };
 
 class Scheduler {
