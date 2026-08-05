@@ -26,23 +26,31 @@ emits an empty record for the rest -- which is what lets us keep using a single
 broad interval, so the interval table that gets loaded into RAM stays tiny
 while the waste stays on the SD card where it is free.
 
-**Thresholding.** This is the important one. `GfxRenderer.cpp:448` draws a
-pixel for *any* non-zero coverage:
+**Thresholding, which is OFF by default and should stay off.** The idea was
+that `GfxRenderer.cpp:448` draws a pixel for *any* non-zero coverage, so
+antialiased edges flood to solid black and a 20-stroke hanzi can blob. Because
+the on-disk format is 2-bit, remapping every sample to 0 or 3 would make "any
+coverage" and "50% coverage" the same test -- a correct 1-bit blit with no
+firmware change.
 
-    if (renderMode == GfxRenderer::BW && bmpVal < 3) { drawPixel(...); }
+It does do that, and on a dense character it is visibly better: strokes stay
+apart where the stock path merges them. But it is wrong, and the way it is
+wrong is worse than the problem it fixes. U+4E00 (yi, "one") is a single thin
+horizontal stroke. The stock converter quantises it to *light* grey across its
+whole length, so a 50% cut erases it and leaves only the thick serif ends:
 
-so every antialiased edge floods to solid black. On Latin type that fattens the
-stems; on a 20-stroke hanzi it closes the counters and the character turns into
-a blob. The fix needs no firmware change: the on-disk format is 2-bit, and if
-the only values present are 0 and 3, "any coverage" and "50% coverage" are the
-same test. So after conversion every 2-bit sample is remapped
+    stock                              thresholded
+    .............................##..  .............................##..
+    .###############################.  ............................####.
+    .###############################.  ..#..............................
 
-    0, 1 -> 0   (off)      2, 3 -> 3   (on)
-
-which turns the BW path into a correctly thresholded 1-bit blit by construction.
-Keeping it as a post-process rather than a patch to `fontconvert_sdcard.py` is
-deliberate: that file is upstream's, and this fork's whole merge strategy rests
-on not editing it.
+A fattened character is ugly. A character that loses its only stroke is a
+different word. So thresholding stays behind --threshold until it is replaced
+by the real fix: rasterising in monochrome through FreeType with hinting
+(FT_LOAD_TARGET_MONO), which snaps a thin stroke to exactly one pixel instead
+of either dropping it or flooding it. That means owning the rasteriser rather
+than post-processing someone else's output, which is a larger change than this
+file currently is.
 """
 
 import argparse
@@ -213,9 +221,9 @@ def main():
     ap.add_argument("--sentence-size", type=int, default=17)
     ap.add_argument("--only", help="build just this family (for a quick look)")
     ap.add_argument(
-        "--no-threshold",
+        "--threshold",
         action="store_true",
-        help="skip thresholding, to compare against it",
+        help="collapse 2-bit samples to 0 or 3. Erases thin strokes -- see the module docstring.",
     )
     args = ap.parse_args()
 
@@ -250,7 +258,7 @@ def main():
                 subset(src, chars, cut)
                 produced = convert(script, cut, family, size, out_dir, tmp)
                 note = ""
-                if not args.no_threshold:
+                if args.threshold:
                     changed, samples = threshold_bitmaps(produced)
                     note = f", {100.0 * changed / max(samples, 1):.0f}% of bytes thresholded"
                 size_kb = produced.stat().st_size / 1024
