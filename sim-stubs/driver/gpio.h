@@ -1,6 +1,7 @@
 #pragma once
 #include <stdint.h>
-typedef int gpio_num_t; typedef int esp_err_t;
+typedef int gpio_num_t;
+typedef int esp_err_t;
 #define GPIO_NUM_0 0
 #define GPIO_NUM_13 13
 #define GPIO_MODE_OUTPUT 2

@@ -6,9 +6,7 @@ namespace shelfui {
 // list has to stop above it. Shared with the builder, or the scroll maths would
 // think it has a row's more room than it does and style a selection on a row
 // that is never drawn.
-int footerHeight(const bool hasDeviceName) {
-  return hasDeviceName ? toybox::kPillHeight + toybox::kGutter : 0;
-}
+int footerHeight(const bool hasDeviceName) { return hasDeviceName ? toybox::kPillHeight + toybox::kGutter : 0; }
 
 fui::Rect listBand(const fui::DeviceContext& device, const bool hasDeviceName) {
   const int top = toybox::kHeaderHeight + toybox::kGutter * 3;
