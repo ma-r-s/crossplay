@@ -12,8 +12,9 @@ total. This is not a close call.
         deck.dat        immutable card content, written by the converter
         cards.dat       scheduling state, rewritten by the device
         revlog.dat      append-only review history, read back by the sync script
-        meta.dat        FSRS parameters, limits, identity
-        glyphs.txt      every codepoint the deck uses, for the font pipeline
+        meta.dat        FSRS parameters, learning steps, limits, identity
+        glyphs-*.txt    the codepoints the deck uses, split by the size they
+                        are rendered at, for the font pipeline
 
 ## The one design rule
 
@@ -28,7 +29,7 @@ whole durability story.
 ## deck.dat
 
     magic    "XSTUDYD\0"                     8 bytes
-    version  uint16                          format version, currently 1
+    version  uint16                          format version, currently 2
     fields   uint8                           fields per note (7)
     flags    uint8                           reserved, 0
     count    uint32                          number of notes
@@ -80,8 +81,18 @@ card _i_ are the same card and no id lookup is needed on the review path.
     reps          uint16
     lapses        uint16
     state         uint8     0 new, 1 learning, 2 review, 3 relearning
-    flags         uint8
-    reserved      uint16
+    stepIndex     uint8     position in the learning / relearning step list
+    dueMinute     uint16    minutes since dueDay began
+
+`lastReviewDay` is load-bearing and was once left unset. FSRS needs the gap
+since the previous review; without it every card's first review on the device
+looks like a *same-day* review and takes the short-term stability path, which
+inflates the interval badly. Anki does not store that day on the card, so the
+converter derives it: for a review card it is exactly `due - ivl`.
+
+`dueMinute` exists because "come back in ten minutes" cannot be said in day
+numbering, and a learning step is the one thing that needs finer resolution
+than a day.
 
 Day numbers are days since the collection's creation, counted from the deck's
 rollover hour, which is exactly Anki's own numbering. Keeping that means a due
@@ -100,9 +111,16 @@ to retrain the parameters.
     rating        uint8     1..4
     state         uint8     the state the card was in *before* the review
     elapsedDays   int16
-    intervalDays  int32     what the review scheduled next
-    tookMs        uint32
-    reserved      uint16
+    intervalDays  int32     days ahead, or negative seconds for a step
+    tookMs        uint32    zero: nothing here times the user
+    reserved      4 bytes
+
+`intervalDays` follows Anki's own convention of storing sub-day intervals as
+negative seconds, so a ten-minute relearning step is -600 and needs no
+translation at import.
+
+`tookMs` is deliberately zero rather than plausible. Inventing an answer time
+would poison the only data FSRS optimisation has to retrain from.
 
 ## meta.dat
 
@@ -116,12 +134,20 @@ to retrain the parameters.
     revPerDay     int32
     collectionCrt int64             epoch of day zero, from Anki's `col.crt`
     rolloverHour  uint8
+    learnCount    uint8             how many learning steps follow
+    relearnCount  uint8
+    learnSteps    float32 * 6       minutes; Mario's deck is 1 then 10
+    relearnSteps  float32 * 6       minutes; Mario's deck is 10
     nameLen       uint8
     name          nameLen bytes     display name, UTF-8
 
-The parameters travel **with the deck** rather than being compiled in, because
-they are per-preset and Mario re-optimises them. A deck converted from the
-"Current" preset schedules exactly as that preset does.
+The learning steps travel with the deck for the same reason the weights do:
+they are per-preset and Mario changes them. They are what FSRS does *not*
+answer -- FSRS says how many days, and the steps say what happens in the next
+ten minutes. See `StudyScheduler.h`.
+
+A deck converted from the "Current" preset therefore schedules exactly as that
+preset does, verified by reading the weights back out of `meta.dat`.
 
 ## What the converter deliberately drops
 
@@ -132,3 +158,26 @@ they are per-preset and Mario re-optimises them. A deck converted from the
   simplified; carrying the rest would double the glyph set for nothing.
 - **Filtered-deck review history.** See `StudyFsrs.h` -- Anki does not feed
   those into memory state, so neither do we.
+
+## Getting a deck onto the card, and reviews back off it
+
+    # build the deck and the five CJK faces
+    tools_local/study/anki_to_deck.py <collection.anki2> \
+        --deck 'Mandarin: Vocabulary' --out /Volumes/SDCARD/study/mandarin
+    tools_local/study/make_fonts.py --media <collection.media> \
+        --deck /Volumes/SDCARD/study/mandarin --out /Volumes/SDCARD/study/fonts
+
+    # after studying, replay the reviews back into Anki (close Anki first)
+    tools_local/study/deck_to_anki.py /Volumes/SDCARD/study/mandarin <collection.anki2>
+
+The sync is idempotent: a device review is keyed by the millisecond it was
+answered, which is also Anki's revlog primary key, so re-running it applies
+nothing the second time. `revlog.dat` is never truncated by the sync -- it is
+an append-only record rather than a queue, and it is the only copy of that
+history.
+
+The fonts live under `/study/fonts/` rather than `/.fonts/` deliberately. The
+font registry scans `/.fonts` and `/fonts`, and a family installed there
+appears in **Settings > Reader > Font Family** -- where these would be a trap,
+because they are subset to this deck's 2769 glyphs and would show boxes for
+every character a real Chinese book contains that the deck does not.

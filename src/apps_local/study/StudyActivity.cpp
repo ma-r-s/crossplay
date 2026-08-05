@@ -12,6 +12,7 @@
 #include "../ui/Toybox.h"
 #include "../ui/ToyboxFonts.h"
 #include "../ui/ToyboxMetrics.h"
+#include "../ui/ToyboxTheme.h"
 #include "fontIds.h"
 
 namespace {
@@ -138,7 +139,7 @@ void StudyActivity::onEnter() {
 
     shuffle_ = static_cast<uint32_t>(today_) * 2654435761u + 1u;
     buildQueue();
-    view_ = takeNext() ? View::Card : View::Finished;
+    view_ = View::Deck;
   }
   requestUpdate();
 }
@@ -205,6 +206,7 @@ void StudyActivity::buildQueue() {
   queuePos_ = 0;
   dueTotal_ = 0;
   newTotal_ = 0;
+  for (int& day : forecast_) day = 0;
 
   // Read cards.dat in chunks rather than record by record: 5001 records is
   // 5001 seeks otherwise, against a file that is only 156KB.
@@ -213,9 +215,43 @@ void StudyActivity::buildQueue() {
   const int total = deck_.noteCount();
   const int minute = nowMinute();
 
-  // Two passes: what is due today first, then new cards to top up. Reviews
-  // before new is Anki's order, and it is the one that matters -- new cards
-  // first means the backlog never shrinks.
+  // Counting and queueing are separate passes over the same read, because they
+  // stop at different points. The queue fills to the day's limit and to what
+  // the session can hold; the counts and the forecast must see *every* record
+  // or the screen lies -- "256 DUE" was the queue cap, not the backlog, and
+  // the forecast panel was drawn from whatever the first 256 records happened
+  // to contain.
+  int dueSeen = 0;
+  int newSeen = 0;
+  for (int base = 0; base < total; base += kChunkRecords) {
+    const int count = (total - base) < kChunkRecords ? (total - base) : kChunkRecords;
+    const uint32_t bytes = static_cast<uint32_t>(count) * study::kCardRecordSize;
+    if (!cardSource_->read(static_cast<uint32_t>(base) * study::kCardRecordSize, chunk, bytes)) break;
+
+    for (int i = 0; i < count; ++i) {
+      const uint8_t* record = chunk + i * study::kCardRecordSize;
+      study::CardState probe;
+      std::memcpy(&probe.dueDay, record + 16, sizeof(probe.dueDay));
+      probe.state = record[28];
+      probe.dueMinute = static_cast<uint16_t>(record[30] | (record[31] << 8));
+
+      if (probe.state == static_cast<uint8_t>(study::State::New)) {
+        ++newSeen;
+        continue;
+      }
+      // The forecast panel's data, from the pass that is already reading every
+      // record. Anything overdue piles onto today, which is what the user is
+      // actually looking at when they open the app.
+      const int offset = probe.dueDay - today_;
+      if (offset < studyui::kForecastDays) forecast_[offset < 0 ? 0 : offset] += 1;
+      if (study::Scheduler::isDue(probe, today_, minute)) ++dueSeen;
+    }
+  }
+  dueTotal_ = dueSeen;
+  newTotal_ = newSeen;
+
+  // Now fill the queue itself. Reviews before new is Anki's order and the one
+  // that matters: new cards first means the backlog never shrinks.
   for (int pass = 0; pass < 2; ++pass) {
     const int limit = (pass == 0) ? deck_.meta().reviewsPerDay : deck_.meta().newPerDay;
     int taken = 0;
@@ -237,15 +273,10 @@ void StudyActivity::buildQueue() {
 
         queue_[queueCount_++] = base + i;
         ++taken;
-        if (isNew) {
-          ++newTotal_;
-        } else {
-          ++dueTotal_;
-        }
       }
     }
   }
-  LOG_INF("STUDY", "Queue: %d due, %d new (day %d, minute %d)", dueTotal_, newTotal_, today_, minute);
+  LOG_INF("STUDY", "Queue: %d of %d due, %d new (day %d, minute %d)", queueCount_, dueTotal_, newTotal_, today_, minute);
 }
 
 bool StudyActivity::takeNext() {
@@ -360,7 +391,7 @@ void StudyActivity::grade(const study::Rating rating) {
   cardSource_->flush();
   revlogFile_.flush();
 
-  if (!takeNext()) view_ = View::Finished;
+  if (!takeNext()) view_ = View::Deck;
   requestUpdate();
 }
 
@@ -369,11 +400,22 @@ void StudyActivity::loop() {
     shelf::leave(renderer, mappedInput);
     return;
   }
-  if (view_ != View::Card) return;
-
   int tapX = 0;
   int tapY = 0;
   if (!mappedInput.wasScreenTapped(tapX, tapY)) return;
+
+  if (view_ == View::Deck) {
+    // Hit-testing comes from the buffer the screen filled while drawing, so a
+    // region can never drift from the pixels that drew it.
+    if (!interactionsReady_) return;
+    fui::InputSnapshot input;
+    input.touchReleased = true;
+    input.touchX = static_cast<int16_t>(tapX);
+    input.touchY = static_cast<int16_t>(tapY);
+    routeAction(interactions_.route(input));
+    return;
+  }
+  if (view_ != View::Card) return;
 
   const int footerTop = renderer.getScreenHeight() - kFooterHeight;
   if (face_ == Face::Question) {
@@ -525,43 +567,57 @@ void StudyActivity::drawFooter(const Rect& footer) {
   }
 }
 
-void StudyActivity::drawFinished(const Rect& body) {
-  const int width = renderer.getScreenWidth();
-  int y = body.y + body.height / 3;
+void StudyActivity::buildDeckModel(studyui::DeckModel& out) const {
+  out.name = deck_.meta().name;
+  out.due = dueTotal_;
+  out.fresh = newTotal_;
+  out.total = deck_.noteCount();
+  out.reviewed = reviewedThisSession_;
+  out.recalled = reviewedThisSession_ - againThisSession_;
+  out.forecast = forecast_;
+  out.sessionOver = (queueCount_ - queuePos_) + learningCount_ == 0;
+  out.writeFailed = writeFailed_;
+}
 
-  const char* headline = reviewedThisSession_ > 0 ? "DONE" : "NOTHING DUE";
-  const int headlineWidth = renderer.getTextWidth(toybox::kDisplayFontId, headline);
-  toybox::drawCapsCentered(renderer, toybox::kDisplayFontId, (width - headlineWidth) / 2, y, 64, headline, true);
-  y += 64 + 16;
-
-  toybox::rule(renderer, y, toybox::kRule);
-  y += 24;
-
-  // The session, in the app's own material: what you answered, and how much of
-  // it you had forgotten. Different every time, which is the test ornament has
-  // to pass here.
-  char line[96];
-  if (reviewedThisSession_ > 0) {
-    const int recalled = reviewedThisSession_ - againThisSession_;
-    std::snprintf(line, sizeof(line), "%d reviewed, %d recalled", reviewedThisSession_, recalled);
-    y = drawWrapped(kMeaningFontId, y, width - 2 * toybox::kMargin, line);
-    std::snprintf(line, sizeof(line), "%d%% right",
-                  reviewedThisSession_ > 0 ? recalled * 100 / reviewedThisSession_ : 0);
-    y = drawWrapped(kMeaningFontId, y, width - 2 * toybox::kMargin, line);
-  } else {
-    y = drawWrapped(kMeaningFontId, y, width - 2 * toybox::kMargin, "Nothing is due in this deck today.");
-  }
-
-  if (writeFailed_) {
-    y += 16;
-    drawWrapped(kSmallFontId, y, width - 2 * toybox::kMargin, "Some reviews could not be saved to the card.");
-  }
+void StudyActivity::routeAction(const fui::ActionEvent& event) {
+  if (event.action != studyui::ActionStudy) return;
+  // Re-scan rather than resuming a stale queue: a session can end, the user can
+  // sit on this screen past the rollover hour, and what was due then is not
+  // what is due now.
+  buildQueue();
+  reviewedThisSession_ = 0;
+  againThisSession_ = 0;
+  if (takeNext()) view_ = View::Card;
+  requestUpdate();
 }
 
 void StudyActivity::render(RenderLock&&) {
   renderer.clearScreen();
   const int width = renderer.getScreenWidth();
   const int height = renderer.getScreenHeight();
+
+  if (view_ == View::Deck) {
+    // Chrome is a FreeInkUI component wearing Toybox, never hand-drawn: Screen
+    // substitutes every theme token, and both bugs in this fork's first port
+    // were tokens it would have supplied. See docs/design-language.md.
+    fui::GfxRendererTarget target = toybox::makeTarget(renderer);
+    const fui::InputSnapshot noInput{};
+    interactionsReady_ = false;
+    toybox::Frame frame(target, target.deviceContext(), noInput, interactions_);
+    toybox::Screen screen(frame, toybox::themeTokens());
+
+    studyui::DeckModel model;
+    buildDeckModel(model);
+    studyui::buildDeck(screen, model);
+
+    interactionsReady_ = true;
+    toybox::reportOverflow(interactions_, "Study deck");
+
+    const auto labels = mappedInput.mapLabels("Back", "", "", "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    renderer.displayBuffer();
+    return;
+  }
 
   // The header never repaints its shape, only its text, so solid black is free
   // here and ghosts nothing. docs/design-language.md, the one rule.
@@ -577,21 +633,12 @@ void StudyActivity::render(RenderLock&&) {
   const int bodyTop = toybox::kHeaderHeight;
   const int footerTop = height - kFooterHeight;
 
-  switch (view_) {
-    case View::Card:
-      drawCard(Rect{0, bodyTop, width, footerTop - bodyTop});
-      drawFooter(Rect{0, footerTop, width, kFooterHeight});
-      break;
-    case View::Finished:
-      drawFinished(Rect{0, bodyTop, width, height - bodyTop});
-      break;
-    case View::NoDeck:
-    default: {
-      UITheme::drawCenteredWrappedText(renderer, Rect{0, bodyTop + 40, width, height - bodyTop - 120}, kMeaningFontId,
-                                       "No deck on the card. Convert one with anki_to_deck.py into /study/mandarin.",
-                                       4);
-      break;
-    }
+  if (view_ == View::Card) {
+    drawCard(Rect{0, bodyTop, width, footerTop - bodyTop});
+    drawFooter(Rect{0, footerTop, width, kFooterHeight});
+  } else {
+    UITheme::drawCenteredWrappedText(renderer, Rect{0, bodyTop + 40, width, height - bodyTop - 120}, kMeaningFontId,
+                                     "No deck on the card. Convert one with anki_to_deck.py into /study/mandarin.", 4);
   }
 
   const auto labels = mappedInput.mapLabels("Back", "", "", "");

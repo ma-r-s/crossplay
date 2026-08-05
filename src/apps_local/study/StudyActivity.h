@@ -24,6 +24,7 @@
 #include "StudyFonts.h"
 #include "StudyFsrs.h"
 #include "StudyScheduler.h"
+#include "StudyScreens.h"
 
 struct Rect;
 
@@ -49,7 +50,10 @@ class StudyActivity final : public Activity {
   // the main queue rather than being dropped.
   static constexpr int kMaxLearning = 32;
 
-  enum class View : uint8_t { Card, Finished, NoDeck };
+  // Deck is the front door and also the end state: one screen that reflects
+  // where the session is, rather than a separate 'finished' page that says
+  // the same things with none of the same context.
+  enum class View : uint8_t { Deck, Card, NoDeck };
   enum class Face : uint8_t { Question, Answer };
 
   bool openDeck();
@@ -65,9 +69,11 @@ class StudyActivity final : public Activity {
   bool takeNext();
   int nowMinute() const;
 
+  void buildDeckModel(studyui::DeckModel& out) const;
+  void routeAction(const fui::ActionEvent& event);
+
   void drawCard(const Rect& body);
   void drawFooter(const Rect& footer);
-  void drawFinished(const Rect& body);
   int drawWrapped(int fontId, int y, int maxWidth, const char* text, bool measureOnly = false) const;
 
   HalFile deckFile_;
@@ -102,11 +108,15 @@ class StudyActivity final : public Activity {
   int currentIndex_ = -1;
   int today_ = 0;
   int startMinute_ = 0;
+  int forecast_[studyui::kForecastDays] = {};
   int dueTotal_ = 0;
   int newTotal_ = 0;
   int reviewedThisSession_ = 0;
   int againThisSession_ = 0;
   bool writeFailed_ = false;
+
+  toybox::Interactions interactions_;
+  bool interactionsReady_ = false;
 
   View view_ = View::NoDeck;
   Face face_ = Face::Question;
