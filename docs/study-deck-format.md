@@ -172,7 +172,24 @@ preset does, verified by reading the weights back out of `meta.dat`.
 
 The sync is idempotent: a device review is keyed by the millisecond it was
 answered, which is also Anki's revlog primary key, so re-running it applies
-nothing the second time. `revlog.dat` is never truncated by the sync -- it is
+nothing the second time.
+
+### Retraining the parameters
+
+There is no optimiser here and there should not be one. Reviews reach the
+collection, so **Anki's own "Optimize FSRS parameters"** is the optimiser --
+it has more history than the device ever will, and it is the same code that
+produced the weights the device is already running. Re-running
+`anki_to_deck.py` afterwards carries the new weights back in `meta.dat`, and
+the device schedules with them from the next card.
+
+    deck_to_anki.py …                      # reviews land in the collection
+    # Anki: Deck options > FSRS > Optimize
+    anki_to_deck.py … --out …/mandarin     # new weights come back
+
+That loop is why `revlog.dat` writes `tookMs` as zero rather than as something
+plausible: answer time is one of the inputs an optimiser weighs, and inventing
+it would quietly bias the parameters the device then runs. `revlog.dat` is never truncated by the sync -- it is
 an append-only record rather than a queue, and it is the only copy of that
 history.
 
