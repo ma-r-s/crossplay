@@ -1,0 +1,5 @@
+# Outline forms, for the red suits. Same geometry, stroked instead of filled.
+spadeOutline = spades-outline
+heartOutline = hearts-outline
+diamondOutline = diamonds-outline
+clubOutline = clubs-outline

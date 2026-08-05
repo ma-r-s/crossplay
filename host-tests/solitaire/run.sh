@@ -1,0 +1,13 @@
+#!/bin/sh
+# Builds and runs the Solitaire rules tests. No device and no PlatformIO:
+# SolitaireCore is freestanding C++17.
+#
+#   host-tests/solitaire/run.sh
+set -e
+cd "$(dirname "$0")"
+BUILD_DIR="${TMPDIR:-/tmp}/solitaire-tests"
+mkdir -p "$BUILD_DIR"
+SRC=../../src/apps_local/solitaire
+c++ -std=c++17 -Wall -Wextra -Werror -O2 $SRC/SolitaireCore.cpp \
+  test_solitaire.cpp -o "$BUILD_DIR/test_solitaire"
+"$BUILD_DIR/test_solitaire"

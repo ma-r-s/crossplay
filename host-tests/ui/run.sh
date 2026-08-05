@@ -19,7 +19,11 @@ SDK=../../freeink-sdk/libs/ui/FreeInkUI
 mkdir -p "$BUILD_DIR"
 c++ -std=c++17 -Wall -Wextra -Werror -I"$SDK/include" \
   "$SDK/src/FreeInkUI.cpp" \
+  ../../src/apps_local/battleship/BattleshipScreens.cpp \
+  ../../src/apps_local/ShelfScreen.cpp \
   ../../src/apps_local/chess/ChessScreens.cpp \
+  ../../src/apps_local/connections/ConnectionsCore.cpp \
+  ../../src/apps_local/connections/ConnectionsScreens.cpp \
   ../../src/apps_local/link/LinkScreens.cpp \
   test_ui.cpp -o "$BUILD_DIR/test_ui"
 "$BUILD_DIR/test_ui"

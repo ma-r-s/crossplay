@@ -1,0 +1,155 @@
+#include "BattleshipScreens.h"
+
+#include <cstdio>
+
+namespace bshipui {
+
+namespace {
+
+// The header band and its offset rule, as every Toybox screen wears them. A
+// fourth local copy rather than a shared helper, for the reason LinkScreens
+// gives: a copy is cheaper than a header dependency between apps.
+void toyboxChrome(toybox::Screen& screen, const char* title) {
+  fui::HeaderProps header;
+  header.title = title;
+  header.borderEdges = fui::EdgesNone;
+  screen.header(header);
+
+  const fui::Rect band = screen.device().screen();
+  screen.target().fill(fui::makeRect(0, toybox::kHeaderHeight + 4, band.width, toybox::kRule),
+                       fui::Paint::solid(fui::Color::Black));
+
+  screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
+}
+
+}  // namespace
+
+int startRows(const StartModel& model) {
+  return model.hasSavedGame ? static_cast<int>(StartRow::Count) : static_cast<int>(StartRow::Count) - 1;
+}
+
+StartRow startRowAt(const StartModel& model, const int visibleIndex) {
+  const int count = startRows(model);
+  const int clamped = visibleIndex < 0 ? 0 : (visibleIndex >= count ? count - 1 : visibleIndex);
+  // With no game to continue, the first row is NEW GAME and everything shifts.
+  return static_cast<StartRow>(model.hasSavedGame ? clamped : clamped + 1);
+}
+
+const char* startRowLabel(const StartRow row) {
+  switch (row) {
+    case StartRow::Continue:
+      return "CONTINUE";
+    case StartRow::NewGame:
+      return "NEW GAME";
+    case StartRow::PlayNearby:
+      // The same words chess uses, and for the same reason: "tap where it says
+      // multiplayer" only works if something says it, and NEARBY is what it is.
+      return "PLAY NEARBY";
+    default:
+      return "";
+  }
+}
+
+fui::Rect buildStartMenu(toybox::Screen& screen, const StartModel& model) {
+  toyboxChrome(screen, "BATTLESHIP");
+
+  // Your record, in one line, above a rule. Small: it is worth having but it is
+  // not why you opened the app.
+  char record[64];
+  std::snprintf(record, sizeof(record), "%d PLAYED   %d WON   STREAK %d", model.played, model.won, model.streak);
+  const fui::Rect line = screen.takeTop(26);
+  fui::TextStyle recordStyle;
+  recordStyle.font = toybox::kTileFont;
+  recordStyle.align = fui::TextAlign::Left;
+  screen.target().text(line, record, recordStyle);
+  screen.target().fill(fui::makeRect(line.x, static_cast<int16_t>(line.bottom() + 6), line.width, toybox::kRule),
+                       fui::Paint::solid(fui::Color::Black));
+
+  fui::ListItem rows[static_cast<int>(StartRow::Count)] = {};
+  const int count = startRows(model);
+  for (int i = 0; i < count; ++i) {
+    const StartRow row = startRowAt(model, i);
+    rows[i].label = startRowLabel(row);
+    // Only CONTINUE carries a value, and it is the game you left.
+    if (row == StartRow::Continue) rows[i].value = model.continueDetail;
+    rows[i].actionValue = static_cast<int16_t>(i);
+  }
+
+  fui::ListProps list;
+  list.items = rows;
+  list.count = static_cast<uint16_t>(count);
+  list.selectedIndex = static_cast<int16_t>(model.selected);
+  list.action = ActionStartRow;
+  // Anchored to the bottom margin, so what is left above is one zone for the
+  // artwork rather than slack scattered around the rows.
+  const int16_t listHeight =
+      static_cast<int16_t>(count * toybox::kRowHeight + (count - 1) * toybox::kGutter / 2 + toybox::kGutter);
+  screen.list(list, listHeight, fui::LayoutAnchor::Bottom);
+  return screen.body();
+}
+
+fui::Rect buildPlaceChrome(toybox::Screen& screen, const PlaceModel& model) {
+  // "PLACE YOUR FLEET" came out as "PLACE YOUR FLEE": the display cut is wide
+  // and the band does not scroll, so a title has to be short enough to survive
+  // it. Shrink to fit is for content; chrome is written to fit.
+  toyboxChrome(screen, "YOUR FLEET");
+
+  // Two controls, side by side rather than stacked: stacked pills fuse into one
+  // black slab and read as a single control, and this screen has room for
+  // neither the height nor the confusion.
+  const fui::Rect footer = screen.takeBottom(toybox::kPillHeight);
+  const int16_t half = static_cast<int16_t>((footer.width - toybox::kGutter) / 2);
+
+  fui::ButtonProps shuffle;
+  shuffle.label = "SHUFFLE";
+  shuffle.action = model.canEdit ? ActionShuffle : fui::NO_ACTION;
+  shuffle.borderEdges = fui::EdgesNone;
+  if (!model.canEdit) shuffle.styles = toybox::disabledButtonStyles();
+  screen.button(shuffle, fui::makeRect(footer.x, footer.y, half, footer.height));
+
+  fui::ButtonProps ready;
+  ready.label = "READY";
+  ready.action = model.canEdit ? ActionReady : fui::NO_ACTION;
+  ready.borderEdges = fui::EdgesNone;
+  if (!model.canEdit) ready.styles = toybox::disabledButtonStyles();
+  screen.button(ready, fui::makeRect(static_cast<int16_t>(footer.right() - half), footer.y, half, footer.height));
+
+  // The instruction sits under the rule rather than over the buttons: it is
+  // read once, at the top, and then the eye belongs to the grid.
+  const fui::Rect line = screen.takeTop(26, toybox::kGutter / 2);
+  fui::TextStyle style;
+  style.font = toybox::kTileFont;
+  style.align = fui::TextAlign::Left;
+  screen.target().text(line, model.status, style);
+
+  return screen.body();
+}
+
+fui::Rect buildBoardChrome(toybox::Screen& screen, const BoardModel& model) {
+  toyboxChrome(screen, "BATTLESHIP");
+
+  // Taken before the capsule so the two can never argue about the space, and
+  // drawn at the top because the eye goes there first and then to the grid.
+  const fui::Rect line = screen.takeTop(26, toybox::kGutter / 2);
+  fui::TextStyle reportStyle;
+  reportStyle.font = toybox::kTileFont;
+  reportStyle.align = fui::TextAlign::Left;
+  screen.target().text(line, model.report, reportStyle);
+
+  fui::ButtonProps status;
+  status.label = model.status;
+  // Registering no action is what makes the capsule inert while it is only
+  // reporting: with NO_ACTION the component draws it and adds nothing to the
+  // hit table, so there is no tappable region to drift out of step with the
+  // label. It is a button exactly when it says something you can press.
+  status.action = model.gameOver ? ActionPlayAgain : (model.canFire ? ActionFire : fui::NO_ACTION);
+  status.borderEdges = fui::EdgesNone;
+  // Present but not pressable: dithered rather than absent, so the trigger does
+  // not appear and disappear as you aim.
+  if (!model.gameOver && !model.canFire) status.styles = toybox::disabledButtonStyles();
+  screen.button(status, screen.takeBottom(toybox::kPillHeight));
+
+  return screen.body();
+}
+
+}  // namespace bshipui
