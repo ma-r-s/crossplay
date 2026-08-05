@@ -703,6 +703,24 @@ void EpubReaderActivity::loop() {
     return;
   }
 
+  // Drop the tap if a render is still in flight, OR within a short window of the
+  // last turn. render() runs on its own task (renderTaskLoop) concurrently with
+  // input; a slow AA/image page display lags behind fast taps, and a second turn
+  // firing before the first commits its differential baseline writes the panel
+  // twice -> two overlapping page segments. RenderLock::peek() catches a render
+  // that has already taken the lock (mirrors the automatic-turn guard), but there
+  // is a brief window between requesting a turn and the render task acquiring the
+  // lock where peek() is still false — a mashed second tap slips through there,
+  // which is what still triggered after slow image pages. The lastPageTurnTime
+  // gap bridges that startup latency; after it, peek() takes over for the rest of
+  // the (variable-length) render. You can't turn faster than the panel refreshes,
+  // so dropping the extra tap (vs corrupting the frame) is correct; the next tap
+  // after the render finishes turns normally.
+  constexpr unsigned long kMinManualTurnGapMs = 200;
+  if (RenderLock::peek() || (millis() - lastPageTurnTime) < kMinManualTurnGapMs) {
+    return;
+  }
+
   if (prevTriggered) {
     pageTurn(false);
   } else {
