@@ -25,6 +25,7 @@
 #include "StudyFsrs.h"
 #include "StudyScheduler.h"
 #include "StudyScreens.h"
+#include "StudyStats.h"
 
 struct Rect;
 
@@ -69,6 +70,7 @@ class StudyActivity final : public Activity {
   bool takeNext();
   int nowMinute() const;
 
+  void refreshStats();
   void buildDeckModel(studyui::DeckModel& out) const;
   void routeAction(const fui::ActionEvent& event);
 
@@ -80,6 +82,7 @@ class StudyActivity final : public Activity {
   HalFile cardFile_;
   HalFile metaFile_;
   HalFile revlogFile_;
+  HalFile revlogReadFile_;
   std::unique_ptr<study::ByteSource> deckSource_;
   std::unique_ptr<study::WritableByteSource> cardSource_;
   std::unique_ptr<study::ByteSource> metaSource_;
@@ -88,6 +91,8 @@ class StudyActivity final : public Activity {
   study::StudyFonts fonts_;
   study::Fsrs fsrs_;
   study::Scheduler scheduler_;
+  study::Stats stats_;
+  std::unique_ptr<study::ByteSource> revlogSource_;
   study::Note note_;
   study::CardState card_;
   study::Outcome preview_[4];

@@ -1,6 +1,7 @@
 #!/bin/sh
 # Builds and runs the study app's freestanding tests. No device and no
-# PlatformIO needed: StudyFsrs and StudyDeck are freestanding C++17.
+# PlatformIO needed: StudyFsrs, StudyScheduler, StudyDeck and StudyStats are
+# freestanding C++17.
 #
 #   host-tests/study/run.sh [path/to/converted/deck]
 #
@@ -22,7 +23,11 @@ c++ -std=c++17 -O2 -Wall -Wextra -Werror \
 c++ -std=c++17 -O2 -Wall -Wextra -Werror \
   "$SRC/StudyScheduler.cpp" "$SRC/StudyDeck.cpp" "$SRC/StudyFsrs.cpp" test_scheduler.cpp \
   -o "$BUILD_DIR/test_scheduler"
+c++ -std=c++17 -O2 -Wall -Wextra -Werror \
+  "$SRC/StudyStats.cpp" "$SRC/StudyDeck.cpp" "$SRC/StudyFsrs.cpp" test_stats.cpp \
+  -o "$BUILD_DIR/test_stats"
 
 "$BUILD_DIR/test_fsrs"
 "$BUILD_DIR/test_deck" "$@"
 "$BUILD_DIR/test_scheduler"
+"$BUILD_DIR/test_stats"
