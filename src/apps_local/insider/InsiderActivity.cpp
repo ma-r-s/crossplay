@@ -222,7 +222,15 @@ void InsiderActivity::loop() {
 
 void InsiderActivity::render(RenderLock&&) {
   renderer.clearScreen();
-  fui::GfxRendererTarget target = toybox::makeTarget(renderer, toybox::toyboxFaces());
+  // The rules page is the only screen in this game that is prose rather than
+  // chrome, and Jersey at 20px is a display cut: a screenful of it is a wall,
+  // and it does not fit the page. The small slot takes the 14px cut there and
+  // nowhere else. Rebinding a slot is one assignment -- that is what the three
+  // of them are for. See docs/design-language.md.
+  const toybox::Faces faces = view == View::Rules
+                                  ? toybox::Faces{toybox::kButtonFontId, toybox::kUiFontId, toybox::kDisplayFontId}
+                                  : toybox::toyboxFaces();
+  fui::GfxRendererTarget target = toybox::makeTarget(renderer, faces);
   const fui::InputSnapshot noInput{};
   interactionsReady = false;
   toybox::Frame frame(target, target.deviceContext(), noInput, interactions);
