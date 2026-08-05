@@ -107,6 +107,24 @@ purpose and check the tests notice -- the shelf's own footer test passed against
 a mutant that drew an invisible button, because asserting "the name is not
 drawn" is not the same as asserting "the control is not there".
 
+## What is not host-tested, and why
+
+`ShelfScreen` is, like every screen here. `Shelf.cpp` is not: it exists to swap
+activities, so it pulls in `ActivityManager` and cannot be built freestanding.
+
+Its whole job is three facts -- which folder is open, which folder Home should
+select, which row each folder should select -- and those are verified in the
+simulator instead. Both were wrong at some point and both were caught by looking:
+leaving a folder put the cursor on Browse Files, and returning from the third
+game put it on the first. If you touch that bookkeeping, drive it:
+
+```bash
+./scripts/sim-shot.sh '2500:DOWN;2700:DOWN;2900:DOWN;3100:DOWN;4000:ENTER;5000:DOWN;5200:DOWN;5400:DOWN;6200:ENTER;10000:BACK;13000:QUIT' \
+                      '12000:qa-artifacts/returned.bmp'
+```
+
+The cursor should come back on the row you opened.
+
 ## Adding a third folder
 
 One row in `kFolders`. Nothing else: the Home hook counts the table rather than

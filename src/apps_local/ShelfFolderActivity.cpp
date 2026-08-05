@@ -27,6 +27,9 @@ void ShelfFolderActivity::buildItems() {
 void ShelfFolderActivity::onEnter() {
   Activity::onEnter();
   toybox::ensureFonts(renderer);
+  // Land on whatever was opened last. This activity is destroyed the moment it
+  // launches something, so the selection cannot survive in a member.
+  selected = shelf::lastItemIn(folder);
   buildItems();
   requestUpdate();
 }
