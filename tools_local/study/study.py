@@ -174,9 +174,9 @@ def run(script, *args):
         venv = REPO / ".venv-study/bin/python"
         if not venv.exists():
             die(
-                "Building fonts needs the tooling venv:\n"
+                "This step needs the tooling venv:\n"
                 "    uv venv .venv-study\n"
-                "    uv pip install --python .venv-study/bin/python fonttools freetype-py"
+                "    uv pip install --python .venv-study/bin/python fonttools freetype-py pillow"
             )
         interpreter = str(venv)
     result = subprocess.run([interpreter, str(HERE / script), *[str(a) for a in args]])
