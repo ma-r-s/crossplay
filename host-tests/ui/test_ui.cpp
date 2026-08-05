@@ -1645,6 +1645,27 @@ void testStudyRecordShowsTheStreak() {
   CHECK(!fresh.target.drew("STREAK 0   -1% RECALL   0 REVIEWS"));
 }
 
+void testStudyPanelSaysSoWhenItHasNothing() {
+  // A fresh install with a backlog has no history and nothing scheduled ahead,
+  // so every column is zero. An empty bracketed box reads as a panel that
+  // failed to draw; this is the first thing a new deck shows.
+  int forecast[studyui::kForecastDays] = {};
+  forecast[0] = 289;  // all overdue, which lands on today and is not a column
+  int history[studyui::kHistoryDays] = {};
+
+  studyui::DeckModel model = deckWithWork(forecast);
+  model.history = history;
+  Rendered out;
+  buildStudyDeck(out, model);
+  CHECK(out.target.drew("NOTHING RECORDED YET"));
+
+  // One day of history is enough to stop saying it.
+  history[3] = 12;
+  Rendered some;
+  buildStudyDeck(some, model);
+  CHECK(!some.target.drew("NOTHING RECORDED YET"));
+}
+
 void testStudyWarnsWhenAReviewDidNotSave() {
   int forecast[studyui::kForecastDays] = {};
   studyui::DeckModel model = deckWithWork(forecast);
@@ -1702,6 +1723,7 @@ int main() {
   testStudyOffersNothingWhenNothingIsDue();
   testStudyForecastBarsStayInsideTheirPanel();
   testStudyRecordShowsTheStreak();
+  testStudyPanelSaysSoWhenItHasNothing();
   testStudyWarnsWhenAReviewDidNotSave();
 
   std::printf("%d checks, %d failed\n", checksRun, checksFailed);
