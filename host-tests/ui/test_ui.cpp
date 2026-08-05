@@ -21,6 +21,7 @@
 #include "../../src/apps_local/link/LinkScreens.h"
 #include "../../src/apps_local/player/PlayerAvatar.h"
 #include "../../src/apps_local/player/PlayerScreen.h"
+#include "../../src/apps_local/study/StudyScreens.h"
 #include "../../src/apps_local/ui/ToyboxIcons.h"
 
 namespace fui = freeink::ui;
@@ -1307,6 +1308,24 @@ void testHnNotice() {
   }
 }
 
+void testHnReaderShowsWhereYouAre() {
+  Rendered out;
+  hnui::ReaderModel model = articleModel();
+  model.pageLabel = "3/12";
+  buildHnReader(out, model);
+
+  // The page indicator has to be drawn in paper. The band is solid black and
+  // the component takes rightLabel's style from the theme's subtitle, whose
+  // colour is Black -- so a label left at the default is painted black on black
+  // and is indistinguishable from never having been set. It went missing
+  // through two renders exactly that way.
+  bool paperOnTheBand = false;
+  for (const auto& run : out.target.texts) {
+    if (run.text == "3/12" && run.color == fui::Color::White) paperOnTheBand = true;
+  }
+  CHECK(paperOnTheBand);
+}
+
 void testHnFitLines() {
   // The fake target bills every character at 10px, so the arithmetic here is
   // exact: a 200px line holds 20 characters.
@@ -1401,6 +1420,141 @@ void testHnList() {
   CHECK(drewText(empty, "NOTHING TO READ"));
 }
 
+
+// --- the study deck screen -------------------------------------------------
+
+void buildStudyDeck(Rendered& out, const studyui::DeckModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  studyui::buildDeck(screen, model);
+}
+
+studyui::DeckModel deckWithWork(const int* forecast) {
+  studyui::DeckModel model;
+  model.name = "Mandarin: Vocabulary";
+  model.due = 289;
+  model.fresh = 4700;
+  model.total = 5001;
+  model.forecast = forecast;
+  return model;
+}
+
+void testStudyDeckLeadsWithTheCount() {
+  int forecast[studyui::kForecastDays] = {289, 4, 0, 12, 0, 0, 3, 0, 0, 0, 1, 0, 0, 0};
+  Rendered out;
+  buildStudyDeck(out, deckWithWork(forecast));
+
+  // The headline is the number, because that is the only question the screen
+  // is answering when you open it.
+  CHECK(out.target.drew("4989 TO GO"));
+  CHECK(out.target.drew("289 DUE   4700 NEW"));
+  CHECK(out.target.drew("Mandarin: Vocabulary   5001 CARDS"));
+  CHECK(out.target.drew("START REVIEWING"));
+
+  // The caption carries the number scheduled ahead. Without it an all-backlog
+  // deck draws an empty panel that reads as a panel that failed.
+  CHECK(out.target.drew("NEXT 14 DAYS   20 SCHEDULED"));
+}
+
+void testStudyHeadlineIsTheHitTarget() {
+  int forecast[studyui::kForecastDays] = {};
+  forecast[0] = 5;
+  Rendered out;
+  buildStudyDeck(out, deckWithWork(forecast));
+
+  // The most common action must be a tap on the largest thing on the screen,
+  // not on a button beside it. Tapping the headline block starts the session.
+  const auto* headline = out.target.find("4989 TO GO");
+  CHECK(headline != nullptr);
+  if (headline != nullptr) {
+    const fui::ActionEvent onHeadline = out.tap(headline->rect.x + 20, headline->rect.y + 10);
+    CHECK(onHeadline.action == studyui::ActionStudy);
+  }
+
+  // And the bottom door does the same thing, so the two cannot drift apart.
+  const auto* door = out.target.find("START REVIEWING");
+  CHECK(door != nullptr);
+  if (door != nullptr) {
+    const fui::ActionEvent onDoor = out.tap(door->rect.x + 20, door->rect.y + 10);
+    CHECK(onDoor.action == studyui::ActionStudy);
+  }
+}
+
+void testStudyOffersNothingWhenNothingIsDue() {
+  int forecast[studyui::kForecastDays] = {};
+  studyui::DeckModel model;
+  model.name = "Mandarin";
+  model.total = 5001;
+  model.forecast = forecast;
+  model.reviewed = 40;
+  model.recalled = 34;
+  model.sessionOver = true;
+
+  Rendered out;
+  buildStudyDeck(out, model);
+
+  // Finishing is a state of the same screen, not a separate page: the session
+  // result replaces the due counts and the door stops offering.
+  CHECK(out.target.drew("DONE"));
+  CHECK(out.target.drew("40 REVIEWED   85% RIGHT"));
+  CHECK(out.target.drew("NOTHING TO REVIEW"));
+  CHECK(!out.target.drew("START REVIEWING"));
+
+  // A control that cannot act must not still be armed. Tapping where the
+  // headline was, with nothing to study, must do nothing at all.
+  const auto* headline = out.target.find("DONE");
+  CHECK(headline != nullptr);
+  if (headline != nullptr) {
+    const fui::ActionEvent event = out.tap(headline->rect.x + 20, headline->rect.y + 10);
+    CHECK(event.action == fui::NO_ACTION);
+  }
+}
+
+void testStudyForecastBarsStayInsideTheirPanel() {
+  // Everything overdue piles onto today, so today's bar is an order of
+  // magnitude taller than the rest. Scaling to it flattened the forecast to
+  // one column and thirteen empty slots; today clips instead. Either way no
+  // bar may escape the panel it was given.
+  int forecast[studyui::kForecastDays] = {4000, 3, 1, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+  Rendered out;
+  buildStudyDeck(out, deckWithWork(forecast));
+
+  const auto* caption = out.target.find("NEXT 14 DAYS   6 SCHEDULED");
+  CHECK(caption != nullptr);
+  if (caption == nullptr) return;
+
+  // Every fill must sit above the caption and below the header band: a bar
+  // scaled off a 4000-card backlog would otherwise run up through the title.
+  int bars = 0;
+  for (const auto& rect : out.target.fills) {
+    if (rect.width > 40) continue;  // rules and dividers, not bars
+    ++bars;
+    CHECK(rect.y >= toybox::kHeaderHeight);
+    CHECK(rect.y + rect.height <= caption->rect.y);
+  }
+  // Today plus the three non-zero days ahead, each of which draws at least one
+  // fill. If the scale ever silently drops a small day this count falls.
+  CHECK(bars >= 4);
+}
+
+void testStudyWarnsWhenAReviewDidNotSave() {
+  int forecast[studyui::kForecastDays] = {};
+  studyui::DeckModel model = deckWithWork(forecast);
+  model.writeFailed = true;
+
+  Rendered out;
+  buildStudyDeck(out, model);
+  // The one failure this app must never swallow.
+  CHECK(out.target.drew("SOME REVIEWS DID NOT SAVE"));
+
+  Rendered quiet;
+  studyui::DeckModel ok = deckWithWork(forecast);
+  buildStudyDeck(quiet, ok);
+  CHECK(!quiet.target.drew("SOME REVIEWS DID NOT SAVE"));
+}
+
 }  // namespace
 
 int main() {
@@ -1425,6 +1579,7 @@ int main() {
   testHnNotice();
   testHnList();
   testHnFitLines();
+  testHnReaderShowsWhereYouAre();
   testShelfFolderDrawsItsOwnNameAndRows();
   testAFolderWithoutADeviceNameHasNoFooter();
   testTheShelfFooterIsADoorWithAFaceOnIt();
@@ -1435,6 +1590,11 @@ int main() {
   testEveryWordHasTheArtworkItNames();
   testAnUnreadableNameDrawsThePlainHead();
   testBothSeatsWearTheirOwnFace();
+  testStudyDeckLeadsWithTheCount();
+  testStudyHeadlineIsTheHitTarget();
+  testStudyOffersNothingWhenNothingIsDue();
+  testStudyForecastBarsStayInsideTheirPanel();
+  testStudyWarnsWhenAReviewDidNotSave();
 
   std::printf("%d checks, %d failed\n", checksRun, checksFailed);
   return checksFailed == 0 ? 0 : 1;
