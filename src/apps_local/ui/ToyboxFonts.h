@@ -25,6 +25,37 @@ constexpr int kSerifTitleFontId = 0x70B0'0005;
 // The step down a tile takes when a word will not fit at the full size.
 constexpr int kSerifSmallFontId = 0x70B0'0006;
 
+// A reading cut, for an app whose own surface is a page of prose rather than a
+// board. The UI cut is 20px, which is right for a row you glance at and wrong
+// for a screenful you actually read: at 20px a 480px panel holds about 28
+// characters a line, so an article turns into forty page taps and a story
+// headline cannot finish. 14px roughly halves both.
+//
+// Same face, one step down. Weight on this device comes from size and from
+// inversion, so a second size is also the only new emphasis available.
+constexpr int kReadingFontId = 0x70B0'0007;
+
+// The same reading face, bold, for a header band that carries a *title* rather
+// than a word. "ARTICLE" fits the display cut; "In Memory of My Wife, Elise
+// Cawley, with Thanks for 36 Wonderful Years" does not, at any size that band
+// can hold. Smaller and bold is what a headline looks like when it has to be
+// read rather than shouted.
+constexpr int kReadingBoldFontId = 0x70B0'0008;
+
+// Jersey at button size. A button is the device speaking rather than the app,
+// so it keeps Jersey even on a screen whose text does not -- but the UI cut is
+// wide enough that "COMMENTS" clipped to "COMMEN" inside half a footer. Same
+// face, small enough to fit a word.
+constexpr int kButtonFontId = 0x70B0'0009;
+
+// Smaller cuts of the same two reading faces, so a headline that will not fit
+// can step down a size instead of being cut. The design language's rule, which
+// this app was breaking everywhere: pick the largest cut it fits in, walking
+// the available cuts down, and only break a word when the smallest still
+// overflows.
+constexpr int kReadingSmallFontId = 0x70B0'000A;
+constexpr int kReadingBoldSmallFontId = 0x70B0'000B;
+
 // Call from an activity's onEnter() before drawing. Idempotent and cheap.
 void ensureFonts(GfxRenderer& renderer);
 

@@ -70,6 +70,21 @@ constexpr fui::FontId kDisplayFont = fui::FONT_SLOT_TITLE;
 // right-hand value is a label, not tile art, and must stay at UI size.
 constexpr fui::FontId kTileFont = fui::FONT_SLOT_SMALL;
 
+// A button label, for an app whose body slot carries something other than
+// Jersey. A button is the device speaking rather than the app, so it takes the
+// small slot -- which readingChromeFaces() binds to the UI cut for exactly this.
+//
+// The alignment is named because it has to be: FONT_SLOT_SMALL is 0, and
+// textStyleUnset() reads a style whose font is 0 and whose every other field is
+// default as unset, so Screen would helpfully substitute the theme's body style
+// and the button would come back in the wrong face.
+inline fui::TextStyle buttonText(const fui::ThemeTokens& tokens) {
+  fui::TextStyle text = tokens.bodyText;
+  text.font = fui::FONT_SLOT_SMALL;
+  text.align = fui::TextAlign::Center;
+  return text;
+}
+
 // Vertical air between two stacked blocks that are not rows: half a gutter, so
 // it reads as a join rather than as a new section.
 constexpr int spaceBetween = kGutter / 2;

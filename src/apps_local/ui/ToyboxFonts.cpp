@@ -6,7 +6,12 @@
 #include "fonts/instrument_10.h"
 #include "fonts/instrument_13.h"
 #include "fonts/instrument_24.h"
+#include "fonts/reading_serif_11.h"
+#include "fonts/reading_serif_14.h"
+#include "fonts/reading_serif_bold_12.h"
+#include "fonts/reading_serif_bold_16.h"
 #include "fonts/toybox_10.h"
+#include "fonts/toybox_14.h"
 #include "fonts/toybox_20.h"
 #include "fonts/toybox_30.h"
 
@@ -28,12 +33,32 @@ namespace {
 EpdFont display30(&toybox_30);
 EpdFont ui20(&toybox_20);
 EpdFont tile10(&toybox_10);
+// Noto Serif, converted at 1 bit by us rather than taken from builtinFonts/.
+// The builtin cuts are --2bit, and GfxRenderer's BW path paints a pixel for ANY
+// coverage above zero, so they flood to mush -- which is why Toybox has its own
+// face at all. Converting the same TTF at 1 bit sidesteps the flooding entirely
+// and gives a real text face: Jersey is a display cut with uniform heavy stems,
+// and a screenful of it reads as permanently bold.
+//
+// Noto Serif specifically because it is what the EPUB reader sets books in. An
+// app whose surface is a page of prose should look like the rest of this
+// device's reading, not like its games.
+EpdFont button14(&toybox_14);
+EpdFont reading11(&reading_serif_11);
+EpdFont reading14(&reading_serif_14);
+EpdFont readingBold12(&reading_serif_bold_12);
+EpdFont readingBold16(&reading_serif_bold_16);
 EpdFont instrument10(&instrument_10);
 EpdFont instrument13(&instrument_13);
 EpdFont instrument24(&instrument_24);
 EpdFontFamily displayFamily(&display30);
 EpdFontFamily uiFamily(&ui20);
 EpdFontFamily tileFamily(&tile10);
+EpdFontFamily buttonFamily(&button14);
+EpdFontFamily readingSmallFamily(&reading11);
+EpdFontFamily readingFamily(&reading14);
+EpdFontFamily readingBoldSmallFamily(&readingBold12);
+EpdFontFamily readingBoldFamily(&readingBold16);
 EpdFontFamily serifTileFamily(&instrument13);
 EpdFontFamily serifSmallFamily(&instrument10);
 EpdFontFamily serifTitleFamily(&instrument24);
@@ -43,9 +68,22 @@ bool registered = false;
 }  // namespace
 
 FontMetrics metricsFor(const int fontId) {
-  const EpdFontFamily& family =
-      fontId == kDisplayFontId ? displayFamily : (fontId == kTileFontId ? tileFamily : uiFamily);
-  const EpdFontData* data = fontId == kDisplayFontId ? &toybox_30 : (fontId == kTileFontId ? &toybox_10 : &toybox_20);
+  const EpdFontFamily& family = fontId == kDisplayFontId            ? displayFamily
+                                : fontId == kTileFontId             ? tileFamily
+                                : fontId == kButtonFontId           ? buttonFamily
+                                : fontId == kReadingBoldFontId      ? readingBoldFamily
+                                : fontId == kReadingFontId          ? readingFamily
+                                : fontId == kReadingSmallFontId     ? readingSmallFamily
+                                : fontId == kReadingBoldSmallFontId ? readingBoldSmallFamily
+                                                                    : uiFamily;
+  const EpdFontData* data = fontId == kDisplayFontId            ? &toybox_30
+                            : fontId == kTileFontId             ? &toybox_10
+                            : fontId == kButtonFontId           ? &toybox_14
+                            : fontId == kReadingBoldFontId      ? &reading_serif_bold_16
+                            : fontId == kReadingFontId          ? &reading_serif_14
+                            : fontId == kReadingSmallFontId     ? &reading_serif_11
+                            : fontId == kReadingBoldSmallFontId ? &reading_serif_bold_12
+                                                                : &toybox_20;
   FontMetrics metrics;
   metrics.ascender = data->ascender;
   // 'H' stands in for cap height: a flat-topped capital with no overshoot, so it
@@ -75,6 +113,11 @@ void ensureFonts(GfxRenderer& renderer) {
   renderer.insertFont(kDisplayFontId, displayFamily);
   renderer.insertFont(kUiFontId, uiFamily);
   renderer.insertFont(kTileFontId, tileFamily);
+  renderer.insertFont(kButtonFontId, buttonFamily);
+  renderer.insertFont(kReadingFontId, readingFamily);
+  renderer.insertFont(kReadingSmallFontId, readingSmallFamily);
+  renderer.insertFont(kReadingBoldSmallFontId, readingBoldSmallFamily);
+  renderer.insertFont(kReadingBoldFontId, readingBoldFamily);
   renderer.insertFont(kSerifTileFontId, serifTileFamily);
   renderer.insertFont(kSerifSmallFontId, serifSmallFamily);
   renderer.insertFont(kSerifTitleFontId, serifTitleFamily);
