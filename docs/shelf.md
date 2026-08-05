@@ -85,12 +85,29 @@ part that needs hardware, and it should be thin. See
 
 ```cpp
 constexpr shelf::Item kApps[] = {
-    {"STUDY", UIIcon::Book, &StudyActivity::create},
+    {"STUDY", &icon_study_32, &StudyActivity::create},
 };
 ```
 
 That is the whole registration. No `ActivityManager` method, no `UIIcon` enum
 variant, no i18n key, no `AppId` bit.
+
+**Icons come from Lucide, not from `UIIcon`.** Add a line to
+`tools_local/icons.txt` and run `./tools_local/gen_toybox_icons.sh`:
+
+```
+study = graduation-cap
+```
+
+That regenerates `src/apps_local/ui/ToyboxIcons.h`, which is committed because
+generating needs librsvg and a checkout should build without it. Upstream's
+palette is thirteen icons and growing it costs two upstream files per app;
+Lucide ships 1735 and costs a line in a manifest.
+
+A row with no icon does not compile -- `Shelf.cpp` static_asserts it, because a
+blank icon gutter is silent otherwise. Pick for silhouette rather than
+literalness: the label already says the name, so the icon's job is to be
+distinct at a glance in a 62px row.
 
 **4. Leave through the shelf.**
 

@@ -8,17 +8,18 @@
 #include "chess/ChessActivity.h"
 #include "connections/ConnectionsActivity.h"
 #include "solitaire/SolitaireActivity.h"
+#include "ui/ToyboxIcons.h"
 
 namespace {
 
-// Every icon is UIIcon::Book because CrossPoint's palette has thirteen entries
-// and none of them is a chess piece or a ship. Real icons are a design job, not
-// a migration one; they are the first thing to fix once everything is across.
+// Icons come from tools_local/icons.txt via Lucide. Picked for silhouette
+// rather than literalness: a crown, a hull, a grid and a card suit share no
+// shape, so a row is scannable before the label is read.
 constexpr shelf::Item kGames[] = {
-    {"CHESS", UIIcon::Book, &ChessActivity::create},
-    {"BATTLESHIP", UIIcon::Book, &BattleshipActivity::create},
-    {"CONNECTIONS", UIIcon::Book, &ConnectionsActivity::create},
-    {"SOLITAIRE", UIIcon::Book, &SolitaireActivity::create},
+    {"CHESS", &icon_chess_32, &ChessActivity::create},
+    {"BATTLESHIP", &icon_battleship_32, &BattleshipActivity::create},
+    {"CONNECTIONS", &icon_connections_32, &ConnectionsActivity::create},
+    {"SOLITAIRE", &icon_solitaire_32, &SolitaireActivity::create},
 };
 constexpr shelf::Item kApps[] = {};
 
@@ -32,6 +33,19 @@ constexpr shelf::Folder kFolders[] = {
 };
 
 constexpr int kFolderCount = static_cast<int>(sizeof(kFolders) / sizeof(kFolders[0]));
+
+// An item with no icon draws a blank gutter and nothing says so. Caught at
+// compile time rather than in a test, because a test can be forgotten and this
+// cannot: a new row without an icon does not build.
+constexpr bool everyItemHasAnIcon() {
+  for (const auto& folder : kFolders) {
+    for (int i = 0; i < folder.count; ++i) {
+      if (folder.items[i].icon == nullptr) return false;
+    }
+  }
+  return true;
+}
+static_assert(everyItemHasAnIcon(), "every shelf item needs an icon; see tools_local/icons.txt");
 
 // Where leave() sends an app. Set when an item is opened, read when it leaves.
 // -1 means "nothing is open below Home", which is what a folder itself sees.

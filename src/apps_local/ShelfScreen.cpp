@@ -46,6 +46,9 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   }
 
   fui::ListProps list;
+  // 32 into a 62px row: big enough to read a silhouette, small enough that the
+  // label is still the thing you see first.
+  list.iconSize = 32;
   list.items = model.items;
   list.count = static_cast<uint16_t>(model.count);
   list.topIndex = static_cast<uint16_t>(model.topIndex);
