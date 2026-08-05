@@ -29,6 +29,14 @@ namespace {
 // font it draws with.
 constexpr int kCell = 48;
 constexpr int kLane = 56;
+// The row clues get their own, narrower lane.
+//
+// kLane is how much room a clue needs VERTICALLY: it has to hold a line of the
+// display cut. Using it horizontally too put a 26px digit in the middle of a
+// 56px lane, so half the left margin was empty lane -- measured on the panel,
+// 30px of air before the first digit against 5px after the board's frame. The
+// digit needs its own width plus a chip around it, and that is all.
+constexpr int kClueLane = 38;
 constexpr int kArtSize = 36;
 // A clue's TEXT box is a lane square, because it has to hold a line of the
 // display cut. Its CHIP is sized to the cell pitch instead, and that difference
@@ -133,17 +141,29 @@ void chrome(toybox::Screen& screen, const char* title, const char* rightLabel) {
                        fui::Paint::solid(fui::Color::Black));
 }
 
+// The full width and height the board actually paints, frame included.
+//
+// The frame is stroked OUTSIDE the play area, so a layout centred on lane plus
+// cells is centred on something 9px narrower than what appears -- which pushed
+// the whole board right and left 5px of margin on that side. Whatever centres
+// this has to centre what it draws.
+int boardDrawnWidth(const int size, const int cellSize) {
+  return kClueLane + kClueGap + size * cellSize + toybox::kBoardFrame;
+}
+int boardDrawnHeight(const int size, const int cellSize) {
+  return kLane + kClueGap + size * cellSize + toybox::kBoardFrame;
+}
+
 Layout layoutBoard(const fui::Rect& body, const int size, const int cellSize = kCell) {
   Layout layout;
   layout.cell = static_cast<int16_t>(cellSize);
   layout.lane = kLane;
   layout.size = static_cast<int16_t>(size);
-  // Lane, then the gap the frame lives in, then the cells.
-  const int extent = kLane + kClueGap + size * cellSize;
-  const int x = body.x + (body.width - extent) / 2;
-  const int y = body.y + (body.height - extent) / 2;
-  layout.board = fui::makeRect(static_cast<int16_t>(x + kLane + kClueGap), static_cast<int16_t>(y + kLane + kClueGap),
-                               static_cast<int16_t>(size * cellSize), static_cast<int16_t>(size * cellSize));
+  const int x = body.x + (body.width - boardDrawnWidth(size, cellSize)) / 2;
+  const int y = body.y + (body.height - boardDrawnHeight(size, cellSize)) / 2;
+  layout.board =
+      fui::makeRect(static_cast<int16_t>(x + kClueLane + kClueGap), static_cast<int16_t>(y + kLane + kClueGap),
+                    static_cast<int16_t>(size * cellSize), static_cast<int16_t>(size * cellSize));
   return layout;
 }
 
@@ -350,10 +370,10 @@ void drawBoardSurface(toybox::Screen& screen, const dungeon::Board& board, const
                                          static_cast<int16_t>(layout.board.y - kClueGap - kLane - 4),
                                          static_cast<int16_t>(layout.board.width - 2 * overhang + 8),
                                          static_cast<int16_t>(kLane + 8)));
-    cornerBrackets(screen,
-                   fui::makeRect(static_cast<int16_t>(layout.board.x - kClueGap - kLane - 4),
-                                 static_cast<int16_t>(layout.board.y + overhang - 4), static_cast<int16_t>(kLane + 8),
-                                 static_cast<int16_t>(layout.board.height - 2 * overhang + 8)));
+    cornerBrackets(
+        screen, fui::makeRect(static_cast<int16_t>(layout.board.x - kClueGap - kClueLane - 4),
+                              static_cast<int16_t>(layout.board.y + overhang - 4), static_cast<int16_t>(kClueLane + 8),
+                              static_cast<int16_t>(layout.board.height - 2 * overhang + 8)));
   } else if (spotlight.width > 0) {
     // Drawn after every cell, in its own pass. Drawn inside the cell loop it
     // would be overdrawn by whichever neighbour rendered later, which is the
@@ -513,7 +533,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model, PickerLayout& lay
   const int16_t art = 32;
   const fui::Rect artBox =
       fui::makeRect(nextBand.x, static_cast<int16_t>(nextBand.y + (nextBand.height - art) / 2), art, art);
-  screen.target().bitmap(artBox, fui::bitmapFromIcon(monsterArt(model.nextIndex)), fui::BitmapMode::Contain,
+  screen.target().bitmap(artBox, fui::bitmapFromIcon(monsterArt(model.selectedIndex)), fui::BitmapMode::Contain,
                          fui::Paint::solid(fui::Color::Black));
   // The guide, at the size of a secondary action, sharing this line with the
   // name rather than taking half the button bar below it.
@@ -536,7 +556,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model, PickerLayout& lay
   screen.target().text(fui::makeRect(static_cast<int16_t>(artBox.right() + toybox::kGutter), nextBand.y,
                                      static_cast<int16_t>(nextWidth), nextBand.height),
                        model.dungeonName, nextText);
-  screen.target().text(screen.takeTop(24, toybox::kGutter), "TAP A DUNGEON", label);
+  screen.target().text(screen.takeTop(24, toybox::kGutter), "TAP TO CHOOSE, THEN PLAY", label);
 
   if (model.progress != nullptr) {
     const fui::Rect body = screen.body();
@@ -565,7 +585,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model, PickerLayout& lay
         mapCell(screen,
                 fui::makeRect(static_cast<int16_t>(layout.grid.x + slot * (cell + gap)), rowY,
                               static_cast<int16_t>(cell), static_cast<int16_t>(cell)),
-                index, cleared, model.nextIndex == index);
+                index, cleared, model.selectedIndex == index);
       }
       char tierLabel[3];
       std::snprintf(tierLabel, sizeof(tierLabel), "%d", tier + 1);
@@ -732,7 +752,7 @@ void buildGuide(toybox::Screen& screen, const GuideModel& model) {
   // hand's width of white between them, and the page read as two unrelated
   // things rather than as a picture with a line under it.
   const fui::Rect body = screen.body();
-  const int extent = kLane + kClueGap + board.size() * kGuideCell;
+  const int extent = boardDrawnHeight(board.size(), kGuideCell);
   const int block = extent + toybox::kMargin + kCaption;
   const int top = body.y + (body.height - block) / 2;
 

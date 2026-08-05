@@ -52,6 +52,9 @@ void DungeonActivity::onEnter() {
     progress = dungeon::Progress{};
     board.load(dungeon::kCampaignFirst);
   }
+  // Open on whatever the save was in the middle of, so RESUME means what it
+  // says the moment the app appears.
+  selected = board.index();
   view = View::Menu;
   recorded = false;
   requestUpdate();
@@ -88,6 +91,7 @@ void DungeonActivity::settleWin() {
   // The finished board is not worth resuming, so the save carries the next
   // dungeon instead -- and carries the progress, which is the part that matters.
   board.load(progress.nextUnsolved());
+  selected = board.index();
   unsaved = 1;
   flushSave();
   view = View::Won;
@@ -116,7 +120,7 @@ void DungeonActivity::routeBoardTap(const int x, const int y) {
 void DungeonActivity::routeButton(const int button) {
   switch (button) {
     case ui::ButtonPlay:
-      openPuzzle(board.index());
+      openPuzzle(selected);
       break;
     case ui::ButtonGuide:
       guidePage = 0;
@@ -203,16 +207,18 @@ void DungeonActivity::loop() {
       routeButton(action.value);
       break;
     case ui::ActionPick: {
-      // A campaign grid registers one target for the whole thing and sends -1,
-      // because sixty-four hit rects do not fit the interaction buffer. The
-      // layout that drew the cells is what resolves the tap, so the region can
-      // never drift from the pixels.
-      if (action.value >= 0) {
-        openPuzzle(action.value);
-        break;
-      }
-      const int slot = pickerLayout.indexAt(tapX, tapY);
-      if (slot >= 0) openPuzzle(1 + slot);
+      // Tapping a cell PICKS it. It used to open it, which made the map sixty-
+      // four trapdoors: one stray tap and you were in a dungeon you had not
+      // chosen, with the one you were looking at forgotten.
+      //
+      // The grid registers one target for the whole thing and sends -1, because
+      // sixty-four hit rects do not fit the interaction buffer; the layout that
+      // drew the cells resolves the tap, so the region cannot drift from the
+      // pixels.
+      const int picked = action.value >= 0 ? action.value : dungeon::kCampaignFirst + pickerLayout.indexAt(tapX, tapY);
+      if (!dungeon::isPlayable(picked) || picked == selected) break;
+      selected = picked;
+      requestUpdate();
       break;
     }
     default:
@@ -260,12 +266,14 @@ void DungeonActivity::render(RenderLock&&) {
     case View::Menu:
     default: {
       ui::MenuModel model;
-      model.dungeonName = board.puzzle().name;
+      model.dungeonName = dungeon::kPuzzles[selected].name;
       model.solvedCount = progress.solvedCount();
       model.total = dungeon::kCampaignCount;
-      model.hasProgress = board.touched();
+      // RESUME only when the picked dungeon IS the one with marks on it.
+      // Otherwise the button would offer to resume a board you have not opened.
+      model.hasProgress = selected == board.index() && board.touched();
       model.progress = &progress;
-      model.nextIndex = progress.nextUnsolved();
+      model.selectedIndex = selected;
       ui::buildMenu(screen, model, pickerLayout);
       break;
     }
