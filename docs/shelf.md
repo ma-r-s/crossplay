@@ -190,6 +190,14 @@ four fixed-size touch points:
 `indexToMenuItem()` / `menuItemToIndex()` stay untouched. That is what keeps the
 hook fixed-size no matter how many folders exist.
 
+**Row indices are not the menu's indices.** `getMenuItemCount()` counts the
+recent-book cover tiles as well as the menu rows, but the dispatch has already
+subtracted those to get its `menuIndex`. Deriving the shelf's offset from it
+subtracts them twice, which is invisible on an empty card and breaks the moment
+a book has been opened: Games falls out of range and Apps opens Games. Use
+`upstreamMenuRows()`, which counts only what `indexToMenuItem()` walks -- and
+remember the Continue Reading row that the RoundedRaff theme inserts at the top.
+
 Point 4 exists because `goHome()` restores Home's selection by matching the
 departing activity's _name_ against its own `HomeMenuItem` list, which cannot
 know our rows exist. Without it you leave Games and the cursor is sitting on

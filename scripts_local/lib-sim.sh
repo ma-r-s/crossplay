@@ -26,6 +26,14 @@ export PATH="$HOME/.local/bin:$PATH"
 seed_fs() {
   local root="${1:-$CROSSPOINT_SIM_SD}"
   mkdir -p "$root/books" "$root/.crosspoint"
+  # An empty card is not the normal state, and Home looks different in it: with
+  # no recent books there are no cover tiles above the menu, so every row index
+  # shifts. A shelf-row offset bug shipped because every scripted run here used
+  # an empty card and the bug only appears once a book has been opened.
+  if [ -z "$(ls -A "$root/books" 2>/dev/null)" ]; then
+    echo "note: $root/books is empty -- Home will render its no-books layout."
+    echo "      Drop an .epub in there to exercise the recent-books row indices."
+  fi
 }
 
 # PlatformIO does not tolerate two concurrent builds of the same env, and the
