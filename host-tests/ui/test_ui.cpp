@@ -1100,17 +1100,100 @@ void testAnUnreadableNameDrawsThePlainHead() {
   for (int i = 1; i < player::Avatar::kLayerCount; ++i) CHECK(nobody.layer[i] == nullptr);
 }
 
+void testABoardShowsWhoYouArePlaying() {
+  // Faces used to appear only while pairing, so the person you were playing
+  // vanished the moment you started playing them. Both link games put the
+  // opponent beside the status capsule now, through one shared helper, so they
+  // cannot place it differently.
+  const char* them = "BALD SPECS GRIN";
+  const player::Avatar face = player::avatarFor(them, player::AvatarSize::Row);
+
+  Rendered match;
+  chessui::BoardModel playing;
+  playing.status = "BALD'S MOVE";
+  playing.theirName = them;
+  const fui::Rect matchBody = [&] {
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(match.target, device(), noInput, match.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    return chessui::buildBoardChrome(screen, playing);
+  }();
+
+  // Their face, at row size, down at the status band rather than up in the
+  // board's rect.
+  const fui::Rect drawn = match.target.faceRect(face, fui::Color::Black);
+  CHECK(drawn.width == player::avatarPixels(player::AvatarSize::Row));
+  CHECK(drawn.x == toybox::kMargin);
+  CHECK(drawn.y >= matchBody.bottom());
+
+  // The capsule moved over rather than being drawn under the face. Comparing
+  // the drawn rects is the check that matters: the label is centred in whatever
+  // rect it gets, so a helper that returned the band unshortened would overlap
+  // the face and no text assertion would notice.
+  const FakeTarget::TextRun* label = match.target.find("BALD'S MOVE");
+  CHECK(label != nullptr);
+  if (label != nullptr) CHECK(label->rect.x >= drawn.right());
+
+  // Solo against the engine: nobody to show, and the capsule keeps the full
+  // width it has always had. A face that appeared from nowhere would move the
+  // capsule between modes for no reason the player could name.
+  Rendered solo;
+  chessui::BoardModel alone;
+  alone.status = "YOUR MOVE";
+  alone.theirName = nullptr;
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(solo.target, device(), noInput, solo.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  chessui::buildBoardChrome(screen, alone);
+  CHECK(solo.target.blits.empty());
+  const FakeTarget::TextRun* soloLabel = solo.target.find("YOUR MOVE");
+  CHECK(soloLabel != nullptr);
+  if (soloLabel != nullptr && label != nullptr) {
+    // Wider, and starting further left, which is the whole difference between
+    // them. Not compared against kMargin: the button insets its own label, and
+    // how much is the component's business rather than this test's.
+    CHECK(soloLabel->rect.width > label->rect.width);
+    CHECK(soloLabel->rect.x < label->rect.x);
+    CHECK(soloLabel->rect.width - label->rect.width ==
+          player::avatarPixels(player::AvatarSize::Row) + toybox::kGutter);
+  }
+
+  // Battleship takes the identical treatment from the identical helper.
+  Rendered bship;
+  bshipui::BoardModel fleet;
+  fleet.report = "BALD SANK YOUR CRUISER";
+  fleet.status = "THEIR MOVE";
+  fleet.theirName = them;
+  const fui::InputSnapshot none{};
+  toybox::Frame bframe(bship.target, device(), none, bship.interactions);
+  toybox::Screen bscreen(bframe, toybox::themeTokens());
+  bshipui::buildBoardChrome(bscreen, fleet);
+  const fui::Rect bdrawn = bship.target.faceRect(face, fui::Color::Black);
+  CHECK(bdrawn.width == drawn.width);
+  CHECK(bdrawn.x == drawn.x);
+  CHECK(bdrawn.y == drawn.y);
+}
+
 void testBothSeatsWearTheirOwnFace() {
   // The payoff, and the reason the avatar is derived rather than stored: their
   // name already crossed the radio, so their face costs no wire bytes and
   // cannot arrive stale.
   Rendered out;
   linkui::LinkModel model = searchingModel();
-  model.yourName = "SPIKY GRIM BEARD";
+  // Your seat is LABELLED "YOU" and drawn from your NAME. Those are two fields
+  // on purpose, and this is the case that proves it: the first version derived
+  // the face from the label, so every player saw a blank head in their own seat
+  // -- "YOU" parses to no words at all. Nothing failed, nothing logged, and the
+  // test passed because it had helpfully put a real name in the label.
+  model.yourName = "YOU";
+  model.yourFaceName = "SPIKY GRIM BEARD";
   model.theirName = "BALD SPECS GRIN";
   model.them = linkui::SeatState::Ready;
   model.linked = true;
   buildLink(out, model);
+
+  CHECK(out.target.drew("YOU"));
+  CHECK(!out.target.drew("SPIKY GRIM BEARD"));
 
   const player::Avatar mine = player::avatarFor("SPIKY GRIM BEARD", player::AvatarSize::Row);
   const player::Avatar theirs = player::avatarFor("BALD SPECS GRIN", player::AvatarSize::Row);
@@ -1420,7 +1503,6 @@ void testHnList() {
   CHECK(drewText(empty, "NOTHING TO READ"));
 }
 
-
 // --- the study deck screen -------------------------------------------------
 
 void buildStudyDeck(Rendered& out, const studyui::DeckModel& model) {
@@ -1455,7 +1537,7 @@ void testStudyDeckLeadsWithTheCount() {
 
   // The caption carries the number scheduled ahead. Without it an all-backlog
   // deck draws an empty panel that reads as a panel that failed.
-  CHECK(out.target.drew("NEXT 14 DAYS   20 SCHEDULED"));
+  CHECK(out.target.drew("2 WEEKS BACK   TODAY   20 DUE AHEAD"));
 }
 
 void testStudyHeadlineIsTheHitTarget() {
@@ -1521,7 +1603,7 @@ void testStudyForecastBarsStayInsideTheirPanel() {
   Rendered out;
   buildStudyDeck(out, deckWithWork(forecast));
 
-  const auto* caption = out.target.find("NEXT 14 DAYS   6 SCHEDULED");
+  const auto* caption = out.target.find("2 WEEKS BACK   TODAY   6 DUE AHEAD");
   CHECK(caption != nullptr);
   if (caption == nullptr) return;
 
@@ -1537,6 +1619,31 @@ void testStudyForecastBarsStayInsideTheirPanel() {
   // Today plus the three non-zero days ahead, each of which draws at least one
   // fill. If the scale ever silently drops a small day this count falls.
   CHECK(bars >= 4);
+}
+
+void testStudyRecordShowsTheStreak() {
+  int forecast[studyui::kForecastDays] = {};
+  int history[studyui::kHistoryDays] = {40, 22, 31};
+
+  studyui::DeckModel model = deckWithWork(forecast);
+  model.history = history;
+  model.streak = 3;
+  model.retention = 90;
+  model.lifetimeReviews = 1204;
+  Rendered out;
+  buildStudyDeck(out, model);
+
+  // The Record band is what you have done, which is the half of "stats" that
+  // belongs on the front door rather than behind another tap.
+  CHECK(out.target.drew("STREAK 3   90% RECALL   1204 REVIEWS"));
+
+  // With no history at all it falls back to naming the deck rather than
+  // printing a row of zeroes, which would read as a broken counter.
+  Rendered fresh;
+  studyui::DeckModel blank = deckWithWork(forecast);
+  buildStudyDeck(fresh, blank);
+  CHECK(fresh.target.drew("Mandarin: Vocabulary   5001 CARDS"));
+  CHECK(!fresh.target.drew("STREAK 0   -1% RECALL   0 REVIEWS"));
 }
 
 void testStudyWarnsWhenAReviewDidNotSave() {
@@ -1589,11 +1696,13 @@ int main() {
   testPlayerBackLeaves();
   testEveryWordHasTheArtworkItNames();
   testAnUnreadableNameDrawsThePlainHead();
+  testABoardShowsWhoYouArePlaying();
   testBothSeatsWearTheirOwnFace();
   testStudyDeckLeadsWithTheCount();
   testStudyHeadlineIsTheHitTarget();
   testStudyOffersNothingWhenNothingIsDue();
   testStudyForecastBarsStayInsideTheirPanel();
+  testStudyRecordShowsTheStreak();
   testStudyWarnsWhenAReviewDidNotSave();
 
   std::printf("%d checks, %d failed\n", checksRun, checksFailed);

@@ -40,60 +40,86 @@ void brackets(toybox::Screen& screen, const fui::Rect& box, const int arm) {
   }
 }
 
-// The ornament: what is coming, for the next fortnight.
+// The ornament: one timeline, the fortnight behind and the fortnight ahead.
 //
 // docs/design-language.md asks that anything decorative be made of the app's
 // own material and carry the user's own data -- the test being whether a
-// screenshot of it would look the same on everyone's device. A review forecast
-// passes by construction: it is nothing but the user's own backlog, it is
-// different every morning, and it comes from the same pass over cards.dat that
-// builds the queue, so it costs nothing to produce.
+// screenshot would look the same on everyone's device. This is nothing but the
+// user's own history and their own backlog, it is different every morning, and
+// both halves come from files that are already being read.
 //
-// Bars are outlined rather than filled. This panel repaints whenever a session
-// ends, and a block of solid black that changes is exactly what ghosts on
-// e-ink; the one bar that is filled is today's, which is the one worth the ink.
-void forecast(toybox::Screen& screen, const fui::Rect& box, const DeckModel& model) {
-  if (model.forecast == nullptr) return;
+// The two halves are drawn differently because they mean different things:
+// history is filled, because it happened; the forecast is outlined, because it
+// has not. Today sits between them and is the only solid bar in the middle,
+// which is what makes the timeline readable without a legend.
+//
+// They share one vertical scale on purpose. Both are counts of cards, so a
+// shared scale is what makes "I did forty a day last week and have five a day
+// coming" legible at a glance -- which is the only question this panel exists
+// to answer.
+void timeline(toybox::Screen& screen, const fui::Rect& box, const DeckModel& model) {
   const fui::Paint ink = fui::Paint::solid(fui::Color::Black);
+  const int history = model.history != nullptr ? kHistoryDays : 0;
+  const int ahead = model.forecast != nullptr ? kForecastDays - 1 : 0;
+  const int columns = history + ahead;
+  if (columns <= 0) return;
 
-  // Scale to the tallest of the days *ahead*, not to today. Everything overdue
-  // piles onto day zero, so on a deck with a backlog today's bar is an order of
-  // magnitude taller than the rest and scaling to it flattens the forecast into
-  // one column and thirteen empty slots -- which is exactly the panel that
-  // taught us this. Today clips instead: it is solid and unmissable either way,
-  // and "today is the big one" survives the clipping intact.
+  // Scale to the tallest column that is not today. Everything overdue piles
+  // onto day zero, so scaling to it flattens every other bar into nothing --
+  // which is exactly the panel that taught us this. Today clips instead: it is
+  // solid and unmissable either way, and "today is the big one" survives.
   int peak = 1;
-  for (int i = 1; i < kForecastDays; ++i) {
+  for (int i = 1; i < kHistoryDays && model.history != nullptr; ++i) {
+    if (model.history[i] > peak) peak = model.history[i];
+  }
+  for (int i = 1; i < kForecastDays && model.forecast != nullptr; ++i) {
     if (model.forecast[i] > peak) peak = model.forecast[i];
   }
-  if (peak == 1 && model.forecast[0] > 1) peak = model.forecast[0];
 
-  const int gap = 3;
-  const int barWidth = (box.width - gap * (kForecastDays - 1)) / kForecastDays;
+  const int gap = 2;
+  const int barWidth = (box.width - gap * (columns - 1)) / columns;
+  if (barWidth <= 0) return;
   const int baseline = box.bottom();
+  // Leave headroom so a clipped bar reads as clipped rather than as one that
+  // happens to reach the bracket. Today is routinely an order of magnitude
+  // above the scale, so this is the common case, not the edge case.
+  const int ceiling = (box.height * 9) / 10;
 
-  for (int i = 0; i < kForecastDays; ++i) {
-    const int x = box.x + i * (barWidth + gap);
-    const int count = model.forecast[i];
-    // Scale to the tallest bar, and give any non-zero day at least a visible
-    // stub: a day with three cards due must not read as a day with none.
-    int height = count > 0 ? (count * box.height) / peak : 0;
-    if (count > 0 && height < 4) height = 4;
-    if (height > box.height) height = box.height;
+  for (int column = 0; column < columns; ++column) {
+    // Oldest history first, then today, then the forecast reading forward.
+    const bool isHistory = column < history;
+    const bool isToday = column == history - 1;
+    int count = 0;
+    if (isHistory && model.history != nullptr) {
+      count = model.history[history - 1 - column];
+    } else if (model.forecast != nullptr) {
+      count = model.forecast[column - history + 1];
+    }
+    if (count <= 0) continue;
 
-    if (height > 0) {
-      const fui::Rect bar = fui::makeRect(x, baseline - height, barWidth, height);
-      if (i == 0) {
-        screen.target().fill(bar, ink);  // today, solid: the one worth the ink
-      } else {
-        screen.target().fill(fui::makeRect(bar.x, bar.y, bar.width, toybox::kHairline), ink);
-        screen.target().fill(fui::makeRect(bar.x, bar.y, toybox::kHairline, bar.height), ink);
-        screen.target().fill(fui::makeRect(bar.right() - toybox::kHairline, bar.y, toybox::kHairline, bar.height), ink);
-      }
+    const int x = box.x + column * (barWidth + gap);
+    int height = (count * ceiling) / peak;
+    if (height < 3) height = 3;
+    if (height > ceiling) height = ceiling;
+    const fui::Rect bar = fui::makeRect(x, baseline - height, barWidth, height);
+
+    if (isHistory || isToday) {
+      screen.target().fill(bar, ink);
+    } else {
+      // Outlined: this has not happened yet.
+      screen.target().fill(fui::makeRect(bar.x, bar.y, bar.width, toybox::kHairline), ink);
+      screen.target().fill(fui::makeRect(bar.x, bar.y, toybox::kHairline, bar.height), ink);
+      screen.target().fill(fui::makeRect(bar.right() - toybox::kHairline, bar.y, toybox::kHairline, bar.height), ink);
     }
   }
-  // The ground the bars stand on.
+
+  // The ground the bars stand on, and a tick under today so the two halves can
+  // be told apart even on a day with nothing either side of it.
   screen.target().fill(fui::makeRect(box.x, baseline, box.width, toybox::kHairline), ink);
+  if (history > 0) {
+    const int todayX = box.x + (history - 1) * (barWidth + gap);
+    screen.target().fill(fui::makeRect(todayX, baseline, barWidth, toybox::kRule), ink);
+  }
 }
 
 }  // namespace
@@ -139,8 +165,19 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   screen.target().fill(fui::makeRect(body.x, body.y + 108, body.width, toybox::kRule),
                        fui::Paint::solid(fui::Color::Black));
 
-  char record[64];
-  std::snprintf(record, sizeof(record), "%s   %d CARDS", model.name, model.total);
+  // The Record band, in the sense docs/design-language.md's front-door table
+  // means it: what you have done, small, on one line.
+  char record[80];
+  if (model.retention >= 0) {
+    std::snprintf(record, sizeof(record), "STREAK %d   %d%% RECALL   %d REVIEWS", model.streak, model.retention,
+                  model.lifetimeReviews);
+  } else if (model.lifetimeReviews > 0) {
+    std::snprintf(record, sizeof(record), "%d REVIEWS   NONE THIS FORTNIGHT", model.lifetimeReviews);
+  } else {
+    // No history at all: name the deck rather than print a row of zeroes,
+    // which reads as a broken counter rather than as a fresh start.
+    std::snprintf(record, sizeof(record), "%s   %d CARDS", model.name, model.total);
+  }
   fui::TextStyle small;
   small.font = toybox::kTileFont;
   small.align = fui::TextAlign::Left;
@@ -151,18 +188,17 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   const int panelHeight = 190;
   const fui::Rect panel = fui::makeRect(body.x + 10, panelTop, body.width - 20, panelHeight);
   brackets(screen, fui::makeRect(panel.x - 18, panel.y - 18, panel.width + 36, panel.height + 54), 32);
-  forecast(screen, fui::makeRect(panel.x + 12, panel.y + 8, panel.width - 24, panelHeight - 16), model);
+  timeline(screen, fui::makeRect(panel.x + 12, panel.y + 8, panel.width - 24, panelHeight - 16), model);
 
-  // The caption carries the number, so an empty panel reads as "nothing is
-  // scheduled yet" rather than as a panel that failed to draw. On a deck that
-  // is all backlog every bar but today's is genuinely zero, and that is worth
-  // saying out loud instead of leaving a bracketed box looking broken.
+  // The caption names both halves and carries the number scheduled ahead, so
+  // an empty right-hand side reads as "nothing scheduled yet" rather than as a
+  // panel that failed to draw. On an all-backlog deck that number is zero.
   int ahead = 0;
   if (model.forecast != nullptr) {
     for (int i = 1; i < kForecastDays; ++i) ahead += model.forecast[i];
   }
-  char caption_text[48];
-  std::snprintf(caption_text, sizeof(caption_text), "NEXT 14 DAYS   %d SCHEDULED", ahead);
+  char caption_text[64];
+  std::snprintf(caption_text, sizeof(caption_text), "2 WEEKS BACK   TODAY   %d DUE AHEAD", ahead);
   fui::TextStyle caption;
   caption.font = toybox::kTileFont;
   caption.align = fui::TextAlign::Center;

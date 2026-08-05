@@ -21,10 +21,11 @@ namespace studyui {
 inline constexpr fui::ActionId ActionStudy = 1;
 inline constexpr fui::ActionId ActionForecast = 2;
 
-// How many days of the forecast the ornament shows. Two weeks is the span over
-// which a review backlog is actually actionable, and fourteen bars is as many
-// as read as separate at this width.
+// How many days either side of today the ornament shows. Two weeks back is far
+// enough to see a habit, two weeks forward far enough to see a backlog coming,
+// and twenty-seven bars is as many as read as separate at this width.
 inline constexpr int kForecastDays = 14;
+inline constexpr int kHistoryDays = 14;
 
 struct DeckModel {
   const char* name = "";
@@ -37,6 +38,19 @@ struct DeckModel {
   // This is the ornament's data: it comes from the same pass over cards.dat
   // that builds the queue, so it costs nothing extra.
   const int* forecast = nullptr;
+  // What actually happened, from revlog.dat: index 0 is today, and there are
+  // kHistoryDays of it. Drawn beside the forecast as one timeline, because
+  // "what I have been doing" and "what is coming" are the same question asked
+  // in two directions.
+  //
+  // Passed as plain numbers rather than as the study::Stats that produced them,
+  // so this header stays free of the deck layer. docs/shelf.md is explicit that
+  // a screen knows FreeInkUI and Toybox tokens and nothing else -- that is what
+  // keeps host-tests/ui able to build it with no src/ on the include path.
+  const int* history = nullptr;
+  int streak = 0;
+  int retention = -1;  // percent, or -1 when there is nothing to average
+  int lifetimeReviews = 0;
   bool sessionOver = false;  // nothing left to answer right now
   bool writeFailed = false;
 };

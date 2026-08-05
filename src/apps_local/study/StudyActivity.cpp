@@ -139,6 +139,7 @@ void StudyActivity::onEnter() {
 
     shuffle_ = static_cast<uint32_t>(today_) * 2654435761u + 1u;
     buildQueue();
+    refreshStats();
     view_ = View::Deck;
   }
   requestUpdate();
@@ -184,6 +185,11 @@ bool StudyActivity::openDeck() {
   std::snprintf(path, sizeof(path), "%s/revlog.dat", kDeckDir);
   revlogFile_ = Storage.open(path, O_RDWR | O_CREAT);
   if (!revlogFile_.isOpen()) LOG_ERR("STUDY", "Cannot open revlog.dat -- reviews will not be logged");
+  // A second handle over the same file, for reading history back. Separate from
+  // the append handle so a stats read cannot disturb the write position.
+  if (Storage.openFileForRead("STUDY", path, revlogReadFile_)) {
+    revlogSource_ = makeUniqueNoThrow<FileSource>(revlogReadFile_);
+  }
 
   metaSource_ = makeUniqueNoThrow<FileSource>(metaFile_);
   deckSource_ = makeUniqueNoThrow<FileSource>(deckFile_);
@@ -392,7 +398,10 @@ void StudyActivity::grade(const study::Rating rating) {
   cardSource_->flush();
   revlogFile_.flush();
 
-  if (!takeNext()) view_ = View::Deck;
+  if (!takeNext()) {
+    refreshStats();
+    view_ = View::Deck;
+  }
   requestUpdate();
 }
 
@@ -597,6 +606,22 @@ void StudyActivity::drawFooter(const Rect& footer) {
   }
 }
 
+void StudyActivity::refreshStats() {
+  if (!revlogSource_) return;
+  // Re-open to pick up what this session appended: the read handle's cached
+  // size is from when it was opened, and a session that just wrote forty
+  // reviews would otherwise show none of them.
+  char path[96];
+  std::snprintf(path, sizeof(path), "%s/revlog.dat", kDeckDir);
+  revlogSource_.reset();
+  if (Storage.openFileForRead("STUDY", path, revlogReadFile_)) {
+    revlogSource_ = makeUniqueNoThrow<FileSource>(revlogReadFile_);
+  }
+  if (revlogSource_) {
+    study::readStats(*revlogSource_, today_, deck_.meta().collectionCreated, stats_);
+  }
+}
+
 void StudyActivity::buildDeckModel(studyui::DeckModel& out) const {
   out.name = deck_.meta().name;
   out.due = dueTotal_;
@@ -605,6 +630,10 @@ void StudyActivity::buildDeckModel(studyui::DeckModel& out) const {
   out.reviewed = reviewedThisSession_;
   out.recalled = reviewedThisSession_ - againThisSession_;
   out.forecast = forecast_;
+  out.history = stats_.reviewsPerDay;
+  out.streak = stats_.streak;
+  out.retention = stats_.retention();
+  out.lifetimeReviews = stats_.lifetimeReviews;
   out.sessionOver = (queueCount_ - queuePos_) + learningCount_ == 0;
   out.writeFailed = writeFailed_;
 }
