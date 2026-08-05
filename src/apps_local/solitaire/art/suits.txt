@@ -1,0 +1,5 @@
+# alias = svg basename. Solid forms, for the black suits.
+spadeSolid = spades-solid
+heartSolid = hearts-solid
+diamondSolid = diamonds-solid
+clubSolid = clubs-solid

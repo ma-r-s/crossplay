@@ -4,14 +4,21 @@
 
 #include "../activities/ActivityManager.h"
 #include "ShelfFolderActivity.h"
+#include "battleship/BattleshipActivity.h"
 #include "chess/ChessActivity.h"
+#include "connections/ConnectionsActivity.h"
+#include "solitaire/SolitaireActivity.h"
 
 namespace {
 
-// Games arrive one at a time, each proven in the simulator before the next;
-// see docs/crosspoint-migration.md for the order.
+// Every icon is UIIcon::Book because CrossPoint's palette has thirteen entries
+// and none of them is a chess piece or a ship. Real icons are a design job, not
+// a migration one; they are the first thing to fix once everything is across.
 constexpr shelf::Item kGames[] = {
     {"CHESS", UIIcon::Book, &ChessActivity::create},
+    {"BATTLESHIP", UIIcon::Book, &BattleshipActivity::create},
+    {"CONNECTIONS", UIIcon::Book, &ConnectionsActivity::create},
+    {"SOLITAIRE", UIIcon::Book, &SolitaireActivity::create},
 };
 constexpr shelf::Item kApps[] = {};
 

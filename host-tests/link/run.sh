@@ -43,5 +43,7 @@ c++ -std=c++17 -Wall -Wextra -Werror -O2 $SRC/LinkProtocol.cpp $SRC/LinkSession.
 # Battleship stresses two things chess never did: a secret each side keeps
 # inside a shared state, and a setup phase the box plays simultaneously that the
 # wire can only alternate.
-# The battleship-over-link suite returns with battleship; see
-# docs/crosspoint-migration.md for the order apps move in.
+c++ -std=c++17 -Wall -Wextra -Werror -O2 $SRC/LinkProtocol.cpp $SRC/LinkSession.cpp \
+  $SRC/LinkRadio.cpp $SRC/LinkPlay.cpp ../../src/apps_local/battleship/BattleshipCore.cpp \
+  test_battleshiplink.cpp -o "$BUILD_DIR/test_battleshiplink"
+"$BUILD_DIR/test_battleshiplink"

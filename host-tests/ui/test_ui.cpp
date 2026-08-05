@@ -13,7 +13,10 @@
 #include <string>
 #include <vector>
 
+#include "../../src/apps_local/ShelfScreen.h"
+#include "../../src/apps_local/battleship/BattleshipScreens.h"
 #include "../../src/apps_local/chess/ChessScreens.h"
+#include "../../src/apps_local/connections/ConnectionsScreens.h"
 #include "../../src/apps_local/link/LinkScreens.h"
 
 namespace fui = freeink::ui;
@@ -450,6 +453,318 @@ void testBoardChrome() {
   CHECK(over.tap(240, 400).action == fui::NO_ACTION);
 }
 
+// --- connections: a finished board ------------------------------------------
+
+connections::Puzzle connectionsPuzzle() {
+  connections::Puzzle p;
+  p.id = 1;
+  p.date = 20230612;
+  const char* names[4] = {"WET WEATHER", "NBA TEAMS", "KEYBOARD KEYS", "PALINDROMES"};
+  const char* words[4][4] = {{"HAIL", "RAIN", "SLEET", "SNOW"},
+                             {"BUCKS", "HEAT", "JAZZ", "NETS"},
+                             {"OPTION", "RETURN", "SHIFT", "TAB"},
+                             {"KAYAK", "LEVEL", "MOM", "RACECAR"}};
+  for (int g = 0; g < 4; ++g) {
+    std::snprintf(p.groups[g].name, sizeof(p.groups[g].name), "%s", names[g]);
+    for (int m = 0; m < 4; ++m) {
+      std::snprintf(p.groups[g].members[m], sizeof(p.groups[g].members[m]), "%s", words[g][m]);
+    }
+  }
+  return p;
+}
+
+void renderConnectionsBoard(Rendered& out, const connections::Game& game) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  connectionsui::BoardModel model;
+  model.game = &game;
+  model.date = game.puzzle().date;
+  const connectionsui::BoardLayout layout = connectionsui::buildBoardChrome(screen, model);
+  connectionsui::buildBoardTiles(screen, model, layout);
+}
+
+void testConnectionsLostBoard() {
+  // Losing reveals all four groups as rows. The tiles that were never guessed
+  // are still on the board as far as the core is concerned, so drawing both put
+  // the answers in the four slots and the leftover words underneath them.
+  connections::Game game;
+  game.start(connectionsPuzzle(), 5);
+  connections::Game::Save lost;
+  lost.seed = 5;
+  lost.mistakes = connections::kMaxMistakes;
+  CHECK(game.restore(lost));
+  CHECK(game.result() == connections::Result::Lost);
+  CHECK(game.revealedCount() == 4);
+  // The core still holds them; it is the screen's job not to draw them.
+  CHECK(game.tileCount() == 16);
+
+  Rendered screen;
+  renderConnectionsBoard(screen, game);
+  CHECK(screen.target.drew("WET WEATHER"));
+  CHECK(screen.target.drew("PALINDROMES"));
+  // No loose tile words anywhere on a finished board.
+  CHECK(!screen.target.drew("HAIL"));
+  CHECK(!screen.target.drew("RACECAR"));
+  // And no tile is tappable once the game is over.
+  CHECK(screen.tap(67, 434).action == fui::NO_ACTION);
+}
+
+void testConnectionsWonBoard() {
+  connections::Game game;
+  game.start(connectionsPuzzle(), 5);
+  for (int g = 0; g < 4; ++g) {
+    game.deselectAll();
+    for (int i = 0; i < game.tileCount(); ++i) {
+      if (game.tileGroup(i) == g) game.toggleTile(i);
+    }
+    game.submit();
+  }
+  CHECK(game.result() == connections::Result::Won);
+  CHECK(game.tileCount() == 0);
+
+  Rendered screen;
+  renderConnectionsBoard(screen, game);
+  CHECK(screen.target.drew("WET WEATHER"));
+  CHECK(!screen.target.drew("HAIL"));
+}
+
+// --- battleship -------------------------------------------------------------
+
+void buildBattleshipStart(Rendered& out, const bshipui::StartModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  bshipui::buildStartMenu(screen, model);
+}
+
+void buildBattleshipBoard(Rendered& out, const bshipui::BoardModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  bshipui::buildBoardChrome(screen, model);
+}
+
+void buildBattleshipPlace(Rendered& out, const bshipui::PlaceModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  bshipui::buildPlaceChrome(screen, model);
+}
+
+void testBattleshipStartMenu() {
+  // A row that would do nothing is not drawn, exactly as in chess: with no
+  // saved game there is nothing to continue, so the first row is NEW GAME.
+  bshipui::StartModel fresh;
+  fresh.played = 0;
+  CHECK(bshipui::startRows(fresh) == 2);
+  CHECK(bshipui::startRowAt(fresh, 0) == bshipui::StartRow::NewGame);
+  CHECK(bshipui::startRowAt(fresh, 1) == bshipui::StartRow::PlayNearby);
+  // Out of range clamps rather than reading past the end.
+  CHECK(bshipui::startRowAt(fresh, 9) == bshipui::StartRow::PlayNearby);
+  CHECK(bshipui::startRowAt(fresh, -1) == bshipui::StartRow::NewGame);
+
+  bshipui::StartModel saved;
+  saved.hasSavedGame = true;
+  saved.continueDetail = "14 SHOTS, 2 SUNK";
+  saved.played = 12;
+  saved.won = 7;
+  saved.streak = 3;
+  CHECK(bshipui::startRows(saved) == 3);
+  CHECK(bshipui::startRowAt(saved, 0) == bshipui::StartRow::Continue);
+
+  Rendered out;
+  buildBattleshipStart(out, saved);
+  CHECK(out.target.drew("BATTLESHIP"));
+  CHECK(out.target.drew("CONTINUE"));
+  CHECK(out.target.drew("14 SHOTS, 2 SUNK"));
+  CHECK(out.target.drew("PLAY NEARBY"));
+  // The record is one line, not three rows.
+  CHECK(out.target.drew("12 PLAYED   7 WON   STREAK 3"));
+
+  const FakeTarget::TextRun* nearby = out.target.find("PLAY NEARBY");
+  CHECK(nearby != nullptr);
+  if (nearby != nullptr) {
+    const fui::ActionEvent event =
+        out.tap(nearby->rect.x + nearby->rect.width / 2, nearby->rect.y + nearby->rect.height / 2);
+    CHECK(event.action == bshipui::ActionStartRow);
+    CHECK(bshipui::startRowAt(saved, event.value) == bshipui::StartRow::PlayNearby);
+  }
+}
+
+void testBattleshipCapsuleIsOnlyATriggerWhenItSaysSo() {
+  // The capsule does three jobs and the hit table has to agree with the label
+  // every time. Chess shipped a PLAY AGAIN that was dead on its edges; these
+  // assertions are that bug pinned for this app.
+  Rendered reporting;
+  bshipui::BoardModel model;
+  model.status = "MARIO FIRED AT C4";
+  buildBattleshipBoard(reporting, model);
+  const FakeTarget::TextRun* label = reporting.target.find("MARIO FIRED AT C4");
+  CHECK(label != nullptr);
+  if (label != nullptr) {
+    const fui::ActionEvent event =
+        reporting.tap(label->rect.x + label->rect.width / 2, label->rect.y + label->rect.height / 2);
+    CHECK(event.action == fui::NO_ACTION);
+  }
+
+  Rendered armed;
+  bshipui::BoardModel aiming;
+  aiming.status = "FIRE AT C4";
+  aiming.canFire = true;
+  buildBattleshipBoard(armed, aiming);
+  const FakeTarget::TextRun* fire = armed.target.find("FIRE AT C4");
+  CHECK(fire != nullptr);
+  if (fire != nullptr) {
+    CHECK(armed.tap(fire->rect.x + fire->rect.width / 2, fire->rect.y + fire->rect.height / 2).action ==
+          bshipui::ActionFire);
+    // Both edges, because a capsule painted wider than it hit-tests is exactly
+    // how this went wrong before.
+    CHECK(armed.tap(fire->rect.x + 2, fire->rect.y + fire->rect.height / 2).action == bshipui::ActionFire);
+    CHECK(armed.tap(fire->rect.right() - 2, fire->rect.y + fire->rect.height / 2).action == bshipui::ActionFire);
+  }
+
+  Rendered finished;
+  bshipui::BoardModel over;
+  over.status = "PLAY AGAIN";
+  over.gameOver = true;
+  buildBattleshipBoard(finished, over);
+  const FakeTarget::TextRun* again = finished.target.find("PLAY AGAIN");
+  CHECK(again != nullptr);
+  if (again != nullptr) {
+    CHECK(finished.tap(again->rect.x + again->rect.width / 2, again->rect.y + again->rect.height / 2).action ==
+          bshipui::ActionPlayAgain);
+  }
+}
+
+void testBattleshipPlacementControls() {
+  Rendered out;
+  bshipui::PlaceModel model;
+  model.status = "TAP A SHIP TO MOVE IT";
+  buildBattleshipPlace(out, model);
+  // "PLACE YOUR FLEET" came out of the band as "PLACE YOUR FLEE" on the device:
+  // the display cut is wide and the header does not shrink to fit.
+  CHECK(out.target.drew("YOUR FLEET"));
+  CHECK(out.target.drew("TAP A SHIP TO MOVE IT"));
+  CHECK(out.target.drew("SHUFFLE"));
+  CHECK(out.target.drew("READY"));
+
+  const FakeTarget::TextRun* shuffle = out.target.find("SHUFFLE");
+  const FakeTarget::TextRun* ready = out.target.find("READY");
+  CHECK(shuffle != nullptr && ready != nullptr);
+  if (shuffle != nullptr && ready != nullptr) {
+    // Two controls side by side, so the risk is one swallowing the other's
+    // half of the footer. Each is checked at both its edges.
+    CHECK(out.tap(shuffle->rect.x + 2, shuffle->rect.y + shuffle->rect.height / 2).action == bshipui::ActionShuffle);
+    CHECK(out.tap(shuffle->rect.right() - 2, shuffle->rect.y + shuffle->rect.height / 2).action ==
+          bshipui::ActionShuffle);
+    CHECK(out.tap(ready->rect.x + 2, ready->rect.y + ready->rect.height / 2).action == bshipui::ActionReady);
+    CHECK(out.tap(ready->rect.right() - 2, ready->rect.y + ready->rect.height / 2).action == bshipui::ActionReady);
+    CHECK(shuffle->rect.right() < ready->rect.x);
+  }
+
+  // Waiting for the other device: the buttons stay where they are and stop
+  // working, rather than vanishing and moving the grid.
+  Rendered waiting;
+  bshipui::PlaceModel sent;
+  sent.status = "WAITING FOR MARIO";
+  sent.canEdit = false;
+  buildBattleshipPlace(waiting, sent);
+  CHECK(waiting.target.drew("SHUFFLE"));
+  CHECK(waiting.target.drew("READY"));
+  const FakeTarget::TextRun* inert = waiting.target.find("READY");
+  CHECK(inert != nullptr);
+  if (inert != nullptr) {
+    CHECK(waiting.tap(inert->rect.x + inert->rect.width / 2, inert->rect.y + inert->rect.height / 2).action ==
+          fui::NO_ACTION);
+  }
+}
+
+// --- a shelf folder --------------------------------------------------------
+
+void buildShelf(Rendered& out, const shelfui::MenuModel& model) {
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, device(), noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  shelfui::buildMenu(screen, model);
+}
+
+void testShelfFolderDrawsItsOwnNameAndRows() {
+  fui::ListItem items[4] = {};
+  const char* titles[4] = {"CHESS", "BATTLESHIP", "CONNECTIONS", "SOLITAIRE"};
+  for (int i = 0; i < 4; ++i) {
+    items[i].label = titles[i];
+    items[i].actionValue = static_cast<int16_t>(i);
+  }
+
+  shelfui::MenuModel model;
+  // One builder draws every folder, so the title is data, not a literal. If it
+  // were hardcoded again the APPS folder would call itself GAMES.
+  model.title = "GAMES";
+  model.items = items;
+  model.count = 4;
+  model.playerName = "STORMY LYNX";
+
+  Rendered menu;
+  buildShelf(menu, model);
+  CHECK(menu.target.drew("GAMES"));
+  CHECK(menu.target.drew("CHESS"));
+  CHECK(menu.target.drew("SOLITAIRE"));
+  CHECK(menu.target.drew("STORMY LYNX"));
+  CHECK(!menu.interactions.overflowed());
+
+  const int firstRowY = toybox::kHeaderHeight + toybox::kGutter * 3 + toybox::kRowHeight / 2;
+  const fui::ActionEvent first = menu.tap(240, firstRowY);
+  CHECK(first.action == shelfui::ActionOpen);
+  CHECK(first.value == 0);
+
+  // The same builder, a different folder. Asserting the name changed is the
+  // only thing standing between one builder and a hardcoded header.
+  shelfui::MenuModel apps = model;
+  apps.title = "APPS";
+  Rendered other;
+  buildShelf(other, apps);
+  CHECK(other.target.drew("APPS"));
+  CHECK(!other.target.drew("GAMES"));
+}
+
+void testAFolderWithoutADeviceNameHasNoFooter() {
+  fui::ListItem items[1] = {};
+  items[0].label = "STUDY";
+
+  shelfui::MenuModel model;
+  model.title = "APPS";
+  model.items = items;
+  model.count = 1;
+  // APPS does not show the device name: it exists for playing against somebody
+  // in the room, and here it would be a word with no job.
+  model.playerName = nullptr;
+
+  Rendered menu;
+  buildShelf(menu, model);
+  CHECK(menu.target.drew("STUDY"));
+  CHECK(!menu.target.drew("STORMY LYNX"));
+
+  // Not drawing the name is not enough: the control must not be there at all.
+  // A footer built from a null label draws nothing visible, so an assertion on
+  // the text alone passes while an invisible reroll button sits at the bottom
+  // of the screen waiting to be pressed. Tap where it would be.
+  const int footerY = 800 - toybox::kMargin - toybox::kPillHeight / 2;
+  CHECK(menu.tap(240, footerY).action != shelfui::ActionRerollName);
+
+  // The footer is not just hidden, its space is returned to the list. A folder
+  // that reserved room for a control it never draws is dead space, and the list
+  // would think it had one row less than it does.
+  const fui::Rect withName = shelfui::listBand(device(), true);
+  const fui::Rect without = shelfui::listBand(device(), false);
+  CHECK(without.height > withName.height);
+  CHECK(without.height - withName.height == toybox::kPillHeight + toybox::kGutter);
+}
+
 }  // namespace
 
 int main() {
@@ -462,6 +777,13 @@ int main() {
   testSettingsScreen();
   testSettingsRouting();
   testBoardChrome();
+  testConnectionsLostBoard();
+  testConnectionsWonBoard();
+  testBattleshipStartMenu();
+  testBattleshipCapsuleIsOnlyATriggerWhenItSaysSo();
+  testBattleshipPlacementControls();
+  testShelfFolderDrawsItsOwnNameAndRows();
+  testAFolderWithoutADeviceNameHasNoFooter();
 
   std::printf("%d checks, %d failed\n", checksRun, checksFailed);
   return checksFailed == 0 ? 0 : 1;
