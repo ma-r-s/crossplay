@@ -1161,6 +1161,9 @@ void ChessActivity::gameRender() {
   chessui::BoardModel chrome;
   chrome.status = statusText();
   chrome.gameOver = gameOver;
+  // Only in a match. The engine has no face, and inMatch() is what the layer
+  // already uses everywhere else to mean "there is somebody there".
+  chrome.theirName = inMatch() ? opponentName() : nullptr;
   // Everything the SDK can own: the header band, the status capsule, and the
   // rect left over. The board itself is drawn into that rect below, which is
   // the split FreeInkUI documents for app-specific surfaces.

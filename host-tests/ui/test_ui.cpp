@@ -1154,8 +1154,7 @@ void testABoardShowsWhoYouArePlaying() {
     // how much is the component's business rather than this test's.
     CHECK(soloLabel->rect.width > label->rect.width);
     CHECK(soloLabel->rect.x < label->rect.x);
-    CHECK(soloLabel->rect.width - label->rect.width ==
-          player::avatarPixels(player::AvatarSize::Row) + toybox::kGutter);
+    CHECK(soloLabel->rect.width - label->rect.width == player::avatarPixels(player::AvatarSize::Row) + toybox::kGutter);
   }
 
   // Battleship takes the identical treatment from the identical helper.

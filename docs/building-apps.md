@@ -340,6 +340,33 @@ band's foreground, so a black-on-black title simply disappears. Both are set in
 `ToyboxTheme.h`; the lesson is to diff a ported screen against a screenshot of
 the old one rather than trusting that tokens reached it.
 
+**A style set to `FONT_SLOT_SMALL` reads as no style at all.** The slot is
+`0`, and `textStyleUnset()` calls a style unset when its font is 0 and every
+other field is default -- so `Screen::list()` helpfully puts the theme's style
+back and your small label returns at full size. It looks exactly like the
+assignment never happened. Name one more field (the alignment the component is
+going to apply anyway) and the style is treated as owned.
+
+**`HeaderProps::rightLabel` is drawn with `subtitleText`, not `trailingText`.**
+`trailingText` belongs to the trailing *button*. On Toybox's solid black band a
+subtitle left at the theme default is black on black, so the label is invisible
+and indistinguishable from never having been set: the Hacker News page
+indicator was missing through two renders that way. Same defect as the
+black-on-black header title, one prop over.
+
+**A list row's title band is one line tall the moment it has a subtitle.** With
+`labelText.maxLines = 2` and a subtitle, the second line of the label is drawn
+straight through the subtitle underneath it. The component supports a wrapping
+label *or* a subtitle, never both; put the secondary value in the `value` slot
+instead, which sits in the band beside the label.
+
+**A glyph the font does not have draws as nothing.** No box, no fallback, no
+log line. Toybox's face is subset to ASCII, so text from the web silently loses
+its curly quotes, en dashes and ellipses -- a real Hacker News comment rendered
+as "(Ive turned off duplicate detection...)" and only looking at the panel
+caught it. Fold typographic punctuation to ASCII before drawing anything that
+came from someone else's server; `hn::foldTypography` is the reference.
+
 **A light shape must be knocked out before it is stroked.** Drawing only an
 outline leaves the shape hollow and the surface beneath shows through. Fill with
 the page colour, then stroke.
@@ -549,6 +576,19 @@ Rules that are worth knowing:
   pure function of `LinkModel::theirName` and no byte was added to the protocol
   for it. Before widening a packet, check whether the answer is already in the
   name.
+- **Show the opponent's face during the match, not only while pairing.**
+  `linkui::withOpponentFace()` takes the left of a status band, draws them, and
+  returns what is left for the capsule. Both link games call it, so neither can
+  place it differently. The first version showed faces only on the shared
+  pairing screen, which meant the person you were playing disappeared the moment
+  you started playing them.
+- **A label and the thing it draws are not always the same string.** The link
+  seats are labelled "YOU" and drawn from your *name*, and the first version
+  derived the face from the label -- so every player saw a blank head in their
+  own seat, because "YOU" parses to no words. Nothing failed and nothing logged.
+  The test had passed a real name into the label, which is the shape of the
+  mistake: a fixture more convenient than the real caller stops testing the real
+  caller.
 - **Put a name in a sentence with `player::shortName()`, never whole.** A name is
   three words and up to twenty characters. "SHAGGY SLEEPY GOATEE'S MOVE" ran past
   chess's status capsule and the component dropped _"MOVE"_ -- the word carrying

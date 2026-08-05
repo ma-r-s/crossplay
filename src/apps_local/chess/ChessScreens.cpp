@@ -156,7 +156,7 @@ fui::Rect buildBoardChrome(toybox::Screen& screen, const BoardModel& model) {
   // there is no tappable region to drift out of step with the label.
   status.action = model.gameOver ? ActionPlayAgain : fui::NO_ACTION;
   status.borderEdges = fui::EdgesNone;
-  screen.button(status, screen.takeBottom(toybox::kPillHeight));
+  screen.button(status, linkui::withOpponentFace(screen, screen.takeBottom(toybox::kPillHeight), model.theirName));
 
   return screen.body();
 }

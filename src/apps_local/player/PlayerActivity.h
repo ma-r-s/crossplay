@@ -15,8 +15,7 @@
 
 class PlayerActivity final : public Activity {
  public:
-  PlayerActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
-      : Activity("Player", renderer, mappedInput) {}
+  PlayerActivity(GfxRenderer& renderer, MappedInputManager& mappedInput) : Activity("Player", renderer, mappedInput) {}
   ~PlayerActivity() override = default;
 
   static std::unique_ptr<Activity> create(GfxRenderer& renderer, MappedInputManager& mappedInput);

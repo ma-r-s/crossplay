@@ -76,6 +76,9 @@ struct BoardModel {
   // A cell is aimed and it is your turn, so the capsule is armed.
   bool canFire = false;
   bool gameOver = false;
+  // Who you are playing, or null against the computer. Same treatment as
+  // chess's, from the same shared helper, so the two games place it identically.
+  const char* theirName = nullptr;
 };
 
 fui::Rect buildBoardChrome(toybox::Screen& screen, const BoardModel& model);

@@ -57,8 +57,17 @@ struct LinkModel {
   // CHECKMATE, MARIO LEFT. The game owns this sentence because only the game
   // knows how its own match ended.
   const char* headline = "";
+  // What your seat is labelled, which is "YOU" rather than your name: on a
+  // screen with exactly two rows, naming yourself is a riddle and naming the
+  // other person is the information.
   const char* yourName = "";
-  // Empty until somebody is found; the seat draws as vacant.
+  // ...but the face still has to come from somewhere, and a face is a pure
+  // function of a *name*. Passing the label was the first version and it drew
+  // every player a blank head, because "YOU" parses to no words at all. The two
+  // fields exist because the seat says one thing and draws another.
+  const char* yourFaceName = "";
+  // Empty until somebody is found; the seat draws as vacant, label and face
+  // both.
   const char* theirName = "";
   SeatState you = SeatState::Ready;
   SeatState them = SeatState::Looking;
@@ -85,6 +94,23 @@ const freeink::Icon& nearbyMark();
 // What a seat's right-hand column reads. Split out because it is the only text
 // on the screen that changes with state, so it is worth asserting directly.
 const char* seatValue(SeatState state, bool linked);
+
+// Puts the opponent's face at the left of `band` and returns what is left of it.
+//
+// For the status band at the bottom of a board, which is where a game says
+// whose move it is. Faces used to appear only while pairing, so the person you
+// were playing vanished the moment you started playing them -- which is exactly
+// backwards, since the whole point of a face is knowing who is on the other
+// end. The capsule already names them; this is the same thought, drawn.
+//
+// Shared rather than copied into each game for the reason every screen in this
+// directory is shared: two games that placed it differently would look like two
+// devices. A null or empty name returns `band` untouched, which is what solo
+// play against the engine gets -- there is nobody to show.
+//
+// Drawn in ink: the band is page background, and the capsule that follows is
+// the black thing. Check what is behind a mark before you pick its colour.
+fui::Rect withOpponentFace(toybox::Screen& screen, const fui::Rect& band, const char* theirName);
 
 // Draws the screen and returns the rect left below the seats, for the game to
 // draw into. On the rematch screen that is where the position you have just
