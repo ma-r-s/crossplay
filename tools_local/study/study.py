@@ -168,8 +168,9 @@ def choose(prompt, options, describe=str):
 def run(script, *args):
     """Run one of the single-purpose tools, showing what it printed."""
     interpreter = sys.executable
-    # make_fonts needs the venv (fonttools, freetype-py); the others do not.
-    if script == "make_fonts.py":
+    # make_fonts needs fonttools and freetype-py, make_images needs pillow; the
+    # rest are plain Python and run under whatever launched this.
+    if script in ("make_fonts.py", "make_images.py"):
         venv = REPO / ".venv-study/bin/python"
         if not venv.exists():
             die(
@@ -271,6 +272,13 @@ def cmd_setup(args):
             )
         run("check_deck.py", deck_dir, "--fonts", font_dir)
 
+    # The photographs. 290 of Mario's 301 cards carry one and the card offers it
+    # on a tap, so a deck without them is a quieter deck than the same cards in
+    # Anki. Cheap next to the fonts: about 4MB against 32.
+    print(f"\nPacking sentence photographs -> {deck_dir / 'images.dat'}")
+    if not run("make_images.py", "--collection", collection, "--out", deck_dir):
+        print("  (none packed -- the cards still work, without pictures)")
+
     config.update(
         {"collection": str(collection), "deck": deck, "name": name, "card": str(target)}
     )
@@ -317,6 +325,9 @@ def cmd_sync(args):
             "--out",
             deck_dir,
         )
+        # The image index is keyed to the deck's own card order, so it has to be
+        # rebuilt whenever the deck is.
+        run("make_images.py", "--collection", collection, "--out", deck_dir)
     return 0
 
 
