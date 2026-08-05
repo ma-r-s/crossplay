@@ -27,6 +27,8 @@ c++ -std=c++17 -Wall -Wextra -Werror -I"$SDK/include" -I"$ICONS/include" \
   ../../src/apps_local/chess/ChessScreens.cpp \
   ../../src/apps_local/connections/ConnectionsCore.cpp \
   ../../src/apps_local/connections/ConnectionsScreens.cpp \
+  ../../src/apps_local/dungeon/DungeonCore.cpp \
+  ../../src/apps_local/dungeon/DungeonScreens.cpp \
   ../../src/apps_local/hackernews/HackerNewsScreens.cpp \
   ../../src/apps_local/insider/InsiderCore.cpp \
   ../../src/apps_local/insider/InsiderScreens.cpp \
