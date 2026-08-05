@@ -10,6 +10,7 @@
 #include "hackernews/HackerNewsActivity.h"
 #include "player/PlayerActivity.h"
 #include "solitaire/SolitaireActivity.h"
+#include "study/StudyActivity.h"
 #include "ui/ToyboxIcons.h"
 
 namespace {
@@ -24,6 +25,7 @@ constexpr shelf::Item kGames[] = {
     {"SOLITAIRE", &icon_solitaire_32, &SolitaireActivity::create},
 };
 constexpr shelf::Item kApps[] = {
+    {"STUDY", &icon_study_32, &StudyActivity::create},
     {"HACKER NEWS", &icon_hackernews_32, &HackerNewsActivity::create},
 };
 
