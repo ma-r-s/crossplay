@@ -26,7 +26,7 @@ class DungeonActivity final : public Activity {
   void render(RenderLock&&) override;
 
  private:
-  enum class View : uint8_t { Menu, Picker, Board, Won };
+  enum class View : uint8_t { Menu, Guide, Picker, Board, Won };
 
   void openPuzzle(int index);
   void settleWin();
@@ -52,6 +52,9 @@ class DungeonActivity final : public Activity {
   // Which tier the picker is showing. Kept across visits so choosing a dungeon,
   // playing it and coming back does not send you to tier 1 again.
   int pickerTier = 0;
+  // Which page of the adventurer's guide is showing. Not saved: the guide is
+  // short and always read from the front.
+  int guidePage = 0;
   bool interactionsReady = false;
   // Set on the frame a puzzle is finished, so it is recorded exactly once.
   bool recorded = false;

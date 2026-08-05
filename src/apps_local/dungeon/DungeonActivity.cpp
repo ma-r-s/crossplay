@@ -120,6 +120,30 @@ void DungeonActivity::routeButton(const int button) {
       view = View::Picker;
       requestUpdate();
       break;
+    case ui::ButtonGuide:
+      guidePage = 0;
+      view = View::Guide;
+      requestUpdate();
+      break;
+    case ui::ButtonGuideBack:
+      if (guidePage > 0) {
+        --guidePage;
+      } else {
+        view = View::Menu;
+      }
+      requestUpdate();
+      break;
+    case ui::ButtonGuideNext:
+      // Past the last page is the tutorial itself. The guide teaches the rules
+      // and then hands over the board they apply to, which is the whole reason
+      // the tutorial is not a cell on the map.
+      if (guidePage + 1 < ui::guidePageCount()) {
+        ++guidePage;
+        requestUpdate();
+      } else {
+        openPuzzle(0);
+      }
+      break;
     case ui::ButtonReset:
       board.reset();
       unsaved = 1;
@@ -147,6 +171,9 @@ void DungeonActivity::loop() {
     } else if (view == View::Board) {
       flushSave();
       view = View::Menu;
+      requestUpdate();
+    } else if (view == View::Guide && guidePage > 0) {
+      --guidePage;
       requestUpdate();
     } else {
       view = View::Menu;
@@ -227,6 +254,13 @@ void DungeonActivity::render(RenderLock&&) {
       model.total = dungeon::kPuzzleCount;
       model.solved = board.solved();
       ui::buildBoard(screen, model, layout);
+      break;
+    }
+    case View::Guide: {
+      ui::GuideModel model;
+      model.page = guidePage;
+      model.pageCount = ui::guidePageCount();
+      ui::buildGuide(screen, model);
       break;
     }
     case View::Picker: {

@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "../../src/apps_local/dungeon/DungeonCore.h"
+#include "../../src/apps_local/dungeon/DungeonScreens.h"
 
 namespace {
 
@@ -36,9 +37,7 @@ void check(const bool condition, const char* what, const int line) {
 
 using Cell = std::pair<int, int>;
 
-bool bitAt(const uint64_t mask, const int row, const int col) {
-  return (mask & (uint64_t{1} << (row * 8 + col))) != 0;
-}
+bool bitAt(const uint64_t mask, const int row, const int col) { return (mask & (uint64_t{1} << (row * 8 + col))) != 0; }
 
 // ---------------------------------------------------------------------------
 // The oracle: the five rules, written out longhand.
@@ -423,6 +422,44 @@ void testRestoreRejectsNonsense() {
   CHECK(board.index() == 0);
 }
 
+// The adventurer's guide teaches on the tutorial's own board, one step at a
+// time. That is only true if every page is a position on the way to the real
+// answer, so: no page may place a wall the solution does not have, each page
+// must have at least as many as the one before, and the last page must be the
+// solution exactly.
+//
+// Without this a page is just eight hand-typed strings, and a typo would teach
+// a board that does not exist -- which the player then cannot reproduce, with
+// nothing anywhere to say why.
+void testGuideTeachesTheRealPuzzle() {
+  const dungeon::Puzzle& tutorial = dungeon::kPuzzles[0];
+  const int pages = dungeonui::guidePageCount();
+  CHECK(pages > 1);
+
+  uint64_t previous = 0;
+  for (int page = 0; page < pages; ++page) {
+    uint64_t walls = 0;
+    CHECK(dungeonui::guidePageWalls(page, walls));
+    // Every wall shown is a wall of the answer.
+    CHECK((walls & ~tutorial.walls) == 0);
+    // Nothing is ever taken away as the guide goes on.
+    CHECK((previous & ~walls) == 0);
+    previous = walls;
+  }
+
+  uint64_t last = 0;
+  CHECK(dungeonui::guidePageWalls(pages - 1, last));
+  CHECK(last == tutorial.walls);
+
+  uint64_t first = 0;
+  CHECK(dungeonui::guidePageWalls(0, first));
+  CHECK(first == 0);  // the guide opens on an empty board
+
+  uint64_t ignored = 0;
+  CHECK(!dungeonui::guidePageWalls(-1, ignored));
+  CHECK(!dungeonui::guidePageWalls(pages, ignored));
+}
+
 void testProgress() {
   dungeon::Progress progress;
   CHECK(progress.solvedCount() == 0);
@@ -466,6 +503,7 @@ int main() {
   testFixedCellsRefuse();
   testPlayEveryPuzzle();
   testSatisfiedMeansExactly();
+  testGuideTeachesTheRealPuzzle();
   testRestoreRoundTrip();
   testRestoreRejectsNonsense();
   testProgress();
