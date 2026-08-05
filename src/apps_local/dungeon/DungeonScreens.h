@@ -24,7 +24,6 @@ enum : fui::ActionId {
 
 enum Button : int {
   ButtonPlay = 0,
-  ButtonChoose = 1,
   ButtonReset = 2,
   ButtonMenu = 3,
   ButtonNext = 4,
@@ -56,6 +55,9 @@ struct BoardModel {
 
 struct MenuModel {
   const char* dungeonName = "";
+  // The dungeon PLAY would open, so the menu can show its board, its number and
+  // its creature rather than only its name.
+  int nextIndex = 0;
   int solvedCount = 0;
   int total = 0;
   bool hasProgress = false;
@@ -66,7 +68,7 @@ struct MenuModel {
   const dungeon::Progress* progress = nullptr;
 };
 
-// Where the picker drew the campaign grid, for the variants that have one.
+// Where the menu drew the campaign grid.
 // Same discipline as the board's Layout: filled while drawing, read to resolve
 // a tap, so the hit region cannot drift from the pixels. Sixty-five separate
 // hit rects would not fit the interaction buffer anyway.
@@ -79,18 +81,6 @@ struct PickerLayout {
 
   // The dungeon index under logical (x, y), or -1.
   int indexAt(int x, int y) const;
-};
-
-struct PickerModel {
-  // The dungeon in hand, ringed on the map.
-  int current = -1;
-  int solvedCount = 0;
-  int total = 0;
-  // The whole campaign: this screen shows all of it at once.
-  const dungeon::Progress* progress = nullptr;
-  // The dungeon PLAY would open, named at the foot of the screen so the map
-  // answers "where am I" as well as "where can I go".
-  int nextIndex = 0;
 };
 
 // The adventurer's guide: the rules, one at a time, each drawn rather than
@@ -118,13 +108,9 @@ struct WinModel {
 // The board. Fills `layout` as it draws.
 void buildBoard(toybox::Screen& screen, const BoardModel& model, Layout& layout);
 
-// The front door, following the pattern in docs/design-language.md.
-void buildMenu(toybox::Screen& screen, const MenuModel& model);
-
-// The map: every dungeon at once, a tier per row, laid out the way the
-// original arranges them. Fills `layout` as it draws, so a tap resolves through
-// the same geometry that placed the cells.
-void buildPicker(toybox::Screen& screen, const PickerModel& model, PickerLayout& layout);
+// The front door, following the pattern in docs/design-language.md. Fills
+// `layout` when the variant draws a tappable campaign grid.
+void buildMenu(toybox::Screen& screen, const MenuModel& model, PickerLayout& layout);
 
 // One page of the guide. Page pageCount - 1 offers the tutorial instead of a
 // next page.
