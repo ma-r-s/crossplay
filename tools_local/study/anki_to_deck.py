@@ -33,8 +33,24 @@ CARD_RECORD_SIZE = 32
 NUM_PARAMS = 19
 MAX_STEPS = 6
 
-# Card states, matching StudyCard::State on the device.
+# Card states, matching study::State on the device. Anki's `cards.type` uses
+# the same first four values, which is not a coincidence -- keeping them equal
+# is what lets a card round-trip without a translation table.
 STATE_NEW = 0
+STATE_LEARNING = 1
+STATE_REVIEW = 2
+STATE_RELEARNING = 3
+# Ours, with no Anki equivalent: a card Anki has suspended or buried. Kept in
+# the deck rather than dropped so note indices stay stable across reconversions,
+# and skipped by the device's queue.
+STATE_SUSPENDED = 4
+
+# Anki's `cards.queue`. Negative means the card is not schedulable.
+QUEUE_SUSPENDED = -1
+# Intraday learning: `due` is a unix timestamp, not a day number. Getting this
+# wrong imports a due date of "day 1751918952".
+QUEUE_LEARNING_INTRADAY = 1
+QUEUE_LEARNING_DAY = 3
 
 # Revlog `type` 3 is a filtered-deck review; Anki excludes those from memory
 # state. See StudyFsrs.h -- this is the same exclusion, applied at import.
@@ -245,7 +261,8 @@ def deck_config_for(db, deck_name):
 def collect_notes(db, deck_name, limit=None):
     like = deck_name.replace("::", "\x1f")
     rows = db.execute(
-        """select c.id, n.flds, nt.name, c.data, c.due, c.ivl, c.reps, c.lapses, c.type
+        """select c.id, n.flds, nt.name, c.data, c.due, c.ivl, c.reps, c.lapses, c.type,
+                  c.queue, c.left
            from cards c
            join notes n on n.id = c.nid
            join notetypes nt on nt.id = n.mid
@@ -257,6 +274,17 @@ def collect_notes(db, deck_name, limit=None):
     if limit:
         rows = rows[:limit]
 
+    # The real day of each card's last review. One query rather than one per
+    # card, and exact where `due - ivl` is only an approximation: Anki rewrites
+    # due dates when FSRS parameters are optimised, and a learning card's `due`
+    # is not a day at all.
+    crt = db.execute("select crt from col").fetchone()[0]
+    last_review = {}
+    for cid, ms in db.execute(
+        "select cid, max(id) from revlog where ease between 1 and 4 group by cid"
+    ):
+        last_review[cid] = (ms // 1000 - crt) // 86400
+
     # Field name -> ordinal, per note type.
     ordinals = {}
     for nt_name, ord_, f_name in db.execute(
@@ -265,7 +293,7 @@ def collect_notes(db, deck_name, limit=None):
         ordinals.setdefault(nt_name, {})[f_name] = ord_
 
     notes, skipped = [], 0
-    for cid, flds, nt_name, data, due, ivl, reps, lapses, ctype in rows:
+    for cid, flds, nt_name, data, due, ivl, reps, lapses, ctype, queue, left in rows:
         profile = PROFILES.get(nt_name)
         if not profile:
             skipped += 1
@@ -308,9 +336,12 @@ def collect_notes(db, deck_name, limit=None):
                 "difficulty": float(memory.get("d", 0.0)),
                 "due": due,
                 "ivl": ivl,
+                "ctype": ctype,
+                "queue": queue,
+                "left": left,
                 "reps": reps,
                 "lapses": lapses,
-                "ctype": ctype,
+                "lastReviewDay": last_review.get(cid, -1),
             }
         )
     return notes, skipped
@@ -346,24 +377,58 @@ def write_deck(notes, path):
     return len(blob)
 
 
-def write_cards(notes, path):
+def write_cards(notes, path, crt, rollover, learn_steps, relearn_steps):
     """Seed scheduling state from Anki, so the device resumes rather than restarts."""
+    day_zero = crt
+
     with open(path, "wb") as f:
         for note in notes:
-            learned = note["stability"] > 0.0
-            state = 2 if learned else STATE_NEW
-            # Anki stores a review card's due as a day number in its own
-            # numbering, which is the numbering we keep. A new card's due is a
-            # position in the new queue, not a day, so it is not carried over.
-            due_day = note["due"] if learned else 0
-            # Anki does not store "when was this last reviewed" on the card, but
-            # for a review card it is exactly due - ivl: the interval was
-            # counted forward from that day. Without this every card's first
-            # review on the device looks like a *same-day* review to FSRS, which
-            # takes the short-term stability path and inflates the interval --
-            # a card last seen forty days ago was being treated as one seen
-            # forty seconds ago.
-            last_day = (due_day - note["ivl"]) if (learned and note["ivl"] > 0) else -1
+            ctype = note["ctype"]
+            queue = note["queue"]
+
+            # A card Anki will not show must not be shown here either. Suspending
+            # a card in Anki and then meeting it on the device is the kind of
+            # divergence that makes a user stop trusting the sync.
+            if queue < 0:
+                state = STATE_SUSPENDED
+            elif ctype in (STATE_LEARNING, STATE_RELEARNING):
+                state = ctype
+            elif note["stability"] > 0.0:
+                state = STATE_REVIEW
+            else:
+                state = STATE_NEW
+
+            due_day, due_minute = 0, 0
+            if state in (STATE_LEARNING, STATE_RELEARNING):
+                # Anki stores an intraday learning card's due as a unix
+                # timestamp and a day-learning card's as a day number. Reading
+                # the first as the second produces a due date eight hundred
+                # thousand years out, which is exactly what happened: twelve
+                # relearning cards imported as garbage and the device offered
+                # 2 days where Anki offered 15 minutes.
+                if queue == QUEUE_LEARNING_INTRADAY or note["due"] > 10**9:
+                    seconds = note["due"] - day_zero
+                    due_day = max(0, seconds // 86400)
+                    due_minute = max(0, (seconds % 86400) // 60)
+                else:
+                    due_day = note["due"]
+            elif state == STATE_REVIEW:
+                due_day = note["due"]
+
+            # Where in the step list the card is sitting. Anki's `left` counts
+            # steps *remaining*, so the index is the list length minus that.
+            steps = relearn_steps if state == STATE_RELEARNING else learn_steps
+            step_index = 0
+            if state in (STATE_LEARNING, STATE_RELEARNING) and steps:
+                remaining = (note["left"] or 0) % 1000
+                step_index = max(0, min(len(steps) - 1, len(steps) - remaining))
+
+            # The real day of the last review, from the review log. Anki does
+            # not store it on the card, and the obvious substitute (due - ivl)
+            # is only correct for review cards -- for a learning card `due` is
+            # not even a day. Without it FSRS takes the same-day path for a card
+            # last seen a year ago and inflates every interval.
+            last_day = note["lastReviewDay"]
             f.write(
                 struct.pack(
                     "<qffiiHHBBH",
@@ -375,8 +440,8 @@ def write_cards(notes, path):
                     min(note["reps"], 0xFFFF),
                     min(note["lapses"], 0xFFFF),
                     state,
-                    0,
-                    0,
+                    step_index,
+                    due_minute,
                 )
             )
     assert path.stat().st_size == len(notes) * CARD_RECORD_SIZE
@@ -505,7 +570,14 @@ def main():
     args.out.mkdir(parents=True, exist_ok=True)
     name = args.name or args.deck.split("::")[-1]
     blob_size = write_deck(notes, args.out / "deck.dat")
-    write_cards(notes, args.out / "cards.dat")
+    write_cards(
+        notes,
+        args.out / "cards.dat",
+        crt,
+        rollover,
+        config.get("learnSteps") or [1.0, 10.0],
+        config.get("relearnSteps") or [10.0],
+    )
     write_meta(args.out / "meta.dat", name, config, crt, rollover)
     (args.out / "revlog.dat").touch()
     glyphs = write_glyphs(notes, args.out)
