@@ -244,8 +244,9 @@ void FrontlightPanelActivity::buildPanelScreen(UiApp::ScreenType& screen) {
   // non-overlapping hit band spanning the full row height.
   const fui::Rect headerRow = screen.takeTop(rowH, theme.spaceSm).inset(sideInset);
   snprintf(line, sizeof(line), "%s  %u%%", tr(STR_BRIGHTNESS), static_cast<unsigned>(brightness));
-  const fui::BitmapRef sunIcon = fui::bitmapFromIcon(icon_sun_32);
-  const fui::BitmapRef moonIcon = fui::bitmapFromIcon(icon_moon_32);
+  // Filled glyphs signal the active state: solid sun = light on, solid moon = inverted.
+  const fui::BitmapRef sunIcon = fui::bitmapFromIcon(lightOn ? icon_sun_filled_32 : icon_sun_32);
+  const fui::BitmapRef moonIcon = fui::bitmapFromIcon(inverted ? icon_moon_filled_32 : icon_moon_32);
   const int16_t iconW = static_cast<int16_t>(sunIcon.width);
   const int16_t iconH = static_cast<int16_t>(sunIcon.height);
   const int16_t controlW = static_cast<int16_t>(iconW + theme.spaceLg * 2);
