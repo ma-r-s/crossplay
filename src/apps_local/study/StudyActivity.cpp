@@ -241,6 +241,7 @@ void StudyActivity::buildQueue() {
       probe.state = record[28];
       probe.dueMinute = static_cast<uint16_t>(record[30] | (record[31] << 8));
 
+      if (probe.state == static_cast<uint8_t>(study::State::Suspended)) continue;
       if (probe.state == static_cast<uint8_t>(study::State::New)) {
         ++newSeen;
         continue;
@@ -273,6 +274,7 @@ void StudyActivity::buildQueue() {
         probe.state = record[28];
         probe.dueMinute = static_cast<uint16_t>(record[30] | (record[31] << 8));
 
+        if (probe.state == static_cast<uint8_t>(study::State::Suspended)) continue;
         const bool isNew = probe.state == static_cast<uint8_t>(study::State::New);
         if (pass == 0 && (isNew || !study::Scheduler::isDue(probe, today_, minute))) continue;
         if (pass == 1 && !isNew) continue;

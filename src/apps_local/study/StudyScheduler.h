@@ -34,6 +34,11 @@ enum class State : uint8_t {
   Learning = 1,
   Review = 2,
   Relearning = 3,
+  // Ours, with no Anki equivalent: a card Anki has suspended or buried. Kept
+  // in the deck rather than dropped so note indices stay stable across
+  // reconversions, and never shown. Meeting a card here that Anki has
+  // suspended is the kind of divergence that makes the sync untrustworthy.
+  Suspended = 4,
 };
 
 struct Steps {

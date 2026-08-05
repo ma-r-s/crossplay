@@ -115,6 +115,16 @@ void testLapseGoesToRelearning() {
   const study::Outcome stuck = sched.answer(again.card, study::Rating::Again, kToday, kNoon + 10);
   check(stuck.card.state == static_cast<uint8_t>(study::State::Relearning), "relearn + Again stays Relearning");
   check(stuck.delayMinutes == 10, "relearn + Again repeats the step");
+
+  // Hard inside a step list sits between this step and the next, or at 1.5x
+  // when there is no next one. Mario's single 10-minute relearning step is the
+  // second case, and Anki prints 15m for it.
+  const study::Outcome hard = sched.answer(again.card, study::Rating::Hard, kToday, kNoon + 10);
+  check(hard.delayMinutes == 15, "Hard on the last relearn step is 1.5x the step");
+
+  // With two learning steps of 1m and 10m, Hard on the first is the midpoint.
+  const study::Outcome newHard = sched.answer(newCard(), study::Rating::Hard, kToday, kNoon);
+  check(newHard.delayMinutes == 6, "Hard on a step with a successor is the midpoint");
 }
 
 void testElapsedDaysReachFsrs() {
@@ -184,6 +194,14 @@ void testDueness() {
   check(!study::Scheduler::isDue(review, kToday - 1, 1439), "a future review card is not due");
 
   check(study::Scheduler::isDue(newCard(), 0, 0), "a new card is always available");
+
+  // A card Anki has suspended is never due, whatever its dates say. Meeting
+  // one here that the phone has suspended is the divergence that makes a user
+  // stop trusting the sync.
+  study::CardState suspended = matureCard();
+  suspended.state = static_cast<uint8_t>(study::State::Suspended);
+  suspended.dueDay = 0;  // long overdue, and still must not appear
+  check(!study::Scheduler::isDue(suspended, kToday, kNoon), "a suspended card is never due");
 }
 
 void testStepDelaysCrossMidnight() {

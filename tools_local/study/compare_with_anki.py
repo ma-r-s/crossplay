@@ -30,7 +30,11 @@ import time
 # Anki writes "10m", "1.2mo", "3.05y", sometimes with a leading "<" for
 # intraday steps. Normalise both sides to (value, unit) before comparing so a
 # difference in rounding style is not reported as a scheduling difference.
-LABEL = re.compile(r"[<≈~]?\s*([0-9]*\.?[0-9]+)\s*(s|m|h|d|mo|y)")
+# "mo" must precede "m": regex alternation is ordered, so (s|m|h|d|mo|y) reads
+# "12mo" as twelve *minutes* and silently turns a year into nothing. That bug
+# sat in this file through three rounds of measurement and made a scheduler
+# that agreed with Anki look like one that disagreed wildly.
+LABEL = re.compile(r"[<≈~]?\s*([0-9]*\.?[0-9]+)\s*(mo|s|m|h|d|y)")
 
 
 # Anki wraps numbers in Unicode directional isolates (U+2068/U+2069) so that
@@ -56,6 +60,52 @@ def parse_label(text):
         "y": 1440 * 365,
     }[unit]
     return value * factor
+
+
+def fuzz_delta(days):
+    """Anki's interval fuzz envelope, in days.
+
+    Anki deliberately randomises every interval so cards answered on the same
+    day do not come back on the same day forever. The device does not, so it
+    lands on the un-fuzzed centre and individual cards differ -- exactly as two
+    Anki installs would differ from each other. Measuring against this envelope
+    separates "we disagree about the model" from "Anki rolled a dice".
+
+    Mirrors rslib's fuzz_delta: no fuzz under 2.5 days, then a day of base
+    spread plus a tapering fraction of the interval.
+    """
+    if days < 2.5:
+        return 0.0
+    delta = 1.0
+    delta += 0.15 * (min(days, 7.0) - 2.5)
+    if days > 7.0:
+        delta += 0.10 * (min(days, 20.0) - 7.0)
+    if days > 20.0:
+        delta += 0.05 * (days - 20.0)
+    return delta
+
+
+def self_test():
+    """Prove the parser before trusting anything it says.
+
+    Both bugs this file has had were in the parsing, not the schedulers, and
+    both made agreement look like catastrophic disagreement. Ten assertions is
+    a cheap price for never reporting that again.
+    """
+    cases = [
+        ("\u206812\u2069mo", 12 * 30.4 * 1440),
+        ("\u20681\u2069mo", 30.4 * 1440),
+        ("<\u206810\u2069m", 10),
+        ("\u206830\u2069d", 30 * 1440),
+        ("\u20684.8\u2069mo", 4.8 * 30.4 * 1440),
+        ("1.0y", 365 * 1440),
+        ("15m", 15),
+        ("2h", 120),
+    ]
+    for text, expected in cases:
+        got = parse_label(text)
+        if got is None or abs(got - expected) > 0.5:
+            sys.exit(f"parser self-test failed: {text!r} -> {got}, expected {expected}")
 
 
 def build_dumper(repo_root):
@@ -117,6 +167,7 @@ def main():
     )
     args = ap.parse_args()
 
+    self_test()
     repo_root = pathlib.Path(__file__).resolve().parents[2]
     expected, today = anki_labels(args.collection, args.deck, args.limit)
     if not expected:
@@ -140,8 +191,9 @@ def main():
             device[int(parts[0])] = parts[1:]
 
     names = ["Again", "Hard", "Good", "Easy"]
-    compared = agreed = 0
+    compared = agreed = within_fuzz = 0
     mismatches = []
+    outliers = []
     for card_id, want in expected.items():
         got = device.get(card_id)
         if got is None:
@@ -159,19 +211,41 @@ def main():
             mismatches.append((card_id, bad))
         else:
             agreed += 1
+        # Separately: would Anki's own fuzz explain every difference on this
+        # card? If so the two schedulers agree and only the dice differ.
+        explained = True
+        for i in range(4):
+            a, b = parse_label(want[i]), parse_label(got[i])
+            if a is None or b is None:
+                explained = False
+                continue
+            ad, bd = a / 1440.0, b / 1440.0
+            if abs(ad - bd) > fuzz_delta(max(ad, bd)) + 0.02:
+                explained = False
+        if explained:
+            within_fuzz += 1
+        else:
+            for i in range(4):
+                a, b = parse_label(want[i]), parse_label(got[i])
+                if a is None or b is None:
+                    continue
+                ad, bd = a / 1440.0, b / 1440.0
+                gap = abs(ad - bd) - fuzz_delta(max(ad, bd))
+                if gap > 0.02:
+                    outliers.append((gap, names[i], card_id, ad, bd))
 
     print(f"compared {compared} cards Anki has queued right now")
     print(f"  identical on all four buttons: {agreed}")
-    print(f"  differing:                     {len(mismatches)}")
-    if mismatches:
-        print()
-        for card_id, bad in mismatches[:15]:
-            print(f"  card {card_id}")
-            for line in bad:
-                print(f"    {line}")
-        if len(mismatches) > 15:
-            print(f"  ... and {len(mismatches) - 15} more")
-    return 0 if not mismatches else 1
+    print(f"  within Anki's own fuzz range:  {within_fuzz}")
+    print(f"  outside it:                    {compared - within_fuzz}")
+    if outliers:
+        outliers.sort(reverse=True)
+        print("\n  differences Anki's fuzz cannot explain, worst first:")
+        for gap, name, card_id, a, b in outliers[:12]:
+            print(f"    {name:5} card {card_id}: anki {a:.1f}d  device {b:.1f}d  ({gap:+.1f}d beyond fuzz)")
+        if len(outliers) > 12:
+            print(f"    ... and {len(outliers) - 12} more")
+    return 0 if not outliers else 1
 
 
 if __name__ == "__main__":

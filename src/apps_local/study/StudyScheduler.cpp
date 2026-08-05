@@ -15,6 +15,20 @@ int stepMinutes(const float* steps, const uint8_t count, const int index) {
   return minutes < 1 ? 1 : minutes;
 }
 
+// Hard inside a step list is not the step itself. Anki puts it halfway to the
+// next step, or at one and a half times the step when there is no next one --
+// so a single 10-minute relearning step gives Hard 15 minutes, which is what
+// the desktop prints. Without this the device offered 10m where Anki offered
+// 15m on every relearning card, the last systematic difference between them.
+int hardStepMinutes(const float* steps, const uint8_t count, const int index) {
+  if (count == 0) return 0;
+  const int clamped = index < 0 ? 0 : (index >= count ? count - 1 : index);
+  const float current = steps[clamped];
+  const float delay = (clamped + 1 < count) ? (current + steps[clamped + 1]) / 2.0f : current * 1.5f;
+  const int minutes = static_cast<int>(delay + 0.5f);
+  return minutes < 1 ? 1 : minutes;
+}
+
 }  // namespace
 
 Steps Steps::defaults() {
@@ -31,6 +45,7 @@ Steps Steps::defaults() {
 
 bool Scheduler::isDue(const CardState& card, const int today, const int nowMinute) {
   const State state = static_cast<State>(card.state);
+  if (state == State::Suspended) return false;
   if (state == State::New) return true;
   if (state == State::Learning || state == State::Relearning) {
     // A learning card carries a minute-of-day as well as a day, because "come
@@ -104,7 +119,8 @@ Outcome Scheduler::answer(const CardState& card, const Rating rating, const int 
 
   out.card.state = static_cast<uint8_t>((wasReview || inRelearn) ? State::Relearning : State::Learning);
   out.card.stepIndex = static_cast<uint8_t>(nextStep);
-  out.delayMinutes = stepMinutes(list, count, nextStep);
+  out.delayMinutes =
+      (rating == Rating::Hard) ? hardStepMinutes(list, count, nextStep) : stepMinutes(list, count, nextStep);
 
   const int dueAt = nowMinute + out.delayMinutes;
   out.card.dueDay = today + dueAt / kMinutesPerDay;
