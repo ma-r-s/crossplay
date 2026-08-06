@@ -832,25 +832,35 @@ void buildAccuse(toybox::Screen& screen, const AccuseModel& model) {
   const fui::Rect body = screen.body();
   auto& target = screen.target();
 
-  const int16_t lh = 34;
+  // Two per row, not four. Four across gives each name 107px, and THE
+  // APOTHECARY and DAME ROOKWOOD do not fit in that -- they were ellipsised,
+  // on the one screen in the game where you have to be certain which person
+  // you are naming. Two across gives 220px, which the longest name in the
+  // table clears, and it fills a screen that was otherwise two thirds empty.
+  const int16_t rowH = 40;
+  const int16_t gap = 8;
+  const int16_t cellW = static_cast<int16_t>((body.width - gap) / 2);
+  const int16_t labelH = static_cast<int16_t>(target.lineHeight(toybox::kTileFont) + 4);
   int16_t y = body.y;
+
   for (int cat = 0; cat < puzzle.shape.cats; ++cat) {
-    target.text(fui::makeRect(body.x, y, body.width, 20), murdletext::categoryName(cat),
+    target.text(fui::makeRect(body.x, y, body.width, labelH), murdletext::categoryName(cat),
                 styled(toybox::kTileFont, fui::TextAlign::Left));
-    y = static_cast<int16_t>(y + 22);
-    const int16_t cellW = static_cast<int16_t>((body.width - 6 * (puzzle.shape.items - 1)) / puzzle.shape.items);
+    y = static_cast<int16_t>(y + labelH);
     for (int i = 0; i < puzzle.shape.items; ++i) {
       const bool picked = model.picks[cat] == i;
       fui::ButtonProps pick;
       pick.label = murdletext::label(puzzle, cat, i);
       pick.action = ActionPick;
-      pick.value = cat * 8 + i;
+      pick.value = static_cast<int16_t>(cat * 8 + i);
       pick.text = styled(toybox::kTileFont, fui::TextAlign::Center, picked ? fui::Color::White : fui::Color::Black);
       pick.styles = picked ? toybox::invertedStyles() : toybox::rowStyles();
       pick.radius = 8;
-      screen.button(pick, fui::makeRect(static_cast<int16_t>(body.x + i * (cellW + 6)), y, cellW, lh));
+      screen.button(pick, fui::makeRect(static_cast<int16_t>(body.x + (i % 2) * (cellW + gap)),
+                                        static_cast<int16_t>(y + (i / 2) * (rowH + gap)), cellW, rowH));
     }
-    y = static_cast<int16_t>(y + lh + 16);
+    const int rows = (puzzle.shape.items + 1) / 2;
+    y = static_cast<int16_t>(y + rows * (rowH + gap) + 10);
   }
 
   fui::ButtonProps confirm;
@@ -878,8 +888,13 @@ void buildVerdict(toybox::Screen& screen, const VerdictModel& model) {
     truth[c] = model.puzzle->assign[c][model.puzzle->murderRow];
   }
   murdletext::accusationLine(*model.puzzle, model.right ? truth : model.picks, line, sizeof(line));
-  paragraph(screen, styled(toybox::kUiFont, fui::TextAlign::Left), line,
-            fui::makeRect(body.x, static_cast<int16_t>(body.y + 80), body.width, 120), true);
+  // The note goes wherever the sentence ended, not at a fixed offset. A three
+  // line accusation ran straight through it, which is the same mistake as the
+  // cast page and the settings rows and is the third time it has been made.
+  int16_t y = static_cast<int16_t>(body.y + 80);
+  y = static_cast<int16_t>(y + paragraph(screen, styled(toybox::kUiFont, fui::TextAlign::Left), line,
+                                         fui::makeRect(body.x, y, body.width, static_cast<int16_t>(body.height - 120)),
+                                         true));
 
   char note[96];
   if (model.right) {
@@ -889,7 +904,8 @@ void buildVerdict(toybox::Screen& screen, const VerdictModel& model) {
   } else {
     std::snprintf(note, sizeof(note), "THE EVIDENCE DOES NOT SUPPORT IT.");
   }
-  target.text(fui::makeRect(body.x, static_cast<int16_t>(body.y + 210), body.width, 22), note,
+  const int16_t noteH = target.lineHeight(toybox::kTileFont);
+  target.text(fui::makeRect(body.x, static_cast<int16_t>(y + 14), body.width, noteH), note,
               styled(toybox::kTileFont, fui::TextAlign::Left));
 
   fui::ButtonProps done;
