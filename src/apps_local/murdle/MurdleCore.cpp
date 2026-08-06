@@ -49,8 +49,7 @@ int rowIn(const uint8_t assign[kMaxCats][kMaxItems], const int cat, const int it
 // The predicate itself, against a bare assignment so that the enumerator does
 // not have to build a Puzzle per candidate.
 bool holds(const Clue& clue, const uint8_t assign[kMaxCats][kMaxItems], const int items, const int murderRow) {
-  const int row = clue.anchor == Anchor::Murderer ? murderRow
-                                                  : rowIn(assign, clue.anchorCat, clue.anchorItem, items);
+  const int row = clue.anchor == Anchor::Murderer ? murderRow : rowIn(assign, clue.anchorCat, clue.anchorItem, items);
   const bool satisfied = (clue.targetMask & static_cast<uint8_t>(1u << assign[clue.targetCat][row])) != 0;
   if (clue.speaker == kNobodySpeaks) return satisfied;
   // Spoken: true from everyone but the murderer, and false from the murderer.
@@ -144,6 +143,7 @@ uint32_t fingerprint(const Puzzle& puzzle) {
     feed(clue.targetMask);
     feed(clue.speaker);
     feed(clue.voice);
+    feed(clue.attr);
   }
   return h;
 }
@@ -167,8 +167,8 @@ Mark Grid::get(const int catA, const int itemA, const int catB, const int itemB)
 }
 
 int Grid::put(const int catA, const int itemA, const int catB, const int itemB, const Mark mark) {
-  uint8_t& cell = catA < catB ? cells_[blockIndex(catA, catB)][itemA][itemB]
-                              : cells_[blockIndex(catB, catA)][itemB][itemA];
+  uint8_t& cell =
+      catA < catB ? cells_[blockIndex(catA, catB)][itemA][itemB] : cells_[blockIndex(catB, catA)][itemB][itemA];
   const uint8_t want = static_cast<uint8_t>(mark);
   if (cell == want) return 0;
   if (cell != static_cast<uint8_t>(Mark::Unknown)) return -1;
@@ -473,6 +473,7 @@ void buildPool(const Puzzle& p, const AttrMasks& attrs, const Tier tier, Scratch
         clue.anchorItem = static_cast<uint8_t>(x);
         clue.targetCat = static_cast<uint8_t>(t);
         clue.speaker = kNobodySpeaks;
+        clue.attr = kNoAttr;
 
         if (allowBarePositive) {
           clue.targetMask = static_cast<uint8_t>(1u << trueItem);
@@ -500,8 +501,10 @@ void buildPool(const Puzzle& p, const AttrMasks& attrs, const Tier tier, Scratch
             if (mask == 0 || mask == full) continue;
             if ((mask & static_cast<uint8_t>(1u << trueItem)) == 0) continue;
             clue.targetMask = mask;
+            clue.attr = attrs.tag[i];
             addToPool(scratch, clue);
           }
+          clue.attr = kNoAttr;
         }
       }
     }
@@ -519,8 +522,10 @@ void shufflePool(Scratch& scratch, Rng& rng) {
 // the murderer says something false, which is a single-bit claim about where
 // they were or what they carried that simply is not so.
 bool addStatements(Puzzle& p, Rng& rng) {
+  // Weapon and location only, which is why the category is picked from two
+  // rather than from all of them: "I was driven by greed" is not a sentence a
+  // witness says about themselves.
   const int items = p.shape.items;
-  const int cats = p.shape.cats;
   for (int s = 0; s < items; ++s) {
     Clue clue{};
     clue.anchor = Anchor::Item;
@@ -529,7 +534,7 @@ bool addStatements(Puzzle& p, Rng& rng) {
 
     if (s == p.murderRow) {
       // A lie: name a category, and claim a value it does not have.
-      const int t = 1 + static_cast<int>(rng.below(static_cast<uint32_t>(cats - 1)));
+      const int t = 1 + static_cast<int>(rng.below(2));
       const int trueItem = p.assign[t][s];
       int wrong = static_cast<int>(rng.below(static_cast<uint32_t>(items - 1)));
       if (wrong >= trueItem) ++wrong;
@@ -541,7 +546,7 @@ bool addStatements(Puzzle& p, Rng& rng) {
       // A truth, drawn from the same pool the ordinary clues come from but
       // pinned to this speaker's own row, because a witness talks about
       // themselves.
-      const int t = 1 + static_cast<int>(rng.below(static_cast<uint32_t>(cats - 1)));
+      const int t = 1 + static_cast<int>(rng.below(2));
       clue.anchorCat = static_cast<uint8_t>(kSuspect);
       clue.anchorItem = static_cast<uint8_t>(s);
       clue.targetCat = static_cast<uint8_t>(t);
@@ -591,6 +596,7 @@ bool generate(const Tier tier, const uint32_t seed, const uint8_t cast[kMaxCats]
     murder.targetCat = static_cast<uint8_t>(kLocation);
     murder.targetMask = static_cast<uint8_t>(1u << p.assign[kLocation][p.murderRow]);
     murder.speaker = kNobodySpeaks;
+    murder.attr = kNoAttr;
     murder.voice = static_cast<uint8_t>(rng.next());
     p.clues[p.clueCount++] = murder;
 

@@ -125,9 +125,15 @@ struct Clue {
   // lives here only so that a case regenerated from its seed words itself the
   // same way it did the first time.
   uint8_t voice = 0;
+  // Which attribute produced targetMask, or kNoAttr. Recorded rather than
+  // inferred: the same mask can arise both as "the left-handed ones" and as a
+  // plain either/or, and a sentence that guessed wrong would be describing a
+  // different clue from the one the solver checked.
+  uint8_t attr = 0xFF;
 };
 
 constexpr uint8_t kNobodySpeaks = 0xFF;
+constexpr uint8_t kNoAttr = 0xFF;
 
 // ---------------------------------------------------------------------------
 // The puzzle
