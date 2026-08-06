@@ -145,7 +145,11 @@ void MurdleActivity::generateCase() {
   seed = static_cast<uint32_t>(millis()) * 2654435761u + 0x9E3779B9u;
   const murdle::Shape shape = murdle::shapeOf(tier);
   uint8_t cast[murdle::kMaxCats][murdle::kMaxItems];
-  murdle::drawCast(seed, shape, cast);
+  if (!murdle::drawCast(seed, shape, cast)) {
+    LOG_ERR("MRDL", "Cast draw ran out of letters for tier %d", static_cast<int>(tier));
+    goToMenu();
+    return;
+  }
 
   if (!murdle::generate(tier, seed, cast, murdle::attrMasksFor(cast, shape), *scratch, puzzle)) {
     LOG_ERR("MRDL", "No fair case for tier %d after the attempt budget", static_cast<int>(tier));
@@ -554,8 +558,9 @@ bool MurdleActivity::loadState() {
   const murdle::Tier caseTier = state.caseTier < murdle::kTierCount ? static_cast<murdle::Tier>(state.caseTier) : tier;
   const murdle::Shape shape = murdle::shapeOf(caseTier);
   uint8_t cast[murdle::kMaxCats][murdle::kMaxItems];
-  murdle::drawCast(state.seed, shape, cast);
-  const bool built = murdle::generate(caseTier, state.seed, cast, murdle::attrMasksFor(cast, shape), *scratch, puzzle);
+  const bool drawn = murdle::drawCast(state.seed, shape, cast);
+  const bool built =
+      drawn && murdle::generate(caseTier, state.seed, cast, murdle::attrMasksFor(cast, shape), *scratch, puzzle);
   scratch.reset();
 
   // The fingerprint is the whole point of storing a seed instead of a puzzle.

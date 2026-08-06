@@ -101,3 +101,23 @@ insider     = venetian-mask
 # `drama` was already rejected for Insider for the same reason. A skull would
 # announce the wrong tone for a game that is arithmetic.
 murdle      = footprints
+
+# ---------------------------------------------------------------------------
+# The four axes of Murdle's deduction grid, at 24px.
+#
+# These replace the single letters S/W/P/M that used to label the axes. The
+# letters worked, but they cost four letters out of the twenty-six the *items*
+# are labelled with -- and worse, S meant both "the suspects axis" and STABLE,
+# which is exactly the ambiguity the single-letter labels exist to remove. An
+# icon is not a letter, so it collides with nothing.
+#
+# Picked for silhouette at 24px in one bit, and for being unmistakable next to
+# each other: a head, a tool, a pin and a heart share no outline.
+murdle_suspects = user      # a head and shoulders; `users` is two heads and mush at 24px
+murdle_weapons  = hammer    # `axe` reads as woodcutting and `swords` is two crossed
+                            # blades that blur into an X at this size
+murdle_places   = map-pin   # the universal "a place". `house` is one kind of place
+                            # and half the table is outdoors
+murdle_motives  = heart     # why, rather than what. `brain` is detail that fills in
+                            # at 24px, `flame` reads as danger rather than motive
+

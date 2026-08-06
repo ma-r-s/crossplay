@@ -4,91 +4,93 @@
 
 namespace murdle {
 
-// Names are a title and a surname because that is what reads as a suspect at a
-// glance without anybody having to be told who they are. Attributes are spread
-// deliberately rather than randomly: an attribute nobody shares makes no clue,
-// and one everybody shares makes no clue either, so the columns are mixed so
-// that any four drawn suspects almost always yield several usable masks.
+// EVERY NAME IS ONE WORD, AND EVERY LETTER MEANS ONE THING.
+//
+// Those two rules are the same rule. The grid labels its axes with single
+// letters, so a letter has to be unambiguous across the whole case: if a
+// suspect is ABARA then nothing else in that case may start with A, not a
+// weapon, not a place, not a motive. Otherwise the player has to remember which
+// axis they are looking at before they can read a label, which is exactly the
+// work the letters were supposed to save.
+//
+// The axes are icons rather than letters, precisely so they spend none of the
+// alphabet. See kReservedLetters, which is now empty and says why.
+//
+// Within each table below the initials are already distinct, so the draw's only
+// job is to keep the four categories from colliding with each other. It does
+// that by taking them scarcest-first and refusing letters already spoken for;
+// see drawCast(). The tables are sized so that cannot fail: motives is the
+// tightest at twelve letters and the draw needs four, and every later category
+// has at least twelve letters left however the earlier ones went.
+//
+// One word is also why the names are bare surnames. A title costs a word and
+// buys nothing: THORNE reads as a person, and MISS THORNE does not fit a 220px
+// button on the accusation sheet.
+
 const SuspectEntry kSuspects[kSuspectCount] = {
-    {"DOCTOR ASHE", Handed::Left, Eyes::Green, Hair::Black, 68},
-    {"CAPTAIN MERROW", Handed::Right, Eyes::Blue, Hair::Grey, 74},
-    {"SISTER VALE", Handed::Left, Eyes::Brown, Hair::Brown, 63},
-    {"PROFESSOR QUILL", Handed::Right, Eyes::Hazel, Hair::Grey, 70},
-    {"MADAME OKONKWO", Handed::Left, Eyes::Brown, Hair::Black, 66},
-    {"THE VICAR", Handed::Right, Eyes::Blue, Hair::Blond, 71},
-    {"JUDGE HALLAM", Handed::Right, Eyes::Green, Hair::Grey, 69},
-    {"NURSE PRYCE", Handed::Left, Eyes::Hazel, Hair::Red, 62},
-    {"COLONEL BRAY", Handed::Right, Eyes::Brown, Hair::Brown, 73},
-    {"LADY FENWICK", Handed::Left, Eyes::Blue, Hair::Blond, 65},
-    {"THE LIBRARIAN", Handed::Right, Eyes::Hazel, Hair::Brown, 67},
-    {"INSPECTOR NADIR", Handed::Left, Eyes::Brown, Hair::Black, 72},
-    {"MISS THORNE", Handed::Right, Eyes::Green, Hair::Red, 64},
-    {"BARON KESTREL", Handed::Left, Eyes::Blue, Hair::Black, 76},
-    {"THE GARDENER", Handed::Right, Eyes::Brown, Hair::Grey, 70},
-    {"DEAN OYELARAN", Handed::Left, Eyes::Hazel, Hair::Black, 68},
-    {"CHEF DUVAL", Handed::Right, Eyes::Green, Hair::Brown, 66},
-    {"THE ARCHIVIST", Handed::Left, Eyes::Blue, Hair::Grey, 61},
-    {"MAJOR STRAND", Handed::Right, Eyes::Hazel, Hair::Blond, 75},
-    {"DAME ROOKWOOD", Handed::Left, Eyes::Green, Hair::Grey, 63},
-    {"THE APOTHECARY", Handed::Right, Eyes::Brown, Hair::Red, 69},
-    {"SERGEANT ILIC", Handed::Left, Eyes::Hazel, Hair::Brown, 71},
-    {"WIDOW BLANCHE", Handed::Right, Eyes::Blue, Hair::Blond, 60},
-    {"THE CURATOR", Handed::Left, Eyes::Green, Hair::Black, 77},
+    {"ABARA", Handed::Left, Eyes::Green, Hair::Black, 68},     {"BLANCHE", Handed::Right, Eyes::Blue, Hair::Blond, 60},
+    {"CRANE", Handed::Left, Eyes::Hazel, Hair::Grey, 74},      {"DUVAL", Handed::Right, Eyes::Green, Hair::Brown, 66},
+    {"ELDRIDGE", Handed::Left, Eyes::Brown, Hair::Red, 71},    {"FENWICK", Handed::Left, Eyes::Blue, Hair::Blond, 65},
+    {"GLASS", Handed::Right, Eyes::Hazel, Hair::Black, 69},    {"HALLAM", Handed::Right, Eyes::Green, Hair::Grey, 69},
+    {"ILIC", Handed::Left, Eyes::Hazel, Hair::Brown, 71},      {"JARDINE", Handed::Right, Eyes::Brown, Hair::Blond, 63},
+    {"KESTREL", Handed::Left, Eyes::Blue, Hair::Black, 76},    {"LOCKE", Handed::Right, Eyes::Green, Hair::Brown, 67},
+    {"MERROW", Handed::Right, Eyes::Blue, Hair::Grey, 74},     {"NADIR", Handed::Left, Eyes::Brown, Hair::Black, 72},
+    {"OKONKWO", Handed::Left, Eyes::Brown, Hair::Black, 66},   {"PRYCE", Handed::Left, Eyes::Hazel, Hair::Red, 62},
+    {"QUILL", Handed::Right, Eyes::Hazel, Hair::Grey, 70},     {"ROOKWOOD", Handed::Left, Eyes::Green, Hair::Grey, 63},
+    {"STRAND", Handed::Right, Eyes::Hazel, Hair::Blond, 75},   {"THORNE", Handed::Right, Eyes::Green, Hair::Red, 64},
+    {"URQUHART", Handed::Right, Eyes::Brown, Hair::Brown, 73}, {"VALE", Handed::Left, Eyes::Brown, Hair::Brown, 61},
+    {"WREN", Handed::Right, Eyes::Blue, Hair::Red, 67},        {"YUEN", Handed::Left, Eyes::Blue, Hair::Black, 70},
 };
 
-// A trait is one noun phrase and it has to be unique across the table, because
-// a clue that names a trait is naming exactly one thing.
+// A trait is one short noun phrase and it has to be unique across the table,
+// because a clue that names a trait is naming exactly one thing.
 const WeaponEntry kWeapons[kWeaponCount] = {
-    {"BONE SAW", "the bone saw", "a chipped blade", true},
-    {"CROWBAR", "the crowbar", "flecks of red paint", true},
-    {"LETTER OPENER", "the letter opener", "a monogrammed handle", false},
-    {"FIRE POKER", "the fire poker", "a bent tip", true},
-    {"CANDLESTICK", "the candlestick", "cold wax on it", true},
-    {"GARROTTE WIRE", "the garrotte wire", "a loop of piano wire", false},
-    {"POISONED GIN", "the poisoned gin", "a broken seal", false},
-    {"LEAD PIPE", "the lead pipe", "a threaded end", true},
-    {"ICE PICK", "the ice pick", "a cork on the point", false},
-    {"SHOVEL", "the shovel", "wet earth on it", true},
-    {"TYPEWRITER", "the typewriter", "a jammed letter E", true},
-    {"DUELLING PISTOL", "the duelling pistol", "one shot fired", false},
-    {"ROLLING PIN", "the rolling pin", "a dusting of flour", true},
+    {"ANVIL", "the anvil", "a scorched face", true},
+    {"BRICK", "the brick", "mortar still on it", true},
     {"CLEAVER", "the cleaver", "a taped grip", true},
-    {"BOAT OAR", "the boat oar", "barnacles on it", true},
-    {"MARBLE BUST", "the marble bust", "a missing nose", true},
+    {"DAGGER", "the dagger", "a jewelled hilt", false},
+    {"EPEE", "the epee", "a bent blade", false},
+    {"FLAIL", "the flail", "a rusted chain", true},
+    {"GARROTTE", "the garrotte", "a loop of piano wire", false},
+    {"HAMMER", "the hammer", "a split handle", true},
+    {"ICEPICK", "the icepick", "a cork on the point", false},
+    {"KNIFE", "the knife", "a chipped blade", false},
+    {"LANTERN", "the lantern", "a cracked glass", true},
+    {"MALLET", "the mallet", "a cracked head", true},
+    {"NOOSE", "the noose", "thirteen turns", false},
+    {"OAR", "the oar", "barnacles on it", true},
+    {"POKER", "the poker", "a bent tip", true},
+    {"RAZOR", "the razor", "a pearl handle", false},
+    {"SHOVEL", "the shovel", "wet earth on it", true},
+    {"TROWEL", "the trowel", "a dusting of lime", false},
+    {"VASE", "the vase", "a hairline crack", true},
+    {"WRENCH", "the wrench", "flecks of red paint", true},
 };
 
 const PlaceEntry kPlaces[kPlaceCount] = {
-    {"LIGHTHOUSE", "in the lighthouse", "peeling paint", true},
-    {"BOATHOUSE", "in the boathouse", "a coil of wet rope", true},
-    {"GREENHOUSE", "in the greenhouse", "a cracked pane", true},
-    {"WINE CELLAR", "in the wine cellar", "a spilled bottle", true},
-    {"CLOCK TOWER", "in the clock tower", "a stopped pendulum", true},
-    {"ORCHARD", "in the orchard", "windfall apples", false},
-    {"LIBRARY", "in the library", "a ladder left out", true},
-    {"TRAIN CARRIAGE", "in the train carriage", "a punched ticket", true},
-    {"CHAPEL", "in the chapel", "a guttered candle", true},
-    {"BILLIARD ROOM", "in the billiard room", "torn green baize", true},
-    {"PIER", "on the pier", "salt on the boards", false},
-    {"KITCHEN", "in the kitchen", "a burning pan", true},
     {"ATTIC", "in the attic", "a broken skylight", true},
-    {"BOILER ROOM", "in the boiler room", "a hissing valve", true},
-    {"ROSE GARDEN", "in the rose garden", "trampled roses", false},
+    {"BOATHOUSE", "in the boathouse", "a coil of wet rope", true},
+    {"CELLAR", "in the cellar", "a spilled bottle", true},
+    {"DOCKYARD", "in the dockyard", "a snapped chain", false},
+    {"FOUNDRY", "in the foundry", "a cooling ingot", true},
+    {"GREENHOUSE", "in the greenhouse", "a cracked pane", true},
+    {"HAYLOFT", "in the hayloft", "a fallen ladder", true},
+    {"JETTY", "on the jetty", "salt on the boards", false},
+    {"KITCHEN", "in the kitchen", "a burning pan", true},
+    {"LIGHTHOUSE", "in the lighthouse", "peeling paint", true},
     {"MORGUE", "in the morgue", "an open drawer", true},
+    {"ORCHARD", "in the orchard", "windfall apples", false},
+    {"PIER", "on the pier", "a torn ticket", false},
+    {"QUARRY", "in the quarry", "fresh blasting powder", false},
+    {"STABLE", "in the stable", "a loose shoe", true},
+    {"TOWER", "in the tower", "a stopped pendulum", true},
 };
 
 const MotiveEntry kMotives[kMotiveCount] = {
-    {"GREED", "greed"},
-    {"REVENGE", "revenge"},
-    {"JEALOUSY", "jealousy"},
-    {"EXPOSURE", "a fear of exposure"},
-    {"AN OLD DEBT", "an old debt"},
-    {"INHERITANCE", "an inheritance"},
-    {"A STOLEN IDEA", "a stolen idea"},
-    {"LOVE", "love"},
-    {"SPITE", "spite"},
-    {"A SECRET", "a buried secret"},
-    {"BLACKMAIL", "blackmail"},
-    {"PROMOTION", "a promotion"},
+    {"AMBITION", "ambition"}, {"BLACKMAIL", "blackmail"}, {"CONTEMPT", "contempt"}, {"DEBT", "debt"},
+    {"ENVY", "envy"},         {"FEAR", "fear"},           {"GREED", "greed"},       {"HATRED", "hatred"},
+    {"JEALOUSY", "jealousy"}, {"LOVE", "love"},           {"PRIDE", "pride"},       {"REVENGE", "revenge"},
+    {"SPITE", "spite"},       {"VANITY", "vanity"},
 };
 
 int castSize(const int cat) {
@@ -105,27 +107,76 @@ int castSize(const int cat) {
   return 0;
 }
 
-void drawCast(const uint32_t seed, const Shape shape, uint8_t cast[kMaxCats][kMaxItems]) {
+const char* castName(const int cat, const int entry) {
+  switch (static_cast<Cat>(cat)) {
+    case Cat::Suspect:
+      return kSuspects[entry].name;
+    case Cat::Weapon:
+      return kWeapons[entry].name;
+    case Cat::Location:
+      return kPlaces[entry].name;
+    case Cat::Motive:
+      return kMotives[entry].name;
+  }
+  return "";
+}
+
+namespace {
+
+int letterIndex(const char* name) {
+  const char c = name[0];
+  if (c >= 'A' && c <= 'Z') return c - 'A';
+  if (c >= 'a' && c <= 'z') return c - 'a';
+  return 0;
+}
+
+}  // namespace
+
+bool drawCast(const uint32_t seed, const Shape shape, uint8_t cast[kMaxCats][kMaxItems]) {
   // Salted away from the seed generate() uses, so that the draw and the
   // solution are not two views of the same random walk.
   Rng rng(seed ^ 0x5BF03635u);
   std::memset(cast, 0, sizeof(uint8_t) * kMaxCats * kMaxItems);
 
-  for (int c = 0; c < shape.cats; ++c) {
-    const int size = castSize(c);
-    // Partial Fisher-Yates over an index list: draws `items` distinct entries
-    // without a rejection loop and without a seen-set.
-    uint8_t bag[32];
-    const int n = size < 32 ? size : 32;
-    for (int i = 0; i < n; ++i) bag[i] = static_cast<uint8_t>(i);
+  // Scarcest first. Motives has twelve letters against sixteen for places and
+  // weapons and twenty-four for suspects, so it picks while the alphabet is
+  // still empty; letting suspects go first could strand it. The order is fixed
+  // rather than sorted at run time because it is a property of the tables, and
+  // a test asserts the tables still have this shape.
+  constexpr int kOrder[kMaxCats] = {
+      static_cast<int>(Cat::Motive),
+      static_cast<int>(Cat::Location),
+      static_cast<int>(Cat::Weapon),
+      static_cast<int>(Cat::Suspect),
+  };
+
+  uint32_t usedLetters = kReservedLetters;  // empty, now that the axes are icons
+  for (const int cat : kOrder) {
+    if (cat >= shape.cats) continue;
+
+    // Everything in this category whose initial is still free. Within a table
+    // the initials are already distinct, so this is also the list of usable
+    // letters.
+    uint8_t pool[32];
+    int poolCount = 0;
+    const int size = castSize(cat);
+    for (int i = 0; i < size && poolCount < static_cast<int>(sizeof(pool)); ++i) {
+      const int letter = letterIndex(castName(cat, i));
+      if (usedLetters & (1u << letter)) continue;
+      pool[poolCount++] = static_cast<uint8_t>(i);
+    }
+    if (poolCount < shape.items) return false;
+
     for (int i = 0; i < shape.items; ++i) {
-      const int j = i + static_cast<int>(rng.below(static_cast<uint32_t>(n - i)));
-      const uint8_t swap = bag[i];
-      bag[i] = bag[j];
-      bag[j] = swap;
-      cast[c][i] = bag[i];
+      const int j = i + static_cast<int>(rng.below(static_cast<uint32_t>(poolCount - i)));
+      const uint8_t swap = pool[i];
+      pool[i] = pool[j];
+      pool[j] = swap;
+      cast[cat][i] = pool[i];
+      usedLetters |= (1u << letterIndex(castName(cat, pool[i])));
     }
   }
+  return true;
 }
 
 namespace {

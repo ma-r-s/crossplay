@@ -12,7 +12,7 @@ cd "$REPO"
 uv run --quiet --with pillow python freeink-sdk/libs/assets/Icons/tools/gen_icons.py \
   --manifest tools_local/icons.txt \
   --svgdir freeink-sdk/libs/assets/Icons/lucide/icons \
-  --sizes 32 \
+  --sizes 24,32 \
   --out src/apps_local/ui/ToyboxIcons.h
 echo "wrote src/apps_local/ui/ToyboxIcons.h"
 

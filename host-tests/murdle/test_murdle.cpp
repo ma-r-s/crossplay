@@ -68,7 +68,7 @@ const Tier kTiers[kTierCount] = {Tier::Elementary, Tier::Nosy, Tier::HardBoiled,
 bool makeCase(const Tier tier, const uint32_t seed, Scratch& scratch, Puzzle& out) {
   const Shape shape = shapeOf(tier);
   uint8_t cast[kMaxCats][kMaxItems];
-  drawCast(seed, shape, cast);
+  if (!drawCast(seed, shape, cast)) return false;
   return generate(tier, seed, cast, attrMasksFor(cast, shape), scratch, out);
 }
 
@@ -375,12 +375,99 @@ void testCastTableIsDrawable() {
   }
 }
 
+// THE RULE THE WHOLE CAST TABLE EXISTS TO SATISFY: inside one case, no two
+// items anywhere share an initial. Not within a category and not across them,
+// so a letter on the grid means exactly one thing whichever axis it is on.
+//
+// Swept rather than spot-checked, because a collision needs a particular
+// unlucky draw and the whole point is that there is no unlucky draw.
+void testEveryCaseHasSixteenDistinctInitials() {
+  for (int t = 0; t < kTierCount; ++t) {
+    const Shape shape = shapeOf(kTiers[t]);
+    for (uint32_t seed = 1; seed <= 25000; ++seed) {
+      uint8_t cast[kMaxCats][kMaxItems];
+      // Never runs out. The tables are sized so it cannot: motives is the
+      // tightest at twelve letters and needs four, and it draws first.
+      if (!drawCast(seed * 2654435761u + 11u, shape, cast)) {
+        check(false, "drawCast ran out of letters", __LINE__);
+        continue;
+      }
+      uint32_t seen = 0;
+      for (int c = 0; c < shape.cats; ++c) {
+        for (int i = 0; i < shape.items; ++i) {
+          const char* name = castName(c, cast[c][i]);
+          const uint32_t bit = 1u << (name[0] - 'A');
+          CHECK((seen & bit) == 0);
+          // And never a letter the axes are using. S on this grid is the
+          // SUSPECTS axis, so nothing drawn may be SHOVEL or STABLE: a letter
+          // that means both an axis and an item is the same defect as a letter
+          // that means two items.
+          CHECK((bit & kReservedLetters) == 0);
+          seen |= bit;
+        }
+      }
+      // 16 items at four categories of four, 9 at three of three.
+      int count = 0;
+      for (int b = 0; b < 26; ++b) {
+        if (seen & (1u << b)) ++count;
+      }
+      CHECK(count == shape.cats * shape.items);
+    }
+  }
+}
+
+// One word each, and that is the other half of the same rule: a label is a
+// letter and a name, and a name that needs two words does not fit a grid legend
+// or an accusation button.
+void testEveryNameIsOneWord() {
+  for (int cat = 0; cat < kCatCount; ++cat) {
+    for (int i = 0; i < castSize(cat); ++i) {
+      const char* name = castName(cat, i);
+      CHECK(name[0] >= 'A' && name[0] <= 'Z');
+      for (const char* c = name; *c; ++c) CHECK(*c != ' ');
+      CHECK(std::strlen(name) <= 12);
+    }
+  }
+  // And within a table the initials are already distinct, which is what lets
+  // the draw treat "a free letter" and "a usable item" as the same question.
+  for (int cat = 0; cat < kCatCount; ++cat) {
+    uint32_t seen = 0;
+    for (int i = 0; i < castSize(cat); ++i) {
+      const uint32_t bit = 1u << (castName(cat, i)[0] - 'A');
+      CHECK((seen & bit) == 0);
+      seen |= bit;
+    }
+  }
+  // The draw takes categories scarcest-first and that order is hard-coded, so
+  // assert the tables still have the shape that makes it the right order.
+  CHECK(kMotiveCount <= kPlaceCount);
+  CHECK(kPlaceCount <= kSuspectCount);
+  CHECK(kWeaponCount <= kSuspectCount);
+  // The draw can only fail by running a category out of free letters, so the
+  // real claim is about usable letters after the axes take theirs, not about
+  // table sizes. Each category must still have four left once every earlier
+  // category in the draw order has taken four.
+  int usable[kCatCount] = {};
+  for (int cat = 0; cat < kCatCount; ++cat) {
+    for (int i = 0; i < castSize(cat); ++i) {
+      const uint32_t bit = 1u << (castName(cat, i)[0] - 'A');
+      if ((bit & kReservedLetters) == 0) usable[cat]++;
+    }
+  }
+  // Draw order is motives, places, weapons, suspects: 0, 4, 8 and 12 letters
+  // already gone by the time each one picks.
+  CHECK(usable[static_cast<int>(Cat::Motive)] >= 4);
+  CHECK(usable[static_cast<int>(Cat::Location)] >= 8);
+  CHECK(usable[static_cast<int>(Cat::Weapon)] >= 12);
+  CHECK(usable[static_cast<int>(Cat::Suspect)] >= 16);
+}
+
 void testDrawIsDistinctAndInRange() {
   for (int t = 0; t < kTierCount; ++t) {
     const Shape shape = shapeOf(kTiers[t]);
     for (uint32_t seed = 1; seed <= 500; ++seed) {
       uint8_t cast[kMaxCats][kMaxItems];
-      drawCast(seed * 2246822519u + 3u, shape, cast);
+      CHECK(drawCast(seed * 2246822519u + 3u, shape, cast));
       for (int c = 0; c < shape.cats; ++c) {
         for (int i = 0; i < shape.items; ++i) {
           CHECK(cast[c][i] < castSize(c));
@@ -403,7 +490,7 @@ void testAxisLettersAreDistinct() {
     for (uint32_t seed = 1; seed <= 800; ++seed) {
       Puzzle puzzle;
       puzzle.shape = shape;
-      drawCast(seed * 2654435761u + 5u, shape, puzzle.cast);
+      CHECK(drawCast(seed * 2654435761u + 5u, shape, puzzle.cast));
       for (int c = 0; c < shape.cats; ++c) {
         char letters[kMaxItems + 1];
         murdletext::axisLetters(puzzle, c, letters);
@@ -648,6 +735,8 @@ int runTests() {
   testGridIsOrderIndependent();
   testSetYesCrossesItsOwnBlockOnly();
   testCastTableIsDrawable();
+  testEveryNameIsOneWord();
+  testEveryCaseHasSixteenDistinctInitials();
   testDrawIsDistinctAndInRange();
   testStatementsAreOnePerSuspectAndExactlyOneLies();
   testAxisLettersAreDistinct();

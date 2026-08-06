@@ -286,79 +286,86 @@ the game, and doing it for you would be playing it for you.
 
 ---
 
-## 4. The two views, and the one thing left for you to choose
+## 4. Two pages and a door
 
-All three are built and rendered. `qa-artifacts/variants-grid.png` and
-`variants-clues.png` put them side by side on the same case, which is the only
-way this gets decided: the winner usually wins on one specific element and that
-is invisible in any single screenshot.
+Chosen by rendering all three arrangements side by side against the same case.
+Tabs and a clue rail both spent vertical space on the toggle, and at four
+categories that space is exactly what the grid's legend needs -- so the
+arrangement with no toggle chrome at all is the only one where the whole key
+fits under the grid and a letter can be looked up without leaving it.
 
-**A. Two tabs** (`MURDLE_VIEW_VARIANT=1`, the current default). A CLUES / GRID
-bar under the header. The clearest affordance of the three and the only one
-where the toggle names itself. It costs 54px of grid, which at four categories
-is the difference between the legend fitting under the grid and not fitting.
+The cost of no chrome is that nothing says the second page exists. So the door
+is a labelled control, not a bare tap zone: **the header's right side carries
+the name of the other page with a chevron** (`GRID >` from the case file,
+`< CLUES` from the grid). It reads as a page turn rather than a mode switch,
+it says where it goes rather than where you are, and it sits in the header
+because the header is already there and already black -- so the door costs no
+vertical space, which was the entire reason for choosing this arrangement.
 
-**B. Grid with a clue rail.** The grid keeps the screen and one clue sits under
-it with a stepper, so marking while reading is one gesture instead of three.
-Biggest grid, but the rail's clue box is cramped: a two-line clue nearly fills
-it, and the ALL CLUES pill is small. Its first render had the rail's door out
-and nothing facing back, so the clue list was a room with no exit -- which is
-the sort of thing three layouts side by side make obvious in a second.
+The body cannot be the toggle, because the body has two jobs of its own: cells
+to mark on the grid, and clues to tick off on the case file.
 
-**C. Swipe between two full pages.** No toggle chrome at all, so it gets the
-biggest grid *and* the full legend under it at four categories, which neither
-of the others manages. The risk is exactly what the still image shows: nothing
-on screen says the body is tappable.
+### Ticking clues off
 
-The real trade-off the render exposed, which none of the prose above predicted:
-**at four categories the legend only fits when the toggle costs nothing.** So
-the choice is not really tabs-versus-swipe, it is whether the key lives under
-the grid or one page away in the case file. Both work; they are different games
-to hold.
+Every clue carries a numbered box. Outlined while the clue is still in play,
+filled once you have used it; tap anywhere on the clue to flip it. The pager
+line counts them: `2 / 3      5 OF 12 DONE`.
 
-Whichever you pick, the other two get deleted with the `MURDLE_VIEW_VARIANT`
-switch in the same commit. A variant macro that survives is a second codepath
-nobody renders.
+Ticked, never hidden. A clue you have finished with is still one you may want
+to re-read, and removing it would make the numbers in the list stop matching
+the numbers in your head. The first version struck the text through instead,
+which is a mess across three ragged wrapped lines; a box is one element doing
+both jobs and it survives any amount of wrapping.
 
 Portrait, not landscape. The grid is square and 480 is the binding dimension
 either way, and the clue view is a column of sentences.
 
-**Axes carry letters, not icons.** A 31px column head cannot hold a word and
-this renderer does not rotate type, so each item gets one letter, distinct
-within the case and mnemonic where it can be. Icons were the plan and are still
-possible, but they would need artwork per fixture rather than per app: sixteen
-weapons and sixteen places is not something Lucide has silhouettes for.
+## 5. The cast, and the two rules that shape it
 
-## 5. The cast, which is a table and not a story
+No lore. Every field exists because a clue reads it, and a field no clue can
+reference does not get written. But two rules about *names* turned out to
+matter more than anything in the table:
 
-No lore. Every field below exists because the clue generator reads it, and a
-field no clue can reference does not get written.
+**Every name is one word.** THORNE, not MISS THORNE. WRENCH, not MONKEY
+WRENCH. A title costs a word and buys nothing, and a two-word name does not fit
+a grid legend or a 220px button on the accusation sheet -- where the first
+version ellipsised DAME ROOKWOOD on the one screen in the game where you have
+to be certain which person you are naming.
 
-- **Suspect**: name, icon, and four attributes (handedness, eye colour, hair
-  colour, height band). The attributes are the entire reason an indirect clue
-  can exist, and their distribution within a drawn cast is a generator input: an
-  attribute held by exactly one drawn suspect yields a positive clue, one held
-  by two yields an elimination. Nothing else about a suspect is modelled.
-- **Weapon**: name, icon, weight class, and one **trait**, a two or three word
-  noun phrase ("a scratched handle").
-- **Location**: name, icon, indoor or outdoor, and one trait. The location trait
-  is what the murder clue points at, which is the only reason locations have one.
+**Inside one case, no two items anywhere share an initial.** Not within a
+category and not across them. If a suspect is ABARA then nothing else in that
+case starts with A: not a weapon, not a place, not a motive. That is what makes
+a single letter a usable label -- A means one thing on the whole grid, whichever
+axis it is on, and you never have to work out which axis you are reading before
+you can read it.
+
+`drawCast()` enforces it. It takes the categories scarcest-first (motives,
+places, weapons, suspects) and refuses any letter already spoken for, and the
+tables are sized so it cannot fail: every category has at least four free
+letters left however the earlier ones went. A hundred thousand draws assert it.
+
+**The axes are icons, not letters**, and that is part of the same rule. They
+were S, W, P and M until it became clear that S then meant both "the suspects
+axis" and STABLE -- exactly the ambiguity the single letters exist to remove.
+A person, a hammer, a map pin and a heart collide with nothing and give all
+twenty-six letters back to the items. The same four marks label the legend
+rows, so the mapping is learned once.
+
+The rest of the table is what the clue generator reads:
+
+- **Suspect**: name and four attributes (handedness, eye colour, hair colour,
+  height). Attributes are the only reason an indirect clue can exist, and their
+  distribution within a drawn cast is a generator input: an attribute held by
+  exactly one drawn suspect yields a positive clue, one held by two yields an
+  elimination.
+- **Weapon** and **place**: name, phrase, and one **trait** -- a two or three
+  word noun phrase, unique across its table. The place trait is what the murder
+  clue points at, which is the only reason places have one.
 - **Motive**: name only.
 
-A trait is one short phrase, not a paragraph. It is what makes the final clue
-indirect ("the body was found next to peeling paint") without anybody having to
-write prose, and it costs four words per fixture.
-
-Roughly 24 suspects, 16 weapons, 16 locations, 12 motives, which is a few KB of
-flash and an afternoon of filling in a table. Each case draws its cast at
-random, so a shape never reads the same twice.
-
-Sentences come from templates in `MurdleText`, one per clue shape, filled from
-those fields. The test that matters is that every template, over every fixture
-in the tables, produces a grammatical sentence: articles agree, plurals agree,
-and nothing reads as a mad lib. That is assertable and it is asserted.
-
----
+Sentences come from templates in `MurdleText`, one per clue shape. The test
+that matters is that every template over every fixture produces a grammatical
+sentence, and it is asserted rather than eyeballed.
 
 ## 6. What is built
 
@@ -368,7 +375,8 @@ and nothing reads as a mad lib. That is assertable and it is asserted.
    grammar swept over every clue every tier can produce. Done.
 3. **`MurdleScreens` and `MurdleActivity`** -- six views, the save file, the
    shelf row. Playable end to end. Done.
-4. **The three variants, rendered.** Waiting on you.
+4. **The three variants, rendered and decided.** Two pages with a header door;
+   the other two are deleted.
 5. Left undone on purpose: the how-to deck is four plain pages and has not been
    rendered against a real case; the verdict screen has been built but not
    played into; and generation has never been timed on real hardware, only in

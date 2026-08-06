@@ -68,24 +68,43 @@ struct MotiveEntry {
 // The tables
 
 constexpr int kSuspectCount = 24;
-constexpr int kWeaponCount = 16;
+constexpr int kWeaponCount = 20;
 constexpr int kPlaceCount = 16;
-constexpr int kMotiveCount = 12;
+constexpr int kMotiveCount = 14;
 
 extern const SuspectEntry kSuspects[kSuspectCount];
 extern const WeaponEntry kWeapons[kWeaponCount];
 extern const PlaceEntry kPlaces[kPlaceCount];
 extern const MotiveEntry kMotives[kMotiveCount];
 
+// The axes spend no letters at all: they are labelled with icons, so all
+// twenty-six are available to items. This held S, W, P and M until the axes
+// stopped being type -- S then meant both "the suspects axis" and STABLE, which
+// is the same ambiguity the single-letter item labels exist to remove.
+constexpr uint32_t kReservedLetters = 0;
+
 int castSize(int cat);
+
+// The short label of a table entry, for code that needs a name before a case
+// exists (the draw, and the tests that check the tables).
+const char* castName(int cat, int entry);
 
 // ---------------------------------------------------------------------------
 // Drawing a cast
 
-// Fills `cast` with `shape.items` distinct entries per live category.
+// Fills `cast` with `shape.items` entries per live category, such that **no two
+// items anywhere in the case share an initial letter** -- not within a
+// category and not across them. That is what makes a single letter a usable
+// label on the grid: A means one thing in the whole case, whichever axis it is
+// on.
+//
 // Deterministic in `seed`, and salted away from the seed generate() uses so
 // that the draw and the solution are not correlated.
-void drawCast(uint32_t seed, Shape shape, uint8_t cast[kMaxCats][kMaxItems]);
+//
+// Returns false if the alphabet ran out, which the table sizes make impossible
+// and a test asserts over a hundred thousand draws. Callers still check it,
+// because "impossible" here is a property of data that somebody will edit.
+bool drawCast(uint32_t seed, Shape shape, uint8_t cast[kMaxCats][kMaxItems]);
 
 // Every way this particular draw of suspects can be described without naming
 // anybody. One mask per attribute value that some but not all of them share,

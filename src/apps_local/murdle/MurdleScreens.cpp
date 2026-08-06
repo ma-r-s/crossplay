@@ -3,22 +3,27 @@
 #include <cstdio>
 #include <cstring>
 
+#include "../ui/ToyboxIcons.h"
 #include "MurdleCast.h"
 #include "MurdleText.h"
 
-// Three complete arrangements of the two faces, built at once so they can be
-// rendered side by side and judged rather than described. Prose about a layout
-// is worth almost nothing on this device and a list of options in chat is worth
-// less. The winner keeps the switch's contents and the losers are deleted in
-// the same commit; a variant macro that survives is a second codepath nobody
-// renders. See docs/building-apps.md.
+// TWO PAGES, AND A DOOR IN THE HEADER.
 //
-//   1  TABS   a two-segment bar under the header, one tap between faces
-//   2  RAIL   the grid holds the screen, one clue at a time in a strip below it
-//   3  PAGES  no toggle chrome at all, a page indicator and a tap to swap
-#ifndef MURDLE_VIEW_VARIANT
-#define MURDLE_VIEW_VARIANT 1
-#endif
+// Chosen by rendering all three arrangements side by side against the same
+// case. Tabs and a clue rail both spent vertical space on the toggle, and at
+// four categories that space is exactly what the grid's legend needs -- so the
+// arrangement with no toggle chrome at all is the only one where a player can
+// read the grid without flipping to look a letter up.
+//
+// The cost of no chrome is that nothing says the pages exist, which is why the
+// door is a labelled control rather than a bare tap zone: the header's right
+// side carries the name of the *other* page with a chevron, so it reads as a
+// page turn and says where it goes. It sits in the header because the header is
+// already there and already black -- the door costs no vertical space, which
+// was the whole reason for choosing this arrangement.
+//
+// The body cannot be the toggle. It has two jobs of its own now: marking cells
+// on the grid, and ticking clues off on the case file.
 
 namespace murdleui {
 
@@ -31,10 +36,6 @@ using murdle::Mark;
 using murdle::Puzzle;
 using murdle::Tier;
 
-constexpr int16_t kTabH = 44;
-#if MURDLE_VIEW_VARIANT == 2
-constexpr int16_t kRailH = 96;
-#endif
 // The pager strip at the foot of the clue face. Always reserved: there is
 // always more than one page, on every tier.
 constexpr int16_t kPagerH = 54;
@@ -61,7 +62,10 @@ fui::TextStyle styled(const fui::FontId font, const fui::TextAlign align, const 
   return style;
 }
 
-void chrome(toybox::Screen& screen, const char* title, const char* rightLabel) {
+// `doorAction` makes the header's right side a control. Left at NO_ACTION the
+// label is just a label, which is what every screen but the case wants.
+void chrome(toybox::Screen& screen, const char* title, const char* rightLabel,
+            const fui::ActionId doorAction = fui::NO_ACTION, const int16_t doorValue = 0) {
   fui::HeaderProps header;
   header.title = title;
   header.rightLabel = rightLabel;
@@ -83,23 +87,43 @@ void chrome(toybox::Screen& screen, const char* title, const char* rightLabel) {
   // takes the same one, plus room under the rule the header does not know it
   // has drawn.
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
+
+  if (doorAction != fui::NO_ACTION) {
+    // The right two fifths of the band, which is a 190x76 target and cannot
+    // reach the title. Registered after the header drew, so the hit rect and
+    // the label are the same band and cannot drift apart.
+    screen.frame().hit(fui::makeRect(static_cast<int16_t>(band.width * 3 / 5), 0,
+                                     static_cast<int16_t>(band.width * 2 / 5), toybox::kHeaderHeight),
+                       doorAction, doorValue);
+  }
 }
 
-// One character standing for a whole category, in the grid's gutters where a
-// word cannot go. S, W, P, M are all distinct, which is the only reason this
-// works and the reason locations are PLACES.
-char categoryLetter(const int cat) {
+// The mark for a whole category, in the grid's gutters where a word cannot go.
+//
+// An icon rather than a letter, and the reason is the letters themselves. Items
+// are labelled with single initials, and a case is drawn so every initial means
+// exactly one thing; spending S, W, P and M on the axes took four letters away
+// from that and, worse, made S mean both "the suspects axis" and STABLE. An
+// icon is not a letter, so it collides with nothing and gives the alphabet back.
+constexpr int16_t kMarkSize = 24;
+
+const freeink::Icon& categoryMark(const int cat) {
   switch (static_cast<Cat>(cat)) {
     case Cat::Suspect:
-      return 'S';
+      return icon_murdle_suspects_24;
     case Cat::Weapon:
-      return 'W';
+      return icon_murdle_weapons_24;
     case Cat::Location:
-      return 'P';
+      return icon_murdle_places_24;
     case Cat::Motive:
-      return 'M';
+      return icon_murdle_motives_24;
   }
-  return '?';
+  return icon_murdle_suspects_24;
+}
+
+void drawMark(toybox::Screen& screen, const fui::Rect& where, const int cat) {
+  screen.target().bitmap(where, fui::bitmapFromIcon(categoryMark(cat)), fui::BitmapMode::Contain,
+                         fui::Paint::solid(fui::Color::Black));
 }
 
 void putChar(char* out, const char c) {
@@ -129,10 +153,9 @@ GridLayout layoutGrid(toybox::Screen& screen, const Puzzle& puzzle, const fui::R
   // Measured, not chosen. The first version picked 42 and 46 out of the air and
   // the category letter's line box hung down into the item letters, so the
   // column head read as one glyph on top of another.
-  const int16_t catLine = screen.target().lineHeight(toybox::kUiFont);
   const int16_t itemLine = screen.target().lineHeight(toybox::kTileFont);
-  layout.headerH = static_cast<int16_t>(catLine + itemLine + 6);
-  layout.gutter = static_cast<int16_t>(catLine + itemLine + 6);
+  layout.headerH = static_cast<int16_t>(kMarkSize + itemLine + 6);
+  layout.gutter = static_cast<int16_t>(kMarkSize + itemLine + 6);
 
   const int cells = layout.groups * layout.items;
   const int16_t byWidth = static_cast<int16_t>((area.width - layout.gutter) / cells);
@@ -154,8 +177,6 @@ void drawGrid(toybox::Screen& screen, const Puzzle& puzzle, const Grid& marks, c
 
   char one[2];
   const fui::TextStyle letter = styled(toybox::kTileFont, fui::TextAlign::Center);
-  const fui::TextStyle capital = styled(toybox::kUiFont, fui::TextAlign::Center);
-  const int16_t catLine = target.lineHeight(toybox::kUiFont);
   const int16_t itemLine = target.lineHeight(toybox::kTileFont);
 
   // Column labels: the category letter over each group, then the item letters,
@@ -164,10 +185,11 @@ void drawGrid(toybox::Screen& screen, const Puzzle& puzzle, const Grid& marks, c
     const int cat = g.colCat[c];
     char letters[murdle::kMaxItems + 1];
     murdletext::axisLetters(puzzle, cat, letters);
-    putChar(one, categoryLetter(cat));
-    target.text(fui::makeRect(g.cellX(c * items), static_cast<int16_t>(g.originY - g.headerH),
-                              static_cast<int16_t>(items * g.cell), catLine),
-                one, capital);
+    const int16_t groupW = static_cast<int16_t>(items * g.cell);
+    drawMark(screen,
+             fui::makeRect(static_cast<int16_t>(g.cellX(c * items) + (groupW - kMarkSize) / 2),
+                           static_cast<int16_t>(g.originY - g.headerH), kMarkSize, kMarkSize),
+             cat);
     for (int i = 0; i < items; ++i) {
       putChar(one, letters[i]);
       target.text(
@@ -178,22 +200,22 @@ void drawGrid(toybox::Screen& screen, const Puzzle& puzzle, const Grid& marks, c
 
   // Row labels, the same two bands turned on their side: the category letter in
   // the outer column, the item letters in the inner one.
-  const int16_t catCol = static_cast<int16_t>(catLine + 2);
+  const int16_t markCol = static_cast<int16_t>(kMarkSize + 2);
   for (int r = 0; r < g.groups; ++r) {
     const int cat = g.rowCat[r];
     char letters[murdle::kMaxItems + 1];
     murdletext::axisLetters(puzzle, cat, letters);
     const int16_t groupY = g.cellY(r * items);
     const int16_t groupH = static_cast<int16_t>(items * g.cell);
-    putChar(one, categoryLetter(cat));
-    target.text(fui::makeRect(static_cast<int16_t>(g.originX - g.gutter),
-                              static_cast<int16_t>(groupY + (groupH - catLine) / 2), catCol, catLine),
-                one, capital);
+    drawMark(screen,
+             fui::makeRect(static_cast<int16_t>(g.originX - g.gutter),
+                           static_cast<int16_t>(groupY + (groupH - kMarkSize) / 2), kMarkSize, kMarkSize),
+             cat);
     for (int i = 0; i < items; ++i) {
       putChar(one, letters[i]);
-      target.text(fui::makeRect(static_cast<int16_t>(g.originX - g.gutter + catCol),
+      target.text(fui::makeRect(static_cast<int16_t>(g.originX - g.gutter + markCol),
                                 static_cast<int16_t>(g.cellY(r * items + i) + (g.cell - itemLine) / 2),
-                                static_cast<int16_t>(g.gutter - catCol - 4), itemLine),
+                                static_cast<int16_t>(g.gutter - markCol - 4), itemLine),
                   one, letter);
     }
   }
@@ -300,13 +322,19 @@ bool drawLegend(toybox::Screen& screen, const Puzzle& puzzle, const fui::Rect& a
       char letters[murdle::kMaxItems + 1];
       murdletext::axisLetters(puzzle, cat, letters);
       char line[192];
-      int fill = std::snprintf(line, sizeof(line), "%c ", categoryLetter(cat));
+      int fill = 0;
       for (int i = 0; i < puzzle.shape.items && fill < static_cast<int>(sizeof(line)) - 1; ++i) {
         fill += std::snprintf(line + fill, sizeof(line) - static_cast<size_t>(fill), "%s%c=%s", i ? "  " : "",
                               letters[i], murdletext::label(puzzle, cat, i));
       }
+      // The same mark as the axis, so the icon is learned once and read
+      // everywhere. Indented past it so a wrapped second line stays clear of it.
+      if (draw) drawMark(screen, fui::makeRect(area.x, y, kMarkSize, kMarkSize), cat);
       y = static_cast<int16_t>(
-          y + paragraph(screen, small, line, fui::makeRect(area.x, y, area.width, static_cast<int16_t>(lh * 8)), draw));
+          y + paragraph(screen, small, line,
+                        fui::makeRect(static_cast<int16_t>(area.x + kMarkSize + 6), y,
+                                      static_cast<int16_t>(area.width - kMarkSize - 6), static_cast<int16_t>(lh * 8)),
+                        draw));
     }
     return y;
   };
@@ -417,25 +445,33 @@ void drawCluePage(toybox::Screen& screen, const Puzzle& puzzle, const fui::Rect&
     char line[murdletext::kLineMax];
     murdletext::clueLine(puzzle, i, line, sizeof(line));
 
-    const fui::Rect box = fui::makeRect(static_cast<int16_t>(area.x + 26), y, static_cast<int16_t>(area.width - 26),
+    const fui::Rect box = fui::makeRect(static_cast<int16_t>(area.x + 32), y, static_cast<int16_t>(area.width - 32),
                                         static_cast<int16_t>(area.bottom() - y));
     const int16_t height = paragraph(screen, body, line, box, false);
     if (y + height > area.bottom()) break;
 
+    const bool done = (struck & (1u << i)) != 0;
     if (draw) {
+      // The number lives in a box, and the box is the record: outlined while
+      // the clue is still in play, filled once it has been used. One element
+      // doing both jobs, and it survives a wrapped clue -- a line struck
+      // through three ragged lines of text does not.
+      const fui::Rect tick = fui::makeRect(area.x, y, 24, static_cast<int16_t>(lh + 2));
       char num[8];
-      std::snprintf(num, sizeof(num), "%d.", i + 1);
-      target.text(fui::makeRect(area.x, y, 24, lh), num, body);
+      std::snprintf(num, sizeof(num), "%d", i + 1);
+      if (done) {
+        target.fill(tick, fui::Paint::solid(fui::Color::Black), 5);
+      } else {
+        target.stroke(tick, fui::Paint::solid(fui::Color::Black), toybox::kHairline, 5);
+      }
+      target.text(fui::makeRect(tick.x, static_cast<int16_t>(tick.y + 1), tick.width, lh), num,
+                  styled(toybox::kTileFont, fui::TextAlign::Center, done ? fui::Color::White : fui::Color::Black));
       paragraph(screen, body, line, box, true);
     }
 
-    // Struck through rather than hidden. A clue you have finished with is still
-    // a clue you might want to re-read, and hiding it would make the numbering
-    // in the list stop matching the numbering in your head.
-    if (draw && (struck & (1u << i)) != 0) {
-      target.fill(fui::makeRect(area.x, static_cast<int16_t>(y + height / 2 - 1), area.width, 2),
-                  fui::Paint::solid(fui::Color::Black));
-    }
+    // Ticked off, never hidden. A clue you have finished with is still a clue
+    // you may want to re-read, and removing it would make the numbers in the
+    // list stop matching the numbers in your head.
 
     if (draw && gClueLayout.count < murdle::kMaxClues) {
       gClueLayout.top[gClueLayout.count] = y;
@@ -518,9 +554,10 @@ CaseReport buildCase(toybox::Screen& screen, const CaseModel& model) {
   if (model.puzzle == nullptr || model.marks == nullptr) return report;
   const Puzzle& puzzle = *model.puzzle;
 
-  char right[24];
-  std::snprintf(right, sizeof(right), "CASE %d", model.caseNumber);
-  chrome(screen, "MURDLE", right);
+  // The door names where it goes, not where you are. A tab bar spends half its
+  // width telling you which page you are already looking at; this spends none.
+  const bool onGrid = model.face == Face::Grid;
+  chrome(screen, "MURDLE", onGrid ? "< CLUES" : "GRID >", ActionFace, onGrid ? 0 : 1);
 
   fui::ButtonProps accuse;
   accuse.label = model.solved ? "SOLVED" : "ACCUSE";
@@ -531,52 +568,6 @@ CaseReport buildCase(toybox::Screen& screen, const CaseModel& model) {
   screen.button(accuse, fui::LayoutAnchor::Bottom);
 
   fui::Rect body = screen.body();
-
-#if MURDLE_VIEW_VARIANT == 1
-  // TABS. Two segments under the header; whichever face is showing owns the
-  // whole body. The cost is that the clue you just read is gone the moment you
-  // go to mark it.
-  for (int i = 0; i < 2; ++i) {
-    const bool active = (i == 1) == (model.face == Face::Grid);
-    fui::ButtonProps tab;
-    tab.label = i == 0 ? "CLUES" : "GRID";
-    tab.action = active ? fui::NO_ACTION : ActionFace;
-    tab.value = i;
-    tab.text = styled(toybox::kUiFont, fui::TextAlign::Center, active ? fui::Color::White : fui::Color::Black);
-    tab.styles = active ? toybox::invertedStyles() : toybox::rowStyles();
-    tab.radius = 8;
-    screen.button(tab, fui::makeRect(static_cast<int16_t>(body.x + i * (body.width / 2)), body.y,
-                                     static_cast<int16_t>(body.width / 2 - 4), kTabH));
-  }
-  body = fui::makeRect(body.x, static_cast<int16_t>(body.y + kTabH + 10), body.width,
-                       static_cast<int16_t>(body.height - kTabH - 10));
-#elif MURDLE_VIEW_VARIANT == 2
-  // RAIL. The grid keeps the screen and one clue sits under it with a stepper,
-  // so marking while reading is one gesture instead of three. The clue face is
-  // still reachable, it is just no longer where you live.
-  if (model.face == Face::Grid) {
-    body = fui::makeRect(body.x, body.y, body.width, static_cast<int16_t>(body.height - kRailH));
-  } else {
-    // And a way back. The first render of this variant had the rail's ALL CLUES
-    // door and nothing facing the other way, so the clue list was a room with
-    // no exit -- which is the sort of thing that is obvious the moment three
-    // layouts are next to each other and invisible in any one of them.
-    fui::ButtonProps toGrid;
-    toGrid.label = "BACK TO THE GRID";
-    toGrid.action = ActionFace;
-    toGrid.value = 1;
-    toGrid.text = styled(toybox::kUiFont, fui::TextAlign::Center, fui::Color::White);
-    toGrid.styles = toybox::invertedStyles();
-    toGrid.radius = 8;
-    screen.button(toGrid, fui::makeRect(body.x, body.y, body.width, kTabH));
-    body = fui::makeRect(body.x, static_cast<int16_t>(body.y + kTabH + 10), body.width,
-                         static_cast<int16_t>(body.height - kTabH - 10));
-  }
-#else
-  // PAGES. No toggle chrome at all: the body itself is the target, and a dot
-  // pair says which of the two you are on.
-  screen.frame().hit(body, ActionFace, model.face == Face::Grid ? 0 : 1);
-#endif
 
   if (model.face == Face::Grid) {
     layout = layoutGrid(screen, puzzle, body);
@@ -630,43 +621,6 @@ CaseReport buildCase(toybox::Screen& screen, const CaseModel& model) {
     }
   }
 
-#if MURDLE_VIEW_VARIANT == 2
-  if (model.face == Face::Grid) {
-    const fui::Rect rail =
-        fui::makeRect(screen.body().x, static_cast<int16_t>(body.bottom() + 6), screen.body().width, kRailH);
-    screen.target().stroke(rail, fui::Paint::solid(fui::Color::Black), toybox::kHairline, 8);
-    char line[murdletext::kLineMax];
-    const int shown = model.page < puzzle.clueCount ? model.page : 0;
-    murdletext::clueLine(puzzle, shown, line, sizeof(line));
-    paragraph(screen, styled(toybox::kTileFont, fui::TextAlign::Left), line, rail.inset(fui::Insets{10, 46, 8, 46}),
-              true);
-    for (int i = 0; i < 2; ++i) {
-      fui::ButtonProps step;
-      step.label = i == 0 ? "<" : ">";
-      step.action = ActionPage;
-      step.value = i == 0 ? -1 : 1;
-      step.text = styled(toybox::kUiFont, fui::TextAlign::Center);
-      step.styles = toybox::rowStyles();
-      step.radius = 8;
-      screen.button(step, fui::makeRect(i == 0 ? rail.x : static_cast<int16_t>(rail.right() - 40),
-                                        static_cast<int16_t>(rail.y + 24), 40, 44));
-    }
-    char count[24];
-    std::snprintf(count, sizeof(count), "%d/%d", shown + 1, puzzle.clueCount);
-    screen.target().text(fui::makeRect(rail.x, static_cast<int16_t>(rail.bottom() - 22), rail.width, 20), count,
-                         styled(toybox::kTileFont, fui::TextAlign::Center));
-    fui::ButtonProps all;
-    all.label = "ALL CLUES";
-    all.action = ActionFace;
-    all.value = 0;
-    all.text = styled(toybox::kTileFont, fui::TextAlign::Center);
-    all.styles = toybox::rowStyles();
-    all.radius = 8;
-    screen.button(all, fui::makeRect(static_cast<int16_t>(rail.x + rail.width / 2 - 60),
-                                     static_cast<int16_t>(rail.bottom() - 24), 120, 22));
-  }
-#endif
-
   // Paging, on the clue face, in every variant. The clue list runs past one
   // screen at the top tiers and a page that silently drops its tail would be
   // a case that cannot be solved.
@@ -683,8 +637,13 @@ CaseReport buildCase(toybox::Screen& screen, const CaseModel& model) {
       screen.button(step, fui::makeRect(i == 0 ? screen.body().x : static_cast<int16_t>(screen.body().right() - 48),
                                         static_cast<int16_t>(screen.body().bottom() - 46), 48, 40));
     }
-    char count[24];
-    std::snprintf(count, sizeof(count), "%d / %d", report.page + 1, report.pages);
+    int done = 0;
+    for (int i = 0; i < puzzle.clueCount; ++i) {
+      if (model.struck & (1u << i)) ++done;
+    }
+    char count[48];
+    std::snprintf(count, sizeof(count), "%d / %d      %d OF %d DONE", report.page + 1, report.pages, done,
+                  puzzle.clueCount);
     screen.target().text(
         fui::makeRect(screen.body().x, static_cast<int16_t>(screen.body().bottom() - 36), screen.body().width, 22),
         count, styled(toybox::kTileFont, fui::TextAlign::Center));
