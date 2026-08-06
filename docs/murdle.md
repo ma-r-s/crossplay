@@ -305,6 +305,39 @@ vertical space, which was the entire reason for choosing this arrangement.
 The body cannot be the toggle, because the body has two jobs of its own: cells
 to mark on the grid, and clues to tick off on the case file.
 
+### The front door
+
+A miniature of your own grid, marks and all, with two lines of facts under it:
+clues used, squares settled. Chosen by building four and rendering them against
+the same case.
+
+It replaces a 4x4 block of your last sixteen cases, which was copied from
+Connections without checking whether it meant anything here. In Connections it
+is a calendar -- one puzzle a day, so sixteen days is a shape you recognise and
+a streak you can lose. Murdle has no cadence at all: cases are endless and on
+demand, so sixteen boxes in arbitrary order say nothing, and on a fresh device
+they are sixteen *empty* boxes taking half the screen. Decoration has to carry
+the player's own data and that data has to mean something. The pips passed the
+first test and failed the second.
+
+The board passes both, and it is not really decoration -- it is the thing
+itself. The three that lost: the case's cast listed (the case-file page again),
+a bordered card of facts (calm, and the only one whose empty state looked
+deliberate -- its numbers survive under the board), and one enormous case
+number (fast, and nothing to look at on a panel that holds its image for hours).
+
+### Marking
+
+Tapping a square cycles unknown, ruled out, locked in. Locking one in rules out
+the rest of its row and column **within that block**, which is the bookkeeping
+a pencil does: one suspect cannot hold two weapons. Reaching across blocks is
+the deduction, and doing that for the player would be playing the game for them.
+
+Locking in also overrules any earlier answer in that row or column. That sounds
+obvious and was not: the grid refuses to overwrite a decided cell, which is
+right for the solver and wrong for the player's own hand, so changing your mind
+used to leave two locked-in squares in one row with the crossing half applied.
+
 ### The key under the grid
 
 One row a category, four aligned columns, the rows spread through whatever
