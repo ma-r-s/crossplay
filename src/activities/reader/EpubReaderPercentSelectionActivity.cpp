@@ -186,6 +186,9 @@ void EpubReaderPercentSelectionActivity::buildPercentScreen(UiApp::ScreenType& s
 
   // Two-line step hint built from separate label + value strings (front buttons = fine step, side
   // buttons = coarse step), so the layout doesn't depend on a separator hidden in translated text.
+  // Touch devices drive the slider directly (drag + the -/+ zones), so the physical-button
+  // references are hidden there — same rule as GUI.drawButtonHints.
+  if (mappedInput.hasTouch()) return;
   fui::TextStyle hint = theme.smallText;
   hint.align = fui::TextAlign::Center;
   const int16_t hintLh = screen.target().lineHeight(hint.font);
