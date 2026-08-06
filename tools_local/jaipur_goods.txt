@@ -16,21 +16,22 @@ good_diamond = diamond      # a clean rhombus; gem's facet lines are interior
                             # detail and mush at 32px, which is what ruled out
                             # gamepad-2 and castle for the shelf
 good_gold    = coins        # a stack. Value reads as quantity
-good_silver  = layers       # stacked bars, which is how silver is actually
-                            # traded. Three flat shapes cannot be confused with
-                            # the diamond's single upright rhombus, and unlike a
-                            # coin it does not collide with the gold stack.
-                            # `medal` was the first pick and was rejected on
-                            # sight: a ribbon over a disc over a star is three
-                            # shapes inside 32px and it reads as a prize.
-                            # Runner-up was `weight`; also rejected: `badge` and
-                            # `disc` (too close to the gold coins), `hexagon`
-                            # (abstract, says nothing about metal), `stamp`
-                            # (reads as office stationery)
+good_silver  = weight       # stacked bars, which is how silver is actually
+                            # A mass of metal, and the cleanest silhouette of
+                            # the nine that were rendered side by side. Two
+                            # earlier picks lost: `medal` reads as a prize (a
+                            # ribbon over a disc over a star is three shapes
+                            # inside 32px) and `layers` reads as stacked paper
+                            # rather than as bars. Also rejected: `anvil` (reads
+                            # as a goblet at this size), `component` (four small
+                            # rhombi, collides with the diamond), `badge` and
+                            # `disc` and `cylinder` (too close to the gold
+                            # coins), `hexagon` and `pentagon` and `shield`
+                            # (clean but abstract; they say nothing about
+                            # metal), `blocks` (busy), `amphora` (says pottery)
 good_cloth   = shirt
 good_spice   = leaf
-good_leather = backpack     # Lucide has no hide or boot; a bag is the leather
-                            # good a market would actually sell
 
 # The bonus token, which is not a good and should not look like one.
 bonus_token  = sparkles
+
