@@ -91,8 +91,33 @@ if [ "${1:-}" != "--tests" ]; then
   while [ "$WS" != "/" ] && [ ! -e "$WS/.xteink-workspace" ]; do WS="$(dirname "$WS")"; done
   [ -e "$WS/.xteink-workspace" ] && export PLATFORMIO_BUILD_CACHE_DIR="$WS/.pio-cache"
 
+  # x4pro is serialised across every tree; simulator_x4_pro is not.
+  #
+  # The ESP32 build reaches into ~/.platformio, which is shared by every tree
+  # and cannot be sharded (it is 10GB). Three trees building x4pro at once for
+  # the first time raced in the espressif32 builder and two of them died on
+  # `TypeError: ... not 'NoneType'` out of arduino.py, with chip_variant unset
+  # -- a platform-internal error that looks nothing like a race and points at
+  # no file of ours. Alone, both rebuilt in 30s. The native simulator build
+  # touches none of that and succeeded in all three concurrently, so it stays
+  # parallel: that is the build the inner loop actually waits on.
+  FW_LOCK="$WS/.pio-cache/x4pro.lock"
+
   for env in simulator_x4_pro x4pro; do
     echo "build: $env"
+    if [ "$env" = "x4pro" ] && [ -d "$(dirname "$FW_LOCK")" ]; then
+      waited=0
+      while ! mkdir "$FW_LOCK" 2>/dev/null; do
+        [ "$waited" -eq 0 ] && echo "  waiting for another tree's firmware build ..."
+        sleep 2
+        waited=$((waited + 2))
+        if [ "$waited" -gt 900 ]; then
+          echo "  firmware lock held 15 minutes; removing stale $FW_LOCK" >&2
+          rm -rf "$FW_LOCK"
+        fi
+      done
+      trap 'rmdir "$FW_LOCK" 2>/dev/null' EXIT INT TERM
+    fi
     if pio run -e "$env" > "$LOGS/$env.log" 2>&1; then
       # The native build reports no RAM/Flash. Say "ok" rather than printing
       # nothing, or a clean build reads like a swallowed failure.
@@ -101,6 +126,12 @@ if [ "${1:-}" != "--tests" ]; then
       echo "  FAILED"
       grep -E "error:" "$LOGS/$env.log" | head -5 | sed 's/^/    /'
       FAILED=1
+    fi
+    # Released as soon as the firmware build is done rather than at exit, so a
+    # tree that still has other work to print does not hold every other tree up.
+    if [ "$env" = "x4pro" ]; then
+      rmdir "$FW_LOCK" 2>/dev/null
+      trap - EXIT INT TERM
     fi
   done
 fi
