@@ -5,11 +5,12 @@
 // answer without those lives in XkcdCore (freestanding, host-tested) or
 // XkcdScreens (freestanding, host-tested).
 //
-// **Landscape.** Set in onEnter and put back in onExit, because the
-// orientation is global and leaving it turned rotates whatever activity comes
-// next. See XkcdCore.h for the measurements: the widest comic ever published
-// is 780px against an 800px landscape panel, so this is the one orientation
-// where no comic is ever scaled down and none ever needs to pan sideways.
+// **Portrait**, like every other app on the device. A landscape reader at
+// native size was built first and is sharper -- the archive is 740px wide and
+// the landscape panel is 800, so nothing would ever be scaled -- but it made
+// the whole app something you had to turn the device sideways for. The pack is
+// built at 480 wide instead, so the scaling happens once on a host with a real
+// resampling filter and the device still blits 1:1.
 
 #include <memory>
 
@@ -32,7 +33,7 @@ class XkcdActivity final : public Activity {
   void render(RenderLock&&) override;
 
  private:
-  enum class View : uint8_t { Menu, List, Reader, Alt, Notice, Updating };
+  enum class View : uint8_t { Menu, List, Reader, Alt, Notice, Updating, Number };
 
   // --- the pack -----------------------------------------------------------
   bool openArchive();
@@ -56,6 +57,10 @@ class XkcdActivity final : public Activity {
   void saveReadState();
 
   void openList(int firstPosition);
+  void typeDigit(int digit);
+  void backspace();
+  bool typedIsOnCard() const;
+  void goToTyped();
   void fillListRows();
   void openComicAt(int position);
   void showNotice(const char* headline, const char* detail, const char* actionLabel = nullptr,
@@ -110,6 +115,12 @@ class XkcdActivity final : public Activity {
   uint8_t readBits_[kReadBitsBytes] = {};
   bool readDirty_ = false;
   int readCount_ = 0;
+
+  // The number being typed on the go-to pad. Five digits is past any comic
+  // number xkcd will reach in a lifetime, and the buffer refuses a sixth
+  // rather than wrapping.
+  char typed_[6] = {0};
+  int typedLen_ = 0;
 
   // The notice screen's text, owned here because the model only borrows it.
   char noticeHead_[48] = {0};

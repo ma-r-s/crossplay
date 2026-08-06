@@ -86,11 +86,14 @@ XkcdActivity::~XkcdActivity() = default;
 
 void XkcdActivity::onEnter() {
   Activity::onEnter();
-  // Landscape, and this is the whole reason the app looks different from the
-  // others. See XkcdCore.h: the widest comic ever published is 780px against
-  // an 800px landscape panel, so this is the one orientation where nothing is
-  // ever scaled down and nothing ever pans sideways.
-  renderer.setOrientation(GfxRenderer::Orientation::LandscapeCounterClockwise);
+  // Portrait, like every other app on the device. An earlier version turned
+  // the panel sideways to show comics at native size, which is the one
+  // configuration where nothing is ever scaled -- but it made the whole app,
+  // list included, a thing you had to rotate the device for, and Mario's call
+  // was that the reading is not worth the posture. The pack is built at
+  // 480 wide instead (`build_pack.py --max-width 480`), so the scaling happens
+  // once on a host with a real resampling filter and the device still blits
+  // 1:1. See docs/xkcd-pack-format.md.
   toybox::ensureFonts(renderer);
 
   archiveOpen_ = openArchive();
@@ -120,10 +123,6 @@ void XkcdActivity::onExit() {
   }
   Storage.remove(kTmpPng);
   Storage.remove(kTmpBmp);
-
-  // Put the screen back the way it was found. The orientation is global, so
-  // leaving it turned would rotate the Apps menu on the way out.
-  renderer.setOrientation(GfxRenderer::Orientation::Portrait);
   Activity::onExit();
 }
 
@@ -278,6 +277,45 @@ void XkcdActivity::fillListRows() {
   snprintf(listRight_, sizeof(listRight_), "%d OF %d", listFirst_ + 1, archive_.count());
 }
 
+void XkcdActivity::typeDigit(const int digit) {
+  if (digit < 0 || digit > 9) return;
+  // A leading zero would make "0" and "00" different strings for the same
+  // number, and there is no comic 0.
+  if (typedLen_ == 0 && digit == 0) return;
+  if (typedLen_ >= static_cast<int>(sizeof(typed_)) - 1) return;
+  typed_[typedLen_++] = static_cast<char>('0' + digit);
+  typed_[typedLen_] = '\0';
+}
+
+void XkcdActivity::backspace() {
+  if (typedLen_ <= 0) return;
+  typed_[--typedLen_] = '\0';
+}
+
+bool XkcdActivity::typedIsOnCard() const {
+  if (typedLen_ <= 0 || !archiveOpen_) return false;
+  const int n = atoi(typed_);
+  if (n <= 0 || n > 65535) return false;
+  // Asked of the index rather than of the range, because the archive has
+  // holes: 404 is not a comic, and a pack can be built from any slice.
+  return archive_.find(*indexSrc_, static_cast<uint16_t>(n)) >= 0;
+}
+
+void XkcdActivity::goToTyped() {
+  if (typedLen_ <= 0 || !archiveOpen_) return;
+  const int n = atoi(typed_);
+  const int pos = archive_.find(*indexSrc_, static_cast<uint16_t>(n));
+  if (pos < 0) {
+    // GO is dimmed in this state, so arriving here means the index moved under
+    // us. Say which number rather than failing silently.
+    char why[64];
+    snprintf(why, sizeof(why), "#%d is not in the pack on this card.", n);
+    showNotice("NOT HERE", why);
+    return;
+  }
+  openComicAt(pos);
+}
+
 void XkcdActivity::openComicAt(const int position) {
   if (!loadComic(position)) {
     showNotice("MISSING", "That comic is not in the pack on this card.");
@@ -366,7 +404,12 @@ void XkcdActivity::drawComic() {
         // pack's. Drawn pixel by pixel because the renderer has no 1bpp blit
         // that takes a stride, and drawIcon bakes in a portrait rotation that
         // would turn the comic on its side.
-        if ((line[x >> 3] >> (7 - (x & 7))) & 1) renderer.drawPixel(p.originX + x, y, true);
+        const int sx = p.originX + x;
+        // Clipped rather than trusted. The pack for this build is made at the
+        // panel's width, but a pack built for the old landscape reader is
+        // 740px wide and would otherwise blit straight off the framebuffer.
+        if (sx >= view.width) break;
+        if ((line[x >> 3] >> (7 - (x & 7))) & 1) renderer.drawPixel(sx, y, true);
       }
     }
     drawn += rows;
@@ -435,6 +478,7 @@ void XkcdActivity::loop() {
       case View::Reader:
       case View::List:
       case View::Notice:
+      case View::Number:
         view_ = View::Menu;
         requestUpdate();
         return;
@@ -478,9 +522,22 @@ void XkcdActivity::handleAction(const fui::ActionId action, const int16_t value)
       requestUpdate();
       break;
     }
-    case xkcdui::ActionSearch:
-      // Deliberately not built yet; saying so is better than a dead button.
-      showNotice("SEARCH", "Not built yet. Browse steps through the archive newest first.");
+    case xkcdui::ActionGoToNumber:
+      typed_[0] = '\0';
+      typedLen_ = 0;
+      view_ = View::Number;
+      requestUpdate();
+      break;
+    case xkcdui::ActionDigit:
+      typeDigit(value);
+      requestUpdate();
+      break;
+    case xkcdui::ActionBackspace:
+      backspace();
+      requestUpdate();
+      break;
+    case xkcdui::ActionGo:
+      goToTyped();
       requestUpdate();
       break;
     case xkcdui::ActionUpdate:
@@ -818,7 +875,7 @@ void XkcdActivity::render(RenderLock&&) {
   // A slimmer header than the portrait screens use: in landscape the usual 76
   // would cost a sixth of the height a comic needs.
   fui::ThemeTokens tokens = toybox::themeTokens();
-  tokens.headerHeight = xkcdui::kHeaderBand;
+  tokens.headerHeight = xkcdui::kHeaderBand;  // the fork's standard band; see XkcdScreens.h
   toybox::Screen screen(frame, tokens);
 
   switch (view_) {
@@ -860,6 +917,14 @@ void XkcdActivity::render(RenderLock&&) {
       model.pans = xkcd::maxScroll(comic_, xkcdui::readerViewport(target.deviceContext()).height) > 0;
       model.permille = xkcd::scrollPermille(comic_, xkcdui::readerViewport(target.deviceContext()).height, scrollY_);
       model.hasAlt = alt_[0] != '\0';
+      model.alt = alt_;
+      // Where the artwork actually ended, taken from the same placement the
+      // blit used rather than recomputed, so the alt band cannot overlap it.
+      {
+        const fui::Rect view = xkcdui::readerViewport(target.deviceContext());
+        const xkcd::Placement p = xkcd::place(comic_, view.width, view.height, scrollY_);
+        model.artBottom = view.y + p.originY + p.visibleH;
+      }
       xkcdui::buildReaderBar(screen, model);
 
       // The two halves that pan, registered from the same function that the
@@ -869,6 +934,18 @@ void XkcdActivity::render(RenderLock&&) {
         frame.hit(xkcdui::readerPanUpHalf(target.deviceContext()), xkcdui::ActionPanUp);
         frame.hit(xkcdui::readerPanDownHalf(target.deviceContext()), xkcdui::ActionPanDown);
       }
+      break;
+    }
+    case View::Number: {
+      xkcdui::NumberModel model;
+      model.typed = typed_;
+      model.maxNum = archiveOpen_ ? archive_.maxNum() : 0;
+      if (archiveOpen_) {
+        xkcd::Comic first{};
+        if (archive_.at(*indexSrc_, 0, first)) model.firstNum = first.num;
+      }
+      model.valid = typedIsOnCard();
+      xkcdui::buildNumber(screen, model);
       break;
     }
     case View::Alt: {

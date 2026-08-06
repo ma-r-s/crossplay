@@ -299,8 +299,13 @@ static void testPlacement() {
 
   xkcd::Placement p = xkcd::place(wide, 800, 480, 0);
   CHECK(!p.pans, "a 180px strip must not pan on a 480px viewport");
-  CHECK(p.originX == 30, "originX %d (centred in 800)", p.originX);
-  CHECK(p.originY == 150, "originY %d (centred in 480)", p.originY);
+  CHECK(p.originX == 30, "originX %d (centred horizontally in 800)", p.originX);
+  // **Anchored to the top, not centred.** On a portrait panel a wide strip is
+  // ~117px tall in a ~730px viewport, and centring leaves 300px of white above
+  // and below -- a block with equal slack on both sides reads as unresolved,
+  // and dead space is a real defect on a screen that holds still. Anchored,
+  // the slack becomes one zone underneath that the alt text grows into.
+  CHECK(p.originY == 0, "originY %d (must be anchored to the top)", p.originY);
   CHECK(p.visibleH == 180, "visibleH %d", p.visibleH);
   CHECK(xkcd::maxScroll(wide, 480) == 0, "maxScroll of a fitting comic is 0");
   CHECK(xkcd::scrollPermille(wide, 480, 0) == 1000, "a comic that fits is wholly shown");

@@ -5,10 +5,18 @@
 // assert what they drew and what they made tappable.
 //
 // ---------------------------------------------------------------------------
-// Everything here is **landscape, 800x480**. XkcdCore.h has the measurements,
-// but the short version is that the widest comic ever published is 780px, so
-// landscape is the one orientation where nothing is ever scaled down. On a
-// 1-bit panel, scaling hand lettering is where legibility dies.
+// **Portrait, 480x800**, like every other app on the device.
+//
+// The archive is 740px wide at source, so a portrait panel means the artwork
+// is scaled to 480 -- but that happens once, on a host, with a real resampling
+// filter (`build_pack.py --max-width 480`), and the device blits 1:1 whatever
+// it is handed. The alternative was a landscape reader at native size, which
+// is sharper and was built first; it lost because it made the whole app,
+// browsing included, something you had to turn the device sideways for.
+//
+// What that leaves is one axis of motion. A comic 480 wide always fits the
+// width, so the reader only ever pans **down**, half a screen at a time,
+// snapped to a gap in the artwork. See XkcdCore.h.
 //
 // The reader is the one screen that is mostly not a screen: the comic is the
 // app's own surface and the Activity blits it, exactly as chess draws its
@@ -28,7 +36,7 @@ namespace fui = freeink::ui;
 enum : fui::ActionId {
   ActionOpenLatest = 400,
   ActionBrowse = 401,
-  ActionSearch = 402,
+  ActionGoToNumber = 402,
   ActionRandom = 403,
   ActionUpdate = 404,
   ActionOpenComic = 405,
@@ -43,6 +51,11 @@ enum : fui::ActionId {
   ActionDismiss = 411,
   ActionPrevComic = 412,
   ActionNextComic = 413,
+  // The number pad. One action carrying the digit as its value, plus the two
+  // edits, so a keypad is fourteen rects and not fourteen actions.
+  ActionDigit = 414,
+  ActionBackspace = 415,
+  ActionGo = 416,
 };
 
 // --- The front door ------------------------------------------------------
@@ -62,12 +75,10 @@ struct MenuModel {
 
 void buildMenu(toybox::Screen& screen, const MenuModel& model);
 
-// The header band this app uses. Slimmer than the portrait screens' 76,
-// because in landscape that would cost a sixth of the height a comic needs.
-// Named here rather than assumed twice: the builder draws the rule under it
-// and the Activity overrides the theme with it, and when those two disagreed
-// the rule floated twenty pixels below the band.
-inline constexpr int16_t kHeaderBand = 56;
+// The header band. Named here rather than assumed twice: the builder draws the
+// rule under it and the Activity overrides the theme with it, and when those
+// two disagreed the rule floated twenty pixels below the band.
+inline constexpr int16_t kHeaderBand = toybox::kHeaderHeight;
 
 // The band the mosaic is drawn into, shared with the Activity the way
 // Connections shares its grid band. See docs/design-language.md on ornament:
@@ -110,8 +121,14 @@ struct ReaderModel {
   int permille = 1000;
   bool pans = false;
   bool hasAlt = false;
-  bool canPrev = false;
-  bool canNext = false;
+  // The alt text, and the first screen row below the artwork. On a comic that
+  // fits, the space underneath is where the joke's second half goes: xkcd hides
+  // it behind a hover, which a touch panel has no equivalent for, and a wide
+  // strip leaves most of a portrait screen empty anyway. On a comic that pans
+  // there is no room and the ALT button is the way to it -- so the button is
+  // always there and the inline copy is a bonus, never the only route.
+  const char* alt = "";
+  int artBottom = 0;
 };
 
 // The bar under the comic. The comic itself is not drawn here.
@@ -138,6 +155,26 @@ struct AltModel {
 // and because on a short wide comic there is no room to put it under the art
 // without the layout jumping between comics.
 void buildAlt(toybox::Screen& screen, const AltModel& model);
+
+// --- Notices -------------------------------------------------------------
+
+// --- Going to a number ---------------------------------------------------
+
+struct NumberModel {
+  // What has been typed so far, as digits. Empty is a legal state and the
+  // screen says so rather than showing a bare zero.
+  const char* typed = "";
+  uint16_t firstNum = 0;
+  uint16_t maxNum = 0;
+  // False when the typed number is not a comic on this card, which dims GO
+  // rather than letting a tap fail silently.
+  bool valid = false;
+};
+
+// A number pad, not a text search. Looking a comic up by its number is what
+// people actually do with xkcd -- the numbers are how they are referred to --
+// and it needs ten keys rather than a keyboard and a substring index.
+void buildNumber(toybox::Screen& screen, const NumberModel& model);
 
 // --- Notices -------------------------------------------------------------
 

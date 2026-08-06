@@ -77,7 +77,8 @@ number of bytes. That is `toybox::blit1bpp`'s convention, so the reader blits
 without translating anything. Note the inversion against BMP, where a set bit
 is white; `convert.cpp` flips it deliberately at the one place it is produced.
 
-Images are stored at **native size and never scaled**. See below.
+Images are stored at the width the panel draws them at, so the device
+never scales. See the measurements below.
 
 ### text.dat
 
@@ -109,17 +110,20 @@ nothing that can go stale. `xkcd::gapWindowFor` names the rows and
 
 All from a sample of 1048 comics spread evenly across the archive.
 
-**The widest comic xkcd has ever published is 780px; p99 is 740.** The landscape
-panel is 800. So at 1:1 in landscape **nothing is ever downscaled and nothing
-ever needs to pan sideways.** 75% of the archive needs no panning at all, 21% is
-two screens, 4% more.
+**The widest comic xkcd has ever published is 780px; p99 is 740.** The portrait
+panel is 480, so the pack is built with `--max-width 480` and everything wider
+is scaled down once, on the host, with LANCZOS before the Atkinson pass. The
+device then blits 1:1 and never scales anything.
 
-That is why the reader is landscape and why there is one step function rather
-than two. Portrait would mean fit-to-width, which shrinks 56% of the archive,
-the worst to 0.62 — and rendering #1205 both ways through this fork's own
-ditherer shows the 1:1 lettering clean and the 0.65 lettering broken. Hand
-lettering is one or two pixels wide and there is no such thing as a
-two-thirds-wide stroke on a 1-bit panel.
+A landscape reader at native size was built first, and it is sharper: at 800
+wide nothing is scaled at all and 75% of the archive needs no panning. It lost
+on posture — it made the whole app, browsing included, a thing you had to turn
+the device sideways for. Rendering the same comic both ways, the 480 lettering
+is smaller but clearly readable, which is what made the trade acceptable.
+
+Either way there is **one step function and not two**: at 480 the artwork
+always fits the width, so the reader only ever pans down. Rebuild the pack with
+`--max-width 0` to get the landscape-native artwork back.
 
 **A gap in the artwork is a threshold, not emptiness.** 20 of 30 sampled comics
 are drawn inside a frame, so every interior row crosses two vertical strokes and
@@ -138,7 +142,7 @@ Source PNGs would be ~180MB.
 ## Building one
 
 ```bash
-tools_local/xkcd/build_pack.py --out fs_mario/xkcd
+tools_local/xkcd/build_pack.py --out fs_mario/xkcd --max-width 480
 ```
 
 Resumable in both directions: the download cache and the pack are both rebuilt

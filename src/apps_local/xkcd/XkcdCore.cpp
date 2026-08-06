@@ -179,12 +179,15 @@ Placement place(const Comic& c, int screenW, int viewportH, int scrollY) {
   p.pans = maxS > 0;
 
   if (!p.pans) {
-    // Fits: centre it. A strip 180px tall on a 480px panel sits in the middle
-    // of the page like a comic on newsprint, which is what it is.
+    // Fits: **anchored to the top, not centred.** A wide strip is 117px tall
+    // on a 730px portrait viewport, so centring leaves 300px of white above it
+    // and 300px below, and a block floating with equal slack reads as
+    // unresolved -- docs/design-language.md is explicit that dead space is a
+    // real defect on a screen that holds still. Anchored, the slack becomes
+    // one deliberate zone underneath, which the alt text grows into.
     p.scrollY = 0;
     p.visibleH = c.height;
-    p.originY = (viewportH - static_cast<int>(c.height)) / 2;
-    if (p.originY < 0) p.originY = 0;
+    p.originY = 0;
     return p;
   }
 

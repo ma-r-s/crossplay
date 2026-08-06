@@ -306,6 +306,13 @@ def main() -> int:
         default=0,
         help="stop after N comics (for a quick test pack)",
     )
+    ap.add_argument(
+        "--max-width",
+        type=int,
+        default=0,
+        help="scale anything wider down to this, preserving aspect ratio "
+        "(0 = never scale). Portrait fit-to-width wants 480.",
+    )
     args = ap.parse_args()
 
     here = pathlib.Path(__file__).resolve().parent
@@ -351,6 +358,18 @@ def main() -> int:
             except Exception as e:  # noqa: BLE001
                 skipped.append((num, f"decode: {e}"))
                 continue
+
+            # Scaled here, on the host, with a real resampling filter -- never
+            # on the device. LANCZOS then Atkinson keeps far more of a
+            # hand-lettered stroke than anything the firmware could afford at
+            # draw time, and the device then blits 1:1 whatever it is handed.
+            if args.max_width and gray.size[0] > args.max_width:
+                from PIL import Image as _Image
+
+                scale = args.max_width / gray.size[0]
+                gray = gray.resize(
+                    (args.max_width, max(1, round(gray.size[1] * scale))), _Image.LANCZOS
+                )
 
             w, h = gray.size
             if w > MAX_COMIC_WIDTH or h > MAX_COMIC_HEIGHT or w == 0 or h == 0:

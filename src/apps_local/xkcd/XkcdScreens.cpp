@@ -10,6 +10,11 @@ namespace {
 // that has to be panned instead of seen.
 constexpr int16_t kBarHeight = 44;
 
+// The alt text needs at least this much room under the artwork to be worth
+// drawing inline. Below it the band holds one clipped line, which reads as a
+// fault rather than as a joke, and the ALT button is right there anyway.
+constexpr int16_t kMinAltBand = 96;
+
 // The top of any body: below the header band and the rule Toybox draws under
 // it. Shared by every screen here so they line up with each other and with the
 // shelf the reader just came from.
@@ -29,6 +34,13 @@ struct MenuBands {
   fui::Rect doors;
 };
 
+// Four of them, and in portrait they are full-width rows rather than a strip
+// of four narrow buttons: at 480 wide, four across leaves 103px a button and
+// "GO TO NUMBER" has nowhere to go. docs/design-language.md calls for
+// bottom-anchored rows anyway.
+constexpr int kDoorCount = 4;
+constexpr int16_t kDoorGap = 8;
+
 MenuBands menuBands(const fui::DeviceContext& device) {
   const fui::Rect panel = device.screen();
   const int16_t left = toybox::kMargin;
@@ -45,8 +57,8 @@ MenuBands menuBands(const fui::DeviceContext& device) {
   b.record = fui::makeRect(left, y, width, 24);
   y = static_cast<int16_t>(y + 24 + toybox::kGutter * 2);
 
-  b.doors = fui::makeRect(left, static_cast<int16_t>(panel.height - toybox::kMargin - toybox::kPillHeight), width,
-                          toybox::kPillHeight);
+  const int16_t doorsHeight = static_cast<int16_t>(kDoorCount * toybox::kPillHeight + (kDoorCount - 1) * kDoorGap);
+  b.doors = fui::makeRect(left, static_cast<int16_t>(panel.height - toybox::kMargin - doorsHeight), width, doorsHeight);
   b.mosaic = fui::makeRect(left, y, width, static_cast<int16_t>(b.doors.y - toybox::kGutter - y));
   return b;
 }
@@ -85,6 +97,17 @@ void chrome(toybox::Screen& screen, const char* title, const char* rightLabel = 
 fui::TextStyle owned(fui::TextStyle style, fui::TextAlign align) {
   style.align = align;
   return style;
+}
+
+// A button that cannot act right now. `enabled = false` alone is not enough:
+// the theme's button StyleSet sets `styles.disabled = styles.normal`, so a
+// disabled control draws identically to a live one and the only way to find
+// out is to tap it. Toybox ships the dithered treatment; it has to be asked
+// for. docs/design-language.md: a control that cannot act dims, and the dither
+// goes in the fill because there is no grey text on this device.
+void addButton(toybox::Screen& screen, fui::ButtonProps props, const fui::Rect& where) {
+  if (!props.enabled) props.styles = toybox::disabledButtonStyles();
+  screen.button(props, where);
 }
 
 // The theme's title style is built for the header band, which is solid black,
@@ -148,21 +171,19 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
 
   // The lesser doors, bottom-anchored: that is where a thumb rests, and it
   // keeps them from competing with the headline.
-  const int16_t doorWidth = static_cast<int16_t>((bands.doors.width - toybox::kGutter * 3) / 4);
-
   struct Door {
     const char* label;
     fui::ActionId action;
     bool enabled;
   };
-  const Door doors[] = {
+  const Door doors[kDoorCount] = {
       {"BROWSE", ActionBrowse, model.hasArchive},
-      {"SEARCH", ActionSearch, model.hasArchive},
+      {"GO TO NUMBER", ActionGoToNumber, model.hasArchive},
       {"RANDOM", ActionRandom, model.hasArchive},
       {"UPDATE", ActionUpdate, true},
   };
 
-  for (int i = 0; i < 4; ++i) {
+  for (int i = 0; i < kDoorCount; ++i) {
     fui::ButtonProps props;
     props.label = doors[i].label;
     props.action = doors[i].action;
@@ -171,8 +192,68 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
     // whether the action is unavailable or whether you misremembered the
     // screen. UPDATE stays live with no archive, because it is the way out.
     props.enabled = doors[i].enabled;
-    screen.button(props, fui::makeRect(static_cast<int16_t>(bands.doors.x + i * (doorWidth + toybox::kGutter)),
-                                       bands.doors.y, doorWidth, bands.doors.height));
+    addButton(screen, props,
+              fui::makeRect(bands.doors.x, static_cast<int16_t>(bands.doors.y + i * (toybox::kPillHeight + kDoorGap)),
+                            bands.doors.width, toybox::kPillHeight));
+  }
+}
+
+// --- Going to a number ---------------------------------------------------
+
+void buildNumber(toybox::Screen& screen, const NumberModel& model) {
+  chrome(screen, "GO TO NUMBER");
+
+  const fui::Rect panel = screen.device().screen();
+  const int16_t left = toybox::kMargin;
+  const int16_t width = static_cast<int16_t>(panel.width - toybox::kMargin * 2);
+
+  // What has been typed, big, with the range under it so the bounds are a
+  // thing you can read rather than a thing you discover by being refused.
+  const bool empty = model.typed == nullptr || model.typed[0] == '\0';
+  char shown[16];
+  snprintf(shown, sizeof(shown), "#%s", empty ? "" : model.typed);
+  screen.target().text(fui::makeRect(left, kBodyTop, width, 56), shown,
+                       onPaper(screen.theme().titleText, fui::TextAlign::Center));
+
+  // The pack's real span, not 1..max. A pack can be built from any slice of
+  // the archive, so "1 to 460" over a pack that starts at 300 invites typing a
+  // number that is not there and then dims GO with no explanation.
+  char range[48];
+  snprintf(range, sizeof(range), "%u to %u", static_cast<unsigned>(model.firstNum),
+           static_cast<unsigned>(model.maxNum));
+  screen.target().text(fui::makeRect(left, static_cast<int16_t>(kBodyTop + 58), width, 24), range,
+                       onPaper(screen.theme().smallText, fui::TextAlign::Center));
+
+  // Ten digits, three to a row, with back and go on the last. Sized from the
+  // panel rather than fixed, so the pad fills the width it is given.
+  constexpr int16_t kPadGap = 10;
+  const int16_t keyW = static_cast<int16_t>((width - kPadGap * 2) / 3);
+  const int16_t keyH = 64;
+  const int16_t padTop = static_cast<int16_t>(kBodyTop + 100);
+
+  const char* keys[12] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "<", "0", "GO"};
+  for (int i = 0; i < 12; ++i) {
+    const int row = i / 3;
+    const int col = i % 3;
+    const fui::Rect where = fui::makeRect(static_cast<int16_t>(left + col * (keyW + kPadGap)),
+                                          static_cast<int16_t>(padTop + row * (keyH + kPadGap)), keyW, keyH);
+    fui::ButtonProps props;
+    props.label = keys[i];
+    if (i == 9) {
+      props.action = ActionBackspace;
+      props.enabled = !empty;
+    } else if (i == 11) {
+      props.action = ActionGo;
+      // Dimmed rather than absent when the number is not on the card, so the
+      // control still says what it would do.
+      props.enabled = model.valid;
+    } else {
+      props.action = ActionDigit;
+      // The digit rides on the action's value, so twelve keys cost one action
+      // and not twelve. `0` is the eleventh key and its own digit.
+      props.value = static_cast<int16_t>(i == 10 ? 0 : i + 1);
+    }
+    addButton(screen, props, where);
   }
 }
 
@@ -218,14 +299,15 @@ void buildList(toybox::Screen& screen, const ListModel& model) {
   older.label = "OLDER";
   older.action = ActionPageOlder;
   older.enabled = model.canPageOlder;
-  screen.button(older, fui::makeRect(toybox::kMargin, pageY, pageWidth, toybox::kPillHeight));
+  addButton(screen, older, fui::makeRect(toybox::kMargin, pageY, pageWidth, toybox::kPillHeight));
 
   fui::ButtonProps newer;
   newer.label = "NEWER";
   newer.action = ActionPageNewer;
   newer.enabled = model.canPageNewer;
-  screen.button(newer, fui::makeRect(static_cast<int16_t>(panel.width - toybox::kMargin - pageWidth), pageY, pageWidth,
-                                     toybox::kPillHeight));
+  addButton(screen, newer,
+            fui::makeRect(static_cast<int16_t>(panel.width - toybox::kMargin - pageWidth), pageY, pageWidth,
+                          toybox::kPillHeight));
 }
 
 // --- The reader ----------------------------------------------------------
@@ -255,19 +337,46 @@ void buildReaderBar(toybox::Screen& screen, const ReaderModel& model) {
   // e-ink and cannot ghost, which is the one rule in docs/design-language.md.
   screen.target().fill(bar, fui::Paint::solid(fui::Color::Black));
 
+  // The alt text goes in the band the artwork left behind, when there is one.
+  // This is what turns a wide strip's dead space into the rest of the joke:
+  // scaled to a 480 panel, a 740x180 strip is 117px tall and leaves six
+  // hundred pixels of white under it.
+  if (model.hasAlt && !model.pans && model.artBottom > 0) {
+    const int16_t top = static_cast<int16_t>(model.artBottom + toybox::kGutter * 2);
+    const int16_t room = static_cast<int16_t>(bar.y - toybox::kGutter - top);
+    if (room >= kMinAltBand) {
+      screen.target().fill(fui::makeRect(toybox::kMargin, top, static_cast<int16_t>(panel.width - toybox::kMargin * 2),
+                                         toybox::kHairline),
+                           fui::Paint::solid(fui::Color::Black));
+      fui::TextAreaProps alt;
+      alt.text = model.alt;
+      alt.style = owned(screen.theme().bodyText, fui::TextAlign::Left);
+      alt.showCaret = false;
+      fui::textArea(screen.frame(),
+                    fui::makeRect(toybox::kMargin, static_cast<int16_t>(top + toybox::kGutter),
+                                  static_cast<int16_t>(panel.width - toybox::kMargin * 2),
+                                  static_cast<int16_t>(room - toybox::kGutter)),
+                    alt);
+    }
+  }
+
   char left[80];
   snprintf(left, sizeof(left), "#%u  %s", static_cast<unsigned>(model.num), model.title);
 
   fui::TextStyle label = owned(screen.theme().smallText, fui::TextAlign::Left);
   label.color = fui::Color::White;
 
-  // The rail takes the right third; the label gets what is left, bounded by
-  // what it must not touch. Handing a long title the whole bar was the defect
-  // the shelf's player row had: the component centres across the whole rect,
-  // so at the widest value the text runs straight through its neighbours.
-  const int16_t railWidth = 180;
-  const int16_t altWidth = 76;
-  const int16_t labelWidth = static_cast<int16_t>(panel.width - toybox::kGutter * 4 - railWidth - altWidth);
+  // The label gets what the rail and ALT do not need, bounded by what it must
+  // not touch. Handing a long title the whole bar was the defect the shelf's
+  // player row had: the component centres across the whole rect, so at the
+  // widest value the text runs straight through its neighbours.
+  //
+  // The rail is a fraction of the panel rather than a fixed 180, and absent
+  // entirely when the comic does not pan. At 480 wide the fixed version left
+  // the title eleven characters and cut "Paleontology" to "Paleon".
+  const int16_t altWidth = 64;
+  const int16_t railWidth = model.pans ? static_cast<int16_t>(panel.width / 5) : 0;
+  const int16_t labelWidth = static_cast<int16_t>(panel.width - toybox::kGutter * 3 - railWidth - altWidth);
   // The full bar height, not a guessed 22px band inside it: the target centres
   // text on the font's *line box*, which is taller than the ink, so a short
   // rect pushes the baseline past the bottom of the panel. That drew the title
