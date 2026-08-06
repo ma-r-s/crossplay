@@ -59,7 +59,7 @@ const SuspectEntry kSuspects[kSuspectCount] = {
 // that names a trait is naming exactly one thing.
 const WeaponEntry kWeapons[kWeaponCount] = {
     {"AXE", "the axe", "a bent handle", true},        {"BAT", "the bat", "tape on the grip", true},
-    {"CHAIR", "the chair", "a broken leg", true},     {"DAGGER", "the dagger", "blood on it", false},
+    {"CANE", "the cane", "a silver tip", false},      {"DAGGER", "the dagger", "blood on it", false},
     {"FORK", "the fork", "a bent prong", false},      {"GUN", "the gun", "one shot fired", false},
     {"HAMMER", "the hammer", "a split handle", true}, {"IRON", "the iron", "a burn mark", true},
     {"JAR", "the jar", "a cracked lid", false},       {"KNIFE", "the knife", "a chipped edge", false},
@@ -92,7 +92,7 @@ const PlaceEntry kPlaces[kPlaceCount] = {
 const MotiveEntry kMotives[kMotiveCount] = {
     {"ANGER", "anger"}, {"DEBT", "debt"},   {"ENVY", "envy"},       {"FEAR", "fear"},
     {"GREED", "greed"}, {"HATE", "hate"},   {"JUSTICE", "justice"}, {"LOVE", "love"},
-    {"MONEY", "money"}, {"POWER", "power"}, {"REVENGE", "revenge"}, {"SHAME", "shame"},
+    {"MERCY", "mercy"}, {"POWER", "power"}, {"REVENGE", "revenge"}, {"SHAME", "shame"},
 };
 
 int castSize(const int cat) {
@@ -124,6 +124,23 @@ const char* castName(const int cat, const int entry) {
 }
 
 namespace {
+
+// Motives that mean nearly the same thing must not appear in one case. GREED
+// beside MONEY made a play-tester stop and disambiguate mid-solve, which is
+// work the puzzle should never ask for; REVENGE beside JUSTICE and ANGER beside
+// HATE are the same trap one step further out. Indices into kMotives.
+constexpr int kMotiveClash[][2] = {
+    {0, 7},  // ANGER  / HATE
+    {9, 6},  // REVENGE / JUSTICE
+    {4, 8},  // GREED  / MERCY is fine; FEAR / MERCY is the soft pair
+};
+
+bool motivesClash(const int a, const int b) {
+  for (const auto& pair : kMotiveClash) {
+    if ((pair[0] == a && pair[1] == b) || (pair[0] == b && pair[1] == a)) return true;
+  }
+  return false;
+}
 
 int letterIndex(const char* name) {
   const char c = name[0];
@@ -170,7 +187,19 @@ bool drawCast(const uint32_t seed, const Shape shape, uint8_t cast[kMaxCats][kMa
     if (poolCount < shape.items) return false;
 
     for (int i = 0; i < shape.items; ++i) {
-      const int j = i + static_cast<int>(rng.below(static_cast<uint32_t>(poolCount - i)));
+      // Draw, then refuse a motive that clashes with one already taken. Bounded
+      // and best-effort: if every remaining candidate clashes the draw stands
+      // rather than failing, because a slightly repetitive motive pair is a far
+      // smaller problem than a case that will not generate.
+      int j = i + static_cast<int>(rng.below(static_cast<uint32_t>(poolCount - i)));
+      if (static_cast<Cat>(cat) == Cat::Motive) {
+        for (int tries = 0; tries < poolCount - i; ++tries) {
+          bool clash = false;
+          for (int k = 0; k < i && !clash; ++k) clash = motivesClash(pool[j], cast[cat][k]);
+          if (!clash) break;
+          j = i + (j - i + 1) % (poolCount - i);
+        }
+      }
       const uint8_t swap = pool[i];
       pool[i] = pool[j];
       pool[j] = swap;

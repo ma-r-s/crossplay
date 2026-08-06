@@ -277,7 +277,12 @@ int countSolutions(const Puzzle& puzzle, int limit, Scratch& scratch);
 constexpr int kUnfair = -1;
 constexpr int kContradiction = -2;
 
-int deduce(const Puzzle& puzzle, Grid& grid);
+// `revealRound`, when given, reports the round in which the crime scene got an
+// owner -- which is the round the murderer stops being a mystery. Compared
+// against the return value it says whether a case peaks at the end or halfway
+// through and then coasts, which is a quality the correctness checks cannot
+// see and which play-testers named on every case they were given.
+int deduce(const Puzzle& puzzle, Grid& grid, int* revealRound = nullptr);
 
 // ---------------------------------------------------------------------------
 // Generation

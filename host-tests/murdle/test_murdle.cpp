@@ -679,6 +679,50 @@ void testDenialNamesTheRuledOutItem() {
 // A suite that passes more easily than expected is a suite that cannot fail.
 // These deliberately break a generated case and assert the checks notice.
 
+// The crime-scene clue is the reveal, so it is the last thing read. Asserted
+// because it is a property of the *order*, which nothing else in this file
+// looks at and which a future edit to the generator could silently undo.
+void testTheSceneClueComesLast() {
+  static Scratch scratch;
+  for (int t = 0; t < kTierCount; ++t) {
+    for (uint32_t seed = 1; seed <= 200; ++seed) {
+      Puzzle p;
+      if (!makeCase(kTiers[t], seed * 2654435761u + 19u, scratch, p)) continue;
+      int scene = -1;
+      for (int i = 0; i < p.clueCount; ++i) {
+        if (p.clues[i].anchor == Anchor::Murderer) scene = i;
+      }
+      CHECK(scene == p.clueCount - 1);
+    }
+  }
+}
+
+// No two witnesses may assert the same proposition, and no witness may place
+// anybody at the crime scene. Both make the case collapse in two lines: the
+// first because identical statements cannot straddle the one-lie rule, the
+// second because it is "X says: Y did it" wearing a placement's clothes.
+void testStatementsDoNotGiveTheCaseAway() {
+  static Scratch scratch;
+  for (uint32_t seed = 1; seed <= 400; ++seed) {
+    Puzzle p;
+    if (!makeCase(Tier::Impossible, seed * 40503u + 23u, scratch, p)) continue;
+    const int scenePlace = p.assign[static_cast<int>(Cat::Location)][p.murderRow];
+    for (int i = 0; i < p.clueCount; ++i) {
+      const Clue& a = p.clues[i];
+      if (a.speaker == kNobodySpeaks) continue;
+      if (static_cast<Cat>(a.targetCat) == Cat::Location) {
+        CHECK((a.targetMask & static_cast<uint8_t>(1u << scenePlace)) == 0);
+      }
+      for (int j = i + 1; j < p.clueCount; ++j) {
+        const Clue& b = p.clues[j];
+        if (b.speaker == kNobodySpeaks) continue;
+        const bool same = a.anchorItem == b.anchorItem && a.targetCat == b.targetCat && a.targetMask == b.targetMask;
+        CHECK(!same);
+      }
+    }
+  }
+}
+
 void testTheChecksCanFail() {
   static Scratch scratch;
   const uint32_t seed = 991u;
@@ -730,9 +774,16 @@ void testTheChecksCanFail() {
   // A case with only its murder clue is wide open, and the fairness gate has to
   // say so rather than reporting a tidy zero rounds.
   {
+    // The crime-scene clue is now printed last rather than first, so find it
+    // rather than assuming where it sits.
     Puzzle probe = puzzle;
+    int scene = -1;
+    for (int i = 0; i < probe.clueCount; ++i) {
+      if (probe.clues[i].anchor == Anchor::Murderer) scene = i;
+    }
+    CHECK(scene >= 0);
+    probe.clues[0] = probe.clues[scene];
     probe.clueCount = 1;
-    CHECK(probe.clues[0].anchor == Anchor::Murderer);
     CHECK(countSolutions(probe, 2, scratch) > 1);
     Grid grid;
     CHECK(deduce(probe, grid) == kUnfair);
@@ -948,7 +999,7 @@ void playView(const Tier tier, const uint32_t seed) {
     for (int i = 0; i < p.shape.items; ++i) {
       const char* mark = murdletext::trait(p, cat, i);
       if (mark[0] != '\0') {
-        std::printf("  %s (%s)\n", murdletext::label(p, cat, i), mark);
+        std::printf("  %s (with %s)\n", murdletext::label(p, cat, i), mark);
       } else {
         std::printf("  %s\n", murdletext::label(p, cat, i));
       }
@@ -960,9 +1011,9 @@ void playView(const Tier tier, const uint32_t seed) {
     std::printf("  %2d. %s\n", i + 1, buf);
   }
   std::printf(
-      "\nEvery suspect had one weapon and was in one place%s. Nobody shares.\n"
+      "\nEvery suspect carried one weapon and was in one place%s. Nobody shares.\n"
       "One of them is the murderer. Name the suspect, weapon, place%s.\n",
-      p.shape.cats > 3 ? " and one motive" : "", p.shape.cats > 3 ? " and motive" : "");
+      p.shape.cats > 3 ? ", and had one motive" : "", p.shape.cats > 3 ? " and motive" : "");
 }
 
 void solveOut(const Tier tier, const uint32_t seed) {
@@ -1118,6 +1169,8 @@ int runTests() {
   testAxisLettersAreDistinct();
   testEverySentenceReads();
   testDenialNamesTheRuledOutItem();
+  testTheSceneClueComesLast();
+  testStatementsDoNotGiveTheCaseAway();
   testTheChecksCanFail();
 
   const int seedsPerTier = 400;

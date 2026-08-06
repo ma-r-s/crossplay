@@ -250,7 +250,11 @@ namespace {
 // fixpoint. Nothing here is beyond what a person does with a pencil, which is
 // the point: a solver reasoning in some stronger system would certify puzzles
 // nobody can actually solve.
-int propagate(Grid& grid, const Constraint* cons, const int conCount, const Shape shape) {
+// `watchItem` is a place; when it acquires an owner, `watchRound` records which
+// round that happened in. Threaded through rather than recomputed afterwards so
+// that the round numbers come from the same loop that did the work.
+int propagate(Grid& grid, const Constraint* cons, const int conCount, const Shape shape, const int watchItem = -1,
+              int* watchRound = nullptr) {
   const int items = shape.items;
   const int cats = shape.cats;
   int rounds = 0;
@@ -353,6 +357,12 @@ int propagate(Grid& grid, const Constraint* cons, const int conCount, const Shap
         }
       }
     }
+
+    if (watchRound != nullptr && watchItem >= 0 && *watchRound < 0) {
+      for (int su = 0; su < items; ++su) {
+        if (grid.get(static_cast<int>(Cat::Location), watchItem, kSuspect, su) == Mark::Yes) *watchRound = rounds;
+      }
+    }
   }
   return rounds;
 }
@@ -376,10 +386,21 @@ Constraint resolve(const Clue& clue, const int items, const int hypothesis, cons
 
 }  // namespace
 
-int deduce(const Puzzle& puzzle, Grid& grid) {
+int deduce(const Puzzle& puzzle, Grid& grid, int* revealRound) {
   const Shape shape = puzzle.shape;
   const int items = shape.items;
   grid.reset(shape);
+  if (revealRound != nullptr) *revealRound = -1;
+
+  // The place the crime-scene clue names. The murderer is known the moment it
+  // has an owner.
+  int scene = -1;
+  for (int i = 0; i < puzzle.clueCount; ++i) {
+    if (puzzle.clues[i].anchor != Anchor::Murderer) continue;
+    for (int b = 0; b < items; ++b) {
+      if (puzzle.clues[i].targetMask & static_cast<uint8_t>(1u << b)) scene = b;
+    }
+  }
 
   bool anySpoken = false;
   for (int i = 0; i < puzzle.clueCount; ++i) {
@@ -397,7 +418,7 @@ int deduce(const Puzzle& puzzle, Grid& grid) {
     cons[conCount++] = resolve(clue, items, 0, false);
   }
 
-  const int rounds = propagate(grid, cons, conCount, shape);
+  const int rounds = propagate(grid, cons, conCount, shape, scene, revealRound);
   if (rounds == kContradiction) return kContradiction;
 
   if (!anySpoken) return grid.complete() ? rounds : kUnfair;
@@ -492,6 +513,13 @@ void buildPool(const Puzzle& p, const AttrMasks& attrs, const Tier tier, Scratch
   const int cats = p.shape.cats;
   const int items = p.shape.items;
   const uint8_t full = fullMask(items);
+  // A bare positive naming a suspect is what makes a tier easy, so only
+  // Elementary gets those. But a positive between two things that are NOT
+  // suspects -- "the suspect in the cave carried the pan" -- is a bridge, and
+  // every tier needs them: a play-tester got a case whose weapon grid and place
+  // grid never touched, solved them separately, and rightly called it two
+  // puzzles rather than one. They also break up clue sets that are otherwise
+  // all negations, which grind.
   const bool allowBarePositive = tier == Tier::Elementary;
   const bool allowPair = tier == Tier::HardBoiled || tier == Tier::Impossible;
   // Every tier. They used to be banned on Elementary, which meant that tier
@@ -516,7 +544,8 @@ void buildPool(const Puzzle& p, const AttrMasks& attrs, const Tier tier, Scratch
         clue.speaker = kNobodySpeaks;
         clue.attr = kNoAttr;
 
-        if (allowBarePositive) {
+        const bool bridge = a != kSuspect && t != kSuspect;
+        if (allowBarePositive || bridge) {
           clue.targetMask = static_cast<uint8_t>(1u << trueItem);
           addToPool(scratch, clue);
         }
@@ -602,6 +631,27 @@ bool addStatements(Puzzle& p, Rng& rng) {
     } else {
       clue.targetMask = static_cast<uint8_t>(1u << trueItem);
     }
+
+    // Two statements asserting the same proposition can never straddle the
+    // true/false line: exactly one statement is false, so identical twins are
+    // both automatically true and clear two suspects for free. A play-tester
+    // found that and solved the case with it in two lines.
+    for (int e = 0; e < p.clueCount; ++e) {
+      const Clue& other = p.clues[e];
+      if (other.speaker == kNobodySpeaks) continue;
+      if (other.anchorItem == clue.anchorItem && other.targetCat == clue.targetCat &&
+          other.targetMask == clue.targetMask) {
+        return false;
+      }
+    }
+    // And a statement placing somebody at the crime scene is not a placement,
+    // it is "X says: Y did it". Once the scene clue is read it hands over the
+    // answer.
+    if (clue.targetCat == static_cast<uint8_t>(kLocation) &&
+        (clue.targetMask & static_cast<uint8_t>(1u << p.assign[kLocation][p.murderRow])) != 0) {
+      return false;
+    }
+
     if (p.clueCount >= kMaxClues) return false;
     p.clues[p.clueCount++] = clue;
   }
@@ -665,7 +715,8 @@ bool generate(const Tier tier, const uint32_t seed, const uint8_t cast[kMaxCats]
     // buying one idea, and play-testers called it out every time. The second
     // pass drops the refusal, so a case that genuinely needs the repeat still
     // gets it rather than failing.
-    bool spokenOf[kMaxCats][kMaxItems][kMaxCats] = {};
+    int spokenOf[kMaxCats][kMaxItems][kMaxCats] = {};
+    constexpr int kMaxPerAnchor = 2;
     // A clue whose target is a suspect is *read* from the suspect's side --
     // "NORA was not driven by hate" -- so its subject is the named suspect, not
     // the anchor. Keying only on the anchor let two clues through that named
@@ -707,13 +758,13 @@ bool generate(const Tier tier, const uint32_t seed, const uint8_t cast[kMaxCats]
         }
 
         if (pass == 0) {
-          if (spokenOf[clue.anchorCat][clue.anchorItem][clue.targetCat]) continue;
+          if (spokenOf[clue.anchorCat][clue.anchorItem][clue.targetCat] >= kMaxPerAnchor) continue;
           if (names >= 0 && saidAbout[names][clue.anchorCat]) continue;
           if (shapeUsed[clue.anchorCat][clue.targetCat] >= kMaxPerShape) continue;
           if (clue.attr != kNoAttr && attrUsed[clue.attr] >= kMaxPerAttr) continue;
         }
         if (clue.attr != kNoAttr) ++attrUsed[clue.attr];
-        spokenOf[clue.anchorCat][clue.anchorItem][clue.targetCat] = true;
+        ++spokenOf[clue.anchorCat][clue.anchorItem][clue.targetCat];
         if (names >= 0) saidAbout[names][clue.anchorCat] = true;
         ++shapeUsed[clue.anchorCat][clue.targetCat];
         clue.voice = static_cast<uint8_t>(rng.next());
@@ -735,11 +786,39 @@ bool generate(const Tier tier, const uint32_t seed, const uint8_t cast[kMaxCats]
       ++p.clueCount;
     }
 
+    // At least one clue has to join two non-suspect categories, or the case is
+    // two independent puzzles wearing one grid: solve the weapons from the
+    // weapon clues, solve the places from the place clues, and neither half
+    // ever informs the other. A play-tester got exactly that and said so.
+    if (cats >= 3) {
+      bool bridged = false;
+      for (int i = 0; i < p.clueCount && !bridged; ++i) {
+        const Clue& clue = p.clues[i];
+        if (clue.anchor != Anchor::Item || clue.speaker != kNobodySpeaks) continue;
+        if (clue.attr != kNoAttr) continue;
+        if (clue.anchorCat != kSuspect && clue.targetCat != kSuspect) bridged = true;
+      }
+      if (!bridged) continue;
+    }
+
     // Fairness. Uniqueness is not enough: a case that can only be reached by
     // guessing reads as the game cheating, so it is thrown back.
     Grid grid;
     const int rounds = deduce(p, grid);
     if (rounds < 0) continue;
+
+    // The crime-scene clue goes last. It was generated first because it is
+    // structural, and it was therefore *printed* first -- so a player read "the
+    // body was in the kitchen" before doing any thinking, and the case became
+    // "solve the place row, then stop caring". Three play-testers said the
+    // reveal should be the end of the reading order, not the start of it.
+    for (int i = 0; i + 1 < p.clueCount; ++i) {
+      if (p.clues[i].anchor != Anchor::Murderer) continue;
+      const Clue scene = p.clues[i];
+      for (int j = i; j + 1 < p.clueCount; ++j) p.clues[j] = p.clues[j + 1];
+      p.clues[p.clueCount - 1] = scene;
+      break;
+    }
 
     p.rounds = static_cast<uint8_t>(rounds > 255 ? 255 : rounds);
     out = p;

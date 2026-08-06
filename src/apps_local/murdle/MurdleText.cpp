@@ -108,9 +108,9 @@ void anchorPhrase(const Puzzle& p, const Clue& clue, char* out, const int cap) {
       std::snprintf(out, static_cast<size_t>(cap), "%s", suspectOf(p, item).name);
       return;
     case Cat::Weapon:
-      switch (clue.voice % 3) {
+      switch (clue.voice % 3) {  // register from the case; see clueLine
         case 0:
-          append(out, cap, "whoever carried %s", weaponOf(p, item).phrase);
+          append(out, cap, "the suspect with %s", weaponOf(p, item).phrase);
           return;
         case 1:
           append(out, cap, "the one with %s", weaponOf(p, item).phrase);
@@ -119,12 +119,16 @@ void anchorPhrase(const Puzzle& p, const Clue& clue, char* out, const int cap) {
           // Naming the weapon by its trait instead of its name. Same clue, one
           // more step of looking something up, which is the whole difference
           // between an easy tier and a hard one.
-          append(out, cap, "whoever carried something with %s", weaponOf(p, item).trait);
+          append(out, cap, "the suspect carrying something with %s", weaponOf(p, item).trait);
           return;
       }
     case Cat::Location:
+      // "The suspect in the study", not "whoever was in the study". Every place
+      // has an occupant -- it is a bijection -- so the conditional form asks the
+      // reader to discharge a vacuous case that cannot arise, and a play-tester
+      // reported hesitating over exactly that.
       if (clue.voice % 2 == 0) {
-        append(out, cap, "whoever was %s", placeOf(p, item).phrase);
+        append(out, cap, "the suspect %s", placeOf(p, item).phrase);
       } else {
         append(out, cap, "the one %s", placeOf(p, item).phrase);
       }
@@ -135,7 +139,7 @@ void anchorPhrase(const Puzzle& p, const Clue& clue, char* out, const int cap) {
       // not, so that variant is gone: a wording that is right for two thirds of
       // the table is a wording that ships broken sentences a third of the time.
       if (clue.voice % 2 == 0) {
-        append(out, cap, "whoever was driven by %s", motiveOf(p, item).phrase);
+        append(out, cap, "the suspect driven by %s", motiveOf(p, item).phrase);
       } else {
         append(out, cap, "the one driven by %s", motiveOf(p, item).phrase);
       }
@@ -352,13 +356,13 @@ void clueLine(const Puzzle& p, const int clueIndex, char* out, const int cap) {
   out[0] = '\0';
   if (clueIndex < 0 || clueIndex >= p.clueCount || cap < 8) return;
   Clue clue = p.clues[clueIndex];
-  // One voice per case, not per clue. The variants were picked from each clue's
-  // own `voice` byte, so "The one in the tower..." and "Whoever was in the
-  // tower..." could sit two lines apart meaning exactly the same thing; three
-  // play-testers read that as templates firing at random rather than as
-  // variety. Mixing the case seed in keeps the variety between cases and takes
-  // it out of the middle of one.
-  clue.voice = static_cast<uint8_t>(clue.voice ^ static_cast<uint8_t>(p.seed >> 3));
+  // One voice per case, and this is the second attempt at it. The first XORed
+  // the case seed into each clue's own voice byte, which still varied per clue,
+  // so "Whoever carried the fork" and "The one with the oar" went on sitting in
+  // the same case and a play-tester called it out again. The register now comes
+  // from the case and nothing else; the per-clue byte is left for choices that
+  // are genuinely per-clue, like whether a weapon is named or described.
+  clue.voice = static_cast<uint8_t>(p.seed >> 3);
 
   // The murder clue names the crime scene by something in it rather than by its
   // name, which is what keeps the last step of a case a deduction instead of an

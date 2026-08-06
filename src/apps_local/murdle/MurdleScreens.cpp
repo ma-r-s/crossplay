@@ -444,7 +444,7 @@ void drawCastBlocks(toybox::Screen& screen, const Puzzle& puzzle, const fui::Rec
         // The letter first, because this page is the grid's key as well as its
         // cast list, and at four categories it is the only key there is room for.
         if (mark[0] != '\0') {
-          std::snprintf(line, sizeof(line), "%c  %s  (%s)", letters[i], murdletext::label(puzzle, block, i), mark);
+          std::snprintf(line, sizeof(line), "%c  %s  (with %s)", letters[i], murdletext::label(puzzle, block, i), mark);
         } else {
           std::snprintf(line, sizeof(line), "%c  %s", letters[i], murdletext::label(puzzle, block, i));
         }
