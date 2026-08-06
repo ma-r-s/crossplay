@@ -157,10 +157,6 @@ class JaipurActivity final : public linkplay::LinkActivity {
 
   // Set when the opponent owes a move, consumed on the next loop pass.
   bool opponentPending = false;
-  // Set when they have moved and you have not acknowledged it. Their move sits
-  // in the capsule until you tap, so a turn cannot pass without you seeing what
-  // happened.
-  bool awaitingSeen = false;
 
   uint8_t selMarket = 0;                     // bitmask of market slots
   uint8_t selHand[jaipur::kGoodCount] = {};  // goods picked out of your hand
