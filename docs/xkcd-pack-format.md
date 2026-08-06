@@ -110,10 +110,21 @@ nothing that can go stale. `xkcd::gapWindowFor` names the rows and
 
 All from a sample of 1048 comics spread evenly across the archive.
 
-**The widest comic xkcd has ever published is 780px; p99 is 740.** The portrait
-panel is 480, so the pack is built with `--max-width 480` and everything wider
-is scaled down once, on the host, with LANCZOS before the Atkinson pass. The
-device then blits 1:1 and never scales anything.
+**The archive is not one width, and that is the whole problem.** The widest
+comic ever published is 780px (p99 740), but **44% of the archive is narrower
+than the 480 panel**, median 322px. So the pack is built with `--width 480`,
+which fits every comic to the panel **up as well as down**, once, on the host,
+with LANCZOS before the Atkinson pass. The device blits 1:1 and never scales.
+
+Capping only the wide ones was the first version and it was half a fix: the
+740px comics came out right and nearly half the archive sat as a small block
+adrift in white margins. Enlarging the *greyscale source* before the single
+dither is not the same as enlarging 1-bit art -- at the median 1.5x the
+lettering comes out bigger and just as crisp.
+
+`--max-upscale` (default 3.0) stops the four narrowest comics being blown up
+into mush; those keep their margins. Everything else -- 3274 of 3278 -- is
+exactly 480 wide.
 
 A landscape reader at native size was built first, and it is sharper: at 800
 wide nothing is scaled at all and 75% of the archive needs no panning. It lost
@@ -122,8 +133,8 @@ the device sideways for. Rendering the same comic both ways, the 480 lettering
 is smaller but clearly readable, which is what made the trade acceptable.
 
 Either way there is **one step function and not two**: at 480 the artwork
-always fits the width, so the reader only ever pans down. Rebuild the pack with
-`--max-width 0` to get the landscape-native artwork back.
+always fits the width, so the reader only ever pans down. Rebuild with
+`--width 0` to get the unscaled artwork back.
 
 **A gap in the artwork is a threshold, not emptiness.** 20 of 30 sampled comics
 are drawn inside a frame, so every interior row crosses two vertical strokes and
@@ -136,13 +147,13 @@ not scale with width, so a 340px framed table costs more per row than 3% of its
 own width allows. Across every comic in a 160-comic pack tall enough to pan,
 this lands 93% of steps on a gap.
 
-**Storage.** ~28KB per comic at 1 bit, so roughly **93MB for the whole archive**.
-Source PNGs would be ~180MB.
+**Storage.** Fitted to 480, the whole archive is **88MB**. Source PNGs would be
+~180MB.
 
 ## Building one
 
 ```bash
-tools_local/xkcd/build_pack.py --out fs_mario/xkcd --max-width 480
+tools_local/xkcd/build_pack.py --out fs_mario/xkcd --width 480
 ```
 
 Resumable in both directions: the download cache and the pack are both rebuilt

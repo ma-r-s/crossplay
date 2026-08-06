@@ -307,11 +307,18 @@ def main() -> int:
         help="stop after N comics (for a quick test pack)",
     )
     ap.add_argument(
-        "--max-width",
+        "--width",
         type=int,
         default=0,
-        help="scale anything wider down to this, preserving aspect ratio "
-        "(0 = never scale). Portrait fit-to-width wants 480.",
+        help="fit every comic to this width, up or down (0 = never scale). "
+        "The portrait panel is 480.",
+    )
+    ap.add_argument(
+        "--max-upscale",
+        type=float,
+        default=3.0,
+        help="never enlarge a comic by more than this. One comic in the "
+        "archive is 106px wide and would otherwise be blown up 4.5x.",
     )
     args = ap.parse_args()
 
@@ -359,17 +366,33 @@ def main() -> int:
                 skipped.append((num, f"decode: {e}"))
                 continue
 
-            # Scaled here, on the host, with a real resampling filter -- never
-            # on the device. LANCZOS then Atkinson keeps far more of a
-            # hand-lettered stroke than anything the firmware could afford at
-            # draw time, and the device then blits 1:1 whatever it is handed.
-            if args.max_width and gray.size[0] > args.max_width:
+            # Fitted to the panel here, on the host, with a real resampling
+            # filter -- never on the device. LANCZOS then Atkinson keeps far
+            # more of a hand-lettered stroke than anything the firmware could
+            # afford at draw time, and the device blits 1:1 whatever it gets.
+            #
+            # **Up as well as down.** 44% of the archive is narrower than the
+            # 480 panel (median 322px), so capping only the wide ones left
+            # nearly half of it as a small block adrift in white margins.
+            # Enlarging the *greyscale source* before the single dither is not
+            # the same as enlarging 1-bit art: at the median 1.5x the lettering
+            # comes out bigger and just as crisp.
+            if args.width and gray.size[0] != args.width:
                 from PIL import Image as _Image
 
-                scale = args.max_width / gray.size[0]
-                gray = gray.resize(
-                    (args.max_width, max(1, round(gray.size[1] * scale))), _Image.LANCZOS
-                )
+                scale = args.width / gray.size[0]
+                if scale <= args.max_upscale:
+                    gray = gray.resize(
+                        (args.width, max(1, round(gray.size[1] * scale))),
+                        _Image.LANCZOS,
+                    )
+                else:
+                    # Past the cap it would be mush, so it keeps its margins.
+                    capped = max(1, round(gray.size[0] * args.max_upscale))
+                    gray = gray.resize(
+                        (capped, max(1, round(gray.size[1] * args.max_upscale))),
+                        _Image.LANCZOS,
+                    )
 
             w, h = gray.size
             if w > MAX_COMIC_WIDTH or h > MAX_COMIC_HEIGHT or w == 0 or h == 0:
