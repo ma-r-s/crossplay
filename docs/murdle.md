@@ -112,28 +112,29 @@ no scratch paper they would be worse than they are on paper.
 ## 2. The generator
 
 Freestanding, deterministic from a seed, on-device. No pack, no network, no SD
-dependency, infinite cases. `CasefileCore` in the same shape as `ChessCore` and
-`InsiderCore`, so `host-tests/casefile/` can generate a hundred thousand of them
-on a laptop and assert on every one.
+dependency, infinite cases. `MurdleCore` in the same shape as `ChessCore` and
+`InsiderCore`, so `host-tests/murdle/` can generate thousands of them on a
+laptop and assert on every one.
 
 ### The candidate space is small enough to enumerate
 
-A solution is `n-1` permutations of `k` items, relative to the suspects. So the
-space is `(k!)^(n-1)`:
+A solution is `n-1` permutations of `k` items relative to the suspects, times
+`k` choices of murderer. So the space is `(k!)^(n-1) * k`:
 
 | Shape | Candidates |
 | ----- | ---------- |
-| 3x3   | 36         |
-| 3x4   | 576        |
-| 3x5   | 14,400     |
-| 4x4   | 13,824     |
-| 4x5   | 1,728,000  |
+| 3x3   | 108        |
+| 3x4   | 2,304      |
+| 4x4   | 55,296     |
+| 4x5   | 8,640,000  |
 
-Everything the tiers need is under 16k, so the solver is exhaustive
-enumeration against a survivor bitset of 1,728 bytes. No SAT solver, no
-backtracking search, no heap. **The shape table above is the cap**: a
-configuration over 65,536 candidates is refused at compile time, which rules out
-4x5 and is the reason the tiers stop where they do.
+Everything the tiers need is under 56k, so the solver is exhaustive enumeration
+with an early exit on a candidate's first failing clue and a stop at two
+solutions. No SAT solver, no backtracking search, no heap, and no survivor bit
+set either -- that was the first design and re-walking the space turned out to
+cost less than the 6.9KB of DRAM it would have needed. **Five items is refused**,
+which is why the tiers stop where they do; three or four of each is what the
+game asks for anyway.
 
 Enumeration walks nested loops over permutation indices rather than decoding an
 index, so there is not a single division in the hot path.
@@ -148,9 +149,10 @@ index, so there is not a single division in the hot path.
 4. Prune in a second random order: drop any clue the puzzle still solves without.
    The result is minimal, so no clue in the list is redundant.
 5. **Reject unless it can be solved without guessing.** See below.
-6. Reject unless the clue count lands in the tier's band.
-7. Retry with a derived seed, bounded at 40 attempts, then fall back to the
-   easiest accepted candidate rather than failing.
+6. Retry with a derived seed, bounded at 64 attempts. The sweep has never seen
+   the budget run out on any tier, and the bound exists so that a future tier
+   which is accidentally impossible fails in a reportable way rather than
+   hanging the device.
 
 ### Step 5 is the one that matters
 
@@ -175,9 +177,10 @@ alone solves it, and that the clue count is in band. Then mutate the uniqueness
 check and confirm the suite goes red, because a green suite that cannot go red
 is worse than no suite.
 
-Generation cost at 4x4 is roughly 400 passes over 13,824 candidates, all table
-lookups. I will measure it on device rather than quote a guess here, and it runs
-off the render path either way (below).
+Generation cost has not been measured on hardware, only in a simulator that
+runs on a laptop, which says nothing about a 160MHz RISC-V core. It runs off the
+render path either way (below), behind a frame that says so. The number is
+unknown and nobody should call it fast until somebody times it.
 
 ---
 
@@ -283,50 +286,48 @@ the game, and doing it for you would be playing it for you.
 
 ---
 
-## 4. The two views, and what I want you to choose between
+## 4. The two views, and the one thing left for you to choose
 
-You are right that this wants two views, and the interesting question is not
-which two. It is how you move between them and how much of one is visible from
-the other, because the grid and the clues are useless apart: you read a clue in
-order to make a mark.
+All three are built and rendered. `qa-artifacts/variants-grid.png` and
+`variants-clues.png` put them side by side on the same case, which is the only
+way this gets decided: the winner usually wins on one specific element and that
+is invisible in any single screenshot.
 
-Three complete designs, built behind a `#define`, rendered through the device
-path, composed side by side. You pick, I delete the other two in the same
-commit. Prose about a layout is worth almost nothing here, and a list of options
-in chat is worth less, so this section is a promise rather than a decision.
+**A. Two tabs** (`MURDLE_VIEW_VARIANT=1`, the current default). A CLUES / GRID
+bar under the header. The clearest affordance of the three and the only one
+where the toggle names itself. It costs 54px of grid, which at four categories
+is the difference between the legend fitting under the grid and not fitting.
 
-The three worth building:
+**B. Grid with a clue rail.** The grid keeps the screen and one clue sits under
+it with a stepper, so marking while reading is one gesture instead of three.
+Biggest grid, but the rail's clue box is cramped: a two-line clue nearly fills
+it, and the ALL CLUES pill is small. Its first render had the rail's door out
+and nothing facing back, so the clue list was a room with no exit -- which is
+the sort of thing three layouts side by side make obvious in a second.
 
-**A. Two tabs.** A header with CLUES and GRID, one tap between them. Honest,
-obvious, and the whole screen belongs to whichever you are on, which at 4x4
-means a 36px cell and clue text at a comfortable reading size. The cost is that
-the thing you just read is gone the moment you go to mark it.
+**C. Swipe between two full pages.** No toggle chrome at all, so it gets the
+biggest grid *and* the full legend under it at four categories, which neither
+of the others manages. The risk is exactly what the still image shows: nothing
+on screen says the body is tappable.
 
-**B. Grid with a clue rail.** The grid holds the screen; a strip at the bottom
-shows one clue at a time with a stepper, and a tap on the strip expands to the
-full list. You never leave the grid, and marking while reading is one gesture
-instead of three. The cost is a smaller grid and a clue in a cramped band.
+The real trade-off the render exposed, which none of the prose above predicted:
+**at four categories the legend only fits when the toggle costs nothing.** So
+the choice is not really tabs-versus-swipe, it is whether the key lives under
+the grid or one page away in the case file. Both work; they are different games
+to hold.
 
-**C. Swipe between two full pages.** No chrome for the toggle at all, a page
-indicator only, and the two faces are each given the whole screen. Cheapest in
-ink, and the gesture is the kind of thing this panel does well. The risk is
-discoverability, which is exactly the sort of thing that is obvious on screen
-and invisible in a description.
-
-The variant that wins usually wins on one specific element rather than
-wholesale, so expect the answer to be B's rail on A's grid, or similar.
+Whichever you pick, the other two get deleted with the `MURDLE_VIEW_VARIANT`
+switch in the same commit. A variant macro that survives is a second codepath
+nobody renders.
 
 Portrait, not landscape. The grid is square and 480 is the binding dimension
-either way, and the clue view is a column of sentences, which is a portrait
-shape. Solitaire is landscape because a tableau is; this is not.
+either way, and the clue view is a column of sentences.
 
-Category axes are labelled with **icons**, not text, because a 36px column header
-cannot hold a word and rotated type is not something this renderer does. Icons
-come from the SDK's Lucide vendoring and `gen_icons.py`, which already produces
-C structs at any size with a measured optical centre. Names live in the clue
-view, where there is room for them.
-
----
+**Axes carry letters, not icons.** A 31px column head cannot hold a word and
+this renderer does not rotate type, so each item gets one letter, distinct
+within the case and mnemonic where it can be. Icons were the plan and are still
+possible, but they would need artwork per fixture rather than per app: sixteen
+weapons and sixteen places is not something Lucide has silhouettes for.
 
 ## 5. The cast, which is a table and not a story
 
@@ -359,17 +360,18 @@ and nothing reads as a mad lib. That is assertable and it is asserted.
 
 ---
 
-## 6. Build order
+## 6. What is built
 
-1. `MurdleCore`: predicate, enumerating solver, generator, propagation gate.
-   Host tests with the exhaustive property. No screens, nothing drawn.
-2. Enough of `MurdleScreens` and `MurdleActivity` to play a case end to end,
-   ugly, so the variants are rendered against real puzzles and real marks rather
-   than against a mockup.
-3. The three variants, rendered and composed. You pick. The losers are deleted
-   in the same commit as the winner.
-4. The cast, written, with the icon set generated to match.
-5. Menu, settings, verdict, tutorial, save and restore. Shelf row.
-
-Step 1 is the one that decides whether this game is any good, and it is entirely
-testable on a laptop.
+1. **`MurdleCore`** -- predicate, enumerating solver, generator, fairness gate.
+   1,600 cases across the four tiers assert five properties each. Done.
+2. **`MurdleCast` and `MurdleText`** -- the tables and the sentences, with the
+   grammar swept over every clue every tier can produce. Done.
+3. **`MurdleScreens` and `MurdleActivity`** -- six views, the save file, the
+   shelf row. Playable end to end. Done.
+4. **The three variants, rendered.** Waiting on you.
+5. Left undone on purpose: the how-to deck is four plain pages and has not been
+   rendered against a real case; the verdict screen has been built but not
+   played into; and generation has never been timed on real hardware, only in
+   the simulator, which runs on a laptop and tells you nothing about the
+   ESP32-C3. The deferred "A NEW CASE" frame covers it either way, but the
+   number is unknown and should be measured before anyone calls it fast.
