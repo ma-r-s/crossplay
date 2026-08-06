@@ -97,7 +97,11 @@ cmd_list() {
     local name branch dirty state ahead
     name="$(basename "$d")"
     branch="$(git -C "$d" branch --show-current 2>/dev/null || echo '?')"
-    dirty="$(git -C "$d" status --porcelain 2>/dev/null | grep -vc '^ ? ' || true)"
+    # --ignore-submodules=untracked: the icon tools drop a __pycache__/ inside
+    # freeink-sdk, which is untracked content in a submodule and not your work.
+    # Without it every clean tree reports one dirty file, which trains you to
+    # ignore the column. sync.sh and check.sh do the same.
+    dirty="$(git -C "$d" status --porcelain --ignore-submodules=untracked 2>/dev/null | grep -c '' || true)"
     [ "$dirty" -eq 0 ] && dirty="clean" || dirty="$dirty files"
     ahead="$(git -C "$d" rev-list --count xteink.."$branch" 2>/dev/null || echo 0)"
     state=""
@@ -119,7 +123,7 @@ cmd_drop() {
   # deletes its build output and its screenshots too, so a wrong call here is
   # not a small mistake.
   local unmerged dirty
-  dirty="$(git -C "$dir" status --porcelain | grep -v '^ ? ' | wc -l | tr -d ' ')"
+  dirty="$(git -C "$dir" status --porcelain --ignore-submodules=untracked | grep -c '' | tr -d ' ')"
   unmerged="$(git -C "$INTEGRATION" rev-list --count xteink.."$branch" 2>/dev/null || echo 0)"
   if [ "$dirty" != "0" ] || [ "$unmerged" != "0" ]; then
     echo "refusing to drop $name:" >&2
