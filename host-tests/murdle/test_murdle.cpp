@@ -679,6 +679,24 @@ void testDenialNamesTheRuledOutItem() {
 // A suite that passes more easily than expected is a suite that cannot fail.
 // These deliberately break a generated case and assert the checks notice.
 
+// The murderer's own statement must be about somebody else. A lie about the
+// liar's own whereabouts is inert: the crime-scene clue already fixes where the
+// murderer was, so the false claim contradicts what the player has and never
+// touches another row. Two critics solved a case in seconds off exactly that.
+void testTheMurdererLiesAboutSomebodyElse() {
+  static Scratch scratch;
+  for (uint32_t seed = 1; seed <= 400; ++seed) {
+    Puzzle p;
+    if (!makeCase(Tier::Impossible, seed * 22699u + 5u, scratch, p)) continue;
+    for (int i = 0; i < p.clueCount; ++i) {
+      const Clue& c = p.clues[i];
+      if (c.speaker == kNobodySpeaks) continue;
+      if (c.speaker != p.murderRow) continue;
+      CHECK(c.anchorItem != c.speaker);
+    }
+  }
+}
+
 // The crime-scene clue is the reveal, so it is the last thing read. Asserted
 // because it is a property of the *order*, which nothing else in this file
 // looks at and which a future edit to the generator could silently undo.
@@ -706,12 +724,16 @@ void testStatementsDoNotGiveTheCaseAway() {
   for (uint32_t seed = 1; seed <= 400; ++seed) {
     Puzzle p;
     if (!makeCase(Tier::Impossible, seed * 40503u + 23u, scratch, p)) continue;
-    const int scenePlace = p.assign[static_cast<int>(Cat::Location)][p.murderRow];
+    // The rule is about the MURDERER, not about the scene in general. A
+    // truthful witness placing the murderer at the crime scene hands the case
+    // over; a murderer *lying* that some innocent was there is the mechanic
+    // working, and has to be untangled rather than banned.
     for (int i = 0; i < p.clueCount; ++i) {
       const Clue& a = p.clues[i];
       if (a.speaker == kNobodySpeaks) continue;
-      if (static_cast<Cat>(a.targetCat) == Cat::Location) {
-        CHECK((a.targetMask & static_cast<uint8_t>(1u << scenePlace)) == 0);
+      if (a.anchorItem == p.murderRow) {
+        const int sceneItem = p.assign[a.targetCat][p.murderRow];
+        CHECK((a.targetMask & static_cast<uint8_t>(1u << sceneItem)) == 0);
       }
       for (int j = i + 1; j < p.clueCount; ++j) {
         const Clue& b = p.clues[j];
@@ -1170,6 +1192,7 @@ int runTests() {
   testEverySentenceReads();
   testDenialNamesTheRuledOutItem();
   testTheSceneClueComesLast();
+  testTheMurdererLiesAboutSomebodyElse();
   testStatementsDoNotGiveTheCaseAway();
   testTheChecksCanFail();
 

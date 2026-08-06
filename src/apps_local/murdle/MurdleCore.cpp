@@ -254,7 +254,7 @@ namespace {
 // round that happened in. Threaded through rather than recomputed afterwards so
 // that the round numbers come from the same loop that did the work.
 int propagate(Grid& grid, const Constraint* cons, const int conCount, const Shape shape, const int watchItem = -1,
-              int* watchRound = nullptr) {
+              int* watchRound = nullptr, const int watchCat = static_cast<int>(Cat::Location)) {
   const int items = shape.items;
   const int cats = shape.cats;
   int rounds = 0;
@@ -360,7 +360,7 @@ int propagate(Grid& grid, const Constraint* cons, const int conCount, const Shap
 
     if (watchRound != nullptr && watchItem >= 0 && *watchRound < 0) {
       for (int su = 0; su < items; ++su) {
-        if (grid.get(static_cast<int>(Cat::Location), watchItem, kSuspect, su) == Mark::Yes) *watchRound = rounds;
+        if (grid.get(watchCat, watchItem, kSuspect, su) == Mark::Yes) *watchRound = rounds;
       }
     }
   }
@@ -395,8 +395,10 @@ int deduce(const Puzzle& puzzle, Grid& grid, int* revealRound) {
   // The place the crime-scene clue names. The murderer is known the moment it
   // has an owner.
   int scene = -1;
+  int sceneCat = kLocation;
   for (int i = 0; i < puzzle.clueCount; ++i) {
     if (puzzle.clues[i].anchor != Anchor::Murderer) continue;
+    sceneCat = puzzle.clues[i].targetCat;
     for (int b = 0; b < items; ++b) {
       if (puzzle.clues[i].targetMask & static_cast<uint8_t>(1u << b)) scene = b;
     }
@@ -418,7 +420,7 @@ int deduce(const Puzzle& puzzle, Grid& grid, int* revealRound) {
     cons[conCount++] = resolve(clue, items, 0, false);
   }
 
-  const int rounds = propagate(grid, cons, conCount, shape, scene, revealRound);
+  const int rounds = propagate(grid, cons, conCount, shape, scene, revealRound, sceneCat);
   if (rounds == kContradiction) return kContradiction;
 
   if (!anySpoken) return grid.complete() ? rounds : kUnfair;
@@ -570,6 +572,18 @@ void buildPool(const Puzzle& p, const AttrMasks& attrs, const Tier tier, Scratch
             const uint8_t mask = static_cast<uint8_t>(attrs.mask[i] & full);
             if (mask == 0 || mask == full) continue;
             if ((mask & static_cast<uint8_t>(1u << trueItem)) == 0) continue;
+            // An attribute held by exactly one drawn suspect names that suspect,
+            // so on a tier that bans bare positives it has to be banned too --
+            // otherwise "the one with the oar had green eyes" is a free
+            // identification in a costume, which is how one case handed over its
+            // murderer in three consecutive clues.
+            if (!allowBarePositive) {
+              int held = 0;
+              for (int b = 0; b < items; ++b) {
+                if (mask & static_cast<uint8_t>(1u << b)) ++held;
+              }
+              if (held < 2) continue;
+            }
             clue.targetMask = mask;
             clue.attr = attrs.tag[i];
             addToPool(scratch, clue);
@@ -606,18 +620,25 @@ bool addStatements(Puzzle& p, Rng& rng) {
     clue.attr = kNoAttr;
     clue.voice = static_cast<uint8_t>(rng.next());
 
-    // Two statements in three are about somebody else. Some self-reports are
-    // worth keeping: "I was at the mill" from the murderer is the shape that
-    // links a liar to the crime scene.
+    // The MURDERER always lies about somebody else, and this is the whole
+    // mechanic. A lie about the liar's own place is inert -- the crime-scene
+    // clue already fixes where the murderer was, so the false claim contradicts
+    // something the player has and never touches another row. Two critics
+    // reached the answer in five seconds off exactly that: "the murderer is the
+    // one whose alibi is only their own mouth." A lie about a third party has
+    // to be believed for several steps and then unwound.
     int subject = s;
-    if (items > 1 && rng.below(3) != 0) {
+    const bool mustPointElsewhere = s == p.murderRow;
+    if (items > 1 && (mustPointElsewhere || rng.below(3) != 0)) {
       subject = static_cast<int>(rng.below(static_cast<uint32_t>(items - 1)));
       if (subject >= s) ++subject;
     }
 
-    // Weapon or place only. "I was driven by greed" is not a thing a witness
-    // says about anybody, least of all themselves.
-    const int t = 1 + static_cast<int>(rng.below(2));
+    // Weapon or place only -- "driven by greed" is not a thing a witness
+    // reports -- and alternating so the statement layer never confines itself
+    // to one column, which is what let a whole case's testimony collapse
+    // against a single hard clue.
+    const int t = 1 + ((s + static_cast<int>(rng.below(2))) % 2);
     const int trueItem = p.assign[t][subject];
     clue.anchorCat = static_cast<uint8_t>(kSuspect);
     clue.anchorItem = static_cast<uint8_t>(subject);
@@ -647,8 +668,8 @@ bool addStatements(Puzzle& p, Rng& rng) {
     // And a statement placing somebody at the crime scene is not a placement,
     // it is "X says: Y did it". Once the scene clue is read it hands over the
     // answer.
-    if (clue.targetCat == static_cast<uint8_t>(kLocation) &&
-        (clue.targetMask & static_cast<uint8_t>(1u << p.assign[kLocation][p.murderRow])) != 0) {
+    if ((clue.targetMask & static_cast<uint8_t>(1u << p.assign[clue.targetCat][p.murderRow])) != 0 &&
+        clue.anchorItem == p.murderRow) {
       return false;
     }
 
@@ -666,6 +687,13 @@ bool generate(const Tier tier, const uint32_t seed, const uint8_t cast[kMaxCats]
   const int cats = shape.cats;
   const int items = shape.items;
   buildPerms(items, scratch.perms);
+
+  // The best near-miss on the reveal-timing preference, kept so that a tier
+  // always produces a case even when nothing scores perfectly.
+  Puzzle best{};
+  bool haveBest = false;
+  int bestReveal = -1;
+  int bestRounds = 0;
 
   for (int attempt = 0; attempt < kAttempts; ++attempt) {
     Rng rng(seed ^ (0x9E3779B9u * static_cast<uint32_t>(attempt + 1)));
@@ -693,8 +721,15 @@ bool generate(const Tier tier, const uint32_t seed, const uint8_t cast[kMaxCats]
     // scene rather than the person.
     Clue murder{};
     murder.anchor = Anchor::Murderer;
-    murder.targetCat = static_cast<uint8_t>(kLocation);
-    murder.targetMask = static_cast<uint8_t>(1u << p.assign[kLocation][p.murderRow]);
+    // Half the time the scene is identified by the murder weapon rather than
+    // the room. "The body was found beside the weapon with grease on it" cannot
+    // be cashed until the weapon column is solved, whereas naming a place is
+    // answered by a glance at the fixture list -- which is why moving this clue
+    // to the end of the list changed nothing on its own, as two critics said in
+    // almost the same words.
+    const int sceneCat = rng.below(2) == 0 ? kLocation : static_cast<int>(Cat::Weapon);
+    murder.targetCat = static_cast<uint8_t>(sceneCat);
+    murder.targetMask = static_cast<uint8_t>(1u << p.assign[sceneCat][p.murderRow]);
     murder.speaker = kNobodySpeaks;
     murder.attr = kNoAttr;
     murder.voice = static_cast<uint8_t>(rng.next());
@@ -801,12 +836,9 @@ bool generate(const Tier tier, const uint32_t seed, const uint8_t cast[kMaxCats]
       if (!bridged) continue;
     }
 
-    // Fairness. Uniqueness is not enough: a case that can only be reached by
-    // guessing reads as the game cheating, so it is thrown back.
-    Grid grid;
-    const int rounds = deduce(p, grid);
-    if (rounds < 0) continue;
-
+    // MOVED ABOVE THE REVEAL GATE: the fallback path below keeps a near-miss
+    // case, and reordering after the gate left that copy with its scene clue
+    // still in the middle.
     // The crime-scene clue goes last. It was generated first because it is
     // structural, and it was therefore *printed* first -- so a player read "the
     // body was in the kitchen" before doing any thinking, and the case became
@@ -820,8 +852,37 @@ bool generate(const Tier tier, const uint32_t seed, const uint8_t cast[kMaxCats]
       break;
     }
 
+    // Fairness. Uniqueness is not enough: a case that can only be reached by
+    // guessing reads as the game cheating, so it is thrown back.
+    Grid grid;
+    int reveal = -1;
+    const int rounds = deduce(p, grid, &reveal);
+    if (rounds < 0) continue;
+
+    // And the accusation should be the last thing that resolves. Printing the
+    // crime-scene clue last was not enough on its own: a play-tester got a case
+    // where the scene's occupant fell out of the first three clues, so five
+    // more existed only to fill rows nobody needed. Prefer cases where the
+    // murderer's row closes in the final round of deduction, and keep the best
+    // near-miss so a tier can never fail to produce anything.
+    if (reveal > 0 && reveal < rounds) {
+      if (reveal > bestReveal) {
+        bestReveal = reveal;
+        bestRounds = rounds;
+        best = p;
+        best.rounds = static_cast<uint8_t>(rounds > 255 ? 255 : rounds);
+        haveBest = true;
+      }
+      continue;
+    }
+
     p.rounds = static_cast<uint8_t>(rounds > 255 ? 255 : rounds);
     out = p;
+    return true;
+  }
+  if (haveBest) {
+    (void)bestRounds;
+    out = best;
     return true;
   }
   return false;

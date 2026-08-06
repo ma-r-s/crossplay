@@ -368,7 +368,13 @@ void clueLine(const Puzzle& p, const int clueIndex, char* out, const int cap) {
   // name, which is what keeps the last step of a case a deduction instead of an
   // announcement.
   if (clue.anchor == Anchor::Murderer) {
-    const int place = lowestBit(clue.targetMask);
+    const int which = lowestBit(clue.targetMask);
+    if (static_cast<Cat>(clue.targetCat) == Cat::Weapon) {
+      std::snprintf(out, static_cast<size_t>(cap), "The body was found beside the weapon with %s.",
+                    weaponOf(p, which).trait);
+      return;
+    }
+    const int place = which;
     // "in the place with", not "next to". A play-tester caught "the body was
     // found next to flour on the floor": the old wording works for a broken
     // step and breaks for anything that is a property of a room rather than an

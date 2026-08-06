@@ -490,7 +490,54 @@ right-handed", when one suspect is right-handed, is "ROSA was at the inn".
 **9. "The body was found next to flour on the floor" (one).** "Next to" works
 for a broken step and breaks for a property of the floor.
 
-## 8. What has not been checked
+## 8. Four rounds of play-testing, and what changed
+
+`run.sh --play <tier> <seed>` prints a case with no answer in it. Sixteen
+critics across four rounds solved one each and were told to be harsh. **All
+sixteen solved correctly**, every round: the engine has never produced an
+unsolvable or ambiguous case. Everything they found was quality, and none of it
+was reachable by any assertion in the suite.
+
+What the rounds fixed, in the order the critics forced it:
+
+1. **Witnesses talk about each other.** Every statement used to be a suspect
+   reporting on themselves, so the murderer's lie could only deny one fact about
+   the liar. And the murderer now *always* lies about somebody else -- a lie
+   about your own whereabouts is inert, because the crime-scene clue already
+   fixes where the murderer was. Two critics solved cases in seconds with
+   "the murderer is the one whose alibi is only their own mouth".
+2. **The crime scene can be named by the murder weapon, not just the room.**
+   This was the deepest finding. Naming a place means the scene is known the
+   instant that clue is read, whatever order it is printed in -- so moving it to
+   the end changed nothing, and two critics said so in almost the same words.
+   "The body was found beside the weapon with grease on it" cannot be cashed
+   until the weapon column is solved. The murderer now resolves in the first
+   half of the solve in 16% of Hard Boiled cases, down from 50%.
+3. **The accusation is gated on resolving last.** Cases where the murderer's row
+   closes early are regenerated, with the best near-miss kept so a tier can
+   never fail to produce anything.
+4. **No two witnesses assert the same proposition**, and none places the
+   murderer at the scene. Both let a case fall in two lines.
+5. **Attributes fire on every tier** (Elementary was 0 of 1,610 clues), the cast
+   is redrawn until its dossier can actually carry a clue, and an attribute held
+   by exactly one drawn suspect is banned where bare positives are -- otherwise
+   "the one with the oar had green eyes" is a free identification in a costume.
+6. **Every case contains a clue joining two non-suspect categories.** One critic
+   got a case whose weapon grid and place grid never touched and solved them
+   separately, correctly calling it two puzzles in one grid.
+7. **No clue says the same thing twice**, no shape appears more than three
+   times, no attribute more than twice, and near-synonym motives (GREED beside
+   MONEY) never share a case.
+8. **The prose**: one register per case; a clue about a suspect starts with the
+   suspect; "the suspect in the study" rather than the conditional "whoever was
+   in the study"; "IRON (with a burn mark)" rather than an apposition that made
+   the iron *be* the mark; a cane instead of a carried chair.
+
+Still open, and named by critics more than once: the parenthesised traits are
+used once or twice a case out of eight, and the dossier is still often
+decorative even after the redraw. Both are "advertised mechanic, rarely fires".
+
+## 9. What has not been checked
 
 Two things, and one of them needs a person.
 

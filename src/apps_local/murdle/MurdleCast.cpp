@@ -151,7 +151,29 @@ int letterIndex(const char* name) {
 
 }  // namespace
 
+bool drawOnce(uint32_t seed, Shape shape, uint8_t cast[kMaxCats][kMaxItems]);
+int dossierUsefulness(const uint8_t cast[kMaxCats][kMaxItems], Shape shape);
+
 bool drawCast(const uint32_t seed, const Shape shape, uint8_t cast[kMaxCats][kMaxItems]) {
+  // Redraw while the dossier is decoration. Best-effort and bounded: a case
+  // with a dull cast is far better than a case that will not generate, so the
+  // last attempt stands whatever it scores.
+  uint8_t best[kMaxCats][kMaxItems] = {};
+  int bestScore = -1;
+  for (int attempt = 0; attempt < 12; ++attempt) {
+    if (!drawOnce(seed + static_cast<uint32_t>(attempt) * 2654435761u, shape, cast)) return false;
+    const int score = dossierUsefulness(cast, shape);
+    if (score > bestScore) {
+      bestScore = score;
+      std::memcpy(best, cast, sizeof(best));
+    }
+    if (score >= 3) return true;
+  }
+  std::memcpy(cast, best, sizeof(best));
+  return true;
+}
+
+bool drawOnce(const uint32_t seed, const Shape shape, uint8_t cast[kMaxCats][kMaxItems]) {
   // Salted away from the seed generate() uses, so that the draw and the
   // solution are not two views of the same random walk.
   Rng rng(seed ^ 0x5BF03635u);
@@ -224,6 +246,55 @@ void addMask(AttrMasks& attrs, const uint8_t mask, const uint8_t tag, const uint
 }
 
 }  // namespace
+
+// How many of the four dossier axes could carry a clue at all, for this draw.
+//
+// An axis is useful when its values split the drawn suspects into a proper
+// subset -- all four sharing an eye colour says nothing, and so does an axis
+// where every value is unique if no clue ever reaches for it. Two critics
+// independently found casts where eyes were 2/2 and heights were within four
+// inches, so half the printed dossier could not have discriminated anybody even
+// in principle. The draw now prefers casts that can.
+int dossierUsefulness(const uint8_t cast[kMaxCats][kMaxItems], const Shape shape) {
+  const int items = shape.items;
+  const auto at = [&cast](const int i) -> const SuspectEntry& {
+    return kSuspects[cast[static_cast<int>(Cat::Suspect)][i]];
+  };
+  int useful = 0;
+
+  // Handedness, eyes, hair: an axis counts when some but not all share a value.
+  for (int axis = 0; axis < 3; ++axis) {
+    bool splits = false;
+    for (int i = 0; i < items && !splits; ++i) {
+      int same = 0;
+      for (int j = 0; j < items; ++j) {
+        const bool eq = axis == 0   ? at(i).handed == at(j).handed
+                        : axis == 1 ? at(i).eyes == at(j).eyes
+                                    : at(i).hair == at(j).hair;
+        if (eq) ++same;
+      }
+      if (same > 0 && same < items) splits = true;
+    }
+    if (splits) ++useful;
+  }
+
+  // Height counts when the tallest and shortest are unambiguous and far enough
+  // apart to be worth a sentence.
+  int tallest = 0;
+  int shortest = 0;
+  for (int i = 1; i < items; ++i) {
+    if (at(i).inches > at(tallest).inches) tallest = i;
+    if (at(i).inches < at(shortest).inches) shortest = i;
+  }
+  int tallTies = 0;
+  int shortTies = 0;
+  for (int i = 0; i < items; ++i) {
+    if (at(i).inches == at(tallest).inches) ++tallTies;
+    if (at(i).inches == at(shortest).inches) ++shortTies;
+  }
+  if (tallTies == 1 && shortTies == 1 && at(tallest).inches - at(shortest).inches >= 4) ++useful;
+  return useful;
+}
 
 AttrMasks attrMasksFor(const uint8_t cast[kMaxCats][kMaxItems], const Shape shape) {
   AttrMasks attrs;
