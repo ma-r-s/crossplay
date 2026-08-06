@@ -10,11 +10,6 @@ namespace {
 // that has to be panned instead of seen.
 constexpr int16_t kBarHeight = 44;
 
-// The alt text needs at least this much room under the artwork to be worth
-// drawing inline. Below it the band holds one clipped line, which reads as a
-// fault rather than as a joke, and the ALT button is right there anyway.
-constexpr int16_t kMinAltBand = 96;
-
 // The top of any body: below the header band and the rule Toybox draws under
 // it. Shared by every screen here so they line up with each other and with the
 // shelf the reader just came from.
@@ -377,29 +372,6 @@ void buildReaderBar(toybox::Screen& screen, const ReaderModel& model) {
   // A solid black bar that never repaints while you pan costs nothing on
   // e-ink and cannot ghost, which is the one rule in docs/design-language.md.
   screen.target().fill(bar, fui::Paint::solid(fui::Color::Black));
-
-  // The alt text goes in the band the artwork left behind, when there is one.
-  // This is what turns a wide strip's dead space into the rest of the joke:
-  // scaled to a 480 panel, a 740x180 strip is 117px tall and leaves six
-  // hundred pixels of white under it.
-  if (model.hasAlt && !model.pans && model.artBottom > 0) {
-    const int16_t top = static_cast<int16_t>(model.artBottom + toybox::kGutter * 2);
-    const int16_t room = static_cast<int16_t>(bar.y - toybox::kGutter - top);
-    if (room >= kMinAltBand) {
-      screen.target().fill(fui::makeRect(toybox::kMargin, top, static_cast<int16_t>(panel.width - toybox::kMargin * 2),
-                                         toybox::kHairline),
-                           fui::Paint::solid(fui::Color::Black));
-      fui::TextAreaProps alt;
-      alt.text = model.alt;
-      alt.style = owned(screen.theme().bodyText, fui::TextAlign::Left);
-      alt.showCaret = false;
-      fui::textArea(screen.frame(),
-                    fui::makeRect(toybox::kMargin, static_cast<int16_t>(top + toybox::kGutter),
-                                  static_cast<int16_t>(panel.width - toybox::kMargin * 2),
-                                  static_cast<int16_t>(room - toybox::kGutter)),
-                    alt);
-    }
-  }
 
   char left[80];
   snprintf(left, sizeof(left), "#%u  %s", static_cast<unsigned>(model.num), model.title);

@@ -121,14 +121,6 @@ struct ReaderModel {
   int permille = 1000;
   bool pans = false;
   bool hasAlt = false;
-  // The alt text, and the first screen row below the artwork. On a comic that
-  // fits, the space underneath is where the joke's second half goes: xkcd hides
-  // it behind a hover, which a touch panel has no equivalent for, and a wide
-  // strip leaves most of a portrait screen empty anyway. On a comic that pans
-  // there is no room and the ALT button is the way to it -- so the button is
-  // always there and the inline copy is a bonus, never the only route.
-  const char* alt = "";
-  int artBottom = 0;
 };
 
 // The bar under the comic. The comic itself is not drawn here.

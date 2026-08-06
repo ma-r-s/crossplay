@@ -492,6 +492,29 @@ void XkcdActivity::loop() {
     }
   }
 
+  // The physical buttons, routed through the same handleAction() the taps
+  // reach. Two paths would drift, and on a device with both inputs the drift
+  // is invisible until somebody uses the one you did not test.
+  //
+  // **Buttons move between comics; taps move within one.** Two axes that never
+  // overlap, so there is nothing to learn beyond that and no state where the
+  // same press means two things. The alternative -- page buttons that pan and
+  // then spill into the next comic at the bottom -- reads as magic the first
+  // time it happens and as a bug the second.
+  const bool forward = mappedInput.wasReleased(MappedInputManager::Button::PageForward) ||
+                       mappedInput.wasReleased(MappedInputManager::Button::Down);
+  const bool backward = mappedInput.wasReleased(MappedInputManager::Button::PageBack) ||
+                        mappedInput.wasReleased(MappedInputManager::Button::Up);
+
+  if (view_ == View::Reader && (forward || backward)) {
+    handleAction(forward ? xkcdui::ActionNextComic : xkcdui::ActionPrevComic, 0);
+    return;
+  }
+  if (view_ == View::List && (forward || backward)) {
+    handleAction(forward ? xkcdui::ActionPageOlder : xkcdui::ActionPageNewer, 0);
+    return;
+  }
+
   int tapX = 0;
   int tapY = 0;
   if (!mappedInput.wasScreenTapped(tapX, tapY) || !interactionsReady_) return;
@@ -562,6 +585,21 @@ void XkcdActivity::handleAction(const fui::ActionId action, const int16_t value)
     case xkcdui::ActionPanDown:
       pan(true);
       requestUpdate();
+      break;
+    case xkcdui::ActionNextComic:
+      // Positions ascend by comic number, so the next position is the newer
+      // comic. Clamped rather than wrapped: arriving back at #1 from the
+      // newest reads as a fault, not as a feature.
+      if (archiveOpen_ && position_ + 1 < archive_.count()) {
+        openComicAt(position_ + 1);
+        requestUpdate();
+      }
+      break;
+    case xkcdui::ActionPrevComic:
+      if (archiveOpen_ && position_ > 0) {
+        openComicAt(position_ - 1);
+        requestUpdate();
+      }
       break;
     case xkcdui::ActionShowAlt:
       view_ = View::Alt;
@@ -917,14 +955,6 @@ void XkcdActivity::render(RenderLock&&) {
       model.pans = xkcd::maxScroll(comic_, xkcdui::readerViewport(target.deviceContext()).height) > 0;
       model.permille = xkcd::scrollPermille(comic_, xkcdui::readerViewport(target.deviceContext()).height, scrollY_);
       model.hasAlt = alt_[0] != '\0';
-      model.alt = alt_;
-      // Where the artwork actually ended, taken from the same placement the
-      // blit used rather than recomputed, so the alt band cannot overlap it.
-      {
-        const fui::Rect view = xkcdui::readerViewport(target.deviceContext());
-        const xkcd::Placement p = xkcd::place(comic_, view.width, view.height, scrollY_);
-        model.artBottom = view.y + p.originY + p.visibleH;
-      }
       xkcdui::buildReaderBar(screen, model);
 
       // The two halves that pan, registered from the same function that the

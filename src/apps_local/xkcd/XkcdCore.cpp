@@ -179,15 +179,19 @@ Placement place(const Comic& c, int screenW, int viewportH, int scrollY) {
   p.pans = maxS > 0;
 
   if (!p.pans) {
-    // Fits: **anchored to the top, not centred.** A wide strip is 117px tall
-    // on a 730px portrait viewport, so centring leaves 300px of white above it
-    // and 300px below, and a block floating with equal slack reads as
-    // unresolved -- docs/design-language.md is explicit that dead space is a
-    // real defect on a screen that holds still. Anchored, the slack becomes
-    // one deliberate zone underneath, which the alt text grows into.
+    // Fits: centred. A strip sits in the middle of the page like a comic on
+    // newsprint, which is what it is.
+    //
+    // This was briefly anchored to the top, with the alt text filling the band
+    // underneath, on the reasoning that dead space is a defect. That was a
+    // decision nobody asked for: the alt text is a joke you choose to read,
+    // and putting it on the page turns every comic into a comic plus an
+    // explanation. The button is the way to it. What is left is one comic,
+    // centred, on paper.
     p.scrollY = 0;
     p.visibleH = c.height;
-    p.originY = 0;
+    p.originY = (viewportH - static_cast<int>(c.height)) / 2;
+    if (p.originY < 0) p.originY = 0;
     return p;
   }
 
