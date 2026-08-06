@@ -24,6 +24,10 @@ inline freeink::ui::ThemeTokens uiThemeTokens(const freeink::ui::GfxRendererTarg
   // The X4 Pro panel sits recessed behind the bezel, so an edge-hugging scroll
   // indicator disappears under it. Push it inward far enough to clear the bezel.
   tokens.listScrollInset = BoardConfig::isX4Pro() ? 7 : 0;
+  // Screen::header()/status() band height. Without this the SDK's
+  // line-height-derived default applies and fui-drawn headers (OPDS) come out
+  // a different height than every GUI.drawHeader band.
+  tokens.headerHeight = static_cast<int16_t>(metrics.headerHeight);
   tokens.headerSidePadding = static_cast<int16_t>(metrics.headerSidePadding);
   tokens.headerUnderline = static_cast<uint8_t>(metrics.headerUnderlineSize);
   tokens.headerTitleAlign = static_cast<fui::TextAlign>(metrics.headerTitleAlign);

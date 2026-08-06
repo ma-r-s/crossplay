@@ -17,6 +17,8 @@ namespace fui = freeink::ui;
 namespace {
 constexpr fui::ActionId ACTION_SLIDER = 1;
 constexpr fui::ActionId ACTION_STEP = 2;
+constexpr fui::ActionId ACTION_CANCEL = 3;
+constexpr fui::ActionId ACTION_OK = 4;
 // Fine/coarse step sizes for percent adjustments (buttons and -/+ tap zones).
 constexpr int kSmallStep = 1;
 constexpr int kLargeStep = 10;
@@ -36,6 +38,8 @@ void EpubReaderPercentSelectionActivity::onEnter() {
   app.setTheme(uiThemeTokens(uiTarget));
   app.on(ACTION_SLIDER, &EpubReaderPercentSelectionActivity::onSliderEvent, this);
   app.on(ACTION_STEP, &EpubReaderPercentSelectionActivity::onStepEvent, this);
+  app.on(ACTION_CANCEL, &EpubReaderPercentSelectionActivity::onCancelEvent, this);
+  app.on(ACTION_OK, &EpubReaderPercentSelectionActivity::onOkEvent, this);
   app.setScreen(&EpubReaderPercentSelectionActivity::percentScreen, this);
   // Set up rendering task and mark first frame dirty.
   requestUpdate();
@@ -72,6 +76,30 @@ void EpubReaderPercentSelectionActivity::onStepEvent(const fui::ActionEvent& eve
   static_cast<EpubReaderPercentSelectionActivity*>(user)->adjustPercent(event.value * kSmallStep);
 }
 
+void EpubReaderPercentSelectionActivity::onCancelEvent(const fui::ActionEvent&, void* user) {
+  auto* self = static_cast<EpubReaderPercentSelectionActivity*>(user);
+  self->app.clearTapFlash();  // the tap leaves this screen
+  self->cancel();
+}
+
+void EpubReaderPercentSelectionActivity::onOkEvent(const fui::ActionEvent&, void* user) {
+  auto* self = static_cast<EpubReaderPercentSelectionActivity*>(user);
+  self->app.clearTapFlash();  // the tap leaves this screen
+  self->confirm();
+}
+
+void EpubReaderPercentSelectionActivity::cancel() {
+  ActivityResult result;
+  result.isCancelled = true;
+  setResult(std::move(result));
+  finish();
+}
+
+void EpubReaderPercentSelectionActivity::confirm() {
+  setResult(PercentResult{percent});
+  finish();
+}
+
 void EpubReaderPercentSelectionActivity::loop() {
   // Touch goes through the FreeInkApp: render() registered the slider and -/+ hit
   // rects; the slider follows the finger via InputDrag (dragPermille per held frame).
@@ -98,10 +126,7 @@ void EpubReaderPercentSelectionActivity::loop() {
 
   // Back cancels, confirm selects, arrows adjust the percent.
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-    ActivityResult result;
-    result.isCancelled = true;
-    setResult(std::move(result));
-    finish();
+    cancel();
     return;
   }
 
@@ -116,8 +141,7 @@ void EpubReaderPercentSelectionActivity::loop() {
   }
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    setResult(PercentResult{percent});
-    finish();
+    confirm();
     return;
   }
 
@@ -184,11 +208,15 @@ void EpubReaderPercentSelectionActivity::buildPercentScreen(UiApp::ScreenType& s
   const int16_t sideGap = static_cast<int16_t>(stepW + theme.spaceSm);
   fui::slider(screen.frame(), row.inset(fui::Insets{0, sideGap, 0, sideGap}), props);
 
+  if (mappedInput.hasTouch()) {
+    // Touch devices drive the slider directly and confirm/cancel on screen; the
+    // physical-button step hints are hidden there — same rule as GUI.drawButtonHints.
+    addDialogCancelOk(screen, ACTION_CANCEL, ACTION_OK);
+    return;
+  }
+
   // Two-line step hint built from separate label + value strings (front buttons = fine step, side
   // buttons = coarse step), so the layout doesn't depend on a separator hidden in translated text.
-  // Touch devices drive the slider directly (drag + the -/+ zones), so the physical-button
-  // references are hidden there — same rule as GUI.drawButtonHints.
-  if (mappedInput.hasTouch()) return;
   fui::TextStyle hint = theme.smallText;
   hint.align = fui::TextAlign::Center;
   const int16_t hintLh = screen.target().lineHeight(hint.font);

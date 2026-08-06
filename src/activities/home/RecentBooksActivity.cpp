@@ -213,6 +213,15 @@ void RecentBooksActivity::buildListScreen(UiApp::ScreenType& screen) {
   props.action = ACTION_ROW;
   // Tap opens; long-press prompts removal (physical buttons stay in loop()).
   props.inputMask = fui::InputTouch | fui::InputLongPress;
+  // Titles in the small font so more of a long title fits on the line; the row
+  // height stays on the theme cadence. Bold keeps the title/author hierarchy
+  // and doubles as the caller-owned marker: an all-default smallText fails
+  // textStyleUnset and Screen::list() would substitute bodyText back
+  // (FONT_SLOT_SMALL is 0). No maxLines=2 here: on subtitle rows the label
+  // band is one line tall and a wrapped title would collide with the author.
+  fui::TextStyle label = screen.theme().smallText;
+  label.bold = true;
+  props.labelText = label;
   const auto rows = fui::listVisibleRows(screen.body(), screen.theme().rowHeight, screen.theme().listRowGap);
   visibleRows = rows > 0 ? rows : 1;
   topIndex = scrollListBy(topIndex, 0, visibleRows, static_cast<int>(recentBooks.size()));  // clamp to range

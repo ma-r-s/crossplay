@@ -535,7 +535,7 @@ void SettingsActivity::buildSettingsScreen(UiApp::ScreenType& screen) {
     // underline drawn along its bottom edge) reaches the band's 1px divider —
     // legacy Lyra drew the underline sitting on that rule, not floating above.
     tabProps.tabInset = tabsFocused ? fui::Insets{2, 2, 4, 2} : fui::Insets{2, 2, 0, 2};
-    tabProps.contentInset = fui::Insets{2, 6, 2, 6};
+    tabProps.contentInset = fui::Insets{2, 8, 2, 8};
   }
   const int16_t tabLineHeight = screen.target().lineHeight(tabProps.text.font);
   const int16_t tabBand =

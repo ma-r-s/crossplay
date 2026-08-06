@@ -1,10 +1,13 @@
 #pragma once
+#include <FreeInkApp.h>
 #include <FreeInkUIGfxRenderer.h>
 #include <FreeInkUIIcon.h>
+#include <I18n.h>
 
 #include "MappedInputManager.h"
 #include "components/UIScale.h"
 #include "components/UITheme.h"
+#include "components/icons/customListIcons.h"
 #include "components/icons/listIcons.h"
 
 // Shared glue for activities hosting a FreeInkApp: the font-bound render
@@ -54,6 +57,8 @@ inline freeink::ui::BitmapRef listIconFor(const UIIcon icon, const int size = 24
         return freeink::ui::bitmapFromIcon(icon_library_32);
       case UIIcon::Hotspot:
         return freeink::ui::bitmapFromIcon(icon_radio_tower_32);
+      case UIIcon::Bookmark:
+        return freeink::ui::bitmapFromIcon(icon_bookmark_32);
       default:
         return {};
     }
@@ -75,9 +80,39 @@ inline freeink::ui::BitmapRef listIconFor(const UIIcon icon, const int size = 24
       return freeink::ui::bitmapFromIcon(icon_library_24);
     case UIIcon::Hotspot:
       return freeink::ui::bitmapFromIcon(icon_radio_tower_24);
+    case UIIcon::Bookmark:
+      return freeink::ui::bitmapFromIcon(icon_bookmark_24);
     default:
       return {};
   }
+}
+
+// Bottom-anchored Cancel / OK pair for slider dialogs on touch devices, where
+// the physical Back/Confirm buttons (and their auto-hidden hints) may not
+// exist. Callers gate on hasTouch(): button boards keep the hint chrome and
+// need no on-screen pair. Consumes the bottom of the screen's content band.
+template <typename Screen>
+inline void addDialogCancelOk(Screen& screen, const freeink::ui::ActionId cancelAction,
+                              const freeink::ui::ActionId okAction) {
+  const auto& theme = screen.theme();
+  const int16_t sideInset = static_cast<int16_t>(theme.spaceLg * 2);
+  const freeink::ui::Rect band =
+      screen.takeBottom(theme.rowHeight, theme.spaceLg).inset(freeink::ui::Insets{0, sideInset, 0, sideInset});
+  const int16_t gap = theme.spaceLg;
+  const int16_t buttonWidth = static_cast<int16_t>((band.width - gap) / 2);
+
+  freeink::ui::ButtonProps cancel;
+  cancel.label = tr(STR_CANCEL);
+  cancel.action = cancelAction;
+  cancel.inputMask = freeink::ui::InputTouch;
+  cancel.text = theme.bodyText;
+  freeink::ui::ButtonProps ok = cancel;
+  ok.label = tr(STR_OK_BUTTON);
+  ok.action = okAction;
+  freeink::ui::button(screen.frame(), freeink::ui::Rect{band.x, band.y, buttonWidth, band.height}, cancel);
+  freeink::ui::button(
+      screen.frame(),
+      freeink::ui::Rect{static_cast<int16_t>(band.x + band.width - buttonWidth), band.y, buttonWidth, band.height}, ok);
 }
 
 // Scroll semantics shared by every FreeInkUI list screen: swipes move the

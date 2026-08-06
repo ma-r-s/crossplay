@@ -21,15 +21,19 @@ class EpubReaderPercentSelectionActivity final : public Activity {
   void render(RenderLock&&) override;
 
  private:
-  // FreeInkApp hosts the slider row (drag/tap positioning) and its -/+ fine-step
-  // zones; the header, percent readout, and hints stay on the legacy UITheme calls.
-  // 3 interactions (slider + two step zones) with headroom; 2 handlers.
-  using UiApp = freeink::ui::FreeInkApp<6, 2>;
+  // FreeInkApp hosts the slider row (drag/tap positioning), its -/+ fine-step
+  // zones, and the touch Cancel/OK pair; the header stays on GUI.drawHeader.
+  // 5 interactions (slider, two step zones, two buttons) with headroom.
+  using UiApp = freeink::ui::FreeInkApp<8, 4>;
 
   static void percentScreen(UiApp::ScreenType& screen, void* user);
   static void onSliderEvent(const freeink::ui::ActionEvent& event, void* user);
   static void onStepEvent(const freeink::ui::ActionEvent& event, void* user);
+  static void onCancelEvent(const freeink::ui::ActionEvent& event, void* user);
+  static void onOkEvent(const freeink::ui::ActionEvent& event, void* user);
   void buildPercentScreen(UiApp::ScreenType& screen);
+  void cancel();
+  void confirm();
 
   // Current percent value (0-100) shown on the slider.
   int percent = 0;
