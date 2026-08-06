@@ -110,6 +110,47 @@ void addButton(toybox::Screen& screen, fui::ButtonProps props, const fui::Rect& 
   screen.button(props, where);
 }
 
+// Truncate to fit, with an **ASCII** ellipsis.
+//
+// The components truncate for you, but they do it with U+2026, and the Toybox
+// faces are subset to U+0020-007E. A glyph the font lacks draws as nothing at
+// all, so a cut title ends in a stray mark: the reader bar showed
+// "#1732  Earth Tempe '" against the real archive. Three dots are in the
+// subset, so the cut is done here instead and the component is never given
+// anything long enough to trim.
+//
+// Worth knowing beyond this app: *every* component truncation in the fork has
+// this defect, because the ellipsis is not in the font. Adding U+2026 to
+// tools_local/gen_toybox_fonts.sh would fix the class, at the cost of
+// regenerating shared font headers.
+void fitLabel(const fui::DrawTarget& target, const char* text, int16_t width, const fui::TextStyle& style, char* out,
+              int cap) {
+  if (out == nullptr || cap <= 0) return;
+  out[0] = '\0';
+  if (text == nullptr) return;
+
+  int n = 0;
+  while (text[n] != '\0' && n < cap - 1) out[n] = text[n], ++n;
+  out[n] = '\0';
+  if (target.measureText(style.font, out, style).width <= width) return;
+
+  // Give back a character at a time until the text plus its ellipsis fits.
+  // Measured rather than counted: the face is proportional, so a character
+  // budget over-trims a narrow title and under-trims a wide one.
+  while (n > 0) {
+    --n;
+    out[n] = '\0';
+    if (n + 3 < cap) {
+      out[n] = '.';
+      out[n + 1] = '.';
+      out[n + 2] = '.';
+      out[n + 3] = '\0';
+    }
+    if (target.measureText(style.font, out, style).width <= width) return;
+    out[n] = '\0';
+  }
+}
+
 // The theme's title style is built for the header band, which is solid black,
 // so its colour is White. Drawn on paper it is white on white: invisible, and
 // indistinguishable from the code never having run. That is the black-on-black
@@ -381,7 +422,9 @@ void buildReaderBar(toybox::Screen& screen, const ReaderModel& model) {
   // text on the font's *line box*, which is taller than the ink, so a short
   // rect pushes the baseline past the bottom of the panel. That drew the title
   // half off the screen and filled the log with out-of-range pixel writes.
-  screen.target().text(fui::makeRect(toybox::kGutter, bar.y, labelWidth, kBarHeight), left, label);
+  char fitted[80];
+  fitLabel(screen.target(), left, labelWidth, label, fitted, sizeof(fitted));
+  screen.target().text(fui::makeRect(toybox::kGutter, bar.y, labelWidth, kBarHeight), fitted, label);
 
   // The rail: how far through the comic you are. Only drawn when there is
   // somewhere to go, because a full rail on a comic that fits says nothing
