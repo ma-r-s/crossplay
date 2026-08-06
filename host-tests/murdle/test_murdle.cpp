@@ -20,6 +20,7 @@
 // unique, solvable, and boring.
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <utility>
 
@@ -757,7 +758,233 @@ void showCase(const Tier tier, const uint32_t seed) {
 
 }  // namespace
 
+// ---------------------------------------------------------------------------
+// Solving one, out loud.
+//
+// Not a test. This exists because a case can pass every assertion in this file
+// -- one solution, minimal, reachable by pencil rules -- and still be a bad
+// puzzle to sit in front of. The things that make it bad are not properties of
+// the answer, they are properties of the *path*: how long before the first
+// square is settled, how many clues you have to hold at once, how much of the
+// work is one long chain with no branch to rest on.
+//
+//   host-tests/murdle/run.sh --solve [tier] [seed]
+//
+// It replays deduce()'s own rules one at a time and says which rule fired and
+// why, so the path can be read rather than guessed at.
+
+struct Step {
+  const char* rule;
+  int clue;  // -1 when the step is not a clue
+  int settled;
+};
+
+// How many squares each rule settles, round by round, using exactly the rules
+// deduce() is allowed. Returns the number of rounds; fills `firstYes` with the
+// round in which the first square was locked in, which is the number that says
+// whether a case gives you a foothold or a wall.
+int traceSolve(const Puzzle& p, int& firstYes, int& cluesBeforeFirstYes, int& maxChain) {
+  Grid grid;
+  grid.reset(p.shape);
+  firstYes = -1;
+  cluesBeforeFirstYes = 0;
+  maxChain = 0;
+
+  // Only the unconditional clues, which is what a player has before they start
+  // supposing anything.
+  const int items = p.shape.items;
+  const uint8_t full = static_cast<uint8_t>((1u << items) - 1u);
+
+  int round = 0;
+  bool changed = true;
+  while (changed && round < 64) {
+    changed = false;
+    ++round;
+    int settledThisRound = 0;
+
+    for (int i = 0; i < p.clueCount; ++i) {
+      const Clue& clue = p.clues[i];
+      if (clue.anchor == Anchor::Murderer || clue.speaker != kNobodySpeaks) continue;
+      for (int t = 0; t < items; ++t) {
+        if (clue.targetMask & static_cast<uint8_t>(1u << t)) continue;
+        if (grid.get(clue.anchorCat, clue.anchorItem, clue.targetCat, t) != Mark::Unknown) continue;
+        grid.set(clue.anchorCat, clue.anchorItem, clue.targetCat, t, Mark::No);
+        changed = true;
+        ++settledThisRound;
+        if (firstYes < 0) ++cluesBeforeFirstYes;
+      }
+    }
+    (void)full;
+
+    // Lone survivors, then transitivity: the same two rules deduce() uses.
+    for (int a = 0; a < p.shape.cats; ++a) {
+      for (int b = a + 1; b < p.shape.cats; ++b) {
+        for (int ia = 0; ia < items; ++ia) {
+          int open = 0, last = -1;
+          for (int ib = 0; ib < items; ++ib) {
+            if (grid.get(a, ia, b, ib) != Mark::No) {
+              ++open;
+              last = ib;
+            }
+          }
+          if (open == 1 && grid.get(a, ia, b, last) != Mark::Yes) {
+            grid.setYes(a, ia, b, last);
+            if (firstYes < 0) firstYes = round;
+            changed = true;
+            ++settledThisRound;
+          }
+        }
+        for (int ib = 0; ib < items; ++ib) {
+          int open = 0, last = -1;
+          for (int ia = 0; ia < items; ++ia) {
+            if (grid.get(a, ia, b, ib) != Mark::No) {
+              ++open;
+              last = ia;
+            }
+          }
+          if (open == 1 && grid.get(a, last, b, ib) != Mark::Yes) {
+            grid.setYes(a, last, b, ib);
+            if (firstYes < 0) firstYes = round;
+            changed = true;
+            ++settledThisRound;
+          }
+        }
+      }
+    }
+
+    for (int a = 0; a < p.shape.cats; ++a) {
+      for (int b = 0; b < p.shape.cats; ++b) {
+        if (a == b) continue;
+        for (int ia = 0; ia < items; ++ia) {
+          for (int ib = 0; ib < items; ++ib) {
+            if (grid.get(a, ia, b, ib) != Mark::Yes) continue;
+            for (int c = 0; c < p.shape.cats; ++c) {
+              if (c == a || c == b) continue;
+              for (int ic = 0; ic < items; ++ic) {
+                const Mark ma = grid.get(a, ia, c, ic);
+                const Mark mb = grid.get(b, ib, c, ic);
+                if (ma == mb) continue;
+                if (ma == Mark::Unknown) {
+                  grid.set(a, ia, c, ic, mb);
+                } else if (mb == Mark::Unknown) {
+                  grid.set(b, ib, c, ic, ma);
+                }
+                changed = true;
+                ++settledThisRound;
+              }
+            }
+          }
+        }
+      }
+    }
+    if (settledThisRound > maxChain) maxChain = settledThisRound;
+  }
+  return grid.complete() ? round : -round;
+}
+
+void solveOut(const Tier tier, const uint32_t seed) {
+  static Scratch scratch;
+  Puzzle p;
+  if (!makeCase(tier, seed, scratch, p)) {
+    std::printf("no case\n");
+    return;
+  }
+  char buf[murdletext::kLineMax];
+  std::printf("\n=== %s  seed %u  %d clues ===\n", tierName(tier), seed, p.clueCount);
+  for (int i = 0; i < p.clueCount; ++i) {
+    murdletext::clueLine(p, i, buf, sizeof(buf));
+    std::printf("  %2d. %s\n", i + 1, buf);
+  }
+  int firstYes = 0, before = 0, chain = 0;
+  const int rounds = traceSolve(p, firstYes, before, chain);
+  std::printf("\n  grid completes: %s\n", rounds > 0 ? "yes" : "NO -- needs a supposition");
+  std::printf("  rounds: %d\n", rounds < 0 ? -rounds : rounds);
+  std::printf("  first square locked in: round %d, after %d eliminations\n", firstYes, before);
+  uint8_t picks[kMaxCats] = {};
+  for (int c = 0; c < p.shape.cats; ++c) picks[c] = p.assign[c][p.murderRow];
+  murdletext::accusationLine(p, picks, buf, sizeof(buf));
+  std::printf("  answer: %s\n", buf);
+}
+
+// How many of the case's sixteen items are never named by any clue. They are
+// still deducible -- by elimination -- but to a player they read as information
+// that was never given, which is a different feeling from a hard deduction and
+// is worth knowing the size of.
+int itemsNeverNamed(const Puzzle& p) {
+  bool named[kMaxCats][kMaxItems] = {};
+  for (int i = 0; i < p.clueCount; ++i) {
+    const Clue& clue = p.clues[i];
+    if (clue.anchor == Anchor::Item) named[clue.anchorCat][clue.anchorItem] = true;
+    if (clue.speaker != kNobodySpeaks) named[0][clue.speaker] = true;
+    // A mask names the items it *singles out*: one bit set names that item, one
+    // bit clear names the excluded one, two bits name both. An attribute mask
+    // names nobody -- that is the point of it.
+    if (clue.attr != kNoAttr) continue;
+    int set = 0;
+    for (int b = 0; b < p.shape.items; ++b) {
+      if (clue.targetMask & static_cast<uint8_t>(1u << b)) ++set;
+    }
+    for (int b = 0; b < p.shape.items; ++b) {
+      const bool on = (clue.targetMask & static_cast<uint8_t>(1u << b)) != 0;
+      if ((set <= 2 && on) || (set == p.shape.items - 1 && !on)) named[clue.targetCat][b] = true;
+    }
+  }
+  int missing = 0;
+  for (int c = 0; c < p.shape.cats; ++c) {
+    for (int i = 0; i < p.shape.items; ++i) {
+      if (!named[c][i]) ++missing;
+    }
+  }
+  return missing;
+}
+
+// The distribution that says whether these are pleasant puzzles, which is a
+// different question from whether they are correct ones.
+void auditDifficulty() {
+  static Scratch scratch;
+  std::printf("\n%-12s  %6s  %8s  %10s  %14s  %s\n", "TIER", "CASES", "ROUNDS", "FIRST YES", "NEEDS SUPPOSE",
+              "NEVER NAMED");
+  for (int t = 0; t < kTierCount; ++t) {
+    int cases = 0, roundSum = 0, roundMax = 0, firstSum = 0, firstMax = 0, needSuppose = 0, beforeMax = 0;
+    int unnamedSum = 0, unnamedMax = 0;
+    for (uint32_t seed = 1; seed <= 300; ++seed) {
+      Puzzle p;
+      if (!makeCase(kTiers[t], seed * 2654435761u + 7u, scratch, p)) continue;
+      int firstYes = 0, before = 0, chain = 0;
+      const int r = traceSolve(p, firstYes, before, chain);
+      ++cases;
+      if (r < 0) ++needSuppose;
+      const int rr = r < 0 ? -r : r;
+      roundSum += rr;
+      if (rr > roundMax) roundMax = rr;
+      if (firstYes > 0) {
+        firstSum += firstYes;
+        if (firstYes > firstMax) firstMax = firstYes;
+      }
+      if (before > beforeMax) beforeMax = before;
+      const int unnamed = itemsNeverNamed(p);
+      unnamedSum += unnamed;
+      if (unnamed > unnamedMax) unnamedMax = unnamed;
+    }
+    std::printf("%-12s  %6d  %3.1f/%-3d  %5.1f/%-3d  %6d (%3d%%)  %4.1f/%-2d\n", tierName(kTiers[t]), cases,
+                cases ? static_cast<double>(roundSum) / cases : 0.0, roundMax,
+                cases ? static_cast<double>(firstSum) / cases : 0.0, firstMax, needSuppose,
+                cases ? needSuppose * 100 / cases : 0, cases ? static_cast<double>(unnamedSum) / cases : 0.0,
+                unnamedMax);
+  }
+}
+
 int main(const int argc, char** argv) {
+  if (argc > 1 && std::strcmp(argv[1], "--audit") == 0) {
+    auditDifficulty();
+    return 0;
+  }
+  if (argc > 1 && std::strcmp(argv[1], "--solve") == 0) {
+    const int t = argc > 2 ? std::atoi(argv[2]) : 2;
+    const uint32_t seed = argc > 3 ? static_cast<uint32_t>(std::atol(argv[3])) : 12345u;
+    solveOut(kTiers[t < 0 || t >= kTierCount ? 2 : t], seed);
+    return 0;
+  }
   if (argc > 1 && std::strcmp(argv[1], "--show") == 0) {
     for (int t = 0; t < kTierCount; ++t) showCase(kTiers[t], 20260805u + static_cast<uint32_t>(t));
     return 0;
