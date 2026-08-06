@@ -1,0 +1,155 @@
+#!/bin/bash
+# One worktree per piece of work in flight.
+#
+#   ./scripts/wt.sh new <name> [--from <branch>]   # make one
+#   ./scripts/wt.sh list                           # what exists, and what state
+#   ./scripts/wt.sh drop <name>                    # remove it once merged
+#
+# Why this exists: everything used to happen in firmware-next/. Several apps
+# were built at once, so that one tree held four efforts' uncommitted work at
+# the same time, nothing could be committed atomically, agent screenshot runs
+# shared one SD card and one qa-artifacts/ directory, every save restarted
+# Mario's simulator, and check.sh reported green for the *union* of everyone's
+# code. That last one is not theoretical: Dungeon, Insider and Hacker News all
+# shipped against Toybox symbols that were never committed, and xteink HEAD did
+# not compile for three commits, because every check ran against a dirty tree.
+#
+# A worktree per effort fixes all of it at once: own branch, own build output,
+# own SD card, own screenshots, own build lock.
+set -uo pipefail
+
+SCRIPTS_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+INTEGRATION="$(cd "$SCRIPTS_DIR/.." && pwd)"
+
+find_workspace() {
+  local d="$1"
+  while [ "$d" != "/" ]; do
+    [ -e "$d/.xteink-workspace" ] && { printf '%s' "$d"; return 0; }
+    d="$(dirname "$d")"
+  done
+  printf '%s' "$(dirname "$1")"
+}
+WORKSPACE="$(find_workspace "$SCRIPTS_DIR")"
+WT_ROOT="$WORKSPACE/wt"
+
+die() {
+  echo "error: $*" >&2
+  exit 1
+}
+
+cmd_new() {
+  local name="${1:-}" from="xteink"
+  [ -n "$name" ] || die "usage: wt.sh new <name> [--from <branch>]"
+  shift
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --from)
+        from="${2:-}"
+        [ -n "$from" ] || die "--from needs a branch"
+        shift 2
+        ;;
+      *) die "unknown option: $1" ;;
+    esac
+  done
+
+  local dir="$WT_ROOT/$name" branch="app/$name"
+  [ -e "$dir" ] && die "$dir already exists"
+  git -C "$INTEGRATION" show-ref --verify --quiet "refs/heads/$branch" &&
+    die "branch $branch already exists (drop the old worktree first, or pick another name)"
+
+  mkdir -p "$WT_ROOT"
+  echo "creating $dir on $branch (from $from)"
+  git -C "$INTEGRATION" worktree add -b "$branch" "$dir" "$from" || die "worktree add failed"
+
+  # A fresh worktree does NOT populate submodules, and the host tests compile
+  # FreeInkUI out of freeink-sdk/. Without this the new tree looks fine until
+  # the first check.sh fails to find headers that are plainly there in the tree
+  # next door. sync.sh learned this the same way.
+  echo "initialising submodules ..."
+  git -C "$dir" submodule update --init --recursive || die "submodule init failed"
+
+  # Its own card and its own artifacts. Both are gitignored and both are derived
+  # from the tree path by lib-sim.sh, so they need only to exist.
+  mkdir -p "$dir/fs_agent/books" "$dir/fs_agent/.crosspoint" "$dir/qa-artifacts"
+
+  cat <<EOF
+
+ready: $dir
+
+  cd $dir
+  ./scripts_local/check.sh            # host tests + both builds, this tree only
+  ./scripts_local/sim-shot.sh '...'   # screenshots, this tree's own SD card
+
+Use scripts_local/ from inside the tree, NOT the workspace-root scripts/ --
+those resolve to firmware-next and would test the wrong code. The scripts
+refuse rather than let that happen quietly.
+
+Mario can watch this tree with:  ./scripts/dev.sh $name
+EOF
+}
+
+cmd_list() {
+  printf "%-16s %-22s %-8s %s\n" TREE BRANCH DIRTY STATE
+  local d
+  for d in "$INTEGRATION" "$WT_ROOT"/*/; do
+    [ -d "$d" ] || continue
+    d="${d%/}"
+    local name branch dirty state ahead
+    name="$(basename "$d")"
+    branch="$(git -C "$d" branch --show-current 2>/dev/null || echo '?')"
+    dirty="$(git -C "$d" status --porcelain 2>/dev/null | grep -vc '^ ? ' || true)"
+    [ "$dirty" -eq 0 ] && dirty="clean" || dirty="$dirty files"
+    ahead="$(git -C "$d" rev-list --count xteink.."$branch" 2>/dev/null || echo 0)"
+    state=""
+    [ "$ahead" != "0" ] && state="$ahead commit(s) ahead of xteink"
+    # A simulator running out of this tree means somebody is using it.
+    pgrep -f "^$d/.pio/build/simulator_x4_pro/program" >/dev/null 2>&1 &&
+      state="${state:+$state, }sim running"
+    printf "%-16s %-22s %-8s %s\n" "$name" "$branch" "$dirty" "$state"
+  done
+}
+
+cmd_drop() {
+  local name="${1:-}"
+  [ -n "$name" ] || die "usage: wt.sh drop <name>"
+  local dir="$WT_ROOT/$name" branch="app/$name"
+  [ -d "$dir" ] || die "no worktree at $dir"
+
+  # Refuse to throw away work that is not in xteink yet. Removing a worktree
+  # deletes its build output and its screenshots too, so a wrong call here is
+  # not a small mistake.
+  local unmerged dirty
+  dirty="$(git -C "$dir" status --porcelain | grep -v '^ ? ' | wc -l | tr -d ' ')"
+  unmerged="$(git -C "$INTEGRATION" rev-list --count xteink.."$branch" 2>/dev/null || echo 0)"
+  if [ "$dirty" != "0" ] || [ "$unmerged" != "0" ]; then
+    echo "refusing to drop $name:" >&2
+    [ "$dirty" != "0" ] && echo "  $dirty uncommitted file(s)" >&2
+    [ "$unmerged" != "0" ] && echo "  $unmerged commit(s) not in xteink" >&2
+    echo >&2
+    echo "merge it first, or pass --force if you mean to lose it." >&2
+    [ "${2:-}" != "--force" ] && exit 1
+    echo "--force given, dropping anyway." >&2
+  fi
+
+  git -C "$INTEGRATION" worktree remove --force "$dir" || die "worktree remove failed"
+  git -C "$INTEGRATION" branch -D "$branch" 2>/dev/null
+  echo "dropped $name"
+}
+
+case "${1:-}" in
+  new)
+    shift
+    cmd_new "$@"
+    ;;
+  list | ls | "")
+    cmd_list
+    ;;
+  drop | rm)
+    shift
+    cmd_drop "$@"
+    ;;
+  *)
+    echo "usage: wt.sh {new <name> [--from <branch>] | list | drop <name>}" >&2
+    exit 2
+    ;;
+esac

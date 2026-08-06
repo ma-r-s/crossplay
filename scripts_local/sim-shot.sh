@@ -16,10 +16,11 @@
 # Example — open the Apps hub by touch and photograph it:
 #   ./scripts/sim-shot.sh '1800:TAP:120,635;3600:QUIT' '3000:./qa-artifacts/apps.bmp'
 set -euo pipefail
-# Agent test runs get their own SD card, so scripted taps and reset settings
-# never touch the game Mario has in progress in dev.sh.
-export CROSSPOINT_SIM_SD="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)/fs_agent"
 source "$(dirname "${BASH_SOURCE[0]}")/lib-sim.sh"
+require_same_tree
+# Each tree gets its own SD card, so scripted taps and reset settings never
+# touch the game Mario has in progress in dev.sh, nor another chat's run.
+export CROSSPOINT_SIM_SD="$REPO/fs_agent"
 
 INPUT_SCRIPT="${1:?usage: sim-shot.sh '<input-script>' '<screenshot-script>' [out-dir]}"
 SHOT_SCRIPT="${2:-}"

@@ -28,8 +28,9 @@
 #     '1800:TAP:120,635;3600:TAP:120,411;5400:TAP:120,144;20000:QUIT' \
 #     '12000:./qa-artifacts/chess.bmp'
 set -euo pipefail
-export CROSSPOINT_SIM_SD="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)/fs_link_a"
 source "$(dirname "${BASH_SOURCE[0]}")/lib-sim.sh"
+require_same_tree
+export CROSSPOINT_SIM_SD="$REPO/fs_link_a"
 
 INPUT_A="${1:-}"
 SHOTS_A="${2:-}"

@@ -1,8 +1,9 @@
 #!/bin/bash
 # Everything that can be verified without a device. Run before every commit.
 #
-#   ./scripts/check.sh            # host tests, both builds
-#   ./scripts/check.sh --tests    # host tests only (fast)
+#   ./scripts_local/check.sh              # host tests, both builds
+#   ./scripts_local/check.sh --tests      # host tests only (fast)
+#   ./scripts_local/check.sh --committed  # verify HEAD, not your working tree
 #
 # Exits non-zero if anything fails. Prints every suite's own exit code rather
 # than only its last line: a suite that fails to compile still prints "0 failed"
@@ -12,9 +13,48 @@ set -uo pipefail
 
 REPO="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 cd "$REPO"
-LOGS="${TMPDIR:-/tmp}/xteink-check"
+
+# Per tree. Several trees run this at once now, and one shared log directory
+# meant the failure you were reading could be another tree's.
+TAG="$(printf '%s' "$REPO" | shasum | cut -c1-8)"
+LOGS="${TMPDIR:-/tmp}/xteink-check-$TAG"
 mkdir -p "$LOGS"
 FAILED=0
+
+# --ignore-submodules=untracked: the icon tools drop a __pycache__/ inside
+# freeink-sdk, which is untracked content in a submodule and not your work.
+dirty_count() {
+  git status --porcelain --ignore-submodules=untracked | grep -vc '^??' || true
+}
+
+# check.sh verifies the WORKING DIRECTORY, and that is a real hazard, not a
+# footnote. Uncommitted work masks a broken commit: Dungeon, Insider and Hacker
+# News all shipped depending on Toybox symbols that were never committed, every
+# check ran green because they sat unstaged, and xteink HEAD did not compile for
+# three commits. --committed is the answer; this banner is so you know to reach
+# for it.
+if [ "${1:-}" = "--committed" ]; then
+  TRIAL="${TMPDIR:-/tmp}/xteink-committed-$TAG"
+  git worktree remove --force "$TRIAL" 2>/dev/null || true
+  echo "verifying HEAD ($(git rev-parse --short HEAD)) in a throwaway worktree"
+  echo "  your working tree is untouched, and its uncommitted work is not in this build"
+  git worktree add --quiet --detach "$TRIAL" HEAD || exit 1
+  # A fresh worktree does not populate submodules, and the host tests compile
+  # FreeInkUI out of freeink-sdk/.
+  git -C "$TRIAL" submodule update --init --recursive --quiet
+  (cd "$TRIAL" && ./scripts_local/check.sh "${2:-}")
+  code=$?
+  git worktree remove --force "$TRIAL" 2>/dev/null || true
+  exit $code
+fi
+
+DIRTY="$(dirty_count)"
+if [ "$DIRTY" -ne 0 ]; then
+  echo "note: verifying your working tree, which has $DIRTY uncommitted file(s)."
+  echo "      a green result here does NOT mean HEAD compiles."
+  echo "      use --committed before you rely on that."
+  echo
+fi
 
 echo "host tests"
 for suite in host-tests/*/; do
@@ -33,12 +73,19 @@ for suite in host-tests/*/; do
 done
 
 if [ "${1:-}" != "--tests" ]; then
+  # Shared, content-addressed object cache: a tree that has never built before
+  # is mostly cache hits rather than a cold compile. Set here as well as in
+  # lib-sim.sh because check.sh does not source it.
+  WS="$REPO"
+  while [ "$WS" != "/" ] && [ ! -e "$WS/.xteink-workspace" ]; do WS="$(dirname "$WS")"; done
+  [ -e "$WS/.xteink-workspace" ] && export PLATFORMIO_BUILD_CACHE_DIR="$WS/.pio-cache"
+
   for env in simulator_x4_pro x4pro; do
     echo "build: $env"
     if pio run -e "$env" > "$LOGS/$env.log" 2>&1; then
       # The native build reports no RAM/Flash. Say "ok" rather than printing
       # nothing, or a clean build reads like a swallowed failure.
-      grep -E "^(RAM|Flash):" "$LOGS/$env.log" | sed 's/^/  /' || echo "  ok" 
+      grep -E "^(RAM|Flash):" "$LOGS/$env.log" | sed 's/^/  /' || echo "  ok"
     else
       echo "  FAILED"
       grep -E "error:" "$LOGS/$env.log" | head -5 | sed 's/^/    /'

@@ -1,16 +1,23 @@
 #!/bin/bash
 # Mario's simulator. Leave this running.
 #
-#   ./scripts/dev.sh
+#   ./scripts/dev.sh                # the integration tree (firmware-next, xteink)
+#   ./scripts/dev.sh battleship     # just what wt/battleship is building
+#   ./scripts/dev.sh --list         # what there is to watch
 #
-# It watches the firmware sources and, whenever they change, rebuilds and
-# restarts the simulator so the window in front of you is always the current
-# code. If a build fails it says so and leaves the previous build running, so
-# you are never left staring at a dead window.
+# It watches one tree's sources and, whenever they change, rebuilds and restarts
+# the simulator so the window in front of you is always that code. If a build
+# fails it says so and leaves the previous build running, so you are never left
+# staring at a dead window.
 #
-# It keeps its own SD card (fs_mario/) separate from the one agent test runs use
-# (fs_agent/), so scripted taps, screenshot runs and factory-reset settings never
-# disturb your game in progress, and your settings never skew a test.
+# **Name a tree and you see only that work.** Every chat now develops in its own
+# worktree under wt/, so watching one means a different chat saving a file
+# cannot restart your simulator mid-move, and the binary you are holding is one
+# feature rather than a mixture of three half-finished ones. With no name you
+# get firmware-next, which is everything that has actually been merged.
+#
+# Your SD card (fs_mario/ at the workspace root, not inside any tree) follows
+# you whichever tree you watch, so your saves and settings survive switching.
 #
 # Ctrl-C stops the watcher and the simulator together. Closing just the window
 # reopens it; the watcher notices within ~2s.
@@ -24,7 +31,50 @@ set -uo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/lib-sim.sh"
 
-export CROSSPOINT_SIM_SD="$REPO/fs_mario"
+list_trees() {
+  echo "trees you can watch:"
+  printf "  %-16s %s\n" "(no argument)" "firmware-next -- the integration tree"
+  local d
+  for d in "$WORKSPACE"/wt/*/; do
+    [ -d "$d" ] || continue
+    local n branch
+    n="$(basename "$d")"
+    branch="$(git -C "$d" branch --show-current 2>/dev/null || echo '?')"
+    printf "  %-16s %s\n" "$n" "$branch"
+  done
+}
+
+case "${1:-}" in
+  --list | -l)
+    list_trees
+    exit 0
+    ;;
+  "") TARGET="$WORKSPACE/firmware-next" ;;
+  -*)
+    echo "usage: dev.sh [<worktree-name>|--list]" >&2
+    exit 2
+    ;;
+  *)
+    TARGET="$WORKSPACE/wt/$1"
+    if [ ! -d "$TARGET" ]; then
+      echo "error: no worktree named '$1'" >&2
+      echo >&2
+      list_trees >&2
+      echo >&2
+      echo "make one with: ./scripts/wt.sh new $1" >&2
+      exit 2
+    fi
+    ;;
+esac
+
+# Re-point the library at the tree being watched. Everything derived -- the
+# binary, the build log, the per-tree build lock -- moves with it, so watching a
+# chat's tree contends only with that chat and with nobody else.
+set_repo "$TARGET"
+
+# Deliberately NOT inside the tree: switching which tree you watch must not
+# switch which saves and settings you have.
+export CROSSPOINT_SIM_SD="$WORKSPACE/fs_mario"
 seed_fs
 
 SIM_PID=""
@@ -76,8 +126,9 @@ restart() {
 }
 
 mkdir -p "$REPO/qa-artifacts"
-echo "watching $REPO/src and lib for changes"
-echo "your SD card: $CROSSPOINT_SIM_SD"
+echo "watching  $REPO"
+echo "branch    $(git -C "$REPO" branch --show-current 2>/dev/null || echo '?')"
+echo "SD card   $CROSSPOINT_SIM_SD"
 echo
 
 STAMP=""
