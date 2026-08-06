@@ -494,7 +494,11 @@ void buildPool(const Puzzle& p, const AttrMasks& attrs, const Tier tier, Scratch
   const uint8_t full = fullMask(items);
   const bool allowBarePositive = tier == Tier::Elementary;
   const bool allowPair = tier == Tier::HardBoiled || tier == Tier::Impossible;
-  const bool allowAttribute = tier != Tier::Elementary;
+  // Every tier. They used to be banned on Elementary, which meant that tier
+  // printed four attributes a suspect and referenced them in zero of 1,610
+  // clues: a table the player builds, guards, and is never paid for. An
+  // attribute clue is one extra lookup, not a difficulty spike.
+  const bool allowAttribute = true;
 
   scratch.poolCount = 0;
   for (int a = 0; a < cats; ++a) {
@@ -555,39 +559,48 @@ void shufflePool(Scratch& scratch, Rng& rng) {
   }
 }
 
-// One statement per suspect. Everyone but the murderer says something true;
-// the murderer says something false, which is a single-bit claim about where
-// they were or what they carried that simply is not so.
+// One statement per suspect. Everyone but the murderer says something true; the
+// murderer says something false.
+//
+// A statement may be about ANYBODY, not just the speaker. That is the whole
+// point of a witness and the first version missed it: every statement was a
+// suspect reporting their own weapon or place, so the murderer's lie could only
+// ever deny one fact about the liar. Nothing cross-linked, so the tier degraded
+// to "one of these four facts is wrong, find which". A lie about somebody else
+// poisons *their* row, which is what makes the liar dangerous.
 bool addStatements(Puzzle& p, Rng& rng) {
-  // Weapon and location only, which is why the category is picked from two
-  // rather than from all of them: "I was driven by greed" is not a sentence a
-  // witness says about themselves.
   const int items = p.shape.items;
   for (int s = 0; s < items; ++s) {
     Clue clue{};
     clue.anchor = Anchor::Item;
     clue.speaker = static_cast<uint8_t>(s);
+    clue.attr = kNoAttr;
     clue.voice = static_cast<uint8_t>(rng.next());
 
+    // Two statements in three are about somebody else. Some self-reports are
+    // worth keeping: "I was at the mill" from the murderer is the shape that
+    // links a liar to the crime scene.
+    int subject = s;
+    if (items > 1 && rng.below(3) != 0) {
+      subject = static_cast<int>(rng.below(static_cast<uint32_t>(items - 1)));
+      if (subject >= s) ++subject;
+    }
+
+    // Weapon or place only. "I was driven by greed" is not a thing a witness
+    // says about anybody, least of all themselves.
+    const int t = 1 + static_cast<int>(rng.below(2));
+    const int trueItem = p.assign[t][subject];
+    clue.anchorCat = static_cast<uint8_t>(kSuspect);
+    clue.anchorItem = static_cast<uint8_t>(subject);
+    clue.targetCat = static_cast<uint8_t>(t);
+
     if (s == p.murderRow) {
-      // A lie: name a category, and claim a value it does not have.
-      const int t = 1 + static_cast<int>(rng.below(2));
-      const int trueItem = p.assign[t][s];
+      // A lie: name a value the subject does not have.
       int wrong = static_cast<int>(rng.below(static_cast<uint32_t>(items - 1)));
       if (wrong >= trueItem) ++wrong;
-      clue.anchorCat = static_cast<uint8_t>(kSuspect);
-      clue.anchorItem = static_cast<uint8_t>(s);
-      clue.targetCat = static_cast<uint8_t>(t);
       clue.targetMask = static_cast<uint8_t>(1u << wrong);
     } else {
-      // A truth, drawn from the same pool the ordinary clues come from but
-      // pinned to this speaker's own row, because a witness talks about
-      // themselves.
-      const int t = 1 + static_cast<int>(rng.below(2));
-      clue.anchorCat = static_cast<uint8_t>(kSuspect);
-      clue.anchorItem = static_cast<uint8_t>(s);
-      clue.targetCat = static_cast<uint8_t>(t);
-      clue.targetMask = static_cast<uint8_t>(1u << p.assign[t][s]);
+      clue.targetMask = static_cast<uint8_t>(1u << trueItem);
     }
     if (p.clueCount >= kMaxClues) return false;
     p.clues[p.clueCount++] = clue;
@@ -644,12 +657,69 @@ bool generate(const Tier tier, const uint32_t seed, const uint8_t cast[kMaxCats]
     shufflePool(scratch, rng);
 
     // Greedy: add clues until the case has exactly one reading.
-    int taken = 0;
-    while (countSolutions(p, 2, scratch) > 1) {
-      if (taken >= scratch.poolCount || p.clueCount >= kMaxClues) break;
-      Clue clue = scratch.pool[taken++];
-      clue.voice = static_cast<uint8_t>(rng.next());
-      p.clues[p.clueCount++] = clue;
+    //
+    // Two passes. The first refuses any clue whose (anchor, target category)
+    // pair has already been spoken about, because minimality does not stop a
+    // case saying the same thing twice in different words -- "GRETA did not
+    // carry the vase" beside "ROSA did not carry the vase" is two clue slots
+    // buying one idea, and play-testers called it out every time. The second
+    // pass drops the refusal, so a case that genuinely needs the repeat still
+    // gets it rather than failing.
+    bool spokenOf[kMaxCats][kMaxItems][kMaxCats] = {};
+    // A clue whose target is a suspect is *read* from the suspect's side --
+    // "NORA was not driven by hate" -- so its subject is the named suspect, not
+    // the anchor. Keying only on the anchor let two clues through that named
+    // the same person about the same category twice, which is the same stutter
+    // in a different costume.
+    bool saidAbout[kMaxItems][kMaxCats] = {};
+    // And no one shape may dominate. Four clues of the form "whoever was in X
+    // was driven by Y or Z" is one rhythm repeated, which play-testers spotted
+    // as a template firing rather than as a puzzle.
+    int shapeUsed[kMaxCats][kMaxCats] = {};
+    constexpr int kMaxPerShape = 3;
+    // Nor may one attribute. Three clues ending "had hazel eyes" is the same
+    // repetition wearing the dossier's clothes.
+    int attrUsed[256] = {};
+    constexpr int kMaxPerAttr = 2;
+
+    for (int pass = 0; pass < 2; ++pass) {
+      int taken = 0;
+      while (countSolutions(p, 2, scratch) > 1) {
+        if (taken >= scratch.poolCount || p.clueCount >= kMaxClues) break;
+        Clue clue = scratch.pool[taken++];
+
+        // Which suspect this clue will name, if it names one.
+        int names = -1;
+        if (clue.attr == kNoAttr && clue.targetCat == static_cast<uint8_t>(Cat::Suspect)) {
+          int set = 0;
+          int only = 0;
+          int missing = 0;
+          for (int b = 0; b < items; ++b) {
+            if (clue.targetMask & static_cast<uint8_t>(1u << b)) {
+              ++set;
+              only = b;
+            } else {
+              missing = b;
+            }
+          }
+          if (set == 1) names = only;
+          if (set == items - 1) names = missing;
+        }
+
+        if (pass == 0) {
+          if (spokenOf[clue.anchorCat][clue.anchorItem][clue.targetCat]) continue;
+          if (names >= 0 && saidAbout[names][clue.anchorCat]) continue;
+          if (shapeUsed[clue.anchorCat][clue.targetCat] >= kMaxPerShape) continue;
+          if (clue.attr != kNoAttr && attrUsed[clue.attr] >= kMaxPerAttr) continue;
+        }
+        if (clue.attr != kNoAttr) ++attrUsed[clue.attr];
+        spokenOf[clue.anchorCat][clue.anchorItem][clue.targetCat] = true;
+        if (names >= 0) saidAbout[names][clue.anchorCat] = true;
+        ++shapeUsed[clue.anchorCat][clue.targetCat];
+        clue.voice = static_cast<uint8_t>(rng.next());
+        p.clues[p.clueCount++] = clue;
+      }
+      if (countSolutions(p, 2, scratch) == 1) break;
     }
     if (countSolutions(p, 2, scratch) != 1) continue;
 

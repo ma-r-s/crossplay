@@ -572,6 +572,25 @@ void testEverySentenceReads() {
         // "whoever wanted an inheritance" reads and "whoever wanted jealousy"
         // does not, and the broken third of that table shipped once already.
         CHECK(!contains(line, "wanted "));
+        // A clue whose target is a suspect is rendered from the suspect's side
+        // and must therefore START with a name (or "Either"). The bug this
+        // catches is routing that whole sentence through the
+        // anchor-plus-predicate path as well, which produced "Whoever carried
+        // the pan FELIX did not carry the pan" -- a sentence with two subjects,
+        // a capital letter, a full stop and no double space, which passed every
+        // other check here.
+        {
+          const Clue& c = puzzle.clues[i];
+          if (c.anchor == Anchor::Item && c.speaker == kNobodySpeaks && c.attr == kNoAttr &&
+              static_cast<Cat>(c.targetCat) == Cat::Suspect) {
+            bool startsWithName = std::strncmp(line, "Either ", 7) == 0;
+            for (int b = 0; b < puzzle.shape.items && !startsWithName; ++b) {
+              const char* name = murdletext::label(puzzle, 0, b);
+              startsWithName = std::strncmp(line, name, std::strlen(name)) == 0;
+            }
+            check(startsWithName, line, __LINE__);
+          }
+        }
 
         // And the one that matters: the sentence has to be about the same items
         // the solver checked. A positive names its item; a denial names the item

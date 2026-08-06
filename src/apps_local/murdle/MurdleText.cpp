@@ -208,6 +208,63 @@ Forms formsFor(const int cat) {
   return Forms{"was %s", "was not %s", "was either %s or %s"};
 }
 
+// "FELIX did not carry the pan", not "whoever carried the pan was not FELIX".
+//
+// Both say the same thing and only one is English. When a clue's target is a
+// suspect and its mask names one or two of them, the sentence reads far better
+// turned round to start with the person -- the old form buried the identity at
+// the end of a relative clause and a play-tester called it backwards on sight.
+// Attribute clues are exempt: "whoever was at the inn was left-handed" is
+// already the natural order.
+bool suspectSidePhrase(const Puzzle& p, const Clue& clue, char* out, const int cap) {
+  if (static_cast<Cat>(clue.targetCat) != Cat::Suspect) return false;
+  if (clue.attr != kNoAttr || clue.anchor == Anchor::Murderer) return false;
+
+  const int items = p.shape.items;
+  const int set = popcount(clue.targetMask);
+  const char* what = phraseOf(p, clue.anchorCat, clue.anchorItem);
+  const char* did = nullptr;
+  const char* didNot = nullptr;
+  switch (static_cast<Cat>(clue.anchorCat)) {
+    case Cat::Weapon:
+      did = "%s carried %s";
+      didNot = "%s did not carry %s";
+      break;
+    case Cat::Location:
+      did = "%s was %s";
+      didNot = "%s was not %s";
+      break;
+    case Cat::Motive:
+      did = "%s was driven by %s";
+      didNot = "%s was not driven by %s";
+      break;
+    default:
+      return false;
+  }
+
+  out[0] = '\0';
+  if (set == 1) {
+    append(out, cap, did, suspectOf(p, lowestBit(clue.targetMask)).name, what);
+    return true;
+  }
+  if (set == items - 1) {
+    append(out, cap, didNot, suspectOf(p, missingBit(clue.targetMask, items)).name, what);
+    return true;
+  }
+  if (set == 2) {
+    char pair[64];
+    std::snprintf(pair, sizeof(pair), "%s or %s", suspectOf(p, lowestBit(clue.targetMask)).name,
+                  suspectOf(p, highestBit(clue.targetMask)).name);
+    append(out, cap, did, pair, what);
+    // "Either X or Y carried the pan" reads better than "X or Y carried".
+    char tmp[kLineMax];
+    std::snprintf(tmp, sizeof(tmp), "Either %s", out);
+    std::snprintf(out, static_cast<size_t>(cap), "%s", tmp);
+    return true;
+  }
+  return false;
+}
+
 void predicatePhrase(const Puzzle& p, const Clue& clue, char* out, const int cap) {
   out[0] = '\0';
   if (attributePhrase(clue.attr, out, cap)) return;
@@ -294,14 +351,25 @@ void axisLetters(const Puzzle& p, const int cat, char out[murdle::kMaxItems + 1]
 void clueLine(const Puzzle& p, const int clueIndex, char* out, const int cap) {
   out[0] = '\0';
   if (clueIndex < 0 || clueIndex >= p.clueCount || cap < 8) return;
-  const Clue& clue = p.clues[clueIndex];
+  Clue clue = p.clues[clueIndex];
+  // One voice per case, not per clue. The variants were picked from each clue's
+  // own `voice` byte, so "The one in the tower..." and "Whoever was in the
+  // tower..." could sit two lines apart meaning exactly the same thing; three
+  // play-testers read that as templates firing at random rather than as
+  // variety. Mixing the case seed in keeps the variety between cases and takes
+  // it out of the middle of one.
+  clue.voice = static_cast<uint8_t>(clue.voice ^ static_cast<uint8_t>(p.seed >> 3));
 
   // The murder clue names the crime scene by something in it rather than by its
   // name, which is what keeps the last step of a case a deduction instead of an
   // announcement.
   if (clue.anchor == Anchor::Murderer) {
     const int place = lowestBit(clue.targetMask);
-    std::snprintf(out, static_cast<size_t>(cap), "The body was found next to %s.", placeOf(p, place).trait);
+    // "in the place with", not "next to". A play-tester caught "the body was
+    // found next to flour on the floor": the old wording works for a broken
+    // step and breaks for anything that is a property of a room rather than an
+    // object in it. This one survives all sixteen traits.
+    std::snprintf(out, static_cast<size_t>(cap), "The body was found in the place with %s.", placeOf(p, place).trait);
     return;
   }
 
@@ -310,11 +378,33 @@ void clueLine(const Puzzle& p, const int clueIndex, char* out, const int cap) {
   // true from everyone but the murderer.
   if (clue.speaker != kNobodySpeaks) {
     const int item = lowestBit(clue.targetMask);
-    const char* claim = static_cast<Cat>(clue.targetCat) == Cat::Weapon ? "I carried %s" : "I was %s";
+    const bool aboutSelf = clue.anchorItem == clue.speaker;
+    const bool weapon = static_cast<Cat>(clue.targetCat) == Cat::Weapon;
     char body[kLineMax];
     body[0] = '\0';
-    append(body, kLineMax, claim, phraseOf(p, clue.targetCat, item));
+    if (aboutSelf) {
+      append(body, kLineMax, weapon ? "I carried %s" : "I was %s", phraseOf(p, clue.targetCat, item));
+    } else {
+      // A witness talking about somebody else, which is the version of this
+      // mechanic that has teeth: the murderer's lie lands on another suspect's
+      // row rather than only denying one fact about themselves.
+      append(body, kLineMax, weapon ? "%s carried %s" : "%s was %s", suspectOf(p, clue.anchorItem).name,
+             phraseOf(p, clue.targetCat, item));
+    }
     std::snprintf(out, static_cast<size_t>(cap), "%s says: \"%s.\"", suspectOf(p, clue.speaker).name, body);
+    return;
+  }
+
+  // A clue about a suspect is a whole sentence on its own, starting with the
+  // person. It cannot go through the anchor-plus-predicate path below or it
+  // would come out with two subjects: "Whoever carried the pan FELIX did not
+  // carry the pan."
+  char whole[kLineMax];
+  if (suspectSidePhrase(p, clue, whole, kLineMax)) {
+    out[0] = '\0';
+    appendCapitalised(out, cap, whole);
+    const int at = static_cast<int>(std::strlen(out));
+    std::snprintf(out + at, static_cast<size_t>(cap - at), ".");
     return;
   }
 
