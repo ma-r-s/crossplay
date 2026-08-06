@@ -3,8 +3,8 @@
 # Format: alias = lucide-name.
 #
 # Separate from tools_local/icons.txt because these are the only icons in the
-# fork that need a 56px cut, for the market cards, and asking the shared
-# generator for it produced a 56px copy of all 42 shelf icons.
+# fork that need a 44px cut, for the market cards, and asking the shared
+# generator for it produced a 44px copy of all 42 shelf icons.
 #
 # Measured, not assumed: that cost **no flash at all**. The arrays are
 # `static const` in a header, so every translation unit that does not name one

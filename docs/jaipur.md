@@ -297,9 +297,9 @@ bonus token, the camel majority, and room under the hand limit.
 
 Two skills, because there is an honest difference to express and no more:
 
-| | |
-| --- | --- |
-| **Merchant** | plays the board in front of it |
+|              |                                                                                              |
+| ------------ | -------------------------------------------------------------------------------------------- |
+| **Merchant** | plays the board in front of it                                                               |
 | **Maharaja** | also races the round's end when ahead, and counts what its move leaves in the market for you |
 
 ### What is proven and what is only measured
@@ -382,3 +382,10 @@ part of one.
 
 Hit-testing is derived from the same geometry that drew the cards, never computed
 a second time. That rule has caught more bugs in this fork than any other.
+
+The opponent's move is reported on the line under the rule, and the turn comes
+straight back to you. A tap-to-continue beat was built and removed after one
+play-test: their move went into the capsule and waited to be acknowledged, which
+put a press between the player and every single one of their own turns. What you
+lose without it is that a fast player can miss the line; what you gain is that
+the game never stops. The board itself shows what changed anyway.

@@ -36,8 +36,8 @@ constexpr const char* kGoodNames[kGoodCount] = {"DIAMOND", "GOLD", "SILVER", "CL
 const freeink::Icon& goodIcon(const int good, const bool large) {
   static const freeink::Icon* kSmall[kGoodCount] = {&icon_good_diamond_32, &icon_good_gold_32,  &icon_good_silver_32,
                                                     &icon_good_cloth_32,   &icon_good_spice_32, &icon_good_leather_32};
-  static const freeink::Icon* kLarge[kGoodCount] = {&icon_good_diamond_56, &icon_good_gold_56,  &icon_good_silver_56,
-                                                    &icon_good_cloth_56,   &icon_good_spice_56, &icon_good_leather_56};
+  static const freeink::Icon* kLarge[kGoodCount] = {&icon_good_diamond_44, &icon_good_gold_44,  &icon_good_silver_44,
+                                                    &icon_good_cloth_44,   &icon_good_spice_44, &icon_good_leather_44};
   return large ? *kLarge[good] : *kSmall[good];
 }
 
@@ -332,18 +332,6 @@ void JaipurActivity::capsuleLabel(char* buffer, const size_t size) const {
     return;
   }
 
-  // Their move, in the largest thing on the screen, waiting to be acknowledged.
-  // It was only ever a line of small type at the top before, which is missable
-  // and is the one thing you most need to have seen.
-  if (awaitingSeen) {
-    if (report[0] != '\0') {
-      std::snprintf(buffer, size, "%s", report);
-    } else {
-      std::snprintf(buffer, size, "YOUR TURN");
-    }
-    return;
-  }
-
   if (!myTurn()) {
     // Their first word only. A three-word name inside a sentence is what
     // pushed "MOVE" off the end of chess's capsule; the layout wanted a short
@@ -493,9 +481,9 @@ void JaipurActivity::playOpponentTurn() {
     std::snprintf(report + used, sizeof(report) - used, " + BONUS");
   }
 
-  // Their move waits in the capsule to be acknowledged. When it ended the round
-  // there is nothing to acknowledge: SEE SCORES is the news.
-  awaitingSeen = game.currentPhase() == jaipur::Phase::Playing;
+  // What they did goes in the report line and the turn comes straight back. A
+  // tap-to-continue beat sat here for one build and was worse to play: it put a
+  // press between you and every one of your own turns.
   requestUpdate();
 }
 
@@ -557,25 +545,33 @@ void JaipurActivity::drawMarketCard(const Rect& box, const uint8_t card, const b
   // The mark, so a card is recognised before it is read. Large where the card
   // has the room for it.
   const bool bigMark = box.height >= 120;
-  const freeink::Icon& mark = camel ? (bigMark ? icon_camel_56 : icon_camel_32) : goodIcon(card, bigMark);
+  const freeink::Icon& mark = camel ? (bigMark ? icon_camel_44 : icon_camel_32) : goodIcon(card, bigMark);
 
-  if (camel) {
-    blitIcon(renderer, mark, box.x + (box.width - mark.w) / 2, box.y + (box.height - mark.h) / 2);
-  } else {
-    // The mark and the price are one block, centred together. Pinning the mark
-    // near the top and the price near the bottom left a hole between them and
-    // hung the mark off the card's edge.
-    const int valueBand = 30;
-    const int gap = 6;
-    const int blockTop = box.y + (box.height - (mark.h + gap + valueBand)) / 2;
-    blitIcon(renderer, mark, box.x + (box.width - mark.w) / 2, blockTop);
+  // The price sits on the card's foot and the mark takes the middle of what is
+  // left. Three treatments were rendered side by side to land on this: a 56 mark
+  // centred with the price under it (the mark ends up 16px from the top edge and
+  // only 15 from the number, which reads as one clump riding high), and a 32
+  // mark with the price in a corner (the mark looks lost and the price stops
+  // being the second thing you read). At 44 the card has room for both: 24 above
+  // the mark, 28 between it and the number.
+  //
+  // A camel has no price, but its mark is centred in the same zone rather than
+  // in the whole card, so all five marks in the row share one centre line.
+  // Both proportional, because the menu's ornament draws the same card at
+  // whatever height the slot left it: a fixed band on a short card would push
+  // the mark off the top edge.
+  const int valueBand = std::min(30, box.height / 3);
+  const int bandTop = box.y + box.height - valueBand - std::min(6, box.height / 16);
+  const int markTop = std::max(box.y + 2, box.y + (bandTop - box.y - mark.h) / 2);
+  blitIcon(renderer, mark, box.x + (box.width - mark.w) / 2, markTop);
+
+  if (!camel) {
     const int depth = game.goodsDepth[card];
     const int left = jaipur::kPileDepth[card] - depth;
     char value[12];
     std::snprintf(value, sizeof(value), "%d", game.nextTokenValue(static_cast<Good>(card), depth));
-    drawCentered(renderer, inner, blockTop + mark.h + gap, valueBand, left > 0 ? value : "-", true);
+    drawCentered(renderer, inner, bandTop, valueBand, left > 0 ? value : "-", true);
   }
-  (void)inner;
 }
 
 void JaipurActivity::drawHandCounter(const Rect& box, const int good, const int held, const int picked) const {
@@ -1002,13 +998,10 @@ jaipurui::BoardModel JaipurActivity::boardModel() {
   capsuleLabel(capsule, sizeof(capsule));
   jaipurui::BoardModel model;
   model.status = capsule;
-  // Silent while the capsule is holding their move: one element says it, and
-  // saying it twice makes neither of them the place to look.
-  model.report = awaitingSeen ? "" : report;
+  model.report = report;
   jaipur::Move move;
   model.canCommit = myTurn() && game.currentPhase() == jaipur::Phase::Playing && selectionMove(move);
   model.canClear = !selectionEmpty();
-  model.awaitingSeen = awaitingSeen;
   model.roundOver = game.currentPhase() != jaipur::Phase::Playing;
   model.gameOver = game.currentPhase() == jaipur::Phase::GameOver;
   model.theirName = inMatch() ? link.opponentName() : nullptr;
@@ -1132,7 +1125,6 @@ void JaipurActivity::startNewGame() {
   seat = 0;
   game.newGame(nextSeed(), 0);
   clearSelection();
-  awaitingSeen = false;
   hasSavedGame = true;
   report[0] = '\0';
 
@@ -1222,11 +1214,6 @@ void JaipurActivity::routeBoard() {
       commitSelection();
       return;
     }
-    if (event.action == jaipurui::ActionSeen) {
-      awaitingSeen = false;
-      requestUpdate();
-      return;
-    }
     if (event.action == jaipurui::ActionScores) {
       view = View::RoundOver;
       requestUpdate();
@@ -1234,10 +1221,9 @@ void JaipurActivity::routeBoard() {
     }
   }
 
-  // Nothing on the board is tappable until their move has been acknowledged, or
-  // once the round is over. Both are states where the only thing to do is the
-  // capsule.
-  if (awaitingSeen || game.currentPhase() != jaipur::Phase::Playing) return;
+  // Nothing on the board is tappable once the round is over: the only thing to
+  // do is the capsule.
+  if (game.currentPhase() != jaipur::Phase::Playing) return;
 
   if (!myTurn()) return;
 

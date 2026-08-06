@@ -8,8 +8,11 @@
 # should build without it. Edit the SVGs, run this, commit both.
 #
 # The SDK's own icon generator, pointed at our SVG instead of Lucide's, the same
-# way tools_local/gen_avatar.sh does. Two sizes to match tools_local/icons.txt,
-# so a camel and a good can sit in the same row at either size.
+# way tools_local/gen_avatar.sh does. 32 is the shared shelf size, used by the
+# pile and hand rows. 44 is the market card's, and it is 44 rather than 56
+# because a 56 mark leaves a market card no room between itself and the price:
+# measured on the panel, the mark sat 16px from the card's top edge and only
+# 15px from the number under it.
 set -euo pipefail
 REPO="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 cd "$REPO"
@@ -19,14 +22,14 @@ cd "$REPO"
 uv run --quiet --with pillow python freeink-sdk/libs/assets/Icons/tools/gen_icons.py \
   --manifest tools_local/jaipur_goods.txt \
   --svgdir freeink-sdk/libs/assets/Icons/lucide/icons \
-  --sizes 32,56 \
+  --sizes 32,44 \
   --out src/apps_local/jaipur/JaipurGoods.h
 echo "wrote src/apps_local/jaipur/JaipurGoods.h"
 
 uv run --quiet --with pillow python freeink-sdk/libs/assets/Icons/tools/gen_icons.py \
   --manifest tools_local/jaipur_art.txt \
   --svgdir assets_local/jaipur \
-  --sizes 32,56 \
+  --sizes 32,44 \
   --out src/apps_local/jaipur/JaipurArt.h
 
 # The generator hardcodes "from Lucide SVGs" in its banner, which is a lie in

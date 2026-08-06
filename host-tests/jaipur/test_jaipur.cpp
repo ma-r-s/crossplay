@@ -51,8 +51,10 @@ static std::vector<Move> legalMoves(const Game& g) {
     int taken[kGoodCount] = {};
     for (int i = 0; i < kMarketSlots; ++i) {
       if (((mask >> i) & 1) == 0) continue;
-      if (g.market[i] == kCamel || g.market[i] == kEmpty) takesCamel = true;
-      else ++taken[g.market[i]];
+      if (g.market[i] == kCamel || g.market[i] == kEmpty)
+        takesCamel = true;
+      else
+        ++taken[g.market[i]];
     }
     if (takesCamel) continue;
 
@@ -143,8 +145,7 @@ static void checkInvariants(const Game& g, const char* where) {
     const Observation obs = observe(g, s);
     for (int gd = 0; gd < kGoodCount; ++gd) {
       if (obs.unseen[gd] < g.hand[1 - s][gd]) {
-        printf("FAIL %s: seat %d unseen[%d]=%d < opponent holds %d\n", where, s, gd, obs.unseen[gd],
-               g.hand[1 - s][gd]);
+        printf("FAIL %s: seat %d unseen[%d]=%d < opponent holds %d\n", where, s, gd, obs.unseen[gd], g.hand[1 - s][gd]);
         abort();
       }
     }
@@ -216,9 +217,7 @@ static std::vector<Move> bruteForceLegal(const Game& g) {
   return out;
 }
 
-
 int main() {
-
   int matches = 0, rounds = 0, moves = 0, checks = 0;
   int roundsByPiles = 0, roundsByDeck = 0, draws = 0;
   int maxMovesInRound = 0;
@@ -280,8 +279,10 @@ int main() {
           printf("FAIL: round ended with %d piles empty and %d cards left\n", g.emptyPiles(), g.deckRemaining());
           abort();
         }
-        if (byPiles) ++roundsByPiles;
-        else ++roundsByDeck;
+        if (byPiles)
+          ++roundsByPiles;
+        else
+          ++roundsByDeck;
       } else {
         // The turn alternates strictly while a round is running.
         if (g.turn != 1 - seatBefore) {
