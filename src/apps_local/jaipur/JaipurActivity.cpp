@@ -31,13 +31,13 @@ constexpr const char* kGoodNames[kGoodCount] = {"DIAMOND", "GOLD", "SILVER", "CL
 
 // The six goods, as marks. The only thing asked of them is that they read at
 // 32px and are not mistaken for each other; see tools_local/jaipur_goods.txt for
-// what each rejection actually read as. Leather is drawn rather than licensed
-// because Lucide has no hide.
+// what each rejection actually read as -- leather alone went through three
+// before one stuck.
 const freeink::Icon& goodIcon(const int good, const bool large) {
   static const freeink::Icon* kSmall[kGoodCount] = {&icon_good_diamond_32, &icon_good_gold_32,  &icon_good_silver_32,
-                                                    &icon_good_cloth_32,   &icon_good_spice_32, &icon_cow_32};
+                                                    &icon_good_cloth_32,   &icon_good_spice_32, &icon_good_leather_32};
   static const freeink::Icon* kLarge[kGoodCount] = {&icon_good_diamond_56, &icon_good_gold_56,  &icon_good_silver_56,
-                                                    &icon_good_cloth_56,   &icon_good_spice_56, &icon_cow_56};
+                                                    &icon_good_cloth_56,   &icon_good_spice_56, &icon_good_leather_56};
   return large ? *kLarge[good] : *kSmall[good];
 }
 
@@ -562,12 +562,18 @@ void JaipurActivity::drawMarketCard(const Rect& box, const uint8_t card, const b
   if (camel) {
     blitIcon(renderer, mark, box.x + (box.width - mark.w) / 2, box.y + (box.height - mark.h) / 2);
   } else {
-    blitIcon(renderer, mark, box.x + (box.width - mark.w) / 2, box.y + 12);
+    // The mark and the price are one block, centred together. Pinning the mark
+    // near the top and the price near the bottom left a hole between them and
+    // hung the mark off the card's edge.
+    const int valueBand = 30;
+    const int gap = 6;
+    const int blockTop = box.y + (box.height - (mark.h + gap + valueBand)) / 2;
+    blitIcon(renderer, mark, box.x + (box.width - mark.w) / 2, blockTop);
     const int depth = game.goodsDepth[card];
     const int left = jaipur::kPileDepth[card] - depth;
     char value[12];
     std::snprintf(value, sizeof(value), "%d", game.nextTokenValue(static_cast<Good>(card), depth));
-    drawCentered(renderer, inner, box.y + box.height - 38, 28, left > 0 ? value : "-", true);
+    drawCentered(renderer, inner, blockTop + mark.h + gap, valueBand, left > 0 ? value : "-", true);
   }
   (void)inner;
 }

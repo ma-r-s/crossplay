@@ -38,10 +38,15 @@ good_silver  = weight       # rejected: `medal` (a ribbon over a disc over a
 good_cloth   = shirt
 good_spice   = leaf
 
-# Leather is not here. Lucide has no hide and nothing that reads as one: `beef`
-# and `ham` read as food, `armchair` as furniture, `wallet` as money (which
-# collides with the gold coins), `drum` as an instrument, `backpack` as a bag.
-# It is drawn instead -- see tools_local/jaipur_art.txt.
+good_leather = beef         # a cut of meat. It went through three marks: a
+                            # backpack (says bag), then a hand-drawn cow's head
+                            # (drawn because Lucide has no hide, and rejected on
+                            # sight once it was on the panel). Also rejected:
+                            # `ham` (reads as pork), `armchair` (furniture),
+                            # `wallet` (money, and it collides with the gold
+                            # coins), `drum` (an instrument), and a cow drawn in
+                            # profile, which at 32px is a rectangle with legs and
+                            # reads as nothing at all
 
 # The bonus token, which is not a good and should not look like one.
 bonus_token  = sparkles

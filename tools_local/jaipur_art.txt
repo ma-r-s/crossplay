@@ -12,13 +12,3 @@
 # 32px four strokes 3px apart merge into one blob, which is the same defect that
 # made the avatar beards disappear.
 camel = camel
-
-# Leather, because Lucide has nothing that reads as a hide -- see
-# tools_local/jaipur_goods.txt for what was tried and what each one read as
-# instead.
-#
-# Head-on, not in profile. A cow seen from the side at 32px is a rectangle with
-# legs and reads as nothing, which the first attempt proved on the panel; a head
-# with horns out to the sides, a muzzle and two nostrils is unmistakable at both
-# cuts.
-cow = cowface
