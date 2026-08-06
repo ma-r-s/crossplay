@@ -387,9 +387,11 @@ void MurdleActivity::routeAction(const int action, const int value) {
       goToMenu();
       break;
     case ui::ActionTier: {
-      const int next = static_cast<int>(tier) + value;
-      if (next < 0 || next >= murdle::kTierCount) break;
-      tier = static_cast<murdle::Tier>(next);
+      // An absolute tier, not a step. The settings screen shows all four, so
+      // there is nothing to walk.
+      if (value < 0 || value >= murdle::kTierCount) break;
+      if (static_cast<murdle::Tier>(value) == tier) break;
+      tier = static_cast<murdle::Tier>(value);
       dirty = true;
       requestUpdate();
       break;

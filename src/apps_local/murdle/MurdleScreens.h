@@ -39,7 +39,7 @@ enum : fui::ActionId {
   ActionConfirm = 11,
   ActionKeepLooking = 12,
   ActionDone = 13,
-  // value = -1 or +1
+  // value = the tier, absolute
   ActionTier = 14,
   ActionConfirmNew = 15,
   ActionCancel = 16,

@@ -31,9 +31,19 @@ using murdle::Mark;
 using murdle::Puzzle;
 using murdle::Tier;
 
-constexpr int16_t kPad = 16;
 constexpr int16_t kTabH = 44;
 constexpr int16_t kRailH = 96;
+// The pager strip at the foot of the clue face. Always reserved: there is
+// always more than one page, on every tier.
+constexpr int16_t kPagerH = 54;
+
+// Where a page of the clue face starts. The cast and the clues are one paged
+// stream, because at four categories the cast alone is two screenfuls and
+// treating it as a fixed first page is what ran motives off the bottom.
+struct Stop {
+  bool cast;
+  int index;  // a cast category, or a clue
+};
 
 ClueLayout gClueLayout;
 
@@ -268,32 +278,52 @@ int16_t paragraph(toybox::Screen& screen, const fui::TextStyle& style, const cha
   return static_cast<int16_t>(y - box.y);
 }
 
-// The legend: which letter is which. Drawn under the grid for as many
-// categories as there is room for, because a grid of letters with no key is a
-// cipher rather than a puzzle.
-int16_t drawLegend(toybox::Screen& screen, const Puzzle& puzzle, const fui::Rect& area) {
+// The legend: which letter is which. All of it or none of it.
+//
+// At four categories of four it does not fit under the grid, and the first
+// version drew as much as would go -- which looked exactly like a complete key
+// and quietly omitted places and motives. So this measures first and draws
+// nothing rather than something misleading; the cast page carries the same
+// letters and is one tap away, which is where Murdle itself puts them.
+//
+// Returns false when it drew nothing.
+bool drawLegend(toybox::Screen& screen, const Puzzle& puzzle, const fui::Rect& area) {
   auto& target = screen.target();
   const fui::TextStyle small = styled(toybox::kTileFont, fui::TextAlign::Left);
   const int16_t lh = static_cast<int16_t>(target.lineHeight(toybox::kTileFont) + 2);
-  int16_t y = area.y;
 
-  for (int cat = 0; cat < puzzle.shape.cats && y + lh <= area.bottom(); ++cat) {
-    char letters[murdle::kMaxItems + 1];
-    murdletext::axisLetters(puzzle, cat, letters);
-    char line[160];
-    int fill = std::snprintf(line, sizeof(line), "%c ", categoryLetter(cat));
-    for (int i = 0; i < puzzle.shape.items && fill < static_cast<int>(sizeof(line)) - 1; ++i) {
-      fill += std::snprintf(line + fill, sizeof(line) - static_cast<size_t>(fill), "%s%c=%s", i ? "  " : "", letters[i],
-                            murdletext::label(puzzle, cat, i));
+  const auto run = [&](const bool draw) {
+    int16_t y = area.y;
+    for (int cat = 0; cat < puzzle.shape.cats; ++cat) {
+      char letters[murdle::kMaxItems + 1];
+      murdletext::axisLetters(puzzle, cat, letters);
+      char line[192];
+      int fill = std::snprintf(line, sizeof(line), "%c ", categoryLetter(cat));
+      for (int i = 0; i < puzzle.shape.items && fill < static_cast<int>(sizeof(line)) - 1; ++i) {
+        fill += std::snprintf(line + fill, sizeof(line) - static_cast<size_t>(fill), "%s%c=%s", i ? "  " : "",
+                              letters[i], murdletext::label(puzzle, cat, i));
+      }
+      y = static_cast<int16_t>(
+          y + paragraph(screen, small, line, fui::makeRect(area.x, y, area.width, static_cast<int16_t>(lh * 8)), draw));
     }
-    y = static_cast<int16_t>(
-        y + paragraph(screen, small, line,
-                      fui::makeRect(area.x, y, area.width, static_cast<int16_t>(area.bottom() - y)), true));
-  }
-  return static_cast<int16_t>(y - area.y);
+    return y;
+  };
+
+  if (run(false) > area.bottom()) return false;
+  run(true);
+  return true;
 }
 
-void drawCastPage(toybox::Screen& screen, const Puzzle& puzzle, const fui::Rect& area) {
+// The cast, as blocks that page. Block 0 is the suspects with their attributes;
+// blocks 1..cats-1 are the fixtures of each other category. Draws as many as
+// fit from `firstBlock` and reports how many that was.
+//
+// It pages because at four categories it does not fit: the first version
+// assumed one screenful and ran places and motives off the bottom, underneath
+// the pager and the accuse button, where they were invisible and the case was
+// unsolvable.
+void drawCastBlocks(toybox::Screen& screen, const Puzzle& puzzle, const fui::Rect& area, const int firstBlock,
+                    int& usedBlocks, const bool draw) {
   auto& target = screen.target();
   const fui::TextStyle name = styled(toybox::kUiFont, fui::TextAlign::Left);
   const fui::TextStyle small = styled(toybox::kTileFont, fui::TextAlign::Left);
@@ -302,39 +332,70 @@ void drawCastPage(toybox::Screen& screen, const Puzzle& puzzle, const fui::Rect&
   // through their name -- and it built, ran and logged nothing.
   const int16_t lh = static_cast<int16_t>(target.lineHeight(toybox::kTileFont) + 2);
   const int16_t nameH = static_cast<int16_t>(target.lineHeight(toybox::kUiFont));
+
   int16_t y = area.y;
-
-  target.text(fui::makeRect(area.x, y, area.width, lh), "THE SUSPECTS", small);
-  y = static_cast<int16_t>(y + lh + 4);
+  int block = firstBlock;
   char buf[murdletext::kLineMax];
-  for (int i = 0; i < puzzle.shape.items; ++i) {
-    target.text(fui::makeRect(area.x, y, area.width, nameH), murdletext::label(puzzle, 0, i), name);
-    y = static_cast<int16_t>(y + nameH);
-    murdletext::suspectAttributes(puzzle, i, buf, sizeof(buf));
-    target.text(fui::makeRect(static_cast<int16_t>(area.x + 12), y, static_cast<int16_t>(area.width - 12), lh), buf,
-                small);
-    y = static_cast<int16_t>(y + lh + 8);
-  }
 
-  for (int cat = 1; cat < puzzle.shape.cats; ++cat) {
-    y = static_cast<int16_t>(y + 6);
-    screen.target().fill(fui::makeRect(area.x, y, area.width, toybox::kHairline), fui::Paint::solid(fui::Color::Black));
-    y = static_cast<int16_t>(y + 10);
-    target.text(fui::makeRect(area.x, y, area.width, lh), murdletext::categoryName(cat), small);
-    y = static_cast<int16_t>(y + lh + 2);
-    for (int i = 0; i < puzzle.shape.items; ++i) {
-      char line[160];
-      const char* mark = murdletext::trait(puzzle, cat, i);
-      if (mark[0] != '\0') {
-        std::snprintf(line, sizeof(line), "%s  (%s)", murdletext::label(puzzle, cat, i), mark);
-      } else {
-        std::snprintf(line, sizeof(line), "%s", murdletext::label(puzzle, cat, i));
+  for (; block < puzzle.shape.cats; ++block) {
+    char letters[murdle::kMaxItems + 1];
+    murdletext::axisLetters(puzzle, block, letters);
+
+    // How tall this block wants to be, before committing to any of it. A block
+    // half drawn is worse than a block on the next page.
+    int16_t want = static_cast<int16_t>(lh + 6);
+    if (block == 0) {
+      want = static_cast<int16_t>(want + puzzle.shape.items * (nameH + lh + 8));
+    } else {
+      want = static_cast<int16_t>(want + 16 + puzzle.shape.items * lh);
+    }
+    if (block > firstBlock && y + want > area.bottom()) break;
+
+    if (block > firstBlock) {
+      y = static_cast<int16_t>(y + 6);
+      if (draw) {
+        target.fill(fui::makeRect(area.x, y, area.width, toybox::kHairline), fui::Paint::solid(fui::Color::Black));
       }
-      target.text(fui::makeRect(static_cast<int16_t>(area.x + 12), y, static_cast<int16_t>(area.width - 12), lh), line,
-                  small);
-      y = static_cast<int16_t>(y + lh);
+      y = static_cast<int16_t>(y + 10);
+    }
+    if (draw) {
+      target.text(fui::makeRect(area.x, y, area.width, lh),
+                  block == 0 ? "THE SUSPECTS" : murdletext::categoryName(block), small);
+    }
+    y = static_cast<int16_t>(y + lh + 4);
+
+    for (int i = 0; i < puzzle.shape.items; ++i) {
+      if (block == 0) {
+        char titled[96];
+        std::snprintf(titled, sizeof(titled), "%c  %s", letters[i], murdletext::label(puzzle, 0, i));
+        if (draw) target.text(fui::makeRect(area.x, y, area.width, nameH), titled, name);
+        y = static_cast<int16_t>(y + nameH);
+        murdletext::suspectAttributes(puzzle, i, buf, sizeof(buf));
+        if (draw) {
+          target.text(fui::makeRect(static_cast<int16_t>(area.x + 12), y, static_cast<int16_t>(area.width - 12), lh),
+                      buf, small);
+        }
+        y = static_cast<int16_t>(y + lh + 8);
+      } else {
+        char line[160];
+        const char* mark = murdletext::trait(puzzle, block, i);
+        // The letter first, because this page is the grid's key as well as its
+        // cast list, and at four categories it is the only key there is room for.
+        if (mark[0] != '\0') {
+          std::snprintf(line, sizeof(line), "%c  %s  (%s)", letters[i], murdletext::label(puzzle, block, i), mark);
+        } else {
+          std::snprintf(line, sizeof(line), "%c  %s", letters[i], murdletext::label(puzzle, block, i));
+        }
+        if (draw) {
+          target.text(fui::makeRect(static_cast<int16_t>(area.x + 12), y, static_cast<int16_t>(area.width - 12), lh),
+                      line, small);
+        }
+        y = static_cast<int16_t>(y + lh);
+      }
     }
   }
+  usedBlocks = block - firstBlock;
+  if (usedBlocks <= 0) usedBlocks = 1;
 }
 
 // Lays the clues out and, if drawing, draws them. Records where each one landed
@@ -491,30 +552,41 @@ CaseReport buildCase(toybox::Screen& screen, const CaseModel& model) {
                  fui::makeRect(body.x, gridBottom, body.width, static_cast<int16_t>(body.bottom() - gridBottom)));
     }
   } else {
-    // Walk the whole list once, measuring, to find both how many pages there
-    // are and where the wanted one starts. The same call that measures is the
-    // one that draws, so the count and the split are the same arithmetic and
-    // cannot disagree and lose a clue off the end.
-    int starts[murdle::kMaxClues + 2] = {};
-    int pages = 1;  // page 0 is the cast
-    int first = 0;
+    // The clue face is always more than one page, so the pager strip is always
+    // there and always comes out of the text area. Reserving it only when
+    // pages > 1 would need the count before the measurement that produces it.
+    const fui::Rect text = fui::makeRect(body.x, body.y, body.width, static_cast<int16_t>(body.height - kPagerH));
+
+    // Walk the whole thing once, measuring, to find how many pages there are
+    // and where each starts. The same call that measures is the one that draws,
+    // so the count and the split are the same arithmetic and cannot disagree
+    // and lose a clue off the end of the last page.
+    Stop stops[murdle::kMaxClues + murdle::kMaxCats + 2];
+    int pages = 0;
     int used = 0;
-    starts[0] = 0;
-    while (first < puzzle.clueCount && pages < murdle::kMaxClues + 1) {
-      starts[pages] = first;
-      drawCluePage(screen, puzzle, body, first, 0, used, false);
-      first += used > 0 ? used : 1;
-      ++pages;
+    for (int block = 0; block < puzzle.shape.cats && pages < static_cast<int>(sizeof(stops) / sizeof(stops[0]));) {
+      stops[pages++] = Stop{true, block};
+      drawCastBlocks(screen, puzzle, text, block, used, false);
+      block += used;
+    }
+    for (int clue = 0; clue < puzzle.clueCount && pages < static_cast<int>(sizeof(stops) / sizeof(stops[0]));) {
+      stops[pages++] = Stop{false, clue};
+      drawCluePage(screen, puzzle, text, clue, 0, used, false);
+      clue += used > 0 ? used : 1;
+    }
+    if (pages == 0) {
+      stops[pages++] = Stop{true, 0};
     }
     report.pages = pages;
     report.page = model.page < pages ? model.page : pages - 1;
     if (report.page < 0) report.page = 0;
 
     gClueLayout.count = 0;
-    if (report.page == 0) {
-      drawCastPage(screen, puzzle, body);
+    const Stop& stop = stops[report.page];
+    if (stop.cast) {
+      drawCastBlocks(screen, puzzle, text, stop.index, used, true);
     } else {
-      drawCluePage(screen, puzzle, body, starts[report.page], model.struck, used, true);
+      drawCluePage(screen, puzzle, text, stop.index, model.struck, used, true);
     }
   }
 
@@ -669,31 +741,48 @@ void buildSettings(toybox::Screen& screen, const SettingsModel& model) {
   const fui::Rect body = screen.body();
   auto& target = screen.target();
 
-  target.text(fui::makeRect(body.x, body.y, body.width, 48), tierName(model.tier),
-              styled(toybox::kDisplayFont, fui::TextAlign::Center));
-  target.text(fui::makeRect(body.x, static_cast<int16_t>(body.y + 52), body.width, 22), tierShape(model.tier),
-              styled(toybox::kTileFont, fui::TextAlign::Center));
+  // All four at once, rather than a stepper you pump. The stepper version left
+  // two thirds of the screen empty, and on a panel that holds its image for
+  // hours dead space at the bottom of a layout is a real defect rather than
+  // merely untidy. It was also worse at the job: you could not see what you
+  // were choosing between.
+  const int16_t rowH = 76;
+  for (int i = 0; i < murdle::kTierCount; ++i) {
+    const Tier value = static_cast<Tier>(i);
+    const bool current = value == model.tier;
+    const fui::Rect row = fui::makeRect(body.x, static_cast<int16_t>(body.y + i * (rowH + 10)), body.width, rowH);
 
-  const int index = static_cast<int>(model.tier);
-  for (int i = 0; i < 2; ++i) {
-    const bool live = i == 0 ? index > 0 : index + 1 < murdle::kTierCount;
-    fui::ButtonProps arrow;
-    arrow.label = i == 0 ? "-" : "+";
-    arrow.action = live ? ActionTier : fui::NO_ACTION;
-    arrow.value = i == 0 ? -1 : 1;
-    arrow.text = styled(toybox::kDisplayFont, fui::TextAlign::Center, live ? fui::Color::White : fui::Color::Black);
-    arrow.styles = live ? toybox::invertedStyles() : toybox::disabledStepperStyles();
-    arrow.radius = 10;
-    screen.button(arrow, fui::makeRect(i == 0 ? body.x : static_cast<int16_t>(body.right() - 64),
-                                       static_cast<int16_t>(body.y + 110), 64, 64));
+    fui::ButtonProps pick;
+    pick.label = "";
+    pick.action = ActionTier;
+    pick.value = static_cast<int16_t>(i);
+    pick.styles = current ? toybox::invertedStyles() : toybox::rowStyles();
+    pick.radius = 10;
+    screen.button(pick, row);
+
+    // The label is drawn over the button rather than through it, because the
+    // tier needs two lines: its name, and the shape it actually means. A button
+    // draws one.
+    const fui::Color ink = current ? fui::Color::White : fui::Color::Black;
+    const int16_t nameH = target.lineHeight(toybox::kUiFont);
+    const int16_t shapeH = target.lineHeight(toybox::kTileFont);
+    const int16_t top = static_cast<int16_t>(row.y + (rowH - nameH - shapeH) / 2);
+    target.text(fui::makeRect(static_cast<int16_t>(row.x + toybox::kGutter), top,
+                              static_cast<int16_t>(row.width - toybox::kGutter * 2), nameH),
+                tierName(value), styled(toybox::kUiFont, fui::TextAlign::Left, ink));
+    target.text(fui::makeRect(static_cast<int16_t>(row.x + toybox::kGutter), static_cast<int16_t>(top + nameH),
+                              static_cast<int16_t>(row.width - toybox::kGutter * 2), shapeH),
+                tierShape(value), styled(toybox::kTileFont, fui::TextAlign::Left, ink));
   }
 
-  // The one thing worth saying here, because it is the question anybody with a
-  // case open would otherwise have to find out the hard way.
-  const char* note =
-      model.caseOpen ? "THE OPEN CASE KEEPS ITS OWN SIZE.\nTHIS APPLIES TO THE NEXT ONE." : "APPLIES TO THE NEXT CASE.";
+  // The one thing worth saying, because it is the question anybody with a case
+  // open would otherwise have to find out the hard way.
+  const char* note = model.caseOpen
+                         ? "The case you have open keeps the size it was made at. This applies to the next one."
+                         : "Applies to the next case.";
   paragraph(screen, styled(toybox::kTileFont, fui::TextAlign::Left), note,
-            fui::makeRect(body.x, static_cast<int16_t>(body.y + 200), body.width, 80), true);
+            fui::makeRect(body.x, static_cast<int16_t>(body.y + murdle::kTierCount * (rowH + 10) + 16), body.width, 80),
+            true);
 }
 
 void buildAccuse(toybox::Screen& screen, const AccuseModel& model) {
