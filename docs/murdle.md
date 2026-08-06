@@ -305,6 +305,19 @@ vertical space, which was the entire reason for choosing this arrangement.
 The body cannot be the toggle, because the body has two jobs of its own: cells
 to mark on the grid, and clues to tick off on the case file.
 
+### The key under the grid
+
+One row a category, four aligned columns, the rows spread through whatever
+height is left. Two things were wrong with the first version and only one was
+obvious: it packed four entries into a run-on line, *and* it set the four lines
+two pixels apart while leaving a hand's width of empty screen underneath. The
+space was already there; the layout was not asking for it.
+
+The fix is spacing, not size. **The grid keeps every pixel it had** -- it is the
+thing being read -- and the key spends the remainder. An intermediate version
+reserved the key's height before sizing the grid, which cost three pixels a cell
+and was the wrong trade.
+
 ### Ticking clues off
 
 Every clue carries a numbered box. Outlined while the clue is still in play,
@@ -326,11 +339,18 @@ No lore. Every field exists because a clue reads it, and a field no clue can
 reference does not get written. But two rules about *names* turned out to
 matter more than anything in the table:
 
-**Every name is one word.** THORNE, not MISS THORNE. WRENCH, not MONKEY
-WRENCH. A title costs a word and buys nothing, and a two-word name does not fit
-a grid legend or a 220px button on the accusation sheet -- where the first
-version ellipsised DAME ROOKWOOD on the one screen in the game where you have
-to be certain which person you are naming.
+**Every name is one word, no longer than seven characters, and a word you
+already know.** ANNA, HUGO, HAMMER, KITCHEN, GREED. The first table reached for
+EPEE, FLAIL, GARROTTE, HAYLOFT and URQUHART because they carried the letters it
+needed -- and a fixture whose name you have to decode is a clue you cannot read.
+Suspects are bare first names for the same reason: ROOKWOOD and URQUHART are one
+more thing to parse, ANNA is not.
+
+Seven characters is a layout constraint rather than taste. The grid's key lays
+entries in four columns of about a hundred pixels, and `J=JEALOUSY` was eleven
+glyphs, which ran into the entry beside it. The key now measures its own column
+pitch against the real face at draw time, and the cap is a design rule on top of
+that rather than the thing holding it up.
 
 **Inside one case, no two items anywhere share an initial.** Not within a
 category and not across them. If a suspect is ABARA then nothing else in that

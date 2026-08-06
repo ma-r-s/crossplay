@@ -28,7 +28,7 @@ enum class Eyes : uint8_t { Brown, Blue, Green, Hazel };
 enum class Hair : uint8_t { Black, Brown, Blond, Red, Grey };
 
 struct SuspectEntry {
-  const char* name;  // "DOCTOR ASHE", drawn on the card and used in sentences
+  const char* name;  // "ANNA", drawn on the card and used in sentences
   Handed handed;
   Eyes eyes;
   Hair hair;
@@ -46,16 +46,16 @@ struct SuspectEntry {
 // crime scene by its trait, and a weapon can be referred to by its own.
 
 struct WeaponEntry {
-  const char* name;    // "BONE SAW"
-  const char* phrase;  // "the bone saw"      -> "carried the bone saw"
-  const char* trait;   // "a chipped blade"   -> "whoever carried the thing with a chipped blade"
+  const char* name;    // "HAMMER"
+  const char* phrase;  // "the hammer"       -> "carried the hammer"
+  const char* trait;   // "a split handle"   -> "whoever carried something with a split handle"
   bool heavy;
 };
 
 struct PlaceEntry {
-  const char* name;    // "LIGHTHOUSE"
-  const char* phrase;  // "in the lighthouse" -> "was in the lighthouse"
-  const char* trait;   // "peeling paint"     -> "the body was found next to peeling paint"
+  const char* name;    // "KITCHEN"
+  const char* phrase;  // "in the kitchen"   -> "was in the kitchen"
+  const char* trait;   // "a burning smell"  -> "the body was found next to a burning smell"
   bool indoors;
 };
 
@@ -70,7 +70,7 @@ struct MotiveEntry {
 constexpr int kSuspectCount = 24;
 constexpr int kWeaponCount = 20;
 constexpr int kPlaceCount = 16;
-constexpr int kMotiveCount = 14;
+constexpr int kMotiveCount = 12;
 
 extern const SuspectEntry kSuspects[kSuspectCount];
 extern const WeaponEntry kWeapons[kWeaponCount];

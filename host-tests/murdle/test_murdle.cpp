@@ -425,7 +425,11 @@ void testEveryNameIsOneWord() {
       const char* name = castName(cat, i);
       CHECK(name[0] >= 'A' && name[0] <= 'Z');
       for (const char* c = name; *c; ++c) CHECK(*c != ' ');
-      CHECK(std::strlen(name) <= 12);
+      // Seven, not twelve. The grid's key lays entries in four columns of about
+      // a hundred pixels and "X=NAME" has to fit one: JEALOUSY was eight and
+      // collided with the entry beside it. See host-tests/ui for the measured
+      // version of this claim; this is the cheap one that fails first.
+      CHECK(std::strlen(name) <= 7);
     }
   }
   // And within a table the initials are already distinct, which is what lets

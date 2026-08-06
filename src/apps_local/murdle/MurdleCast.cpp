@@ -20,77 +20,79 @@ namespace murdle {
 // job is to keep the four categories from colliding with each other. It does
 // that by taking them scarcest-first and refusing letters already spoken for;
 // see drawCast(). The tables are sized so that cannot fail: motives is the
-// tightest at twelve letters and the draw needs four, and every later category
-// has at least twelve letters left however the earlier ones went.
+// tightest at twelve letters and draws first when all of them are free, and
+// every later category has at least twelve left however the earlier ones went.
 //
-// One word is also why the names are bare surnames. A title costs a word and
-// buys nothing: THORNE reads as a person, and MISS THORNE does not fit a 220px
-// button on the accusation sheet.
+// One word is also why suspects are bare first names. A title costs a word and
+// buys nothing, and a surname you have never seen is one more thing to decode:
+// ANNA and HUGO read instantly, ROOKWOOD and URQUHART do not. Everything in
+// these tables is a word a child would know, because a clue you have to parse
+// twice is a clue that is doing the wrong kind of work.
 
 const SuspectEntry kSuspects[kSuspectCount] = {
-    {"ABARA", Handed::Left, Eyes::Green, Hair::Black, 68},     {"BLANCHE", Handed::Right, Eyes::Blue, Hair::Blond, 60},
-    {"CRANE", Handed::Left, Eyes::Hazel, Hair::Grey, 74},      {"DUVAL", Handed::Right, Eyes::Green, Hair::Brown, 66},
-    {"ELDRIDGE", Handed::Left, Eyes::Brown, Hair::Red, 71},    {"FENWICK", Handed::Left, Eyes::Blue, Hair::Blond, 65},
-    {"GLASS", Handed::Right, Eyes::Hazel, Hair::Black, 69},    {"HALLAM", Handed::Right, Eyes::Green, Hair::Grey, 69},
-    {"ILIC", Handed::Left, Eyes::Hazel, Hair::Brown, 71},      {"JARDINE", Handed::Right, Eyes::Brown, Hair::Blond, 63},
-    {"KESTREL", Handed::Left, Eyes::Blue, Hair::Black, 76},    {"LOCKE", Handed::Right, Eyes::Green, Hair::Brown, 67},
-    {"MERROW", Handed::Right, Eyes::Blue, Hair::Grey, 74},     {"NADIR", Handed::Left, Eyes::Brown, Hair::Black, 72},
-    {"OKONKWO", Handed::Left, Eyes::Brown, Hair::Black, 66},   {"PRYCE", Handed::Left, Eyes::Hazel, Hair::Red, 62},
-    {"QUILL", Handed::Right, Eyes::Hazel, Hair::Grey, 70},     {"ROOKWOOD", Handed::Left, Eyes::Green, Hair::Grey, 63},
-    {"STRAND", Handed::Right, Eyes::Hazel, Hair::Blond, 75},   {"THORNE", Handed::Right, Eyes::Green, Hair::Red, 64},
-    {"URQUHART", Handed::Right, Eyes::Brown, Hair::Brown, 73}, {"VALE", Handed::Left, Eyes::Brown, Hair::Brown, 61},
-    {"WREN", Handed::Right, Eyes::Blue, Hair::Red, 67},        {"YUEN", Handed::Left, Eyes::Blue, Hair::Black, 70},
+    {"ANNA", Handed::Left, Eyes::Green, Hair::Black, 64},  {"BRUNO", Handed::Right, Eyes::Brown, Hair::Brown, 73},
+    {"CARLA", Handed::Left, Eyes::Hazel, Hair::Red, 62},   {"DIEGO", Handed::Right, Eyes::Brown, Hair::Black, 70},
+    {"ELENA", Handed::Left, Eyes::Blue, Hair::Blond, 66},  {"FELIX", Handed::Right, Eyes::Green, Hair::Grey, 69},
+    {"GRETA", Handed::Left, Eyes::Brown, Hair::Grey, 61},  {"HUGO", Handed::Right, Eyes::Blue, Hair::Brown, 75},
+    {"IVAN", Handed::Left, Eyes::Hazel, Hair::Black, 72},  {"JULIA", Handed::Right, Eyes::Green, Hair::Red, 65},
+    {"KARL", Handed::Left, Eyes::Blue, Hair::Blond, 76},   {"LUIS", Handed::Right, Eyes::Brown, Hair::Black, 68},
+    {"MARIA", Handed::Left, Eyes::Green, Hair::Brown, 63}, {"NORA", Handed::Right, Eyes::Hazel, Hair::Grey, 67},
+    {"OSCAR", Handed::Left, Eyes::Brown, Hair::Red, 71},   {"PABLO", Handed::Right, Eyes::Blue, Hair::Black, 74},
+    {"QUINN", Handed::Left, Eyes::Hazel, Hair::Blond, 60}, {"ROSA", Handed::Right, Eyes::Green, Hair::Brown, 66},
+    {"SOFIA", Handed::Left, Eyes::Blue, Hair::Red, 63},    {"TOMAS", Handed::Right, Eyes::Hazel, Hair::Brown, 77},
+    {"UMA", Handed::Left, Eyes::Brown, Hair::Blond, 64},   {"VERA", Handed::Right, Eyes::Green, Hair::Black, 69},
+    {"WALTER", Handed::Left, Eyes::Blue, Hair::Grey, 72},  {"YARA", Handed::Right, Eyes::Hazel, Hair::Black, 67},
 };
 
-// A trait is one short noun phrase and it has to be unique across the table,
-// because a clue that names a trait is naming exactly one thing.
+// Everyday objects, and that is the requirement rather than a preference. An
+// earlier table reached for EPEE, FLAIL, GARROTTE and TROWEL because they
+// carried the letters it needed, and a weapon whose name you have to look up is
+// a clue you cannot read.
+//
+// SEVEN CHARACTERS IS THE CEILING, and it is a layout constraint rather than
+// taste. The grid's key lays entries in four columns of about a hundred pixels,
+// which is nine or ten glyphs; "J=JEALOUSY" was eleven and ran straight into
+// the entry beside it. A test asserts the cap so the next word nobody measures
+// cannot do it again.
+//
+// A trait is one short noun phrase, unique across the table, because a clue
+// that names a trait is naming exactly one thing.
 const WeaponEntry kWeapons[kWeaponCount] = {
-    {"ANVIL", "the anvil", "a scorched face", true},
-    {"BRICK", "the brick", "mortar still on it", true},
-    {"CLEAVER", "the cleaver", "a taped grip", true},
-    {"DAGGER", "the dagger", "a jewelled hilt", false},
-    {"EPEE", "the epee", "a bent blade", false},
-    {"FLAIL", "the flail", "a rusted chain", true},
-    {"GARROTTE", "the garrotte", "a loop of piano wire", false},
-    {"HAMMER", "the hammer", "a split handle", true},
-    {"ICEPICK", "the icepick", "a cork on the point", false},
-    {"KNIFE", "the knife", "a chipped blade", false},
-    {"LANTERN", "the lantern", "a cracked glass", true},
-    {"MALLET", "the mallet", "a cracked head", true},
-    {"NOOSE", "the noose", "thirteen turns", false},
-    {"OAR", "the oar", "barnacles on it", true},
-    {"POKER", "the poker", "a bent tip", true},
-    {"RAZOR", "the razor", "a pearl handle", false},
-    {"SHOVEL", "the shovel", "wet earth on it", true},
-    {"TROWEL", "the trowel", "a dusting of lime", false},
-    {"VASE", "the vase", "a hairline crack", true},
-    {"WRENCH", "the wrench", "flecks of red paint", true},
+    {"AXE", "the axe", "a bent handle", true},        {"BAT", "the bat", "tape on the grip", true},
+    {"CHAIR", "the chair", "a broken leg", true},     {"DAGGER", "the dagger", "blood on it", false},
+    {"FORK", "the fork", "a bent prong", false},      {"GUN", "the gun", "one shot fired", false},
+    {"HAMMER", "the hammer", "a split handle", true}, {"IRON", "the iron", "a burn mark", true},
+    {"JAR", "the jar", "a cracked lid", false},       {"KNIFE", "the knife", "a chipped edge", false},
+    {"LAMP", "the lamp", "a frayed cord", true},      {"MUG", "the mug", "a chip on the rim", false},
+    {"NAIL", "the nail", "rust on it", false},        {"OAR", "the oar", "sand on it", true},
+    {"PAN", "the pan", "grease on it", true},         {"ROPE", "the rope", "thirteen knots", false},
+    {"SPADE", "the spade", "wet mud on it", true},    {"TORCH", "the torch", "a dead battery", false},
+    {"VASE", "the vase", "a crack in it", true},      {"WIRE", "the wire", "red paint on it", false},
 };
 
 const PlaceEntry kPlaces[kPlaceCount] = {
-    {"ATTIC", "in the attic", "a broken skylight", true},
-    {"BOATHOUSE", "in the boathouse", "a coil of wet rope", true},
-    {"CELLAR", "in the cellar", "a spilled bottle", true},
-    {"DOCKYARD", "in the dockyard", "a snapped chain", false},
-    {"FOUNDRY", "in the foundry", "a cooling ingot", true},
-    {"GREENHOUSE", "in the greenhouse", "a cracked pane", true},
-    {"HAYLOFT", "in the hayloft", "a fallen ladder", true},
-    {"JETTY", "on the jetty", "salt on the boards", false},
-    {"KITCHEN", "in the kitchen", "a burning pan", true},
-    {"LIGHTHOUSE", "in the lighthouse", "peeling paint", true},
-    {"MORGUE", "in the morgue", "an open drawer", true},
-    {"ORCHARD", "in the orchard", "windfall apples", false},
-    {"PIER", "on the pier", "a torn ticket", false},
-    {"QUARRY", "in the quarry", "fresh blasting powder", false},
-    {"STABLE", "in the stable", "a loose shoe", true},
-    {"TOWER", "in the tower", "a stopped pendulum", true},
+    {"ATTIC", "in the attic", "a broken window", true},
+    {"BARN", "in the barn", "loose straw", true},
+    {"CAVE", "in the cave", "cold water", false},
+    {"DOCK", "on the dock", "wet footprints", false},
+    {"FARM", "on the farm", "muddy boots", false},
+    {"GARDEN", "in the garden", "trampled flowers", false},
+    {"HALL", "in the hall", "a stopped clock", true},
+    {"INN", "at the inn", "a spilled drink", true},
+    {"KITCHEN", "in the kitchen", "a burning smell", true},
+    {"LAKE", "at the lake", "a torn net", false},
+    {"MILL", "at the mill", "flour on the floor", true},
+    {"OFFICE", "in the office", "a torn letter", true},
+    {"PARK", "in the park", "cut grass", false},
+    {"ROOF", "on the roof", "a fallen tile", false},
+    {"STUDY", "in the study", "an open drawer", true},
+    {"TOWER", "in the tower", "a broken step", true},
 };
 
 const MotiveEntry kMotives[kMotiveCount] = {
-    {"AMBITION", "ambition"}, {"BLACKMAIL", "blackmail"}, {"CONTEMPT", "contempt"}, {"DEBT", "debt"},
-    {"ENVY", "envy"},         {"FEAR", "fear"},           {"GREED", "greed"},       {"HATRED", "hatred"},
-    {"JEALOUSY", "jealousy"}, {"LOVE", "love"},           {"PRIDE", "pride"},       {"REVENGE", "revenge"},
-    {"SPITE", "spite"},       {"VANITY", "vanity"},
+    {"ANGER", "anger"}, {"DEBT", "debt"},   {"ENVY", "envy"},       {"FEAR", "fear"},
+    {"GREED", "greed"}, {"HATE", "hate"},   {"JUSTICE", "justice"}, {"LOVE", "love"},
+    {"MONEY", "money"}, {"POWER", "power"}, {"REVENGE", "revenge"}, {"SHAME", "shame"},
 };
 
 int castSize(const int cat) {

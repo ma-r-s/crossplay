@@ -302,46 +302,78 @@ int16_t paragraph(toybox::Screen& screen, const fui::TextStyle& style, const cha
   return static_cast<int16_t>(y - box.y);
 }
 
-// The legend: which letter is which. All of it or none of it.
+// The key: which letter is which. One row a category, four columns, and the
+// rows spread through whatever height is left under the grid.
 //
-// At four categories of four it does not fit under the grid, and the first
-// version drew as much as would go -- which looked exactly like a complete key
-// and quietly omitted places and motives. So this measures first and draws
-// nothing rather than something misleading; the cast page carries the same
-// letters and is one tap away, which is where Murdle itself puts them.
+// Two things were wrong with the first version and only one of them was the
+// obvious one. It packed four entries into a run-on line with two spaces
+// between them, which read as a wall -- but it also set the four lines two
+// pixels apart and then left a hand's width of empty screen underneath. The
+// space was already there; the layout simply was not asking for it.
 //
-// Returns false when it drew nothing.
-bool drawLegend(toybox::Screen& screen, const Puzzle& puzzle, const fui::Rect& area) {
+// The fix is spacing, not size. The grid is the thing being read and it keeps
+// every pixel it had; the key spends the remainder, spreading its rows to fill
+// it and aligning the entries into columns so the eye can run down them.
+void drawLegend(toybox::Screen& screen, const Puzzle& puzzle, const fui::Rect& area) {
   auto& target = screen.target();
   const fui::TextStyle small = styled(toybox::kTileFont, fui::TextAlign::Left);
-  const int16_t lh = static_cast<int16_t>(target.lineHeight(toybox::kTileFont) + 2);
+  const int16_t lh = target.lineHeight(toybox::kTileFont);
+  const int cats = puzzle.shape.cats;
+  if (cats <= 0 || area.height <= 0) return;
 
-  const auto run = [&](const bool draw) {
-    int16_t y = area.y;
-    for (int cat = 0; cat < puzzle.shape.cats; ++cat) {
-      char letters[murdle::kMaxItems + 1];
-      murdletext::axisLetters(puzzle, cat, letters);
-      char line[192];
-      int fill = 0;
-      for (int i = 0; i < puzzle.shape.items && fill < static_cast<int>(sizeof(line)) - 1; ++i) {
-        fill += std::snprintf(line + fill, sizeof(line) - static_cast<size_t>(fill), "%s%c=%s", i ? "  " : "",
-                              letters[i], murdletext::label(puzzle, cat, i));
-      }
-      // The same mark as the axis, so the icon is learned once and read
-      // everywhere. Indented past it so a wrapped second line stays clear of it.
-      if (draw) drawMark(screen, fui::makeRect(area.x, y, kMarkSize, kMarkSize), cat);
-      y = static_cast<int16_t>(
-          y + paragraph(screen, small, line,
-                        fui::makeRect(static_cast<int16_t>(area.x + kMarkSize + 6), y,
-                                      static_cast<int16_t>(area.width - kMarkSize - 6), static_cast<int16_t>(lh * 8)),
-                        draw));
+  // Spread to fill, but stop at a point where more air stops reading as
+  // grouping and starts reading as an unrelated list. Three categories leave
+  // far more room than four do, and both should look deliberate.
+  const int16_t roomy = static_cast<int16_t>(lh * 5 / 2);
+  int16_t pitch = static_cast<int16_t>(area.height / cats);
+  if (pitch > roomy) pitch = roomy;
+  const int16_t rowH = static_cast<int16_t>(pitch > kMarkSize ? pitch : kMarkSize);
+  int16_t y = static_cast<int16_t>(area.y + (area.height - rowH * cats) / 2);
+  if (y < area.y) y = area.y;
+
+  const int16_t textX = static_cast<int16_t>(area.x + kMarkSize + 10);
+
+  // The column pitch is measured, not divided. Splitting the width evenly meant
+  // an entry could be wider than its column and run into the next one, which is
+  // exactly what J=JEALOUSY did -- and it could not be caught in host tests,
+  // because the fake draw target there returns a flat ten pixels a character
+  // and would have called it fine. Asking the real face at draw time is the
+  // only version of this check that is worth anything, and it tightens the
+  // columns when the names happen to be short.
+  int16_t widest = 0;
+  for (int cat = 0; cat < cats; ++cat) {
+    char letters[murdle::kMaxItems + 1];
+    murdletext::axisLetters(puzzle, cat, letters);
+    for (int i = 0; i < puzzle.shape.items; ++i) {
+      char entry[32];
+      std::snprintf(entry, sizeof(entry), "%c=%s", letters[i], murdletext::label(puzzle, cat, i));
+      const int16_t w = target.measureText(toybox::kTileFont, entry, small).width;
+      if (w > widest) widest = w;
     }
-    return y;
-  };
+  }
+  const int16_t evenly = static_cast<int16_t>((area.right() - textX) / puzzle.shape.items);
+  int16_t colW = static_cast<int16_t>(widest + 12);
+  if (colW > evenly) colW = evenly;  // clamped to the body; the 7-char cap keeps it off this branch
 
-  if (run(false) > area.bottom()) return false;
-  run(true);
-  return true;
+  for (int cat = 0; cat < cats; ++cat) {
+    // The same mark as the axis, so the icon is learned once and read
+    // everywhere.
+    drawMark(screen, fui::makeRect(area.x, static_cast<int16_t>(y + (rowH - kMarkSize) / 2), kMarkSize, kMarkSize),
+             cat);
+
+    char letters[murdle::kMaxItems + 1];
+    murdletext::axisLetters(puzzle, cat, letters);
+    for (int i = 0; i < puzzle.shape.items; ++i) {
+      char entry[32];
+      // No spaces around the equals: at four columns an entry has about a
+      // hundred pixels, and J=JEALOUSY is already ninety of them.
+      std::snprintf(entry, sizeof(entry), "%c=%s", letters[i], murdletext::label(puzzle, cat, i));
+      target.text(
+          fui::makeRect(static_cast<int16_t>(textX + i * colW), static_cast<int16_t>(y + (rowH - lh) / 2), colW, lh),
+          entry, small);
+    }
+    y = static_cast<int16_t>(y + rowH);
+  }
 }
 
 // The cast, as blocks that page. Block 0 is the suspects with their attributes;
@@ -577,11 +609,9 @@ CaseReport buildCase(toybox::Screen& screen, const CaseModel& model) {
                                      static_cast<int16_t>(layout.gutter + layout.groups * layout.items * layout.cell),
                                      static_cast<int16_t>(layout.headerH + layout.groups * layout.items * layout.cell)),
                        ActionGrid, 0);
-    const int16_t gridBottom = static_cast<int16_t>(layout.originY + layout.groups * layout.items * layout.cell + 14);
-    if (gridBottom < body.bottom()) {
-      drawLegend(screen, puzzle,
-                 fui::makeRect(body.x, gridBottom, body.width, static_cast<int16_t>(body.bottom() - gridBottom)));
-    }
+    const int16_t gridBottom = static_cast<int16_t>(layout.originY + layout.groups * layout.items * layout.cell + 8);
+    drawLegend(screen, puzzle,
+               fui::makeRect(body.x, gridBottom, body.width, static_cast<int16_t>(body.bottom() - gridBottom)));
   } else {
     // The clue face is always more than one page, so the pager strip is always
     // there and always comes out of the text area. Reserving it only when
