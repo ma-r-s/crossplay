@@ -81,6 +81,21 @@ struct GridLayout {
   int16_t cellY(const int row) const { return static_cast<int16_t>(originY + row * cell); }
 };
 
+// A point inside the grid, turned back into the cell it landed on. Lives here,
+// beside layoutGrid, because the inverse of a piece of geometry belongs in the
+// same file as the geometry -- a second copy in the activity is exactly the
+// "computed a tappable region twice" mistake that has cost this fork more bugs
+// than anything else. It is also the only way to test it: an activity needs a
+// renderer and this does not.
+struct GridCell {
+  int catA = 0;
+  int itemA = 0;
+  int catB = 0;
+  int itemB = 0;
+};
+
+bool cellAt(const GridLayout& layout, int x, int y, GridCell& out);
+
 struct CaseModel {
   const murdle::Puzzle* puzzle = nullptr;
   const murdle::Grid* marks = nullptr;

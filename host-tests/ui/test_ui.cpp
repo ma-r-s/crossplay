@@ -20,6 +20,8 @@
 #include "../../src/apps_local/hackernews/HackerNewsScreens.h"
 #include "../../src/apps_local/insider/InsiderScreens.h"
 #include "../../src/apps_local/link/LinkScreens.h"
+#include "../../src/apps_local/murdle/MurdleScreens.h"
+#include "../../src/apps_local/murdle/MurdleText.h"
 #include "../../src/apps_local/player/PlayerAvatar.h"
 #include "../../src/apps_local/player/PlayerScreen.h"
 #include "../../src/apps_local/study/StudyScreens.h"
@@ -1949,8 +1951,244 @@ void testInsiderTutorialLosesNoWords() {
 
 }  // namespace
 
+// ---------------------------------------------------------------------------
+// Murdle
+//
+// The grid is the thing worth testing here. It is 144 cells at four categories
+// of four against an interaction buffer that holds 24, so it registers one hit
+// region and resolves the cell itself -- which means the arithmetic that turns
+// a tap into a square is app code rather than component code, and it is the
+// kind of code that is wrong by one and looks fine.
+
+murdle::Puzzle murdleCase(const murdle::Tier tier, const uint32_t seed) {
+  static murdle::Scratch scratch;
+  const murdle::Shape shape = murdle::shapeOf(tier);
+  uint8_t cast[murdle::kMaxCats][murdle::kMaxItems];
+  murdle::drawCast(seed, shape, cast);
+  murdle::Puzzle puzzle;
+  murdle::generate(tier, seed, cast, murdle::attrMasksFor(cast, shape), scratch, puzzle);
+  return puzzle;
+}
+
+murdleui::GridLayout buildMurdleCase(Rendered& out, const murdleui::CaseModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  return murdleui::buildCase(screen, model).grid;
+}
+
+void testMurdleGridResolvesEveryCellItDrew() {
+  // Walk every live square of the staircase, tap its centre, and demand the
+  // pair back. An off-by-one in either axis marks somebody else's square, which
+  // is invisible until a solved grid disagrees with the answer.
+  for (const murdle::Tier tier : {murdle::Tier::Elementary, murdle::Tier::HardBoiled}) {
+    murdle::Puzzle puzzle = murdleCase(tier, 4242u);
+    murdle::Grid marks;
+    marks.reset(puzzle.shape);
+
+    Rendered out;
+    murdleui::CaseModel model;
+    model.puzzle = &puzzle;
+    model.marks = &marks;
+    model.face = murdleui::Face::Grid;
+    const murdleui::GridLayout grid = buildMurdleCase(out, model);
+    CHECK(grid.valid);
+
+    int live = 0;
+    for (int r = 0; r < grid.groups * grid.items; ++r) {
+      for (int c = 0; c < grid.groups * grid.items; ++c) {
+        const int x = grid.cellX(c) + grid.cell / 2;
+        const int y = grid.cellY(r) + grid.cell / 2;
+        murdleui::GridCell cell;
+        const bool hit = murdleui::cellAt(grid, x, y, cell);
+        if (!grid.blockLive(r / grid.items, c / grid.items)) {
+          // The empty corner of the staircase is not a square.
+          CHECK(!hit);
+          continue;
+        }
+        ++live;
+        CHECK(hit);
+        if (!hit) continue;
+        CHECK(cell.catA == grid.rowCat[r / grid.items]);
+        CHECK(cell.catB == grid.colCat[c / grid.items]);
+        CHECK(cell.itemA == r % grid.items);
+        CHECK(cell.itemB == c % grid.items);
+      }
+    }
+    // Three blocks at three categories, six at four; never a pair twice.
+    CHECK(live == puzzle.shape.cats * (puzzle.shape.cats - 1) / 2 * grid.items * grid.items);
+  }
+}
+
+void testMurdleGridEdgesAreLive() {
+  // The dead-on-its-edges class of bug: a square that draws normally and only
+  // answers taps in its middle. Checked at the far corners of the whole grid,
+  // one pixel inside.
+  murdle::Puzzle puzzle = murdleCase(murdle::Tier::HardBoiled, 77u);
+  murdle::Grid marks;
+  marks.reset(puzzle.shape);
+  Rendered out;
+  murdleui::CaseModel model;
+  model.puzzle = &puzzle;
+  model.marks = &marks;
+  model.face = murdleui::Face::Grid;
+  const murdleui::GridLayout grid = buildMurdleCase(out, model);
+
+  murdleui::GridCell topLeft;
+  CHECK(murdleui::cellAt(grid, grid.originX, grid.originY, topLeft));
+  CHECK(topLeft.itemA == 0 && topLeft.itemB == 0);
+
+  const int last = grid.groups * grid.items - 1;
+  murdleui::GridCell bottomOfFirstColumn;
+  CHECK(murdleui::cellAt(grid, grid.cellX(0) + grid.cell - 1, grid.cellY(last) + grid.cell - 1, bottomOfFirstColumn));
+  CHECK(bottomOfFirstColumn.itemA == grid.items - 1);
+
+  // And just outside is not a square.
+  murdleui::GridCell outside;
+  CHECK(!murdleui::cellAt(grid, grid.originX - 1, grid.originY, outside));
+  CHECK(!murdleui::cellAt(grid, grid.originX, grid.originY - 1, outside));
+}
+
+void testMurdleGridDrawsMarksItIsGiven() {
+  murdle::Puzzle puzzle = murdleCase(murdle::Tier::Elementary, 5u);
+  murdle::Grid marks;
+  marks.reset(puzzle.shape);
+  Rendered out;
+  murdleui::CaseModel model;
+  model.puzzle = &puzzle;
+  model.marks = &marks;
+  model.face = murdleui::Face::Grid;
+  buildMurdleCase(out, model);
+  // The whole grid is one hit region, not one per cell, or the 24-slot buffer
+  // would be gone before the chrome got a look in.
+  CHECK(!out.interactions.overflowed());
+}
+
+void testMurdleClueFaceIsPagedAndNeverOverflows() {
+  // The densest screen in the app: four categories, the longest clue list, and
+  // a pager. A control past the buffer limit draws normally and cannot be
+  // tapped, with no log line.
+  murdle::Puzzle puzzle = murdleCase(murdle::Tier::Impossible, 31u);
+  murdle::Grid marks;
+  marks.reset(puzzle.shape);
+  for (int page = 0; page < 6; ++page) {
+    Rendered out;
+    murdleui::CaseModel model;
+    model.puzzle = &puzzle;
+    model.marks = &marks;
+    model.face = murdleui::Face::Clues;
+    model.page = page;
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    const murdleui::CaseReport report = murdleui::buildCase(screen, model);
+    CHECK(!out.interactions.overflowed());
+    CHECK(report.pages >= 2);
+    // A page past the end is clamped rather than drawn blank.
+    CHECK(report.page < report.pages);
+    CHECK(out.target.drew("ACCUSE"));
+  }
+}
+
+void testMurdleSettingsPicksAnAbsoluteTier() {
+  Rendered out;
+  murdleui::SettingsModel model;
+  model.tier = murdle::Tier::Elementary;
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  murdleui::buildSettings(screen, model);
+
+  CHECK(out.target.drew("ELEMENTARY"));
+  CHECK(out.target.drew("IMPOSSIBLE"));
+  const FakeTarget::TextRun* hard = out.target.find("HARD BOILED");
+  CHECK(hard != nullptr);
+  if (hard != nullptr) {
+    const fui::ActionEvent event = out.tap(hard->rect.x + 10, hard->rect.y + hard->rect.height / 2);
+    CHECK(event.action == murdleui::ActionTier);
+    // Absolute, not a step: the screen shows all four, so there is nothing to
+    // walk and a delta would depend on where you already were.
+    CHECK(event.value == static_cast<int>(murdle::Tier::HardBoiled));
+  }
+}
+
+void testMurdleAccusationIsInertUntilComplete() {
+  murdle::Puzzle puzzle = murdleCase(murdle::Tier::HardBoiled, 9u);
+  murdleui::AccuseModel model;
+  model.puzzle = &puzzle;
+
+  Rendered empty;
+  {
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(empty.target, ctx, noInput, empty.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    murdleui::buildAccuse(screen, model);
+  }
+  CHECK(!model.complete());
+  const FakeTarget::TextRun* confirm = empty.target.find("THAT IS MY ACCUSATION");
+  CHECK(confirm != nullptr);
+  if (confirm != nullptr) {
+    // It draws, dimmed, rather than disappearing -- and it must not act.
+    const fui::ActionEvent event =
+        empty.tap(confirm->rect.x + confirm->rect.width / 2, confirm->rect.y + confirm->rect.height / 2);
+    CHECK(event.action == fui::NO_ACTION);
+  }
+
+  for (int c = 0; c < puzzle.shape.cats; ++c) model.picks[c] = 0;
+  CHECK(model.complete());
+  Rendered full;
+  {
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(full.target, ctx, noInput, full.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    murdleui::buildAccuse(screen, model);
+  }
+  const FakeTarget::TextRun* live = full.target.find("THAT IS MY ACCUSATION");
+  CHECK(live != nullptr);
+  if (live != nullptr) {
+    const fui::ActionEvent event = full.tap(live->rect.x + live->rect.width / 2, live->rect.y + live->rect.height / 2);
+    CHECK(event.action == murdleui::ActionConfirm);
+  }
+}
+
+void testMurdleMenuHeadlineIsTheDoorAcrossItsWidth() {
+  Rendered out;
+  murdleui::MenuModel model;
+  model.hasCase = true;
+  model.caseNumber = 3;
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  murdleui::buildMenu(screen, model);
+
+  const FakeTarget::TextRun* headline = out.target.find("THE CASE");
+  CHECK(headline != nullptr);
+  if (headline != nullptr) {
+    // Both far edges, because a headline hit-tested narrower than it draws is
+    // the PLAY AGAIN bug wearing a different label.
+    const int y = headline->rect.y + headline->rect.height / 2;
+    CHECK(out.tap(headline->rect.x + 2, y).action == murdleui::ActionPlay);
+    CHECK(out.tap(headline->rect.x + headline->rect.width - 2, y).action == murdleui::ActionPlay);
+  }
+  CHECK(out.target.drew("NEW CASE"));
+  CHECK(!out.interactions.overflowed());
+}
+
 int main() {
   testSearchingAsksNothing();
+  testMurdleGridResolvesEveryCellItDrew();
+  testMurdleGridEdgesAreLive();
+  testMurdleGridDrawsMarksItIsGiven();
+  testMurdleClueFaceIsPagedAndNeverOverflows();
+  testMurdleSettingsPicksAnAbsoluteTier();
+  testMurdleAccusationIsInertUntilComplete();
+  testMurdleMenuHeadlineIsTheDoorAcrossItsWidth();
   testSeatsSayWhatEachPlayerHasDecided();
   testTheRematchShowsBothAnswers();
   testAnOpponentWhoHasGoneTakesTheButtonWithThem();

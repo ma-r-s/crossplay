@@ -33,6 +33,10 @@ c++ -std=c++17 -Wall -Wextra -Werror -I"$SDK/include" -I"$ICONS/include" \
   ../../src/apps_local/insider/InsiderCore.cpp \
   ../../src/apps_local/insider/InsiderScreens.cpp \
   ../../src/apps_local/link/LinkScreens.cpp \
+  ../../src/apps_local/murdle/MurdleCast.cpp \
+  ../../src/apps_local/murdle/MurdleCore.cpp \
+  ../../src/apps_local/murdle/MurdleScreens.cpp \
+  ../../src/apps_local/murdle/MurdleText.cpp \
   ../../src/apps_local/player/PlayerAvatar.cpp \
   ../../src/apps_local/player/PlayerName.cpp \
   ../../src/apps_local/player/PlayerScreen.cpp \

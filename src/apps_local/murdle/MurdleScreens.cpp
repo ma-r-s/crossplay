@@ -32,7 +32,9 @@ using murdle::Puzzle;
 using murdle::Tier;
 
 constexpr int16_t kTabH = 44;
+#if MURDLE_VIEW_VARIANT == 2
 constexpr int16_t kRailH = 96;
+#endif
 // The pager strip at the foot of the clue face. Always reserved: there is
 // always more than one page, on every tier.
 constexpr int16_t kPagerH = 54;
@@ -450,6 +452,28 @@ void drawCluePage(toybox::Screen& screen, const Puzzle& puzzle, const fui::Rect&
 
 ClueLayout lastClueLayout() { return gClueLayout; }
 
+bool cellAt(const GridLayout& layout, const int x, const int y, GridCell& out) {
+  if (!layout.valid || layout.cell <= 0) return false;
+  if (x < layout.originX || y < layout.originY) return false;
+
+  const int col = (x - layout.originX) / layout.cell;
+  const int row = (y - layout.originY) / layout.cell;
+  const int span = layout.groups * layout.items;
+  if (col < 0 || col >= span || row < 0 || row >= span) return false;
+
+  const int groupC = col / layout.items;
+  const int groupR = row / layout.items;
+  // The empty corner of the staircase. A tap there is not a cell, and treating
+  // it as one would mark a pair that has no square.
+  if (!layout.blockLive(groupR, groupC)) return false;
+
+  out.catA = layout.rowCat[groupR];
+  out.itemA = row % layout.items;
+  out.catB = layout.colCat[groupC];
+  out.itemB = col % layout.items;
+  return true;
+}
+
 bool AccuseModel::complete() const {
   if (puzzle == nullptr) return false;
   for (int c = 0; c < puzzle->shape.cats; ++c) {
@@ -530,8 +554,24 @@ CaseReport buildCase(toybox::Screen& screen, const CaseModel& model) {
   // RAIL. The grid keeps the screen and one clue sits under it with a stepper,
   // so marking while reading is one gesture instead of three. The clue face is
   // still reachable, it is just no longer where you live.
-  const bool railed = model.face == Face::Grid;
-  if (railed) body = fui::makeRect(body.x, body.y, body.width, static_cast<int16_t>(body.height - kRailH));
+  if (model.face == Face::Grid) {
+    body = fui::makeRect(body.x, body.y, body.width, static_cast<int16_t>(body.height - kRailH));
+  } else {
+    // And a way back. The first render of this variant had the rail's ALL CLUES
+    // door and nothing facing the other way, so the clue list was a room with
+    // no exit -- which is the sort of thing that is obvious the moment three
+    // layouts are next to each other and invisible in any one of them.
+    fui::ButtonProps toGrid;
+    toGrid.label = "BACK TO THE GRID";
+    toGrid.action = ActionFace;
+    toGrid.value = 1;
+    toGrid.text = styled(toybox::kUiFont, fui::TextAlign::Center, fui::Color::White);
+    toGrid.styles = toybox::invertedStyles();
+    toGrid.radius = 8;
+    screen.button(toGrid, fui::makeRect(body.x, body.y, body.width, kTabH));
+    body = fui::makeRect(body.x, static_cast<int16_t>(body.y + kTabH + 10), body.width,
+                         static_cast<int16_t>(body.height - kTabH - 10));
+  }
 #else
   // PAGES. No toggle chrome at all: the body itself is the target, and a dot
   // pair says which of the two you are on.

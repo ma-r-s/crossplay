@@ -244,21 +244,13 @@ void MurdleActivity::loop() {
 // fork is that a tappable region must be derived from the same values that
 // placed the pixels.
 void MurdleActivity::handleGridTap(const int x, const int y) {
-  if (!gridLayout.valid || !hasCase || solved) return;
-  const int col = (x - gridLayout.originX) / gridLayout.cell;
-  const int rowIdx = (y - gridLayout.originY) / gridLayout.cell;
-  const int span = gridLayout.groups * gridLayout.items;
-  if (x < gridLayout.originX || y < gridLayout.originY) return;
-  if (col < 0 || col >= span || rowIdx < 0 || rowIdx >= span) return;
-
-  const int groupC = col / gridLayout.items;
-  const int groupR = rowIdx / gridLayout.items;
-  if (!gridLayout.blockLive(groupR, groupC)) return;
-
-  const int catA = gridLayout.rowCat[groupR];
-  const int catB = gridLayout.colCat[groupC];
-  const int itemA = rowIdx % gridLayout.items;
-  const int itemB = col % gridLayout.items;
+  if (!hasCase || solved) return;
+  ui::GridCell cell;
+  if (!ui::cellAt(gridLayout, x, y, cell)) return;
+  const int catA = cell.catA;
+  const int catB = cell.catB;
+  const int itemA = cell.itemA;
+  const int itemB = cell.itemB;
 
   switch (marks.get(catA, itemA, catB, itemB)) {
     case murdle::Mark::Unknown:
