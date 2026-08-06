@@ -783,7 +783,11 @@ struct Step {
 // deduce() is allowed. Returns the number of rounds; fills `firstYes` with the
 // round in which the first square was locked in, which is the number that says
 // whether a case gives you a foothold or a wall.
-int traceSolve(const Puzzle& p, int& firstYes, int& cluesBeforeFirstYes, int& maxChain) {
+// The round at which the murderer becomes known, against the round the grid
+// finishes. If the first is much smaller than the second, the case hands you
+// its answer and then asks you to keep filling in a form -- which is a
+// structural defect no correctness check can see.
+int traceSolve(const Puzzle& p, int& firstYes, int& cluesBeforeFirstYes, int& maxChain, int* murdererKnownRound) {
   Grid grid;
   grid.reset(p.shape);
   firstYes = -1;
@@ -794,6 +798,17 @@ int traceSolve(const Puzzle& p, int& firstYes, int& cluesBeforeFirstYes, int& ma
   // supposing anything.
   const int items = p.shape.items;
   const uint8_t full = static_cast<uint8_t>((1u << items) - 1u);
+
+  // The place the murder clue names; the murderer is known the moment that
+  // place has an owner.
+  int murderPlace = -1;
+  for (int i = 0; i < p.clueCount; ++i) {
+    if (p.clues[i].anchor != Anchor::Murderer) continue;
+    for (int b = 0; b < items; ++b) {
+      if (p.clues[i].targetMask & static_cast<uint8_t>(1u << b)) murderPlace = b;
+    }
+  }
+  if (murdererKnownRound) *murdererKnownRound = -1;
 
   int round = 0;
   bool changed = true;
@@ -878,6 +893,12 @@ int traceSolve(const Puzzle& p, int& firstYes, int& cluesBeforeFirstYes, int& ma
       }
     }
     if (settledThisRound > maxChain) maxChain = settledThisRound;
+    if (murdererKnownRound && *murdererKnownRound < 0 && murderPlace >= 0) {
+      const int place = static_cast<int>(Cat::Location);
+      for (int su = 0; su < items; ++su) {
+        if (grid.get(place, murderPlace, 0, su) == Mark::Yes) *murdererKnownRound = round;
+      }
+    }
   }
   return grid.complete() ? round : -round;
 }
@@ -939,10 +960,12 @@ void solveOut(const Tier tier, const uint32_t seed) {
     std::printf("  %2d. %s\n", i + 1, buf);
   }
   int firstYes = 0, before = 0, chain = 0;
-  const int rounds = traceSolve(p, firstYes, before, chain);
+  int known = 0;
+  const int rounds = traceSolve(p, firstYes, before, chain, &known);
   std::printf("\n  grid completes: %s\n", rounds > 0 ? "yes" : "NO -- needs a supposition");
   std::printf("  rounds: %d\n", rounds < 0 ? -rounds : rounds);
   std::printf("  first square locked in: round %d, after %d eliminations\n", firstYes, before);
+  std::printf("  murderer known at round %d of %d\n", known, rounds < 0 ? -rounds : rounds);
   uint8_t picks[kMaxCats] = {};
   for (int c = 0; c < p.shape.cats; ++c) picks[c] = p.assign[c][p.murderRow];
   murdletext::accusationLine(p, picks, buf, sizeof(buf));
@@ -989,12 +1012,14 @@ void auditDifficulty() {
               "NEVER NAMED");
   for (int t = 0; t < kTierCount; ++t) {
     int cases = 0, roundSum = 0, roundMax = 0, firstSum = 0, firstMax = 0, needSuppose = 0, beforeMax = 0;
-    int unnamedSum = 0, unnamedMax = 0;
+    int unnamedSum = 0, unnamedMax = 0, attrClues = 0, suspectTargeted = 0, clueTotal = 0;
+    int knownSum = 0, knownOfSum = 0, earlyReveal = 0;
     for (uint32_t seed = 1; seed <= 300; ++seed) {
       Puzzle p;
       if (!makeCase(kTiers[t], seed * 2654435761u + 7u, scratch, p)) continue;
       int firstYes = 0, before = 0, chain = 0;
-      const int r = traceSolve(p, firstYes, before, chain);
+      int known = -1;
+      const int r = traceSolve(p, firstYes, before, chain, &known);
       ++cases;
       if (r < 0) ++needSuppose;
       const int rr = r < 0 ? -r : r;
@@ -1005,6 +1030,17 @@ void auditDifficulty() {
         if (firstYes > firstMax) firstMax = firstYes;
       }
       if (before > beforeMax) beforeMax = before;
+      for (int i = 0; i < p.clueCount; ++i) {
+        if (p.clues[i].attr != kNoAttr) ++attrClues;
+        if (p.clues[i].anchor == Anchor::Item && p.clues[i].targetCat == 0) ++suspectTargeted;
+      }
+      clueTotal += p.clueCount;
+      const int rr2 = r < 0 ? -r : r;
+      if (known > 0 && rr2 > 0) {
+        knownSum += known;
+        knownOfSum += rr2;
+        if (known * 100 / rr2 <= 50) ++earlyReveal;
+      }
       const int unnamed = itemsNeverNamed(p);
       unnamedSum += unnamed;
       if (unnamed > unnamedMax) unnamedMax = unnamed;
@@ -1014,6 +1050,12 @@ void auditDifficulty() {
                 cases ? static_cast<double>(firstSum) / cases : 0.0, firstMax, needSuppose,
                 cases ? needSuppose * 100 / cases : 0, cases ? static_cast<double>(unnamedSum) / cases : 0.0,
                 unnamedMax);
+    std::printf("%-12s  murderer known at round %.1f of %.1f   revealed in first half: %d%%\n", "",
+                cases ? static_cast<double>(knownSum) / cases : 0.0,
+                cases ? static_cast<double>(knownOfSum) / cases : 0.0, cases ? earlyReveal * 100 / cases : 0);
+    std::printf("%-12s  attribute clues: %d of %d (%d%%)   suspect-targeted: %d (%d%%)\n", "", attrClues, clueTotal,
+                clueTotal ? attrClues * 100 / clueTotal : 0, suspectTargeted,
+                clueTotal ? suspectTargeted * 100 / clueTotal : 0);
   }
 }
 
