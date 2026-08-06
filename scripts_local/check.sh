@@ -21,6 +21,17 @@ LOGS="${TMPDIR:-/tmp}/xteink-check-$TAG"
 mkdir -p "$LOGS"
 FAILED=0
 
+# The link suite is real UDP on real loopback, and its port range IS its
+# discovery mechanism: every radio in 45700..45707 finds every other one. Two
+# trees checking at once therefore join each other's match, and the suite fails
+# on whichever assertion the stray datagram happened to break -- three
+# concurrent runs failed on three different lines and all three passed alone.
+# One 16-port slice per tree, derived from the same hash as everything else.
+if [ -z "${LINKPLAY_BASE_PORT:-}" ]; then
+  SLICE=$(( 0x${TAG:0:4} % 900 ))
+  export LINKPLAY_BASE_PORT=$(( 46000 + SLICE * 16 ))
+fi
+
 # --ignore-submodules=untracked: the icon tools drop a __pycache__/ inside
 # freeink-sdk, which is untracked content in a submodule and not your work.
 dirty_count() {
