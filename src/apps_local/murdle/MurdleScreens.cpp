@@ -944,49 +944,86 @@ void buildConfirmNew(toybox::Screen& screen) {
 
 namespace {
 
-struct HowToPage {
+struct Beat {
   const char* title;
   const char* body;
 };
 
-// Four beats, in the order you actually do them. No story: this explains a
-// mechanic, and a mechanic explained with a character in it takes longer to
-// read and is not funnier.
-constexpr HowToPage kHowTo[] = {
+// Four beats, in the order you actually do them, on one page.
+//
+// It was four pages and each was a heading and two lines on an 800px screen --
+// nine tenths empty, three taps to read four sentences. On a panel that holds
+// its image for hours dead space is a defect rather than untidiness, and a
+// tutorial you can see all of at once is also a better tutorial: the four steps
+// are one loop and splitting them hid that.
+//
+// No story. This explains a mechanic, and a mechanic explained through a
+// character takes longer to read and is not funnier.
+constexpr Beat kBeats[] = {
     {"EVERYONE HAS A PLACE",
      "Each suspect carried one weapon and was in one place. Nobody shares. One of them did it."},
     {"THE GRID IS YOUR PENCIL",
-     "Every pair of things meets in one square. Tap it once to rule it out, again to lock it in. Locking one in "
-     "crosses off the rest of its row and column for you."},
+     "Every pair of things meets in one square. Tap once to rule it out, again to lock it in."},
     {"THE CLUES DO THE REST",
-     "A clue never lies, except where the case says a suspect is speaking. Read one, mark what it rules out, and "
-     "keep going until the grid is full."},
+     "Read one, mark what it rules out, tap its number to tick it off. Clues never lie, unless the case says a "
+     "suspect is speaking."},
     {"THEN NAME THEM",
-     "The last clue tells you where the body was found, not who left it there. Match that place against your grid, "
-     "and accuse."},
+     "The last clue says where the body was found, not who left it there. Match that place against your grid."},
 };
+
+constexpr int kBeatCount = static_cast<int>(sizeof(kBeats) / sizeof(kBeats[0]));
 
 }  // namespace
 
-int howToPages() { return static_cast<int>(sizeof(kHowTo) / sizeof(kHowTo[0])); }
+int howToPages() { return 1; }
 
 void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
-  char right[16];
-  std::snprintf(right, sizeof(right), "%d/%d", model.page + 1, howToPages());
-  chrome(screen, "HOW TO SOLVE", right);
+  (void)model;
+  chrome(screen, "HOW TO SOLVE", "");
   const fui::Rect body = screen.body();
-  const int page = model.page < howToPages() ? model.page : 0;
+  auto& target = screen.target();
+  const fui::TextStyle heading = styled(toybox::kUiFont, fui::TextAlign::Left);
+  const fui::TextStyle small = styled(toybox::kTileFont, fui::TextAlign::Left);
+  const int16_t headH = target.lineHeight(toybox::kUiFont);
 
-  screen.target().text(fui::makeRect(body.x, body.y, body.width, 48), kHowTo[page].title,
-                       styled(toybox::kUiFont, fui::TextAlign::Left));
-  paragraph(
-      screen, styled(toybox::kTileFont, fui::TextAlign::Left), kHowTo[page].body,
-      fui::makeRect(body.x, static_cast<int16_t>(body.y + 56), body.width, static_cast<int16_t>(body.height - 120)),
-      true);
+  int16_t y = body.y;
+  for (int i = 0; i < kBeatCount; ++i) {
+    target.text(fui::makeRect(body.x, y, body.width, headH), kBeats[i].title, heading);
+    y = static_cast<int16_t>(y + headH + 2);
+    y = static_cast<int16_t>(
+        y + paragraph(screen, small, kBeats[i].body,
+                      fui::makeRect(body.x, y, body.width, static_cast<int16_t>(body.bottom() - y)), true));
 
-  // One tap anywhere carries on, the same gesture the whole way through. Three
-  // separate controls for "next" would be three ways to get the same state
-  // machine wrong.
+    // The three states of a square, drawn with the same marks the grid uses
+    // rather than described. Sits under the beat that introduces them.
+    if (i == 1) {
+      y = static_cast<int16_t>(y + 10);
+      constexpr int16_t kDemo = 44;
+      const char* names[3] = {"NOT SURE", "RULED OUT", "IT WAS THEM"};
+      for (int c = 0; c < 3; ++c) {
+        const int16_t x = static_cast<int16_t>(body.x + c * (body.width / 3));
+        const fui::Rect cell = fui::makeRect(x, y, kDemo, kDemo);
+        target.stroke(cell, fui::Paint::solid(fui::Color::Black), toybox::kHairline);
+        if (c == 1) {
+          target.fill(fui::makeRect(static_cast<int16_t>(x + kDemo * 2 / 9), static_cast<int16_t>(y + kDemo / 2 - 2),
+                                    static_cast<int16_t>(kDemo * 5 / 9), 4),
+                      fui::Paint::solid(fui::Color::Black));
+        } else if (c == 2) {
+          const int16_t inset = static_cast<int16_t>(kDemo / 4);
+          target.fill(fui::makeRect(static_cast<int16_t>(x + inset), static_cast<int16_t>(y + inset),
+                                    static_cast<int16_t>(kDemo - inset * 2), static_cast<int16_t>(kDemo - inset * 2)),
+                      fui::Paint::solid(fui::Color::Black), 3);
+        }
+        target.text(fui::makeRect(x, static_cast<int16_t>(y + kDemo + 4), static_cast<int16_t>(body.width / 3 - 8), 20),
+                    names[c], small);
+      }
+      y = static_cast<int16_t>(y + kDemo + 26);
+    }
+    y = static_cast<int16_t>(y + 16);
+  }
+
+  // One tap anywhere leaves, which is the only thing there is to do here now
+  // that it is a single page.
   screen.frame().hit(body, ActionHowTo, 0);
 }
 
