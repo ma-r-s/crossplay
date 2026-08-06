@@ -23,6 +23,16 @@
 
 namespace study {
 
+// One review, as revlog.dat stores it. 32 bytes, append-only.
+inline constexpr uint32_t kRevlogRecordBytes = 32;
+// Byte 28 was reserved and written as zero, so a log from before undo existed
+// reads as "nothing voided" without a version bump.
+inline constexpr uint32_t kRevlogFlagsOffset = 28;
+// The user took this one back. The record stays -- the file never shrinks, and
+// truncating it would mean reaching past HalFile to SdFat -- but every reader
+// skips it: the sync, the stats, and the streak.
+inline constexpr uint8_t kRevlogVoided = 1 << 0;
+
 // Two weeks, matching the deck screen's forecast so the two panels read as one
 // timeline: what happened, then what is coming.
 inline constexpr int kHistoryDays = 14;

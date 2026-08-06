@@ -33,6 +33,8 @@ bool readStats(ByteSource& revlog, const int todayDay, const int64_t collectionC
   if (size < kRevlogRecordSize) return true;  // an empty log is not an error
 
   const uint32_t records = size / kRevlogRecordSize;
+  // Counted as written; voided ones are subtracted as they are walked, so a
+  // long-ago undo outside the window does not skew the lifetime figure much.
   out.lifetimeReviews = static_cast<int>(records);
 
   // Walk backwards. Records are appended in answer order, so once a chunk is
@@ -54,6 +56,9 @@ bool readStats(ByteSource& revlog, const int todayDay, const int64_t collectionC
       const int64_t atMs = readI64(record + 8);
       const uint8_t rating = record[16];
       if (cardId == 0 || rating < 1 || rating > 4) continue;
+      // A review the user took back never happened, as far as anything that
+      // reads this file is concerned.
+      if (record[kRevlogFlagsOffset] & kRevlogVoided) continue;
 
       const int day = static_cast<int>((atMs / 1000 - collectionCreated) / kSecondsPerDay);
       const int age = todayDay - day;

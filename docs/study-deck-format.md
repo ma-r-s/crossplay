@@ -101,7 +101,7 @@ timezone conversation.
 
 ## revlog.dat
 
-Append-only, 32 bytes per review, never rewritten. This is the file that makes
+Append-only, 32 bytes per review, never shortened. This is the file that makes
 the device a real Anki client rather than a toy: `deck_to_anki.py` replays it
 back into the collection, and it is also the input FSRS optimisation would need
 to retrain the parameters.
@@ -113,7 +113,8 @@ to retrain the parameters.
     elapsedDays   int16
     intervalDays  int32     days ahead, or negative seconds for a step
     tookMs        uint32    zero: nothing here times the user
-    reserved      4 bytes
+    flags         uint8     bit 0: the user undid this review
+    reserved      3 bytes
 
 `intervalDays` follows Anki's own convention of storing sub-day intervals as
 negative seconds, so a ten-minute relearning step is -600 and needs no
@@ -121,6 +122,21 @@ translation at import.
 
 `tookMs` is deliberately zero rather than plausible. Inventing an answer time
 would poison the only data FSRS optimisation has to retrain from.
+
+`flags` is how undo works, and it is the one thing here written in place rather
+than appended. When the user takes a review back, the device restores the card
+record and sets bit 0 on the review it just wrote. The record stays: the file is
+append-only by design, and shortening it would mean reaching past `HalFile` into
+SdFat, which the HAL rule forbids for good reason. Every reader skips a voided
+record instead -- `StudyStats` for the deck screen's figures, `deck_to_anki.py`
+for the sync -- so an undone review reaches neither the stats nor Anki.
+
+Byte 28 was reserved and written as zero, so a log recorded before undo existed
+reads as "nothing voided" and needed no version bump.
+
+Undo is one level deep and only while the card view is up. The state before the
+previous review is not kept, and the deck screen has no control for it, so the
+last review of a session cannot be taken back once "Done" is showing.
 
 ## meta.dat
 
