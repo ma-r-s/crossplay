@@ -92,3 +92,15 @@ dungeon     = map
 # drama (two overlapping masks is the interior detail that turned gamepad-2 to
 # mush), glasses (reads as spectacles, which is a different idea entirely).
 insider     = venetian-mask
+
+# Jaipur. A cut gem: diamonds are the top of the game's economy and the card
+# every round is fought over, so the mark is the thing you are playing for.
+#
+# A faceted lozenge shares no silhouette with the crown, hull, grid, suit,
+# joystick, newspaper, letterforms, folded map or mask already on the shelf, and
+# the interior facet lines are three straight strokes rather than the small
+# rectangles that turned gamepad-2 and castle to mush at 32px. Rejected: coins
+# (overlapping discs, no distinct outline at this size), scale (a merchant's
+# balance is the theme but reads as justice), package and shopping-basket (both
+# say commerce generically and neither says which game).
+jaipur      = gem

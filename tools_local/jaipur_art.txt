@@ -1,0 +1,14 @@
+# Jaipur's own artwork, generated into src/apps_local/jaipur/JaipurArt.h by
+# tools_local/gen_jaipur_art.sh. Format: alias = svg basename, resolved against
+# assets_local/jaipur/.
+#
+# Only the camel is here. The six goods are Lucide, in tools_local/icons.txt,
+# because the design language's rule is to draw our own only where no good
+# licensed option exists -- and Lucide has no camel, no dromedary and nothing
+# that reads as one. `caravan` is a touring trailer.
+#
+# Drawn in Lucide's own idiom (24x24, stroke 2, round caps) so it sits beside
+# the six goods without looking like a different set. Two legs, not four: at
+# 32px four strokes 3px apart merge into one blob, which is the same defect that
+# made the avatar beards disappear.
+camel = camel
