@@ -316,7 +316,10 @@ def main() -> int:
         "--portrait-width", type=int, default=480, help="the portrait panel's width"
     )
     ap.add_argument(
-        "--landscape-width", type=int, default=800, help="the landscape panel's width"
+        "--rotate-cw",
+        action="store_true",
+        help="turn sideways comics the other way, if tipping the device "
+        "clockwise feels wrong",
     )
     ap.add_argument(
         "--min-scale",
@@ -336,9 +339,9 @@ def main() -> int:
         "--rotate-aspect",
         type=float,
         default=1.4,
-        help="turn the panel only for comics at least this wide relative to "
-        "their height. Portrait is the device's pose; rotating has to be "
-        "earned, so a near-square comic stays upright.",
+        help="store a comic sideways only when it is at least this wide "
+        "relative to its height. Turning the device has to be earned, so a "
+        "near-square comic stays upright.",
     )
     ap.add_argument(
         "--pane-budget",
@@ -348,9 +351,9 @@ def main() -> int:
         "shrink instead: forty tiles is not reading.",
     )
     ap.add_argument(
-        "--no-landscape",
+        "--no-rotate",
         action="store_true",
-        help="keep everything portrait, shrinking wide comics to fit",
+        help="never store a comic sideways; shrink wide ones to fit instead",
     )
     args = ap.parse_args()
 
@@ -400,45 +403,62 @@ def main() -> int:
 
             # --- which way round, and how big -------------------------
             #
-            # Three rules, in order. All of them exist because xkcd letters at
-            # a roughly constant size in source pixels, so how far a comic has
-            # been shrunk is the only thing deciding whether it can be read.
+            # Three rules, in order. All of them follow from one fact: xkcd
+            # letters at a roughly constant size in source pixels, so how far a
+            # comic has been *shrunk* is the only thing deciding whether it can
+            # be read.
             #
-            # 1. ORIENTATION. Turn the panel only for comics that are clearly
-            #    wide. Portrait is the device's pose and rotating has to be
-            #    earned: a near-square comic gains almost nothing from
-            #    landscape and still has to be panned, so it stays upright.
+            # 1. SIDEWAYS. A clearly wide comic is stored **rotated**, so the
+            #    reader turns the device rather than the app turning the panel.
+            #    The screen layout never moves: the bar stays where it was and
+            #    the controls stay where they were. Rotating the panel instead
+            #    was the first attempt and it shuffled the whole UI around
+            #    underneath the reader.
             #
-            # 2. SCALE. Fit the chosen panel's width -- up as well as down,
-            #    since 44% of the archive is narrower than the portrait panel.
+            #    Rotating also fixes the shrink that made these unreadable: a
+            #    694x272 strip fitted into a 480 panel is 0.69x, but turned on
+            #    its side it is 272 across and fits comfortably.
             #
-            # 3. ZOOM RATHER THAN SHRINK, WITHIN A BUDGET. If fitting would
-            #    shrink past --min-scale, keep the comic big and let it be read
-            #    in columns instead. But only while that stays under
-            #    --pane-budget: #1732 is 740x14957, and zooming it would cost
-            #    forty tiles, which is not reading. Past the budget it takes
-            #    the shrink.
+            # 2. SCALE. Fit the panel -- up as well as down, since 44% of the
+            #    archive is narrower than 480. A rotated comic is fitted whole,
+            #    both axes, because the point of turning it is to see all of it.
+            #
+            # 3. ZOOM RATHER THAN SHRINK, WITHIN A BUDGET. If fitting an
+            #    upright comic would shrink it past --min-scale, keep it big
+            #    and let it be read in columns instead. But only while that
+            #    stays under --pane-budget: #1732 is 740x14957 and zooming it
+            #    would cost forty tiles, which is not reading.
             sw, sh = gray.size
-            landscape = (not args.no_landscape) and (sw / sh) >= args.rotate_aspect
-            vw, vh = (
-                (args.landscape_width, LANDSCAPE_VIEWPORT_H)
-                if landscape
-                else (args.portrait_width, PORTRAIT_VIEWPORT_H)
-            )
+            sideways = (not args.no_rotate) and (sw / sh) >= args.rotate_aspect
+            vw, vh = args.portrait_width, PORTRAIT_VIEWPORT_H
 
-            fit = min(args.max_upscale, vw / sw)
-            scale = fit
-            if fit < args.min_scale:
-                zoomed = args.min_scale
-                panes = math.ceil(sw * zoomed / vw) * math.ceil(sh * zoomed / vh)
-                if panes <= args.pane_budget:
-                    scale = zoomed
+            if sideways:
+                from PIL import Image as _Image
 
-            # The stored image still has to fit the format, whatever the rule
+                # Turned so the comic's own top ends up on the left of the
+                # portrait screen, i.e. you tip the device clockwise to read
+                # it. One transpose, and --rotate-cw flips which way.
+                gray = gray.transpose(
+                    _Image.ROTATE_90 if args.rotate_cw else _Image.ROTATE_270
+                )
+                sw, sh = gray.size
+                # Fitted whole: the reason to turn a comic is to see all of it,
+                # so neither axis may overflow.
+                scale = min(args.max_upscale, vw / sw, vh / sh)
+            else:
+                fit = min(args.max_upscale, vw / sw)
+                scale = fit
+                if fit < args.min_scale:
+                    zoomed = args.min_scale
+                    panes = math.ceil(sw * zoomed / vw) * math.ceil(sh * zoomed / vh)
+                    if panes <= args.pane_budget:
+                        scale = zoomed
+
+            # The stored image still has to fit the format, whatever the rules
             # above decided. #2067 is 960px wide, and keeping it at full size
             # put it past the 800px ceiling -- so it was rejected outright and
-            # simply went missing from the archive. A comic silently absent is
-            # a worse outcome than one shown slightly small.
+            # went **missing from the archive**, with only a line in the build
+            # log. A comic silently absent is worse than one shown small.
             if sw * scale > MAX_COMIC_WIDTH:
                 scale = MAX_COMIC_WIDTH / sw
             if sh * scale > MAX_COMIC_HEIGHT:
@@ -476,7 +496,7 @@ def main() -> int:
                     day=int(meta.get("day") or 0),
                     imageOffset=images.tell(),
                     textOffset=text.tell(),
-                    flags=1 if landscape else 0,
+                    flags=1 if sideways else 0,
                 )
             )
             images.write(bits)
@@ -527,8 +547,8 @@ def main() -> int:
     land = sum(1 for r in records if r["flags"] & 1)
     print(f"\n{len(records)} comics, {total / 1e6:.0f} MB of artwork", file=sys.stderr)
     print(
-        f"  {len(records) - land} portrait, {land} landscape "
-        f"({100 * land / max(1, len(records)):.0f}% turn the panel)",
+        f"  {len(records) - land} upright, {land} sideways "
+        f"({100 * land / max(1, len(records)):.0f}% ask you to turn the device)",
         file=sys.stderr,
     )
     if skipped:

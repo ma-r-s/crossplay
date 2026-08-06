@@ -5,12 +5,11 @@
 // answer without those lives in XkcdCore (freestanding, host-tested) or
 // XkcdScreens (freestanding, host-tested).
 //
-// **Portrait**, like every other app on the device. A landscape reader at
-// native size was built first and is sharper -- the archive is 740px wide and
-// the landscape panel is 800, so nothing would ever be scaled -- but it made
-// the whole app something you had to turn the device sideways for. The pack is
-// built at 480 wide instead, so the scaling happens once on a host with a real
-// resampling filter and the device still blits 1:1.
+// **Portrait, always.** The panel is never rotated. Comics that want to be
+// read sideways are stored already turned, so the reader turns the device and
+// the screen layout stays put -- the bar and the controls never move. An
+// earlier version rotated the panel per comic and shuffled the whole UI around
+// underneath the reader.
 
 #include <memory>
 
@@ -55,11 +54,6 @@ class XkcdActivity final : public Activity {
   bool isRead(uint16_t num) const;
   void loadReadState();
   void saveReadState();
-
-  // Turns the panel to match a comic, and back for everything else. Guarded
-  // on the current state: setOrientation is global and not free.
-  void applyOrientation(bool landscape);
-  bool landscapeNow_ = false;
 
   void openList(int firstPosition);
   void typeDigit(int digit);

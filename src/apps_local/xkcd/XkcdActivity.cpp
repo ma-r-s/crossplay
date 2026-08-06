@@ -86,14 +86,13 @@ XkcdActivity::~XkcdActivity() = default;
 
 void XkcdActivity::onEnter() {
   Activity::onEnter();
-  // Portrait, like every other app on the device. An earlier version turned
-  // the panel sideways to show comics at native size, which is the one
-  // configuration where nothing is ever scaled -- but it made the whole app,
-  // list included, a thing you had to rotate the device for, and Mario's call
-  // was that the reading is not worth the posture. The pack is built at
-  // 480 wide instead (`build_pack.py --max-width 480`), so the scaling happens
-  // once on a host with a real resampling filter and the device still blits
-  // 1:1. See docs/xkcd-pack-format.md.
+  // **The panel never rotates.** A wide comic is stored already turned on its
+  // side, so the reader turns the *device* to read it while the screen layout
+  // stays exactly where it was -- the bar in the same place, the controls in
+  // the same place. An earlier version called setOrientation per comic, which
+  // moved the whole UI around underneath the reader and was rightly rejected:
+  // it is the comic that is sideways, not the app. See
+  // docs/xkcd-pack-format.md.
   toybox::ensureFonts(renderer);
 
   archiveOpen_ = openArchive();
@@ -123,9 +122,6 @@ void XkcdActivity::onExit() {
   }
   Storage.remove(kTmpPng);
   Storage.remove(kTmpBmp);
-  // The orientation is global, so leaving it turned would rotate the Apps menu
-  // on the way out.
-  applyOrientation(false);
   Activity::onExit();
 }
 
@@ -183,23 +179,12 @@ bool XkcdActivity::loadComic(const int position) {
   xkcd::Comic c{};
   if (!archive_.at(*indexSrc_, position, c)) return false;
   comic_ = c;
-  // The comic decides which way round the panel goes. It is the *comic* that
-  // is sideways, not the app: the menu and the list are always portrait, and
-  // setOrientation is undone the moment the reader is left.
-  applyOrientation(comic_.landscape());
   position_ = position;
   at_ = xkcd::Position{};
   xkcd::readTitle(*textSrc_, comic_, title_, sizeof(title_));
   xkcd::readAlt(*textSrc_, comic_, alt_, sizeof(alt_));
   markRead(comic_.num);
   return true;
-}
-
-void XkcdActivity::applyOrientation(const bool landscape) {
-  if (landscape == landscapeNow_) return;
-  landscapeNow_ = landscape;
-  renderer.setOrientation(landscape ? GfxRenderer::Orientation::LandscapeCounterClockwise
-                                    : GfxRenderer::Orientation::Portrait);
 }
 
 // --- Read state ----------------------------------------------------------
@@ -499,15 +484,10 @@ void XkcdActivity::loop() {
       case View::List:
       case View::Notice:
       case View::Number:
-        // Everything but the reader is portrait, so leaving one is where the
-        // panel comes back. Done here rather than in onExit alone, because
-        // Back is the common way out and onExit only runs when the app does.
-        applyOrientation(false);
         view_ = View::Menu;
         requestUpdate();
         return;
       case View::Alt:
-        applyOrientation(false);
         view_ = View::Reader;
         requestUpdate();
         return;
@@ -627,13 +607,10 @@ void XkcdActivity::handleAction(const fui::ActionId action, const int16_t value)
       }
       break;
     case xkcdui::ActionShowAlt:
-      // The alt text is prose, so it is read portrait whatever the comic is.
-      applyOrientation(false);
       view_ = View::Alt;
       requestUpdate();
       break;
     case xkcdui::ActionDismiss:
-      applyOrientation(comic_.landscape());
       view_ = View::Reader;
       requestUpdate();
       break;

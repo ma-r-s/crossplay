@@ -104,19 +104,23 @@ inline constexpr uint32_t kIndexRecordBytes = 32;
 // is not a maximum.
 inline constexpr int kMaxComicWidth = 800;
 
-// Record flag: this comic is drawn with the panel turned sideways.
+// Record flag: this comic is **stored rotated**, to be read with the device
+// turned on its side.
 //
-// **The orientation is per comic, and it is a readability rule, not a taste
-// one.** xkcd letters at a roughly constant size in source pixels, so the only
-// thing that decides whether a comic can be read is how far it has been
-// shrunk. Fitting a 694px strip into a 480px portrait panel is 0.69x and the
-// lettering goes; the same strip in landscape is 1.15x and fits whole.
+// The panel itself never rotates. A first version called setOrientation per
+// comic, which turned the whole UI -- bar, controls, everything -- around
+// underneath the reader; it is the comic that is sideways, not the app. So the
+// rotation happens once, in the pack, and the device just draws a tall image.
 //
-// So the builder picks whichever orientation holds the comic without shrinking
-// it more than kMinScalePercent, and the reader turns the panel to match. The
-// menu and the list stay portrait -- it is the comic that is sideways, not the
-// app.
-inline constexpr uint8_t kLandscape = 1;
+// It is a readability rule rather than a taste one. xkcd letters at a roughly
+// constant size in source pixels, so how far a comic has been shrunk decides
+// whether it can be read: a 694x272 strip fitted into a 480 panel is 0.69x and
+// the lettering goes, but turned on its side it is 272 across and fits easily.
+//
+// The reader does not need this flag to draw -- a rotated comic is simply a
+// tall one -- but it is kept so the app can tell the two apart if it ever
+// needs to.
+inline constexpr uint8_t kSideways = 1;
 
 // #887 "Future Timeline" is 6370 rows, the tallest in the sampled archive.
 // 16384 leaves room for whatever Randall does next without letting a corrupt
@@ -139,7 +143,7 @@ struct Comic {
   // builder from the source dimensions. See kLandscape.
   uint8_t flags = 0;
 
-  bool landscape() const { return (flags & 1) != 0; }
+  bool sideways() const { return (flags & 1) != 0; }
 
   // A width of zero is how the index says "this slot is not filled in";
   // the offsets are meaningless then and must not be followed.

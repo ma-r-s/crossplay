@@ -54,7 +54,7 @@ Then `count` records of **32 bytes**:
 | 11     | uint8  | day                      |
 | 12     | uint32 | offset into `images.dat` |
 | 16     | uint32 | offset into `text.dat`   |
-| 20     | uint8  | flags; bit 0 = draw landscape |
+| 20     | uint8  | flags; bit 0 = stored sideways |
 | 21..31 | —      | reserved padding, zero   |
 
 Records are **fixed width and sorted by comic number**, which is the whole
@@ -117,16 +117,27 @@ panel**, median 322px. xkcd letters at a roughly constant size in source
 pixels, so how far a comic has been *shrunk* is the only thing deciding whether
 it can be read. Three rules follow, applied in order by the builder:
 
-**1. Orientation (`--rotate-aspect`, default 1.4).** Turn the panel only for
-comics that are clearly wide. Portrait is the device's pose and rotating has to
-be earned: a near-square comic gains almost nothing from landscape and still
-has to be panned, so it stays upright. This puts 57% portrait, 43% landscape.
+**1. Sideways (`--rotate-aspect`, default 1.4).** A clearly wide comic is
+stored **rotated**, so the reader turns the *device* while the screen layout
+stays exactly where it was -- bar in the same place, controls in the same
+place.
 
-An earlier version chose orientation by "does it fit at 0.85", which sent a
-1.01-aspect comic to landscape where it *still* needed panning -- the reader
-turned the device and gained nothing. Aspect is the right test.
+The panel itself never rotates. A first version called `setOrientation` per
+comic, which turned the whole UI around underneath the reader and was rightly
+rejected: it is the comic that is sideways, not the app. Doing it in the pack
+is also cheaper (once, on a host) and *removes* device code rather than adding
+it.
 
-**2. Scale.** Fit the chosen panel's width, **up as well as down**. Enlarging
+It is a readability rule, not a taste one: a 694x272 strip fitted into the 480
+panel is 0.69x and the lettering goes, but turned on its side it is 272 across
+and fits easily. 43% of the archive is stored sideways.
+
+`--rotate-cw` flips which way they turn, if tipping the device the other way
+feels wrong. That is a rebuild, not a code change.
+
+**2. Scale.** Fit the panel, **up as well as down**. A sideways comic is
+fitted *whole*, both axes, because the point of turning it is to see all of it;
+an upright one fits the width and pans down. Enlarging
 the greyscale source before the single dither is not the same as enlarging
 1-bit art: at the median 1.5x the lettering comes out bigger and just as crisp.
 
@@ -156,7 +167,7 @@ not scale with width, so a 340px framed table costs more per row than 3% of its
 own width allows. Across every comic in a 160-comic pack tall enough to pan,
 this lands 93% of steps on a gap.
 
-**Storage.** **132MB** for the whole archive. Keeping comics large is the
+**Storage.** **126MB** for the whole archive. Keeping comics large is the
 point of the rules above, and it is what the extra 44MB over a fit-to-480 pack
 buys. Source PNGs would be ~180MB.
 
