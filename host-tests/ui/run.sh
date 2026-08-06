@@ -37,5 +37,6 @@ c++ -std=c++17 -Wall -Wextra -Werror -I"$SDK/include" -I"$ICONS/include" \
   ../../src/apps_local/player/PlayerName.cpp \
   ../../src/apps_local/player/PlayerScreen.cpp \
   ../../src/apps_local/study/StudyScreens.cpp \
+  ../../src/apps_local/xkcd/XkcdScreens.cpp \
   test_ui.cpp -o "$BUILD_DIR/test_ui"
 "$BUILD_DIR/test_ui"

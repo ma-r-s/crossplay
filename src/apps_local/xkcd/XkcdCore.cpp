@@ -221,7 +221,7 @@ namespace {
 // The best landing row within tolerance of `target`, or `target` itself when
 // the window shows no gap worth stopping at.
 int snapToGap(const Comic& c, int viewportH, int target, const GapWindow& w) {
-  if (!w.rows || w.rowCount <= 0 || w.stride <= 0) return target;
+  if (!w.isGap || w.rowCount <= 0) return target;
 
   const int tol = viewportH * kSnapToleranceNum / kSnapToleranceDen;
   int best = target;
@@ -239,8 +239,7 @@ int snapToGap(const Comic& c, int viewportH, int target, const GapWindow& w) {
       gapRun = 0;
       continue;
     }
-    const uint8_t* row = w.rows + static_cast<size_t>(i) * w.stride;
-    if (rowIsGap(row, c.width)) {
+    if (w.isGap[i]) {
       ++gapRun;
       continue;
     }
@@ -334,9 +333,7 @@ bool rowIsGap(const uint8_t* row, int width) {
   return rowInk(row, width) <= budget;
 }
 
-char foldChar(char c) {
-  return (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c;
-}
+char foldChar(char c) { return (c >= 'A' && c <= 'Z') ? static_cast<char>(c - 'A' + 'a') : c; }
 
 bool titleMatches(const char* title, const char* needle) {
   if (!title || !needle) return false;

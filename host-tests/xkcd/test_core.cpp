@@ -145,6 +145,9 @@ static xkcd::Comic comicFor(const FakeImage& img, uint16_t num = 1) {
 // Exactly what the activity does: ask which rows the step needs, read that
 // range, hand it straight back. Deriving the window anywhere else would be the
 // same defect as hit-testing that recomputes its own geometry.
+// Flags live in the caller, exactly as they will on the device.
+static std::vector<uint8_t> gapFlags;
+
 static xkcd::GapWindow windowFor(const xkcd::Comic& c, const FakeImage& img, int viewportH, int scrollY, bool down) {
   int firstRow = 0, rowCount = 0;
   xkcd::gapWindowFor(c, viewportH, scrollY, down, firstRow, rowCount);
@@ -153,10 +156,15 @@ static xkcd::GapWindow windowFor(const xkcd::Comic& c, const FakeImage& img, int
   CHECK(firstRow >= 0 && firstRow + rowCount <= img.height, "gapWindowFor asked for rows [%d,%d) outside 0..%d",
         firstRow, firstRow + rowCount, img.height);
   if (firstRow < 0 || firstRow + rowCount > img.height) return w;
-  w.rows = img.bits.data() + static_cast<size_t>(firstRow) * img.stride;
+
+  gapFlags.assign(static_cast<size_t>(rowCount), 0);
+  for (int i = 0; i < rowCount; ++i) {
+    const uint8_t* row = img.bits.data() + static_cast<size_t>(firstRow + i) * img.stride;
+    gapFlags[i] = xkcd::rowIsGap(row, img.width) ? 1 : 0;
+  }
+  w.isGap = gapFlags.data();
   w.firstRow = firstRow;
   w.rowCount = rowCount;
-  w.stride = img.stride;
   return w;
 }
 

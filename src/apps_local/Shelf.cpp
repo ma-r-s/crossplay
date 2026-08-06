@@ -14,6 +14,7 @@
 #include "solitaire/SolitaireActivity.h"
 #include "study/StudyActivity.h"
 #include "ui/ToyboxIcons.h"
+#include "xkcd/XkcdActivity.h"
 
 namespace {
 
@@ -31,6 +32,7 @@ constexpr shelf::Item kGames[] = {
 constexpr shelf::Item kApps[] = {
     {"STUDY", &icon_study_32, &StudyActivity::create},
     {"HACKER NEWS", &icon_hackernews_32, &HackerNewsActivity::create},
+    {"XKCD", &icon_xkcd_32, &XkcdActivity::create},
 };
 
 // The two rows Home grows, in reading order. Titles are Title Case because

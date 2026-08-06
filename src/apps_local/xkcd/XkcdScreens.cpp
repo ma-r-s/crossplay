@@ -1,0 +1,357 @@
+#include "XkcdScreens.h"
+
+#include <cstdio>
+
+namespace xkcdui {
+namespace {
+
+// The reader's bar. Sized to hold the comic number, a title, the rail and the
+// ALT control on one line, and no taller: every pixel here is a pixel of comic
+// that has to be panned instead of seen.
+constexpr int16_t kBarHeight = 44;
+
+// The top of any body: below the header band and the rule Toybox draws under
+// it. Shared by every screen here so they line up with each other and with the
+// shelf the reader just came from.
+constexpr int16_t kBodyTop = kHeaderBand + toybox::kGutter * 3;
+
+// The menu's bands, laid out once. Both the builder and the Activity need the
+// mosaic's rect, and two functions that compute it separately are the defect
+// this fork has hit more than any other -- the first version put the mosaic
+// 118px below a body top that no longer existed, and it drew straight through
+// the record line.
+struct MenuBands {
+  fui::Rect headline;
+  fui::Rect title;
+  fui::Rect rule;
+  fui::Rect record;
+  fui::Rect mosaic;
+  fui::Rect doors;
+};
+
+MenuBands menuBands(const fui::DeviceContext& device) {
+  const fui::Rect panel = device.screen();
+  const int16_t left = toybox::kMargin;
+  const int16_t width = static_cast<int16_t>(panel.width - toybox::kMargin * 2);
+
+  MenuBands b;
+  int16_t y = kBodyTop;
+  b.headline = fui::makeRect(left, y, width, 44);
+  y = static_cast<int16_t>(y + 44 + 2);
+  b.title = fui::makeRect(left, y, width, 28);
+  y = static_cast<int16_t>(y + 28 + toybox::kGutter);
+  b.rule = fui::makeRect(left, y, width, toybox::kRule);
+  y = static_cast<int16_t>(y + toybox::kRule + toybox::kGutter);
+  b.record = fui::makeRect(left, y, width, 24);
+  y = static_cast<int16_t>(y + 24 + toybox::kGutter * 2);
+
+  b.doors = fui::makeRect(left, static_cast<int16_t>(panel.height - toybox::kMargin - toybox::kPillHeight), width,
+                          toybox::kPillHeight);
+  b.mosaic = fui::makeRect(left, y, width, static_cast<int16_t>(b.doors.y - toybox::kGutter - y));
+  return b;
+}
+
+// Header band, rule, and the page margin. Every screen except the reader
+// opens with this.
+//
+// `rightLabel` is drawn in paper, not ink. The band is solid black and
+// Screen::header() resolves the subtitle style from the theme, whose colour is
+// Black -- so a label left at the default is painted black on black and simply
+// is not there, indistinguishable from never having been set. That is how the
+// Hacker News page indicator went missing through two renders.
+void chrome(toybox::Screen& screen, const char* title, const char* rightLabel = nullptr) {
+  fui::HeaderProps header;
+  header.title = title;
+  header.rightLabel = rightLabel;
+  header.borderEdges = fui::EdgesNone;
+  if (rightLabel != nullptr) {
+    header.subtitleText = screen.theme().smallText;
+    header.subtitleText.color = fui::Color::White;
+  }
+  screen.header(header);
+
+  const fui::Rect panel = screen.device().screen();
+  screen.target().fill(fui::makeRect(0, static_cast<int16_t>(kHeaderBand + 4), panel.width, toybox::kRule),
+                       fui::Paint::solid(fui::Color::Black));
+  screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
+}
+
+// A style the components will treat as owned. A style whose font is
+// FONT_SLOT_SMALL and whose every other field is default reads as *unset*, so
+// the theme quietly puts its own back and the label returns at full size --
+// which looks exactly like the assignment never happened. Naming one more
+// field (the alignment the component was going to apply anyway) is what makes
+// it stick. See docs/building-apps.md.
+fui::TextStyle owned(fui::TextStyle style, fui::TextAlign align) {
+  style.align = align;
+  return style;
+}
+
+// The theme's title style is built for the header band, which is solid black,
+// so its colour is White. Drawn on paper it is white on white: invisible, and
+// indistinguishable from the code never having run. That is the black-on-black
+// header defect this fork has already hit twice, in reverse. Anything using a
+// chrome style away from the band has to say what colour it is.
+fui::TextStyle onPaper(fui::TextStyle style, fui::TextAlign align) {
+  style.align = align;
+  style.color = fui::Color::Black;
+  return style;
+}
+
+}  // namespace
+
+// --- The front door ------------------------------------------------------
+
+fui::Rect menuMosaicBand(const fui::DeviceContext& device) { return menuBands(device).mosaic; }
+
+void buildMenu(toybox::Screen& screen, const MenuModel& model) {
+  chrome(screen, "XKCD");
+
+  const MenuBands bands = menuBands(screen.device());
+
+  // The headline is the newest comic on the card, and it is also the hit
+  // target for the most common action -- so the commonest tap is on the
+  // largest thing on the screen and needs no button at all.
+  char headline[64];
+  if (model.hasArchive && model.latestNum > 0) {
+    snprintf(headline, sizeof(headline), "#%u", static_cast<unsigned>(model.latestNum));
+  } else {
+    snprintf(headline, sizeof(headline), "NO ARCHIVE");
+  }
+  screen.target().text(bands.headline, headline, onPaper(screen.theme().titleText, fui::TextAlign::Left));
+
+  screen.target().text(bands.title, model.hasArchive ? model.latestTitle : "Build a pack and copy it to /xkcd",
+                       onPaper(screen.theme().bodyText, fui::TextAlign::Left));
+
+  if (model.hasArchive) {
+    // One target spanning both lines, derived from the two rects that drew
+    // them rather than recomputed -- the headline and its title are one door.
+    screen.frame().hit(fui::makeRect(bands.headline.x, bands.headline.y, bands.headline.width,
+                                     static_cast<int16_t>(bands.title.bottom() - bands.headline.y)),
+                       ActionOpenLatest);
+  }
+
+  screen.target().fill(bands.rule, fui::Paint::solid(fui::Color::Black));
+
+  char record[96];
+  if (!model.hasArchive) {
+    snprintf(record, sizeof(record), "Build one with tools_local/xkcd/build_pack.py");
+  } else if (model.waiting > 0) {
+    snprintf(record, sizeof(record), "%d COMICS   %d READ   %d WAITING", model.comicCount, model.readCount,
+             model.waiting);
+  } else {
+    snprintf(record, sizeof(record), "%d COMICS   %d READ", model.comicCount, model.readCount);
+  }
+  screen.target().text(bands.record, record, onPaper(screen.theme().smallText, fui::TextAlign::Left));
+
+  // The mosaic band is left for the Activity, which draws it from the index.
+
+  // The lesser doors, bottom-anchored: that is where a thumb rests, and it
+  // keeps them from competing with the headline.
+  const int16_t doorWidth = static_cast<int16_t>((bands.doors.width - toybox::kGutter * 3) / 4);
+
+  struct Door {
+    const char* label;
+    fui::ActionId action;
+    bool enabled;
+  };
+  const Door doors[] = {
+      {"BROWSE", ActionBrowse, model.hasArchive},
+      {"SEARCH", ActionSearch, model.hasArchive},
+      {"RANDOM", ActionRandom, model.hasArchive},
+      {"UPDATE", ActionUpdate, true},
+  };
+
+  for (int i = 0; i < 4; ++i) {
+    fui::ButtonProps props;
+    props.label = doors[i].label;
+    props.action = doors[i].action;
+    // A control that cannot act dims rather than disappears: a button that
+    // vanishes takes its space with it, the layout jumps, and you cannot tell
+    // whether the action is unavailable or whether you misremembered the
+    // screen. UPDATE stays live with no archive, because it is the way out.
+    props.enabled = doors[i].enabled;
+    screen.button(props, fui::makeRect(static_cast<int16_t>(bands.doors.x + i * (doorWidth + toybox::kGutter)),
+                                       bands.doors.y, doorWidth, bands.doors.height));
+  }
+}
+
+// --- Browsing ------------------------------------------------------------
+
+fui::Rect listBand(const fui::DeviceContext& device) {
+  const fui::Rect panel = device.screen();
+  const int16_t top = kBodyTop;
+  const int16_t bottom = static_cast<int16_t>(panel.height - toybox::kMargin - toybox::kPillHeight - toybox::kGutter);
+  return fui::makeRect(toybox::kMargin, top, static_cast<int16_t>(panel.width - toybox::kMargin * 2),
+                       static_cast<int16_t>(bottom - top));
+}
+
+void buildList(toybox::Screen& screen, const ListModel& model) {
+  chrome(screen, model.title, model.rightLabel);
+
+  const fui::Rect band = listBand(screen.device());
+  const fui::Rect panel = screen.device().screen();
+
+  fui::ListProps props;
+  props.items = model.items;
+  props.count = static_cast<uint16_t>(model.count < 0 ? 0 : model.count);
+  props.selectedIndex = static_cast<int16_t>(model.selected);
+  props.action = ActionOpenComic;
+  // A list row's title band is one line tall the moment it has a subtitle, so
+  // a wrapping label would be drawn straight through the subtitle underneath
+  // it. The date goes in the value slot, which sits beside the label.
+  props.labelText = owned(screen.theme().bodyText, fui::TextAlign::Left);
+  props.valueText = owned(screen.theme().smallText, fui::TextAlign::Right);
+
+  // The content rect already carries the page margin; listInset is applied on
+  // top of it, so leaving it non-zero indents every row twice.
+  screen.setContentMargin(
+      fui::Insets{band.y, toybox::kMargin, static_cast<int16_t>(panel.height - band.bottom()), toybox::kMargin});
+  screen.list(props, band.height);
+
+  // Paging, bottom-anchored beside each other. Older is on the left because
+  // the list runs newest-first, so left is back the way you came.
+  const int16_t pageWidth = 150;
+  const int16_t pageY = static_cast<int16_t>(panel.height - toybox::kMargin - toybox::kPillHeight);
+
+  fui::ButtonProps older;
+  older.label = "OLDER";
+  older.action = ActionPageOlder;
+  older.enabled = model.canPageOlder;
+  screen.button(older, fui::makeRect(toybox::kMargin, pageY, pageWidth, toybox::kPillHeight));
+
+  fui::ButtonProps newer;
+  newer.label = "NEWER";
+  newer.action = ActionPageNewer;
+  newer.enabled = model.canPageNewer;
+  screen.button(newer, fui::makeRect(static_cast<int16_t>(panel.width - toybox::kMargin - pageWidth), pageY, pageWidth,
+                                     toybox::kPillHeight));
+}
+
+// --- The reader ----------------------------------------------------------
+
+fui::Rect readerViewport(const fui::DeviceContext& device) {
+  const fui::Rect panel = device.screen();
+  return fui::makeRect(0, 0, panel.width, static_cast<int16_t>(panel.height - kBarHeight));
+}
+
+fui::Rect readerPanUpHalf(const fui::DeviceContext& device) {
+  const fui::Rect view = readerViewport(device);
+  return fui::makeRect(view.x, view.y, view.width, static_cast<int16_t>(view.height / 2));
+}
+
+fui::Rect readerPanDownHalf(const fui::DeviceContext& device) {
+  const fui::Rect view = readerViewport(device);
+  const int16_t half = static_cast<int16_t>(view.height / 2);
+  return fui::makeRect(view.x, static_cast<int16_t>(view.y + half), view.width,
+                       static_cast<int16_t>(view.height - half));
+}
+
+void buildReaderBar(toybox::Screen& screen, const ReaderModel& model) {
+  const fui::Rect panel = screen.device().screen();
+  const fui::Rect bar = fui::makeRect(0, static_cast<int16_t>(panel.height - kBarHeight), panel.width, kBarHeight);
+
+  // A solid black bar that never repaints while you pan costs nothing on
+  // e-ink and cannot ghost, which is the one rule in docs/design-language.md.
+  screen.target().fill(bar, fui::Paint::solid(fui::Color::Black));
+
+  char left[80];
+  snprintf(left, sizeof(left), "#%u  %s", static_cast<unsigned>(model.num), model.title);
+
+  fui::TextStyle label = owned(screen.theme().smallText, fui::TextAlign::Left);
+  label.color = fui::Color::White;
+
+  // The rail takes the right third; the label gets what is left, bounded by
+  // what it must not touch. Handing a long title the whole bar was the defect
+  // the shelf's player row had: the component centres across the whole rect,
+  // so at the widest value the text runs straight through its neighbours.
+  const int16_t railWidth = 180;
+  const int16_t altWidth = 76;
+  const int16_t labelWidth = static_cast<int16_t>(panel.width - toybox::kGutter * 4 - railWidth - altWidth);
+  // The full bar height, not a guessed 22px band inside it: the target centres
+  // text on the font's *line box*, which is taller than the ink, so a short
+  // rect pushes the baseline past the bottom of the panel. That drew the title
+  // half off the screen and filled the log with out-of-range pixel writes.
+  screen.target().text(fui::makeRect(toybox::kGutter, bar.y, labelWidth, kBarHeight), left, label);
+
+  // The rail: how far through the comic you are. Only drawn when there is
+  // somewhere to go, because a full rail on a comic that fits says nothing
+  // and a rail is not a control, so nothing is lost by its absence.
+  if (model.pans) {
+    const int16_t railX = static_cast<int16_t>(panel.width - toybox::kGutter * 2 - railWidth - altWidth);
+    const int16_t railY = static_cast<int16_t>(bar.y + kBarHeight / 2 - 3);
+    const fui::Rect rail = fui::makeRect(railX, railY, railWidth, 6);
+    screen.target().fill(rail, fui::Paint::solid(fui::Color::White));
+
+    // The filled part is knocked back out in black. Two rectangles rather than
+    // a thumb: a thumb on a 6px rail is a 6px square and reads as dirt.
+    const int16_t filled = static_cast<int16_t>(static_cast<int32_t>(railWidth) * model.permille / 1000);
+    if (filled < railWidth) {
+      screen.target().fill(
+          fui::makeRect(static_cast<int16_t>(railX + filled), railY, static_cast<int16_t>(railWidth - filled), 6),
+          fui::Paint::solid(fui::Color::Black));
+      screen.target().fill(fui::makeRect(static_cast<int16_t>(railX + filled), railY, 2, 6),
+                           fui::Paint::solid(fui::Color::White));
+    }
+  }
+
+  if (model.hasAlt) {
+    fui::ButtonProps alt;
+    alt.label = "ALT";
+    alt.action = ActionShowAlt;
+    screen.button(alt, fui::makeRect(static_cast<int16_t>(panel.width - toybox::kGutter - altWidth),
+                                     static_cast<int16_t>(bar.y + 6), altWidth, static_cast<int16_t>(kBarHeight - 12)));
+  }
+}
+
+// --- The alt text --------------------------------------------------------
+
+void buildAlt(toybox::Screen& screen, const AltModel& model) {
+  char title[64];
+  snprintf(title, sizeof(title), "#%u", static_cast<unsigned>(model.num));
+  chrome(screen, title);
+
+  fui::TextStyle head = owned(screen.theme().bodyText, fui::TextAlign::Left);
+  screen.target().text(screen.takeTop(30, toybox::kGutter), model.title, head);
+
+  fui::TextAreaProps text;
+  text.text = model.alt;
+  text.style = owned(screen.theme().bodyText, fui::TextAlign::Left);
+  text.showCaret = false;
+  screen.textArea(text, static_cast<int16_t>(screen.body().height - toybox::kPillHeight - toybox::kGutter));
+
+  const fui::Rect panel = screen.device().screen();
+  fui::ButtonProps back;
+  back.label = "BACK TO THE COMIC";
+  back.action = ActionDismiss;
+  screen.button(
+      back, fui::makeRect(toybox::kMargin, static_cast<int16_t>(panel.height - toybox::kMargin - toybox::kPillHeight),
+                          static_cast<int16_t>(panel.width - toybox::kMargin * 2), toybox::kPillHeight));
+}
+
+// --- Notices -------------------------------------------------------------
+
+void buildNotice(toybox::Screen& screen, const NoticeModel& model) {
+  chrome(screen, model.title);
+
+  fui::TextStyle head = owned(screen.theme().titleText, fui::TextAlign::Left);
+  screen.target().text(screen.takeTop(44, toybox::kGutter), model.headline, head);
+
+  fui::TextAreaProps detail;
+  detail.text = model.detail;
+  detail.style = owned(screen.theme().bodyText, fui::TextAlign::Left);
+  detail.showCaret = false;
+  screen.textArea(detail, static_cast<int16_t>(screen.body().height - toybox::kPillHeight - toybox::kGutter));
+
+  if (model.actionLabel != nullptr) {
+    const fui::Rect panel = screen.device().screen();
+    fui::ButtonProps act;
+    act.label = model.actionLabel;
+    act.action = model.action;
+    screen.button(
+        act, fui::makeRect(toybox::kMargin, static_cast<int16_t>(panel.height - toybox::kMargin - toybox::kPillHeight),
+                           static_cast<int16_t>(panel.width - toybox::kMargin * 2), toybox::kPillHeight));
+  }
+}
+
+}  // namespace xkcdui

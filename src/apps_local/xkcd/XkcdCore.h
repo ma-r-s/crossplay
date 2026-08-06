@@ -262,16 +262,21 @@ Placement place(const Comic& c, int screenW, int viewportH, int scrollY);
 // The largest legal scroll offset. Zero when the comic fits.
 int maxScroll(const Comic& c, int viewportH);
 
-// A slice of the image the step is allowed to look at, so the core stays free
-// of I/O. `rows` covers [firstRow, firstRow + rowCount) packed at `stride`.
-// Leaving `rows` null is legal and means "no artwork available": the step falls
-// back to a plain half-screen, which is exactly what should happen if the card
-// hiccups.
+// Which rows near the target are gaps, so the core stays free of I/O.
+//
+// One byte per row rather than the packed artwork itself, and that is a RAM
+// decision: the window is ~200 rows, which as pixels is 19KB the device would
+// have to find on the heap for every tap. As flags it is 200 bytes on the
+// stack. The caller streams the rows past `rowIsGap` in whatever chunks suit
+// it and fills this in.
+//
+// Leaving `isGap` null is legal and means "no artwork available": the step
+// falls back to a plain half-screen, which is exactly what should happen if
+// the card hiccups.
 struct GapWindow {
-  const uint8_t* rows = nullptr;
+  const uint8_t* isGap = nullptr;  // non-zero means the row is a gap
   int firstRow = 0;
   int rowCount = 0;
-  int stride = 0;
 };
 
 // The rows a step from `scrollY` will consult. The caller reads exactly this
