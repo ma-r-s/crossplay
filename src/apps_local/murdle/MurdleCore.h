@@ -215,6 +215,12 @@ class Grid {
   // Every cell of every block decided.
   bool complete() const;
 
+  // How many cells are decided, and how many there are. The only honest measure
+  // of progress this game has: clues ticked says what you have read, this says
+  // what you have worked out.
+  int decided() const;
+  int cells() const;
+
   Shape shape() const { return shape_; }
 
  private:

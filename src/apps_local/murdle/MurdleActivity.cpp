@@ -482,6 +482,13 @@ void MurdleActivity::render(RenderLock&&) {
       model.solvedCount = solvedCount;
       model.wrongCount = wrongCount;
       model.record = record;
+      if (hasCase) {
+        model.puzzle = &puzzle;
+        model.marks = &marks;
+        for (int i = 0; i < puzzle.clueCount; ++i) {
+          if (struck & (1u << i)) ++model.cluesTicked;
+        }
+      }
       ui::buildMenu(screen, model);
       break;
     }

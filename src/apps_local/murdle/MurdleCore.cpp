@@ -189,12 +189,25 @@ void Grid::clear(const int catA, const int itemA, const int catB, const int item
 }
 
 bool Grid::setYes(const int catA, const int itemA, const int catB, const int itemB) {
-  if (put(catA, itemA, catB, itemB, Mark::Yes) < 0) return false;
-  // One suspect cannot hold two weapons, and one weapon cannot be held by two
-  // suspects. Bookkeeping, not deduction: this stays inside the block.
+  // Clear the row and column first, then write. put() refuses to overwrite a
+  // decided cell -- which is right for the solver and wrong here, because this
+  // is the player's own hand and they are allowed to change their mind. The
+  // first version wrote the new Yes, hit the old one while crossing out,
+  // returned false and left two yeses in one row with the crossing half
+  // applied: a corrupt grid produced by the most ordinary action there is.
   for (int i = 0; i < shape_.items; ++i) {
-    if (i != itemB && put(catA, itemA, catB, i, Mark::No) < 0) return false;
-    if (i != itemA && put(catA, i, catB, itemB, Mark::No) < 0) return false;
+    clear(catA, itemA, catB, i);
+    clear(catA, i, catB, itemB);
+  }
+  put(catA, itemA, catB, itemB, Mark::Yes);
+
+  // One suspect cannot hold two weapons, and one weapon cannot be held by two
+  // suspects. Bookkeeping, not deduction: this stays inside the block, because
+  // reaching across blocks is the deduction and doing it for the player would
+  // be playing the game for them.
+  for (int i = 0; i < shape_.items; ++i) {
+    if (i != itemB) put(catA, itemA, catB, i, Mark::No);
+    if (i != itemA) put(catA, i, catB, itemB, Mark::No);
   }
   return true;
 }
@@ -211,6 +224,22 @@ bool Grid::complete() const {
   }
   return true;
 }
+
+int Grid::decided() const {
+  int n = 0;
+  for (int a = 0; a < shape_.cats; ++a) {
+    for (int b = a + 1; b < shape_.cats; ++b) {
+      for (int ia = 0; ia < shape_.items; ++ia) {
+        for (int ib = 0; ib < shape_.items; ++ib) {
+          if (cells_[blockIndex(a, b)][ia][ib] != static_cast<uint8_t>(Mark::Unknown)) ++n;
+        }
+      }
+    }
+  }
+  return n;
+}
+
+int Grid::cells() const { return shape_.cats * (shape_.cats - 1) / 2 * shape_.items * shape_.items; }
 
 // ---------------------------------------------------------------------------
 // Propagation

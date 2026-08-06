@@ -143,8 +143,14 @@ struct MenuModel {
   int caseNumber = 0;
   int solvedCount = 0;
   int wrongCount = 0;
-  // The last sixteen verdicts, two bits each: 0 unplayed, 1 solved clean,
-  // 2 solved after a wrong accusation, 3 abandoned.
+  // The open case itself. The front door's job is to get you back into it, so
+  // every design below is built out of it rather than out of counters about it.
+  const murdle::Puzzle* puzzle = nullptr;
+  const murdle::Grid* marks = nullptr;
+  int cluesTicked = 0;
+  // The last sixteen verdicts, two bits each. Kept for whichever front door
+  // wants it; see the note in MurdleScreens.cpp about why it was the wrong
+  // ornament for this game.
   uint32_t record = 0;
 };
 

@@ -134,6 +134,40 @@ void testGridIsOrderIndependent() {
   CHECK(!grid.set(0, 3, 1, 2, Mark::No));
 }
 
+// Marking a square right must rule out the rest of its row and column, and it
+// must do so even when the player is overruling an earlier answer. The first
+// version refused: put() will not write over a decided cell, so setYes() hit
+// the old Yes, returned false, and left TWO yeses in one row with the crossing
+// half applied. A corrupt grid, from the most ordinary action there is --
+// changing your mind.
+void testSetYesOverrulesAnEarlierAnswer() {
+  Grid grid;
+  grid.reset(Shape{4, 4});
+  CHECK(grid.setYes(0, 0, 1, 0));
+  CHECK(grid.get(0, 0, 1, 0) == Mark::Yes);
+  CHECK(grid.get(0, 0, 1, 3) == Mark::No);
+
+  // Same row, a different column: the new answer wins and the old one is gone.
+  CHECK(grid.setYes(0, 0, 1, 3));
+  CHECK(grid.get(0, 0, 1, 3) == Mark::Yes);
+  CHECK(grid.get(0, 0, 1, 0) == Mark::No);
+  int yeses = 0;
+  for (int i = 0; i < 4; ++i) {
+    if (grid.get(0, 0, 1, i) == Mark::Yes) ++yeses;
+  }
+  CHECK(yeses == 1);
+
+  // Same column, a different row.
+  CHECK(grid.setYes(0, 2, 1, 3));
+  CHECK(grid.get(0, 2, 1, 3) == Mark::Yes);
+  CHECK(grid.get(0, 0, 1, 3) == Mark::No);
+  yeses = 0;
+  for (int i = 0; i < 4; ++i) {
+    if (grid.get(0, i, 1, 3) == Mark::Yes) ++yeses;
+  }
+  CHECK(yeses == 1);
+}
+
 void testSetYesCrossesItsOwnBlockOnly() {
   Grid grid;
   grid.reset(Shape{4, 4});
@@ -738,6 +772,7 @@ int runTests() {
   testRngIsUnbiased();
   testGridIsOrderIndependent();
   testSetYesCrossesItsOwnBlockOnly();
+  testSetYesOverrulesAnEarlierAnswer();
   testCastTableIsDrawable();
   testEveryNameIsOneWord();
   testEveryCaseHasSixteenDistinctInitials();

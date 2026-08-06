@@ -684,62 +684,34 @@ CaseReport buildCase(toybox::Screen& screen, const CaseModel& model) {
 
 // ---------------------------------------------------------------------------
 
-void buildMenu(toybox::Screen& screen, const MenuModel& model) {
-  chrome(screen, "MURDLE", tierName(model.tier));
-  const fui::Rect body = screen.body();
-  auto& target = screen.target();
+// THE FRONT DOOR: your own board, small.
+//
+// Chosen by building four and rendering them side by side against the same
+// case. The one it replaces carried a 4x4 block of your last sixteen cases,
+// lifted from Connections without checking whether it meant anything here. In
+// Connections it is a calendar -- one puzzle a day, so sixteen days is a shape
+// you recognise and a streak you can lose. Murdle has no cadence at all: cases
+// are endless and on demand, so sixteen boxes in arbitrary order say nothing,
+// and on a fresh device they are sixteen *empty* boxes taking half the screen.
+// Decoration has to carry the player's own data and that data has to mean
+// something; the pips passed the first test and failed the second.
+//
+// A miniature of the real grid passes both, and it is not really decoration at
+// all -- it is the thing itself. It answers "how far in am I" as a texture
+// rather than a number, it is different on every device and every case, and it
+// could not appear in any other app on this shelf.
+//
+// The three that lost: the case's cast listed (which is the case-file page
+// again), a bordered card of facts (calm, and the only one whose empty state
+// looked deliberate -- its numbers survive here, under the board), and one
+// enormous case number (fast, confident, and nothing to look at on a panel that
+// holds its image for hours).
 
-  // The headline is the door, the way Connections' date is. The biggest thing
-  // on the screen is also the thing you came here to tap.
-  const char* headline = model.hasCase ? (model.caseSolved ? "CASE CLOSED" : "THE CASE") : "A NEW CASE";
-  target.text(fui::makeRect(body.x, body.y, body.width, 56), headline,
-              styled(toybox::kDisplayFont, fui::TextAlign::Left));
-  screen.frame().hit(fui::makeRect(body.x, body.y, body.width, 56), ActionPlay, 0);
+namespace {
 
-  char state[96];
-  if (model.hasCase) {
-    std::snprintf(state, sizeof(state), "CASE %d, %s", model.caseNumber, tierName(model.tier));
-  } else {
-    std::snprintf(state, sizeof(state), "%s", tierShape(model.tier));
-  }
-  target.text(fui::makeRect(body.x, static_cast<int16_t>(body.y + 58), body.width, 22), state,
-              styled(toybox::kTileFont, fui::TextAlign::Left));
-
-  const int16_t ruleY = static_cast<int16_t>(body.y + 92);
-  target.fill(fui::makeRect(body.x, ruleY, body.width, toybox::kRule), fui::Paint::solid(fui::Color::Black));
-
-  char record[96];
-  std::snprintf(record, sizeof(record), "%d SOLVED   %d WRONG ACCUSATIONS", model.solvedCount, model.wrongCount);
-  target.text(fui::makeRect(body.x, static_cast<int16_t>(ruleY + 14), body.width, 22), record,
-              styled(toybox::kTileFont, fui::TextAlign::Left));
-
-  // The ornament, and it is the player's own record rather than decoration: a
-  // screenshot of it is different on every device. Sixteen cases, two bits
-  // each, oldest at the top left.
-  target.text(fui::makeRect(body.x, static_cast<int16_t>(body.y + 150), body.width, 22), "LAST 16 CASES",
-              styled(toybox::kTileFont, fui::TextAlign::Center));
-  constexpr int16_t kPip = 46;
-  constexpr int16_t kPipGap = 8;
-  const int16_t rowW = static_cast<int16_t>(4 * kPip + 3 * kPipGap);
-  const int16_t pipX = static_cast<int16_t>(body.x + (body.width - rowW) / 2);
-  for (int i = 0; i < 16; ++i) {
-    const int state2 = static_cast<int>((model.record >> (i * 2)) & 3u);
-    const fui::Rect cell = fui::makeRect(static_cast<int16_t>(pipX + (i % 4) * (kPip + kPipGap)),
-                                         static_cast<int16_t>(body.y + 180 + (i / 4) * (kPip + kPipGap)), kPip, kPip);
-    target.stroke(cell, fui::Paint::solid(fui::Color::Black), toybox::kHairline, 4);
-    if (state2 == 1) {
-      target.fill(cell.inset(fui::Insets{6, 6, 6, 6}), fui::Paint::solid(fui::Color::Black), 3);
-    } else if (state2 == 2) {
-      target.fill(cell.inset(fui::Insets{6, 6, 6, 6}), fui::Paint::dither(fui::Color::Black), 3);
-    } else if (state2 == 3) {
-      target.fill(fui::makeRect(static_cast<int16_t>(cell.x + 10), static_cast<int16_t>(cell.y + kPip / 2 - 2),
-                                static_cast<int16_t>(kPip - 20), 4),
-                  fui::Paint::solid(fui::Color::Black));
-    }
-  }
-
-  // Bottom-anchored doors, quietest first: the anchor pops upward, so the row
-  // taken first ends up lowest.
+// The doors, bottom-anchored, quietest first: the anchor pops upward, so the
+// row taken first ends up lowest.
+void menuDoors(toybox::Screen& screen, const MenuModel& model) {
   fui::ButtonProps how;
   how.label = "HOW TO SOLVE";
   how.action = ActionHowTo;
@@ -759,10 +731,124 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   fui::ButtonProps fresh;
   fresh.label = model.hasCase ? "NEW CASE" : "OPEN A CASE";
   fresh.action = ActionNewCase;
-  fresh.text = styled(toybox::kDisplayFont, fui::TextAlign::Center, fui::Color::White);
+  // The UI cut, not the display cut, and this is a fix rather than a
+  // preference. A button centres its label's *line box*, and the display cut's
+  // line box carries descender space that an all-caps label never uses -- so
+  // the glyphs sat visibly high in the pill while its two neighbours, set
+  // smaller, looked centred. The emphasis was never coming from the size
+  // anyway: a black pill with knocked-out white type is already the loudest
+  // thing on the screen.
+  fresh.text = styled(toybox::kUiFont, fui::TextAlign::Center, fui::Color::White);
   fresh.styles = toybox::invertedStyles();
   fresh.radius = 10;
   screen.button(fresh, fui::LayoutAnchor::Bottom);
+}
+
+// A miniature of the real grid, marks and all. No labels: at this size it is a
+// picture of how far in you are, not something to read.
+void miniGrid(toybox::Screen& screen, const murdle::Puzzle& puzzle, const murdle::Grid& marks, const fui::Rect& area) {
+  auto& target = screen.target();
+  const fui::Paint ink = fui::Paint::solid(fui::Color::Black);
+  const int groups = puzzle.shape.cats - 1;
+  const int items = puzzle.shape.items;
+  const int span = groups * items;
+
+  int16_t cell = static_cast<int16_t>((area.width < area.height ? area.width : area.height) / span);
+  if (cell < 6) cell = 6;
+  const int16_t size = static_cast<int16_t>(cell * span);
+  const int16_t x0 = static_cast<int16_t>(area.x + (area.width - size) / 2);
+  const int16_t y0 = static_cast<int16_t>(area.y + (area.height - size) / 2);
+
+  uint8_t colCat[murdle::kMaxCats] = {};
+  uint8_t rowCat[murdle::kMaxCats] = {};
+  colCat[0] = 0;
+  for (int i = 1; i < groups; ++i) colCat[i] = static_cast<uint8_t>(puzzle.shape.cats - i);
+  for (int i = 0; i < groups; ++i) rowCat[i] = static_cast<uint8_t>(i + 1);
+
+  for (int r = 0; r < groups; ++r) {
+    for (int c = 0; c < groups; ++c) {
+      if (r + c >= groups) continue;
+      const fui::Rect block =
+          fui::makeRect(static_cast<int16_t>(x0 + c * items * cell), static_cast<int16_t>(y0 + r * items * cell),
+                        static_cast<int16_t>(items * cell), static_cast<int16_t>(items * cell));
+      for (int ir = 0; ir < items; ++ir) {
+        for (int ic = 0; ic < items; ++ic) {
+          const fui::Rect at = fui::makeRect(static_cast<int16_t>(block.x + ic * cell),
+                                             static_cast<int16_t>(block.y + ir * cell), cell, cell);
+          target.stroke(at, ink, toybox::kHairline);
+          const murdle::Mark mark = marks.get(rowCat[r], ir, colCat[c], ic);
+          if (mark == murdle::Mark::No) {
+            target.fill(fui::makeRect(static_cast<int16_t>(at.x + cell / 3), static_cast<int16_t>(at.y + cell / 2 - 1),
+                                      static_cast<int16_t>(cell / 3), 2),
+                        ink);
+          } else if (mark == murdle::Mark::Yes) {
+            target.fill(fui::makeRect(static_cast<int16_t>(at.x + cell / 4), static_cast<int16_t>(at.y + cell / 4),
+                                      static_cast<int16_t>(cell / 2), static_cast<int16_t>(cell / 2)),
+                        ink);
+          }
+        }
+      }
+      target.stroke(block, ink, toybox::kRule);
+    }
+  }
+}
+
+}  // namespace
+
+void buildMenu(toybox::Screen& screen, const MenuModel& model) {
+  chrome(screen, "MURDLE", tierName(model.tier));
+  menuDoors(screen, model);
+  const fui::Rect body = screen.body();
+  auto& target = screen.target();
+
+  // The headline is the way in. The biggest thing on the screen is the thing
+  // you came here to tap.
+  const char* headline = model.hasCase ? (model.caseSolved ? "CASE CLOSED" : "THE CASE") : "A NEW CASE";
+  const int16_t big = target.lineHeight(toybox::kDisplayFont);
+  const int16_t lh = target.lineHeight(toybox::kTileFont);
+  target.text(fui::makeRect(body.x, body.y, body.width, big), headline,
+              styled(toybox::kDisplayFont, fui::TextAlign::Left));
+  screen.frame().hit(fui::makeRect(body.x, body.y, body.width, big), ActionPlay, 0);
+
+  char state[96];
+  if (!model.hasCase || model.puzzle == nullptr) {
+    std::snprintf(state, sizeof(state), "%s", tierShape(model.tier));
+  } else if (model.caseSolved) {
+    std::snprintf(state, sizeof(state), "CASE %d, %s, CLOSED", model.caseNumber, tierName(model.tier));
+  } else {
+    std::snprintf(state, sizeof(state), "CASE %d, %s", model.caseNumber, tierName(model.tier));
+  }
+  target.text(fui::makeRect(body.x, static_cast<int16_t>(body.y + big + 2), body.width, lh), state,
+              styled(toybox::kTileFont, fui::TextAlign::Left));
+  int16_t y = static_cast<int16_t>(body.y + big + lh + 14);
+
+  if (!model.hasCase || model.puzzle == nullptr || model.marks == nullptr) {
+    // Nothing to show but the fact that there is nothing. Said once, plainly,
+    // rather than drawn as an empty ornament.
+    target.text(fui::makeRect(body.x, y, body.width, lh), "NO CASE OPEN.",
+                styled(toybox::kTileFont, fui::TextAlign::Left));
+    return;
+  }
+
+  // Two lines of facts under the board, kept from the card design that lost:
+  // the board says how far in you are, these say what "in" consists of.
+  char facts[2][64];
+  std::snprintf(facts[0], sizeof(facts[0]), "%d OF %d CLUES USED", model.cluesTicked, model.puzzle->clueCount);
+  std::snprintf(facts[1], sizeof(facts[1]), "%d OF %d SQUARES SETTLED", model.marks->decided(), model.marks->cells());
+  const int16_t factsH = static_cast<int16_t>(lh * 2 + 10);
+
+  // The board takes everything between the state line and the facts, which is
+  // what closes the gap the four candidates all had between their content and
+  // their doors.
+  const fui::Rect board = fui::makeRect(body.x, y, body.width, static_cast<int16_t>(body.bottom() - y - factsH));
+  miniGrid(screen, *model.puzzle, *model.marks, board);
+  screen.frame().hit(board, ActionPlay, 0);
+
+  y = static_cast<int16_t>(board.bottom() + 6);
+  for (int i = 0; i < 2; ++i) {
+    target.text(fui::makeRect(body.x, y, body.width, lh), facts[i], styled(toybox::kTileFont, fui::TextAlign::Center));
+    y = static_cast<int16_t>(y + lh);
+  }
 }
 
 void buildSettings(toybox::Screen& screen, const SettingsModel& model) {
