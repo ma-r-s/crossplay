@@ -1,5 +1,6 @@
 #include "LinkRadio.h"
 
+#include <cstdlib>
 #include <cstring>
 
 // Logging belongs to the firmware, and it reaches Arduino.h. Outside a firmware
@@ -45,8 +46,33 @@ void onEspNowReceive(const esp_now_recv_info_t* info, const uint8_t* data, const
 // becomes the low half of its address -- so host election ("lower address
 // wins") falls out as "whoever started first", which is deterministic and
 // needs no negotiation, exactly as it will be from MACs on the device.
-constexpr uint16_t kBasePort = 45700;
+constexpr uint16_t kDefaultBasePort = 45700;
 constexpr int kSlots = 8;
+
+// One range per worktree, because the range is the discovery mechanism.
+//
+// Several trees now build and test at once, and this transport is real UDP on
+// real loopback: a broadcast from one tree's test run is delivered to another
+// tree's, so their radios find each other and the suites fail on whichever
+// assertion the stray datagram happened to break. That reads as a flaky link
+// test rather than as interference -- three concurrent runs failed on three
+// different lines, and every one of them passed when run alone.
+//
+// LINKPLAY_BASE_PORT gives each tree its own slice. check.sh sets it from the
+// tree path; unset, the behaviour is exactly as before, which is what two
+// simulator windows in one tree still need in order to see each other.
+uint16_t basePort() {
+  static const uint16_t port = [] {
+    const char* override = std::getenv("LINKPLAY_BASE_PORT");
+    if (override == nullptr) return kDefaultBasePort;
+    const int parsed = std::atoi(override);
+    // A range that would collide with the ephemeral ports, or wrap past 65535
+    // with kSlots to spare, is worse than ignoring the override.
+    if (parsed < 1024 || parsed > 65535 - kSlots) return kDefaultBasePort;
+    return static_cast<uint16_t>(parsed);
+  }();
+  return port;
+}
 
 Address addressForPort(const uint16_t port) {
   Address address;
@@ -232,11 +258,11 @@ bool Radio::begin() {
     sockaddr_in address = {};
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    address.sin_port = htons(static_cast<uint16_t>(kBasePort + slot));
+    address.sin_port = htons(static_cast<uint16_t>(basePort() + slot));
     if (::bind(socket_, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0) break;
   }
   if (slot == kSlots) {
-    LOG_ERR("LINK", "no free port in %u..%u", kBasePort, kBasePort + kSlots - 1);
+    LOG_ERR("LINK", "no free port in %u..%u", basePort(), basePort() + kSlots - 1);
     end();
     return false;
   }
@@ -248,9 +274,9 @@ bool Radio::begin() {
     return false;
   }
 
-  local_ = addressForPort(static_cast<uint16_t>(kBasePort + slot));
+  local_ = addressForPort(static_cast<uint16_t>(basePort() + slot));
   started_ = true;
-  LOG_INF("LINK", "radio up on udp/%d", kBasePort + slot);
+  LOG_INF("LINK", "radio up on udp/%d", basePort() + slot);
   return true;
 }
 
@@ -276,7 +302,7 @@ bool Radio::send(const Address& to, const uint8_t* data, const size_t length) {
     // the same semantics the device gets for free.
     const uint16_t mine = portForAddress(local_);
     for (int slot = 0; slot < kSlots; ++slot) {
-      const uint16_t port = static_cast<uint16_t>(kBasePort + slot);
+      const uint16_t port = static_cast<uint16_t>(basePort() + slot);
       if (port == mine) continue;
       destination.sin_port = htons(port);
       ::sendto(socket_, data, length, 0, reinterpret_cast<sockaddr*>(&destination), sizeof(destination));
