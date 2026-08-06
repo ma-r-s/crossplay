@@ -435,7 +435,62 @@ sentence, and it is asserted rather than eyeballed.
    how-to, the "drop this case?" sheet, the accusation, a wrong verdict, and a
    full round trip out of the app and back with the case and its marks intact.
 
-## 7. What has not been checked
+## 7. What play-testing found
+
+Four critics, one case each across the four tiers, no access to the code or the
+answers, told to solve it and then be harsh. **All four solved their case
+correctly**, which is the useful confirmation: the engine is sound and the cases
+are fair. Everything below is about quality, and not one of these findings is
+visible to any assertion in `host-tests/murdle/`.
+
+Ranked by how many of them raised it independently.
+
+**1. The suspect attributes are a false affordance (all four).** Every case
+prints handedness, eye colour, hair colour and height for four suspects. On
+Elementary they are referenced by **zero of 1,610 clues** -- the tier forbids
+attribute clues by construction. Nosy uses them in 26% of clues, Hard Boiled
+11%, Impossible 6%. A player builds an attribute table, guards it, and finds out
+it was set dressing. One critic added that two suspects in their case shared
+both printed attributes, so the dossier could not have separated them anyway.
+
+**2. The traits are advertised and never fire (all four).** Eight parenthesised
+details a case; one or two get used, always by the crime-scene clue. The player
+is told these are how clues refer to things indirectly, and then they are not.
+
+**3. The murderer is known too early (three).** Measured: revealed in the first
+half of the solve in 50-62% of cases, at round 1.4 of 2.9 on Elementary and 2.5
+of 4.6 on Hard Boiled. "The case peaks at roughly 40% and coasts." Everything
+after the crime scene resolves is filling in a form whose answer you have.
+
+**4. One logical shape, three registers (three).** "The one in the tower..." and
+"Whoever was in the tower..." alternate with no semantic difference, sometimes
+two lines apart. It reads as templates firing at random rather than as variety.
+
+**5. Clues that are minimal but feel duplicated (two).** "GRETA did not carry
+the vase" / "ROSA did not carry the vase". Two either/or clues sharing the same
+motive pair. Minimality proves no clue is *removable*; it does not stop two
+clues being the same sentence twice.
+
+**6. Backwards phrasing when the target is a suspect (one).** "Whoever carried
+the pan was not FELIX" should be "FELIX did not carry the pan."
+
+**7. The witness statements are all first-person (one, and it is the deepest).**
+Every statement is a suspect reporting their own weapon or place. Nobody
+testifies about anybody else, so the murderer's lie only ever denies one fact
+about themselves. A statement that cross-linked -- "VERA says: OSCAR was in the
+tower" -- would let the lie poison someone else's row, which is the whole point
+of the mechanic. As built, the Impossible tier degrades to "one of these four
+facts is wrong, find out which".
+
+**8. Nosy never places anything positively (one).** The tier bans bare
+positives, so every suspect-to-place link routes through an attribute. And an
+attribute that splits 3-1 is just a name in a costume: "the inn person was
+right-handed", when one suspect is right-handed, is "ROSA was at the inn".
+
+**9. "The body was found next to flour on the floor" (one).** "Next to" works
+for a broken step and breaks for a property of the floor.
+
+## 8. What has not been checked
 
 Two things, and one of them needs a person.
 
