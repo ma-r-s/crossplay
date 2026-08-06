@@ -180,6 +180,14 @@ bool Grid::set(const int catA, const int itemA, const int catB, const int itemB,
   return put(catA, itemA, catB, itemB, mark) >= 0;
 }
 
+void Grid::clear(const int catA, const int itemA, const int catB, const int itemB) {
+  if (catA < catB) {
+    cells_[blockIndex(catA, catB)][itemA][itemB] = static_cast<uint8_t>(Mark::Unknown);
+  } else {
+    cells_[blockIndex(catB, catA)][itemB][itemA] = static_cast<uint8_t>(Mark::Unknown);
+  }
+}
+
 bool Grid::setYes(const int catA, const int itemA, const int catB, const int itemB) {
   if (put(catA, itemA, catB, itemB, Mark::Yes) < 0) return false;
   // One suspect cannot hold two weapons, and one weapon cannot be held by two

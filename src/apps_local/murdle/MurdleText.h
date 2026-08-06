@@ -45,4 +45,15 @@ void accusationLine(const murdle::Puzzle& puzzle, const uint8_t picks[murdle::kM
 // The name of a category, for a heading.
 const char* categoryName(int cat);
 
+// One distinct letter per item of a category, for the grid's axes, plus a
+// terminating null. A 34px column header cannot hold a word and this renderer
+// does not rotate type, so the axes carry letters and the legend carries the
+// names.
+//
+// Mnemonic where it can be: an item's own initial, and the next unused letter
+// of its name when two of the drawn items start alike. Distinctness is the
+// hard requirement -- two rows labelled the same is a grid that cannot be read
+// -- so it falls back to digits rather than ever repeating.
+void axisLetters(const murdle::Puzzle& puzzle, int cat, char out[murdle::kMaxItems + 1]);
+
 }  // namespace murdletext

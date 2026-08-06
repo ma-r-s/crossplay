@@ -201,6 +201,12 @@ class Grid {
   // what it already holds is not a contradiction.
   bool set(int catA, int itemA, int catB, int itemB, Mark mark);
 
+  // Back to Unknown, unconditionally. set() refuses to write over a decided
+  // cell because the propagation solver must never quietly overrule itself; a
+  // player cycling a cell through its three states means exactly that, so they
+  // get their own door rather than a flag on set() that the solver could reach.
+  void clear(int catA, int itemA, int catB, int itemB);
+
   // Set to Yes and cross out the rest of that item's row and column within the
   // same block. This is the bookkeeping a pencil does, not a deduction: it says
   // only that one suspect cannot hold two weapons.

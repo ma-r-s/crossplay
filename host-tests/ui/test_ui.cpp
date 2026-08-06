@@ -1905,7 +1905,6 @@ void testInsiderRevealAlwaysSaysTheWord() {
   CHECK(out.target.drew("PEACOCK"));
 }
 
-
 void testInsiderTutorialLosesNoWords() {
   // The bug this pins, from the page the tutorial replaced: text was drawn into
   // a rect it did not fit, the renderer ellipsised the tail into a glyph the

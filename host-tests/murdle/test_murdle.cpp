@@ -393,6 +393,30 @@ void testDrawIsDistinctAndInRange() {
   }
 }
 
+// The grid axes are letters, and two rows carrying the same letter is a grid
+// that cannot be read. Swept over every draw rather than spot-checked, because
+// a collision needs two drawn items whose names start alike and that is exactly
+// the case a hand-written example would not contain.
+void testAxisLettersAreDistinct() {
+  for (int t = 0; t < kTierCount; ++t) {
+    const Shape shape = shapeOf(kTiers[t]);
+    for (uint32_t seed = 1; seed <= 800; ++seed) {
+      Puzzle puzzle;
+      puzzle.shape = shape;
+      drawCast(seed * 2654435761u + 5u, shape, puzzle.cast);
+      for (int c = 0; c < shape.cats; ++c) {
+        char letters[kMaxItems + 1];
+        murdletext::axisLetters(puzzle, c, letters);
+        CHECK(static_cast<int>(std::strlen(letters)) == shape.items);
+        for (int i = 0; i < shape.items; ++i) {
+          CHECK(letters[i] > 32 && letters[i] < 127);
+          for (int j = i + 1; j < shape.items; ++j) CHECK(letters[i] != letters[j]);
+        }
+      }
+    }
+  }
+}
+
 void testEverySentenceReads() {
   static Scratch scratch;
   int lines = 0;
@@ -626,6 +650,7 @@ int runTests() {
   testCastTableIsDrawable();
   testDrawIsDistinctAndInRange();
   testStatementsAreOnePerSuspectAndExactlyOneLies();
+  testAxisLettersAreDistinct();
   testEverySentenceReads();
   testDenialNamesTheRuledOutItem();
   testTheChecksCanFail();

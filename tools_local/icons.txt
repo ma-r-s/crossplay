@@ -92,3 +92,12 @@ dungeon     = map
 # drama (two overlapping masks is the interior detail that turned gamepad-2 to
 # mush), glasses (reads as spectacles, which is a different idea entirely).
 insider     = venetian-mask
+
+# Murdle: a murder-mystery logic grid. `footprints` -- two shoe soles, and
+# nothing else on this shelf is that shape. `fingerprint` was the first choice
+# and this lucide pin does not carry it; of what is here, `puzzle` is a jigsaw
+# tab and this is not a jigsaw, `user-search` and `file-search` are both a
+# magnifying glass with interior detail that blobs at 32px in one bit, and
+# `drama` was already rejected for Insider for the same reason. A skull would
+# announce the wrong tone for a game that is arithmetic.
+murdle      = footprints

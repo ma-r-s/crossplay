@@ -96,9 +96,9 @@ class HackerNewsActivity final : public Activity {
 
   // Row labels, owned here because fui::ListItem holds pointers rather than
   // copies. Parallel to stories_ and rebuilt with it.
-  std::vector<std::string> rowTitles_;   // as Hacker News wrote them
-  std::vector<std::string> rowLabels_;   // fitted to the row, ellipsised
-  std::vector<std::string> rowValues_;   // the comment count
+  std::vector<std::string> rowTitles_;  // as Hacker News wrote them
+  std::vector<std::string> rowLabels_;  // fitted to the row, ellipsised
+  std::vector<std::string> rowValues_;  // the comment count
   bool rowsFitted_ = false;
   std::vector<freeink::ui::ListItem> rows_;
 

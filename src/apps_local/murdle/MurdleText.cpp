@@ -277,6 +277,28 @@ const char* categoryName(const int cat) {
   return "";
 }
 
+void axisLetters(const Puzzle& p, const int cat, char out[murdle::kMaxItems + 1]) {
+  const int items = p.shape.items;
+  bool taken[128] = {};
+  for (int i = 0; i < items; ++i) {
+    const char* name = label(p, cat, i);
+    char pick = '\0';
+    for (const char* c = name; *c; ++c) {
+      const char up = (*c >= 'a' && *c <= 'z') ? static_cast<char>(*c - 'a' + 'A') : *c;
+      if (up < 'A' || up > 'Z') continue;
+      if (taken[static_cast<int>(up)]) continue;
+      pick = up;
+      break;
+    }
+    // Every letter of the name already spoken for. A digit cannot collide with
+    // a letter, so this always terminates.
+    if (pick == '\0') pick = static_cast<char>('1' + i);
+    taken[static_cast<int>(pick)] = true;
+    out[i] = pick;
+  }
+  out[items] = '\0';
+}
+
 void clueLine(const Puzzle& p, const int clueIndex, char* out, const int cap) {
   out[0] = '\0';
   if (clueIndex < 0 || clueIndex >= p.clueCount || cap < 8) return;
