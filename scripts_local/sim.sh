@@ -11,6 +11,7 @@
 # Drop EPUBs into firmware/fs_/books/ to have something to read.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib-sim.sh"
+require_same_tree
 
 seed_fs
 build
