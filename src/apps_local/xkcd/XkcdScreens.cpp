@@ -387,9 +387,8 @@ void buildReaderBar(toybox::Screen& screen, const ReaderModel& model) {
   // The rail is a fraction of the panel rather than a fixed 180, and absent
   // entirely when the comic does not pan. At 480 wide the fixed version left
   // the title eleven characters and cut "Paleontology" to "Paleon".
-  const int16_t altWidth = 64;
   const int16_t railWidth = model.pans ? static_cast<int16_t>(panel.width / 5) : 0;
-  const int16_t labelWidth = static_cast<int16_t>(panel.width - toybox::kGutter * 3 - railWidth - altWidth);
+  const int16_t labelWidth = static_cast<int16_t>(panel.width - toybox::kGutter * 3 - railWidth);
   // The full bar height, not a guessed 22px band inside it: the target centres
   // text on the font's *line box*, which is taller than the ink, so a short
   // rect pushes the baseline past the bottom of the panel. That drew the title
@@ -402,7 +401,7 @@ void buildReaderBar(toybox::Screen& screen, const ReaderModel& model) {
   // somewhere to go, because a full rail on a comic that fits says nothing
   // and a rail is not a control, so nothing is lost by its absence.
   if (model.pans) {
-    const int16_t railX = static_cast<int16_t>(panel.width - toybox::kGutter * 2 - railWidth - altWidth);
+    const int16_t railX = static_cast<int16_t>(panel.width - toybox::kGutter * 2 - railWidth);
     const int16_t railY = static_cast<int16_t>(bar.y + kBarHeight / 2 - 3);
     const fui::Rect rail = fui::makeRect(railX, railY, railWidth, 6);
     screen.target().fill(rail, fui::Paint::solid(fui::Color::White));
@@ -419,12 +418,12 @@ void buildReaderBar(toybox::Screen& screen, const ReaderModel& model) {
     }
   }
 
+  // **No ALT button.** The whole bar is the control instead. It already carries
+  // the number and the title, it is the only chrome on the screen, and a button
+  // sitting beside the artwork advertising a joke you may not want to read is a
+  // poor trade for the ink. Tapping the bar shows the alt text.
   if (model.hasAlt) {
-    fui::ButtonProps alt;
-    alt.label = "ALT";
-    alt.action = ActionShowAlt;
-    screen.button(alt, fui::makeRect(static_cast<int16_t>(panel.width - toybox::kGutter - altWidth),
-                                     static_cast<int16_t>(bar.y + 6), altWidth, static_cast<int16_t>(kBarHeight - 12)));
+    screen.frame().hit(bar, ActionShowAlt);
   }
 }
 

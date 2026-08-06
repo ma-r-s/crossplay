@@ -56,6 +56,11 @@ class XkcdActivity final : public Activity {
   void loadReadState();
   void saveReadState();
 
+  // Turns the panel to match a comic, and back for everything else. Guarded
+  // on the current state: setOrientation is global and not free.
+  void applyOrientation(bool landscape);
+  bool landscapeNow_ = false;
+
   void openList(int firstPosition);
   void typeDigit(int digit);
   void backspace();
@@ -92,7 +97,7 @@ class XkcdActivity final : public Activity {
   // The comic on screen.
   xkcd::Comic comic_{};
   int position_ = -1;
-  int scrollY_ = 0;
+  xkcd::Position at_{};
   char title_[64] = {0};
   char alt_[512] = {0};
 

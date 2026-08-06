@@ -297,13 +297,13 @@ static void testPlacement() {
   wide.height = 180;
   wide.stride = 93;
 
-  xkcd::Placement p = xkcd::place(wide, 800, 480, 0);
+  xkcd::Placement p = xkcd::place(wide, 800, 480, xkcd::Position{0, 0});
   CHECK(!p.pans, "a 180px strip must not pan on a 480px viewport");
   CHECK(p.originX == 30, "originX %d (centred horizontally in 800)", p.originX);
   CHECK(p.originY == 150, "originY %d (centred vertically in 480)", p.originY);
   CHECK(p.visibleH == 180, "visibleH %d", p.visibleH);
   CHECK(xkcd::maxScroll(wide, 480) == 0, "maxScroll of a fitting comic is 0");
-  CHECK(xkcd::scrollPermille(wide, 480, 0) == 1000, "a comic that fits is wholly shown");
+  CHECK(xkcd::scrollPermille(wide, 800, 480, xkcd::Position{0, 0}) == 1000, "a comic that fits is wholly shown");
 
   xkcd::Comic tall;
   tall.num = 2;
@@ -312,19 +312,19 @@ static void testPlacement() {
   tall.stride = 93;
 
   CHECK(xkcd::maxScroll(tall, 480) == 720, "maxScroll %d", xkcd::maxScroll(tall, 480));
-  p = xkcd::place(tall, 800, 480, 300);
+  p = xkcd::place(tall, 800, 480, xkcd::Position{0, 300});
   CHECK(p.pans, "a 1200px comic must pan");
   CHECK(p.originY == 0, "a panning comic is pinned to the top");
   CHECK(p.scrollY == 300, "scrollY %d", p.scrollY);
   CHECK(p.visibleH == 480, "visibleH %d", p.visibleH);
 
   // Out-of-range scroll must be clamped, not wrapped or trusted.
-  CHECK(xkcd::place(tall, 800, 480, 99999).scrollY == 720, "over-scroll clamps to maxScroll");
-  CHECK(xkcd::place(tall, 800, 480, -50).scrollY == 0, "negative scroll clamps to 0");
+  CHECK(xkcd::place(tall, 800, 480, xkcd::Position{0, 99999}).scrollY == 720, "over-scroll clamps to maxScroll");
+  CHECK(xkcd::place(tall, 800, 480, xkcd::Position{0, -50}).scrollY == 0, "negative scroll clamps to 0");
 
-  CHECK(xkcd::scrollPermille(tall, 480, 0) == 0, "top is 0");
-  CHECK(xkcd::scrollPermille(tall, 480, 720) == 1000, "bottom is 1000");
-  CHECK(xkcd::scrollPermille(tall, 480, 360) == 500, "halfway is 500");
+  CHECK(xkcd::scrollPermille(tall, 800, 480, xkcd::Position{0, 0}) == 0, "top is 0");
+  CHECK(xkcd::scrollPermille(tall, 800, 480, xkcd::Position{0, 720}) == 1000, "bottom is 1000");
+  CHECK(xkcd::scrollPermille(tall, 800, 480, xkcd::Position{0, 360}) == 500, "halfway is 500");
 
   // Nothing in the archive is wider than the panel, but a corrupt record must
   // not place the image at a negative origin and blit off the buffer.
@@ -333,7 +333,81 @@ static void testPlacement() {
   over.width = 900;
   over.height = 100;
   over.stride = 113;
-  CHECK(xkcd::place(over, 800, 480, 0).originX == 0, "an over-wide image must not get a negative originX");
+  CHECK(xkcd::place(over, 800, 480, xkcd::Position{0, 0}).originX == 0, "an over-wide image must not get a negative originX");
+}
+
+// ---------------------------------------------------------------- columns
+
+static void testColumns() {
+  // A comic wider than the viewport is read a column at a time. This is the
+  // answer to comics that are big in *both* axes: fitting them to the width is
+  // the shrink that makes the lettering unreadable, so they are kept large and
+  // walked across instead.
+  xkcd::Comic big;  // #3266-shaped: near square, fine detail, kept at full size
+  big.num = 3266;
+  big.width = 740;
+  big.height = 731;
+  big.stride = 93;
+  const int vw = 480, vh = 756;
+
+  CHECK(xkcd::columnCount(big, vw) == 2, "740 across a 480 panel is 2 columns, got %d",
+        xkcd::columnCount(big, vw));
+  CHECK(xkcd::columnCount(big, 800) == 1, "the same comic is one column on a wide panel");
+
+  // Column 0 shows the left slice from x=0; column 1 is pulled back so it ends
+  // flush with the artwork rather than running into blank space.
+  xkcd::Placement p0 = xkcd::place(big, vw, vh, xkcd::Position{0, 0});
+  CHECK(p0.scrollX == 0, "first column starts at 0, got %d", p0.scrollX);
+  CHECK(p0.visibleW == 480, "first column is a full viewport wide, got %d", p0.visibleW);
+  CHECK(p0.originX == 0, "a columned comic is not centred, or it would shift between panes");
+
+  xkcd::Placement p1 = xkcd::place(big, vw, vh, xkcd::Position{1, 0});
+  CHECK(p1.scrollX == 740 - 480, "last column ends flush with the artwork, got %d", p1.scrollX);
+  CHECK(p1.scrollX + p1.visibleW == 740, "the last column must reach the right edge");
+
+  // Out-of-range columns clamp rather than reading off the end of the image.
+  CHECK(xkcd::place(big, vw, vh, xkcd::Position{9, 0}).scrollX == 260, "over-column clamps");
+  CHECK(xkcd::place(big, vw, vh, xkcd::Position{-3, 0}).scrollX == 0, "negative column clamps");
+
+  // **The walk.** One control covers both axes: down the column, then on to
+  // the top of the next. 731 rows in a 756 viewport means each column is a
+  // single screen, so one step forward moves to column 1.
+  const xkcd::GapWindow none;
+  CHECK(xkcd::maxScroll(big, vh) == 0, "each column of this comic fits vertically");
+  xkcd::Position at{0, 0};
+  CHECK(xkcd::canStepForward(big, vw, vh, at), "there is a second column to reach");
+  at = xkcd::stepForward(big, vw, vh, at, none);
+  CHECK(at.column == 1 && at.scrollY == 0, "stepping off column 0 lands on column 1, got col %d y %d",
+        at.column, at.scrollY);
+  CHECK(!xkcd::canStepForward(big, vw, vh, at), "the last column is the end of the comic");
+  CHECK(xkcd::stepForward(big, vw, vh, at, none).column == 1, "the end must not wrap");
+
+  // And back again, symmetrically.
+  CHECK(xkcd::canStepBack(at), "column 1 can go back");
+  at = xkcd::stepBack(big, vw, vh, at, none);
+  CHECK(at.column == 0, "stepping back returns to column 0, got %d", at.column);
+  CHECK(!xkcd::canStepBack(at), "the start of the comic is the start");
+
+  // Stepping back into a *tall* column lands at its bottom, not its top --
+  // otherwise going back would skip everything the column held.
+  xkcd::Comic tallWide;
+  tallWide.num = 1;
+  tallWide.width = 740;
+  tallWide.height = 2000;
+  tallWide.stride = 93;
+  const int maxS = xkcd::maxScroll(tallWide, vh);
+  CHECK(maxS > 0, "fixture must actually scroll");
+  xkcd::Position second{1, 0};
+  const xkcd::Position back = xkcd::stepBack(tallWide, vw, vh, second, none);
+  CHECK(back.column == 0 && back.scrollY == maxS, "back into a tall column lands at its bottom, got y %d",
+        back.scrollY);
+
+  // The rail spans the whole comic, not the current column: it must not snap
+  // backwards when a column break is crossed.
+  CHECK(xkcd::scrollPermille(big, vw, vh, xkcd::Position{0, 0}) == 0, "rail starts empty");
+  CHECK(xkcd::scrollPermille(big, vw, vh, xkcd::Position{1, 0}) == 1000, "rail is full at the last pane");
+  CHECK(xkcd::scrollPermille(tallWide, vw, vh, xkcd::Position{0, maxS}) < 1000,
+        "the bottom of the first column is not the end of a two-column comic");
 }
 
 // ------------------------------------------------------------ gap reading
@@ -553,8 +627,9 @@ static void testPanProperties() {
     CHECK(xkcd::scrollUp(c, viewportH, 0, windowFor(c, img, viewportH, 0, false)) == 0, "up at the top must stay");
 
     // 6. The rail agrees with the ends.
-    CHECK(xkcd::scrollPermille(c, viewportH, 0) == (maxS > 0 ? 0 : 1000), "rail at the top");
-    CHECK(xkcd::scrollPermille(c, viewportH, maxS) == 1000, "rail at the bottom");
+    CHECK(xkcd::scrollPermille(c, width, viewportH, xkcd::Position{0, 0}) == (maxS > 0 ? 0 : 1000),
+          "rail at the top");
+    CHECK(xkcd::scrollPermille(c, width, viewportH, xkcd::Position{0, maxS}) == 1000, "rail at the bottom");
   }
 }
 
@@ -580,6 +655,7 @@ int main() {
   testArchive();
   testRejectsBadPacks();
   testPlacement();
+  testColumns();
   testGapDetection();
   testSnapping();
   testPanProperties();

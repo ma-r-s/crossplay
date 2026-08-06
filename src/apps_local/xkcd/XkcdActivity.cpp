@@ -123,6 +123,9 @@ void XkcdActivity::onExit() {
   }
   Storage.remove(kTmpPng);
   Storage.remove(kTmpBmp);
+  // The orientation is global, so leaving it turned would rotate the Apps menu
+  // on the way out.
+  applyOrientation(false);
   Activity::onExit();
 }
 
@@ -180,12 +183,23 @@ bool XkcdActivity::loadComic(const int position) {
   xkcd::Comic c{};
   if (!archive_.at(*indexSrc_, position, c)) return false;
   comic_ = c;
+  // The comic decides which way round the panel goes. It is the *comic* that
+  // is sideways, not the app: the menu and the list are always portrait, and
+  // setOrientation is undone the moment the reader is left.
+  applyOrientation(comic_.landscape());
   position_ = position;
-  scrollY_ = 0;
+  at_ = xkcd::Position{};
   xkcd::readTitle(*textSrc_, comic_, title_, sizeof(title_));
   xkcd::readAlt(*textSrc_, comic_, alt_, sizeof(alt_));
   markRead(comic_.num);
   return true;
+}
+
+void XkcdActivity::applyOrientation(const bool landscape) {
+  if (landscape == landscapeNow_) return;
+  landscapeNow_ = landscape;
+  renderer.setOrientation(landscape ? GfxRenderer::Orientation::LandscapeCounterClockwise
+                                    : GfxRenderer::Orientation::Portrait);
 }
 
 // --- Read state ----------------------------------------------------------
@@ -338,10 +352,11 @@ void XkcdActivity::showNotice(const char* headline, const char* detail, const ch
 void XkcdActivity::pan(const bool down) {
   const fui::Rect view = xkcdui::readerViewport(fui::GfxRendererTarget(renderer).deviceContext());
   const int viewportH = view.height;
+  const int viewportW = view.width;
 
   int firstRow = 0;
   int rowCount = 0;
-  xkcd::gapWindowFor(comic_, viewportH, scrollY_, down, firstRow, rowCount);
+  xkcd::gapWindowFor(comic_, viewportH, at_.scrollY, down, firstRow, rowCount);
 
   xkcd::GapWindow window;
   if (rowCount > 0 && rowCount <= kMaxGapRows && comic_.stride <= kMaxStride) {
@@ -372,8 +387,10 @@ void XkcdActivity::pan(const bool down) {
     }
   }
 
-  scrollY_ = down ? xkcd::scrollDown(comic_, viewportH, scrollY_, window)
-                  : xkcd::scrollUp(comic_, viewportH, scrollY_, window);
+  // One control, both axes: down the current column, then on to the top of
+  // the next. See xkcd::stepForward.
+  at_ = down ? xkcd::stepForward(comic_, viewportW, viewportH, at_, window)
+             : xkcd::stepBack(comic_, viewportW, viewportH, at_, window);
 }
 
 // --- Drawing -------------------------------------------------------------
@@ -383,7 +400,7 @@ void XkcdActivity::drawComic() {
 
   fui::GfxRendererTarget probe(renderer);
   const fui::Rect view = xkcdui::readerViewport(probe.deviceContext());
-  const xkcd::Placement p = xkcd::place(comic_, view.width, view.height, scrollY_);
+  const xkcd::Placement p = xkcd::place(comic_, view.width, view.height, at_);
 
   // A band at a time: one seek per band rather than one per row, and a fixed
   // cost whatever the comic.
@@ -399,17 +416,20 @@ void XkcdActivity::drawComic() {
     for (int r = 0; r < rows; ++r) {
       const uint8_t* line = gBand + r * comic_.stride;
       const int y = view.y + p.originY + drawn + r;
-      for (int x = 0; x < comic_.width; ++x) {
+      for (int x = 0; x < p.visibleW; ++x) {
         // A set bit is ink, which is toybox::blit1bpp's convention and the
         // pack's. Drawn pixel by pixel because the renderer has no 1bpp blit
         // that takes a stride, and drawIcon bakes in a portrait rotation that
         // would turn the comic on its side.
         const int sx = p.originX + x;
-        // Clipped rather than trusted. The pack for this build is made at the
-        // panel's width, but a pack built for the old landscape reader is
-        // 740px wide and would otherwise blit straight off the framebuffer.
         if (sx >= view.width) break;
-        if ((line[x >> 3] >> (7 - (x & 7))) & 1) renderer.drawPixel(sx, y, true);
+        // Offset into the row by the column on screen: a comic with more than
+        // one column shows a different slice of every row. Clipped rather than
+        // trusted, so a pack built for a different panel cannot blit off the
+        // framebuffer.
+        const int ix = p.scrollX + x;
+        if (ix >= static_cast<int>(comic_.width)) break;
+        if ((line[ix >> 3] >> (7 - (ix & 7))) & 1) renderer.drawPixel(sx, y, true);
       }
     }
     drawn += rows;
@@ -479,10 +499,15 @@ void XkcdActivity::loop() {
       case View::List:
       case View::Notice:
       case View::Number:
+        // Everything but the reader is portrait, so leaving one is where the
+        // panel comes back. Done here rather than in onExit alone, because
+        // Back is the common way out and onExit only runs when the app does.
+        applyOrientation(false);
         view_ = View::Menu;
         requestUpdate();
         return;
       case View::Alt:
+        applyOrientation(false);
         view_ = View::Reader;
         requestUpdate();
         return;
@@ -602,10 +627,13 @@ void XkcdActivity::handleAction(const fui::ActionId action, const int16_t value)
       }
       break;
     case xkcdui::ActionShowAlt:
+      // The alt text is prose, so it is read portrait whatever the comic is.
+      applyOrientation(false);
       view_ = View::Alt;
       requestUpdate();
       break;
     case xkcdui::ActionDismiss:
+      applyOrientation(comic_.landscape());
       view_ = View::Reader;
       requestUpdate();
       break;
@@ -952,8 +980,11 @@ void XkcdActivity::render(RenderLock&&) {
       xkcdui::ReaderModel model;
       model.num = comic_.num;
       model.title = title_;
-      model.pans = xkcd::maxScroll(comic_, xkcdui::readerViewport(target.deviceContext()).height) > 0;
-      model.permille = xkcd::scrollPermille(comic_, xkcdui::readerViewport(target.deviceContext()).height, scrollY_);
+      {
+        const fui::Rect view = xkcdui::readerViewport(target.deviceContext());
+        model.pans = xkcd::maxScroll(comic_, view.height) > 0 || xkcd::columnCount(comic_, view.width) > 1;
+        model.permille = xkcd::scrollPermille(comic_, view.width, view.height, at_);
+      }
       model.hasAlt = alt_[0] != '\0';
       xkcdui::buildReaderBar(screen, model);
 

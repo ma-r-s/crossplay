@@ -32,6 +32,7 @@ be told apart, and it would drift.
 
 import argparse
 import io
+import math
 import json
 import pathlib
 import struct
@@ -44,7 +45,7 @@ import urllib.request
 UA = {"User-Agent": "CrossPoint-xkcd-pack/1 (personal e-reader; contact via github)"}
 
 MAGIC = 0x44434B58  # "XKCD"
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
 INDEX_HEADER_BYTES = 16
 INDEX_RECORD_BYTES = 32
 
@@ -52,6 +53,11 @@ INDEX_RECORD_BYTES = 32
 # two cannot quietly disagree about how wide a record is.
 MAX_COMIC_WIDTH = 800
 MAX_COMIC_HEIGHT = 16384
+
+# The drawable area, panel minus the reader's bar. Kept in step with
+# xkcdui::readerViewport.
+PORTRAIT_VIEWPORT_H = 756
+LANDSCAPE_VIEWPORT_H = 436
 
 # Comic 404 does not exist, and that is the joke. Requesting it returns an
 # actual 404, so it is skipped by name rather than by error handling.
@@ -307,11 +313,17 @@ def main() -> int:
         help="stop after N comics (for a quick test pack)",
     )
     ap.add_argument(
-        "--width",
-        type=int,
-        default=0,
-        help="fit every comic to this width, up or down (0 = never scale). "
-        "The portrait panel is 480.",
+        "--portrait-width", type=int, default=480, help="the portrait panel's width"
+    )
+    ap.add_argument(
+        "--landscape-width", type=int, default=800, help="the landscape panel's width"
+    )
+    ap.add_argument(
+        "--min-scale",
+        type=float,
+        default=1.0,
+        help="how far a comic may be shrunk before it is zoomed and read in "
+        "columns instead. Below this the lettering goes.",
     )
     ap.add_argument(
         "--max-upscale",
@@ -319,6 +331,26 @@ def main() -> int:
         default=3.0,
         help="never enlarge a comic by more than this. One comic in the "
         "archive is 106px wide and would otherwise be blown up 4.5x.",
+    )
+    ap.add_argument(
+        "--rotate-aspect",
+        type=float,
+        default=1.4,
+        help="turn the panel only for comics at least this wide relative to "
+        "their height. Portrait is the device's pose; rotating has to be "
+        "earned, so a near-square comic stays upright.",
+    )
+    ap.add_argument(
+        "--pane-budget",
+        type=int,
+        default=6,
+        help="the most screens a zoomed comic may cost. Past this it takes the "
+        "shrink instead: forty tiles is not reading.",
+    )
+    ap.add_argument(
+        "--no-landscape",
+        action="store_true",
+        help="keep everything portrait, shrinking wide comics to fit",
     )
     args = ap.parse_args()
 
@@ -366,33 +398,59 @@ def main() -> int:
                 skipped.append((num, f"decode: {e}"))
                 continue
 
-            # Fitted to the panel here, on the host, with a real resampling
-            # filter -- never on the device. LANCZOS then Atkinson keeps far
-            # more of a hand-lettered stroke than anything the firmware could
-            # afford at draw time, and the device blits 1:1 whatever it gets.
+            # --- which way round, and how big -------------------------
             #
-            # **Up as well as down.** 44% of the archive is narrower than the
-            # 480 panel (median 322px), so capping only the wide ones left
-            # nearly half of it as a small block adrift in white margins.
-            # Enlarging the *greyscale source* before the single dither is not
-            # the same as enlarging 1-bit art: at the median 1.5x the lettering
-            # comes out bigger and just as crisp.
-            if args.width and gray.size[0] != args.width:
+            # Three rules, in order. All of them exist because xkcd letters at
+            # a roughly constant size in source pixels, so how far a comic has
+            # been shrunk is the only thing deciding whether it can be read.
+            #
+            # 1. ORIENTATION. Turn the panel only for comics that are clearly
+            #    wide. Portrait is the device's pose and rotating has to be
+            #    earned: a near-square comic gains almost nothing from
+            #    landscape and still has to be panned, so it stays upright.
+            #
+            # 2. SCALE. Fit the chosen panel's width -- up as well as down,
+            #    since 44% of the archive is narrower than the portrait panel.
+            #
+            # 3. ZOOM RATHER THAN SHRINK, WITHIN A BUDGET. If fitting would
+            #    shrink past --min-scale, keep the comic big and let it be read
+            #    in columns instead. But only while that stays under
+            #    --pane-budget: #1732 is 740x14957, and zooming it would cost
+            #    forty tiles, which is not reading. Past the budget it takes
+            #    the shrink.
+            sw, sh = gray.size
+            landscape = (not args.no_landscape) and (sw / sh) >= args.rotate_aspect
+            vw, vh = (
+                (args.landscape_width, LANDSCAPE_VIEWPORT_H)
+                if landscape
+                else (args.portrait_width, PORTRAIT_VIEWPORT_H)
+            )
+
+            fit = min(args.max_upscale, vw / sw)
+            scale = fit
+            if fit < args.min_scale:
+                zoomed = args.min_scale
+                panes = math.ceil(sw * zoomed / vw) * math.ceil(sh * zoomed / vh)
+                if panes <= args.pane_budget:
+                    scale = zoomed
+
+            # The stored image still has to fit the format, whatever the rule
+            # above decided. #2067 is 960px wide, and keeping it at full size
+            # put it past the 800px ceiling -- so it was rejected outright and
+            # simply went missing from the archive. A comic silently absent is
+            # a worse outcome than one shown slightly small.
+            if sw * scale > MAX_COMIC_WIDTH:
+                scale = MAX_COMIC_WIDTH / sw
+            if sh * scale > MAX_COMIC_HEIGHT:
+                scale = min(scale, MAX_COMIC_HEIGHT / sh)
+
+            if abs(scale - 1.0) > 0.001:
                 from PIL import Image as _Image
 
-                scale = args.width / gray.size[0]
-                if scale <= args.max_upscale:
-                    gray = gray.resize(
-                        (args.width, max(1, round(gray.size[1] * scale))),
-                        _Image.LANCZOS,
-                    )
-                else:
-                    # Past the cap it would be mush, so it keeps its margins.
-                    capped = max(1, round(gray.size[0] * args.max_upscale))
-                    gray = gray.resize(
-                        (capped, max(1, round(gray.size[1] * args.max_upscale))),
-                        _Image.LANCZOS,
-                    )
+                gray = gray.resize(
+                    (max(1, round(sw * scale)), max(1, round(sh * scale))),
+                    _Image.LANCZOS,
+                )
 
             w, h = gray.size
             if w > MAX_COMIC_WIDTH or h > MAX_COMIC_HEIGHT or w == 0 or h == 0:
@@ -418,6 +476,7 @@ def main() -> int:
                     day=int(meta.get("day") or 0),
                     imageOffset=images.tell(),
                     textOffset=text.tell(),
+                    flags=1 if landscape else 0,
                 )
             )
             images.write(bits)
@@ -446,7 +505,7 @@ def main() -> int:
         )
         for r in records:
             rec = struct.pack(
-                "<HHHHHBBII",
+                "<HHHHHBBIIB",
                 r["num"],
                 r["width"],
                 r["height"],
@@ -456,15 +515,22 @@ def main() -> int:
                 r["day"],
                 r["imageOffset"],
                 r["textOffset"],
+                r["flags"],
             )
             # Bytes 20..31 are reserved padding, so a future field can be added
             # without moving any of the ones above it. Kept in step with
             # xkcd::decodeRecord.
-            assert len(rec) == 20, len(rec)
+            assert len(rec) == 21, len(rec)
             f.write(rec + b"\0" * (INDEX_RECORD_BYTES - len(rec)))
 
     total = (args.out / "images.dat").stat().st_size
+    land = sum(1 for r in records if r["flags"] & 1)
     print(f"\n{len(records)} comics, {total / 1e6:.0f} MB of artwork", file=sys.stderr)
+    print(
+        f"  {len(records) - land} portrait, {land} landscape "
+        f"({100 * land / max(1, len(records)):.0f}% turn the panel)",
+        file=sys.stderr,
+    )
     if skipped:
         print(f"skipped {len(skipped)}:", file=sys.stderr)
         for num, why in skipped[:40]:

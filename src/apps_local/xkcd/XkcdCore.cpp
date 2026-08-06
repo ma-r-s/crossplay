@@ -79,7 +79,8 @@ Comic decodeRecord(const uint8_t* rec) {
   c.day = rec[11];
   c.imageOffset = rd32(rec + 12);
   c.textOffset = rd32(rec + 16);
-  // bytes 20..31 are padding, reserved so a new field does not move the others
+  c.flags = rec[20];
+  // bytes 21..31 are padding, reserved so a new field does not move the others
   return c;
 }
 
@@ -95,6 +96,7 @@ void encodeRecord(const Comic& c, uint8_t* rec) {
   rec[11] = c.day;
   wr32(rec + 12, c.imageOffset);
   wr32(rec + 16, c.textOffset);
+  rec[20] = c.flags;
 }
 
 bool Archive::open(ByteSource& index) {
@@ -170,24 +172,47 @@ int maxScroll(const Comic& c, int viewportH) {
   return over > 0 ? over : 0;
 }
 
-Placement place(const Comic& c, int screenW, int viewportH, int scrollY) {
+int columnCount(const Comic& c, int viewportW) {
+  if (viewportW <= 0) return 1;
+  const int cols = (static_cast<int>(c.width) + viewportW - 1) / viewportW;
+  return cols < 1 ? 1 : cols;
+}
+
+Placement place(const Comic& c, int viewportW, int viewportH, const Position& at) {
   Placement p;
-  p.originX = (screenW - static_cast<int>(c.width)) / 2;
+  const int cols = columnCount(c, viewportW);
+  int column = at.column < 0 ? 0 : (at.column >= cols ? cols - 1 : at.column);
+
+  // Columns are whole viewports side by side, with the last one pulled back so
+  // it ends flush against the right edge of the artwork rather than running
+  // off into blank space.
+  p.scrollX = column * viewportW;
+  const int overX = static_cast<int>(c.width) - viewportW;
+  if (p.scrollX > overX) p.scrollX = overX < 0 ? 0 : overX;
+
+  p.visibleW = static_cast<int>(c.width) - p.scrollX;
+  if (p.visibleW > viewportW) p.visibleW = viewportW;
+
+  // Centred horizontally when the comic fits across, flush left when it does
+  // not. No branch on the column count is needed: a comic with more than one
+  // column is by definition wider than the viewport, so this is negative and
+  // the clamp takes it to zero. A guard for that case was written first and a
+  // mutation test showed it could never change the answer.
+  p.originX = (viewportW - static_cast<int>(c.width)) / 2;
   if (p.originX < 0) p.originX = 0;
 
   const int maxS = maxScroll(c, viewportH);
-  p.pans = maxS > 0;
+  p.pans = maxS > 0 || cols > 1;
 
-  if (!p.pans) {
-    // Fits: centred. A strip sits in the middle of the page like a comic on
-    // newsprint, which is what it is.
+  if (maxS <= 0) {
+    // Fits down the page: centred. A strip sits in the middle of the page like
+    // a comic on newsprint, which is what it is.
     //
     // This was briefly anchored to the top, with the alt text filling the band
     // underneath, on the reasoning that dead space is a defect. That was a
     // decision nobody asked for: the alt text is a joke you choose to read,
     // and putting it on the page turns every comic into a comic plus an
-    // explanation. The button is the way to it. What is left is one comic,
-    // centred, on paper.
+    // explanation. The bar is the way to it.
     p.scrollY = 0;
     p.visibleH = c.height;
     p.originY = (viewportH - static_cast<int>(c.height)) / 2;
@@ -195,10 +220,50 @@ Placement place(const Comic& c, int screenW, int viewportH, int scrollY) {
     return p;
   }
 
-  p.scrollY = scrollY < 0 ? 0 : (scrollY > maxS ? maxS : scrollY);
+  p.scrollY = at.scrollY < 0 ? 0 : (at.scrollY > maxS ? maxS : at.scrollY);
   p.originY = 0;
   p.visibleH = viewportH;
   return p;
+}
+
+bool canStepBack(const Position& at) { return at.column > 0 || at.scrollY > 0; }
+
+bool canStepForward(const Comic& c, int viewportW, int viewportH, const Position& at) {
+  const int maxS = maxScroll(c, viewportH);
+  if (at.scrollY < maxS) return true;
+  return at.column + 1 < columnCount(c, viewportW);
+}
+
+Position stepForward(const Comic& c, int viewportW, int viewportH, const Position& at, const GapWindow& window) {
+  Position next = at;
+  const int maxS = maxScroll(c, viewportH);
+
+  if (at.scrollY < maxS) {
+    next.scrollY = scrollDown(c, viewportH, at.scrollY, window);
+    return next;
+  }
+  // Off the bottom of this column, so on to the top of the next. This is the
+  // whole reason there is no separate sideways gesture: one control walks the
+  // comic in reading order however many columns it has.
+  if (at.column + 1 < columnCount(c, viewportW)) {
+    next.column = at.column + 1;
+    next.scrollY = 0;
+  }
+  return next;
+}
+
+Position stepBack(const Comic& c, int viewportW, int viewportH, const Position& at, const GapWindow& window) {
+  (void)viewportW;  // symmetry with stepForward; the column index is enough
+  Position prev = at;
+  if (at.scrollY > 0) {
+    prev.scrollY = scrollUp(c, viewportH, at.scrollY, window);
+    return prev;
+  }
+  if (at.column > 0) {
+    prev.column = at.column - 1;
+    prev.scrollY = maxScroll(c, viewportH);
+  }
+  return prev;
 }
 
 void gapWindowFor(const Comic& c, int viewportH, int scrollY, bool down, int& firstRow, int& rowCount) {
@@ -302,12 +367,24 @@ int scrollUp(const Comic& c, int viewportH, int scrollY, const GapWindow& window
   return prev;
 }
 
-int scrollPermille(const Comic& c, int viewportH, int scrollY) {
+int scrollPermille(const Comic& c, int viewportW, int viewportH, const Position& at) {
+  const int cols = columnCount(c, viewportW);
   const int maxS = maxScroll(c, viewportH);
-  if (maxS <= 0) return 1000;
-  if (scrollY <= 0) return 0;
-  if (scrollY >= maxS) return 1000;
-  return scrollY * 1000 / maxS;
+
+  // Measured against the *end* position rather than a notional total, so the
+  // rail reaches 1000 exactly when the reader reaches the last pane. Deriving
+  // it from a total instead left a two-column comic showing half-full at its
+  // final screen.
+  const int perColumn = maxS > 0 ? maxS : 1;
+  const int end = (cols - 1) * perColumn + maxS;
+  if (end <= 0) return 1000;  // the whole comic is on screen
+
+  int col = at.column < 0 ? 0 : (at.column >= cols ? cols - 1 : at.column);
+  int y = at.scrollY < 0 ? 0 : (at.scrollY > maxS ? maxS : at.scrollY);
+  const int done = col * perColumn + y;
+  if (done <= 0) return 0;
+  if (done >= end) return 1000;
+  return done * 1000 / end;
 }
 
 int rowInk(const uint8_t* row, int width) {
