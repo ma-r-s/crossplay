@@ -397,9 +397,23 @@ sentence, and it is asserted rather than eyeballed.
    shelf row. Playable end to end. Done.
 4. **The three variants, rendered and decided.** Two pages with a header door;
    the other two are deleted.
-5. Left undone on purpose: the how-to deck is four plain pages and has not been
-   rendered against a real case; the verdict screen has been built but not
-   played into; and generation has never been timed on real hardware, only in
-   the simulator, which runs on a laptop and tells you nothing about the
-   ESP32-C3. The deferred "A NEW CASE" frame covers it either way, but the
-   number is unknown and should be measured before anyone calls it fast.
+5. **Played through in the simulator**, screen by screen: the menu, every tier,
+   both faces, marking, ticking clues off, paging, the difficulty list, the
+   how-to, the "drop this case?" sheet, the accusation, a wrong verdict, and a
+   full round trip out of the app and back with the case and its marks intact.
+
+## 7. What has not been checked
+
+Two things, and one of them needs a person.
+
+**Nobody has solved a case.** Every screen has been driven, but a scripted tap
+sequence cannot deduce, so the correct-accusation path -- CASE CLOSED, the
+solved counter, the record pips on the menu -- has only ever been reached in a
+unit test, never on screen. Playing one case to the end covers all of it.
+
+**Generation has never been timed on hardware.** Only in a simulator that runs
+on a laptop, which says nothing about a 160MHz RISC-V core. It runs off the
+render path behind a frame that says so, and the arithmetic is bounded (about
+400 passes over 55,296 candidates, all table lookups), but the number is
+unknown and nobody should call it fast until somebody measures it. If a new case
+feels slow on the device, that is where to look first.
