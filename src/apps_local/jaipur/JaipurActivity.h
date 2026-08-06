@@ -112,6 +112,11 @@ class JaipurActivity final : public linkplay::LinkActivity {
   void drawRoundOver();
 
   void goToMenu();
+  // Which screen a game in this phase belongs on. CONTINUE used to send every
+  // saved game to the board, including one whose round had already ended, and
+  // that board has no legal move and no way forward -- the stuck state Mario
+  // hit by pressing Back on the scores.
+  View viewForPhase() const;
   void startNewGame();
   void routeStartMenu();
   void routeBoard();
@@ -152,6 +157,10 @@ class JaipurActivity final : public linkplay::LinkActivity {
 
   // Set when the opponent owes a move, consumed on the next loop pass.
   bool opponentPending = false;
+  // Set when they have moved and you have not acknowledged it. Their move sits
+  // in the capsule until you tap, so a turn cannot pass without you seeing what
+  // happened.
+  bool awaitingSeen = false;
 
   uint8_t selMarket = 0;                     // bitmask of market slots
   uint8_t selHand[jaipur::kGoodCount] = {};  // goods picked out of your hand

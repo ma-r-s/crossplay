@@ -120,11 +120,14 @@ fui::Rect buildBoardChrome(toybox::Screen& screen, const BoardModel& model) {
   // reporting: with NO_ACTION the component draws it and adds nothing to the
   // hit table, so there is no tappable region to drift out of step with the
   // label. It is a button exactly when it says something you can press.
-  status.action = model.gameOver
-                      ? ActionPlayAgain
-                      : (model.roundOver ? ActionContinue : (model.canCommit ? ActionCommit : fui::NO_ACTION));
+  // Four things the capsule can be, in the order they take precedence: the
+  // round has ended and there are scores to see, the opponent has moved and you
+  // have not looked, the selection is a legal move, or it is only reporting.
+  status.action = model.roundOver
+                      ? ActionScores
+                      : (model.awaitingSeen ? ActionSeen : (model.canCommit ? ActionCommit : fui::NO_ACTION));
   status.borderEdges = fui::EdgesNone;
-  if (!model.gameOver && !model.roundOver && !model.canCommit) status.styles = toybox::disabledButtonStyles();
+  if (!model.roundOver && !model.awaitingSeen && !model.canCommit) status.styles = toybox::disabledButtonStyles();
   screen.button(status, linkui::withOpponentFace(screen, screen.takeBottom(toybox::kPillHeight), model.theirName));
 
   return screen.body();
