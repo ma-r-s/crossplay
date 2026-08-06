@@ -39,6 +39,11 @@ class FakeLog final : public study::ByteSource {
     record[17] = 2;
     bytes_.insert(bytes_.end(), record, record + sizeof(record));
   }
+  // What UNDO does on the device: strike out the record just written, in place.
+  void voidLast() {
+    if (bytes_.size() < 32) return;
+    bytes_[bytes_.size() - 32 + study::kRevlogFlagsOffset] |= study::kRevlogVoided;
+  }
   bool read(const uint32_t offset, void* dst, const uint32_t length) override {
     if (offset + length > bytes_.size()) return false;
     std::memcpy(dst, bytes_.data() + offset, length);
@@ -51,6 +56,36 @@ class FakeLog final : public study::ByteSource {
  private:
   std::vector<uint8_t> bytes_;
 };
+
+// Undo is the one thing that can put a record in this file that never happened.
+// Every figure on the deck screen has to agree it did not, or a session where
+// the user took one back reports a review they did not give -- and, worse, a
+// streak or a retention percentage built on it.
+void testVoidedReviewsAreNotCounted() {
+  FakeLog log;
+  for (int i = 0; i < 4; ++i) log.add(kToday, study::Rating::Good);
+  log.add(kToday, study::Rating::Again);
+  log.voidLast();
+
+  study::Stats stats;
+  check(study::readStats(log, kToday, kCreated, stats), "a log with a voided record still reads");
+  check(stats.totalReviews == 4, "the voided review is not counted");
+  check(stats.reviewsPerDay[0] == 4, "nor in today's bar");
+  check(stats.recalled == 4, "nor against retention");
+  check(stats.retention() == 100, "an undone Again does not dent retention");
+
+  // A voided record must not prop up a streak either: a day whose only review
+  // was taken back is a day with no reviews.
+  FakeLog undoneDay;
+  undoneDay.add(kToday, study::Rating::Good);
+  undoneDay.add(kToday - 1, study::Rating::Good);
+  undoneDay.voidLast();
+  undoneDay.add(kToday - 2, study::Rating::Good);
+  study::Stats broken;
+  check(study::readStats(undoneDay, kToday, kCreated, broken), "reads");
+  check(broken.streak == 1, "the streak stops at the day whose review was undone");
+  check(broken.daysStudied == 2, "and that day does not count as studied");
+}
 
 void testEmptyLog() {
   FakeLog log;
@@ -152,6 +187,7 @@ void testGarbageRecordsAreSkipped() {
 int main() {
   std::printf("StudyStats\n");
   testEmptyLog();
+  testVoidedReviewsAreNotCounted();
   testCountsAndRetention();
   testStreak();
   testWindowAndEarlyExit();

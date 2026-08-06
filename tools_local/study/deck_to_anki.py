@@ -46,10 +46,16 @@ import struct
 import sys
 import time
 
-# cardId(8) atMs(8) rating(1) state(1) elapsed(2) interval(4) tookMs(4) pad(4) = 32.
+# cardId(8) atMs(8) rating(1) state(1) elapsed(2) interval(4) tookMs(4) flags(1) pad(3) = 32.
 # Must match the writer in StudyActivity::persist byte for byte.
-REVLOG_RECORD = "<qqBBhiI4x"
+REVLOG_RECORD = "<qqBBhiIB3x"
 REVLOG_RECORD_SIZE = 32
+
+# The user pressed UNDO on the device. The record stays -- revlog.dat is
+# append-only and the device cannot shrink a file without reaching past its
+# storage layer -- so it is struck out in place and skipped here. A log written
+# before undo existed has zeros in this byte and reads as nothing voided.
+REVLOG_VOIDED = 1 << 0
 CARD_RECORD_SIZE = 32
 
 # Anki revlog kinds. Everything the device produces is a real review or a
@@ -95,10 +101,16 @@ def read_reviews(path):
             f" ignoring the trailing partial record"
         )
     out = []
+    voided = 0
     for i in range(len(data) // REVLOG_RECORD_SIZE):
         chunk = data[i * REVLOG_RECORD_SIZE : (i + 1) * REVLOG_RECORD_SIZE]
-        card_id, at_ms, rating, state, elapsed, interval, took_ms = struct.unpack(REVLOG_RECORD, chunk)
+        card_id, at_ms, rating, state, elapsed, interval, took_ms, flags = struct.unpack(
+            REVLOG_RECORD, chunk
+        )
         if card_id == 0 or not 1 <= rating <= 4:
+            continue
+        if flags & REVLOG_VOIDED:
+            voided += 1
             continue
         out.append(
             {
@@ -111,6 +123,8 @@ def read_reviews(path):
                 "tookMs": took_ms,
             }
         )
+    if voided:
+        print(f"  {voided} review(s) undone on the device, not replayed")
     return out
 
 

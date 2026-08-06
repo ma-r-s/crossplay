@@ -65,10 +65,20 @@ class StudyActivity final : public Activity {
   // Save the graded card and append to the review log. Returns false if either
   // write failed, which is surfaced rather than swallowed: a review the user
   // gave that did not reach the card is worse than an error.
-  bool persist(int index, const study::CardState& card, study::Rating rating, const study::Outcome& outcome);
+  // `revlogOffset` comes back as the byte position of the record appended, so
+  // undo can find it again. `written` says whether it means anything: offset 0
+  // is where the very first review of a new log goes.
+  bool persist(int index, const study::CardState& card, study::Rating rating, const study::Outcome& outcome,
+               uint32_t& revlogOffset, bool& written);
   // Pick the next card: a learning card whose minute has come, else the queue,
   // else the learning card that is closest to due.
   bool takeNext();
+  // Take back the last answer. One level only: "I meant Good, not Again" is the
+  // case that matters, and a deeper stack would need the queue's whole history
+  // to unwind rather than one card's.
+  void undo();
+  void flushWrites();
+  bool canUndo() const { return undo_.valid; }
   int nowMinute() const;
 
   void refreshStats();
@@ -117,6 +127,36 @@ class StudyActivity final : public Activity {
   };
   Pending learning_[kMaxLearning] = {};
   int learningCount_ = 0;
+
+  // Everything the last answer changed, so it can be put back exactly. The
+  // revlog record is voided in place rather than removed: the file is
+  // append-only by design and shrinking it would mean reaching past HalFile.
+  // Where takeNext() got the card it is showing. Undo has to put that card
+  // back before it can show the previous one again, and the two sources are put
+  // back differently: the main queue by rewinding a cursor, the step list by
+  // pushing an entry on again.
+  enum class Took : uint8_t { Nothing, Queue, Learning };
+  Took took_ = Took::Nothing;
+
+  struct Undo {
+    bool valid = false;
+    int index = -1;
+    study::CardState before;
+    // Where that review's record starts. Offset 0 is a real position -- it is
+    // the first review of a brand new log -- so validity needs its own flag
+    // rather than a sentinel value.
+    uint32_t revlogOffset = 0;
+    bool revlogWritten = false;
+    Took took = Took::Nothing;     // where the card now on screen came from
+    bool enteredLearning = false;  // grading put it into the step list
+    int reviewed = 0;
+    int again = 0;
+  };
+  Undo undo_;
+
+  // Undo takes the leftmost quarter of the footer: the same width as one rating
+  // cell on the answer side, so the two faces divide the same bar the same way.
+  static constexpr int kUndoSlots = 4;
 
   int currentIndex_ = -1;
   int today_ = 0;

@@ -104,7 +104,7 @@ loop = Table(
             Paragraph(
                 "Convert from your live Anki collection, copy to the SD card.", NOTE
             ),
-            Paragraph("Apps &gt; STUDY. Tap to reveal, tap a button to grade.", NOTE),
+            Paragraph("Apps &gt; STUDY. Tap to reveal, tap a button to grade, UNDO to take one back.", NOTE),
             Paragraph("One command applies your reviews and pushes to AnkiWeb.", NOTE),
         ],
     ],
@@ -260,9 +260,18 @@ gaps = Table(
                       "already matches. Only the tag itself is not added here; lapses still sync.", NOTE),
         ],
         [
+            Paragraph("<b>Undo</b>", NOTE),
+            Paragraph(
+                "UNDO in the footer takes back the last answer: the card comes straight back on its "
+                "answer side, ready to re-grade. One level, and only during a session -- once "
+                "\"Done\" is showing, the last card of the day is settled.",
+                NOTE,
+            ),
+        ],
+        [
             Paragraph("<b>No editing</b>", NOTE),
             Paragraph(
-                "No adding, editing, undo, or custom study. Do those in Anki.", NOTE
+                "No adding, editing, or custom study. Do those in Anki.", NOTE
             ),
         ],
         [

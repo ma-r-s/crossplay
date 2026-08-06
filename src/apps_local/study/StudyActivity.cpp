@@ -330,6 +330,7 @@ bool StudyActivity::takeNext() {
   // Nothing ripe: take from the main queue.
   if (best < 0 && queuePos_ < queueCount_) {
     currentIndex_ = queue_[queuePos_++];
+    took_ = Took::Queue;
     return loadCurrent();
   }
 
@@ -345,10 +346,14 @@ bool StudyActivity::takeNext() {
       if (earlier) best = i;
     }
   }
-  if (best < 0) return false;
+  if (best < 0) {
+    took_ = Took::Nothing;
+    return false;
+  }
 
   currentIndex_ = learning_[best].index;
   learning_[best] = learning_[--learningCount_];
+  took_ = Took::Learning;
   return loadCurrent();
 }
 
@@ -378,7 +383,9 @@ bool StudyActivity::loadCurrent() {
 }
 
 bool StudyActivity::persist(const int index, const study::CardState& card, const study::Rating rating,
-                            const study::Outcome& outcome) {
+                            const study::Outcome& outcome, uint32_t& revlogOffset, bool& written) {
+  revlogOffset = 0;
+  written = false;
   bool ok = deck_.storeCard(*cardSource_, index, outcome.card);
   if (!ok) LOG_ERR("STUDY", "Failed to store card %d", index);
 
@@ -398,18 +405,38 @@ bool StudyActivity::persist(const int index, const study::CardState& card, const
     std::memcpy(record + 20, &interval, 4);
     // tookMs is left zero: nothing here times the user, and inventing a
     // plausible number would poison the data Anki reimports.
-    if (!revlogFile_.seekSet(revlogFile_.size()) || revlogFile_.write(record, sizeof(record)) != sizeof(record)) {
+    const uint32_t at = static_cast<uint32_t>(revlogFile_.size());
+    if (!revlogFile_.seekSet(at) || revlogFile_.write(record, sizeof(record)) != sizeof(record)) {
       LOG_ERR("STUDY", "Failed to append to revlog.dat");
       ok = false;
+    } else {
+      revlogOffset = at;
+      written = true;
     }
   }
   return ok;
 }
 
+void StudyActivity::flushWrites() {
+  // Every review rather than at exit. The device can lose power or sleep
+  // mid-session, and a review the user gave is not ours to lose -- nor is one
+  // they took back, which is why undo flushes on the same path.
+  cardSource_->flush();
+  revlogFile_.flush();
+}
+
 void StudyActivity::grade(const study::Rating rating) {
   const study::Outcome outcome = scheduler_.answer(card_, rating, today_, nowMinute());
 
-  if (!persist(currentIndex_, card_, rating, outcome)) writeFailed_ = true;
+  // Everything undo needs, taken before anything moves. card_ is the state as
+  // it was *before* the answer, which is exactly what putting it back means.
+  undo_ = Undo{};
+  undo_.index = currentIndex_;
+  undo_.before = card_;
+  undo_.reviewed = reviewedThisSession_;
+  undo_.again = againThisSession_;
+
+  if (!persist(currentIndex_, card_, rating, outcome, undo_.revlogOffset, undo_.revlogWritten)) writeFailed_ = true;
   ++reviewedThisSession_;
   if (rating == study::Rating::Again) ++againThisSession_;
 
@@ -419,17 +446,100 @@ void StudyActivity::grade(const study::Rating rating) {
   // Still inside a step list: it comes back before the session ends.
   if (outcome.delayMinutes > 0 && learningCount_ < kMaxLearning) {
     learning_[learningCount_++] = {currentIndex_, outcome.card.dueDay, outcome.card.dueMinute};
+    undo_.enteredLearning = true;
   }
 
-  // Flush every review rather than at exit. The device can lose power or sleep
-  // mid-session, and a review the user gave is not ours to lose.
-  cardSource_->flush();
-  revlogFile_.flush();
+  flushWrites();
 
-  if (!takeNext()) {
+  const bool more = takeNext();
+  undo_.took = took_;
+  // Only offer to take it back while the card view is up. Once the session is
+  // over the deck screen is showing, and giving that screen a control it does
+  // not otherwise need is a bigger change than the one card it would rescue.
+  undo_.valid = more;
+  if (!more) {
     refreshStats();
     view_ = View::Deck;
   }
+  requestUpdate();
+}
+
+void StudyActivity::undo() {
+  if (!undo_.valid) return;
+
+  // Put the card that is on screen back where takeNext() found it, before the
+  // undone one displaces it. Nothing has been written for it, so its stored
+  // state is still right and the step list can be rebuilt from it.
+  switch (undo_.took) {
+    case Took::Queue:
+      if (queuePos_ > 0) --queuePos_;
+      break;
+    case Took::Learning:
+      if (learningCount_ < kMaxLearning) {
+        learning_[learningCount_++] = {currentIndex_, card_.dueDay, static_cast<int>(card_.dueMinute)};
+      }
+      break;
+    case Took::Nothing:
+      break;
+  }
+
+  // If grading pushed the undone card into a step, take it out again. Search by
+  // index rather than trusting a position: takeNext() fills the hole it makes
+  // with the last entry, so the one added here may have moved since.
+  if (undo_.enteredLearning) {
+    for (int i = 0; i < learningCount_; ++i) {
+      if (learning_[i].index != undo_.index) continue;
+      learning_[i] = learning_[--learningCount_];
+      break;
+    }
+  }
+
+  if (!deck_.storeCard(*cardSource_, undo_.index, undo_.before)) {
+    LOG_ERR("STUDY", "Failed to restore card %d", undo_.index);
+    writeFailed_ = true;
+  }
+
+  // The review itself is struck out rather than removed: revlog.dat is
+  // append-only by design, and shrinking it would mean reaching past HalFile
+  // into SdFat. Every reader skips a voided record. See StudyStats.h.
+  if (undo_.revlogWritten && revlogFile_.isOpen()) {
+    uint8_t flags = study::kRevlogVoided;
+    const uint32_t at = undo_.revlogOffset + study::kRevlogFlagsOffset;
+    if (!revlogFile_.seekSet(at) || revlogFile_.write(&flags, 1) != 1) {
+      LOG_ERR("STUDY", "Failed to void the review at %u", static_cast<unsigned>(at));
+      writeFailed_ = true;
+    }
+  }
+
+  reviewedThisSession_ = undo_.reviewed;
+  againThisSession_ = undo_.again;
+
+  // If this ever goes wrong it goes wrong quietly -- a card silently duplicated
+  // in the step list, or a queue cursor off by one -- so say what moved.
+  LOG_INF("STUDY", "Undo card %d: took %d, %d in steps, queue at %d/%d, %d reviewed", undo_.index,
+          static_cast<int>(undo_.took), learningCount_, queuePos_, queueCount_, reviewedThisSession_);
+
+  currentIndex_ = undo_.index;
+  const bool loaded = loadCurrent();
+  if (loaded) {
+    // Back on the answer, not the question: the user is here to change a grade,
+    // and making them reveal the card again would be a step they did not ask
+    // for.
+    face_ = Face::Answer;
+  } else {
+    // The card came back off the deck a moment ago, so this means the card has
+    // gone away underneath us. Fall back to the deck screen rather than leave a
+    // stale card on screen that grading would apply to the wrong index.
+    LOG_ERR("STUDY", "Undo could not reload card %d", undo_.index);
+    refreshStats();
+    view_ = View::Deck;
+  }
+
+  // One level. A second undo would need the state before the previous review,
+  // which was not kept, and Mario asked for the fat-finger case rather than a
+  // history.
+  undo_ = Undo{};
+  flushWrites();
   requestUpdate();
 }
 
@@ -463,9 +573,17 @@ void StudyActivity::loop() {
 
   const int footerTop = renderer.getScreenHeight() - kFooterHeight;
   if (face_ == Face::Question) {
-    // The footer is the button, and it says so. A tap on the card reveals too:
-    // it is the only action the screen offers and it destroys nothing, so
-    // making the user aim would be friction for its own sake.
+    // Undo owns the first cell of the footer and nothing else. It is the one
+    // action here that changes something already written, so unlike revealing
+    // it is worth having to aim at -- a stray tap must not take back a review.
+    const int width = renderer.getScreenWidth();
+    if (undo_.valid && tapY >= footerTop && width > 0 && tapX < width / kUndoSlots) {
+      undo();
+      return;
+    }
+    // Everything else reveals, the card included: it is the only other action
+    // the screen offers and it destroys nothing, so making the user aim would
+    // be friction for its own sake.
     face_ = Face::Answer;
     requestUpdate();
     return;
@@ -666,6 +784,23 @@ void StudyActivity::drawFooter(const Rect& footer) {
     // control that cannot act dims rather than disappears -- so the four cells
     // are not drawn empty here, they are replaced by the one thing that can
     // happen.
+    //
+    // Undo is the exception to that rule, and deliberately: it appears only
+    // when there is a review to take back. A permanently visible UNDO would be
+    // dead for the first card of every session and greyed for most of the rest,
+    // which reads as a broken control rather than a resting one.
+    if (undo_.valid) {
+      // The same division that hit-tests it, so the line lands on the boundary
+      // rather than near it.
+      const int split = width / kUndoSlots;
+      renderer.fillRect(split, inner, toybox::kHairline, innerHeight, true);
+      const int undoWidth = renderer.getTextWidth(toybox::kUiFontId, "UNDO");
+      toybox::drawCapsCentered(renderer, toybox::kUiFontId, (split - undoWidth) / 2, inner, innerHeight, "UNDO", true);
+      const int showWidth = renderer.getTextWidth(toybox::kUiFontId, "SHOW ANSWER");
+      toybox::drawCapsCentered(renderer, toybox::kUiFontId, split + (width - split - showWidth) / 2, inner, innerHeight,
+                               "SHOW ANSWER", true);
+      return;
+    }
     toybox::drawCapsCentered(renderer, toybox::kUiFontId,
                              (width - renderer.getTextWidth(toybox::kUiFontId, "SHOW ANSWER")) / 2, inner, innerHeight,
                              "SHOW ANSWER", true);
