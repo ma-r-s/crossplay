@@ -31,12 +31,18 @@ constexpr const char* kGoodNames[kGoodCount] = {"DIAMOND", "GOLD", "SILVER", "CL
 
 // The six goods, as marks. Three of them are precious and would all reduce to
 // "a shiny round thing", so they are told apart by silhouette: a rhombus, a
-// stack, a stack of bars. See tools_local/icons.txt for what lost.
+// stack of coins, a solid mass. See tools_local/jaipur_goods.txt for what lost.
+//
+// Leather is ours rather than Lucide's, because nothing in that set reads as a
+// hide: `beef` is a cut of meat, `backpack` is the finished article rather than
+// the material, `armchair` says furniture. So it is a cow's head, drawn like the
+// camel beside it, and head-on rather than in profile -- a side view at 32px is
+// a rectangle with legs and reads as nothing, which the render showed.
 const freeink::Icon& goodIcon(const int good, const bool large) {
   static const freeink::Icon* kSmall[kGoodCount] = {&icon_good_diamond_32, &icon_good_gold_32,  &icon_good_silver_32,
-                                                    &icon_good_cloth_32,   &icon_good_spice_32, &icon_good_leather_32};
+                                                    &icon_good_cloth_32,   &icon_good_spice_32, &icon_cow_32};
   static const freeink::Icon* kLarge[kGoodCount] = {&icon_good_diamond_56, &icon_good_gold_56,  &icon_good_silver_56,
-                                                    &icon_good_cloth_56,   &icon_good_spice_56, &icon_good_leather_56};
+                                                    &icon_good_cloth_56,   &icon_good_spice_56, &icon_cow_56};
   return large ? *kLarge[good] : *kSmall[good];
 }
 
@@ -247,9 +253,20 @@ void JaipurActivity::tapMarket(const int slot) {
 void JaipurActivity::tapHand(const int good) {
   if (selCamelTake) clearSelection();
   if (game.hand[seat][good] == 0) return;
-  // Tapping the same good again takes one more of it, and wraps at what you
-  // hold. One control, one gesture, no stepper.
-  selHand[good] = static_cast<uint8_t>(selHand[good] >= game.hand[seat][good] ? 0 : selHand[good] + 1);
+
+  // Tapping the same good again takes one more of it and wraps at the top. One
+  // control, one gesture, no stepper.
+  //
+  // What it wraps at depends on what the selection means. Selling, it is
+  // everything you hold. Paying for an exchange, it is what the exchange needs:
+  // climbing past that offers a trade the rules can never accept, and the
+  // capsule would sit dead while you tapped.
+  int most = game.hand[seat][good];
+  if (selMarket != 0) {
+    const int wanted = popcount8(selMarket);
+    if (most > wanted) most = wanted;
+  }
+  selHand[good] = static_cast<uint8_t>(selHand[good] >= most ? 0 : selHand[good] + 1);
 
   if (selMarket == 0) {
     // Building a sale: only one goods type may be sold in a turn.
@@ -264,7 +281,13 @@ void JaipurActivity::tapHerd() {
   if (selCamelTake) clearSelection();
   // Camels are only ever given, and only in a trade.
   if (selMarket == 0) return;
-  selCamels = static_cast<uint8_t>(selCamels >= game.herd[seat] ? 0 : selCamels + 1);
+  // Wraps at what the trade needs, not at the size of the herd: six camels
+  // offered against two market cards is not a move, and letting the counter
+  // climb there only produces a dead capsule.
+  int most = game.herd[seat];
+  const int wanted = popcount8(selMarket);
+  if (most > wanted) most = wanted;
+  selCamels = static_cast<uint8_t>(selCamels >= most ? 0 : selCamels + 1);
 }
 
 bool JaipurActivity::selectionMove(jaipur::Move& out) const {
@@ -584,10 +607,17 @@ void JaipurActivity::drawPile(const Rect& box, const int good) const {
 
   // What is still under the top token, as pips. Decoration made of the app's
   // own material: the row is different on every device because the game is.
+  // Leather is nine deep and the card is 70px wide, so a fixed pip size does not
+  // fit: at 6px on a 3px pitch that row was 78px and ran out over its
+  // neighbours. Sized from the box, capped so the five-deep piles do not turn
+  // into blobs.
   const int totalPips = jaipur::kPileDepth[good];
-  const int pip = 6;
-  const int pipGap = box.width >= 70 ? 3 : 2;
-  const int pipY = box.y + box.height - pip - 6;
+  const int pipGap = 2;
+  const int cell = (box.width - 8) / totalPips;
+  int pip = cell - pipGap;
+  if (pip > 6) pip = 6;
+  if (pip < 2) pip = 2;
+  const int pipY = box.y + box.height - pip - 8;
   const int span = totalPips * pip + (totalPips - 1) * pipGap;
   const int startX = box.x + (box.width - span) / 2;
   for (int i = 0; i < totalPips; ++i) {

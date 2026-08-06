@@ -12,3 +12,12 @@
 # 32px four strokes 3px apart merge into one blob, which is the same defect that
 # made the avatar beards disappear.
 camel = camel
+
+# Leather. Lucide has no cow and nothing that reads as a hide: `beef` is a cut of
+# meat, `backpack` and `briefcase` are the finished article rather than the
+# material, and `armchair` says furniture. Mario asked for a cow, so this is one,
+# drawn in the same idiom as the camel beside it.
+# Head-on, not in profile. A cow seen from the side at 32px is a rectangle with
+# legs and reads as nothing, which the render showed plainly; a head with horns
+# out to the sides, a muzzle and two nostrils is unmistakable at both cuts.
+cow = cowface
