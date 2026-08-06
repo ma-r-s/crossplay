@@ -383,6 +383,23 @@ part of one.
 Hit-testing is derived from the same geometry that drew the cards, never computed
 a second time. That rule has caught more bugs in this fork than any other.
 
+### The three rows of cards
+
+Each row answers one question and carries exactly what that question needs.
+
+| Row    | Question                   | On the card                         |
+| ------ | -------------------------- | ----------------------------------- |
+| market | what is for sale           | the mark, centred, and nothing else |
+| piles  | what does it pay, how deep | the price, the mark, the depth pips |
+| hand   | what do you hold           | the count, then the mark            |
+
+The market card used to carry the price under its mark, and it was the same
+number the pile card below already showed: one figure printed twice, and it cost
+the market card the room to breathe. A mark gets a cut sized to the room its row
+leaves it -- 56 in the market, 44 in the hand, 32 on a pile card between the
+price and the pips -- and in every case it is centred in the space the text
+leaves rather than anchored to an edge.
+
 The opponent's move is reported on the line under the rule, and the turn comes
 straight back to you. A tap-to-continue beat was built and removed after one
 play-test: their move went into the capsule and waited to be acknowledged, which

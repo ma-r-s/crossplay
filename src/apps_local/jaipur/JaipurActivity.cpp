@@ -33,12 +33,21 @@ constexpr const char* kGoodNames[kGoodCount] = {"DIAMOND", "GOLD", "SILVER", "CL
 // 32px and are not mistaken for each other; see tools_local/jaipur_goods.txt for
 // what each rejection actually read as -- leather alone went through three
 // before one stuck.
-const freeink::Icon& goodIcon(const int good, const bool large) {
-  static const freeink::Icon* kSmall[kGoodCount] = {&icon_good_diamond_32, &icon_good_gold_32,  &icon_good_silver_32,
-                                                    &icon_good_cloth_32,   &icon_good_spice_32, &icon_good_leather_32};
-  static const freeink::Icon* kLarge[kGoodCount] = {&icon_good_diamond_44, &icon_good_gold_44,  &icon_good_silver_44,
-                                                    &icon_good_cloth_44,   &icon_good_spice_44, &icon_good_leather_44};
-  return large ? *kLarge[good] : *kSmall[good];
+// One cut per row of the board, because each row leaves the mark a different
+// amount of room: a market card carries nothing but the mark, a hand card puts
+// it under a count, and a pile card has a price above it and the depth pips
+// below.
+enum class MarkSize : uint8_t { Pile = 0, Hand, Market };
+
+const freeink::Icon& goodIcon(const int good, const MarkSize size) {
+  static const freeink::Icon* kPile[kGoodCount] = {&icon_good_diamond_32, &icon_good_gold_32,  &icon_good_silver_32,
+                                                   &icon_good_cloth_32,   &icon_good_spice_32, &icon_good_leather_32};
+  static const freeink::Icon* kHand[kGoodCount] = {&icon_good_diamond_44, &icon_good_gold_44,  &icon_good_silver_44,
+                                                   &icon_good_cloth_44,   &icon_good_spice_44, &icon_good_leather_44};
+  static const freeink::Icon* kMarket[kGoodCount] = {&icon_good_diamond_56, &icon_good_gold_56,  &icon_good_silver_56,
+                                                     &icon_good_cloth_56,   &icon_good_spice_56, &icon_good_leather_56};
+  if (size == MarkSize::Market) return *kMarket[good];
+  return size == MarkSize::Hand ? *kHand[good] : *kPile[good];
 }
 
 // Icons store 1 for "leave this pixel" and 0 for "draw it", which is the
@@ -537,41 +546,16 @@ void JaipurActivity::drawMarketCard(const Rect& box, const uint8_t card, const b
   if (dim) renderer.fillRectDither(box.x + 4, box.y + 4, box.width - 8, box.height - 8, LightGray);
   renderer.drawRect(box.x, box.y, box.width, box.height, selected ? toybox::kFrame : toybox::kHairline, true);
 
+  // Nothing but the mark, centred, at the largest cut. The price the good
+  // fetches used to sit under it, and it was the same number the pile card
+  // below already carries: one figure printed twice, and it cost the market
+  // card the room to breathe. A market card answers "what is for sale", the
+  // pile row answers "what does it pay".
   const bool camel = card == kCamel;
-  Rect inner = box;
-  inner.x += 6;
-  inner.width -= 12;
-
-  // The mark, so a card is recognised before it is read. Large where the card
-  // has the room for it.
   const bool bigMark = box.height >= 120;
-  const freeink::Icon& mark = camel ? (bigMark ? icon_camel_44 : icon_camel_32) : goodIcon(card, bigMark);
-
-  // The price sits on the card's foot and the mark takes the middle of what is
-  // left. Three treatments were rendered side by side to land on this: a 56 mark
-  // centred with the price under it (the mark ends up 16px from the top edge and
-  // only 15 from the number, which reads as one clump riding high), and a 32
-  // mark with the price in a corner (the mark looks lost and the price stops
-  // being the second thing you read). At 44 the card has room for both: 24 above
-  // the mark, 28 between it and the number.
-  //
-  // A camel has no price, but its mark is centred in the same zone rather than
-  // in the whole card, so all five marks in the row share one centre line.
-  // Both proportional, because the menu's ornament draws the same card at
-  // whatever height the slot left it: a fixed band on a short card would push
-  // the mark off the top edge.
-  const int valueBand = std::min(30, box.height / 3);
-  const int bandTop = box.y + box.height - valueBand - std::min(6, box.height / 16);
-  const int markTop = std::max(box.y + 2, box.y + (bandTop - box.y - mark.h) / 2);
-  blitIcon(renderer, mark, box.x + (box.width - mark.w) / 2, markTop);
-
-  if (!camel) {
-    const int depth = game.goodsDepth[card];
-    const int left = jaipur::kPileDepth[card] - depth;
-    char value[12];
-    std::snprintf(value, sizeof(value), "%d", game.nextTokenValue(static_cast<Good>(card), depth));
-    drawCentered(renderer, inner, bandTop, valueBand, left > 0 ? value : "-", true);
-  }
+  const freeink::Icon& mark =
+      camel ? (bigMark ? icon_camel_56 : icon_camel_32) : goodIcon(card, bigMark ? MarkSize::Market : MarkSize::Pile);
+  blitIconCentered(renderer, mark, box);
 }
 
 void JaipurActivity::drawHandCounter(const Rect& box, const int good, const int held, const int picked) const {
@@ -590,9 +574,13 @@ void JaipurActivity::drawHandCounter(const Rect& box, const int good, const int 
   } else {
     std::snprintf(count, sizeof(count), "%d", held);
   }
-  drawCentered(renderer, inner, box.y + 6, 38, count, true);
-  const freeink::Icon& mark = goodIcon(good, false);
-  blitIcon(renderer, mark, box.x + (box.width - mark.w) / 2, box.y + box.height - mark.h - 8);
+  const int countBand = 38;
+  drawCentered(renderer, inner, box.y + 6, countBand, count, true);
+  // Centred in what the count leaves, rather than hung off the bottom edge.
+  const freeink::Icon& mark = goodIcon(good, MarkSize::Hand);
+  const int zoneTop = box.y + 6 + countBand;
+  blitIcon(renderer, mark, box.x + (box.width - mark.w) / 2,
+           zoneTop + (box.y + box.height - zoneTop - mark.h) / 2);
 }
 
 void JaipurActivity::drawPile(const Rect& box, const int good) const {
@@ -609,14 +597,10 @@ void JaipurActivity::drawPile(const Rect& box, const int good) const {
   inner.x += 3;
   inner.width -= 6;
 
+  const int valueBand = 30;
   char value[8];
   std::snprintf(value, sizeof(value), "%d", game.nextTokenValue(static_cast<Good>(good), depth));
-  drawCentered(renderer, inner, box.y + 4, 30, left > 0 ? value : "-", true);
-  // Three bands down the card: what the next token pays, the mark, and the
-  // stack. Anchored from the top rather than hung off the bottom, which is what
-  // put the mark two pixels above the pips and made them read as one smudge.
-  const freeink::Icon& mark = goodIcon(good, false);
-  blitIcon(renderer, mark, box.x + (box.width - mark.w) / 2, box.y + 34);
+  drawCentered(renderer, inner, box.y + 4, valueBand, left > 0 ? value : "-", true);
 
   // What is still under the top token, as pips. Decoration made of the app's
   // own material: the row is different on every device because the game is.
@@ -631,6 +615,14 @@ void JaipurActivity::drawPile(const Rect& box, const int good) const {
   if (pip > 6) pip = 6;
   if (pip < 2) pip = 2;
   const int pipY = box.y + box.height - pip - 7;
+
+  // Three bands down the card: what the next token pays, the mark, and the
+  // stack. The mark is centred in the gap the other two leave rather than
+  // anchored to either, so it belongs to neither and reads as its own band.
+  const freeink::Icon& mark = goodIcon(good, MarkSize::Pile);
+  const int zoneTop = box.y + 4 + valueBand;
+  blitIcon(renderer, mark, box.x + (box.width - mark.w) / 2, zoneTop + (pipY - zoneTop - mark.h) / 2);
+
   const int span = totalPips * pip + (totalPips - 1) * pipGap;
   const int startX = box.x + (box.width - span) / 2;
   for (int i = 0; i < totalPips; ++i) {
@@ -779,7 +771,7 @@ void JaipurActivity::drawRoundSurface(const Rect& body) const {
   Row rows[kGoodCount + 2];
   int rowCount = 0;
   for (int g = 0; g < kGoodCount; ++g) {
-    rows[rowCount++] = {&goodIcon(g, false), game.goodsRupees(seat, static_cast<Good>(g)),
+    rows[rowCount++] = {&goodIcon(g, MarkSize::Pile), game.goodsRupees(seat, static_cast<Good>(g)),
                         game.goodsRupees(them, static_cast<Good>(g))};
   }
   rows[rowCount++] = {&icon_bonus_token_32, game.bonusRupees(seat), game.bonusRupees(them)};
