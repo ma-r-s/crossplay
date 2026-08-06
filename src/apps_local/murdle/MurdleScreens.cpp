@@ -583,6 +583,11 @@ const char* tierShape(const Tier tier) {
 CaseReport buildCase(toybox::Screen& screen, const CaseModel& model) {
   CaseReport report;
   GridLayout& layout = report.grid;
+  // Hand the page back unchanged unless the clue face actually re-measures it.
+  // The activity takes this value as authoritative, so a default of zero here
+  // would silently send the reader back to page one every time they looked at
+  // the grid.
+  report.page = model.page;
   if (model.puzzle == nullptr || model.marks == nullptr) return report;
   const Puzzle& puzzle = *model.puzzle;
 

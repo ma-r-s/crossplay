@@ -113,7 +113,10 @@ struct CaseModel {
 struct CaseReport {
   GridLayout grid;
   int pages = 1;
-  int page = 0;  // the page actually drawn, clamped
+  // The page actually drawn, clamped. On the grid face this is the page the
+  // model came in with, untouched, so the caller can assign it back blindly
+  // without losing the reader's place in the clue list.
+  int page = 0;
 };
 
 // Draws the case and returns what it drew with. `grid.valid` is false on the

@@ -342,8 +342,12 @@ void MurdleActivity::routeAction(const int action, const int value) {
       }
       break;
     case ui::ActionFace:
+      // The page is NOT reset. Flipping to the grid to make a mark and coming
+      // back is the loop this game is made of, and being dropped on page one of
+      // the case file every time means finding your clue again on every single
+      // pass. The grid face has no pages of its own, so there is nothing to
+      // clear.
       face = value == 1 ? ui::Face::Grid : ui::Face::Clues;
-      page = 0;
       dirty = true;
       requestUpdate();
       break;
@@ -436,7 +440,9 @@ void MurdleActivity::render(RenderLock&&) {
       const ui::CaseReport report = ui::buildCase(screen, model);
       gridLayout = report.grid;
       // The builder clamps the page against a count only it can compute, so
-      // take its word back rather than keeping a second opinion around.
+      // take its word back rather than keeping a second opinion around. On the
+      // grid face it hands the page straight back untouched, which is why this
+      // is unconditional and still does not lose your place.
       page = report.page;
       break;
     }
