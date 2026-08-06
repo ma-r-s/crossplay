@@ -325,14 +325,25 @@ bool JaipurActivity::selectionMove(jaipur::Move& out) const {
 }
 
 void JaipurActivity::capsuleLabel(char* buffer, const size_t size) const {
-  if (game.currentPhase() == jaipur::Phase::GameOver) {
-    std::snprintf(buffer, size, "PLAY AGAIN");
+  // The round has ended and the board is holding the position it ended on. The
+  // scores are one tap away rather than already on screen.
+  if (game.currentPhase() != jaipur::Phase::Playing) {
+    std::snprintf(buffer, size, "SEE SCORES");
     return;
   }
-  if (game.currentPhase() == jaipur::Phase::RoundOver) {
-    std::snprintf(buffer, size, "NEXT ROUND");
+
+  // Their move, in the largest thing on the screen, waiting to be acknowledged.
+  // It was only ever a line of small type at the top before, which is missable
+  // and is the one thing you most need to have seen.
+  if (awaitingSeen) {
+    if (report[0] != '\0') {
+      std::snprintf(buffer, size, "%s", report);
+    } else {
+      std::snprintf(buffer, size, "YOUR TURN");
+    }
     return;
   }
+
   if (!myTurn()) {
     // Their first word only. A three-word name inside a sentence is what
     // pushed "MOVE" off the end of chess's capsule; the layout wanted a short
@@ -429,9 +440,9 @@ void JaipurActivity::commitSelection() {
   }
   clearSelection();
 
-  if (game.currentPhase() != jaipur::Phase::Playing) {
-    view = View::RoundOver;
-  }
+  // The board stays up when the round ends, holding the position it ended on,
+  // and the capsule turns into SEE SCORES. Jumping straight to the scoring grid
+  // took the final board away before anyone had looked at it.
   if (inMatch()) link.play(game);
   // Deferred rather than played here, so the repaint showing your own move
   // reaches the panel before the reply is worked out.
@@ -482,7 +493,9 @@ void JaipurActivity::playOpponentTurn() {
     std::snprintf(report + used, sizeof(report) - used, " + BONUS");
   }
 
-  if (game.currentPhase() != jaipur::Phase::Playing) view = View::RoundOver;
+  // Their move waits in the capsule to be acknowledged. When it ended the round
+  // there is nothing to acknowledge: SEE SCORES is the news.
+  awaitingSeen = game.currentPhase() == jaipur::Phase::Playing;
   requestUpdate();
 }
 
@@ -596,9 +609,12 @@ void JaipurActivity::drawPile(const Rect& box, const int good) const {
 
   char value[8];
   std::snprintf(value, sizeof(value), "%d", game.nextTokenValue(static_cast<Good>(good), depth));
-  drawCentered(renderer, inner, box.y + 4, 32, left > 0 ? value : "-", true);
+  drawCentered(renderer, inner, box.y + 4, 30, left > 0 ? value : "-", true);
+  // Three bands down the card: what the next token pays, the mark, and the
+  // stack. Anchored from the top rather than hung off the bottom, which is what
+  // put the mark two pixels above the pips and made them read as one smudge.
   const freeink::Icon& mark = goodIcon(good, false);
-  blitIcon(renderer, mark, box.x + (box.width - mark.w) / 2, box.y + box.height - mark.h - 14);
+  blitIcon(renderer, mark, box.x + (box.width - mark.w) / 2, box.y + 34);
 
   // What is still under the top token, as pips. Decoration made of the app's
   // own material: the row is different on every device because the game is.
@@ -612,7 +628,7 @@ void JaipurActivity::drawPile(const Rect& box, const int good) const {
   int pip = cell - pipGap;
   if (pip > 6) pip = 6;
   if (pip < 2) pip = 2;
-  const int pipY = box.y + box.height - pip - 8;
+  const int pipY = box.y + box.height - pip - 7;
   const int span = totalPips * pip + (totalPips - 1) * pipGap;
   const int startX = box.x + (box.width - span) / 2;
   for (int i = 0; i < totalPips; ++i) {
@@ -980,11 +996,14 @@ jaipurui::BoardModel JaipurActivity::boardModel() {
   capsuleLabel(capsule, sizeof(capsule));
   jaipurui::BoardModel model;
   model.status = capsule;
-  model.report = report;
+  // Silent while the capsule is holding their move: one element says it, and
+  // saying it twice makes neither of them the place to look.
+  model.report = awaitingSeen ? "" : report;
   jaipur::Move move;
   model.canCommit = myTurn() && game.currentPhase() == jaipur::Phase::Playing && selectionMove(move);
   model.canClear = !selectionEmpty();
-  model.roundOver = game.currentPhase() == jaipur::Phase::RoundOver;
+  model.awaitingSeen = awaitingSeen;
+  model.roundOver = game.currentPhase() != jaipur::Phase::Playing;
   model.gameOver = game.currentPhase() == jaipur::Phase::GameOver;
   model.theirName = inMatch() ? link.opponentName() : nullptr;
   return model;
@@ -1090,6 +1109,10 @@ void JaipurActivity::gameRender() {
 
 // --- routing ----------------------------------------------------------------
 
+JaipurActivity::View JaipurActivity::viewForPhase() const {
+  return game.currentPhase() == jaipur::Phase::Playing ? View::Board : View::RoundOver;
+}
+
 void JaipurActivity::goToMenu() {
   refreshContinueDetail();
   saveGame();
@@ -1103,8 +1126,10 @@ void JaipurActivity::startNewGame() {
   seat = 0;
   game.newGame(nextSeed(), 0);
   clearSelection();
+  awaitingSeen = false;
   hasSavedGame = true;
   report[0] = '\0';
+
   view = View::Board;
   if (opponentIsBrain() && !myTurn()) opponentPending = true;
   requestUpdate();
@@ -1113,7 +1138,8 @@ void JaipurActivity::startNewGame() {
 void JaipurActivity::activateStartRow(const jaipurui::StartRow row) {
   switch (row) {
     case jaipurui::StartRow::Continue:
-      view = View::Board;
+      // Not always the board: a game left on the scores comes back to them.
+      view = viewForPhase();
       // The saved position may be waiting on the opponent, and nothing else
       // would ever nudge them.
       if (opponentIsBrain() && game.currentPhase() == jaipur::Phase::Playing && !myTurn()) opponentPending = true;
@@ -1190,9 +1216,24 @@ void JaipurActivity::routeBoard() {
       commitSelection();
       return;
     }
+    if (event.action == jaipurui::ActionSeen) {
+      awaitingSeen = false;
+      requestUpdate();
+      return;
+    }
+    if (event.action == jaipurui::ActionScores) {
+      view = View::RoundOver;
+      requestUpdate();
+      return;
+    }
   }
 
-  if (!myTurn() || game.currentPhase() != jaipur::Phase::Playing) return;
+  // Nothing on the board is tappable until their move has been acknowledged, or
+  // once the round is over. Both are states where the only thing to do is the
+  // capsule.
+  if (awaitingSeen || game.currentPhase() != jaipur::Phase::Playing) return;
+
+  if (!myTurn()) return;
 
   // Laid out against exactly the rect the last paint drew into, never a second
   // computation of the same geometry.

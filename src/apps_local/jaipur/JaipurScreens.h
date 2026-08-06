@@ -22,6 +22,8 @@ enum : fui::ActionId {
   ActionClear = 3,     // drop the current selection
   ActionContinue = 4,  // round over -> next round
   ActionPlayAgain = 5,
+  ActionSeen = 6,    // acknowledge what the opponent just did
+  ActionScores = 7,  // the round has ended -> show what it came to
 };
 
 // The front door.
@@ -55,6 +57,12 @@ struct BoardModel {
   bool canCommit = false;
   // Something is selected, so there is something to clear.
   bool canClear = false;
+  // The opponent has moved and you have not looked yet. The capsule carries
+  // what they did and waits for a tap, because a line of narration at the top
+  // of the screen is missable and their move is the thing you most need to see.
+  bool awaitingSeen = false;
+  // The round ended on the last move. The board stays up holding the final
+  // position, and the capsule offers the scores rather than jumping to them.
   bool roundOver = false;
   bool gameOver = false;
   // Who you are playing, or null against the computer.
