@@ -882,6 +882,49 @@ int traceSolve(const Puzzle& p, int& firstYes, int& cluesBeforeFirstYes, int& ma
   return grid.complete() ? round : -round;
 }
 
+// Exactly what a player sees on the device, and nothing else. No solution, no
+// murderer, no hint of which clue matters. This is the harness a critic plays
+// against: the assertions in this file can prove a case is solvable, and cannot
+// tell you whether solving it was any good, so that judgement has to come from
+// something that actually sits down and tries.
+//
+//   host-tests/murdle/run.sh --play <tier 0-3> <seed>
+void playView(const Tier tier, const uint32_t seed) {
+  static Scratch scratch;
+  Puzzle p;
+  if (!makeCase(tier, seed, scratch, p)) {
+    std::printf("no case\n");
+    return;
+  }
+  char buf[murdletext::kLineMax];
+  std::printf("TIER: %s   (%d categories of %d)\n", tierName(tier), p.shape.cats, p.shape.items);
+  std::printf("\nTHE SUSPECTS\n");
+  for (int i = 0; i < p.shape.items; ++i) {
+    murdletext::suspectAttributes(p, i, buf, sizeof(buf));
+    std::printf("  %s -- %s\n", murdletext::label(p, 0, i), buf);
+  }
+  for (int cat = 1; cat < p.shape.cats; ++cat) {
+    std::printf("\n%s\n", murdletext::categoryName(cat));
+    for (int i = 0; i < p.shape.items; ++i) {
+      const char* mark = murdletext::trait(p, cat, i);
+      if (mark[0] != '\0') {
+        std::printf("  %s (%s)\n", murdletext::label(p, cat, i), mark);
+      } else {
+        std::printf("  %s\n", murdletext::label(p, cat, i));
+      }
+    }
+  }
+  std::printf("\nCLUES\n");
+  for (int i = 0; i < p.clueCount; ++i) {
+    murdletext::clueLine(p, i, buf, sizeof(buf));
+    std::printf("  %2d. %s\n", i + 1, buf);
+  }
+  std::printf(
+      "\nEvery suspect had one weapon and was in one place%s. Nobody shares.\n"
+      "One of them is the murderer. Name the suspect, weapon, place%s.\n",
+      p.shape.cats > 3 ? " and one motive" : "", p.shape.cats > 3 ? " and motive" : "");
+}
+
 void solveOut(const Tier tier, const uint32_t seed) {
   static Scratch scratch;
   Puzzle p;
@@ -977,6 +1020,12 @@ void auditDifficulty() {
 int main(const int argc, char** argv) {
   if (argc > 1 && std::strcmp(argv[1], "--audit") == 0) {
     auditDifficulty();
+    return 0;
+  }
+  if (argc > 1 && std::strcmp(argv[1], "--play") == 0) {
+    const int t = argc > 2 ? std::atoi(argv[2]) : 2;
+    const uint32_t seed = argc > 3 ? static_cast<uint32_t>(std::atol(argv[3])) : 12345u;
+    playView(kTiers[t < 0 || t >= kTierCount ? 2 : t], seed);
     return 0;
   }
   if (argc > 1 && std::strcmp(argv[1], "--solve") == 0) {
