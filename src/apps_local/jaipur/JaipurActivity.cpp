@@ -29,15 +29,10 @@ using jaipur::kMarketSlots;
 // value. Short enough to survive an 80px card at the tile cut.
 constexpr const char* kGoodNames[kGoodCount] = {"DIAMOND", "GOLD", "SILVER", "CLOTH", "SPICE", "LEATHER"};
 
-// The six goods, as marks. Three of them are precious and would all reduce to
-// "a shiny round thing", so they are told apart by silhouette: a rhombus, a
-// stack of coins, a solid mass. See tools_local/jaipur_goods.txt for what lost.
-//
-// Leather is ours rather than Lucide's, because nothing in that set reads as a
-// hide: `beef` is a cut of meat, `backpack` is the finished article rather than
-// the material, `armchair` says furniture. So it is a cow's head, drawn like the
-// camel beside it, and head-on rather than in profile -- a side view at 32px is
-// a rectangle with legs and reads as nothing, which the render showed.
+// The six goods, as marks. The only thing asked of them is that they read at
+// 32px and are not mistaken for each other; see tools_local/jaipur_goods.txt for
+// what each rejection actually read as. Leather is drawn rather than licensed
+// because Lucide has no hide.
 const freeink::Icon& goodIcon(const int good, const bool large) {
   static const freeink::Icon* kSmall[kGoodCount] = {&icon_good_diamond_32, &icon_good_gold_32,  &icon_good_silver_32,
                                                     &icon_good_cloth_32,   &icon_good_spice_32, &icon_cow_32};
