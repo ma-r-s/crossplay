@@ -740,7 +740,7 @@ figcaption,
   display: block;
   padding: 0;
   border: 3px solid var(--ink);
-  background: var(--paper);
+  background: #fff;
   cursor: pointer;
   width: min(320px, 100%);
   line-height: 0;
@@ -749,11 +749,10 @@ figcaption,
   width: 100%;
   height: auto;
   border: 0;
-  /* Held back so the chip over it reads as the foreground. The running device
-   * is never dimmed, which is what makes the click feel like switching it on. */
-  opacity: 0.35;
-  transition: opacity 0.12s ease;
 }
+/* The screenshot is never dimmed and never inverted -- same rule as every
+ * other shot on the page. The chip sits on top of it instead, which also makes
+ * the click read as switching a device on rather than lifting a veil. */
 .emu-badge {
   position: absolute;
   inset: 0;
@@ -768,13 +767,16 @@ figcaption,
   letter-spacing: 0.03em;
   line-height: 1;
   padding: 0.5em 1.15em 0.38em;
-  background: var(--ink);
-  color: var(--paper);
-  border: 3px solid var(--ink);
+  background: #111110;
+  color: #faf9f6;
+  border: 3px solid #111110;
+  transition: transform 0.08s ease;
 }
-.emu-start:hover .shot,
-.emu-start:focus-visible .shot {
-  opacity: 0.16;
+.emu-start:hover .emu-badge::before,
+.emu-start:focus-visible .emu-badge::before {
+  background: #faf9f6;
+  color: #111110;
+  transform: translateY(-2px);
 }
 .emu-frame {
   width: min(560px, 100%);
