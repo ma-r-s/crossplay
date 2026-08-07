@@ -18,7 +18,13 @@
 #include "FirmwareFlasher.h"
 
 namespace {
-constexpr char latestReleaseUrl[] = "https://api.github.com/repos/crosspoint-reader/crosspoint-reader/releases/latest";
+// This fork's releases, not upstream's. Left pointing at CrossPoint, "check for
+// update" fetched their newest build and flashed it over the top: every app on
+// the shelf gone, and worse, a cross-chip flash. Upstream's gh_release targets
+// the X4 and X3, which are ESP32-C3; the only device this fork builds for is
+// the X4 Pro, which is an S3. Upstream added a guard against exactly that
+// (crosspoint-reader#2880), which says how it ends without one.
+constexpr char latestReleaseUrl[] = "https://api.github.com/repos/ma-r-s/crossplay/releases/latest";
 }  // namespace
 
 OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {

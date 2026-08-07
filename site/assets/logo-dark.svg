@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Crossplay">
+  <title>Crossplay</title>
+  <!--
+    The same mark as logo.svg, with the ink colour resolved light instead of
+    inherited.
+
+    logo.svg draws in currentColor, which is right when the page inlines it and
+    useless in an <img>: an external SVG cannot see the document's colour, so it
+    falls back to black and disappears against a dark README. GitHub picks
+    between the two with #gh-light-mode-only / #gh-dark-mode-only.
+
+    Keep the geometry identical to logo.svg. If the mark changes, change both.
+  -->
+  <rect x="8.4" y="8.4" width="15.2" height="15.2" rx="1.6" fill="#f2f1ec" />
+  <g fill="none" stroke="#f2f1ec" stroke-width="2.6" stroke-linecap="square">
+    <path d="M2.6 10.4V2.6h7.8" />
+    <path d="M29.4 10.4V2.6h-7.8" />
+    <path d="M2.6 21.6v7.8h7.8" />
+    <path d="M29.4 21.6v7.8h-7.8" />
+  </g>
+</svg>

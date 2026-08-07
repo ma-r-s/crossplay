@@ -1,0 +1,70 @@
+# Turn a v* tag into a release the device's own updater can install.
+#
+# Upstream's release.yml is still in this tree and still fires on every tag, but
+# it builds gh_release, which is -DFREEINK_DEVICE_X4/X3 and therefore ESP32-C3.
+# The X4 Pro is an S3. Two workflows on one tag would publish two binaries and
+# let the updater pick the wrong chip, so upstream's is filtered to tags this
+# fork never creates (see the `if` below) and this one owns v*.
+name: Crossplay release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-release-${{ hashFiles('platformio.ini') }}
+
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: Build
+        run: pio run -e gh_release_x4pro
+
+      # The updater downloads whatever asset the release names, so the name has
+      # to say which device it is for. Someone reading the releases page should
+      # not have to guess.
+      - name: Name the artefacts
+        run: |
+          mkdir -p dist
+          cp .pio/build/gh_release_x4pro/firmware.bin \
+             "dist/crossplay-${GITHUB_REF_NAME}-x4pro.bin"
+          cp .pio/build/gh_release_x4pro/firmware.elf \
+             "dist/crossplay-${GITHUB_REF_NAME}-x4pro.elf"
+          ls -la dist
+
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          body: |
+            Crossplay for the **Xteink X4 Pro** only. Flashing this on an X4 or
+            X3 is a cross-chip flash: those are ESP32-C3 and this is an S3. For
+            any device other than the X4 Pro, install
+            [CrossPoint](https://crosspointreader.com/) instead.
+
+            Flashing replaces the firmware, not the SD card. Your library, your
+            reading positions and your fonts are files on that card and are left
+            alone. Installing stock CrossPoint over the top puts the device back
+            where it was.

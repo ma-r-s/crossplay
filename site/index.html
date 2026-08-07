@@ -62,9 +62,10 @@
       <h1>E-ink is good at waiting.</h1>
       <p class="lede">
         So is a chess position, a flashcard, a hand of cards you are counting.
-        Crossplay puts them on the Xteink X4 Pro, using the screen the way books
-        already do, and lets two devices find each other with nothing to
-        configure.
+        The Xteink X4 Pro is a cheap e-ink tablet sold as an e-reader, and
+        <a href="https://crosspointreader.com/">CrossPoint</a> already makes it a
+        good one. Crossplay is firmware that adds everything that is not reading,
+        and lets two of them find each other with nothing to configure.
       </p>
       <div class="cta-row">
         <a class="btn primary" href="#shelf">See what is on it</a>
@@ -85,6 +86,10 @@
         <button type="button" data-players="1" aria-pressed="true">1 player</button>
         <button type="button" data-players="2" aria-pressed="false">2 players</button>
       </div>
+      <p class="players-hint" id="playersHint" hidden>
+        On each one: <b>Games</b>, then <b>Chess</b>, then <b>Play nearby</b>. They
+        find each other from there.
+      </p>
       <div class="device-row" id="deviceRow">
         <div class="device">
           <button class="device-screen" type="button"
@@ -205,7 +210,7 @@
       <div class="shot-wrap"><img class="shot" src="assets/shots/xkcd.png" width="480" height="800" loading="lazy" decoding="async" alt="An xkcd comic rendered on the device in one-bit black and white, captioned #3281 Antiques Roadshow."></div>
       <span class="tag">App · the whole archive</span>
       <h3>xkcd</h3>
-      <p>Every strip, packed for the card and drawn at one to one. A comic is line art, which is exactly what this panel is best at.</p>
+      <p>The archive packed onto the SD card and drawn one to one, with new strips fetched as they land. A comic is line art, which is exactly what this panel is best at.</p>
     </article>
 
   </div>
@@ -364,9 +369,12 @@
         <p class="foot-note">
           xkcd comics by Randall Munroe, <a href="https://xkcd.com/license.html">CC BY-NC 2.5</a>, fetched by the
           device from <a href="https://xkcd.com">xkcd.com</a>. Connections puzzles are the New York Times'; Crossplay
-          ships none of them and downloads what you ask for. Hacker News is read
-          through the public Firebase API. Type is Jersey 25 and Instrument
-          Serif, both SIL OFL.
+          ships none of them and downloads only what you ask for. Hacker News
+          comes from the public <a href="https://hn.algolia.com/api">Algolia API</a>,
+          and opening an article sends its URL through
+          <a href="https://r.jina.ai">r.jina.ai</a> to get readable text back,
+          which means that third party learns what you are reading. Type is
+          Jersey 25 and Instrument Serif, both SIL OFL.
         </p>
       </div>
     </div>
@@ -480,6 +488,7 @@
       b.setAttribute('aria-pressed', String(Number(b.dataset.players) === count));
     });
     hero.classList.toggle('two-up', count === 2);
+    document.getElementById('playersHint').hidden = count !== 2;
     var second = row.children[1];
     if (count === 2 && !second) {
       second = blank.cloneNode(true);
