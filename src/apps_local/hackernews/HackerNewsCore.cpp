@@ -31,8 +31,8 @@ bool containsFold(const std::string_view haystack, const std::string_view needle
   if (needle.empty() || haystack.size() < needle.size()) return false;
   for (size_t i = 0; i + needle.size() <= haystack.size(); ++i) {
     size_t j = 0;
-    while (j < needle.size() &&
-           std::tolower(static_cast<unsigned char>(haystack[i + j])) == std::tolower(static_cast<unsigned char>(needle[j]))) {
+    while (j < needle.size() && std::tolower(static_cast<unsigned char>(haystack[i + j])) ==
+                                    std::tolower(static_cast<unsigned char>(needle[j]))) {
       ++j;
     }
     if (j == needle.size()) return true;
@@ -152,7 +152,7 @@ bool urlCanBeArticle(const std::string_view url) {
 
   // Documents and binaries the extractor answers with an empty body. The PDF on
   // the front page the day this was written scored exactly 0.
-  static constexpr std::string_view kSuffixes[] = {".pdf", ".zip", ".tar", ".gz",  ".mp3", ".mp4",
+  static constexpr std::string_view kSuffixes[] = {".pdf", ".zip", ".tar",  ".gz",  ".mp3", ".mp4",
                                                    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp"};
   for (const std::string_view suffix : kSuffixes) {
     if (endsWithFold(path, suffix)) return false;
@@ -161,8 +161,8 @@ bool urlCanBeArticle(const std::string_view url) {
   // Hosts whose content is not a page of prose, or is only reachable to a
   // browser running their JavaScript. Twitter extracts to "Something went
   // wrong" and nothing else, every time.
-  static constexpr std::string_view kHosts[] = {"twitter.com",  "x.com/",      "youtube.com", "youtu.be",
-                                                "reddit.com",   "instagram.com", "tiktok.com", "news.ycombinator.com"};
+  static constexpr std::string_view kHosts[] = {"twitter.com", "x.com/",        "youtube.com", "youtu.be",
+                                                "reddit.com",  "instagram.com", "tiktok.com",  "news.ycombinator.com"};
   for (const std::string_view host : kHosts) {
     if (containsFold(path, host)) return false;
   }
@@ -278,8 +278,8 @@ Extracted splitExtractorResponse(const std::string_view response) {
 
   const size_t marker = response.find(kMarker);
   const std::string_view header = marker == std::string_view::npos ? response : response.substr(0, marker);
-  result.body = marker == std::string_view::npos ? std::string(response)
-                                                 : std::string(response.substr(marker + kMarker.size()));
+  result.body =
+      marker == std::string_view::npos ? std::string(response) : std::string(response.substr(marker + kMarker.size()));
 
   size_t i = 0;
   while (i < header.size()) {
@@ -435,10 +435,17 @@ bool CommentScanner::feed(const char* data, const size_t length) {
       if (escaped_) {
         escaped_ = false;
         switch (c) {
-          case 'n': buffer_.push_back('\n'); break;
-          case 't': buffer_.push_back('\t'); break;
-          case 'r': break;  // HN's text uses \n alone; a stray CR is not a character
-          case 'b': case 'f': break;
+          case 'n':
+            buffer_.push_back('\n');
+            break;
+          case 't':
+            buffer_.push_back('\t');
+            break;
+          case 'r':
+            break;  // HN's text uses \n alone; a stray CR is not a character
+          case 'b':
+          case 'f':
+            break;
           case 'u': {
             // \uXXXX. The four digits may straddle a chunk boundary, so they
             // are gathered through the same buffer rather than read ahead.
@@ -447,7 +454,9 @@ bool CommentScanner::feed(const char* data, const size_t length) {
             unicode_ = 0;
             break;
           }
-          default: buffer_.push_back(c); break;  // \" \\ \/
+          default:
+            buffer_.push_back(c);
+            break;  // \" \\ \/
         }
         continue;
       }

@@ -61,10 +61,10 @@ std::string fitLines(const fui::DrawTarget& target, const char* text, const int1
   // long enough to wrap was trimmed back until all of it fitted on line one:
   // the front page came out as "In Memory of My...", "Show HN: Simple...",
   // "I am retiring from...". Only the last line has to make room.
-  std::string line;               // the line being filled
-  size_t lineStart = 0;           // where it begins in `whole`
-  size_t consumed = 0;            // end of the last word that fitted anywhere
-  size_t lastLineStart = 0;       // where the final drawn line begins
+  std::string line;          // the line being filled
+  size_t lineStart = 0;      // where it begins in `whole`
+  size_t consumed = 0;       // end of the last word that fitted anywhere
+  size_t lastLineStart = 0;  // where the final drawn line begins
   int lineNumber = 1;
   bool overflowed = false;
 

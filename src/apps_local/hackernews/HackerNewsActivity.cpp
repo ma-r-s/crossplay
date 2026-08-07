@@ -65,7 +65,6 @@ void shout(char* out, const size_t size, const char* in) {
 
 }  // namespace
 
-
 std::unique_ptr<Activity> HackerNewsActivity::create(GfxRenderer& renderer, MappedInputManager& mappedInput) {
   return makeUniqueNoThrow<HackerNewsActivity>(renderer, mappedInput);
 }
@@ -131,10 +130,17 @@ void HackerNewsActivity::loop() {
     pending_ = Pending::None;
     bool ok = false;
     switch (what) {
-      case Pending::FrontPage: ok = fetchFrontPage(); break;
-      case Pending::Article: ok = fetchArticle(); break;
-      case Pending::Comments: ok = fetchComments(); break;
-      case Pending::None: break;
+      case Pending::FrontPage:
+        ok = fetchFrontPage();
+        break;
+      case Pending::Article:
+        ok = fetchArticle();
+        break;
+      case Pending::Comments:
+        ok = fetchComments();
+        break;
+      case Pending::None:
+        break;
     }
     if (!ok && phase_ == Phase::Busy) {
       showNotice("NO LUCK", "Could not reach Hacker News. Check the network and try again.", false);
@@ -197,8 +203,12 @@ void HackerNewsActivity::loop() {
       selected_ = event.value;
       request(Pending::Article, "OPENING");
       break;
-    case hnui::ActionPagePrev: turnPage(-1); break;
-    case hnui::ActionPageNext: turnPage(1); break;
+    case hnui::ActionPagePrev:
+      turnPage(-1);
+      break;
+    case hnui::ActionPageNext:
+      turnPage(1);
+      break;
     case hnui::ActionSwapView:
       // One action, and the model decides which way it points. Two would let
       // the label and the effect disagree.
@@ -212,7 +222,8 @@ void HackerNewsActivity::loop() {
       // The notice's only button is always the way onward to the comments.
       request(Pending::Comments, "FETCHING THE THREAD");
       break;
-    default: break;
+    default:
+      break;
   }
 }
 
@@ -309,8 +320,9 @@ bool HackerNewsActivity::fetchArticle() {
   // gets the answer at once instead of waiting to be told no.
   if (!hn::urlCanBeArticle(story->url)) {
     showNotice("NOT READABLE HERE",
-                 "That link is a PDF, a video, or a page that only a browser can open. There is no article text to bring back. The conversation is still here.",
-                 true);
+               "That link is a PDF, a video, or a page that only a browser can open. There is no article text to bring "
+               "back. The conversation is still here.",
+               true);
     return true;
   }
 
@@ -340,8 +352,9 @@ bool HackerNewsActivity::fetchArticle() {
   if (!hn::readsAsProse(extracted.body)) {
     LOG_INF("HN", "gate rejected %s (%d prose chars)", story->url.c_str(), hn::proseChars(extracted.body));
     showNotice("NOT READABLE HERE",
-                 "That page came back with no article in it. Whatever is there needs a browser to see. The conversation is still here.",
-                 true);
+               "That page came back with no article in it. Whatever is there needs a browser to see. The conversation "
+               "is still here.",
+               true);
     return true;
   }
 
@@ -516,10 +529,10 @@ void HackerNewsActivity::render(RenderLock&&) {
       // Computing it a second time here is how a list scrolls by a different
       // number of rows than it shows.
       const int16_t rowHeight = hnui::listRowHeight(target, tokens);
-      topIndex_ = static_cast<int>(fui::listTopIndexFor(
-          static_cast<int16_t>(selected_), static_cast<uint16_t>(topIndex_),
-          fui::listVisibleRows(hnui::listBand(device), rowHeight, tokens.listRowGap),
-          static_cast<uint16_t>(stories_.size())));
+      topIndex_ = static_cast<int>(
+          fui::listTopIndexFor(static_cast<int16_t>(selected_), static_cast<uint16_t>(topIndex_),
+                               fui::listVisibleRows(hnui::listBand(device), rowHeight, tokens.listRowGap),
+                               static_cast<uint16_t>(stories_.size())));
       hnui::ListModel model;
       model.items = rows_.empty() ? nullptr : rows_.data();
       model.count = static_cast<int>(rows_.size());
