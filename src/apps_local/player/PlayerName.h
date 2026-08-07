@@ -106,7 +106,47 @@ constexpr size_t kMaxShortNameLength = 6;
 //
 // Copies up to the first space, truncating rather than overrunning. Works on a
 // name this build cannot parse, since it reads the text and not the slots.
+//
+// ---------------------------------------------------------------------------
+// Two players called SPIKY, and why one word is still enough
+//
+// Fourteen hair words means two people share a first word about one time in
+// fourteen, which sounds fatal for a label and is not. Every caller of this
+// function passes the *opponent's* name; a player's own name is never drawn as
+// a name, only as "YOU" and as their face. So a two-player screen has exactly
+// one name on it, and one name cannot be ambiguous. Both being SPIKY is a
+// coincidence you notice, not a question you have to answer.
+//
+// The face closes the rest: the three words *are* the avatar, and it sits
+// beside the name in the capsule. Two Spikys have different eyes and mouths, so
+// they are already told apart by the thing next to the word.
+//
+// **At three players this stops being true**, and Insider is the app that gets
+// there first. When several opponents are on one screen, the distinguishing
+// word is no longer always the first, and the answer then is not a longer name
+// but a narrower one: given the set of names in the room, take the shortest run
+// of slots that separates them -- SPIKY, else SPIKY WINK, else all three. It is
+// a pure function over a list of names and belongs here, next to this one,
+// where host-tests/player can put every pair of the 2744 through it.
+//
+// It is deliberately not written yet. It needs the set of names in the room and
+// a 1:1 session carries exactly one peer, so there is nothing to compute
+// against until a session can hold three. Build it with that session, not
+// before, and give it the seat order too: "the other SPIKY" needs to mean the
+// same player on both devices.
+// ---------------------------------------------------------------------------
 void shortName(const char* name, char* out, size_t capacity);
+
+// The seed a device rolls its first and only name from: something unique to the
+// hardware, and the boot clock.
+//
+// Exposed because the combining is where this actually went wrong. It was
+// `unique ^ clock`, which cancels whenever both differ in the same low bit --
+// and two simulators started together have consecutive pids in the same
+// millisecond, so they rolled the identical name, face and all. Hashing one
+// side before it meets the other is the fix, and it is a pure function so the
+// property can be asserted rather than observed.
+uint32_t seedFrom(uint32_t unique, uint32_t clock);
 
 // A whole fresh name, for a device that has never had one. Same seed, same
 // name, which is what makes it testable. This is the only random draw left --
