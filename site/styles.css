@@ -479,8 +479,15 @@ figcaption {
     /* Bleed to the screen edges so a half-visible neighbour says "there are
      * more", then pad the ends back in so the first and last still centre. */
     margin-inline: calc(var(--gutter) * -1);
-    padding-inline: var(--gutter);
-    scroll-padding-inline: var(--gutter);
+    /* Half of what is left over once a card has taken its 76vw, so the first
+     * and last card can sit in the middle of the screen like any other.
+     *
+     * vw and not %: a percentage flex-basis resolves against the track's
+     * content box, which is the track minus this very padding, so the two can
+     * never be made to agree. The first card ended up 25px left of centre.
+     * Against the viewport the arithmetic is just 12 + 76/2 = 50. */
+    padding-inline: 12vw;
+    scroll-padding-inline: 12vw;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
   }
@@ -488,11 +495,25 @@ figcaption {
     display: none;
   }
   .shelf .card {
-    flex: 0 0 78%;
-    scroll-snap-align: start;
+    /* 76vw leaves about 8vw of the next card showing at rest, which is what
+     * says there are more without a second card competing for attention. */
+    flex: 0 0 76vw;
+    scroll-snap-align: center;
   }
+  /* Same width as the rest. It used to be wider, which broke the rhythm: with
+   * centre snapping every card has to be the same size or the track lurches. */
   .shelf .card.wide {
-    flex-basis: 88%;
+    flex-basis: 76vw;
+  }
+  /* And the same well. The landscape override exists so Solitaire and the
+   * reader can span two grid columns above 720px; in a one-card-at-a-time
+   * carousel there is no second column to span, so it just produced a short
+   * card with a screen's worth of dead space under it. Back to the portrait
+   * well the base rule already letterboxes into, which keeps every card the
+   * same height and every caption on the same line. The shot is not shrunk,
+   * only centred. */
+  .shelf .card.wide .shot-wrap {
+    aspect-ratio: 480 / 800;
   }
   .shelf-hint {
     display: block;
