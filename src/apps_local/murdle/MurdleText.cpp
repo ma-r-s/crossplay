@@ -121,9 +121,21 @@ void append(char* out, const int cap, const char* fmt, const char* a, const char
 // last step is recognising a scene from a detail, and it has nowhere else to
 // hide the murderer.
 //
-// `clue.voice` is the case's register -- "the suspect" against "the one" -- and
-// is the same byte for every clue in a case, because a case that mixes them
-// reads like several people wrote it and a play-tester said so twice.
+// THE REGISTER IS FIXED PER CATEGORY, NOT PER CASE, AND THAT IS THE THIRD
+// ATTEMPT AT IT.
+//
+// First it varied per clue, and a play-tester got "Whoever carried the fork"
+// beside "The one with the oar" in one case and said it read like several
+// people wrote it. So it became one coin flip per case -- which is how a later
+// tester ended up counting TEN OF TWELVE CLUES opening with the literal words
+// "The one". Consistency bought at the price of a metronome.
+//
+// Both complaints are about the same thing from opposite ends: the variation
+// was arbitrary. Keying it to the anchor's category makes it systematic
+// instead. A weapon anchor always reads "the suspect with", a place anchor
+// always "the one", a motive anchor always "the suspect driven by" -- so a case
+// mixes phrasings without ever contradicting itself, and the same clue shape
+// always sounds the same way. Nothing is random, so nothing can look sloppy.
 void anchorPhrase(const Puzzle& p, const Clue& clue, char* out, const int cap) {
   out[0] = '\0';
   if (clue.anchor == Anchor::Murderer) {
@@ -132,31 +144,26 @@ void anchorPhrase(const Puzzle& p, const Clue& clue, char* out, const int cap) {
   }
   const int cat = clue.anchorCat;
   const int item = clue.anchorItem;
-  const bool plain = clue.voice % 2 == 0;
   switch (static_cast<Cat>(cat)) {
     case Cat::Suspect:
       std::snprintf(out, static_cast<size_t>(cap), "%s", suspectOf(p, item).name);
       return;
     case Cat::Weapon:
-      append(out, cap, plain ? "the suspect with %s" : "the one with %s", weaponOf(p, item).phrase);
+      append(out, cap, "the suspect with %s", weaponOf(p, item).phrase);
       return;
     case Cat::Location:
-      // "The suspect in the study", not "whoever was in the study". Every place
-      // has an occupant -- it is a bijection -- so the conditional form asks the
+      // "The one in the study", not "whoever was in the study". Every place has
+      // an occupant -- it is a bijection -- so the conditional form asks the
       // reader to discharge a vacuous case that cannot arise, and a play-tester
       // reported hesitating over exactly that.
-      append(out, cap, plain ? "the suspect %s" : "the one %s", placeOf(p, item).phrase);
+      append(out, cap, "the one %s", placeOf(p, item).phrase);
       return;
     case Cat::Motive:
-      // Both variants have to work for every motive in the table. "Whoever
-      // wanted an inheritance" reads well and "whoever wanted jealousy" does
-      // not, so that variant is gone: a wording that is right for two thirds of
-      // the table is a wording that ships broken sentences a third of the time.
-      if (clue.voice % 2 == 0) {
-        append(out, cap, "the suspect driven by %s", motiveOf(p, item).phrase);
-      } else {
-        append(out, cap, "the one driven by %s", motiveOf(p, item).phrase);
-      }
+      // Only one wording here, and it is not a style choice. "Whoever wanted an
+      // inheritance" reads well and "whoever wanted jealousy" does not, so a
+      // wording that is right for two thirds of the table ships broken
+      // sentences the rest of the time.
+      append(out, cap, "the suspect driven by %s", motiveOf(p, item).phrase);
       return;
   }
 }
@@ -337,7 +344,29 @@ const char* label(const Puzzle& p, const int cat, const int item) {
   return "";
 }
 
+// ONLY THE CATEGORY THE BODY CLUE USES SHOWS ITS DETAILS.
+//
+// Since the body clue became the only clue that names a thing by its detail,
+// the other category's details were printed on every case file and referenced
+// by nothing. Two play-testers counted them: "not one is referenced", and the
+// sharper version -- it "trains the player to ignore parentheticals right
+// before the last clue requires them".
+//
+// Hiding them leaks nothing. The body clue announces which category it is
+// about in its own first six words ("beside the weapon with..." against "where
+// there was..."), so a player who has read it already knows. What it buys is
+// four fewer lines on a screen that has to hold a cast list and a grid key at
+// the same time, and it makes the surviving details obviously load-bearing.
+//
+// The whole category is shown or none of it. Printing the detail for only the
+// crime scene would name the crime scene.
 const char* trait(const Puzzle& p, const int cat, const int item) {
+  int detailCat = -1;
+  for (int i = 0; i < p.clueCount; ++i) {
+    if (p.clues[i].anchor == Anchor::Murderer) detailCat = p.clues[i].targetCat;
+  }
+  if (cat != detailCat) return "";
+
   switch (static_cast<Cat>(cat)) {
     case Cat::Weapon:
       return weaponOf(p, item).trait;
@@ -381,13 +410,13 @@ void axisLetters(const Puzzle& p, const int cat, char out[murdle::kMaxItems + 1]
 void clueLine(const Puzzle& p, const int clueIndex, char* out, const int cap) {
   out[0] = '\0';
   if (clueIndex < 0 || clueIndex >= p.clueCount || cap < 8) return;
-  Clue clue = p.clues[clueIndex];
-  // One voice per case, and this is the second attempt at it. The first XORed
-  // the case seed into each clue's own voice byte, which still varied per clue,
-  // so "Whoever carried the fork" and "The one with the oar" went on sitting in
-  // the same case and a play-tester called it out again. The register now comes
-  // from the case and nothing else.
-  clue.voice = static_cast<uint8_t>(p.seed >> 3);
+  const Clue& clue = p.clues[clueIndex];
+  // `clue.voice` used to be overwritten here with a per-case register byte.
+  // Nothing reads it any more: anchorPhrase keys its wording to the anchor's
+  // category instead, which is systematic where this was a coin flip. The field
+  // stays on Clue because it is part of the fingerprint a save is validated
+  // against, and it still carries the generator's per-clue entropy for any
+  // future choice that genuinely wants to vary within a case.
 
   // The murder clue names the crime scene by something in it rather than by its
   // name, which is what keeps the last step of a case a deduction instead of an

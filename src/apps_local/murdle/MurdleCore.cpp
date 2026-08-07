@@ -928,6 +928,16 @@ bool generate(const Tier tier, const uint32_t seed, const uint8_t cast[kMaxCats]
       // one template firing twice. Two different eye colours would be the same
       // complaint one step out. The generator does not know what a column is --
       // see AttrMasks::axis -- only that two masks came from the same one.
+      // Nor may one item be ruled out over and over. A case came out with
+      // "BRUNO was not in the hall", "OSCAR was not in the hall" and "YARA was
+      // not in the hall" as three separate lines, which together say "TOMAS was
+      // in the hall" -- a positive in disguise, paid for three times and read as
+      // one template stuttering. Every filter above misses it: the anchors all
+      // differ so spokenOf sees three different clues, saidAbout only fires when
+      // the TARGET is a suspect, and shapeUsed sits at exactly its limit.
+      int ruledOut[kMaxCats][kMaxItems] = {};
+      constexpr int kMaxRuledOut = 2;
+
       int axisUsed[8] = {};
       const auto axisOf = [&attrs](const uint8_t tag) -> int {
         if (tag == kNoAttr) return -1;
@@ -965,6 +975,20 @@ bool generate(const Tier tier, const uint32_t seed, const uint8_t cast[kMaxCats]
             if (set == items - 1) names = missing;
           }
 
+          // The one item a denial rules out, when it rules out exactly one.
+          int denied = -1;
+          if (clue.attr == kNoAttr) {
+            int missing = 0;
+            int clear = 0;
+            for (int b = 0; b < items; ++b) {
+              if ((clue.targetMask & static_cast<uint8_t>(1u << b)) == 0) {
+                ++clear;
+                missing = b;
+              }
+            }
+            if (clear == 1) denied = missing;
+          }
+
           const int axis = axisOf(clue.attr);
           if (pass == 0) {
             if (spokenOf[clue.anchorCat][clue.anchorItem][clue.targetCat] >= kMaxPerAnchor) continue;
@@ -972,6 +996,7 @@ bool generate(const Tier tier, const uint32_t seed, const uint8_t cast[kMaxCats]
             if (shapeUsed[clue.anchorCat][clue.targetCat] >= kMaxPerShape) continue;
             if (clue.attr != kNoAttr && attrUsed[clue.attr] >= kMaxPerAttr) continue;
             if (axis >= 0 && axisUsed[axis] >= kMaxPerAxis) continue;
+            if (denied >= 0 && ruledOut[clue.targetCat][denied] >= kMaxRuledOut) continue;
           }
           clue.voice = static_cast<uint8_t>(rng.next());
           p.clues[p.clueCount] = clue;
@@ -995,6 +1020,7 @@ bool generate(const Tier tier, const uint32_t seed, const uint8_t cast[kMaxCats]
 
           if (clue.attr != kNoAttr) ++attrUsed[clue.attr];
           if (axis >= 0) ++axisUsed[axis];
+          if (denied >= 0) ++ruledOut[clue.targetCat][denied];
           ++spokenOf[clue.anchorCat][clue.anchorItem][clue.targetCat];
           if (names >= 0) saidAbout[names][clue.anchorCat] = true;
           ++shapeUsed[clue.anchorCat][clue.targetCat];
