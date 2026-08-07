@@ -1,13 +1,3 @@
-# Crossplay: the identity, on the device and off it
-
-[`design-language.md`](design-language.md) is the authority for what an app looks
-like on the panel. This is the layer above it: what Crossplay _is_, how it says
-so, and what survives when the identity leaves the device for a screenshot, a
-README or a web page.
-
-Read this before writing any copy or building anything the public sees. Read the
-design language before drawing anything the device shows.
-
 ## The sentence
 
 > **Crossplay turns the Xteink X4 Pro into a device you do things on, and
@@ -140,6 +130,41 @@ sentence where a button gets three words, but it may not become a brochure.
 - It is a **fork of CrossPoint**, said plainly and early. We track it, we did not
   replace it, and the relationship is a credential rather than an embarrassment.
 - The device is the **Xteink X4 Pro**. Crossplay does not claim the others.
+
+## The mark
+
+Corner brackets around a screen. See `site/assets/logo.svg`.
+
+The brackets are the one shape this fork invented rather than inherited: they
+frame the chess board, the mini board on its menu, and every Toybox panel. That
+makes the mark the same material as everything else here, which is the only kind
+of ornament this document allows.
+
+It also has to survive being 16px in a browser tab. Four right angles and a
+solid block have no detail to lose, and unlike a pair of overlapping rectangles
+it does not collide with the copy/duplicate glyph every desktop already ships.
+Four alternatives were drawn and rejected on exactly those two grounds: a pair
+of panels side by side (reads as an open book, which is upstream's idea, not
+ours), overlapping panels (the duplicate icon), the band over shelf rows (a
+hamburger, small), and a pixel C monogram -- the last one only because it says
+nothing about a device, and it is what to reach for if the mark ever has to live
+off a screen.
+
+Two files carry it. `logo.svg` keeps `currentColor` and is inlined in the page
+so the theme toggle moves it; `favicon.svg` resolves the colour with a
+`prefers-color-scheme` rule, because a favicon renders alone and `currentColor`
+would come out black against a dark tab strip. One shape, two files: change one
+and change the other.
+
+# Crossplay: the identity, on the device and off it
+
+[`design-language.md`](design-language.md) is the authority for what an app looks
+like on the panel. This is the layer above it: what Crossplay _is_, how it says
+so, and what survives when the identity leaves the device for a screenshot, a
+README or a web page.
+
+Read this before writing any copy or building anything the public sees. Read the
+design language before drawing anything the device shows.
 
 ## What this rules out
 

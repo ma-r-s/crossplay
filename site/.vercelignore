@@ -1,3 +1,5 @@
-# Dev tools, not part of the site.
+# Dev and build tools, not part of the site.
 pageshot.py
 serve.py
+make-og.py
+set-host.py

@@ -720,6 +720,19 @@ button:focus-visible {
     flex-wrap: wrap;
   }
 }
+/* Matches the width gate in index.html. Below this the panel is a screenshot
+ * and nothing offers to boot it, so the affordances go too. */
+@media (max-width: 759px) {
+  .players {
+    display: none;
+  }
+  .device-screen {
+    cursor: default;
+  }
+  .device-screen::after {
+    display: none;
+  }
+}
 
 /* --- the device ----------------------------------------------------------
  * A screenshot that becomes the running firmware in place. The box is sized

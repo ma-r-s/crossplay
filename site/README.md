@@ -3,6 +3,18 @@
 Static. No build step, no framework, no dependencies. `index.html`, one
 stylesheet, and the assets it names.
 
+## Before it deploys
+
+Two steps, both of which fail silently if skipped:
+
+```bash
+python3 site/set-host.py https://your-domain     # og:image and og:url must be absolute
+uv run --with playwright python site/make-og.py  # only if the mark, headline or shelf shot changed
+```
+
+Nothing on the page shows you the share card, so it is the one asset that goes
+stale without anyone noticing.
+
 ## Deploying
 
 Point Vercel at this directory as the project root. There is nothing to build,
