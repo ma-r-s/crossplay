@@ -134,10 +134,15 @@ struct Game {
   // completes in full first, which is why a sale that empties the third pile
   // still collects its bonus token. Returns false and changes nothing if the
   // move is not legal.
+  //
+  // A round that ends here also awards its seal here, and goes straight to
+  // Phase::GameOver if that was somebody's second. So Phase::RoundOver always
+  // means "scored, seal awarded, match still alive", and any screen drawn from
+  // that state is telling the truth.
   bool apply(const Move& move);
 
-  // Scores the finished round, awards the seal, and either deals the next round
-  // (loser starts) or ends the game. Only valid in Phase::RoundOver.
+  // Deals the next round, loser first. Only valid in Phase::RoundOver, and by
+  // then the seal is already banked.
   void startNextRound(uint32_t roundSeed);
 
   // --- derived, never stored ----------------------------------------------

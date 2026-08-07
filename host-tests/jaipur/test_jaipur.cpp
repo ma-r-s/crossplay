@@ -236,20 +236,28 @@ int main() {
         const uint8_t before = g.roundStarter;
         const int expectedStarter = winner >= 0 ? 1 - winner : before;
         const int roundBefore = g.round;
+        const uint8_t sealsBefore[2] = {g.seals[0], g.seals[1]};
         g.startNextRound(rnd());
-        ++rounds;
-        if (g.currentPhase() != Phase::GameOver) {
-          if (g.turn != expectedStarter) {
-            printf("FAIL: starter is %d, expected %d\n", g.turn, expectedStarter);
-            abort();
-          }
-          if (g.round != roundBefore + 1) {
-            printf("FAIL: round did not advance\n");
-            abort();
-          }
-          checkInvariants(g, "after deal");
-          ++checks;
+        // It deals, and only deals. The seal was banked by the move that ended
+        // the round, and a match that was already decided never reaches here.
+        if (g.seals[0] != sealsBefore[0] || g.seals[1] != sealsBefore[1]) {
+          printf("FAIL: startNextRound moved a seal\n");
+          abort();
         }
+        if (g.currentPhase() != Phase::Playing) {
+          printf("FAIL: startNextRound left phase %d\n", static_cast<int>(g.currentPhase()));
+          abort();
+        }
+        if (g.turn != expectedStarter) {
+          printf("FAIL: starter is %d, expected %d\n", g.turn, expectedStarter);
+          abort();
+        }
+        if (g.round != roundBefore + 1) {
+          printf("FAIL: round did not advance\n");
+          abort();
+        }
+        checkInvariants(g, "after deal");
+        checks += 3;
         continue;
       }
 
@@ -262,6 +270,7 @@ int main() {
       const int seatBefore = g.turn;
       const int emptyBefore = g.emptyPiles();
       const int deckBefore = g.deckRemaining();
+      const uint8_t sealsBefore[2] = {g.seals[0], g.seals[1]};
 
       if (!g.apply(pick)) {
         printf("FAIL: a legal move was rejected\n");
@@ -271,7 +280,38 @@ int main() {
       checkInvariants(g, "after move");
       ++checks;
 
-      if (g.currentPhase() == Phase::RoundOver) {
+      // The seal is banked by the move that ends the round, not by the deal
+      // that follows it. It used to be handed out by startNextRound(), which
+      // meant the scoring screen was drawn from a state where nobody had won
+      // anything yet -- it showed the seals of the round before.
+      if (g.currentPhase() == Phase::Playing) {
+        if (g.seals[0] != sealsBefore[0] || g.seals[1] != sealsBefore[1]) {
+          printf("FAIL: a seal moved mid-round\n");
+          abort();
+        }
+      } else {
+        const int winner = g.roundWinner();
+        for (int s = 0; s < kSeats; ++s) {
+          const int expected = sealsBefore[s] + (s == winner ? 1 : 0);
+          if (g.seals[s] != expected) {
+            printf("FAIL: seat %d holds %d seals at round end, expected %d\n", s, g.seals[s], expected);
+            abort();
+          }
+        }
+        // And two seals ends the match on the spot, without waiting to be asked
+        // for the next round.
+        const bool decided = g.matchWinner() >= 0;
+        if (decided != (g.currentPhase() == Phase::GameOver)) {
+          printf("FAIL: phase %d with match winner %d\n", static_cast<int>(g.currentPhase()), g.matchWinner());
+          abort();
+        }
+        checks += 3;
+      }
+
+      if (g.currentPhase() != Phase::Playing) {
+        // Counted where the round actually ends, so the one that decides the
+        // match counts too: it never reaches startNextRound().
+        ++rounds;
         // Exactly one of the two triggers must explain it.
         const bool byPiles = g.emptyPiles() >= 3;
         const bool byDeck = g.deckRemaining() == 0;
