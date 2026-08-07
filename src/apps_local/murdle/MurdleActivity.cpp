@@ -269,7 +269,7 @@ void MurdleActivity::loop() {
   // A tap that hit nothing, on a page of clues, is a tap on a clue. The list is
   // longer than the interaction buffer, so it hands back its geometry instead
   // of registering a rect a row; see MurdleScreens.h.
-  if (hit.action == fui::NO_ACTION && view == View::Case && face == ui::Face::Clues && page > 0) {
+  if (hit.action == fui::NO_ACTION && view == View::Case && face == ui::Face::Clues) {
     handleClueTap(tapY);
     return;
   }
@@ -380,7 +380,7 @@ void MurdleActivity::routeAction(const int action, const int value) {
       // the case file every time means finding your clue again on every single
       // pass. The grid face has no pages of its own, so there is nothing to
       // clear.
-      face = value == 1 ? ui::Face::Grid : ui::Face::Clues;
+      face = value >= 0 && value < ui::kFaceCount ? static_cast<ui::Face>(value) : ui::Face::Clues;
       dirty = true;
       requestUpdate();
       break;
@@ -473,10 +473,13 @@ void MurdleActivity::render(RenderLock&&) {
       const ui::CaseReport report = ui::buildCase(screen, model);
       gridLayout = report.grid;
       // The builder clamps the page against a count only it can compute, so
-      // take its word back rather than keeping a second opinion around. On the
-      // grid face it hands the page straight back untouched, which is why this
-      // is unconditional and still does not lose your place.
-      page = report.page;
+      // take its word back rather than keeping a second opinion around -- but
+      // only on the face the page belongs to. `page` is the CLUE page. The grid
+      // has none, and INFO is one page by construction, so letting either of
+      // them write their clamped zero back here would drop the reader on clue
+      // one every time they glanced at the cast, which is the loop this game is
+      // made of.
+      if (face == ui::Face::Clues) page = report.page;
       break;
     }
     case View::Accuse: {
@@ -624,7 +627,7 @@ bool MurdleActivity::loadState() {
   seed = state.seed;
   struck = state.struck;
   wrongAccusations = state.wrongAccusations;
-  face = state.face == 1 ? ui::Face::Grid : ui::Face::Clues;
+  face = state.face < ui::kFaceCount ? static_cast<ui::Face>(state.face) : ui::Face::Clues;
   page = state.page;
   return true;
 }

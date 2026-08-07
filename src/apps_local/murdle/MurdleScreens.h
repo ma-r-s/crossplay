@@ -49,7 +49,16 @@ enum : fui::ActionId {
 // Which face of the case is showing. Not a view: Back leaves the case from
 // either of them, and a toggle that sat in the back stack would sometimes mean
 // "the other face" and sometimes mean "leave".
-enum class Face : uint8_t { Clues, Grid };
+// Three faces, each one thing, and the door cycles them: CLUES -> GRID -> INFO.
+//
+// The cast list used to share the clue face's page stream, so a case ran to
+// three or four pages and where the cast stopped and the clues started moved
+// with the tier. Mario asked for the split, and for the cast to fit one page
+// always -- which it now does, because a suspect is one line like every other
+// fixture (see drawCastBlocks) and carries only the dossier columns the case
+// actually uses (see suspectAttributes).
+enum class Face : uint8_t { Clues, Grid, Info };
+constexpr int kFaceCount = 3;
 
 // ---------------------------------------------------------------------------
 // The grid

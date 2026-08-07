@@ -489,12 +489,50 @@ void clueLine(const Puzzle& p, const int clueIndex, char* out, const int cap) {
   std::snprintf(out + len, static_cast<size_t>(cap - len), " %s.", what);
 }
 
+// ONLY THE DOSSIER COLUMNS THIS CASE ACTUALLY ASKS ABOUT.
+//
+// Mario, having played several: "can you make sure that we are actually using
+// all the info that we're giving? Having seen a single clue with the height, or
+// the hair, or the left handed stuff." Every play-tester said a version of it
+// too, and one put the cost precisely -- printing four columns where one is
+// live teaches a player to skip the dossier, which then burns them on the case
+// that needs it.
+//
+// Forcing every column to appear in every case is not the answer: an Elementary
+// case is under six clues long and four of them cannot be dossier lookups. So
+// the guarantee runs the other way, and holds by construction rather than by
+// tuning: print the columns the clues use, and nothing else. What is on the
+// page is what the case is about, one hundred percent of the time.
+//
+// It is also what lets a suspect be one line like every other fixture, which is
+// what makes the whole cast fit a single page. Same reasoning as trait().
 void suspectAttributes(const Puzzle& p, const int item, char* out, const int cap) {
   const murdle::SuspectEntry& s = suspectOf(p, item);
-  std::snprintf(out, static_cast<size_t>(cap), "%s, %s eyes, %s hair, %d'%d\"",
-                s.handed == murdle::Handed::Left ? "left-handed" : "right-handed",
-                eyeWord(static_cast<uint8_t>(s.eyes)), hairWord(static_cast<uint8_t>(s.hair)), s.inches / 12,
-                s.inches % 12);
+  out[0] = '\0';
+
+  bool used[4] = {};
+  for (int i = 0; i < p.clueCount; ++i) {
+    const uint8_t tag = p.clues[i].attr;
+    if (tag == kNoAttr) continue;
+    if (tag >= murdle::kAttrTallerThan) {
+      used[3] = true;  // every height form, superlative or comparison
+    } else {
+      const uint8_t kind = static_cast<uint8_t>(tag / 16u);
+      if (kind < 3) used[kind] = true;
+    }
+  }
+
+  const auto add = [&](const char* fmt, auto... args) {
+    const int len = static_cast<int>(std::strlen(out));
+    if (len > 0) std::snprintf(out + len, static_cast<size_t>(cap - len), ", ");
+    const int at = static_cast<int>(std::strlen(out));
+    std::snprintf(out + at, static_cast<size_t>(cap - at), fmt, args...);
+  };
+
+  if (used[0]) add("%s", s.handed == murdle::Handed::Left ? "left-handed" : "right-handed");
+  if (used[1]) add("%s eyes", eyeWord(static_cast<uint8_t>(s.eyes)));
+  if (used[2]) add("%s hair", hairWord(static_cast<uint8_t>(s.hair)));
+  if (used[3]) add("%d'%d\"", s.inches / 12, s.inches % 12);
 }
 
 void accusationLine(const Puzzle& p, const uint8_t picks[kMaxCats], char* out, const int cap) {

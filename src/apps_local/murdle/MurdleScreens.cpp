@@ -404,13 +404,9 @@ void drawCastBlocks(toybox::Screen& screen, const Puzzle& puzzle, const fui::Rec
     murdletext::axisLetters(puzzle, block, letters);
 
     // How tall this block wants to be, before committing to any of it. A block
-    // half drawn is worse than a block on the next page.
-    int16_t want = static_cast<int16_t>(lh + 6);
-    if (block == 0) {
-      want = static_cast<int16_t>(want + puzzle.shape.items * (nameH + lh + 8));
-    } else {
-      want = static_cast<int16_t>(want + 16 + puzzle.shape.items * lh);
-    }
+    // half drawn is worse than a block on the next page. Every category costs
+    // the same now that a suspect is one line.
+    const int16_t want = static_cast<int16_t>(lh + 6 + 16 + puzzle.shape.items * lh);
     if (block > firstBlock && y + want > area.bottom()) break;
 
     if (block > firstBlock) {
@@ -427,24 +423,28 @@ void drawCastBlocks(toybox::Screen& screen, const Puzzle& puzzle, const fui::Rec
     y = static_cast<int16_t>(y + lh + 4);
 
     for (int i = 0; i < puzzle.shape.items; ++i) {
-      if (block == 0) {
-        char titled[96];
-        std::snprintf(titled, sizeof(titled), "%c  %s", letters[i], murdletext::label(puzzle, 0, i));
-        if (draw) target.text(fui::makeRect(area.x, y, area.width, nameH), titled, name);
-        y = static_cast<int16_t>(y + nameH);
-        murdletext::suspectAttributes(puzzle, i, buf, sizeof(buf));
-        if (draw) {
-          target.text(fui::makeRect(static_cast<int16_t>(area.x + 12), y, static_cast<int16_t>(area.width - 12), lh),
-                      buf, small);
-        }
-        y = static_cast<int16_t>(y + lh + 8);
-      } else {
+      {
         char line[160];
-        const char* mark = murdletext::trait(puzzle, block, i);
+        // A SUSPECT IS ONE LINE, THE SAME SHAPE AS EVERY OTHER FIXTURE, and
+        // that is what makes the whole cast fit one page at every tier. It used
+        // to be two -- a name in the UI face, then an indented dossier line --
+        // which cost roughly three times the height of a weapon and pushed the
+        // cast alone onto two pages at four categories. Mario asked for exactly
+        // this: give the suspects the same format as the rest of the things and
+        // everything fits on one page a hundred percent of the time.
+        //
+        // What goes in the parentheses is the case's own detail for that
+        // category: the dossier columns the clues actually use for a suspect
+        // (see suspectAttributes) and the fixture detail for everything else
+        // (see trait). Both are empty when the case never asks, so no line ever
+        // carries something no clue will reach for.
+        const char* detail = block == 0 ? (murdletext::suspectAttributes(puzzle, i, buf, sizeof(buf)), buf)
+                                        : murdletext::trait(puzzle, block, i);
         // The letter first, because this page is the grid's key as well as its
         // cast list, and at four categories it is the only key there is room for.
-        if (mark[0] != '\0') {
-          std::snprintf(line, sizeof(line), "%c  %s  (with %s)", letters[i], murdletext::label(puzzle, block, i), mark);
+        if (detail[0] != '\0') {
+          std::snprintf(line, sizeof(line), "%c  %s  (%s%s)", letters[i], murdletext::label(puzzle, block, i),
+                        block == 0 ? "" : "with ", detail);
         } else {
           std::snprintf(line, sizeof(line), "%c  %s", letters[i], murdletext::label(puzzle, block, i));
         }
@@ -593,8 +593,12 @@ CaseReport buildCase(toybox::Screen& screen, const CaseModel& model) {
 
   // The door names where it goes, not where you are. A tab bar spends half its
   // width telling you which page you are already looking at; this spends none.
-  const bool onGrid = model.face == Face::Grid;
-  chrome(screen, "MURDLE", onGrid ? "< CLUES" : "GRID >", ActionFace, onGrid ? 0 : 1);
+  // Three faces now, so it cycles rather than toggles, and the label is always
+  // the next one round: CLUES -> GRID -> INFO -> CLUES.
+  const char* doors[kFaceCount] = {"GRID >", "INFO >", "CLUES >"};
+  const int here = static_cast<int>(model.face);
+  const int next = (here + 1) % kFaceCount;
+  chrome(screen, "MURDLE", doors[here], ActionFace, next);
 
   fui::ButtonProps accuse;
   accuse.label = model.solved ? "SOLVED" : "ACCUSE";
@@ -618,30 +622,42 @@ CaseReport buildCase(toybox::Screen& screen, const CaseModel& model) {
     drawLegend(screen, puzzle,
                fui::makeRect(body.x, gridBottom, body.width, static_cast<int16_t>(body.bottom() - gridBottom)));
   } else {
-    // The clue face is always more than one page, so the pager strip is always
-    // there and always comes out of the text area. Reserving it only when
-    // pages > 1 would need the count before the measurement that produces it.
+    // The pager strip always comes out of the text area, even on a face that
+    // turns out to be one page. Reserving it only when pages > 1 would need the
+    // count before the measurement that produces it -- and the measurement is
+    // done against this rect, so the count would be measuring a taller page
+    // than the one it then draws into and would lose a clue off the bottom.
+    // Since the cast moved to its own face, INFO is one page always and CLUES
+    // usually is too, so this is a few pixels of honest waste rather than the
+    // permanent cost it was when every case ran to three or four pages.
     const fui::Rect text = fui::makeRect(body.x, body.y, body.width, static_cast<int16_t>(body.height - kPagerH));
 
     // Walk the whole thing once, measuring, to find how many pages there are
     // and where each starts. The same call that measures is the one that draws,
     // so the count and the split are the same arithmetic and cannot disagree
     // and lose a clue off the end of the last page.
+    // One face, one kind of thing. The cast used to be paged into the front of
+    // this same stream, which is what made a case three or four pages deep and
+    // moved the boundary around with the tier.
+    const bool onInfo = model.face == Face::Info;
     Stop stops[murdle::kMaxClues + murdle::kMaxCats + 2];
     int pages = 0;
     int used = 0;
-    for (int block = 0; block < puzzle.shape.cats && pages < static_cast<int>(sizeof(stops) / sizeof(stops[0]));) {
-      stops[pages++] = Stop{true, block};
-      drawCastBlocks(screen, puzzle, text, block, used, false);
-      block += used;
-    }
-    for (int clue = 0; clue < puzzle.clueCount && pages < static_cast<int>(sizeof(stops) / sizeof(stops[0]));) {
-      stops[pages++] = Stop{false, clue};
-      drawCluePage(screen, puzzle, text, clue, 0, used, false);
-      clue += used > 0 ? used : 1;
+    if (onInfo) {
+      for (int block = 0; block < puzzle.shape.cats && pages < static_cast<int>(sizeof(stops) / sizeof(stops[0]));) {
+        stops[pages++] = Stop{true, block};
+        drawCastBlocks(screen, puzzle, text, block, used, false);
+        block += used > 0 ? used : 1;
+      }
+    } else {
+      for (int clue = 0; clue < puzzle.clueCount && pages < static_cast<int>(sizeof(stops) / sizeof(stops[0]));) {
+        stops[pages++] = Stop{false, clue};
+        drawCluePage(screen, puzzle, text, clue, 0, used, false);
+        clue += used > 0 ? used : 1;
+      }
     }
     if (pages == 0) {
-      stops[pages++] = Stop{true, 0};
+      stops[pages++] = Stop{onInfo, 0};
     }
     report.pages = pages;
     report.page = model.page < pages ? model.page : pages - 1;
