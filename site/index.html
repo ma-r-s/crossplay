@@ -22,10 +22,19 @@
 <body>
 <a class="skip" href="#main">Skip to content</a>
 
-<header class="hero wrap">
+<!-- Always on screen, top left, the way an OS puts its name there. Whatever
+     you have scrolled to, you can still tell what you are looking at. A bar
+     rather than a floating chip because the section headings run to the left
+     edge and a chip would sit on top of them. -->
+<div class="topbar">
+  <a class="wordmark" href="#top">Crossplay</a>
+  <span class="topbar-note">Xteink X4 Pro</span>
+</div>
+
+<header class="hero wrap" id="top">
   <div class="hero-grid">
-    <div>
-      <p class="eyebrow"><span class="eyebrow-full">A fork of CrossPoint · </span>Xteink X4 Pro</p>
+    <div class="hero-text">
+      <p class="eyebrow">A fork of CrossPoint</p>
       <h1>The screen holds still while you think.</h1>
       <p class="lede">
         Crossplay turns the Xteink X4 Pro into a device you do things on, and
@@ -33,19 +42,31 @@
         and two devices that play together with nothing to set up.
       </p>
       <div class="cta-row">
-        <a class="btn primary" href="#try">Try it here</a>
+        <a class="btn primary" href="#shelf">See what is on it</a>
         <a class="btn" href="#get">Install it</a>
       </div>
       <p class="hero-meta">
         <span>Open firmware</span><span>No app store</span><span>No account</span><span>MIT licensed</span>
       </p>
     </div>
-    <div class="bracket">
-      <figure>
-        <img class="shot" src="assets/shots/games.png" width="480" height="800"
+
+    <!-- The device. It starts as a screenshot and becomes the running firmware
+         in the same box, at the same size, so nothing on the page moves. -->
+    <div class="device" id="device">
+      <button class="device-screen" id="deviceStart" type="button"
+              aria-label="Start the device and run it here in the page">
+        <img class="shot" id="devicePoster" src="assets/shots/games.png" width="480" height="800"
              alt="The Games folder on the device: a black GAMES header band above outlined rows reading CHESS, BATTLESHIP, CONNECTIONS, SOLITAIRE, D&amp;DIAGRAMS, INSIDER, JAIPUR and MURDLE, each with a small icon. A footer bar shows the device's name, Mop Bushy Mutton, beside a drawn face.">
-        <figcaption>The shelf, on the device.</figcaption>
-      </figure>
+      </button>
+      <p class="device-hint" id="deviceHint">Click the screen to try it</p>
+      <div class="device-keys" id="deviceKeys" hidden>
+        <button type="button" data-key="back">Back</button>
+        <button type="button" data-key="ok">OK</button>
+        <button type="button" data-key="up" aria-label="Up">&uarr;</button>
+        <button type="button" data-key="down" aria-label="Down">&darr;</button>
+        <button type="button" data-key="left" aria-label="Left">&larr;</button>
+        <button type="button" data-key="right" aria-label="Right">&rarr;</button>
+      </div>
     </div>
   </div>
 </header>
@@ -166,33 +187,6 @@
       <img class="shot" src="assets/shots/reader.png" width="800" height="480" loading="lazy" decoding="async"
            alt="The EPUB reader showing justified body text from a novel, with a chapter marker and a percentage read in the footer.">
     </div>
-  </div>
-</section>
-
-<!-- ===================================================================== -->
-<div class="band"><h2>Try it</h2><span class="band-note">fig 2 &middot; the real firmware</span></div>
-<div class="band-rule"></div>
-
-<section class="wrap" id="try">
-  <div class="prose">
-    <p class="eyebrow">Not a video, not a mockup</p>
-    <p class="hed">The device, in this page.</p>
-    <p>
-      The same firmware compiled for your browser, with an SD card of its own:
-      the flashcard deck, saved articles, the comics and every game. Tap the
-      screen the way you would tap the panel, or use the arrow keys.
-    </p>
-  </div>
-
-  <div class="emu" id="emu">
-    <button class="emu-start" id="emuStart" type="button" aria-label="Start the device">
-      <img class="shot" src="assets/shots/games.png" width="480" height="800" alt="" loading="lazy" decoding="async">
-      <span class="emu-badge" aria-hidden="true"></span>
-    </button>
-    <p class="emu-note">
-      About 12&nbsp;MB, fetched only when you ask for it. Needs a desktop browser
-      from the last couple of years.
-    </p>
   </div>
 </section>
 
@@ -346,6 +340,7 @@
 </footer>
 
 <script src="assets/avatar-data.js"></script>
+<script src="assets/emulator.js"></script>
 <script>
 (function () {
   var root = document.documentElement;
@@ -371,20 +366,47 @@
   });
 
 
-  // Click to boot. The module and its SD card are 12MB, so nothing is fetched
-  // until someone asks -- and an iframe keeps the emulator's own page, its
-  // canvas and its worker entirely out of this one's way.
-  var emuStart = document.getElementById('emuStart');
-  if (emuStart) {
-    emuStart.addEventListener('click', function () {
-      var frame = document.createElement('iframe');
-      frame.src = 'emulator/index.html';
-      frame.title = 'Crossplay running in your browser';
-      frame.className = 'emu-frame';
-      frame.setAttribute('allow', 'cross-origin-isolated');
-      emuStart.replaceWith(frame);
-    });
+  // Click the screenshot and it becomes the device, in place. The module and
+  // its card are 9MB, so nothing is fetched until someone asks for it; the
+  // poster stays until the first real frame paints, so the box never blinks.
+  var device = document.getElementById('device');
+  var start = document.getElementById('deviceStart');
+  var hint = document.getElementById('deviceHint');
+  var keys = document.getElementById('deviceKeys');
+  var booting = false;
+
+  function bootDevice() {
+    if (booting) return;
+    booting = true;
+    device.classList.add('is-booting');
+    hint.textContent = 'Starting the device';
+    window.Crossplay.boot(start, {
+      onFirstFrame: function () {
+        device.classList.remove('is-booting');
+        device.classList.add('is-live');
+        // The poster has done its job; drop it rather than leave a second copy
+        // of the panel stacked under a live one.
+        var poster = document.getElementById('devicePoster');
+        if (poster) poster.remove();
+        start.disabled = true;
+        start.removeAttribute('aria-label');
+        hint.hidden = true;
+        keys.hidden = false;
+      },
+    })
+      .then(function (running) {
+        keys.querySelectorAll('button').forEach(function (b) {
+          running.bindButton(b, running.scancodes[b.dataset.key]);
+        });
+      })
+      .catch(function (e) {
+        device.classList.remove('is-booting');
+        booting = false;
+        hint.textContent = String(e.message || e);
+        console.error(e);
+      });
   }
+  if (start && window.Crossplay) start.addEventListener('click', bootDevice);
 
   // The face-and-name generator. Same word lists and same art the firmware
   // uses (see tools_local/gen_avatar_web.py), so this is the device's own

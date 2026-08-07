@@ -46,6 +46,7 @@
     -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
     sans-serif;
   --wrap: 1180px;
+  --bar: 3.1rem;
   --gutter: clamp(1.25rem, 4vw, 3rem);
 }
 
@@ -234,20 +235,99 @@ section.tight {
   border-top: 0;
 }
 
-/* --- hero ----------------------------------------------------------------- */
+/* --- the top bar ---------------------------------------------------------
+ * The name, always on screen, the way an operating system puts it there. It is
+ * a bar rather than a floating mark because the band headings run to the left
+ * edge: anything floating over that corner lands on top of a word.
+ */
+.topbar {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 50;
+  height: var(--bar);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-inline: var(--gutter);
+  background: var(--paper);
+  border-bottom: 1px solid var(--edge);
+}
+.wordmark {
+  font-family: var(--display);
+  font-size: 1.4rem;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  color: var(--ink);
+  text-decoration: none;
+}
+.topbar-note {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+@media (max-width: 520px) {
+  .topbar-note {
+    display: none;
+  }
+}
+body {
+  padding-top: var(--bar);
+}
+/* Anchors must not land underneath the bar. */
+html {
+  scroll-padding-top: calc(var(--bar) + 0.5rem);
+}
+
+/* --- hero -----------------------------------------------------------------
+ * One screen. The first thing anyone sees should not be a fragment of itself,
+ * so the hero is bounded by the viewport and the device inside it is sized in
+ * svh -- which is the honest unit on a phone, where the toolbar moves.
+ */
 .hero {
-  padding-top: clamp(2.5rem, 7vw, 5rem);
-  padding-bottom: clamp(3rem, 6vw, 5rem);
+  min-height: calc(100svh - var(--bar));
+  display: flex;
+  align-items: center;
+  padding-top: clamp(1.5rem, 4vh, 3rem);
+  padding-bottom: clamp(1.5rem, 4vh, 3rem);
 }
 .hero-grid {
+  width: 100%;
   display: grid;
   grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
-  gap: clamp(2rem, 6vw, 4.5rem);
+  gap: clamp(1.5rem, 5vw, 4rem);
   align-items: center;
 }
 @media (max-width: 860px) {
+  .hero {
+    min-height: 0;
+    padding-top: clamp(2rem, 6vw, 3rem);
+    padding-bottom: clamp(3rem, 8vw, 4rem);
+  }
   .hero-grid {
     grid-template-columns: 1fr;
+  }
+}
+/* A laptop in landscape has less height than a phone has in portrait. Trim the
+ * hero's own type rather than let it push the device off the fold. */
+@media (min-width: 861px) and (max-height: 900px) {
+  .hero h1 {
+    font-size: clamp(2.4rem, 4.4vw, 3.6rem);
+  }
+  .hero .lede {
+    font-size: clamp(1.05rem, 1.5vw, 1.25rem);
+    margin-top: 1rem;
+  }
+  .hero .cta-row {
+    margin-top: 1.4rem;
+  }
+  .hero .hero-meta {
+    margin-top: 1.1rem;
+  }
+  .hero .eyebrow {
+    margin-bottom: 0.9rem;
   }
 }
 
@@ -445,29 +525,6 @@ tbody th {
   white-space: nowrap;
 }
 
-/* --- emulator ------------------------------------------------------------- */
-.emu-shell {
-  background: var(--paper-2);
-  border: 3px solid var(--ink);
-  padding: clamp(1rem, 3vw, 2rem);
-  margin-top: 2.5rem;
-}
-.emu-stage {
-  display: flex;
-  gap: 1.5rem;
-  justify-content: center;
-  flex-wrap: wrap;
-}
-.emu-note {
-  font-family: var(--mono);
-  font-size: 0.72rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--muted);
-  margin-top: 1.2rem;
-  text-align: center;
-}
-
 /* --- footer --------------------------------------------------------------- */
 footer {
   border-top: 3px solid var(--ink);
@@ -595,202 +652,114 @@ button:focus-visible {
   margin-top: clamp(2.5rem, 5vw, 3.5rem);
 }
 
-/* --- the emulator --------------------------------------------------------- */
-.emu-shell {
-  border: 3px solid var(--ink);
-  background: var(--paper-2);
-  padding: clamp(1rem, 3vw, 2rem);
-  margin-top: 3rem;
-}
-.emu-mount {
-  width: 100%;
-  max-width: 520px;
-  margin: 0 auto;
-  aspect-ratio: 480 / 800;
-  background: var(--ink);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.emu-mount.booted {
-  display: block;
-  background: none;
-  aspect-ratio: auto;
-}
-.emu-canvas {
-  display: block;
-  width: 100%;
-  height: auto;
-  background: #fff;
-  border: 3px solid var(--ink);
-  image-rendering: pixelated;
-  touch-action: none;
-}
-.emu-status {
-  font-family: var(--mono);
-  font-size: 0.72rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--muted);
-  text-align: center;
-  margin: 0.8rem 0 0;
-}
-.emu-boot {
-  width: 100%;
-  height: 100%;
-  border: 0;
-  background: none;
-  color: var(--paper);
-  cursor: pointer;
+/* --- the device ----------------------------------------------------------
+ * A screenshot that becomes the running firmware in place. The box is sized
+ * once and never resized: an app that flips to landscape letterboxes inside it
+ * rather than shoving the page around under whoever is reading it.
+ */
+.device {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 0.6rem;
-  padding: 2rem;
+  gap: 0.75rem;
+  justify-self: center;
 }
-:root[data-theme="dark"] .emu-boot,
-.emu-boot {
-  color: #faf9f6;
-}
-.emu-boot-label {
-  font-family: var(--display);
-  font-size: clamp(1.6rem, 4vw, 2.4rem);
-  border: 3px solid currentColor;
-  padding: 0.35em 1em 0.25em;
-}
-.emu-boot:hover .emu-boot-label {
-  background: #faf9f6;
-  color: #111110;
-}
-.emu-boot-sub {
-  font-family: var(--mono);
-  font-size: 0.75rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  opacity: 0.7;
-}
-.emu-note {
-  font-family: var(--mono);
-  font-size: 0.75rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--muted);
-  margin: 1.2rem 0 0;
-  text-align: center;
-}
-
-/* --- install steps -------------------------------------------------------- */
-.steps {
-  margin: 1.5rem 0 0;
-  padding-left: 1.2rem;
-}
-.steps li {
-  margin-bottom: 0.8rem;
-  max-width: 58ch;
-}
-
-/* --- footer additions ----------------------------------------------------- */
-.foot-note {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.88rem;
-  line-height: 1.55;
-}
-.foot-toggle {
-  margin: 2.5rem 0 0;
-}
-
-/* Every label was tying for smallest at ~10-11px. Raise the floor. */
-.eyebrow,
-.hero-meta,
-figcaption,
-.band .band-note,
-.theme-toggle {
-  font-size: 0.76rem;
-}
-.tag {
-  font-size: 0.7rem;
-}
-
-/* At 390px the eyebrow wrapped and left its rule orphaned against a two-line
- * block. Drop the rule and the longer half of the label. */
-@media (max-width: 520px) {
-  .eyebrow::before {
-    display: none;
-  }
-  .eyebrow-full {
-    display: none;
-  }
-}
-
-/* --- the emulator --------------------------------------------------------- */
-/* Click-to-boot. The poster is the same screenshot the hero uses, so the
- * transition from picture to running device is a straight swap in place and the
- * page does not jump. The 12MB module is never fetched until the click. */
-.emu {
-  margin-top: clamp(2rem, 5vw, 3rem);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.9rem;
-}
-.emu-start {
+.device-screen {
   position: relative;
   display: block;
+  margin: 0;
   padding: 0;
   border: 3px solid var(--ink);
   background: #fff;
   cursor: pointer;
-  width: min(320px, 100%);
   line-height: 0;
+  /* The panel's own proportion, height-led so the hero fits one screen on a
+   * laptop. Width follows; nothing here is a fixed pixel count. */
+  aspect-ratio: 480 / 800;
+  height: min(64svh, 620px);
+  max-width: 100%;
 }
-.emu-start .shot {
-  width: 100%;
-  height: auto;
-  border: 0;
+.device-screen:disabled {
+  cursor: default;
 }
-/* The screenshot is never dimmed and never inverted -- same rule as every
- * other shot on the page. The chip sits on top of it instead, which also makes
- * the click read as switching a device on rather than lifting a veil. */
-.emu-badge {
+.device-screen .shot,
+.device-canvas {
   position: absolute;
   inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+}
+/* A tap on the panel is a tap on the panel, not a page scroll. */
+.device-canvas {
+  touch-action: none;
+}
+/* The prompt, drawn over the screenshot rather than beside it, because the
+ * screenshot is the button. It goes away the moment the device is real. */
+.device-screen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: transparent;
+  transition: background 0.12s ease;
+}
+.device-screen:hover::after,
+.device-screen:focus-visible::after {
+  background: rgba(17, 17, 16, 0.08);
+}
+.is-live .device-screen::after,
+.is-booting .device-screen::after {
+  display: none;
+}
+/* Hint and key row share one fixed-height slot so swapping the prompt for the
+ * controls does not nudge the device up the page. Seamless means nothing moves. */
+.device-hint,
+.device-keys {
+  min-height: 2rem;
   display: flex;
   align-items: center;
+}
+/* display:flex above would otherwise beat the hidden attribute. */
+.device-hint[hidden],
+.device-keys[hidden] {
+  display: none;
+}
+.device-hint {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.device-hint::before {
+  content: "\2192\00a0\00a0";
+}
+.is-booting .device-hint {
+  opacity: 0.55;
+}
+.device-keys {
+  gap: 0.4rem;
+  flex-wrap: wrap;
   justify-content: center;
 }
-.emu-badge::before {
-  content: "Start the device";
-  font-family: var(--display);
-  font-size: 1.3rem;
-  letter-spacing: 0.03em;
-  line-height: 1;
-  padding: 0.5em 1.15em 0.38em;
-  background: #111110;
-  color: #faf9f6;
-  border: 3px solid #111110;
-  transition: transform 0.08s ease;
+.device-keys button {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--edge);
+  padding: 0.38em 0.7em;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: none;
 }
-.emu-start:hover .emu-badge::before,
-.emu-start:focus-visible .emu-badge::before {
-  background: #faf9f6;
-  color: #111110;
-  transform: translateY(-2px);
-}
-.emu-frame {
-  width: min(560px, 100%);
-  /* Tall enough for the portrait panel plus the button row the emulator page
-   * draws under it; the page inside handles its own scaling. */
-  height: min(1080px, 88vh);
-  border: 3px solid var(--ink);
-  background: var(--paper);
-}
-.emu-note {
-  font-size: 0.86rem;
-  opacity: 0.62;
-  text-align: center;
-  max-width: 34em;
+.device-keys button:active {
+  background: var(--ink);
+  color: var(--paper);
 }
 
 /* --- the face generator --------------------------------------------------- */

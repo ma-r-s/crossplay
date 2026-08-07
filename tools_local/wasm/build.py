@@ -252,6 +252,9 @@ def main():
         *[str(o) for o in objs],
         "-o",
         str(OUT / "crossplay.js"),
+        # No HTML shell: the site's own page is the front end (site/assets/
+        # emulator.js), so the device boots inside the hero rather than on a
+        # page of its own.
         # No SDL, no GL, no ASYNCIFY. main() returns as soon as it has started
         # the firmware worker, and the page drives everything after that.
         "-pthread",
@@ -285,7 +288,6 @@ def main():
     if p.returncode != 0:
         print(p.stderr[-4000:])
         sys.exit("link failed")
-    shutil.copy(REPO / "tools_local" / "wasm" / "shell.html", OUT / "index.html")
     print(f"wrote {OUT}")
 
 
