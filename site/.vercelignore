@@ -1,5 +1,7 @@
-# Dev and build tools, not part of the site.
-pageshot.py
-serve.py
-make-og.py
-set-host.py
+# The deploy is the page and the things it loads. Everything else in here is
+# tooling that only ever runs on a laptop, and shipping it would put working
+# scripts on a public URL for no reason.
+#
+# Keep this in step with site/README.md: every script it documents belongs here.
+*.py
+README.md
