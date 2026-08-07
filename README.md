@@ -5,7 +5,7 @@
 
 <p align="center">
   <strong>E-ink is good at waiting.</strong><br>
-  So is a chess position, a flashcard, a hand of cards you are counting.
+  So is a chess position, a flashcard, a puzzle you are halfway through.
 </p>
 
 <p align="center">
