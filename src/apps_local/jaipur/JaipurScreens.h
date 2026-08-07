@@ -22,7 +22,8 @@ enum : fui::ActionId {
   ActionClear = 3,     // drop the current selection
   ActionContinue = 4,  // round over -> next round
   ActionPlayAgain = 5,
-  ActionScores = 6,  // the round has ended -> show what it came to
+  ActionScores = 6,   // the round has ended -> show what it came to
+  ActionAdvance = 7,  // the next page of the tutorial
 };
 
 // The front door.
@@ -103,5 +104,21 @@ struct RoundModel {
 };
 
 fui::Rect buildRoundOver(toybox::Screen& screen, const RoundModel& model);
+
+// HOW TO PLAY, as a deck of pages you tap through. Jaipur is not a game you can
+// be told in a sentence -- there are three ways to take, a pile that pays from
+// the top, a bonus for selling in bulk, and a camel that is a card you can never
+// sell -- so it is one beat a page, in the order a turn actually happens.
+//
+// Every diagram is made of the game's own material: the same cards, the same
+// pile with its depth pips, the same bonus chips, the same camel. A tutorial
+// drawn in its own shapes teaches you the tutorial; this one teaches the board
+// you are about to look at.
+struct TutorialModel {
+  int page = 0;
+};
+
+int tutorialPages();
+void buildTutorial(toybox::Screen& screen, const TutorialModel& model);
 
 }  // namespace jaipurui

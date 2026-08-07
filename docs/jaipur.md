@@ -449,6 +449,29 @@ part of one.
 Hit-testing is derived from the same geometry that drew the cards, never computed
 a second time. That rule has caught more bugs in this fork than any other.
 
+### HOW TO PLAY
+
+Seven pages, one beat each, in the order a turn happens: the goal, take-or-sell,
+the three ways to take, how a sale pays, the bonus, camels, and the two ways a
+round ends. Insider's tutorial is the model, down to the page dots and the
+tap-anywhere target -- two games that teach the same way read as one device.
+
+Jaipur needs seven where Insider needed five, and that is the game rather than
+the format: three ways to take, a pile that pays from the top, a bonus for
+selling in bulk, and a card you can never sell.
+
+Every diagram is made of the game's own pieces -- the same cards, the same
+tokens, the same camel, the same bonus mark -- so the deck teaches the board
+rather than teaching itself. Three things the renders corrected:
+
+- **A diagram may not start at the title band.** The band is where the title is
+  laid out, not where it stops drawing; the display cut overhangs it and put a
+  card on top of the title on three pages. One constant, `kDiagramTop`, now.
+- **A trade is drawn with two arrows.** One arrow says "these become those",
+  which is not what an exchange is.
+- **A herd is drawn as separate cards.** Fanned and overlapping, four camels
+  became a smudge, and four is a number the page is asking you to count.
+
 ### The three rows of cards
 
 Each row answers one question and carries exactly what that question needs.
