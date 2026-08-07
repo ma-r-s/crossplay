@@ -724,3 +724,91 @@ figcaption,
     display: none;
   }
 }
+
+/* --- the face generator --------------------------------------------------- */
+/* The device names itself with three words and draws its face from them. This
+ * is that, live, with the firmware's own art and word lists -- which is also
+ * the only kind of ornament docs/identity.md allows: made of the app's own
+ * material, and showing real data rather than decoration. */
+.facer {
+  display: grid;
+  grid-template-columns: minmax(0, 0.6fr) minmax(0, 1fr);
+  gap: clamp(1.5rem, 4vw, 3rem);
+  align-items: center;
+  margin-top: clamp(2rem, 5vw, 3rem);
+  border: 3px solid var(--ink);
+  padding: clamp(1.25rem, 3vw, 2.25rem);
+}
+@media (max-width: 720px) {
+  .facer {
+    grid-template-columns: 1fr;
+  }
+}
+.facer-face {
+  background: #fff;
+  border: 1px solid var(--edge);
+  padding: 8%;
+}
+.facer-face svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.facer-label {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0;
+}
+.facer-name {
+  font-family: var(--display);
+  font-size: clamp(1.8rem, 4.5vw, 2.9rem);
+  line-height: 1.05;
+  margin: 0.2rem 0 1.2rem;
+}
+.facer-slots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+.facer-slot {
+  flex: 1 1 6rem;
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  color: var(--ink);
+  cursor: pointer;
+  padding: 0.55rem 0.7rem;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-height: 44px;
+}
+.facer-slot:hover {
+  background: var(--ink);
+  color: var(--paper);
+}
+.facer-slot-k {
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+.facer-slot-v {
+  font-family: var(--display);
+  font-size: 1.25rem;
+  line-height: 1;
+}
+.facer-roll {
+  margin-top: 1rem;
+  font-size: 1.15rem;
+}
+.facer-note {
+  margin: 1.2rem 0 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+  max-width: 48ch;
+}

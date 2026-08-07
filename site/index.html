@@ -260,6 +260,25 @@
       feature, so the next game gets it for free.
     </p>
   </div>
+
+  <div class="facer" id="facer" hidden>
+    <div class="facer-face">
+      <svg id="facerSvg" viewBox="0 0 120 120" role="img" aria-labelledby="facerName"
+           fill="none" stroke="currentColor" stroke-width="5"
+           stroke-linecap="round" stroke-linejoin="round"></svg>
+    </div>
+    <div class="facer-controls">
+      <p class="facer-label">Name</p>
+      <p class="facer-name" id="facerName">&nbsp;</p>
+      <div class="facer-slots">
+        <button type="button" class="facer-slot" data-slot="hair"><span class="facer-slot-k">Hair</span><span class="facer-slot-v" id="v-hair"></span></button>
+        <button type="button" class="facer-slot" data-slot="eyes"><span class="facer-slot-k">Eyes</span><span class="facer-slot-v" id="v-eyes"></span></button>
+        <button type="button" class="facer-slot" data-slot="mouth"><span class="facer-slot-k">Mouth</span><span class="facer-slot-v" id="v-mouth"></span></button>
+      </div>
+      <button type="button" class="btn facer-roll" id="facerRoll">Roll a new one</button>
+      <p class="facer-note">2,744 faces. Tap a word to change it. Nothing is stored and nothing is sent: the other device redraws you from the three words its radio already carried.</p>
+    </div>
+  </div>
 </section>
 
 <!-- ===================================================================== -->
@@ -383,6 +402,7 @@
   </div>
 </footer>
 
+<script src="assets/avatar-data.js"></script>
 <script>
 (function () {
   var root = document.documentElement;
@@ -407,6 +427,43 @@
     sync();
   });
 
+
+  // The face-and-name generator. Same word lists and same art the firmware
+  // uses (see tools_local/gen_avatar_web.py), so this is the device's own
+  // behaviour rather than an illustration of it. Hidden until the data is
+  // present, so a failed fetch leaves no broken control behind.
+  var A = window.CROSSPLAY_AVATAR;
+  if (A) {
+    var pick = { hair: 7, eyes: 11, mouth: 12 };  // MOP BUSHY MUTTON, as shipped
+    var svg = document.getElementById('facerSvg');
+    var nameEl = document.getElementById('facerName');
+    function draw() {
+      var g = A.base;
+      ['hair', 'eyes', 'mouth'].forEach(function (slot) {
+        var word = A.words[slot][pick[slot]];
+        g += A.parts[slot][word];
+        document.getElementById('v-' + slot).textContent = word;
+      });
+      svg.innerHTML = g;
+      nameEl.textContent =
+        A.words.hair[pick.hair] + ' ' + A.words.eyes[pick.eyes] + ' ' + A.words.mouth[pick.mouth];
+    }
+    document.querySelectorAll('.facer-slot').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var slot = b.dataset.slot;
+        pick[slot] = (pick[slot] + 1) % A.words[slot].length;
+        draw();
+      });
+    });
+    document.getElementById('facerRoll').addEventListener('click', function () {
+      ['hair', 'eyes', 'mouth'].forEach(function (slot) {
+        pick[slot] = Math.floor(Math.random() * A.words[slot].length);
+      });
+      draw();
+    });
+    document.getElementById('facer').hidden = false;
+    draw();
+  }
 })();
 </script>
 </body>
