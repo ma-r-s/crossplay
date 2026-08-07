@@ -1167,6 +1167,21 @@ void JaipurActivity::drawRoundOver() {
   toybox::reportOverflow(interactions, "Jaipur round");
 }
 
+void JaipurActivity::drawTutorial() {
+  namespace fui = freeink::ui;
+  renderer.clearScreen();
+  fui::GfxRendererTarget target = toybox::makeTarget(renderer);
+  const fui::InputSnapshot noInput{};
+  interactionsReady = false;
+  toybox::Frame frame(target, target.deviceContext(), noInput, interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  jaipurui::TutorialModel model;
+  model.page = tutorialPage;
+  jaipurui::buildTutorial(screen, model);
+  interactionsReady = true;
+  toybox::reportOverflow(interactions, "Jaipur rules");
+}
+
 void JaipurActivity::gameRender() {
   switch (view) {
     case View::Menu:
@@ -1177,6 +1192,9 @@ void JaipurActivity::gameRender() {
       break;
     case View::RoundOver:
       drawRoundOver();
+      break;
+    case View::Rules:
+      drawTutorial();
       break;
   }
   renderer.displayBuffer();
@@ -1226,6 +1244,9 @@ void JaipurActivity::activateStartRow(const jaipurui::StartRow row) {
       enterLink(linkplay::GameId::Jaipur);
       break;
     case jaipurui::StartRow::HowToPlay:
+      view = View::Rules;
+      tutorialPage = 0;
+      requestUpdate();
       break;
     default:
       break;
@@ -1371,6 +1392,32 @@ void JaipurActivity::routeRoundOver() {
   }
 }
 
+void JaipurActivity::routeTutorial() {
+  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    goToMenu();
+    return;
+  }
+
+  int tapX = 0;
+  int tapY = 0;
+  if (!mappedInput.wasScreenTapped(tapX, tapY)) return;
+  if (!interactionsReady) return;
+
+  freeink::ui::InputSnapshot input;
+  input.touchReleased = true;
+  input.touchX = static_cast<int16_t>(tapX);
+  input.touchY = static_cast<int16_t>(tapY);
+  if (interactions.route(input).action != jaipurui::ActionAdvance) return;
+
+  // Anywhere on the page turns it, and the last page turns back to the menu.
+  if (tutorialPage + 1 < jaipurui::tutorialPages()) {
+    ++tutorialPage;
+    requestUpdate();
+    return;
+  }
+  goToMenu();
+}
+
 void JaipurActivity::gameLoop() {
   if (!interactionsReady) return;
 
@@ -1391,6 +1438,9 @@ void JaipurActivity::gameLoop() {
       break;
     case View::RoundOver:
       routeRoundOver();
+      break;
+    case View::Rules:
+      routeTutorial();
       break;
   }
 }

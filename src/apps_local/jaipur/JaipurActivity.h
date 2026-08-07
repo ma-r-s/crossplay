@@ -57,7 +57,7 @@ class JaipurActivity final : public linkplay::LinkActivity {
   void gameRender() override;
 
  private:
-  enum class View : uint8_t { Menu, Board, RoundOver };
+  enum class View : uint8_t { Menu, Board, RoundOver, Rules };
 
   // Where every tappable thing landed. Derived once per paint and used by both
   // drawing and hit-testing, so the drawn cards and the tappable cards cannot
@@ -116,6 +116,7 @@ class JaipurActivity final : public linkplay::LinkActivity {
   void drawStartMenu();
   void drawBoard();
   void drawRoundOver();
+  void drawTutorial();
 
   void goToMenu();
   // Which screen a game in this phase belongs on. CONTINUE used to send every
@@ -127,6 +128,7 @@ class JaipurActivity final : public linkplay::LinkActivity {
   void routeStartMenu();
   void routeBoard();
   void routeRoundOver();
+  void routeTutorial();
   void activateStartRow(jaipurui::StartRow row);
 
   // Which seat this device plays. Always 0 in single player; in a match it is
@@ -161,6 +163,7 @@ class JaipurActivity final : public linkplay::LinkActivity {
   View view = View::Menu;
   int seat = 0;
   int menuSelected = 0;
+  int tutorialPage = 0;
   bool hasSavedGame = false;
   uint32_t seed = 1;
 

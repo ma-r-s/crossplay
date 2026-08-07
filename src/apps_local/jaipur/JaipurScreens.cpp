@@ -3,6 +3,9 @@
 #include <cstdio>
 
 #include "../link/LinkScreens.h"
+#include "JaipurArt.h"
+#include "JaipurCore.h"
+#include "JaipurGoods.h"
 
 namespace jaipurui {
 
@@ -11,9 +14,18 @@ namespace {
 // The header band and its offset rule, as every Toybox screen wears them. A
 // local copy rather than a shared helper, for the reason LinkScreens gives: a
 // copy is cheaper than a header dependency between apps.
-void toyboxChrome(toybox::Screen& screen, const char* title) {
+void toyboxChrome(toybox::Screen& screen, const char* title, const char* rightLabel = nullptr) {
   fui::HeaderProps header;
   header.title = title;
+  header.rightLabel = rightLabel;
+  // rightLabel is drawn with subtitleText, not trailingText, and Screen
+  // substitutes the theme's smallText when it is unset -- which is black, on a
+  // solid black band. The label is then invisible and indistinguishable from
+  // never having been set. Insider paid for this discovery.
+  header.subtitleText = fui::TextStyle{};
+  header.subtitleText.font = toybox::kUiFont;
+  header.subtitleText.color = fui::Color::White;
+  header.subtitleText.align = fui::TextAlign::Right;
   header.borderEdges = fui::EdgesNone;
   screen.header(header);
 
@@ -34,6 +46,186 @@ void smallLine(toybox::Screen& screen, const fui::Rect& where, const char* text,
   style.align = align;
   screen.target().text(where, text, style);
 }
+
+
+// --- the tutorial's own drawing kit -----------------------------------------
+//
+// Local copies rather than a shared helper, the same call LinkScreens makes: a
+// copy is cheaper than a header dependency between two apps.
+
+fui::TextStyle styled(const fui::FontId font, const fui::TextAlign align) {
+  fui::TextStyle style;
+  style.font = font;
+  style.align = align;
+  return style;
+}
+
+// Wraps `text` inside `box`, measuring the assembled line rather than adding up
+// word widths. Insider's copy of this carries the scars: a line measured by
+// summing words overflows, and an overflowing line is ellipsised into U+2026 --
+// a glyph the Toybox face does not have, so the tail of the sentence simply
+// vanishes with nothing on screen to say so.
+// Pass draw = false to measure without drawing, which is the only way to place
+// a block of prose whose height depends on the face: the caption is then
+// centred in the space it actually has rather than started at a guessed y and
+// left to run into the page dots.
+int16_t paragraph(toybox::Screen& screen, const fui::Rect& box, const char* text, const bool draw = true) {
+  const fui::TextStyle style = styled(toybox::kUiFont, fui::TextAlign::Center);
+  const int16_t lineHeight = screen.target().lineHeight(style.font);
+  char line[96] = {};
+  int fill = 0;
+  int16_t y = box.y;
+
+  const char* at = text;
+  while (true) {
+    while (*at == ' ') ++at;
+    if (*at == '\0') break;
+    int n = 0;
+    while (at[n] != '\0' && at[n] != ' ') ++n;
+
+    const int kept = fill;
+    if (fill != 0 && fill + 1 < static_cast<int>(sizeof(line))) line[fill++] = ' ';
+    for (int i = 0; i < n && fill + 1 < static_cast<int>(sizeof(line)); ++i) line[fill++] = at[i];
+    line[fill] = '\0';
+
+    if (kept != 0 && screen.target().measureText(style.font, line, style).width > box.width) {
+      line[kept] = '\0';
+      if (draw) screen.target().text(fui::makeRect(box.x, y, box.width, lineHeight), line, style);
+      y = static_cast<int16_t>(y + lineHeight);
+      fill = 0;
+      for (int i = 0; i < n && fill + 1 < static_cast<int>(sizeof(line)); ++i) line[fill++] = at[i];
+      line[fill] = '\0';
+    }
+    at += n;
+  }
+  if (fill != 0) {
+    if (draw) screen.target().text(fui::makeRect(box.x, y, box.width, lineHeight), line, style);
+    y = static_cast<int16_t>(y + lineHeight);
+  }
+  return static_cast<int16_t>(y - box.y);
+}
+
+// The caption, centred in everything the diagram and the footer left it.
+void caption(toybox::Screen& screen, const fui::Rect& body, const int16_t top, const char* text) {
+  // The footer's own two rows: the tap line and the dots.
+  const int16_t floorY = static_cast<int16_t>(body.bottom() - 56);
+  const fui::Rect probe = fui::makeRect(body.x, top, body.width, static_cast<int16_t>(floorY - top));
+  const int16_t used = paragraph(screen, probe, text, false);
+  const int16_t room = static_cast<int16_t>(floorY - top);
+  const int16_t y = used < room ? static_cast<int16_t>(top + (room - used) / 2) : top;
+  paragraph(screen, fui::makeRect(body.x, y, body.width, used), text);
+}
+
+// A card, exactly as the market draws one: knocked out, stroked, one mark in
+// the middle. `dim` is the board's own "you cannot have this" dither.
+void cardWithMark(toybox::Screen& screen, const fui::Rect& box, const freeink::Icon& mark, const bool dim = false) {
+  screen.target().fill(box, fui::Paint::solid(fui::Color::White), 8);
+  if (dim) screen.target().fill(box.inset(fui::Insets{4, 4, 4, 4}), fui::Paint::dither(fui::Color::LightGray));
+  screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), toybox::kHairline, 8);
+  const int16_t side = static_cast<int16_t>(box.width < box.height ? box.width - 16 : box.height - 16);
+  screen.target().bitmap(fui::makeRect(static_cast<int16_t>(box.x + (box.width - side) / 2),
+                                       static_cast<int16_t>(box.y + (box.height - side) / 2), side, side),
+                         fui::bitmapFromIcon(mark), fui::BitmapMode::Contain, fui::Paint::solid(fui::Color::Black));
+}
+
+// A goods token: a rupee value, as a chip. Solid when it is the one being
+// taken, so a diagram can say "this one, off the top".
+void tokenChip(toybox::Screen& screen, const fui::Rect& box, const int value, const bool taken) {
+  char text[8];
+  std::snprintf(text, sizeof(text), "%d", value);
+  if (taken) {
+    screen.target().fill(box, fui::Paint::solid(fui::Color::Black), 8);
+  } else {
+    screen.target().fill(box, fui::Paint::solid(fui::Color::White), 8);
+    screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), toybox::kHairline, 8);
+  }
+  fui::TextStyle style = styled(toybox::kUiFont, fui::TextAlign::Center);
+  if (taken) style.color = fui::Color::White;
+  // Measured, not guessed. A fixed 26px band clipped every digit top and
+  // bottom: the cut draws taller than the number looks.
+  const int16_t lh = screen.target().lineHeight(style.font);
+  screen.target().text(fui::makeRect(box.x, static_cast<int16_t>(box.y + (box.height - lh) / 2), box.width, lh), text,
+                       style);
+}
+
+void arrowRight(toybox::Screen& screen, const int16_t x, const int16_t y, const int16_t len) {
+  const auto ink = fui::Paint::solid(fui::Color::Black);
+  screen.target().fill(fui::makeRect(x, static_cast<int16_t>(y - 1), static_cast<int16_t>(len - 8), toybox::kRule),
+                       ink);
+  screen.target().triangle(fui::Point{static_cast<int16_t>(x + len - 10), static_cast<int16_t>(y - 9)},
+                           fui::Point{static_cast<int16_t>(x + len), y},
+                           fui::Point{static_cast<int16_t>(x + len - 10), static_cast<int16_t>(y + 9)}, ink);
+}
+
+void arrowLeft(toybox::Screen& screen, const int16_t x, const int16_t y, const int16_t len) {
+  const auto ink = fui::Paint::solid(fui::Color::Black);
+  screen.target().fill(fui::makeRect(static_cast<int16_t>(x + 8), static_cast<int16_t>(y - 1),
+                                     static_cast<int16_t>(len - 8), toybox::kRule),
+                       ink);
+  screen.target().triangle(fui::Point{static_cast<int16_t>(x + 10), static_cast<int16_t>(y - 9)}, fui::Point{x, y},
+                           fui::Point{static_cast<int16_t>(x + 10), static_cast<int16_t>(y + 9)}, ink);
+}
+
+// A trade, which is the one move that goes both ways. Two arrows stacked say
+// that; one arrow says "these become those", which is not what happens.
+void arrowSwap(toybox::Screen& screen, const int16_t x, const int16_t y, const int16_t len) {
+  arrowRight(screen, x, static_cast<int16_t>(y - 11), len);
+  arrowLeft(screen, x, static_cast<int16_t>(y + 11), len);
+}
+
+void arrowDown(toybox::Screen& screen, const int16_t x, const int16_t y, const int16_t len) {
+  const auto ink = fui::Paint::solid(fui::Color::Black);
+  screen.target().fill(fui::makeRect(static_cast<int16_t>(x - 1), y, toybox::kRule, static_cast<int16_t>(len - 8)),
+                       ink);
+  screen.target().triangle(fui::Point{static_cast<int16_t>(x - 9), static_cast<int16_t>(y + len - 10)},
+                           fui::Point{x, static_cast<int16_t>(y + len)},
+                           fui::Point{static_cast<int16_t>(x + 9), static_cast<int16_t>(y + len - 10)}, ink);
+}
+
+// A label over a diagram row, small and centred.
+void note(toybox::Screen& screen, const fui::Rect& box, const char* text) {
+  screen.target().text(box, text, styled(toybox::kTileFont, fui::TextAlign::Center));
+}
+
+// The title band is a full line height. Insider's copy of this comment was
+// written after placing things at +42 twice and landing on top of the title
+// both times; the display cut draws taller than it looks.
+constexpr int16_t kTitleBand = 46;
+// Where a diagram may start. The title band is where the text is laid out, not
+// where it stops drawing -- the display cut overhangs it, and on three pages a
+// card placed at kTitleBand + 14 sat on top of the title. One number, so
+// fixing it fixes every page.
+constexpr int16_t kDiagramTop = kTitleBand + 34;
+
+void pageTitle(toybox::Screen& screen, const fui::Rect& body, const char* title) {
+  screen.target().text(fui::makeRect(body.x, body.y, body.width, kTitleBand), title,
+                       styled(toybox::kDisplayFont, fui::TextAlign::Center));
+}
+
+// Page dots and the tap affordance, at the foot.
+void tutorialFooter(toybox::Screen& screen, const fui::Rect& body, const int page, const int pages) {
+  constexpr int16_t kDot = 14;
+  constexpr int16_t kDotGap = 10;
+  const int16_t row = static_cast<int16_t>(pages * kDot + (pages - 1) * kDotGap);
+  const int16_t x = static_cast<int16_t>(body.x + (body.width - row) / 2);
+  const int16_t y = static_cast<int16_t>(body.bottom() - kDot);
+  for (int i = 0; i < pages; ++i) {
+    const fui::Rect at = fui::makeRect(static_cast<int16_t>(x + i * (kDot + kDotGap)), y, kDot, kDot);
+    if (i == page) {
+      screen.target().fill(at, fui::Paint::solid(fui::Color::Black), 7);
+    } else {
+      screen.target().stroke(at, fui::Paint::dither(fui::Color::DarkGray), toybox::kHairline, 7);
+    }
+  }
+  screen.target().text(fui::makeRect(body.x, static_cast<int16_t>(y - 34), body.width, 22),
+                       page + 1 == pages ? "TAP TO FINISH" : "TAP TO CONTINUE",
+                       styled(toybox::kTileFont, fui::TextAlign::Center));
+}
+
+const freeink::Icon& diamond32 = icon_good_diamond_32;
+const freeink::Icon& spice32 = icon_good_spice_32;
+const freeink::Icon& cloth32 = icon_good_cloth_32;
+const freeink::Icon& leather32 = icon_good_leather_32;
 
 }  // namespace
 
@@ -157,6 +349,257 @@ fui::Rect buildRoundOver(toybox::Screen& screen, const RoundModel& model) {
   screen.button(go, linkui::withOpponentFace(screen, screen.takeBottom(toybox::kPillHeight), model.theirName));
 
   return screen.body();
+}
+
+
+int tutorialPages() { return 7; }
+
+void buildTutorial(toybox::Screen& screen, const TutorialModel& model) {
+  const int pages = tutorialPages();
+  char progress[16];
+  std::snprintf(progress, sizeof(progress), "%d OF %d", model.page + 1, pages);
+  toyboxChrome(screen, "HOW TO PLAY", progress);
+  const fui::Rect body = screen.body();
+  // The whole page is the button. There is one gesture here and it is the same
+  // one the board uses to do everything else.
+  screen.frame().hit(body, ActionAdvance, 0);
+  tutorialFooter(screen, body, model.page, pages);
+
+  // Where a caption may start: below the tallest diagram on any page.
+  const int16_t capTop = static_cast<int16_t>(body.y + 366);
+  const int16_t midX = static_cast<int16_t>(body.x + body.width / 2);
+
+  switch (model.page) {
+    case 0: {
+      // What the whole thing is for. Seals first, because every other rule is
+      // in service of them and a player who does not know what they are
+      // collecting cannot tell a good turn from a bad one.
+      pageTitle(screen, body, "THE GOAL");
+      const int16_t top = static_cast<int16_t>(body.y + kDiagramTop);
+      const int16_t col = static_cast<int16_t>(body.width / 2);
+      const char* who[2] = {"YOU", "THEM"};
+      const char* rupees[2] = {"74", "61"};
+      for (int i = 0; i < 2; ++i) {
+        const int16_t x = static_cast<int16_t>(body.x + i * col);
+        note(screen, fui::makeRect(x, top, col, 24), who[i]);
+        screen.target().text(fui::makeRect(x, static_cast<int16_t>(top + 30), col, 60), rupees[i],
+                             styled(toybox::kDisplayFont, fui::TextAlign::Center));
+      }
+      arrowDown(screen, static_cast<int16_t>(body.x + col / 2), static_cast<int16_t>(top + 104), 40);
+      // Two slots a side, one of them won: the same row the scoring screen
+      // draws, so it is recognised there rather than met for the first time.
+      const int16_t pip = 26;
+      const int16_t span = static_cast<int16_t>(jaipur::kSealsToWin * pip + (jaipur::kSealsToWin - 1) * 10);
+      for (int seat = 0; seat < 2; ++seat) {
+        const int16_t x0 = static_cast<int16_t>(body.x + seat * col + (col - span) / 2);
+        for (int i = 0; i < jaipur::kSealsToWin; ++i) {
+          const fui::Rect at =
+              fui::makeRect(static_cast<int16_t>(x0 + i * (pip + 10)), static_cast<int16_t>(top + 158), pip, pip);
+          if (seat == 0 && i == 0) {
+            screen.target().fill(at, fui::Paint::solid(fui::Color::Black), 13);
+          } else {
+            screen.target().stroke(at, fui::Paint::solid(fui::Color::Black), toybox::kRule, 13);
+          }
+        }
+      }
+      caption(screen, body, capTop,
+                "THE RICHER TRADER TAKES A SEAL OF EXCELLENCE. TWO SEALS WINS THE GAME, SO A MATCH IS TWO OR THREE "
+                "ROUNDS.");
+      break;
+    }
+
+    case 1: {
+      // The one rule that shapes every turn, and the one people get wrong.
+      pageTitle(screen, body, "YOUR TURN");
+      const int16_t top = static_cast<int16_t>(body.y + kDiagramTop);
+      const int16_t panel = static_cast<int16_t>((body.width - 24) / 2);
+      const int16_t cardW = 72;
+      const int16_t cardH = 100;
+
+      note(screen, fui::makeRect(body.x, top, panel, 24), "TAKE");
+      cardWithMark(screen,
+                   fui::makeRect(static_cast<int16_t>(body.x + (panel - cardW) / 2), static_cast<int16_t>(top + 32),
+                                 cardW, cardH),
+                   diamond32);
+      arrowDown(screen, static_cast<int16_t>(body.x + panel / 2), static_cast<int16_t>(top + 144), 40);
+      note(screen, fui::makeRect(body.x, static_cast<int16_t>(top + 196), panel, 24), "INTO YOUR HAND");
+
+      const int16_t rightX = static_cast<int16_t>(body.x + panel + 24);
+      note(screen, fui::makeRect(rightX, top, panel, 24), "OR SELL");
+      cardWithMark(screen,
+                   fui::makeRect(static_cast<int16_t>(rightX + (panel - cardW) / 2), static_cast<int16_t>(top + 32),
+                                 cardW, cardH),
+                   spice32);
+      arrowDown(screen, static_cast<int16_t>(rightX + panel / 2), static_cast<int16_t>(top + 144), 40);
+      tokenChip(screen,
+                fui::makeRect(static_cast<int16_t>(rightX + (panel - 60) / 2), static_cast<int16_t>(top + 188), 60, 46),
+                5, true);
+
+      caption(screen, body, capTop, "EVERY TURN IS ONE OR THE OTHER. TAKE CARDS FROM THE MARKET, OR SELL FROM YOUR HAND.");
+      break;
+    }
+
+    case 2: {
+      // Three ways to take, listed as rows because they are alternatives rather
+      // than a sequence.
+      pageTitle(screen, body, "TAKING");
+      const int16_t rowH = 88;
+      const int16_t cardW = 46;
+      const int16_t cardH = 64;
+      const int16_t labelW = static_cast<int16_t>(body.width / 3);
+      const char* label[3] = {"ONE GOOD", "EVERY CAMEL", "OR TRADE"};
+      for (int row = 0; row < 3; ++row) {
+        const int16_t y = static_cast<int16_t>(body.y + kDiagramTop + row * rowH);
+        // The label sits on the cards' centre line, not their top edge.
+        note(screen, fui::makeRect(body.x, static_cast<int16_t>(y + (cardH - 22) / 2), labelW, 22), label[row]);
+        const int16_t x0 = static_cast<int16_t>(body.x + labelW);
+        if (row == 0) {
+          cardWithMark(screen, fui::makeRect(x0, y, cardW, cardH), cloth32);
+        } else if (row == 1) {
+          for (int i = 0; i < 3; ++i) {
+            cardWithMark(screen, fui::makeRect(static_cast<int16_t>(x0 + i * (cardW + 6)), y, cardW, cardH),
+                         icon_camel_32);
+          }
+        } else {
+          // Two from the market against two of yours. Both sides are drawn the
+          // same, because both are real cards; it is the arrows that say which
+          // way each pair is going.
+          cardWithMark(screen, fui::makeRect(x0, y, cardW, cardH), diamond32);
+          cardWithMark(screen, fui::makeRect(static_cast<int16_t>(x0 + cardW + 6), y, cardW, cardH), leather32);
+          const int16_t swapX = static_cast<int16_t>(x0 + 2 * (cardW + 6) + 2);
+          arrowSwap(screen, swapX, static_cast<int16_t>(y + cardH / 2), 30);
+          cardWithMark(screen, fui::makeRect(static_cast<int16_t>(swapX + 38), y, cardW, cardH), spice32);
+          cardWithMark(screen, fui::makeRect(static_cast<int16_t>(swapX + 38 + cardW + 6), y, cardW, cardH),
+                       icon_camel_32);
+        }
+      }
+      caption(screen, body, capTop,
+                "TAKE ONE GOOD, OR EVERY CAMEL AT ONCE, OR TRADE AT LEAST TWO FOR TWO. CAMELS COUNT AS PAYMENT.");
+      break;
+    }
+
+    case 3: {
+      // Where the rupees actually come from, and the reason to sell early.
+      pageTitle(screen, body, "SELLING");
+      const int16_t top = static_cast<int16_t>(body.y + kDiagramTop);
+      const int16_t cardW = 62;
+      const int16_t cardH = 86;
+      const int16_t chipW = 54;
+      const int16_t chipH = 44;
+      // Two cards, an arrow, two tokens: laid out as one group and centred, so
+      // the row does not sit off to one side of the page it is explaining.
+      const int16_t groupW = static_cast<int16_t>(2 * cardW + 10 + 46 + 2 * chipW + 8);
+      const int16_t gx = static_cast<int16_t>(body.x + (body.width - groupW) / 2);
+      for (int i = 0; i < 2; ++i) {
+        cardWithMark(screen, fui::makeRect(static_cast<int16_t>(gx + i * (cardW + 10)), top, cardW, cardH), diamond32);
+      }
+      arrowRight(screen, static_cast<int16_t>(gx + 2 * cardW + 14), static_cast<int16_t>(top + cardH / 2), 38);
+      const int16_t chipX = static_cast<int16_t>(gx + 2 * cardW + 10 + 46);
+      for (int i = 0; i < 2; ++i) {
+        tokenChip(screen,
+                  fui::makeRect(static_cast<int16_t>(chipX + i * (chipW + 8)),
+                                static_cast<int16_t>(top + (cardH - chipH) / 2), chipW, chipH),
+                  7, true);
+      }
+
+      note(screen, fui::makeRect(body.x, static_cast<int16_t>(top + cardH + 30), body.width, 22),
+           "WHAT IS LEFT ON THE PILE");
+      const int16_t span = static_cast<int16_t>(3 * chipW + 2 * 8);
+      for (int i = 0; i < 3; ++i) {
+        tokenChip(screen,
+                  fui::makeRect(static_cast<int16_t>(body.x + (body.width - span) / 2 + i * (chipW + 8)),
+                                static_cast<int16_t>(top + cardH + 60), chipW, chipH),
+                  5, false);
+      }
+      caption(screen, body, capTop,
+                "TOKENS COME OFF THE TOP, HIGHEST FIRST, SO SELL EARLY. DIAMOND, GOLD AND SILVER NEVER SELL ALONE.");
+      break;
+    }
+
+    case 4: {
+      // The reason to hold a run instead of cashing it in pairs.
+      pageTitle(screen, body, "THE BONUS");
+      const int16_t top = static_cast<int16_t>(body.y + kDiagramTop);
+      const char* how[3] = {"SELL 3", "SELL 4", "SELL 5+"};
+      const int16_t chipW = 118;
+      const int16_t gap = 16;
+      const int16_t span = static_cast<int16_t>(3 * chipW + 2 * gap);
+      for (int i = 0; i < 3; ++i) {
+        const int16_t x = static_cast<int16_t>(body.x + (body.width - span) / 2 + i * (chipW + gap));
+        const fui::Rect box = fui::makeRect(x, top, chipW, 120);
+        screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), toybox::kRule, 8);
+        screen.target().bitmap(fui::makeRect(static_cast<int16_t>(x + (chipW - 44) / 2),
+                                             static_cast<int16_t>(top + 18), 44, 44),
+                               fui::bitmapFromIcon(icon_bonus_token_44), fui::BitmapMode::Contain,
+                               fui::Paint::solid(fui::Color::Black));
+        note(screen, fui::makeRect(x, static_cast<int16_t>(top + 76), chipW, 24), how[i]);
+      }
+      note(screen, fui::makeRect(body.x, static_cast<int16_t>(top + 156), body.width, 24), "BIGGER SALE, BIGGER TOKEN");
+      caption(screen, body, capTop,
+                "SELL THREE OR MORE OF ONE GOOD AT ONCE AND TAKE A BONUS TOKEN. IT STAYS FACE DOWN UNTIL THE ROUND IS "
+                "SCORED.");
+      break;
+    }
+
+    case 5: {
+      // The piece that behaves like nothing else in the game.
+      pageTitle(screen, body, "CAMELS");
+      const int16_t top = static_cast<int16_t>(body.y + kDiagramTop);
+      const int16_t cardW = 46;
+      const int16_t cardH = 66;
+      const int16_t col = static_cast<int16_t>(body.width / 2);
+      const int herd[2] = {4, 2};
+      for (int seat = 0; seat < 2; ++seat) {
+        note(screen, fui::makeRect(static_cast<int16_t>(body.x + seat * col), top, col, 22), seat == 0 ? "YOU" : "THEM");
+        // Laid out clear of each other rather than fanned. Overlapping them
+        // covered each camel with the next card and the herd turned to mush;
+        // four is a number you count, so the four have to be countable.
+        const int16_t step = static_cast<int16_t>(cardW + 4);
+        const int16_t span = static_cast<int16_t>(herd[seat] * step - 4);
+        for (int i = 0; i < herd[seat]; ++i) {
+          cardWithMark(screen,
+                       fui::makeRect(static_cast<int16_t>(body.x + seat * col + (col - span) / 2 + i * step),
+                                     static_cast<int16_t>(top + 30), cardW, cardH),
+                       icon_camel_32);
+        }
+      }
+      arrowDown(screen, static_cast<int16_t>(body.x + col / 2), static_cast<int16_t>(top + 116), 40);
+      tokenChip(screen,
+                fui::makeRect(static_cast<int16_t>(body.x + (col - 68) / 2), static_cast<int16_t>(top + 166), 68, 46),
+                jaipur::kCamelTokenValue, true);
+      caption(screen, body, capTop,
+                "CAMELS NEVER SELL AND NEVER COUNT AGAINST YOUR HAND. THE BIGGER HERD TAKES FIVE RUPEES WHEN THE ROUND "
+                "ENDS.");
+      break;
+    }
+
+    case 6:
+    default: {
+      // The round's clock. Both triggers, because a player who only knows about
+      // the deck will not see the other one coming.
+      pageTitle(screen, body, "THE END");
+      const int16_t top = static_cast<int16_t>(body.y + kDiagramTop);
+      note(screen, fui::makeRect(body.x, top, body.width, 22), "THREE PILES RUN OUT");
+      const int16_t cardW = 58;
+      const int16_t cardH = 80;
+      const int16_t span = static_cast<int16_t>(3 * cardW + 2 * 12);
+      const freeink::Icon* spent[3] = {&diamond32, &cloth32, &spice32};
+      for (int i = 0; i < 3; ++i) {
+        cardWithMark(screen,
+                     fui::makeRect(static_cast<int16_t>(body.x + (body.width - span) / 2 + i * (cardW + 12)),
+                                   static_cast<int16_t>(top + 30), cardW, cardH),
+                     *spent[i], true);
+      }
+      note(screen, fui::makeRect(body.x, static_cast<int16_t>(top + 130), body.width, 22), "OR THE DECK RUNS DRY");
+      const fui::Rect deck = fui::makeRect(static_cast<int16_t>(body.x + (body.width - cardW) / 2),
+                                           static_cast<int16_t>(top + 160), cardW, cardH);
+      screen.target().stroke(deck, fui::Paint::dither(fui::Color::DarkGray), toybox::kRule, 8);
+      caption(screen, body, capTop,
+                "EITHER ONE ENDS THE ROUND ON THE SPOT. COUNT UP, TAKE THE SEAL, AND DEAL AGAIN, WITH THE LOSER "
+                "GOING FIRST.");
+      break;
+    }
+  }
 }
 
 }  // namespace jaipurui
