@@ -178,6 +178,7 @@ void describeLastMove(const jaipur::Game& game, const int viewer, char* out, con
   }
 }
 
+
 bool hits(const Rect& box, const int x, const int y) {
   return x >= box.x && x < box.x + box.width && y >= box.y && y < box.y + box.height;
 }
@@ -881,28 +882,71 @@ void JaipurActivity::drawRoundSurface(const Rect& body) const {
   }
 }
 
-void JaipurActivity::drawPileBars(const Rect& slot) const {
-  // What is left on the table, as six bars. Three empty piles ends the round,
-  // so this is literally how close the game you left is to finishing.
-  if (!hasSavedGame) return;
-  const int rows = kGoodCount;
-  const int rowH = std::min(34, slot.height / rows);
-  const int top = slot.y + (slot.height - rowH * rows) / 2;
-  for (int g = 0; g < rows; ++g) {
-    const int y = top + g * rowH;
-    const int depth = game.goodsDepth[g];
-    const int total = jaipur::kPileDepth[g];
-    toybox::drawCapsCentered(renderer, toybox::kTileFontId, slot.x, y, rowH - 6, kGoodNames[g], true);
-    const int barX = slot.x + 130;
-    const int barW = slot.x + slot.width - barX;
-    const int cell = barW / total;
-    for (int i = 0; i < total; ++i) {
-      const int px = barX + i * cell;
-      if (i < depth) {
-        renderer.drawRect(px, y + 4, cell - 3, rowH - 16, toybox::kHairline, true);
-      } else {
-        renderer.fillRect(px, y + 4, cell - 3, rowH - 16, true);
+
+// The menu's table: every good, what the market is offering of it, and what it
+// pays right now.
+//
+// Those two facts exist on the board but never together -- the market row shows
+// what is for sale and the pile row shows what it fetches, so answering "is
+// that diamond worth taking" means reading across the screen. Here they are one
+// line. It is also the only place the price list survives when there is no game
+// running, which is why it is drawn whether or not there is one to continue.
+void JaipurActivity::drawMarketTable(const Rect& slot) const {
+  // Seven rows: the six goods, then camels. A camel is in the market like
+  // anything else and it is the one card with no price, so it belongs in the
+  // table saying so rather than in a line underneath -- which is where it was,
+  // and which ran into the CONTINUE row as soon as there was a game to
+  // continue.
+  constexpr int kRows = kGoodCount + 1;
+  const int headH = 26;
+  const int rowH = std::min(46, (slot.height - headH) / kRows);
+  const int total = headH + kRows * rowH;
+  const int top = slot.y + (slot.height - total) / 2;
+
+  // Where the three columns live. Named once, used by the head and every row,
+  // so a column cannot drift away from its own heading.
+  const int markX = slot.x + 10;
+  const int countX = slot.x + slot.width / 2 - 30;
+  const int paysX = slot.x + slot.width - 90;
+
+  toybox::drawCapsCentered(renderer, toybox::kTileFontId, countX, top, headH, "MARKET", true);
+  toybox::drawCapsCentered(renderer, toybox::kTileFontId, paysX, top, headH, "PAYS", true);
+  renderer.fillRect(slot.x, top + headH, slot.width, toybox::kRule, true);
+
+  for (int row = 0; row < kRows; ++row) {
+    const bool camelRow = row == kGoodCount;
+    const int y = top + headH + row * rowH;
+    const freeink::Icon& mark = camelRow ? icon_camel_32 : goodIcon(row, MarkSize::Pile);
+    blitIcon(renderer, mark, markX, y + (rowH - mark.h) / 2);
+
+    // What the market is holding of it. Counted rather than stored, like
+    // everything else derived from the position.
+    int inMarket = 0;
+    if (hasSavedGame) {
+      for (int i = 0; i < kMarketSlots; ++i) {
+        if (game.market[i] == (camelRow ? kCamel : static_cast<uint8_t>(row))) ++inMarket;
       }
+    }
+    char count[8];
+    std::snprintf(count, sizeof(count), "%d", inMarket);
+    Rect countCell{countX, y, 60, rowH};
+    drawCentered(renderer, countCell, y, rowH, hasSavedGame ? count : "-", true);
+
+    // A camel never sells, and a pile nobody can sell into is spent. Both say
+    // so rather than quoting a price that is not there.
+    char value[12] = "-";
+    if (!camelRow) {
+      const int depth = hasSavedGame ? game.goodsDepth[row] : 0;
+      if (jaipur::kPileDepth[row] - depth > 0) {
+        std::snprintf(value, sizeof(value), "%d",
+                      hasSavedGame ? game.nextTokenValue(static_cast<Good>(row), depth) : jaipur::kGoodsTokens[row][0]);
+      }
+    }
+    Rect paysCell{paysX, y, 60, rowH};
+    drawCentered(renderer, paysCell, y, rowH, value, true);
+
+    if (row + 1 < kRows) {
+      renderer.fillRectDither(slot.x, y + rowH - toybox::kHairline, slot.width, toybox::kHairline, DarkGray);
     }
   }
 }
@@ -976,6 +1020,7 @@ void JaipurActivity::drawResultArt(const Rect& slot) const {
     toybox::drawCapsCentered(renderer, toybox::kDisplayFontId, colCx[c] - tw / 2, y, 44, total, true);
   }
 }
+
 
 // --- the game you left ------------------------------------------------------
 
@@ -1120,7 +1165,7 @@ void JaipurActivity::drawStartMenu() {
   toybox::Frame frame(target, target.deviceContext(), noInput, interactions);
   toybox::Screen screen(frame, toybox::themeTokens());
   const fui::Rect slot = jaipurui::buildStartMenu(screen, startModel());
-  drawPileBars(Rect{slot.x, slot.y, slot.width, slot.height});
+  drawMarketTable(Rect{slot.x, slot.y, slot.width, slot.height});
   interactionsReady = true;
   toybox::reportOverflow(interactions, "Jaipur menu");
 }
