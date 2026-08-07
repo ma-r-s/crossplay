@@ -15,6 +15,10 @@
   <a href="LOCAL_SCOPE.md">Scope</a>
 </p>
 
+<p align="center">
+  <a href="https://github.com/ma-r-s/crossplay/actions/workflows/crossplay-ci.yml"><img src="https://github.com/ma-r-s/crossplay/actions/workflows/crossplay-ci.yml/badge.svg?branch=xteink" alt="Build status for the xteink branch"></a>
+</p>
+
 ![Crossplay on the Xteink X4 Pro](site/assets/shots/og.png)
 
 Crossplay is a fork of [CrossPoint](https://crosspointreader.com/) for the
