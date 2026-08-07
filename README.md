@@ -120,7 +120,11 @@ and what has to be true before it deploys.
 
 ## Credit and licence
 
-Crossplay is MIT, like the project it forks. It stands on
+Crossplay is MIT, like the project it forks, and it is a fork in git's sense as
+well as in the README's: this repository is a GitHub fork of
+[crosspoint-reader/crosspoint-reader](https://github.com/crosspoint-reader/crosspoint-reader),
+shares its commit history, and merges every upstream release rather than
+re-implementing it. It stands on
 [CrossPoint](https://github.com/crosspoint-reader/crosspoint-reader) and the
 [FreeInk SDK](https://freeink.org/); upstream's own README is kept at
 [docs/crosspoint-readme.md](docs/crosspoint-readme.md).
