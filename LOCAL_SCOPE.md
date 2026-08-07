@@ -36,18 +36,18 @@ how much upstream-owned code it touches.
 
 ### The upstream files we own
 
-| File                                   | Why                                                       | Size                 |
-| -------------------------------------- | --------------------------------------------------------- | -------------------- |
-| `src/activities/home/HomeActivity.cpp` | The shelf seam: Games and Apps as rows on Home            | 4 hooks, fixed       |
-| `src/components/themes/BaseTheme.h`    | Two values appended to the `UIIcon` palette: Games, Apps  | 1 block, appended    |
-| `src/components/themes/lyra/LyraTheme.cpp` | Two cases mapping them to bitmaps                     | 4 lines              |
-| `.skills/SKILL.md` (= `CLAUDE.md`)     | Four-line pointer here, so agents find the fork rules     | 4 lines              |
-| `.gitignore`                           | Ignore `qa-artifacts/` and the simulator's SD cards       | 3 lines, append-only |
-| `platformio.ini`                       | One `extra_configs` line pulling in `platformio.sim.ini`  | 1 line               |
-| `lib/hal/HalStorage.{h,cpp}`           | `openFileForAppend()`: `openFileForWrite` carries `O_TRUNC`, so nothing could add to an existing file | 1 method |
-| `SCOPE.md`                             | One-line pointer here; it is the file that says "no games" | 2 lines              |
+| File                                       | Why                                                                                                   | Size                 |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------- | -------------------- |
+| `src/activities/home/HomeActivity.cpp`     | The shelf seam: Games and Apps as rows on Home                                                        | 4 hooks, fixed       |
+| `src/components/themes/BaseTheme.h`        | Two values appended to the `UIIcon` palette: Games, Apps                                              | 1 block, appended    |
+| `src/components/themes/lyra/LyraTheme.cpp` | Two cases mapping them to bitmaps                                                                     | 4 lines              |
+| `.skills/SKILL.md` (= `CLAUDE.md`)         | Four-line pointer here, so agents find the fork rules                                                 | 4 lines              |
+| `.gitignore`                               | Ignore `qa-artifacts/` and the simulator's SD cards                                                   | 3 lines, append-only |
+| `platformio.ini`                           | One `extra_configs` line pulling in `platformio.sim.ini`                                              | 1 line               |
+| `lib/hal/HalStorage.{h,cpp}`               | `openFileForAppend()`: `openFileForWrite` carries `O_TRUNC`, so nothing could add to an existing file | 1 method             |
+| `SCOPE.md`                                 | One-line pointer here; it is the file that says "no games"                                            | 2 lines              |
 
-None of them grows when an app is added -- the two theme edits are per *folder*,
+None of them grows when an app is added -- the two theme edits are per _folder_,
 and there are two folders. Both are appends: values at the end of an enum keep
 every number above them, and a case in a switch merges as an addition.
 `HomeActivity.cpp`'s hooks likewise append after upstream's rows, so their
@@ -82,12 +82,12 @@ Read [docs/shelf.md](docs/shelf.md) before adding anything. The short version:
 
 All scoped to `src/apps_local/`.
 
-| Upstream rule                                    | What we do in local apps                  | Why                                                                                                                     |
-| ------------------------------------------------ | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| All user-facing text uses `tr()`                 | Raw `const char*` titles and strings      | Routing through `tr()` means editing `lib/I18n/translations/*.yaml` per app, which is per-app churn in an upstream file |
-| Icons are `UIIcon` enum variants added per app   | Shelf items carry a `freeink::Icon` generated from Lucide | An asset the shelf resolves gives us Lucide's 1735 icons instead of an enum that grows per app. The two *folder* rows are the exception: upstream's Home menu accepts only a `UIIcon`, so Games and Apps are appended to that palette once and never again |
-| Apps register via `ActivityManager::goTo<App>()` | A function-pointer factory in the shelf   | Avoids editing `ActivityManager.{h,cpp}` per app                                                                        |
-| All rendering through the `GUI`/UITheme macro    | Apps draw their own surface via FreeInkUI | A board or a grid is the app's own material; chrome still goes through Toybox, which is a FreeInkUI theme               |
+| Upstream rule                                    | What we do in local apps                                  | Why                                                                                                                                                                                                                                                        |
+| ------------------------------------------------ | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| All user-facing text uses `tr()`                 | Raw `const char*` titles and strings                      | Routing through `tr()` means editing `lib/I18n/translations/*.yaml` per app, which is per-app churn in an upstream file                                                                                                                                    |
+| Icons are `UIIcon` enum variants added per app   | Shelf items carry a `freeink::Icon` generated from Lucide | An asset the shelf resolves gives us Lucide's 1735 icons instead of an enum that grows per app. The two _folder_ rows are the exception: upstream's Home menu accepts only a `UIIcon`, so Games and Apps are appended to that palette once and never again |
+| Apps register via `ActivityManager::goTo<App>()` | A function-pointer factory in the shelf                   | Avoids editing `ActivityManager.{h,cpp}` per app                                                                                                                                                                                                           |
+| All rendering through the `GUI`/UITheme macro    | Apps draw their own surface via FreeInkUI                 | A board or a grid is the app's own material; chrome still goes through Toybox, which is a FreeInkUI theme                                                                                                                                                  |
 
 Everything else still applies: the resource protocol, `makeUniqueNoThrow`,
 HAL-only access, no hardcoded screen dimensions, free in `onExit()` what you
@@ -112,6 +112,10 @@ coverage without a device.
 Each suite builds into a directory keyed to **this checkout**, not just the
 suite name. Two worktrees once shared one build dir, and a suite whose source
 was not even present reported 52 green checks against the other tree's binary.
+
+The suites are built by CI on Linux as well as here, so they have to compile
+under GCC and not only Apple clang. What that costs, and what is still papered
+over, is in [docs/open-items.md](docs/open-items.md).
 
 ## Branches
 

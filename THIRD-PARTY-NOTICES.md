@@ -62,7 +62,8 @@ domain.
 
 **KaiTi**, on the browser demo's SD card only, rasterised for the Study app's
 Chinese deck. This one is not cleanly licensed for redistribution and is
-knowingly outstanding; see the open item in [site/README.md](site/README.md).
+knowingly outstanding; see the open item in
+[docs/open-items.md](docs/open-items.md).
 
 ## Type on the website
 
