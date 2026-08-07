@@ -56,7 +56,7 @@
       <button class="device-screen" id="deviceStart" type="button"
               aria-label="Start the device and run it here in the page">
         <img class="shot" id="devicePoster" src="assets/shots/games.png" width="480" height="800"
-             alt="The Games folder on the device: a black GAMES header band above outlined rows reading CHESS, BATTLESHIP, CONNECTIONS, SOLITAIRE, D&amp;DIAGRAMS, INSIDER, JAIPUR and MURDLE, each with a small icon. A footer bar shows the device's name, Mop Bushy Mutton, beside a drawn face.">
+             alt="The Games folder on the device: a black GAMES header band above outlined rows reading CHESS, BATTLESHIP, CONNECTIONS, SOLITAIRE, D&amp;DIAGRAMS, INSIDER, JAIPUR and MURDLE, each with a small icon. A footer bar shows the device's name, Mop Specs Grin, beside a drawn face. No row is highlighted.">
       </button>
       <p class="device-hint" id="deviceHint">Click the screen to try it</p>
       <div class="device-keys" id="deviceKeys" hidden>
@@ -319,7 +319,6 @@
         <ul>
           <li><a href="https://crosspointreader.com/">CrossPoint</a></li>
           <li><a href="https://freeink.org/">FreeInk</a></li>
-          <li><a href="https://crossmux.com/">CrossMux</a></li>
         </ul>
       </div>
       <div>
@@ -414,7 +413,7 @@
   // present, so a failed fetch leaves no broken control behind.
   var A = window.CROSSPLAY_AVATAR;
   if (A) {
-    var pick = { hair: 7, eyes: 11, mouth: 12 };  // MOP BUSHY MUTTON, as shipped
+    var pick = { hair: 7, eyes: 12, mouth: 0 };  // MOP SPECS GRIN, the one the shot shows
     var svg = document.getElementById('facerSvg');
     var nameEl = document.getElementById('facerName');
     function draw() {

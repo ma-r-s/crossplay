@@ -18,11 +18,10 @@ eventually serve it, cut the paragraph.
 
 ## The idea underneath
 
-The neighbours are all aimed at reading. CrossPoint is an e-reader and says so
-("Read without limits"). CrossMux is CrossPoint refined for CJK ("Reading first").
-FreeInk is the stack all of it stands on ("An open ecosystem for e-readers").
-None of them are wrong, and Crossplay is not a criticism of any of them: it is
-built on CrossPoint and tracks it weekly.
+What this device already had is aimed at reading. CrossPoint is an e-reader and
+says so ("Read without limits"); FreeInk is the stack it stands on ("An open
+ecosystem for e-readers"). Neither is wrong, and Crossplay is not a criticism of
+either: it is built on CrossPoint and tracks it weekly.
 
 The difference is one observation. **The thing that makes e-ink good for reading
 is not that it shows text. It is that it holds still while you think.** A page
@@ -153,10 +152,9 @@ costs a session:
 - **Feature-count marketing.** "11 apps!" invites comparison with an app store
   we would lose. The apps are evidence for the sentence at the top, not the
   pitch.
-- **Colour as a brand accent.** Both neighbours use one (CrossPoint green,
-  CrossMux/FreeInk rust). Ours is the absence: a black-and-white page next to
-  two accented ones is the most differentiated we can be, and it is honest about
-  what the screen does.
+- **Colour as a brand accent.** Everything upstream uses one. Ours is the
+  absence: a black-and-white page next to accented ones is the most
+  differentiated we can be, and it is honest about what the screen does.
 - **Calling it a games console.** It is a device for still activities. Half of
   them are not games, and the reading the fork inherited is still there and still
   good.

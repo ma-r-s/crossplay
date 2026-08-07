@@ -40,6 +40,8 @@ class ShelfFolderActivity final : public Activity {
   const freeink::Icon* icons[kMaxItems] = {};
   int itemCount = 0;
   int selected = 0;
+  // Whether the cursor has been revealed. See onEnter().
+  bool cursorShown = false;
   int topIndex = 0;
 
   toybox::Interactions interactions;
