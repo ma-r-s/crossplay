@@ -1,30 +1,24 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Crossplay">
   <title>Crossplay</title>
   <!--
-    Two panels, one behind the other.
+    The screen, inside the frame this fork draws around everything.
 
-    docs/identity.md rules out a mascot and rules out anything not made of the
-    product's own material, which leaves the two marks the device actually
-    draws: the solid header band with knocked-out type, and the screen it sits
-    on. Two of them overlapping is the one thing this fork has that its upstream
-    does not, so the mark is the difference rather than a decoration of it.
+    Corner brackets are the one mark Crossplay invented rather than inherited:
+    they sit around the chess board, the mini board on its menu, and every
+    Toybox panel. docs/identity.md rules out a mascot and rules out anything not
+    made of the product's own material, and this is the most of that material
+    any single shape can carry.
 
-    Everything is currentColor and nothing is filled with paper, so it works on
-    any background: a browser tab, a black band, either theme. The separation
-    between the panels is a mask (a hole cut in the back one) rather than an
-    opaque fill, which is the only version that survives being dropped on an
-    unknown colour.
-
-    Sized to survive 16px: two rounded rectangles and a bar, no detail thinner
-    than 2px at that scale.
+    It is also the version that survives being small. Four right angles and a
+    solid block have no detail to lose at 16px, and unlike a pair of overlapping
+    rectangles it does not collide with the copy/duplicate glyph every desktop
+    already uses.
   -->
-  <mask id="gap">
-    <rect width="32" height="32" fill="white" />
-    <rect x="9.6" y="0" width="22.4" height="24" rx="4.4" fill="black" />
-  </mask>
-  <g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round">
-    <rect x="2.8" y="8.6" width="15.4" height="20.6" rx="2.4" mask="url(#gap)" />
-    <rect x="11.6" y="2.2" width="18.6" height="19.6" rx="3" />
+  <rect x="8.4" y="8.4" width="15.2" height="15.2" rx="1.6" fill="currentColor" />
+  <g fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="square">
+    <path d="M2.6 10.4V2.6h7.8" />
+    <path d="M29.4 10.4V2.6h-7.8" />
+    <path d="M2.6 21.6v7.8h7.8" />
+    <path d="M29.4 21.6v7.8h-7.8" />
   </g>
-  <rect x="13" y="3.6" width="15.8" height="5.6" rx="1.6" fill="currentColor" />
 </svg>
