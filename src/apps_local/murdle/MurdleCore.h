@@ -303,8 +303,19 @@ struct AttrMasks {
   // Which attribute produced mask[i]. Opaque here; MurdleText reads it back to
   // word the sentence.
   uint8_t tag[kMaxAttrMasks] = {};
+  // Which dossier COLUMN produced mask[i], as an opaque id. The generator never
+  // learns that column 3 is height -- it only learns that two masks came from
+  // the same place, which is enough to stop a case leaning on one column twice.
+  // A play-tester got "the one with the iron was shorter than BRUNO" beside
+  // "the one on the roof was shorter than BRUNO"; the per-tag cap could not see
+  // that, because both are the same tag used twice at exactly its limit, and a
+  // per-tag cap would not have caught two different eye colours either.
+  uint8_t axis[kMaxAttrMasks] = {};
   uint8_t count = 0;
 };
+
+// How many masks from one dossier column a single case may use.
+constexpr int kMaxPerAxis = 1;
 
 // Builds one case. Deterministic in `seed`: the same seed, tier, cast and
 // attribute masks give the same case byte for byte, which is what lets the save

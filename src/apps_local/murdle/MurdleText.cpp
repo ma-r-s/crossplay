@@ -400,11 +400,17 @@ void clueLine(const Puzzle& p, const int clueIndex, char* out, const int cap) {
       return;
     }
     const int place = which;
-    // "in the place with", not "next to". A play-tester caught "the body was
-    // found next to flour on the floor": the old wording works for a broken
-    // step and breaks for anything that is a property of a room rather than an
-    // object in it. This one survives all sixteen traits.
-    std::snprintf(out, static_cast<size_t>(cap), "The body was found in the place with %s.", placeOf(p, place).trait);
+    // "where there was", and this is the third wording.
+    //
+    // "next to flour on the floor" broke for anything that is a property of a
+    // room rather than an object in it. "in the place with" survived all
+    // sixteen but leaked the generator's own category name onto the page, in
+    // the single most important sentence of the case file -- two play-testers
+    // pulled it up, one calling it "a template variable". Now that a place's
+    // detail is always a STATE of the room rather than a thing lying in it,
+    // "where there was" fits every one of them and reads like a sentence
+    // somebody wrote: where there was an echo, a barking dog, a stopped clock.
+    std::snprintf(out, static_cast<size_t>(cap), "The body was found where there was %s.", placeOf(p, place).trait);
     return;
   }
 

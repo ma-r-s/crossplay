@@ -921,6 +921,21 @@ bool generate(const Tier tier, const uint32_t seed, const uint8_t cast[kMaxCats]
       // repetition wearing the dossier's clothes.
       int attrUsed[256] = {};
       constexpr int kMaxPerAttr = 2;
+      // And no one dossier COLUMN may speak twice, which the per-tag cap above
+      // cannot express. A play-tester got "the one with the iron was shorter
+      // than BRUNO" beside "the one on the roof was shorter than BRUNO" in a
+      // single case: one tag used twice, at exactly kMaxPerAttr, and it read as
+      // one template firing twice. Two different eye colours would be the same
+      // complaint one step out. The generator does not know what a column is --
+      // see AttrMasks::axis -- only that two masks came from the same one.
+      int axisUsed[8] = {};
+      const auto axisOf = [&attrs](const uint8_t tag) -> int {
+        if (tag == kNoAttr) return -1;
+        for (int i = 0; i < attrs.count; ++i) {
+          if (attrs.tag[i] == tag) return attrs.axis[i];
+        }
+        return -1;
+      };
 
       // How much of the grid the pencil solver can reach with what it has. A
       // clue that does not move this teaches the solver nothing at this point in
@@ -950,11 +965,13 @@ bool generate(const Tier tier, const uint32_t seed, const uint8_t cast[kMaxCats]
             if (set == items - 1) names = missing;
           }
 
+          const int axis = axisOf(clue.attr);
           if (pass == 0) {
             if (spokenOf[clue.anchorCat][clue.anchorItem][clue.targetCat] >= kMaxPerAnchor) continue;
             if (names >= 0 && saidAbout[names][clue.anchorCat]) continue;
             if (shapeUsed[clue.anchorCat][clue.targetCat] >= kMaxPerShape) continue;
             if (clue.attr != kNoAttr && attrUsed[clue.attr] >= kMaxPerAttr) continue;
+            if (axis >= 0 && axisUsed[axis] >= kMaxPerAxis) continue;
           }
           clue.voice = static_cast<uint8_t>(rng.next());
           p.clues[p.clueCount] = clue;
@@ -977,6 +994,7 @@ bool generate(const Tier tier, const uint32_t seed, const uint8_t cast[kMaxCats]
           reached = now;
 
           if (clue.attr != kNoAttr) ++attrUsed[clue.attr];
+          if (axis >= 0) ++axisUsed[axis];
           ++spokenOf[clue.anchorCat][clue.anchorItem][clue.targetCat];
           if (names >= 0) saidAbout[names][clue.anchorCat] = true;
           ++shapeUsed[clue.anchorCat][clue.targetCat];

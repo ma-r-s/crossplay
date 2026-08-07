@@ -1058,8 +1058,14 @@ constexpr Beat kBeats[] = {
     {"THE CLUES DO THE REST",
      "Read one, mark what it rules out, tap its number to tick it off. Clues never lie, unless the case says a "
      "suspect is speaking."},
+    // "What was beside it", not "where it was". The last clue names either the
+    // room or the murder weapon, and has done since the crime scene stopped
+    // always being a place -- but this line went on saying "match that place"
+    // for three rounds, so a player following the tutorial was told to look for
+    // a room and handed a clue with no room in it. A play-tester found it by
+    // reading the rules against the case rather than by solving anything.
     {"THEN NAME THEM",
-     "The last clue says where the body was found, not who left it there. Match that place against your grid."},
+     "The last clue describes what was beside the body, not who left it there. Find that thing on your grid."},
 };
 
 constexpr int kBeatCount = static_cast<int>(sizeof(kBeats) / sizeof(kBeats[0]));

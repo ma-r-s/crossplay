@@ -451,6 +451,44 @@ bool isAscii(const char* text) {
 
 bool contains(const char* haystack, const char* needle) { return std::strstr(haystack, needle) != nullptr; }
 
+// Do two fixture details share a word worth confusing?
+//
+// Content words compared on their first three letters, so "crack" catches
+// "cracked" and "mud" catches "muddy" -- both were real reported collisions and
+// a four-letter rule missed the second of them.
+//
+// WHAT THIS CANNOT CATCH, and it is the more dangerous half: "a bent handle"
+// beside "a broken step" share no word at all. That rhyme is thematic, and no
+// string comparison sees it. It is held off by writing the two tables in
+// different registers -- a weapon carries a substance or a mark, a place has a
+// state -- which is a discipline recorded above kWeapons, not a check. Anybody
+// adding a fixture has to apply it themselves.
+bool shareASignificantWord(const char* a, const char* b) {
+  static const char* const kStructure[] = {"the", "and", "one", "with", "its", "was"};
+  const auto forEachWord = [](const char* s, auto&& fn) {
+    while (*s != '\0') {
+      while (*s == ' ') ++s;
+      const char* start = s;
+      while (*s != '\0' && *s != ' ') ++s;
+      if (s - start < 3) continue;  // "a", "an", "on", "it", "in", "of"
+      bool structural = false;
+      for (const char* stop : kStructure) {
+        if (static_cast<int>(std::strlen(stop)) == s - start && std::strncmp(start, stop, s - start) == 0) {
+          structural = true;
+        }
+      }
+      if (!structural) fn(start);
+    }
+  };
+  bool shared = false;
+  forEachWord(a, [&](const char* wa) {
+    forEachWord(b, [&](const char* wb) {
+      if (std::strncmp(wa, wb, 3) == 0) shared = true;
+    });
+  });
+  return shared;
+}
+
 // What an item looks like inside a sentence, which is not what it looks like on
 // the grid: the grid says LIGHTHOUSE and the sentence says "in the lighthouse".
 // Two forms on purpose -- a label is read as a label and a clue is read as
@@ -496,6 +534,31 @@ void testCastTableIsDrawable() {
   // true, still minimal, still solvable, and unreadable.
   for (int i = 0; i < kWeaponCount; ++i) CHECK(kWeapons[i].trait[0] != '\0');
   for (int i = 0; i < kPlaceCount; ++i) CHECK(kPlaces[i].trait[0] != '\0');
+
+  // NO TWO DETAILS ANYWHERE SHARE A SIGNIFICANT WORD, across both tables.
+  //
+  // Distinctness of the whole string is not enough and was not enough: "a bent
+  // handle" and "a broken step" are different strings that a reader scanning for
+  // "the broken one" cannot tell apart. The body clue names the crime scene by
+  // its detail, so a rhyme between a weapon and a place is a wrong accusation
+  // reached by careful reasoning -- six play-testers hit it, and no logic test
+  // could ever see it.
+  //
+  // Words of four or more characters only; "a", "an", "on", "it", "in", "the"
+  // are structure rather than content.
+  {
+    const char* details[kWeaponCount + kPlaceCount];
+    int n = 0;
+    for (int i = 0; i < kWeaponCount; ++i) details[n++] = kWeapons[i].trait;
+    for (int i = 0; i < kPlaceCount; ++i) details[n++] = kPlaces[i].trait;
+    for (int a = 0; a < n; ++a) {
+      for (int b = a + 1; b < n; ++b) {
+        const bool clash = shareASignificantWord(details[a], details[b]);
+        if (clash) std::printf("  detail clash: \"%s\" / \"%s\"\n", details[a], details[b]);
+        CHECK(!clash);
+      }
+    }
+  }
 
   // A trait names exactly one thing, or it is not a clue. Two weapons with "a
   // bent tip" would make the murder clue ambiguous and nothing would complain.

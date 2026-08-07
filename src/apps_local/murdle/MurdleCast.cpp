@@ -57,36 +57,55 @@ const SuspectEntry kSuspects[kSuspectCount] = {
 //
 // A trait is one short noun phrase, unique across the table, because a clue
 // that names a trait is naming exactly one thing.
+// A WEAPON'S DETAIL IS A SUBSTANCE OR A MARK ON THE OBJECT. A PLACE'S IS A
+// STATE OF THE ROOM. The two tables are written in different registers on
+// purpose, and it is the fix for the most dangerous defect play-testing found.
+//
+// The old set had four weapons whose detail was a crack or a chip, three whose
+// detail was a damaged handle, and pairs across the tables that rhymed: AXE "a
+// bent handle" beside TOWER "a broken step", SPADE "wet mud on it" beside FARM
+// "muddy boots", CAVE "cold water" beside LAKE "a torn net". Six critics
+// reported it independently and one spelled out why it matters more than the
+// other prose complaints: the body clue names the crime scene BY its detail, so
+// a reader who half-remembers "b... bent, broken" picks the wrong fixture and
+// accuses the wrong suspect. That is a wrong answer produced by careful
+// reasoning about the wrong thing, and nothing in the game can catch it.
+//
+// So: no two details anywhere in either table share a theme or a significant
+// word, and a test holds that. When adding a fixture, the question is not "is
+// this evocative" but "could a tired reader confuse this with any of the other
+// thirty-five".
 const WeaponEntry kWeapons[kWeaponCount] = {
-    {"AXE", "the axe", "a bent handle", true},        {"BAT", "the bat", "tape on the grip", true},
-    {"CANE", "the cane", "a silver tip", false},      {"DAGGER", "the dagger", "blood on it", false},
-    {"FORK", "the fork", "a bent prong", false},      {"GUN", "the gun", "one shot fired", false},
-    {"HAMMER", "the hammer", "a split handle", true}, {"IRON", "the iron", "a burn mark", true},
-    {"JAR", "the jar", "a cracked lid", false},       {"KNIFE", "the knife", "a chipped edge", false},
-    {"LAMP", "the lamp", "a frayed cord", true},      {"MUG", "the mug", "a chip on the rim", false},
-    {"NAIL", "the nail", "rust on it", false},        {"OAR", "the oar", "sand on it", true},
-    {"PAN", "the pan", "grease on it", true},         {"ROPE", "the rope", "thirteen knots", false},
-    {"SPADE", "the spade", "wet mud on it", true},    {"TORCH", "the torch", "a dead battery", false},
-    {"VASE", "the vase", "a crack in it", true},      {"WIRE", "the wire", "red paint on it", false},
+    {"AXE", "the axe", "sawdust on it", true},       {"BAT", "the bat", "tape on the grip", true},
+    {"CANE", "the cane", "a silver tip", false},     {"DAGGER", "the dagger", "blood on it", false},
+    {"FORK", "the fork", "a twisted prong", false},  {"GUN", "the gun", "one shot fired", false},
+    {"HAMMER", "the hammer", "a wobbly head", true}, {"IRON", "the iron", "a scorch mark", true},
+    {"JAR", "the jar", "honey inside", false},       {"KNIFE", "the knife", "a chipped edge", false},
+    {"LAMP", "the lamp", "a frayed cord", true},     {"MUG", "the mug", "lipstick on the rim", false},
+    {"NAIL", "the nail", "rust on it", false},       {"OAR", "the oar", "sand on it", true},
+    {"PAN", "the pan", "grease on it", true},        {"ROPE", "the rope", "thirteen knots", false},
+    {"SPADE", "the spade", "dried mud on it", true}, {"TORCH", "the torch", "a dead battery", false},
+    {"VASE", "the vase", "gold leaf on it", true},   {"WIRE", "the wire", "red paint on it", false},
 };
 
+// States of a room, never marks on an object -- see the note above kWeapons.
 const PlaceEntry kPlaces[kPlaceCount] = {
-    {"ATTIC", "in the attic", "a broken window", true},
+    {"ATTIC", "in the attic", "a swinging hatch", true},
     {"BARN", "in the barn", "loose straw", true},
-    {"CAVE", "in the cave", "cold water", false},
-    {"DOCK", "on the dock", "wet footprints", false},
-    {"FARM", "on the farm", "muddy boots", false},
-    {"GARDEN", "in the garden", "trampled flowers", false},
+    {"CAVE", "in the cave", "an echo", false},
+    {"DOCK", "on the dock", "a creaking plank", false},
+    {"FARM", "on the farm", "a barking dog", false},
+    {"GARDEN", "in the garden", "a buzzing hive", false},
     {"HALL", "in the hall", "a stopped clock", true},
-    {"INN", "at the inn", "a spilled drink", true},
-    {"KITCHEN", "in the kitchen", "a burning smell", true},
-    {"LAKE", "at the lake", "a torn net", false},
-    {"MILL", "at the mill", "flour on the floor", true},
-    {"OFFICE", "in the office", "a torn letter", true},
-    {"PARK", "in the park", "cut grass", false},
-    {"ROOF", "on the roof", "a fallen tile", false},
+    {"INN", "at the inn", "an unpaid bill", true},
+    {"KITCHEN", "in the kitchen", "an empty larder", true},
+    {"LAKE", "at the lake", "a rising mist", false},
+    {"MILL", "at the mill", "a turning wheel", true},
+    {"OFFICE", "in the office", "a locked safe", true},
+    {"PARK", "in the park", "a kite in a tree", false},
+    {"ROOF", "on the roof", "a pigeon feather", false},
     {"STUDY", "in the study", "an open drawer", true},
-    {"TOWER", "in the tower", "a broken step", true},
+    {"TOWER", "in the tower", "a long shadow", true},
 };
 
 const MotiveEntry kMotives[kMotiveCount] = {
@@ -160,9 +179,30 @@ bool drawCast(const uint32_t seed, const Shape shape, uint8_t cast[kMaxCats][kMa
   // last attempt stands whatever it scores.
   uint8_t best[kMaxCats][kMaxItems] = {};
   int bestScore = -1;
+  // NO TWO SUSPECTS AT THE SAME HEIGHT, treated as part of the score rather
+  // than as a hard refusal.
+  //
+  // "The one at the inn was taller than ANNA" correctly excludes anybody who is
+  // ANNA's exact height, because taller means strictly taller. It is also, in
+  // the words of the play-tester who hit it, "the single most likely place a
+  // real player gets this wrong for a non-logical reason" -- two rows reading
+  // 5'7" on a small screen, and "taller" parsed as "not shorter". The rule
+  // stays correct and the trap goes away.
+  const auto tiedHeights = [&](const uint8_t c[kMaxCats][kMaxItems]) {
+    for (int i = 0; i < shape.items; ++i) {
+      for (int j = i + 1; j < shape.items; ++j) {
+        if (kSuspects[c[static_cast<int>(Cat::Suspect)][i]].inches ==
+            kSuspects[c[static_cast<int>(Cat::Suspect)][j]].inches) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
   for (int attempt = 0; attempt < 12; ++attempt) {
     if (!drawOnce(seed + static_cast<uint32_t>(attempt) * 2654435761u, shape, cast)) return false;
-    const int score = dossierUsefulness(cast, shape);
+    const int score = dossierUsefulness(cast, shape) - (tiedHeights(cast) ? 2 : 0);
     if (score > bestScore) {
       bestScore = score;
       std::memcpy(best, cast, sizeof(best));
@@ -234,7 +274,13 @@ bool drawOnce(const uint32_t seed, const Shape shape, uint8_t cast[kMaxCats][kMa
 
 namespace {
 
-void addMask(AttrMasks& attrs, const uint8_t mask, const uint8_t tag, const uint8_t full) {
+// The dossier's columns, as opaque ids the generator can count without knowing
+// what any of them mean. Kept here rather than in MurdleCore because that is
+// the seam: the logic gets masks and an "these came from the same column"
+// relation, and nothing else.
+enum Axis : uint8_t { kAxisHanded = 0, kAxisEyes = 1, kAxisHair = 2, kAxisHeight = 3 };
+
+void addMask(AttrMasks& attrs, const uint8_t mask, const uint8_t tag, const uint8_t axis, const uint8_t full) {
   if (mask == 0 || mask == full) return;  // describes nobody, or everybody
   if (attrs.count >= kMaxAttrMasks) return;
   for (int i = 0; i < attrs.count; ++i) {
@@ -242,6 +288,7 @@ void addMask(AttrMasks& attrs, const uint8_t mask, const uint8_t tag, const uint
   }
   attrs.mask[attrs.count] = mask;
   attrs.tag[attrs.count] = tag;
+  attrs.axis[attrs.count] = axis;
   ++attrs.count;
 }
 
@@ -311,21 +358,21 @@ AttrMasks attrMasksFor(const uint8_t cast[kMaxCats][kMaxItems], const Shape shap
     for (int i = 0; i < items; ++i) {
       if (static_cast<uint8_t>(suspect(i).handed) == v) mask = static_cast<uint8_t>(mask | bit(i));
     }
-    addMask(attrs, mask, attrTag(AttrKind::Handed, v), full);
+    addMask(attrs, mask, attrTag(AttrKind::Handed, v), kAxisHanded, full);
   }
   for (uint8_t v = 0; v < 4; ++v) {
     uint8_t mask = 0;
     for (int i = 0; i < items; ++i) {
       if (static_cast<uint8_t>(suspect(i).eyes) == v) mask = static_cast<uint8_t>(mask | bit(i));
     }
-    addMask(attrs, mask, attrTag(AttrKind::Eyes, v), full);
+    addMask(attrs, mask, attrTag(AttrKind::Eyes, v), kAxisEyes, full);
   }
   for (uint8_t v = 0; v < 5; ++v) {
     uint8_t mask = 0;
     for (int i = 0; i < items; ++i) {
       if (static_cast<uint8_t>(suspect(i).hair) == v) mask = static_cast<uint8_t>(mask | bit(i));
     }
-    addMask(attrs, mask, attrTag(AttrKind::Hair, v), full);
+    addMask(attrs, mask, attrTag(AttrKind::Hair, v), kAxisHair, full);
   }
 
   // Tallest and shortest, but only when they are unambiguous. "The tallest of
@@ -342,8 +389,8 @@ AttrMasks attrMasksFor(const uint8_t cast[kMaxCats][kMaxItems], const Shape shap
     if (suspect(i).inches == suspect(tallest).inches) ++tallTies;
     if (suspect(i).inches == suspect(shortest).inches) ++shortTies;
   }
-  if (tallTies == 1) addMask(attrs, bit(tallest), kAttrTallest, full);
-  if (shortTies == 1) addMask(attrs, bit(shortest), kAttrShortest, full);
+  if (tallTies == 1) addMask(attrs, bit(tallest), kAttrTallest, kAxisHeight, full);
+  if (shortTies == 1) addMask(attrs, bit(shortest), kAttrShortest, kAxisHeight, full);
 
   // Comparisons against a named suspect, which is where height earns its place.
   // Added after the superlatives so that a set which is describable both ways
@@ -355,16 +402,38 @@ AttrMasks attrMasksFor(const uint8_t cast[kMaxCats][kMaxItems], const Shape shap
   // No tie check is needed. The reference suspect is named, and "taller than
   // ANNA" is a well-defined set even when somebody else is ANNA's exact height:
   // it simply excludes them both.
+  // A COMPARISON AGAINST AN EXTREME IS A NEGATION IN ELEVEN EXTRA WORDS, and is
+  // refused here.
+  //
+  // "The one with the iron was shorter than BRUNO", where BRUNO is the tallest
+  // drawn suspect, excludes BRUNO and nobody else -- exactly what "BRUNO did not
+  // carry the iron" says, at three times the length and with a detour through
+  // the dossier. Two play-testers worked that out independently and one of them
+  // got a case containing two of them against the same suspect.
+  //
+  // Comparatives were added to stop the dossier being decoration; a degenerate
+  // one turns it straight back into decoration while looking like it is
+  // working. So a mask survives only if it leaves out somebody besides the
+  // reference: `held < items - 1`.
+  const int useful = items - 1;
   for (int i = 0; i < items; ++i) {
     uint8_t taller = 0;
     uint8_t shorter = 0;
+    int tallCount = 0;
+    int shortCount = 0;
     for (int j = 0; j < items; ++j) {
       if (j == i) continue;
-      if (suspect(j).inches > suspect(i).inches) taller = static_cast<uint8_t>(taller | bit(j));
-      if (suspect(j).inches < suspect(i).inches) shorter = static_cast<uint8_t>(shorter | bit(j));
+      if (suspect(j).inches > suspect(i).inches) {
+        taller = static_cast<uint8_t>(taller | bit(j));
+        ++tallCount;
+      }
+      if (suspect(j).inches < suspect(i).inches) {
+        shorter = static_cast<uint8_t>(shorter | bit(j));
+        ++shortCount;
+      }
     }
-    addMask(attrs, taller, static_cast<uint8_t>(kAttrTallerThan + i), full);
-    addMask(attrs, shorter, static_cast<uint8_t>(kAttrShorterThan + i), full);
+    if (tallCount < useful) addMask(attrs, taller, static_cast<uint8_t>(kAttrTallerThan + i), kAxisHeight, full);
+    if (shortCount < useful) addMask(attrs, shorter, static_cast<uint8_t>(kAttrShorterThan + i), kAxisHeight, full);
   }
 
   return attrs;
