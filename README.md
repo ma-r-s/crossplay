@@ -53,6 +53,12 @@ account, no router, no internet.
 Crossplay targets the **Xteink X4 Pro** only. For every other supported device,
 CrossPoint upstream is the right answer and is excellent.
 
+> **No one has run this on a physical device.** It is built against a simulator
+> and a browser build of the same sources, and I do not have an X4 Pro. The host
+> suites pass and both firmware targets compile, but that is not the same as
+> known to boot. If you flash it, you are the first: please
+> [say what happened](https://github.com/ma-r-s/crossplay/issues), either way.
+
 You do not need to have installed CrossPoint first.
 
 1. Download `crossplay-<version>-x4pro.bin` from the

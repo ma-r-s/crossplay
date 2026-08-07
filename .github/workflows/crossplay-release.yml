@@ -57,14 +57,46 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*
-          generate_release_notes: true
+          # Off on purpose. This fork carries upstream's whole history, and with
+          # no previous tag of its own the generator has no floor: v1.0.0 would
+          # have listed 1,319 commits, most of them CrossPoint's, as "what is
+          # new in Crossplay". A release note is a thing you write.
+          generate_release_notes: false
           body: |
-            Crossplay for the **Xteink X4 Pro** only. Flashing this on an X4 or
-            X3 is a cross-chip flash: those are ESP32-C3 and this is an S3. For
-            any device other than the X4 Pro, install
-            [CrossPoint](https://crosspointreader.com/) instead.
+            Games and small tools for the **Xteink X4 Pro**, on top of
+            [CrossPoint](https://crosspointreader.com/). Chess, Battleship,
+            Connections, Solitaire, D&Diagrams, Insider, Jaipur and Murdle,
+            plus spaced-repetition flashcards, Hacker News and the xkcd
+            archive. Chess, Battleship and Jaipur play over **PLAY NEARBY**:
+            two devices next to each other find one another with nothing to
+            type.
 
-            Flashing replaces the firmware, not the SD card. Your library, your
-            reading positions and your fonts are files on that card and are left
-            alone. Installing stock CrossPoint over the top puts the device back
-            where it was.
+            Try the whole thing in a browser first, without owning one:
+            **[crossplay.ma-r-s.com](https://crossplay.ma-r-s.com)** runs this
+            same firmware compiled to WebAssembly.
+
+            ### Before you flash this
+
+            **No one has run this build on a physical device.** It is developed
+            against a simulator and a browser build of the same sources, and the
+            author does not have an X4 Pro. The host test suites pass and both
+            firmware targets compile, but "compiles and passes tests" is not
+            "known to boot". You are the hardware test. If it does not work,
+            please [open an issue](https://github.com/ma-r-s/crossplay/issues)
+            and say what happened.
+
+            **The X4 Pro only.** The X4 and X3 are ESP32-C3; this is an S3.
+            Flashing it there is a cross-chip flash. Install
+            [CrossPoint](https://crosspointreader.com/) on those instead.
+
+            **Flashing replaces the firmware, not the SD card.** Your library,
+            your reading positions and your fonts are files on that card and are
+            left alone. Installing stock CrossPoint over the top puts the device
+            back where it was, which is what makes this cheap to try. If a flash
+            goes wrong,
+            [docs/fix-bricked-xteink.md](https://github.com/ma-r-s/crossplay/blob/xteink/docs/fix-bricked-xteink.md)
+            is the way back.
+
+            Install steps, including the `esptool` route if you would rather not
+            trust a web page with your serial port, are in the
+            [README](https://github.com/ma-r-s/crossplay#install-it).

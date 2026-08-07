@@ -315,10 +315,17 @@
         There is no store between you and the device, no review, no account and
         no subscription. It is a binary you flash and source you can read.
       </p>
-      <ol class="steps">
+      <p class="untested">
+      <strong>No one has run this on a physical device.</strong> It is built
+      against a simulator and a browser build of the same sources, and I do not
+      have an X4 Pro. The tests pass and both firmware targets compile, which is
+      not the same as known to boot. If you flash it, you are the first.
+    </p>
+    <ol class="steps">
         <li><strong>Check your device.</strong> Crossplay targets the <strong>Xteink X4 Pro</strong> only. For every other supported device, CrossPoint upstream is the right answer and is excellent.</li>
         <li><strong>Keep your books.</strong> Flashing replaces the firmware, not the SD card. Your library, your reading positions and your fonts are files on that card and are left alone.</li>
-        <li><strong>Download the latest release</strong> and flash it the same way you flashed CrossPoint: the same web flasher works, over USB, from Chrome or Edge. <a href="https://crosspointreader.com/">CrossPoint's flasher</a> is the one to use.</li>
+        <li><strong>Download <code>crossplay-&lt;version&gt;-x4pro.bin</code></strong> from the <a href="https://github.com/ma-r-s/crossplay/releases">releases page</a>. You do not need to have installed CrossPoint first.</li>
+        <li><strong>Flash it over USB.</strong> <a href="https://crosspointreader.com/#flash-tools">CrossPoint's web flasher</a> in Chrome or Edge, choosing <strong>Custom .bin</strong>. It needs WebSerial, which Firefox and Safari do not have. From a terminal instead: <code>esptool.py --chip esp32s3 --baud 921600 write_flash 0x0 crossplay-&lt;version&gt;-x4pro.bin</code>.</li>
         <li><strong>You can go back.</strong> Flashing stock CrossPoint over the top returns the device exactly to where it was.</li>
       </ol>
       <div class="cta-row">

@@ -1267,3 +1267,15 @@ body::before {
 .foot-fine-cols p:last-child {
   margin-bottom: 0;
 }
+
+/* The one thing a visitor must not miss on the install section: nothing has
+ * ever booted this on a panel. Bordered rather than tinted, because the page
+ * has no colour to warn with and a grey box would read as an aside. */
+.untested {
+  margin: 0 0 1.6rem;
+  padding: 0.9rem 1.1rem;
+  border: 2px solid var(--ink);
+  font-size: 0.95rem;
+  line-height: 1.6;
+  max-width: 62ch;
+}
