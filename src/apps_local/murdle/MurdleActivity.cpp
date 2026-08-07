@@ -22,6 +22,12 @@ namespace ui = murdleui;
 
 constexpr char kSavePath[] = "/.crosspoint/murdle.sav";
 
+// How many different seeds to ask for a case before admitting defeat. Each one
+// is already 64 attempts inside the generator, so reaching the end of this means
+// something is wrong with the tier rather than with the luck of the draw -- and
+// that is worth a log line and a trip to the menu. See generateCase().
+constexpr int kSeedAttempts = 8;
+
 // Bumped whenever the layout below changes, or whenever the generator changes
 // in a way that would make an old seed build a different case. The fingerprint
 // catches the second of those on its own, but the version is what makes the
@@ -144,15 +150,31 @@ void MurdleActivity::generateCase() {
   // bit of a raw reading is not random.
   seed = static_cast<uint32_t>(millis()) * 2654435761u + 0x9E3779B9u;
   const murdle::Shape shape = murdle::shapeOf(tier);
-  uint8_t cast[murdle::kMaxCats][murdle::kMaxItems];
-  if (!murdle::drawCast(seed, shape, cast)) {
-    LOG_ERR("MRDL", "Cast draw ran out of letters for tier %d", static_cast<int>(tier));
-    goToMenu();
-    return;
-  }
 
-  if (!murdle::generate(tier, seed, cast, murdle::attrMasksFor(cast, shape), *scratch, puzzle)) {
-    LOG_ERR("MRDL", "No fair case for tier %d after the attempt budget", static_cast<int>(tier));
+  const uint32_t startedAt = millis();
+
+  // A refusal is a refusal of THIS SEED, not of the tier, so try another one.
+  //
+  // generate() will not return a case unless it has exactly one solution, needs
+  // every clue it carries, and can be finished with pencil rules alone. That
+  // guarantee is absolute and is the point of the whole generator, so it never
+  // bends -- but it does mean a seed whose cast or solution cannot support such
+  // a case gets nothing back. One seed in three hundred did exactly that during
+  // development. The old code took that as fatal and bounced the player to the
+  // menu with no explanation and only a log line to show for it, which is a
+  // rare bug that would have been extremely hard to hear about second hand.
+  //
+  // Seeds are arbitrary. Drawing a different one costs nothing a player can
+  // perceive and keeps the guarantee where it belongs, in the generator.
+  uint8_t cast[murdle::kMaxCats][murdle::kMaxItems];
+  bool built = false;
+  for (int attempt = 0; attempt < kSeedAttempts && !built; ++attempt) {
+    if (attempt > 0) seed = seed * 1664525u + 1013904223u;
+    if (!murdle::drawCast(seed, shape, cast)) continue;
+    built = murdle::generate(tier, seed, cast, murdle::attrMasksFor(cast, shape), *scratch, puzzle);
+  }
+  if (!built) {
+    LOG_ERR("MRDL", "No fair case for tier %d after %d seeds", static_cast<int>(tier), kSeedAttempts);
     goToMenu();
     return;
   }
@@ -169,8 +191,19 @@ void MurdleActivity::generateCase() {
   for (int c = 0; c < murdle::kMaxCats; ++c) picks[c] = ui::AccuseModel::kNothingPicked;
   dirty = true;
   flashOnNextPaint = true;
-  LOG_INF("MRDL", "Case %d: tier %d, %d clues, %d rounds", caseNumber, static_cast<int>(tier), puzzle.clueCount,
-          puzzle.rounds);
+  // The milliseconds are the point of this line, not decoration.
+  //
+  // Generation is a single blocking call in loop(), so its cost is the cost of
+  // the whole activity going unresponsive, and the task watchdog fires at five
+  // seconds. The generator this replaced took an estimated 12 to 23 seconds a
+  // case on Hard Boiled -- not slow, a reboot -- and nothing on the device
+  // would have said so; it was found by timing the host build and scaling.
+  // That is a logging bug as much as a performance one. This number turns the
+  // estimate into a measurement the first time anybody plays, and turns a
+  // future regression into something visible rather than something Mario has
+  // to describe over the phone.
+  LOG_INF("MRDL", "Case %d: tier %d, %d clues, %d rounds, %u ms", caseNumber, static_cast<int>(tier), puzzle.clueCount,
+          puzzle.rounds, static_cast<unsigned>(millis() - startedAt));
 }
 
 void MurdleActivity::openCase() {

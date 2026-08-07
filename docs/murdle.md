@@ -144,15 +144,23 @@ index, so there is not a single division in the hot path.
 1. Seed an xorshift32 (the same one Insider uses), draw a random solution and a
    murderer.
 2. Build the pool: every instance of the predicate that is **true** under that
-   solution and whose mask shape the tier allows. A few hundred clues.
-3. Shuffle, then add clues greedily until the survivor count reaches 1.
+   solution and whose mask shape the tier allows. A few hundred clues. One
+   refusal here: nothing may narrow who was standing at the crime scene to fewer
+   than two, in either direction, because that is a guess at the murderer rather
+   than a clue about them (section 8, round six).
+3. Shuffle, move a few dossier clues to the front (section 8, round five), then
+   add clues greedily until the survivor count reaches 1. If the dossier bias
+   cannot close the case, build it again without the bias rather than losing
+   the attempt.
 4. Prune in a second random order: drop any clue the puzzle still solves without.
    The result is minimal, so no clue in the list is redundant.
 5. **Reject unless it can be solved without guessing.** See below.
-6. Retry with a derived seed, bounded at 64 attempts. The sweep has never seen
-   the budget run out on any tier, and the bound exists so that a future tier
-   which is accidentally impossible fails in a reportable way rather than
-   hanging the device.
+6. Retry with a derived seed, bounded at 64 attempts. No seed in the sweep needs
+   more than a handful, and the bound exists so that a future tier which is
+   accidentally impossible fails in a reportable way rather than hanging the
+   device. It is not a safety net for a preference: anything that biases clue
+   selection has to be able to give up on its own, because the cast is drawn
+   from the seed and is therefore the same on all 64 attempts.
 
 ### Step 5 is the one that matters
 
@@ -316,7 +324,7 @@ Connections without checking whether it meant anything here. In Connections it
 is a calendar -- one puzzle a day, so sixteen days is a shape you recognise and
 a streak you can lose. Murdle has no cadence at all: cases are endless and on
 demand, so sixteen boxes in arbitrary order say nothing, and on a fresh device
-they are sixteen *empty* boxes taking half the screen. Decoration has to carry
+they are sixteen _empty_ boxes taking half the screen. Decoration has to carry
 the player's own data and that data has to mean something. The pips passed the
 first test and failed the second.
 
@@ -342,7 +350,7 @@ used to leave two locked-in squares in one row with the crossing half applied.
 
 One row a category, four aligned columns, the rows spread through whatever
 height is left. Two things were wrong with the first version and only one was
-obvious: it packed four entries into a run-on line, *and* it set the four lines
+obvious: it packed four entries into a run-on line, _and_ it set the four lines
 two pixels apart while leaving a hand's width of empty screen underneath. The
 space was already there; the layout was not asking for it.
 
@@ -369,7 +377,7 @@ either way, and the clue view is a column of sentences.
 ## 5. The cast, and the two rules that shape it
 
 No lore. Every field exists because a clue reads it, and a field no clue can
-reference does not get written. But two rules about *names* turned out to
+reference does not get written. But two rules about _names_ turned out to
 matter more than anything in the table:
 
 **Every name is one word, no longer than seven characters, and a word you
@@ -468,7 +476,7 @@ two lines apart. It reads as templates firing at random rather than as variety.
 
 **5. Clues that are minimal but feel duplicated (two).** "GRETA did not carry
 the vase" / "ROSA did not carry the vase". Two either/or clues sharing the same
-motive pair. Minimality proves no clue is *removable*; it does not stop two
+motive pair. Minimality proves no clue is _removable_; it does not stop two
 clues being the same sentence twice.
 
 **6. Backwards phrasing when the target is a suspect (one).** "Whoever carried
@@ -490,11 +498,11 @@ right-handed", when one suspect is right-handed, is "ROSA was at the inn".
 **9. "The body was found next to flour on the floor" (one).** "Next to" works
 for a broken step and breaks for a property of the floor.
 
-## 8. Four rounds of play-testing, and what changed
+## 8. Six rounds of play-testing, and what changed
 
-`run.sh --play <tier> <seed>` prints a case with no answer in it. Sixteen
-critics across four rounds solved one each and were told to be harsh. **All
-sixteen solved correctly**, every round: the engine has never produced an
+`run.sh --play <tier> <seed>` prints a case with no answer in it. Twenty
+critics across six rounds solved one each and were told to be harsh. **All
+twenty solved correctly**, every round: the engine has never produced an
 unsolvable or ambiguous case. Everything they found was quality, and none of it
 was reachable by any assertion in the suite.
 
@@ -502,7 +510,7 @@ What the rounds fixed, in the order the critics forced it:
 
 1. **Witnesses talk about each other.** Every statement used to be a suspect
    reporting on themselves, so the murderer's lie could only deny one fact about
-   the liar. And the murderer now *always* lies about somebody else -- a lie
+   the liar. And the murderer now _always_ lies about somebody else -- a lie
    about your own whereabouts is inert, because the crime-scene clue already
    fixes where the murderer was. Two critics solved cases in seconds with
    "the murderer is the one whose alibi is only their own mouth".
@@ -531,11 +539,110 @@ What the rounds fixed, in the order the critics forced it:
 8. **The prose**: one register per case; a clue about a suspect starts with the
    suspect; "the suspect in the study" rather than the conditional "whoever was
    in the study"; "IRON (with a burn mark)" rather than an apposition that made
-   the iron *be* the mark; a cane instead of a carried chair.
+   the iron _be_ the mark; a cane instead of a carried chair.
 
-Still open, and named by critics more than once: the parenthesised traits are
-used once or twice a case out of eight, and the dossier is still often
-decorative even after the redraw. Both are "advertised mechanic, rarely fires".
+### Round five: the dossier was decorative for a reason
+
+Critics said it three rounds running, and the audit agreed once it was asked the
+right question. Attribute clues were **12% / 15% / 5% / 2%** of the clues in a
+finished case, by tier. Four dossier axes get printed, the player builds a table
+off them, and the two hardest tiers referenced that table about once a case.
+
+Two causes, both structural rather than a matter of taste.
+
+**Height could not appear at all above Elementary.** The only masks height
+produced were "the tallest" and "the shortest", and those are masks with _one
+bit set_ -- which `buildPool` refuses on every tier that bans bare positives,
+because an attribute held by one drawn suspect names that suspect. So the one
+axis the dossier prints as a number was unusable by construction on three tiers
+out of four. It now also produces **comparisons against a named suspect**:
+"was taller than ANNA" is the set of suspects above ANNA's height, which is a
+proper subset of any size and reads off the same printed inches. This is the
+Murdle clue template that most obviously should have been borrowed and was not.
+
+**Attributes lost the shuffle.** They are generated for one target category
+while plain negatives are generated for every ordered pair, so at four
+categories they were a small slice of the pool and the greedy loop rarely
+reached them. A few now start at the head of the shuffled pool, at most one per
+distinct attribute. It stays a bias and not a quota: the greedy loop still only
+takes a clue if the case is not yet unique, and the prune pass still drops any
+the rest of the case turned out to imply.
+
+Result: **38% / 28% / 18% / 11%**, with clue counts, round counts and the
+reveal-timing distribution all unmoved.
+
+The bias also has to be able to give up, and finding that out cost the round its
+only real bug. A cast whose masks are all weak spends its promoted slots on
+near-nothing and the case then hits `kMaxClues` before it is unique -- one
+Impossible seed produced _no case at all_, which is far worse than a case with
+no attribute clue in it. Backing off by attempt number does not fix it: `attrs`
+is a function of the seed, not of the attempt, so a bad cast is bad on all 64.
+The fallback lives inside the attempt now, next to the thing it falls back from.
+
+### Round six: the critics overturned round five's other half
+
+Four more play-testers, four fresh cases, one per tier and two on Hard Boiled.
+**All four solved correctly**, which makes twenty out of twenty across five
+rounds of this. Two of the three findings below were unanimous.
+
+**Naming a thing by its detail buys nothing, so only the body clue does it now.**
+Round five had extended that device from weapons to places, on the theory that
+an extra lookup is most of what separates an easy tier from a hard one. Four
+testers demolished it independently and in almost the same words -- "a seven-word
+detour to avoid saying 'the wire'", "a pointer dereference", "clue 6 is just
+cosplaying clue 13". The reason is structural. The case file has to print every
+weapon and place with its detail attached, because printing only the crime
+scene's would give the body clue away, so the mapping from detail to name is
+already on the page. An indirection whose key is printed beside it is a synonym,
+and a longer one. It also does harm: one case said "the garden" in one clue and
+"the place with trampled flowers" two clues later, and a reader who misses that
+those are one place is stuck on a puzzle that is not actually hard. So the
+device is now reserved for the body clue, where it is the whole conceit, and the
+weapon variant that predated round five is gone too.
+
+**No clue may narrow who was standing at the crime scene to fewer than two.**
+"Either ANNA or OSCAR was on the dock", printed beside "the body was found in
+the place with wet footprints", is a coin flip on the only answer the case
+exists to protect, available on line two before any deduction at all. Two
+testers reported exactly that and both called it their worst finding. The
+refusal is symmetric, which the first version of it was not: "QUINN was in the
+garden" points from the suspect at the scene rather than from the scene at the
+suspects, and names the murderer just as plainly. A negative always survives the
+rule, because removing one candidate is what a logic grid is made of.
+
+Worth recording honestly: this barely moves the aggregate. Early reveal on Hard
+Boiled went 16% to 14%, and on Elementary it did not improve at all. At three
+suspects and three places there is no room to narrow gently -- two eliminations
+settle the scene in one round -- so an early reveal on Elementary is what a 3x3
+grid is, not a defect to tune out. The rule is kept because it makes a named,
+testable clue pair impossible to generate, not because a number moved.
+
+**Prose.** "was taller than ANNA" rather than "stood taller than", since height
+is a standing fact and not something the suspects did; and the how-to page no
+longer says "Nobody shares", which is a transitive verb with nothing to be
+transitive on.
+
+### What the critics found that is still open
+
+- **Traits collide thematically across categories.** One case drew `SPADE (with
+wet mud on it)` alongside `FARM (with muddy boots)`; another drew `DOCK (with
+wet footprints)` beside `CAVE (with cold water)`. No clue licenses the
+  inference, but the draw manufactures the false lead for free, and a tester
+  pointed out the real cost: a tired player misreads the body clue as the other
+  water-themed place and confidently accuses the wrong suspect. That is a wrong
+  answer produced by flavour text rather than by bad reasoning. `drawCast`
+  should refuse it.
+- **The reveal gate is a rubber stamp.** A case is meant to be regenerated
+  unless the murderer's row closes in the final round, with the best near-miss
+  kept so a tier can never fail to produce anything. The audit says the murderer
+  is known at round 1.6 of 3.1, 3.1 of 4.6, 4.3 of 6.0 -- if the gate were
+  passing those pairs would be equal. The fallback is not the exception, it is
+  the normal path, and the scene rule above only treats a symptom.
+- **The dossier is still around half decoration in any one case.** Round five
+  fixed how often it fires overall, but four printed axes against two or three
+  attribute clues cannot all be used. The sharp version of the complaint is that
+  printing four columns where one is live teaches a player to skip the dossier,
+  which will then burn them on a case that needs it.
 
 ## 9. What has not been checked
 

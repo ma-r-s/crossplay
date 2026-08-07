@@ -345,6 +345,28 @@ AttrMasks attrMasksFor(const uint8_t cast[kMaxCats][kMaxItems], const Shape shap
   if (tallTies == 1) addMask(attrs, bit(tallest), kAttrTallest, full);
   if (shortTies == 1) addMask(attrs, bit(shortest), kAttrShortest, full);
 
+  // Comparisons against a named suspect, which is where height earns its place.
+  // Added after the superlatives so that a set which is describable both ways
+  // keeps the shorter wording: addMask dedupes on the mask, and "was the
+  // tallest of them" beats "was taller than BRUNO" for the same set of people.
+  // What survives here is the multi-bit middle -- exactly the masks the
+  // superlatives cannot express and the hard tiers require.
+  //
+  // No tie check is needed. The reference suspect is named, and "taller than
+  // ANNA" is a well-defined set even when somebody else is ANNA's exact height:
+  // it simply excludes them both.
+  for (int i = 0; i < items; ++i) {
+    uint8_t taller = 0;
+    uint8_t shorter = 0;
+    for (int j = 0; j < items; ++j) {
+      if (j == i) continue;
+      if (suspect(j).inches > suspect(i).inches) taller = static_cast<uint8_t>(taller | bit(j));
+      if (suspect(j).inches < suspect(i).inches) shorter = static_cast<uint8_t>(shorter | bit(j));
+    }
+    addMask(attrs, taller, static_cast<uint8_t>(kAttrTallerThan + i), full);
+    addMask(attrs, shorter, static_cast<uint8_t>(kAttrShorterThan + i), full);
+  }
+
   return attrs;
 }
 

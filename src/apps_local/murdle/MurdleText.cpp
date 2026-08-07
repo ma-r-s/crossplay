@@ -95,6 +95,35 @@ void append(char* out, const int cap, const char* fmt, const char* a, const char
 // ---------------------------------------------------------------------------
 // Who the clue is about
 
+// ONLY THE BODY CLUE NAMES A THING BY ITS DETAIL. Every clue here says "the
+// hammer", never "the thing with the split handle".
+//
+// This was the other way round for four rounds, and round five made it worse by
+// extending trait-naming from weapons to places as well, on the theory that an
+// extra lookup is most of the difference between an easy tier and a hard one.
+// Four play-testers demolished that in the same breath, independently:
+//
+//   "a seven-word detour to avoid saying 'the wire'"
+//   "a pointer dereference"
+//   "clue 6 is just cosplaying clue 13"
+//
+// They are right, and the reason is structural rather than a matter of taste.
+// The case file has to print every weapon and place with its detail attached --
+// it cannot print only the crime scene's, or the body clue would give itself
+// away -- so the mapping from detail to name is sitting on the page. Naming by
+// detail can therefore only ever be a synonym, and a longer one. It buys no
+// difficulty, costs a line of a small screen, and does real harm: one case
+// called the same place "the garden" in one clue and "the place with trampled
+// flowers" two clues later, and a reader who misses that they are the same
+// thing is stuck on a puzzle that is not actually hard.
+//
+// The body clue keeps the device because there it IS the conceit -- the game's
+// last step is recognising a scene from a detail, and it has nowhere else to
+// hide the murderer.
+//
+// `clue.voice` is the case's register -- "the suspect" against "the one" -- and
+// is the same byte for every clue in a case, because a case that mixes them
+// reads like several people wrote it and a play-tester said so twice.
 void anchorPhrase(const Puzzle& p, const Clue& clue, char* out, const int cap) {
   out[0] = '\0';
   if (clue.anchor == Anchor::Murderer) {
@@ -103,35 +132,20 @@ void anchorPhrase(const Puzzle& p, const Clue& clue, char* out, const int cap) {
   }
   const int cat = clue.anchorCat;
   const int item = clue.anchorItem;
+  const bool plain = clue.voice % 2 == 0;
   switch (static_cast<Cat>(cat)) {
     case Cat::Suspect:
       std::snprintf(out, static_cast<size_t>(cap), "%s", suspectOf(p, item).name);
       return;
     case Cat::Weapon:
-      switch (clue.voice % 3) {  // register from the case; see clueLine
-        case 0:
-          append(out, cap, "the suspect with %s", weaponOf(p, item).phrase);
-          return;
-        case 1:
-          append(out, cap, "the one with %s", weaponOf(p, item).phrase);
-          return;
-        default:
-          // Naming the weapon by its trait instead of its name. Same clue, one
-          // more step of looking something up, which is the whole difference
-          // between an easy tier and a hard one.
-          append(out, cap, "the suspect carrying something with %s", weaponOf(p, item).trait);
-          return;
-      }
+      append(out, cap, plain ? "the suspect with %s" : "the one with %s", weaponOf(p, item).phrase);
+      return;
     case Cat::Location:
       // "The suspect in the study", not "whoever was in the study". Every place
       // has an occupant -- it is a bijection -- so the conditional form asks the
       // reader to discharge a vacuous case that cannot arise, and a play-tester
       // reported hesitating over exactly that.
-      if (clue.voice % 2 == 0) {
-        append(out, cap, "the suspect %s", placeOf(p, item).phrase);
-      } else {
-        append(out, cap, "the one %s", placeOf(p, item).phrase);
-      }
+      append(out, cap, plain ? "the suspect %s" : "the one %s", placeOf(p, item).phrase);
       return;
     case Cat::Motive:
       // Both variants have to work for every motive in the table. "Whoever
@@ -162,7 +176,7 @@ const char* hairWord(const uint8_t v) {
   return words[v < 5 ? v : 0];
 }
 
-bool attributePhrase(const uint8_t attr, char* out, const int cap) {
+bool attributePhrase(const Puzzle& p, const uint8_t attr, char* out, const int cap) {
   if (attr == kNoAttr) return false;
   if (attr == murdle::kAttrTallest) {
     std::snprintf(out, static_cast<size_t>(cap), "was the tallest of them");
@@ -170,6 +184,18 @@ bool attributePhrase(const uint8_t attr, char* out, const int cap) {
   }
   if (attr == murdle::kAttrShortest) {
     std::snprintf(out, static_cast<size_t>(cap), "was the shortest of them");
+    return true;
+  }
+  // The reference suspect is named, so this reads as a fact about two people
+  // and is checked against the dossier the same way the others are.
+  if (attr >= murdle::kAttrTallerThan && attr < murdle::kAttrTallerThan + murdle::kMaxItems) {
+    const int who = attr - murdle::kAttrTallerThan;
+    std::snprintf(out, static_cast<size_t>(cap), "was taller than %s", suspectOf(p, who).name);
+    return true;
+  }
+  if (attr >= murdle::kAttrShorterThan && attr < murdle::kAttrShorterThan + murdle::kMaxItems) {
+    const int who = attr - murdle::kAttrShorterThan;
+    std::snprintf(out, static_cast<size_t>(cap), "was shorter than %s", suspectOf(p, who).name);
     return true;
   }
   const uint8_t kind = static_cast<uint8_t>(attr / 16u);
@@ -271,7 +297,7 @@ bool suspectSidePhrase(const Puzzle& p, const Clue& clue, char* out, const int c
 
 void predicatePhrase(const Puzzle& p, const Clue& clue, char* out, const int cap) {
   out[0] = '\0';
-  if (attributePhrase(clue.attr, out, cap)) return;
+  if (attributePhrase(p, clue.attr, out, cap)) return;
 
   const int items = p.shape.items;
   const uint8_t mask = clue.targetMask;
@@ -360,8 +386,7 @@ void clueLine(const Puzzle& p, const int clueIndex, char* out, const int cap) {
   // the case seed into each clue's own voice byte, which still varied per clue,
   // so "Whoever carried the fork" and "The one with the oar" went on sitting in
   // the same case and a play-tester called it out again. The register now comes
-  // from the case and nothing else; the per-clue byte is left for choices that
-  // are genuinely per-clue, like whether a weapon is named or described.
+  // from the case and nothing else.
   clue.voice = static_cast<uint8_t>(p.seed >> 3);
 
   // The murder clue names the crime scene by something in it rather than by its

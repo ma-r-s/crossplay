@@ -211,18 +211,29 @@ bool gridMatchesSolution(const Puzzle& puzzle, const Grid& grid) {
   return true;
 }
 
-// No clue may be droppable. The murder clue and the witness statements are
-// structural rather than deduced, so they are exempt: the first is the only
-// thing that can name the murderer and the second is one per suspect by
-// definition.
-bool isMinimal(const Puzzle& puzzle, Scratch& scratch) {
+// No clue may be droppable, where "droppable" means the case can still be
+// SOLVED without it -- not merely that its answer stays unique.
+//
+// Those are two different properties and the difference is the whole point of
+// the generator. A clue can be redundant for pinning the answer down and still
+// be the only thing that lets a person reach it with a pencil; dropping it
+// would leave a puzzle that is technically well-posed and practically a wall.
+// The old version of this asserted the uniqueness flavour, which was the right
+// check for a generator that built its cases against an enumerator and is the
+// wrong one now that they are built through the solver.
+//
+// The murder clue and the witness statements are structural rather than
+// deduced, so they are exempt: the first is the only thing that can name the
+// murderer and the second is one per suspect by definition.
+bool isMinimal(const Puzzle& puzzle) {
   for (int i = 0; i < puzzle.clueCount; ++i) {
     if (puzzle.clues[i].anchor == Anchor::Murderer) continue;
     if (puzzle.clues[i].speaker != kNobodySpeaks) continue;
     Puzzle probe = puzzle;
     for (int j = i; j + 1 < probe.clueCount; ++j) probe.clues[j] = probe.clues[j + 1];
     --probe.clueCount;
-    if (countSolutions(probe, 2, scratch) == 1) return false;
+    Grid grid;
+    if (deduce(probe, grid) >= 0) return false;
   }
   return true;
 }
@@ -256,6 +267,13 @@ struct Stats {
   int clueMin = 999;
   int clueMax = 0;
   int roundMax = 0;
+  // Dossier clues, and height clues in particular. Height used to be printed on
+  // every case file and reachable by no clue above Elementary, because the only
+  // masks it produced named one suspect and single-suspect attributes are
+  // banned wherever bare positives are. Nothing went red: the case was still
+  // unique, still minimal, still fair. Counting is the only way that shows up.
+  int attrClues = 0;
+  int heightClues = 0;
 };
 
 void sweepTier(const Tier tier, const int seeds, Stats& stats) {
@@ -275,12 +293,22 @@ void sweepTier(const Tier tier, const int seeds, Stats& stats) {
     CHECK(puzzle.shape.items == shape.items);
     CHECK(puzzle.clueCount > 0 && puzzle.clueCount <= kMaxClues);
 
-    // 1. exactly one solution
+    // 1. exactly one solution.
+    //
+    // This is now the suite's most valuable single assertion, because the
+    // generator no longer computes it. Cases are built by watching the pencil
+    // solver finish them, and uniqueness is inferred: propagation only writes
+    // marks that are logical consequences, so a grid it fills completely is one
+    // in which every cell was forced. That inference is sound, but it rests on
+    // propagate() having no bugs -- and exhaustive enumeration is the only
+    // check here that shares no code with the thing it is checking. If a
+    // propagation rule ever writes a mark it has not earned, this line is what
+    // catches it.
     CHECK(countSolutions(puzzle, 2, scratch) == 1);
     // 2. and it is the one the generator says it is
     CHECK(everyClueHolds(puzzle));
-    // 3. minimal
-    CHECK(isMinimal(puzzle, scratch));
+    // 3. minimal: no clue can be dropped and still leave a solvable case
+    CHECK(isMinimal(puzzle));
     // 4. fair: pencil rules alone reach the answer
     Grid grid;
     const int rounds = deduce(puzzle, grid);
@@ -299,7 +327,73 @@ void sweepTier(const Tier tier, const int seeds, Stats& stats) {
     if (puzzle.clueCount < stats.clueMin) stats.clueMin = puzzle.clueCount;
     if (puzzle.clueCount > stats.clueMax) stats.clueMax = puzzle.clueCount;
     if (rounds > stats.roundMax) stats.roundMax = rounds;
+    for (int i = 0; i < puzzle.clueCount; ++i) {
+      const uint8_t tag = puzzle.clues[i].attr;
+      if (tag == kNoAttr) continue;
+      ++stats.attrClues;
+      const bool height = tag == kAttrTallest || tag == kAttrShortest ||
+                          (tag >= kAttrTallerThan && tag < kAttrTallerThan + kMaxItems) ||
+                          (tag >= kAttrShorterThan && tag < kAttrShorterThan + kMaxItems);
+      if (height) ++stats.heightClues;
+    }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Round five: the dossier, and the bug that came with it
+
+// "Taller than X" has to be exactly the suspects taller than X, read off the
+// same inches the case file prints. The mask is what the solver checks and the
+// tag is what the sentence says, so a mismatch is a clue that is true as logic
+// and a lie as English -- the failure mode no amount of solving will surface.
+void testComparativeHeightMasks() {
+  for (uint32_t seed = 1; seed <= 400; ++seed) {
+    for (int t = 0; t < kTierCount; ++t) {
+      const Shape shape = shapeOf(kTiers[t]);
+      uint8_t cast[kMaxCats][kMaxItems];
+      CHECK(drawCast(seed * 2654435761u + 31u, shape, cast));
+      const AttrMasks attrs = attrMasksFor(cast, shape);
+
+      for (int i = 0; i < attrs.count; ++i) {
+        const uint8_t tag = attrs.tag[i];
+        const bool taller = tag >= kAttrTallerThan && tag < kAttrTallerThan + kMaxItems;
+        const bool shorter = tag >= kAttrShorterThan && tag < kAttrShorterThan + kMaxItems;
+        if (!taller && !shorter) continue;
+
+        const int who = tag - (taller ? kAttrTallerThan : kAttrShorterThan);
+        CHECK(who < shape.items);
+        const uint8_t ref = kSuspects[cast[0][who]].inches;
+
+        uint8_t want = 0;
+        for (int j = 0; j < shape.items; ++j) {
+          if (j == who) continue;
+          const uint8_t h = kSuspects[cast[0][j]].inches;
+          if (taller ? h > ref : h < ref) want = static_cast<uint8_t>(want | (1u << j));
+        }
+        CHECK(attrs.mask[i] == want);
+        // The reference suspect is never in their own comparison, which is what
+        // makes ties harmless: "taller than ANNA" simply excludes anybody at
+        // ANNA's exact height, including ANNA.
+        CHECK((attrs.mask[i] & static_cast<uint8_t>(1u << who)) == 0);
+      }
+    }
+  }
+}
+
+// The bias toward dossier clues must be able to give up.
+//
+// This seed is the one that found it. Its statements fail on 54 of 64 attempts,
+// so only ten ever reach clue selection, and its cast's attribute masks are too
+// weak to close a case -- with the bias applied unconditionally, all ten ran
+// into kMaxClues and the tier produced no case at all. Backing off by attempt
+// number does not help, because the cast is drawn from the seed and so is the
+// same on every attempt; the fallback has to live inside the attempt. A silent
+// generation failure is worse than any puzzle this bias was meant to improve.
+void testDossierBiasNeverStarvesGeneration() {
+  static Scratch scratch;
+  Puzzle p;
+  CHECK(makeCase(Tier::Impossible, 1352920181u, scratch, p));
+  CHECK(countSolutions(p, 2, scratch) == 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -395,6 +489,13 @@ void testCastTableIsDrawable() {
     CHECK(isAscii(kMotives[i].name));
     CHECK(isAscii(kMotives[i].phrase));
   }
+
+  // Every weapon and place has one. `anchorPhrase` reaches for a trait in one
+  // wording out of three with no empty-string fallback, so a blank here would
+  // ship "the suspect in the place with ." -- a clue that is still logically
+  // true, still minimal, still solvable, and unreadable.
+  for (int i = 0; i < kWeaponCount; ++i) CHECK(kWeapons[i].trait[0] != '\0');
+  for (int i = 0; i < kPlaceCount; ++i) CHECK(kPlaces[i].trait[0] != '\0');
 
   // A trait names exactly one thing, or it is not a clue. Two weapons with "a
   // bent tip" would make the murder clue ambiguous and nothing would complain.
@@ -1194,15 +1295,28 @@ int runTests() {
   testTheSceneClueComesLast();
   testTheMurdererLiesAboutSomebodyElse();
   testStatementsDoNotGiveTheCaseAway();
+  testComparativeHeightMasks();
+  testDossierBiasNeverStarvesGeneration();
   testTheChecksCanFail();
 
   const int seedsPerTier = 400;
   for (int t = 0; t < kTierCount; ++t) {
     Stats stats;
     sweepTier(kTiers[t], seedsPerTier, stats);
-    std::printf("  %-12s %4d cases   clues %d-%d (avg %.1f)   rounds <= %d\n", tierName(kTiers[t]), stats.cases,
-                stats.clueMin, stats.clueMax, stats.cases ? static_cast<double>(stats.clueTotal) / stats.cases : 0.0,
-                stats.roundMax);
+    std::printf("  %-12s %4d cases   clues %d-%d (avg %.1f)   rounds <= %d   dossier %d (height %d)\n",
+                tierName(kTiers[t]), stats.cases, stats.clueMin, stats.clueMax,
+                stats.cases ? static_cast<double>(stats.clueTotal) / stats.cases : 0.0, stats.roundMax, stats.attrClues,
+                stats.heightClues);
+
+    // A floor, not a target. The dossier is printed on every case file, so a
+    // tier that hardly references it is asking the player to maintain a table it
+    // will not use -- which is what Hard Boiled (5%) and Impossible (2%) were
+    // doing. The measured figures are now 38/28/18/11 percent, so 8 is a
+    // regression guard with room in it rather than a restatement of today's
+    // numbers. Height gets its own floor because it is the axis that was
+    // silently unreachable, and a floor on the total would not have noticed.
+    CHECK(stats.attrClues * 12 >= stats.clueTotal);
+    CHECK(stats.heightClues > 0);
   }
 
   std::printf("%d checks, %d failed\n", checksRun, checksFailed);

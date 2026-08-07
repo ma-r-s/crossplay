@@ -384,6 +384,41 @@ Constraint resolve(const Clue& clue, const int items, const int hypothesis, cons
   return con;
 }
 
+// Does this filled grid say what the puzzle's own solution says, cell for cell?
+//
+// This closes the last property that was only ever checked by sampling. The
+// other three -- one solution, no clue removable, reachable by pencil rules
+// alone -- are enforced inside generate() on every case the device ever makes,
+// and a case that fails any of them is thrown away rather than shipped. This
+// one was an ARGUMENT instead of a check: propagation only applies sound rules
+// and the solution is already known to be unique, so a complete grid had to be
+// the right grid. True, but it rests on propagate() being correct, and the only
+// thing testing that was 400 seeds a tier on a laptop. A rule that wrote one
+// wrong Yes would reach a player as a puzzle whose answer is not the answer.
+//
+// Ninety-six comparisons at the largest shape, once per generated case, off the
+// render path. That is a very cheap way to stop trusting an argument.
+bool solves(const Puzzle& puzzle, const Grid& grid) {
+  const int cats = puzzle.shape.cats;
+  const int items = puzzle.shape.items;
+  for (int a = 0; a < cats; ++a) {
+    for (int b = a + 1; b < cats; ++b) {
+      for (int r = 0; r < items; ++r) {
+        const int ia = puzzle.assign[a][r];
+        const int ib = puzzle.assign[b][r];
+        // The true pairing must be marked Yes, and every other cell in that
+        // row of the block must be marked No.
+        if (grid.get(a, ia, b, ib) != Mark::Yes) return false;
+        for (int other = 0; other < items; ++other) {
+          if (other == ib) continue;
+          if (grid.get(a, ia, b, other) != Mark::No) return false;
+        }
+      }
+    }
+  }
+  return true;
+}
+
 }  // namespace
 
 int deduce(const Puzzle& puzzle, Grid& grid, int* revealRound) {
@@ -423,7 +458,7 @@ int deduce(const Puzzle& puzzle, Grid& grid, int* revealRound) {
   const int rounds = propagate(grid, cons, conCount, shape, scene, revealRound, sceneCat);
   if (rounds == kContradiction) return kContradiction;
 
-  if (!anySpoken) return grid.complete() ? rounds : kUnfair;
+  if (!anySpoken) return grid.complete() && solves(puzzle, grid) ? rounds : kUnfair;
 
   // Phase two: one level of case split on who the murderer is. Bounded at
   // `items` hypotheses and never nested, because this is the move the puzzle
@@ -449,6 +484,7 @@ int deduce(const Puzzle& puzzle, Grid& grid, int* revealRound) {
     const int r = propagate(trial, cons, conCount, shape);
     if (r == kContradiction) continue;
     if (!trial.complete()) return kUnfair;
+    if (m == puzzle.murderRow && !solves(puzzle, trial)) return kUnfair;
     ++aliveCount;
     if (aliveCount > 1) return kUnfair;
     aliveRounds = rounds + r;
@@ -511,10 +547,30 @@ void addToPool(Scratch& scratch, const Clue& clue) {
 }
 
 // Every clue that is true under this solution and whose shape the tier permits.
-void buildPool(const Puzzle& p, const AttrMasks& attrs, const Tier tier, Scratch& scratch) {
+// `sceneCat`/`sceneItem` name the crime scene, and exist here for one refusal.
+//
+// A clue anchored on the scene and pointing at the suspects is a clue about the
+// MURDERER, because whoever was at the scene did it. "Either ANNA or OSCAR was
+// on the dock" beside "the body was found in the place with wet footprints"
+// hands over a one-in-two guess at the only answer the case exists to protect,
+// on line two, before any deduction at all. Two play-testers hit exactly that
+// and both named it their single worst finding; one of them reported having a
+// 50% shot at the headline answer with zero work done.
+//
+// So the scene's occupant may only be narrowed one suspect at a time. A mask
+// missing a single item ("the suspect on the dock was not ANNA") still leaves
+// three candidates and is ordinary grid work; a two-bit mask is a coin flip on
+// the accusation and is refused. This costs the pool very little -- it is one
+// anchor out of the whole case -- and it is the difference between the murderer
+// being deduced and being offered.
+void buildPool(const Puzzle& p, const AttrMasks& attrs, const Tier tier, const int sceneCat, const int sceneItem,
+               Scratch& scratch) {
   const int cats = p.shape.cats;
   const int items = p.shape.items;
   const uint8_t full = fullMask(items);
+  // How many bits a mask must have to be allowed to describe the scene's
+  // occupant. Everything else in the case is unaffected.
+  const int sceneFloor = items - 1;
   // A bare positive naming a suspect is what makes a tier easy, so only
   // Elementary gets those. But a positive between two things that are NOT
   // suspects -- "the suspect in the cave carried the pan" -- is a bridge, and
@@ -546,13 +602,38 @@ void buildPool(const Puzzle& p, const AttrMasks& attrs, const Tier tier, Scratch
         clue.speaker = kNobodySpeaks;
         clue.attr = kNoAttr;
 
+        // Anything said here is said about the murderer; see the note above.
+        // The leak is symmetric and the first version only plugged one side.
+        // "Either ANNA or OSCAR was on the dock" points from the scene at the
+        // suspects; "QUINN was in the garden" points from a suspect at the
+        // scene and names the murderer outright. Both narrow who was standing
+        // where the body is, which is the whole question. Only a mask that
+        // CONTAINS the scene does it -- "QUINN was not in the garden" rules a
+        // suspect out and is ordinary grid work.
+        const uint8_t sceneBit = static_cast<uint8_t>(1u << sceneItem);
+        const bool fromScene = a == sceneCat && x == sceneItem && t == kSuspect;
+        const bool atScene = a == kSuspect && t == sceneCat;
+
+        // True when this mask would leave fewer than `sceneFloor` candidates
+        // for the murderer. A negative is always fine either way: it removes
+        // one candidate, which is what a logic grid is made of.
+        const auto narrowsMurderer = [&](const uint8_t mask, const int held) {
+          if (fromScene) return held < sceneFloor;
+          if (atScene && (mask & sceneBit) != 0) return held < sceneFloor;
+          return false;
+        };
+
         const bool bridge = a != kSuspect && t != kSuspect;
         if (allowBarePositive || bridge) {
-          clue.targetMask = static_cast<uint8_t>(1u << trueItem);
-          addToPool(scratch, clue);
+          const uint8_t mask = static_cast<uint8_t>(1u << trueItem);
+          if (!narrowsMurderer(mask, 1)) {
+            clue.targetMask = mask;
+            addToPool(scratch, clue);
+          }
         }
         // "Not with y", for every y it is genuinely not with. Available on every
-        // tier: a negative is the backbone of a logic grid.
+        // tier: a negative is the backbone of a logic grid, and one of these
+        // aimed at the scene still leaves three suspects standing.
         for (int y = 0; y < items; ++y) {
           if (y == trueItem) continue;
           clue.targetMask = static_cast<uint8_t>(full & ~(1u << y));
@@ -561,7 +642,9 @@ void buildPool(const Puzzle& p, const AttrMasks& attrs, const Tier tier, Scratch
         if (allowPair) {
           for (int y = 0; y < items; ++y) {
             if (y == trueItem) continue;
-            clue.targetMask = static_cast<uint8_t>((1u << trueItem) | (1u << y));
+            const uint8_t mask = static_cast<uint8_t>((1u << trueItem) | (1u << y));
+            if (narrowsMurderer(mask, 2)) continue;
+            clue.targetMask = mask;
             addToPool(scratch, clue);
           }
         }
@@ -577,13 +660,16 @@ void buildPool(const Puzzle& p, const AttrMasks& attrs, const Tier tier, Scratch
             // otherwise "the one with the oar had green eyes" is a free
             // identification in a costume, which is how one case handed over its
             // murderer in three consecutive clues.
-            if (!allowBarePositive) {
-              int held = 0;
-              for (int b = 0; b < items; ++b) {
-                if (mask & static_cast<uint8_t>(1u << b)) ++held;
-              }
-              if (held < 2) continue;
+            int held = 0;
+            for (int b = 0; b < items; ++b) {
+              if (mask & static_cast<uint8_t>(1u << b)) ++held;
             }
+            if (!allowBarePositive && held < 2) continue;
+            // And an attribute is no exception to the scene rule. "Whoever was
+            // on the dock was left-handed" narrows the murderer exactly as hard
+            // as "either ANNA or OSCAR was on the dock" does, and reads more
+            // innocently while doing it.
+            if (narrowsMurderer(mask, held)) continue;
             clue.targetMask = mask;
             clue.attr = attrs.tag[i];
             addToPool(scratch, clue);
@@ -599,6 +685,35 @@ void shufflePool(Scratch& scratch, Rng& rng) {
   for (int i = scratch.poolCount - 1; i > 0; --i) {
     const int j = static_cast<int>(rng.below(static_cast<uint32_t>(i + 1)));
     std::swap(scratch.pool[i], scratch.pool[j]);
+  }
+}
+
+// Move a few attribute clues to the head of the shuffled pool, at most one per
+// distinct attribute.
+//
+// The greedy loop takes clues in pool order until the case has one reading, so
+// a clue's chance of appearing is its share of the pool. Attribute clues are
+// generated for one target category out of `cats`, while plain negatives are
+// generated for every ordered pair -- so at four categories they were 5% and 2%
+// of the clues in a finished case, measured over 300 cases a tier. Four
+// attributes get printed in the dossier, the player builds a table off them,
+// and two tiers then referenced that table about once every other case. Every
+// round of play-testing named it.
+//
+// This is a bias, not a quota. The clues still have to earn their place: the
+// greedy loop only takes one if the case is not yet unique, and the prune pass
+// afterwards drops any that the rest of the case turned out to imply. A
+// promoted clue that is redundant does not survive to be read.
+void promoteAttributes(Scratch& scratch, const int want) {
+  bool seen[256] = {};
+  int front = 0;
+  for (int i = 0; i < scratch.poolCount && front < want; ++i) {
+    const uint8_t attr = scratch.pool[i].attr;
+    if (attr == kNoAttr || seen[attr]) continue;
+    seen[attr] = true;
+    const Clue promoted = scratch.pool[i];
+    for (int j = i; j > front; --j) scratch.pool[j] = scratch.pool[j - 1];
+    scratch.pool[front++] = promoted;
   }
 }
 
@@ -738,84 +853,158 @@ bool generate(const Tier tier, const uint32_t seed, const uint8_t cast[kMaxCats]
     if (tier == Tier::Impossible && !addStatements(p, rng)) continue;
     const int fixedClues = p.clueCount;
 
-    buildPool(p, attrs, tier, scratch);
-    shufflePool(scratch, rng);
-
-    // Greedy: add clues until the case has exactly one reading.
+    // THE CASE IS BUILT THROUGH THE PENCIL SOLVER, NOT CHECKED AGAINST IT.
     //
-    // Two passes. The first refuses any clue whose (anchor, target category)
-    // pair has already been spoken about, because minimality does not stop a
-    // case saying the same thing twice in different words -- "GRETA did not
-    // carry the vase" beside "ROSA did not carry the vase" is two clue slots
-    // buying one idea, and play-testers called it out every time. The second
-    // pass drops the refusal, so a case that genuinely needs the repeat still
-    // gets it rather than failing.
-    int spokenOf[kMaxCats][kMaxItems][kMaxCats] = {};
-    constexpr int kMaxPerAnchor = 2;
-    // A clue whose target is a suspect is *read* from the suspect's side --
-    // "NORA was not driven by hate" -- so its subject is the named suspect, not
-    // the anchor. Keying only on the anchor let two clues through that named
-    // the same person about the same category twice, which is the same stutter
-    // in a different costume.
-    bool saidAbout[kMaxItems][kMaxCats] = {};
-    // And no one shape may dominate. Four clues of the form "whoever was in X
-    // was driven by Y or Z" is one rhythm repeated, which play-testers spotted
-    // as a template firing rather than as a puzzle.
-    int shapeUsed[kMaxCats][kMaxCats] = {};
-    constexpr int kMaxPerShape = 3;
-    // Nor may one attribute. Three clues ending "had hazel eyes" is the same
-    // repetition wearing the dossier's clothes.
-    int attrUsed[256] = {};
-    constexpr int kMaxPerAttr = 2;
+    // This is the shape of the whole generator and the second version of it.
+    // The first assembled a clue set until exhaustive enumeration said the
+    // puzzle had one answer, and only then asked whether a person could reach
+    // that answer without guessing -- throwing the entire case away when the
+    // answer was no. Rejection sampling. It meant a seed could fail, which is
+    // unacceptable for a property the game is supposed to guarantee, and it
+    // meant enumerating 55,296 candidates about thirty times per case, which is
+    // where essentially all of the generation cost went.
+    //
+    // Both phases below use `deduce` -- the solver that applies only what a
+    // person can apply with a pencil -- and nothing else:
+    //
+    //   A. ADD until the pencil solver finishes the grid. Guaranteed to get
+    //      there, because applying every negative in the pool pins every cell,
+    //      so the full pool always closes. A clue that teaches the solver
+    //      nothing is dropped on the spot rather than carried.
+    //   B. REMOVE any clue the pencil solver can finish without.
+    //
+    // The invariant "a person can solve this" is established by A and never
+    // broken by B, so there is nothing left to reject. Solvability stops being
+    // a filter and becomes a property of the construction.
+    //
+    // Uniqueness comes free and is not computed here. Propagation only ever
+    // writes marks that are logical consequences of the clues, so a grid it
+    // fills completely is a grid in which every cell was forced -- and a puzzle
+    // whose every cell is forced has exactly one solution. The exhaustive
+    // enumerator still exists and still proves this, but it belongs in the
+    // tests as an oracle that shares no code with the constructor, not in the
+    // product where it was the constructor's own opinion of itself.
+    Grid probe;
+    bool solvable = false;
+    {
+      buildPool(p, attrs, tier, sceneCat, p.assign[sceneCat][p.murderRow], scratch);
+      shufflePool(scratch, rng);
+      // Three is one under kMaxPerShape, so the dossier speaks in every case
+      // without any one case becoming a dossier quiz. It can no longer starve
+      // anything: a bias only reorders the pool, and phase A closes whatever
+      // order it is given.
+      promoteAttributes(scratch, 3);
 
-    for (int pass = 0; pass < 2; ++pass) {
-      int taken = 0;
-      while (countSolutions(p, 2, scratch) > 1) {
-        if (taken >= scratch.poolCount || p.clueCount >= kMaxClues) break;
-        Clue clue = scratch.pool[taken++];
+      // PHASE A. Add clues until the pencil solver can finish the grid.
+      //
+      // Two passes. The first refuses any clue whose (anchor, target category)
+      // pair has already been spoken about, because minimality does not stop a
+      // case saying the same thing twice in different words -- "GRETA did not
+      // carry the vase" beside "ROSA did not carry the vase" is two clue slots
+      // buying one idea, and play-testers called it out every time. The second
+      // pass drops the refusal, so a case that genuinely needs the repeat still
+      // gets it rather than failing.
+      int spokenOf[kMaxCats][kMaxItems][kMaxCats] = {};
+      constexpr int kMaxPerAnchor = 2;
+      // A clue whose target is a suspect is *read* from the suspect's side --
+      // "NORA was not driven by hate" -- so its subject is the named suspect, not
+      // the anchor. Keying only on the anchor let two clues through that named
+      // the same person about the same category twice, which is the same stutter
+      // in a different costume.
+      bool saidAbout[kMaxItems][kMaxCats] = {};
+      // And no one shape may dominate. Four clues of the form "whoever was in X
+      // was driven by Y or Z" is one rhythm repeated, which play-testers spotted
+      // as a template firing rather than as a puzzle.
+      int shapeUsed[kMaxCats][kMaxCats] = {};
+      constexpr int kMaxPerShape = 3;
+      // Nor may one attribute. Three clues ending "had hazel eyes" is the same
+      // repetition wearing the dossier's clothes.
+      int attrUsed[256] = {};
+      constexpr int kMaxPerAttr = 2;
 
-        // Which suspect this clue will name, if it names one.
-        int names = -1;
-        if (clue.attr == kNoAttr && clue.targetCat == static_cast<uint8_t>(Cat::Suspect)) {
-          int set = 0;
-          int only = 0;
-          int missing = 0;
-          for (int b = 0; b < items; ++b) {
-            if (clue.targetMask & static_cast<uint8_t>(1u << b)) {
-              ++set;
-              only = b;
-            } else {
-              missing = b;
+      // How much of the grid the pencil solver can reach with what it has. A
+      // clue that does not move this teaches the solver nothing at this point in
+      // the case, and carrying it would only give phase B more to undo.
+      int reached = -1;
+      for (int pass = 0; pass < 2 && !solvable; ++pass) {
+        int taken = 0;
+        while (!solvable) {
+          if (taken >= scratch.poolCount || p.clueCount >= kMaxClues) break;
+          Clue clue = scratch.pool[taken++];
+
+          // Which suspect this clue will name, if it names one.
+          int names = -1;
+          if (clue.attr == kNoAttr && clue.targetCat == static_cast<uint8_t>(Cat::Suspect)) {
+            int set = 0;
+            int only = 0;
+            int missing = 0;
+            for (int b = 0; b < items; ++b) {
+              if (clue.targetMask & static_cast<uint8_t>(1u << b)) {
+                ++set;
+                only = b;
+              } else {
+                missing = b;
+              }
             }
+            if (set == 1) names = only;
+            if (set == items - 1) names = missing;
           }
-          if (set == 1) names = only;
-          if (set == items - 1) names = missing;
-        }
 
-        if (pass == 0) {
-          if (spokenOf[clue.anchorCat][clue.anchorItem][clue.targetCat] >= kMaxPerAnchor) continue;
-          if (names >= 0 && saidAbout[names][clue.anchorCat]) continue;
-          if (shapeUsed[clue.anchorCat][clue.targetCat] >= kMaxPerShape) continue;
-          if (clue.attr != kNoAttr && attrUsed[clue.attr] >= kMaxPerAttr) continue;
+          if (pass == 0) {
+            if (spokenOf[clue.anchorCat][clue.anchorItem][clue.targetCat] >= kMaxPerAnchor) continue;
+            if (names >= 0 && saidAbout[names][clue.anchorCat]) continue;
+            if (shapeUsed[clue.anchorCat][clue.targetCat] >= kMaxPerShape) continue;
+            if (clue.attr != kNoAttr && attrUsed[clue.attr] >= kMaxPerAttr) continue;
+          }
+          clue.voice = static_cast<uint8_t>(rng.next());
+          p.clues[p.clueCount] = clue;
+          ++p.clueCount;
+
+          const int r = deduce(p, probe);
+          if (r >= 0) {
+            solvable = true;
+            break;
+          }
+          // Keep it only if the solver got further with it than without. This
+          // is what holds the clue count down: the pool is a few hundred true
+          // statements and most of them say something the case has already
+          // established by the time they come up.
+          const int now = probe.decided();
+          if (now <= reached) {
+            --p.clueCount;
+            continue;
+          }
+          reached = now;
+
+          if (clue.attr != kNoAttr) ++attrUsed[clue.attr];
+          ++spokenOf[clue.anchorCat][clue.anchorItem][clue.targetCat];
+          if (names >= 0) saidAbout[names][clue.anchorCat] = true;
+          ++shapeUsed[clue.anchorCat][clue.targetCat];
         }
-        if (clue.attr != kNoAttr) ++attrUsed[clue.attr];
-        ++spokenOf[clue.anchorCat][clue.anchorItem][clue.targetCat];
-        if (names >= 0) saidAbout[names][clue.anchorCat] = true;
-        ++shapeUsed[clue.anchorCat][clue.targetCat];
-        clue.voice = static_cast<uint8_t>(rng.next());
-        p.clues[p.clueCount++] = clue;
       }
-      if (countSolutions(p, 2, scratch) == 1) break;
     }
-    if (countSolutions(p, 2, scratch) != 1) continue;
+    // Only reachable if the pool ran out or kMaxClues was hit before the grid
+    // closed, which the full pool makes impossible on the shapes this game
+    // uses. Kept as a bound rather than an assertion because the alternative to
+    // a retry here is shipping a case nobody can finish.
+    if (!solvable) continue;
 
-    // Prune: a clue the case solves without is a clue that should not be in
-    // it. Runs back to front, and never touches the murder clue or a statement.
+    // PHASE B. Remove any clue the pencil solver can finish without.
+    //
+    // The invariant from phase A holds at every step here, because a clue is
+    // only dropped once the solver has been watched finishing without it. So
+    // the result is minimal in the sense that matters to a player: take away
+    // any line and the case can no longer be *solved*, not merely that its
+    // answer stops being unique. Those are different properties and the second
+    // one is the weaker guarantee -- a clue can be redundant for pinning the
+    // answer and still be the only thing that lets a person get there.
+    //
+    // Runs back to front, and never touches the murder clue or a statement.
     for (int i = p.clueCount - 1; i >= fixedClues; --i) {
       const Clue saved = p.clues[i];
       for (int j = i; j + 1 < p.clueCount; ++j) p.clues[j] = p.clues[j + 1];
       --p.clueCount;
-      if (countSolutions(p, 2, scratch) == 1) continue;
+      if (deduce(p, probe) >= 0) continue;
       for (int j = p.clueCount; j > i; --j) p.clues[j] = p.clues[j - 1];
       p.clues[i] = saved;
       ++p.clueCount;

@@ -120,6 +120,18 @@ constexpr uint8_t kAttrNone = 0xFF;
 constexpr uint8_t kAttrTallest = 0xF0;
 constexpr uint8_t kAttrShortest = 0xF1;
 
+// "Taller than ANNA", "shorter than ANNA": tag = base + the suspect compared
+// against. These exist because the superlatives above cannot carry a case.
+// "The tallest of them" is a mask with ONE bit set, and buildPool refuses
+// single-bit attribute masks on every tier that bans bare positives -- so
+// height, the one axis the dossier prints as a number, could not appear in a
+// clue above Elementary at all. A comparison against a named suspect splits the
+// cast into a proper subset of any size, which is what an attribute has to do
+// to be usable. It is also the only clue in the game whose mask the player
+// works out by reading two rows of the dossier against each other.
+constexpr uint8_t kAttrTallerThan = 0x80;
+constexpr uint8_t kAttrShorterThan = 0x90;
+
 // tag = kind * 16 + value, for the three attributes that have values.
 enum class AttrKind : uint8_t { Handed = 0, Eyes = 1, Hair = 2 };
 

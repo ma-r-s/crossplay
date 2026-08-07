@@ -1052,7 +1052,7 @@ struct Beat {
 // character takes longer to read and is not funnier.
 constexpr Beat kBeats[] = {
     {"EVERYONE HAS A PLACE",
-     "Each suspect carried one weapon and was in one place. Nobody shares. One of them did it."},
+     "Each suspect carried one weapon and was in one place, and no two of them share. One of them did it."},
     {"THE GRID IS YOUR PENCIL",
      "Every pair of things meets in one square. Tap once to rule it out, again to lock it in."},
     {"THE CLUES DO THE REST",
