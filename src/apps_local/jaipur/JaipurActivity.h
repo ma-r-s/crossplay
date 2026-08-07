@@ -108,7 +108,8 @@ class JaipurActivity final : public linkplay::LinkActivity {
   void drawMarketStrip(const Rect& slot) const;
   // How a finished match reads on the link screen: both totals and the seals.
   void drawResultArt(const Rect& slot) const;
-  void drawPileBars(const Rect& slot) const;
+  // The menu's table: every good, what the market holds of it, what it pays.
+  void drawMarketTable(const Rect& slot) const;
 
   jaipurui::StartModel startModel() const;
   jaipurui::BoardModel boardModel();

@@ -491,6 +491,28 @@ that teaches one thing and then qualifies it twice teaches neither -- and a list
 is the thing you come back to. The board says most of them again at the moment
 they matter, because a dimmed capsule states the rule it is failing.
 
+### The menu is a price table
+
+The slot under the record line was empty on a first run and showed six pile bars
+otherwise. It is now a table, always, whether or not there is a game to continue:
+every good and camels, what the market is holding of each, and what each pays
+right now.
+
+Those two facts both exist on the board and never together -- the market row says
+what is for sale, the pile row says what it fetches, and answering "is that
+diamond worth taking" means reading across the screen. One line each here. With
+no game running the market column is dashes and the prices are the ones every
+pile starts at, which is a price list rather than a fake position.
+
+Chosen against four others, all rendered: the five market cards at full size (the
+best picture, but a repeat of the board's top row), a six-good price board, your
+record as a row of seals (needs a record the app does not keep, and a first run
+is empty again -- the problem being fixed), three big camels (wallpaper by the
+third day, which is what the design language warns about), and a whole-board
+thumbnail (busy). Mario's own suggestion beat all five, and the reason is that it
+is the only one that is **information, permanently** rather than ornament that
+happens to carry data.
+
 ### The three rows of cards
 
 Each row answers one question and carries exactly what that question needs.
