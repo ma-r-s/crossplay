@@ -269,17 +269,53 @@ section.tight {
   flex: none;
   display: block;
 }
-.topbar-note {
+/* An empty bar is a bar that is in the way. The neighbours put a source link
+ * and the primary action in theirs; this adds the two sections worth jumping
+ * to as well, since the page is long and the bands are its only landmarks. */
+.topnav {
+  display: flex;
+  align-items: center;
+  gap: clamp(0.9rem, 2.4vw, 1.7rem);
   font-family: var(--mono);
   font-size: 0.68rem;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--muted);
 }
-@media (max-width: 520px) {
-  .topbar-note {
+.topnav a {
+  color: var(--muted);
+  text-decoration: none;
+  padding-block: 0.4rem;
+  border-bottom: 1px solid transparent;
+}
+.topnav a:hover,
+.topnav a:focus-visible {
+  color: var(--ink);
+  border-bottom-color: var(--ink);
+}
+.topnav-out {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--ink) !important;
+}
+.topnav-out svg {
+  display: block;
+}
+/* The section jumps go first on a narrow bar; the source link and the action
+ * are the two that survive. */
+@media (max-width: 720px) {
+  .topnav a[href="#shelf"],
+  .topnav a[href="#nearby"] {
     display: none;
   }
+}
+@media (max-width: 380px) {
+  .topnav-out span {
+    display: none;
+  }
+}
+.eyebrow-sep {
+  opacity: 0.5;
 }
 body {
   padding-top: var(--bar);
@@ -417,6 +453,50 @@ figcaption {
    * pushes a gap to the end of the grid. The cards are independent, so
    * back-filling them out of source order costs nothing. */
   grid-auto-flow: dense;
+}
+
+/* On a phone, eleven cards stacked is a mile of scrolling to learn one idea.
+ * A snap track shows one at a time and you flick between them, which is how
+ * you would look through them on a shelf. No JavaScript: scroll snapping is
+ * the browser's own, it keeps the keyboard and the scrollbar working, and it
+ * degrades to a plain scroller anywhere it is not supported. */
+@media (max-width: 700px) {
+  .shelf {
+    display: flex;
+    grid-auto-flow: unset;
+    gap: 0.9rem;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    /* Bleed to the screen edges so a half-visible neighbour says "there are
+     * more", then pad the ends back in so the first and last still centre. */
+    margin-inline: calc(var(--gutter) * -1);
+    padding-inline: var(--gutter);
+    scroll-padding-inline: var(--gutter);
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .shelf::-webkit-scrollbar {
+    display: none;
+  }
+  .shelf .card {
+    flex: 0 0 78%;
+    scroll-snap-align: start;
+  }
+  .shelf .card.wide {
+    flex-basis: 88%;
+  }
+  .shelf-hint {
+    display: block;
+  }
+}
+.shelf-hint {
+  display: none;
+  margin: 0.9rem 0 0;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
 .card {
   display: flex;

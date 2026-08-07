@@ -46,6 +46,28 @@ and colour scheme through the Chrome already installed:
 uv run --with playwright python site/pageshot.py http://localhost:8099/ /tmp/pageshots 1440 light
 ```
 
+## What the browser build fakes
+
+Three things, all under `tools_local/wasm/`, none of them reaching `src/` or
+`lib/`. Worth knowing before anyone screenshots this build as if it were the
+panel:
+
+- **The network.** `src/http_canned.cpp` replaces `HttpDownloader` and answers
+  from `/canned` on the preloaded card. The bodies are real, curled from the
+  real endpoints on the day the card was built: the Algolia front page, one
+  story, one article's text, and the last sixty Connections boards. A URL with
+  no canned answer fails like an unreachable host and logs itself.
+- **Study's font.** `StudyFonts` wants KaiTi at 50pt and 17pt; the 50pt cut is
+  5.5MB and the 17pt one is 714KB, so the card ships the small file under both
+  names. The deck, the scheduler and the glyphs are genuine; the headword is
+  set smaller than the device sets it.
+- **Sleep.** `sleepTimeoutMinutes` is 31 (never) on this card. A browser tab
+  has no power button to wake the device with, so sleeping is a dead end.
+
+The card itself is assembled by hand: `pack_subset.py` cuts the xkcd pack, the
+canned bodies are curled, the font is copied twice. There is no one script that
+rebuilds it, which is the next thing to write.
+
 ## The device in the hero
 
 `emulator/` holds three generated files -- `crossplay.{js,wasm,data}` -- and no
