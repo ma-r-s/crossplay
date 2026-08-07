@@ -69,8 +69,8 @@ fui::TextStyle styled(const fui::FontId font, const fui::TextAlign align) {
 // a block of prose whose height depends on the face: the caption is then
 // centred in the space it actually has rather than started at a guessed y and
 // left to run into the page dots.
-int16_t paragraph(toybox::Screen& screen, const fui::Rect& box, const char* text, const bool draw = true) {
-  const fui::TextStyle style = styled(toybox::kUiFont, fui::TextAlign::Center);
+int16_t paragraph(toybox::Screen& screen, const fui::Rect& box, const char* text, const fui::TextStyle& style,
+                  const bool draw = true) {
   const int16_t lineHeight = screen.target().lineHeight(style.font);
   char line[96] = {};
   int fill = 0;
@@ -109,11 +109,21 @@ int16_t paragraph(toybox::Screen& screen, const fui::Rect& box, const char* text
 void caption(toybox::Screen& screen, const fui::Rect& body, const int16_t top, const char* text) {
   // The footer's own two rows: the tap line and the dots.
   const int16_t floorY = static_cast<int16_t>(body.bottom() - 56);
-  const fui::Rect probe = fui::makeRect(body.x, top, body.width, static_cast<int16_t>(floorY - top));
-  const int16_t used = paragraph(screen, probe, text, false);
   const int16_t room = static_cast<int16_t>(floorY - top);
+  const fui::Rect probe = fui::makeRect(body.x, top, body.width, room);
+
+  // Measured at the reading cut, and dropped to the small one if that does not
+  // fit. A caption that does not fit does not shrink on its own -- it just
+  // keeps drawing, straight through the page dots, which is what the six-line
+  // selling caption did.
+  fui::TextStyle style = styled(toybox::kUiFont, fui::TextAlign::Center);
+  int16_t used = paragraph(screen, probe, text, style, false);
+  if (used > room) {
+    style = styled(toybox::kTileFont, fui::TextAlign::Center);
+    used = paragraph(screen, probe, text, style, false);
+  }
   const int16_t y = used < room ? static_cast<int16_t>(top + (room - used) / 2) : top;
-  paragraph(screen, fui::makeRect(body.x, y, body.width, used), text);
+  paragraph(screen, fui::makeRect(body.x, y, body.width, used), text, style);
 }
 
 // A card, exactly as the market draws one: knocked out, stroked, one mark in
@@ -180,6 +190,20 @@ void arrowDown(toybox::Screen& screen, const int16_t x, const int16_t y, const i
   screen.target().triangle(fui::Point{static_cast<int16_t>(x - 9), static_cast<int16_t>(y + len - 10)},
                            fui::Point{x, static_cast<int16_t>(y + len)},
                            fui::Point{static_cast<int16_t>(x + 9), static_cast<int16_t>(y + len - 10)}, ink);
+}
+
+// One item of the small print: a mark, then a line that wraps under itself
+// rather than under the mark. Returns where the next item starts.
+int16_t smallPrint(toybox::Screen& screen, const fui::Rect& body, const int16_t y, const char* text) {
+  constexpr int16_t kMark = 10;
+  constexpr int16_t kIndent = 26;
+  const fui::TextStyle style = styled(toybox::kTileFont, fui::TextAlign::Left);
+  const fui::Rect box =
+      fui::makeRect(static_cast<int16_t>(body.x + kIndent), y, static_cast<int16_t>(body.width - kIndent), 200);
+  screen.target().fill(fui::makeRect(body.x, static_cast<int16_t>(y + 8), kMark, kMark),
+                       fui::Paint::solid(fui::Color::Black), 5);
+  const int16_t used = paragraph(screen, box, text, style);
+  return static_cast<int16_t>(y + used + 12);
 }
 
 // A label over a diagram row, small and centred.
@@ -352,7 +376,7 @@ fui::Rect buildRoundOver(toybox::Screen& screen, const RoundModel& model) {
 }
 
 
-int tutorialPages() { return 7; }
+int tutorialPages() { return 8; }
 
 void buildTutorial(toybox::Screen& screen, const TutorialModel& model) {
   const int pages = tutorialPages();
@@ -483,36 +507,41 @@ void buildTutorial(toybox::Screen& screen, const TutorialModel& model) {
       pageTitle(screen, body, "SELLING");
       const int16_t top = static_cast<int16_t>(body.y + kDiagramTop);
       const int16_t cardW = 62;
-      const int16_t cardH = 86;
+      const int16_t cardH = 84;
+
+      // The sale itself: two of one good, out of your hand.
+      const int16_t pairW = static_cast<int16_t>(2 * cardW + 10);
+      for (int i = 0; i < 2; ++i) {
+        cardWithMark(screen,
+                     fui::makeRect(static_cast<int16_t>(body.x + (body.width - pairW) / 2 + i * (cardW + 10)), top,
+                                   cardW, cardH),
+                     diamond32);
+      }
+      arrowDown(screen, midX, static_cast<int16_t>(top + cardH + 10), 38);
+
+      // The pile, drawn as what it physically is: every diamond token there
+      // will ever be, laid out highest first. This is the object the board's
+      // middle row shows, and the page it was missing from -- "the pile" meant
+      // nothing until you could see one.
+      note(screen, fui::makeRect(body.x, static_cast<int16_t>(top + cardH + 60), body.width, 22),
+           "THE DIAMOND PILE, HIGHEST FIRST");
       const int16_t chipW = 54;
       const int16_t chipH = 44;
-      // Two cards, an arrow, two tokens: laid out as one group and centred, so
-      // the row does not sit off to one side of the page it is explaining.
-      const int16_t groupW = static_cast<int16_t>(2 * cardW + 10 + 46 + 2 * chipW + 8);
-      const int16_t gx = static_cast<int16_t>(body.x + (body.width - groupW) / 2);
-      for (int i = 0; i < 2; ++i) {
-        cardWithMark(screen, fui::makeRect(static_cast<int16_t>(gx + i * (cardW + 10)), top, cardW, cardH), diamond32);
-      }
-      arrowRight(screen, static_cast<int16_t>(gx + 2 * cardW + 14), static_cast<int16_t>(top + cardH / 2), 38);
-      const int16_t chipX = static_cast<int16_t>(gx + 2 * cardW + 10 + 46);
-      for (int i = 0; i < 2; ++i) {
-        tokenChip(screen,
-                  fui::makeRect(static_cast<int16_t>(chipX + i * (chipW + 8)),
-                                static_cast<int16_t>(top + (cardH - chipH) / 2), chipW, chipH),
-                  7, true);
-      }
-
-      note(screen, fui::makeRect(body.x, static_cast<int16_t>(top + cardH + 30), body.width, 22),
-           "WHAT IS LEFT ON THE PILE");
-      const int16_t span = static_cast<int16_t>(3 * chipW + 2 * 8);
-      for (int i = 0; i < 3; ++i) {
+      const int depth = jaipur::kPileDepth[static_cast<int>(jaipur::Good::Diamond)];
+      const int16_t span = static_cast<int16_t>(depth * chipW + (depth - 1) * 8);
+      for (int i = 0; i < depth; ++i) {
+        // Straight out of the rulebook table rather than typed in again: the
+        // diagram cannot go stale against the game it is teaching.
         tokenChip(screen,
                   fui::makeRect(static_cast<int16_t>(body.x + (body.width - span) / 2 + i * (chipW + 8)),
-                                static_cast<int16_t>(top + cardH + 60), chipW, chipH),
-                  5, false);
+                                static_cast<int16_t>(top + cardH + 88), chipW, chipH),
+                  jaipur::kGoodsTokens[static_cast<int>(jaipur::Good::Diamond)][i], i < 2);
       }
+      note(screen, fui::makeRect(body.x, static_cast<int16_t>(top + cardH + 142), body.width, 22),
+           "THE TOP TWO ARE NOW YOURS");
+
       caption(screen, body, capTop,
-                "TOKENS COME OFF THE TOP, HIGHEST FIRST, SO SELL EARLY. DIAMOND, GOLD AND SILVER NEVER SELL ALONE.");
+              "SELL ANY NUMBER OF ONE GOOD. ITS TOKENS COME OFF THE TOP, SO SELLING EARLY PAYS MORE.");
       break;
     }
 
@@ -573,8 +602,7 @@ void buildTutorial(toybox::Screen& screen, const TutorialModel& model) {
       break;
     }
 
-    case 6:
-    default: {
+    case 6: {
       // The round's clock. Both triggers, because a player who only knows about
       // the deck will not see the other one coming.
       pageTitle(screen, body, "THE END");
@@ -597,6 +625,32 @@ void buildTutorial(toybox::Screen& screen, const TutorialModel& model) {
       caption(screen, body, capTop,
                 "EITHER ONE ENDS THE ROUND ON THE SPOT. COUNT UP, TAKE THE SEAL, AND DEAL AGAIN, WITH THE LOSER "
                 "GOING FIRST.");
+      break;
+    }
+
+    case 7:
+    default: {
+      // Everything a diagram would have to caveat, in one place, at the end.
+      //
+      // These are not obscure: the hand limit and the two-at-a-time rule both
+      // bite in the first round. They are here rather than on the pages they
+      // belong to because a page that teaches one thing and then qualifies it
+      // twice teaches neither -- and because a list is what you come back to.
+      // The board also says most of them at the moment they matter: the capsule
+      // dims and states the rule it is failing rather than a price it will not
+      // honour.
+      pageTitle(screen, body, "THE SMALL PRINT");
+      int16_t y = static_cast<int16_t>(body.y + kDiagramTop);
+      y = smallPrint(screen, body, y, "SEVEN CARDS IN HAND, NO MORE. CAMELS SIT IN YOUR HERD AND NEVER COUNT.");
+      y = smallPrint(screen, body, y, "DIAMOND, GOLD AND SILVER GO TWO OR MORE AT A TIME. NEVER ONE ON ITS OWN.");
+      y = smallPrint(screen, body, y, "A TRADE CANNOT TAKE AND GIVE THE SAME GOOD.");
+      y = smallPrint(screen, body, y, "CAMELS CAN BE GIVEN IN A TRADE. THEY CAN NEVER BE TAKEN IN ONE.");
+      y = smallPrint(screen, body, y, "TAKING CAMELS TAKES EVERY CAMEL IN THE MARKET.");
+      y = smallPrint(screen, body, y, "A PILE WITH TOO FEW TOKENS PAYS WHAT IS LEFT, AND STILL PAYS THE BONUS.");
+      y = smallPrint(screen, body, y, "EQUAL HERDS: NOBODY TAKES THE FIVE RUPEES.");
+      // Nothing else in the deck says this, and it is why a trade does not
+      // bring the end of the round any closer.
+      smallPrint(screen, body, y, "TAKING REFILLS THE MARKET FROM THE DECK. TRADING DOES NOT.");
       break;
     }
   }

@@ -451,9 +451,9 @@ a second time. That rule has caught more bugs in this fork than any other.
 
 ### HOW TO PLAY
 
-Seven pages, one beat each, in the order a turn happens: the goal, take-or-sell,
-the three ways to take, how a sale pays, the bonus, camels, and the two ways a
-round ends. Insider's tutorial is the model, down to the page dots and the
+Eight pages. Seven are one beat each, in the order a turn happens: the goal,
+take-or-sell, the three ways to take, how a sale pays, the bonus, camels, and
+the two ways a round ends. The eighth is THE SMALL PRINT, a list. Insider's tutorial is the model, down to the page dots and the
 tap-anywhere target -- two games that teach the same way read as one device.
 
 Jaipur needs seven where Insider needed five, and that is the game rather than
@@ -471,6 +471,25 @@ rather than teaching itself. Three things the renders corrected:
   which is not what an exchange is.
 - **A herd is drawn as separate cards.** Fanned and overlapping, four camels
   became a smudge, and four is a number the page is asking you to count.
+- **A caption that does not fit drops a cut.** It does not shrink on its own; it
+  keeps drawing, straight through the page dots.
+
+**The pile had to be drawn before it could be named.** The selling page said
+"tokens come off the top of the pile" beside a row of numbers, and a player who
+has never seen a pile has no idea what that means. It now draws the diamond pile
+as what it physically is -- every token that good will ever pay, laid out highest
+first -- with the two you just earned filled in and the rest still outlined. The
+values come from `kGoodsTokens` rather than being typed again, so the diagram
+cannot go stale against the game it teaches.
+
+**The last page is a list, not a diagram, and that is deliberate.** Everything a
+diagram would have to caveat lives there instead: the hand limit, the two-at-a-
+time rule, that a trade cannot take and give the same good, that camels can be
+given but never taken, that a short pile still pays its bonus, that equal herds
+pay nobody, and that taking refills the market while trading does not. A page
+that teaches one thing and then qualifies it twice teaches neither -- and a list
+is the thing you come back to. The board says most of them again at the moment
+they matter, because a dimmed capsule states the rule it is failing.
 
 ### The three rows of cards
 
