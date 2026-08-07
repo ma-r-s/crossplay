@@ -7,6 +7,9 @@
 #include <Arduino.h>
 #include <HalStorage.h>
 #include <Logging.h>
+#if defined(SIMULATOR)
+#include <unistd.h>  // getpid, for the simulator's half of seedForFirstRoll
+#endif
 #else
 #define LOG_INF(...) ((void)0)
 #define LOG_ERR(...) ((void)0)
@@ -66,11 +69,40 @@ uint32_t mix(uint32_t value) {
   return value ^ (value >> 16);
 }
 
-uint32_t seedFromClock() {
-#if defined(ARDUINO_ARCH_ESP32) || defined(SIMULATOR)
-  return static_cast<uint32_t>(millis());
+// The seed a name is rolled from, once, on a device that has never had one.
+//
+// A boot clock alone is not enough and this was observed rather than reasoned:
+// two simulators started together with wiped cards both named themselves BUN
+// SLY FROWN, same three words, same face. Two X4 Pros flashed and set up in one
+// sitting are the same experiment. So the clock is mixed with something that is
+// different per device by construction.
+//
+// On hardware that is the factory MAC out of eFuse, which needs no radio -- a
+// name is rolled long before anything transmits, so esp_wifi_get_mac() (what
+// LinkRadio uses) is not available yet. In the simulator it is the process id,
+// since two instances share a Mac and a millisecond but never a pid.
+//
+// It does not make a collision impossible: 2744 names means two devices still
+// share one about once in 2744, and there is nothing to coordinate with. What
+// it removes is the systematic case, where booting together *causes* the
+// collision. The player can also just retap a word, which is the DS answer.
+uint32_t seedForFirstRoll() {
+#if defined(SIMULATOR)
+  const uint32_t unique = static_cast<uint32_t>(getpid());
+#elif defined(ARDUINO_ARCH_ESP32)
+  const uint64_t mac = ESP.getEfuseMac();
+  const uint32_t unique = static_cast<uint32_t>(mac) ^ static_cast<uint32_t>(mac >> 32);
 #else
   return 1u;
+#endif
+#if defined(SIMULATOR) || defined(ARDUINO_ARCH_ESP32)
+  // Hashed before it meets the clock, never XOR'd raw against it. Two
+  // simulators get consecutive pids in the same millisecond, so `pid ^ millis`
+  // cancels whenever both differ in the same low bit -- and it did, on the
+  // first paired boot after this was written: both devices came up BRAIDS
+  // BEADY TASH again. Spreading one side first is what makes the two inputs
+  // independent.
+  return seedFrom(unique, static_cast<uint32_t>(millis()));
 #endif
 }
 
@@ -175,6 +207,8 @@ void shortName(const char* name, char* out, const size_t capacity) {
   out[written] = '\0';
 }
 
+uint32_t seedFrom(const uint32_t unique, const uint32_t clock) { return mix(unique) ^ clock; }
+
 Name roll(const uint32_t seed) {
   const uint32_t rolled = mix(seed);
   Name name;
@@ -210,7 +244,7 @@ const char* name() {
   // exactly what a two-word name from before the face existed looks like.
   // Rolling a fresh one is the whole migration: everything downstream may then
   // assume the local name is three words it can draw.
-  compose(cached, sizeof(cached), roll(seedFromClock()));
+  compose(cached, sizeof(cached), roll(seedForFirstRoll()));
   store(cached);
   LOG_INF("PLAYER", "named this device '%s'", cached);
   return cached;

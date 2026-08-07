@@ -320,6 +320,32 @@ void testOutOfRangeLookupsAreNullRatherThanGarbage() {
   CHECK(player::wordCount(player::kSlotCount) == 0);
 }
 
+// Two devices set up in the same sitting must not end up as the same person.
+//
+// This is the exact shape that failed in the simulator: two processes get
+// consecutive pids and read the clock in the same millisecond, and the seed was
+// `unique ^ clock`, so the two differences cancelled and both rolled BRAIDS
+// BEADY TASH -- same name, same face. The property is not "names never
+// collide", which is untrue with 2744 of them and nothing to coordinate on. It
+// is that *near* inputs must not collide: nothing about booting together may
+// itself cause it.
+void testDevicesBootingTogetherGetDifferentNames() {
+  for (uint32_t unique = 900; unique < 1100; ++unique) {
+    for (uint32_t clock = 7000; clock < 7040; ++clock) {
+      // Every other device that could plausibly be next to it: a neighbouring
+      // pid or serial, reading a clock within a few ticks.
+      for (uint32_t otherUnique = unique + 1; otherUnique <= unique + 4; ++otherUnique) {
+        for (uint32_t otherClock = clock; otherClock <= clock + 4; ++otherClock) {
+          CHECK(player::seedFrom(unique, clock) != player::seedFrom(otherUnique, otherClock));
+        }
+      }
+    }
+  }
+  // And the same device twice is still the same seed, which is what makes a
+  // rolled name reproducible in a test at all.
+  CHECK(player::seedFrom(1234, 5678) == player::seedFrom(1234, 5678));
+}
+
 }  // namespace
 
 int main() {
@@ -333,6 +359,7 @@ int main() {
   testSteppingAnUnknownSlotLandsOnAKnownWord();
   testSteppingIsAFactRatherThanADistribution();
   testNeighbouringSeedsDoNotGiveNeighbouringNames();
+  testDevicesBootingTogetherGetDifferentNames();
   testAShortBufferTruncatesRatherThanOverruns();
   testTheShortNameIsAlwaysOneWordThatFits();
   testTheWordListsHaveNoDuplicates();
