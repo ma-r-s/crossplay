@@ -44,6 +44,35 @@ def patch(path, anchor, replacement, what):
 
 src = pathlib.Path(env.subst("$PROJECT_LIBDEPS_DIR")) / env.subst("$PIOENV") / "simulator" / "src"
 
+# HalStorage has no way to add to an existing file: openFileForWrite carries
+# O_TRUNC on both the device and here. lib/hal gained openFileForAppend for the
+# xkcd pack, which grows by a few records when the device fetches the comics
+# published since the pack was built -- the alternative was rewriting a 90MB
+# file to add 30KB. The simulator ships its own HalStorage, and a library's own
+# headers shadow ours, so it needs the same method.
+patch(
+    src / "HalStorage.h",
+    "  bool removeDir(const char *path);",
+    "  bool openFileForAppend(const char *moduleName, const char *path,\n"
+    "                         HalFile &file);\n"
+    "  bool removeDir(const char *path);",
+    "HalStorage::openFileForAppend (header)",
+)
+
+patch(
+    src / "HalStorage.cpp",
+    "std::vector<String> HalStorage::listFiles(",
+    "bool HalStorage::openFileForAppend(const char *moduleName, const char *path,\n"
+    "                                   HalFile &file) {\n"
+    "  (void)moduleName;\n"
+    "  file = open(path, O_RDWR | O_CREAT | O_APPEND);\n"
+    "  return file.isOpen();\n"
+    "}\n"
+    "\n"
+    "std::vector<String> HalStorage::listFiles(",
+    "HalStorage::openFileForAppend (implementation)",
+)
+
 patch(
     src / "BoardConfig.h",
     "struct BoardProfile {\n  Board board;\n  const char *name;\n};",

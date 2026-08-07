@@ -104,3 +104,11 @@ insider     = venetian-mask
 # balance is the theme but reads as justice), package and shopping-basket (both
 # say commerce generically and neither says which game).
 jaipur      = gem
+# The xkcd app. A comic is a row of panels, so the mark is the panel itself:
+# `gallery-vertical-end` is a stack of framed rectangles, which is both the
+# shape of a strip and the shape of the reader's own stepping. Rejected:
+# `image` (every app that shows anything could claim it), `smile` (says
+# "comedy" rather than "comic", and the fork already spends faces on the
+# player avatar), `newspaper` (taken by Hacker News, and two apps that both
+# read as "a page of text" is the one thing a 62px row cannot disambiguate).
+xkcd        = gallery-vertical-end

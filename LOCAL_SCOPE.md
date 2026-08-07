@@ -44,6 +44,7 @@ how much upstream-owned code it touches.
 | `.skills/SKILL.md` (= `CLAUDE.md`)     | Four-line pointer here, so agents find the fork rules     | 4 lines              |
 | `.gitignore`                           | Ignore `qa-artifacts/` and the simulator's SD cards       | 3 lines, append-only |
 | `platformio.ini`                       | One `extra_configs` line pulling in `platformio.sim.ini`  | 1 line               |
+| `lib/hal/HalStorage.{h,cpp}`           | `openFileForAppend()`: `openFileForWrite` carries `O_TRUNC`, so nothing could add to an existing file | 1 method |
 | `SCOPE.md`                             | One-line pointer here; it is the file that says "no games" | 2 lines              |
 
 None of them grows when an app is added -- the two theme edits are per *folder*,
