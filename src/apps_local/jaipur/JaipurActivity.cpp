@@ -891,61 +891,46 @@ void JaipurActivity::drawRoundSurface(const Rect& body) const {
 // that diamond worth taking" means reading across the screen. Here they are one
 // line. It is also the only place the price list survives when there is no game
 // running, which is why it is drawn whether or not there is one to continue.
-void JaipurActivity::drawMarketTable(const Rect& slot) const {
-  // Seven rows: the six goods, then camels. A camel is in the market like
-  // anything else and it is the one card with no price, so it belongs in the
-  // table saying so rather than in a line underneath -- which is where it was,
-  // and which ran into the CONTINUE row as soon as there was a game to
-  // continue.
-  constexpr int kRows = kGoodCount + 1;
-  const int headH = 26;
-  const int rowH = std::min(46, (slot.height - headH) / kRows);
-  const int total = headH + kRows * rowH;
+// The price list: what every good pays, best first, all of it.
+//
+// Static on purpose. It is not the state of a game, it is the game's own
+// economy, and it is the one thing a player cannot work out by looking at the
+// board -- the pile row there shows the next token and how many are left, never
+// the ladder. Read down a row and you know what a good is worth; read across
+// the rows and you know the shape of the whole game: diamond is short and rich,
+// leather is long and cheap, silver is flat.
+//
+// The numbers come out of kGoodsTokens rather than being typed again, so the
+// table cannot disagree with the rules it is quoting.
+void JaipurActivity::drawPriceList(const Rect& slot) const {
+  const int headH = 24;
+  const int rowH = std::min(52, (slot.height - headH) / kGoodCount);
+  const int total = headH + kGoodCount * rowH;
   const int top = slot.y + (slot.height - total) / 2;
 
-  // Where the three columns live. Named once, used by the head and every row,
-  // so a column cannot drift away from its own heading.
-  const int markX = slot.x + 10;
-  const int countX = slot.x + slot.width / 2 - 30;
-  const int paysX = slot.x + slot.width - 90;
+  const int markW = 44;
+  // Every row is laid out on the same grid, whatever its depth, so the length
+  // of a row IS how many of that good can ever be sold. That comparison is the
+  // reason the table is worth the space.
+  const int deepest = jaipur::kPileDepth[static_cast<int>(Good::Leather)];
+  const int cell = (slot.width - markW) / deepest;
 
-  toybox::drawCapsCentered(renderer, toybox::kTileFontId, countX, top, headH, "MARKET", true);
-  toybox::drawCapsCentered(renderer, toybox::kTileFontId, paysX, top, headH, "PAYS", true);
+  toybox::drawCapsCentered(renderer, toybox::kTileFontId, slot.x, top, headH, "WHAT EACH GOOD PAYS, BEST FIRST", true);
   renderer.fillRect(slot.x, top + headH, slot.width, toybox::kRule, true);
 
-  for (int row = 0; row < kRows; ++row) {
-    const bool camelRow = row == kGoodCount;
-    const int y = top + headH + row * rowH;
-    const freeink::Icon& mark = camelRow ? icon_camel_32 : goodIcon(row, MarkSize::Pile);
-    blitIcon(renderer, mark, markX, y + (rowH - mark.h) / 2);
+  for (int g = 0; g < kGoodCount; ++g) {
+    const int y = top + headH + g * rowH;
+    const freeink::Icon& mark = goodIcon(g, MarkSize::Pile);
+    blitIcon(renderer, mark, slot.x + (markW - mark.w) / 2, y + (rowH - mark.h) / 2);
 
-    // What the market is holding of it. Counted rather than stored, like
-    // everything else derived from the position.
-    int inMarket = 0;
-    if (hasSavedGame) {
-      for (int i = 0; i < kMarketSlots; ++i) {
-        if (game.market[i] == (camelRow ? kCamel : static_cast<uint8_t>(row))) ++inMarket;
-      }
+    for (int i = 0; i < jaipur::kPileDepth[g]; ++i) {
+      char value[8];
+      std::snprintf(value, sizeof(value), "%d", jaipur::kGoodsTokens[g][i]);
+      const Rect at{slot.x + markW + i * cell, y, cell, rowH};
+      drawCentered(renderer, at, y, rowH, value, true);
     }
-    char count[8];
-    std::snprintf(count, sizeof(count), "%d", inMarket);
-    Rect countCell{countX, y, 60, rowH};
-    drawCentered(renderer, countCell, y, rowH, hasSavedGame ? count : "-", true);
 
-    // A camel never sells, and a pile nobody can sell into is spent. Both say
-    // so rather than quoting a price that is not there.
-    char value[12] = "-";
-    if (!camelRow) {
-      const int depth = hasSavedGame ? game.goodsDepth[row] : 0;
-      if (jaipur::kPileDepth[row] - depth > 0) {
-        std::snprintf(value, sizeof(value), "%d",
-                      hasSavedGame ? game.nextTokenValue(static_cast<Good>(row), depth) : jaipur::kGoodsTokens[row][0]);
-      }
-    }
-    Rect paysCell{paysX, y, 60, rowH};
-    drawCentered(renderer, paysCell, y, rowH, value, true);
-
-    if (row + 1 < kRows) {
+    if (g + 1 < kGoodCount) {
       renderer.fillRectDither(slot.x, y + rowH - toybox::kHairline, slot.width, toybox::kHairline, DarkGray);
     }
   }
@@ -1165,7 +1150,7 @@ void JaipurActivity::drawStartMenu() {
   toybox::Frame frame(target, target.deviceContext(), noInput, interactions);
   toybox::Screen screen(frame, toybox::themeTokens());
   const fui::Rect slot = jaipurui::buildStartMenu(screen, startModel());
-  drawMarketTable(Rect{slot.x, slot.y, slot.width, slot.height});
+  drawPriceList(Rect{slot.x, slot.y, slot.width, slot.height});
   interactionsReady = true;
   toybox::reportOverflow(interactions, "Jaipur menu");
 }

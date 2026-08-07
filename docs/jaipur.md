@@ -491,27 +491,42 @@ that teaches one thing and then qualifies it twice teaches neither -- and a list
 is the thing you come back to. The board says most of them again at the moment
 they matter, because a dimmed capsule states the rule it is failing.
 
-### The menu is a price table
+### The menu is the price list
 
 The slot under the record line was empty on a first run and showed six pile bars
-otherwise. It is now a table, always, whether or not there is a game to continue:
-every good and camels, what the market is holding of each, and what each pays
-right now.
+otherwise. It is now the game's price list, and it is **static**: every good, and
+every token that good will ever pay, best first.
 
-Those two facts both exist on the board and never together -- the market row says
-what is for sale, the pile row says what it fetches, and answering "is that
-diamond worth taking" means reading across the screen. One line each here. With
-no game running the market column is dashes and the prices are the ones every
-pile starts at, which is a price list rather than a fake position.
+```
+  DIAMOND   7 7 5 5 5
+  GOLD      6 6 5 5 5
+  SILVER    5 5 5 5 5
+  CLOTH     5 3 3 2 2 1 1
+  SPICE     5 3 3 2 2 1 1
+  LEATHER   4 3 2 1 1 1 1 1 1
+```
 
-Chosen against four others, all rendered: the five market cards at full size (the
-best picture, but a repeat of the board's top row), a six-good price board, your
-record as a row of seals (needs a record the app does not keep, and a first run
-is empty again -- the problem being fixed), three big camels (wallpaper by the
-third day, which is what the design language warns about), and a whole-board
-thumbnail (busy). Mario's own suggestion beat all five, and the reason is that it
-is the only one that is **information, permanently** rather than ornament that
-happens to carry data.
+This is the one thing a player cannot work out from the board. The pile row there
+shows the next token and how many are left; it never shows the ladder. Read down
+a row and you know what a good is worth. Read across the rows and you have the
+shape of the whole game: diamond is short and rich, leather is long and cheap,
+silver is flat. Every row is laid out on the same grid whatever its depth, so the
+length of a row **is** how many of that good can ever be sold -- that comparison
+is why the table earns the space.
+
+Static also means it is never empty and never a lie: there is nothing to be
+missing on a first run. The numbers come out of `kGoodsTokens` rather than being
+typed again, so the table cannot disagree with the rules it quotes.
+
+Five other treatments were built and rendered first, and all of them lost to
+this: the five market cards at full size (the best picture, but a repeat of the
+board's top row), a six-good board of current prices, the record as a row of
+seals (needs a record the app does not keep, and a first run is empty again --
+the problem being fixed), three big camels (wallpaper by the third day, which is
+what the design language warns about), and a whole-board thumbnail (busy). A
+sixth, live version of the price table -- market counts alongside current prices
+-- lost to the static one for the reason above: the live numbers were already on
+the board, and the ladder was nowhere.
 
 ### The three rows of cards
 
