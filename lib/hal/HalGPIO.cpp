@@ -7,6 +7,10 @@
 #include <XteinkDetect.h>
 #include <esp_sleep.h>
 
+#if FREEINK_MCU_S3
+#include <soc/usb_serial_jtag_reg.h>
+#endif
+
 // Global HalGPIO instance
 HalGPIO gpio;
 
@@ -223,6 +227,38 @@ bool HalGPIO::verifyPowerButtonWakeup(uint16_t requiredDurationMs, bool shortPre
   return true;
 }
 
+#if FREEINK_MCU_S3
+// USB host presence via the USB-Serial-JTAG peripheral's SOF frame counter: a
+// connected host clocks 1 kHz start-of-frame packets, so the counter advancing
+// between polls means a data-capable host is attached. Held for a short window
+// so multiple callers within one loop tick (update() plus header renders) all
+// see the same answer. Limitation: a data-less wall charger sends no SOFs and
+// stays invisible — on boards with no VBUS line (X4 Pro, see
+// xteink-x4pro-support.md) this is the only observable USB signal.
+static bool usbHostSofActive() {
+  static uint32_t lastFrame = 0;
+  static unsigned long lastAdvanceMs = 0;
+  static bool seeded = false;
+  if (!seeded) {
+    // First probe must not fabricate a connection: getWakeupReason() calls this
+    // at boot, and a false positive turns a power-button wake (POWERON reset)
+    // into AfterUSBPower, which goes straight back to deep sleep — the device
+    // never wakes. Seed the counter and wait one SOF period out; a real host
+    // clocks SOFs at 1 kHz, so 3 ms guarantees advancement when attached.
+    seeded = true;
+    lastFrame = REG_READ(USB_SERIAL_JTAG_FRAM_NUM_REG);
+    delay(3);
+  }
+  const uint32_t frame = REG_READ(USB_SERIAL_JTAG_FRAM_NUM_REG);
+  if (frame != lastFrame) {
+    lastFrame = frame;
+    lastAdvanceMs = millis();
+    return true;
+  }
+  return lastAdvanceMs != 0 && millis() - lastAdvanceMs < 1500;
+}
+#endif
+
 bool HalGPIO::isUsbConnected() const {
 #if FREEINK_DEVICE_X3
   if (deviceIsX3()) {
@@ -232,10 +268,15 @@ bool HalGPIO::isUsbConnected() const {
     return battery.isCharging();
   }
 #endif
-  if (BoardConfig::ACTIVE.usbDetect < 0) {
-    return false;
+  if (BoardConfig::ACTIVE.usbDetect >= 0) {
+    return digitalRead(BoardConfig::ACTIVE.usbDetect) == HIGH;
   }
-  return digitalRead(BoardConfig::ACTIVE.usbDetect) == HIGH;
+#if FREEINK_MCU_S3
+  // No VBUS line on this board (X4 Pro): fall back to native-USB host detection.
+  return usbHostSofActive();
+#else
+  return false;
+#endif
 }
 
 HalGPIO::WakeupReason HalGPIO::getWakeupReason() const {
