@@ -232,6 +232,9 @@ void OpdsBookBrowserActivity::rootScreen(UiApp::ScreenType& screen, void* user) 
 // draw the themed header (padding, centering, and rule come from the theme).
 void OpdsBookBrowserActivity::screenHeader(UiApp::ScreenType& screen, const bool withSearch) {
   screen.takeBottom(static_cast<int16_t>(UITheme::getInstance().getMetrics().buttonHintsHeight));
+  // Same top offset as every GUI.drawHeader caller, so the band lines up with
+  // the rest of the firmware's screens.
+  screen.spacer(static_cast<int16_t>(UITheme::getInstance().getMetrics().topPadding));
   fui::HeaderProps header;
   header.title = server.name.empty() ? tr(STR_OPDS_BROWSER) : server.name.c_str();
   header.borderEdges = fui::EdgeBottom;

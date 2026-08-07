@@ -849,9 +849,8 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
   switch (action) {
     case EpubReaderMenuActivity::MenuAction::SELECT_CHAPTER: {
       const int spineIdx = currentSpineIndex;
-      const std::string path = epub->getPath();
       startActivityForResult(
-          std::make_unique<EpubReaderChapterSelectionActivity>(renderer, mappedInput, epub, path, spineIdx),
+          std::make_unique<EpubReaderChapterSelectionActivity>(renderer, mappedInput, epub, spineIdx),
           [this](const ActivityResult& result) {
             if (!result.isCancelled) {
               const auto& chapterResult = std::get<ChapterResult>(result.data);
