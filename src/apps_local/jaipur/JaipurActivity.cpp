@@ -128,10 +128,13 @@ Rect rowOf(const Rect& body, int& cursor, const int height, const int gapAfter =
 }
 
 constexpr char kSavePath[] = "/.crosspoint/jaipur.sav";
-// Bumped whenever jaipur::Game changes shape, so a save from an older build is
-// ignored rather than reinterpreted. Same discipline as the cache formats and
-// as LinkPlay's GameId.
-constexpr int kSaveVersion = 1;
+// Bumped whenever jaipur::Game changes shape *or meaning*, so a save from an
+// older build is ignored rather than reinterpreted. Same discipline as the cache
+// formats and as LinkPlay's GameId. Version 2: the seal is awarded when the
+// round ends rather than when the next one is dealt, so a v1 save sitting on
+// Phase::RoundOver is one seal short and there is no way to tell it apart from a
+// correct v2 one.
+constexpr int kSaveVersion = 2;
 
 char hexDigit(const int value) { return static_cast<char>(value < 10 ? '0' + value : 'A' + value - 10); }
 

@@ -423,7 +423,15 @@ bool Game::apply(const Move& move) {
   // order is what makes a sale which empties the third pile still collect its
   // bonus token.
   if (refillFailed || emptyPiles() >= 3) {
-    phase = static_cast<uint8_t>(Phase::RoundOver);
+    // The seal is won here, at the moment the round ends, because that is when
+    // the rulebook awards it. It used to be handed out by startNextRound(),
+    // which is a tap later: the scoring screen was drawn from a state where
+    // nobody had won anything yet and showed the seals of the round before.
+    const int winner = roundWinner();
+    if (winner >= 0) seals[winner] += 1;
+    // A match is over the instant somebody holds two, so the same screen that
+    // reports the round reports the game rather than making you ask for it.
+    phase = static_cast<uint8_t>(matchWinner() >= 0 ? Phase::GameOver : Phase::RoundOver);
     return true;
   }
 
@@ -432,15 +440,12 @@ bool Game::apply(const Move& move) {
 }
 
 void Game::startNextRound(const uint32_t roundSeed) {
+  // Only ever deals. The seal and the end of the match were both settled the
+  // moment the round ended, so Phase::RoundOver already means "one round scored,
+  // nobody has two seals yet".
   if (currentPhase() != Phase::RoundOver) return;
 
   const int winner = roundWinner();
-  if (winner >= 0) seals[winner] += 1;
-
-  if (matchWinner() >= 0) {
-    phase = static_cast<uint8_t>(Phase::GameOver);
-    return;
-  }
 
   // The loser starts. A genuine draw took no seal, so it keeps the same starter
   // and simply replays.

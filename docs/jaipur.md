@@ -230,17 +230,26 @@ and enough to play well from.
       |           |<---------+
       |           |
       |           | 3 piles empty, or the deck failed to refill
+      |           | score, camel token, SEAL AWARDED HERE
+      |           |
+      |           +--- the winner now holds 2 seals ---> GAME_OVER
+      |           |
       |           v
-      |      ROUND_OVER   score, camel token, seal
+      |      ROUND_OVER   scored, seal banked, match still alive
       |           |
-      |           +--- someone holds 2 seals ---> GAME_OVER
-      |           |
-      +-----------+ otherwise: deal again, the loser starts
+      +-----------+ deal again, the loser starts
 ```
 
 A move resolves completely, _then_ the end-of-round test runs, _then_ the turn
 flips. That order is the rulebook's "the round ends immediately" and it is why a
 sale that empties the third pile still collects its bonus token.
+
+**The seal is awarded on that same transition, not on the way out of
+ROUND_OVER.** It used to be handed out by `startNextRound()`, which is a tap
+later, and the scoring screen was therefore drawn from a state where nobody had
+won anything yet: it showed the seals of the round _before_. The rule that
+prevents the whole class: a phase means what it says, so any screen drawn from a
+state is telling the truth about it. `startNextRound()` now only deals.
 
 ### Moves
 
