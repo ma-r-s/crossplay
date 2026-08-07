@@ -1,7 +1,6 @@
 ## The sentence
 
-> **Crossplay turns the Xteink X4 Pro into a device you do things on, and
-> reading is one of them.**
+> **Everything else a still screen is good at.**
 
 Everything else on this page is downstream of that. If a paragraph does not
 eventually serve it, cut the paragraph.

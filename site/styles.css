@@ -34,10 +34,11 @@
 
 :root {
   --ink: #111110;
-  --paper: #faf9f6;
-  --paper-2: #f0efea;
-  --edge: #b9b5a8;
-  --muted: #4a483f;
+  --paper: #f5f2ea;
+  --paper-2: #ebe7db;
+  --edge: #a9a494;
+  --muted: #46443c;
+  --tooth: rgba(17, 17, 16, 0.22);
   --display: "Jersey 25", "Arial Narrow", sans-serif;
   --serif: "Instrument Serif", Georgia, serif;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
@@ -54,23 +55,26 @@
     --ink: #f2f1ec;
     --paper: #100f0e;
     --paper-2: #1a1917;
-    --edge: #4a473f;
-    --muted: #b0ada2;
+    --edge: #5a564c;
+    --muted: #b8b5aa;
+    --tooth: rgba(242, 241, 236, 0.16);
   }
 }
 :root[data-theme="dark"] {
   --ink: #f2f1ec;
   --paper: #100f0e;
   --paper-2: #1a1917;
-  --edge: #4a473f;
-  --muted: #b0ada2;
+  --edge: #5a564c;
+  --muted: #b8b5aa;
+  --tooth: rgba(242, 241, 236, 0.16);
 }
 :root[data-theme="light"] {
   --ink: #111110;
-  --paper: #faf9f6;
-  --paper-2: #f0efea;
-  --edge: #b9b5a8;
-  --muted: #4a483f;
+  --paper: #f5f2ea;
+  --paper-2: #ebe7db;
+  --edge: #a9a494;
+  --muted: #46443c;
+  --tooth: rgba(17, 17, 16, 0.22);
 }
 
 * {
@@ -1140,4 +1144,61 @@ button:focus-visible {
   color: var(--ink);
   font-weight: 400;
   border-bottom: 1px solid var(--edge);
+}
+
+/* --- paper tooth ----------------------------------------------------------
+ * The page was flat white, which made every section read as a hole with things
+ * floating in it. This is the device's own grey: a 1-bit checkerboard, which is
+ * literally the only tone the panel can make, laid over the paper at an opacity
+ * where you feel it rather than see it.
+ *
+ * Fixed rather than scrolling so it behaves like stock, not like a pattern
+ * printed on the content. Behind everything, and pointer-events: none, so it
+ * cannot eat a click. identity.md rules out decoration that is not made of the
+ * product's own material; dither is the one texture that qualifies.
+ */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: repeating-conic-gradient(
+    var(--tooth) 0% 25%,
+    transparent 0% 50%
+  );
+  background-size: 3px 3px;
+  opacity: 0.5;
+}
+
+/* Denser under the device, faded out with a mask, so the panel sits on
+ * something instead of hovering in the middle of an empty column. */
+.device-stage {
+  position: relative;
+}
+.device-stage::before {
+  content: "";
+  position: absolute;
+  /* Vertical spill only. Bleeding it sideways too pushed 12px of horizontal
+   * scroll onto a 320px viewport, which is the exact defect the device width
+   * was just fixed for. The mask does the softening; the inset does not need
+   * to help. */
+  inset: -2.5rem 0;
+  z-index: -1;
+  background-image: repeating-conic-gradient(
+    var(--tooth) 0% 25%,
+    transparent 0% 50%
+  );
+  background-size: 3px 3px;
+  -webkit-mask-image: radial-gradient(ellipse at center, #000 35%, transparent 72%);
+  mask-image: radial-gradient(ellipse at center, #000 35%, transparent 72%);
+}
+
+/* A dither at 3px is a moire generator on a low-DPI screen at some zoom levels.
+ * Anyone who has asked for less motion has usually asked for less of this too. */
+@media (prefers-reduced-motion: reduce) {
+  body::before,
+  .device-stage::before {
+    display: none;
+  }
 }
