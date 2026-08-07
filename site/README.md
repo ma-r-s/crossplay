@@ -17,6 +17,14 @@ stale without anyone noticing.
 
 ## Deploying
 
+Vercel builds `xteink` to production on every push. That branch has to be
+named in the project's Production Branch setting, not just be the repo's
+default: this repository is a GitHub fork, and Vercel took `master` from the
+fork network rather than the branch GitHub reports. The API rejects
+`productionBranch` as an unknown field, so it is a dashboard setting only,
+and getting it wrong makes every push a preview while the live domain
+silently keeps serving the last manual deploy.
+
 Point Vercel at this directory as the project root. There is nothing to build,
 so the framework preset is **Other** and the build command is empty.
 
