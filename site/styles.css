@@ -800,9 +800,14 @@ button:focus-visible {
 .hero.two-up .hero-grid {
   grid-template-columns: 1fr;
 }
-/* Two panels side by side need the height back that one panel did not. */
+/* Two panels side by side get half the room, so they cap smaller. Width-led
+ * for the same reason as above: setting height as well would cancel
+ * aspect-ratio and stretch the panel. */
 .hero.two-up .device-screen {
-  height: min(58svh, 560px);
+  width: min(
+    calc((100vw - 2 * var(--gutter) - 1.6rem) / 2),
+    min(58svh, 560px) * 0.6
+  );
 }
 @media (max-width: 860px) {
   .device-row {
@@ -853,7 +858,16 @@ button:focus-visible {
    * sideways, taking the headline and the buttons with it. Stating the width
    * and letting aspect-ratio derive the height puts the cap back. */
   aspect-ratio: 480 / 800;
-  width: min(100%, min(64svh, 620px) * 0.6);
+  /* Width-led, and sized against the viewport rather than the parent.
+   *
+   * `min(100%, ...)` looked equivalent and was not: every ancestor here is a
+   * shrink-to-fit flex item, so the percentage resolved against a box whose own
+   * width depends on this one. It collapsed to 255px, and then to 214px once
+   * the poster <img> was removed on boot, so the device visibly shrank the
+   * moment you started it. A viewport-relative cap has no such circularity, so
+   * the box is the same size before and after, which is the whole point of
+   * booting in place. */
+  width: min(calc(100vw - 2 * var(--gutter)), min(64svh, 620px) * 0.6);
   height: auto;
 }
 .device-screen[aria-disabled="true"] {
