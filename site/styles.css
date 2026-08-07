@@ -543,7 +543,6 @@ button:focus-visible {
   }
 }
 
-
 /* --- additions ------------------------------------------------------------ */
 
 /* Nearest-neighbour only where the shot is shown at or above native size.
@@ -725,6 +724,73 @@ figcaption,
   }
 }
 
+/* --- the emulator --------------------------------------------------------- */
+/* Click-to-boot. The poster is the same screenshot the hero uses, so the
+ * transition from picture to running device is a straight swap in place and the
+ * page does not jump. The 12MB module is never fetched until the click. */
+.emu {
+  margin-top: clamp(2rem, 5vw, 3rem);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.9rem;
+}
+.emu-start {
+  position: relative;
+  display: block;
+  padding: 0;
+  border: 3px solid var(--ink);
+  background: var(--paper);
+  cursor: pointer;
+  width: min(320px, 100%);
+  line-height: 0;
+}
+.emu-start .shot {
+  width: 100%;
+  height: auto;
+  border: 0;
+  /* Held back so the chip over it reads as the foreground. The running device
+   * is never dimmed, which is what makes the click feel like switching it on. */
+  opacity: 0.35;
+  transition: opacity 0.12s ease;
+}
+.emu-badge {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.emu-badge::before {
+  content: "Start the device";
+  font-family: var(--display);
+  font-size: 1.3rem;
+  letter-spacing: 0.03em;
+  line-height: 1;
+  padding: 0.5em 1.15em 0.38em;
+  background: var(--ink);
+  color: var(--paper);
+  border: 3px solid var(--ink);
+}
+.emu-start:hover .shot,
+.emu-start:focus-visible .shot {
+  opacity: 0.16;
+}
+.emu-frame {
+  width: min(560px, 100%);
+  /* Tall enough for the portrait panel plus the button row the emulator page
+   * draws under it; the page inside handles its own scaling. */
+  height: min(1080px, 88vh);
+  border: 3px solid var(--ink);
+  background: var(--paper);
+}
+.emu-note {
+  font-size: 0.86rem;
+  opacity: 0.62;
+  text-align: center;
+  max-width: 34em;
+}
+
 /* --- the face generator --------------------------------------------------- */
 /* The device names itself with three words and draws its face from them. This
  * is that, live, with the firmware's own art and word lists -- which is also
@@ -813,7 +879,6 @@ figcaption,
   color: var(--muted);
   max-width: 48ch;
 }
-
 
 /* --- second-pass fixes ---------------------------------------------------- */
 

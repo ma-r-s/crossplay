@@ -20,51 +20,44 @@ firmware.
 
 Three things genuinely differ from the desktop build and are handled below:
 
-  * main() blocks in a `while (!display.shouldQuit())` loop, which would hang
-    the browser's main thread forever. -sPROXY_TO_PTHREAD moves main onto a
-    worker, so the loop is fine exactly as written and no firmware code needs an
-    emscripten_set_main_loop rewrite.
+  * SDL does not come along. The desktop simulator uses it for the panel and
+    the keyboard; in a browser the page already has a canvas and already gets
+    pointer events, and Emscripten's SDL port wants a blocking main loop on the
+    thread that owns the GL context -- which the firmware's render task is not.
+    So stubs/SDL.h + src/sdl_browser.cpp answer the forty-odd SDL symbols the
+    simulator's two HAL files use with plain memory, and src/wasm_main.cpp
+    replaces simulator_main.cpp with a main() that starts the firmware on a
+    worker and returns. The page then reads the composited frame straight out
+    of the heap. Nothing in src/ or lib/ changes.
   * The SD card is a directory on the host. --preload-file packages it into a
     virtual filesystem mounted at the same path.
   * Networking is libcurl, which does not exist here. See stubs/.
 
-KNOWN BROKEN, and the reason the site does not embed this yet
-------------------------------------------------------------
-Upstream's own screens render correctly -- Boot, Home, both shelf folders, the
-EPUB reader, the Wi-Fi picker -- and clicks navigate between them. Every screen
-drawn through FreeInkUI / Toybox (`src/apps_local/`) renders as a fragment:
-a few tiles or a corner bracket, crammed small and offset, with the rest of the
-panel left white.
+How this got here, so nobody spends the same three hours
+--------------------------------------------------------
+The first version kept SDL and reached for Emscripten flags to make main()'s
+`while (!display.shouldQuit())` loop survive a browser. Every one of them cost
+a day and none of them worked: -sPROXY_TO_PTHREAD puts main on a worker but
+leaves SDL's canvas on the wrong thread; OFFSCREENCANVAS_SUPPORT then breaks
+the runtime's own main-thread getContext; OFFSCREEN_FRAMEBUFFER trips an assert
+in the proxying queue; -sASYNCIFY finally booted but every screen drawn through
+FreeInkUI arrived as a fragment.
 
-The tell is in the log. Entering any of them floods:
+The answer was not another flag. CrossMux's browser simulator does not use SDL
+at all -- the page owns the canvas, the module exports a framebuffer pointer and
+an input function, and main() returns immediately with the firmware running on
+a worker. That is the design here, arrived at by stubbing SDL rather than
+writing a second HAL, so our own HalDisplay keeps doing the compositing and the
+grayscale preview comes along.
 
-    [ERR] [GFX] !! Outside range (10, -242) -> (-242, 469)
+Two real bugs also fell out of that detour and the fixes are kept:
 
-so the renderer is being handed negative y and rejecting those rows. The
-transform shown is (x, y) -> (y, 479 - x), which is the expected portrait
-rotation on a natively-landscape panel, so the rotation is not the problem --
-the incoming coordinate already is.
-
-Ruled out so far:
-
-  * Not the canvas or compositing. The same fragments appear in an iframe, in
-    the page, and standalone, and are stable across a further eight seconds
-    rather than settling.
-  * Not WebGL clearing the drawing buffer between composites. Handing the
-    module a context with preserveDrawingBuffer via -sGL_PREINITIALIZED_CONTEXT
-    changed the output not at all (byte-identical mean).
-  * Not char signedness, which was the best guess: `char` is unsigned on both
-    real targets (ESP32-C3 RISC-V, Apple Silicon) and signed on wasm32, so byte
-    arithmetic above 127 differs. -fno-signed-char is kept below because it
-    makes wasm match the targets and is correct regardless, but it did not fix
-    this.
-
-Next thing to try: the remaining 32/64-bit divergence between this build and
-the desktop one. `long` is 8 bytes on arm64 macOS and 4 on wasm32, and
-FreeInkUI passes geometry through several small structs. A layout arithmetic
-overflow there would produce exactly this -- right-shaped elements at the wrong
-scale and a negative origin -- while upstream's GfxRenderer path, which does
-its own integer maths, stays fine.
+  * `char` is unsigned on both targets this firmware runs on (ESP32-C3 RISC-V,
+    Apple Silicon) and signed on wasm32, so byte arithmetic above 127 differed
+    here only. -fno-signed-char makes wasm match.
+  * The object cache keyed on timestamps alone, so adding a flag rebuilt
+    nothing. That is why -fno-signed-char was once written off as "not the fix"
+    when no object had ever seen it. compile_one() now stamps the command line.
 """
 
 import json
@@ -80,19 +73,27 @@ REPO = pathlib.Path(__file__).resolve().parents[2]
 OUT = REPO / "site" / "emulator"
 OBJ = REPO / ".pio" / "build" / "wasm"
 STUBS = REPO / "tools_local" / "wasm" / "stubs"
+SRC = REPO / "tools_local" / "wasm" / "src"
 SDROOT = REPO / "tools_local" / "wasm" / "sdcard"
 
-# Sources whose desktop implementation cannot work in a browser. Each is
-# replaced by a file of the same name under stubs/, which is put first on the
-# include path.
+# Sources whose desktop implementation cannot work in a browser.
 SKIP_SOURCES = {
-    # Nothing yet. Kept because the first attempt skipped the webserver sources
-    # on the assumption they were the simulator's own desktop-only plumbing;
-    # CrossPointWebServer is firmware code that several activities link against,
-    # and the simulator's WebServer/WebSocketsServer shims build under emcc
-    # unchanged. Skipping a source here means every activity that references it
-    # must also be stubbed, which is almost never the cheaper trade.
+    # Owns the SDL window and a main() that never returns. src/wasm_main.cpp
+    # replaces it with one that starts the firmware on a worker and returns to
+    # the browser's event loop.
+    #
+    # This set stays as small as it can be. The first attempt also skipped the
+    # webserver sources, assuming they were the simulator's own desktop-only
+    # plumbing; CrossPointWebServer is firmware code that several activities
+    # link against, and the simulator's WebServer/WebSocketsServer shims build
+    # under emcc unchanged. Skipping a source means stubbing every activity
+    # that references it, which is almost never the cheaper trade.
+    "simulator_main.cpp",
 }
+
+# Our own translation units, compiled with the same flags as the rest by
+# borrowing the first entry's command line.
+EXTRA_SOURCES = [SRC / "sdl_browser.cpp", SRC / "wasm_main.cpp"]
 
 
 def load_entries():
@@ -112,6 +113,20 @@ def load_entries():
         cmd = e.get("command")
         args = shlex.split(cmd) if cmd else list(e["arguments"])
         out.append((src, args))
+    if not out:
+        sys.exit("compile_commands.json has no usable entries")
+    # Our own sources are not in compile_commands.json, so give them a real
+    # entry's flags. Pick the widest one rather than the first: PlatformIO gives
+    # each library only the include paths it declared, and wasm_main.cpp needs
+    # the simulator's own headers (HalDisplay.h, the FreeRTOS shim) which only
+    # the firmware's translation units see.
+    template = max(
+        (a for _, a in out), key=lambda a: sum(x.startswith("-I") for x in a)
+    )
+    for extra in EXTRA_SOURCES:
+        if not extra.exists():
+            sys.exit(f"missing {extra}")
+        out.append((extra, template))
     return out
 
 
@@ -129,8 +144,11 @@ def translate(args, obj_path, is_c):
             continue
         if a == "-c":
             continue
-        # Host SDL2 headers; emscripten ships its own port.
+        # Host SDL2 headers. There is no SDL in this build at all; stubs/SDL.h
+        # is what the simulator's HAL sees, and it must not be shadowed.
         if a.startswith("-I") and "SDL2" in a:
+            continue
+        if a.startswith("-l") and "SDL2" in a:
             continue
         # The source file itself is the last argument; re-added by the caller.
         if a.endswith((".cpp", ".c", ".cc")):
@@ -141,17 +159,17 @@ def translate(args, obj_path, is_c):
             continue
         out.append(a)
     out += [
-        "-sUSE_SDL=2",
         "-pthread",
         # `char` is unsigned on both targets this firmware really runs on --
         # ESP32-C3 (RISC-V) and Apple Silicon -- and signed on wasm32. Code that
         # does arithmetic on a byte above 127 therefore came out negative here
-        # only: the Jaipur and Solitaire menus asked the renderer to draw at
-        # y=-242 and it rejected every such row, so those screens arrived as
-        # fragments while pure 1-bit screens were fine.
+        # only, and the renderer rejected every row it was asked to draw at a
+        # negative y. This makes wasm agree with both real targets.
         "-fno-signed-char",
         "-Wno-unused-command-line-argument",
-        "-O2",
+        # -Oz throughout: this build is a download before it is a hot loop, and
+        # an e-ink frame takes about a millisecond either way.
+        "-Oz",
         "-c",
         "-o",
         str(obj_path),
@@ -165,11 +183,25 @@ def compile_one(job):
     obj = OBJ / (str(rel).replace("/", "_") + ".o")
     obj.parent.mkdir(parents=True, exist_ok=True)
     cmd = translate(args, obj, src.suffix == ".c") + [str(src)]
-    # Skip work the object is already newer than. Header changes are not
-    # tracked, so pass --clean when touching anything under stubs/.
-    if obj.exists() and obj.stat().st_mtime > src.stat().st_mtime:
+    # Skip work the object is already newer than -- but only if it was built by
+    # this exact command line. Timestamps alone are not enough: adding a flag to
+    # translate() leaves every object untouched and newer than its source, so
+    # the next run silently relinks the old ones. That is not hypothetical. It
+    # is how -fno-signed-char was added, "tested", and written off as not the
+    # fix, when in fact no object had ever seen it.
+    stamp = obj.with_suffix(obj.suffix + ".cmd")
+    want = " ".join(cmd)
+    fresh = (
+        obj.exists()
+        and obj.stat().st_mtime > src.stat().st_mtime
+        and stamp.exists()
+        and stamp.read_text() == want
+    )
+    if fresh:
         return (src, obj, 0, "")
     p = subprocess.run(cmd, capture_output=True, text=True)
+    if p.returncode == 0:
+        stamp.write_text(want)
     return (src, obj, p.returncode, p.stderr)
 
 
@@ -203,48 +235,57 @@ def main():
         sys.exit(1)
 
     OUT.mkdir(parents=True, exist_ok=True)
+    exported = [
+        "_main",
+        "_malloc",
+        "_free",
+        "_crossplay_frame_ptr",
+        "_crossplay_frame_width",
+        "_crossplay_frame_height",
+        "_crossplay_frame_rotation",
+        "_crossplay_consume_dirty",
+        "_crossplay_touch",
+        "_crossplay_key",
+    ]
     link = [
         "em++",
         *[str(o) for o in objs],
         "-o",
-        str(OUT / "crossplay.html"),
-        "-sUSE_SDL=2",
+        str(OUT / "crossplay.js"),
+        # No SDL, no GL, no ASYNCIFY. main() returns as soon as it has started
+        # the firmware worker, and the page drives everything after that.
         "-pthread",
-        # main() blocks in `while (!display.shouldQuit())`, which would freeze
-        # the browser. Two ways out, and the first two attempts took the wrong
-        # one: PROXY_TO_PTHREAD moves main to a worker, but then SDL's canvas is
-        # on the wrong thread -- transferring it (OFFSCREENCANVAS_SUPPORT) makes
-        # the runtime's own main-thread getContext fail, and proxying GL to it
-        # (OFFSCREEN_FRAMEBUFFER) trips an assert in the proxying queue.
-        #
-        # ASYNCIFY instead keeps main on the browser's main thread, where SDL
-        # already expects its canvas, and unwinds the stack at the SDL_Delay(1)
-        # the loop already calls once a frame. No firmware code changes, no
-        # cross-thread canvas, and the render task never touches SDL anyway --
-        # it sets pendingPresent and main flushes it.
-        # The panel driver pushes only the region that changed, exactly as it
-        # does on the device. WebGL clears the drawing buffer after every
-        # composite unless asked not to, so everything outside the dirty
-        # rectangle disappeared and screens rendered as fragments. Let the page
-        # create the context with preserveDrawingBuffer and hand it in.
-        "-sGL_PREINITIALIZED_CONTEXT=1",
-        "-sASYNCIFY",
-        "-sASYNCIFY_STACK_SIZE=65536",
         "-sPTHREAD_POOL_SIZE=8",
+        # The simulator's FreeRTOS shim drops xTaskCreate's stackDepth on the
+        # floor and hands the task to std::thread, so every task takes the
+        # platform default. macOS gives a spawned thread 512KB; emscripten gives
+        # a pthread 64KB, which is under what an EPUB layout pass wants.
+        "-sSTACK_SIZE=4MB",
+        "-sDEFAULT_PTHREAD_STACK_SIZE=4MB",
         "-sALLOW_MEMORY_GROWTH=1",
         "-sINITIAL_MEMORY=134217728",
+        # The runtime must outlive main(): the firmware worker is still running
+        # and every exported function below has to stay callable.
         "-sEXIT_RUNTIME=0",
-        "-sASSERTIONS=1",
-        "-O2",
+        "-sMODULARIZE=1",
+        "-sEXPORT_NAME=createCrossplay",
+        "-sENVIRONMENT=web,worker",
+        "-sEXPORTED_RUNTIME_METHODS=ccall,cwrap,HEAPU8,HEAPU32,FS",
+        "-sEXPORTED_FUNCTIONS=" + ",".join(exported),
+        # Off for the shipped build: the page has no console to read them in
+        # and they cost about a megabyte. Turn them back on while debugging.
+        "-sASSERTIONS=0",
+        # -Oz over -O2: this is a download before it is a hot loop, and an e-ink
+        # frame takes 1ms either way.
+        "-Oz",
         f"--preload-file={SDROOT}@/fs_",
-        "--shell-file",
-        str(REPO / "tools_local" / "wasm" / "shell.html"),
     ]
     print("linking ...")
     p = subprocess.run(link, capture_output=True, text=True)
     if p.returncode != 0:
         print(p.stderr[-4000:])
         sys.exit("link failed")
+    shutil.copy(REPO / "tools_local" / "wasm" / "shell.html", OUT / "index.html")
     print(f"wrote {OUT}")
 
 

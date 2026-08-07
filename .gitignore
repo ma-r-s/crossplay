@@ -38,6 +38,10 @@ sdkconfig.x4pro
 # fork-local: simulator screenshots and logs (scripts_local/)
 qa-artifacts/
 
-# The browser build's output: 12MB of generated binary, rebuilt by
-# tools_local/wasm/build.py from sources that are all tracked.
-/site/emulator/
+# The browser build's output is deliberately NOT ignored. It is generated (by
+# tools_local/wasm/build.py, from tracked sources) and it is 9MB, both of which
+# argue for ignoring it -- but Vercel has no Emscripten, so a git-connected
+# deploy that cannot see these files ships a site whose headline feature 404s.
+# Committing it is the cheaper failure mode. If the history size ever becomes
+# the problem, ignore it again and deploy with `cd site && vercel` instead,
+# which uploads the working directory rather than the commit.

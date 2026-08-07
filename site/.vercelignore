@@ -1,8 +1,3 @@
-# The browser build is generated, 12 MB, and deliberately not linked from the
-# page yet -- every FreeInkUI screen still renders as a fragment. Without this
-# it would deploy anyway and be reachable at a guessable URL, half-working.
-# Remove this line when the render bug in tools_local/wasm/build.py is fixed.
-emulator/
-
-# The screenshot harness is a dev tool, not part of the site.
+# Dev tools, not part of the site.
 pageshot.py
+serve.py

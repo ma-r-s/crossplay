@@ -43,8 +43,54 @@ namespace toybox {
 constexpr size_t kMaxInteractions = 24;
 
 using Interactions = freeink::ui::InteractionBuffer<kMaxInteractions>;
-using Frame = freeink::ui::Frame<kMaxInteractions>;
-using Screen = freeink::ui::Screen<kMaxInteractions>;
+
+namespace detail {
+// Storage for the two things every screen hands in as a temporary.
+//
+// freeink::ui::Frame keeps a `const DeviceContext&` and freeink::ui::Screen a
+// `const ThemeTokens&`, while `target.deviceContext()` and `themeTokens()` both
+// return by value. Writing the obvious
+//
+//     toybox::Frame frame(target, target.deviceContext(), noInput, interactions);
+//     toybox::Screen screen(frame, toybox::themeTokens());
+//
+// binds each reference to a temporary that dies at the end of its own
+// statement, and every layout read afterwards is undefined. It read correct for
+// a year on both real targets because the dead stack slot still held the right
+// bytes; compiled for wasm32 the next call reused it and Screen::contentRect()
+// came back (60,21 0x0), so games drew their whole board off the top of the
+// panel. The SDK knows the hazard -- FreeInkUIGfxRenderer.h's GfxRendererFrame
+// keeps a DeviceContext member for exactly this reason -- but nothing stops a
+// caller from getting it wrong.
+//
+// A base is initialised before the bases listed after it, so holding each value
+// in a base of the wrapper gives the SDK object something that outlives it. The
+// call sites do not change; they simply stop being wrong.
+struct OwnedDevice {
+  freeink::ui::DeviceContext ownedDevice;
+};
+struct OwnedTheme {
+  freeink::ui::ThemeTokens ownedTheme;
+};
+}  // namespace detail
+
+// The InputSnapshot is still held by reference, which is correct: every caller
+// passes a named local, and copying it would break a frame whose input is
+// filled in after construction.
+class Frame : private detail::OwnedDevice, public freeink::ui::Frame<kMaxInteractions> {
+ public:
+  Frame(freeink::ui::DrawTarget& target, const freeink::ui::DeviceContext& device,
+        const freeink::ui::InputSnapshot& input, Interactions& interactions,
+        freeink::ui::AssetResolver* assets = nullptr)
+      : detail::OwnedDevice{device},
+        freeink::ui::Frame<kMaxInteractions>(target, OwnedDevice::ownedDevice, input, interactions, assets) {}
+};
+
+class Screen : private detail::OwnedTheme, public freeink::ui::Screen<kMaxInteractions> {
+ public:
+  Screen(freeink::ui::Frame<kMaxInteractions>& frame, const freeink::ui::ThemeTokens& theme)
+      : detail::OwnedTheme{theme}, freeink::ui::Screen<kMaxInteractions>(frame, OwnedTheme::ownedTheme) {}
+};
 
 // Every icon this fork draws, at the one size ToyboxIcons.h generates.
 constexpr int16_t kIconSize = 32;
