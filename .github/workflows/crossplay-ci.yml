@@ -46,9 +46,12 @@ jobs:
           path: ~/.platformio
           key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
 
-      # The simulator links against SDL2; the firmware does not.
-      - name: Install SDL2
-        run: sudo apt-get update && sudo apt-get install -y libsdl2-dev
+      # The simulator links against SDL2, and on Linux its MD5Builder is a thin
+      # wrapper over OpenSSL (CommonCrypto on macOS). The firmware needs
+      # neither. Both are usually present on the runner; naming them here is
+      # what stops a runner image change from looking like our bug.
+      - name: Install the simulator's host libraries
+        run: sudo apt-get update && sudo apt-get install -y libsdl2-dev libssl-dev
 
       - name: Build the firmware
         run: pio run -e x4pro
