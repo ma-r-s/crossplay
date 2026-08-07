@@ -5,7 +5,7 @@
 // See docs/jaipur.md for the rulebook this implements and for the two state
 // machines. The short version of the shape:
 //
-//   * `Game` is the whole shared state AND the wire format, 60 bytes. There is
+//   * `Game` is the whole shared state AND the wire format, 64 bytes. There is
 //     one description of a game, so two devices cannot drift.
 //   * Everything that can be derived is derived: scores, which tokens each
 //     player holds, the value of a drawn bonus, the camel token, the winner,
@@ -73,6 +73,10 @@ constexpr bool sellsInPairs(const Good g) { return g <= Good::Silver; }
 
 enum class Phase : uint8_t { Playing = 0, RoundOver, GameOver };
 
+// Game::lastKind when nothing has been played yet: a fresh deal, so there is
+// nothing to narrate.
+constexpr uint8_t kNoMove = 0xFF;
+
 // A turn is exactly one of these. Every field a kind does not use is ignored,
 // never read, so a partially filled Move cannot mean something by accident.
 struct Move {
@@ -108,6 +112,20 @@ struct Game {
   uint8_t goodsDepth[kGoodCount] = {};
   uint8_t bonusTakenBy0[kBonusStacks] = {};
   uint8_t bonusDepth[kBonusStacks] = {};
+
+  // What the last move was, so the other device can narrate it. A whole state
+  // says nothing about how it was reached, and over a link that is the one
+  // thing a player cannot see for themselves: their opponent's hand is hidden,
+  // so "THEY SOLD 3 SPICE FOR 11" is the only account of it they get. Same
+  // reason Battleship's lastShot rides along in its state.
+  //
+  // Four bytes, not six, and the two flags ride in spare bits: this struct is
+  // memcmp'd and shipped as raw bytes, so a size that is not a multiple of its
+  // alignment would put undefined padding on the wire.
+  uint8_t lastKind = kNoMove;  // Move::Kind, and the mover's seat in bit 7
+  uint8_t lastCard = 0;        // TakeOne: the card taken. Sell: the good.
+  uint8_t lastCount = 0;       // camels taken, cards traded, or cards sold
+  uint8_t lastValue = 0;       // what a sale fetched, and a bonus token in bit 7
 
   uint8_t seals[kSeats] = {};
   uint8_t turn = 0;
@@ -148,6 +166,14 @@ struct Game {
   // --- derived, never stored ----------------------------------------------
 
   Phase currentPhase() const { return static_cast<Phase>(phase); }
+
+  // The last move, unpacked. Meaningless when lastKind is kNoMove.
+  bool hasLastMove() const { return (lastKind & 0x7F) != (kNoMove & 0x7F); }
+  Move::Kind lastMoveKind() const { return static_cast<Move::Kind>(lastKind & 0x7F); }
+  int lastMover() const { return lastKind >> 7; }
+  int lastSaleValue() const { return lastValue & 0x7F; }
+  bool lastTookBonus() const { return (lastValue & 0x80) != 0; }
+
   int handSize(int seat) const;
   int deckRemaining() const { return kDeckCards - deckTaken; }
   int marketCamels() const;
@@ -184,6 +210,11 @@ struct Game {
 
 static_assert(std::is_trivially_copyable<Game>::value, "Game travels as raw bytes");
 static_assert(sizeof(Game) <= 192, "Game must fit one LinkPlay packet");
+// Exact, because every byte of this struct is compared, saved and transmitted.
+// A layout with padding in it has bytes no field owns, and those are whatever
+// the stack left there. Change the fields and this fails, which is the reminder
+// to bump both linkplay::GameId and the save version.
+static_assert(sizeof(Game) == 64, "Game must have no padding: see the comment above");
 
 // What a player is allowed to know. The opponent's hand composition is not a
 // field here, so an AI built on this cannot cheat by construction rather than

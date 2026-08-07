@@ -136,9 +136,23 @@ fui::Rect buildRoundOver(toybox::Screen& screen, const RoundModel& model) {
   std::snprintf(title, sizeof(title), "ROUND %d", model.round);
   toyboxChrome(screen, model.matchOver ? "JAIPUR" : title);
 
+  char waiting[40];
   fui::ButtonProps go;
-  go.label = model.matchOver ? "PLAY AGAIN" : "NEXT ROUND";
-  go.action = model.matchOver ? ActionPlayAgain : ActionContinue;
+  if (model.waitingOnThem) {
+    // Named, because "WAITING" alone reads as the app being busy rather than as
+    // a person being asked for something.
+    if (model.theirShortName != nullptr && model.theirShortName[0] != '\0') {
+      std::snprintf(waiting, sizeof(waiting), "%s DEALS", model.theirShortName);
+    } else {
+      std::snprintf(waiting, sizeof(waiting), "THEY DEAL");
+    }
+    go.label = waiting;
+    go.action = fui::NO_ACTION;
+    go.styles = toybox::disabledButtonStyles();
+  } else {
+    go.label = model.matchOver ? "PLAY AGAIN" : "NEXT ROUND";
+    go.action = model.matchOver ? ActionPlayAgain : ActionContinue;
+  }
   go.borderEdges = fui::EdgesNone;
   screen.button(go, linkui::withOpponentFace(screen, screen.takeBottom(toybox::kPillHeight), model.theirName));
 

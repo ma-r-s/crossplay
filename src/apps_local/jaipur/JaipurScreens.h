@@ -90,7 +90,16 @@ struct RoundModel {
   bool youWonRound = false;
   bool drawnRound = false;
   bool matchOver = false;
+  // Over a link, exactly one device deals the next round: the one the round's
+  // last move handed the turn to. The other is looking at the same scores with
+  // nothing to press, and is told so rather than given a button that would be
+  // refused. See JaipurLink.h.
+  bool waitingOnThem = false;
   const char* theirName = nullptr;
+  // Their first word only. The face beside the button wants the whole name, a
+  // sentence with a name in it does not: "BRAIDS WINK TEETH DEALS" ran off the
+  // end of the pill, which is the same overflow chess's capsule hit.
+  const char* theirShortName = nullptr;
 };
 
 fui::Rect buildRoundOver(toybox::Screen& screen, const RoundModel& model);

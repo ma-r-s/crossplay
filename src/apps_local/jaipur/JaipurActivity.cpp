@@ -133,8 +133,8 @@ constexpr char kSavePath[] = "/.crosspoint/jaipur.sav";
 // formats and as LinkPlay's GameId. Version 2: the seal is awarded when the
 // round ends rather than when the next one is dealt, so a v1 save sitting on
 // Phase::RoundOver is one seal short and there is no way to tell it apart from a
-// correct v2 one.
-constexpr int kSaveVersion = 2;
+// correct v2 one. Version 3: Game grew a record of the last move.
+constexpr int kSaveVersion = 3;
 
 char hexDigit(const int value) { return static_cast<char>(value < 10 ? '0' + value : 'A' + value - 10); }
 
@@ -143,6 +143,39 @@ int hexValue(const char c) {
   if (c >= 'A' && c <= 'F') return c - 'A' + 10;
   if (c >= 'a' && c <= 'f') return c - 'a' + 10;
   return -1;
+}
+
+// The last move, in words, from `viewer`'s side of the table. Read out of the
+// state rather than remembered by whoever made the move: over a link the mover
+// is the other device, and the packet is all that arrives. One function, so
+// "YOU SOLD 3 SPICE FOR 11" and "THEY SOLD 3 SPICE FOR 11" cannot drift apart.
+void describeLastMove(const jaipur::Game& game, const int viewer, char* out, const size_t size) {
+  if (!game.hasLastMove()) {
+    out[0] = '\0';
+    return;
+  }
+  const char* who = game.lastMover() == viewer ? "YOU" : "THEY";
+  const int n = game.lastCount;
+  switch (game.lastMoveKind()) {
+    case jaipur::Move::Kind::TakeOne:
+      std::snprintf(out, size, "%s TOOK A %s", who, cardName(game.lastCard));
+      break;
+    case jaipur::Move::Kind::TakeCamels:
+      std::snprintf(out, size, n == 1 ? "%s TOOK %d CAMEL" : "%s TOOK %d CAMELS", who, n);
+      break;
+    case jaipur::Move::Kind::Exchange:
+      std::snprintf(out, size, "%s TRADED %d CARDS", who, n);
+      break;
+    case jaipur::Move::Kind::Sell:
+      std::snprintf(out, size, "%s SOLD %d %s FOR %d", who, n, kGoodNames[game.lastCard], game.lastSaleValue());
+      break;
+  }
+  // A bonus token is the one thing a sale produces that no other readout can
+  // show, because its value stays face down until the round is scored.
+  if (game.lastTookBonus()) {
+    const size_t used = std::strlen(out);
+    std::snprintf(out + used, size - used, " + BONUS");
+  }
 }
 
 bool hits(const Rect& box, const int x, const int y) {
@@ -181,9 +214,35 @@ uint32_t JaipurActivity::nextSeed() {
 
 bool JaipurActivity::myTurn() const { return game.turn == static_cast<uint8_t>(seat); }
 
+bool JaipurActivity::canAct() const {
+  if (game.currentPhase() != jaipur::Phase::Playing) return false;
+  if (!inMatch()) return myTurn();
+  // In a match both turns have to agree. They always do -- the pass in
+  // takeOpponentState() is what keeps them in step -- and this is the belt to
+  // that braces: a move made against a transport that will refuse to send it
+  // leaves two devices holding different games, and nothing on either screen
+  // would say so.
+  return jaipur::linkAction(game, seat, linkYourTurn()) == jaipur::LinkAction::Move;
+}
+
 // --- the link ---------------------------------------------------------------
 
-const char* JaipurActivity::linkHeadline() const { return "TRADE AGAINST SOMEONE IN THE ROOM"; }
+const char* JaipurActivity::linkHeadline() const {
+  // The link screen is the last thing a match shows: it comes up the instant
+  // the game ends and asks for a rematch. So it has to carry the result, or the
+  // final scores would be replaced by a question before anyone read them.
+  if (game.currentPhase() != jaipur::Phase::GameOver) return "TRADE AGAINST SOMEONE IN THE ROOM";
+  char rival[24];
+  player::shortName(inMatch() ? opponentName() : nullptr, rival, sizeof(rival));
+  if (game.roundWinner() == seat) {
+    std::snprintf(headline, sizeof(headline), "YOU WIN %d-%d", game.seals[seat], game.seals[1 - seat]);
+  } else if (rival[0] != '\0') {
+    std::snprintf(headline, sizeof(headline), "%s WINS %d-%d", rival, game.seals[1 - seat], game.seals[seat]);
+  } else {
+    std::snprintf(headline, sizeof(headline), "THEY WIN %d-%d", game.seals[1 - seat], game.seals[seat]);
+  }
+  return headline;
+}
 
 void JaipurActivity::onMatchStart(const bool goesFirst) {
   seat = goesFirst ? 0 : 1;
@@ -201,16 +260,24 @@ bool JaipurActivity::takeOpponentState() {
   if (!link.takeOpponent(incoming)) return false;
   game = incoming;
   clearSelection();
-  view = game.currentPhase() == jaipur::Phase::Playing ? View::Board : View::RoundOver;
+  // What they did, out of the packet. Their hand is hidden, so this line is the
+  // only account of their turn a player ever gets.
+  describeLastMove(game, seat, report, sizeof(report));
+  view = viewForPhase();
+  // The rules may have nothing for this device even though the transport just
+  // handed it the turn: the loser starts a round, and that is not necessarily
+  // the player who did not send. Hand it straight back rather than sitting on
+  // it, which is the deadlock this replaces. See JaipurLink.h.
+  if (jaipur::linkAction(game, seat, linkYourTurn()) == jaipur::LinkAction::Pass) link.play(game);
   requestUpdate();
   return true;
 }
 
 void JaipurActivity::onRematch() {
-  game.newGame(nextSeed(), 0);
-  clearSelection();
-  view = View::Board;
-  requestUpdate();
+  // Same rule as the first match, and for the same reason: exactly one device
+  // deals, and it is whichever one holds the turn the finished match left
+  // behind. Both dealing would be two different games with the same name.
+  onMatchStart(linkYourTurn());
 }
 
 void JaipurActivity::onLinkEnded() { goToMenu(); }
@@ -408,36 +475,11 @@ void JaipurActivity::commitSelection() {
   jaipur::Move move;
   if (!selectionMove(move) || !game.isLegal(move)) return;
 
-  // Everything the narration needs is read before the move resolves: afterwards
-  // the market has been refilled and the hand has changed. Past tense, because
-  // the capsule states an intent and this states an outcome.
-  const int bonusBefore = game.bonusTokenCount(seat);
-  switch (move.kind) {
-    case jaipur::Move::Kind::TakeOne:
-      std::snprintf(report, sizeof(report), "YOU TOOK A %s", kGoodNames[game.market[move.slot]]);
-      break;
-    case jaipur::Move::Kind::TakeCamels: {
-      const int n = game.marketCamels();
-      std::snprintf(report, sizeof(report), n == 1 ? "YOU TOOK %d CAMEL" : "YOU TOOK %d CAMELS", n);
-      break;
-    }
-    case jaipur::Move::Kind::Exchange:
-      std::snprintf(report, sizeof(report), "YOU TRADED %d CARDS", popcount8(move.marketMask));
-      break;
-    case jaipur::Move::Kind::Sell:
-      std::snprintf(report, sizeof(report), "YOU SOLD %d %s FOR %d", move.count, kGoodNames[move.good],
-                    game.saleValue(static_cast<Good>(move.good), move.count));
-      break;
-  }
-
   game.apply(move);
-
-  // A bonus token is the one thing a sale produces that no other readout can
-  // show, because its value stays face down until the round is scored.
-  if (game.bonusTokenCount(seat) > bonusBefore) {
-    const size_t used = std::strlen(report);
-    std::snprintf(report + used, sizeof(report) - used, " + BONUS");
-  }
+  // Past tense, because the capsule states an intent and this states an
+  // outcome. Read back out of the state, which is also where the other device
+  // reads it from.
+  describeLastMove(game, seat, report, sizeof(report));
   clearSelection();
 
   // The board stays up when the round ends, holding the position it ended on,
@@ -460,25 +502,6 @@ void JaipurActivity::playOpponentTurn() {
   const jaipur::Observation obs = jaipur::observe(game, them);
   const jaipur::Move move = jaipur::chooseMove(obs, jaipur::Skill::Maharaja, seed);
 
-  const int bonusBefore = game.bonusTokenCount(them);
-  switch (move.kind) {
-    case jaipur::Move::Kind::TakeOne:
-      std::snprintf(report, sizeof(report), "THEY TOOK A %s", kGoodNames[game.market[move.slot]]);
-      break;
-    case jaipur::Move::Kind::TakeCamels: {
-      const int n = game.marketCamels();
-      std::snprintf(report, sizeof(report), n == 1 ? "THEY TOOK %d CAMEL" : "THEY TOOK %d CAMELS", n);
-      break;
-    }
-    case jaipur::Move::Kind::Exchange:
-      std::snprintf(report, sizeof(report), "THEY TRADED %d CARDS", popcount8(move.marketMask));
-      break;
-    case jaipur::Move::Kind::Sell:
-      std::snprintf(report, sizeof(report), "THEY SOLD %d %s FOR %d", move.count, kGoodNames[move.good],
-                    game.saleValue(static_cast<Good>(move.good), move.count));
-      break;
-  }
-
   if (!game.apply(move)) {
     // chooseMove only ever returns something legalMoves produced, and that is
     // asserted move-for-move against Game::isLegal in the host tests. Reaching
@@ -487,11 +510,7 @@ void JaipurActivity::playOpponentTurn() {
     LOG_ERR("JAIPUR", "the opponent chose an illegal move (kind %d)", static_cast<int>(move.kind));
     return;
   }
-
-  if (game.bonusTokenCount(them) > bonusBefore) {
-    const size_t used = std::strlen(report);
-    std::snprintf(report + used, sizeof(report) - used, " + BONUS");
-  }
+  describeLastMove(game, seat, report, sizeof(report));
 
   // What they did goes in the report line and the turn comes straight back. A
   // tap-to-continue beat sat here for one build and was worse to play: it put a
@@ -901,6 +920,63 @@ void JaipurActivity::drawMarketStrip(const Rect& slot) const {
   }
 }
 
+void JaipurActivity::drawLinkArt(const Rect& slot) {
+  if (game.currentPhase() == jaipur::Phase::GameOver) {
+    drawResultArt(slot);
+    return;
+  }
+  drawMarketStrip(slot);
+}
+
+void JaipurActivity::drawResultArt(const Rect& slot) const {
+  // Two columns, the same two the scoring screen uses, so the match ends on a
+  // picture the player has already learned to read. The seals are the match;
+  // the rupees are the round that settled it, and they are labelled as such.
+  const int them = 1 - seat;
+  const int col = slot.width / 2;
+  const int colCx[2] = {slot.x + col / 2, slot.x + col + col / 2};
+
+  char rival[24];
+  player::shortName(inMatch() ? opponentName() : nullptr, rival, sizeof(rival));
+  if (rival[0] == '\0') std::snprintf(rival, sizeof(rival), "THEM");
+  const char* heads[2] = {"YOU", rival};
+
+  int y = slot.y + 4;
+  for (int c = 0; c < 2; ++c) {
+    const int w = renderer.getTextWidth(toybox::kTileFontId, heads[c]);
+    toybox::drawCapsCentered(renderer, toybox::kTileFontId, colCx[c] - w / 2, y, 24, heads[c], true);
+  }
+  y += 30;
+
+  // The seals, as the round screen draws them: filled for won, outlined for the
+  // ones nobody reached.
+  const int pip = 20;
+  const int span = jaipur::kSealsToWin * pip + (jaipur::kSealsToWin - 1) * 8;
+  const int seats[2] = {seat, them};
+  for (int c = 0; c < 2; ++c) {
+    for (int i = 0; i < jaipur::kSealsToWin; ++i) {
+      const int px = colCx[c] - span / 2 + i * (pip + 8);
+      if (i < game.seals[seats[c]]) {
+        renderer.fillRoundedRect(px, y, pip, pip, pip / 2, Black);
+      } else {
+        renderer.drawRect(px, y, pip, pip, toybox::kRule, true);
+      }
+    }
+  }
+  y += pip + 16;
+
+  if (y + 40 > slot.y + slot.height) return;
+  const int w = renderer.getTextWidth(toybox::kTileFontId, "LAST ROUND");
+  toybox::drawCapsCentered(renderer, toybox::kTileFontId, slot.x + (slot.width - w) / 2, y, 22, "LAST ROUND", true);
+  y += 26;
+  for (int c = 0; c < 2; ++c) {
+    char total[12];
+    std::snprintf(total, sizeof(total), "%d", game.score(seats[c]));
+    const int tw = renderer.getTextWidth(toybox::kDisplayFontId, total);
+    toybox::drawCapsCentered(renderer, toybox::kDisplayFontId, colCx[c] - tw / 2, y, 44, total, true);
+  }
+}
+
 // --- the game you left ------------------------------------------------------
 
 void JaipurActivity::saveGame() const {
@@ -995,7 +1071,7 @@ jaipurui::BoardModel JaipurActivity::boardModel() {
   model.status = capsule;
   model.report = report;
   jaipur::Move move;
-  model.canCommit = myTurn() && game.currentPhase() == jaipur::Phase::Playing && selectionMove(move);
+  model.canCommit = canAct() && selectionMove(move);
   model.canClear = !selectionEmpty();
   model.roundOver = game.currentPhase() != jaipur::Phase::Playing;
   model.gameOver = game.currentPhase() == jaipur::Phase::GameOver;
@@ -1024,7 +1100,12 @@ jaipurui::RoundModel JaipurActivity::roundModel() const {
   model.youWonRound = winner == seat;
   model.drawnRound = winner < 0;
   model.matchOver = game.currentPhase() == jaipur::Phase::GameOver;
+  // Both devices show the scores; only the one holding the turn deals.
+  model.waitingOnThem =
+      inMatch() && !model.matchOver && jaipur::linkAction(game, seat, linkYourTurn()) != jaipur::LinkAction::Deal;
   model.theirName = inMatch() ? link.opponentName() : nullptr;
+  player::shortName(model.theirName, rivalShort, sizeof(rivalShort));
+  model.theirShortName = rivalShort;
   return model;
 }
 
@@ -1220,7 +1301,7 @@ void JaipurActivity::routeBoard() {
   // do is the capsule.
   if (game.currentPhase() != jaipur::Phase::Playing) return;
 
-  if (!myTurn()) return;
+  if (!canAct()) return;
 
   // Laid out against exactly the rect the last paint drew into, never a second
   // computation of the same geometry.
@@ -1274,13 +1355,18 @@ void JaipurActivity::routeRoundOver() {
   input.touchY = static_cast<int16_t>(tapY);
   const fui::ActionId action = interactions.route(input).action;
   if (action == jaipurui::ActionContinue) {
+    // The hit table is from the last paint, and their packet can land between
+    // that paint and this tap. Asked again here, against the state as it is now.
+    if (inMatch() && jaipur::linkAction(game, seat, linkYourTurn()) != jaipur::LinkAction::Deal) return;
     game.startNextRound(nextSeed());
     clearSelection();
     view = game.currentPhase() == jaipur::Phase::GameOver ? View::RoundOver : View::Board;
     if (inMatch()) link.play(game);
     if (opponentIsBrain() && game.currentPhase() == jaipur::Phase::Playing && !myTurn()) opponentPending = true;
     requestUpdate();
-  } else if (action == jaipurui::ActionPlayAgain) {
+  } else if (action == jaipurui::ActionPlayAgain && !inMatch()) {
+    // Never in a match: a rematch is asked and answered through the link's own
+    // screen, which is what both devices are looking at by then.
     startNewGame();
   }
 }

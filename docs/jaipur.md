@@ -156,8 +156,9 @@ match only.
 ### One struct, and everything else derived
 
 The shared state is the wire format, the same discipline battleship uses: two
-descriptions of one game will drift, so there is only ever one. 60 bytes, well
-inside LinkPlay's 192.
+descriptions of one game will drift, so there is only ever one. 64 bytes, well
+inside LinkPlay's 192, and **exactly** 64: the struct is asserted to have no
+padding, because every byte of it is compared, saved and transmitted.
 
 ```
 seed             4   the round's shuffle; both devices rebuild the same deck
@@ -170,12 +171,20 @@ goodsTakenBy0[6]12   which token of each pile went to seat 0 (bitmask)
 goodsDepth[6]    6   how deep each pile has been dug
 bonusTakenBy0[3] 3   same, for the three bonus stacks
 bonusDepth[3]    3
+lastKind         1   the last move's kind, and the mover's seat in bit 7
+lastCard         1   the card taken, or the good sold
+lastCount        1   camels taken, cards traded, or cards sold
+lastValue        1   what a sale fetched, and a bonus token in bit 7
 seals[2]         2
 turn             1
 roundStarter     1
 phase            1
 round            1
 ```
+
+The four `last*` bytes are the only thing in here that is not the position. They
+are what lets the other device say what you just did; see "What a packet has to
+carry that the board does not show".
 
 Derived, never stored: every score, which tokens each player holds, the value of
 a drawn bonus, who holds the camel token, the winner, the legal moves, and what
@@ -287,6 +296,54 @@ if (linkPhase() == YourTurn && game.turn != mySeat) play(game);   // silent pass
 
 Stated as an invariant: _the transport turn and the game turn can only disagree
 across a round boundary, and a pass is what closes it._
+
+### One decision, in one place
+
+The pass, the deal and the move are the same question asked once, by
+`jaipur::linkAction()` in `JaipurLink.h`, which is freestanding so a whole
+two-device match can be played inside a host test:
+
+| Holding the turn, in phase | What the device does                     |
+| -------------------------- | ---------------------------------------- |
+| Playing, and yours to move | **Move** -- play, then send              |
+| Playing, and theirs        | **Pass** -- send it back unchanged       |
+| RoundOver                  | **Deal** -- the next round, then send    |
+| GameOver                   | **Wait** -- the link screen has it now   |
+
+Not holding the turn is always **Wait**, and that is what makes "exactly one
+device acts" a property rather than a hope. Two consequences worth stating:
+
+- **Exactly one device deals**, and it is the one the round's last move handed
+  the turn to. Both players are looking at the same scores; only one of them has
+  a live NEXT ROUND, and the other's button says who is dealing rather than
+  offering a press the transport would refuse.
+- **A rematch is dealt by one device too.** `onRematch()` is `onMatchStart()`
+  again, so the side holding the turn deals and sends; both dealing would be two
+  different games wearing the same name.
+
+### What a packet has to carry that the board does not show
+
+A whole state says nothing about how it was reached, and over a link that is the
+one thing a player cannot work out for themselves: the opponent's hand is hidden,
+so "THEY SOLD 3 SPICE FOR 11" is the only account of their turn they get. So the
+last move rides along in the state -- kind, card, count, what a sale fetched, and
+whether it drew a bonus -- in four bytes, with the mover's seat and the bonus flag
+in spare bits. That keeps `Game` at exactly 64 bytes with **no padding**, which
+matters because every byte of it is memcmp'd, saved and transmitted: a struct
+with holes in it puts whatever the stack left there on the wire.
+
+Both narrations then come out of the same function reading the same fields, so
+"YOU SOLD" and "THEY SOLD" cannot drift apart, and the single-player opponent is
+narrated by exactly the code that narrates a human one.
+
+### The end of a match
+
+The link screen comes up the instant the game ends, to ask for a rematch. It is
+therefore the last thing a match shows, so it carries the result: the headline
+becomes "YOU WIN 2-1" and the art slot -- the same slot that shows the market
+while a game is in progress -- becomes both seats' seals and the final round's
+rupees. Otherwise the final scores would be replaced by a question before anybody
+had read them.
 
 ---
 

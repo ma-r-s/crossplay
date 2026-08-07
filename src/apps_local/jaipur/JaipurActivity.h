@@ -8,6 +8,7 @@
 #include "../ui/ToyboxScreen.h"
 #include "JaipurBrain.h"
 #include "JaipurCore.h"
+#include "JaipurLink.h"
 #include "JaipurScreens.h"
 
 // Jaipur. Touch only, in the fork's usual three layers: JaipurCore has the
@@ -48,7 +49,10 @@ class JaipurActivity final : public linkplay::LinkActivity {
   void onRematch() override;
   void onLinkEnded() override;
   bool matchGameOver() const override { return game.currentPhase() == jaipur::Phase::GameOver; }
-  void drawLinkArt(const Rect& slot) override { drawMarketStrip(slot); }
+  // The link screen's ornament, and after a match its result: it takes the
+  // screen the moment the game ends, so this is where the final position is
+  // reported.
+  void drawLinkArt(const Rect& slot) override;
   void gameLoop() override;
   void gameRender() override;
 
@@ -102,6 +106,8 @@ class JaipurActivity final : public linkplay::LinkActivity {
   // The menu's ornament: the market of the game you would be going back to.
   // Made of the app's own material and carrying your own data.
   void drawMarketStrip(const Rect& slot) const;
+  // How a finished match reads on the link screen: both totals and the seals.
+  void drawResultArt(const Rect& slot) const;
   void drawPileBars(const Rect& slot) const;
 
   jaipurui::StartModel startModel() const;
@@ -127,6 +133,9 @@ class JaipurActivity final : public linkplay::LinkActivity {
   // whichever side the coin toss gave us.
   int mySeat() const { return seat; }
   bool myTurn() const;
+  // Whether this device may commit a move right now. In a match that is not the
+  // same question as myTurn(): see JaipurLink.h.
+  bool canAct() const;
 
   uint32_t nextSeed();
 
@@ -168,6 +177,12 @@ class JaipurActivity final : public linkplay::LinkActivity {
   Rect bodySlot{};
 
   char report[64] = "";
+  // Filled by linkHeadline(), which the link layer calls while drawing and so
+  // has to be const. The buffer is the only thing about it that changes.
+  mutable char headline[40] = "";
+  // Their first word, for the sentences that carry a name. Filled with the
+  // models, and mutable for the same reason headline is.
+  mutable char rivalShort[24] = "";
   char capsule[48] = "";
   char continueDetail[32] = "";
 };
