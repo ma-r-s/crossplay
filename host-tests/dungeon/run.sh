@@ -5,7 +5,7 @@
 #   host-tests/dungeon/run.sh
 set -e
 cd "$(dirname "$0")"
-BUILD_DIR="${TMPDIR:-/tmp}/dungeon-tests-$(basename "$(cd ../.. && pwd)")"
+BUILD_DIR="${TMPDIR:-/tmp}/dungeon-tests-$(cd ../.. && pwd | cksum | cut -d" " -f1)"
 mkdir -p "$BUILD_DIR"
 SRC=../../src/apps_local/dungeon
 # The screens are linked in too, for one test: the adventurer's guide teaches

@@ -5,7 +5,7 @@
 #   host-tests/connections/run.sh
 set -e
 cd "$(dirname "$0")"
-BUILD_DIR="${TMPDIR:-/tmp}/connections-tests"
+BUILD_DIR="${TMPDIR:-/tmp}/connections-tests-$(cd ../.. && pwd | cksum | cut -d" " -f1)"
 mkdir -p "$BUILD_DIR"
 SRC=../../src/apps_local/connections
 c++ -std=c++17 -Wall -Wextra -Werror $SRC/ConnectionsCore.cpp \
