@@ -1237,3 +1237,33 @@ body::before {
     display: none;
   }
 }
+
+/* --- the small print ------------------------------------------------------
+ * Credits used to be a fourth column in .foot-grid, which gave a paragraph
+ * with six times its neighbours' text a quarter of the width to say it in. It
+ * ran as a tall ribbon down one side with three empty columns beside it.
+ *
+ * Full width and flowed into columns instead, a size smaller than the rest of
+ * the footer, which is what small print is for.
+ */
+.foot-fine {
+  margin-top: 2.6rem;
+  padding-top: 1.6rem;
+  border-top: 1px solid var(--edge);
+}
+.foot-fine-cols {
+  columns: 3 22ch;
+  column-gap: 2rem;
+  font-size: 0.78rem;
+  line-height: 1.65;
+  color: var(--muted);
+}
+.foot-fine-cols p {
+  margin: 0 0 0.85rem;
+  /* A three-line paragraph split across a column break is unreadable, and the
+   * credits are five short ones. */
+  break-inside: avoid;
+}
+.foot-fine-cols p:last-child {
+  margin-bottom: 0;
+}

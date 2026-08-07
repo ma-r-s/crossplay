@@ -6,17 +6,21 @@ card before it can boot, so shipping that is not an option -- but neither is
 faking the app: the page's claim is that this is the firmware, and an xkcd
 reader with drawn-on comics would make that a lie.
 
-So this takes the real pack and keeps the first N comics of it. Nothing about
+So this takes the real pack and keeps the newest N comics of it. Nothing about
 the format changes, and the firmware reads the result with the same code it
-reads Mario's card with. That works because the builder appends in comic-number
-order, so the blobs for the first N comics are the first bytes of images.dat
-and text.dat: the subset is a prefix, and no offset needs rewriting. The script
-checks that rather than assuming it.
+reads Mario's card with.
+
+It used to keep the *oldest* N, because the builder appends in comic-number
+order, which made the subset a prefix of both blobs and meant no offset had to
+be rewritten. That was convenient and wrong: xkcd's first forty are the 2005
+sketchbook, and a reader demo that opens on those misrepresents the archive.
+Taking the newest N costs one pass rebasing each kept record's two offsets,
+which is worth it.
 
     python3 tools_local/wasm/pack_subset.py ../fs_mario/xkcd 40
 
 Writes tools_local/wasm/sdcard/xkcd/. Pass a count that keeps the result under
-a couple of megabytes; the early comics are small.
+a couple of megabytes; recent comics are larger than the early ones.
 """
 
 import pathlib
@@ -75,18 +79,29 @@ def main():
                 "this pack is not append-ordered and cannot be sliced this way"
             )
 
-    image_end, text_end = offsets(records[keep])
-    kept_max = max(struct.unpack_from("<H", r, 0)[0] for r in records[:keep])
+    kept = records[count - keep :]
+
+    # Where the kept run starts in each blob. Everything before this is dropped,
+    # so every kept record's offsets have to come down by exactly this much.
+    image_base, text_base = offsets(kept[0])
+
+    rebased = []
+    for r in kept:
+        image, text = offsets(r)
+        rebased.append(r[:12] + struct.pack("<II", image - image_base, text - text_base) + r[20:])
+
+    kept_max = max(struct.unpack_from("<H", r, 0)[0] for r in kept)
 
     OUT.mkdir(parents=True, exist_ok=True)
     head = struct.pack("<IHxxII", MAGIC, VERSION, keep, kept_max)
-    (OUT / "index.dat").write_bytes(head + b"".join(records[:keep]))
-    (OUT / "images.dat").write_bytes((src / "images.dat").read_bytes()[:image_end])
-    (OUT / "text.dat").write_bytes((src / "text.dat").read_bytes()[:text_end])
+    (OUT / "index.dat").write_bytes(head + b"".join(rebased))
+    (OUT / "images.dat").write_bytes((src / "images.dat").read_bytes()[image_base:])
+    (OUT / "text.dat").write_bytes((src / "text.dat").read_bytes()[text_base:])
 
     total = sum(p.stat().st_size for p in OUT.iterdir())
     print(
-        f"wrote {OUT.relative_to(REPO)}: {keep} comics, newest #{kept_max}, {total / 1024:.0f} KB"
+        f"wrote {OUT.relative_to(REPO)}: {keep} comics, "
+        f"#{struct.unpack_from(chr(60) + chr(72), kept[0], 0)[0]}-#{kept_max}, {total / 1024:.0f} KB"
     )
 
 
