@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Crossplay — simulator</title>
+<style>
+  html, body { margin:0; height:100%; background:#111110; color:#f2f1ec;
+               font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #wrap { display:flex; flex-direction:column; align-items:center; justify-content:center;
+          height:100%; gap:12px; }
+  canvas { background:#fff; image-rendering: pixelated; touch-action:none;
+           border:3px solid #f2f1ec; max-width:100%; max-height:78vh; }
+  #status { font-size:12px; letter-spacing:.12em; text-transform:uppercase; opacity:.75; }
+  #status.err { color:#ff8a7a; opacity:1; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+  <div id="status">loading…</div>
+</div>
+<script>
+  var statusEl = document.getElementById('status');
+  var Module = {
+    canvas: (function () { return document.getElementById('canvas'); })(),
+    setStatus: function (t) {
+      if (!statusEl) return;
+      statusEl.textContent = t || 'running';
+    },
+    printErr: function (t) {
+      console.error(t);
+      // A pthread/SharedArrayBuffer failure is the one error worth surfacing:
+      // it means the page was served without COOP/COEP and nothing will run.
+      if (/SharedArrayBuffer|pthread/i.test(t)) {
+        statusEl.className = 'err';
+        statusEl.textContent = 'needs cross-origin isolation (COOP/COEP)';
+      }
+    },
+    print: function (t) { console.log(t); }
+  };
+  window.onerror = function (e) {
+    statusEl.className = 'err';
+    statusEl.textContent = 'failed to start — see console';
+  };
+</script>
+{{{ SCRIPT }}}
+</body>
+</html>

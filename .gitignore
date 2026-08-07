@@ -37,3 +37,7 @@ sdkconfig.x4pro
 
 # fork-local: simulator screenshots and logs (scripts_local/)
 qa-artifacts/
+
+# The browser build's output: 12MB of generated binary, rebuilt by
+# tools_local/wasm/build.py from sources that are all tracked.
+/site/emulator/
