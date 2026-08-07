@@ -1,0 +1,530 @@
+/* Crossplay
+ *
+ * Black and white on purpose. Both neighbouring forks carry a colour accent
+ * (CrossPoint green, CrossMux and FreeInk rust); the absence of one is the most
+ * differentiated this page can be, and it is honest about what the panel does.
+ * See docs/identity.md.
+ *
+ * Jersey 25 and Instrument Serif are the two faces the device itself draws, so
+ * the page is set in the product rather than in something chosen to resemble it.
+ * Body prose is a system stack: the device uses a bitmap cut because its
+ * renderer floods antialiased edges, which is a constraint the browser does not
+ * have, and imitating it here would be costume rather than character.
+ */
+
+@font-face {
+  font-family: "Jersey 25";
+  src: url("assets/fonts/jersey25.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Instrument Serif";
+  src: url("assets/fonts/instrumentserif.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Instrument Serif";
+  src: url("assets/fonts/instrumentserif-italic.woff2") format("woff2");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+:root {
+  --ink: #111110;
+  --paper: #faf9f6;
+  --paper-2: #f0efea;
+  --edge: #d8d6ce;
+  --muted: #56544d;
+  --display: "Jersey 25", "Arial Narrow", sans-serif;
+  --serif: "Instrument Serif", Georgia, serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --body:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+  --wrap: 1180px;
+  --gutter: clamp(1.25rem, 4vw, 3rem);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #f2f1ec;
+    --paper: #100f0e;
+    --paper-2: #1a1917;
+    --edge: #34322c;
+    --muted: #a3a096;
+  }
+}
+:root[data-theme="dark"] {
+  --ink: #f2f1ec;
+  --paper: #100f0e;
+  --paper-2: #1a1917;
+  --edge: #34322c;
+  --muted: #a3a096;
+}
+:root[data-theme="light"] {
+  --ink: #111110;
+  --paper: #faf9f6;
+  --paper-2: #f0efea;
+  --edge: #d8d6ce;
+  --muted: #56544d;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: 17px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap {
+  max-width: var(--wrap);
+  margin: 0 auto;
+  padding-inline: var(--gutter);
+}
+
+/* --- the band -------------------------------------------------------------
+ * The device's header is a solid black bar with knocked-out white type that
+ * never repaints. It is the single most recognisable thing the fork draws, so
+ * it marks sections here.
+ */
+.band {
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--display);
+  font-size: clamp(1.6rem, 5vw, 2.6rem);
+  letter-spacing: 0.02em;
+  padding: 0.45em var(--gutter) 0.3em;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.band .band-note {
+  font-family: var(--mono);
+  font-size: clamp(0.62rem, 1.6vw, 0.78rem);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+.band-rule {
+  height: 3px;
+  background: var(--ink);
+}
+
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 1.2rem;
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+.eyebrow::before {
+  content: "";
+  width: 2rem;
+  height: 1px;
+  background: currentColor;
+  flex: none;
+}
+
+h1,
+h2,
+h3 {
+  font-weight: 400;
+  margin: 0;
+}
+
+h1 {
+  font-family: var(--display);
+  font-size: clamp(2.9rem, 8.5vw, 6rem);
+  line-height: 0.94;
+  letter-spacing: -0.005em;
+}
+h2 {
+  font-family: var(--display);
+  font-size: clamp(2rem, 5.5vw, 3.4rem);
+  line-height: 1.02;
+  margin-bottom: 0.6rem;
+}
+h3 {
+  font-family: var(--display);
+  font-size: 1.5rem;
+  line-height: 1.1;
+}
+
+.lede {
+  font-family: var(--serif);
+  font-size: clamp(1.25rem, 2.6vw, 1.7rem);
+  line-height: 1.42;
+  max-width: 34ch;
+  color: var(--ink);
+  margin: 1.4rem 0 0;
+}
+.prose {
+  max-width: 62ch;
+}
+.prose p {
+  margin: 0 0 1.05rem;
+}
+.prose p:last-child {
+  margin-bottom: 0;
+}
+
+section {
+  padding-block: clamp(3.5rem, 9vw, 7rem);
+}
+section.tight {
+  padding-block: clamp(2.5rem, 6vw, 4.5rem);
+}
+
+/* --- corner brackets ------------------------------------------------------
+ * The frame the chess board and every menu ornament wears. Reused here as the
+ * device-screen frame so a screenshot reads as being on the device.
+ */
+.bracket {
+  position: relative;
+  padding: 14px;
+}
+.bracket::before,
+.bracket::after {
+  content: "";
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border: 3px solid var(--ink);
+}
+.bracket::before {
+  top: 0;
+  left: 0;
+  border-right: 0;
+  border-bottom: 0;
+}
+.bracket::after {
+  bottom: 0;
+  right: 0;
+  border-left: 0;
+  border-top: 0;
+}
+
+/* --- hero ----------------------------------------------------------------- */
+.hero {
+  padding-top: clamp(2.5rem, 7vw, 5rem);
+}
+.hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  gap: clamp(2rem, 6vw, 4.5rem);
+  align-items: center;
+}
+@media (max-width: 860px) {
+  .hero-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.cta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 2.2rem;
+}
+.btn {
+  font-family: var(--display);
+  font-size: 1.3rem;
+  letter-spacing: 0.03em;
+  text-decoration: none;
+  padding: 0.5em 1.15em 0.38em;
+  border: 3px solid var(--ink);
+  color: var(--ink);
+  background: var(--paper);
+  display: inline-block;
+  transition: transform 0.08s ease;
+}
+.btn:hover {
+  transform: translateY(-2px);
+}
+.btn.primary {
+  background: var(--ink);
+  color: var(--paper);
+}
+.btn[aria-disabled="true"] {
+  opacity: 0.42;
+  pointer-events: none;
+}
+
+.hero-meta {
+  margin-top: 1.6rem;
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.1rem;
+}
+
+/* --- screenshots ---------------------------------------------------------- */
+.shot {
+  display: block;
+  width: 100%;
+  height: auto;
+  image-rendering: pixelated; /* native panel pixels; never blur them */
+  background: #fff;
+  border: 1px solid var(--edge);
+}
+/* Never invert a screenshot. The panel really is black ink on light paper, and
+ * flipping it to match a dark page would misrepresent the product. Keeping the
+ * white also makes each shot read as a lit screen against a dark page, which is
+ * closer to how the device looks on a desk than an inverted one would be. */
+
+figure {
+  margin: 0;
+}
+figcaption {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-top: 0.65rem;
+}
+
+/* --- the shelf grid ------------------------------------------------------- */
+.shelf {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: clamp(1.5rem, 3vw, 2.5rem);
+  margin-top: 3rem;
+  /* The two landscape cards span two columns, and without dense packing a
+   * wide card that cannot fit the remaining space leaves a visible hole and
+   * pushes a gap to the end of the grid. The cards are independent, so
+   * back-filling them out of source order costs nothing. */
+  grid-auto-flow: dense;
+}
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+/* Two apps render landscape (Solitaire, and the xkcd reader), so the shots are
+ * not one shape. Pin every well to the portrait panel ratio and letterbox the
+ * wide ones, or the grid rows go ragged and the captions stop lining up. */
+.card .shot-wrap {
+  background: var(--paper-2);
+  padding: 10px;
+  aspect-ratio: 480 / 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.card .shot-wrap .shot {
+  max-height: 100%;
+  width: auto;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+/* Solitaire and the reader really are landscape on the device. Letterboxing
+ * them into a portrait well shrinks them to illegibility, so they take two
+ * columns and their own ratio instead -- the app shown at the shape it is.
+ * Only above the breakpoint where the grid has two columns to give. */
+@media (min-width: 720px) {
+  .card.wide {
+    grid-column: span 2;
+  }
+  .card.wide .shot-wrap {
+    aspect-ratio: 800 / 480;
+  }
+}
+.card h3 {
+  font-size: 1.35rem;
+}
+.card p {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.card .tag {
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  border: 1px solid var(--edge);
+  padding: 0.15em 0.5em;
+  align-self: flex-start;
+  color: var(--muted);
+}
+
+/* --- split rows ----------------------------------------------------------- */
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: clamp(2rem, 6vw, 4.5rem);
+  align-items: center;
+}
+.split.reverse > :first-child {
+  order: 2;
+}
+@media (max-width: 860px) {
+  .split {
+    grid-template-columns: 1fr;
+  }
+  .split.reverse > :first-child {
+    order: 0;
+  }
+}
+.pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+/* --- comparison table ----------------------------------------------------- */
+.table-scroll {
+  overflow-x: auto;
+  margin-top: 2.5rem;
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 560px;
+}
+th,
+td {
+  text-align: left;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--edge);
+  vertical-align: top;
+  font-size: 0.95rem;
+}
+thead th {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 3px solid var(--ink);
+}
+tbody th {
+  font-family: var(--display);
+  font-size: 1.25rem;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+/* --- emulator ------------------------------------------------------------- */
+.emu-shell {
+  background: var(--paper-2);
+  border: 3px solid var(--ink);
+  padding: clamp(1rem, 3vw, 2rem);
+  margin-top: 2.5rem;
+}
+.emu-stage {
+  display: flex;
+  gap: 1.5rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.emu-note {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-top: 1.2rem;
+  text-align: center;
+}
+
+/* --- footer --------------------------------------------------------------- */
+footer {
+  border-top: 3px solid var(--ink);
+  padding-block: 3rem 4rem;
+  font-size: 0.92rem;
+}
+footer a {
+  color: var(--ink);
+}
+.foot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 2rem;
+}
+.foot-grid h4 {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 0.7rem;
+  font-weight: 400;
+}
+.foot-grid ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.foot-grid li {
+  margin-bottom: 0.4rem;
+}
+
+/* --- theme toggle --------------------------------------------------------- */
+.theme-toggle {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  background: var(--paper);
+  color: var(--ink);
+  border: 2px solid var(--ink);
+  padding: 0.5em 0.8em;
+  cursor: pointer;
+  z-index: 20;
+}
+
+a {
+  color: inherit;
+}
+a:focus-visible,
+button:focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: 3px;
+}
+
+.skip {
+  position: absolute;
+  left: -9999px;
+}
+.skip:focus {
+  left: 1rem;
+  top: 1rem;
+  position: fixed;
+  z-index: 50;
+  background: var(--ink);
+  color: var(--paper);
+  padding: 0.6em 1em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+  }
+}
