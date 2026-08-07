@@ -387,13 +387,15 @@ void drawLegend(toybox::Screen& screen, const Puzzle& puzzle, const fui::Rect& a
 void drawCastBlocks(toybox::Screen& screen, const Puzzle& puzzle, const fui::Rect& area, const int firstBlock,
                     int& usedBlocks, const bool draw) {
   auto& target = screen.target();
-  const fui::TextStyle name = styled(toybox::kUiFont, fui::TextAlign::Left);
   const fui::TextStyle small = styled(toybox::kTileFont, fui::TextAlign::Left);
   // Measured, never guessed. A hard-coded advance is shorter than the UI cut's
   // line box, so the first version drew every suspect's attributes straight
   // through their name -- and it built, ran and logged nothing.
+  //
+  // Only the tile face is measured now: every fixture including a suspect is
+  // one line in `small`, so the UI-face style and its line height that the
+  // two-line cast used to need both went with it (see the loop below).
   const int16_t lh = static_cast<int16_t>(target.lineHeight(toybox::kTileFont) + 2);
-  const int16_t nameH = static_cast<int16_t>(target.lineHeight(toybox::kUiFont));
 
   int16_t y = area.y;
   int block = firstBlock;
