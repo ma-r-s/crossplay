@@ -236,8 +236,19 @@ bool HalGPIO::verifyPowerButtonWakeup(uint16_t requiredDurationMs, bool shortPre
 // stays invisible — on boards with no VBUS line (X4 Pro, see
 // xteink-x4pro-support.md) this is the only observable USB signal.
 static bool usbHostSofActive() {
-  static uint32_t lastFrame = 0xFFFFFFFF;
+  static uint32_t lastFrame = 0;
   static unsigned long lastAdvanceMs = 0;
+  static bool seeded = false;
+  if (!seeded) {
+    // First probe must not fabricate a connection: getWakeupReason() calls this
+    // at boot, and a false positive turns a power-button wake (POWERON reset)
+    // into AfterUSBPower, which goes straight back to deep sleep — the device
+    // never wakes. Seed the counter and wait one SOF period out; a real host
+    // clocks SOFs at 1 kHz, so 3 ms guarantees advancement when attached.
+    seeded = true;
+    lastFrame = REG_READ(USB_SERIAL_JTAG_FRAM_NUM_REG);
+    delay(3);
+  }
   const uint32_t frame = REG_READ(USB_SERIAL_JTAG_FRAM_NUM_REG);
   if (frame != lastFrame) {
     lastFrame = frame;
