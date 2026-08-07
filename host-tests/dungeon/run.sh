@@ -13,7 +13,19 @@ SRC=../../src/apps_local/dungeon
 # the drawing code. FreeInkUI is freestanding C++17, so this costs one more
 # translation unit and no device.
 SDK=../../freeink-sdk/libs
-c++ -std=c++17 -Wall -Wextra -Werror \
+# Two GCC-only suppressions. Neither shows up under Apple clang, which is why
+# they only appeared once CI built this on Linux.
+#
+# -Wno-comment: FreeInkUIIcon.h documents a shell command in a // comment whose
+# line ends in a backslash, which GCC reads as a line continuation. The header
+# belongs to the pinned freeink-sdk submodule, so silencing it here is cheaper
+# than carrying a patch against someone else's tree.
+#
+# -Wno-format-truncation: the screen buffers are sized for what fits on a
+# 480x800 panel, not for INT_MIN, and snprintf truncating is the intended
+# behaviour rather than a bug to prevent. GCC assumes every int spans its full
+# range and cannot see that a page counter is bounded by a constant.
+c++ -std=c++17 -Wall -Wextra -Werror -Wno-comment -Wno-format-truncation \
   -I"$SDK/ui/FreeInkUI/include" -I"$SDK/assets/Icons/include" \
   "$SDK/ui/FreeInkUI/src/FreeInkUI.cpp" \
   $SRC/DungeonCore.cpp $SRC/DungeonScreens.cpp \

@@ -290,7 +290,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
     const bool live = more ? canMore : canLess;
     fui::ButtonProps arrow;
     arrow.label = more ? "+" : "-";
-    arrow.action = live ? ActionPlayers : fui::NO_ACTION;
+    arrow.action = live ? static_cast<fui::ActionId>(ActionPlayers) : fui::NO_ACTION;
     arrow.value = more ? 1 : -1;
     arrow.text = styled(toybox::kDisplayFont, fui::TextAlign::Center, live ? fui::Color::White : fui::Color::Black);
     arrow.styles = live ? toybox::invertedStyles() : toybox::disabledStepperStyles();
@@ -565,7 +565,7 @@ void buildVote(toybox::Screen& screen, const VoteModel& model) {
   }
   fui::ButtonProps go;
   go.label = confirm;
-  go.action = ready ? ActionConfirmVote : fui::NO_ACTION;
+  go.action = ready ? static_cast<fui::ActionId>(ActionConfirmVote) : fui::NO_ACTION;
   go.text = styled(toybox::kUiFont, fui::TextAlign::Center, fui::Color::White);
   go.styles = ready ? toybox::invertedStyles() : toybox::disabledButtonStyles();
   go.radius = 10;

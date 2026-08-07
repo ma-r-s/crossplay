@@ -604,7 +604,7 @@ CaseReport buildCase(toybox::Screen& screen, const CaseModel& model) {
 
   fui::ButtonProps accuse;
   accuse.label = model.solved ? "SOLVED" : "ACCUSE";
-  accuse.action = model.solved ? fui::NO_ACTION : ActionAccuse;
+  accuse.action = model.solved ? fui::NO_ACTION : static_cast<fui::ActionId>(ActionAccuse);
   accuse.text = styled(toybox::kUiFont, fui::TextAlign::Center, fui::Color::White);
   accuse.styles = toybox::invertedStyles();
   accuse.radius = 10;
@@ -682,7 +682,7 @@ CaseReport buildCase(toybox::Screen& screen, const CaseModel& model) {
       const bool live = i == 0 ? report.page > 0 : report.page + 1 < report.pages;
       fui::ButtonProps step;
       step.label = i == 0 ? "<" : ">";
-      step.action = live ? ActionPage : fui::NO_ACTION;
+      step.action = live ? static_cast<fui::ActionId>(ActionPage) : fui::NO_ACTION;
       step.value = i == 0 ? -1 : 1;
       step.text = styled(toybox::kUiFont, fui::TextAlign::Center, live ? fui::Color::Black : fui::Color::Black);
       step.styles = live ? toybox::rowStyles() : toybox::disabledStepperStyles();
@@ -963,7 +963,7 @@ void buildAccuse(toybox::Screen& screen, const AccuseModel& model) {
 
   fui::ButtonProps confirm;
   confirm.label = "THAT IS MY ACCUSATION";
-  confirm.action = model.complete() ? ActionConfirm : fui::NO_ACTION;
+  confirm.action = model.complete() ? static_cast<fui::ActionId>(ActionConfirm) : fui::NO_ACTION;
   confirm.text =
       styled(toybox::kUiFont, fui::TextAlign::Center, model.complete() ? fui::Color::White : fui::Color::Black);
   confirm.styles = model.complete() ? toybox::invertedStyles() : toybox::disabledStepperStyles();

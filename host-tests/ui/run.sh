@@ -20,7 +20,10 @@ SDK=../../freeink-sdk/libs/ui/FreeInkUI
 # can carry real icons and still be tested with no renderer and no device.
 ICONS=../../freeink-sdk/libs/assets/Icons
 mkdir -p "$BUILD_DIR"
-c++ -std=c++17 -Wall -Wextra -Werror -I"$SDK/include" -I"$ICONS/include" \
+# -Wno-comment and -Wno-format-truncation: see host-tests/dungeon/run.sh for
+# why both are GCC-only noise here rather than bugs worth chasing.
+c++ -std=c++17 -Wall -Wextra -Werror -Wno-comment -Wno-format-truncation \
+  -I"$SDK/include" -I"$ICONS/include" \
   "$SDK/src/FreeInkUI.cpp" \
   ../../src/apps_local/battleship/BattleshipScreens.cpp \
   ../../src/apps_local/ShelfScreen.cpp \

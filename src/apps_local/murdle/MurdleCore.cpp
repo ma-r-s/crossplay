@@ -447,7 +447,9 @@ int deduce(const Puzzle& puzzle, Grid& grid, int* revealRound) {
   // Phase one: everything that is unconditionally true and not about the
   // murderer. On every tier but Impossible this is the whole puzzle, because
   // the murder clue names the crime scene and says nothing about who was where.
-  Constraint cons[kMaxClues];
+  // Value-initialised: with no unspoken clues conCount stays 0 and propagate()
+  // reads none of it, but GCC cannot see that and -Werror stops the build.
+  Constraint cons[kMaxClues] = {};
   int conCount = 0;
   for (int i = 0; i < puzzle.clueCount; ++i) {
     const Clue& clue = puzzle.clues[i];
