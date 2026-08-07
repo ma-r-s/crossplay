@@ -370,8 +370,12 @@
           and opening an article sends its URL through
           <a href="https://r.jina.ai">r.jina.ai</a> to get readable text back,
           which means that third party learns what you are reading. Type is
-          Jersey 25 and Instrument Serif, both SIL OFL.
+          Jersey 25 and Instrument Serif, both SIL OFL. Reading positions sync
+          to CrossPoint's own server by default, which is upstream's
+          infrastructure rather than ours; the address is a setting and can be
+          pointed anywhere that speaks KOSync.
         </p>
+        <p class="foot-note">Jaipur, Insider, Murdle, Battleship and Connections are trademarks of their respective owners. Crossplay implements the games; it is not affiliated with, endorsed by or sponsored by any of them.</p>
       </div>
     </div>
     <p class="foot-toggle">
@@ -444,7 +448,10 @@
         // NOT `disabled`: Chrome stops delivering pointer events to the whole
         // subtree of a disabled button, and the live canvas is inside this one.
         // The delegated handler below keys off dataset.state instead.
-        screen.setAttribute('aria-disabled', 'true');
+        // Not aria-disabled: it announced the live device as unavailable.
+        // Taking it out of the tab order leaves the canvas as the single stop,
+        // which is the thing that actually takes the keys.
+        screen.tabIndex = -1;
         screen.removeAttribute('aria-label');
         hint.hidden = true;
         keys.hidden = false;

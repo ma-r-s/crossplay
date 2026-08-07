@@ -55,7 +55,8 @@ panel:
 - **The network.** `src/http_canned.cpp` replaces `HttpDownloader` and answers
   from `/canned` on the preloaded card. The bodies are real, curled from the
   real endpoints on the day the card was built: the Algolia front page, one
-  story, one article's text, and the last sixty Connections boards. A URL with
+  story and one article's text. Connections fetches its board at runtime and
+  nothing is canned for it, so the daily grid does not work in the browser. A URL with
   no canned answer fails like an unreachable host and logs itself.
 - **Study's font.** `StudyFonts` wants KaiTi at 50pt and 17pt; the 50pt cut is
   5.5MB and the 17pt one is 714KB, so the card ships the small file under both

@@ -1,6 +1,24 @@
 # CrossPoint Reader Development Guide
 
-Project: Open-source e-reader firmware for Xteink X4 (ESP32-C3)
+> ## Read this first: the chip below is not the one this fork builds for
+>
+> Everything in this guide describing an **ESP32-C3, ~380KB of RAM and no
+> PSRAM** is upstream CrossPoint's, and it is accurate for the devices upstream
+> targets: the Xteink X4 and X3.
+>
+> **Crossplay builds one env, `x4pro`, and the X4 Pro is an ESP32-S3**: dual
+> core Xtensa, 16MB flash, 8MB PSRAM (`platformio.ini`, `board_build.mcu =
+> esp32s3`, `-DBOARD_HAS_PSRAM`). The RISC-V alignment section does not apply.
+> The single-framebuffer and heap rules still do, because the display path and
+> the allocation habits are shared and the reader is still the memory-hungry
+> part, but treat every specific number below as upstream's rather than ours.
+>
+> Kept in this shape rather than rewritten because the file merges from
+> upstream. If you are adding a fork-specific rule, put it in
+> [LOCAL_SCOPE.md](../LOCAL_SCOPE.md) or `docs/`, not here.
+
+Project: Open-source e-reader firmware for Xteink X4 (ESP32-C3) upstream; this
+fork targets the Xteink X4 Pro (ESP32-S3) only.
 Mission: Provide a lightweight, high-performance reading experience focused on EPUB rendering on constrained hardware.
 
 > **This is a personal fork.** Games and small tools live in `src/apps_local/`

@@ -37,7 +37,6 @@ std::string cannedPathFor(const std::string& url) {
   // r.jina.ai fronts an arbitrary article; one piece of prose answers for all
   // of them, which is what a demo needs and all it needs.
   if (startsWith(url, "https://r.jina.ai/")) return "/canned/hn-article.txt";
-  if (url.find("NYT-Connections-Answers") != std::string::npos) return "/canned/connections.json";
   return "";
 }
 

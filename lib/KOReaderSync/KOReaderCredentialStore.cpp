@@ -8,6 +8,13 @@ namespace {
 // Default sync server URL. crosspoint-sync speaks the full KOSync protocol, so
 // pointing at any other kosync server (e.g. https://sync.koreader.rocks:443)
 // still works via the custom server URL setting.
+//
+// FORK NOTE: this is upstream's server, running on upstream's infrastructure,
+// and Crossplay inherits it so that flashing this over CrossPoint does not
+// silently orphan someone's existing sync. It is left alone rather than
+// repointed for that reason, but it means reading positions leave this device
+// for a host neither the user nor upstream chose on our behalf, so the site and
+// the README say so out loud rather than leaving it to be discovered here.
 constexpr char DEFAULT_SERVER_URL[] = "https://sync.crosspointreader.com";
 
 // Default before config version 2. Configs saved without a version stamp and an

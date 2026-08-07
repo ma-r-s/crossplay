@@ -274,7 +274,11 @@
     // arrow-key scrolling for the rest of the session once the device booted.
     function hasFocus() {
       var a = document.activeElement;
-      return a === canvas || (a && mount.contains(a));
+      // `a !== mount` matters: mount is the .device-screen button and
+      // Node.contains() returns true for the node itself, so focusing the
+      // button counted as focusing the device and swallowed the arrows again.
+      // The canvas and the on-screen keys are the only things that drive it.
+      return a === canvas || (a !== mount && mount.contains(a));
     }
 
     function keyHandler(down) {

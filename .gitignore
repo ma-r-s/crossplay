@@ -44,3 +44,7 @@ qa-artifacts/
 # Committing it is the cheaper failure mode. If the history size ever becomes
 # the problem, ignore it again and deploy with `cd site && vercel` instead,
 # which uploads the working directory rather than the commit.
+
+# Tool cache. It holds an account id and an email address and has no business
+# in a public repo.
+.cloudflare/

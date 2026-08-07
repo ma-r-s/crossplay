@@ -129,3 +129,10 @@ xkcd comics are by Randall Munroe, [CC BY-NC 2.5](https://xkcd.com/license.html)
 fetched by the device from [xkcd.com](https://xkcd.com). Connections puzzles are
 the New York Times'; Crossplay ships none of them and downloads only what you
 ask for. Type is Jersey 25 and Instrument Serif, both SIL OFL.
+
+Jaipur, Insider, Murdle, Battleship and Connections are trademarks of their respective owners. Crossplay implements the games; it is not affiliated with, endorsed by or sponsored by any of them.
+
+Reading positions sync to CrossPoint's own server by default. That is
+upstream's infrastructure rather than this fork's, inherited so that flashing
+Crossplay over CrossPoint does not orphan an existing sync; the address is a
+setting and can be pointed at any KOSync server.
