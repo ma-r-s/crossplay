@@ -89,6 +89,10 @@ SKIP_SOURCES = {
     # under emcc unchanged. Skipping a source means stubbing every activity
     # that references it, which is almost never the cheaper trade.
     "simulator_main.cpp",
+    # Replaced by src/http_canned.cpp, which answers from files on the card.
+    # Hacker News and the Connections daily are the two apps that look broken
+    # without a network, and the browser build has no sockets.
+    "HttpDownloader.cpp",
 }
 
 # Our own translation units, compiled with the same flags as the rest by
@@ -97,6 +101,7 @@ EXTRA_SOURCES = [
     SRC / "sdl_browser.cpp",
     SRC / "wasm_main.cpp",
     SRC / "link_browser.cpp",
+    SRC / "http_canned.cpp",
 ]
 
 
