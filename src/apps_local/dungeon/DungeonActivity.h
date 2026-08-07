@@ -7,7 +7,7 @@
 #include "DungeonCore.h"
 #include "DungeonScreens.h"
 
-// Dungeons & Diagrams: a nonogram whose clues are a dungeon.
+// D&Diagrams: a nonogram whose clues are a dungeon.
 //
 // Portrait, like everything except Solitaire. The board is a clue lane plus
 // eight 52px cells, which is exactly the width a 480px panel has left after its

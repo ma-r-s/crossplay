@@ -1,6 +1,6 @@
 #pragma once
 
-// Dungeons & Diagrams: the board, and nothing that needs hardware.
+// D&Diagrams: the board, and nothing that needs hardware.
 //
 // No Arduino, no renderer, no heap -- so host-tests/dungeon/ can run the whole
 // thing on a laptop. See docs/building-apps.md; every app in this fork is split

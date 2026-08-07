@@ -1,6 +1,6 @@
 # The dungeon bank
 
-Where the puzzles in Dungeons & Diagrams came from, and why they can be trusted.
+Where the puzzles in D&Diagrams came from, and why they can be trusted.
 
 The short version: 65 puzzles, transcribed by other people, cross-checked
 against a second independent transcription, and every one solved exhaustively to

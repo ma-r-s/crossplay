@@ -68,7 +68,7 @@ unreadable  = eye-off
 # (memory is the mechanism too, and it is mush at 32px).
 study       = languages
 
-# Dungeons & Diagrams. A folded map is the only silhouette on the shelf built
+# D&Diagrams. A folded map is the only silhouette on the shelf built
 # from a zigzag, so it cannot be confused with the crown, hull, grid, suit,
 # joystick, newspaper or letterforms already there -- and the game is literally
 # the drawing of one.

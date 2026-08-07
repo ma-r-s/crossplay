@@ -414,7 +414,7 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model, Layout& layout)
   // band: the band holds one line of a display cut sized for six or seven
   // characters, and "THE DAIS OF THE SUN GOD" came out as "THE DAIS OF TH"
   // with no ellipsis and nothing to say it had been cut.
-  chrome(screen, "DUNGEONS", progress);
+  chrome(screen, "D&DIAGRAMS", progress);
   screen.insetContent(fui::Insets{toybox::kGutter, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 
   const fui::Rect actions = screen.takeBottom(toybox::kPillHeight, toybox::kGutter);
@@ -514,7 +514,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model, PickerLayout& lay
   layout = PickerLayout{};
   char progress[12];
   std::snprintf(progress, sizeof(progress), "%d/%d", model.solvedCount, model.total);
-  chrome(screen, "DUNGEONS", progress);
+  chrome(screen, "D&DIAGRAMS", progress);
   screen.insetContent(fui::Insets{toybox::kGutter, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 
   fui::TextStyle label;
