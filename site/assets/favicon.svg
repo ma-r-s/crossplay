@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Crossplay">
+  <title>Crossplay</title>
+  <!--
+    The same mark as logo.svg, with the colour resolved rather than inherited.
+    A favicon renders on its own, so currentColor would come out black and
+    vanish against a dark tab strip; logo.svg keeps currentColor because it is
+    inlined in the page and has to follow the theme toggle. Two files, one shape.
+    Change one and change the other.
+  -->
+  <style>
+    :root { color: #111110 }
+    @media (prefers-color-scheme: dark) { :root { color: #faf9f6 } }
+  </style>
+  <mask id="gap">
+    <rect width="32" height="32" fill="white" />
+    <rect x="9.6" y="0" width="22.4" height="24" rx="4.4" fill="black" />
+  </mask>
+  <g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round">
+    <rect x="2.8" y="8.6" width="15.4" height="20.6" rx="2.4" mask="url(#gap)" />
+    <rect x="11.6" y="2.2" width="18.6" height="19.6" rx="3" />
+  </g>
+  <rect x="13" y="3.6" width="15.8" height="5.6" rx="1.6" fill="currentColor" />
+</svg>

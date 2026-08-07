@@ -17,7 +17,7 @@
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="stylesheet" href="styles.css">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23111'/><rect x='6' y='9' width='20' height='14' fill='%23fff'/></svg>">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -27,7 +27,22 @@
      rather than a floating chip because the section headings run to the left
      edge and a chip would sit on top of them. -->
 <div class="topbar">
-  <a class="wordmark" href="#top">Crossplay</a>
+  <a class="wordmark" href="#top">
+    <!-- Inlined rather than <img> so the mark follows currentColor, and so the
+         theme toggle moves it too. Same shape as assets/favicon.svg. -->
+    <svg class="mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+      <mask id="markGap">
+        <rect width="32" height="32" fill="white" />
+        <rect x="9.6" y="0" width="22.4" height="24" rx="4.4" fill="black" />
+      </mask>
+      <g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round">
+        <rect x="2.8" y="8.6" width="15.4" height="20.6" rx="2.4" mask="url(#markGap)" />
+        <rect x="11.6" y="2.2" width="18.6" height="19.6" rx="3" />
+      </g>
+      <rect x="13" y="3.6" width="15.8" height="5.6" rx="1.6" fill="currentColor" />
+    </svg>
+    <span>Crossplay</span>
+  </a>
   <span class="topbar-note">Xteink X4 Pro</span>
 </div>
 

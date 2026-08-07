@@ -253,12 +253,21 @@ section.tight {
   border-bottom: 1px solid var(--edge);
 }
 .wordmark {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   font-family: var(--display);
   font-size: 1.4rem;
   letter-spacing: 0.02em;
   line-height: 1;
   color: var(--ink);
   text-decoration: none;
+}
+.mark {
+  width: 1.45rem;
+  height: 1.45rem;
+  flex: none;
+  display: block;
 }
 .topbar-note {
   font-family: var(--mono);
