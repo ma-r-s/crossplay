@@ -3,12 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Crossplay — the screen holds still while you think</title>
-<meta name="description" content="A fork of CrossPoint for the Xteink X4 Pro. Eight games and three apps built for a screen that waits, two devices that play together with nothing to set up, and the whole thing playable in your browser.">
+<title>Crossplay · the screen holds still while you think</title>
+<meta name="description" content="A fork of CrossPoint for the Xteink X4 Pro. Eight games and three apps built for a screen that waits, and two devices that play together with nothing to set up.">
 <meta property="og:title" content="Crossplay">
-<meta property="og:description" content="A fork of CrossPoint that turns the Xteink X4 Pro into a device you do things on. Playable in your browser.">
+<meta property="og:description" content="A fork of CrossPoint that turns the Xteink X4 Pro into a device you do things on.">
 <meta property="og:type" content="website">
-<meta property="og:image" content="assets/shots/og.png">
+<!-- og:image must be an ABSOLUTE url or no unfurl resolves it. Set the host
+     here and in og:url the first time this deploys to its real domain. -->
+<meta property="og:image" content="/assets/shots/og.png">
+<meta property="og:image:alt" content="The Crossplay wordmark beside the device showing its Games shelf.">
+<meta property="og:site_name" content="Crossplay">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
@@ -86,7 +90,7 @@
       <div class="bracket">
         <figure>
           <img class="shot" src="assets/shots/chess.png" width="480" height="800" loading="lazy" decoding="async"
-               alt="A chess board mid-game on the device, pieces drawn in black on dithered squares, the move list reading 1. f4 d6 underneath and a black status bar reading WHITE TO MOVE.">
+               alt="A chess board mid-game on the device, pieces drawn in black on dithered squares, a move list reading 1. f4 d6, 2. e3 Nf6 underneath and a black status bar reading BLACK TO MOVE.">
           <figcaption>Chess · so does the position</figcaption>
         </figure>
       </div>
@@ -114,7 +118,7 @@
   <div class="shelf">
 
     <article class="card">
-      <div class="shot-wrap"><img class="shot" src="assets/shots/chess.png" width="480" height="800" loading="lazy" decoding="async" alt="Chess board mid-game with the move list and a WHITE TO MOVE status bar."></div>
+      <div class="shot-wrap"><img class="shot" src="assets/shots/chess.png" width="480" height="800" loading="lazy" decoding="async" alt="A chess board a few moves in, knight and pawns developed, with the move list below and a BLACK TO MOVE status bar."></div>
       <span class="tag">Game · plays nearby</span>
       <h3>Chess</h3>
       <p>A full engine on the device, or a board between two of them. Pick up exactly where the position was left.</p>
@@ -229,19 +233,19 @@
   </div>
 
   <div class="trio">
-    <figure class="bracket">
-      <img class="shot" src="assets/shots/link-search.png" width="480" height="800" loading="lazy" decoding="async"
-           alt="A screen headed LOOKING FOR A PLAYER with a radio icon. Two seats are listed: the first shows a drawn face beside YOU and the word READY, the second shows a blank head beside four dashes and the word LOOKING.">
-      <figcaption>1 · One taps play nearby</figcaption>
+    <figure>
+      <span class="bracket"><img class="shot" src="assets/shots/link-search.png" width="480" height="800" loading="lazy" decoding="async"
+           alt="A screen headed LOOKING FOR A PLAYER with a radio icon. Two seats are listed: the first shows a drawn face beside YOU and the word READY, the second shows a blank head beside four dashes and the word LOOKING."></span>
+      <figcaption>1 · Someone taps play nearby</figcaption>
     </figure>
-    <figure class="bracket">
-      <img class="shot" src="assets/shots/link-a.png" width="480" height="800" loading="lazy" decoding="async"
-           alt="A chess board on the first device with a drawn face in the corner and a status bar reading YOUR MOVE.">
-      <figcaption>2 · Your board, your move</figcaption>
+    <figure>
+      <span class="bracket"><img class="shot" src="assets/shots/link-a.png" width="480" height="800" loading="lazy" decoding="async"
+           alt="A chess game in progress on the first device: knights developed, a move list reading 1. d4 Nc6, 2. Nf3 Nb4, a drawn face in the corner and a status bar reading YOUR MOVE."></span>
+      <figcaption>2 · Your board, mid-game</figcaption>
     </figure>
-    <figure class="bracket">
-      <img class="shot" src="assets/shots/link-b.png" width="480" height="800" loading="lazy" decoding="async"
-           alt="The same chess game on the second device, seen from the other side of the board, with a different drawn face in the corner and a status bar reading BALD'S MOVE.">
+    <figure>
+      <span class="bracket"><img class="shot" src="assets/shots/link-b.png" width="480" height="800" loading="lazy" decoding="async"
+           alt="The same game on the second device, seen from the other side of the board with the pieces mirrored, the same move list, a different drawn face and a status bar reading SLICK'S MOVE."></span>
       <figcaption>3 · Their board, from their side</figcaption>
     </figure>
   </div>
@@ -276,7 +280,7 @@
         <button type="button" class="facer-slot" data-slot="mouth"><span class="facer-slot-k">Mouth</span><span class="facer-slot-v" id="v-mouth"></span></button>
       </div>
       <button type="button" class="btn facer-roll" id="facerRoll">Roll a new one</button>
-      <p class="facer-note">2,744 faces. Tap a word to change it. Nothing is stored and nothing is sent: the other device redraws you from the three words its radio already carried.</p>
+      <p class="facer-note">2,744 faces. Tap a word to change it.</p>
     </div>
   </div>
 </section>
@@ -302,24 +306,24 @@
       </thead>
       <tbody>
         <tr>
-          <th scope="row">FreeInk</th>
-          <td>The SDK and the open hardware under all of it. One firmware API, many e-paper devices.</td>
-          <td>The floor Crossplay stands on.</td>
+          <th scope="row"><a href="https://freeink.org/">FreeInk</a></th>
+          <td data-label="Aiming at">The SDK and the open hardware under all of it. One firmware API, many e-paper devices.</td>
+          <td data-label="Relationship">The floor Crossplay stands on.</td>
         </tr>
         <tr>
-          <th scope="row">CrossPoint</th>
-          <td>The open e-reader these devices are built around. Typography, sync, fonts, thirty languages.</td>
-          <td>The base. Merged in weekly.</td>
+          <th scope="row"><a href="https://crosspointreader.com/">CrossPoint</a></th>
+          <td data-label="Aiming at">The open e-reader these devices are built around. Typography, sync, fonts, thirty languages.</td>
+          <td data-label="Relationship">The base. Merged in weekly.</td>
         </tr>
         <tr>
-          <th scope="row">CrossMux</th>
-          <td>CrossPoint reading, refined for CJK, with a first-class Simplified Chinese build.</td>
-          <td>A sibling fork, aimed at readers.</td>
+          <th scope="row"><a href="https://crossmux.com/">CrossMux</a></th>
+          <td data-label="Aiming at">CrossPoint reading, refined for CJK, with a first-class Simplified Chinese build.</td>
+          <td data-label="Relationship">A sibling fork, aimed at readers.</td>
         </tr>
         <tr>
           <th scope="row">Crossplay</th>
-          <td>Somewhere to spend a still half-hour. Games, study, comics, and two devices that play together.</td>
-          <td>This one. X4 Pro only.</td>
+          <td data-label="Aiming at">Somewhere to spend a still half-hour. Games, study, comics, and two devices that play together.</td>
+          <td data-label="Relationship">This one. X4 Pro only.</td>
         </tr>
       </tbody>
     </table>
@@ -342,7 +346,7 @@
       <ol class="steps">
         <li><strong>Check your device.</strong> Crossplay targets the <strong>Xteink X4 Pro</strong> only. For every other supported device, CrossPoint upstream is the right answer and is excellent.</li>
         <li><strong>Keep your books.</strong> Flashing replaces the firmware, not the SD card. Your library, your reading positions and your fonts are files on that card and are left alone.</li>
-        <li><strong>Download the latest release</strong> and flash it the same way you flashed CrossPoint.</li>
+        <li><strong>Download the latest release</strong> and flash it exactly the way you flashed CrossPoint — the same web flasher works, over USB, from Chrome or Edge. <a href="https://crosspointreader.com/">CrossPoint’s flasher</a> is the one to use.</li>
         <li><strong>You can go back.</strong> Flashing stock CrossPoint over the top returns the device exactly to where it was.</li>
       </ol>
       <div class="cta-row">

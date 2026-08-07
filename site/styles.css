@@ -746,6 +746,7 @@ figcaption,
 }
 .facer-face {
   background: #fff;
+  color: #111110;
   border: 1px solid var(--edge);
   padding: 8%;
 }
@@ -811,4 +812,101 @@ figcaption,
   font-size: 0.9rem;
   color: var(--muted);
   max-width: 48ch;
+}
+
+
+/* --- second-pass fixes ---------------------------------------------------- */
+
+/* The bracket is an inline wrapper when it frames only a panel, so it needs to
+ * be a block to have a box at all. Previously it wrapped the whole <figure>
+ * and its bottom-right mark hung below the caption like a stray glyph. */
+.trio .bracket {
+  display: block;
+}
+
+/* In dark mode a shot's own black header band is the page background, so every
+ * panel looked decapitated -- three floating "CHESS" words with no top edge.
+ * The panel is always light, so its border has to be too. */
+@media (prefers-color-scheme: dark) {
+  .shot {
+    border-color: #cfcbbe;
+  }
+}
+:root[data-theme="dark"] .shot {
+  border-color: #cfcbbe;
+}
+:root[data-theme="light"] .shot {
+  border-color: var(--edge);
+}
+
+/* The face is the device's own art at a size the device never draws it; at
+ * ~500px the 1-bit strokes read as a blob and it competes with the
+ * screenshots, which identity.md says are the artwork. */
+.facer {
+  grid-template-columns: 180px minmax(0, 1fr);
+  align-items: start;
+}
+.facer-face {
+  max-width: 180px;
+}
+@media (max-width: 720px) {
+  .facer {
+    grid-template-columns: 1fr;
+  }
+  .facer-face {
+    max-width: 150px;
+  }
+}
+
+/* The comparison table is the one artefact that answers "which fork do I
+ * want", and at 340px it scrolled a 580px table with no cue: the whole
+ * Relationship column was invisible. Stack each row instead. */
+@media (max-width: 720px) {
+  table,
+  tbody,
+  tr,
+  td,
+  th {
+    display: block;
+  }
+  thead {
+    display: none;
+  }
+  table {
+    min-width: 0;
+  }
+  tbody tr {
+    border-bottom: 3px solid var(--ink);
+    padding-bottom: 1rem;
+    margin-bottom: 1rem;
+  }
+  tbody th {
+    padding: 0 0 0.3rem;
+    border: 0;
+  }
+  tbody td {
+    padding: 0 0 0.5rem;
+    border: 0;
+  }
+  tbody td::before {
+    content: attr(data-label);
+    display: block;
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 0.15rem;
+  }
+  .table-scroll {
+    overflow-x: visible;
+  }
+}
+
+/* "fig 1 · why a still screen" earns nothing on a phone, and wrapping it made
+ * four of five bands 101px tall against one at 60px. */
+@media (max-width: 560px) {
+  .band .band-note {
+    display: none;
+  }
 }
