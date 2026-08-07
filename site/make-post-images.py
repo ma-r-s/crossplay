@@ -22,6 +22,11 @@ What each one is for
                         reply with. PLAY NEARBY is the part people ask about and
                         it is the hardest to believe from a description, so this
                         is the two devices mid-match.
+* shelf-two-1080x1350.png
+                        The third in the gallery, same shape as the first and
+                        carrying the apps it has no room for. Eleven apps do not
+                        fit in six panels, and an app nobody sees may as well
+                        not ship. Together the two shelves show each app once.
 * card-1200x630.png     For anywhere that unfurls a link. Hacker News itself
                         shows no image at all, so this is not for the HN page:
                         it is what appears when the URL is pasted into Slack,
@@ -96,6 +101,38 @@ SHELF = (
 """
 )
 
+# The other six. A Reddit gallery is swiped, not read, so the third panel is the
+# same shape as the first and carries the apps SHELF has no room for: between
+# them the two cover everything, with no app shown twice.
+SHELF_TWO = (
+    BASE
+    + """
+<style>
+  body{width:1080px;height:1350px}
+  .band{font-size:52px;padding:22px 34px 16px}
+  .grid{grid-template-columns:repeat(3,1fr);gap:18px;padding:26px 34px}
+  /* Solitaire is the one landscape app, so it is shorter than everything
+     beside it. Centring in the cell makes that read as a deliberate pause
+     rather than a panel that failed to load. */
+  .grid img{align-self:center}
+  .foot{position:relative;z-index:1;padding:6px 34px 0;
+        font:14px/1.5 ui-monospace,Menlo,monospace;letter-spacing:.14em;
+        text-transform:uppercase;color:#46443c;display:flex;justify-content:space-between}
+</style>
+<div class="band"><div class="wm">"""
+    + (MARK % (46, 46))
+    + """<span>Crossplay</span></div>
+  <span class="note">Xteink X4 Pro</span></div>
+<div class="grid">
+  <img src="../shots/battleship.png"><img src="../shots/connections.png">
+  <img src="../shots/solitaire.png"><img src="../shots/insider.png">
+  <img src="../shots/hackernews.png"><img src="../shots/home.png">
+</div>
+<div class="foot"><span>Open firmware &middot; no app store &middot; no account</span>
+  <span>crossplay.ma-r-s.com</span></div>
+"""
+)
+
 NEARBY = (
     BASE
     + """
@@ -151,6 +188,7 @@ CARD = (
 
 JOBS = [
     ("shelf-1080x1350.png", SHELF, 1080, 1350),
+    ("shelf-two-1080x1350.png", SHELF_TWO, 1080, 1350),
     ("nearby-1200x790.png", NEARBY, 1200, 790),
     ("card-1200x630.png", CARD, 1200, 630),
 ]
