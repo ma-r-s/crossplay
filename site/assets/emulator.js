@@ -19,6 +19,53 @@
   var PANEL_W = 800;
   var PANEL_H = 480;
 
+  // The radio, standing in for a room.
+  //
+  // On the device PLAY NEARBY is ESP-NOW; in Mario's simulator it is UDP on
+  // loopback. Two instances in one page are two WebAssembly memories, so the
+  // only thing that can carry a packet between them is this. Slot numbers match
+  // the loopback transport's port range, so "lower address wins" still means
+  // "whoever started first" and host election behaves the same in all three.
+  var SLOTS = 8;
+  // On globalThis rather than on the module: link_browser.cpp reaches this from
+  // a MAIN_THREAD_EM_ASM snippet, which runs proxied on the main thread where
+  // `Module` does not resolve to the calling instance.
+  var radio = (globalThis.crossplayRadio = {
+    taken: [],
+    seats: {},
+    register: function (id, seat) {
+      radio.seats[id] = seat;
+    },
+    claim: function (id) {
+      var seat = radio.seats[id];
+      if (!seat) return -1;
+      for (var i = 0; i < SLOTS; i++) {
+        if (!radio.taken[i]) {
+          radio.taken[i] = seat;
+          return i;
+        }
+      }
+      return -1;
+    },
+    release: function (slot) {
+      radio.taken[slot] = null;
+    },
+    // to === -1 is a broadcast: everyone but the sender, which is what the
+    // loopback transport does by looping over the port range.
+    send: function (from, to, bytes) {
+      for (var i = 0; i < SLOTS; i++) {
+        var peer = radio.taken[i];
+        if (!peer || i === from) continue;
+        if (to >= 0 && to !== i) continue;
+        // Copied into the peer's own heap. `bytes` is a view of the sender's,
+        // and the two modules share nothing but this function.
+        peer.module.HEAPU8.set(bytes, peer.inbox);
+        peer.deliver(from, bytes.length);
+      }
+    },
+  });
+  var nextInstanceId = 0;
+
   // Scancodes, matching HalGPIO's own table. Kept here rather than as button
   // indices so the firmware's remapping stays the only thing that decides what
   // a button does.
@@ -151,7 +198,7 @@
     }
 
     function frame() {
-      if (consumeDirty && consumeDirty()) paint();
+      if (visible && consumeDirty && consumeDirty()) paint();
       requestAnimationFrame(frame);
     }
 
@@ -168,6 +215,10 @@
         Math.round((cy - box.y) / box.scale),
       ];
     }
+
+    // Paused instances keep running the firmware but stop being drawn, which is
+    // the whole cost of a second device the page is not showing.
+    var visible = true;
 
     var pointerId = null;
     canvas.addEventListener("pointerdown", function (e) {
@@ -249,6 +300,34 @@
           locateFile: function (path) {
             return "emulator/" + path;
           },
+          // Both instances mount the same preloaded card, so both would name
+          // themselves the same thing and PLAY NEARBY would show you two
+          // identical faces. Overwriting one file is enough, and it keeps the
+          // card itself single-copy.
+          //
+          // postRun, not preRun: --preload-file mounts the card in a preRun of
+          // its own, and creating /fs_ before it gets there makes that mount
+          // fail with an ErrnoError nothing catches. postRun lands after the
+          // card is up and after main() has started the firmware worker, which
+          // is still long before anything asks who this device is -- the name
+          // is read lazily, first by the shelf footer.
+          postRun: options.name
+            ? [
+                function (mod) {
+                  try {
+                    mod.FS.writeFile(
+                      "/fs_/.crosspoint/player.cfg",
+                      new TextEncoder().encode(options.name + "\n"),
+                    );
+                  } catch (e) {
+                    console.warn(
+                      "[device] could not name it:",
+                      (e && (e.message || e.errno)) || e,
+                    );
+                  }
+                },
+              ]
+            : [],
           print: function (t) {
             console.log("[device]", t);
           },
@@ -267,6 +346,20 @@
               "number",
             ]);
             injectKey = mod.cwrap("crossplay_key", null, ["number", "number"]);
+
+            // Hand this instance its end of the radio. link_browser.cpp finds
+            // the router on globalThis and identifies itself by this id.
+            var id = nextInstanceId++;
+            radio.register(id, {
+              module: mod,
+              inbox: mod.cwrap("crossplay_link_inbox", "number", [])(),
+              deliver: mod.cwrap("crossplay_link_deliver", null, [
+                "number",
+                "number",
+              ]),
+            });
+            mod.cwrap("crossplay_link_bind", null, ["number"])(id);
+
             sizeCanvas();
             requestAnimationFrame(frame);
             resolve({

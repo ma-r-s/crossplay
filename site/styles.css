@@ -660,6 +660,61 @@ button:focus-visible {
   margin-top: clamp(2.5rem, 5vw, 3.5rem);
 }
 
+/* --- the device stage ----------------------------------------------------
+ * One device, or two of them playing against each other. Asking for two takes
+ * the hero's full width and drops the copy: at that point the page has stopped
+ * arguing and started demonstrating, and two panels big enough to play on are
+ * worth more than a headline nobody is reading any more.
+ */
+.device-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.9rem;
+  justify-self: center;
+}
+.device-row {
+  display: flex;
+  gap: clamp(0.8rem, 2vw, 1.6rem);
+  align-items: flex-start;
+  justify-content: center;
+}
+.players {
+  display: flex;
+  gap: 0.4rem;
+}
+.players button {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--edge);
+  padding: 0.4em 0.9em;
+  cursor: pointer;
+}
+.players button[aria-pressed="true"] {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+.hero.two-up .hero-text {
+  display: none;
+}
+.hero.two-up .hero-grid {
+  grid-template-columns: 1fr;
+}
+/* Two panels side by side need the height back that one panel did not. */
+.hero.two-up .device-screen {
+  height: min(58svh, 560px);
+}
+@media (max-width: 860px) {
+  .device-row {
+    flex-wrap: wrap;
+  }
+}
+
 /* --- the device ----------------------------------------------------------
  * A screenshot that becomes the running firmware in place. The box is sized
  * once and never resized: an app that flips to landscape letterboxes inside it
@@ -687,7 +742,7 @@ button:focus-visible {
   height: min(64svh, 620px);
   max-width: 100%;
 }
-.device-screen:disabled {
+.device-screen[aria-disabled="true"] {
   cursor: default;
 }
 .device-screen .shot,
@@ -716,8 +771,11 @@ button:focus-visible {
 .device-screen:focus-visible::after {
   background: rgba(17, 17, 16, 0.08);
 }
-.is-live .device-screen::after,
-.is-booting .device-screen::after {
+/* The tint is a pseudo-element laid over the whole screen, so once the canvas
+ * is under there it would swallow every tap. Keyed off the same data-state the
+ * script sets, because a stale class name here is invisible: the device renders
+ * perfectly and simply never responds. */
+.device[data-state] .device-screen::after {
   display: none;
 }
 /* Hint and key row share one fixed-height slot so swapping the prompt for the

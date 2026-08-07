@@ -236,6 +236,18 @@ bool Radio::receive(Address& from, uint8_t* buffer, const size_t capacity, size_
   }
 }
 
+#elif defined(__EMSCRIPTEN__)
+
+// The browser build has no sockets worth the name, and two instances of it are
+// two WebAssembly modules with separate memories that only JavaScript can pass
+// bytes between. Radio's four methods are therefore defined in
+// tools_local/wasm/src/link_browser.cpp instead of here, and nothing about that
+// belongs in the firmware: it is the website's simulator, not the device.
+//
+// The receive ring above is shared with both real implementations, which is the
+// whole reason this is a branch rather than a fourth Transport -- a browser
+// packet arrives through enqueueFromCallback() exactly as an ESP-NOW one does.
+
 #else
 
 // ---------------------------------------------------------------------------

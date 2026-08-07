@@ -66,21 +66,32 @@
     </div>
 
     <!-- The device. It starts as a screenshot and becomes the running firmware
-         in the same box, at the same size, so nothing on the page moves. -->
-    <div class="device" id="device">
-      <button class="device-screen" id="deviceStart" type="button"
-              aria-label="Start the device and run it here in the page">
-        <img class="shot" id="devicePoster" src="assets/shots/games.png" width="480" height="800"
-             alt="The Games folder on the device: a black GAMES header band above outlined rows reading CHESS, BATTLESHIP, CONNECTIONS, SOLITAIRE, D&amp;DIAGRAMS, INSIDER, JAIPUR and MURDLE, each with a small icon. A footer bar shows the device's name, Mop Specs Grin, beside a drawn face. No row is highlighted.">
-      </button>
-      <p class="device-hint" id="deviceHint">Click the screen to try it</p>
-      <div class="device-keys" id="deviceKeys" hidden>
-        <button type="button" data-key="back">Back</button>
-        <button type="button" data-key="ok">OK</button>
-        <button type="button" data-key="up" aria-label="Up">&uarr;</button>
-        <button type="button" data-key="down" aria-label="Down">&darr;</button>
-        <button type="button" data-key="left" aria-label="Left">&larr;</button>
-        <button type="button" data-key="right" aria-label="Right">&rarr;</button>
+         in the same box, at the same size, so nothing on the page moves.
+         Asking for a second one clones this element, boots another instance,
+         and the two find each other over PLAY NEARBY exactly as two devices on
+         a table would. -->
+    <div class="device-stage" id="stage">
+      <div class="players" id="players" role="group" aria-label="How many devices">
+        <button type="button" data-players="1" aria-pressed="true">1 player</button>
+        <button type="button" data-players="2" aria-pressed="false">2 players</button>
+      </div>
+      <div class="device-row" id="deviceRow">
+        <div class="device">
+          <button class="device-screen" type="button"
+                  aria-label="Start the device and run it here in the page">
+            <img class="shot" src="assets/shots/games.png" width="480" height="800"
+                 alt="The Games folder on the device: a black GAMES header band above outlined rows reading CHESS, BATTLESHIP, CONNECTIONS, SOLITAIRE, D&amp;DIAGRAMS, INSIDER, JAIPUR and MURDLE, each with a small icon. A footer bar shows the device's name, Mop Specs Grin, beside a drawn face. No row is highlighted.">
+          </button>
+          <p class="device-hint">Click the screen to try it</p>
+          <div class="device-keys" hidden>
+            <button type="button" data-key="back">Back</button>
+            <button type="button" data-key="ok">OK</button>
+            <button type="button" data-key="up" aria-label="Up">&uarr;</button>
+            <button type="button" data-key="down" aria-label="Down">&darr;</button>
+            <button type="button" data-key="left" aria-label="Left">&larr;</button>
+            <button type="button" data-key="right" aria-label="Right">&rarr;</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -383,44 +394,93 @@
   // Click the screenshot and it becomes the device, in place. The module and
   // its card are 9MB, so nothing is fetched until someone asks for it; the
   // poster stays until the first real frame paints, so the box never blinks.
-  var device = document.getElementById('device');
-  var start = document.getElementById('deviceStart');
-  var hint = document.getElementById('deviceHint');
-  var keys = document.getElementById('deviceKeys');
-  var booting = false;
+  var hero = document.querySelector('.hero');
+  var row = document.getElementById('deviceRow');
+  var players = document.getElementById('players');
+  // Captured before anything boots, so a second device starts from the same
+  // markup rather than from a clone of a running one.
+  var blank = row.firstElementChild.cloneNode(true);
+  var running = [];
 
-  function bootDevice() {
-    if (booting) return;
-    booting = true;
-    device.classList.add('is-booting');
+  function bootDevice(device) {
+    if (device.dataset.state) return Promise.resolve(null);
+    device.dataset.state = 'booting';
+    var screen = device.querySelector('.device-screen');
+    var hint = device.querySelector('.device-hint');
+    var keys = device.querySelector('.device-keys');
     hint.textContent = 'Starting the device';
-    window.Crossplay.boot(start, {
+    return window.Crossplay.boot(screen, {
+      // The second device gets a name of its own, so the two faces on the
+      // PLAY NEARBY screen are the two devices rather than one twice.
+      name: device.dataset.name,
       onFirstFrame: function () {
-        device.classList.remove('is-booting');
-        device.classList.add('is-live');
+        device.dataset.state = 'live';
         // The poster has done its job; drop it rather than leave a second copy
         // of the panel stacked under a live one.
-        var poster = document.getElementById('devicePoster');
+        var poster = device.querySelector('img.shot');
         if (poster) poster.remove();
-        start.disabled = true;
-        start.removeAttribute('aria-label');
+        // NOT `disabled`: Chrome stops delivering pointer events to the whole
+        // subtree of a disabled button, and the live canvas is inside this one.
+        // The delegated handler below keys off dataset.state instead.
+        screen.setAttribute('aria-disabled', 'true');
+        screen.removeAttribute('aria-label');
         hint.hidden = true;
         keys.hidden = false;
       },
     })
-      .then(function (running) {
+      .then(function (instance) {
         keys.querySelectorAll('button').forEach(function (b) {
-          running.bindButton(b, running.scancodes[b.dataset.key]);
+          instance.bindButton(b, instance.scancodes[b.dataset.key]);
         });
+        running.push(instance);
+        return instance;
       })
       .catch(function (e) {
-        device.classList.remove('is-booting');
-        booting = false;
+        delete device.dataset.state;
         hint.textContent = String(e.message || e);
         console.error(e);
       });
   }
-  if (start && window.Crossplay) start.addEventListener('click', bootDevice);
+
+  row.addEventListener('click', function (e) {
+    var screen = e.target.closest('.device-screen');
+    if (!screen) return;
+    var device = screen.closest('.device');
+    if (!device.dataset.state) bootDevice(device);
+  });
+
+  function setPlayers(count) {
+    players.querySelectorAll('button').forEach(function (b) {
+      b.setAttribute('aria-pressed', String(Number(b.dataset.players) === count));
+    });
+    hero.classList.toggle('two-up', count === 2);
+    var second = row.children[1];
+    if (count === 2 && !second) {
+      second = blank.cloneNode(true);
+      second.dataset.name = 'BUN WINK FANGS';
+      row.appendChild(second);
+    }
+    if (!second) return;
+    second.hidden = count === 1;
+    // Both devices boot together: the second one exists to be played against,
+    // and making someone click two screenshots to get there is a step with no
+    // decision in it.
+    if (count === 2) {
+      bootDevice(row.children[0]);
+      bootDevice(second);
+    }
+    // A hidden instance keeps running the firmware -- there is no clean way to
+    // tear a wasm module down -- but stops being drawn, which is the whole
+    // cost of it.
+    running.forEach(function (i, index) {
+      i.setVisible(count === 2 || index === 0);
+    });
+  }
+
+  players.addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-players]');
+    if (b && window.Crossplay) setPlayers(Number(b.dataset.players));
+  });
 
   // The face-and-name generator. Same word lists and same art the firmware
   // uses (see tools_local/gen_avatar_web.py), so this is the device's own

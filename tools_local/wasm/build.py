@@ -93,7 +93,11 @@ SKIP_SOURCES = {
 
 # Our own translation units, compiled with the same flags as the rest by
 # borrowing the first entry's command line.
-EXTRA_SOURCES = [SRC / "sdl_browser.cpp", SRC / "wasm_main.cpp"]
+EXTRA_SOURCES = [
+    SRC / "sdl_browser.cpp",
+    SRC / "wasm_main.cpp",
+    SRC / "link_browser.cpp",
+]
 
 
 def load_entries():
@@ -246,6 +250,10 @@ def main():
         "_crossplay_consume_dirty",
         "_crossplay_touch",
         "_crossplay_key",
+        "_crossplay_link_bind",
+        "_crossplay_link_inbox",
+        "_crossplay_link_inbox_size",
+        "_crossplay_link_deliver",
     ]
     link = [
         "em++",
