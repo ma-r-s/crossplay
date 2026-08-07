@@ -37,8 +37,8 @@
   --ink: #111110;
   --paper: #faf9f6;
   --paper-2: #f0efea;
-  --edge: #d8d6ce;
-  --muted: #56544d;
+  --edge: #b9b5a8;
+  --muted: #4a483f;
   --display: "Jersey 25", "Arial Narrow", sans-serif;
   --serif: "Instrument Serif", Georgia, serif;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
@@ -54,23 +54,23 @@
     --ink: #f2f1ec;
     --paper: #100f0e;
     --paper-2: #1a1917;
-    --edge: #34322c;
-    --muted: #a3a096;
+    --edge: #4a473f;
+    --muted: #b0ada2;
   }
 }
 :root[data-theme="dark"] {
   --ink: #f2f1ec;
   --paper: #100f0e;
   --paper-2: #1a1917;
-  --edge: #34322c;
-  --muted: #a3a096;
+  --edge: #4a473f;
+  --muted: #b0ada2;
 }
 :root[data-theme="light"] {
   --ink: #111110;
   --paper: #faf9f6;
   --paper-2: #f0efea;
-  --edge: #d8d6ce;
-  --muted: #56544d;
+  --edge: #b9b5a8;
+  --muted: #4a483f;
 }
 
 * {
@@ -99,8 +99,8 @@ body {
  * it marks sections here.
  */
 .band {
-  background: var(--ink);
-  color: var(--paper);
+  background: #111110;
+  color: #faf9f6;
   font-family: var(--display);
   font-size: clamp(1.6rem, 5vw, 2.6rem);
   letter-spacing: 0.02em;
@@ -143,7 +143,8 @@ body {
 
 h1,
 h2,
-h3 {
+h3,
+.hed {
   font-weight: 400;
   margin: 0;
 }
@@ -154,11 +155,24 @@ h1 {
   line-height: 0.94;
   letter-spacing: -0.005em;
 }
-h2 {
+/* The band label is the section's real heading: scannable, and it gives each
+ * <section> an accessible name. The aphorism under it keeps the display size. */
+.band h2 {
+  font-family: var(--display);
+  font-size: clamp(1.6rem, 5vw, 2.6rem);
+  letter-spacing: 0.02em;
+  font-weight: 400;
+  margin: 0;
+}
+.hed {
   font-family: var(--display);
   font-size: clamp(2rem, 5.5vw, 3.4rem);
   line-height: 1.02;
-  margin-bottom: 0.6rem;
+  margin: 0 0 0.6rem;
+}
+.hed.small {
+  font-size: clamp(1.5rem, 3.4vw, 2.2rem);
+  margin-top: 2.5rem;
 }
 h3 {
   font-family: var(--display);
@@ -223,6 +237,7 @@ section.tight {
 /* --- hero ----------------------------------------------------------------- */
 .hero {
   padding-top: clamp(2.5rem, 7vw, 5rem);
+  padding-bottom: clamp(3rem, 6vw, 5rem);
 }
 .hero-grid {
   display: grid;
@@ -283,7 +298,6 @@ section.tight {
   display: block;
   width: 100%;
   height: auto;
-  image-rendering: pixelated; /* native panel pixels; never blur them */
   background: #fff;
   border: 1px solid var(--edge);
 }
@@ -343,12 +357,12 @@ figcaption {
  * them into a portrait well shrinks them to illegibility, so they take two
  * columns and their own ratio instead -- the app shown at the shape it is.
  * Only above the breakpoint where the grid has two columns to give. */
+.card.wide .shot-wrap {
+  aspect-ratio: 800 / 480;
+}
 @media (min-width: 720px) {
   .card.wide {
     grid-column: span 2;
-  }
-  .card.wide .shot-wrap {
-    aspect-ratio: 800 / 480;
   }
 }
 .card h3 {
@@ -360,7 +374,7 @@ figcaption {
   color: var(--muted);
   line-height: 1.5;
 }
-.card .tag {
+.tag {
   font-family: var(--mono);
   font-size: 0.62rem;
   letter-spacing: 0.12em;
@@ -377,6 +391,9 @@ figcaption {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: clamp(2rem, 6vw, 4.5rem);
   align-items: center;
+}
+.split.start {
+  align-items: start;
 }
 .split.reverse > :first-child {
   order: 2;
@@ -485,9 +502,6 @@ footer a {
 
 /* --- theme toggle --------------------------------------------------------- */
 .theme-toggle {
-  position: fixed;
-  right: 1rem;
-  bottom: 1rem;
   font-family: var(--mono);
   font-size: 0.65rem;
   letter-spacing: 0.12em;
@@ -526,5 +540,187 @@ button:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   * {
     transition: none !important;
+  }
+}
+
+
+/* --- additions ------------------------------------------------------------ */
+
+/* Nearest-neighbour only where the shot is shown at or above native size.
+ * In the shelf the same rule was a ~52% downscale, which drops every other
+ * pixel and turns the dithered greys into moire. */
+.bracket .shot,
+.strip-shot .shot,
+.trio .shot {
+  image-rendering: pixelated;
+}
+
+/* The reader is inherited rather than a peer of the eleven, and as a twelfth
+ * card it also left a half-empty final row. A full-width strip says both. */
+.strip {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  gap: clamp(1.5rem, 4vw, 3rem);
+  align-items: center;
+  margin-top: clamp(2.5rem, 6vw, 4rem);
+  padding-top: clamp(2rem, 4vw, 3rem);
+  border-top: 3px solid var(--ink);
+}
+.strip h3 {
+  font-size: clamp(1.6rem, 3.2vw, 2.2rem);
+  margin: 0.5rem 0 0.6rem;
+}
+.strip p {
+  margin: 0;
+  color: var(--muted);
+  max-width: 46ch;
+}
+.strip-shot {
+  background: var(--paper-2);
+  padding: 12px;
+}
+@media (max-width: 720px) {
+  .strip {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Three stills read as a sequence, so they are numbered and equal width. */
+.trio {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: clamp(1.25rem, 3vw, 2.25rem);
+  margin-top: 3rem;
+}
+.prose-after {
+  margin-top: clamp(2.5rem, 5vw, 3.5rem);
+}
+
+/* --- the emulator --------------------------------------------------------- */
+.emu-shell {
+  border: 3px solid var(--ink);
+  background: var(--paper-2);
+  padding: clamp(1rem, 3vw, 2rem);
+  margin-top: 3rem;
+}
+.emu-mount {
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  aspect-ratio: 480 / 800;
+  background: var(--ink);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.emu-mount.booted {
+  display: block;
+  background: none;
+  aspect-ratio: auto;
+}
+.emu-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: #fff;
+  border: 3px solid var(--ink);
+  image-rendering: pixelated;
+  touch-action: none;
+}
+.emu-status {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: center;
+  margin: 0.8rem 0 0;
+}
+.emu-boot {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: none;
+  color: var(--paper);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  padding: 2rem;
+}
+:root[data-theme="dark"] .emu-boot,
+.emu-boot {
+  color: #faf9f6;
+}
+.emu-boot-label {
+  font-family: var(--display);
+  font-size: clamp(1.6rem, 4vw, 2.4rem);
+  border: 3px solid currentColor;
+  padding: 0.35em 1em 0.25em;
+}
+.emu-boot:hover .emu-boot-label {
+  background: #faf9f6;
+  color: #111110;
+}
+.emu-boot-sub {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+.emu-note {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 1.2rem 0 0;
+  text-align: center;
+}
+
+/* --- install steps -------------------------------------------------------- */
+.steps {
+  margin: 1.5rem 0 0;
+  padding-left: 1.2rem;
+}
+.steps li {
+  margin-bottom: 0.8rem;
+  max-width: 58ch;
+}
+
+/* --- footer additions ----------------------------------------------------- */
+.foot-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+.foot-toggle {
+  margin: 2.5rem 0 0;
+}
+
+/* Every label was tying for smallest at ~10-11px. Raise the floor. */
+.eyebrow,
+.hero-meta,
+figcaption,
+.band .band-note,
+.theme-toggle {
+  font-size: 0.76rem;
+}
+.tag {
+  font-size: 0.7rem;
+}
+
+/* At 390px the eyebrow wrapped and left its rule orphaned against a two-line
+ * block. Drop the rule and the longer half of the label. */
+@media (max-width: 520px) {
+  .eyebrow::before {
+    display: none;
+  }
+  .eyebrow-full {
+    display: none;
   }
 }

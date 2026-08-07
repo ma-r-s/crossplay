@@ -4,34 +4,36 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Crossplay — the screen holds still while you think</title>
-<meta name="description" content="A fork of CrossPoint for the Xteink X4 Pro. Eight games and three apps built for a screen that waits, and two devices that play together with nothing to set up.">
+<meta name="description" content="A fork of CrossPoint for the Xteink X4 Pro. Eight games and three apps built for a screen that waits, two devices that play together with nothing to set up, and the whole thing playable in your browser.">
 <meta property="og:title" content="Crossplay">
-<meta property="og:description" content="A fork of CrossPoint for the Xteink X4 Pro. Eight games and three apps built for a screen that waits.">
+<meta property="og:description" content="A fork of CrossPoint that turns the Xteink X4 Pro into a device you do things on. Playable in your browser.">
 <meta property="og:type" content="website">
+<meta property="og:image" content="assets/shots/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="stylesheet" href="styles.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23111'/><rect x='6' y='9' width='20' height='14' fill='%23fff'/></svg>">
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
 
-<!-- ===================================================================== -->
-<header class="hero wrap" id="main">
+<header class="hero wrap">
   <div class="hero-grid">
     <div>
-      <p class="eyebrow">A fork of CrossPoint · Xteink X4 Pro</p>
+      <p class="eyebrow"><span class="eyebrow-full">A fork of CrossPoint · </span>Xteink X4 Pro</p>
       <h1>The screen holds still while you think.</h1>
       <p class="lede">
-        Crossplay treats the device as something you <em>do</em> things on, not
-        only something you read on. Eight games and three apps built for a
-        screen that waits, and two devices that play together with nothing to
-        set up.
+        Crossplay turns the Xteink X4 Pro into a device you do things on, and
+        reading is one of them. Eight games and three apps built for a screen
+        that waits, and two devices that play together with nothing to set up.
       </p>
       <div class="cta-row">
         <a class="btn primary" href="#shelf">See what is on it</a>
-        <a class="btn" href="https://github.com/ma-r-s/crossplay">Source</a>
+        <a class="btn" href="#get">Install it</a>
       </div>
       <p class="hero-meta">
-        <span>Open firmware</span><span>No app store</span><span>No account</span><span>Tracks CrossPoint weekly</span>
+        <span>Open firmware</span><span>No app store</span><span>No account</span><span>MIT licensed</span>
       </p>
     </div>
     <div class="bracket">
@@ -44,15 +46,18 @@
   </div>
 </header>
 
+<main id="main">
+
 <!-- ===================================================================== -->
-<div class="band"><span>The idea</span><span class="band-note">fig 1 · why a still screen</span></div>
+<!-- ===================================================================== -->
+<div class="band"><h2>The idea</h2><span class="band-note">fig 1 · why a still screen</span></div>
 <div class="band-rule"></div>
 
 <section class="wrap">
   <div class="split">
     <div class="prose">
       <p class="eyebrow">What e-ink is actually good at</p>
-      <h2>Reading was never the whole of it.</h2>
+      <p class="hed">Reading was never the whole of it.</p>
       <p>
         E-ink suits books because a page sits there at no power for as long as
         you need it. The screen is still for almost the entire activity, and the
@@ -67,20 +72,20 @@
       <p>
         A device that cannot animate is not a compromised games console. For
         this kind of game it is the right one, and the property that makes it
-        right had been spent entirely on books.
+        right was spent entirely on books.
       </p>
     </div>
     <div class="pair">
       <div class="bracket">
         <figure>
-          <img class="shot" src="assets/shots/study.png" width="480" height="800"
+          <img class="shot" src="assets/shots/study.png" width="480" height="800" loading="lazy" decoding="async"
                alt="A flashcard from the Study app: the Chinese character 了 large at the top, the sentence 我去公园了 below it, a header reading 150 LEFT, and a SHOW ANSWER button at the foot.">
           <figcaption>Study · the card waits</figcaption>
         </figure>
       </div>
       <div class="bracket">
         <figure>
-          <img class="shot" src="assets/shots/chess.png" width="480" height="800"
+          <img class="shot" src="assets/shots/chess.png" width="480" height="800" loading="lazy" decoding="async"
                alt="A chess board mid-game on the device, pieces drawn in black on dithered squares, the move list reading 1. f4 d6 underneath and a black status bar reading WHITE TO MOVE.">
           <figcaption>Chess · so does the position</figcaption>
         </figure>
@@ -90,167 +95,185 @@
 </section>
 
 <!-- ===================================================================== -->
-<div class="band"><span>The shelf</span><span class="band-note">eleven apps · one vocabulary</span></div>
+<div class="band"><h2>The shelf</h2><span class="band-note">one vocabulary · eleven doors</span></div>
 <div class="band-rule"></div>
 
 <section class="wrap" id="shelf">
   <div class="prose">
     <p class="eyebrow">Not a folder of minigames</p>
-    <h2>Learn one, and you have learned all of them.</h2>
+    <p class="hed">Learn one, and you have learned all of them.</p>
     <p>
       Every app shares a shelf, a header band, a typeface and a control
       vocabulary. They are built on one UI layer with one interaction model, so
       the thing you learn in Chess is the thing that works in Jaipur. That
-      shared surface is what makes eleven programs feel like one device rather
-      than eleven downloads.
+      shared surface is what makes them feel like one device rather than a pile
+      of downloads.
     </p>
   </div>
 
   <div class="shelf">
 
     <article class="card">
-      <div class="shot-wrap"><img class="shot" src="assets/shots/chess.png" width="480" height="800" alt="Chess board mid-game with the move list and a WHITE TO MOVE status bar."></div>
+      <div class="shot-wrap"><img class="shot" src="assets/shots/chess.png" width="480" height="800" loading="lazy" decoding="async" alt="Chess board mid-game with the move list and a WHITE TO MOVE status bar."></div>
       <span class="tag">Game · plays nearby</span>
       <h3>Chess</h3>
       <p>A full engine on the device, or a board between two of them. Pick up exactly where the position was left.</p>
     </article>
 
     <article class="card">
-      <div class="shot-wrap"><img class="shot" src="assets/shots/connections.png" width="480" height="800" alt="The Connections puzzle for 5 August 2026: sixteen word tiles in a four-by-four grid reading CAPE COD, GAP, DRIVE, MISSION and so on, with a MISTAKES row of four dots and SHUFFLE, CLEAR and SUBMIT buttons."></div>
+      <div class="shot-wrap"><img class="shot" src="assets/shots/connections.png" width="480" height="800" loading="lazy" decoding="async" alt="A Connections board part-solved: two solid black bands read HOUSE STYLES with CAPE COD, MISSION, RANCH, TUDOR and JEANS BRANDS with DIESEL, GAP, LUCKY, WRANGLER. Eight word tiles remain below, with STEER selected, and all four mistake dots still unused."></div>
       <span class="tag">Game · daily</span>
       <h3>Connections</h3>
-      <p>The daily word grid, set in a serif of its own, with an archive of eleven hundred past boards for when today's is done.</p>
+      <p>The daily word grid, set in a serif of its own, with an archive of 1,143 past boards for when today's is done.</p>
     </article>
 
     <article class="card">
-      <div class="shot-wrap"><img class="shot" src="assets/shots/dd.png" width="480" height="800" alt="D&amp;Diagrams play screen: a nonogram grid titled THE SECRET TUNNELS with numeric clues along the top and left edges, monster and treasure icons in some cells, and CLEAR and DUNGEONS buttons."></div>
+      <div class="shot-wrap"><img class="shot" src="assets/shots/dd.png" width="480" height="800" loading="lazy" decoding="async" alt="A D&amp;Diagrams nonogram called THE TOMB OF THE SUMMER, most of the way solved: black wall cells form corridors around white floor, birds and a treasure gem sit in rooms, and the row and column clue numbers that are already satisfied are shown inverted."></div>
       <span class="tag">Game · 64 puzzles</span>
       <h3>D&amp;Diagrams</h3>
-      <p>A nonogram whose clues are a dungeon. Sixty-four of them, plus a tutorial that is a lesson rather than a level.</p>
+      <p>A nonogram whose clues are a dungeon. 64 of them, plus a tutorial that is a lesson rather than a level.</p>
     </article>
 
     <article class="card">
-      <div class="shot-wrap"><img class="shot" src="assets/shots/murdle.png" width="480" height="800" alt="The Murdle deduction grid: a logic-grid of empty cells with suspect, weapon and place axes, a key at the foot reading F=FELIX, G=GRETA, U=UMA and so on, and an ACCUSE button."></div>
+      <div class="shot-wrap"><img class="shot" src="assets/shots/murdle.png" width="480" height="800" loading="lazy" decoding="async" alt="A Murdle deduction grid partway through a case: dashes mark eliminated pairings and filled squares mark confirmed ones across the suspect, weapon, place and motive blocks. A key at the foot reads F=FELIX, G=GRETA, U=UMA, K=KARL and so on, above an ACCUSE button."></div>
       <span class="tag">Game · generated</span>
       <h3>Murdle</h3>
-      <p>A logic grid where every clue is a single predicate, and every case is built through the solver rather than checked against it. It is always fair.</p>
+      <p>A logic grid you can always finish from the clues alone. Every case is built through the solver, so you never have to guess.</p>
     </article>
 
     <article class="card">
-      <div class="shot-wrap"><img class="shot" src="assets/shots/jaipur.png" width="480" height="800" alt="The Jaipur market: a row of good and camel cards, a token row showing values 7 6 5 5 5 4, bonus tokens, the player's hand along the bottom and a YOUR MOVE bar."></div>
+      <div class="shot-wrap"><img class="shot" src="assets/shots/jaipur.png" width="480" height="800" loading="lazy" decoding="async" alt="The Jaipur market: a row of good and camel cards, a token row showing values 7 6 5 5 5 4, bonus tokens, the player's hand along the bottom and a YOUR MOVE bar."></div>
       <span class="tag">Game · plays nearby</span>
       <h3>Jaipur</h3>
-      <p>The two-player trading game, against a device that cannot cheat by construction, or against someone sitting opposite you.</p>
+      <p>The two-player trading game, against an opponent that only ever sees what you see, or against someone sitting opposite you.</p>
     </article>
 
     <article class="card">
-      <div class="shot-wrap"><img class="shot" src="assets/shots/battleship.png" width="480" height="800" alt="Battleship fleet placement: a ten by ten grid with five ships laid out, a list reading CARRIER, BATTLESHIP, CRUISER, SUBMARINE, DESTROYER, and SHUFFLE and READY buttons."></div>
+      <div class="shot-wrap"><img class="shot" src="assets/shots/battleship.png" width="480" height="800" loading="lazy" decoding="async" alt="Battleship fleet placement: a ten by ten grid with five ships laid out, a list reading CARRIER, BATTLESHIP, CRUISER, SUBMARINE, DESTROYER, and SHUFFLE and READY buttons."></div>
       <span class="tag">Game · plays nearby</span>
       <h3>Battleship</h3>
-      <p>Lay out a fleet, then hunt someone else's. The first game built on the link layer, and the reason it exists.</p>
+      <p>Lay out a fleet, then hunt someone else's. The game PLAY NEARBY was built for.</p>
     </article>
 
     <article class="card">
-      <div class="shot-wrap"><img class="shot" src="assets/shots/insider.png" width="480" height="800" alt="The Insider pass-the-device screen: a header reading PASS IT ON, 1 OF 8, large text reading PLAYER 1 and TAP TO SEE YOUR ROLE, and a row of eight progress dots."></div>
+      <div class="shot-wrap"><img class="shot" src="assets/shots/insider.png" width="480" height="800" loading="lazy" decoding="async" alt="The Insider pass-the-device screen: a header reading PASS IT ON, 1 OF 8, large text reading PLAYER 1 and TAP TO SEE YOUR ROLE, and a row of eight progress dots."></div>
       <span class="tag">Game · one device, a table</span>
       <h3>Insider</h3>
       <p>A party game for up to eight people and a single device that goes round the table. No second device needed, and no phones.</p>
     </article>
 
     <article class="card wide">
-      <div class="shot-wrap"><img class="shot" src="assets/shots/solitaire.png" width="800" height="480" alt="The Solitaire menu in landscape: DEAL IN PLAY, 0 MOVES DEEP, a run of card outlines labelled YOUR LAST SIXTEEN, and PICK IT UP, DEAL FRESH and TURNING THREE buttons."></div>
+      <div class="shot-wrap"><img class="shot" src="assets/shots/solitaire.png" width="800" height="480" loading="lazy" decoding="async" alt="A Klondike game in progress in landscape: the ace of spades has gone up to a foundation, the waste pile shows the five and ten of clubs and the queen of clubs, seven tableau columns hold face-down and face-up cards, and one column is outlined as selected."></div>
       <span class="tag">Game · landscape</span>
       <h3>Solitaire</h3>
       <p>Klondike, turned sideways because that is the shape of a tableau. Your last sixteen deals are drawn from your own record.</p>
     </article>
 
     <article class="card">
-      <div class="shot-wrap"><img class="shot" src="assets/shots/study.png" width="480" height="800" alt="A Study flashcard showing the character 了 with an example sentence and a SHOW ANSWER button."></div>
-      <span class="tag">App · FSRS</span>
+      <div class="shot-wrap"><img class="shot" src="assets/shots/study.png" width="480" height="800" loading="lazy" decoding="async" alt="A Study flashcard showing the character 了 with an example sentence and a SHOW ANSWER button."></div>
+      <span class="tag">App · spaced repetition</span>
       <h3>Study</h3>
-      <p>Anki decks with the FSRS scheduler, offline. Three hundred cards and a review history that lives on the card, not in a cloud.</p>
+      <p>Anki decks with the FSRS scheduler, offline. 301 cards and a review history that lives on the card, not in a cloud.</p>
     </article>
 
     <article class="card">
-      <div class="shot-wrap"><img class="shot" src="assets/shots/hackernews.png" width="480" height="800" alt="The Hacker News front page on the device: story titles set in a reading serif with point scores beside them, the first row inverted as the selection."></div>
+      <div class="shot-wrap"><img class="shot" src="assets/shots/hackernews.png" width="480" height="800" loading="lazy" decoding="async" alt="The Hacker News front page on the device: story titles set in a reading serif with point scores beside them, the first row inverted as the selection."></div>
       <span class="tag">App · reads the web</span>
       <h3>Hacker News</h3>
       <p>The front page in a reading serif, with articles pulled down and kept on the card so a saved one is still there with the radio off.</p>
     </article>
 
     <article class="card">
-      <div class="shot-wrap"><img class="shot" src="assets/shots/xkcd.png" width="480" height="800" alt="An xkcd comic rendered on the device in one-bit black and white, captioned #3281 Antiques Roadshow."></div>
-      <span class="tag">App · 3278 comics</span>
+      <div class="shot-wrap"><img class="shot" src="assets/shots/xkcd.png" width="480" height="800" loading="lazy" decoding="async" alt="An xkcd comic rendered on the device in one-bit black and white, captioned #3281 Antiques Roadshow."></div>
+      <span class="tag">App · 3,278 comics</span>
       <h3>xkcd</h3>
       <p>The whole archive, packed for the card and drawn at one to one. A comic is line art, which is exactly what this panel is best at.</p>
     </article>
 
-    <article class="card wide">
-      <div class="shot-wrap"><img class="shot" src="assets/shots/reader.png" width="480" height="800" alt="The EPUB reader showing justified body text from a novel, with a chapter marker and a percentage read in the footer."></div>
-      <span class="tag">Inherited from CrossPoint</span>
-      <h3>The reader</h3>
-      <p>Untouched. Crossplay adds a shelf beside it and never gets in its way, and every CrossPoint release lands here within the week.</p>
-    </article>
+  </div>
 
+  <div class="strip">
+    <div class="strip-text">
+      <span class="tag">Inherited from CrossPoint</span>
+      <h3>And it is still a reader.</h3>
+      <p>
+        Untouched. Crossplay adds a shelf beside the library and never gets in
+        its way, and every CrossPoint release lands here within the week.
+      </p>
+    </div>
+    <div class="strip-shot">
+      <img class="shot" src="assets/shots/reader.png" width="800" height="480" loading="lazy" decoding="async"
+           alt="The EPUB reader showing justified body text from a novel, with a chapter marker and a percentage read in the footer.">
+    </div>
   </div>
 </section>
 
 <!-- ===================================================================== -->
-<div class="band"><span>Play nearby</span><span class="band-note">fig 2 · no setup</span></div>
+<div class="band"><h2>Play nearby</h2><span class="band-note">fig 2 · no setup</span></div>
 <div class="band-rule"></div>
 
 <section class="wrap">
-  <div class="split reverse">
-    <div class="prose">
-      <p class="eyebrow">Two devices, one table</p>
-      <h2>It just says <em>play nearby</em>.</h2>
-      <p>
-        Put two of them next to each other and they find one another. There is
-        no pairing screen, no room code, no account, no router and no internet.
-        The entire surface of it is one row on a menu.
-      </p>
-      <p>
-        The measure for this was the DS: you sat down next to someone and it
-        worked, and nothing about the experience ever mentioned a network. If a
-        person ever has to know how it connects, it is a bug.
-      </p>
-      <p>
-        Chess, Jaipur and Battleship use it today. It is a layer rather than a
-        feature, so the next game gets it for free.
-      </p>
-    </div>
-    <div class="pair">
-      <div class="bracket">
-        <figure>
-          <img class="shot" src="assets/shots/chess-menu.png" width="480" height="800"
-               alt="The Chess menu: a board preview of the saved game above rows reading CONTINUE with 2 WHITE beside it, NEW GAME, PLAY NEARBY with a radio-tower icon, and SETTINGS.">
-          <figcaption>One row, no configuration</figcaption>
-        </figure>
-      </div>
-      <div class="bracket">
-        <figure>
-          <img class="shot" src="assets/shots/battleship-menu.png" width="480" height="800"
-               alt="The Battleship menu showing an empty grid, a record line reading 1 PLAYED 0 WON STREAK 0, and NEW GAME and PLAY NEARBY rows.">
-          <figcaption>Same row, different game</figcaption>
-        </figure>
-      </div>
-    </div>
+  <div class="prose">
+    <p class="eyebrow">Two devices, one table</p>
+    <p class="hed">It just says <em>play nearby</em>.</p>
+    <p>
+      Put two of them next to each other and they find one another. There is no
+      pairing screen, no room code, no account, no router and no internet. The
+      entire surface of it is one row on a menu.
+    </p>
+    <p>
+      The measure for this was the DS: you sat down next to someone and it
+      worked, and nothing about the experience ever mentioned a network. If a
+      person ever has to know how it connects, that is a bug.
+    </p>
+  </div>
+
+  <div class="trio">
+    <figure class="bracket">
+      <img class="shot" src="assets/shots/link-search.png" width="480" height="800" loading="lazy" decoding="async"
+           alt="A screen headed LOOKING FOR A PLAYER with a radio icon. Two seats are listed: the first shows a drawn face beside YOU and the word READY, the second shows a blank head beside four dashes and the word LOOKING.">
+      <figcaption>1 · One taps play nearby</figcaption>
+    </figure>
+    <figure class="bracket">
+      <img class="shot" src="assets/shots/link-a.png" width="480" height="800" loading="lazy" decoding="async"
+           alt="A chess board on the first device with a drawn face in the corner and a status bar reading YOUR MOVE.">
+      <figcaption>2 · Your board, your move</figcaption>
+    </figure>
+    <figure class="bracket">
+      <img class="shot" src="assets/shots/link-b.png" width="480" height="800" loading="lazy" decoding="async"
+           alt="The same chess game on the second device, seen from the other side of the board, with a different drawn face in the corner and a status bar reading BALD'S MOVE.">
+      <figcaption>3 · Their board, from their side</figcaption>
+    </figure>
+  </div>
+
+  <div class="prose prose-after">
+    <p class="hed small">Everyone is a face and three words.</p>
+    <p>
+      A device names itself with three words, and the face beside it is drawn
+      from that name: hair, eyes, mouth, fourteen options apiece. Nothing is
+      stored and nothing is sent. The other device rebuilds your face from the
+      name its radio already carried, so it can never arrive stale, and the
+      person opposite you is <em>Bald</em> rather than a MAC address.
+    </p>
+    <p>
+      Chess, Jaipur and Battleship use it today. It is a layer rather than a
+      feature, so the next game gets it for free.
+    </p>
   </div>
 </section>
 
 <!-- ===================================================================== -->
-<div class="band"><span>Where it sits</span><span class="band-note">fig 3 · the neighbours</span></div>
+<div class="band"><h2>Where it sits</h2><span class="band-note">fig 3 · the neighbours</span></div>
 <div class="band-rule"></div>
 
 <section class="wrap">
   <div class="prose">
     <p class="eyebrow">Built on, not against</p>
-    <h2>Everyone here is aiming somewhere different.</h2>
+    <p class="hed">Everyone here is aiming somewhere different.</p>
     <p>
-      Crossplay is a fork of CrossPoint and tracks it continuously, which means
-      the reading only ever gets better without anyone here touching it. The
-      forks are not competitors so much as different answers to what the
-      hardware is for.
+      Crossplay is a fork of CrossPoint, which means the reading only ever gets
+      better without anyone here touching it. These are not competitors so much
+      as different answers to what the hardware is for.
     </p>
   </div>
   <div class="table-scroll">
@@ -266,7 +289,7 @@
         </tr>
         <tr>
           <th scope="row">CrossPoint</th>
-          <td>The best open e-reader for these devices. Typography, sync, fonts, thirty languages.</td>
+          <td>The open e-reader these devices are built around. Typography, sync, fonts, thirty languages.</td>
           <td>The base. Merged in weekly.</td>
         </tr>
         <tr>
@@ -276,7 +299,7 @@
         </tr>
         <tr>
           <th scope="row">Crossplay</th>
-          <td>The same device as somewhere to spend a still half-hour. Games, study, comics, and two devices that play together.</td>
+          <td>Somewhere to spend a still half-hour. Games, study, comics, and two devices that play together.</td>
           <td>This one. X4 Pro only.</td>
         </tr>
       </tbody>
@@ -285,24 +308,24 @@
 </section>
 
 <!-- ===================================================================== -->
-<div class="band"><span>Get it</span><span class="band-note">fig 4 · your device, your rules</span></div>
+<div class="band"><h2>Get it</h2><span class="band-note">fig 4 · your device, your rules</span></div>
 <div class="band-rule"></div>
 
-<section class="wrap tight">
-  <div class="split">
+<section class="wrap tight" id="get">
+  <div class="split start">
     <div class="prose">
       <p class="eyebrow">Open firmware</p>
-      <h2>Nothing here asks permission.</h2>
+      <p class="hed">Nothing here asks permission.</p>
       <p>
         There is no store between you and the device, no review, no account and
-        no subscription. It is a binary you flash and source you can read. If
-        you want a twelfth app, the shelf takes one file.
+        no subscription. It is a binary you flash and source you can read.
       </p>
-      <p>
-        Crossplay targets the <strong>Xteink X4 Pro</strong> specifically. For
-        every other supported device, CrossPoint upstream is the right answer
-        and is excellent.
-      </p>
+      <ol class="steps">
+        <li><strong>Check your device.</strong> Crossplay targets the <strong>Xteink X4 Pro</strong> only. For every other supported device, CrossPoint upstream is the right answer and is excellent.</li>
+        <li><strong>Keep your books.</strong> Flashing replaces the firmware, not the SD card. Your library, your reading positions and your fonts are files on that card and are left alone.</li>
+        <li><strong>Download the latest release</strong> and flash it the same way you flashed CrossPoint.</li>
+        <li><strong>You can go back.</strong> Flashing stock CrossPoint over the top returns the device exactly to where it was.</li>
+      </ol>
       <div class="cta-row">
         <a class="btn primary" href="https://github.com/ma-r-s/crossplay/releases">Releases</a>
         <a class="btn" href="https://github.com/ma-r-s/crossplay">Read the source</a>
@@ -310,7 +333,7 @@
     </div>
     <div class="bracket">
       <figure>
-        <img class="shot" src="assets/shots/home.png" width="480" height="800"
+        <img class="shot" src="assets/shots/home.png" width="480" height="800" loading="lazy" decoding="async"
              alt="The device Home screen: a book cover for The Ultimate Hitchhiker's Guide to the Galaxy above menu rows reading Browse Files, Recent Books, File Transfer, Settings, Games and Apps.">
         <figcaption>Games and Apps, beside the library</figcaption>
       </figure>
@@ -318,13 +341,15 @@
   </div>
 </section>
 
+</main>
+
 <!-- ===================================================================== -->
 <footer>
   <div class="wrap">
     <div class="foot-grid">
       <div>
         <h4>Crossplay</h4>
-        <p style="margin:0;color:var(--muted)">A fork of CrossPoint for the Xteink X4 Pro. Built in the open.</p>
+        <p class="foot-note">A fork of CrossPoint for the Xteink X4 Pro. Built by one person, in the open. MIT licensed, like the project it forks.</p>
       </div>
       <div>
         <h4>Project</h4>
@@ -342,30 +367,46 @@
         </ul>
       </div>
       <div>
-        <h4>Type</h4>
-        <ul>
-          <li>Jersey 25 <span style="color:var(--muted)">(OFL)</span></li>
-          <li>Instrument Serif <span style="color:var(--muted)">(OFL)</span></li>
-        </ul>
+        <h4>Credits</h4>
+        <p class="foot-note">
+          xkcd comics by Randall Munroe, <a href="https://xkcd.com/license.html">CC BY-NC 2.5</a>, fetched by the
+          device from <a href="https://xkcd.com">xkcd.com</a>. Connections puzzles are the New York Times'; Crossplay
+          ships none of them and downloads what you ask for. Hacker News is read
+          through the public Firebase API. Type is Jersey 25 and Instrument
+          Serif, both SIL OFL.
+        </p>
       </div>
     </div>
+    <p class="foot-toggle">
+      <button class="theme-toggle" id="themeToggle" type="button" aria-pressed="false">Invert</button>
+    </p>
   </div>
 </footer>
 
-<button class="theme-toggle" id="themeToggle" type="button" aria-label="Switch between light and dark">Invert</button>
 <script>
 (function () {
   var root = document.documentElement;
-  var saved = null;
-  try { saved = localStorage.getItem('crossplay-theme'); } catch (e) {}
-  if (saved) root.setAttribute('data-theme', saved);
-  document.getElementById('themeToggle').addEventListener('click', function () {
-    var dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    var current = root.getAttribute('data-theme') || (dark ? 'dark' : 'light');
+  var toggle = document.getElementById('themeToggle');
+  function prefersDark() {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  }
+  function sync() {
+    var dark = (root.getAttribute('data-theme') || (prefersDark() ? 'dark' : 'light')) === 'dark';
+    toggle.setAttribute('aria-pressed', String(dark));
+  }
+  try {
+    var saved = localStorage.getItem('crossplay-theme');
+    if (saved) root.setAttribute('data-theme', saved);
+  } catch (e) {}
+  sync();
+  toggle.addEventListener('click', function () {
+    var current = root.getAttribute('data-theme') || (prefersDark() ? 'dark' : 'light');
     var next = current === 'dark' ? 'light' : 'dark';
     root.setAttribute('data-theme', next);
     try { localStorage.setItem('crossplay-theme', next); } catch (e) {}
+    sync();
   });
+
 })();
 </script>
 </body>
