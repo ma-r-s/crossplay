@@ -3,10 +3,12 @@
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <vector>
 
 #include "JaipurBrain.h"
 #include "JaipurCore.h"
+#include "JaipurLink.h"
 
 using namespace jaipur;
 
@@ -257,7 +259,13 @@ int main() {
           abort();
         }
         checkInvariants(g, "after deal");
-        checks += 3;
+        // A fresh table narrates nothing: the last move belonged to a round
+        // that no longer exists.
+        if (g.hasLastMove()) {
+          printf("FAIL: a fresh deal still describes a move\n");
+          abort();
+        }
+        checks += 4;
         continue;
       }
 
@@ -279,6 +287,19 @@ int main() {
       ++moves;
       checkInvariants(g, "after move");
       ++checks;
+
+      // The state has to describe the move that produced it: over a link that
+      // record is the only account the other device gets of a turn it did not
+      // see. Checked against the move actually played, every move.
+      if (!g.hasLastMove() || g.lastMover() != seatBefore || g.lastMoveKind() != pick.kind) {
+        printf("FAIL: the state does not describe the move that made it\n");
+        abort();
+      }
+      if (pick.kind == Move::Kind::Sell && (g.lastCard != pick.good || g.lastCount != pick.count)) {
+        printf("FAIL: a sale of %d good %d was recorded as %d of %d\n", pick.count, pick.good, g.lastCount, g.lastCard);
+        abort();
+      }
+      checks += 2;
 
       // The seal is banked by the move that ends the round, not by the deal
       // that follows it. It used to be handed out by startNextRound(), which
@@ -548,6 +569,96 @@ int main() {
     }
     printf("skills     1 checks, 0 failed  (maharaja beats merchant %d%% of %d, %lld moves per round)\n", rate, played,
            rounds > 0 ? moves / rounds : 0);
+  }
+
+  // --- 6: a whole match over a link ---------------------------------------
+  //
+  // Two devices, a transport that alternates strictly, and nothing else: no
+  // radio, no renderer. What is under test is the one decision the Activity
+  // makes on every packet -- linkAction() -- and the property that decision
+  // exists for: two devices that never disagree about the game, and never both
+  // wait for each other.
+  //
+  // The round boundary is the whole reason this is hard. The loser starts the
+  // next round, which has nothing to do with who sent last, so half the time
+  // the transport is pointing at the wrong player and somebody has to pass.
+  {
+    int matches = 0, packets = 0, passes = 0, deals = 0, checks = 0;
+    for (int match = 0; match < 200; ++match) {
+      Game device[2];
+      const int seatOf[2] = {0, 1};
+      // Device 0 deals, exactly as JaipurActivity::onMatchStart does, and sends.
+      device[0].newGame(rnd(), 0);
+      device[1] = device[0];
+      int holder = 1;  // the transport turn goes to whoever did not send
+      ++matches;
+
+      int guard = 0, consecutivePasses = 0;
+      while (guard++ < 6000) {
+        const int idle = 1 - holder;
+        // The device without the turn has nothing it may do, ever. That is what
+        // makes "exactly one device acts" true rather than merely likely.
+        if (linkAction(device[idle], seatOf[idle], false) != LinkAction::Wait) {
+          printf("FAIL: the device without the turn wanted to act\n");
+          abort();
+        }
+        ++checks;
+
+        const LinkAction action = linkAction(device[holder], seatOf[holder], true);
+        if (action == LinkAction::Wait) break;  // GameOver: the chrome takes over
+
+        const Game before = device[holder];
+        if (action == LinkAction::Move) {
+          consecutivePasses = 0;
+          const Observation obs = observe(device[holder], seatOf[holder]);
+          uint32_t r = rnd();
+          if (!device[holder].apply(chooseMove(obs, Skill::Merchant, r))) {
+            printf("FAIL: a chosen move was rejected over the link\n");
+            abort();
+          }
+        } else if (action == LinkAction::Pass) {
+          // A pass moves the turn and nothing else. If it changed a byte the
+          // two devices would still agree and the game would still be wrong.
+          ++passes;
+          if (++consecutivePasses > 1) {
+            printf("FAIL: two passes in a row, which is a loop\n");
+            abort();
+          }
+        } else if (action == LinkAction::Deal) {
+          consecutivePasses = 0;
+          ++deals;
+          device[holder].startNextRound(rnd());
+        }
+
+        if (action == LinkAction::Pass && memcmp(&before, &device[holder], sizeof(Game)) != 0) {
+          printf("FAIL: a pass changed the game\n");
+          abort();
+        }
+        ++checks;
+
+        // The packet: the whole state, adopted as-is, turn handed over.
+        device[1 - holder] = device[holder];
+        ++packets;
+        if (memcmp(&device[0], &device[1], sizeof(Game)) != 0) {
+          printf("FAIL: the two devices disagree\n");
+          abort();
+        }
+        ++checks;
+        holder = 1 - holder;
+      }
+
+      if (device[0].matchWinner() < 0) {
+        printf("FAIL: match %d never finished over the link\n", match);
+        abort();
+      }
+      if (device[0].currentPhase() != Phase::GameOver) {
+        printf("FAIL: the link match stopped in phase %d\n", static_cast<int>(device[0].currentPhase()));
+        abort();
+      }
+      checks += 2;
+    }
+    printf("link       %d checks, 0 failed  (%d matches, %d packets, %d passes, %d deals)\n", checks, matches, packets,
+           passes, deals);
   }
 
   return 0;

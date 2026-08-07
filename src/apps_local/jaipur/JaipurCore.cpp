@@ -85,6 +85,11 @@ Move Move::sell(const Good good, const int count) {
 
 void Game::deal(const uint32_t roundSeed, const uint8_t starter) {
   seed = roundSeed;
+  // A fresh table has no last move, so nothing is narrated over the top of it.
+  lastKind = kNoMove;
+  lastCard = 0;
+  lastCount = 0;
+  lastValue = 0;
   uint8_t deck[kDeckCards];
   buildDeck(seed, deck);
 
@@ -345,6 +350,34 @@ bool Game::apply(const Move& move) {
   const int seat = turn;
   bool refillFailed = false;
 
+  // What happened, recorded before the board changes under it: a take refills
+  // the slot it emptied, and a sale is worth what the pile paid at the time.
+  // The other device has no other way to learn any of it.
+  const int bonusBefore = bonusTokenCount(seat);
+  lastKind = static_cast<uint8_t>(static_cast<uint8_t>(move.kind) | (seat << 7));
+  lastCard = 0;
+  lastCount = 0;
+  lastValue = 0;
+  switch (move.kind) {
+    case Move::Kind::TakeOne:
+      lastCard = market[move.slot];
+      lastCount = 1;
+      break;
+    case Move::Kind::TakeCamels:
+      lastCount = static_cast<uint8_t>(marketCamels());
+      break;
+    case Move::Kind::Exchange:
+      for (int i = 0; i < kMarketSlots; ++i) {
+        if ((move.marketMask >> i) & 1) ++lastCount;
+      }
+      break;
+    case Move::Kind::Sell:
+      lastCard = move.good;
+      lastCount = move.count;
+      lastValue = static_cast<uint8_t>(saleValue(static_cast<Good>(move.good), move.count));
+      break;
+  }
+
   switch (move.kind) {
     case Move::Kind::TakeOne: {
       ++hand[seat][market[move.slot]];
@@ -418,6 +451,8 @@ bool Game::apply(const Move& move) {
       break;
     }
   }
+
+  if (bonusTokenCount(seat) > bonusBefore) lastValue |= 0x80;
 
   // The move has resolved in full; only now does the round get to end. That
   // order is what makes a sale which empties the third pile still collect its
