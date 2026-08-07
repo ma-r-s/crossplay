@@ -10,11 +10,14 @@
 // a firmware build: LinkRadio.cpp routes to this file only under
 // __EMSCRIPTEN__, and this file is only compiled by tools_local/wasm/build.py.
 //
-// The shape is deliberately the same as the loopback one, because host election
-// depends on it. Each instance claims a slot, the slot becomes the low half of
-// its address, and "lower address wins" therefore means "whoever started
-// first" -- the same deterministic answer the simulator gives, and the same
-// shape the device gets from MACs.
+// The shape is deliberately the same as the loopback one, because two separate
+// decisions read the address and both have to behave here the way they behave
+// everywhere else. Each instance claims a slot and the slot becomes the low
+// half of its address, so: lowest address wins *peer selection*, which is what
+// stops three instances forming a cycle; and the address breaks a tie in *host
+// election*, which is otherwise decided by the coin toss in LinkSession. Host
+// is deliberately not "lowest address wins" -- see LinkSession.h, where fixed
+// MACs meant one device played White in every game forever.
 //
 // Threads: the firmware runs on a Web Worker and the router lives on the main
 // thread. Sends proxy across with MAIN_THREAD_EM_ASM, which blocks the worker

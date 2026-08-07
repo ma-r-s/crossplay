@@ -110,10 +110,10 @@
 <main id="main">
 
 <!-- ===================================================================== -->
-<div class="band"><h2>The shelf</h2><span class="band-note">fig 1 · one vocabulary</span></div>
+<div class="band" id="shelf"><h2>The shelf</h2><span class="band-note">fig 1 · one vocabulary</span></div>
 <div class="band-rule"></div>
 
-<section class="wrap" id="shelf">
+<section class="wrap">
   <div class="prose">
     <p class="eyebrow">What a still screen is good at</p>
     <p class="hed">Reading was never the whole of it.</p>
@@ -296,16 +296,16 @@
         <button type="button" class="facer-slot" data-slot="mouth"><span class="facer-slot-k">Mouth</span><span class="facer-slot-v" id="v-mouth"></span></button>
       </div>
       <button type="button" class="btn facer-roll" id="facerRoll">Roll a new one</button>
-      <p class="facer-note"><span id="facerCount">Every</span> face. Tap a word to change one.</p>
+      <p class="facer-note"><span id="facerCount">Every face</span>. Tap a word to change one.</p>
     </div>
   </div>
 </section>
 
 <!-- ===================================================================== -->
-<div class="band"><h2>Get it</h2><span class="band-note">fig 4 · your device, your rules</span></div>
+<div class="band" id="get"><h2>Get it</h2><span class="band-note">fig 3 · your device, your rules</span></div>
 <div class="band-rule"></div>
 
-<section class="wrap tight" id="get">
+<section class="wrap tight">
   <div class="split start">
     <div class="prose">
       <p class="eyebrow">Open firmware</p>
@@ -317,7 +317,7 @@
       <ol class="steps">
         <li><strong>Check your device.</strong> Crossplay targets the <strong>Xteink X4 Pro</strong> only. For every other supported device, CrossPoint upstream is the right answer and is excellent.</li>
         <li><strong>Keep your books.</strong> Flashing replaces the firmware, not the SD card. Your library, your reading positions and your fonts are files on that card and are left alone.</li>
-        <li><strong>Download the latest release</strong> and flash it exactly the way you flashed CrossPoint — the same web flasher works, over USB, from Chrome or Edge. <a href="https://crosspointreader.com/">CrossPoint’s flasher</a> is the one to use.</li>
+        <li><strong>Download the latest release</strong> and flash it the same way you flashed CrossPoint: the same web flasher works, over USB, from Chrome or Edge. <a href="https://crosspointreader.com/">CrossPoint's flasher</a> is the one to use.</li>
         <li><strong>You can go back.</strong> Flashing stock CrossPoint over the top returns the device exactly to where it was.</li>
       </ol>
       <div class="cta-row">
@@ -545,7 +545,7 @@
       draw();
     });
     document.getElementById('facerCount').textContent =
-      (A.words.hair.length * A.words.eyes.length * A.words.mouth.length).toLocaleString('en-US');
+      (A.words.hair.length * A.words.eyes.length * A.words.mouth.length).toLocaleString('en-US') + ' faces';
     document.getElementById('facer').hidden = false;
     draw();
   }

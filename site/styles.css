@@ -129,16 +129,20 @@ body {
   text-transform: uppercase;
   color: var(--muted);
   margin: 0 0 1.2rem;
-  display: flex;
-  align-items: center;
-  gap: 0.7rem;
+  /* Block, not flex. As a flex container the hero's eyebrow made three
+   * independent items of its two text runs and the middle dot, so at 390px it
+   * broke into two ragged columns with the dot stranded between them and the
+   * rule floating at half height. Inline text wraps like text. */
+  display: block;
 }
 .eyebrow::before {
   content: "";
+  display: inline-block;
   width: 2rem;
   height: 1px;
+  vertical-align: middle;
+  margin-right: 0.7rem;
   background: currentColor;
-  flex: none;
 }
 
 h1,
@@ -316,6 +320,7 @@ section.tight {
 }
 .eyebrow-sep {
   opacity: 0.5;
+  margin: 0 0.35rem;
 }
 body {
   padding-top: var(--bar);
@@ -836,10 +841,16 @@ button:focus-visible {
   cursor: pointer;
   line-height: 0;
   /* The panel's own proportion, height-led so the hero fits one screen on a
-   * laptop. Width follows; nothing here is a fixed pixel count. */
+   * laptop. Width follows; nothing here is a fixed pixel count.
+   *
+   * Width is stated rather than left to aspect-ratio because every flex
+   * ancestor shrink-to-fits, so `max-width: 100%` never got the chance to
+   * bite: at 320px the derived width was 366px and the whole page scrolled
+   * sideways, taking the headline and the buttons with it. Stating the width
+   * and letting aspect-ratio derive the height puts the cap back. */
   aspect-ratio: 480 / 800;
-  height: min(64svh, 620px);
-  max-width: 100%;
+  width: min(100%, min(64svh, 620px) * 0.6);
+  height: auto;
 }
 .device-screen[aria-disabled="true"] {
   cursor: default;

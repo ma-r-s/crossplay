@@ -103,6 +103,10 @@
     canvas.className = "device-canvas";
     canvas.setAttribute("role", "img");
     canvas.setAttribute("aria-label", "The Crossplay firmware running live");
+    // Focusable, because the arrow keys, Enter and Backspace are the device's
+    // buttons and the page needs them back the moment focus leaves. See the
+    // guard in keyHandler.
+    canvas.tabIndex = 0;
     mount.appendChild(canvas);
     var ctx = canvas.getContext("2d");
 
@@ -231,6 +235,10 @@
     var pointerId = null;
     canvas.addEventListener("pointerdown", function (e) {
       if (!injectTouch || pointerId !== null || !e.isPrimary) return;
+      // preventDefault below suppresses the focus a click would normally give a
+      // tabindex element, and without focus the key guard would swallow every
+      // press. Touching the device is how you say "the keys are mine now".
+      canvas.focus({ preventScroll: true });
       e.preventDefault();
       pointerId = e.pointerId;
       canvas.setPointerCapture(e.pointerId);
@@ -258,10 +266,22 @@
     canvas.addEventListener("pointerup", lift);
     canvas.addEventListener("pointercancel", lift);
 
+    // Only this device's keys, and only while this device has focus. Bound to
+    // window rather than the canvas so a key held across a focus change still
+    // gets its release, but gated on focus so the page keeps its own keyboard:
+    // these handlers used to preventDefault() Enter, Backspace and all four
+    // arrows for every element on the page, which killed link activation and
+    // arrow-key scrolling for the rest of the session once the device booted.
+    function hasFocus() {
+      var a = document.activeElement;
+      return a === canvas || (a && mount.contains(a));
+    }
+
     function keyHandler(down) {
       return function (e) {
         var sc = KEYS[e.code] || KEYS[e.key];
         if (!sc || !injectKey) return;
+        if (!hasFocus()) return;
         e.preventDefault();
         if (down && e.repeat) return; // HalGPIO is edge-triggered
         injectKey(sc, down ? 1 : 0);

@@ -11,7 +11,7 @@ eventually serve it, cut the paragraph.
 What this device already had is aimed at reading. CrossPoint is an e-reader and
 says so ("Read without limits"); FreeInk is the stack it stands on ("An open
 ecosystem for e-readers"). Neither is wrong, and Crossplay is not a criticism of
-either: it is built on CrossPoint and tracks it weekly.
+either: it is built on CrossPoint and tracks it daily.
 
 The difference is one observation. **The thing that makes e-ink good for reading
 is not that it shows text. It is that it holds still while you think.** A page
@@ -64,15 +64,15 @@ The layer itself is `src/apps_local/link/`, described in
 These are the marks. They are shared with the design language rather than
 invented here; what this section adds is which of them carry off the device.
 
-| Mark                     | On the device                                        | Off the device                                                           |
-| ------------------------ | ---------------------------------------------------- | ------------------------------------------------------------------------ |
-| **Pure 1-bit**           | no greys exist; every tone is dither                 | keep. Black and white is the identity, not a limitation to apologise for |
-| **The black band**       | solid header, knocked-out white type, never repaints | keep as the section marker                                               |
-| **Jersey 25**            | the display cut, condensed, one weight               | keep for headings and labels                                             |
-| **A serif counterpoint** | Instrument Serif for a game's own surface            | keep, for prose                                                          |
-| **Dither**               | the only grey there is                               | use sparingly; a web page with no real greys is a costume                |
-| **Corner brackets**      | the frame around a board or an ornament              | keep. It is the most recognisable shape we own                           |
-| **Uppercase labels**     | every control and header                             | keep for labels, never for prose                                         |
+| Mark                     | On the device                                        | Off the device                                                                                                                                                           |
+| ------------------------ | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Pure 1-bit**           | no grey pixel exists; every tone is dither           | the _look_ carries over, the constraint does not. Black and white is the identity, not a limitation to apologise for, but the page is free to use real greys (see below) |
+| **The black band**       | solid header, knocked-out white type, never repaints | keep as the section marker                                                                                                                                               |
+| **Jersey 25**            | the display cut, condensed, one weight               | keep for headings and labels                                                                                                                                             |
+| **A serif counterpoint** | Instrument Serif for a game's own surface            | keep, for prose                                                                                                                                                          |
+| **Dither**               | the only grey there is                               | use sparingly; a web page with no real greys is a costume                                                                                                                |
+| **Corner brackets**      | the frame around a board or an ornament              | keep. It is the most recognisable shape we own                                                                                                                           |
+| **Uppercase labels**     | every control and header                             | keep for labels, never for prose                                                                                                                                         |
 
 Two rules about carrying it off the device:
 

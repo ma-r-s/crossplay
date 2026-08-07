@@ -24,8 +24,8 @@ Three things genuinely differ from the desktop build and are handled below:
     the keyboard; in a browser the page already has a canvas and already gets
     pointer events, and Emscripten's SDL port wants a blocking main loop on the
     thread that owns the GL context -- which the firmware's render task is not.
-    So stubs/SDL.h + src/sdl_browser.cpp answer the forty-odd SDL symbols the
-    simulator's two HAL files use with plain memory, and src/wasm_main.cpp
+    So stubs/SDL.h + src/sdl_browser.cpp answer the twenty-three SDL functions
+    the simulator's two HAL files call with plain memory, and src/wasm_main.cpp
     replaces simulator_main.cpp with a main() that starts the firmware on a
     worker and returns. The page then reads the composited frame straight out
     of the heap. Nothing in src/ or lib/ changes.
