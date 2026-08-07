@@ -42,6 +42,19 @@ class StudyFonts {
   // false and leaves nothing loaded if the files are missing, which is the
   // normal state before the font pipeline has been run onto the card.
   bool load(GfxRenderer& renderer, int familyIndex);
+
+  // Load `preferred`, or the next family after it that is actually on the
+  // card. Returns the index loaded, or -1 if none of the five are there.
+  //
+  // The five faces are a preference, not a requirement: the card decides which
+  // one it wants and any of them will do if that one is missing. Without this,
+  // a card whose turn landed on an absent face drew its hanzi in the UI font,
+  // which has no CJK at all, so the headword came out as tofu while the pinyin
+  // and the gloss beside it were fine. A partial font install is the normal
+  // state of a card someone is still setting up, and the browser demo ships
+  // one face on purpose.
+  int loadPreferred(GfxRenderer& renderer, int preferred);
+
   void unload(GfxRenderer& renderer);
 
   // Pull this card's glyphs off the SD card before drawing them. Without this

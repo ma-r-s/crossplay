@@ -50,7 +50,10 @@ bool StudyFonts::load(GfxRenderer& renderer, const int familyIndex) {
   const int headword = manager_.loadFamilyExtraSize(describe(family, kHeadwordPointSize), renderer, kHeadwordPointSize);
   const int sentence = manager_.loadFamilyExtraSize(describe(family, kSentencePointSize), renderer, kSentencePointSize);
   if (headword == 0 || sentence == 0) {
-    LOG_ERR("STUDY", "Font family %s missing under %s (headword=%d sentence=%d)", family, kFontRoot, headword,
+    // Debug, not error: an absent family is now a normal answer, because
+    // loadPreferred walks past it to one that is there. Only having none of
+    // them is worth an error, and loadPreferred raises that itself.
+    LOG_DBG("STUDY", "Font family %s not on the card under %s (headword=%d sentence=%d)", family, kFontRoot, headword,
             sentence);
     unload(renderer);
     return false;
@@ -61,6 +64,16 @@ bool StudyFonts::load(GfxRenderer& renderer, const int familyIndex) {
   familyIndex_ = familyIndex;
   LOG_DBG("STUDY", "Loaded %s: headword id=%d sentence id=%d", family, headword, sentence);
   return true;
+}
+
+int StudyFonts::loadPreferred(GfxRenderer& renderer, const int preferred) {
+  const int first = (preferred < 0 || preferred >= kFamilyCount) ? 0 : preferred;
+  for (int i = 0; i < kFamilyCount; ++i) {
+    const int index = (first + i) % kFamilyCount;
+    if (load(renderer, index)) return index;
+  }
+  LOG_ERR("STUDY", "No CJK family under %s; hanzi will not draw", kFontRoot);
+  return -1;
 }
 
 void StudyFonts::unload(GfxRenderer& renderer) {
