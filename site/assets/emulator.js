@@ -137,7 +137,15 @@
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = "high";
     }
-    new ResizeObserver(sizeCanvas).observe(canvas);
+    // Resizing a canvas clears it, and this panel only redraws when the
+    // firmware says something changed -- which on e-ink can be minutes away. So
+    // every resize repaints from the framebuffer immediately. Without this,
+    // going from two devices back to one left a blank white panel: the box grew
+    // back, the backing store was cleared, and nothing was due to be drawn.
+    new ResizeObserver(function () {
+      sizeCanvas();
+      if (Module && visible && painted) paint();
+    }).observe(canvas);
 
     // How the logical screen sits inside the canvas: uniform scale, centred.
     // Portrait fills it; landscape letterboxes. Taps invert this.
@@ -366,6 +374,16 @@
               canvas: canvas,
               bindButton: bindButton,
               scancodes: SCANCODE,
+              // Hiding a device stops it being drawn; the firmware behind it
+              // keeps running, because there is no clean way to tear a wasm
+              // module down. Showing it again repaints from the framebuffer
+              // rather than waiting for the next dirty frame -- an e-ink screen
+              // can sit unchanged for minutes, and a blank panel until then
+              // would look like a crash.
+              setVisible: function (on) {
+                visible = on;
+                if (on) paint();
+              },
             });
           })
           .catch(reject);

@@ -673,6 +673,12 @@ button:focus-visible {
   gap: 0.9rem;
   justify-self: center;
 }
+/* display:flex on .device would otherwise beat the hidden attribute, which is
+ * how going back to one player left both devices on screen. The same trap the
+ * key row hit; it is worth checking for every flex element that gets hidden. */
+.device[hidden] {
+  display: none;
+}
 .device-row {
   display: flex;
   gap: clamp(0.8rem, 2vw, 1.6rem);

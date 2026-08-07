@@ -400,7 +400,6 @@
   // Captured before anything boots, so a second device starts from the same
   // markup rather than from a clone of a running one.
   var blank = row.firstElementChild.cloneNode(true);
-  var running = [];
 
   function bootDevice(device) {
     if (device.dataset.state) return Promise.resolve(null);
@@ -432,7 +431,10 @@
         keys.querySelectorAll('button').forEach(function (b) {
           instance.bindButton(b, instance.scancodes[b.dataset.key]);
         });
-        running.push(instance);
+        // Kept on the element, not in a list: two boots resolve in whatever
+        // order they finish, so a positional array had the second device's
+        // instance at index 0 and hiding "the second one" blanked the first.
+        device.crossplay = instance;
         return instance;
       })
       .catch(function (e) {
@@ -472,8 +474,11 @@
     // A hidden instance keeps running the firmware -- there is no clean way to
     // tear a wasm module down -- but stops being drawn, which is the whole
     // cost of it.
-    running.forEach(function (i, index) {
-      i.setVisible(count === 2 || index === 0);
+    // Walk the DOM rather than a list, so "visible" always means the device
+    // that is on screen. A boot that failed leaves no instance, and one throw
+    // here would take the whole control down with it.
+    Array.prototype.forEach.call(row.children, function (d) {
+      if (d.crossplay) d.crossplay.setVisible(!d.hidden);
     });
   }
 
