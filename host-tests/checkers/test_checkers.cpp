@@ -65,7 +65,7 @@ void testTheOpeningPositionIsTheStandardOne() {
   // Seven opening moves, as in the printed game.
   Move list[kMaxMoves];
   CHECK(moves(game, list) == 7);
-  for (int i = 0; i < 7; ++i) CHECK(list[i].takenCount == 0);
+  for (int i = 0; i < 7; ++i) CHECK(takenCountOf(list[i]) == 0);
 }
 
 // The headline rule. With a jump available, moves() must offer ONLY jumps --
@@ -82,7 +82,7 @@ void testACaptureIsMandatoryAndNothingElseIsOffered() {
   const int count = moves(game, list);
   CHECK(count > 0);
   for (int i = 0; i < count; ++i) {
-    CHECK(list[i].takenCount > 0);
+    CHECK(takenCountOf(list[i]) > 0);
     // And every offered jump belongs to the piece that can actually jump.
     CHECK(list[i].from == indexOf(2, 5));
   }
@@ -108,7 +108,7 @@ void testAMultiJumpIsOneMoveEndingOnTheFinalSquare() {
   Move list[kMaxMoves];
   const int count = moves(game, list);
   CHECK(count == 1);
-  CHECK(list[0].takenCount == 2);
+  CHECK(takenCountOf(list[0]) == 2);
   CHECK(list[0].from == indexOf(1, 6));
   CHECK(list[0].to == indexOf(5, 2));
 
@@ -150,7 +150,7 @@ void testPromotionEndsAJumpChain() {
   Move list[kMaxMoves];
   const int count = moves(game, list);
   CHECK(count == 1);
-  CHECK(list[0].takenCount == 1);
+  CHECK(takenCountOf(list[0]) == 1);
   CHECK(list[0].to == indexOf(4, 0));
   CHECK(play(game, list[0]));
   CHECK(isKing(game, indexOf(4, 0)));
@@ -221,14 +221,14 @@ void testRandomGamesHoldEveryInvariant() {
       // is a jump, or none of them is.
       int jumps = 0;
       for (int i = 0; i < count; ++i) {
-        if (list[i].takenCount > 0) ++jumps;
+        if (takenCountOf(list[i]) > 0) ++jumps;
       }
       CHECK(jumps == 0 || jumps == count);
 
       const uint8_t mover = game.turn;
       const int before = pieceCount(game, mover == kLight ? kDarkSeat : kLight);
       const Move& chosen = list[nextRandom() % static_cast<uint32_t>(count)];
-      const int taken = chosen.takenCount;
+      const int taken = takenCountOf(chosen);
       CHECK(play(game, chosen));
       CHECK(game.turn != mover);
       CHECK(pieceCount(game, mover == kLight ? kDarkSeat : kLight) == before - taken);
@@ -461,6 +461,155 @@ void testKingsShufflingForeverIsADraw() {
   CHECK(false);
 }
 
+// A multi-jump can take far more than three men -- nine is the real maximum in
+// English draughts -- and the first version capped the array at three, recorded
+// the three-capture PREFIX as a completed move, and handed over the turn. That
+// is a half-finished jump, the exact thing this core claims cannot exist.
+void testALongChainIsNotTruncated() {
+  Game game{};
+  clear(game);
+  put(game, 1, 0, false, true);  // a light king with a long road home
+  put(game, 2, 1, true);
+  put(game, 4, 1, true);
+  put(game, 6, 1, true);
+  put(game, 2, 3, true);
+  put(game, 4, 3, true);
+  put(game, 6, 3, true);
+  put(game, 2, 5, true);
+  put(game, 4, 5, true);
+  put(game, 6, 5, true);
+  game.turn = kLight;
+
+  Move list[kMaxMoves];
+  const int count = moves(game, list);
+  CHECK(count > 0);
+
+  int longest = 0;
+  for (int i = 0; i < count; ++i) {
+    const int taken = takenCountOf(list[i]);
+    if (taken > longest) longest = taken;
+  }
+  // Nine, not three. The exact number matters: a cap of any size records a
+  // prefix, and a prefix is an illegal position.
+  CHECK(longest == 9);
+
+  // And every move offered must be COMPLETE: after playing it, the piece that
+  // moved has no further jump available from where it landed.
+  for (int i = 0; i < count; ++i) {
+    Game after = game;
+    CHECK(play(after, list[i]));
+    // It is now the opponent's turn, so check the mover's side directly.
+    after.turn = kLight;
+    Move follow[kMaxMoves];
+    const int followCount = moves(after, follow);
+    for (int f = 0; f < followCount; ++f) {
+      if (follow[f].from == list[i].to) CHECK(follow[f].taken == 0);
+    }
+  }
+}
+
+// A four-capture cycle returns a king to the square it started on. play() used
+// to write the piece to `to` and then clear `from` -- the same square -- which
+// deleted the piece that had just moved.
+void testAMoveThatEndsWhereItStartedKeepsItsPiece() {
+  Game game{};
+  clear(game);
+  put(game, 2, 3, false, true);
+  put(game, 3, 2, true);
+  put(game, 3, 4, true);
+  put(game, 5, 2, true);
+  put(game, 5, 4, true);
+  game.turn = kLight;
+
+  Move list[kMaxMoves];
+  const int count = moves(game, list);
+  bool sawCycle = false;
+  for (int i = 0; i < count; ++i) {
+    if (list[i].to != list[i].from) continue;
+    sawCycle = true;
+    Game after = game;
+    CHECK(play(after, list[i]));
+    CHECK(occupied(after, indexOf(2, 3)));
+    CHECK(pieceCount(after, kLight) == 1);
+    CHECK(pieceCount(after, kDarkSeat) == 0);
+  }
+  CHECK(sawCycle);
+}
+
+// The opponent had no behavioural test at all: negating its evaluation took it
+// from 200-0 against a random mover to 0-195, and the suite stayed green.
+void testTheOpponentBeatsARandomMoverConvincingly() {
+  int brainWins = 0;
+  int randomWins = 0;
+  for (int match = 0; match < 60; ++match) {
+    Game game{};
+    start(game);
+    // The brain plays light in half the games and dark in the other half, so a
+    // sign error in either direction shows up.
+    const uint8_t brainSeat = (match % 2 == 0) ? kLight : kDarkSeat;
+    int plies = 0;
+    while (outcome(game) == Outcome::Running) {
+      Move chosen{};
+      if (game.turn == brainSeat) {
+        if (!chooseMove(game, chosen)) break;
+      } else {
+        Move list[kMaxMoves];
+        const int count = moves(game, list);
+        if (count == 0) break;
+        chosen = list[nextRandom() % static_cast<uint32_t>(count)];
+      }
+      if (!play(game, chosen)) break;
+      if (++plies > 400) break;
+    }
+    const Outcome result = outcome(game);
+    const bool brainWon = (brainSeat == kLight && result == Outcome::LightWins) ||
+                          (brainSeat == kDarkSeat && result == Outcome::DarkWins);
+    const bool randomWon = (brainSeat == kLight && result == Outcome::DarkWins) ||
+                           (brainSeat == kDarkSeat && result == Outcome::LightWins);
+    if (brainWon) ++brainWins;
+    if (randomWon) ++randomWins;
+  }
+  // Deterministic inputs, so this is a fixed number rather than a flaky one.
+  // An opponent that does not thrash a random mover is not an opponent.
+  CHECK(brainWins > randomWins * 4);
+  std::printf("  brain vs random: %d - %d of 60\n", brainWins, randomWins);
+}
+
+// The draw constants were unpinned: 80 -> 40 and 80 -> 150 both survived,
+// because the only assertion compared plies against the constant under test.
+void testTheDrawRuleUsesFortyMovesEach() {
+  CHECK(kIdleLimit == 80);
+
+  Game game{};
+  clear(game);
+  put(game, 0, 0, false, true);
+  put(game, 7, 7, true, true);
+  game.turn = kLight;
+  int plies = 0;
+  while (outcome(game) == Outcome::Running) {
+    Move list[kMaxMoves];
+    const int count = moves(game, list);
+    if (count == 0) break;
+    CHECK(play(game, list[0]));
+    if (++plies > 200) break;
+  }
+  CHECK(plies == 80);
+
+  // A CAPTURE resets the clock, not only a man moving. That arm was untested.
+  Game busy{};
+  clear(busy);
+  put(busy, 2, 3, false, true);
+  put(busy, 3, 4, true);
+  busy.turn = kLight;
+  busy.idlePlies = kIdleLimit - 2;
+  Move list[kMaxMoves];
+  const int count = moves(busy, list);
+  CHECK(count > 0);
+  CHECK(takenCountOf(list[0]) > 0);
+  CHECK(play(busy, list[0]));
+  CHECK(busy.idlePlies == 0);
+}
+
 }  // namespace
 
 int main() {
@@ -480,6 +629,10 @@ int main() {
   testTheOpponentIsDeterministicAndPure();
   testTheOpponentMaximisesItsWorstCase();
   testKingsShufflingForeverIsADraw();
+  testALongChainIsNotTruncated();
+  testAMoveThatEndsWhereItStartedKeepsItsPiece();
+  testTheOpponentBeatsARandomMoverConvincingly();
+  testTheDrawRuleUsesFortyMovesEach();
 
   std::printf("%d checks, %d failed\n", checks, failures);
   return failures == 0 ? 0 : 1;

@@ -67,11 +67,16 @@ void CheckersActivity::onMatchStart(const bool goesFirst) {
   // is the real one.
   seat = goesFirst ? ck::kLight : ck::kDarkSeat;
   clearPick();
-  if (goesFirst) {
-    ck::start(game);
-  } else {
-    game = ck::Game{};
-  }
+  // BOTH sides deal, unlike Knucklebones where only the first mover does.
+  // Checkers has no randomness: the opening position is fixed, so start() is
+  // identical on both devices and there is nothing to wait for.
+  //
+  // The follower used to start from a zeroed Game, and that was a serious bug
+  // rather than a cosmetic one -- an empty board has no legal move, so over()
+  // is true and outcome() reads DarkWins. The follower announced "YOU WIN"
+  // before the leader had moved, and LinkActivity latched a rematch it never
+  // cleared, so it never reached the board again for the rest of the match.
+  ck::start(game);
   goTo(ck::Screen::Board);
 }
 

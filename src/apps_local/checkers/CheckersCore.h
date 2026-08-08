@@ -37,15 +37,30 @@ constexpr uint8_t kLight = 0;
 constexpr uint8_t kDarkSeat = 1;
 
 struct Move {
-  // Where it starts and ends. For a multi-jump the end is the FINAL square:
-  // the whole sequence is one move, because a half-finished jump is not a legal
-  // position and nothing should be able to represent one.
+  // Which squares this move captures, as a bit per board square.
+  //
+  // A fixed array of three was the first version and it was WRONG: the real
+  // maximum in English draughts is NINE, and when a chain wanted a fourth
+  // capture the recursion simply stopped and recorded the three-capture prefix
+  // AS A COMPLETED MOVE. That is a half-finished jump -- exactly the thing this
+  // file claims cannot be represented -- and it was reachable, appearing in 13
+  // of 282,558 positions from random legal play.
+  //
+  // A mask has no depth to get wrong. Sixty-four squares, sixty-four bits.
+  uint64_t taken;
   uint8_t from;
   uint8_t to;
-  // Squares captured along the way, and how many. A jump of three takes three.
-  uint8_t taken[3];
-  uint8_t takenCount;
 };
+
+inline int takenCountOf(const Move& move) {
+  int count = 0;
+  for (uint64_t bits = move.taken; bits != 0; bits &= bits - 1) ++count;
+  return count;
+}
+
+inline bool tookSquare(const Move& move, const int index) {
+  return (move.taken & (static_cast<uint64_t>(1) << index)) != 0;
+}
 
 // Plies since the last capture or man move. Checkers' own draw rule: forty
 // moves by each side with no capture and no man advanced is a draw, because
@@ -129,12 +144,10 @@ inline void collectJumps(const Game& game, const int index, const Move& sofar, M
       const int land = indexOf(landFile, landRank);
       if (!occupied(game, over) || ownerOf(game, over) == owner) continue;
       if (occupied(game, land)) continue;
-      // A man already taken cannot be taken twice in the same chain.
-      bool already = false;
-      for (int t = 0; t < sofar.takenCount; ++t) {
-        if (sofar.taken[t] == over) already = true;
-      }
-      if (already || sofar.takenCount >= 3) continue;
+      // No "already taken" check: the scratch board below lifts each captured
+      // man, so `occupied(game, over)` above has already rejected it. The first
+      // version had one, and a mutation test proved it never fired in 69,532
+      // jump steps -- dead code presented as the rule that enforces something.
 
       Game next = game;
       next.cell[land] = next.cell[index];
@@ -143,7 +156,7 @@ inline void collectJumps(const Game& game, const int index, const Move& sofar, M
 
       Move chain = sofar;
       chain.to = static_cast<uint8_t>(land);
-      chain.taken[chain.takenCount++] = static_cast<uint8_t>(over);
+      chain.taken |= static_cast<uint64_t>(1) << over;
 
       // Promotion ends a chain -- the standard rule -- and it needs no branch
       // here, which is worth saying because the first version had one and a
@@ -173,7 +186,7 @@ inline int moves(const Game& game, Move* out) {
     Move seed{};
     seed.from = static_cast<uint8_t>(index);
     seed.to = static_cast<uint8_t>(index);
-    seed.takenCount = 0;
+    seed.taken = 0;
     collectJumps(game, index, seed, out, count);
   }
   if (count > 0) return count;
@@ -196,7 +209,7 @@ inline int moves(const Game& game, Move* out) {
         Move step{};
         step.from = static_cast<uint8_t>(index);
         step.to = static_cast<uint8_t>(to);
-        step.takenCount = 0;
+        step.taken = 0;
         out[count++] = step;
       }
     }
@@ -214,9 +227,15 @@ inline bool play(Game& game, const Move& move) {
 
     const Move& chosen = legal[i];
     const bool wasKing = isKing(game, chosen.from);
-    game.cell[chosen.to] = game.cell[chosen.from];
+    // Lifted before the square is cleared, because a multi-jump can END where
+    // it started -- a four-capture cycle returns a king to its own square, and
+    // clearing `from` afterwards would delete the piece that just moved.
+    const uint8_t moving = game.cell[chosen.from];
     game.cell[chosen.from] = kEmpty;
-    for (int t = 0; t < chosen.takenCount; ++t) game.cell[chosen.taken[t]] = kEmpty;
+    for (int square = 0; square < kCells; ++square) {
+      if (tookSquare(chosen, square)) game.cell[square] = kEmpty;
+    }
+    game.cell[chosen.to] = moving;
 
     const int toRank = chosen.to / kSize;
     const bool light = ownerOf(game, chosen.to) == kLight;
@@ -224,7 +243,7 @@ inline bool play(Game& game, const Move& move) {
 
     // Progress resets the clock: a capture, or a man moving. Only kings
     // shuffling with nothing taken counts as idle.
-    if (chosen.takenCount > 0 || !wasKing) {
+    if (chosen.taken != 0 || !wasKing) {
       game.idlePlies = 0;
     } else if (game.idlePlies < 255) {
       ++game.idlePlies;
