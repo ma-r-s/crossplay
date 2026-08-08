@@ -5,6 +5,7 @@
 #include "../activities/ActivityManager.h"
 #include "ShelfFolderActivity.h"
 #include "battleship/BattleshipActivity.h"
+#include "checkers/CheckersActivity.h"
 #include "chess/ChessActivity.h"
 #include "connections/ConnectionsActivity.h"
 #include "dungeon/DungeonActivity.h"
@@ -32,6 +33,7 @@ constexpr shelf::Item kGames[] = {
     {"INSIDER", &icon_insider_32, &InsiderActivity::create},
     {"JAIPUR", &icon_jaipur_32, &JaipurActivity::create},
     {"MURDLE", &icon_murdle_32, &MurdleActivity::create},
+    {"CHECKERS", &icon_checkers_32, &CheckersActivity::create},
 };
 constexpr shelf::Item kApps[] = {
     {"STUDY", &icon_study_32, &StudyActivity::create},
