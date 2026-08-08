@@ -173,6 +173,28 @@ fine, and the clause is struck. The tile-width argument stands on its own.
 
 This is where the real work is, and the first draft badly under-scoped it.
 
+### Measured, not assumed
+
+Run before committing to any of this, because the whole design rests on the
+first line:
+
+- **Two identical captures are byte-identical.** Same tap script, same card,
+  same md5. Pixel comparison is therefore a usable gate, which is the load
+  bearing assumption of everything below.
+- **The simulator emits 960x1600 and the site ships 480x800.** A downsample sits
+  between them, so a manifest entry that pins only the tap script still permits
+  two different files from one render. The scaler and its settings are part of
+  the recipe.
+- **The SD card decides the picture, and it is gitignored** (`fs_`, `fs_*/`).
+  The committed `games.png` shows a device called Mop Specs Grin, and
+  `index.html` says so in its alt text; a working tree today says Punk Bushy
+  Pout. No tap script alone can reproduce these shots, so a **committed seed
+  card** is a third prerequisite that the first version of this plan missed
+  entirely.
+
+So an entry needs three pinned inputs, not one: the script, the downsample, and
+the card.
+
 **2a. The bootstrap is the main cost, and it was unfunded.** The draft noted
 that the 27 tap scripts were never saved and then asked for an `input` field for
 every manifest entry without costing it. Reconstructing those 27 scripts _is_
