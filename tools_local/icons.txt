@@ -140,3 +140,22 @@ murdle_places   = map-pin   # the universal "a place". `house` is one kind of pl
 murdle_motives  = heart     # why, rather than what. `brain` is detail that fills in
                             # at 24px, `flame` reads as danger rather than motive
 
+
+# ---------------------------------------------------------------------------
+# The three faces of a case, at 24px, drawn white on the header band.
+#
+# The header used to carry one label that named the NEXT face and cycled. On a
+# panel that takes a second to redraw, reaching the third face meant two full
+# refreshes and a guess about which order they came in. Two icons go straight
+# there, and a picture survives the 40px of band left beside the title where a
+# word would not.
+#
+# Picked to be unmistakable from each other at a glance rather than to be
+# beautiful: horizontal rules, a lattice, and a rectangle with a corner.
+murdle_face_clues = list        # the numbered lines. `scroll-text` is a curl of
+                                # paper that blurs shut at 24px in one bit
+murdle_face_grid  = grid-2x2    # four cells, which is literally the board.
+                                # `table` reads as a header row plus body
+murdle_face_info  = folder      # the case file that holds the cast. `users` is
+                                # two heads and mush, and the page is not only
+                                # people -- it is weapons and places too

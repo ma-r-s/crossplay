@@ -593,14 +593,49 @@ CaseReport buildCase(toybox::Screen& screen, const CaseModel& model) {
   if (model.puzzle == nullptr || model.marks == nullptr) return report;
   const Puzzle& puzzle = *model.puzzle;
 
-  // The door names where it goes, not where you are. A tab bar spends half its
-  // width telling you which page you are already looking at; this spends none.
-  // Three faces now, so it cycles rather than toggles, and the label is always
-  // the next one round: CLUES -> GRID -> INFO -> CLUES.
-  const char* doors[kFaceCount] = {"GRID >", "INFO >", "CLUES >"};
-  const int here = static_cast<int>(model.face);
-  const int next = (here + 1) % kFaceCount;
-  chrome(screen, "MURDLE", doors[here], ActionFace, next);
+  // TWO DOORS, NOT ONE REVOLVING ONE.
+  //
+  // A single cycling door was one label naming the next face, which is fine at
+  // two faces and wrong at three: reaching the far one cost two taps and two
+  // full-screen refreshes on a panel that takes about a second each, plus a
+  // guess about which way round the cycle went. Both other faces are now one
+  // tap away and always in the same place.
+  //
+  // Icons rather than words because there is no room for two words beside the
+  // title, and because a lattice and a folder are told apart at a glance where
+  // "GRID" and "INFO" have to be read.
+  chrome(screen, "MURDLE", nullptr);
+  {
+    const fui::Rect band = screen.device().screen();
+    const int here = static_cast<int>(model.face);
+    // The two faces that are not this one, left to right in face order:
+    // CLUES, GRID, INFO. That is an ORDER, not a fixed slot per face -- with
+    // two doors and three faces, GRID is the left-hand door on the clues page
+    // and the right-hand one on the info page. What stays constant is the
+    // sequence, so the doors read like a row of tabs with the current one
+    // taken out rather than like two buttons that move around.
+    int other[2] = {0, 0};
+    int n = 0;
+    for (int f = 0; f < kFaceCount; ++f) {
+      if (f != here) other[n++] = f;
+    }
+    const freeink::Icon* marks[kFaceCount] = {&icon_murdle_face_clues_24, &icon_murdle_face_grid_24,
+                                              &icon_murdle_face_info_24};
+    constexpr int16_t kDoor = 56;  // 56x76 each: a comfortable thumb, twice over
+    for (int i = 0; i < 2; ++i) {
+      const int16_t x = static_cast<int16_t>(band.width - kDoor * (2 - i));
+      const fui::Rect box = fui::makeRect(x, 0, kDoor, toybox::kHeaderHeight);
+      // White on the black band. Inset so the two icons do not touch each other
+      // or the screen edge.
+      screen.target().bitmap(fui::makeRect(static_cast<int16_t>(x + (kDoor - 24) / 2),
+                                           static_cast<int16_t>((toybox::kHeaderHeight - 24) / 2), 24, 24),
+                             fui::bitmapFromIcon(*marks[other[i]]), fui::BitmapMode::Contain,
+                             fui::Paint::solid(fui::Color::White));
+      // Registered after the header drew, so the hit rect and the icon come
+      // from the same arithmetic and cannot drift apart.
+      screen.frame().hit(box, ActionFace, static_cast<int16_t>(other[i]));
+    }
+  }
 
   fui::ButtonProps accuse;
   accuse.label = model.solved ? "SOLVED" : "ACCUSE";
