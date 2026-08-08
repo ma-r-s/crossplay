@@ -169,6 +169,54 @@ void testSetYesOverrulesAnEarlierAnswer() {
   CHECK(yeses == 1);
 }
 
+// Cycling a cell through its three states must leave the rest of the grid
+// exactly as it found it.
+//
+// The tap order is blank -> crossed -> Yes -> blank, and Yes crosses out its
+// whole row and column. So the ONLY way back from crossed to blank runs through
+// Yes -- and if those crossings are not taken back with it, clearing one cross
+// costs the player six or eight new ones, each of which is itself a three-tap
+// round trip through the same trap. Mario hit it within minutes of playing.
+//
+// A cross the player made themselves is theirs and survives.
+void testClearingAYesTakesBackItsOwnCrossings() {
+  Grid grid;
+  grid.reset(Shape{4, 4});
+
+  // A cross the player put down by hand, before any Yes exists.
+  CHECK(grid.set(0, 0, 1, 2, Mark::No));
+
+  CHECK(grid.setYes(0, 0, 1, 0));
+  CHECK(grid.get(0, 0, 1, 0) == Mark::Yes);
+  CHECK(grid.get(0, 0, 1, 1) == Mark::No);  // written by setYes
+  CHECK(grid.get(0, 1, 1, 0) == Mark::No);  // written by setYes
+
+  grid.clearYes(0, 0, 1, 0);
+  CHECK(grid.get(0, 0, 1, 0) == Mark::Unknown);
+  // Everything setYes wrote is gone.
+  for (int i = 1; i < 4; ++i) {
+    if (i != 2) CHECK(grid.get(0, 0, 1, i) == Mark::Unknown);
+    CHECK(grid.get(0, i, 1, 0) == Mark::Unknown);
+  }
+  // The player's own cross is untouched.
+  CHECK(grid.get(0, 0, 1, 2) == Mark::No);
+
+  // And the whole cycle is a round trip from blank back to blank.
+  Grid before;
+  before.reset(Shape{4, 4});
+  CHECK(before.set(0, 3, 1, 3, Mark::No));
+  Grid after = before;
+  CHECK(after.setYes(0, 1, 1, 1));
+  after.clearYes(0, 1, 1, 1);
+  for (int a = 0; a < 4; ++a) {
+    for (int b = a + 1; b < 4; ++b) {
+      for (int ia = 0; ia < 4; ++ia) {
+        for (int ib = 0; ib < 4; ++ib) CHECK(after.get(a, ia, b, ib) == before.get(a, ia, b, ib));
+      }
+    }
+  }
+}
+
 void testSetYesCrossesItsOwnBlockOnly() {
   Grid grid;
   grid.reset(Shape{4, 4});
@@ -1345,6 +1393,7 @@ int runTests() {
   testShapes();
   testRngIsUnbiased();
   testGridIsOrderIndependent();
+  testClearingAYesTakesBackItsOwnCrossings();
   testSetYesCrossesItsOwnBlockOnly();
   testSetYesOverrulesAnEarlierAnswer();
   testCastTableIsDrawable();

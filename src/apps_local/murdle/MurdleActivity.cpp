@@ -300,7 +300,11 @@ void MurdleActivity::handleGridTap(const int x, const int y) {
       marks.setYes(catA, itemA, catB, itemB);
       break;
     case murdle::Mark::Yes:
-      marks.clear(catA, itemA, catB, itemB);
+      // clearYes, not clear: taking a Yes back also takes back the crossings it
+      // made. Otherwise the three states are a one-way street -- the only route
+      // from crossed-out to blank runs through Yes, and Yes leaves a row and a
+      // column of crosses behind it that were never asked for.
+      marks.clearYes(catA, itemA, catB, itemB);
       break;
   }
   dirty = true;

@@ -210,7 +210,22 @@ class Grid {
   // Set to Yes and cross out the rest of that item's row and column within the
   // same block. This is the bookkeeping a pencil does, not a deduction: it says
   // only that one suspect cannot hold two weapons.
+  //
+  // The crossings are remembered as the grid's own, so clearYes can take them
+  // back. A cross the player had already made by hand is left alone and stays
+  // theirs.
   bool setYes(int catA, int itemA, int catB, int itemB);
+
+  // Clear a Yes AND undo the crossings setYes made for it, leaving any the
+  // player wrote themselves.
+  //
+  // Without this the three states are a one-way street. Tapping a crossed-out
+  // cell takes it to Yes, which sprays a row and a column with crosses, and
+  // tapping again clears only the one cell -- so the only route from "crossed
+  // out" back to "blank" leaves seven or eight crosses behind that the player
+  // never asked for and now has to undo one at a time, each of which is itself
+  // a three-tap round trip. Mario hit this within minutes of playing.
+  void clearYes(int catA, int itemA, int catB, int itemB);
 
   // Every cell of every block decided.
   bool complete() const;
@@ -229,9 +244,16 @@ class Grid {
   // loop needs to know whether anything moved, which a bool cannot say.
   int put(int catA, int itemA, int catB, int itemB, Mark mark);
 
+  // Was this No written by setYes rather than by the player? One bit per cell,
+  // laid out like cells_ but packed a row to a byte: 24 bytes, against 96 for
+  // a parallel array, and Grid is copied on the stack by the case-split solver.
+  bool wroteItself(int catA, int itemA, int catB, int itemB) const;
+  void markOwn(int catA, int itemA, int catB, int itemB, bool own);
+
   Shape shape_;
   // [block][item of the lower-numbered category][item of the higher one]
   uint8_t cells_[kMaxBlocks][kMaxItems][kMaxItems] = {};
+  uint8_t own_[kMaxBlocks][kMaxItems] = {};
 };
 
 // ---------------------------------------------------------------------------

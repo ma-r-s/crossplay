@@ -159,6 +159,25 @@ int Grid::blockIndex(const int catA, const int catB) {
 void Grid::reset(const Shape shape) {
   shape_ = shape;
   std::memset(cells_, 0, sizeof(cells_));
+  std::memset(own_, 0, sizeof(own_));
+}
+
+bool Grid::wroteItself(const int catA, const int itemA, const int catB, const int itemB) const {
+  const int block = catA < catB ? blockIndex(catA, catB) : blockIndex(catB, catA);
+  const int lo = catA < catB ? itemA : itemB;
+  const int hi = catA < catB ? itemB : itemA;
+  return (own_[block][lo] & static_cast<uint8_t>(1u << hi)) != 0;
+}
+
+void Grid::markOwn(const int catA, const int itemA, const int catB, const int itemB, const bool own) {
+  const int block = catA < catB ? blockIndex(catA, catB) : blockIndex(catB, catA);
+  const int lo = catA < catB ? itemA : itemB;
+  const int hi = catA < catB ? itemB : itemA;
+  if (own) {
+    own_[block][lo] = static_cast<uint8_t>(own_[block][lo] | (1u << hi));
+  } else {
+    own_[block][lo] = static_cast<uint8_t>(own_[block][lo] & ~(1u << hi));
+  }
 }
 
 Mark Grid::get(const int catA, const int itemA, const int catB, const int itemB) const {
@@ -186,6 +205,8 @@ void Grid::clear(const int catA, const int itemA, const int catB, const int item
   } else {
     cells_[blockIndex(catB, catA)][itemB][itemA] = static_cast<uint8_t>(Mark::Unknown);
   }
+  // A blank cell is nobody's. Whatever wrote it last has no claim on it now.
+  markOwn(catA, itemA, catB, itemB, false);
 }
 
 bool Grid::setYes(const int catA, const int itemA, const int catB, const int itemB) {
@@ -195,6 +216,17 @@ bool Grid::setYes(const int catA, const int itemA, const int catB, const int ite
   // first version wrote the new Yes, hit the old one while crossing out,
   // returned false and left two yeses in one row with the crossing half
   // applied: a corrupt grid produced by the most ordinary action there is.
+  // Whose crosses were already here, recorded BEFORE the clear below erases the
+  // distinction. The clear wipes the row and column and the loop underneath
+  // writes them straight back, so without this every cross the player made by
+  // hand would come back as the grid's own and be taken away again the moment
+  // they cleared the Yes. The test for this caught it on its first run.
+  bool theirs[kMaxItems][2] = {};
+  for (int i = 0; i < shape_.items; ++i) {
+    theirs[i][0] = get(catA, itemA, catB, i) == Mark::No && !wroteItself(catA, itemA, catB, i);
+    theirs[i][1] = get(catA, i, catB, itemB) == Mark::No && !wroteItself(catA, i, catB, itemB);
+  }
+
   for (int i = 0; i < shape_.items; ++i) {
     clear(catA, itemA, catB, i);
     clear(catA, i, catB, itemB);
@@ -205,11 +237,24 @@ bool Grid::setYes(const int catA, const int itemA, const int catB, const int ite
   // suspects. Bookkeeping, not deduction: this stays inside the block, because
   // reaching across blocks is the deduction and doing it for the player would
   // be playing the game for them.
+  //
+  // Each cross this actually writes is recorded as the grid's own, so clearing
+  // the Yes can take it back. A cell the player had already crossed by hand is
+  // untouched by put() -- it returns 0 for "already that value" -- and so is
+  // never claimed, and never taken away from them.
   for (int i = 0; i < shape_.items; ++i) {
-    if (i != itemB) put(catA, itemA, catB, i, Mark::No);
-    if (i != itemA) put(catA, i, catB, itemB, Mark::No);
+    if (i != itemB && put(catA, itemA, catB, i, Mark::No) == 1) markOwn(catA, itemA, catB, i, !theirs[i][0]);
+    if (i != itemA && put(catA, i, catB, itemB, Mark::No) == 1) markOwn(catA, i, catB, itemB, !theirs[i][1]);
   }
   return true;
+}
+
+void Grid::clearYes(const int catA, const int itemA, const int catB, const int itemB) {
+  for (int i = 0; i < shape_.items; ++i) {
+    if (i != itemB && wroteItself(catA, itemA, catB, i)) clear(catA, itemA, catB, i);
+    if (i != itemA && wroteItself(catA, i, catB, itemB)) clear(catA, i, catB, itemB);
+  }
+  clear(catA, itemA, catB, itemB);
 }
 
 bool Grid::complete() const {
