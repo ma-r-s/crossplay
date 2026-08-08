@@ -129,14 +129,38 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   // Taken after the player bar, so it sits above it, and only when there is more
   // than one page: a lone pip saying "you are on the only page" is furniture.
   //
-  // The pips tile the whole bar edge to edge, so every pixel of it belongs to
-  // some page and there is no dead strip between targets. That matters more than
-  // it sounds: the pip itself is 12px, which is not a thumb, and the reason this
-  // control exists at all is that touch could not reach past the fold. A target
-  // the size of the mark would have reintroduced the problem it fixes.
+  // **This is a position indicator that happens to be tappable, not a row of
+  // buttons**, and the difference is the whole design. The first version tiled
+  // the full width with page-sized targets, and it read as a control -- which
+  // was wrong twice over. The device already has the control: the side buttons
+  // step the cursor and the page follows, so drawing a second one is
+  // reinventing hardware we already have. And what was actually missing was
+  // never a control at all, it was the *signal* that more games exist.
+  //
+  // It stays tappable rather than becoming pure decoration because of a fact
+  // about this hardware: `BaseTheme::drawButtonHints` returns immediately when
+  // `gpio.hasTouch()`, and the X4 Pro has a GT911. So upstream deliberately
+  // teaches nothing about the physical buttons on a touch device, which means a
+  // touch user has no way to discover that Up and Down would page. Touch has to
+  // stay complete. The iOS home screen resolves the same tension the same way:
+  // dots that read as position and happen to accept a tap.
+  //
+  // So the marks are a small centred cluster with air around them rather than a
+  // bar of slabs, and the targets are a thumb wide and contiguous *within the
+  // cluster only* -- tapping the far edge of the screen does nothing, because
+  // out there the user is not aiming at anything.
   if (model.pageCount > 1) {
     const fui::Rect bar = screen.takeBottom(kPageBarHeight, toybox::kGutter);
-    const int16_t slot = static_cast<int16_t>(bar.width / model.pageCount);
+
+    // A thumb, and contiguous, so no gap between adjacent pages can swallow a
+    // tap. Falls back to sharing the bar when there are so many pages that a
+    // thumb-wide pitch would not fit; small honest targets beat overlapping
+    // ones, which is why the component is not allowed to grow them either.
+    constexpr int16_t kPitch = 44;
+    constexpr int16_t kPip = 10;
+    const int16_t pitch =
+        kPitch * model.pageCount <= bar.width ? kPitch : static_cast<int16_t>(bar.width / model.pageCount);
+    const int16_t clusterX = static_cast<int16_t>(bar.x + (bar.width - pitch * model.pageCount) / 2);
 
     // A hit region and nothing else. A StyleSet with no paints would be taken
     // for an unset one and quietly replaced by the default button look, which is
@@ -145,25 +169,20 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
     fui::StyleSet invisible;
     invisible.explicitlySet = true;
 
-    constexpr int16_t kPip = 12;
     for (int p = 0; p < model.pageCount; ++p) {
       const fui::Rect target =
-          fui::makeRect(static_cast<int16_t>(bar.x + p * slot), bar.y, slot, static_cast<int16_t>(bar.height));
+          fui::makeRect(static_cast<int16_t>(clusterX + p * pitch), bar.y, pitch, static_cast<int16_t>(bar.height));
       fui::ButtonProps jump;
       jump.action = ActionGoToPage;
       jump.value = static_cast<int16_t>(p);
       jump.styles = invisible;
-      // The slots already tile the bar, so they are contiguous and cannot
-      // overlap. Letting the component grow each one to its 44px minimum would
-      // make them overlap once there are more than ten pages, and a tap landing
-      // on the wrong page is worse than a target that is honestly small.
       jump.minTouchSize = 0;
       screen.button(jump, target);
 
       // Filled for where you are, outlined for where you are not. Ink rather
       // than a grey, because there is no grey on this panel: text() draws any
       // non-white colour solid black and a dither this small is mud.
-      const fui::Rect pip = fui::makeRect(static_cast<int16_t>(target.x + (slot - kPip) / 2),
+      const fui::Rect pip = fui::makeRect(static_cast<int16_t>(target.x + (pitch - kPip) / 2),
                                           static_cast<int16_t>(target.y + (target.height - kPip) / 2), kPip, kPip);
       if (p == model.page) {
         screen.target().fill(pip, fui::Paint::solid(fui::Color::Black));

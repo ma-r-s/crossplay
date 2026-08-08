@@ -984,22 +984,38 @@ void testTheShelfPagesWhenAFolderOverflows() {
   CHECK(barY > 0);
   CHECK(barY > band.y + band.height);
 
-  // Every page is one tap away, and the targets tile the bar: a sweep across it
-  // hits pages in order and never lands on nothing. A gap here is a dead strip
-  // the thumb finds and the eye does not.
+  // Every page is one tap away, and the targets are contiguous *within the
+  // cluster*: a sweep hits pages in ascending order with no dead pixel between
+  // the first target and the last. Outside the cluster there is deliberately
+  // nothing, because the marks are a position indicator with air around them
+  // rather than a bar of buttons -- so this asserts no gap rather than no miss.
+  // A gap between adjacent pages is a strip the thumb finds and the eye cannot.
   int reached[8] = {};
-  int misses = 0;
+  int firstHit = -1;
+  int lastHit = -1;
+  int gaps = 0;
+  int previous = -1;
   for (int x = toybox::kMargin; x < device().width - toybox::kMargin; ++x) {
     const fui::ActionEvent hit = menu.tap(x, barY);
     if (hit.action != shelfui::ActionGoToPage) {
-      ++misses;
+      if (firstHit >= 0 && lastHit == x - 1) continue;  // past the cluster's end
       continue;
     }
     CHECK(hit.value >= 0 && hit.value < paging.pageCount);
-    if (hit.value >= 0 && hit.value < 8) ++reached[hit.value];
+    if (firstHit < 0) firstHit = x;
+    if (lastHit >= 0 && x != lastHit + 1) ++gaps;
+    // Ascending left to right: page one is on the left, as it reads.
+    CHECK(hit.value >= previous);
+    previous = hit.value;
+    lastHit = x;
+    if (hit.value < 8) ++reached[hit.value];
   }
-  CHECK(misses == 0);
+  CHECK(firstHit > 0);
+  CHECK(gaps == 0);
   for (int p = 0; p < paging.pageCount; ++p) CHECK(reached[p] > 0);
+  // A cluster, not the whole bar: it must leave the edges alone or it is the
+  // control this was rewritten to stop being.
+  CHECK(lastHit - firstHit < band.width - 2 * toybox::kMargin);
 }
 
 void testAFolderWithoutADeviceNameHasNoFooter() {
