@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "KnucklebonesBrain.h"
 #include "KnucklebonesCore.h"
 #include "KnucklebonesFlow.h"
 
@@ -332,6 +333,75 @@ void testTheFlowAgreesWithTheRulesEveryMove() {
   CHECK(!acceptsPlacement(phaseFor(over(game), game.turn == 0)));
 }
 
+// --- the opponent ----------------------------------------------------------
+
+void testTheOpponentOnlyEverPlaysALegalColumn() {
+  uint32_t seed = 24680u;
+  for (int match = 0; match < 2000; ++match) {
+    Game game{};
+    start(game, seed = seed * 1664525u + 1013904223u);
+    int guard = 0;
+    while (!over(game)) {
+      const int column = chooseColumn(game);
+      CHECK(column >= 0 && column < kColumns);
+      if (column < 0) break;
+      CHECK(canPlace(game, column));
+      CHECK(place(game, column));
+      CHECK(++guard <= 500);
+      if (guard > 500) break;
+    }
+    CHECK(over(game));
+  }
+}
+
+void testTheOpponentNeverMutatesTheGameItIsGiven() {
+  Game game{};
+  start(game, 555u);
+  const Game before = game;
+  (void)chooseColumn(game);
+  // It searches on copies. If it ever played on the real board, a match would
+  // desync the moment the opponent thought.
+  CHECK(std::memcmp(&before, &game, sizeof(Game)) == 0);
+}
+
+void testTheOpponentIsDeterministic() {
+  // Same position, same answer, every time and on every device. A random
+  // tiebreak would make a seeded match unreplayable, which is what both the
+  // two-device path and a reproducible screenshot depend on.
+  Game game{};
+  start(game, 31337u);
+  while (!over(game)) {
+    const int first = chooseColumn(game);
+    for (int repeat = 0; repeat < 8; ++repeat) CHECK(chooseColumn(game) == first);
+    if (first < 0) break;
+    CHECK(place(game, first));
+  }
+}
+
+void testTheOpponentTakesAnObviousStackAndAnObviousWreck() {
+  // A three waiting to join two threes: 3*9 = 27 against 3*4 = 12, so the
+  // column it is already in is worth 15 more than starting a new one.
+  Game build{};
+  start(build, 1u);
+  const uint8_t mine[kColumns][kRows] = {{3, 3, kEmpty}, {kEmpty, kEmpty, kEmpty}, {kEmpty, kEmpty, kEmpty}};
+  build.grid[0] = gridOf(mine);
+  build.turn = 0;
+  build.die = 3;
+  CHECK(chooseColumn(build) == 0);
+
+  // Now the same die, but column 2 holds three of the opponent's fives -- 75
+  // points -- and this device has nothing to build. Wrecking beats stacking.
+  Game wreck{};
+  start(wreck, 1u);
+  const uint8_t empty[kColumns][kRows] = {{kEmpty, kEmpty, kEmpty}, {kEmpty, kEmpty, kEmpty}, {kEmpty, kEmpty, kEmpty}};
+  const uint8_t theirs[kColumns][kRows] = {{kEmpty, kEmpty, kEmpty}, {kEmpty, kEmpty, kEmpty}, {5, 5, 5}};
+  wreck.grid[0] = gridOf(empty);
+  wreck.grid[1] = gridOf(theirs);
+  wreck.turn = 0;
+  wreck.die = 5;
+  CHECK(chooseColumn(wreck) == 2);
+}
+
 }  // namespace
 
 int main() {
@@ -346,6 +416,10 @@ int main() {
   testBackIsTotalAndAlwaysReachesTheTop();
   testPhaseIsDerivedAndOnlyYourTurnAccepts();
   testTheFlowAgreesWithTheRulesEveryMove();
+  testTheOpponentOnlyEverPlaysALegalColumn();
+  testTheOpponentNeverMutatesTheGameItIsGiven();
+  testTheOpponentIsDeterministic();
+  testTheOpponentTakesAnObviousStackAndAnObviousWreck();
 
   std::printf("%d checks, %d failed\n", checks, failures);
   return failures == 0 ? 0 : 1;
