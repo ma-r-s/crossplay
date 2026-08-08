@@ -15,6 +15,7 @@
 
 #include "../../src/apps_local/ShelfScreen.h"
 #include "../../src/apps_local/battleship/BattleshipScreens.h"
+#include "../../src/apps_local/checkers/CheckersScreens.h"
 #include "../../src/apps_local/chess/ChessScreens.h"
 #include "../../src/apps_local/connections/ConnectionsScreens.h"
 #include "../../src/apps_local/hackernews/HackerNewsScreens.h"
@@ -2186,6 +2187,113 @@ void testMurdleMenuHeadlineIsTheDoorAcrossItsWidth() {
   CHECK(!out.interactions.overflowed());
 }
 
+// --- checkers --------------------------------------------------------------
+
+template <typename Model, void (*Build)(toybox::Screen&, const Model&)>
+void buildCk(Rendered& out, const Model& model) {
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, device(), noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  Build(screen, model);
+}
+
+// The load-bearing one, and harder here than in Minesweeper: the board is drawn
+// from the playing side's end, so the same square is in a different place for
+// each seat. squareRect and squareAt must be exact inverses for BOTH.
+void testTheSquareYouTapIsTheSquareTheRulesGet() {
+  const uint8_t seats[] = {checkers::kLight, checkers::kDarkSeat};
+  for (const uint8_t seat : seats) {
+    for (int file = 0; file < checkers::kSize; ++file) {
+      for (int rank = 0; rank < checkers::kSize; ++rank) {
+        const fui::Rect box = checkui::squareRect(device(), file, rank, seat);
+        const int probes[4][2] = {{box.x, box.y},
+                                  {box.x + box.width - 1, box.y},
+                                  {box.x, box.y + box.height - 1},
+                                  {box.x + box.width - 1, box.y + box.height - 1}};
+        for (const auto& probe : probes) {
+          int gotFile = -1;
+          int gotRank = -1;
+          CHECK(checkui::squareAt(device(), probe[0], probe[1], seat, gotFile, gotRank));
+          CHECK(gotFile == file);
+          CHECK(gotRank == rank);
+        }
+      }
+    }
+    // And the two seats really do disagree about where a square is, or the
+    // flip is not happening at all.
+    const fui::Rect mine = checkui::squareRect(device(), 0, 0, seat);
+    const fui::Rect theirs =
+        checkui::squareRect(device(), 0, 0, seat == checkers::kLight ? checkers::kDarkSeat : checkers::kLight);
+    CHECK(mine.x != theirs.x || mine.y != theirs.y);
+  }
+}
+
+void testTheBoardKeepsOffTheChrome() {
+  int f = -1;
+  int r = -1;
+  const int capsuleY = 800 - toybox::kMargin - toybox::kPillHeight / 2;
+  CHECK(!checkui::squareAt(device(), 240, capsuleY, checkers::kLight, f, r));
+  CHECK(!checkui::squareAt(device(), 240, toybox::kHeaderHeight / 2, checkers::kLight, f, r));
+
+  const fui::Rect last = checkui::squareRect(device(), checkers::kSize - 1, checkers::kSize - 1, checkers::kLight);
+  CHECK(last.y + last.height + toybox::kPillHeight + toybox::kGutter * 2 <= 800);
+  const fui::Rect first = checkui::squareRect(device(), 0, 0, checkers::kLight);
+  CHECK(first.y >= toybox::kHeaderHeight + toybox::kRule);
+}
+
+void testTheBoardSaysWhoseMoveAndWho() {
+  checkui::BoardModel model;
+  checkers::start(model.game);
+  model.yourTurn = true;
+
+  Rendered mine;
+  buildCk<checkui::BoardModel, checkui::buildBoard>(mine, model);
+  CHECK(mine.target.drew("YOUR MOVE"));
+
+  model.yourTurn = false;
+  Rendered theirs;
+  buildCk<checkui::BoardModel, checkui::buildBoard>(theirs, model);
+  CHECK(theirs.target.drew("THEIR MOVE"));
+  CHECK(!theirs.target.drew("YOUR MOVE"));
+}
+
+void testTheResultNamesTheOutcomeFromYourSeat() {
+  checkui::ResultModel won;
+  won.outcome = checkers::Outcome::LightWins;
+  won.seat = checkers::kLight;
+  Rendered a;
+  buildCk<checkui::ResultModel, checkui::buildResult>(a, won);
+  CHECK(a.target.drew("YOU WIN"));
+
+  // The same outcome, from the other seat, must read the other way.
+  checkui::ResultModel lost = won;
+  lost.seat = checkers::kDarkSeat;
+  Rendered b;
+  buildCk<checkui::ResultModel, checkui::buildResult>(b, lost);
+  CHECK(b.target.drew("THEY WIN"));
+
+  checkui::ResultModel drawn;
+  drawn.outcome = checkers::Outcome::Draw;
+  Rendered c;
+  buildCk<checkui::ResultModel, checkui::buildResult>(c, drawn);
+  CHECK(c.target.drew("A DRAW"));
+  // And it says why, because a draw nobody understands reads as a bug.
+  CHECK(c.target.drew("FORTY MOVES EACH WITH NOTHING TAKEN."));
+}
+
+void testTheCheckersHowToPagesAndEnds() {
+  for (int page = 0; page < checkui::howToPages(); ++page) {
+    checkui::HowToModel model;
+    model.page = page;
+    Rendered out;
+    buildCk<checkui::HowToModel, checkui::buildHowTo>(out, model);
+    CHECK(out.target.drew(page + 1 < checkui::howToPages() ? "NEXT" : "GOT IT"));
+    char progress[8];
+    std::snprintf(progress, sizeof(progress), "%d/%d", page + 1, checkui::howToPages());
+    CHECK(out.target.drew(progress));
+  }
+}
+
 int main() {
   testSearchingAsksNothing();
   testMurdleGridResolvesEveryCellItDrew();
@@ -2216,6 +2324,11 @@ int main() {
   testHnList();
   testHnFitLines();
   testHnReaderShowsWhereYouAre();
+  testTheSquareYouTapIsTheSquareTheRulesGet();
+  testTheBoardKeepsOffTheChrome();
+  testTheBoardSaysWhoseMoveAndWho();
+  testTheResultNamesTheOutcomeFromYourSeat();
+  testTheCheckersHowToPagesAndEnds();
   testShelfFolderDrawsItsOwnNameAndRows();
   testAFolderWithoutADeviceNameHasNoFooter();
   testTheShelfFooterIsADoorWithAFaceOnIt();

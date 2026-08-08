@@ -28,6 +28,7 @@ c++ -std=c++17 -Wall -Wextra -Werror -Wno-comment -Wno-format-truncation \
   ../../src/apps_local/battleship/BattleshipScreens.cpp \
   ../../src/apps_local/ShelfScreen.cpp \
   ../../src/apps_local/chess/ChessScreens.cpp \
+  ../../src/apps_local/checkers/CheckersScreens.cpp \
   ../../src/apps_local/connections/ConnectionsCore.cpp \
   ../../src/apps_local/connections/ConnectionsScreens.cpp \
   ../../src/apps_local/dungeon/DungeonCore.cpp \
