@@ -48,6 +48,19 @@ class MappedInputManager;
 
 namespace shelf {
 
+// The most items one folder may hold. `ShelfFolderActivity` reads the registry
+// into fixed arrays of this size, so it is a real ceiling rather than a
+// suggestion, and `Shelf.cpp` static_asserts every folder against it.
+//
+// It used to live in ShelfFolderActivity alone, where the read was clamped
+// silently: registering a seventeenth game made it simply not appear, with no
+// log and no build failure. The icon rule next door was already enforced at
+// compile time for exactly this reason -- a shelf that quietly drops things is
+// indistinguishable from a shelf you mis-registered.
+//
+// Raising it is not the answer to a folder that outgrows it. See docs/shelf.md.
+constexpr int kMaxItemsPerFolder = 16;
+
 // One openable thing. Raw, untranslated title: routing these through tr() would
 // mean editing lib/I18n/translations/*.yaml per app, which is the per-app
 // upstream churn this whole directory exists to avoid.

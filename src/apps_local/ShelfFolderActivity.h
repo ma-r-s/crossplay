@@ -12,6 +12,7 @@
 #include <memory>
 
 #include "../activities/Activity.h"
+#include "Shelf.h"
 #include "ui/ToyboxScreen.h"
 
 class ShelfFolderActivity final : public Activity {
@@ -29,11 +30,11 @@ class ShelfFolderActivity final : public Activity {
  private:
   void buildItems();
 
-  // Sized for the largest folder we would ever put on one screen without
-  // paging. The list virtualizes, so this bounds the registry read, not the
-  // scroll. A folder that outgrows it is a sign it wants splitting, not a
-  // bigger number.
-  static constexpr int kMaxItems = 16;
+  // The registry's own ceiling, which every folder is checked against at compile
+  // time in Shelf.cpp. The list virtualizes, so this bounds the registry read,
+  // not the scroll. A folder that outgrows it is a sign it wants splitting, not
+  // a bigger number.
+  static constexpr int kMaxItems = shelf::kMaxItemsPerFolder;
 
   const int folder;
   freeink::ui::ListItem items[kMaxItems] = {};

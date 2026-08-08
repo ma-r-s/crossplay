@@ -135,6 +135,12 @@ blank icon gutter is silent otherwise. Pick for silhouette rather than
 literalness: the label already says the name, so the icon's job is to be
 distinct at a glance in a 62px row.
 
+**A folder over `shelf::kMaxItemsPerFolder` does not compile either**, for the
+same reason. The folder activity reads the registry into fixed arrays, and that
+read used to clamp in silence: a seventeenth game simply did not appear, with no
+log and nothing to grep for. Raising the number is not the answer to a folder
+that outgrew it.
+
 **4. Leave through the shelf.**
 
 ```cpp

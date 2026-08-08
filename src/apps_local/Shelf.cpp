@@ -63,6 +63,18 @@ constexpr bool everyItemHasAnIcon() {
 }
 static_assert(everyItemHasAnIcon(), "every shelf item needs an icon; see tools_local/icons.txt");
 
+// A folder that outgrows the registry read used to be truncated in silence:
+// item seventeen simply did not appear, with no log and nothing to grep for.
+// Enforced here rather than in the activity because this is where the mistake
+// is made, and a build failure names the row you just added.
+constexpr bool everyFolderFits() {
+  for (const auto& folder : kFolders) {
+    if (folder.count > shelf::kMaxItemsPerFolder) return false;
+  }
+  return true;
+}
+static_assert(everyFolderFits(), "a shelf folder outgrew kMaxItemsPerFolder; split it rather than raising the cap");
+
 constexpr bool everyFolderHasAMark() {
   for (const auto& folder : kFolders) {
     if (folder.mark == nullptr) return false;
