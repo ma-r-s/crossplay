@@ -30,9 +30,9 @@ namespace murdleui {
 namespace {
 
 using murdle::Cat;
-using murdle::Grid;
 using murdle::kMaxCats;
 using murdle::Mark;
+using murdle::Marks;
 using murdle::Puzzle;
 using murdle::Tier;
 
@@ -170,7 +170,7 @@ GridLayout layoutGrid(toybox::Screen& screen, const Puzzle& puzzle, const fui::R
   return layout;
 }
 
-void drawGrid(toybox::Screen& screen, const Puzzle& puzzle, const Grid& marks, const GridLayout& g) {
+void drawGrid(toybox::Screen& screen, const Puzzle& puzzle, const Marks& marks, const GridLayout& g) {
   auto& target = screen.target();
   const fui::Paint ink = fui::Paint::solid(fui::Color::Black);
   const int items = g.items;
@@ -232,7 +232,7 @@ void drawGrid(toybox::Screen& screen, const Puzzle& puzzle, const Grid& marks, c
           const fui::Rect cell = fui::makeRect(g.cellX(c * items + ic), g.cellY(r * items + ir), g.cell, g.cell);
           target.stroke(cell, ink, toybox::kHairline);
 
-          const Mark mark = marks.get(g.rowCat[r], ir, g.colCat[c], ic);
+          const Mark mark = marks.shown(g.rowCat[r], ir, g.colCat[c], ic);
           if (mark == Mark::No) {
             // A bar, not a cross. The draw target has fills and strokes and no
             // diagonal, so an X would have to be a bitmap; a bar reads as
@@ -769,7 +769,7 @@ void menuDoors(toybox::Screen& screen, const MenuModel& model) {
 
 // A miniature of the real grid, marks and all. No labels: at this size it is a
 // picture of how far in you are, not something to read.
-void miniGrid(toybox::Screen& screen, const murdle::Puzzle& puzzle, const murdle::Grid& marks, const fui::Rect& area) {
+void miniGrid(toybox::Screen& screen, const murdle::Puzzle& puzzle, const murdle::Marks& marks, const fui::Rect& area) {
   auto& target = screen.target();
   const fui::Paint ink = fui::Paint::solid(fui::Color::Black);
   const int groups = puzzle.shape.cats - 1;
@@ -799,7 +799,7 @@ void miniGrid(toybox::Screen& screen, const murdle::Puzzle& puzzle, const murdle
           const fui::Rect at = fui::makeRect(static_cast<int16_t>(block.x + ic * cell),
                                              static_cast<int16_t>(block.y + ir * cell), cell, cell);
           target.stroke(at, ink, toybox::kHairline);
-          const murdle::Mark mark = marks.get(rowCat[r], ir, colCat[c], ic);
+          const murdle::Mark mark = marks.shown(rowCat[r], ir, colCat[c], ic);
           if (mark == murdle::Mark::No) {
             target.fill(fui::makeRect(static_cast<int16_t>(at.x + cell / 3), static_cast<int16_t>(at.y + cell / 2 - 1),
                                       static_cast<int16_t>(cell / 3), 2),

@@ -96,7 +96,7 @@ class MurdleActivity final : public Activity {
   void recordVerdict(int outcome);
 
   murdle::Puzzle puzzle;
-  murdle::Grid marks;
+  murdle::Marks marks;
   // ~4.7KB of working room for the generator, held only while a case is being
   // made. Too big for the task stack, and not worth keeping in DRAM between
   // cases on a device with 380KB of it.

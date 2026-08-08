@@ -135,252 +135,70 @@ void testGridIsOrderIndependent() {
   CHECK(!grid.set(0, 3, 1, 2, Mark::No));
 }
 
-// Marking a square right must rule out the rest of its row and column, and it
-// must do so even when the player is overruling an earlier answer. The first
-// version refused: put() will not write over a decided cell, so setYes() hit
-// the old Yes, returned false, and left TWO yeses in one row with the crossing
-// half applied. A corrupt grid, from the most ordinary action there is --
-// changing your mind.
-void testSetYesOverrulesAnEarlierAnswer() {
-  Grid grid;
-  grid.reset(Shape{4, 4});
-  CHECK(grid.setYes(0, 0, 1, 0));
-  CHECK(grid.get(0, 0, 1, 0) == Mark::Yes);
-  CHECK(grid.get(0, 0, 1, 3) == Mark::No);
-
-  // Same row, a different column: the new answer wins and the old one is gone.
-  CHECK(grid.setYes(0, 0, 1, 3));
-  CHECK(grid.get(0, 0, 1, 3) == Mark::Yes);
-  CHECK(grid.get(0, 0, 1, 0) == Mark::No);
-  int yeses = 0;
-  for (int i = 0; i < 4; ++i) {
-    if (grid.get(0, 0, 1, i) == Mark::Yes) ++yeses;
-  }
-  CHECK(yeses == 1);
-
-  // Same column, a different row.
-  CHECK(grid.setYes(0, 2, 1, 3));
-  CHECK(grid.get(0, 2, 1, 3) == Mark::Yes);
-  CHECK(grid.get(0, 0, 1, 3) == Mark::No);
-  yeses = 0;
-  for (int i = 0; i < 4; ++i) {
-    if (grid.get(0, i, 1, 3) == Mark::Yes) ++yeses;
-  }
-  CHECK(yeses == 1);
-}
-
-// Cycling a cell through its three states must leave the rest of the grid
-// exactly as it found it.
-//
-// The tap order is blank -> crossed -> Yes -> blank, and Yes crosses out its
-// whole row and column. So the ONLY way back from crossed to blank runs through
-// Yes -- and if those crossings are not taken back with it, clearing one cross
-// costs the player six or eight new ones, each of which is itself a three-tap
-// round trip through the same trap. Mario hit it within minutes of playing.
-//
-// A cross the player made themselves is theirs and survives.
-void testClearingAYesTakesBackItsOwnCrossings() {
-  Grid grid;
-  grid.reset(Shape{4, 4});
-
-  // A cross the player put down by hand, before any Yes exists.
-  CHECK(grid.set(0, 0, 1, 2, Mark::No));
-
-  CHECK(grid.setYes(0, 0, 1, 0));
-  CHECK(grid.get(0, 0, 1, 0) == Mark::Yes);
-  CHECK(grid.get(0, 0, 1, 1) == Mark::No);  // written by setYes
-  CHECK(grid.get(0, 1, 1, 0) == Mark::No);  // written by setYes
-
-  grid.clearYes(0, 0, 1, 0);
-  CHECK(grid.get(0, 0, 1, 0) == Mark::Unknown);
-  // Everything setYes wrote is gone.
-  for (int i = 1; i < 4; ++i) {
-    if (i != 2) CHECK(grid.get(0, 0, 1, i) == Mark::Unknown);
-    CHECK(grid.get(0, i, 1, 0) == Mark::Unknown);
-  }
-  // The player's own cross is untouched.
-  CHECK(grid.get(0, 0, 1, 2) == Mark::No);
-
-  // And the whole cycle is a round trip from blank back to blank.
-  Grid before;
-  before.reset(Shape{4, 4});
-  CHECK(before.set(0, 3, 1, 3, Mark::No));
-  Grid after = before;
-  CHECK(after.setYes(0, 1, 1, 1));
-  after.clearYes(0, 1, 1, 1);
-  for (int a = 0; a < 4; ++a) {
-    for (int b = a + 1; b < 4; ++b) {
-      for (int ia = 0; ia < 4; ++ia) {
-        for (int ib = 0; ib < 4; ++ib) CHECK(after.get(a, ia, b, ib) == before.get(a, ia, b, ib));
-      }
-    }
-  }
-}
-
-// Changing your mind about which cell in a row is the Yes must not leave the
-// old Yes's crossings behind in its COLUMN.
-//
-// Say S0 holds W0. That crosses out the rest of S0's row and the rest of W0's
-// column. Now mark S0 as holding W1 instead. setYes clears S0's row, so the old
-// Yes goes -- but the crosses it put down the W0 column, on S1, S2 and S3, are
-// in neither the row nor the column being rewritten. They survive, and they now
-// say that nobody at all can hold W0.
-//
-// That is a contradictory grid produced by an ordinary change of mind, and it
-// is exactly the case Mario asked about after the first fix.
-void testOverrulingAYesTakesBackItsCrossingsToo() {
-  Grid grid;
-  grid.reset(Shape{4, 4});
-
-  CHECK(grid.setYes(0, 0, 1, 0));
-  for (int i = 1; i < 4; ++i) CHECK(grid.get(0, i, 1, 0) == Mark::No);
-
-  // Change of mind: the same suspect, a different weapon.
-  CHECK(grid.setYes(0, 0, 1, 1));
-  CHECK(grid.get(0, 0, 1, 1) == Mark::Yes);
-  // S0 really does not hold W0 any more, so that cell is a cross, not a blank.
-  CHECK(grid.get(0, 0, 1, 0) == Mark::No);
-
-  // W0 is now unclaimed, so nobody may still be crossed out of it.
-  for (int i = 1; i < 4; ++i) CHECK(grid.get(0, i, 1, 0) == Mark::Unknown);
-
-  // A cross that TWO Yeses justify survives losing one of them. S1 holding W1
-  // is reason enough for S1 not to hold W0, whatever S0 does.
-  Grid both;
-  both.reset(Shape{4, 4});
-  CHECK(both.setYes(0, 0, 1, 0));  // S0 holds W0
-  CHECK(both.setYes(0, 1, 1, 1));  // S1 holds W1
-  CHECK(both.setYes(0, 0, 1, 2));  // S0 changes to W2, freeing W0
-  CHECK(both.get(0, 1, 1, 1) == Mark::Yes);
-  CHECK(both.get(0, 1, 1, 0) == Mark::No);       // still crossed: S1 has W1
-  CHECK(both.get(0, 2, 1, 0) == Mark::Unknown);  // open: S2 could hold W0
-  CHECK(both.get(0, 3, 1, 0) == Mark::Unknown);
-
-  // The same thing down a column: move the Yes to a different suspect and the
-  // abandoned suspect's own row must not stay crossed out.
-  Grid other;
-  other.reset(Shape{4, 4});
-  CHECK(other.setYes(0, 0, 1, 0));
-  for (int i = 1; i < 4; ++i) CHECK(other.get(0, 0, 1, i) == Mark::No);
-  CHECK(other.setYes(0, 1, 1, 0));
-  CHECK(other.get(0, 1, 1, 0) == Mark::Yes);
-  for (int i = 1; i < 4; ++i) CHECK(other.get(0, 0, 1, i) == Mark::Unknown);
-}
-
 // Random tapping, and the invariant that has to survive all of it.
 //
-// Three defects in this area were found by Mario playing or by printing the
-// grid, and none by a hand-written case -- because a hand-written case only
-// covers the sequence its author already thought of, and every one of these
-// bugs lived in a sequence I had not. So: tap at random, thousands of times,
-// and after EVERY tap assert the property the whole auto-crossing mechanism
-// exists to provide.
+// Four defects lived here across three rewrites, every one of them a case
+// somebody had to think of first. This does not think: it taps at random,
+// thousands of times, and after EVERY tap asserts what the board promises.
 //
-//   1. At most one Yes per row and per column of a block. Two would mean one
-//      suspect holding two weapons.
-//   2. Every cell a Yes implies is crossed. That is the service the player is
-//      being offered, and it must never be half-delivered.
-//   3. No cross survives without a reason. A cell the grid crossed must still
-//      be implied by SOME Yes -- this is the one all three bugs violated, and
-//      it is what turns a stale mark into a contradictory grid.
+//   1. At most one tick a row and a column. Two would be one suspect holding
+//      two weapons.
+//   2. Every cell a tick rules out is shown crossed. That is the service being
+//      offered and it must never be half-delivered.
+//   3. Nothing is shown crossed without a reason -- either the player entered
+//      it, or a tick implies it. This is the one all four bugs violated, and
+//      the one that turns a stale mark into a board that contradicts itself.
 //
-// The player's own crosses are exempt from 3: those are their opinion, right or
-// wrong, and the grid does not audit them.
+// Under the current design 3 cannot fail by construction, because a derived
+// cross is never stored anywhere to go stale. The test stays anyway: it is the
+// statement of what the abstraction is FOR, and the next person to reach for a
+// cache will find out here rather than from Mario.
 void testRandomTappingKeepsTheGridHonest() {
   Rng rng(0xC0FFEEu);
   for (int trial = 0; trial < 400; ++trial) {
     const int items = 3 + static_cast<int>(rng.below(2));
     const int cats = 3 + static_cast<int>(rng.below(2));
-    const Shape shape{static_cast<uint8_t>(cats), static_cast<uint8_t>(items)};
-    Grid grid;
-    grid.reset(shape);
-    // Track which crosses the player made, so rule 3 can exempt them.
-    bool byHand[kMaxCats][kMaxCats][kMaxItems][kMaxItems] = {};
+    Marks marks;
+    marks.reset(Shape{static_cast<uint8_t>(cats), static_cast<uint8_t>(items)});
 
     for (int tap = 0; tap < 60; ++tap) {
       const int a = static_cast<int>(rng.below(static_cast<uint32_t>(cats)));
       int b = static_cast<int>(rng.below(static_cast<uint32_t>(cats - 1)));
       if (b >= a) ++b;
-      const int ia = static_cast<int>(rng.below(static_cast<uint32_t>(items)));
-      const int ib = static_cast<int>(rng.below(static_cast<uint32_t>(items)));
-
-      // Exactly what MurdleActivity::handleGridTap does.
-      switch (grid.get(a, ia, b, ib)) {
-        case Mark::Unknown:
-          grid.set(a, ia, b, ib, Mark::No);
-          byHand[a][b][ia][ib] = true;
-          byHand[b][a][ib][ia] = true;
-          break;
-        case Mark::No:
-          grid.clear(a, ia, b, ib);
-          grid.setYes(a, ia, b, ib);
-          break;
-        case Mark::Yes:
-          grid.clearYes(a, ia, b, ib);
-          break;
-      }
-      // setYes and clearYes rewrite whole rows and columns, so any hand-made
-      // cross they cleared has stopped being the player's.
-      for (int x = 0; x < cats; ++x) {
-        for (int y = x + 1; y < cats; ++y) {
-          for (int p = 0; p < items; ++p) {
-            for (int q = 0; q < items; ++q) {
-              if (grid.get(x, p, y, q) != Mark::No) {
-                byHand[x][y][p][q] = false;
-                byHand[y][x][q][p] = false;
-              }
-            }
-          }
-        }
-      }
+      marks.tap(a, static_cast<int>(rng.below(static_cast<uint32_t>(items))), b,
+                static_cast<int>(rng.below(static_cast<uint32_t>(items))));
 
       for (int x = 0; x < cats; ++x) {
         for (int y = x + 1; y < cats; ++y) {
-          // 1. at most one Yes a row, at most one a column
           for (int p = 0; p < items; ++p) {
             int inRow = 0;
             int inCol = 0;
             for (int q = 0; q < items; ++q) {
-              if (grid.get(x, p, y, q) == Mark::Yes) ++inRow;
-              if (grid.get(x, q, y, p) == Mark::Yes) ++inCol;
+              if (marks.shown(x, p, y, q) == Mark::Yes) ++inRow;
+              if (marks.shown(x, q, y, p) == Mark::Yes) ++inCol;
             }
             CHECK(inRow <= 1);
             CHECK(inCol <= 1);
           }
           for (int p = 0; p < items; ++p) {
             for (int q = 0; q < items; ++q) {
-              const Mark here = grid.get(x, p, y, q);
-              // Is some Yes in this row or column reason to cross this cell?
               bool implied = false;
               for (int i = 0; i < items; ++i) {
-                if (i != q && grid.get(x, p, y, i) == Mark::Yes) implied = true;
-                if (i != p && grid.get(x, i, y, q) == Mark::Yes) implied = true;
+                if (i != q && marks.shown(x, p, y, i) == Mark::Yes) implied = true;
+                if (i != p && marks.shown(x, i, y, q) == Mark::Yes) implied = true;
               }
-              // 2. what a Yes implies is crossed
+              const Mark here = marks.shown(x, p, y, q);
               if (implied) CHECK(here == Mark::No);
-              // 3. and nothing the grid crossed has lost its reason
-              if (here == Mark::No && !byHand[x][y][p][q]) CHECK(implied);
+              if (here == Mark::No) CHECK(implied || marks.entered(x, p, y, q) == Mark::No);
+              // Reading a cell either way round must agree, or the two views of
+              // the board disagree and a tap lands somewhere else than it looks.
+              CHECK(marks.shown(y, q, x, p) == here);
             }
           }
         }
       }
     }
   }
-}
-
-void testSetYesCrossesItsOwnBlockOnly() {
-  Grid grid;
-  grid.reset(Shape{4, 4});
-  CHECK(grid.setYes(0, 1, 1, 1));
-  for (int i = 0; i < 4; ++i) {
-    if (i == 1) continue;
-    CHECK(grid.get(0, 1, 1, i) == Mark::No);
-    CHECK(grid.get(0, i, 1, 1) == Mark::No);
-  }
-  // Crossing out is bookkeeping. Reaching into another block would be doing the
-  // deduction for the player, which is the game.
-  for (int i = 0; i < 4; ++i) CHECK(grid.get(0, 1, 2, i) == Mark::Unknown);
-  CHECK(!grid.complete());
 }
 
 // ---------------------------------------------------------------------------
@@ -1286,6 +1104,17 @@ int traceSolve(const Puzzle& p, int& firstYes, int& cluesBeforeFirstYes, int& ma
     }
     (void)full;
 
+    // Set a Yes and cross its row and column. Grid used to offer this, back
+    // when one class served both the solver and the player; it is the player's
+    // half and it went with them. Here it is plain bookkeeping.
+    const auto settle = [&](const int a, const int ia, const int b, const int ib) {
+      grid.set(a, ia, b, ib, Mark::Yes);
+      for (int i = 0; i < items; ++i) {
+        if (i != ib) grid.set(a, ia, b, i, Mark::No);
+        if (i != ia) grid.set(a, i, b, ib, Mark::No);
+      }
+    };
+
     // Lone survivors, then transitivity: the same two rules deduce() uses.
     for (int a = 0; a < p.shape.cats; ++a) {
       for (int b = a + 1; b < p.shape.cats; ++b) {
@@ -1298,7 +1127,7 @@ int traceSolve(const Puzzle& p, int& firstYes, int& cluesBeforeFirstYes, int& ma
             }
           }
           if (open == 1 && grid.get(a, ia, b, last) != Mark::Yes) {
-            grid.setYes(a, ia, b, last);
+            settle(a, ia, b, last);
             if (firstYes < 0) firstYes = round;
             changed = true;
             ++settledThisRound;
@@ -1313,7 +1142,7 @@ int traceSolve(const Puzzle& p, int& firstYes, int& cluesBeforeFirstYes, int& ma
             }
           }
           if (open == 1 && grid.get(a, last, b, ib) != Mark::Yes) {
-            grid.setYes(a, last, b, ib);
+            settle(a, last, b, ib);
             if (firstYes < 0) firstYes = round;
             changed = true;
             ++settledThisRound;
@@ -1544,11 +1373,7 @@ int runTests() {
   testShapes();
   testRngIsUnbiased();
   testGridIsOrderIndependent();
-  testClearingAYesTakesBackItsOwnCrossings();
-  testOverrulingAYesTakesBackItsCrossingsToo();
   testRandomTappingKeepsTheGridHonest();
-  testSetYesCrossesItsOwnBlockOnly();
-  testSetYesOverrulesAnEarlierAnswer();
   testCastTableIsDrawable();
   testEveryNameIsOneWord();
   testEveryCaseHasSixteenDistinctInitials();

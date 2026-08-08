@@ -184,10 +184,19 @@ enum class Mark : uint8_t {
   Yes = 2,
 };
 
-// The deduction grid: one cell per pair of items from two different categories.
-// This is both the player's scratch pad and the reference solver's state, on
-// purpose. A solver that reasons in a different representation from the one the
-// player marks is a solver that can certify a puzzle the player cannot mark.
+// The SOLVER's grid: one cell per pair of items from two different categories.
+//
+// The player's board is `Marks`, below, and keeping them apart is the point.
+// They want opposite things from a write: the solver must never overrule itself,
+// because a rule that overwrites a decided cell is a rule that has gone wrong,
+// while the player must be free to change their mind about anything at any time.
+// One class serving both carried a comment admitting it -- "put() refuses to
+// overwrite a decided cell, which is right for the solver and wrong here" -- and
+// that sentence was the shape of four separate bugs.
+//
+// What they still share is the CELL layout, which matters: a solver reasoning in
+// a different representation from the one the player marks is a solver that can
+// certify a puzzle the player cannot fill in.
 class Grid {
  public:
   void reset(Shape shape);
@@ -207,25 +216,6 @@ class Grid {
   // get their own door rather than a flag on set() that the solver could reach.
   void clear(int catA, int itemA, int catB, int itemB);
 
-  // Set to Yes and cross out the rest of that item's row and column within the
-  // same block. This is the bookkeeping a pencil does, not a deduction: it says
-  // only that one suspect cannot hold two weapons.
-  //
-  // The crossings are remembered as the grid's own, so clearYes can take them
-  // back. A cross the player had already made by hand is left alone and stays
-  // theirs.
-  bool setYes(int catA, int itemA, int catB, int itemB);
-
-  // Clear a Yes and let recross() work out which crossings still have a reason.
-  //
-  // Without this the three states are a one-way street. Tapping a crossed-out
-  // cell takes it to Yes, which sprays a row and a column with crosses, and
-  // tapping again clears only the one cell -- so the only route from "crossed
-  // out" back to "blank" leaves seven or eight crosses behind that the player
-  // never asked for and now has to undo one at a time, each of which is itself
-  // a three-tap round trip. Mario hit this within minutes of playing.
-  void clearYes(int catA, int itemA, int catB, int itemB);
-
   // Every cell of every block decided.
   bool complete() const;
 
@@ -243,18 +233,72 @@ class Grid {
   // loop needs to know whether anything moved, which a bool cannot say.
   int put(int catA, int itemA, int catB, int itemB, Mark mark);
 
-  // Was this No written by setYes rather than by the player? One bit per cell,
-  // laid out like cells_ but packed a row to a byte: 24 bytes, against 96 for
-  // a parallel array, and Grid is copied on the stack by the case-split solver.
-  bool wroteItself(int catA, int itemA, int catB, int itemB) const;
-  // Recompute every cross this grid owns in one block from its Yes marks.
-  void recross(int catA, int catB);
-  void markOwn(int catA, int itemA, int catB, int itemB, bool own);
-
   Shape shape_;
   // [block][item of the lower-numbered category][item of the higher one]
   uint8_t cells_[kMaxBlocks][kMaxItems][kMaxItems] = {};
-  uint8_t own_[kMaxBlocks][kMaxItems] = {};
+};
+
+// ---------------------------------------------------------------------------
+// The player's marks
+
+// WHAT THE PLAYER SAID, AND NOTHING ELSE. Everything the grid shows on top of
+// that is worked out on the way to the screen and never stored.
+//
+// This is the fourth attempt at the marking logic and the first that is not a
+// bookkeeping problem. The first three stored two different kinds of thing in
+// the same cells -- what the player entered, and the crosses that follow from
+// it -- and then tried to keep them in step. Every defect was a failure of that
+// step, and there were four of them: a cleared Yes leaving its crosses behind,
+// an overruled Yes leaving its crosses behind, a cross justified by two Yeses
+// vanishing when one went, and clearing a Yes taking away crosses a different
+// Yes still needed. Two were found by Mario playing, one by printing the grid,
+// one by a fuzz test. None by the code being read.
+//
+// They were all the same bug wearing different clothes, so the fix is not
+// another case: a consequence is not a fact to be maintained, it is a question
+// to be answered. `shown()` answers it from the assertions each time it is
+// asked. There is no second copy, so there is nothing to fall out of step, and
+// undo is free -- take away the assertion and its consequences are simply no
+// longer derivable. That is also why the commercial logic-grid apps need a
+// multi-level undo stack and this does not.
+//
+// Cost: shown() is O(items) rather than a lookup, so drawing a full 4x4 board
+// is about 400 extra comparisons. On a panel that takes a second to refresh
+// that is not a number worth optimising against a class of bug.
+class Marks {
+ public:
+  void reset(Shape shape);
+
+  // What the player entered here, ignoring anything implied. Unknown for most
+  // cells of most grids: this is a sparse record of decisions.
+  Mark entered(int catA, int itemA, int catB, int itemB) const;
+
+  // What the board shows: their own mark, or the cross implied by one of their
+  // Yes marks, or blank. This is what the screen draws and what a tap reads.
+  Mark shown(int catA, int itemA, int catB, int itemB) const;
+
+  // The only move the player has. Cycles what they SEE: blank -> crossed ->
+  // ticked -> blank. Ticking clears any other tick in the same row or column,
+  // because one suspect cannot hold two weapons -- and that is the whole of the
+  // consistency logic, because the crosses were never written down.
+  void tap(int catA, int itemA, int catB, int itemB);
+
+  // Restoring a save. Writes an assertion directly, no cycling.
+  void enter(int catA, int itemA, int catB, int itemB, Mark mark);
+
+  bool complete() const;
+  int decided() const;
+  int cells() const;
+
+  Shape shape() const { return shape_; }
+
+ private:
+  static int blockIndex(int catA, int catB);
+  uint8_t& at(int catA, int itemA, int catB, int itemB);
+  const uint8_t& at(int catA, int itemA, int catB, int itemB) const;
+
+  Shape shape_;
+  uint8_t entered_[kMaxBlocks][kMaxItems][kMaxItems] = {};
 };
 
 // ---------------------------------------------------------------------------

@@ -32,7 +32,11 @@ constexpr int kSeedAttempts = 8;
 // in a way that would make an old seed build a different case. The fingerprint
 // catches the second of those on its own, but the version is what makes the
 // first one cheap.
-constexpr uint8_t kSaveVersion = 1;
+// 2: the marks block holds what the player ENTERED, where version 1 held the
+// flattened board. Same bytes, different meaning -- restoring a v1 save into a
+// v2 board would turn every derived cross into an assertion the player never
+// made, and those do not disappear when the tick that caused them goes.
+constexpr uint8_t kSaveVersion = 2;
 
 // The case is not stored, it is regenerated from its seed. The fingerprint is
 // what makes that safe: a generator that has changed since the save was written
@@ -57,7 +61,11 @@ struct SaveState {
   uint8_t marks[murdle::kMaxBlocks * murdle::kMaxItems * murdle::kMaxItems / 4];
 } __attribute__((packed));
 
-void packMarks(const murdle::Grid& grid, const murdle::Shape shape, uint8_t* out, const size_t cap) {
+// Only what the player entered is stored. The crosses that follow from it are
+// derived on the way to the screen and were never in a cell to be saved, so a
+// restored board rebuilds them from the same assertions -- there is no second
+// copy that could come back stale.
+void packMarks(const murdle::Marks& grid, const murdle::Shape shape, uint8_t* out, const size_t cap) {
   std::memset(out, 0, cap);
   int bit = 0;
   for (int a = 0; a < shape.cats; ++a) {
@@ -66,7 +74,7 @@ void packMarks(const murdle::Grid& grid, const murdle::Shape shape, uint8_t* out
         for (int ib = 0; ib < shape.items; ++ib, ++bit) {
           const size_t byte = static_cast<size_t>(bit) / 4;
           if (byte >= cap) return;
-          const uint8_t value = static_cast<uint8_t>(grid.get(a, ia, b, ib));
+          const uint8_t value = static_cast<uint8_t>(grid.entered(a, ia, b, ib));
           out[byte] = static_cast<uint8_t>(out[byte] | (value << ((bit % 4) * 2)));
         }
       }
@@ -74,7 +82,7 @@ void packMarks(const murdle::Grid& grid, const murdle::Shape shape, uint8_t* out
   }
 }
 
-void unpackMarks(const uint8_t* in, const size_t cap, const murdle::Shape shape, murdle::Grid& grid) {
+void unpackMarks(const uint8_t* in, const size_t cap, const murdle::Shape shape, murdle::Marks& grid) {
   grid.reset(shape);
   int bit = 0;
   for (int a = 0; a < shape.cats; ++a) {
@@ -84,7 +92,7 @@ void unpackMarks(const uint8_t* in, const size_t cap, const murdle::Shape shape,
           const size_t byte = static_cast<size_t>(bit) / 4;
           if (byte >= cap) return;
           const uint8_t value = static_cast<uint8_t>((in[byte] >> ((bit % 4) * 2)) & 3u);
-          if (value != 0) grid.set(a, ia, b, ib, static_cast<murdle::Mark>(value));
+          if (value != 0) grid.enter(a, ia, b, ib, static_cast<murdle::Mark>(value));
         }
       }
     }
@@ -289,24 +297,10 @@ void MurdleActivity::handleGridTap(const int x, const int y) {
   const int itemA = cell.itemA;
   const int itemB = cell.itemB;
 
-  switch (marks.get(catA, itemA, catB, itemB)) {
-    case murdle::Mark::Unknown:
-      marks.set(catA, itemA, catB, itemB, murdle::Mark::No);
-      break;
-    case murdle::Mark::No:
-      // Clearing the cell first, because setYes refuses to write over a No and
-      // a player cycling through the three states means to overrule themselves.
-      marks.clear(catA, itemA, catB, itemB);
-      marks.setYes(catA, itemA, catB, itemB);
-      break;
-    case murdle::Mark::Yes:
-      // clearYes, not clear: taking a Yes back also takes back the crossings it
-      // made. Otherwise the three states are a one-way street -- the only route
-      // from crossed-out to blank runs through Yes, and Yes leaves a row and a
-      // column of crosses behind it that were never asked for.
-      marks.clearYes(catA, itemA, catB, itemB);
-      break;
-  }
+  // One call. The three-state cycle, the unseating of a conflicting tick, and
+  // the disappearance of every cross that tick was casting are all one write to
+  // one cell -- see Marks::tap. There is nothing here to keep in step.
+  marks.tap(catA, itemA, catB, itemB);
   dirty = true;
   requestUpdate();
 }

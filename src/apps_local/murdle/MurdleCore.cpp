@@ -159,25 +159,6 @@ int Grid::blockIndex(const int catA, const int catB) {
 void Grid::reset(const Shape shape) {
   shape_ = shape;
   std::memset(cells_, 0, sizeof(cells_));
-  std::memset(own_, 0, sizeof(own_));
-}
-
-bool Grid::wroteItself(const int catA, const int itemA, const int catB, const int itemB) const {
-  const int block = catA < catB ? blockIndex(catA, catB) : blockIndex(catB, catA);
-  const int lo = catA < catB ? itemA : itemB;
-  const int hi = catA < catB ? itemB : itemA;
-  return (own_[block][lo] & static_cast<uint8_t>(1u << hi)) != 0;
-}
-
-void Grid::markOwn(const int catA, const int itemA, const int catB, const int itemB, const bool own) {
-  const int block = catA < catB ? blockIndex(catA, catB) : blockIndex(catB, catA);
-  const int lo = catA < catB ? itemA : itemB;
-  const int hi = catA < catB ? itemB : itemA;
-  if (own) {
-    own_[block][lo] = static_cast<uint8_t>(own_[block][lo] | (1u << hi));
-  } else {
-    own_[block][lo] = static_cast<uint8_t>(own_[block][lo] & ~(1u << hi));
-  }
 }
 
 Mark Grid::get(const int catA, const int itemA, const int catB, const int itemB) const {
@@ -205,67 +186,107 @@ void Grid::clear(const int catA, const int itemA, const int catB, const int item
   } else {
     cells_[blockIndex(catB, catA)][itemB][itemA] = static_cast<uint8_t>(Mark::Unknown);
   }
-  // A blank cell is nobody's. Whatever wrote it last has no claim on it now.
-  markOwn(catA, itemA, catB, itemB, false);
 }
 
-// The grid's own crosses ARE the closure of its Yes marks, so they are
-// recomputed rather than patched.
-//
-// Four separate defects came out of trying to keep them in step by hand --
-// stale crosses left after a Yes was cleared, after a Yes was overruled, after
-// a cross was justified by two Yeses and lost one, and after clearing a Yes
-// took away crosses a DIFFERENT Yes still needed. Every one was a case somebody
-// had to think of. Dropping the lot and re-deriving cannot have that class of
-// bug at all: afterwards, a cross the grid owns is implied by a Yes by
-// construction, and a random-tap test asserts it after every tap.
-//
-// A cross the player made by hand is never owned, so it is never dropped and
-// never audited. Their opinion is theirs.
-void Grid::recross(const int catA, const int catB) {
-  for (int p = 0; p < shape_.items; ++p) {
-    for (int q = 0; q < shape_.items; ++q) {
-      if (get(catA, p, catB, q) == Mark::No && wroteItself(catA, p, catB, q)) clear(catA, p, catB, q);
-    }
+// ---------------------------------------------------------------------------
+// Marks -- see the note in the header. Assertions in, consequences derived.
+
+int Marks::blockIndex(const int catA, const int catB) {
+  return catA * (2 * kMaxCats - catA - 1) / 2 + (catB - catA - 1);
+}
+
+uint8_t& Marks::at(const int catA, const int itemA, const int catB, const int itemB) {
+  if (catA < catB) return entered_[blockIndex(catA, catB)][itemA][itemB];
+  return entered_[blockIndex(catB, catA)][itemB][itemA];
+}
+
+const uint8_t& Marks::at(const int catA, const int itemA, const int catB, const int itemB) const {
+  if (catA < catB) return entered_[blockIndex(catA, catB)][itemA][itemB];
+  return entered_[blockIndex(catB, catA)][itemB][itemA];
+}
+
+void Marks::reset(const Shape shape) {
+  shape_ = shape;
+  std::memset(entered_, 0, sizeof(entered_));
+}
+
+Mark Marks::entered(const int catA, const int itemA, const int catB, const int itemB) const {
+  return static_cast<Mark>(at(catA, itemA, catB, itemB));
+}
+
+void Marks::enter(const int catA, const int itemA, const int catB, const int itemB, const Mark mark) {
+  at(catA, itemA, catB, itemB) = static_cast<uint8_t>(mark);
+}
+
+Mark Marks::shown(const int catA, const int itemA, const int catB, const int itemB) const {
+  const Mark mine = entered(catA, itemA, catB, itemB);
+  if (mine != Mark::Unknown) return mine;
+  // Nothing entered here, so ask whether one of their ticks rules it out. One
+  // suspect holds one weapon, so a tick anywhere else in this row or column
+  // crosses this cell -- and that is the only inference this makes. Reaching
+  // across blocks would be the deduction, which is the game.
+  for (int i = 0; i < shape_.items; ++i) {
+    if (i != itemB && entered(catA, itemA, catB, i) == Mark::Yes) return Mark::No;
+    if (i != itemA && entered(catA, i, catB, itemB) == Mark::Yes) return Mark::No;
   }
-  for (int p = 0; p < shape_.items; ++p) {
-    for (int q = 0; q < shape_.items; ++q) {
-      if (get(catA, p, catB, q) != Mark::Yes) continue;
-      // One suspect cannot hold two weapons, and one weapon cannot be held by
-      // two suspects. Bookkeeping, not deduction: this stays inside the block,
-      // because reaching across blocks is the deduction and doing it for the
-      // player would be playing the game for them.
+  return Mark::Unknown;
+}
+
+void Marks::tap(const int catA, const int itemA, const int catB, const int itemB) {
+  switch (shown(catA, itemA, catB, itemB)) {
+    case Mark::Unknown:
+      enter(catA, itemA, catB, itemB, Mark::No);
+      return;
+    case Mark::No:
+      // Ticking here unseats any tick that shared its row or column. Overruling
+      // yourself is the ordinary way to use a grid, and the crosses that tick
+      // was casting stop being derivable the moment it goes -- no cleanup.
       for (int i = 0; i < shape_.items; ++i) {
-        if (i != q && put(catA, p, catB, i, Mark::No) == 1) markOwn(catA, p, catB, i, true);
-        if (i != p && put(catA, i, catB, q, Mark::No) == 1) markOwn(catA, i, catB, q, true);
+        if (i != itemB)
+          enter(catA, itemA, catB, i,
+                entered(catA, itemA, catB, i) == Mark::Yes ? Mark::Unknown : entered(catA, itemA, catB, i));
+        if (i != itemA)
+          enter(catA, i, catB, itemB,
+                entered(catA, i, catB, itemB) == Mark::Yes ? Mark::Unknown : entered(catA, i, catB, itemB));
+      }
+      enter(catA, itemA, catB, itemB, Mark::Yes);
+      return;
+    case Mark::Yes:
+      // Back to blank -- or back to crossed, if another tick still rules this
+      // cell out. Either way it is one write.
+      enter(catA, itemA, catB, itemB, Mark::Unknown);
+      return;
+  }
+}
+
+bool Marks::complete() const {
+  for (int a = 0; a < shape_.cats; ++a) {
+    for (int b = a + 1; b < shape_.cats; ++b) {
+      for (int ia = 0; ia < shape_.items; ++ia) {
+        for (int ib = 0; ib < shape_.items; ++ib) {
+          if (shown(a, ia, b, ib) == Mark::Unknown) return false;
+        }
       }
     }
   }
-}
-
-bool Grid::setYes(const int catA, const int itemA, const int catB, const int itemB) {
-  // Only the Yes marks this one overrules are removed, plus the target cell --
-  // which the player is deliberately changing. Nothing else the player wrote is
-  // touched. The crosses sort themselves out in recross().
-  //
-  // put() refuses to overwrite a decided cell, which is right for the solver and
-  // wrong here: this is the player's own hand and they are allowed to change
-  // their mind. An early version wrote the new Yes, hit the old one while
-  // crossing out, and left two Yeses in one row with the crossing half applied.
-  for (int i = 0; i < shape_.items; ++i) {
-    if (get(catA, itemA, catB, i) == Mark::Yes) clear(catA, itemA, catB, i);
-    if (get(catA, i, catB, itemB) == Mark::Yes) clear(catA, i, catB, itemB);
-  }
-  clear(catA, itemA, catB, itemB);
-  put(catA, itemA, catB, itemB, Mark::Yes);
-  recross(catA, catB);
   return true;
 }
 
-void Grid::clearYes(const int catA, const int itemA, const int catB, const int itemB) {
-  clear(catA, itemA, catB, itemB);
-  recross(catA, catB);
+int Marks::decided() const {
+  int n = 0;
+  for (int a = 0; a < shape_.cats; ++a) {
+    for (int b = a + 1; b < shape_.cats; ++b) {
+      for (int ia = 0; ia < shape_.items; ++ia) {
+        for (int ib = 0; ib < shape_.items; ++ib) {
+          if (shown(a, ia, b, ib) != Mark::Unknown) ++n;
+        }
+      }
+    }
+  }
+  return n;
 }
+
+int Marks::cells() const { return shape_.cats * (shape_.cats - 1) / 2 * shape_.items * shape_.items; }
 
 bool Grid::complete() const {
   for (int a = 0; a < shape_.cats; ++a) {
