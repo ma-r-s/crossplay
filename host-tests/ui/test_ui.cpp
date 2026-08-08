@@ -794,6 +794,117 @@ void testShelfFolderDrawsItsOwnNameAndRows() {
   CHECK(!other.target.drew("GAMES"));
 }
 
+// A folder with more rows than fit, which is every GAMES folder from the tenth
+// game onward.
+//
+// The row icons are drawn by this fork rather than by the list component, so
+// they carry their own idea of where a row is, and it used to be the absolute
+// item index. That is the same thing as the row only while nothing scrolls. At
+// ten items the tenth icon painted below the band in black, on top of the black
+// player footer; once scrolled, every icon sat a row away from its label. The
+// three shelf tests that already existed all used lists short enough to fit, so
+// none of them could see it.
+//
+// Asserted as "each visible label has its own icon on its own row" rather than
+// as a count, because the count was right the whole time the positions were
+// wrong. A distinct icon per row is what makes an off-by-N detectable at all.
+//
+// Driven at two scroll positions, because they fail differently and an earlier
+// draft of this test only had the second. At topIndex 0 the overflowing rows
+// must simply not be drawn, which is the tenth-icon-on-the-footer case. Once
+// scrolled, the drawn ones must have moved up with their labels.
+void checkShelfIconsSitOnTheirRows(const int topIndex) {
+  constexpr int kCount = 12;
+  const freeink::Icon* const palette[kCount] = {&icon_chess_32,     &icon_battleship_32, &icon_connections_32,
+                                                &icon_solitaire_32, &icon_nearby_32,     &icon_games_32,
+                                                &icon_apps_32,      &icon_hackernews_32, &icon_unreadable_32,
+                                                &icon_study_32,     &icon_dungeon_32,    &icon_insider_32};
+
+  fui::ListItem items[kCount] = {};
+  char labels[kCount][8] = {};
+  for (int i = 0; i < kCount; ++i) {
+    std::snprintf(labels[i], sizeof(labels[i]), "GAME%02d", i);
+    items[i].label = labels[i];
+    items[i].actionValue = static_cast<int16_t>(i);
+  }
+
+  const fui::Rect band = shelfui::listBand(device(), true);
+  const fui::ThemeTokens tokens = toybox::themeTokens();
+  // The list has to overflow the band or neither case under test exists.
+  const int visible = fui::listVisibleRows(band, tokens.rowHeight, tokens.listRowGap);
+  CHECK(kCount > visible);
+
+  shelfui::MenuModel model;
+  model.title = "GAMES";
+  model.items = items;
+  model.icons = palette;
+  model.count = kCount;
+  model.playerName = "SPIKY GRIM BEARD";
+  model.selected = topIndex == 0 ? 0 : kCount - 1;
+  model.topIndex = topIndex;
+
+  Rendered menu;
+  buildShelf(menu, model);
+
+  // Half a row: an icon one row out of place is a whole rowHeight + gap away,
+  // so this is generous about text metrics and still exact about rows.
+  const int tolerance = tokens.rowHeight / 2;
+  int paired = 0;
+  for (int i = 0; i < kCount; ++i) {
+    const fui::Rect* icon = nullptr;
+    for (const auto& blit : menu.target.blits) {
+      if (blit.data == palette[i]->bits) {
+        icon = &blit.rect;
+        break;
+      }
+    }
+    const fui::Rect* label = nullptr;
+    for (const auto& run : menu.target.texts) {
+      if (run.text == labels[i]) {
+        label = &run.rect;
+        break;
+      }
+    }
+
+    // Scrolled off the top, or below the fold. The icon must be gone too: this
+    // is the half that used to paint onto the player footer.
+    if (label == nullptr) {
+      CHECK(icon == nullptr);
+      continue;
+    }
+
+    // Guarded rather than asserted-and-continued: a missing icon here used to
+    // segfault the rest of the loop, which is a worse failure report than the
+    // one line that is actually wrong.
+    CHECK(icon != nullptr);
+    if (icon == nullptr) continue;
+
+    CHECK(icon->y >= band.y);
+    CHECK(icon->y + icon->height <= band.y + band.height);
+    const int iconMid = icon->y + icon->height / 2;
+    const int labelMid = label->y + label->height / 2;
+    CHECK(iconMid >= labelMid - tolerance && iconMid <= labelMid + tolerance);
+    ++paired;
+  }
+
+  CHECK(paired == visible);
+}
+
+void testShelfIconsFollowTheRowsWhenTheListScrolls() {
+  // Fresh entry on a folder that overflows: the rows past the fold are the ones
+  // that used to paint their icons onto the footer.
+  checkShelfIconsSitOnTheirRows(0);
+
+  // And scrolled to the bottom, where every drawn icon has moved up by
+  // topIndex rows and the ones above the band must be gone.
+  const fui::Rect band = shelfui::listBand(device(), true);
+  const fui::ThemeTokens tokens = toybox::themeTokens();
+  const int scrolled = fui::listTopIndexFor(
+      11, 0, static_cast<uint16_t>(fui::listVisibleRows(band, tokens.rowHeight, tokens.listRowGap)), 12);
+  CHECK(scrolled > 0);
+  checkShelfIconsSitOnTheirRows(scrolled);
+}
+
 void testAFolderWithoutADeviceNameHasNoFooter() {
   fui::ListItem items[1] = {};
   items[0].label = "STUDY";
@@ -2217,6 +2328,7 @@ int main() {
   testHnFitLines();
   testHnReaderShowsWhereYouAre();
   testShelfFolderDrawsItsOwnNameAndRows();
+  testShelfIconsFollowTheRowsWhenTheListScrolls();
   testAFolderWithoutADeviceNameHasNoFooter();
   testTheShelfFooterIsADoorWithAFaceOnIt();
   testPlayerOffersThreeSeparateWords();

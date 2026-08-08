@@ -118,18 +118,29 @@ constexpr int16_t kIconSize = 32;
 // every label and leaves the text starting at a different x from the header
 // above it. Right-aligned, the icons share one axis and the labels stay flush.
 //
-// Rows are laid out by index, which is exact for a band that does not scroll --
-// which is every list in this fork that carries icons. A scrolling one would
-// need the list's own row rects.
+// `index` is the item's position in the whole list and `topIndex` is the item
+// drawn on the band's first row, exactly as the list component understands
+// them. Both are required rather than defaulted: this used to take the absolute
+// index alone, which is correct only while nothing scrolls, and the tenth shelf
+// item painted its icon a row below the band -- in black, on top of the black
+// player footer. Every caller now has to say where its list is scrolled to, and
+// a caller that does not scroll says 0 and means it.
+//
+// Rows above the band are skipped, and so is a row that would overflow it,
+// matching the list component's own rule so the icons stop exactly where the
+// labels do.
 //
 // `selected` picks the ink: the selected row is filled black, so its icon has
 // to be paper.
-inline void iconAtRowRight(Screen& screen, const freeink::ui::Rect& band, const int index, const freeink::Icon& icon,
-                           const bool selected) {
+inline void iconAtRowRight(Screen& screen, const freeink::ui::Rect& band, const int index, const int topIndex,
+                           const freeink::Icon& icon, const bool selected) {
   namespace fui = freeink::ui;
   const int16_t rowHeight = screen.theme().rowHeight;
   const int16_t rowGap = screen.theme().listRowGap;
-  const int16_t rowY = static_cast<int16_t>(band.y + index * (rowHeight + rowGap));
+  const int row = index - topIndex;
+  if (row < 0) return;
+  const int16_t rowY = static_cast<int16_t>(band.y + row * (rowHeight + rowGap));
+  if (rowY + rowHeight > band.y + band.height) return;
   const fui::Rect where = fui::makeRect(static_cast<int16_t>(band.x + band.width - kIconSize - kGutter * 2),
                                         static_cast<int16_t>(rowY + (rowHeight - kIconSize) / 2), kIconSize, kIconSize);
   screen.target().bitmap(where, fui::bitmapFromIcon(icon), fui::BitmapMode::Contain,

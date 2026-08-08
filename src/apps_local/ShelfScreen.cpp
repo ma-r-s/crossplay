@@ -122,7 +122,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   if (model.icons != nullptr) {
     for (int i = 0; i < model.count; ++i) {
       if (model.icons[i] == nullptr) continue;
-      toybox::iconAtRowRight(screen, rows, i, *model.icons[i], i == model.selected);
+      toybox::iconAtRowRight(screen, rows, i, model.topIndex, *model.icons[i], i == model.selected);
     }
   }
 }
