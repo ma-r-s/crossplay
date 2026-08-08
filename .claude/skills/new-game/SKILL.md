@@ -33,9 +33,11 @@ code to read out. Resolve any multiplayer question by asking what the DS did.
 The first four are host-tested with no device. A screen builder that reaches for
 `GfxRenderer` fails to compile in `host-tests/ui/`, which is the point.
 
-**Write the navigation before any screen exists**, as two separate machines: one
-for the shell (menu, how-to, settings, board, result), one for the phases of
-play. Mixing them is how "Back went to the wrong screen" happens -- if "am I in
+**Write the navigation before any screen exists.** A game with turns needs two
+machines: one for the shell (menu, how-to, settings, board, result), one for the
+phases of play. A solitaire needs only the shell -- its game machine already
+exists in the rules, and restating it in the flow is two facts that must agree,
+which is the failure the split exists to prevent. Mixing them is how "Back went to the wrong screen" happens -- if "am I in
 the how-to" and "is it my turn" share flags, Back has to know about turns. Make
 `back()` an exhaustive switch with no default, and test properties rather than a
 transcript: every screen reaches the top, no pair can Back into each other,
@@ -63,6 +65,23 @@ A fourth means something structural is wrong and it goes to Mario. Where critics
 conflict, rules beats look beats play. Green means fuzzed and looked at, not
 played and enjoyed, and the report should not imply otherwise.
 
+## Before you invent an interaction
+
+**The device has more gestures than a tap.** `MappedInputManager` exposes
+`isScreenTouchHeld` and `swallowCurrentTouch` -- the second exists so a long
+press can fire while the finger is still down without the lift also arriving as
+a tap -- and the SDK's `InputLongPress` is defined, routed and host-tested.
+`KeyboardEntryActivity` already uses all of it, and `sim-shot.sh` takes
+`TAP:x,y,hold-ms`. Minesweeper's dig/flag mode was built on the belief that a
+tap was all there was, and the mode was pure cost: the largest solid black on
+its screen, inverting every toggle, six hundred pixels from where the tap landed.
+
+**A screen holds twenty-four tappable targets** (`toybox::kMaxInteractions`).
+That is sized for screens made of discrete controls. A regular grid is not one:
+hit-test it arithmetically from the same geometry that drew it, and test the two
+directions against each other. Registering eighty cells silently drops
+fifty-six.
+
 ## Two traps already paid for
 
 **A test asserting something was drawn cannot tell you it was visible.** Ink on
@@ -70,6 +89,17 @@ the black header band passes every host test and shows nothing.
 
 **Layout arithmetic that overflows the panel is silent.** Pin the extremes of a
 drawn board to the screen, or find it by looking, once.
+
+**A weak bound is how a test agrees with a bug.** Minesweeper's flood was
+truncated in 41.8% of games while a suite of 3.2M assertions stayed green,
+because it asserted "more than ten cells opened" against a true answer near
+forty. Assert the exact number, or an invariant that cannot hold when the code
+is wrong.
+
+**Look for the mark in Lucide before drawing it.** Three hand-drawn flags all
+put the pennant and the pole at the same height, so no flag could emerge from
+the geometry at any size -- and two of the three fixes tuned the size. The fork
+vendors Lucide and generates from a manifest.
 
 ## Before you call it done
 
