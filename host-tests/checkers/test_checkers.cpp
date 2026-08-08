@@ -8,7 +8,9 @@
 #include <cstdio>
 #include <cstring>
 
+#include "CheckersBrain.h"
 #include "CheckersCore.h"
+#include "CheckersFlow.h"
 
 using namespace checkers;
 
@@ -37,8 +39,8 @@ uint32_t nextRandom() {
 void clear(Game& game) {
   for (int i = 0; i < kCells; ++i) game.cell[i] = kEmpty;
   game.turn = kLight;
+  game.idlePlies = 0;
   game.pad0 = 0;
-  game.pad1 = 0;
 }
 
 void put(Game& game, const int file, const int rank, const bool dark, const bool king = false) {
@@ -187,7 +189,7 @@ void testNoMoveIsALossWhetherBlockedOrCaptured() {
   put(empty, 0, 0, true);
   empty.turn = kLight;
   CHECK(over(empty));
-  CHECK(winner(empty) == kDarkSeat);
+  CHECK(outcome(empty) == Outcome::DarkWins);
 
   // Blocked: pieces remain, but the side to play cannot move. Checkers treats
   // both as a loss for the side that cannot move.
@@ -199,7 +201,7 @@ void testNoMoveIsALossWhetherBlockedOrCaptured() {
   blocked.turn = kLight;
   CHECK(pieceCount(blocked, kLight) == 1);
   CHECK(over(blocked));
-  CHECK(winner(blocked) == kDarkSeat);
+  CHECK(outcome(blocked) == Outcome::DarkWins);
 }
 
 // Whole games of random legal play, checking the invariants after every move.
@@ -250,6 +252,215 @@ void testRandomGamesHoldEveryInvariant() {
   std::printf("  longest random game: %d plies\n", longest);
 }
 
+// --- navigation, selection and the opponent --------------------------------
+
+void testBackIsTotalAndAlwaysReachesTheTop() {
+  const Screen every[] = {Screen::Menu, Screen::HowTo, Screen::Board, Screen::Result};
+  for (const Screen screen : every) {
+    Screen at = screen;
+    int steps = 0;
+    while (!leavesApp(at)) {
+      at = back(at);
+      CHECK(++steps <= 4);
+      if (steps > 4) break;
+    }
+    CHECK(leavesApp(at));
+  }
+  int exits = 0;
+  for (const Screen screen : every) {
+    if (leavesApp(screen)) ++exits;
+  }
+  CHECK(exits == 1);
+  CHECK(!leavesApp(Screen::Board));
+  CHECK(back(Screen::Board) == Screen::Menu);
+}
+
+// Selection is derived from the legal move list, not from ownership. Under the
+// mandatory-capture rule most of your pieces usually CANNOT move, and offering
+// to pick one up would be a tap that leads nowhere.
+void testOnlyAPieceWithAMoveCanBePicked() {
+  Game game{};
+  clear(game);
+  put(game, 2, 5, false);  // can jump
+  put(game, 3, 4, true);
+  put(game, 6, 5, false);  // has quiet moves, but a jump exists elsewhere
+  game.turn = kLight;
+
+  CHECK(canPick(game, indexOf(2, 5)));
+  // Not selectable: the capture is compulsory, so this piece has no legal move.
+  CHECK(!canPick(game, indexOf(6, 5)));
+  // Not yours, and not empty either.
+  CHECK(!canPick(game, indexOf(3, 4)));
+  CHECK(!canPick(game, indexOf(0, 0)));
+}
+
+void testDestinationsMatchWhatCanActuallyBePlayed() {
+  Game game{};
+  start(game);
+  Move list[kMaxMoves];
+  const int count = moves(game, list);
+
+  for (int square = 0; square < kCells; ++square) {
+    uint8_t squares[kMaxMoves];
+    const int found = destinations(game, square, squares, kMaxMoves);
+    int expected = 0;
+    for (int i = 0; i < count; ++i) {
+      if (list[i].from == square) ++expected;
+    }
+    CHECK(found == expected);
+    // And every destination offered really is playable from there.
+    for (int d = 0; d < found; ++d) {
+      Move move{};
+      CHECK(moveBetween(game, square, squares[d], move));
+      CHECK(move.from == square);
+      CHECK(move.to == squares[d]);
+    }
+  }
+  // A destination the rules never offered cannot be built at the boundary.
+  Move bogus{};
+  CHECK(!moveBetween(game, indexOf(0, 5), indexOf(4, 1), bogus));
+}
+
+void testPhaseIsDerivedAndOnlyYourTurnAccepts() {
+  CHECK(phaseFor(false, true) == Phase::Yours);
+  CHECK(phaseFor(false, false) == Phase::Theirs);
+  CHECK(phaseFor(true, true) == Phase::Finished);
+  CHECK(phaseFor(true, false) == Phase::Finished);
+  CHECK(acceptsTap(Phase::Yours));
+  CHECK(!acceptsTap(Phase::Theirs));
+  CHECK(!acceptsTap(Phase::Finished));
+}
+
+void testTheOpponentOnlyEverPlaysALegalMove() {
+  for (int match = 0; match < 200; ++match) {
+    Game game{};
+    start(game);
+    int plies = 0;
+    while (!over(game)) {
+      Move chosen{};
+      CHECK(chooseMove(game, chosen));
+      Move legal[kMaxMoves];
+      const int count = moves(game, legal);
+      bool found = false;
+      for (int i = 0; i < count; ++i) {
+        if (legal[i].from == chosen.from && legal[i].to == chosen.to) found = true;
+      }
+      CHECK(found);
+      CHECK(play(game, chosen));
+      CHECK(++plies <= 4000);
+      if (plies > 4000) break;
+    }
+  }
+}
+
+void testTheOpponentIsDeterministicAndPure() {
+  Game game{};
+  start(game);
+  const Game before = game;
+  Move first{};
+  CHECK(chooseMove(game, first));
+  // It searches on copies: the real board is never speculatively mutated, or a
+  // match would desync the moment the opponent thought.
+  CHECK(std::memcmp(&before, &game, sizeof(Game)) == 0);
+  for (int repeat = 0; repeat < 8; ++repeat) {
+    Move again{};
+    CHECK(chooseMove(game, again));
+    CHECK(again.from == first.from);
+    CHECK(again.to == first.to);
+  }
+}
+
+// Two ply exists to see traps. Checkers punishes greed hard: a capture is
+// compulsory, so the reply to a greedy take is forced and can be a multi-jump.
+//
+// Asserted as the PROPERTY rather than against a hand-built trap, after the
+// first attempt built a position whose "poisoned capture" was not actually
+// available -- the landing square was occupied, so the test asserted something
+// the board could not do. The property is what two ply means: of every legal
+// move, it picks one whose worst reply is the best available.
+void testTheOpponentMaximisesItsWorstCase() {
+  uint32_t seed = 4242u;
+  for (int trial = 0; trial < 60; ++trial) {
+    Game game{};
+    start(game);
+    // Walk a few random plies to reach a position with real choices.
+    const int depth = static_cast<int>(nextRandom() % 14u) + 2;
+    for (int ply = 0; ply < depth && !over(game); ++ply) {
+      Move list[kMaxMoves];
+      const int count = moves(game, list);
+      if (count == 0) break;
+      play(game, list[nextRandom() % static_cast<uint32_t>(count)]);
+    }
+    if (over(game)) continue;
+
+    Move chosen{};
+    CHECK(chooseMove(game, chosen));
+
+    const uint8_t seat = game.turn;
+    Game played = game;
+    CHECK(play(played, chosen));
+    const int chosenScore = worstReply(played, seat);
+
+    Move list[kMaxMoves];
+    const int count = moves(game, list);
+    for (int i = 0; i < count; ++i) {
+      Game trial2 = game;
+      if (!play(trial2, list[i])) continue;
+      // Nothing on the board beats what it picked.
+      CHECK(worstReply(trial2, seat) <= chosenScore);
+    }
+    (void)seed;
+  }
+}
+
+// Kings alone cannot force a win, so checkers calls it a draw after forty moves
+// each with nothing taken and no man advanced. Without this, two deterministic
+// opponents played past four thousand plies -- a game that cannot end, on a
+// device with a sleep timer.
+void testKingsShufflingForeverIsADraw() {
+  Game game{};
+  clear(game);
+  put(game, 0, 0, false, true);
+  put(game, 7, 7, true, true);
+  game.turn = kLight;
+
+  int plies = 0;
+  while (outcome(game) == Outcome::Running) {
+    Move list[kMaxMoves];
+    const int count = moves(game, list);
+    CHECK(count > 0);
+    if (count == 0) break;
+    CHECK(play(game, list[0]));
+    CHECK(++plies <= 200);
+    if (plies > 200) break;
+  }
+  CHECK(outcome(game) == Outcome::Draw);
+  CHECK(plies == kIdleLimit);
+
+  // A capture or a man moving resets the clock, so a live game never drifts
+  // into a draw it did not earn.
+  Game busy{};
+  clear(busy);
+  put(busy, 0, 0, false, true);
+  put(busy, 2, 5, false);
+  put(busy, 7, 7, true, true);
+  busy.turn = kLight;
+  Move list[kMaxMoves];
+  moves(busy, list);
+  busy.idlePlies = kIdleLimit - 1;
+  for (int i = 0; i < kMaxMoves; ++i) {
+    const int count = moves(busy, list);
+    for (int m = 0; m < count; ++m) {
+      if (isKing(busy, list[m].from)) continue;
+      CHECK(play(busy, list[m]));
+      CHECK(busy.idlePlies == 0);
+      return;
+    }
+    break;
+  }
+  CHECK(false);
+}
+
 }  // namespace
 
 int main() {
@@ -261,6 +472,14 @@ int main() {
   testAManCannotStepOrJumpBackwardsButAKingCan();
   testNoMoveIsALossWhetherBlockedOrCaptured();
   testRandomGamesHoldEveryInvariant();
+  testBackIsTotalAndAlwaysReachesTheTop();
+  testOnlyAPieceWithAMoveCanBePicked();
+  testDestinationsMatchWhatCanActuallyBePlayed();
+  testPhaseIsDerivedAndOnlyYourTurnAccepts();
+  testTheOpponentOnlyEverPlaysALegalMove();
+  testTheOpponentIsDeterministicAndPure();
+  testTheOpponentMaximisesItsWorstCase();
+  testKingsShufflingForeverIsADraw();
 
   std::printf("%d checks, %d failed\n", checks, failures);
   return failures == 0 ? 0 : 1;

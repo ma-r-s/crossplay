@@ -47,14 +47,25 @@ struct Move {
   uint8_t takenCount;
 };
 
+// Plies since the last capture or man move. Checkers' own draw rule: forty
+// moves by each side with no capture and no man advanced is a draw, because
+// kings alone cannot force progress and two careful players would shuffle
+// forever.
+//
+// This was missing from the first version and a test found it the hard way --
+// two deterministic opponents played each other past four thousand plies
+// without finishing. A game that cannot end is a real defect on a device with a
+// sleep timer.
+constexpr uint8_t kIdleLimit = 80;
+
 struct Game {
   uint8_t cell[kCells];
   uint8_t turn;
-  // Set when a side has no move at all, which is a loss for them. Derived on
-  // demand rather than stored -- see winner().
+  uint8_t idlePlies;
   uint8_t pad0;
-  uint8_t pad1;
 };
+
+enum class Outcome : uint8_t { Running, LightWins, DarkWins, Draw };
 
 inline bool inside(const int file, const int rank) { return file >= 0 && file < kSize && rank >= 0 && rank < kSize; }
 
@@ -81,8 +92,8 @@ inline void start(Game& game) {
     }
   }
   game.turn = kLight;
+  game.idlePlies = 0;
   game.pad0 = 0;
-  game.pad1 = 0;
 }
 
 // Which way a piece may step. A man moves toward the far side only; a king both.
@@ -202,6 +213,7 @@ inline bool play(Game& game, const Move& move) {
     if (legal[i].from != move.from || legal[i].to != move.to) continue;
 
     const Move& chosen = legal[i];
+    const bool wasKing = isKing(game, chosen.from);
     game.cell[chosen.to] = game.cell[chosen.from];
     game.cell[chosen.from] = kEmpty;
     for (int t = 0; t < chosen.takenCount; ++t) game.cell[chosen.taken[t]] = kEmpty;
@@ -209,6 +221,14 @@ inline bool play(Game& game, const Move& move) {
     const int toRank = chosen.to / kSize;
     const bool light = ownerOf(game, chosen.to) == kLight;
     if ((light && toRank == 0) || (!light && toRank == kSize - 1)) game.cell[chosen.to] |= kKing;
+
+    // Progress resets the clock: a capture, or a man moving. Only kings
+    // shuffling with nothing taken counts as idle.
+    if (chosen.takenCount > 0 || !wasKing) {
+      game.idlePlies = 0;
+    } else if (game.idlePlies < 255) {
+      ++game.idlePlies;
+    }
 
     game.turn = game.turn == kLight ? kDarkSeat : kLight;
     return true;
@@ -224,17 +244,18 @@ inline int pieceCount(const Game& game, const uint8_t owner) {
   return count;
 }
 
-// The side to play has no move, which is a loss for them -- by capture or by
-// being blocked, which checkers treats the same way.
-inline bool over(const Game& game) {
+// How the game stands. One function rather than an over()/winner() pair,
+// because a draw made "no winner" mean two different things and a caller had no
+// way to tell them apart.
+inline Outcome outcome(const Game& game) {
+  if (game.idlePlies >= kIdleLimit) return Outcome::Draw;
   Move scratch[kMaxMoves];
-  return moves(game, scratch) == 0;
+  // The side to play has no move: a loss for them, whether by capture or by
+  // being blocked. Checkers treats both the same way.
+  if (moves(game, scratch) == 0) return game.turn == kLight ? Outcome::DarkWins : Outcome::LightWins;
+  return Outcome::Running;
 }
 
-// The winner, or -1 while the game is running. Only meaningful once over().
-inline int winner(const Game& game) {
-  if (!over(game)) return -1;
-  return game.turn == kLight ? kDarkSeat : kLight;
-}
+inline bool over(const Game& game) { return outcome(game) != Outcome::Running; }
 
 }  // namespace checkers
