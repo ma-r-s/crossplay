@@ -78,10 +78,14 @@ Three things follow, and each was got wrong once:
   is a short list, so it is passed as one, and the component never learns pages
   exist. `ListItem::actionValue` still carries the absolute index, so a tap
   reports which game it is rather than which row.
-- **The pips tile the whole bar.** Each target is a full slot wide with no gap
-  between them, and `minTouchSize` is set to 0 so the component cannot grow them
-  into each other. A dead strip between targets is something a thumb finds and
-  an eye does not.
+- **The marks are an indicator, not a row of buttons.** A small centred cluster
+  with air around it; targets a thumb wide and contiguous *within the cluster
+  only*, so the screen edges do nothing. They stay tappable because
+  `BaseTheme::drawButtonHints` returns early when `gpio.hasTouch()` and the X4
+  Pro has a GT911: upstream teaches nothing about the physical buttons on a
+  touch device, so a touch user cannot discover that Up and Down would page.
+  Touch has to stay complete. The iOS home screen resolves the same tension the
+  same way.
 
 Pips rather than prev/next arrows because arrows are up to `pageCount - 1` taps
 to the far end and say nothing about where you are. A right chevron was the
