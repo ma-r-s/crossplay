@@ -17,20 +17,34 @@ constexpr int16_t kBoardHeight = kCell * ms::kRows;
 
 int16_t boardTop() { return static_cast<int16_t>(toybox::kHeaderHeight + toybox::kGutter * 2); }
 
-// The mark on a flagged cell and in the counter: a filled triangle on a staff,
-// drawn rather than lettered because it appears eleven times on a full board.
+// The mark on a flagged cell and beside the counter: a pennant on a staff.
+//
+// Proportional to its rect, not fixed offsets. The first version was drawn for
+// a 56px cell and reused at 34px beside the counter, where it came out as a
+// stray tick -- the same glyph at two sizes, wrong at one of them, and only
+// visible by looking.
 void drawFlag(toybox::Screen& screen, const fui::Rect& where, const bool paper) {
   const fui::Paint ink = fui::Paint::solid(paper ? fui::Color::White : fui::Color::Black);
-  const int16_t cx = static_cast<int16_t>(where.x + where.width / 2);
-  const int16_t cy = static_cast<int16_t>(where.y + where.height / 2);
-  // Staff, then a pennant of stacked bars: a triangle from fills, since the
-  // draw target's triangle takes three points and this reads cleaner at 56px.
-  screen.target().fill(fui::makeRect(static_cast<int16_t>(cx + 5), static_cast<int16_t>(cy - 13), 3, 26), ink);
-  for (int step = 0; step < 7; ++step) {
-    const int16_t width = static_cast<int16_t>(14 - step * 2);
-    if (width <= 0) break;
-    screen.target().fill(
-        fui::makeRect(static_cast<int16_t>(cx + 5 - width), static_cast<int16_t>(cy - 13 + step * 2), width, 2), ink);
+  // Sized off the box it is given rather than off the smaller dimension, so the
+  // same glyph reads at 56px in a cell and at 40px beside the counter. The
+  // first proportional version used min(w,h) and still came out as a tick next
+  // to display-size digits.
+  const int16_t height = static_cast<int16_t>(where.height * 3 / 4);
+  const int16_t flagWidth = static_cast<int16_t>(where.width * 1 / 2);
+  // Thick enough to read as a staff rather than as an edge of the pennant: at
+  // 44px the first version's 3px staff vanished and the mark became a triangle.
+  const int16_t staffWidth = static_cast<int16_t>(where.height / 9 + 2);
+  const int16_t x = static_cast<int16_t>(where.x + (where.width - flagWidth - staffWidth) / 2 + flagWidth);
+  const int16_t y = static_cast<int16_t>(where.y + (where.height - height) / 2);
+
+  screen.target().fill(fui::makeRect(x, y, staffWidth, height), ink);
+  // A triangle from stacked bars, tapering to the staff.
+  const int16_t bands = static_cast<int16_t>(height / 2);
+  for (int16_t band = 0; band < bands; ++band) {
+    const int16_t width = static_cast<int16_t>(flagWidth - (flagWidth * band) / bands);
+    if (width <= 0) continue;
+    screen.target().fill(fui::makeRect(static_cast<int16_t>(x - width), static_cast<int16_t>(y + band * 2), width, 2),
+                         ink);
   }
 }
 
@@ -245,9 +259,9 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   count.align = fui::TextAlign::Right;
   const int16_t countTop = static_cast<int16_t>(boardTop() + kBoardHeight + toybox::kGutter);
   screen.target().text(
-      fui::makeRect(toybox::kMargin, countTop, static_cast<int16_t>(device.width - toybox::kMargin * 2 - 40), 40), left,
+      fui::makeRect(toybox::kMargin, countTop, static_cast<int16_t>(device.width - toybox::kMargin * 2 - 52), 44), left,
       count);
-  drawFlag(screen, fui::makeRect(static_cast<int16_t>(device.width - toybox::kMargin - 34), countTop, 34, 40), false);
+  drawFlag(screen, fui::makeRect(static_cast<int16_t>(device.width - toybox::kMargin - 44), countTop, 44, 44), false);
 
   for (int column = 0; column < ms::kColumns; ++column) {
     for (int row = 0; row < ms::kRows; ++row) {

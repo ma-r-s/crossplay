@@ -159,3 +159,10 @@ murdle_face_grid  = grid-2x2    # four cells, which is literally the board.
 murdle_face_info  = folder      # the case file that holds the cast. `users` is
                                 # two heads and mush, and the page is not only
                                 # people -- it is weapons and places too
+
+# Minesweeper. `bomb` is the object the whole game is about avoiding, and a
+# sphere with a lit fuse is a silhouette nothing else on the shelf has.
+# Rejected: `flag` (that is the tool, not the game, and the game is not about
+# flags), `grid-3x3` (connections owns the grid), `land-mine` is not in this
+# lucide pin.
+minesweeper = bomb

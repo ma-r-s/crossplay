@@ -11,6 +11,7 @@
 #include "hackernews/HackerNewsActivity.h"
 #include "insider/InsiderActivity.h"
 #include "jaipur/JaipurActivity.h"
+#include "minesweeper/MinesweeperActivity.h"
 #include "murdle/MurdleActivity.h"
 #include "player/PlayerActivity.h"
 #include "solitaire/SolitaireActivity.h"
@@ -32,6 +33,7 @@ constexpr shelf::Item kGames[] = {
     {"INSIDER", &icon_insider_32, &InsiderActivity::create},
     {"JAIPUR", &icon_jaipur_32, &JaipurActivity::create},
     {"MURDLE", &icon_murdle_32, &MurdleActivity::create},
+    {"MINESWEEPER", &icon_minesweeper_32, &MinesweeperActivity::create},
 };
 constexpr shelf::Item kApps[] = {
     {"STUDY", &icon_study_32, &StudyActivity::create},
