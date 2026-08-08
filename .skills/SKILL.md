@@ -6,7 +6,7 @@
 > PSRAM** is upstream CrossPoint's, and it is accurate for the devices upstream
 > targets: the Xteink X4 and X3.
 >
-> **Crossplay builds one env, `x4pro`, and the X4 Pro is an ESP32-S3**: dual
+> **CrossPlay builds one env, `x4pro`, and the X4 Pro is an ESP32-S3**: dual
 > core Xtensa, 16MB flash, 8MB PSRAM (`platformio.ini`, `board_build.mcu =
 > esp32s3`, `-DBOARD_HAS_PSRAM`). The RISC-V alignment section does not apply.
 > The single-framebuffer and heap rules still do, because the display path and

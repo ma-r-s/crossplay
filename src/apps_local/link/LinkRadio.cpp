@@ -135,10 +135,9 @@ bool Radio::begin() {
   }
   // ESP-NOW has exactly one global receive callback, so only one thing on the
   // device may own the radio at a time. Nothing else does today. The FreeInk
-  // SDK ships `NearbyTransfer`, an ESP-NOW file-transfer library that neither
-  // CrossMux nor CrossPoint currently consumes; if either adopts it, whichever
-  // registered last silently wins and this link goes deaf. See
-  // docs/crosspoint-migration.md.
+  // SDK ships `NearbyTransfer`, an ESP-NOW file-transfer library that CrossPoint
+  // does not currently consume; if it adopts it, whichever registered last
+  // silently wins and this link goes deaf.
   if (esp_now_init() != ESP_OK) {
     LOG_ERR("LINK", "esp_now_init failed");
     end();

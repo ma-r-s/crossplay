@@ -1,6 +1,6 @@
 # Third-party notices
 
-Crossplay is MIT (see [LICENSE](LICENSE)). It also ships other people's work,
+CrossPlay is MIT (see [LICENSE](LICENSE)). It also ships other people's work,
 some of it compiled into the firmware where a licence file cannot travel beside
 it. This is that list.
 
@@ -47,7 +47,7 @@ device fetches comics from xkcd.com, and the browser demo at
 crossplay.ma-r-s.com carries a forty-comic slice packed from there. The licence
 permits non-commercial redistribution with attribution; nothing here is sold.
 
-**Connections** puzzles are the New York Times'. Crossplay ships none of them.
+**Connections** puzzles are the New York Times'. CrossPlay ships none of them.
 The app fetches a board at runtime, at the user's request, from a third-party
 mirror.
 
@@ -74,7 +74,7 @@ texts ship beside the fonts at `site/assets/fonts/OFL-Jersey25.txt` and
 ## Games
 
 Jaipur, Insider, Murdle, Battleship and Connections are trademarks of their
-respective owners. Crossplay implements the games; it is not affiliated with,
+respective owners. CrossPlay implements the games; it is not affiliated with,
 endorsed by or sponsored by any of them. Game mechanics are not copyrightable;
 the names are used to say what the thing is.
 

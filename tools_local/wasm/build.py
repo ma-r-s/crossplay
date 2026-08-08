@@ -43,10 +43,10 @@ the runtime's own main-thread getContext; OFFSCREEN_FRAMEBUFFER trips an assert
 in the proxying queue; -sASYNCIFY finally booted but every screen drawn through
 FreeInkUI arrived as a fragment.
 
-The answer was not another flag. CrossMux's browser simulator does not use SDL
-at all -- the page owns the canvas, the module exports a framebuffer pointer and
-an input function, and main() returns immediately with the firmware running on
-a worker. That is the design here, arrived at by stubbing SDL rather than
+The answer was not another flag. The browser simulator on the fork's earlier
+base does not use SDL at all -- the page owns the canvas, the module exports a
+framebuffer pointer and an input function, and main() returns immediately with
+the firmware running on a worker. That is the design here, arrived at by stubbing SDL rather than
 writing a second HAL, so our own HalDisplay keeps doing the compositing and the
 grayscale preview comes along.
 

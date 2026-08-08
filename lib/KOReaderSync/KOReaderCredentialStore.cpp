@@ -10,7 +10,7 @@ namespace {
 // still works via the custom server URL setting.
 //
 // FORK NOTE: this is upstream's server, running on upstream's infrastructure,
-// and Crossplay inherits it so that flashing this over CrossPoint does not
+// and CrossPlay inherits it so that flashing this over CrossPoint does not
 // silently orphan someone's existing sync. It is left alone rather than
 // repointed for that reason, but it means reading positions leave this device
 // for a host neither the user nor upstream chose on our behalf, so the site and

@@ -107,7 +107,7 @@ void SolitaireActivity::settleWin() {
   // The refresh flash as punctuation, per docs/design-language.md. A win is
   // the one moment in this game that has earned the full blink.
   //
-  // CrossMux carried a renderer.requestNextFullRefresh() that set a one-shot
+  // The fork's earlier base carried a renderer.requestNextFullRefresh() that set a one-shot
   // override; CrossPoint's GfxRenderer has no such thing, only a mode argument
   // on displayBuffer(). A flag the next paint consumes is the same behaviour
   // without asking upstream for an API.

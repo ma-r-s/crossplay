@@ -6,7 +6,7 @@
 
 Why this exists
 ---------------
-Crossplay v1.0.0 crashed on the first device it ever ran on. Not a logic bug: the
+CrossPlay v1.0.0 crashed on the first device it ever ran on. Not a logic bug: the
 render task was created with 8192 bytes and one trip through
 ShelfFolderActivity::render() needed 8016 of them, so the drawing underneath ran
 off the end and tripped the stack canary. Nothing caught it because nothing

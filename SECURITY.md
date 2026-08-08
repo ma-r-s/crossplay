@@ -1,6 +1,6 @@
 # Security
 
-Crossplay is firmware. It runs on a device you own, talks to the network, and
+CrossPlay is firmware. It runs on a device you own, talks to the network, and
 listens on a radio, so it is worth saying plainly what to do if you find a
 problem and what this project can honestly promise.
 

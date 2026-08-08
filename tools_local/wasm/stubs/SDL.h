@@ -24,7 +24,7 @@
 // browser build stays the same program as the desktop one, and a screen that
 // renders here renders there.
 //
-// This is the shape CrossMux's browser simulator uses (framebuffer out of the
+// This is the shape the earlier base's browser simulator uses (framebuffer out of the
 // heap, input in through exported functions, no SDL); it is arrived at here
 // through a stub rather than a second HAL so that our own HalDisplay -- with
 // its grayscale preview and X4 Pro geometry -- keeps doing the work.

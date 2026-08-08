@@ -14,7 +14,6 @@ hook on every simulator build.
 
 Deliberately NOT sent upstream as a PR. Mario wants to see how CrossPoint solves
 the same problem and compare, and a merged PR would make their answer ours.
-See docs/crosspoint-migration.md.
 
 Every edit is idempotent, and anything unexpected is reported rather than
 swallowed -- when the simulator catches up, this should start saying so.
@@ -35,14 +34,21 @@ def patch(path, anchor, replacement, what):
         return  # already applied this build cycle
     if anchor not in text:
         # Upstream changed shape. Either they fixed it, or they moved it.
-        print(f"[sim-catchup] '{what}' no longer applies -- the simulator has "
-              f"changed. Check whether the patch is still needed, then delete it.")
+        print(
+            f"[sim-catchup] '{what}' no longer applies -- the simulator has "
+            f"changed. Check whether the patch is still needed, then delete it."
+        )
         return
     path.write_text(text.replace(anchor, replacement, 1))
     print(f"[sim-catchup] applied: {what}")
 
 
-src = pathlib.Path(env.subst("$PROJECT_LIBDEPS_DIR")) / env.subst("$PIOENV") / "simulator" / "src"
+src = (
+    pathlib.Path(env.subst("$PROJECT_LIBDEPS_DIR"))
+    / env.subst("$PIOENV")
+    / "simulator"
+    / "src"
+)
 
 # HalStorage has no way to add to an existing file: openFileForWrite carries
 # O_TRUNC on both the device and here. lib/hal gained openFileForAppend for the
@@ -91,7 +97,9 @@ if arduino.exists() and "inline int digitalRead(int)" not in arduino.read_text()
         print("[sim-catchup] Arduino.h now declares digitalRead -- drop this patch.")
     else:
         with arduino.open("a") as fh:
-            fh.write("\n// sim-catchup: the simulator has no GPIO; reads are inert.\n"
-                     "inline int digitalRead(int) { return 0; }\n"
-                     "inline void digitalWrite(int, int) {}\n")
+            fh.write(
+                "\n// sim-catchup: the simulator has no GPIO; reads are inert.\n"
+                "inline int digitalRead(int) { return 0; }\n"
+                "inline void digitalWrite(int, int) {}\n"
+            )
         print("[sim-catchup] applied: digitalRead / digitalWrite")

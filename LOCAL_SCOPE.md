@@ -147,8 +147,8 @@ still builds `-e x4pro` before syncing.
 
 ## Why this base at all
 
-The previous incarnation of this fork sat on CrossMux, chosen because it was the
-only app-capable CrossPoint fork with a desktop simulator. That reason expired:
-the simulator is now CrossPoint's own, and the X4 Pro environment always was.
-[docs/crosspoint-migration.md](docs/crosspoint-migration.md) is the full record,
-including what was measured and what was verified rather than assumed.
+An earlier incarnation of this fork sat on a different CrossPoint fork, picked
+because it was the only app-capable one with a desktop simulator. That reason
+expired: the simulator is now CrossPoint's own, and the X4 Pro environment
+always was. Basing on CrossPoint directly costs nothing we were using and drops
+a quarter of a million lines of reading features this fork does not touch.

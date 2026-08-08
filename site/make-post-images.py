@@ -89,7 +89,7 @@ SHELF = (
 </style>
 <div class="band"><div class="wm">"""
     + (MARK % (46, 46))
-    + """<span>Crossplay</span></div>
+    + """<span>CrossPlay</span></div>
   <span class="note">Xteink X4 Pro</span></div>
 <div class="grid">
   <img src="../shots/chess.png"><img src="../shots/jaipur.png">
@@ -121,7 +121,7 @@ SHELF_TWO = (
 </style>
 <div class="band"><div class="wm">"""
     + (MARK % (46, 46))
-    + """<span>Crossplay</span></div>
+    + """<span>CrossPlay</span></div>
   <span class="note">Xteink X4 Pro</span></div>
 <div class="grid">
   <img src="../shots/battleship.png"><img src="../shots/connections.png">
@@ -177,7 +177,7 @@ CARD = (
 <div class="left">
   <div class="wm">"""
     + (MARK % (40, 40))
-    + """<span>Crossplay</span></div>
+    + """<span>CrossPlay</span></div>
   <h1>E-ink is good<br>at waiting.</h1>
   <p>Everything else a still screen is good at.</p>
   <div class="meta"><span>A fork of CrossPoint</span><span>Xteink X4 Pro</span><span>MIT</span></div>

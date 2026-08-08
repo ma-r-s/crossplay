@@ -16,7 +16,7 @@
 //   crossplay_consume_dirty                 has it changed since you last asked
 //   crossplay_touch / _button / _key        input, in logical screen pixels
 //
-// Touch is the addition. CrossMux's browser simulator exposes buttons only,
+// Touch is the addition. The earlier base's browser simulator exposes buttons only,
 // which is right for a device you read on; every app in this fork is driven by
 // tapping the panel, so a button-only emulator would demonstrate none of them.
 // The X4 Pro's touch is already emulated on the SDL mouse path, so injecting

@@ -26,8 +26,7 @@
 #      unstaged. The trial worktree builds committed state only, so the sync is
 #      verified against what is actually in the branch.
 #
-# See LOCAL_SCOPE.md for the seam this protects and docs/crosspoint-migration.md
-# for why the base is what it is.
+# See LOCAL_SCOPE.md for the seam this protects and why the base is what it is.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
