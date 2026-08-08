@@ -201,55 +201,140 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
                          model.selected == static_cast<int>(MenuRow::PlayNearby));
 }
 
+// Defined below, beside the board that is its main caller. Declared here
+// because the how-to's diagrams use the same mark to say "your columns", and
+// teaching a signal with one shape and then using another would be worse than
+// not teaching it.
+void bracket(toybox::Screen& screen, const fui::Rect& box);
+
+// A grid drawn at an arbitrary size, for the how-to's diagrams. The board's own
+// drawGrid is tied to the board's layout; this one takes a rect, so a page can
+// show the real shape of the game at whatever size the page has room for.
+void miniGrid(toybox::Screen& screen, const int16_t x, const int16_t y, const int16_t cell,
+              const uint8_t cells[kb::kColumns][kb::kRows], const bool bracketed) {
+  constexpr int16_t kMiniGap = 4;
+  for (int column = 0; column < kb::kColumns; ++column) {
+    for (int row = 0; row < kb::kRows; ++row) {
+      // Row 0 at the bottom, as on the real board, so the picture teaches the
+      // direction dice actually stack.
+      const fui::Rect box =
+          fui::makeRect(static_cast<int16_t>(x + column * (cell + kMiniGap)),
+                        static_cast<int16_t>(y + (kb::kRows - 1 - row) * (cell + kMiniGap)), cell, cell);
+      screen.target().fill(box, fui::Paint::solid(fui::Color::White));
+      screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), 2);
+      drawFace(screen, box, cells[column][row], false);
+    }
+    if (!bracketed) continue;
+    const fui::Rect whole = fui::makeRect(static_cast<int16_t>(x + column * (cell + kMiniGap)), y, cell,
+                                          static_cast<int16_t>(cell * kb::kRows + kMiniGap * (kb::kRows - 1)));
+    bracket(screen, whole);
+  }
+}
+
 void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
+  const int page = model.page < 0 ? 0 : (model.page >= howToPages() ? howToPages() - 1 : model.page);
+
   fui::HeaderProps header;
   header.title = "HOW TO PLAY";
   header.borderEdges = fui::EdgesNone;
   screen.header(header);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 
-  // Three pages, each one sentence and one picture. The rules fit on a napkin,
-  // so the how-to should not be a wall: a player who wanted to read would not
-  // have opened a dice game.
+  // Each page is one sentence and one picture of the real game. The pictures
+  // were the whole problem before: page one said "three columns" and drew one,
+  // and page three described destroying their dice while showing a die in your
+  // own grid. A diagram that contradicts its caption is worse than none.
   static const char* const kLines[] = {
-      "ROLL A DIE. DROP IT IN ONE OF YOUR THREE COLUMNS.",
-      // Digits, not words. Spelled out, this line ran past three lines and was
-      // cut mid-word at "THIRTY SIX, N" -- losing the contrast the whole rule
-      // is made of, and with no ellipsis, because Jersey is subset to ASCII.
+      "TWO BOARDS FACING. ROLL A DIE, DROP IT IN ONE OF YOUR THREE COLUMNS.",
       "MATCHING DICE MULTIPLY. THREE 4s SCORE 36, NOT 12.",
-      "PLACING A VALUE DESTROYS EVERY COPY OF IT IN THEIR MATCHING COLUMN.",
+      "YOUR 5 DESTROYS EVERY 5 IN THEIR FACING COLUMN.",
   };
-  const int page = model.page < 0 ? 0 : (model.page >= howToPages() ? howToPages() - 1 : model.page);
+
+  // Taken before anything else is drawn. The first version of this rewrite put
+  // it at the end, after three page-specific branches that each returned early,
+  // so two pages of three had no way forward at all. The test caught it; the
+  // fix is to make the branch unable to skip it rather than to remember.
+  fui::ButtonProps next;
+  next.label = page + 1 < howToPages() ? "NEXT" : "GOT IT";
+  next.action = ActionHowToNext;
+  screen.button(next, screen.takeBottom(toybox::kPillHeight, toybox::kGutter));
+
+  const fui::Rect area = screen.body();
+
+  // Where you are in the sequence. Drawn in the body rather than as the
+  // header's rightLabel, which IS drawn but comes out black on the black band
+  // and is invisible -- the same class as this fork's known-failing
+  // paperOnTheBand test. A host test asserting "the label was drawn" passes
+  // either way, which is exactly why this one was caught by looking.
+  char progress[8];
+  std::snprintf(progress, sizeof(progress), "%d/%d", page + 1, howToPages());
+  fui::TextStyle counter;
+  counter.font = toybox::kSmallFont;
+  counter.align = fui::TextAlign::Right;
+  screen.target().text(fui::makeRect(area.x, area.y, area.width, 20), progress, counter);
 
   fui::TextStyle body;
   body.font = toybox::kBodyFont;
   body.align = fui::TextAlign::Center;
-  // Three lines of room: the sentences are short but the panel is narrow, and
-  // a single line would truncate the longest of them.
   body.maxLines = 3;
-  const fui::Rect area = screen.body();
-  screen.target().text(fui::makeRect(area.x, static_cast<int16_t>(area.y + 40), area.width, 160), kLines[page], body);
+  screen.target().text(fui::makeRect(area.x, static_cast<int16_t>(area.y + 20), area.width, 130), kLines[page], body);
 
-  // The example the sentence is talking about, drawn in the game's own
-  // material rather than described. Page one is an empty column, page two the
-  // three fours it names, page three the destruction it names.
   const fui::DeviceContext device = screen.device();
-  const int16_t exampleTop = static_cast<int16_t>(area.y + 220);
-  for (int row = 0; row < kb::kRows; ++row) {
-    const int16_t left = static_cast<int16_t>((device.width - kCell) / 2);
-    const fui::Rect cell = fui::makeRect(
-        left, static_cast<int16_t>(exampleTop + (kb::kRows - 1 - row) * (kCell + kCellGap)), kCell, kCell);
-    uint8_t value = kb::kEmpty;
-    if (page == 1) value = 4;
-    if (page == 2 && row == 0) value = 5;
-    screen.target().stroke(cell, fui::Paint::solid(fui::Color::Black), value == kb::kEmpty ? 2 : 3);
-    drawFace(screen, cell, value, false);
+  constexpr uint8_t kNone = kb::kEmpty;
+  const int16_t diagramTop = static_cast<int16_t>(area.y + 170);
+
+  if (page == 0) {
+    // The shape of the whole game: two grids facing, yours bracketed, one die
+    // in hand between them. Layout, ownership and action in one picture.
+    constexpr int16_t kMini = 52;
+    const int16_t width = kMini * kb::kColumns + 4 * (kb::kColumns - 1);
+    const int16_t left = static_cast<int16_t>((device.width - width) / 2);
+    const uint8_t theirs[kb::kColumns][kb::kRows] = {{3, kNone, kNone}, {kNone, kNone, kNone}, {6, 2, kNone}};
+    const uint8_t yours[kb::kColumns][kb::kRows] = {{kNone, kNone, kNone}, {5, kNone, kNone}, {kNone, kNone, kNone}};
+    miniGrid(screen, left, diagramTop, kMini, theirs, false);
+    const fui::Rect die = fui::makeRect(static_cast<int16_t>((device.width - kMini) / 2),
+                                        static_cast<int16_t>(diagramTop + 3 * kMini + 8 + 14), kMini, kMini);
+    screen.target().stroke(die, fui::Paint::solid(fui::Color::Black), 4);
+    drawFace(screen, die, 4, false);
+    miniGrid(screen, left, static_cast<int16_t>(diagramTop + 3 * kMini + 8 + kMini + 28), kMini, yours, true);
+    return;
   }
 
-  fui::ButtonProps next;
-  next.label = page + 1 < howToPages() ? "NEXT" : "GOT IT";
-  next.action = ActionHowToNext;
-  screen.button(next, screen.takeBottom(toybox::kRowHeight, toybox::kGutter));
+  if (page == 1) {
+    // The multiplier, shown as the contrast the sentence names: three 4s in one
+    // column against the same three spread out.
+    constexpr int16_t kMini = 58;
+    const uint8_t stacked[kb::kColumns][kb::kRows] = {{4, 4, 4}, {kNone, kNone, kNone}, {kNone, kNone, kNone}};
+    const uint8_t spread[kb::kColumns][kb::kRows] = {{4, kNone, kNone}, {4, kNone, kNone}, {4, kNone, kNone}};
+    const int16_t width = kMini * kb::kColumns + 4 * (kb::kColumns - 1);
+    const int16_t left = static_cast<int16_t>((device.width - width) / 2);
+    fui::TextStyle score;
+    score.font = toybox::kDisplayFont;
+    score.align = fui::TextAlign::Center;
+    miniGrid(screen, left, diagramTop, kMini, stacked, false);
+    screen.target().text(fui::makeRect(area.x, static_cast<int16_t>(diagramTop + 3 * kMini + 14), area.width, 44), "36",
+                         score);
+    const int16_t secondTop = static_cast<int16_t>(diagramTop + 3 * kMini + 66);
+    miniGrid(screen, left, secondTop, kMini, spread, false);
+    screen.target().text(fui::makeRect(area.x, static_cast<int16_t>(secondTop + 3 * kMini + 14), area.width, 44), "12",
+                         score);
+    return;
+  }
+
+  // Destruction, drawn as the two facing columns it actually involves: their
+  // pair of fives above, your five below, in the same column.
+  constexpr int16_t kMini = 58;
+  const uint8_t theirs[kb::kColumns][kb::kRows] = {{5, 5, kNone}, {kNone, kNone, kNone}, {kNone, kNone, kNone}};
+  const uint8_t yours[kb::kColumns][kb::kRows] = {{5, kNone, kNone}, {kNone, kNone, kNone}, {kNone, kNone, kNone}};
+  const int16_t width = kMini * kb::kColumns + 4 * (kb::kColumns - 1);
+  const int16_t left = static_cast<int16_t>((device.width - width) / 2);
+  miniGrid(screen, left, diagramTop, kMini, theirs, false);
+  fui::TextStyle arrow;
+  arrow.font = toybox::kDisplayFont;
+  arrow.align = fui::TextAlign::Center;
+  screen.target().text(fui::makeRect(area.x, static_cast<int16_t>(diagramTop + 3 * kMini + 10), area.width, 44), "^",
+                       arrow);
+  miniGrid(screen, left, static_cast<int16_t>(diagramTop + 3 * kMini + 60), kMini, yours, true);
 }
 
 // Four corner brackets around a column, which is how this fork already says

@@ -2339,6 +2339,11 @@ void testTheHowToEndsOnGotIt() {
     Rendered out;
     buildKb<knuckleui::HowToModel, knuckleui::buildHowTo>(out, model);
     CHECK(out.target.drew("HOW TO PLAY"));
+    // Where you are in the sequence. Without it the only cue is NEXT becoming
+    // GOT IT, which arrives too late to be one.
+    char progress[8];
+    std::snprintf(progress, sizeof(progress), "%d/%d", page + 1, knuckleui::howToPages());
+    CHECK(out.target.drew(progress));
     // The last page says so, or a player pages forever looking for the end.
     CHECK(out.target.drew(page + 1 < knuckleui::howToPages() ? "NEXT" : "GOT IT"));
   }
