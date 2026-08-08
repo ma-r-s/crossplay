@@ -82,6 +82,11 @@ screenshot and honest alt text, README rows, trademark attribution if the game
 is somebody's, a `<game>-app-state` memory with its `MEMORY.md` line, and the
 browser emulator rebuilt so the demo is not a version behind the page.
 
+**Save the tap script that produced your screenshot, beside the shot.** Every
+one of the site's existing images was captured by hand and its recipe thrown
+away, so not one of them can be reproduced today. One recipe per game costs a
+line; back-filling twenty-seven costs a week. Do not add to that pile.
+
 ## Self-review
 
 - Does anything outside the activity know the renderer, storage or the radio?
