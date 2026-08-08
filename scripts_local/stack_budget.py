@@ -71,13 +71,16 @@ TASKS = [
         "asyncTaskTrampoline",
         None,
     ),
-    (
-        "audio_play",
-        8192,
-        "freeink-sdk/libs/hardware/AudioManager/src/AudioManager.cpp:313",
-        "AudioManager::taskEntry",
-        None,
-    ),
+    # AudioManager's "audio_play" task is deliberately absent. The SDK creates
+    # one, but FREEINK_CAP_AUDIO is (MURPHY || M5) and AudioManager is not in
+    # this firmware's lib_deps, so on an Xteink the task does not exist: no
+    # symbol in firmware.map, no "audio_play" string in the binary.
+    #
+    # Listing it anyway produced a "not in the graph" line on every run, and
+    # that line has to keep meaning "this task exists and I could not measure
+    # it". A warning that is usually noise is one people learn to scroll past,
+    # which costs exactly the warning that matters. Add it back the day
+    # AudioManager joins lib_deps.
 ]
 
 # A task that fits with 40 bytes to spare is one commit away from not fitting,
@@ -203,7 +206,13 @@ def main():
             continue
         found = match(entry, pretty, frames)
         if not found:
-            print(f"  ?  {task:<24} entry {entry!r} not in the graph")
+            # Not a warning. A task whose entry is missing is a task this run
+            # did not check, and saying "all tasks fit" underneath that is a
+            # false pass. It happens on an incremental build, where only the
+            # recompiled objects have .ci files: 13 objects instead of 533 once
+            # reported both real tasks missing and still printed success.
+            print(f"  !! {task:<24} entry {entry!r} not in the graph, so NOT checked")
+            failed = True
             continue
         used, path, cycle = deepest(found[0], frames, calls)
 
@@ -237,12 +246,19 @@ def main():
 
     print()
     if failed:
-        print(f"FAIL: a task is within {MIN_HEADROOM} bytes of its stack.")
+        print(
+            f"FAIL: a task is unchecked, or within {MIN_HEADROOM} bytes of its stack."
+        )
         print(
             "Shrink the frames on that path, or raise the stack where it is declared."
         )
+        print("If a task was not checked, the build was incremental and the graph is")
+        print("partial: run scripts_local/stack-budget.sh, which builds all of it.")
         return 1
-    print("All tasks fit, on every path the compiler can see.")
+    # Say how many, not just that they fit. "All tasks fit" over an empty list is
+    # true and worthless, and it is what this printed before an unchecked task
+    # started counting as a failure.
+    print(f"All {len(TASKS)} tasks fit, on every path the compiler can see.")
     return 0
 
 
