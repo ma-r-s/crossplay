@@ -209,91 +209,62 @@ void Grid::clear(const int catA, const int itemA, const int catB, const int item
   markOwn(catA, itemA, catB, itemB, false);
 }
 
-bool Grid::setYes(const int catA, const int itemA, const int catB, const int itemB) {
-  // Clear the row and column first, then write. put() refuses to overwrite a
-  // decided cell -- which is right for the solver and wrong here, because this
-  // is the player's own hand and they are allowed to change their mind. The
-  // first version wrote the new Yes, hit the old one while crossing out,
-  // returned false and left two yeses in one row with the crossing half
-  // applied: a corrupt grid produced by the most ordinary action there is.
-  // A NEW YES OVERRULES AN OLD ONE, AND HAS TO TAKE THE OLD ONE'S CROSSINGS
-  // WITH IT.
-  //
-  // Say S0 holds W0, so W0's whole column is crossed out. Change your mind and
-  // mark S0 as holding W1 instead: the clear below wipes S0's row and W1's
-  // column, which removes the old Yes -- but the crosses it put down the W0
-  // column, on S1, S2 and S3, are in neither of those. They survive, and they
-  // now say that NOBODY holds W0. A contradictory grid, out of an ordinary
-  // change of mind, and the player has to hunt down three stray crosses to
-  // undo it.
-  //
-  // Mario asked whether two Yeses that cross each other had been checked. They
-  // had not. The test written for it failed on the first run.
-  for (int i = 0; i < shape_.items; ++i) {
-    if (i != itemB && get(catA, itemA, catB, i) == Mark::Yes) clearYes(catA, itemA, catB, i);
-    if (i != itemA && get(catA, i, catB, itemB) == Mark::Yes) clearYes(catA, i, catB, itemB);
+// The grid's own crosses ARE the closure of its Yes marks, so they are
+// recomputed rather than patched.
+//
+// Four separate defects came out of trying to keep them in step by hand --
+// stale crosses left after a Yes was cleared, after a Yes was overruled, after
+// a cross was justified by two Yeses and lost one, and after clearing a Yes
+// took away crosses a DIFFERENT Yes still needed. Every one was a case somebody
+// had to think of. Dropping the lot and re-deriving cannot have that class of
+// bug at all: afterwards, a cross the grid owns is implied by a Yes by
+// construction, and a random-tap test asserts it after every tap.
+//
+// A cross the player made by hand is never owned, so it is never dropped and
+// never audited. Their opinion is theirs.
+void Grid::recross(const int catA, const int catB) {
+  for (int p = 0; p < shape_.items; ++p) {
+    for (int q = 0; q < shape_.items; ++q) {
+      if (get(catA, p, catB, q) == Mark::No && wroteItself(catA, p, catB, q)) clear(catA, p, catB, q);
+    }
   }
-
-  // Whose crosses were already here, recorded BEFORE the clear below erases the
-  // distinction. The clear wipes the row and column and the loop underneath
-  // writes them straight back, so without this every cross the player made by
-  // hand would come back as the grid's own and be taken away again the moment
-  // they cleared the Yes. The test for this caught it on its first run.
-  bool theirs[kMaxItems][2] = {};
-  for (int i = 0; i < shape_.items; ++i) {
-    theirs[i][0] = get(catA, itemA, catB, i) == Mark::No && !wroteItself(catA, itemA, catB, i);
-    theirs[i][1] = get(catA, i, catB, itemB) == Mark::No && !wroteItself(catA, i, catB, itemB);
-  }
-
-  for (int i = 0; i < shape_.items; ++i) {
-    clear(catA, itemA, catB, i);
-    clear(catA, i, catB, itemB);
-  }
-  put(catA, itemA, catB, itemB, Mark::Yes);
-
-  // One suspect cannot hold two weapons, and one weapon cannot be held by two
-  // suspects. Bookkeeping, not deduction: this stays inside the block, because
-  // reaching across blocks is the deduction and doing it for the player would
-  // be playing the game for them.
-  //
-  // Each cross this actually writes is recorded as the grid's own, so clearing
-  // the Yes can take it back. A cell the player had already crossed by hand is
-  // untouched by put() -- it returns 0 for "already that value" -- and so is
-  // never claimed, and never taken away from them.
-  for (int i = 0; i < shape_.items; ++i) {
-    if (i != itemB && put(catA, itemA, catB, i, Mark::No) == 1) markOwn(catA, itemA, catB, i, !theirs[i][0]);
-    if (i != itemA && put(catA, i, catB, itemB, Mark::No) == 1) markOwn(catA, i, catB, itemB, !theirs[i][1]);
-  }
-
-  // Every Yes still standing in this block re-asserts its own crossings.
-  //
-  // A cross can be justified by two Yeses at once, and taking one of them back
-  // above clears cells the other still implies. Concretely: S0 holds W0 and S1
-  // holds W1, so (S1,W0) is crossed twice over -- once because W0 is spoken
-  // for, once because S1 is. Move S0 to W2 and only the first reason goes away,
-  // but the cell went blank with it. Not wrong, since blank only means unknown,
-  // and the player can work it out again -- but it is work the grid had already
-  // done for them and then quietly dropped, which is the same complaint that
-  // started this in a smaller key. Found by printing the grid at each step
-  // rather than by any assertion.
-  for (int r = 0; r < shape_.items; ++r) {
-    for (int c = 0; c < shape_.items; ++c) {
-      if (get(catA, r, catB, c) != Mark::Yes) continue;
+  for (int p = 0; p < shape_.items; ++p) {
+    for (int q = 0; q < shape_.items; ++q) {
+      if (get(catA, p, catB, q) != Mark::Yes) continue;
+      // One suspect cannot hold two weapons, and one weapon cannot be held by
+      // two suspects. Bookkeeping, not deduction: this stays inside the block,
+      // because reaching across blocks is the deduction and doing it for the
+      // player would be playing the game for them.
       for (int i = 0; i < shape_.items; ++i) {
-        if (i != c && put(catA, r, catB, i, Mark::No) == 1) markOwn(catA, r, catB, i, true);
-        if (i != r && put(catA, i, catB, c, Mark::No) == 1) markOwn(catA, i, catB, c, true);
+        if (i != q && put(catA, p, catB, i, Mark::No) == 1) markOwn(catA, p, catB, i, true);
+        if (i != p && put(catA, i, catB, q, Mark::No) == 1) markOwn(catA, i, catB, q, true);
       }
     }
   }
+}
+
+bool Grid::setYes(const int catA, const int itemA, const int catB, const int itemB) {
+  // Only the Yes marks this one overrules are removed, plus the target cell --
+  // which the player is deliberately changing. Nothing else the player wrote is
+  // touched. The crosses sort themselves out in recross().
+  //
+  // put() refuses to overwrite a decided cell, which is right for the solver and
+  // wrong here: this is the player's own hand and they are allowed to change
+  // their mind. An early version wrote the new Yes, hit the old one while
+  // crossing out, and left two Yeses in one row with the crossing half applied.
+  for (int i = 0; i < shape_.items; ++i) {
+    if (get(catA, itemA, catB, i) == Mark::Yes) clear(catA, itemA, catB, i);
+    if (get(catA, i, catB, itemB) == Mark::Yes) clear(catA, i, catB, itemB);
+  }
+  clear(catA, itemA, catB, itemB);
+  put(catA, itemA, catB, itemB, Mark::Yes);
+  recross(catA, catB);
   return true;
 }
 
 void Grid::clearYes(const int catA, const int itemA, const int catB, const int itemB) {
-  for (int i = 0; i < shape_.items; ++i) {
-    if (i != itemB && wroteItself(catA, itemA, catB, i)) clear(catA, itemA, catB, i);
-    if (i != itemA && wroteItself(catA, i, catB, itemB)) clear(catA, i, catB, itemB);
-  }
   clear(catA, itemA, catB, itemB);
+  recross(catA, catB);
 }
 
 bool Grid::complete() const {

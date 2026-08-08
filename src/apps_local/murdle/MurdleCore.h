@@ -216,8 +216,7 @@ class Grid {
   // theirs.
   bool setYes(int catA, int itemA, int catB, int itemB);
 
-  // Clear a Yes AND undo the crossings setYes made for it, leaving any the
-  // player wrote themselves.
+  // Clear a Yes and let recross() work out which crossings still have a reason.
   //
   // Without this the three states are a one-way street. Tapping a crossed-out
   // cell takes it to Yes, which sprays a row and a column with crosses, and
@@ -248,6 +247,8 @@ class Grid {
   // laid out like cells_ but packed a row to a byte: 24 bytes, against 96 for
   // a parallel array, and Grid is copied on the stack by the case-split solver.
   bool wroteItself(int catA, int itemA, int catB, int itemB) const;
+  // Recompute every cross this grid owns in one block from its Yes marks.
+  void recross(int catA, int catB);
   void markOwn(int catA, int itemA, int catB, int itemB, bool own);
 
   Shape shape_;

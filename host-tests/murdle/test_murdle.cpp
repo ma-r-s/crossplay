@@ -267,6 +267,107 @@ void testOverrulingAYesTakesBackItsCrossingsToo() {
   for (int i = 1; i < 4; ++i) CHECK(other.get(0, 0, 1, i) == Mark::Unknown);
 }
 
+// Random tapping, and the invariant that has to survive all of it.
+//
+// Three defects in this area were found by Mario playing or by printing the
+// grid, and none by a hand-written case -- because a hand-written case only
+// covers the sequence its author already thought of, and every one of these
+// bugs lived in a sequence I had not. So: tap at random, thousands of times,
+// and after EVERY tap assert the property the whole auto-crossing mechanism
+// exists to provide.
+//
+//   1. At most one Yes per row and per column of a block. Two would mean one
+//      suspect holding two weapons.
+//   2. Every cell a Yes implies is crossed. That is the service the player is
+//      being offered, and it must never be half-delivered.
+//   3. No cross survives without a reason. A cell the grid crossed must still
+//      be implied by SOME Yes -- this is the one all three bugs violated, and
+//      it is what turns a stale mark into a contradictory grid.
+//
+// The player's own crosses are exempt from 3: those are their opinion, right or
+// wrong, and the grid does not audit them.
+void testRandomTappingKeepsTheGridHonest() {
+  Rng rng(0xC0FFEEu);
+  for (int trial = 0; trial < 400; ++trial) {
+    const int items = 3 + static_cast<int>(rng.below(2));
+    const int cats = 3 + static_cast<int>(rng.below(2));
+    const Shape shape{static_cast<uint8_t>(cats), static_cast<uint8_t>(items)};
+    Grid grid;
+    grid.reset(shape);
+    // Track which crosses the player made, so rule 3 can exempt them.
+    bool byHand[kMaxCats][kMaxCats][kMaxItems][kMaxItems] = {};
+
+    for (int tap = 0; tap < 60; ++tap) {
+      const int a = static_cast<int>(rng.below(static_cast<uint32_t>(cats)));
+      int b = static_cast<int>(rng.below(static_cast<uint32_t>(cats - 1)));
+      if (b >= a) ++b;
+      const int ia = static_cast<int>(rng.below(static_cast<uint32_t>(items)));
+      const int ib = static_cast<int>(rng.below(static_cast<uint32_t>(items)));
+
+      // Exactly what MurdleActivity::handleGridTap does.
+      switch (grid.get(a, ia, b, ib)) {
+        case Mark::Unknown:
+          grid.set(a, ia, b, ib, Mark::No);
+          byHand[a][b][ia][ib] = true;
+          byHand[b][a][ib][ia] = true;
+          break;
+        case Mark::No:
+          grid.clear(a, ia, b, ib);
+          grid.setYes(a, ia, b, ib);
+          break;
+        case Mark::Yes:
+          grid.clearYes(a, ia, b, ib);
+          break;
+      }
+      // setYes and clearYes rewrite whole rows and columns, so any hand-made
+      // cross they cleared has stopped being the player's.
+      for (int x = 0; x < cats; ++x) {
+        for (int y = x + 1; y < cats; ++y) {
+          for (int p = 0; p < items; ++p) {
+            for (int q = 0; q < items; ++q) {
+              if (grid.get(x, p, y, q) != Mark::No) {
+                byHand[x][y][p][q] = false;
+                byHand[y][x][q][p] = false;
+              }
+            }
+          }
+        }
+      }
+
+      for (int x = 0; x < cats; ++x) {
+        for (int y = x + 1; y < cats; ++y) {
+          // 1. at most one Yes a row, at most one a column
+          for (int p = 0; p < items; ++p) {
+            int inRow = 0;
+            int inCol = 0;
+            for (int q = 0; q < items; ++q) {
+              if (grid.get(x, p, y, q) == Mark::Yes) ++inRow;
+              if (grid.get(x, q, y, p) == Mark::Yes) ++inCol;
+            }
+            CHECK(inRow <= 1);
+            CHECK(inCol <= 1);
+          }
+          for (int p = 0; p < items; ++p) {
+            for (int q = 0; q < items; ++q) {
+              const Mark here = grid.get(x, p, y, q);
+              // Is some Yes in this row or column reason to cross this cell?
+              bool implied = false;
+              for (int i = 0; i < items; ++i) {
+                if (i != q && grid.get(x, p, y, i) == Mark::Yes) implied = true;
+                if (i != p && grid.get(x, i, y, q) == Mark::Yes) implied = true;
+              }
+              // 2. what a Yes implies is crossed
+              if (implied) CHECK(here == Mark::No);
+              // 3. and nothing the grid crossed has lost its reason
+              if (here == Mark::No && !byHand[x][y][p][q]) CHECK(implied);
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 void testSetYesCrossesItsOwnBlockOnly() {
   Grid grid;
   grid.reset(Shape{4, 4});
@@ -1445,6 +1546,7 @@ int runTests() {
   testGridIsOrderIndependent();
   testClearingAYesTakesBackItsOwnCrossings();
   testOverrulingAYesTakesBackItsCrossingsToo();
+  testRandomTappingKeepsTheGridHonest();
   testSetYesCrossesItsOwnBlockOnly();
   testSetYesOverrulesAnEarlierAnswer();
   testCastTableIsDrawable();
