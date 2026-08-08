@@ -36,6 +36,7 @@ c++ -std=c++17 -Wall -Wextra -Werror -Wno-comment -Wno-format-truncation \
   ../../src/apps_local/insider/InsiderCore.cpp \
   ../../src/apps_local/insider/InsiderScreens.cpp \
   ../../src/apps_local/link/LinkScreens.cpp \
+  ../../src/apps_local/minesweeper/MinesweeperScreens.cpp \
   ../../src/apps_local/murdle/MurdleCast.cpp \
   ../../src/apps_local/murdle/MurdleCore.cpp \
   ../../src/apps_local/murdle/MurdleScreens.cpp \

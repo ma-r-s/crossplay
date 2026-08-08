@@ -20,6 +20,7 @@
 #include "../../src/apps_local/hackernews/HackerNewsScreens.h"
 #include "../../src/apps_local/insider/InsiderScreens.h"
 #include "../../src/apps_local/link/LinkScreens.h"
+#include "../../src/apps_local/minesweeper/MinesweeperScreens.h"
 #include "../../src/apps_local/murdle/MurdleScreens.h"
 #include "../../src/apps_local/murdle/MurdleText.h"
 #include "../../src/apps_local/player/PlayerAvatar.h"
@@ -2186,6 +2187,127 @@ void testMurdleMenuHeadlineIsTheDoorAcrossItsWidth() {
   CHECK(!out.interactions.overflowed());
 }
 
+// --- minesweeper -----------------------------------------------------------
+
+template <typename Model, void (*Build)(toybox::Screen&, const Model&)>
+void buildMs(Rendered& out, const Model& model) {
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, device(), noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  Build(screen, model);
+}
+
+// The load-bearing one on a touch device: the cell a thumb lands on must be the
+// cell the rules receive.
+//
+// The grid is hit-tested arithmetically rather than registered as eighty
+// buttons -- the interaction buffer holds twenty-four, and a regular grid is
+// not what that buffer is for. So this asserts the two directions against each
+// other: every cell's drawn rect must map back to that same cell, from all four
+// of its corners, and points outside the board must map to nothing.
+void testTheCellYouTapIsTheCellTheRulesGet() {
+  for (int column = 0; column < minesweeper::kColumns; ++column) {
+    for (int row = 0; row < minesweeper::kRows; ++row) {
+      const fui::Rect box = mineui::cellRect(device(), column, row);
+      const int probes[4][2] = {{box.x, box.y},
+                                {box.x + box.width - 1, box.y},
+                                {box.x, box.y + box.height - 1},
+                                {box.x + box.width - 1, box.y + box.height - 1}};
+      for (const auto& probe : probes) {
+        int gotColumn = -1;
+        int gotRow = -1;
+        CHECK(mineui::cellAt(device(), probe[0], probe[1], gotColumn, gotRow));
+        CHECK(gotColumn == column);
+        CHECK(gotRow == row);
+      }
+    }
+  }
+
+  // Off the board in every direction, including the capsule and the header,
+  // which are other people's controls.
+  const fui::Rect first = mineui::cellRect(device(), 0, 0);
+  const fui::Rect last = mineui::cellRect(device(), minesweeper::kColumns - 1, minesweeper::kRows - 1);
+  int c = -1;
+  int r = -1;
+  CHECK(!mineui::cellAt(device(), first.x - 1, first.y, c, r));
+  CHECK(!mineui::cellAt(device(), first.x, first.y - 1, c, r));
+  CHECK(!mineui::cellAt(device(), last.x + last.width, last.y, c, r));
+  CHECK(!mineui::cellAt(device(), last.x, last.y + last.height, c, r));
+  CHECK(!mineui::cellAt(device(), 240, 780, c, r));
+}
+
+void testTheBoardFitsThePanel() {
+  // Eighty cells, a tool capsule and a counter on one 800px panel. Arithmetic
+  // that overflows is silent, so the extremes are pinned.
+  const fui::Rect first = mineui::cellRect(device(), 0, 0);
+  const fui::Rect last = mineui::cellRect(device(), minesweeper::kColumns - 1, minesweeper::kRows - 1);
+  CHECK(first.x >= 0);
+  CHECK(first.y >= toybox::kHeaderHeight + toybox::kRule);
+  CHECK(last.x + last.width <= 480);
+  // Room left under the board for the counter and the tool capsule.
+  CHECK(last.y + last.height + toybox::kPillHeight + toybox::kGutter * 2 <= 800);
+}
+
+void testTheToolSwitchIsAlwaysVisibleAndBothHalvesWork() {
+  mineui::BoardModel digging;
+  minesweeper::start(digging.game, 5u);
+  digging.tool = minesweeper::Tool::Dig;
+
+  Rendered out;
+  buildMs<mineui::BoardModel, mineui::buildBoard>(out, digging);
+  // A mode you cannot see is what makes modes bad, so both names are on screen
+  // whichever is live.
+  CHECK(out.target.drew("DIG"));
+  CHECK(out.target.drew("FLAG"));
+
+  // Both halves are reachable, and they are separate actions -- tapping the
+  // tool you already hold must be a no-op, not a silent switch to the other.
+  const int capsuleY = 800 - toybox::kMargin - toybox::kPillHeight / 2;
+  const fui::ActionEvent leftHalf = out.tap(120, capsuleY);
+  const fui::ActionEvent rightHalf = out.tap(360, capsuleY);
+  CHECK(leftHalf.action == mineui::ActionPickDig);
+  CHECK(rightHalf.action == mineui::ActionPickFlag);
+}
+
+void testTheBoardStaysWithinItsOwnArea() {
+  // The capsule at the bottom belongs to the tool switch, and the header to the
+  // device. A grid hit-tested by arithmetic would happily claim both if its
+  // bounds were wrong, and nothing on screen would show it.
+  int c = -1;
+  int r = -1;
+  const int capsuleY = 800 - toybox::kMargin - toybox::kPillHeight / 2;
+  CHECK(!mineui::cellAt(device(), 120, capsuleY, c, r));
+  CHECK(!mineui::cellAt(device(), 360, capsuleY, c, r));
+  CHECK(!mineui::cellAt(device(), 240, toybox::kHeaderHeight / 2, c, r));
+}
+
+void testTheResultNamesTheOutcome() {
+  mineui::ResultModel won;
+  won.won = true;
+  Rendered a;
+  buildMs<mineui::ResultModel, mineui::buildResult>(a, won);
+  CHECK(a.target.drew("CLEARED"));
+
+  mineui::ResultModel lost;
+  Rendered b;
+  buildMs<mineui::ResultModel, mineui::buildResult>(b, lost);
+  CHECK(b.target.drew("BOOM"));
+}
+
+void testTheHowToPagesAndEndsOnGotIt() {
+  for (int page = 0; page < mineui::howToPages(); ++page) {
+    mineui::HowToModel model;
+    model.page = page;
+    Rendered out;
+    buildMs<mineui::HowToModel, mineui::buildHowTo>(out, model);
+    CHECK(out.target.drew("HOW TO PLAY"));
+    CHECK(out.target.drew(page + 1 < mineui::howToPages() ? "NEXT" : "GOT IT"));
+    char progress[8];
+    std::snprintf(progress, sizeof(progress), "%d/%d", page + 1, mineui::howToPages());
+    CHECK(out.target.drew(progress));
+  }
+}
+
 int main() {
   testSearchingAsksNothing();
   testMurdleGridResolvesEveryCellItDrew();
@@ -2216,6 +2338,12 @@ int main() {
   testHnList();
   testHnFitLines();
   testHnReaderShowsWhereYouAre();
+  testTheCellYouTapIsTheCellTheRulesGet();
+  testTheBoardFitsThePanel();
+  testTheToolSwitchIsAlwaysVisibleAndBothHalvesWork();
+  testTheBoardStaysWithinItsOwnArea();
+  testTheResultNamesTheOutcome();
+  testTheHowToPagesAndEndsOnGotIt();
   testShelfFolderDrawsItsOwnNameAndRows();
   testAFolderWithoutADeviceNameHasNoFooter();
   testTheShelfFooterIsADoorWithAFaceOnIt();
