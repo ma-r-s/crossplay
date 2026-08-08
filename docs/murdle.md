@@ -15,8 +15,9 @@ case is a random draw of names and fixtures, and the only requirement on the
 writing is that the sentences come out correct English. Section 5 is sized to
 that and not one field larger.
 
-The worktree and branch are called `casefile`, which is what they were named
-before the game had a name. Code, files and namespaces are all `murdle`.
+Everything is called `murdle`: the worktree, the branch `app/murdle`, the code,
+the files and the namespaces. The tree was `casefile` for its first day, from
+before the game had a name, and that is now gone.
 
 ---
 
