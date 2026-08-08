@@ -53,8 +53,18 @@ jobs:
       - name: Install the simulator's host libraries
         run: sudo apt-get update && sudo apt-get install -y libsdl2-dev libssl-dev
 
+      # The two flags only add .su and .ci files beside the objects; they change
+      # no code, so this is still the build the next step checks. Asking for them
+      # here rather than in a second build keeps CI one firmware compile long.
       - name: Build the firmware
-        run: pio run -e x4pro
+        run: PLATFORMIO_BUILD_FLAGS="-fstack-usage -fcallgraph-info=su" pio run -e x4pro
+
+      # v1.0.0 shipped a render task that needed 8016 bytes of an 8192-byte
+      # stack and crashed on the first device that ever ran it. Nothing here
+      # measured stack, and nothing on a host could: frame sizes belong to the
+      # target ABI. This reads the numbers the firmware compiler just emitted.
+      - name: Stack fits its task
+        run: python3 scripts_local/stack_budget.py --build-dir .pio/build/x4pro
 
       - name: Build the simulator
         run: pio run -e simulator_x4_pro

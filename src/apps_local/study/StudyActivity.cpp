@@ -884,7 +884,7 @@ void StudyActivity::render(RenderLock&&) {
     const fui::InputSnapshot noInput{};
     interactionsReady_ = false;
     toybox::Frame frame(target, target.deviceContext(), noInput, interactions_);
-    toybox::Screen screen(frame, toybox::themeTokens());
+    toybox::Screen screen(frame);
 
     studyui::DeckModel model;
     buildDeckModel(model);

@@ -155,7 +155,7 @@ void ChessActivity::drawStartMenu() {
   const fui::InputSnapshot noInput{};
   interactionsReady = false;
   toybox::Frame frame(target, target.deviceContext(), noInput, interactions);
-  toybox::Screen screen(frame, toybox::themeTokens());
+  toybox::Screen screen(frame);
   const fui::Rect slot = chessui::buildStartMenu(screen, startModel());
   drawMiniBoard(Rect{slot.x, slot.y, slot.width, slot.height});
   interactionsReady = true;
@@ -1030,7 +1030,7 @@ void ChessActivity::drawSettings() {
   const fui::InputSnapshot noInput{};
   interactionsReady = false;
   toybox::Frame frame(target, target.deviceContext(), noInput, interactions);
-  toybox::Screen screen(frame, toybox::themeTokens());
+  toybox::Screen screen(frame);
   chessui::buildSettings(screen, settingsModel());
   interactionsReady = true;
   toybox::reportOverflow(interactions, "Chess settings");
@@ -1156,7 +1156,7 @@ void ChessActivity::gameRender() {
   const fui::InputSnapshot noInput{};
   interactionsReady = false;
   toybox::Frame frame(target, target.deviceContext(), noInput, interactions);
-  toybox::Screen screen(frame, toybox::themeTokens());
+  toybox::Screen screen(frame);
 
   chessui::BoardModel chrome;
   chrome.status = statusText();

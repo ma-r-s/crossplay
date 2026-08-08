@@ -69,9 +69,6 @@ namespace detail {
 struct OwnedDevice {
   freeink::ui::DeviceContext ownedDevice;
 };
-struct OwnedTheme {
-  freeink::ui::ThemeTokens ownedTheme;
-};
 }  // namespace detail
 
 // The InputSnapshot is still held by reference, which is correct: every caller
@@ -86,10 +83,30 @@ class Frame : private detail::OwnedDevice, public freeink::ui::Frame<kMaxInterac
         freeink::ui::Frame<kMaxInteractions>(target, OwnedDevice::ownedDevice, input, interactions, assets) {}
 };
 
-class Screen : private detail::OwnedTheme, public freeink::ui::Screen<kMaxInteractions> {
+// The theme is not a parameter because it never varied: all 22 call sites asked
+// for themeTokens(), and it is now a function-local static, so referring to it
+// straight cannot dangle. That is the same guarantee the removed OwnedTheme base
+// bought by copying, minus the 2712 bytes of stack the copy cost every frame.
+//
+// A screen wanting its own palette would take one again, but it would have to
+// hand over storage that outlives the screen rather than a temporary. Nothing
+// needs that today, and pretending otherwise is what nearly bricked v1.0.0.
+class Screen : public freeink::ui::Screen<kMaxInteractions> {
  public:
+  // The shared palette. What 20 of the 22 screens want.
+  explicit Screen(freeink::ui::Frame<kMaxInteractions>& frame)
+      : freeink::ui::Screen<kMaxInteractions>(frame, themeTokens()) {}
+
+  // A palette of the caller's own, for the two screens that raise the header
+  // band. `theme` is referred to, not copied, so it has to outlive the screen: a
+  // named local in the same render() does, which is every real use.
   Screen(freeink::ui::Frame<kMaxInteractions>& frame, const freeink::ui::ThemeTokens& theme)
-      : detail::OwnedTheme{theme}, freeink::ui::Screen<kMaxInteractions>(frame, OwnedTheme::ownedTheme) {}
+      : freeink::ui::Screen<kMaxInteractions>(frame, theme) {}
+
+  // Passing a temporary is the bug the old owning copy existed to prevent, and
+  // it now fails to compile instead of costing 2712 bytes of stack on every
+  // screen to guard against. Deleting the rvalue overload is the whole fix.
+  Screen(freeink::ui::Frame<kMaxInteractions>&, freeink::ui::ThemeTokens&&) = delete;
 };
 
 // Every icon this fork draws, at the one size ToyboxIcons.h generates.

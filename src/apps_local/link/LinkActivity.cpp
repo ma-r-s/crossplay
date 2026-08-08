@@ -237,7 +237,7 @@ void LinkActivity::drawLinkScreen() {
   const fui::InputSnapshot noInput{};
   interactionsReady = false;
   toybox::Frame frame(target, target.deviceContext(), noInput, interactions);
-  toybox::Screen screen(frame, toybox::themeTokens());
+  toybox::Screen screen(frame);
   const fui::Rect slot = linkui::buildLink(screen, linkModel());
   // Only once a game has been played. While searching there is nothing to show
   // but a starting position, which is the same picture every time and therefore
