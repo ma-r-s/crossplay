@@ -402,6 +402,168 @@ void testTheOpponentTakesAnObviousStackAndAnObviousWreck() {
   CHECK(chooseColumn(wreck) == 2);
 }
 
+// --- what a cold critic proved the suite could not see ---------------------
+
+void testMatchingDiceScoreWhereverTheySitInTheColumn() {
+  // Every hand-built literal elsewhere puts duplicates in ADJACENT slots, and
+  // the soak's score assertion is verbatim score()'s own body, so it cannot
+  // fail. A columnScore that counted only adjacent runs survived the entire
+  // suite -- and split pairs are not exotic: compaction preserves order, so
+  // destruction leaves [3,5,3] in 62% of random matches.
+  const uint8_t split[kColumns][kRows] = {{3, 5, 3}, {4, 2, 4}, {6, 6, 1}};
+  const Grid grid = gridOf(split);
+  CHECK(columnScore(grid, 0) == 17);  // 3*2*2 + 5
+  CHECK(columnScore(grid, 1) == 18);  // 4*2*2 + 2
+  CHECK(columnScore(grid, 2) == 25);  // 6*2*2 + 1
+}
+
+void testTheDieIsActuallyASixSidedDie() {
+  // Nothing asserted this. A roll() returning only 1..3, and one returning a
+  // plain 1-6 cycle with no randomness at all, both survived the whole suite.
+  int seen[kFaces + 1] = {};
+  uint32_t state = 4242u;
+  for (int i = 0; i < 60000; ++i) {
+    const uint8_t value = roll(state);
+    CHECK(value >= 1 && value <= kFaces);
+    ++seen[value];
+  }
+  // Every face appears, and none dominates. Loose enough never to flake, tight
+  // enough that a three-sided die or a fixed cycle fails.
+  for (int face = 1; face <= kFaces; ++face) {
+    CHECK(seen[face] > 60000 / kFaces / 2);
+    CHECK(seen[face] < 60000 / kFaces * 2);
+  }
+  // A cycle would have zero repeats; real dice repeat about one roll in six.
+  int repeats = 0;
+  state = 99u;
+  uint8_t previous = roll(state);
+  for (int i = 0; i < 6000; ++i) {
+    const uint8_t value = roll(state);
+    if (value == previous) ++repeats;
+    previous = value;
+  }
+  CHECK(repeats > 300);
+}
+
+void testCompactionKeepsTheOrderOfTheSurvivors() {
+  // A compact() that REVERSED the survivors survived the suite: the only other
+  // compaction test leaves a single survivor, and scoring is order-independent,
+  // so nothing but the panel would ever show it.
+  Grid grid{};
+  grid.cell[0][0] = 2;
+  grid.cell[0][1] = 5;
+  grid.cell[0][2] = 3;
+  grid.cell[0][1] = kEmpty;
+  compact(grid, 0);
+  CHECK(grid.cell[0][0] == 2);
+  CHECK(grid.cell[0][1] == 3);
+  CHECK(grid.cell[0][2] == kEmpty);
+}
+
+void testAPlacementNeedsADie() {
+  // A value-initialised Game is exactly what a device holds while waiting for
+  // the first move of a nearby match. place() used to return true on it,
+  // place nothing, and consume the turn.
+  Game blank{};
+  CHECK(!canPlace(blank, 0));
+  const Game before = blank;
+  CHECK(!place(blank, 0));
+  CHECK(std::memcmp(&before, &blank, sizeof(Game)) == 0);
+}
+
+void testAnImplausibleStateIsRejected() {
+  // The Game is the wire format and the layer beneath checks length only, so a
+  // corrupt turn byte would index past grid[2].
+  Game good{};
+  start(good, 7u);
+  CHECK(plausible(good));
+
+  Game badTurn = good;
+  badTurn.turn = 9;
+  CHECK(!plausible(badTurn));
+
+  Game badFace = good;
+  badFace.grid[0].cell[0][0] = 7;
+  CHECK(!plausible(badFace));
+
+  // A die floating above a gap cannot have come from this build.
+  Game floating = good;
+  floating.grid[0].cell[1][1] = 4;
+  CHECK(!plausible(floating));
+
+  // An untouched board is legitimate: it is what the follower holds.
+  Game fresh{};
+  CHECK(plausible(fresh));
+}
+
+void testTheOpponentSpreadsItsOpening() {
+  // With an empty board every column evaluates identically, so the TIEBREAK
+  // decides -- and a cold review measured it at 43% of all its moves. Breaking
+  // toward the lowest index put its first three dice in column 0 in 100% of
+  // games, burying the opening where it could not start a second stack.
+  int firstColumn[kColumns] = {};
+  uint32_t seed = 8080u;
+  for (int match = 0; match < 300; ++match) {
+    Game game{};
+    start(game, seed = seed * 1664525u + 1013904223u);
+    const int column = chooseColumn(game);
+    CHECK(column >= 0 && column < kColumns);
+    if (column >= 0) ++firstColumn[column];
+  }
+  // Not uniformity -- the die still decides plenty. Just that no single column
+  // takes every opening.
+  for (int column = 0; column < kColumns; ++column) CHECK(firstColumn[column] < 300);
+}
+
+void testTheOpponentCannotSeeTheDiceComing() {
+  // The state it is handed carries the generator, and the generator advances
+  // once per placement, so that field is the whole future. Two positions that
+  // differ ONLY in the die stream must play the same, or the opponent is
+  // reading the future whether it means to or not.
+  Game a{};
+  start(a, 11111u);
+  Game b = a;
+  b.rng = 99999u;
+  CHECK(chooseColumn(a) == chooseColumn(b));
+}
+
+void testTheOpponentIsBetterThanChance() {
+  // The brain had no strength test at all, only legality and purity -- which is
+  // how a tiebreak that dumps its first three dice into one column sat there.
+  int brainWins = 0;
+  int randomWins = 0;
+  uint32_t seed = 777u;
+  for (int match = 0; match < 400; ++match) {
+    Game game{};
+    start(game, seed = seed * 1664525u + 1013904223u);
+    uint32_t coin = seed;
+    int guard = 0;
+    while (!over(game)) {
+      int column;
+      if (game.turn == 0) {
+        column = chooseColumn(game);
+      } else {
+        int legal[kColumns];
+        int count = 0;
+        for (int c = 0; c < kColumns; ++c) {
+          if (canPlace(game, c)) legal[count++] = c;
+        }
+        column = count > 0 ? legal[nextRandom(coin) % static_cast<uint32_t>(count)] : -1;
+      }
+      if (column < 0) break;
+      if (!place(game, column)) break;
+      if (++guard > 500) break;
+    }
+    const int mine = score(game.grid[0]);
+    const int theirs = score(game.grid[1]);
+    if (mine > theirs) ++brainWins;
+    if (theirs > mine) ++randomWins;
+  }
+  // Deterministic inputs, so this is a fixed number rather than a flaky one.
+  // A brain that loses to coin-flipping is not an opponent.
+  CHECK(brainWins > randomWins * 2);
+}
+
 }  // namespace
 
 int main() {
@@ -420,6 +582,14 @@ int main() {
   testTheOpponentNeverMutatesTheGameItIsGiven();
   testTheOpponentIsDeterministic();
   testTheOpponentTakesAnObviousStackAndAnObviousWreck();
+  testMatchingDiceScoreWhereverTheySitInTheColumn();
+  testTheDieIsActuallyASixSidedDie();
+  testCompactionKeepsTheOrderOfTheSurvivors();
+  testAPlacementNeedsADie();
+  testAnImplausibleStateIsRejected();
+  testTheOpponentSpreadsItsOpening();
+  testTheOpponentCannotSeeTheDiceComing();
+  testTheOpponentIsBetterThanChance();
 
   std::printf("%d checks, %d failed\n", checks, failures);
   return failures == 0 ? 0 : 1;

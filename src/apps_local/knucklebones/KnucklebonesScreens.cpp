@@ -16,7 +16,7 @@ namespace kb = knucklebones;
 // 86 rather than 92, which was the first guess and did not fit. The vertical
 // budget is 800: header and its air (100), two grids (270 each), two rows of
 // column scores (24 each), and a strip tall enough to hold a die at cell size
-// (96). At 92 the totals came to 812 and the arithmetic did not complain -- the
+// (96), which totals 792. At 92 it came to 812 and nothing complained -- the
 // opponent's scores drew behind the header band and mine ran off the bottom
 // edge, which is only visible by looking.
 constexpr int16_t kCell = 86;
@@ -158,7 +158,10 @@ void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
   // have opened a dice game.
   static const char* const kLines[] = {
       "ROLL A DIE. DROP IT IN ONE OF YOUR THREE COLUMNS.",
-      "MATCHING DICE IN A COLUMN MULTIPLY. THREE FOURS SCORE THIRTY SIX, NOT TWELVE.",
+      // Digits, not words. Spelled out, this line ran past three lines and was
+      // cut mid-word at "THIRTY SIX, N" -- losing the contrast the whole rule
+      // is made of, and with no ellipsis, because Jersey is subset to ASCII.
+      "MATCHING DICE MULTIPLY. THREE 4s SCORE 36, NOT 12.",
       "PLACING A VALUE DESTROYS EVERY COPY OF IT IN THEIR MATCHING COLUMN.",
   };
   const int page = model.page < 0 ? 0 : (model.page >= howToPages() ? howToPages() - 1 : model.page);
@@ -196,7 +199,12 @@ void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
 
 void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   fui::HeaderProps header;
-  header.title = model.opponentName != nullptr ? model.opponentName : "KNUCKLEBONES";
+  // Always the game, never the opponent. 57% of this device's possible names
+  // are 16 characters or longer and truncate invisibly in this band -- Jersey
+  // has no ellipsis glyph to truncate with. Chess does the same thing for the
+  // same reason: the band is the device speaking, and who you are playing
+  // belongs beside their face, not in the chrome.
+  header.title = "KNUCKLEBONES";
   header.borderEdges = fui::EdgesNone;
   screen.header(header);
 

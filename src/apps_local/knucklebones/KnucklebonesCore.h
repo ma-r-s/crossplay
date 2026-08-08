@@ -133,9 +133,45 @@ inline void start(Game& game, const uint32_t seed) {
 
 inline bool over(const Game& game) { return full(game.grid[0]) || full(game.grid[1]); }
 
+// Whether `column` is a legal placement right now, die included.
+//
+// The die check is not redundant. A value-initialised Game has die 0, which is
+// exactly what a device holds while waiting for the first move of a nearby
+// match -- and without this, place() returned true, placed nothing, and
+// consumed the turn. It was unreachable only because three unrelated callers
+// each happened to guard it, which is the arrangement this function exists to
+// make unnecessary.
 inline bool canPlace(const Game& game, const int column) {
   if (over(game) || column < 0 || column >= kColumns) return false;
+  if (game.die < 1 || game.die > kFaces) return false;
   return columnHasRoom(game.grid[game.turn], column);
+}
+
+// Whether a Game is one this build could have produced.
+//
+// The state is also the wire format, and the layer beneath checks the payload's
+// length and nothing else. `turn` indexes straight into grid[2], so a byte that
+// is neither 0 nor 1 reads and writes past the array -- a corrupt or hostile
+// packet becoming memory corruption rather than a rejected move.
+inline bool plausible(const Game& game) {
+  if (game.turn >= kSeats) return false;
+  if (game.die != kEmpty && (game.die < 1 || game.die > kFaces)) return false;
+  for (int seat = 0; seat < kSeats; ++seat) {
+    for (int column = 0; column < kColumns; ++column) {
+      bool seenEmpty = false;
+      for (int row = 0; row < kRows; ++row) {
+        const uint8_t value = game.grid[seat].cell[column][row];
+        if (value != kEmpty && value > kFaces) return false;
+        // Gravity is an invariant of every state this build can reach, so a
+        // die floating above a gap did not come from here.
+        if (value == kEmpty)
+          seenEmpty = true;
+        else if (seenEmpty)
+          return false;
+      }
+    }
+  }
+  return true;
 }
 
 // Place the rolled die, destroy the opponent's matching dice in the same
