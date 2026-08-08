@@ -183,6 +183,49 @@ void testEntities() {
   CHECK_EQ(decoded("100 &"), "100 &");
 }
 
+std::string folded(const std::string& input) {
+  std::string text = input;
+  hn::foldTypography(text);
+  return text;
+}
+
+void testTypographyFolding() {
+  // The case that was found by looking at the panel rather than at the code: a
+  // real comment read "(Ive turned off duplicate detection...)" because the
+  // apostrophe HN sent was U+2019, which the ASCII-subset face cannot draw and
+  // the renderer therefore drew as nothing at all.
+  CHECK_EQ(folded("(I\xe2\x80\x99ve turned off duplicate detection.)"), "(I've turned off duplicate detection.)");
+
+  CHECK_EQ(folded("\xe2\x80\x9cquoted\xe2\x80\x9d"), "\"quoted\"");
+  CHECK_EQ(folded("a \xe2\x80\x94 b"), "a - b");
+  CHECK_EQ(folded("a \xe2\x80\x93 b"), "a - b");
+  CHECK_EQ(folded("wait\xe2\x80\xa6"), "wait...");
+  CHECK_EQ(folded("hard\xc2\xa0space"), "hard space");
+  CHECK_EQ(folded("x \xe2\x86\x92 y"), "x -> y");
+
+  // ASCII is untouched, including the quotes that are already right.
+  CHECK_EQ(folded("It's \"fine\" -- really"), "It's \"fine\" -- really");
+
+  // A character with no ASCII stand-in keeps its bytes. Guessing at a letter is
+  // worse than a font that cannot draw it, and the fold must not corrupt names.
+  CHECK_EQ(folded("caf\xc3\xa9"), "caf\xc3\xa9");
+  CHECK_EQ(folded("\xe6\x97\xa5\xe6\x9c\xac"), "\xe6\x97\xa5\xe6\x9c\xac");
+
+  // Malformed UTF-8 is copied through rather than dropped or looped on.
+  CHECK(!folded("\xff\xfe").empty());
+  CHECK_EQ(folded(""), "");
+  CHECK_EQ(folded("\xe2\x80"), "\xe2\x80");
+
+  // And it reaches the drawn text, not just the helper.
+  const auto paragraphs = hn::paragraphsFromHnHtml("I\xe2\x80\x99ve read it");
+  CHECK(paragraphs.size() == 1);
+  if (paragraphs.size() == 1) CHECK_EQ(paragraphs[0], "I've read it");
+
+  const auto markdown = hn::paragraphsFromMarkdown("He said \xe2\x80\x9cno\xe2\x80\x9d today");
+  CHECK(markdown.size() == 1);
+  if (markdown.size() == 1) CHECK_EQ(markdown[0], "He said \"no\" today");
+}
+
 void testHnHtml() {
   // Tags are stripped before entities are decoded. A comment discussing HTML
   // contains &lt;p&gt;, and decoding first would manufacture a tag out of the
@@ -194,7 +237,10 @@ void testHnHtml() {
   // A real comment: <p> separators, <i> emphasis, a <pre><code> block.
   const auto verse = hn::paragraphsFromHnHtml(fixtures::kComment1);
   CHECK(verse.size() >= 3);
-  CHECK(verse[0] == "Thank you for the quote.  Here is the verse in full\xe2\x80\xa6");
+  // The trailing ellipsis is U+2026 in the response and three dots on the
+  // panel: the face is subset to ASCII, so folding it is what makes it visible
+  // at all. See testTypographyFolding.
+  CHECK(verse[0] == "Thank you for the quote.  Here is the verse in full...");
   for (const std::string& paragraph : verse) {
     CHECK(paragraph.find('<') == std::string::npos);
     CHECK(paragraph.find("&#") == std::string::npos);
@@ -249,6 +295,23 @@ void testMarkdownFlattening() {
   const auto image = hn::paragraphsFromMarkdown("Before ![a diagram](https://example.com/d.png) after.");
   CHECK(image.size() == 1);
   if (image.size() == 1) CHECK_EQ(image[0], "Before  after.");
+
+  // A horizontal rule is a divider, not a sentence. Left in, it reaches the
+  // panel as a lone "-" paragraph: the first article this reader drew had one
+  // sitting directly under its headline.
+  CHECK(hn::paragraphsFromMarkdown("* * *").empty());
+  CHECK(hn::paragraphsFromMarkdown("---").empty());
+  CHECK(hn::paragraphsFromMarkdown("___").empty());
+  CHECK(hn::paragraphsFromMarkdown("***").empty());
+  const auto around = hn::paragraphsFromMarkdown("Before it.\n\n* * *\n\nAfter it.");
+  CHECK(around.size() == 2);
+  if (around.size() == 2) {
+    CHECK_EQ(around[0], "Before it.");
+    CHECK_EQ(around[1], "After it.");
+  }
+  // A real list is not a rule and must survive.
+  CHECK(!hn::paragraphsFromMarkdown("* a real bullet").empty());
+  CHECK(!hn::paragraphsFromMarkdown("- another one").empty());
 
   const auto heading = hn::paragraphsFromMarkdown("## A heading");
   CHECK(heading.size() == 1);
@@ -306,12 +369,11 @@ void testCommentOrdering() {
   // The trap, minimised: keys in the order Algolia really sends them, so
   // "children" precedes "text" at every level. A scanner that emits a comment
   // when its object closes puts the reply above the comment it answers.
-  const std::string json =
-      R"({"author":"story","children":[)"
-      R"({"author":"alice","children":[)"
-      R"({"author":"bob","children":[],"text":"bob replies"})"
-      R"(],"text":"alice speaks"})"
-      R"(],"text":"the story"})";
+  const std::string json = R"({"author":"story","children":[)"
+                           R"({"author":"alice","children":[)"
+                           R"({"author":"bob","children":[],"text":"bob replies"})"
+                           R"(],"text":"alice speaks"})"
+                           R"(],"text":"the story"})";
 
   const auto comments = scan(json, 4096, {});
   CHECK(comments.size() == 2);
@@ -444,11 +506,10 @@ void testOnlyChildrenArraysNest() {
   // "options" array on every node, and a response that ever carried objects in
   // one would otherwise manufacture comments out of them and indent the real
   // replies by an extra level.
-  const std::string json =
-      R"({"author":"story","children":[)"
-      R"({"author":"alice","options":[{"kind":"noise"},{"kind":"more noise"}],)"
-      R"("children":[{"author":"bob","options":[],"children":[],"text":"reply"}],"text":"top"})"
-      R"(],"text":"the story"})";
+  const std::string json = R"({"author":"story","children":[)"
+                           R"({"author":"alice","options":[{"kind":"noise"},{"kind":"more noise"}],)"
+                           R"("children":[{"author":"bob","options":[],"children":[],"text":"reply"}],"text":"top"})"
+                           R"(],"text":"the story"})";
 
   int seen = 0;
   const auto comments = scan(json, 4096, {}, &seen);
@@ -519,6 +580,7 @@ int main() {
   testUrlPreFilter();
   testEntities();
   testHnHtml();
+  testTypographyFolding();
   testExtractorSplit();
   testMarkdownFlattening();
 

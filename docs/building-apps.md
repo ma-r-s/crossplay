@@ -348,7 +348,7 @@ assignment never happened. Name one more field (the alignment the component is
 going to apply anyway) and the style is treated as owned.
 
 **`HeaderProps::rightLabel` is drawn with `subtitleText`, not `trailingText`.**
-`trailingText` belongs to the trailing *button*. On Toybox's solid black band a
+`trailingText` belongs to the trailing _button_. On Toybox's solid black band a
 subtitle left at the theme default is black on black, so the label is invisible
 and indistinguishable from never having been set: the Hacker News page
 indicator was missing through two renders that way. Same defect as the
@@ -357,8 +357,16 @@ black-on-black header title, one prop over.
 **A list row's title band is one line tall the moment it has a subtitle.** With
 `labelText.maxLines = 2` and a subtitle, the second line of the label is drawn
 straight through the subtitle underneath it. The component supports a wrapping
-label *or* a subtitle, never both; put the secondary value in the `value` slot
+label _or_ a subtitle, never both; put the secondary value in the `value` slot
 instead, which sits in the band beside the label.
+
+**The builtin Noto cuts cannot be used for app text.** They are built `--2bit`,
+and the BW glyph path paints a pixel for any coverage above zero, so they flood
+to solid black. Convert the same TTF at 1 bit instead -- the sources are in
+`lib/EpdFont/builtinFonts/source/` and `tools_local/gen_toybox_fonts.sh` does
+it. Do not conclude from the flooding that a real text face is unavailable; it
+is one script run away, and Jersey is a display cut that reads as permanently
+bold over a screenful.
 
 **A glyph the font does not have draws as nothing.** No box, no fallback, no
 log line. Toybox's face is subset to ASCII, so text from the web silently loses
@@ -366,6 +374,22 @@ its curly quotes, en dashes and ellipses -- a real Hacker News comment rendered
 as "(Ive turned off duplicate detection...)" and only looking at the panel
 caught it. Fold typographic punctuation to ASCII before drawing anything that
 came from someone else's server; `hn::foldTypography` is the reference.
+
+**The header band holds one line, whatever you set `maxLines` to.**
+`kHeaderHeight` is 76 and the component does not grow to fit; a two-line title
+at the 16px bold cut simply drew its second line through the rule underneath
+the band. A band carrying a story title wants one line, fitted and ellipsised
+against `readerTitleWidth()` -- which subtracts the right label, because the
+component reserves that width out of the title rect and a title measured
+against the whole band is cut by exactly that much with no ellipsis to show for
+it.
+
+**The Jersey UI cut is too wide for a footer label.** It is a display face:
+"COMMENTS" needs about 190px and clipped to "COMMEN" inside half a footer bar.
+Buttons still stay Jersey -- they are the device speaking, not the app -- so the
+answer is the smaller `kButtonFontId` cut rather than borrowing the app's text
+face. Check a real label against a real width before settling a control's
+geometry; the arrows had to give up a quarter of theirs.
 
 **A light shape must be knocked out before it is stroked.** Drawing only an
 outline leaves the shape hollow and the surface beneath shows through. Fill with
@@ -599,7 +623,7 @@ Rules that are worth knowing:
   pairing screen, which meant the person you were playing disappeared the moment
   you started playing them.
 - **A label and the thing it draws are not always the same string.** The link
-  seats are labelled "YOU" and drawn from your *name*, and the first version
+  seats are labelled "YOU" and drawn from your _name_, and the first version
   derived the face from the label -- so every player saw a blank head in their
   own seat, because "YOU" parses to no words. Nothing failed and nothing logged.
   The test had passed a real name into the label, which is the shape of the
@@ -731,6 +755,16 @@ three times; the type got one iteration and shipped broken. **The log tells you
 what happened, the screenshot tells you whether it was right.**
 
 Crop and zoom when unsure. The hollow-piece bug was invisible at full size.
+
+**A derived value laid out on a grid will find the grid's period.** The dungeon
+map draws each dungeon's monster, chosen by `index % 8`, in a grid eight cells
+wide -- so every column came out the same creature, sixty-four cells of perfect
+vertical stripes. The rule was right (one creature per dungeon, varied across
+the campaign) and the arithmetic was right; it was the *layout* that turned a
+rotation into wallpaper, and nothing but rendering it could have shown that.
+Hashing the dungeon's name instead breaks the alignment and ties the choice to
+something real. Whenever a computed value is about to be tiled, check its period
+against the number of columns.
 
 ---
 

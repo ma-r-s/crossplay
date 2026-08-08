@@ -92,3 +92,12 @@ dungeon     = map
 # drama (two overlapping masks is the interior detail that turned gamepad-2 to
 # mush), glasses (reads as spectacles, which is a different idea entirely).
 insider     = venetian-mask
+
+# Save for later. The mark sits in the reader's header band and fills once the
+# article is on the device, which is the same filled-means-here language the
+# footer segments use -- so there is one idea to learn, not two.
+#
+# `bookmark` and not bookmark-plus or bookmark-check: the state is carried by
+# the button's fill, so a glyph that also encodes state would say it twice and
+# disagree the moment one of them was wrong.
+saved       = bookmark

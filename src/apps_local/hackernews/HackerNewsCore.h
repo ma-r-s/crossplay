@@ -84,6 +84,22 @@ bool urlCanBeArticle(std::string_view url);
 // &#NN; and &#xNN; numeric escapes.
 void decodeEntities(std::string& text);
 
+// Typographic punctuation folded to the ASCII it stands for: curly quotes to
+// straight ones, en and em dashes to a hyphen, an ellipsis to three dots.
+//
+// This is a rendering problem wearing a text problem's clothes. Toybox's face
+// is subset to ASCII, so a codepoint outside it has no glyph and the renderer
+// draws *nothing* -- no box, no warning. A real comment read "(Ive turned off
+// duplicate detection...)" on the panel and "(I’ve turned off..." in the
+// response, and the only reason that was caught is that somebody looked at the
+// screen and thought the apostrophe was missing.
+//
+// Folding rather than widening the font subset because it is deterministic and
+// testable, and because the alternative is chasing coverage forever: HN prose
+// is full of this punctuation and a reader cannot tell a dropped glyph from a
+// typo.
+void foldTypography(std::string& text);
+
 // An HN comment or text post as paragraphs of plain text.
 //
 // Tags are stripped before entities are decoded, never the other way round: a
@@ -114,14 +130,10 @@ std::vector<std::string> paragraphsFromMarkdown(std::string_view markdown);
 struct Story {
   uint32_t id = 0;
   std::string title;
-  std::string url;      // empty for an Ask HN or a text post
+  std::string url;  // empty for an Ask HN or a text post
   std::string author;
   int points = 0;
   int commentCount = 0;
-  // Set from urlCanBeArticle() when the list is parsed, so the row can carry
-  // the mark without a fetch. A story with no URL is its own text and is always
-  // readable; see ConnectionsActivity for why a flag beats recomputing.
-  bool mayBeReadable = false;
 };
 
 struct Comment {
@@ -217,7 +229,7 @@ class CommentScanner {
 
   bool inString_ = false;
   bool escaped_ = false;
-  bool isKey_ = false;   // the string being read sits before a colon
+  bool isKey_ = false;  // the string being read sits before a colon
   bool wantValue_ = false;
   std::string buffer_;
   std::string key_;

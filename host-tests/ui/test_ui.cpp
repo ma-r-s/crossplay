@@ -1245,18 +1245,6 @@ void buildHnNotice(Rendered& out, const hnui::NoticeModel& model) {
   hnui::buildNotice(screen, model);
 }
 
-hnui::ReaderModel articleModel() {
-  hnui::ReaderModel model;
-  model.title = "ARTICLE";
-  model.text = "Some words that go on for a while and wrap onto more than one line of the panel.";
-  model.pageLabel = "1/3";
-  model.showingComments = false;
-  model.swapAvailable = true;
-  model.canPagePrev = false;
-  model.canPageNext = true;
-  return model;
-}
-
 bool drewText(const Rendered& out, const char* needle) {
   for (const auto& run : out.target.texts) {
     if (run.text.find(needle) != std::string::npos) return true;
@@ -1264,88 +1252,201 @@ bool drewText(const Rendered& out, const char* needle) {
   return false;
 }
 
-void testHnReaderFooter() {
-  Rendered out;
-  hnui::ReaderModel model = articleModel();
-  model.canPagePrev = true;
-  buildHnReader(out, model);
+// A short article: two depth-0 lines and nothing nested.
+struct ReaderFixture {
+  std::vector<std::string> text;
+  std::vector<hnui::ReaderLine> meta;
+  std::vector<const char*> ptr;
 
-  // The middle button says where it goes, and it is the wide one because it is
-  // the only control here that changes what is being read.
-  CHECK(drewText(out, "COMMENTS"));
-  CHECK(drewText(out, "1/3"));
-
-  // Find the footer row and tap the far edges of each control. This is the
-  // PLAY AGAIN bug class: a button whose painted width and hit rect disagree is
-  // dead on its edges and looks perfectly fine in a screenshot.
-  const fui::Rect body = hnui::readerBody(device());
-  const int footerY = body.y + body.height + 24;
-
-  bool sawPrev = false;
-  bool sawNext = false;
-  bool sawSwap = false;
-  for (int x = 0; x < 480; ++x) {
-    const fui::ActionEvent event = out.tap(x, footerY);
-    if (event.action == hnui::ActionPagePrev) sawPrev = true;
-    if (event.action == hnui::ActionPageNext) sawNext = true;
-    if (event.action == hnui::ActionSwapView) sawSwap = true;
+  void add(const char* line, int depth = 0, bool isAuthor = false) {
+    text.emplace_back(line);
+    hnui::ReaderLine entry;
+    entry.depth = static_cast<int16_t>(depth);
+    entry.isAuthor = isAuthor;
+    meta.push_back(entry);
   }
-  CHECK(sawPrev);
-  CHECK(sawNext);
-  CHECK(sawSwap);
+  // Pointers are taken only once the strings have stopped moving; a push_back
+  // into `text` reallocates and would dangle every one taken before it.
+  void seal() {
+    ptr.clear();
+    for (const std::string& line : text) ptr.push_back(line.c_str());
+  }
+  void into(hnui::ReaderModel& model) {
+    seal();
+    model.lineText = ptr.data();
+    model.lineMeta = meta.data();
+    model.lineCount = static_cast<int>(ptr.size());
+  }
+};
+
+hnui::ReaderModel articleModel(ReaderFixture& fixture) {
+  fixture.add("Some words that go on for a while.");
+  fixture.add("And a second line of them.");
+  hnui::ReaderModel model;
+  model.title = "A Story With Quite A Long Name";
+  model.pageLabel = "1/3";
+  model.showingComments = false;
+  model.canPagePrev = false;
+  model.canPageNext = true;
+  fixture.into(model);
+  return model;
 }
 
-void testHnReaderDisabledControls() {
-  Rendered out;
-  hnui::ReaderModel model = articleModel();
-  model.canPagePrev = false;  // page one: there is nowhere back to go
-  model.canPageNext = false;
-  buildHnReader(out, model);
-
-  const fui::Rect body = hnui::readerBody(device());
-  const int footerY = body.y + body.height + 24;
-  for (int x = 0; x < 480; ++x) {
-    const fui::ActionEvent event = out.tap(x, footerY);
-    // A dimmed control keeps its place in the bar so nothing moves, but it must
-    // not fire. Dimming is drawn in the fill, because there is no grey text on
-    // this panel and a coloured label would just draw solid black.
-    CHECK(event.action != hnui::ActionPagePrev);
-    CHECK(event.action != hnui::ActionPageNext);
-  }
-}
-
-void testHnReaderSwapLabelFollowsMode() {
+void testHnFooterSaysWhereYouAre() {
+  // Reading the article: ARTICLE is where you are and does nothing when tapped;
+  // COMMENTS is where you could go. This is the point of the change -- a
+  // control that named its destination had to be read twice, once for the word
+  // and once to remember whether it was a label or a door.
+  ReaderFixture onArticle;
   Rendered article;
-  buildHnReader(article, articleModel());
-  CHECK(drewText(article, "COMMENTS"));
-  CHECK(!drewText(article, "ARTICLE  "));
+  hnui::ReaderModel model = articleModel(onArticle);
+  model.articleAvailable = true;
+  model.commentsAvailable = true;
+  buildHnReader(article, model);
 
+  CHECK(drewText(article, "ARTICLE"));
+  CHECK(drewText(article, "COMMENTS"));
+
+  const fui::Rect body = hnui::readerBody(device());
+  const int footerY = body.y + body.height + 30;
+  bool offeredComments = false;
+  bool offeredArticle = false;
+  for (int x = 0; x < 480; ++x) {
+    const fui::ActionEvent event = article.tap(x, footerY);
+    if (event.action == hnui::ActionShowComments) offeredComments = true;
+    if (event.action == hnui::ActionShowArticle) offeredArticle = true;
+  }
+  CHECK(offeredComments);
+  CHECK(!offeredArticle);  // already here
+
+  // And the mirror image on the thread.
+  ReaderFixture onThread;
   Rendered comments;
-  hnui::ReaderModel model = articleModel();
-  model.showingComments = true;
-  buildHnReader(comments, model);
-  // One action, and the model decides which way it points, so the label and the
-  // effect cannot disagree.
-  CHECK(drewText(comments, "ARTICLE"));
+  hnui::ReaderModel threadModel = articleModel(onThread);
+  threadModel.showingComments = true;
+  threadModel.articleAvailable = true;
+  buildHnReader(comments, threadModel);
+
+  offeredComments = false;
+  offeredArticle = false;
+  for (int x = 0; x < 480; ++x) {
+    const fui::ActionEvent event = comments.tap(x, footerY);
+    if (event.action == hnui::ActionShowComments) offeredComments = true;
+    if (event.action == hnui::ActionShowArticle) offeredArticle = true;
+  }
+  CHECK(offeredArticle);
+  CHECK(!offeredComments);
+
+  // A link with no readable article: the segment is there, dimmed, and dead.
+  ReaderFixture unreadable;
+  Rendered noArticle;
+  hnui::ReaderModel noArticleModel = articleModel(unreadable);
+  noArticleModel.showingComments = true;
+  noArticleModel.articleAvailable = false;
+  buildHnReader(noArticle, noArticleModel);
+  CHECK(drewText(noArticle, "ARTICLE"));
+  for (int x = 0; x < 480; ++x) {
+    CHECK(noArticle.tap(x, footerY).action != hnui::ActionShowArticle);
+  }
 }
 
-void testHnReaderTextStaysInItsRect() {
-  Rendered out;
-  buildHnReader(out, articleModel());
+void testHnThreadRules() {
+  // A reply has to look attached to what it answers. Depth is drawn as one
+  // vertical rule per ancestor beside every line, so the rules join down the
+  // page and a thread broken across a page turn leaves nothing hanging.
+  ReaderFixture fixture;
+  fixture.add("A top level comment.", 0, false);
+  fixture.add("A reply to it.", 1, false);
+  fixture.add("A reply to the reply.", 2, false);
 
-  // The Activity pages by counting the lines that fit in readerBody(). If the
-  // text were drawn anywhere else, a page turn would skip or repeat lines and
-  // nothing would report it.
+  Rendered out;
+  hnui::ReaderModel model;
+  model.title = "Thread";
+  model.showingComments = true;
+  fixture.into(model);
+  buildHnReader(out, model);
+
   const fui::Rect body = hnui::readerBody(device());
-  bool sawBodyText = false;
+  const int16_t lineHeight = out.target.lineHeight(0);
+
+  // The text of a line at depth N starts N indents in, so the rules have
+  // somewhere to go.
   for (const auto& run : out.target.texts) {
-    if (run.text.find("Some words") == std::string::npos) continue;
-    sawBodyText = true;
-    CHECK(run.rect.y >= body.y);
-    CHECK(run.rect.y < body.y + body.height);
-    CHECK(run.rect.x >= body.x);
+    if (run.text == "A top level comment.") CHECK(run.rect.x == body.x);
+    if (run.text == "A reply to it.") CHECK(run.rect.x == body.x + hnui::kThreadIndent);
+    if (run.text == "A reply to the reply.") CHECK(run.rect.x == body.x + 2 * hnui::kThreadIndent);
   }
-  CHECK(sawBodyText);
+
+  // Rule segments are one line tall and sit at the ancestor levels. The
+  // top-level line has none; the depth-2 line has one at each of levels 0 and 1.
+  const auto ruleAt = [&](int16_t x, int16_t y) {
+    for (const fui::Rect& fill : out.target.fills) {
+      if (fill.x == x && fill.y == y && fill.width == hnui::kThreadRule && fill.height == lineHeight) return true;
+    }
+    return false;
+  };
+  const int16_t y0 = body.y;
+  const int16_t y1 = static_cast<int16_t>(body.y + lineHeight);
+  const int16_t y2 = static_cast<int16_t>(body.y + 2 * lineHeight);
+
+  CHECK(!ruleAt(body.x, y0));  // nothing is above a top-level comment
+  CHECK(ruleAt(body.x, y1));
+  CHECK(ruleAt(body.x, y2));
+  CHECK(ruleAt(static_cast<int16_t>(body.x + hnui::kThreadIndent), y2));
+  CHECK(!ruleAt(static_cast<int16_t>(body.x + hnui::kThreadIndent), y1));
+}
+
+void testHnWrapping() {
+  FakeTarget target;
+  const fui::ThemeTokens tokens = toybox::themeTokens();
+  std::vector<std::string> text;
+  std::vector<hnui::ReaderLine> meta;
+
+  // A blank paragraph is the gap between comments. It is one line and it keeps
+  // its depth, so the thread rule runs through it instead of breaking.
+  hnui::appendWrapped(target, device(), tokens, "", 2, false, text, meta);
+  CHECK(text.size() == 1);
+  CHECK(meta.size() == 1);
+  if (!meta.empty()) {
+    CHECK(meta[0].depth == 2);
+    CHECK(text[0].empty());
+  }
+
+  // Nesting costs width, so the same paragraph takes more lines further in.
+  std::vector<std::string> shallow;
+  std::vector<hnui::ReaderLine> shallowMeta;
+  std::vector<std::string> deep;
+  std::vector<hnui::ReaderLine> deepMeta;
+  const char* paragraph =
+      "This is a reasonably long paragraph of text that will certainly have to wrap onto several lines however wide "
+      "the column it is given happens to be.";
+  hnui::appendWrapped(target, device(), tokens, paragraph, 0, false, shallow, shallowMeta);
+  hnui::appendWrapped(target, device(), tokens, paragraph, 4, false, deep, deepMeta);
+  CHECK(!shallow.empty());
+  CHECK(!deep.empty());
+  for (const auto& line : deepMeta) CHECK(line.depth == 4);
+
+  // The property that matters is the width, not the line count: four levels of
+  // indent take 4 * kThreadIndent out of the column, so no line set at that
+  // depth can be as long as the longest one set at the margin. Counting lines
+  // instead passes by accident whenever the two happen to round the same way.
+  const auto longest = [](const std::vector<std::string>& lines) {
+    size_t most = 0;
+    for (const std::string& line : lines) {
+      if (line.size() > most) most = line.size();
+    }
+    return most;
+  };
+  CHECK(longest(deep) < longest(shallow));
+
+  // Every wrapped line is a piece of the original, in order, with nothing
+  // invented and nothing dropped.
+  std::string rejoined;
+  for (const std::string& line : shallow) {
+    if (!rejoined.empty() && !line.empty()) rejoined += " ";
+    rejoined += line;
+  }
+  CHECK(rejoined.size() >= std::string(paragraph).size() - shallow.size());
 }
 
 void testHnNotice() {
@@ -1392,8 +1493,9 @@ void testHnNotice() {
 }
 
 void testHnReaderShowsWhereYouAre() {
+  ReaderFixture fixture;
   Rendered out;
-  hnui::ReaderModel model = articleModel();
+  hnui::ReaderModel model = articleModel(fixture);
   model.pageLabel = "3/12";
   buildHnReader(out, model);
 
@@ -1905,7 +2007,6 @@ void testInsiderRevealAlwaysSaysTheWord() {
   CHECK(out.target.drew("PEACOCK"));
 }
 
-
 void testInsiderTutorialLosesNoWords() {
   // The bug this pins, from the page the tutorial replaced: text was drawn into
   // a rect it did not fit, the renderer ellipsised the tail into a glyph the
@@ -1965,12 +2066,11 @@ int main() {
   testBattleshipStartMenu();
   testBattleshipCapsuleIsOnlyATriggerWhenItSaysSo();
   testBattleshipPlacementControls();
-  testHnReaderFooter();
-  testHnReaderDisabledControls();
-  testHnReaderSwapLabelFollowsMode();
-  testHnReaderTextStaysInItsRect();
   testHnNotice();
   testHnList();
+  testHnFooterSaysWhereYouAre();
+  testHnThreadRules();
+  testHnWrapping();
   testHnFitLines();
   testHnReaderShowsWhereYouAre();
   testShelfFolderDrawsItsOwnNameAndRows();

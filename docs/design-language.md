@@ -130,16 +130,37 @@ Three cuts of a second face cost 424KB of flash, which is affordable exactly
 once or twice, not per game. Check the budget before adding a face rather than
 after.
 
-**A reading cut, for a surface that is a page rather than a board.** The UI cut
-is 20px, which is right for a row you glance at and wrong for a screenful you
-actually read: at 20px a 480px panel holds about 28 characters a line, so an
-article becomes forty page taps and half the headlines on a Hacker News front
-page cannot finish. `toybox_14` is the same face one step down, and it roughly
-halves both. An app binds it by passing `toybox::readingFaces()` to
-`makeTarget`; the header band keeps the display cut, because the top bar is the
-fork's chrome and a shared one is what makes two apps feel like one device.
-2.2KB of flash. Regenerate the cuts with `tools_local/gen_toybox_fonts.sh`,
-which fetches Jersey 25 rather than relying on a TTF nobody still has.
+**A reading face, for a surface that is a page rather than a board.** Jersey is
+a display cut: uniform heavy stems, no thin strokes, and a screenful of it reads
+as permanently bold. That is right for a header band, a button and a tile, and
+wrong for an article. Hacker News sets its prose in **Noto Serif at 14px,
+converted at 1 bit by us** (`reading_serif_14`, `toybox::readingFaces()`).
+
+Two things make that work, and both are worth knowing before reaching for
+another face:
+
+- **Convert it yourself, at 1 bit.** `lib/EpdFont/builtinFonts/` already has
+  Noto Serif at 12/14/16/18, and those are unusable here: they are built
+  `--2bit`, and the BW path paints a pixel for any coverage above zero, so they
+  flood. The same TTF converted at 1 bit has no coverage to flood. The sources
+  are in `builtinFonts/source/`, so this costs a subset and a script run.
+- **Noto Serif specifically**, because it is what the EPUB reader sets books in.
+  An app whose surface is a page of prose should look like the rest of this
+  device's reading rather than like its games.
+
+The size matters as much as the face: at the 20px UI cut a 480px panel holds
+about 28 characters a line, so the front page showed six truncated headlines and
+an article ran to forty page taps. 14px roughly halves both.
+
+**The chrome does not follow it.** The header band keeps the display cut and
+buttons keep Jersey, because those are the device speaking rather than the app.
+`readingChromeFaces()` binds the UI cut into the small slot for exactly that,
+and `toybox::buttonText()` points a button at it. Three slots is a working set:
+a list wants a dense cut for its footnote counts and has no buttons, and every
+other screen wants the opposite, so the app rebinds between them.
+
+7.2KB of flash. Regenerate every cut with `tools_local/gen_toybox_fonts.sh`,
+which fetches Jersey rather than relying on a TTF nobody still has.
 
 **There are not three fonts. There are three slots.** `FONT_SLOTS = 3` is
 `int fonts[3]` on the render target: a working set, not a limit.

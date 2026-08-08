@@ -31,8 +31,8 @@ bool containsFold(const std::string_view haystack, const std::string_view needle
   if (needle.empty() || haystack.size() < needle.size()) return false;
   for (size_t i = 0; i + needle.size() <= haystack.size(); ++i) {
     size_t j = 0;
-    while (j < needle.size() &&
-           std::tolower(static_cast<unsigned char>(haystack[i + j])) == std::tolower(static_cast<unsigned char>(needle[j]))) {
+    while (j < needle.size() && std::tolower(static_cast<unsigned char>(haystack[i + j])) ==
+                                    std::tolower(static_cast<unsigned char>(needle[j]))) {
       ++j;
     }
     if (j == needle.size()) return true;
@@ -152,7 +152,7 @@ bool urlCanBeArticle(const std::string_view url) {
 
   // Documents and binaries the extractor answers with an empty body. The PDF on
   // the front page the day this was written scored exactly 0.
-  static constexpr std::string_view kSuffixes[] = {".pdf", ".zip", ".tar", ".gz",  ".mp3", ".mp4",
+  static constexpr std::string_view kSuffixes[] = {".pdf", ".zip", ".tar",  ".gz",  ".mp3", ".mp4",
                                                    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp"};
   for (const std::string_view suffix : kSuffixes) {
     if (endsWithFold(path, suffix)) return false;
@@ -161,8 +161,8 @@ bool urlCanBeArticle(const std::string_view url) {
   // Hosts whose content is not a page of prose, or is only reachable to a
   // browser running their JavaScript. Twitter extracts to "Something went
   // wrong" and nothing else, every time.
-  static constexpr std::string_view kHosts[] = {"twitter.com",  "x.com/",      "youtube.com", "youtu.be",
-                                                "reddit.com",   "instagram.com", "tiktok.com", "news.ycombinator.com"};
+  static constexpr std::string_view kHosts[] = {"twitter.com", "x.com/",        "youtube.com", "youtu.be",
+                                                "reddit.com",  "instagram.com", "tiktok.com",  "news.ycombinator.com"};
   for (const std::string_view host : kHosts) {
     if (containsFold(path, host)) return false;
   }
@@ -228,12 +228,94 @@ void decodeEntities(std::string& text) {
   text.swap(out);
 }
 
+void foldTypography(std::string& text) {
+  // Codepoint -> what it stands for in ASCII. Kept short and literal: these are
+  // the ones that actually turn up in Hacker News prose, measured rather than
+  // imagined. Anything not here is left alone, because guessing at a character
+  // is worse than a font that cannot draw it.
+  struct Fold {
+    uint32_t codepoint;
+    const char* ascii;
+  };
+  static constexpr Fold kFolds[] = {
+      {0x2018, "'"},   {0x2019, "'"},  {0x201A, "'"},  {0x201B, "'"},   // single quotes
+      {0x201C, "\""},  {0x201D, "\""}, {0x201E, "\""}, {0x00AB, "\""},  // double quotes
+      {0x00BB, "\""},  {0x2032, "'"},  {0x2033, "\""},                  // primes
+      {0x2010, "-"},   {0x2011, "-"},  {0x2012, "-"},  {0x2013, "-"},   // dashes
+      {0x2014, "-"},   {0x2015, "-"},  {0x2212, "-"},                   //
+      {0x2026, "..."}, {0x00A0, " "},  {0x2002, " "},  {0x2003, " "},   // ellipsis, spaces
+      {0x2009, " "},   {0x202F, " "},  {0x00AD, ""},                    // thin/narrow, soft hyphen
+      {0x2192, "->"},  {0x2190, "<-"}, {0x00D7, "x"},  {0x2022, "-"},   // arrows, times, bullet
+      {0x00B7, "-"},   {0x2039, "<"},  {0x203A, ">"},  {0x2044, "/"},   //
+  };
+
+  std::string out;
+  out.reserve(text.size());
+  size_t i = 0;
+  while (i < text.size()) {
+    const unsigned char lead = static_cast<unsigned char>(text[i]);
+    if (lead < 0x80) {
+      out.push_back(text[i++]);
+      continue;
+    }
+
+    // Decode one UTF-8 sequence so it can be looked up. A malformed byte is
+    // copied through rather than dropped: this is somebody's text, not a
+    // protocol we control.
+    size_t length = 0;
+    uint32_t codepoint = 0;
+    if ((lead & 0xE0) == 0xC0) {
+      length = 2;
+      codepoint = lead & 0x1Fu;
+    } else if ((lead & 0xF0) == 0xE0) {
+      length = 3;
+      codepoint = lead & 0x0Fu;
+    } else if ((lead & 0xF8) == 0xF0) {
+      length = 4;
+      codepoint = lead & 0x07u;
+    }
+    if (length == 0 || i + length > text.size()) {
+      out.push_back(text[i++]);
+      continue;
+    }
+    bool valid = true;
+    for (size_t j = 1; j < length; ++j) {
+      const unsigned char continuation = static_cast<unsigned char>(text[i + j]);
+      if ((continuation & 0xC0) != 0x80) {
+        valid = false;
+        break;
+      }
+      codepoint = (codepoint << 6) | (continuation & 0x3Fu);
+    }
+    if (!valid) {
+      out.push_back(text[i++]);
+      continue;
+    }
+
+    const char* replacement = nullptr;
+    for (const Fold& fold : kFolds) {
+      if (fold.codepoint == codepoint) {
+        replacement = fold.ascii;
+        break;
+      }
+    }
+    if (replacement != nullptr) {
+      out.append(replacement);
+    } else {
+      out.append(text, i, length);
+    }
+    i += length;
+  }
+  text.swap(out);
+}
+
 std::vector<std::string> paragraphsFromHnHtml(const std::string_view html) {
   std::vector<std::string> out;
   std::string current;
 
   const auto flush = [&out, &current]() {
     decodeEntities(current);
+    foldTypography(current);
     const std::string paragraph = trimmed(current);
     if (!paragraph.empty()) out.push_back(paragraph);
     current.clear();
@@ -278,8 +360,8 @@ Extracted splitExtractorResponse(const std::string_view response) {
 
   const size_t marker = response.find(kMarker);
   const std::string_view header = marker == std::string_view::npos ? response : response.substr(0, marker);
-  result.body = marker == std::string_view::npos ? std::string(response)
-                                                 : std::string(response.substr(marker + kMarker.size()));
+  result.body =
+      marker == std::string_view::npos ? std::string(response) : std::string(response.substr(marker + kMarker.size()));
 
   size_t i = 0;
   while (i < header.size()) {
@@ -295,9 +377,27 @@ Extracted splitExtractorResponse(const std::string_view response) {
   return result;
 }
 
+// A block that is nothing but rule characters: ---, ***, * * *, ___. It is a
+// divider, and a divider that survives into plain text arrives as a stray "-"
+// paragraph with no explanation. One really did, right under the headline of
+// the first article this reader ever drew.
+bool isHorizontalRule(const std::string& block) {
+  int markers = 0;
+  char kind = '\0';
+  for (const char c : block) {
+    if (c == ' ' || c == '\t' || c == '\n') continue;
+    if (c != '*' && c != '-' && c != '_') return false;
+    if (kind == '\0') kind = c;
+    if (c != kind) return false;
+    ++markers;
+  }
+  return markers >= 3;
+}
+
 std::vector<std::string> paragraphsFromMarkdown(const std::string_view markdown) {
   std::vector<std::string> out;
   for (const std::string& block : blocks(delinked(markdown))) {
+    if (isHorizontalRule(block)) continue;
     std::string flat;
     flat.reserve(block.size());
 
@@ -354,7 +454,8 @@ std::vector<std::string> paragraphsFromMarkdown(const std::string_view markdown)
       ++i;
     }
 
-    const std::string paragraph = trimmed(flat);
+    std::string paragraph = trimmed(flat);
+    foldTypography(paragraph);
     if (!paragraph.empty()) out.push_back(paragraph);
   }
   return out;
@@ -435,10 +536,17 @@ bool CommentScanner::feed(const char* data, const size_t length) {
       if (escaped_) {
         escaped_ = false;
         switch (c) {
-          case 'n': buffer_.push_back('\n'); break;
-          case 't': buffer_.push_back('\t'); break;
-          case 'r': break;  // HN's text uses \n alone; a stray CR is not a character
-          case 'b': case 'f': break;
+          case 'n':
+            buffer_.push_back('\n');
+            break;
+          case 't':
+            buffer_.push_back('\t');
+            break;
+          case 'r':
+            break;  // HN's text uses \n alone; a stray CR is not a character
+          case 'b':
+          case 'f':
+            break;
           case 'u': {
             // \uXXXX. The four digits may straddle a chunk boundary, so they
             // are gathered through the same buffer rather than read ahead.
@@ -447,7 +555,9 @@ bool CommentScanner::feed(const char* data, const size_t length) {
             unicode_ = 0;
             break;
           }
-          default: buffer_.push_back(c); break;  // \" \\ \/
+          default:
+            buffer_.push_back(c);
+            break;  // \" \\ \/
         }
         continue;
       }

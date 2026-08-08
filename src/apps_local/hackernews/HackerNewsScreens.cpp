@@ -2,6 +2,8 @@
 
 #include <FreeInkUIIcon.h>
 
+#include "../ui/ToyboxIcons.h"
+
 namespace hnui {
 namespace {
 
@@ -15,20 +17,45 @@ constexpr int kFooterHeight = toybox::kPillHeight;
 
 // Header band, rule, and the page margin. Every screen here opens with this.
 //
+// It can also carry a save mark on its right edge, which fills once the article
+// is on the device -- the same thing the footer segments do, so the app has one
+// way of saying "you are here" rather than a second vocabulary for a second
+// control.
+//
 // `rightLabel` is drawn in paper, not ink. The band is solid black and
 // Screen::header() resolves the trailing style from the theme's body text,
 // whose colour is Black -- so a label left at the default is painted black on
 // black and simply is not there. That is how the page indicator went missing on
 // the first render of the reader, and it is the same defect the header title
 // had when this fork first adopted FreeInkUI.
-void chrome(toybox::Screen& screen, const char* title, const char* rightLabel) {
+void chrome(toybox::Screen& screen, const char* title, const char* rightLabel, const int titleLines = 1,
+            const bool showSave = false, const bool saved = false, const fui::FontId titleFont = 0) {
   fui::HeaderProps header;
   header.title = title;
+  // The line count is applied whether or not a font was named. It used to hang
+  // off `titleFont`, and when the caller switched to rebinding the title slot
+  // instead of naming a face, `titleLines` silently stopped being honoured: a
+  // headline fitted to two lines was drawn on one and clipped mid-word, which
+  // looks exactly like the step-down never happening.
+  header.titleText = screen.theme().titleText;
+  if (titleFont != 0) header.titleText.font = titleFont;
+  header.titleText.maxLines = static_cast<uint8_t>(titleLines < 1 ? 1 : titleLines);
+  if (showSave) {
+    header.trailingIcon = fui::bitmapFromIcon(icon_saved_32);
+    header.trailingAction = saved ? ActionUnsave : ActionSave;
+    header.trailingStyles = saved ? toybox::invertedStyles() : toybox::rowStyles();
+    header.trailingRadius = toybox::kPillRadius / 2;
+  }
   header.rightLabel = rightLabel;
   header.borderEdges = fui::EdgesNone;
   if (rightLabel != nullptr) {
-    header.trailingText = screen.theme().smallText;
-    header.trailingText.color = fui::Color::White;
+    // subtitleText, not trailingText: the component draws rightLabel with the
+    // subtitle style and reserves the trailing one for an action button. Styling
+    // the wrong one leaves the label black on the black band, which looks
+    // exactly like the label never being set at all -- the page indicator was
+    // missing through two renders before this was read rather than assumed.
+    header.subtitleText = screen.theme().smallText;
+    header.subtitleText.color = fui::Color::White;
   }
   screen.header(header);
 
@@ -61,10 +88,10 @@ std::string fitLines(const fui::DrawTarget& target, const char* text, const int1
   // long enough to wrap was trimmed back until all of it fitted on line one:
   // the front page came out as "In Memory of My...", "Show HN: Simple...",
   // "I am retiring from...". Only the last line has to make room.
-  std::string line;               // the line being filled
-  size_t lineStart = 0;           // where it begins in `whole`
-  size_t consumed = 0;            // end of the last word that fitted anywhere
-  size_t lastLineStart = 0;       // where the final drawn line begins
+  std::string line;          // the line being filled
+  size_t lineStart = 0;      // where it begins in `whole`
+  size_t consumed = 0;       // end of the last word that fitted anywhere
+  size_t lastLineStart = 0;  // where the final drawn line begins
   int lineNumber = 1;
   bool overflowed = false;
 
@@ -118,11 +145,46 @@ std::string fitLines(const fui::DrawTarget& target, const char* text, const int1
   return kept + kEllipsis;
 }
 
+// --- A pair of segments ---------------------------------------------------
+//
+// The one control this app repeats: two halves naming what there is to look at,
+// with the one you are in filled. It is on the list (FRONT PAGE / SAVED) and in
+// the reader (ARTICLE / COMMENTS), and both are drawn by this so they cannot
+// drift into looking like different ideas.
+
+// Three states, each saying something different. Here: filled, this is what you
+// are looking at. There: outlined, you could be. Nothing: dithered, because a
+// control that vanishes moves its neighbours -- and the dither goes in the fill,
+// since this panel has no grey text.
+enum class Seat { Here, There, Nothing };
+
+void seatButton(toybox::Screen& screen, const char* label, const fui::ActionId action, const fui::Rect& where,
+                const Seat seat) {
+  fui::ButtonProps button;
+  button.label = label;
+  button.action = seat == Seat::There ? action : fui::NO_ACTION;
+  button.text = toybox::buttonText(screen.theme());
+  if (seat == Seat::Nothing) {
+    button.styles = toybox::disabledButtonStyles();
+  } else if (seat == Seat::There) {
+    button.styles = toybox::rowStyles();
+  }
+  screen.button(button, where);
+}
+
+fui::Rect footerRow(const fui::DeviceContext& device) {
+  return fui::makeRect(toybox::kMargin, static_cast<int16_t>(device.height - toybox::kMargin - kFooterHeight),
+                       static_cast<int16_t>(device.width - 2 * toybox::kMargin), kFooterHeight);
+}
+
 // --- The front page ------------------------------------------------------
 
 fui::Rect listBand(const fui::DeviceContext& device) {
+  // Stops above the segment pair. Shared with the Activity's scroll maths, so a
+  // row can never be styled as selected on a line the footer is covering.
+  const int bottom = toybox::kMargin + kFooterHeight + toybox::kGutter;
   return fui::makeRect(toybox::kMargin, kBodyTop, static_cast<int16_t>(device.width - 2 * toybox::kMargin),
-                       static_cast<int16_t>(device.height - toybox::kMargin - kBodyTop));
+                       static_cast<int16_t>(device.height - bottom - kBodyTop));
 }
 
 int16_t listRowHeight(const fui::DrawTarget& target, const fui::ThemeTokens& tokens) {
@@ -157,6 +219,51 @@ int16_t listTitleWidth(const fui::DrawTarget& target, const fui::DeviceContext& 
 void buildList(toybox::Screen& screen, const ListModel& model) {
   chrome(screen, model.title, nullptr);
 
+  // The same two-segment control the reader wears, so the app has one shape for
+  // "here are two things to look at, and this is the one you are in". Taken
+  // before the list so the rows can never grow into it.
+  // Taken out of the content rect rather than merely drawn over it. screen.list()
+  // lays its rows into whatever content is left, so a footer that is only
+  // painted on top gets rows drawn straight through it -- which is exactly what
+  // the first render did.
+  const fui::DeviceContext& device = screen.device();
+  const fui::Rect footer = screen.takeBottom(kFooterHeight, toybox::kGutter);
+  const int16_t half = static_cast<int16_t>(footer.width / 2);
+  seatButton(screen, "FRONT PAGE", ActionShowFrontPage, fui::makeRect(footer.x, footer.y, half, footer.height),
+             model.showingSaved ? Seat::There : Seat::Here);
+  seatButton(screen, "SAVED", ActionShowSaved,
+             fui::makeRect(static_cast<int16_t>(footer.x + half), footer.y, static_cast<int16_t>(footer.width - half),
+                           footer.height),
+             model.showingSaved ? Seat::Here : Seat::There);
+
+  if (model.count <= 0 && model.emptyHeadline != nullptr) {
+    // An empty SAVED shelf is the normal state of a new device, not a fault, so
+    // it says what it is and what to do rather than leaving a blank panel that
+    // reads as a failed load.
+    fui::TextStyle headline = screen.theme().titleText;
+    headline.color = fui::Color::Black;
+    headline.align = fui::TextAlign::Center;
+    const fui::Rect body = listBand(device);
+    screen.target().text(fui::makeRect(body.x, static_cast<int16_t>(body.y + body.height / 3), body.width,
+                                       screen.target().lineHeight(headline.font)),
+                         model.emptyHeadline, headline);
+    fui::TextStyle message = screen.theme().bodyText;
+    message.align = fui::TextAlign::Center;
+    message.maxLines = 3;
+    screen.target().text(
+        fui::makeRect(body.x,
+                      static_cast<int16_t>(body.y + body.height / 3 + screen.target().lineHeight(headline.font) +
+                                           toybox::kGutter),
+                      body.width, static_cast<int16_t>(3 * screen.target().lineHeight(message.font))),
+        model.emptyMessage, message);
+    // The whole empty body is the control, registered from the rect it was
+    // drawn into rather than computed a second time. The design language's
+    // front-door rule: the headline is the hit target, so the commonest tap is
+    // the largest thing on screen and there is no button to miss.
+    if (model.emptyAction != fui::NO_ACTION) screen.frame().hit(body, model.emptyAction);
+    return;
+  }
+
   if (model.count <= 0) {
     screen.centeredText("NOTHING TO READ", screen.theme().bodyText);
     return;
@@ -187,51 +294,130 @@ fui::Rect readerBody(const fui::DeviceContext& device) {
                        static_cast<int16_t>(device.height - bottom - kBodyTop));
 }
 
+uint16_t readerVisibleLines(const fui::DrawTarget& target, const fui::DeviceContext& device,
+                            const fui::ThemeTokens& tokens) {
+  return fui::textAreaVisibleLines(readerBody(device), target.lineHeight(tokens.bodyText.font));
+}
+
+void appendWrapped(const fui::DrawTarget& target, const fui::DeviceContext& device, const fui::ThemeTokens& tokens,
+                   const char* paragraph, const int depth, const bool isAuthor, std::vector<std::string>& text,
+                   std::vector<ReaderLine>& meta) {
+  ReaderLine line;
+  line.depth = static_cast<int16_t>(depth);
+  line.isAuthor = isAuthor;
+
+  // An empty paragraph is a deliberate gap between comments. It still carries
+  // its depth, so the thread rules run through it unbroken.
+  if (paragraph == nullptr || paragraph[0] == '\0') {
+    text.emplace_back();
+    meta.push_back(line);
+    return;
+  }
+
+  const fui::Rect body = readerBody(device);
+  const int16_t width = static_cast<int16_t>(body.width - depth * kThreadIndent);
+  const std::string whole(paragraph);
+  fui::textAreaWalk(target, width, paragraph, tokens.bodyText, [&](uint32_t, const fui::TextAreaLine& walked) {
+    text.push_back(whole.substr(walked.start, walked.len));
+    meta.push_back(line);
+  });
+}
+
+int16_t readerTitleWidth(const fui::DrawTarget& target, const fui::DeviceContext& device,
+                         const fui::ThemeTokens& tokens, const bool withSaveMark, const char* pageLabel) {
+  // The band, less its side padding on both edges and the widest page label it
+  // will ever carry. The component reserves the label's width out of the title
+  // rect, so a title measured against the whole band would be cut by exactly
+  // this much and no ellipsis would ever appear.
+  // The label that is actually there, not the widest one imaginable. Reserving
+  // "888/888" for a band showing "1/24" threw away sixty pixels of headline on
+  // every screen, which is most of a word.
+  const int16_t label =
+      pageLabel != nullptr ? target.measureText(tokens.smallText.font, pageLabel, tokens.smallText).width : 0;
+  // And the save mark, when there is one. The component takes an icon-only
+  // trailing button as a square the height of the band less its padding, then
+  // reserves that plus a gap out of the title rect -- so a title measured
+  // without it is cut by that much again, which is how "Civilian plane crash in
+  // New Mexico" came out as "Civilian plane...".
+  const int16_t mark = withSaveMark ? static_cast<int16_t>(tokens.headerHeight - 8 + 8) : 0;
+  return static_cast<int16_t>(device.width - 2 * tokens.headerSidePadding - label - toybox::kGutter - mark);
+}
+
 void buildReader(toybox::Screen& screen, const ReaderModel& model) {
-  chrome(screen, model.title, model.pageLabel);
+  chrome(screen, model.title, model.pageLabel, model.titleLines, model.canSave, model.saved, model.titleFont);
 
   const fui::DeviceContext& device = screen.device();
 
-  // Three controls across the bottom: back a page, swap between the article and
-  // the thread, forward a page. Laid out from one set of numbers, and each
-  // button registers the rect it was drawn into, so a control cannot be live
-  // anywhere its pixels are not. The wide middle is the deliberate one -- it is
-  // the only control here that changes what you are reading.
+  // --- the footer -------------------------------------------------------
+  //
+  // The middle is not a button naming where it goes; it is a pair of segments
+  // naming what there is to read, with the one you are in filled. A control
+  // that says COMMENTS while you are reading the article has to be read twice:
+  // once to see the word, once to remember whether it is a label or a
+  // destination. Filled-means-here needs no second reading, and it is the same
+  // shape a tab has been for thirty years.
   const int16_t footerY = static_cast<int16_t>(device.height - toybox::kMargin - kFooterHeight);
   const int16_t usable = static_cast<int16_t>(device.width - 2 * toybox::kMargin);
-  const int16_t arrow = static_cast<int16_t>((usable - 2 * toybox::kGutter) / 4);
-  const int16_t middle = static_cast<int16_t>(usable - 2 * arrow - 2 * toybox::kGutter);
+  // The arrows get what they need for a chevron and no more; the segments get
+  // the rest, because "COMMENTS" has to fit inside one and an even split
+  // clipped it to "COMME".
+  const int16_t arrow = static_cast<int16_t>(usable / 8);
+  const int16_t segment = static_cast<int16_t>((usable - 2 * arrow - 2 * toybox::kGutter) / 2);
 
   const auto footerButton = [&screen, footerY](const char* label, const fui::ActionId action, const int16_t x,
-                                               const int16_t width, const bool enabled) {
-    fui::ButtonProps button;
-    button.label = label;
-    button.action = enabled ? action : fui::NO_ACTION;
-    // Dimmed rather than removed: a control that vanishes moves its neighbours,
-    // and on e-ink that costs a repaint of the whole bar. The dither goes in
-    // the fill because there is no grey text on this panel.
-    if (!enabled) button.styles = toybox::disabledButtonStyles();
-    screen.button(button, fui::makeRect(x, footerY, width, kFooterHeight));
+                                               const int16_t width, const Seat seat) {
+    seatButton(screen, label, action, fui::makeRect(x, footerY, width, kFooterHeight), seat);
   };
 
   const int16_t left = toybox::kMargin;
-  footerButton("<", ActionPagePrev, left, arrow, model.canPagePrev);
-  footerButton(model.showingComments ? "ARTICLE" : "COMMENTS", ActionSwapView,
-               static_cast<int16_t>(left + arrow + toybox::kGutter), middle, model.swapAvailable);
-  footerButton(">", ActionPageNext, static_cast<int16_t>(left + arrow + middle + 2 * toybox::kGutter), arrow,
-               model.canPageNext);
+  footerButton("<", ActionPagePrev, left, arrow, model.canPagePrev ? Seat::There : Seat::Nothing);
 
-  // Drawn into readerBody() rather than into the Screen's running content rect,
-  // because the Activity counts the lines that fit in this exact rect to decide
-  // what a page turn does. Two ways of arriving at the same rectangle is how a
-  // page turn starts eating a line, so there is one function and both callers
-  // use it.
-  fui::TextAreaProps body;
-  body.text = model.text;
-  body.topLine = model.topLine;
-  body.showCaret = false;
-  body.style = screen.theme().bodyText;
-  fui::textArea(screen.frame(), readerBody(device), body);
+  const int16_t articleX = static_cast<int16_t>(left + arrow + toybox::kGutter);
+  const int16_t commentsX = static_cast<int16_t>(articleX + segment);
+  footerButton("ARTICLE", ActionShowArticle, articleX, segment,
+               !model.showingComments   ? Seat::Here
+               : model.articleAvailable ? Seat::There
+                                        : Seat::Nothing);
+  footerButton("COMMENTS", ActionShowComments, commentsX, segment,
+               model.showingComments     ? Seat::Here
+               : model.commentsAvailable ? Seat::There
+                                         : Seat::Nothing);
+
+  footerButton(">", ActionPageNext, static_cast<int16_t>(commentsX + segment + toybox::kGutter), arrow,
+               model.canPageNext ? Seat::There : Seat::Nothing);
+
+  // --- the page ---------------------------------------------------------
+
+  const fui::Rect body = readerBody(device);
+  const int16_t lineHeight = screen.target().lineHeight(screen.theme().bodyText.font);
+  if (lineHeight <= 0 || model.lineCount <= 0) return;
+  const uint16_t visible = fui::textAreaVisibleLines(body, lineHeight);
+
+  for (uint16_t row = 0; row < visible; ++row) {
+    const uint32_t index = model.topLine + row;
+    if (index >= static_cast<uint32_t>(model.lineCount)) break;
+    const ReaderLine& line = model.lineMeta[index];
+    const int16_t y = static_cast<int16_t>(body.y + row * lineHeight);
+
+    // One short rule per ancestor level, drawn beside every line rather than
+    // once per comment. Stacked down the page they join into the continuous
+    // verticals Reddit draws -- and because each is only as tall as its own
+    // line, a thread that breaks across a page turn cannot leave a rule
+    // hanging past the last line of the page.
+    for (int16_t level = 0; level < line.depth; ++level) {
+      screen.target().fill(
+          fui::makeRect(static_cast<int16_t>(body.x + level * kThreadIndent), y, kThreadRule, lineHeight),
+          fui::Paint::solid(fui::Color::Black));
+    }
+
+    const char* text = model.lineText[index];
+    if (text == nullptr || text[0] == '\0') continue;
+    const int16_t indent = static_cast<int16_t>(line.depth * kThreadIndent);
+    fui::TextStyle style = screen.theme().bodyText;
+    screen.target().text(
+        fui::makeRect(static_cast<int16_t>(body.x + indent), y, static_cast<int16_t>(body.width - indent), lineHeight),
+        text, style);
+  }
 }
 
 // --- Notices -------------------------------------------------------------
@@ -252,6 +438,7 @@ void buildNotice(toybox::Screen& screen, const NoticeModel& model) {
     fui::ButtonProps action;
     action.label = model.actionLabel;
     action.action = ActionNotice;
+    action.text = toybox::buttonText(screen.theme());
     screen.button(action, fui::makeRect(toybox::kMargin,
                                         static_cast<int16_t>(device.height - toybox::kMargin - toybox::kPillHeight),
                                         width, toybox::kPillHeight));
@@ -280,6 +467,13 @@ void buildNotice(toybox::Screen& screen, const NoticeModel& model) {
     const int16_t headlineHeight = static_cast<int16_t>(2 * screen.target().lineHeight(headline.font));
     screen.target().text(fui::makeRect(toybox::kMargin, y, width, headlineHeight), model.headline, headline);
     y = static_cast<int16_t>(y + headlineHeight + toybox::kGutter);
+
+    if (model.state != nullptr && model.state[0] != '\0') {
+      fui::TextStyle state = screen.theme().bodyText;
+      const int16_t stateHeight = screen.target().lineHeight(state.font);
+      screen.target().text(fui::makeRect(toybox::kMargin, y, width, stateHeight), model.state, state);
+      y = static_cast<int16_t>(y + stateHeight + toybox::kGutter);
+    }
 
     screen.target().fill(fui::makeRect(toybox::kMargin, y, width, toybox::kRule), fui::Paint::solid(fui::Color::Black));
     y = static_cast<int16_t>(y + toybox::kRule + toybox::kGutter * 2);

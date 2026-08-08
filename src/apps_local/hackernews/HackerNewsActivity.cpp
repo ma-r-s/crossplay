@@ -18,6 +18,8 @@
 #include "../ui/ToyboxIcons.h"
 #include "../ui/ToyboxTheme.h"
 
+namespace fui = freeink::ui;
+
 namespace {
 
 // One request for the whole front page. `front_page` is what HN itself ranks,
@@ -53,18 +55,7 @@ constexpr size_t kMaxArticleBytes = 96u * 1024u;
 
 constexpr int kMaxStories = 30;
 
-// Toybox chrome shouts. Story titles do not: they are somebody's sentence, and
-// a shouted headline is unreadable at 30 rows.
-void shout(char* out, const size_t size, const char* in) {
-  size_t n = 0;
-  for (const char* c = in; *c != '\0' && n + 1 < size; ++c, ++n) {
-    out[n] = *c >= 'a' && *c <= 'z' ? static_cast<char>(*c - 'a' + 'A') : *c;
-  }
-  out[n] = '\0';
-}
-
 }  // namespace
-
 
 std::unique_ptr<Activity> HackerNewsActivity::create(GfxRenderer& renderer, MappedInputManager& mappedInput) {
   return makeUniqueNoThrow<HackerNewsActivity>(renderer, mappedInput);
@@ -76,6 +67,27 @@ void HackerNewsActivity::onEnter() {
   Activity::onEnter();
   toybox::ensureFonts(renderer);
 
+  // Nothing touches the radio here. The saved library needs no network, and a
+  // read-later shelf you cannot open without connecting is not a read-later
+  // shelf -- which is exactly what this app was until now: the picker came up
+  // before anything, and cancelling it threw you out of the app entirely.
+  //
+  // So the list opens instantly, offline or not, and the first thing that
+  // genuinely needs the network is what asks for it.
+  library_.load();
+  buildStoryRows();
+  phase_ = Phase::List;
+  requestUpdate();
+}
+
+void HackerNewsActivity::ensureConnected(const Pending what, const char* busyMessage) {
+  if (link_ == Link::Connected) {
+    request(what, busyMessage);
+    return;
+  }
+  afterConnect_ = what;
+  afterConnectMessage_ = busyMessage;
+  returnPhase_ = phase_;
   phase_ = Phase::Connecting;
   WiFi.mode(WIFI_STA);
   startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
@@ -98,11 +110,18 @@ void HackerNewsActivity::onExit() {
 
 void HackerNewsActivity::onWifiChosen(const bool connected) {
   if (!connected) {
-    // They backed out of the picker, so they wanted out of the app.
-    shelf::leave(renderer, mappedInput);
+    // Declining to connect is not leaving. Back to whatever was on screen when
+    // the connection was asked for, which is usually a list they can still read
+    // the saved half of.
+    phase_ = returnPhase_;
+    afterConnect_ = Pending::None;
+    requestUpdate();
     return;
   }
-  request(Pending::FrontPage, "FETCHING THE FRONT PAGE");
+  link_ = Link::Connected;
+  const Pending what = afterConnect_;
+  afterConnect_ = Pending::None;
+  request(what, afterConnectMessage_);
 }
 
 // --- Scheduling the slow parts -------------------------------------------
@@ -131,13 +150,27 @@ void HackerNewsActivity::loop() {
     pending_ = Pending::None;
     bool ok = false;
     switch (what) {
-      case Pending::FrontPage: ok = fetchFrontPage(); break;
-      case Pending::Article: ok = fetchArticle(); break;
-      case Pending::Comments: ok = fetchComments(); break;
-      case Pending::None: break;
+      case Pending::FrontPage:
+        ok = fetchFrontPage();
+        break;
+      case Pending::Article:
+        ok = fetchArticle();
+        break;
+      case Pending::Comments:
+        ok = fetchComments();
+        break;
+      case Pending::None:
+        break;
     }
     if (!ok && phase_ == Phase::Busy) {
-      showNotice("NO LUCK", "Could not reach Hacker News. Check the network and try again.", false);
+      if (what == Pending::FrontPage) {
+        // Back to the list rather than a full-screen notice: the saved half is
+        // still there and still readable, and an error page would hide it.
+        frontPageFailed_ = true;
+        phase_ = Phase::List;
+      } else {
+        showNotice("NO LUCK", "Could not reach Hacker News. Check the network and try again.", false);
+      }
     }
     requestUpdate();
     return;
@@ -149,6 +182,12 @@ void HackerNewsActivity::loop() {
     if (phase_ == Phase::List || phase_ == Phase::Connecting) {
       shelf::leave(renderer, mappedInput);
     } else {
+      // Back lands on whichever half of the list this was opened from, so a
+      // saved article does not drop the reader onto the front page.
+      if (readingSaved_) {
+        showingSaved_ = true;
+        buildSavedRows();
+      }
       phase_ = Phase::List;
       requestUpdate();
     }
@@ -178,7 +217,7 @@ void HackerNewsActivity::loop() {
     return;
   }
   if (phase_ == Phase::List && mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    request(Pending::Article, "OPENING");
+    ensureConnected(Pending::Article, "OPENING");
     return;
   }
 
@@ -195,24 +234,60 @@ void HackerNewsActivity::loop() {
   switch (event.action) {
     case hnui::ActionOpenStory:
       selected_ = event.value;
-      request(Pending::Article, "OPENING");
-      break;
-    case hnui::ActionPagePrev: turnPage(-1); break;
-    case hnui::ActionPageNext: turnPage(1); break;
-    case hnui::ActionSwapView:
-      // One action, and the model decides which way it points. Two would let
-      // the label and the effect disagree.
-      if (readingComments_) {
-        if (articleAvailable_) request(Pending::Article, "OPENING");
+      if (showingSaved_) {
+        // Already on the card: no radio, no wait, no failure mode.
+        openSavedArticle(selected_);
+        requestUpdate();
       } else {
-        request(Pending::Comments, "FETCHING THE THREAD");
+        readingSaved_ = false;
+        ensureConnected(Pending::Article, "OPENING");
       }
+      break;
+    case hnui::ActionPagePrev:
+      turnPage(-1);
+      break;
+    case hnui::ActionPageNext:
+      turnPage(1);
+      break;
+    case hnui::ActionShowArticle:
+      if (articleAvailable_) ensureConnected(Pending::Article, "OPENING");
+      break;
+    case hnui::ActionShowComments:
+      ensureConnected(Pending::Comments, "FETCHING THE THREAD");
+      break;
+    case hnui::ActionSave:
+      saveCurrentArticle();
+      requestUpdate();
+      break;
+    case hnui::ActionUnsave:
+      unsaveCurrentArticle();
+      requestUpdate();
+      break;
+    case hnui::ActionShowFrontPage:
+      showingSaved_ = false;
+      selected_ = 0;
+      topIndex_ = 0;
+      buildStoryRows();
+      requestUpdate();
+      break;
+    case hnui::ActionLoadFrontPage:
+      frontPageFailed_ = false;
+      ensureConnected(Pending::FrontPage, "FETCHING THE FRONT PAGE");
+      break;
+    case hnui::ActionShowSaved:
+      library_.load();
+      showingSaved_ = true;
+      selected_ = 0;
+      topIndex_ = 0;
+      buildSavedRows();
+      requestUpdate();
       break;
     case hnui::ActionNotice:
       // The notice's only button is always the way onward to the comments.
-      request(Pending::Comments, "FETCHING THE THREAD");
+      ensureConnected(Pending::Comments, "FETCHING THE THREAD");
       break;
-    default: break;
+    default:
+      break;
   }
 }
 
@@ -261,16 +336,35 @@ bool HackerNewsActivity::fetchFrontPage() {
     hn::Story story;
     story.title = hit["title"] | "";
     if (story.title.empty()) continue;
+    // Titles arrive straight out of the JSON rather than through the comment
+    // decoders, so they need the same fold: a headline is where curly quotes
+    // are most common and where a missing glyph is most obvious.
+    hn::foldTypography(story.title);
     story.url = hit["url"] | "";
     story.author = hit["author"] | "";
     story.points = hit["points"] | 0;
     story.commentCount = hit["num_comments"] | 0;
     story.id = static_cast<uint32_t>(std::strtoul(hit["objectID"] | "0", nullptr, 10));
-    // A story with no link is its own text, which is always readable here.
-    story.mayBeReadable = story.url.empty() || hn::urlCanBeArticle(story.url);
     stories_.push_back(std::move(story));
   }
 
+  buildStoryRows();
+
+  LOG_INF("HN", "front page: %d stories", static_cast<int>(stories_.size()));
+  selected_ = 0;
+  topIndex_ = 0;
+  showingSaved_ = false;
+  phase_ = Phase::List;
+  return !stories_.empty();
+}
+
+void HackerNewsActivity::buildStoryRows() {
+  rowTitles_.clear();
+  rowValues_.clear();
+  rows_.clear();
+  rowsFitted_ = false;
+  rowTitles_.reserve(stories_.size());
+  rowValues_.reserve(stories_.size());
   for (const hn::Story& story : stories_) {
     // The bare comment count. The list is already HN's own ranking, so points
     // would be restating the order; how much discussion a story drew is the
@@ -284,12 +378,6 @@ bool HackerNewsActivity::fetchFrontPage() {
   // The rows themselves are assembled at paint time, because fitting a headline
   // to its width needs a draw target and there is none here.
   rowsFitted_ = false;
-
-  LOG_INF("HN", "front page: %d stories", static_cast<int>(stories_.size()));
-  selected_ = 0;
-  topIndex_ = 0;
-  phase_ = Phase::List;
-  return !stories_.empty();
 }
 
 bool HackerNewsActivity::fetchArticle() {
@@ -309,8 +397,9 @@ bool HackerNewsActivity::fetchArticle() {
   // gets the answer at once instead of waiting to be told no.
   if (!hn::urlCanBeArticle(story->url)) {
     showNotice("NOT READABLE HERE",
-                 "That link is a PDF, a video, or a page that only a browser can open. There is no article text to bring back. The conversation is still here.",
-                 true);
+               "That link is a PDF, a video, or a page that only a browser can open. There is no article text to bring "
+               "back. The conversation is still here.",
+               true);
     return true;
   }
 
@@ -340,19 +429,24 @@ bool HackerNewsActivity::fetchArticle() {
   if (!hn::readsAsProse(extracted.body)) {
     LOG_INF("HN", "gate rejected %s (%d prose chars)", story->url.c_str(), hn::proseChars(extracted.body));
     showNotice("NOT READABLE HERE",
-                 "That page came back with no article in it. Whatever is there needs a browser to see. The conversation is still here.",
-                 true);
+               "That page came back with no article in it. Whatever is there needs a browser to see. The conversation "
+               "is still here.",
+               true);
     return true;
   }
 
-  document_ = extracted.title.empty() ? story->title : extracted.title;
-  document_ += "\n\n";
+  std::string articleTitle = extracted.title.empty() ? story->title : extracted.title;
+  hn::foldTypography(articleTitle);
+  blocks_.clear();
   for (const std::string& paragraph : hn::paragraphsFromMarkdown(extracted.body)) {
-    document_ += paragraph;
-    document_ += "\n\n";
+    addBlock(paragraph);
+    addBlock("");
   }
   articleAvailable_ = true;
-  showDocument(extracted.title.empty() ? story->title.c_str() : extracted.title.c_str(), false);
+  readerUrl_ = story->url;
+  readingSaved_ = false;
+  library_.load();
+  showDocument(story->title.c_str(), false);
   return true;
 }
 
@@ -376,55 +470,71 @@ bool HackerNewsActivity::fetchComments() {
     return false;
   }
 
-  // The story first, so a thread opened from a list of thirty says what it is
-  // about before it says who is talking.
-  document_ = story->title;
-  document_ += "\n\n";
-
+  blocks_.clear();
   for (const hn::Comment& comment : comments) {
-    // Depth as a quote gutter rather than as indentation. Indentation only
-    // survives on a paragraph's first line once the text is wrapped, so it
-    // reads as a typo; a marker on the author line survives everything and says
-    // the same thing.
-    for (int i = 0; i < comment.depth; ++i) document_ += '>';
-    if (comment.depth > 0) document_ += ' ';
-    // Shouted, because the whole thread is one wrapped document in one style
-    // and there is no second weight to reach for -- weight on this device comes
-    // from size and inversion, and a textArea has one of each. Case is the only
-    // signal left, and it is enough: a line of capitals reads as a name and not
-    // as the start of a sentence.
+    // Shouted, because the whole thread is drawn in one face and one size:
+    // weight on this device comes from size and inversion, and neither is
+    // available inside a running page. A line of capitals reads as a name
+    // rather than as the start of a sentence.
+    std::string author;
     for (const char c : comment.author) {
-      document_ += c >= 'a' && c <= 'z' ? static_cast<char>(c - 'a' + 'A') : c;
+      author += c >= 'a' && c <= 'z' ? static_cast<char>(c - 'a' + 'A') : c;
     }
-    document_ += "\n\n";
+    addBlock(author, comment.depth, true);
     for (const std::string& paragraph : comment.paragraphs) {
-      document_ += paragraph;
-      document_ += "\n\n";
+      addBlock(paragraph, comment.depth);
     }
+    // A gap at the comment's own depth, so its rule runs through it unbroken.
+    addBlock("", comment.depth);
   }
 
   if (comments.empty()) {
-    document_ = story->url.empty() ? "No comments yet.\n" : "No comments on this one yet.\n";
+    addBlock("Nobody has said anything yet.");
   } else if (scanner.truncated()) {
-    char note[80];
-    std::snprintf(note, sizeof(note), "\nShowing the first %d of %d comments.\n", static_cast<int>(comments.size()),
+    char note[96];
+    std::snprintf(note, sizeof(note), "Showing the first %d of %d comments.", static_cast<int>(comments.size()),
                   scanner.totalSeen());
-    document_ += note;
+    addBlock("");
+    addBlock(note);
   }
 
-  LOG_INF("HN", "thread: kept %d of %d comments, %d bytes", static_cast<int>(comments.size()), scanner.totalSeen(),
-          static_cast<int>(document_.size()));
+  LOG_INF("HN", "thread: kept %d of %d comments, %d blocks", static_cast<int>(comments.size()), scanner.totalSeen(),
+          static_cast<int>(blocks_.size()));
   showDocument(story->title.c_str(), true);
   return true;
 }
 
 // --- Reading -------------------------------------------------------------
 
+void HackerNewsActivity::addBlock(std::string text, const int depth, const bool isAuthor) {
+  Block block;
+  block.text = std::move(text);
+  block.depth = depth < hn::kMaxCommentDepth ? depth : hn::kMaxCommentDepth;
+  block.isAuthor = isAuthor;
+  blocks_.push_back(std::move(block));
+}
+
+void HackerNewsActivity::wrapBlocks(const freeink::ui::DrawTarget& target, const freeink::ui::DeviceContext& device,
+                                    const freeink::ui::ThemeTokens& tokens) {
+  lineText_.clear();
+  lineMeta_.clear();
+  linePtr_.clear();
+  for (const Block& block : blocks_) {
+    hnui::appendWrapped(target, device, tokens, block.text.c_str(), block.depth, block.isAuthor, lineText_, lineMeta_);
+  }
+  // A second pass, because a push_back into lineText_ can reallocate and the
+  // model holds pointers rather than copies. Same rule as the story rows.
+  linePtr_.reserve(lineText_.size());
+  for (const std::string& line : lineText_) linePtr_.push_back(line.c_str());
+  linesWrapped_ = true;
+}
+
 void HackerNewsActivity::showDocument(const char* title, const bool comments) {
   RenderLock lock(*this);
   readerTitle_ = title != nullptr ? title : "";
   readingComments_ = comments;
   topLine_ = 0;
+  linesWrapped_ = false;
   phase_ = Phase::Reading;
   // Line counts need a draw target, which only exists inside render(). The
   // first paint fills them in; until then the label reads as one page, which is
@@ -447,11 +557,124 @@ void HackerNewsActivity::turnPage(const int delta) {
 }
 
 void HackerNewsActivity::showNotice(const char* headline, const char* message, const bool unreadable) {
+  const hn::Story* story = unreadable ? currentStory() : nullptr;
+  showNotice(headline, story != nullptr ? story->title.c_str() : nullptr, message, unreadable);
+}
+
+void HackerNewsActivity::showNotice(const char* headline, const char* story, const char* message,
+                                    const bool unreadable) {
   RenderLock lock(*this);
+  // A notice about a story leads with the story: it is the content, and it is
+  // the one thing the reader needs to recognise what they just tapped. What
+  // went wrong becomes the state line under it.
+  noticeStory_ = story != nullptr ? story : "";
   noticeHeadline_ = headline;
   noticeMessage_ = message;
   noticeUnreadable_ = unreadable;
   phase_ = Phase::Notice;
+}
+
+void HackerNewsActivity::drawRowLabels(fui::GfxRendererTarget& target, const fui::DeviceContext& device,
+                                       const fui::ThemeTokens& tokens, const int count, const int selected,
+                                       const int topIndex) {
+  if (rowLabels_.empty()) return;
+
+  // The same band and row height the component was handed, so a label cannot
+  // land on a row other than the one it belongs to.
+  const fui::Rect band = hnui::listBand(device);
+  const int16_t rowHeight = hnui::listRowHeight(target, tokens);
+  const int16_t gap = tokens.listRowGap;
+  const uint16_t visible = fui::listVisibleRows(band, rowHeight, gap);
+  const int16_t width = hnui::listTitleWidth(target, device, tokens);
+
+  for (uint16_t slot = 0; slot < visible; ++slot) {
+    const int index = topIndex + slot;
+    if (index >= count || index >= static_cast<int>(rowLabels_.size())) break;
+
+    target.setFont(fui::GfxRendererTarget::FONT_BODY, rowFonts_[static_cast<size_t>(index)]);
+    fui::TextStyle style = tokens.bodyText;
+    style.maxLines = 2;
+    // The selected row is filled black, so its headline has to be paper. There
+    // is no grey on this panel and no third state to get wrong.
+    style.color = index == selected ? fui::Color::White : fui::Color::Black;
+
+    const fui::Rect where = fui::makeRect(static_cast<int16_t>(band.x + tokens.listSidePadding),
+                                          static_cast<int16_t>(band.y + slot * (rowHeight + gap)), width, rowHeight);
+    target.text(where, rowLabels_[static_cast<size_t>(index)].c_str(), style);
+  }
+  target.setFont(fui::GfxRendererTarget::FONT_BODY, toybox::kReadingFontId);
+}
+
+// --- The library ---------------------------------------------------------
+
+void HackerNewsActivity::saveCurrentArticle() {
+  if (readerUrl_.empty() || blocks_.empty()) return;
+  library_.load();
+
+  std::string text;
+  for (const Block& block : blocks_) {
+    text += block.text;
+    text += "\n";
+  }
+  if (!library_.save(readerUrl_, readerTitle_, text)) {
+    showNotice("COULD NOT SAVE", readerTitle_.c_str(), "There was no room on the card, or it is not writable.", false);
+  }
+}
+
+void HackerNewsActivity::unsaveCurrentArticle() {
+  if (!library_.remove(readerUrl_)) return;
+
+  // Reading it from the library and then removing it leaves the reader on
+  // something no longer in the list, so it goes back to where the list is.
+  if (readingSaved_) {
+    buildSavedRows();
+    selected_ = 0;
+    topIndex_ = 0;
+    phase_ = Phase::List;
+  }
+}
+
+bool HackerNewsActivity::openSavedArticle(const int index) {
+  const std::vector<hn::SavedArticle>& saved = library_.articles();
+  if (index < 0 || index >= static_cast<int>(saved.size())) return false;
+  const hn::SavedArticle& article = saved[static_cast<size_t>(index)];
+
+  std::string text;
+  if (!library_.readArticle(article, text)) {
+    showNotice("NOT ON THE DEVICE", article.title.c_str(), "The words for this one are missing from the card.", false);
+    return true;
+  }
+
+  blocks_.clear();
+  size_t i = 0;
+  while (i < text.size()) {
+    const size_t nl = text.find('\n', i);
+    const size_t end = nl == std::string::npos ? text.size() : nl;
+    addBlock(text.substr(i, end - i));
+    i = end == text.size() ? text.size() : nl + 1;
+  }
+  readerUrl_ = article.url;
+  readingSaved_ = true;
+  articleAvailable_ = true;
+  showDocument(article.title.c_str(), false);
+  return true;
+}
+
+void HackerNewsActivity::buildSavedRows() {
+  rowTitles_.clear();
+  rowLabels_.clear();
+  rowValues_.clear();
+  rows_.clear();
+  rowsFitted_ = false;
+  rowTitles_.reserve(library_.articles().size());
+  rowValues_.reserve(library_.articles().size());
+  for (const hn::SavedArticle& article : library_.articles()) {
+    rowTitles_.push_back(article.title);
+    // No footnote: the comment count belongs to the front page and means
+    // nothing once an article is on the device, and there is no second state
+    // for a saved row to be in.
+    rowValues_.emplace_back();
+  }
 }
 
 // --- Drawing -------------------------------------------------------------
@@ -464,7 +687,13 @@ void HackerNewsActivity::render(RenderLock&&) {
   // board, and at the 20px UI cut a 480px panel holds about 28 characters a
   // line: an article became forty page taps and half the headlines on the front
   // page could not finish.
-  fui::GfxRendererTarget target = toybox::makeTarget(renderer, toybox::readingFaces());
+  //
+  // The small slot differs by screen. The list wants the dense cut for its
+  // footnote counts and has no buttons; every other screen wants Jersey on its
+  // buttons and has no footnote. Three slots is a working set, so this is one
+  // assignment rather than a fourth face.
+  fui::GfxRendererTarget target =
+      toybox::makeTarget(renderer, phase_ == Phase::List ? toybox::readingFaces() : toybox::readerFaces());
   const fui::DeviceContext device = target.deviceContext();
   const fui::ThemeTokens tokens = toybox::themeTokens();
   const fui::InputSnapshot noInput{};
@@ -497,14 +726,39 @@ void HackerNewsActivity::render(RenderLock&&) {
         fui::TextStyle titleStyle = tokens.bodyText;
         titleStyle.maxLines = 2;
         const int16_t titleWidth = hnui::listTitleWidth(target, device, tokens);
+        // Per row, the largest cut the headline actually fits in. Big first; if
+        // it would have to be cut, try the small one; if that still would, keep
+        // the small one and let it end in an ellipsis. Both cuts get two lines.
+        //
+        // Measured by rebinding the body slot, because measureText works on
+        // slots rather than faces -- and the label is drawn by us afterwards
+        // for the same reason: ListProps carries one label style for the whole
+        // list, so per-row type cannot go through the component at all.
+        static constexpr int kRowCuts[] = {toybox::kReadingFontId, toybox::kReadingSmallFontId};
+        rowFonts_.clear();
+        rowFonts_.reserve(rowTitles_.size());
         for (const std::string& title : rowTitles_) {
-          rowLabels_.push_back(hnui::fitLines(target, title.c_str(), titleWidth, 2, titleStyle));
+          std::string best;
+          int bestCut = kRowCuts[0];
+          for (const int cut : kRowCuts) {
+            target.setFont(fui::GfxRendererTarget::FONT_BODY, cut);
+            best = hnui::fitLines(target, title.c_str(), titleWidth, 2, titleStyle);
+            bestCut = cut;
+            const size_t length = best.size();
+            if (length < 3 || best.compare(length - 3, 3, "...") != 0) break;
+          }
+          rowLabels_.push_back(best);
+          rowFonts_.push_back(bestCut);
         }
+        target.setFont(fui::GfxRendererTarget::FONT_BODY, toybox::kReadingFontId);
         // A second pass, because a push_back into rowLabels_ can reallocate and
         // ListItem holds pointers rather than copies.
         for (size_t i = 0; i < rowLabels_.size(); ++i) {
           fui::ListItem row;
-          row.label = rowLabels_[i].c_str();
+          // Blank: the component lays out the row, its border, its selection
+          // fill and its hit rect, and we paint the headline over it at this
+          // row's own cut.
+          row.label = "";
           row.value = rowValues_[i].c_str();
           row.actionValue = static_cast<int16_t>(i);
           rows_.push_back(row);
@@ -516,48 +770,107 @@ void HackerNewsActivity::render(RenderLock&&) {
       // Computing it a second time here is how a list scrolls by a different
       // number of rows than it shows.
       const int16_t rowHeight = hnui::listRowHeight(target, tokens);
-      topIndex_ = static_cast<int>(fui::listTopIndexFor(
-          static_cast<int16_t>(selected_), static_cast<uint16_t>(topIndex_),
-          fui::listVisibleRows(hnui::listBand(device), rowHeight, tokens.listRowGap),
-          static_cast<uint16_t>(stories_.size())));
+      topIndex_ = static_cast<int>(
+          fui::listTopIndexFor(static_cast<int16_t>(selected_), static_cast<uint16_t>(topIndex_),
+                               fui::listVisibleRows(hnui::listBand(device), rowHeight, tokens.listRowGap),
+                               static_cast<uint16_t>(stories_.size())));
       hnui::ListModel model;
+      model.showingSaved = showingSaved_;
+      if (!showingSaved_ && stories_.empty()) {
+        // Two different screens, and collapsing them is how a working app reads
+        // as a broken one. Nothing fetched yet is an invitation; a fetch that
+        // failed is an error. The headline is the hit target either way, which
+        // is the front-door rule: the commonest tap is the largest thing on the
+        // screen and needs no button.
+        model.emptyHeadline = frontPageFailed_ ? "NO LUCK" : "TAP TO LOAD";
+        model.emptyMessage = frontPageFailed_ ? "Could not reach Hacker News. Tap to try again."
+                                              : "The front page needs a connection. Saved articles do not.";
+        model.emptyAction = hnui::ActionLoadFrontPage;
+      } else if (showingSaved_ && library_.empty()) {
+        // The normal state of a new device, so it says what it is. An error
+        // here would be a lie and would read as a broken feature.
+        // Two words, because the display cut is wide and "NOTHING SAVED YET"
+        // came out as "NOTHING SAVED Y" on a 480px panel.
+        model.emptyHeadline = "NOTHING SAVED";
+        model.emptyMessage = "Open a story and tap the mark to keep it here for offline reading.";
+      }
       model.items = rows_.empty() ? nullptr : rows_.data();
       model.count = static_cast<int>(rows_.size());
       model.selected = selected_;
       model.topIndex = topIndex_;
       hnui::buildList(screen, model);
+      drawRowLabels(target, device, tokens, model.count, selected_, topIndex_);
       what = "HN front page";
       break;
     }
 
     case Phase::Reading: {
-      // Measured here because measuring needs a draw target, and measured from
-      // the same rect the text is drawn into: readerBody() is the one function
-      // that owns that rectangle, so a page turn cannot skip a line.
-      const fui::Rect body = hnui::readerBody(device);
-      const int16_t lineHeight = target.lineHeight(tokens.bodyText.font);
-      visibleLines_ = fui::textAreaVisibleLines(body, lineHeight);
-      lineCount_ = fui::textAreaMeasure(target, body.width, document_.c_str(), tokens.bodyText, 0).lineCount;
+      // Wrapping needs a draw target, so it happens here rather than at fetch
+      // time, and once per document rather than per paint.
+      if (!linesWrapped_) wrapBlocks(target, device, tokens);
+
+      visibleLines_ = hnui::readerVisibleLines(target, device, tokens);
+      lineCount_ = static_cast<uint32_t>(lineText_.size());
 
       const uint32_t pages = visibleLines_ > 0 ? (lineCount_ + visibleLines_ - 1) / visibleLines_ : 1;
       const uint32_t page = visibleLines_ > 0 ? topLine_ / visibleLines_ + 1 : 1;
       std::snprintf(pageLabel_, sizeof(pageLabel_), "%lu/%lu", static_cast<unsigned long>(page),
                     static_cast<unsigned long>(pages < 1 ? 1 : pages));
 
-      char title[40];
-      shout(title, sizeof(title), readingComments_ ? "COMMENTS" : "ARTICLE");
+      // Fitted against the bold title cut the band actually sets it in, and
+      // ellipsised rather than clipped: a headline that stops mid-word reads as
+      // a rendering fault.
+      //
+      // One line. The band is 76px and two lines of the bold cut overflow it --
+      // the second was drawn straight through the rule underneath. A title cut
+      // to one line still says which story you are in, which is its whole job.
+      const bool canSaveHere = !readingComments_ && articleAvailable_ && !readerUrl_.empty();
+      // Step the cut down before cutting the words. At the bold 16 most story
+      // titles overflowed the band and were ellipsised to three or four words;
+      // at 12 nearly all of them fit whole, and a smaller headline that says
+      // what the story is beats a bigger one that does not.
+      //
+      // Done by rebinding the title slot rather than by measuring against a
+      // second slot, because the small slot carries the button face and the
+      // footer must stay Jersey. Three slots is a working set: rebinding one
+      // mid-render is a single assignment.
+      // Largest first, and a smaller cut earns a second line: this band is 76px,
+      // which two lines of the 16px cut overflow and two of the 12px cut do not.
+      // Without that the step-down buys almost nothing, because a long headline
+      // needs about 530px and the panel is 480 wide -- no single line can hold
+      // it at any size we have.
+      struct BandCut {
+        int font;
+        int lines;
+      };
+      static constexpr BandCut kBandCuts[] = {{toybox::kReadingBoldFontId, 1}, {toybox::kReadingBoldSmallFontId, 2}};
+      int bandLines = 1;
+      for (const BandCut& cut : kBandCuts) {
+        target.setFont(fui::GfxRendererTarget::FONT_TITLE, cut.font);
+        const int16_t width = hnui::readerTitleWidth(target, device, tokens, canSaveHere, pageLabel_);
+        readerTitleFitted_ = hnui::fitLines(target, readerTitle_.c_str(), width, cut.lines, tokens.titleText);
+        bandLines = cut.lines;
+        const size_t length = readerTitleFitted_.size();
+        if (length < 3 || readerTitleFitted_.compare(length - 3, 3, "...") != 0) break;
+      }
 
       hnui::ReaderModel model;
-      model.title = title;
-      model.text = document_.c_str();
+      model.title = readerTitleFitted_.c_str();
+      model.titleLines = bandLines;
+      model.lineText = linePtr_.empty() ? nullptr : linePtr_.data();
+      model.lineMeta = lineMeta_.empty() ? nullptr : lineMeta_.data();
+      model.lineCount = static_cast<int>(linePtr_.size());
       model.topLine = topLine_;
       model.pageLabel = pageLabel_;
       model.showingComments = readingComments_;
-      // Coming back to an article is only offered when there was one. Going to
-      // the comments always is.
-      model.swapAvailable = readingComments_ ? articleAvailable_ : true;
+      model.articleAvailable = articleAvailable_;
+      model.commentsAvailable = true;
       model.canPagePrev = topLine_ > 0;
       model.canPageNext = lineCount_ > topLine_ + visibleLines_;
+      // Only an article can be kept; a thread is a conversation that will have
+      // moved on by the time it is read again.
+      model.canSave = canSaveHere;
+      model.saved = model.canSave && library_.contains(readerUrl_);
       hnui::buildReader(screen, model);
       what = "HN reader";
       break;
@@ -565,7 +878,18 @@ void HackerNewsActivity::render(RenderLock&&) {
 
     case Phase::Notice: {
       hnui::NoticeModel model;
-      model.headline = noticeHeadline_.c_str();
+      if (noticeStory_.empty()) {
+        model.headline = noticeHeadline_.c_str();
+      } else {
+        // Fitted the same way a story row is, against the display cut this
+        // screen sets it in.
+        fui::TextStyle headline = tokens.titleText;
+        headline.maxLines = 2;
+        noticeFitted_ = hnui::fitLines(target, noticeStory_.c_str(),
+                                       static_cast<int16_t>(device.width - 2 * toybox::kMargin), 2, headline);
+        model.headline = noticeFitted_.c_str();
+        model.state = noticeHeadline_.c_str();
+      }
       model.message = noticeMessage_.c_str();
       model.mark = noticeUnreadable_ ? &icon_unreadable_32 : nullptr;
       model.actionLabel = noticeUnreadable_ ? "READ THE COMMENTS" : nullptr;
