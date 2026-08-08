@@ -1984,7 +1984,7 @@ void testMurdleGridResolvesEveryCellItDrew() {
   // is invisible until a solved grid disagrees with the answer.
   for (const murdle::Tier tier : {murdle::Tier::Elementary, murdle::Tier::HardBoiled}) {
     murdle::Puzzle puzzle = murdleCase(tier, 4242u);
-    murdle::Grid marks;
+    murdle::Marks marks;
     marks.reset(puzzle.shape);
 
     Rendered out;
@@ -2026,7 +2026,7 @@ void testMurdleGridEdgesAreLive() {
   // answers taps in its middle. Checked at the far corners of the whole grid,
   // one pixel inside.
   murdle::Puzzle puzzle = murdleCase(murdle::Tier::HardBoiled, 77u);
-  murdle::Grid marks;
+  murdle::Marks marks;
   marks.reset(puzzle.shape);
   Rendered out;
   murdleui::CaseModel model;
@@ -2052,7 +2052,7 @@ void testMurdleGridEdgesAreLive() {
 
 void testMurdleGridDrawsMarksItIsGiven() {
   murdle::Puzzle puzzle = murdleCase(murdle::Tier::Elementary, 5u);
-  murdle::Grid marks;
+  murdle::Marks marks;
   marks.reset(puzzle.shape);
   Rendered out;
   murdleui::CaseModel model;
@@ -2070,7 +2070,7 @@ void testMurdleClueFaceIsPagedAndNeverOverflows() {
   // a pager. A control past the buffer limit draws normally and cannot be
   // tapped, with no log line.
   murdle::Puzzle puzzle = murdleCase(murdle::Tier::Impossible, 31u);
-  murdle::Grid marks;
+  murdle::Marks marks;
   marks.reset(puzzle.shape);
   for (int page = 0; page < 6; ++page) {
     Rendered out;
