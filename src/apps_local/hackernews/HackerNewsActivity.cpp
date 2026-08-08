@@ -479,11 +479,11 @@ void HackerNewsActivity::render(RenderLock&&) {
   // page could not finish.
   fui::GfxRendererTarget target = toybox::makeTarget(renderer, toybox::readingFaces());
   const fui::DeviceContext device = target.deviceContext();
-  const fui::ThemeTokens tokens = toybox::themeTokens();
+  const fui::ThemeTokens& tokens = toybox::themeTokens();
   const fui::InputSnapshot noInput{};
   interactionsReady_ = false;
   toybox::Frame frame(target, device, noInput, interactions_);
-  toybox::Screen screen(frame, tokens);
+  toybox::Screen screen(frame);
 
   const char* what = "Hacker News";
 

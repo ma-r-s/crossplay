@@ -106,11 +106,11 @@ void ShelfFolderActivity::render(RenderLock&&) {
   renderer.clearScreen();
   fui::GfxRendererTarget target = toybox::makeTarget(renderer);
   const fui::DeviceContext device = target.deviceContext();
-  const fui::ThemeTokens tokens = toybox::themeTokens();
+  const fui::ThemeTokens& tokens = toybox::themeTokens();
   const fui::InputSnapshot noInput{};
   interactionsReady = false;
   toybox::Frame frame(target, device, noInput, interactions);
-  toybox::Screen screen(frame, tokens);
+  toybox::Screen screen(frame);
 
   // Keep the selection on screen. The list is virtualized, so a selection below
   // the fold would otherwise be styled on a row that is never drawn.

@@ -59,8 +59,8 @@ import sys
 TASKS = [
     (
         "ActivityManagerRender",
-        8192,
-        "src/activities/ActivityManager.cpp:32",
+        "CROSSPOINT_RENDER_TASK_STACK",
+        "platformio.ini, default in src/activities/ActivityManager.cpp",
         "ActivityManager::renderTaskLoop",
         "::render(RenderLock&&)",
     ),
@@ -139,6 +139,31 @@ def deepest(root, frames, calls):
     return walk(root, frozenset())
 
 
+def budget_of(spec):
+    """Resolve a task's stack size.
+
+    An int is the literal in the source. A string is a macro, looked up in
+    platformio.ini and falling back to the #ifndef default beside the
+    xTaskCreate call. Reading it beats restating it: the first run after the
+    stack was raised to 16384 still checked against a hardcoded 8192 and failed
+    a task that fits, which is the same drift this script exists to catch.
+    """
+    if isinstance(spec, int):
+        return spec, "literal"
+    ini = pathlib.Path("platformio.ini")
+    if ini.exists():
+        m = re.search(rf"^\s*-D{spec}=(\d+)", ini.read_text(), re.M)
+        if m:
+            return int(m.group(1)), "platformio.ini"
+    for src in pathlib.Path("src").rglob("*.cpp"):
+        m = re.search(
+            rf"^#define\s+{spec}\s+(\d+)", src.read_text(errors="replace"), re.M
+        )
+        if m:
+            return int(m.group(1)), f"{src} default"
+    return None, "unresolved"
+
+
 def match(needle, pretty, frames):
     """Symbols whose readable signature contains `needle`, worst frame first."""
     hits = [sym for sym, name in pretty.items() if needle in name]
@@ -170,7 +195,12 @@ def main():
     )
 
     failed = False
-    for task, budget, where, entry, fanout in TASKS:
+    for task, budget_spec, where, entry, fanout in TASKS:
+        budget, budget_src = budget_of(budget_spec)
+        if budget is None:
+            print(f"  ?  {task:<24} stack {budget_spec!r} could not be resolved")
+            failed = True
+            continue
         found = match(entry, pretty, frames)
         if not found:
             print(f"  ?  {task:<24} entry {entry!r} not in the graph")
@@ -199,7 +229,7 @@ def main():
             f"{'   RECURSION' if cycle else ''}"
         )
         if args.verbose or head < MIN_HEADROOM:
-            print(f"      declared at {where}")
+            print(f"      {budget} from {budget_src} ({where})")
             for step in path[:14]:
                 print(
                     f"        {step if step.startswith('[') else show(step, pretty, frames)}"

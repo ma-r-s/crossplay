@@ -416,7 +416,7 @@ void BattleshipActivity::drawStartMenu() {
   const fui::InputSnapshot noInput{};
   interactionsReady = false;
   toybox::Frame frame(target, target.deviceContext(), noInput, interactions);
-  toybox::Screen screen(frame, toybox::themeTokens());
+  toybox::Screen screen(frame);
   const fui::Rect slot = bshipui::buildStartMenu(screen, startModel());
   drawMiniGrid(Rect{slot.x, slot.y, slot.width, slot.height});
   interactionsReady = true;
@@ -430,7 +430,7 @@ void BattleshipActivity::drawPlaceScreen() {
   const fui::InputSnapshot noInput{};
   interactionsReady = false;
   toybox::Frame frame(target, target.deviceContext(), noInput, interactions);
-  toybox::Screen screen(frame, toybox::themeTokens());
+  toybox::Screen screen(frame);
   const fui::Rect slot = bshipui::buildPlaceChrome(screen, placeModel());
   bodySlot = Rect{slot.x, slot.y, slot.width, slot.height};
   drawPlaceGrid();
@@ -446,7 +446,7 @@ void BattleshipActivity::drawBoardScreen() {
   const fui::InputSnapshot noInput{};
   interactionsReady = false;
   toybox::Frame frame(target, target.deviceContext(), noInput, interactions);
-  toybox::Screen screen(frame, toybox::themeTokens());
+  toybox::Screen screen(frame);
   const fui::Rect slot = bshipui::buildBoardChrome(screen, boardModel());
   bodySlot = Rect{slot.x, slot.y, slot.width, slot.height};
 
