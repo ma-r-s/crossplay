@@ -23,13 +23,14 @@ wifi look subtly different on the same screen for no reason a user could name.
 
 ## Two renditions
 
-Every comic has a **page** rendition. 4% also have a **closer** one.
+Every comic has a **page** rendition. 8% also have a **closer** one, and
+**those comics open in it**.
 
 The page rendition is fitted so the comic's full width is on the panel, so the
 page view has no horizontal axis at all and the only motion is down. 90% of the
 archive is a single screen and never moves.
 
-The closer rendition exists for the comics that fit-to-width cannot render
+The closer rendition is for the comics that fit-to-width cannot render
 legible — the big near-square ones like #3266, #256 and #1110, which rotation
 cannot help. It has to be a _second stored image_: the panel is 1-bit, and
 resampling art that is already 1-bit is mush, so the only place a second scale
@@ -166,23 +167,27 @@ page view had it — #3179 is _enlarged_ 1.51x to 480x757 and then pans by a
 single pixel. 96 comics were in that state; this removes all of them for at
 most 8% of scale and a thin margin down the sides.
 
-**3. The closer rendition**, and it is **always exactly two columns**:
+**3. The closer rendition**, for comics whose page view is shrunk past
+`--closer-floor` (0.80). **These open in the closer view**, and Confirm pulls
+back to the whole comic: showing a comic too small to read and making you ask
+for the readable one is the wrong way round. It is **always exactly two
+columns**:
 
 ```
 kCloserWidth    = 2 * 480 - 48   = 912    two columns overlapping by 48px
 --max-closer-scale               = 1.25   past this it is magnification, not detail
 kMinCloserWidth = 480 + 756/2    = 720    column two must be worth the tap
 
-closerScale = min(maxCloserScale, kCloserWidth / w)
-exists      = closerW >= kMinCloserWidth  and  closerScale >= pageScale * --zoom-gain
+closerScale = min(--max-closer-scale, kCloserWidth / w)
+exists      = pageScale < --closer-floor  and  closerW >= kMinCloserWidth
 ```
 
 The guarantee is in the dimensions, not in a check. That distinction is the
 whole lesson of the previous version: it decided at _runtime_ whether a second
 column was worth showing, and the answer it gave for #1606 — 481px wide — was
 a whole extra column revealing **one pixel**. Measured across the archive, the
-second column now reveals at least **378px, exactly half a screen**, in every
-one of the 134 comics that qualify, and nothing sits near the boundary.
+second column now reveals at least **432px**, well over half a screen, in every
+one of the 246 comics that qualify.
 
 The 48px overlap is so a word split at the column seam is readable on both
 sides.
@@ -196,9 +201,8 @@ The budget is `max(width * 3%, 12)` ink pixels, and **the floor does more work
 than the percentage**: structural ink is a count of vertical strokes and does
 not scale with width.
 
-**Storage.** 126MB before this change, **135MB** after — the closer renditions
-cost about 20MB and the page ones are smaller than the native-size images they
-replace. Source PNGs would be ~180MB.
+**Storage.** 126MB before this change, **149MB** after: 3279 comics, of which
+246 carry a second rendition. Source PNGs would be ~180MB.
 
 ## Building one
 

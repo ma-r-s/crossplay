@@ -13,11 +13,10 @@
 // Two views, and only one of them has a sideways axis
 // ---------------------------------------------------------------------------
 //
-// **The page view** is how every comic opens, with no exceptions and no
-// decision taken about it. The artwork is stored already fitted so its full
-// width is on the panel, so the page view has **no horizontal axis at all**:
-// the only motion is down, half a screen at a time, snapped to a gap in the
-// art. 90% of the archive is a single screen and never moves.
+// **The page view** is the whole comic: the artwork is stored already fitted
+// so its full width is on the panel, so the page view has **no horizontal axis
+// at all** and the only motion is down, half a screen at a time, snapped to a
+// gap in the art. 93% of the archive opens here and never moves.
 //
 // That is a repair, not a preference. The previous version kept any comic
 // wider than the panel at full size and read it in columns, which meant #1606
@@ -35,11 +34,18 @@
 // rule that changes how the reader works cannot be decided by measuring the
 // artwork.** So it is not decided automatically at all.
 //
-// **The closer view** is the reader's own choice, taken with the Confirm
-// button, and it exists for only 133 comics (4%) -- the big near-square ones
-// like #3266, #256 and #1110 that rotation cannot help and that fit-to-width
-// renders illegible. It is a *second stored rendition*, because the panel is
-// 1-bit and enlarging 1-bit art on the device is mush.
+// **The closer view** is a second stored rendition -- it has to be stored,
+// because the panel is 1-bit and resampling 1-bit art on the device is mush.
+// It exists only for comics the page view cannot render legible: the big
+// near-square ones like #3266, #256 and #1110, which rotation cannot help.
+//
+// **Those comics open in it.** Showing a comic too small to read and making
+// the reader ask for the readable one is the wrong way round; the Confirm
+// button pulls *back* to the whole comic, which is the thing you want
+// occasionally rather than the thing you want first. That the builder decides
+// which view a comic opens in is not the cliff this file spent so long
+// avoiding: both views use the same controls, and one button press undoes the
+// choice if it was wrong for a particular comic.
 //
 // It has a horizontal axis, so its guarantee has to be built into its
 // dimensions rather than checked afterwards -- see kCloserWidth. It is always

@@ -197,6 +197,13 @@ bool XkcdActivity::loadComic(const int position) {
   comic_ = c;
   position_ = position;
   at_ = xkcd::Position{};
+  // **A comic opens in whatever view can actually be read.** The builder only
+  // makes a closer rendition for comics whose page view is shrunk past
+  // legibility, so if there is one, that is the one to open in. Opening on a
+  // comic too small to read and making the reader ask for the readable version
+  // is the wrong way round -- OK pulls back to the whole comic, which is the
+  // thing you want occasionally, not the thing you want first.
+  if (comic_.hasCloser()) at_.lens = xkcd::Lens::Closer;
   xkcd::readTitle(*textSrc_, comic_, title_, sizeof(title_));
   xkcd::readAlt(*textSrc_, comic_, alt_, sizeof(alt_));
   markRead(comic_.num);

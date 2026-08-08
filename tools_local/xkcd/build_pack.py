@@ -14,14 +14,15 @@ interrupt it and run it again.
 
 Two renditions per comic
 ------------------------
-The PAGE rendition is how every comic opens: fitted so its full width is on the
+The PAGE rendition is the whole comic, fitted so its full width is on the
 panel, so the page view has no horizontal axis and the only motion is down.
-90% of the archive is one screen and never moves at all.
+93% of the archive opens here and never moves at all.
 
-The CLOSER rendition exists for the 4% that fit-to-width cannot render legible
--- the big near-square ones like #3266 and #256, which rotation cannot help.
-It is always exactly two columns wide, which is how the "whole extra view for
-one pixel of new artwork" defect is prevented rather than merely tested for.
+The CLOSER rendition is for comics that fit-to-width cannot render legible --
+the big near-square ones like #3266 and #256, which rotation cannot help. Those
+comics OPEN in it, and Confirm pulls back to the whole comic. It is always
+exactly two columns wide, which is how the "whole extra view for one pixel of
+new artwork" defect is prevented rather than merely tested for.
 
 Both are built here, on a host, with a real resampling filter before a single
 dither. That is the whole reason there is a pack: resampling art that is
@@ -377,16 +378,17 @@ def main() -> int:
         "(which gains almost nothing) stays upright.",
     )
     ap.add_argument(
-        "--zoom-gain",
+        "--closer-floor",
         type=float,
-        default=1.25,
-        help="a closer view has to be at least this much bigger than the page "
-        "view to be worth storing and worth a tap.",
+        default=0.80,
+        help="a comic whose page view is shrunk below this opens in its closer "
+        "view instead, because the page view is not readable. OK pulls back "
+        "to the whole comic.",
     )
     ap.add_argument(
         "--max-closer-scale",
         type=float,
-        default=1.25,
+        default=1.60,
         help="never enlarge a closer view past this. Beyond it the extra "
         "pixels are magnification rather than detail.",
     )
@@ -532,15 +534,19 @@ def main() -> int:
 
             stride, bits = conv.convert(page)
 
-            # The closer rendition, when there is one worth making.
+            # The closer rendition, for comics the page view cannot render
+            # readable. **These OPEN in the closer view**, because showing a
+            # comic too small to read and making you ask for the readable one
+            # is the wrong way round; OK pulls back to the whole comic.
             closer_scale = min(args.max_closer_scale, CLOSER_WIDTH / sw)
             closer_w = round(sw * closer_scale)
             closer_bits = None
             closer_stride = closer_h = 0
             if (
                 not args.no_closer
+                and page_scale < args.closer_floor
                 and closer_w >= MIN_CLOSER_WIDTH
-                and closer_scale >= page_scale * args.zoom_gain
+                and closer_scale > page_scale
                 and sh * closer_scale <= MAX_COMIC_HEIGHT
             ):
                 closer = resample(gray, sw, sh, closer_scale)

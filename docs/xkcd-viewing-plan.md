@@ -133,7 +133,7 @@ would have turned it for nothing.
 to 1.15 sends 53% of the archive sideways to rescue 45 more comics, and raising
 to 1.5 costs the worst 5% of page scales (0.74 -> 0.65).
 
-### The closer view: the reader's choice, never the builder's
+### The closer view, and which one a comic opens in
 
 Rendered through the shipping path (LANCZOS then the firmware's own Atkinson),
 #3266 "Holes" at its 0.649 page scale is structurally clear and **its lettering
@@ -223,8 +223,8 @@ that long wants anyway.
 | -------------------- | ----------------------------- |
 | artwork, top half    | back one view                 |
 | artwork, bottom half | forward one view              |
-| bar, the map         | enter / leave the closer view |
-| bar, anywhere else   | the alt text                  |
+| Confirm button       | whole comic <-> closer view   |
+| the bar              | the alt text                  |
 | side buttons         | previous / next comic         |
 
 One gesture moves you through a comic and it means the same thing in both
@@ -263,3 +263,25 @@ sideways will arrive upright. The page and closer renditions can both be
 produced (two passes at different target widths); the rotation cannot, without
 a 1-bit transpose the firmware does not have today. That path has never met a
 real network either, so it is noted rather than claimed.
+
+
+## Amendment, same day: which view a comic opens in
+
+Shipped with the whole-comic view as the default and the closer view opt-in.
+Mario's reaction to the first screenshot was immediate and correct: "it's still
+really zoomed out, not good enough to read."
+
+He was right, and the mistake is worth keeping. The argument above -- that no
+automatic rule may decide how the reader works -- is sound, but it was applied
+one step too far. It says the *interaction model* must not be chosen by
+measuring the artwork. It does not say the *starting position* must not be:
+
+- both views use exactly the same controls, so nothing has to be relearned;
+- one button press undoes the choice, immediately and visibly.
+
+A cliff you can step back from in one press is not the cliff that made the
+first version unusable. So a comic whose page view is shrunk past
+`--closer-floor` (0.80) now **opens in its closer view**, and Confirm pulls
+back to the whole comic. 246 comics (8%) do that. Showing someone a comic too
+small to read and asking them to request the readable one is the wrong way
+round, whatever the principle behind it.
