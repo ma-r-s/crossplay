@@ -45,7 +45,7 @@ CARD = """
         <path d="M2.6 10.4V2.6h7.8"/><path d="M29.4 10.4V2.6h-7.8"/>
         <path d="M2.6 21.6v7.8h7.8"/><path d="M29.4 21.6v7.8h-7.8"/>
       </g>
-    </svg><span>Crossplay</span>
+    </svg><span>CrossPlay</span>
   </div>
   <h1>E-ink is good<br>at waiting.</h1>
   <p>Games, study and comics for the Xteink X4 Pro.</p>

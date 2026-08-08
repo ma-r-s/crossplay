@@ -1,4 +1,4 @@
-# The Crossplay site
+# The CrossPlay site
 
 Static. No build step, no framework, no dependencies. `index.html`, one
 stylesheet, and the assets it names.

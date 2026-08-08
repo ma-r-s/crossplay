@@ -1,6 +1,6 @@
 <h1 align="center">
-  <img src="site/assets/logo.svg#gh-light-mode-only" width="72" alt="Crossplay"><img src="site/assets/logo-dark.svg#gh-dark-mode-only" width="72" alt="Crossplay"><br>
-  Crossplay
+  <img src="site/assets/logo.svg#gh-light-mode-only" width="72" alt="CrossPlay"><img src="site/assets/logo-dark.svg#gh-dark-mode-only" width="72" alt="CrossPlay"><br>
+  CrossPlay
 </h1>
 
 <p align="center">
@@ -19,11 +19,11 @@
   <a href="https://github.com/ma-r-s/crossplay/actions/workflows/crossplay-ci.yml"><img src="https://github.com/ma-r-s/crossplay/actions/workflows/crossplay-ci.yml/badge.svg?branch=xteink" alt="Build status for the xteink branch"></a>
 </p>
 
-![Crossplay on the Xteink X4 Pro](site/assets/shots/og.png)
+![CrossPlay on the Xteink X4 Pro](site/assets/shots/og.png)
 
-Crossplay is a fork of [CrossPoint](https://crosspointreader.com/) for the
+CrossPlay is a fork of [CrossPoint](https://crosspointreader.com/) for the
 **Xteink X4 Pro**. CrossPoint turns the device into an excellent e-reader.
-Crossplay keeps all of that and adds the other things a screen that holds still
+CrossPlay keeps all of that and adds the other things a screen that holds still
 is good at: games you think about rather than react to, spaced-repetition
 flashcards, comics, and two devices that play together with nothing to set up.
 
@@ -54,7 +54,7 @@ account, no router, no internet.
 
 ## Install it
 
-Crossplay targets the **Xteink X4 Pro** only. For every other supported device,
+CrossPlay targets the **Xteink X4 Pro** only. For every other supported device,
 CrossPoint upstream is the right answer and is excellent.
 
 > **No one has run this on a physical device.** It is built against a simulator
@@ -130,7 +130,7 @@ and what has to be true before it deploys.
 
 ## Credit and licence
 
-Crossplay is MIT, like the project it forks, and it is a fork in git's sense as
+CrossPlay is MIT, like the project it forks, and it is a fork in git's sense as
 well as in the README's: this repository is a GitHub fork of
 [crosspoint-reader/crosspoint-reader](https://github.com/crosspoint-reader/crosspoint-reader),
 shares its commit history, and merges every upstream release rather than
@@ -141,12 +141,12 @@ re-implementing it. It stands on
 
 xkcd comics are by Randall Munroe, [CC BY-NC 2.5](https://xkcd.com/license.html),
 fetched by the device from [xkcd.com](https://xkcd.com). Connections puzzles are
-the New York Times'; Crossplay ships none of them and downloads only what you
+the New York Times'; CrossPlay ships none of them and downloads only what you
 ask for. Type is Jersey 25 and Instrument Serif, both SIL OFL.
 
-Jaipur, Insider, Murdle, Battleship and Connections are trademarks of their respective owners. Crossplay implements the games; it is not affiliated with, endorsed by or sponsored by any of them.
+Jaipur, Insider, Murdle, Battleship and Connections are trademarks of their respective owners. CrossPlay implements the games; it is not affiliated with, endorsed by or sponsored by any of them.
 
 Reading positions sync to CrossPoint's own server by default. That is
 upstream's infrastructure rather than this fork's, inherited so that flashing
-Crossplay over CrossPoint does not orphan an existing sync; the address is a
+CrossPlay over CrossPoint does not orphan an existing sync; the address is a
 setting and can be pointed at any KOSync server.

@@ -1,4 +1,4 @@
-# Crossplay's own CI.
+# CrossPlay's own CI.
 #
 # Upstream's ci.yml only fires on pushes to `master`, which this fork does not
 # have, so without this the default branch had no checks at all and the repo
@@ -10,7 +10,7 @@
 # host suites, and it does not try to reproduce clang-format or cppcheck --
 # those are upstream's jobs, they run on every pull request already, and a
 # second copy would only drift.
-name: Crossplay
+name: CrossPlay
 
 on:
   push:

@@ -348,7 +348,7 @@ assignment never happened. Name one more field (the alignment the component is
 going to apply anyway) and the style is treated as owned.
 
 **`HeaderProps::rightLabel` is drawn with `subtitleText`, not `trailingText`.**
-`trailingText` belongs to the trailing *button*. On Toybox's solid black band a
+`trailingText` belongs to the trailing _button_. On Toybox's solid black band a
 subtitle left at the theme default is black on black, so the label is invisible
 and indistinguishable from never having been set: the Hacker News page
 indicator was missing through two renders that way. Same defect as the
@@ -357,7 +357,7 @@ black-on-black header title, one prop over.
 **A list row's title band is one line tall the moment it has a subtitle.** With
 `labelText.maxLines = 2` and a subtitle, the second line of the label is drawn
 straight through the subtitle underneath it. The component supports a wrapping
-label *or* a subtitle, never both; put the secondary value in the `value` slot
+label _or_ a subtitle, never both; put the secondary value in the `value` slot
 instead, which sits in the band beside the label.
 
 **A glyph the font does not have draws as nothing.** No box, no fallback, no
@@ -391,7 +391,7 @@ the cheapest big win available to every app's appearance.
 **Arduino.h turns some ordinary method names into something else.** It defines
 `word(...)` as a function-like macro expanding to `makeWord(...)`, so a perfectly
 reasonable `Round::word()` becomes `Round::makeWord()` in every translation unit
-that reaches Arduino -- and *only* there. Insider's rules compiled, its screens
+that reaches Arduino -- and _only_ there. Insider's rules compiled, its screens
 compiled, every host test passed and the simulator ran the whole game; the
 device build failed at link with `undefined reference to
 insider::Round::makeWord()`, naming a method that appears in no source file.
@@ -400,7 +400,7 @@ The shape is what to remember: the freestanding layers this fork is built around
 never see `Arduino.h`, so a collision like this is invisible to everything green
 and shows up once, at the end, as a linker error about a symbol you did not
 write. `bit(b)` is the other one defined there today. Only function-like macros
-are involved, so a *member* called `word` is fine and a *method* called `word()`
+are involved, so a _member_ called `word` is fine and a _method_ called `word()`
 is not. Run `pio run -e x4pro` before believing an app is done, not just the
 simulator.
 
@@ -416,8 +416,8 @@ watcher or you get an infinite rebuild loop.
 
 ### What CrossPoint's renderer does not have
 
-Two things a CrossMux-era app reached for that are absent here, both found by
-the compiler during the move:
+Two things an app written against the fork's earlier base reached for that are
+absent here, both found by the compiler during the move:
 
 - **No one-shot refresh override.** There is no `requestNextFullRefresh()`; the
   only control is the mode argument on `displayBuffer(HalDisplay::RefreshMode)`.
@@ -599,7 +599,7 @@ Rules that are worth knowing:
   pairing screen, which meant the person you were playing disappeared the moment
   you started playing them.
 - **A label and the thing it draws are not always the same string.** The link
-  seats are labelled "YOU" and drawn from your *name*, and the first version
+  seats are labelled "YOU" and drawn from your _name_, and the first version
   derived the face from the label -- so every player saw a blank head in their
   own seat, because "YOU" parses to no words. Nothing failed and nothing logged.
   The test had passed a real name into the label, which is the shape of the

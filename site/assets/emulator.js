@@ -102,7 +102,7 @@
     var canvas = document.createElement("canvas");
     canvas.className = "device-canvas";
     canvas.setAttribute("role", "img");
-    canvas.setAttribute("aria-label", "The Crossplay firmware running live");
+    canvas.setAttribute("aria-label", "The CrossPlay firmware running live");
     // Focusable, because the arrow keys, Enter and Backspace are the device's
     // buttons and the page needs them back the moment focus leaves. See the
     // guard in keyHandler.

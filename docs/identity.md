@@ -9,7 +9,7 @@ eventually serve it, cut the paragraph.
 
 What this device already had is aimed at reading. CrossPoint is an e-reader and
 says so ("Read without limits"); FreeInk is the stack it stands on ("An open
-ecosystem for e-readers"). Neither is wrong, and Crossplay is not a criticism of
+ecosystem for e-readers"). Neither is wrong, and CrossPlay is not a criticism of
 either: it is built on CrossPoint and tracks it daily.
 
 The difference is one observation. **The thing that makes e-ink good for reading
@@ -40,7 +40,7 @@ someone already knows what the thing is.
 
 ## The two things that are actually novel
 
-Most of what Crossplay adds is "apps exist". These two are the load-bearing ones,
+Most of what CrossPlay adds is "apps exist". These two are the load-bearing ones,
 and any description that omits them has described a folder of minigames.
 
 **A shape for still activities.** The apps are not ports that happen to run.
@@ -121,14 +121,17 @@ sentence where a button gets three words, but it may not become a brochure.
 
 ### Wording that is settled
 
-- **Crossplay**, one word, capital C, no space. Not "CrossPlay".
+- **CrossPlay**, one word, no space, capital C and capital P. Not "Crossplay".
+  The lowercase form survives only where it is an identifier rather than the
+  name: the `ma-r-s/crossplay` repo, the `crossplay.ma-r-s.com` host, the
+  release binary, and the `crossplay_*` symbols the browser build exports.
 - **D&Diagrams** for the nonogram game. Lowercase "dungeons" when you mean the
   puzzles themselves.
 - **PLAY NEARBY** for the link layer, in any user-facing context. "Link" and
   "linkplay" are internal words.
 - It is a **fork of CrossPoint**, said plainly and early. We track it, we did not
   replace it, and the relationship is a credential rather than an embarrassment.
-- The device is the **Xteink X4 Pro**. Crossplay does not claim the others.
+- The device is the **Xteink X4 Pro**. CrossPlay does not claim the others.
 
 ## The mark
 
@@ -155,10 +158,10 @@ so the theme toggle moves it; `favicon.svg` resolves the colour with a
 would come out black against a dark tab strip. One shape, two files: change one
 and change the other.
 
-# Crossplay: the identity, on the device and off it
+# CrossPlay: the identity, on the device and off it
 
 [`design-language.md`](design-language.md) is the authority for what an app looks
-like on the panel. This is the layer above it: what Crossplay _is_, how it says
+like on the panel. This is the layer above it: what CrossPlay _is_, how it says
 so, and what survives when the identity leaves the device for a screenshot, a
 README or a web page.
 
