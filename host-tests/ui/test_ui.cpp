@@ -2248,25 +2248,27 @@ void testTheBoardFitsThePanel() {
   CHECK(last.y + last.height + toybox::kPillHeight + toybox::kGutter * 2 <= 800);
 }
 
-void testTheToolSwitchIsAlwaysVisibleAndBothHalvesWork() {
-  mineui::BoardModel digging;
-  minesweeper::start(digging.game, 5u);
-  digging.tool = minesweeper::Tool::Dig;
+void testTheCounterSaysWhatItCounts() {
+  mineui::BoardModel model;
+  minesweeper::start(model.game, 5u);
+  model.game.status = minesweeper::Status::Playing;
 
   Rendered out;
-  buildMs<mineui::BoardModel, mineui::buildBoard>(out, digging);
-  // A mode you cannot see is what makes modes bad, so both names are on screen
-  // whichever is live.
-  CHECK(out.target.drew("DIG"));
-  CHECK(out.target.drew("FLAG"));
+  buildMs<mineui::BoardModel, mineui::buildBoard>(out, model);
+  // A bare numeral could not say what it counted, and with no total on screen
+  // the player could not recover the denominator.
+  CHECK(out.target.drew("10 OF 10"));
 
-  // Both halves are reachable, and they are separate actions -- tapping the
-  // tool you already hold must be a no-op, not a silent switch to the other.
-  const int capsuleY = 800 - toybox::kMargin - toybox::kPillHeight / 2;
-  const fui::ActionEvent leftHalf = out.tap(120, capsuleY);
-  const fui::ActionEvent rightHalf = out.tap(360, capsuleY);
-  CHECK(leftHalf.action == mineui::ActionPickDig);
-  CHECK(rightHalf.action == mineui::ActionPickFlag);
+  minesweeper::toggleFlag(model.game, 0, 0);
+  minesweeper::toggleFlag(model.game, 1, 0);
+  Rendered flagged;
+  buildMs<mineui::BoardModel, mineui::buildBoard>(flagged, model);
+  CHECK(flagged.target.drew("8 OF 10"));
+
+  // There is no tool switch any more: dig is a tap and flag is a hold, so
+  // neither word should appear as a control.
+  CHECK(!out.target.drew("DIG"));
+  CHECK(!out.target.drew("FLAG"));
 }
 
 void testTheBoardStaysWithinItsOwnArea() {
@@ -2275,9 +2277,9 @@ void testTheBoardStaysWithinItsOwnArea() {
   // bounds were wrong, and nothing on screen would show it.
   int c = -1;
   int r = -1;
-  const int capsuleY = 800 - toybox::kMargin - toybox::kPillHeight / 2;
-  CHECK(!mineui::cellAt(device(), 120, capsuleY, c, r));
-  CHECK(!mineui::cellAt(device(), 360, capsuleY, c, r));
+  const int stripY = 800 - toybox::kMargin - toybox::kPillHeight / 2;
+  CHECK(!mineui::cellAt(device(), 120, stripY, c, r));
+  CHECK(!mineui::cellAt(device(), 360, stripY, c, r));
   CHECK(!mineui::cellAt(device(), 240, toybox::kHeaderHeight / 2, c, r));
 }
 
@@ -2340,7 +2342,7 @@ int main() {
   testHnReaderShowsWhereYouAre();
   testTheCellYouTapIsTheCellTheRulesGet();
   testTheBoardFitsThePanel();
-  testTheToolSwitchIsAlwaysVisibleAndBothHalvesWork();
+  testTheCounterSaysWhatItCounts();
   testTheBoardStaysWithinItsOwnArea();
   testTheResultNamesTheOutcome();
   testTheHowToPagesAndEndsOnGotIt();

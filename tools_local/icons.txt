@@ -166,3 +166,10 @@ murdle_face_info  = folder      # the case file that holds the cast. `users` is
 # flags), `grid-3x3` (connections owns the grid), `land-mine` is not in this
 # lucide pin.
 minesweeper = bomb
+
+# Minesweeper's flag. Hand-drawn three times and wrong three times: the pennant
+# and the pole kept ending up the same height, so no flag could emerge from the
+# geometry at any size. The fork already vendors Lucide and generates from it,
+# and `flag` is there. Solitaire's pips went the same way after three rounds of
+# hand-drawing.
+mineflag = flag

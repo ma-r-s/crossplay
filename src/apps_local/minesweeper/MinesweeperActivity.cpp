@@ -19,6 +19,11 @@ namespace {
 #if defined(ARDUINO_ARCH_ESP32) || defined(SIMULATOR)
 constexpr char kHistoryPath[] = "/.crosspoint/minesweeper.sav";
 #endif
+
+// How long a finger must rest on a cell to plant a flag. Long enough that a
+// deliberate dig never trips it, short enough that it does not feel broken on a
+// panel whose own refresh is half a second.
+constexpr unsigned long kFlagHoldMs = 400;
 }  // namespace
 
 std::unique_ptr<Activity> MinesweeperActivity::create(GfxRenderer& renderer, MappedInputManager& mappedInput) {
@@ -101,9 +106,9 @@ void MinesweeperActivity::beginGame() {
   // here and nowhere deeper: the core takes a seed and never reaches for a
   // clock, which is what keeps a board replayable from its seed.
   ms::start(game, static_cast<uint32_t>(millis()) * 2654435761u + 1u);
-  // Always Dig on a fresh board. The first tap is always a dig, so starting in
-  // Flag would be a mode nobody chose.
-  tool = ms::Tool::Dig;
+  holdColumn = -1;
+  holdRow = -1;
+  holdFired = false;
   resultRecorded = false;
   goTo(ms::Screen::Board);
 }
@@ -128,6 +133,46 @@ void MinesweeperActivity::loop() {
     return;
   }
 
+  // Hold to flag, tap to dig.
+  //
+  // The grid is not in the interaction buffer -- eighty cells against a
+  // twenty-four slot buffer -- so neither the tap nor the hold can go through
+  // FreeInkUI's TouchHoldRouter, which routes against that buffer. Both are
+  // done here against the same geometry that drew the pixels.
+  //
+  // swallowCurrentTouch() is the piece that makes a hold usable: it exists
+  // precisely so a long press can fire while the finger is still down without
+  // the ensuing lift also arriving as a tap. Without it, planting a flag would
+  // immediately dig the cell it was planted on.
+  if (screen == ms::Screen::Board) {
+    const fui::DeviceContext device = toybox::makeTarget(renderer).deviceContext();
+    int hx = 0;
+    int hy = 0;
+    int column = 0;
+    int row = 0;
+    if (mappedInput.isScreenTouchHeld(hx, hy) && mineui::cellAt(device, hx, hy, column, row)) {
+      if (column != holdColumn || row != holdRow) {
+        // Moved to another cell: the hold starts again there, so sliding a
+        // finger across the board never plants a flag you did not mean.
+        holdColumn = column;
+        holdRow = row;
+        holdSinceMs = millis();
+        holdFired = false;
+        requestUpdate();
+      } else if (!holdFired && millis() - holdSinceMs >= kFlagHoldMs) {
+        holdFired = true;
+        if (ms::toggleFlag(game, column, row)) requestUpdate();
+        mappedInput.swallowCurrentTouch();
+      }
+      return;
+    }
+    if (holdColumn >= 0) {
+      holdColumn = -1;
+      holdRow = -1;
+      requestUpdate();
+    }
+  }
+
   fui::InputSnapshot input;
   int tapX = 0;
   int tapY = 0;
@@ -138,18 +183,13 @@ void MinesweeperActivity::loop() {
   }
   if (!input.touchReleased || !interactionsReady) return;
 
-  // The grid is not in the interaction buffer -- eighty cells against a
-  // twenty-four slot buffer -- so it is hit-tested from the same geometry that
-  // drew it. Tried first, because it covers most of the screen; anything
-  // outside it falls through to the registered controls.
   if (screen == ms::Screen::Board) {
     const fui::DeviceContext device = toybox::makeTarget(renderer).deviceContext();
     int column = 0;
     int row = 0;
     if (mineui::cellAt(device, tapX, tapY, column, row)) {
       // The rules decide legality, not the screen and not here.
-      const bool changed = tool == ms::Tool::Dig ? ms::reveal(game, column, row) : ms::toggleFlag(game, column, row);
-      if (changed) requestUpdate();
+      if (ms::reveal(game, column, row)) requestUpdate();
       return;
     }
   }
@@ -167,22 +207,6 @@ void MinesweeperActivity::loop() {
           return;
         case mineui::MenuRow::Count:
           return;
-      }
-      return;
-
-    case mineui::ActionPickDig:
-      // Separate actions rather than a toggle, so tapping the tool you already
-      // hold does nothing instead of silently switching you to the other.
-      if (tool != ms::Tool::Dig) {
-        tool = ms::Tool::Dig;
-        requestUpdate();
-      }
-      return;
-
-    case mineui::ActionPickFlag:
-      if (tool != ms::Tool::Flag) {
-        tool = ms::Tool::Flag;
-        requestUpdate();
       }
       return;
 
@@ -239,7 +263,8 @@ void MinesweeperActivity::render(RenderLock&&) {
     case ms::Screen::Board: {
       mineui::BoardModel model;
       model.game = game;
-      model.tool = tool;
+      model.holdColumn = holdColumn;
+      model.holdRow = holdRow;
       model.showMines = ms::over(game);
       mineui::buildBoard(surface, model);
       break;

@@ -18,8 +18,6 @@ enum : fui::ActionId {
   // The two halves of the bottom capsule. Separate actions rather than one
   // toggle, so tapping the tool you are already holding is a no-op instead of
   // silently switching you to the other one.
-  ActionPickDig = 3,
-  ActionPickFlag = 4,
   ActionHowToNext = 5,
   ActionAgain = 6,
   ActionDone = 7,
@@ -42,7 +40,11 @@ struct HowToModel {
 
 struct BoardModel {
   minesweeper::Game game{};
-  minesweeper::Tool tool = minesweeper::Tool::Dig;
+  // The cell a finger is resting on, or -1. Drawn as a bracket so a hold shows
+  // it is being registered before it fires: on a panel this slow, an unmarked
+  // hold is indistinguishable from a tap that missed.
+  int holdColumn = -1;
+  int holdRow = -1;
   // True once the game is settled, which reveals the mines the player never
   // found. The board is still drawn: a finished minefield is the thing you want
   // to look at.

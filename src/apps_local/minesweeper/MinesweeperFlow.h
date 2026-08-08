@@ -26,19 +26,20 @@ enum class Screen : uint8_t {
   Result,
 };
 
-// Dig or flag. This is a mode, and modes are usually a smell -- but the input
-// layer leaves no alternative and pretending otherwise would be worse.
+// There is no tool mode, and the absence is the design.
 //
-// Every other game here is one activation path: you tap a thing and the thing
-// happens. Minesweeper needs two verbs on the same cell, and the device offers
-// exactly one gesture to games -- `wasScreenTapped`. There is no long press, no
-// second button a thumb can reach while touching the glass, and no right click.
+// The first version had one -- DIG and FLAG as a split capsule -- built on the
+// belief that the device offers games a single gesture. That belief was wrong.
+// `MappedInputManager::isScreenTouchHeld` and `swallowCurrentTouch` are public,
+// and the second exists precisely so a long press can fire while the finger is
+// still down without the release also registering as a tap. The SDK's own
+// `InputLongPress` is defined, routed and host-tested for exactly this shape of
+// problem.
 //
-// So the mode is real, and the response is to make it impossible to be in the
-// wrong one by accident: it is a first-class control on screen, always visible,
-// always saying which one is live. A mode you cannot see is the thing that
-// makes modes bad.
-enum class Tool : uint8_t { Dig, Flag };
+// So: tap to dig, hold to flag. That removes the mode, removes a control that
+// spent the largest solid black on the screen and inverted it on every toggle,
+// and removes the worst part -- an indicator six hundred pixels away from where
+// the tap lands, in a game where one wrong tap ends the run.
 
 // Where Back goes from `screen`.
 //
@@ -64,8 +65,6 @@ constexpr Screen back(const Screen screen) {
 }
 
 constexpr bool leavesApp(const Screen screen) { return screen == Screen::Menu; }
-
-constexpr Tool other(const Tool tool) { return tool == Tool::Dig ? Tool::Flag : Tool::Dig; }
 
 // Whether a tap on the board can do anything at all right now. The board is
 // still drawn when it cannot -- a finished game is the thing you want to look

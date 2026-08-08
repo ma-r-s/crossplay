@@ -1,6 +1,10 @@
 #include "MinesweeperScreens.h"
 
+#include <FreeInkUIIcon.h>
+
 #include <cstdio>
+
+#include "../ui/ToyboxIcons.h"
 
 namespace mineui {
 
@@ -17,35 +21,25 @@ constexpr int16_t kBoardHeight = kCell * ms::kRows;
 
 int16_t boardTop() { return static_cast<int16_t>(toybox::kHeaderHeight + toybox::kGutter * 2); }
 
-// The mark on a flagged cell and beside the counter: a pennant on a staff.
+// The mark on a flagged cell and beside the counter.
 //
-// Proportional to its rect, not fixed offsets. The first version was drawn for
-// a 56px cell and reused at 34px beside the counter, where it came out as a
-// stray tick -- the same glyph at two sizes, wrong at one of them, and only
-// visible by looking.
+// Lucide's, not ours. Hand-drawn three times and wrong three times: every
+// version put the pennant and the pole at the same height, so the pennant was
+// coextensive with the staff and no flag could emerge from the geometry at any
+// size. The first two attempts tuned the SIZE, which was never the problem.
+//
+// The fork already vendors Lucide and generates from it, and the design
+// language says to draw our own only where no good licensed option exists. This
+// is the same conclusion Solitaire reached about its pips after three rounds of
+// hand-drawing.
 void drawFlag(toybox::Screen& screen, const fui::Rect& where, const bool paper) {
-  const fui::Paint ink = fui::Paint::solid(paper ? fui::Color::White : fui::Color::Black);
-  // Sized off the box it is given rather than off the smaller dimension, so the
-  // same glyph reads at 56px in a cell and at 40px beside the counter. The
-  // first proportional version used min(w,h) and still came out as a tick next
-  // to display-size digits.
-  const int16_t height = static_cast<int16_t>(where.height * 3 / 4);
-  const int16_t flagWidth = static_cast<int16_t>(where.width * 1 / 2);
-  // Thick enough to read as a staff rather than as an edge of the pennant: at
-  // 44px the first version's 3px staff vanished and the mark became a triangle.
-  const int16_t staffWidth = static_cast<int16_t>(where.height / 9 + 2);
-  const int16_t x = static_cast<int16_t>(where.x + (where.width - flagWidth - staffWidth) / 2 + flagWidth);
-  const int16_t y = static_cast<int16_t>(where.y + (where.height - height) / 2);
-
-  screen.target().fill(fui::makeRect(x, y, staffWidth, height), ink);
-  // A triangle from stacked bars, tapering to the staff.
-  const int16_t bands = static_cast<int16_t>(height / 2);
-  for (int16_t band = 0; band < bands; ++band) {
-    const int16_t width = static_cast<int16_t>(flagWidth - (flagWidth * band) / bands);
-    if (width <= 0) continue;
-    screen.target().fill(fui::makeRect(static_cast<int16_t>(x - width), static_cast<int16_t>(y + band * 2), width, 2),
-                         ink);
-  }
+  const int16_t side = where.width < where.height ? where.width : where.height;
+  const int16_t inset = static_cast<int16_t>(side / 6);
+  const fui::Rect box = fui::makeRect(static_cast<int16_t>(where.x + (where.width - side) / 2 + inset),
+                                      static_cast<int16_t>(where.y + (where.height - side) / 2 + inset),
+                                      static_cast<int16_t>(side - inset * 2), static_cast<int16_t>(side - inset * 2));
+  screen.target().bitmap(box, fui::bitmapFromIcon(icon_mineflag_32), fui::BitmapMode::Contain,
+                         fui::Paint::solid(paper ? fui::Color::White : fui::Color::Black));
 }
 
 // A mine: a filled disc approximated by stacked bars, with four spikes. Only
@@ -174,7 +168,7 @@ void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
 
   static const char* const kLines[] = {
       "A NUMBER COUNTS THE MINES TOUCHING IT. THREE MEANS THREE OF ITS EIGHT NEIGHBOURS.",
-      "SWITCH TO FLAG TO MARK A MINE. SWITCH BACK TO DIG TO OPEN A CELL.",
+      "TAP A CELL TO DIG IT. HOLD A CELL TO PLANT A FLAG.",
       "YOUR FIRST DIG IS ALWAYS SAFE, AND ALWAYS OPENS A SPACE.",
   };
   fui::TextStyle body;
@@ -211,57 +205,23 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   header.title = "MINESWEEPER";
   header.borderEdges = fui::EdgesNone;
   screen.header(header);
+  // The board screen was the only one that skipped this, so its bottom control
+  // bled into the left, right and bottom bezels. Only full-bleed chrome -- the
+  // header band -- touches an edge.
+  screen.insetContent(fui::Insets{toybox::kGutter * 2, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 
   const fui::DeviceContext device = screen.device();
+  const fui::Rect first = cellRect(device, 0, 0);
 
-  // The tool switch IS the bottom capsule, split in two. A mode you cannot see
-  // is what makes modes bad, and this game is forced into one: it needs two
-  // verbs on a cell and the device gives games exactly one gesture. So the mode
-  // is never off screen and never ambiguous -- the live half is filled.
-  const fui::Rect capsule = screen.takeBottom(toybox::kPillHeight, toybox::kGutter);
-  const int16_t half = static_cast<int16_t>(capsule.width / 2);
-  const bool digging = model.tool == ms::Tool::Dig;
-
-  fui::ButtonProps dig;
-  dig.label = "DIG";
-  dig.action = ActionPickDig;
-  dig.borderEdges = fui::EdgesAll;
-  if (!digging) {
-    fui::StyleSet outline;
-    outline.explicitlySet = true;
-    outline.normal.border = fui::Paint::solid(fui::Color::Black);
-    outline.normal.borderWidth = 3;
-    dig.styles = outline;
-    dig.text.color = fui::Color::Black;
-  }
-  screen.button(dig, fui::makeRect(capsule.x, capsule.y, half, capsule.height));
-
-  fui::ButtonProps flag;
-  flag.label = "FLAG";
-  flag.action = ActionPickFlag;
-  flag.borderEdges = fui::EdgesAll;
-  if (digging) {
-    fui::StyleSet outline;
-    outline.explicitlySet = true;
-    outline.normal.border = fui::Paint::solid(fui::Color::Black);
-    outline.normal.borderWidth = 3;
-    flag.styles = outline;
-    flag.text.color = fui::Color::Black;
-  }
-  screen.button(flag, fui::makeRect(static_cast<int16_t>(capsule.x + half), capsule.y, half, capsule.height));
-
-  // How many mines are still unaccounted for. Goes negative when the player
-  // over-flags, which is the board telling them it disagrees.
-  char left[16];
-  std::snprintf(left, sizeof(left), "%d", ms::minesRemaining(model.game));
-  fui::TextStyle count;
-  count.font = toybox::kDisplayFont;
-  count.align = fui::TextAlign::Right;
-  const int16_t countTop = static_cast<int16_t>(boardTop() + kBoardHeight + toybox::kGutter);
-  screen.target().text(
-      fui::makeRect(toybox::kMargin, countTop, static_cast<int16_t>(device.width - toybox::kMargin * 2 - 52), 44), left,
-      count);
-  drawFlag(screen, fui::makeRect(static_cast<int16_t>(device.width - toybox::kMargin - 44), countTop, 44, 44), false);
+  // A frame, so the minefield is one object rather than eighty rectangles that
+  // happen to be adjacent. Without it the board's outer boundary was the same
+  // hairline as its interior grid, and late in a game -- when most cells are
+  // paper -- the board dissolved into the page around it.
+  const fui::Rect frame = fui::makeRect(static_cast<int16_t>(first.x - toybox::kBoardFrame),
+                                        static_cast<int16_t>(first.y - toybox::kBoardFrame),
+                                        static_cast<int16_t>(kBoardWidth + toybox::kBoardFrame * 2),
+                                        static_cast<int16_t>(kBoardHeight + toybox::kBoardFrame * 2));
+  screen.target().stroke(frame, fui::Paint::solid(fui::Color::Black), 3);
 
   for (int column = 0; column < ms::kColumns; ++column) {
     for (int row = 0; row < ms::kRows; ++row) {
@@ -269,15 +229,12 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
       const uint8_t cell = model.game.cell[column][row];
       const bool revealed = (cell & ms::kRevealed) != 0;
 
-      // Unopened ground is dithered, opened ground is paper. That is the whole
-      // read of the board at a glance: what is left to do.
       if (!revealed) screen.target().fill(box, fui::Paint::dither(fui::Color::LightGray));
       screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), 1);
 
       if (cell & ms::kFlagged) {
         drawFlag(screen, box, false);
       } else if (revealed && (cell & ms::kMine)) {
-        // The one you stepped on: filled, so it is obvious which ended it.
         screen.target().fill(box, fui::Paint::solid(fui::Color::Black));
         drawMine(screen, box, true);
       } else if (model.showMines && (cell & ms::kMine)) {
@@ -294,6 +251,27 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
       }
     }
   }
+
+  // The cell a finger is currently resting on. A hold that shows nothing until
+  // it fires is indistinguishable, on this panel, from a tap that missed.
+  if (model.holdColumn >= 0 && model.holdRow >= 0) {
+    const fui::Rect box = cellRect(device, model.holdColumn, model.holdRow);
+    screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), 4);
+  }
+
+  // The counter, labelled. A bare numeral and a mark could not say what it
+  // counted, and with no total on screen the player could not recover the
+  // denominator -- so it names both, and the flag beside it says which unit.
+  char line[24];
+  std::snprintf(line, sizeof(line), "%d OF %d", ms::minesRemaining(model.game), ms::kMines);
+  fui::TextStyle count;
+  count.font = toybox::kDisplayFont;
+  count.align = fui::TextAlign::Center;
+  const fui::Rect strip = screen.takeBottom(toybox::kPillHeight, toybox::kGutter);
+  const int16_t markSide = static_cast<int16_t>(strip.height);
+  screen.target().text(fui::makeRect(strip.x, strip.y, static_cast<int16_t>(strip.width - markSide), strip.height),
+                       line, count);
+  drawFlag(screen, fui::makeRect(static_cast<int16_t>(strip.right() - markSide), strip.y, markSide, markSide), false);
 }
 
 void buildResult(toybox::Screen& screen, const ResultModel& model) {

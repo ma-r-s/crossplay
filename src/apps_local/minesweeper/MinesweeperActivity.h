@@ -34,10 +34,13 @@ class MinesweeperActivity final : public Activity {
 
   minesweeper::Screen screen = minesweeper::Screen::Menu;
   minesweeper::Game game{};
-  // Dig or flag. A mode, forced by there being one gesture and two verbs; see
-  // MinesweeperFlow.h. Reset to Dig on every new board, because that is what
-  // the first tap always is.
-  minesweeper::Tool tool = minesweeper::Tool::Dig;
+  // Which cell a finger is resting on, since when, and whether the hold has
+  // already planted its flag. Not a mode: there is no mode. See
+  // MinesweeperFlow.h for why the one that existed was built on a false belief.
+  int holdColumn = -1;
+  int holdRow = -1;
+  unsigned long holdSinceMs = 0;
+  bool holdFired = false;
   int howToPage = 0;
   int menuSelected = -1;
 

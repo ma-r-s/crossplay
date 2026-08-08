@@ -249,11 +249,7 @@ void testBackIsTotalAndAlwaysReachesTheTop() {
   CHECK(!leavesApp(Screen::Board));
 }
 
-void testTheToolIsATwoWaySwitchAndTheScreenFollowsTheRules() {
-  CHECK(other(Tool::Dig) == Tool::Flag);
-  CHECK(other(Tool::Flag) == Tool::Dig);
-  CHECK(other(other(Tool::Dig)) == Tool::Dig);
-
+void testTheScreenFollowsTheRules() {
   Game game{};
   start(game, 5u);
   CHECK(screenFor(game) == Screen::Board);
@@ -395,7 +391,7 @@ int main() {
   testClearingEverySafeCellWins();
   testRandomPlayHoldsEveryInvariant();
   testBackIsTotalAndAlwaysReachesTheTop();
-  testTheToolIsATwoWaySwitchAndTheScreenFollowsTheRules();
+  testTheScreenFollowsTheRules();
   testAnEmptyBoardOpensCompletely();
   testNoRevealedZeroEverTouchesACoveredCell();
   testMinesReachEveryCell();
