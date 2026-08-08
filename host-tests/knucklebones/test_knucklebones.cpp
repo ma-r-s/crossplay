@@ -12,19 +12,20 @@
 #include <cstring>
 
 #include "KnucklebonesCore.h"
+#include "KnucklebonesFlow.h"
 
 using namespace knucklebones;
 
 static int checks = 0;
 static int failures = 0;
 
-#define CHECK(cond)                                                       \
-  do {                                                                    \
-    ++checks;                                                             \
-    if (!(cond)) {                                                        \
-      ++failures;                                                         \
-      std::printf("FAIL %s:%d  %s\n", __FILE__, __LINE__, #cond);         \
-    }                                                                     \
+#define CHECK(cond)                                               \
+  do {                                                            \
+    ++checks;                                                     \
+    if (!(cond)) {                                                \
+      ++failures;                                                 \
+      std::printf("FAIL %s:%d  %s\n", __FILE__, __LINE__, #cond); \
+    }                                                             \
   } while (0)
 
 namespace {
@@ -250,6 +251,87 @@ void testRandomMatchesHoldEveryInvariant() {
   std::printf("  longest match over 2000: %d placements\n", longestMatch);
 }
 
+// --- the two state machines ------------------------------------------------
+//
+// The bug this project keeps writing is "Back went to the wrong screen", and it
+// is not one you find by reading an activity. These assert the properties that
+// make the navigation correct rather than merely written down.
+
+void testBackIsTotalAndAlwaysReachesTheTop() {
+  const Screen every[] = {Screen::Menu, Screen::HowTo, Screen::Board, Screen::Result};
+
+  for (const Screen screen : every) {
+    // Walk Back repeatedly. Every screen must reach the top, and it must do so
+    // without cycling: a pair of screens that Back into each other is exactly
+    // the trap that strands a player, and it would spin here instead.
+    Screen at = screen;
+    int steps = 0;
+    while (!leavesApp(at)) {
+      at = back(at);
+      CHECK(++steps <= 4);
+      if (steps > 4) break;
+    }
+    CHECK(leavesApp(at));
+  }
+
+  // Exactly one screen leaves the app. If a second one did, Back would mean
+  // "quit" somewhere the player expected "go up".
+  int exits = 0;
+  for (const Screen screen : every) {
+    if (leavesApp(screen)) ++exits;
+  }
+  CHECK(exits == 1);
+
+  // And the specific answers, so a reshuffle that keeps the properties but
+  // breaks the intent still fails.
+  CHECK(back(Screen::HowTo) == Screen::Menu);
+  CHECK(back(Screen::Result) == Screen::Menu);
+  // Abandoning a match goes to the menu, not out of the app: the first Back
+  // means stop playing, the second means leave.
+  CHECK(back(Screen::Board) == Screen::Menu);
+  CHECK(!leavesApp(Screen::Board));
+}
+
+void testPhaseIsDerivedAndOnlyYourTurnAccepts() {
+  CHECK(phaseFor(false, true) == Phase::Yours);
+  CHECK(phaseFor(false, false) == Phase::Theirs);
+  // Finished beats whose turn it is, in both directions: a match that ended on
+  // the opponent's placement is still over.
+  CHECK(phaseFor(true, true) == Phase::Finished);
+  CHECK(phaseFor(true, false) == Phase::Finished);
+
+  // The board is drawn in every phase -- you watch the opponent place -- but it
+  // takes a column in exactly one of them.
+  CHECK(acceptsPlacement(Phase::Yours));
+  CHECK(!acceptsPlacement(Phase::Theirs));
+  CHECK(!acceptsPlacement(Phase::Finished));
+}
+
+// The two machines must not be able to disagree with the rules. This walks a
+// real game and checks the phase the flow reports against the core's own view
+// after every move, which is what stops the board accepting a tap on a turn
+// that is not yours.
+void testTheFlowAgreesWithTheRulesEveryMove() {
+  Game game{};
+  start(game, 2468u);
+  int guard = 0;
+  while (!over(game)) {
+    const Phase phase = phaseFor(over(game), game.turn == 0);
+    CHECK(phase != Phase::Finished);
+    CHECK(acceptsPlacement(phase) == (game.turn == 0));
+    for (int column = 0; column < kColumns; ++column) {
+      if (canPlace(game, column)) {
+        CHECK(place(game, column));
+        break;
+      }
+    }
+    CHECK(++guard <= 500);
+    if (guard > 500) break;
+  }
+  CHECK(phaseFor(over(game), game.turn == 0) == Phase::Finished);
+  CHECK(!acceptsPlacement(phaseFor(over(game), game.turn == 0)));
+}
+
 }  // namespace
 
 int main() {
@@ -261,6 +343,9 @@ int main() {
   testTheWinnerIsTheHigherTotal();
   testTheSameSeedDealsTheSameGame();
   testRandomMatchesHoldEveryInvariant();
+  testBackIsTotalAndAlwaysReachesTheTop();
+  testPhaseIsDerivedAndOnlyYourTurnAccepts();
+  testTheFlowAgreesWithTheRulesEveryMove();
 
   std::printf("%d checks, %d failed\n", checks, failures);
   return failures == 0 ? 0 : 1;
