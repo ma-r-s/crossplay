@@ -44,6 +44,7 @@ restyled to match the design language the apps use.
 | **Insider**     | A party game for a table and one device.                           |
 | **Jaipur**      | The two-player trading game, solo or nearby.                       |
 | **Murdle**      | A logic grid built through the solver, so you never have to guess. |
+| **Minesweeper** | Tap to dig, hold to flag. The first dig is always safe. |
 | **Study**       | Anki decks with the FSRS scheduler, offline.                       |
 | **Hacker News** | The front page in a reading serif, articles kept on the card.      |
 | **xkcd**        | The archive, packed for the card and drawn one to one.             |
