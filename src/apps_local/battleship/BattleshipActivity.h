@@ -104,7 +104,6 @@ class BattleshipActivity final : public linkplay::LinkActivity {
   void drawBoardScreen();
 
   void goToMenu();
-  void refreshContinueDetail();
   void activateStartRow(bshipui::StartRow row);
   void routeStartMenu();
   void routePlacement();
@@ -185,7 +184,6 @@ class BattleshipActivity final : public linkplay::LinkActivity {
   View view = View::Menu;
   int startIndex = 0;
   bool hasSavedGame = false;
-  char continueDetail[24] = {};
 
   // Placement.
   int selectedShip = -1;

@@ -632,7 +632,6 @@ void testBattleshipStartMenu() {
 
   bshipui::StartModel saved;
   saved.hasSavedGame = true;
-  saved.continueDetail = "14 SHOTS, 2 SUNK";
   saved.played = 12;
   saved.won = 7;
   saved.streak = 3;
@@ -643,7 +642,9 @@ void testBattleshipStartMenu() {
   buildBattleshipStart(out, saved);
   CHECK(out.target.drew("BATTLESHIP"));
   CHECK(out.target.drew("CONTINUE"));
-  CHECK(out.target.drew("14 SHOTS, 2 SUNK"));
+  // No receipt beside the word: how the game stands is drawn in the slot this
+  // builder returns, in the same marks the board uses.
+  CHECK(!out.target.drew("14 SHOTS, 2 SUNK"));
   CHECK(out.target.drew("PLAY NEARBY"));
   // The record is one line, not three rows.
   CHECK(out.target.drew("12 PLAYED   7 WON   STREAK 3"));

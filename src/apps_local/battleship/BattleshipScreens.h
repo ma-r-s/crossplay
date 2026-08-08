@@ -33,8 +33,6 @@ struct StartModel {
   // No game to continue means no CONTINUE row, rather than one that does
   // nothing.
   bool hasSavedGame = false;
-  // Reads out the game you would be returning to: "14 SHOTS, 2 SUNK".
-  const char* continueDetail = "";
   int played = 0;
   int won = 0;
   int streak = 0;
