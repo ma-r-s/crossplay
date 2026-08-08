@@ -216,6 +216,24 @@ bool Grid::setYes(const int catA, const int itemA, const int catB, const int ite
   // first version wrote the new Yes, hit the old one while crossing out,
   // returned false and left two yeses in one row with the crossing half
   // applied: a corrupt grid produced by the most ordinary action there is.
+  // A NEW YES OVERRULES AN OLD ONE, AND HAS TO TAKE THE OLD ONE'S CROSSINGS
+  // WITH IT.
+  //
+  // Say S0 holds W0, so W0's whole column is crossed out. Change your mind and
+  // mark S0 as holding W1 instead: the clear below wipes S0's row and W1's
+  // column, which removes the old Yes -- but the crosses it put down the W0
+  // column, on S1, S2 and S3, are in neither of those. They survive, and they
+  // now say that NOBODY holds W0. A contradictory grid, out of an ordinary
+  // change of mind, and the player has to hunt down three stray crosses to
+  // undo it.
+  //
+  // Mario asked whether two Yeses that cross each other had been checked. They
+  // had not. The test written for it failed on the first run.
+  for (int i = 0; i < shape_.items; ++i) {
+    if (i != itemB && get(catA, itemA, catB, i) == Mark::Yes) clearYes(catA, itemA, catB, i);
+    if (i != itemA && get(catA, i, catB, itemB) == Mark::Yes) clearYes(catA, i, catB, itemB);
+  }
+
   // Whose crosses were already here, recorded BEFORE the clear below erases the
   // distinction. The clear wipes the row and column and the loop underneath
   // writes them straight back, so without this every cross the player made by
@@ -245,6 +263,27 @@ bool Grid::setYes(const int catA, const int itemA, const int catB, const int ite
   for (int i = 0; i < shape_.items; ++i) {
     if (i != itemB && put(catA, itemA, catB, i, Mark::No) == 1) markOwn(catA, itemA, catB, i, !theirs[i][0]);
     if (i != itemA && put(catA, i, catB, itemB, Mark::No) == 1) markOwn(catA, i, catB, itemB, !theirs[i][1]);
+  }
+
+  // Every Yes still standing in this block re-asserts its own crossings.
+  //
+  // A cross can be justified by two Yeses at once, and taking one of them back
+  // above clears cells the other still implies. Concretely: S0 holds W0 and S1
+  // holds W1, so (S1,W0) is crossed twice over -- once because W0 is spoken
+  // for, once because S1 is. Move S0 to W2 and only the first reason goes away,
+  // but the cell went blank with it. Not wrong, since blank only means unknown,
+  // and the player can work it out again -- but it is work the grid had already
+  // done for them and then quietly dropped, which is the same complaint that
+  // started this in a smaller key. Found by printing the grid at each step
+  // rather than by any assertion.
+  for (int r = 0; r < shape_.items; ++r) {
+    for (int c = 0; c < shape_.items; ++c) {
+      if (get(catA, r, catB, c) != Mark::Yes) continue;
+      for (int i = 0; i < shape_.items; ++i) {
+        if (i != c && put(catA, r, catB, i, Mark::No) == 1) markOwn(catA, r, catB, i, true);
+        if (i != r && put(catA, i, catB, c, Mark::No) == 1) markOwn(catA, i, catB, c, true);
+      }
+    }
   }
   return true;
 }

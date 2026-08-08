@@ -217,6 +217,56 @@ void testClearingAYesTakesBackItsOwnCrossings() {
   }
 }
 
+// Changing your mind about which cell in a row is the Yes must not leave the
+// old Yes's crossings behind in its COLUMN.
+//
+// Say S0 holds W0. That crosses out the rest of S0's row and the rest of W0's
+// column. Now mark S0 as holding W1 instead. setYes clears S0's row, so the old
+// Yes goes -- but the crosses it put down the W0 column, on S1, S2 and S3, are
+// in neither the row nor the column being rewritten. They survive, and they now
+// say that nobody at all can hold W0.
+//
+// That is a contradictory grid produced by an ordinary change of mind, and it
+// is exactly the case Mario asked about after the first fix.
+void testOverrulingAYesTakesBackItsCrossingsToo() {
+  Grid grid;
+  grid.reset(Shape{4, 4});
+
+  CHECK(grid.setYes(0, 0, 1, 0));
+  for (int i = 1; i < 4; ++i) CHECK(grid.get(0, i, 1, 0) == Mark::No);
+
+  // Change of mind: the same suspect, a different weapon.
+  CHECK(grid.setYes(0, 0, 1, 1));
+  CHECK(grid.get(0, 0, 1, 1) == Mark::Yes);
+  // S0 really does not hold W0 any more, so that cell is a cross, not a blank.
+  CHECK(grid.get(0, 0, 1, 0) == Mark::No);
+
+  // W0 is now unclaimed, so nobody may still be crossed out of it.
+  for (int i = 1; i < 4; ++i) CHECK(grid.get(0, i, 1, 0) == Mark::Unknown);
+
+  // A cross that TWO Yeses justify survives losing one of them. S1 holding W1
+  // is reason enough for S1 not to hold W0, whatever S0 does.
+  Grid both;
+  both.reset(Shape{4, 4});
+  CHECK(both.setYes(0, 0, 1, 0));  // S0 holds W0
+  CHECK(both.setYes(0, 1, 1, 1));  // S1 holds W1
+  CHECK(both.setYes(0, 0, 1, 2));  // S0 changes to W2, freeing W0
+  CHECK(both.get(0, 1, 1, 1) == Mark::Yes);
+  CHECK(both.get(0, 1, 1, 0) == Mark::No);       // still crossed: S1 has W1
+  CHECK(both.get(0, 2, 1, 0) == Mark::Unknown);  // open: S2 could hold W0
+  CHECK(both.get(0, 3, 1, 0) == Mark::Unknown);
+
+  // The same thing down a column: move the Yes to a different suspect and the
+  // abandoned suspect's own row must not stay crossed out.
+  Grid other;
+  other.reset(Shape{4, 4});
+  CHECK(other.setYes(0, 0, 1, 0));
+  for (int i = 1; i < 4; ++i) CHECK(other.get(0, 0, 1, i) == Mark::No);
+  CHECK(other.setYes(0, 1, 1, 0));
+  CHECK(other.get(0, 1, 1, 0) == Mark::Yes);
+  for (int i = 1; i < 4; ++i) CHECK(other.get(0, 0, 1, i) == Mark::Unknown);
+}
+
 void testSetYesCrossesItsOwnBlockOnly() {
   Grid grid;
   grid.reset(Shape{4, 4});
@@ -1394,6 +1444,7 @@ int runTests() {
   testRngIsUnbiased();
   testGridIsOrderIndependent();
   testClearingAYesTakesBackItsOwnCrossings();
+  testOverrulingAYesTakesBackItsCrossingsToo();
   testSetYesCrossesItsOwnBlockOnly();
   testSetYesOverrulesAnEarlierAnswer();
   testCastTableIsDrawable();
