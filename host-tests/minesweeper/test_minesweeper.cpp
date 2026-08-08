@@ -268,6 +268,122 @@ void testTheToolIsATwoWaySwitchAndTheScreenFollowsTheRules() {
   CHECK(!boardAccepts(game));
 }
 
+// The one-line reproducer for the flood bug a cold critic found: on a board
+// with no mines at all, one tap must open every cell and win.
+//
+// The old flood opened THIRTY of eighty and stayed Playing, because cells were
+// deduplicated at push but marked at pop, so a cell touched by several zeroes
+// enqueued several times and the overflow was silently dropped. 41.8% of real
+// first taps were truncated. The suite missed it by asserting "more than ten
+// opened" against a true answer near forty.
+void testAnEmptyBoardOpensCompletely() {
+  for (int column = 0; column < kColumns; ++column) {
+    for (int row = 0; row < kRows; ++row) {
+      Game game{};
+      start(game, 1u);
+      game.status = Status::Playing;
+      CHECK(reveal(game, column, row));
+      CHECK(revealedCount(game) == kCells);
+      CHECK(game.status == Status::Won);
+    }
+  }
+}
+
+// The invariant that makes the symptom impossible, over real boards: a revealed
+// cell touching no mines can never sit beside a covered one.
+void testNoRevealedZeroEverTouchesACoveredCell() {
+  uint32_t seed = 555u;
+  for (int trial = 0; trial < 2000; ++trial) {
+    seed = seed * 1664525u + 1013904223u;
+    Game game{};
+    start(game, seed);
+    CHECK(reveal(game, static_cast<int>(seed >> 8) % kColumns, static_cast<int>(seed >> 16) % kRows));
+    for (int column = 0; column < kColumns; ++column) {
+      for (int row = 0; row < kRows; ++row) {
+        if ((game.cell[column][row] & kRevealed) == 0) continue;
+        if (neighbouringMines(game, column, row) != 0) continue;
+        for (int dc = -1; dc <= 1; ++dc) {
+          for (int dr = -1; dr <= 1; ++dr) {
+            if (!inside(column + dc, row + dr)) continue;
+            const uint8_t neighbour = game.cell[column + dc][row + dr];
+            CHECK((neighbour & (kRevealed | kFlagged)) != 0);
+          }
+        }
+      }
+    }
+  }
+}
+
+// Mines must reach every cell. Two plausible index mutants left whole ROWS
+// permanently mine-free and survived the entire suite, because nothing checked
+// the distribution -- only the count.
+void testMinesReachEveryCell() {
+  bool seen[kColumns][kRows] = {};
+  uint32_t seed = 909u;
+  for (int trial = 0; trial < 4000; ++trial) {
+    Game game{};
+    start(game, seed = seed * 1664525u + 1013904223u);
+    // Open in a fixed corner so the excluded 3x3 is the same every time; any
+    // cell outside it must still be reachable by a mine.
+    reveal(game, 0, 0);
+    for (int column = 0; column < kColumns; ++column) {
+      for (int row = 0; row < kRows; ++row) {
+        if (game.cell[column][row] & kMine) seen[column][row] = true;
+      }
+    }
+  }
+  for (int column = 0; column < kColumns; ++column) {
+    for (int row = 0; row < kRows; ++row) {
+      // Only the safe 3x3 around (0,0) may never hold one.
+      const bool excluded = column <= 1 && row <= 1;
+      CHECK(seen[column][row] != excluded);
+    }
+  }
+}
+
+// start() must clear a finished board. Every other test builds a fresh Game or
+// sets status by hand, so a start() that left status alone survived -- and
+// that is exactly what the activity does on PLAY AGAIN, reusing its member.
+void testStartClearsAFinishedBoard() {
+  Game game{};
+  start(game, 3u);
+  game.status = Status::Playing;
+  game.cell[2][2] |= kMine;
+  CHECK(reveal(game, 2, 2));
+  CHECK(game.status == Status::Lost);
+
+  start(game, 4u);
+  CHECK(game.status == Status::Fresh);
+  CHECK(revealedCount(game) == 0);
+  CHECK(mineCount(game) == 0);
+  CHECK(flagCount(game) == 0);
+  // And it is playable again, which is the thing PLAY AGAIN needs.
+  CHECK(canReveal(game, 0, 0));
+}
+
+// A win must mean every safe cell is OPEN, not merely accounted for. A mutant
+// accepting a flagged safe cell as cleared survived: no test ever reached a win
+// with a flag on the board, and random play won zero of two thousand games.
+void testAFlaggedSafeCellIsNotCleared() {
+  Game game{};
+  start(game, 8u);
+  game.status = Status::Playing;
+  game.cell[0][0] |= kMine;
+  CHECK(toggleFlag(game, 7, 9));
+
+  for (int column = 0; column < kColumns; ++column) {
+    for (int row = 0; row < kRows; ++row) {
+      if (column == 0 && row == 0) continue;
+      reveal(game, column, row);
+    }
+  }
+  // The flagged safe cell is still covered, so this is not a win.
+  CHECK(game.status != Status::Won);
+  CHECK(toggleFlag(game, 7, 9));
+  CHECK(reveal(game, 7, 9));
+  CHECK(game.status == Status::Won);
+}
+
 }  // namespace
 
 int main() {
@@ -280,6 +396,11 @@ int main() {
   testRandomPlayHoldsEveryInvariant();
   testBackIsTotalAndAlwaysReachesTheTop();
   testTheToolIsATwoWaySwitchAndTheScreenFollowsTheRules();
+  testAnEmptyBoardOpensCompletely();
+  testNoRevealedZeroEverTouchesACoveredCell();
+  testMinesReachEveryCell();
+  testStartClearsAFinishedBoard();
+  testAFlaggedSafeCellIsNotCleared();
 
   std::printf("%d checks, %d failed\n", checks, failures);
   return failures == 0 ? 0 : 1;

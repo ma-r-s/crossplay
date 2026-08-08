@@ -134,12 +134,30 @@ inline bool allSafeCellsRevealed(const Game& game) {
 // Reveal a cell, flooding outward through everything a zero touches.
 //
 // Iterative rather than recursive: a full-board flood is 80 frames deep on a
-// device whose activity stacks are 2KB, and this is the one function here that
-// could plausibly run away.
+// device whose activity stacks are 2KB.
+//
+// **A cell is marked revealed when it is PUSHED, not when it is popped**, and
+// that is the whole correctness of this function. The first version marked at
+// pop and deduplicated at push, so a cell touched by several zeroes was
+// enqueued several times: pushes were not bounded by the eighty slots, the
+// overflow guard silently dropped the excess, and 41.8% of real first taps
+// opened a truncated region. The symptom is a blank revealed cell sitting next
+// to a covered one, which cannot happen in this game, and the tests missed it
+// because they asserted "more than ten cells opened" against a true answer of
+// about forty.
+//
+// Marking at push makes each cell enqueue at most once, so the queue provably
+// holds: eighty cells, eighty slots.
 inline void floodFrom(Game& game, const int startColumn, const int startRow) {
   uint8_t queue[kCells][2];
   int head = 0;
   int tail = 0;
+
+  // A flag is the player saying "I believe there is a mine here". The flood
+  // stops at it rather than tearing it off: losing a flag you placed to a
+  // cascade you did not aim is the most annoying thing this game can do.
+  if (game.cell[startColumn][startRow] & (kRevealed | kFlagged)) return;
+  game.cell[startColumn][startRow] |= kRevealed;
   queue[tail][0] = static_cast<uint8_t>(startColumn);
   queue[tail][1] = static_cast<uint8_t>(startRow);
   ++tail;
@@ -149,13 +167,6 @@ inline void floodFrom(Game& game, const int startColumn, const int startRow) {
     const int row = queue[head][1];
     ++head;
 
-    if (game.cell[column][row] & kRevealed) continue;
-    // A flag is the player saying "I believe there is a mine here". The flood
-    // stops at it rather than tearing it off: losing a flag you placed to a
-    // cascade you did not aim is the most annoying thing this game can do.
-    if (game.cell[column][row] & kFlagged) continue;
-    game.cell[column][row] |= kRevealed;
-
     if (neighbouringMines(game, column, row) != 0) continue;
     for (int dc = -1; dc <= 1; ++dc) {
       for (int dr = -1; dr <= 1; ++dr) {
@@ -164,7 +175,7 @@ inline void floodFrom(Game& game, const int startColumn, const int startRow) {
         const int nr = row + dr;
         if (!inside(nc, nr)) continue;
         if (game.cell[nc][nr] & (kRevealed | kFlagged)) continue;
-        if (tail >= kCells) continue;
+        game.cell[nc][nr] |= kRevealed;
         queue[tail][0] = static_cast<uint8_t>(nc);
         queue[tail][1] = static_cast<uint8_t>(nr);
         ++tail;
