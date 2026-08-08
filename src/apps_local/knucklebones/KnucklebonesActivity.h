@@ -49,6 +49,10 @@ class KnucklebonesActivity final : public linkplay::LinkActivity {
   void beginSoloMatch();
   void takeOpponentTurn();
   void goTo(knucklebones::Screen next);
+  // The last finished board and the running tally, for the menu's ornament.
+  // Written when a match ends, read once on entry.
+  void recordResult();
+  void loadHistory();
 
   knucklebones::Screen screen = knucklebones::Screen::Menu;
   knucklebones::Game game{};
@@ -63,6 +67,18 @@ class KnucklebonesActivity final : public linkplay::LinkActivity {
   // same description both devices already play by. There is no second wire
   // format to drift from the first.
   linkplay::Play<knucklebones::Game> play;
+
+  // What the menu draws instead of being three rows and white space. Kept here
+  // rather than in the core: the rules do not have a history, a device does.
+  bool hasHistory = false;
+  knucklebones::Grid lastYours{};
+  knucklebones::Grid lastTheirs{};
+  int wins = 0;
+  int losses = 0;
+  int draws = 0;
+  // A match contributes to the tally exactly once, however many times the
+  // result screen is drawn or backed into.
+  bool resultRecorded = false;
 
   toybox::Interactions interactions;
   bool interactionsReady = false;

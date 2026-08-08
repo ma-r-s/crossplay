@@ -39,6 +39,20 @@ struct MenuModel {
   // is there yet.
   const char* nearbyName = nullptr;
   int selected = -1;
+
+  // The board the last finished match ended on, and the running tally.
+  //
+  // This is the menu's ornament, and it is ornament in the only sense this fork
+  // allows: made of the app's own material, carrying the app's own data. A
+  // screenshot of it differs between two devices, which is the test. Before it,
+  // this front door was three rows and 60% white -- the anti-pattern the design
+  // language names by name.
+  bool hasHistory = false;
+  knucklebones::Grid lastYours{};
+  knucklebones::Grid lastTheirs{};
+  int wins = 0;
+  int losses = 0;
+  int draws = 0;
 };
 
 struct HowToModel {

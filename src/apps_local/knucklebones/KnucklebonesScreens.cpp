@@ -156,6 +156,14 @@ void drawGrid(toybox::Screen& screen, const kb::Grid& grid, const bool yours) {
 
 }  // namespace
 
+// Both are defined further down, beside the board that is their main caller.
+// Declared here because the menu's ornament and the how-to's diagrams draw the
+// same grid and the same "your columns" mark that the board does: a signal
+// taught with one shape and used with another would be worse than none.
+void bracket(toybox::Screen& screen, const fui::Rect& box);
+void miniGrid(toybox::Screen& screen, int16_t x, int16_t y, int16_t cell,
+              const uint8_t cells[knucklebones::kColumns][knucklebones::kRows], bool bracketed);
+
 fui::Rect columnRect(const fui::DeviceContext& device, const int column, const bool yours) {
   // The whole column, not one cell: a player aims at a column, and the rules
   // take a column. Derived from the same cellRect the pixels came from, so the
@@ -199,13 +207,32 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   // on every one of them, and this was the game that broke "every".
   toybox::iconAtRowRight(screen, band, static_cast<int>(MenuRow::PlayNearby), linkui::nearbyMark(),
                          model.selected == static_cast<int>(MenuRow::PlayNearby));
-}
 
-// Defined below, beside the board that is its main caller. Declared here
-// because the how-to's diagrams use the same mark to say "your columns", and
-// teaching a signal with one shape and then using another would be worse than
-// not teaching it.
-void bracket(toybox::Screen& screen, const fui::Rect& box);
+  if (!model.hasHistory) return;
+
+  // The board the last match ended on, drawn small, with the running tally
+  // beneath it. Ornament made of the app's own material and the app's own data,
+  // which is the only kind this fork allows: two devices show different
+  // pictures here, and the same device shows a different one after every game.
+  const fui::DeviceContext device = screen.device();
+  constexpr int16_t kMini = 44;
+  const int16_t width = kMini * knucklebones::kColumns + 4 * (knucklebones::kColumns - 1);
+  const int16_t left = static_cast<int16_t>((device.width - width) / 2);
+  const int16_t rowsBottom = static_cast<int16_t>(band.y + toybox::kRowHeight * static_cast<int>(MenuRow::Count) +
+                                                  toybox::kGutter * static_cast<int>(MenuRow::Count));
+  const int16_t top = static_cast<int16_t>(rowsBottom + 40);
+
+  miniGrid(screen, left, top, kMini, model.lastTheirs.cell, false);
+  miniGrid(screen, left, static_cast<int16_t>(top + 3 * kMini + 8 + 14), kMini, model.lastYours.cell, false);
+
+  char record[32];
+  std::snprintf(record, sizeof(record), "%d W  %d L  %d D", model.wins, model.losses, model.draws);
+  fui::TextStyle tally;
+  tally.font = toybox::kSmallFont;
+  tally.align = fui::TextAlign::Center;
+  screen.target().text(fui::makeRect(band.x, static_cast<int16_t>(top + 6 * kMini + 8 + 14 + 12), band.width, 24),
+                       record, tally);
+}
 
 // A grid drawn at an arbitrary size, for the how-to's diagrams. The board's own
 // drawGrid is tied to the board's layout; this one takes a rect, so a page can

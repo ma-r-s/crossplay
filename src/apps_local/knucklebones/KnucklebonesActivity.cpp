@@ -1,6 +1,11 @@
 #include "KnucklebonesActivity.h"
 
+#include <HalStorage.h>
+#include <Logging.h>
 #include <Memory.h>
+
+#include <cstdio>
+#include <cstdlib>
 
 #include "../Shelf.h"
 #include "../player/PlayerName.h"
@@ -21,7 +26,87 @@ void KnucklebonesActivity::onEnter() {
   toybox::ensureFonts(renderer);
   screen = kb::Screen::Menu;
   menuSelected = -1;
+  loadHistory();
   requestUpdate();
+}
+
+// Beside the reader's own state and the player's name. A fork-local fact in a
+// fork-local file, the same pattern player.cfg set.
+#if defined(ARDUINO_ARCH_ESP32) || defined(SIMULATOR)
+constexpr char kHistoryPath[] = "/.crosspoint/knucklebones.sav";
+#endif
+
+void KnucklebonesActivity::loadHistory() {
+#if defined(ARDUINO_ARCH_ESP32) || defined(SIMULATOR)
+  if (!Storage.exists(kHistoryPath)) return;
+  char buffer[128] = {};
+  if (Storage.readFileToBuffer(kHistoryPath, buffer, sizeof(buffer)) == 0) return;
+
+  // Parsed into locals and committed only if the whole line is good, so a
+  // truncated file leaves an empty menu rather than half a board. Losing this
+  // costs an ornament, so it fails quietly.
+  int values[3 + kb::kColumns * kb::kRows * 2] = {};
+  char* cursor = buffer;
+  for (int i = 0; i < static_cast<int>(sizeof(values) / sizeof(values[0])); ++i) {
+    char* next = nullptr;
+    const long value = strtol(cursor, &next, 10);
+    if (next == cursor) return;
+    values[i] = static_cast<int>(value);
+    cursor = next;
+  }
+
+  int at = 0;
+  wins = values[at++];
+  losses = values[at++];
+  draws = values[at++];
+  kb::Grid mine{};
+  kb::Grid theirs{};
+  for (int column = 0; column < kb::kColumns; ++column) {
+    for (int row = 0; row < kb::kRows; ++row) mine.cell[column][row] = static_cast<uint8_t>(values[at++]);
+  }
+  for (int column = 0; column < kb::kColumns; ++column) {
+    for (int row = 0; row < kb::kRows; ++row) theirs.cell[column][row] = static_cast<uint8_t>(values[at++]);
+  }
+  lastYours = mine;
+  lastTheirs = theirs;
+  hasHistory = true;
+#endif
+}
+
+void KnucklebonesActivity::recordResult() {
+  if (resultRecorded) return;
+  resultRecorded = true;
+
+  lastYours = game.grid[seat];
+  lastTheirs = game.grid[1 - seat];
+  hasHistory = true;
+  const int mine = kb::score(lastYours);
+  const int theirs = kb::score(lastTheirs);
+  if (mine > theirs)
+    ++wins;
+  else if (theirs > mine)
+    ++losses;
+  else
+    ++draws;
+
+#if defined(ARDUINO_ARCH_ESP32) || defined(SIMULATOR)
+  char line[128];
+  int used = snprintf(line, sizeof(line), "%d %d %d", wins, losses, draws);
+  const kb::Grid* grids[2] = {&lastYours, &lastTheirs};
+  for (int which = 0; which < 2 && used > 0 && used < static_cast<int>(sizeof(line)); ++which) {
+    for (int column = 0; column < kb::kColumns; ++column) {
+      for (int row = 0; row < kb::kRows; ++row) {
+        used += snprintf(line + used, sizeof(line) - used, " %d", grids[which]->cell[column][row]);
+      }
+    }
+  }
+  if (used <= 0 || used >= static_cast<int>(sizeof(line))) {
+    LOG_ERR("KNUCK", "History line did not fit %d bytes", static_cast<int>(sizeof(line)));
+    return;
+  }
+  snprintf(line + used, sizeof(line) - used, "\n");
+  Storage.writeFile(kHistoryPath, String(line));
+#endif
 }
 
 void KnucklebonesActivity::goTo(const kb::Screen next) {
@@ -36,6 +121,7 @@ void KnucklebonesActivity::beginSoloMatch() {
   // reproducible.
   kb::start(game, static_cast<uint32_t>(millis()) * 2654435761u + 1u);
   seat = 0;
+  resultRecorded = false;
   goTo(kb::Screen::Board);
 }
 
@@ -65,6 +151,7 @@ void KnucklebonesActivity::onMatchStart(const bool goesFirst) {
   // delivery is the real one, and dealing locally would only put a different
   // die on screen for the half second before that arrives.
   seat = goesFirst ? 0 : 1;
+  resultRecorded = false;
   if (goesFirst) {
     kb::start(game, static_cast<uint32_t>(millis()) * 2654435761u + 1u);
   } else {
@@ -118,6 +205,7 @@ void KnucklebonesActivity::gameLoop() {
       takeOpponentTurn();
       return;
     } else if (kb::over(game)) {
+      recordResult();
       goTo(kb::Screen::Result);
       return;
     }
@@ -206,6 +294,12 @@ void KnucklebonesActivity::gameRender() {
     case kb::Screen::Menu: {
       knuckleui::MenuModel model;
       model.selected = menuSelected;
+      model.hasHistory = hasHistory;
+      model.lastYours = lastYours;
+      model.lastTheirs = lastTheirs;
+      model.wins = wins;
+      model.losses = losses;
+      model.draws = draws;
       knuckleui::buildMenu(surface, model);
       break;
     }
