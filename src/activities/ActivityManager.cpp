@@ -30,7 +30,7 @@ void ActivityManager::begin() {
   constexpr BaseType_t renderTaskCore = 0;
 #endif
   xTaskCreatePinnedToCore(&renderTaskTrampoline, "ActivityManagerRender",
-                          8192,               // Stack size
+                          16384,               // Stack size
                           this,               // Parameters
                           1,                  // Priority
                           &renderTaskHandle,  // Task handle
