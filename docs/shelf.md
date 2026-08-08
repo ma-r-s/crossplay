@@ -54,6 +54,41 @@ that is how the previous base's Apps menu ended up holding Reading Stats and the
 WiFi transfer page next to Sokoban. "Apps" beside "Games" means the useful ones
 beside the fun ones, and needs no explanation.
 
+## Pages, not scrolling
+
+A folder that does not fit is drawn a page at a time, with a row of pips above
+the footer. Tapping a pip goes straight to that page.
+
+**The reason is touch, not taste.** `ShelfFolderActivity` handles exactly one
+gesture, `wasScreenTapped`: there is no swipe anywhere in this fork, and the
+list component's 3px overflow track is drawn but not tappable. So before this,
+every row past the ninth could be reached only with the physical buttons, on a
+device whose games are touch-only on purpose. Scrolling was not worse-looking;
+it was unreachable.
+
+Three things follow, and each was got wrong once:
+
+- **The page is derived from the selection, never stored.** Two facts that must
+  agree are one fact stored once. A page member drifts the moment a button moves
+  the cursor off it, and then the screen styles a row it is not showing.
+- **The screen is handed a slice, not the folder plus an offset.** The list
+  component clamps `topIndex` to `count - visible` so its last screen is always
+  full (`list.h:164`), which is right for scrolling and wrong for paging: page
+  two of twelve showed items four to eleven, repeating half of page one. A page
+  is a short list, so it is passed as one, and the component never learns pages
+  exist. `ListItem::actionValue` still carries the absolute index, so a tap
+  reports which game it is rather than which row.
+- **The pips tile the whole bar.** Each target is a full slot wide with no gap
+  between them, and `minTouchSize` is set to 0 so the component cannot grow them
+  into each other. A dead strip between targets is something a thumb finds and
+  an eye does not.
+
+Pips rather than prev/next arrows because arrows are up to `pageCount - 1` taps
+to the far end and say nothing about where you are. A right chevron was the
+obvious glyph for "next" and is exactly what could not be used: on this device a
+right chevron already means "opens", and it is the only affordance the player
+bar has.
+
 ## The three rules
 
 **1. A folder holds items, never folders.** There is nowhere in `shelf::Folder`
@@ -135,11 +170,12 @@ blank icon gutter is silent otherwise. Pick for silhouette rather than
 literalness: the label already says the name, so the icon's job is to be
 distinct at a glance in a 62px row.
 
-**A folder over `shelf::kMaxItemsPerFolder` does not compile either**, for the
-same reason. The folder activity reads the registry into fixed arrays, and that
-read used to clamp in silence: a seventeenth game simply did not appear, with no
-log and nothing to grep for. Raising the number is not the answer to a folder
-that outgrew it.
+**A folder has no size limit.** It used to: the folder activity read the whole
+registry into fixed arrays of sixteen and clamped in silence, so a seventeenth
+game simply did not appear, with no log and nothing to grep for. The screen is
+now handed one page at a time, so only a page is ever copied and the arrays are
+sized by the tallest band this panel can draw rather than by how many games
+Mario has promised people.
 
 **4. Leave through the shelf.**
 

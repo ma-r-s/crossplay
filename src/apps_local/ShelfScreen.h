@@ -13,7 +13,17 @@ namespace shelfui {
 
 namespace fui = freeink::ui;
 
-enum : fui::ActionId { ActionOpen = 1, ActionOpenPlayer = 2 };
+enum : fui::ActionId { ActionOpen = 1, ActionOpenPlayer = 2, ActionGoToPage = 3 };
+
+// How many rows a page holds, and how many pages there are.
+//
+// Returned together because the two are circular: the page bar only exists when
+// there is more than one page, and it costs a row, which can be what creates the
+// second page. Resolved once, here, so no caller can compute half of it.
+struct Paging {
+  int rowsPerPage;
+  int pageCount;
+};
 
 struct MenuModel {
   // Drawn at the right edge of each row, in the same order as `items`. Right
@@ -26,10 +36,23 @@ struct MenuModel {
   // in upstream's list, in upstream's language; this is where the folder gets
   // to say what kind of folder it is.
   const freeink::Icon* mark = nullptr;
+  // The current page's items, and only those: the caller slices, so `items[0]`
+  // is the top row on screen and `count` is what this page holds, which is
+  // short on the last one.
+  //
+  // Sliced rather than handed the whole folder with a topIndex, because the list
+  // component clamps topIndex to count - visible so the screen always ends up
+  // full (list.h:164). That is right for scrolling and wrong for paging: page
+  // two of twelve would have shown items four to eleven, repeating half of page
+  // one. A page is a short list, so it is passed as one, and the component never
+  // learns that paging exists.
+  //
+  // `actionValue` still carries the absolute index, so a tap reports which game
+  // it is rather than which row.
   const fui::ListItem* items = nullptr;
   int count = 0;
+  // Page-relative, matching `items`. -1 draws no cursor at all.
   int selected = 0;
-  int topIndex = 0;
   // This device's name, shown to anyone it plays with. It lives here rather
   // than inside any game because it belongs to the device: a DS asked once and
   // every game used it.
@@ -46,17 +69,39 @@ struct MenuModel {
   //
   // Null when this folder does not show it; the footer disappears with it.
   const char* playerName = nullptr;
+  // Which page is showing, and how many there are. A pageCount of 1 draws no
+  // page bar at all, so a folder that fits keeps every row it has.
+  //
+  // The bar is pips rather than prev/next arrows, and that is not decoration.
+  // Arrows are up to pageCount-1 taps to reach the far end; pips are always one,
+  // which matters most on the panel that is slowest to redraw. They also say
+  // where you are, which arrows do not. A right chevron was the obvious glyph
+  // for "next" and is exactly what could not be used: on this device a right
+  // chevron already means "opens", and it is the only affordance the player bar
+  // has.
+  int page = 0;
+  int pageCount = 1;
 };
 
-// Where the list will scroll to, given a selection. Split out from the builder
-// so the activity can keep the value it owns, and so a test can check that a
-// selection below the fold actually scrolls into view rather than being styled
-// on a row that is never drawn.
-int topIndexFor(const fui::Rect& body, const fui::ThemeTokens& tokens, int selected, int topIndex, int count);
+// How the folder's items divide into pages. See Paging above for why both
+// numbers come back at once.
+Paging pagingFor(const fui::DeviceContext& device, const fui::ThemeTokens& tokens, bool hasDeviceName, int count);
 
-// The body rect the list occupies, which is what topIndexFor needs to know how
-// many rows fit. Shared with the builder so the two cannot disagree.
-fui::Rect listBand(const fui::DeviceContext& device, bool hasDeviceName);
+// Which page a selection is on. The list pages rather than scrolling, so the
+// top row of a page is always a multiple of rowsPerPage and never lands
+// mid-page: an e-ink panel repaints the whole screen either way, and a page
+// that always starts in the same place is one a thumb can learn.
+//
+// Split out from the builder so the activity can keep the value it owns, and so
+// a test can check that a selection below the fold actually brings its page into
+// view rather than being styled on a row that is never drawn.
+int pageFor(int selected, int rowsPerPage);
+
+// The body rect the list occupies. `hasPages` is what the page bar costs it, and
+// it is a separate argument rather than derived because pagingFor has to ask
+// this question both ways round to resolve the circularity. Shared with the
+// builder so the two cannot disagree.
+fui::Rect listBand(const fui::DeviceContext& device, bool hasDeviceName, bool hasPages);
 
 void buildMenu(toybox::Screen& screen, const MenuModel& model);
 
