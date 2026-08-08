@@ -80,9 +80,9 @@ static Pack buildPack(const std::vector<std::pair<uint16_t, std::string>>& comic
     // Every other comic carries a closer view, so the archive path is
     // exercised with and without one.
     if (num % 2 == 1) {
-      c.closerWidth = xkcd::kCloserWidth;
+      c.closerWidth = xkcd::kMaxCloserWidth;
       c.closerHeight = 800;
-      c.closerStride = (xkcd::kCloserWidth + 7) / 8;
+      c.closerStride = (xkcd::kMaxCloserWidth + 7) / 8;
       c.closerOffset = 12345;
     }
     c.year = 2020;
@@ -426,10 +426,38 @@ static void testCloserView() {
   const xkcd::Placement c1 = xkcd::place(close, vw, vh, at(1, 0));
   CHECK(c0.scrollX == 0, "column 0 starts at the left edge");
   CHECK(c1.scrollX + c1.visibleW == 912, "column 1 ends flush with the artwork");
-  CHECK(c1.scrollX >= vh / 2, "column 1 must reveal at least half a screen of new art, got %d", c1.scrollX);
-  CHECK(xkcd::kMinCloserWidth - xkcd::kPanelWidth >= vh / 2,
-        "the constant itself must promise half a screen, or the guarantee is only true by accident");
-  CHECK(xkcd::kCloserWidth == 2 * xkcd::kPanelWidth - xkcd::kColumnOverlap, "the closer width is two columns");
+  CHECK(c1.scrollX == xkcd::kColumnStep, "column 1 reveals exactly one step of new art, got %d", c1.scrollX);
+
+  // **The guarantee, at every column count, not just at two.** A closer view
+  // is kColumnStep * N + kColumnOverlap wide, so each column advances by a
+  // full kColumnStep and the last ends flush. Checked across the whole legal
+  // range because the zoom is chosen from the comic's own lettering now, so N
+  // is whatever readability asked for.
+  for (int cols = 2; cols <= xkcd::kMaxCloserColumns; ++cols) {
+    const int width = xkcd::kColumnStep * cols + xkcd::kColumnOverlap;
+    const xkcd::Rendition r = pageRend(width, 900);
+    CHECK(xkcd::columnsIn(r, vw) == cols, "%dpx should be %d columns, got %d", width, cols, xkcd::columnsIn(r, vw));
+    int last = 0;
+    for (int i = 0; i < cols; ++i) {
+      const xkcd::Placement p = xkcd::place(r, vw, vh, at(i, 0));
+      if (i > 0) {
+        CHECK(p.scrollX - last == xkcd::kColumnStep, "column %d of %d revealed %d px, not %d", i, cols,
+              p.scrollX - last, xkcd::kColumnStep);
+      }
+      last = p.scrollX;
+      if (i == cols - 1) {
+        CHECK(p.scrollX + p.visibleW == width, "the last of %d columns must end flush, got %d", cols,
+              p.scrollX + p.visibleW);
+      }
+    }
+  }
+
+  // And a width that is not a whole number of steps is not a legal record, so
+  // the reader can never be handed one whose last column reveals a sliver.
+  xkcd::Comic ragged = c;
+  ragged.closerWidth = 913;
+  ragged.closerStride = (913 + 7) / 8;
+  CHECK(!ragged.valid(), "a closer width off the column grid must be rejected");
 
   // Out-of-range columns clamp rather than reading off the end of the image.
   CHECK(xkcd::place(close, vw, vh, at(9, 0)).scrollX == 912 - 480, "over-column clamps");

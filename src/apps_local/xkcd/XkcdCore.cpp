@@ -193,8 +193,14 @@ int maxScroll(const Rendition& r, int viewportH) {
 
 int columnsIn(const Rendition& r, int viewportW) {
   if (viewportW <= 0) return 1;
-  const int cols = (static_cast<int>(r.width) + viewportW - 1) / viewportW;
-  return cols < 1 ? 1 : cols;
+  const int over = static_cast<int>(r.width) - viewportW;
+  if (over <= 0) return 1;
+  // Derived from the step the columns actually advance by, so this and place()
+  // cannot disagree. Computing it from the viewport width instead was the bug
+  // a column-guarantee test found immediately: at three columns or more the
+  // last one revealed a sliver, because the columns were spaced 480 apart
+  // while the width was laid out on a 432 grid.
+  return 1 + (over + kColumnStep - 1) / kColumnStep;
 }
 
 Placement place(const Rendition& r, int viewportW, int viewportH, const Position& at) {
@@ -204,11 +210,11 @@ Placement place(const Rendition& r, int viewportW, int viewportH, const Position
   const int cols = columnsIn(r, viewportW);
   const int column = at.column < 0 ? 0 : (at.column >= cols ? cols - 1 : at.column);
 
-  // Columns are whole viewports side by side, with the last pulled back so it
-  // ends flush against the right edge of the artwork rather than running off
-  // into blank space. In the closer view that pull-back is kColumnOverlap and
-  // is the point: a word split at the seam stays readable on both sides.
-  p.scrollX = column * viewportW;
+  // Columns advance by kColumnStep, not by a whole viewport, so consecutive
+  // columns overlap by kColumnOverlap and a word split at the seam stays
+  // readable on both sides. The last is clamped flush to the right edge, which
+  // for a width on the column grid is exactly where it already lands.
+  p.scrollX = column * kColumnStep;
   const int overX = static_cast<int>(r.width) - viewportW;
   if (p.scrollX > overX) p.scrollX = overX < 0 ? 0 : overX;
 

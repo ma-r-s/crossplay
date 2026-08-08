@@ -37,7 +37,7 @@ constexpr const char* kTmpBmp = "/xkcd/.tmp.bmp";
 // widest possible comic is 1600 bytes -- too big for the stack under the
 // 256-byte rule, so it lives in the .bss as a single fixed pool.
 constexpr int kBandRows = 16;
-constexpr int kMaxStride = (xkcd::kCloserWidth + 7) / 8;
+constexpr int kMaxStride = (xkcd::kMaxCloserWidth + 7) / 8;
 uint8_t gBand[kBandRows * kMaxStride];
 
 // The gap flags for one step, sized from the same arithmetic the window is

@@ -78,11 +78,11 @@ MAX_PAGE_WIDTH = PANEL_WIDTH
 # a runtime "is this column worth it?" test is the shape of rule that produced
 # the one-pixel column in the first place.
 COLUMN_OVERLAP = 48
-CLOSER_WIDTH = 2 * PANEL_WIDTH - COLUMN_OVERLAP  # 912
-MIN_CLOSER_WIDTH = PANEL_WIDTH + PORTRAIT_VIEWPORT_H // 2  # 720
+COLUMN_STEP = PANEL_WIDTH - COLUMN_OVERLAP  # 432
+MAX_CLOSER_COLUMNS = 8
 
-# Widest thing the format may hold, which is now the closer rendition's width.
-MAX_COMIC_WIDTH = CLOSER_WIDTH
+# Widest thing the format may hold, which is the closer rendition's ceiling.
+MAX_COMIC_WIDTH = COLUMN_STEP * MAX_CLOSER_COLUMNS + COLUMN_OVERLAP  # 3504
 
 # Comic 404 does not exist, and that is the joke. Requesting it returns an
 # actual 404, so it is skipped by name rather than by error handling.
@@ -252,6 +252,80 @@ def to_gray(path: pathlib.Path):
     return img.convert("L")
 
 
+def cap_height(gray) -> float | None:
+    """How tall this comic's lettering is, in source pixels.
+
+    **This is the number that decides whether a comic can be read on a 480px
+    panel, and it is not constant across the archive.** Cap height runs from
+    3px on a dense infographic to 25px on a big-lettered strip, so any single
+    zoom multiplier necessarily over-zooms one class to rescue the other. That
+    is exactly the mistake that shipped first: #3266 was zoomed to 1.23x
+    because that was two columns, and two columns was a tidy invariant rather
+    than a readable result. Its lettering came out 5px tall.
+
+    Measured by connected components: a letter is one blob, so the median blob
+    height over letter-shaped blobs tracks cap height. Run length in a column
+    does NOT work -- that is stroke width, and it returns 2 for the entire
+    archive.
+    """
+    w, h = gray.size
+    px = gray.load()
+    parent = {}
+
+    def find(a):
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    prev = {}
+    box = {}
+    nxt = 0
+    for y in range(h):
+        cur = {}
+        run = None
+        for x in range(w + 1):
+            ink = x < w and px[x, y] < 128
+            if ink and run is None:
+                run = x
+            elif not ink and run is not None:
+                lab = None
+                for xx in range(max(0, run - 1), min(w, x + 1)):
+                    if xx in prev:
+                        found = find(prev[xx])
+                        if lab is None:
+                            lab = found
+                        elif found != lab:
+                            parent[found] = lab
+                if lab is None:
+                    lab = nxt
+                    nxt += 1
+                    parent[lab] = lab
+                    box[lab] = [run, y, x - 1, y]
+                for xx in range(run, x):
+                    cur[xx] = lab
+                b = box[find(lab)]
+                b[0] = min(b[0], run)
+                b[1] = min(b[1], y)
+                b[2] = max(b[2], x - 1)
+                b[3] = max(b[3], y)
+                run = None
+        prev = cur
+
+    heights = []
+    for lab, b in box.items():
+        if find(lab) != lab:
+            continue
+        bw, bh = b[2] - b[0] + 1, b[3] - b[1] + 1
+        # Letter-shaped: not a stray dither dot, not a frame or a long rule.
+        if 3 <= bh <= 40 and 2 <= bw <= 60 and bh * 6 >= bw:
+            heights.append(bh)
+    if len(heights) < 25:
+        return None
+    heights.sort()
+    return heights[len(heights) // 2]
+
+
 def resample(gray, sw: int, sh: int, scale: float):
     """Scale on the host, with a real filter, before the single dither.
 
@@ -378,19 +452,27 @@ def main() -> int:
         "(which gains almost nothing) stays upright.",
     )
     ap.add_argument(
-        "--closer-floor",
+        "--target-cap",
         type=float,
-        default=0.80,
-        help="a comic whose page view is shrunk below this opens in its closer "
-        "view instead, because the page view is not readable. OK pulls back "
-        "to the whole comic.",
+        default=12.0,
+        help="how tall this comic's lettering should be on the panel, in "
+        "pixels. The closer view is zoomed until it reaches this and no "
+        "further, so a dense infographic zooms hard and a big-lettered strip "
+        "barely at all.",
+    )
+    ap.add_argument(
+        "--min-cap",
+        type=float,
+        default=10.0,
+        help="a comic whose lettering is already at least this tall on the "
+        "page is readable as it is, and gets no closer view.",
     )
     ap.add_argument(
         "--max-closer-scale",
         type=float,
-        default=1.60,
-        help="never enlarge a closer view past this. Beyond it the extra "
-        "pixels are magnification rather than detail.",
+        default=6.0,
+        help="never enlarge a closer view past this, whatever the lettering "
+        "says. A safety bound, not a design constant.",
     )
     ap.add_argument(
         "--no-rotate",
@@ -485,6 +567,12 @@ def main() -> int:
             sw, sh = gray.size
             vw, vh = args.portrait_width, PORTRAIT_VIEWPORT_H
 
+            # Measured on the UPRIGHT source, before any rotation. Cap height
+            # is a property of the artwork; measuring it after a transpose
+            # returns the letters' *width*, which sent a third of the archive
+            # into a closer view it did not need.
+            cap = cap_height(gray)
+
             upright_scale = min(args.max_upscale, vw / sw)
             sideways_scale = min(args.max_upscale, vw / sh, vh / sw)
             sideways = (
@@ -538,14 +626,28 @@ def main() -> int:
             # readable. **These OPEN in the closer view**, because showing a
             # comic too small to read and making you ask for the readable one
             # is the wrong way round; OK pulls back to the whole comic.
-            closer_scale = min(args.max_closer_scale, CLOSER_WIDTH / sw)
-            closer_w = round(sw * closer_scale)
+            #
+            # How far to zoom comes from THIS COMIC's lettering, not from a
+            # column count. The first version fixed the closer view at two
+            # columns because that was a tidy invariant, which zoomed #3266 to
+            # 1.23x and left its lettering 5px tall. Cap height across the
+            # archive runs 3px to 25px; one multiplier cannot serve both ends.
             closer_bits = None
-            closer_stride = closer_h = 0
+            closer_stride = closer_h = closer_w = 0
+            want = args.max_closer_scale
+            if cap:
+                want = min(args.max_closer_scale, args.target_cap / cap)
+            # Snap to the column grid, so every column reveals a full step and
+            # the last one ends flush. This is the anti-sliver guarantee, and
+            # it holds at any number of columns.
+            cols = max(2, round((sw * want - COLUMN_OVERLAP) / COLUMN_STEP))
+            cols = min(cols, MAX_CLOSER_COLUMNS)
+            closer_w = COLUMN_STEP * cols + COLUMN_OVERLAP
+            closer_scale = closer_w / sw
             if (
                 not args.no_closer
-                and page_scale < args.closer_floor
-                and closer_w >= MIN_CLOSER_WIDTH
+                and cap
+                and cap * page_scale < args.min_cap
                 and closer_scale > page_scale
                 and sh * closer_scale <= MAX_COMIC_HEIGHT
             ):
@@ -670,17 +772,15 @@ def main() -> int:
         )
     if thin:
         print(
-            f"  BROKEN: {len(thin)} closer views reveal under half a screen in column two",
+            f"  BROKEN: {len(thin)} closer views are not a whole number of columns wide",
             file=sys.stderr,
         )
     if not wide and not thin:
-        least = min(
-            (r["closerWidth"] - PANEL_WIDTH for r in records if r["closerWidth"]),
-            default=0,
-        )
+        widest = max((r["closerWidth"] for r in records if r["closerWidth"]), default=0)
+        cols = (widest - COLUMN_OVERLAP) // COLUMN_STEP if widest else 0
         print(
-            f"  no page rendition pans sideways; every closer view's second "
-            f"column reveals at least {least}px",
+            f"  no page rendition pans sideways; every closer column reveals a "
+            f"full {COLUMN_STEP}px; widest closer view {widest}px ({cols} columns)",
             file=sys.stderr,
         )
     if skipped:

@@ -23,7 +23,7 @@ wifi look subtly different on the same screen for no reason a user could name.
 
 ## Two renditions
 
-Every comic has a **page** rendition. 8% also have a **closer** one, and
+Every comic has a **page** rendition. 15% also have a **closer** one, and
 **those comics open in it**.
 
 The page rendition is fitted so the comic's full width is on the panel, so the
@@ -167,11 +167,32 @@ page view had it — #3179 is _enlarged_ 1.51x to 480x757 and then pans by a
 single pixel. 96 comics were in that state; this removes all of them for at
 most 8% of scale and a thin margin down the sides.
 
-**3. The closer rendition**, for comics whose page view is shrunk past
-`--closer-floor` (0.80). **These open in the closer view**, and Confirm pulls
-back to the whole comic: showing a comic too small to read and making you ask
-for the readable one is the wrong way round. It is **always exactly two
-columns**:
+**3. The closer rendition**, for comics whose lettering the page view cannot
+render readable. **These open in the closer view**, and Confirm pulls back to
+the whole comic: showing a comic too small to read and making you ask for the
+readable one is the wrong way round.
+
+How far to zoom comes from **that comic's own lettering**, measured on the host
+by connected components (a letter is one blob; the median letter-shaped blob
+height is cap height). This is the measurement the whole feature turns on:
+
+```
+cap height in source px:  min 3   p10 10   median 12   p90 13   max 25
+```
+
+**A single zoom multiplier cannot serve both ends of that.** The first version
+fixed the closer view at two columns because two columns was a tidy invariant,
+which zoomed #3266 to 1.23x and left its lettering 5px tall on the panel --
+still unreadable, which is exactly what it was reported as. A comic is now
+zoomed until its lettering would be `--target-cap` (12px) on the panel and no
+further, so #3266 goes to 2.98x and a big-lettered strip barely moves.
+
+A comic whose lettering is already `--min-cap` (10px) tall on the page view is
+readable as it is and gets no closer view at all. Across the archive the page
+view already delivers a median of 13.7px, which is why this affects the bottom
+quartile rather than everything.
+
+The width is then snapped to the column grid:
 
 ```
 kCloserWidth    = 2 * 480 - 48   = 912    two columns overlapping by 48px
@@ -201,8 +222,9 @@ The budget is `max(width * 3%, 12)` ink pixels, and **the floor does more work
 than the percentage**: structural ink is a count of vertical strokes and does
 not scale with width.
 
-**Storage.** 126MB before this change, **149MB** after: 3279 comics, of which
-246 carry a second rendition. Source PNGs would be ~180MB.
+**Storage.** 126MB before this change, **217MB** after: 3279 comics, of which
+493 carry a second rendition. The closer renditions are the cost of being
+readable at all; the card has 131GB free.
 
 ## Building one
 

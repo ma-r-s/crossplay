@@ -48,9 +48,9 @@
 // choice if it was wrong for a particular comic.
 //
 // It has a horizontal axis, so its guarantee has to be built into its
-// dimensions rather than checked afterwards -- see kCloserWidth. It is always
-// exactly two columns, and the second one always reveals at least half a screen
-// of artwork the first did not.
+// dimensions rather than checked afterwards -- see kColumnStep. However many
+// columns it ends up with, every one of them reveals a full 432px of artwork
+// the last did not.
 
 #include <cstddef>
 #include <cstdint>
@@ -120,21 +120,24 @@ inline constexpr uint32_t kIndexRecordBytes = 40;
 // a pack that violated it would be rejected, not silently read in columns.
 inline constexpr int kMaxPageWidth = kPanelWidth;
 
-// The closer rendition is **always exactly two columns**, overlapping by
-// kColumnOverlap so a word split at the seam is readable on both sides.
+// **A closer rendition's width is always kColumnStep * N + kColumnOverlap.**
+// Columns advance by kColumnStep and overlap by kColumnOverlap, so every
+// column -- at any N -- reveals exactly kColumnStep of artwork the previous
+// one did not, and the last column ends flush with the right edge. That is the
+// whole anti-sliver mechanism, and it lives in the arithmetic for the same
+// reason kSnapTolerance does: a runtime check for "is this column worth it?"
+// is the shape of rule that produced the one-pixel column in the first place.
 //
-// This is the whole anti-sliver mechanism, and it lives in the constants for
-// the same reason kSnapTolerance does: a runtime check for "is this second
-// column worth it?" was the shape of the rule that produced the one-pixel
-// column in the first place. Build it in, do not test for it.
+// N is chosen by the builder from **the comic's own lettering**, measured by
+// connected components on the greyscale source. That measurement is the whole
+// point: cap height across the archive runs from 3px to 25px, so a single zoom
+// multiplier necessarily over-zooms a three-panel strip to rescue a dense
+// infographic. A comic is zoomed until its lettering would be about 12px on
+// the panel, and no further.
 inline constexpr int kColumnOverlap = 48;
-inline constexpr int kCloserWidth = 2 * kPanelWidth - kColumnOverlap;  // 912
-
-// And the floor: a closer view whose second column reveals less than half a
-// screen is not worth a tap, so the builder does not make one. Measured over
-// the archive the real minimum is 378px, exactly half a screen, with no comic
-// anywhere near the boundary.
-inline constexpr int kMinCloserWidth = kPanelWidth + 378;
+inline constexpr int kColumnStep = kPanelWidth - kColumnOverlap;  // 432
+inline constexpr int kMaxCloserColumns = 8;
+inline constexpr int kMaxCloserWidth = kColumnStep * kMaxCloserColumns + kColumnOverlap;  // 3504
 
 // #887 "Future Timeline" is 6370 rows, the tallest in the sampled archive.
 // 16384 leaves room for whatever Randall does next without letting a corrupt
@@ -189,8 +192,14 @@ struct Comic {
   bool valid() const {
     return num > 0 && width > 0 && height > 0 && stride > 0 && width <= kMaxPageWidth && height <= kMaxComicHeight &&
            stride >= (width + 7) / 8 &&
-           (!hasCloser() ||
-            (closerWidth <= kCloserWidth && closerHeight <= kMaxComicHeight && closerStride >= (closerWidth + 7) / 8));
+           (!hasCloser() || (closerWidth <= kMaxCloserWidth && closerHeight <= kMaxComicHeight &&
+                             closerStride >= (closerWidth + 7) / 8 &&
+                             // The column arithmetic, enforced by the format: a
+                             // closer view that is not a whole number of steps
+                             // wide could have a last column revealing almost
+                             // nothing, which is the defect this all exists to
+                             // prevent. Reject it rather than draw it.
+                             (closerWidth - kColumnOverlap) % kColumnStep == 0));
   }
 };
 
