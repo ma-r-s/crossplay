@@ -71,9 +71,20 @@ static Pack buildPack(const std::vector<std::pair<uint16_t, std::string>>& comic
   for (const auto& [num, title] : comics) {
     xkcd::Comic c;
     c.num = num;
-    c.width = 740;
+    // A page rendition is fitted to the panel width, and a wider one is not a
+    // legal record -- Archive::at rejects it. Building the fixture at 740
+    // wide, as this did before the rework, now correctly fails to load.
+    c.width = xkcd::kMaxPageWidth;
     c.height = 400;
-    c.stride = (740 + 7) / 8;
+    c.stride = (xkcd::kMaxPageWidth + 7) / 8;
+    // Every other comic carries a closer view, so the archive path is
+    // exercised with and without one.
+    if (num % 2 == 1) {
+      c.closerWidth = xkcd::kCloserWidth;
+      c.closerHeight = 800;
+      c.closerStride = (xkcd::kCloserWidth + 7) / 8;
+      c.closerOffset = 12345;
+    }
     c.year = 2020;
     c.month = 1;
     c.day = 1;
@@ -133,13 +144,22 @@ static FakeImage makeImage(const std::string& rowSpec, int width = 740, int vert
 // A plain frame, which is what most comics have.
 static FakeImage makeFramed(const std::string& rowSpec, int width = 740) { return makeImage(rowSpec, width, 2); }
 
-static xkcd::Comic comicFor(const FakeImage& img, uint16_t num = 1) {
-  xkcd::Comic c;
-  c.num = num;
-  c.width = static_cast<uint16_t>(img.width);
-  c.height = static_cast<uint16_t>(img.height);
-  c.stride = static_cast<uint16_t>(img.stride);
-  return c;
+// Placement and stepping work on a Rendition rather than a Comic, so neither
+// has to branch on which of the two images is on screen.
+static xkcd::Rendition rendFor(const FakeImage& img) {
+  xkcd::Rendition r;
+  r.width = static_cast<uint16_t>(img.width);
+  r.height = static_cast<uint16_t>(img.height);
+  r.stride = static_cast<uint16_t>(img.stride);
+  return r;
+}
+
+static xkcd::Position at(int column, int scrollY, xkcd::Lens lens = xkcd::Lens::Page) {
+  xkcd::Position p;
+  p.lens = lens;
+  p.column = column;
+  p.scrollY = scrollY;
+  return p;
 }
 
 // Exactly what the activity does: ask which rows the step needs, read that
@@ -148,7 +168,8 @@ static xkcd::Comic comicFor(const FakeImage& img, uint16_t num = 1) {
 // Flags live in the caller, exactly as they will on the device.
 static std::vector<uint8_t> gapFlags;
 
-static xkcd::GapWindow windowFor(const xkcd::Comic& c, const FakeImage& img, int viewportH, int scrollY, bool down) {
+static xkcd::GapWindow windowFor(const xkcd::Rendition& c, const FakeImage& img, int viewportH, int scrollY,
+                                 bool down) {
   int firstRow = 0, rowCount = 0;
   xkcd::gapWindowFor(c, viewportH, scrollY, down, firstRow, rowCount);
   xkcd::GapWindow w;
@@ -195,11 +216,14 @@ static void testRecordRoundTrip() {
   CHECK(out.day == in.day, "day");
   CHECK(out.imageOffset == in.imageOffset, "imageOffset %u", out.imageOffset);
   CHECK(out.textOffset == in.textOffset, "textOffset");
-  CHECK(out.imageBytes() == 93u * 6370u, "imageBytes %u", out.imageBytes());
+  const xkcd::Rendition back = xkcd::renditionFor(out, xkcd::Lens::Page);
+  CHECK(back.bytes() == 93u * 6370u, "page bytes %u", back.bytes());
+  CHECK(out.closerWidth == in.closerWidth && out.closerHeight == in.closerHeight, "closer dimensions");
+  CHECK(out.closerStride == in.closerStride && out.closerOffset == in.closerOffset, "closer stride and offset");
 
-  // The record must stay 32 bytes: the whole point of a fixed width is that a
+  // The record must stay 40 bytes: the whole point of a fixed width is that a
   // lookup is a seek. If this ever changes, kFormatVersion has to change too.
-  CHECK(xkcd::kIndexRecordBytes == 32, "record size drifted");
+  CHECK(xkcd::kIndexRecordBytes == 40, "record size drifted");
 }
 
 // ---------------------------------------------------------------- archive
@@ -290,127 +314,210 @@ static void testRejectsBadPacks() {
 
 // ------------------------------------------------------------- placement
 
+// A page rendition, as the builder guarantees they arrive: never wider than
+// the panel, so the page view has no horizontal axis at all.
+static xkcd::Rendition pageRend(int w, int h) {
+  xkcd::Rendition r;
+  r.width = static_cast<uint16_t>(w);
+  r.height = static_cast<uint16_t>(h);
+  r.stride = static_cast<uint16_t>((w + 7) / 8);
+  return r;
+}
+
 static void testPlacement() {
-  xkcd::Comic wide;  // a short wide strip: the 37% case
-  wide.num = 1;
-  wide.width = 740;
-  wide.height = 180;
-  wide.stride = 93;
+  const int vw = 480, vh = 756;
 
-  xkcd::Placement p = xkcd::place(wide, 800, 480, xkcd::Position{0, 0});
-  CHECK(!p.pans, "a 180px strip must not pan on a 480px viewport");
-  CHECK(p.originX == 30, "originX %d (centred horizontally in 800)", p.originX);
-  CHECK(p.originY == 150, "originY %d (centred vertically in 480)", p.originY);
+  const xkcd::Rendition strip = pageRend(480, 180);  // a short wide strip
+  xkcd::Placement p = xkcd::place(strip, vw, vh, at(0, 0));
+  CHECK(!p.pans, "a 180px strip must not pan on a 756px viewport");
+  CHECK(p.originX == 0, "originX %d (a full-width page has no side margin)", p.originX);
+  CHECK(p.originY == (756 - 180) / 2, "originY %d (centred vertically)", p.originY);
   CHECK(p.visibleH == 180, "visibleH %d", p.visibleH);
-  CHECK(xkcd::maxScroll(wide, 480) == 0, "maxScroll of a fitting comic is 0");
-  CHECK(xkcd::scrollPermille(wide, 800, 480, xkcd::Position{0, 0}) == 1000, "a comic that fits is wholly shown");
+  CHECK(xkcd::maxScroll(strip, vh) == 0, "maxScroll of a fitting comic is 0");
 
-  xkcd::Comic tall;
-  tall.num = 2;
-  tall.width = 740;
-  tall.height = 1200;
-  tall.stride = 93;
+  // A narrow comic the upscale cap could not stretch to the full width is
+  // centred, which is the only case that leaves a side margin.
+  const xkcd::Rendition narrow = pageRend(318, 200);
+  CHECK(xkcd::place(narrow, vw, vh, at(0, 0)).originX == (480 - 318) / 2, "a narrow page is centred");
 
-  CHECK(xkcd::maxScroll(tall, 480) == 720, "maxScroll %d", xkcd::maxScroll(tall, 480));
-  p = xkcd::place(tall, 800, 480, xkcd::Position{0, 300});
+  const xkcd::Rendition tall = pageRend(480, 1200);
+  CHECK(xkcd::maxScroll(tall, vh) == 444, "maxScroll %d", xkcd::maxScroll(tall, vh));
+  p = xkcd::place(tall, vw, vh, at(0, 300));
   CHECK(p.pans, "a 1200px comic must pan");
   CHECK(p.originY == 0, "a panning comic is pinned to the top");
   CHECK(p.scrollY == 300, "scrollY %d", p.scrollY);
-  CHECK(p.visibleH == 480, "visibleH %d", p.visibleH);
+  CHECK(p.visibleH == 756, "visibleH %d", p.visibleH);
 
   // Out-of-range scroll must be clamped, not wrapped or trusted.
-  CHECK(xkcd::place(tall, 800, 480, xkcd::Position{0, 99999}).scrollY == 720, "over-scroll clamps to maxScroll");
-  CHECK(xkcd::place(tall, 800, 480, xkcd::Position{0, -50}).scrollY == 0, "negative scroll clamps to 0");
+  CHECK(xkcd::place(tall, vw, vh, at(0, 99999)).scrollY == 444, "over-scroll clamps to maxScroll");
+  CHECK(xkcd::place(tall, vw, vh, at(0, -50)).scrollY == 0, "negative scroll clamps to 0");
 
-  CHECK(xkcd::scrollPermille(tall, 800, 480, xkcd::Position{0, 0}) == 0, "top is 0");
-  CHECK(xkcd::scrollPermille(tall, 800, 480, xkcd::Position{0, 720}) == 1000, "bottom is 1000");
-  CHECK(xkcd::scrollPermille(tall, 800, 480, xkcd::Position{0, 360}) == 500, "halfway is 500");
+  // **The page view has one column, and that is a property of the format.**
+  // A record whose page rendition is wider than the panel is rejected by
+  // valid(), so the reader can never be handed one -- which is what makes
+  // "the page view never pans sideways" a guarantee rather than a hope.
+  xkcd::Comic bad;
+  bad.num = 1;
+  bad.width = static_cast<uint16_t>(xkcd::kMaxPageWidth + 1);
+  bad.height = 400;
+  bad.stride = 61;
+  CHECK(!bad.valid(), "a page rendition wider than the panel must be rejected outright");
 
-  // Nothing in the archive is wider than the panel, but a corrupt record must
-  // not place the image at a negative origin and blit off the buffer.
-  xkcd::Comic over;
-  over.num = 3;
-  over.width = 900;
-  over.height = 100;
-  over.stride = 113;
-  CHECK(xkcd::place(over, 800, 480, xkcd::Position{0, 0}).originX == 0, "an over-wide image must not get a negative originX");
+  xkcd::Comic ok = bad;
+  ok.width = xkcd::kMaxPageWidth;
+  ok.stride = 60;
+  CHECK(ok.valid(), "a page rendition exactly the panel's width is fine");
+  CHECK(xkcd::columnsIn(xkcd::renditionFor(ok, xkcd::Lens::Page), vw) == 1,
+        "a page rendition is always exactly one column");
+
+  // A corrupt record must still not place the image at a negative origin and
+  // blit off the framebuffer.
+  CHECK(xkcd::place(pageRend(900, 100), vw, vh, at(0, 0)).originX == 0,
+        "an over-wide image must not get a negative originX");
 }
 
-// ---------------------------------------------------------------- columns
+// ----------------------------------------------------------- the two views
 
-static void testColumns() {
-  // A comic wider than the viewport is read a column at a time. This is the
-  // answer to comics that are big in *both* axes: fitting them to the width is
-  // the shrink that makes the lettering unreadable, so they are kept large and
-  // walked across instead.
-  xkcd::Comic big;  // #3266-shaped: near square, fine detail, kept at full size
-  big.num = 3266;
-  big.width = 740;
-  big.height = 731;
-  big.stride = 93;
+// The closer rendition, exactly as the builder makes them: two columns wide,
+// overlapping by kColumnOverlap.
+static xkcd::Comic withCloser(int pw, int ph, int cw, int ch) {
+  xkcd::Comic c;
+  c.num = 3266;
+  c.width = static_cast<uint16_t>(pw);
+  c.height = static_cast<uint16_t>(ph);
+  c.stride = static_cast<uint16_t>((pw + 7) / 8);
+  c.imageOffset = 1000;
+  c.closerWidth = static_cast<uint16_t>(cw);
+  c.closerHeight = static_cast<uint16_t>(ch);
+  c.closerStride = static_cast<uint16_t>((cw + 7) / 8);
+  c.closerOffset = 5000;
+  return c;
+}
+
+static void testCloserView() {
   const int vw = 480, vh = 756;
+  // #3266-shaped: 740x731 at source, fitted to 480x474 for the page, and
+  // 912x901 for the closer view.
+  const xkcd::Comic c = withCloser(480, 474, 912, 901);
+  CHECK(c.valid(), "a comic with a closer view is valid");
+  CHECK(c.hasCloser(), "and it says so");
 
-  CHECK(xkcd::columnCount(big, vw) == 2, "740 across a 480 panel is 2 columns, got %d",
-        xkcd::columnCount(big, vw));
-  CHECK(xkcd::columnCount(big, 800) == 1, "the same comic is one column on a wide panel");
+  const xkcd::Rendition page = xkcd::renditionFor(c, xkcd::Lens::Page);
+  const xkcd::Rendition close = xkcd::renditionFor(c, xkcd::Lens::Closer);
+  CHECK(page.offset == 1000 && page.width == 480, "the page rendition is selected by lens");
+  CHECK(close.offset == 5000 && close.width == 912, "and so is the closer one");
 
-  // Column 0 shows the left slice from x=0; column 1 is pulled back so it ends
-  // flush with the artwork rather than running into blank space.
-  xkcd::Placement p0 = xkcd::place(big, vw, vh, xkcd::Position{0, 0});
-  CHECK(p0.scrollX == 0, "first column starts at 0, got %d", p0.scrollX);
-  CHECK(p0.visibleW == 480, "first column is a full viewport wide, got %d", p0.visibleW);
-  CHECK(p0.originX == 0, "a columned comic is not centred, or it would shift between panes");
+  // A comic with no closer view falls back to the page rather than reading a
+  // zero-length image at offset zero.
+  xkcd::Comic plain = c;
+  plain.closerWidth = 0;
+  CHECK(!plain.hasCloser(), "closerWidth 0 is the sentinel for 'no closer view'");
+  CHECK(xkcd::renditionFor(plain, xkcd::Lens::Closer).offset == 1000, "asking for a closer view there gives the page");
 
-  xkcd::Placement p1 = xkcd::place(big, vw, vh, xkcd::Position{1, 0});
-  CHECK(p1.scrollX == 740 - 480, "last column ends flush with the artwork, got %d", p1.scrollX);
-  CHECK(p1.scrollX + p1.visibleW == 740, "the last column must reach the right edge");
+  CHECK(xkcd::columnsIn(page, vw) == 1, "the page view has one column");
+  CHECK(xkcd::columnsIn(close, vw) == 2, "the closer view has exactly two");
+
+  // **The anti-sliver guarantee, stated as a test.** Column one is pulled back
+  // flush with the right edge, so the new artwork it reveals is width - 480.
+  // The builder's kMinCloserWidth is what keeps that at half a screen or more,
+  // and this is the property that must never regress: the defect this whole
+  // rework exists to fix was a second column revealing one pixel.
+  const xkcd::Placement c0 = xkcd::place(close, vw, vh, at(0, 0));
+  const xkcd::Placement c1 = xkcd::place(close, vw, vh, at(1, 0));
+  CHECK(c0.scrollX == 0, "column 0 starts at the left edge");
+  CHECK(c1.scrollX + c1.visibleW == 912, "column 1 ends flush with the artwork");
+  CHECK(c1.scrollX >= vh / 2, "column 1 must reveal at least half a screen of new art, got %d", c1.scrollX);
+  CHECK(xkcd::kMinCloserWidth - xkcd::kPanelWidth >= vh / 2,
+        "the constant itself must promise half a screen, or the guarantee is only true by accident");
+  CHECK(xkcd::kCloserWidth == 2 * xkcd::kPanelWidth - xkcd::kColumnOverlap, "the closer width is two columns");
 
   // Out-of-range columns clamp rather than reading off the end of the image.
-  CHECK(xkcd::place(big, vw, vh, xkcd::Position{9, 0}).scrollX == 260, "over-column clamps");
-  CHECK(xkcd::place(big, vw, vh, xkcd::Position{-3, 0}).scrollX == 0, "negative column clamps");
-
-  // **The walk.** One control covers both axes: down the column, then on to
-  // the top of the next. 731 rows in a 756 viewport means each column is a
-  // single screen, so one step forward moves to column 1.
-  const xkcd::GapWindow none;
-  CHECK(xkcd::maxScroll(big, vh) == 0, "each column of this comic fits vertically");
-  xkcd::Position at{0, 0};
-  CHECK(xkcd::canStepForward(big, vw, vh, at), "there is a second column to reach");
-  at = xkcd::stepForward(big, vw, vh, at, none);
-  CHECK(at.column == 1 && at.scrollY == 0, "stepping off column 0 lands on column 1, got col %d y %d",
-        at.column, at.scrollY);
-  CHECK(!xkcd::canStepForward(big, vw, vh, at), "the last column is the end of the comic");
-  CHECK(xkcd::stepForward(big, vw, vh, at, none).column == 1, "the end must not wrap");
-
-  // And back again, symmetrically.
-  CHECK(xkcd::canStepBack(at), "column 1 can go back");
-  at = xkcd::stepBack(big, vw, vh, at, none);
-  CHECK(at.column == 0, "stepping back returns to column 0, got %d", at.column);
-  CHECK(!xkcd::canStepBack(at), "the start of the comic is the start");
-
-  // Stepping back into a *tall* column lands at its bottom, not its top --
-  // otherwise going back would skip everything the column held.
-  xkcd::Comic tallWide;
-  tallWide.num = 1;
-  tallWide.width = 740;
-  tallWide.height = 2000;
-  tallWide.stride = 93;
-  const int maxS = xkcd::maxScroll(tallWide, vh);
-  CHECK(maxS > 0, "fixture must actually scroll");
-  xkcd::Position second{1, 0};
-  const xkcd::Position back = xkcd::stepBack(tallWide, vw, vh, second, none);
-  CHECK(back.column == 0 && back.scrollY == maxS, "back into a tall column lands at its bottom, got y %d",
-        back.scrollY);
-
-  // The rail spans the whole comic, not the current column: it must not snap
-  // backwards when a column break is crossed.
-  CHECK(xkcd::scrollPermille(big, vw, vh, xkcd::Position{0, 0}) == 0, "rail starts empty");
-  CHECK(xkcd::scrollPermille(big, vw, vh, xkcd::Position{1, 0}) == 1000, "rail is full at the last pane");
-  CHECK(xkcd::scrollPermille(tallWide, vw, vh, xkcd::Position{0, maxS}) < 1000,
-        "the bottom of the first column is not the end of a two-column comic");
+  CHECK(xkcd::place(close, vw, vh, at(9, 0)).scrollX == 912 - 480, "over-column clamps");
+  CHECK(xkcd::place(close, vw, vh, at(-3, 0)).scrollX == 0, "negative column clamps");
 }
 
-// ------------------------------------------------------------ gap reading
+// **Reading order.** Across the band, then down and back to the left. The
+// previous version went down a column and back to the top of the next, which
+// read a multi-panel comic 1, 4, 7, 2, 5, 8 -- and on e-ink, with no animation
+// to show the view moving sideways, that is what "it jumps to random parts"
+// actually was.
+static void testReadingOrder() {
+  const int vw = 480, vh = 756;
+  const xkcd::GapWindow none;
+
+  // Two columns, two bands: 912x1100 gives maxScroll 344.
+  const xkcd::Rendition r = pageRend(912, 1100);
+  CHECK(xkcd::columnsIn(r, vw) == 2, "two columns");
+  CHECK(xkcd::maxScroll(r, vh) == 344, "maxScroll %d", xkcd::maxScroll(r, vh));
+
+  xkcd::Position p = at(0, 0);
+  CHECK(xkcd::canStepForward(r, vw, vh, p), "there is somewhere to go");
+  p = xkcd::stepForward(r, vw, vh, p, none);
+  CHECK(p.column == 1 && p.scrollY == 0, "1: across first, got col %d y %d", p.column, p.scrollY);
+  p = xkcd::stepForward(r, vw, vh, p, none);
+  CHECK(p.column == 0 && p.scrollY == 344, "2: then down AND back to the left, got col %d y %d", p.column, p.scrollY);
+  p = xkcd::stepForward(r, vw, vh, p, none);
+  CHECK(p.column == 1 && p.scrollY == 344, "3: across again, got col %d y %d", p.column, p.scrollY);
+  CHECK(!xkcd::canStepForward(r, vw, vh, p), "bottom right is the end of the comic");
+  const xkcd::Position end = xkcd::stepForward(r, vw, vh, p, none);
+  CHECK(end.column == 1 && end.scrollY == 344, "the end must not wrap");
+
+  // And back again, in the same order reversed, with no position skipped.
+  p = xkcd::stepBack(r, vw, vh, p, none);
+  CHECK(p.column == 0 && p.scrollY == 344, "back 1, got col %d y %d", p.column, p.scrollY);
+  p = xkcd::stepBack(r, vw, vh, p, none);
+  CHECK(p.column == 1 && p.scrollY == 0, "back 2 lands on the RIGHT of the band above, got col %d y %d", p.column,
+        p.scrollY);
+  p = xkcd::stepBack(r, vw, vh, p, none);
+  CHECK(p.column == 0 && p.scrollY == 0, "back 3, got col %d y %d", p.column, p.scrollY);
+  CHECK(!xkcd::canStepBack(r, vw, vh, p), "the top left is the start");
+  CHECK(xkcd::stepBack(r, vw, vh, p, none).column == 0, "the start must not wrap");
+
+  // Forward then back is the identity when nothing snaps. With a gap window it
+  // can drift by up to the snap tolerance, which is tested in testPanProperties;
+  // what must never happen is landing somewhere unreachable.
+  xkcd::Position q = at(0, 0);
+  for (int i = 0; i < 3; ++i) {
+    const xkcd::Position fwd = xkcd::stepForward(r, vw, vh, q, none);
+    const xkcd::Position rt = xkcd::stepBack(r, vw, vh, fwd, none);
+    CHECK(rt.column == q.column && rt.scrollY == q.scrollY, "round trip from col %d y %d landed col %d y %d", q.column,
+          q.scrollY, rt.column, rt.scrollY);
+    q = fwd;
+  }
+
+  // A one-column rendition -- every page view -- must never produce a
+  // horizontal step. This is the page view's whole promise.
+  const xkcd::Rendition one = pageRend(480, 2000);
+  xkcd::Position s = at(0, 0);
+  for (int i = 0; i < 12 && xkcd::canStepForward(one, vw, vh, s); ++i) {
+    s = xkcd::stepForward(one, vw, vh, s, none);
+    CHECK(s.column == 0, "a page view must never leave column 0, got %d", s.column);
+  }
+}
+
+// Switching views must not lose your place.
+static void testMapAcross() {
+  const int vw = 480, vh = 756;
+  const xkcd::Comic c = withCloser(480, 1000, 912, 1900);
+
+  const xkcd::Position mid = at(0, 244, xkcd::Lens::Page);  // the bottom of the page view
+  const xkcd::Position into = xkcd::mapAcross(c, vw, vh, mid, xkcd::Lens::Closer);
+  CHECK(into.lens == xkcd::Lens::Closer, "we are in the closer view");
+  CHECK(into.column == 0, "and at the left of the band, where reading order starts");
+  CHECK(into.scrollY > 244, "the same row is further down a taller rendition, got %d", into.scrollY);
+  CHECK(into.scrollY <= xkcd::maxScroll(xkcd::renditionFor(c, xkcd::Lens::Closer), vh), "and still in range");
+
+  const xkcd::Position back = xkcd::mapAcross(c, vw, vh, into, xkcd::Lens::Page);
+  CHECK(back.lens == xkcd::Lens::Page, "and back out again");
+  CHECK(back.scrollY >= 240 && back.scrollY <= 244, "landing within a few rows of where we left, got %d", back.scrollY);
+
+  // Asking for a closer view that does not exist must leave the reader where
+  // they are rather than in a lens with no image behind it.
+  xkcd::Comic plain = c;
+  plain.closerWidth = 0;
+  const xkcd::Position stay = xkcd::mapAcross(plain, vw, vh, mid, xkcd::Lens::Closer);
+  CHECK(stay.lens == xkcd::Lens::Page && stay.scrollY == 244, "no closer view means nothing moves");
+}
 
 static void testGapDetection() {
   // A framed row with no lettering is a gap; a row of lettering is not. This
@@ -472,36 +579,35 @@ static void testSnapping() {
   // No gaps anywhere: the step is exactly half a viewport.
   {
     const FakeImage img = makeImage(std::string(1400, '#'));
-    const xkcd::Comic c = comicFor(img);
+    const xkcd::Rendition c = rendFor(img);
     CHECK(xkcd::scrollDown(c, vp, 0, windowFor(c, img, vp, 0, true)) == 240, "plain step should be 240");
   }
   // A gap whose art resumes at row 266 offers a landing at 266-6 = 260, which
   // is 20 from the target: within tolerance, so the step is pulled onto it.
   {
-    const FakeImage img =
-        makeFramed(std::string(250, '#') + std::string(16, '.') + std::string(1134, '#'), 740);
-    const xkcd::Comic c = comicFor(img);
+    const FakeImage img = makeFramed(std::string(250, '#') + std::string(16, '.') + std::string(1134, '#'), 740);
+    const xkcd::Rendition c = rendFor(img);
     CHECK(xkcd::scrollDown(c, vp, 0, windowFor(c, img, vp, 0, true)) == 260, "a near gap should be snapped to, got %d",
           xkcd::scrollDown(c, vp, 0, windowFor(c, img, vp, 0, true)));
   }
   // A gap well past tolerance does not pull the step.
   {
     const FakeImage img = makeImage(std::string(600, '#') + std::string(16, '.') + std::string(784, '#'));
-    const xkcd::Comic c = comicFor(img);
+    const xkcd::Rendition c = rendFor(img);
     CHECK(xkcd::scrollDown(c, vp, 0, windowFor(c, img, vp, 0, true)) == 240, "a distant gap must not pull the step");
   }
   // A gap too short to be a gutter is the space between two lines of
   // lettering, and stopping there would put half a sentence at the top.
   {
     const FakeImage img = makeImage(std::string(250, '#') + std::string(2, '.') + std::string(1148, '#'));
-    const xkcd::Comic c = comicFor(img);
+    const xkcd::Rendition c = rendFor(img);
     CHECK(xkcd::scrollDown(c, vp, 0, windowFor(c, img, vp, 0, true)) == 240, "a 2-row gap must not be a landing");
   }
   // The nearest of several gaps wins.
   {
     const FakeImage img = makeImage(std::string(200, '#') + std::string(8, '.') + std::string(42, '#') +
                                     std::string(8, '.') + std::string(1142, '#'));
-    const xkcd::Comic c = comicFor(img);
+    const xkcd::Rendition c = rendFor(img);
     // Landings at 208-6=202 and 258-6=252; the target is 240, so 252 wins.
     CHECK(xkcd::scrollDown(c, vp, 0, windowFor(c, img, vp, 0, true)) == 252, "the nearest landing should win, got %d",
           xkcd::scrollDown(c, vp, 0, windowFor(c, img, vp, 0, true)));
@@ -514,9 +620,8 @@ static void testSnapping() {
   {
     // Art to 236, gap 236..241 (6 rows), art resumes at 242 -> landing 236,
     // which is 4 from the target of 240 and well inside tolerance.
-    const FakeImage img =
-        makeFramed(std::string(236, '#') + std::string(6, '.') + std::string(1158, '#'), 740);
-    const xkcd::Comic c = comicFor(img);
+    const FakeImage img = makeFramed(std::string(236, '#') + std::string(6, '.') + std::string(1158, '#'), 740);
+    const xkcd::Rendition c = rendFor(img);
     CHECK(xkcd::scrollDown(c, vp, 0, windowFor(c, img, vp, 0, true)) == 236,
           "a gap run beginning before the target must still be seen whole, got %d",
           xkcd::scrollDown(c, vp, 0, windowFor(c, img, vp, 0, true)));
@@ -526,7 +631,7 @@ static void testSnapping() {
   // fall back to a plain half-screen rather than refusing to move.
   {
     const FakeImage img = makeImage(std::string(1400, '#'));
-    const xkcd::Comic c = comicFor(img);
+    const xkcd::Rendition c = rendFor(img);
     CHECK(xkcd::scrollDown(c, vp, 0, xkcd::GapWindow{}) == 240, "a missing window must fall back to a plain step");
     CHECK(xkcd::scrollUp(c, vp, 480, xkcd::GapWindow{}) == 240, "and the same upward");
   }
@@ -538,9 +643,8 @@ static void testSnapping() {
   // panel, and demand one more tap to close a gap the reader can already see.
   {
     // height 1400 -> maxScroll 920. Start at 680 so target == 920 exactly.
-    const FakeImage img =
-        makeFramed(std::string(900, '#') + std::string(16, '.') + std::string(484, '#'), 740);
-    const xkcd::Comic c = comicFor(img);
+    const FakeImage img = makeFramed(std::string(900, '#') + std::string(16, '.') + std::string(484, '#'), 740);
+    const xkcd::Rendition c = rendFor(img);
     const int maxS = xkcd::maxScroll(c, vp);
     CHECK(maxS == 920, "fixture assumption: maxScroll is %d", maxS);
     CHECK(xkcd::scrollDown(c, vp, maxS - vp / 2, windowFor(c, img, vp, maxS - vp / 2, true)) == maxS,
@@ -548,9 +652,8 @@ static void testSnapping() {
   }
   // The same at the top.
   {
-    const FakeImage img =
-        makeFramed(std::string(10, '#') + std::string(16, '.') + std::string(1374, '#'), 740);
-    const xkcd::Comic c = comicFor(img);
+    const FakeImage img = makeFramed(std::string(10, '#') + std::string(16, '.') + std::string(1374, '#'), 740);
+    const xkcd::Rendition c = rendFor(img);
     CHECK(xkcd::scrollUp(c, vp, vp / 2, windowFor(c, img, vp, vp / 2, false)) == 0,
           "a step landing exactly on the top must not be pulled short by a gap");
   }
@@ -572,7 +675,14 @@ struct Rng {
 
 static void testPanProperties() {
   Rng rng{12345};
-  const int viewportH = 480;
+  // **The reader's real viewport, not a convenient one.** This said 480, and
+  // that single number hid a shipping defect for the whole life of the app:
+  // the Activity capped its gap-flag buffer at 256 rows, which is enough at
+  // 480 and not enough at 756, so on the device the window was always refused
+  // and *no step ever snapped to a gap*. Every test here passed while every
+  // step on the device was a blind half-screen through the middle of a speech
+  // balloon. A test that runs at a size the product never uses is not a test.
+  const int viewportH = 756;
 
   for (int trial = 0; trial < 600; ++trial) {
     // Heights spanning the real archive: fits, just over, and the long tail.
@@ -590,7 +700,7 @@ static void testPanProperties() {
     spec.resize(height);
 
     const FakeImage img = makeImage(spec, width, framed ? 2 : 0);
-    const xkcd::Comic c = comicFor(img);
+    const xkcd::Rendition c = rendFor(img);
     const int maxS = xkcd::maxScroll(c, viewportH);
 
     // 1. Every step stays in range.
@@ -625,11 +735,80 @@ static void testPanProperties() {
     CHECK(xkcd::scrollDown(c, viewportH, maxS, windowFor(c, img, viewportH, maxS, true)) == maxS,
           "down at the bottom must stay");
     CHECK(xkcd::scrollUp(c, viewportH, 0, windowFor(c, img, viewportH, 0, false)) == 0, "up at the top must stay");
+  }
+}
 
-    // 6. The rail agrees with the ends.
-    CHECK(xkcd::scrollPermille(c, width, viewportH, xkcd::Position{0, 0}) == (maxS > 0 ? 0 : 1000),
-          "rail at the top");
-    CHECK(xkcd::scrollPermille(c, width, viewportH, xkcd::Position{0, maxS}) == 1000, "rail at the bottom");
+// -------------------------------------------------------------- coverage
+
+// **Nothing may be unreachable.** Walking a comic from the top in reading
+// order has to put every row on screen at some point: a traversal that skips
+// artwork is worse than one that is merely awkward, and it is the failure the
+// column walk would have had if a column had ever been taller than a band.
+static void testCoverage() {
+  const int vw = 480, vh = 756;
+  const xkcd::GapWindow none;
+
+  const int widths[] = {480, 720, 912};
+  const int heights[] = {200, 756, 757, 1100, 2400, 9707};
+  for (int w : widths) {
+    for (int h : heights) {
+      const xkcd::Rendition r = pageRend(w, h);
+      std::vector<uint8_t> seenRow(static_cast<size_t>(h), 0);
+      std::vector<uint8_t> seenCol(static_cast<size_t>(w), 0);
+
+      xkcd::Position p = at(0, 0);
+      int guard = 0;
+      for (;;) {
+        const xkcd::Placement pl = xkcd::place(r, vw, vh, p);
+        for (int y = 0; y < pl.visibleH; ++y) {
+          const size_t row = static_cast<size_t>(pl.scrollY + y);
+          if (row < seenRow.size()) seenRow[row] = 1;
+        }
+        for (int x = 0; x < pl.visibleW; ++x) {
+          const size_t col = static_cast<size_t>(pl.scrollX + x);
+          if (col < seenCol.size()) seenCol[col] = 1;
+        }
+        if (!xkcd::canStepForward(r, vw, vh, p)) break;
+        p = xkcd::stepForward(r, vw, vh, p, none);
+        if (++guard > 4000) break;
+      }
+      CHECK(guard <= 4000, "walking %dx%d did not terminate", w, h);
+
+      size_t missedRow = seenRow.size(), missedCol = seenCol.size();
+      for (size_t i = 0; i < seenRow.size(); ++i)
+        if (!seenRow[i]) {
+          missedRow = i;
+          break;
+        }
+      for (size_t i = 0; i < seenCol.size(); ++i)
+        if (!seenCol[i]) {
+          missedCol = i;
+          break;
+        }
+      CHECK(missedRow == seenRow.size(), "%dx%d never showed row %zu", w, h, missedRow);
+      CHECK(missedCol == seenCol.size(), "%dx%d never showed column %zu", w, h, missedCol);
+    }
+  }
+}
+
+// The window a step asks for has to fit the buffer the Activity actually
+// declares for it. This is the assertion whose absence let gap snapping be
+// dead on the device: it is cheap, and it fails loudly the moment either the
+// viewport or the tolerance changes.
+static void testGapWindowFitsTheDevice() {
+  constexpr int kDeviceViewportH = 800 - 44;
+  const int budget = xkcd::gapRowsFor(kDeviceViewportH);
+  CHECK(budget > 256, "the old hardcoded 256 really was too small for this viewport (budget %d)", budget);
+
+  const xkcd::Rendition tall = pageRend(480, 20000);
+  for (int y = 0; y < 19000; y += 137) {
+    for (int down = 0; down < 2; ++down) {
+      int firstRow = 0, rowCount = 0;
+      xkcd::gapWindowFor(tall, kDeviceViewportH, y, down != 0, firstRow, rowCount);
+      CHECK(rowCount <= budget, "gapWindowFor asked for %d rows at y=%d, budget is %d", rowCount, y, budget);
+      CHECK(firstRow >= 0 && firstRow + rowCount <= 20000, "window [%d,%d) is outside the image", firstRow,
+            firstRow + rowCount);
+    }
   }
 }
 
@@ -655,11 +834,15 @@ int main() {
   testArchive();
   testRejectsBadPacks();
   testPlacement();
-  testColumns();
+  testCloserView();
+  testReadingOrder();
+  testMapAcross();
   testGapDetection();
   testSnapping();
   testPanProperties();
   testSearch();
+  testCoverage();
+  testGapWindowFitsTheDevice();
 
   std::printf("%s  xkcd core: %d checks, %d failures\n", failures ? "FAIL" : "ok  ", checks, failures);
   return failures ? 1 : 0;

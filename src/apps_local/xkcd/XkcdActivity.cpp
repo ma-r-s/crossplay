@@ -37,12 +37,17 @@ constexpr const char* kTmpBmp = "/xkcd/.tmp.bmp";
 // widest possible comic is 1600 bytes -- too big for the stack under the
 // 256-byte rule, so it lives in the .bss as a single fixed pool.
 constexpr int kBandRows = 16;
-constexpr int kMaxStride = (xkcd::kMaxComicWidth + 7) / 8;
+constexpr int kMaxStride = (xkcd::kCloserWidth + 7) / 8;
 uint8_t gBand[kBandRows * kMaxStride];
 
-// The gap flags for one step. gapWindowFor never asks for more than
-// 2*tolerance + pad + gutter + 1 rows, which at a 480px viewport is 203.
-constexpr int kMaxGapRows = 256;
+// The gap flags for one step, sized from the same arithmetic the window is
+// derived from rather than from a number written down beside it. That
+// distinction is not pedantic: this was a hardcoded 256 justified by a comment
+// computing 203 rows "at a 480px viewport", the reader's viewport is 756, and
+// so `pan()` refused every window as too large and no step ever snapped to a
+// gap. See xkcd::gapRowsFor.
+constexpr int kReaderViewportH = 800 - 44;  // the panel less the bar; see xkcdui::readerViewport
+constexpr int kMaxGapRows = xkcd::gapRowsFor(kReaderViewportH);
 uint8_t gGapFlags[kMaxGapRows];
 
 // A ByteSource over an open HalFile. Every read seeks first, because the three
@@ -352,10 +357,11 @@ void XkcdActivity::pan(const bool down) {
 
   int firstRow = 0;
   int rowCount = 0;
-  xkcd::gapWindowFor(comic_, viewportH, at_.scrollY, down, firstRow, rowCount);
+  const xkcd::Rendition r = xkcd::renditionFor(comic_, at_.lens);
+  xkcd::gapWindowFor(r, viewportH, at_.scrollY, down, firstRow, rowCount);
 
   xkcd::GapWindow window;
-  if (rowCount > 0 && rowCount <= kMaxGapRows && comic_.stride <= kMaxStride) {
+  if (rowCount > 0 && rowCount <= kMaxGapRows && r.stride <= kMaxStride) {
     // Stream the rows past rowIsGap a band at a time and keep only the flags.
     // Holding the window as pixels would be ~19KB on the heap for every tap;
     // as flags it is one byte a row.
@@ -364,11 +370,11 @@ void XkcdActivity::pan(const bool down) {
     while (done < rowCount && ok) {
       int rows = kBandRows;
       if (rows > rowCount - done) rows = rowCount - done;
-      const uint32_t at = comic_.imageOffset + static_cast<uint32_t>(firstRow + done) * comic_.stride;
-      ok = imageSrc_->read(at, gBand, static_cast<uint32_t>(rows) * comic_.stride);
+      const uint32_t at = r.offset + static_cast<uint32_t>(firstRow + done) * r.stride;
+      ok = imageSrc_->read(at, gBand, static_cast<uint32_t>(rows) * r.stride);
       if (!ok) break;
-      for (int r = 0; r < rows; ++r) {
-        gGapFlags[done + r] = xkcd::rowIsGap(gBand + r * comic_.stride, comic_.width) ? 1 : 0;
+      for (int row = 0; row < rows; ++row) {
+        gGapFlags[done + row] = xkcd::rowIsGap(gBand + row * r.stride, r.width) ? 1 : 0;
       }
       done += rows;
     }
@@ -383,20 +389,22 @@ void XkcdActivity::pan(const bool down) {
     }
   }
 
-  // One control, both axes: down the current column, then on to the top of
-  // the next. See xkcd::stepForward.
-  at_ = down ? xkcd::stepForward(comic_, viewportW, viewportH, at_, window)
-             : xkcd::stepBack(comic_, viewportW, viewportH, at_, window);
+  // One control, reading order: across the columns of this band, then down.
+  // See xkcd::stepForward.
+  at_ = down ? xkcd::stepForward(r, viewportW, viewportH, at_, window)
+             : xkcd::stepBack(r, viewportW, viewportH, at_, window);
 }
 
 // --- Drawing -------------------------------------------------------------
 
 void XkcdActivity::drawComic() {
-  if (!archiveOpen_ || !comic_.valid() || comic_.stride > kMaxStride) return;
+  if (!archiveOpen_ || !comic_.valid()) return;
+  const xkcd::Rendition r = xkcd::renditionFor(comic_, at_.lens);
+  if (!r.valid() || r.stride > kMaxStride) return;
 
   fui::GfxRendererTarget probe(renderer);
   const fui::Rect view = xkcdui::readerViewport(probe.deviceContext());
-  const xkcd::Placement p = xkcd::place(comic_, view.width, view.height, at_);
+  const xkcd::Placement p = xkcd::place(r, view.width, view.height, at_);
 
   // A band at a time: one seek per band rather than one per row, and a fixed
   // cost whatever the comic.
@@ -404,14 +412,14 @@ void XkcdActivity::drawComic() {
   while (drawn < p.visibleH) {
     int rows = kBandRows;
     if (rows > p.visibleH - drawn) rows = p.visibleH - drawn;
-    const uint32_t at = comic_.imageOffset + static_cast<uint32_t>(p.scrollY + drawn) * comic_.stride;
-    if (!imageSrc_->read(at, gBand, static_cast<uint32_t>(rows) * comic_.stride)) {
+    const uint32_t at = r.offset + static_cast<uint32_t>(p.scrollY + drawn) * r.stride;
+    if (!imageSrc_->read(at, gBand, static_cast<uint32_t>(rows) * r.stride)) {
       LOG_ERR("XKCD", "artwork read failed for #%u at row %d", static_cast<unsigned>(comic_.num), p.scrollY + drawn);
       return;
     }
-    for (int r = 0; r < rows; ++r) {
-      const uint8_t* line = gBand + r * comic_.stride;
-      const int y = view.y + p.originY + drawn + r;
+    for (int band = 0; band < rows; ++band) {
+      const uint8_t* line = gBand + band * r.stride;
+      const int y = view.y + p.originY + drawn + band;
       for (int x = 0; x < p.visibleW; ++x) {
         // A set bit is ink, which is toybox::blit1bpp's convention and the
         // pack's. Drawn pixel by pixel because the renderer has no 1bpp blit
@@ -424,7 +432,7 @@ void XkcdActivity::drawComic() {
         // trusted, so a pack built for a different panel cannot blit off the
         // framebuffer.
         const int ix = p.scrollX + x;
-        if (ix >= static_cast<int>(comic_.width)) break;
+        if (ix >= static_cast<int>(r.width)) break;
         if ((line[ix >> 3] >> (7 - (ix & 7))) & 1) renderer.drawPixel(sx, y, true);
       }
     }
@@ -522,6 +530,16 @@ void XkcdActivity::loop() {
   const bool backward = mappedInput.wasReleased(MappedInputManager::Button::PageBack) ||
                         mappedInput.wasReleased(MappedInputManager::Button::Up);
 
+  // Confirm is the closer view, and it is a button rather than a tap target
+  // for a specific reason: the whole bar has meant "show me the alt text" for
+  // as long as this app has existed, and carving a second meaning out of one
+  // end of it would silently change what a gesture the reader already knows
+  // does. A button costs no comic pixels and cannot be mis-tapped. The OK mark
+  // beside the map is what advertises it.
+  if (view_ == View::Reader && mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    handleAction(xkcdui::ActionToggleCloser, 0);
+    return;
+  }
   if (view_ == View::Reader && (forward || backward)) {
     handleAction(forward ? xkcdui::ActionNextComic : xkcdui::ActionPrevComic, 0);
     return;
@@ -602,6 +620,18 @@ void XkcdActivity::handleAction(const fui::ActionId action, const int16_t value)
       pan(true);
       requestUpdate();
       break;
+    case xkcdui::ActionToggleCloser: {
+      if (!comic_.hasCloser()) break;
+      const fui::Rect view = xkcdui::readerViewport(fui::GfxRendererTarget(renderer).deviceContext());
+      const xkcd::Lens to = at_.lens == xkcd::Lens::Closer ? xkcd::Lens::Page : xkcd::Lens::Closer;
+      // Switching views keeps your place: the two renditions are the same
+      // artwork at different scales, so the row under the top of the screen
+      // maps straight across. Landing back at the top of a 3000-row comic
+      // because you looked closer at the bottom of it would be its own bug.
+      at_ = xkcd::mapAcross(comic_, view.width, view.height, at_, to);
+      requestUpdate();
+      break;
+    }
     case xkcdui::ActionNextComic:
       // Positions ascend by comic number, so the next position is the newer
       // comic. Clamped rather than wrapped: arriving back at #1 from the
@@ -710,10 +740,17 @@ bool XkcdActivity::fetchOne(const uint16_t num, char* whyNot, const int whyNotCa
     return false;
   }
 
-  // Convert through the firmware's own PNG path, at native size. The limit is
-  // passed as the pack's ceiling rather than the screen's, because a comic is
-  // stored at 1:1 and only ever scaled if it somehow exceeds what the format
-  // can hold.
+  // Convert through the firmware's own PNG path, fitted to the panel width so
+  // a fetched comic is the same kind of thing as a packed one: a page
+  // rendition with no horizontal axis.
+  //
+  // Two things a fetched comic does NOT get, both honest limitations rather
+  // than oversights. It never gets a **closer view**, because that needs the
+  // greyscale original resampled a second time and the device has thrown it
+  // away by now; `closerWidth` stays zero and the OK mark simply does not
+  // appear. And it is never stored **sideways**, because PngToBmpConverter
+  // cannot rotate; a wide comic fetched over wifi arrives upright and small
+  // until the next host pack build.
   {
     HalFile png;
     HalFile bmp;
@@ -721,7 +758,7 @@ bool XkcdActivity::fetchOne(const uint16_t num, char* whyNot, const int whyNotCa
       snprintf(whyNot, whyNotCap, "No room on the card for #%u.", static_cast<unsigned>(num));
       return false;
     }
-    if (!PngToBmpConverter::pngFileTo1BitBmpStreamWithSize(png, bmp, xkcd::kMaxComicWidth, xkcd::kMaxComicHeight)) {
+    if (!PngToBmpConverter::pngFileTo1BitBmpStreamWithSize(png, bmp, xkcd::kMaxPageWidth, xkcd::kMaxComicHeight)) {
       bmp.close();
       snprintf(whyNot, whyNotCap, "#%u is in a format this build cannot decode.", static_cast<unsigned>(num));
       return false;
@@ -746,7 +783,7 @@ bool XkcdActivity::fetchOne(const uint16_t num, char* whyNot, const int whyNotCa
   int32_t bh = static_cast<int32_t>(head[22] | (head[23] << 8) | (head[24] << 16) | (head[25] << 24));
   const bool topDown = bh < 0;
   if (bh < 0) bh = -bh;
-  if (bw <= 0 || bh <= 0 || bw > xkcd::kMaxComicWidth || bh > xkcd::kMaxComicHeight || !topDown) {
+  if (bw <= 0 || bh <= 0 || bw > xkcd::kMaxPageWidth || bh > xkcd::kMaxComicHeight || !topDown) {
     snprintf(whyNot, whyNotCap, "#%u came out %dx%d, which the pack cannot hold.", static_cast<unsigned>(num),
              static_cast<int>(bw), static_cast<int>(bh));
     return false;
@@ -968,18 +1005,28 @@ void XkcdActivity::render(RenderLock&&) {
       xkcdui::ReaderModel model;
       model.num = comic_.num;
       model.title = title_;
-      {
-        const fui::Rect view = xkcdui::readerViewport(target.deviceContext());
-        model.pans = xkcd::maxScroll(comic_, view.height) > 0 || xkcd::columnCount(comic_, view.width) > 1;
-        model.permille = xkcd::scrollPermille(comic_, view.width, view.height, at_);
-      }
+      const fui::Rect view = xkcdui::readerViewport(target.deviceContext());
+      const xkcd::Rendition r = xkcd::renditionFor(comic_, at_.lens);
+      // The map comes out of the same placement the artwork was drawn from,
+      // rather than being recomputed from the comic. Two functions deriving
+      // the same geometry separately is the defect this fork has hit more than
+      // any other.
+      const xkcd::Placement p = xkcd::place(r, view.width, view.height, at_);
+      model.imageW = r.width;
+      model.imageH = r.height;
+      model.viewX = p.scrollX;
+      model.viewY = p.scrollY;
+      model.viewW = p.visibleW;
+      model.viewH = p.visibleH;
+      model.hasCloser = comic_.hasCloser();
+      model.inCloser = at_.lens == xkcd::Lens::Closer;
       model.hasAlt = alt_[0] != '\0';
       xkcdui::buildReaderBar(screen, model);
 
-      // The two halves that pan, registered from the same function that the
-      // artwork was placed against. Registered after the bar so the bar's own
-      // controls win where they overlap.
-      if (model.pans) {
+      // The two halves that move you through the comic, registered from the
+      // same function the artwork was placed against. Registered after the bar
+      // so the bar's own control wins where they overlap.
+      if (p.pans) {
         frame.hit(xkcdui::readerPanUpHalf(target.deviceContext()), xkcdui::ActionPanUp);
         frame.hit(xkcdui::readerPanDownHalf(target.deviceContext()), xkcdui::ActionPanDown);
       }

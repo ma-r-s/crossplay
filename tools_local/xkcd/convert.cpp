@@ -70,9 +70,9 @@ int main() {
       std::fprintf(stderr, "convert: truncated header\n");
       return 1;
     }
-    if (width == 0 || height == 0 || width > static_cast<uint32_t>(xkcd::kMaxComicWidth) ||
+    if (width == 0 || height == 0 || width > static_cast<uint32_t>(xkcd::kCloserWidth) ||
         height > static_cast<uint32_t>(xkcd::kMaxComicHeight)) {
-      std::fprintf(stderr, "convert: refusing %ux%u (limits are %dx%d)\n", width, height, xkcd::kMaxComicWidth,
+      std::fprintf(stderr, "convert: refusing %ux%u (limits are %dx%d)\n", width, height, xkcd::kCloserWidth,
                    xkcd::kMaxComicHeight);
       return 1;
     }

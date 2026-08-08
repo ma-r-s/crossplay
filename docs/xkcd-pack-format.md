@@ -4,12 +4,15 @@ What `tools_local/xkcd/build_pack.py` writes to `/xkcd` on the card, what
 `src/apps_local/xkcd/XkcdCore.h` reads back, and the measurements that decided
 the shape of both.
 
+The reasoning behind the two renditions is in
+[xkcd-viewing-plan.md](xkcd-viewing-plan.md); this is the format.
+
 ## Why there is a pack at all
 
 The archive is ~3300 comics. The device cannot build this itself: converting one
-comic is a PNG decode plus a dither on a 160MHz single core, and the whole
-archive would be hours of it. So the bulk arrives as a pack you copy to the
-card, and the device only ever converts the handful of comics published since.
+comic is a PNG decode plus a dither on a single core, and the whole archive
+would be hours of it. So the bulk arrives as a pack you copy to the card, and
+the device only ever converts the handful of comics published since.
 
 Both paths produce **byte-identical output**, because both run the same code.
 `tools_local/xkcd/convert.cpp` links `lib/GfxRenderer/BitmapHelpers.cpp` — the
@@ -18,11 +21,26 @@ would have been twenty lines and would have drifted the first time either side
 was tuned, with the symptom being that comics from the card and comics from
 wifi look subtly different on the same screen for no reason a user could name.
 
+## Two renditions
+
+Every comic has a **page** rendition. 4% also have a **closer** one.
+
+The page rendition is fitted so the comic's full width is on the panel, so the
+page view has no horizontal axis at all and the only motion is down. 90% of the
+archive is a single screen and never moves.
+
+The closer rendition exists for the comics that fit-to-width cannot render
+legible — the big near-square ones like #3266, #256 and #1110, which rotation
+cannot help. It has to be a _second stored image_: the panel is 1-bit, and
+resampling art that is already 1-bit is mush, so the only place a second scale
+can come from is the greyscale original, which lives on the host.
+
 ## Three files
 
 ```
-/xkcd/index.dat    header + one fixed 32-byte record per comic, ascending by number
-/xkcd/images.dat   the 1-bit bitmaps end to end
+/xkcd/index.dat    header + one fixed 40-byte record per comic, ascending by number
+/xkcd/images.dat   the 1-bit bitmaps end to end; a comic's closer rendition
+                   follows its own page rendition
 /xkcd/text.dat     title then alt text, each NUL-terminated, per comic
 ```
 
@@ -36,32 +54,38 @@ Header, 16 bytes, little-endian throughout:
 | Offset | Type   | Meaning                      |
 | ------ | ------ | ---------------------------- |
 | 0      | uint32 | magic, `"XKCD"` (0x44434B58) |
-| 4      | uint16 | format version, currently 1  |
+| 4      | uint16 | format version, currently 3  |
 | 6      | uint16 | reserved, zero               |
 | 8      | uint32 | record count                 |
 | 12     | uint32 | highest comic number present |
 
-Then `count` records of **32 bytes**:
+Then `count` records of **40 bytes**:
 
-| Offset | Type   | Meaning                  |
-| ------ | ------ | ------------------------ |
-| 0      | uint16 | comic number             |
-| 2      | uint16 | width in pixels          |
-| 4      | uint16 | height in pixels         |
-| 6      | uint16 | stride, bytes per row    |
-| 8      | uint16 | year                     |
-| 10     | uint8  | month                    |
-| 11     | uint8  | day                      |
-| 12     | uint32 | offset into `images.dat` |
-| 16     | uint32 | offset into `text.dat`   |
-| 20     | uint8  | flags; bit 0 = stored sideways |
-| 21..31 | —      | reserved padding, zero   |
+| Offset | Type   | Meaning                                    |
+| ------ | ------ | ------------------------------------------ |
+| 0      | uint16 | comic number                               |
+| 2      | uint16 | page width                                 |
+| 4      | uint16 | page height                                |
+| 6      | uint16 | page stride, bytes per row                 |
+| 8      | uint16 | year                                       |
+| 10     | uint8  | month                                      |
+| 11     | uint8  | day                                        |
+| 12     | uint32 | offset of the page image in `images.dat`   |
+| 16     | uint32 | offset into `text.dat`                     |
+| 20     | uint8  | flags; bit 0 = stored sideways             |
+| 21     | uint8  | reserved, zero                             |
+| 22     | uint16 | closer width, **zero when there is none**  |
+| 24     | uint16 | closer height                              |
+| 26     | uint16 | closer stride                              |
+| 28     | uint32 | offset of the closer image in `images.dat` |
+| 32..39 | —      | reserved padding, zero                     |
 
 Records are **fixed width and sorted by comic number**, which is the whole
 reason the strings live in a separate file: a lookup is then a binary search
-over seeks, about twelve reads for the entire archive rather than a scan. The
-twelve reserved bytes exist so a future field can be added without moving any
-of the ones above it.
+over seeks, about twelve reads for the entire archive rather than a scan.
+
+A closer width of zero is the sentinel for "no closer view", which works
+because `valid()` already treats a zero width as "this slot is not filled in".
 
 `Archive::open` rejects a pack whose header count exceeds what the file can
 hold. That check matters more than it looks: a card pulled mid-write otherwise
@@ -69,7 +93,8 @@ reads as a complete archive whose last records are whatever bytes were there
 before, which draws as corrupt artwork rather than as a missing comic.
 
 Bump `kFormatVersion` for **any** layout change. A stale pack is rejected whole
-rather than misread, for the same reason the EPUB caches carry versions.
+rather than misread; the app then says the card has no archive and offers to
+fetch one, which is what a v2 pack will do against this build.
 
 ### images.dat
 
@@ -78,83 +103,89 @@ number of bytes. That is `toybox::blit1bpp`'s convention, so the reader blits
 without translating anything. Note the inversion against BMP, where a set bit
 is white; `convert.cpp` flips it deliberately at the one place it is produced.
 
-Images are stored at the width the panel draws them at, so the device
-never scales. See the measurements below.
+Images are stored at the size the panel draws them at, so the device never
+scales.
 
 ### text.dat
 
 `title\0alt\0` per comic, at the record's `textOffset`. Both are folded to ASCII
 by the builder, because the Toybox faces are subset to ASCII and a glyph the
-font lacks draws as **nothing at all** — no box, no fallback, no log line. This
-is the same defect the Hacker News app hit with a real comment that opened on a
-curly apostrophe.
+font lacks draws as **nothing at all** — no box, no fallback, no log line.
+
+That defect is not hypothetical and not confined to exotic characters: the
+subset claims `U+0020-007E` but **`+` is missing from the small face**, which is
+why the reader's bar says `OK` and not `OK+`. Same class as the curly
+apostrophe that broke the Hacker News app.
 
 There is no transcript. Roughly half the archive has one and they average 800
 characters; storing them would be ~1.3MB for a full-text search nobody asked
 for yet.
 
-## What is deliberately not stored
+## The rules the builder applies
 
-**Panel boundaries.** An earlier version precomputed the rows a step should
-land on and stored them in a fourth file. That needed a per-comic cap, a
-truncation report, and a stored table the device's wifi conversion had to
-reproduce identically forever — and a 15,000-row comic would have needed ~500
-entries and silently truncated.
+All measured over the whole archive — 3278 comics, dimensions read from the
+download cache, not sampled.
 
-Since a step only ever consults a ±96px window around one target, the reader
-reads those ~200 rows off the card when it steps: about 18KB, against a 300ms
-screen refresh it is already paying. No file, no cap, no second implementation,
-nothing that can go stale. `xkcd::gapWindowFor` names the rows and
-`xkcd::scrollDown` consumes exactly them.
+**The archive is not one width, and that is the whole problem.** Widths run
+from 106 to 960px, median 526, with a quarter of the archive piled at 740 and
+**44% narrower than the 480 panel**. The distribution is continuous from 200 to
+760 with no empty stretch anywhere, which is why none of the rules below is
+allowed to change _how the reader works_: wherever such a threshold went, real
+comics would sit either side of it arbitrarily close.
 
-## The measurements
+**1. Which way round (`--rotate-gain`, default 1.30).** Compare what each
+posture buys and turn the comic when turning it helps:
 
-All from a sample of 1048 comics spread evenly across the archive.
+```
+upright  = min(maxUpscale, 480 / w)                fit the width, pan down
+sideways = min(maxUpscale, 480 / h, 756 / w)       fit both, never pan
+```
 
-**The archive is not one width, and that is the whole problem.** The widest
-comic is 960px, but **44% of the archive is narrower than the 480 portrait
-panel**, median 322px. xkcd letters at a roughly constant size in source
-pixels, so how far a comic has been *shrunk* is the only thing deciding whether
-it can be read. Three rules follow, applied in order by the builder:
+46% of the archive is stored sideways. The reader turns the _device_; the panel
+itself never rotates, so the bar and the controls never move. A first version
+called `setOrientation` per comic and turned the whole UI around underneath the
+reader, which was rightly rejected: it is the comic that is sideways, not the
+app. Doing it in the pack is also cheaper and _removes_ device code.
 
-**1. Sideways (`--rotate-aspect`, default 1.4).** A clearly wide comic is
-stored **rotated**, so the reader turns the *device* while the screen layout
-stays exactly where it was -- bar in the same place, controls in the same
-place.
+Worth knowing: below an aspect of 1.575 (the panel's own ratio) this gain
+_equals_ the aspect ratio, and above it the gain is always exactly 1.575. So
+this is the old `--rotate-aspect` rule restated in terms of what it buys. It
+differs only where the upscale cap binds — a 200x100 comic is already at 2.4x
+upright, and the gain form correctly declines to turn it.
 
-The panel itself never rotates. A first version called `setOrientation` per
-comic, which turned the whole UI around underneath the reader and was rightly
-rejected: it is the comic that is sideways, not the app. Doing it in the pack
-is also cheaper (once, on a host) and *removes* device code rather than adding
-it.
+`--rotate-cw` flips which way they turn. That is a rebuild, not a code change.
 
-It is a readability rule, not a taste one: a 694x272 strip fitted into the 480
-panel is 0.69x and the lettering goes, but turned on its side it is 272 across
-and fits easily. 43% of the archive is stored sideways.
+**2. The page rendition.** Fit the panel width, **up as well as down**. A
+sideways comic is fitted _whole_, both axes, because the point of turning it is
+to see all of it.
 
-`--rotate-cw` flips which way they turn, if tipping the device the other way
-feels wrong. That is a rebuild, not a code change.
+Then one correction: **if fitting the width overflows the screen by less than
+`--fit-height-slack` (8%), fit the height instead.** A pan control that moves
+the comic three pixels is the same defect as a column that reveals one, and the
+page view had it — #3179 is _enlarged_ 1.51x to 480x757 and then pans by a
+single pixel. 96 comics were in that state; this removes all of them for at
+most 8% of scale and a thin margin down the sides.
 
-**2. Scale.** Fit the panel, **up as well as down**. A sideways comic is
-fitted *whole*, both axes, because the point of turning it is to see all of it;
-an upright one fits the width and pans down. Enlarging
-the greyscale source before the single dither is not the same as enlarging
-1-bit art: at the median 1.5x the lettering comes out bigger and just as crisp.
+**3. The closer rendition**, and it is **always exactly two columns**:
 
-**3. Zoom rather than shrink, within a budget (`--min-scale`, `--pane-budget`).**
-If fitting would shrink past full size, keep the comic large and let it be read
-in **columns** instead. This is the answer for comics that are big in both axes:
-#3266 is 740x731 of fine detail, and fitting it to 480 is the shrink that makes
-it unreadable, so it stays full size and reads as two columns.
+```
+kCloserWidth    = 2 * 480 - 48   = 912    two columns overlapping by 48px
+--max-closer-scale               = 1.25   past this it is magnification, not detail
+kMinCloserWidth = 480 + 756/2    = 720    column two must be worth the tap
 
-But only while that stays under the pane budget. #1732 is 740x14957, and
-zooming it would cost forty tiles, which is not reading -- so it takes the
-shrink. 17% of the archive ends up with more than one column.
+closerScale = min(maxCloserScale, kCloserWidth / w)
+exists      = closerW >= kMinCloserWidth  and  closerScale >= pageScale * --zoom-gain
+```
 
-Whatever those rules decide, the stored image is finally clamped to the format
-ceiling. #2067 is 960px wide and full size put it past 800, so it was rejected
-outright and went **missing from the archive** with only a line in the build
-log. A comic silently absent is worse than one shown slightly small.
+The guarantee is in the dimensions, not in a check. That distinction is the
+whole lesson of the previous version: it decided at _runtime_ whether a second
+column was worth showing, and the answer it gave for #1606 — 481px wide — was
+a whole extra column revealing **one pixel**. Measured across the archive, the
+second column now reveals at least **378px, exactly half a screen**, in every
+one of the 134 comics that qualify, and nothing sits near the boundary.
+
+The 48px overlap is so a word split at the column seam is readable on both
+sides.
 
 **A gap in the artwork is a threshold, not emptiness.** 20 of 30 sampled comics
 are drawn inside a frame, so every interior row crosses two vertical strokes and
@@ -163,13 +194,11 @@ no row is ever empty. Asking for blank rows found one boundary in a thousand on
 
 The budget is `max(width * 3%, 12)` ink pixels, and **the floor does more work
 than the percentage**: structural ink is a count of vertical strokes and does
-not scale with width, so a 340px framed table costs more per row than 3% of its
-own width allows. Across every comic in a 160-comic pack tall enough to pan,
-this lands 93% of steps on a gap.
+not scale with width.
 
-**Storage.** **126MB** for the whole archive. Keeping comics large is the
-point of the rules above, and it is what the extra 44MB over a fit-to-480 pack
-buys. Source PNGs would be ~180MB.
+**Storage.** 126MB before this change, **135MB** after — the closer renditions
+cost about 20MB and the page ones are smaller than the native-size images they
+replace. Source PNGs would be ~180MB.
 
 ## Building one
 
@@ -178,7 +207,13 @@ tools_local/xkcd/build_pack.py --out fs_mario/xkcd
 ```
 
 Resumable in both directions: the download cache and the pack are both rebuilt
-from whatever is already there. `--limit` makes a small pack for testing.
+from whatever is already there. `--limit`, or `--first`/`--last`, makes a small
+pack for testing.
+
+It ends by checking its own two guarantees against what it actually wrote — no
+page rendition wider than the panel, no closer view whose second column reveals
+less than half a screen — and says so rather than leaving them asserted in a
+comment.
 
 To look at what it produced, with the reader's own step positions drawn on:
 
@@ -186,5 +221,6 @@ To look at what it produced, with the reader's own step positions drawn on:
 tools_local/xkcd/inspect_pack.py --pack fs_mario/xkcd --num 1093 --out /tmp/x.png --show-gaps
 ```
 
-Red lines are where the reader stops. What you are checking is that none of
-them cuts through a line of lettering.
+Add `--closer` to render the second rendition instead. Red lines are where the
+reader stops; what you are checking is that none of them cuts through a line of
+lettering.

@@ -25,7 +25,7 @@ import struct
 import sys
 
 INDEX_HEADER_BYTES = 16
-INDEX_RECORD_BYTES = 32
+INDEX_RECORD_BYTES = 40
 MAGIC = 0x44434B58
 
 # Kept in step with XkcdCore.h.
@@ -44,7 +44,7 @@ def read_index(pack: pathlib.Path):
     out = []
     for i in range(count):
         off = INDEX_HEADER_BYTES + i * INDEX_RECORD_BYTES
-        f = struct.unpack("<HHHHHBBII", raw[off : off + 20])
+        f = struct.unpack("<HHHHHBBIIBxHHHI", raw[off : off + 32])
         out.append(
             dict(
                 num=f[0],
@@ -56,6 +56,11 @@ def read_index(pack: pathlib.Path):
                 day=f[6],
                 imageOffset=f[7],
                 textOffset=f[8],
+                flags=f[9],
+                closerWidth=f[10],
+                closerHeight=f[11],
+                closerStride=f[12],
+                closerOffset=f[13],
             )
         )
     return out, version, maxnum
@@ -124,6 +129,11 @@ def main() -> int:
         action="store_true",
         help="also draw every candidate landing in green",
     )
+    ap.add_argument(
+        "--closer",
+        action="store_true",
+        help="render the closer rendition instead of the page one",
+    )
     args = ap.parse_args()
 
     from PIL import Image, ImageDraw
@@ -135,10 +145,18 @@ def main() -> int:
             f"#{args.num} is not in this pack ({len(records)} comics, up to {maxnum})"
         )
 
-    w, h, stride = rec["width"], rec["height"], rec["stride"]
-    bits = (args.pack / "images.dat").read_bytes()[
-        rec["imageOffset"] : rec["imageOffset"] + stride * h
-    ]
+    # Which of the two renditions to look at. The page one is what every comic
+    # opens as; --closer is the opt-in second image, which only 4% of the
+    # archive has.
+    if args.closer:
+        if not rec["closerWidth"]:
+            sys.exit(f"#{args.num} has no closer view")
+        w, h, stride = rec["closerWidth"], rec["closerHeight"], rec["closerStride"]
+        offset = rec["closerOffset"]
+    else:
+        w, h, stride = rec["width"], rec["height"], rec["stride"]
+        offset = rec["imageOffset"]
+    bits = (args.pack / "images.dat").read_bytes()[offset : offset + stride * h]
     text = (args.pack / "text.dat").read_bytes()
     title = text[rec["textOffset"] :].split(b"\0", 1)[0].decode("ascii", "replace")
 
@@ -165,7 +183,10 @@ def main() -> int:
         d.line([(0, bottom), (w, bottom)], fill=(255, 165, 165), width=1)
 
     canvas.save(args.out)
+    cols = max(1, -(-w // 480))
     fits = "fits, no panning" if h <= args.viewport else f"{len(stops)} steps"
+    if cols > 1:
+        fits += f", {cols} columns (column 2 reveals {w - 480}px)"
     print(
         f"#{rec['num']} {title}  {w}x{h}  {len(land)} candidate landings  {fits}  -> {args.out}"
     )

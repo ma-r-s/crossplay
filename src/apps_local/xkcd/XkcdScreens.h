@@ -5,18 +5,18 @@
 // assert what they drew and what they made tappable.
 //
 // ---------------------------------------------------------------------------
-// **Portrait, 480x800**, like every other app on the device.
+// **Portrait, 480x800**, like every other app on the device, and the panel
+// never rotates: a comic meant to be read sideways is stored already turned.
 //
-// The archive is 740px wide at source, so a portrait panel means the artwork
-// is scaled to 480 -- but that happens once, on a host, with a real resampling
-// filter (`build_pack.py --max-width 480`), and the device blits 1:1 whatever
-// it is handed. The alternative was a landscape reader at native size, which
-// is sharper and was built first; it lost because it made the whole app,
-// browsing included, something you had to turn the device sideways for.
+// The artwork arrives fitted to the panel width -- scaled once, on a host,
+// with a real resampling filter, so the device blits 1:1 whatever it is
+// handed. That is what leaves the page view with **one axis of motion**: down,
+// half a screen at a time, snapped to a gap in the artwork.
 //
-// What that leaves is one axis of motion. A comic 480 wide always fits the
-// width, so the reader only ever pans **down**, half a screen at a time,
-// snapped to a gap in the artwork. See XkcdCore.h.
+// The 4% of comics that fit-to-width cannot render legible carry a second
+// rendition, entered from the Confirm button. It is the only place a
+// horizontal axis exists, and it is always exactly two columns. See
+// XkcdCore.h for why none of this is decided by measuring the artwork.
 //
 // The reader is the one screen that is mostly not a screen: the comic is the
 // app's own surface and the Activity blits it, exactly as chess draws its
@@ -56,6 +56,9 @@ enum : fui::ActionId {
   ActionDigit = 414,
   ActionBackspace = 415,
   ActionGo = 416,
+  // The closer view. Reached from the Confirm button rather than a tap
+  // target; see buildReaderBar.
+  ActionToggleCloser = 417,
 };
 
 // --- The front door ------------------------------------------------------
@@ -114,17 +117,34 @@ fui::Rect listBand(const fui::DeviceContext& device);
 struct ReaderModel {
   uint16_t num = 0;
   const char* title = "";
-  // 0..1000, from xkcd::scrollPermille. Drawn as a rail rather than as
-  // "2 of 3": a step count would have to walk the whole comic through the snap
-  // rule to be honest, and any cheaper formula would be a second
-  // implementation of the step that disagrees the first time a gap is found.
-  int permille = 1000;
-  bool pans = false;
+
+  // The map, in image pixels: the whole artwork, and the part of it you are
+  // looking at. Taken straight from xkcd::place rather than recomputed, so the
+  // rectangle drawn in the bar and the pixels actually on screen cannot
+  // disagree.
+  //
+  // This replaced a 0..1000 progress rail. A rail answers "how far through",
+  // which is the wrong question for a comic that is wider than the screen as
+  // well as taller; the map answers "where am I and how much is there", and it
+  // costs the same ink.
+  int imageW = 0;
+  int imageH = 0;
+  int viewX = 0;
+  int viewY = 0;
+  int viewW = 0;
+  int viewH = 0;
+
+  bool hasCloser = false;  // there is a closer view to switch to
+  bool inCloser = false;   // and we are in it
   bool hasAlt = false;
 };
 
 // The bar under the comic. The comic itself is not drawn here.
 void buildReaderBar(toybox::Screen& screen, const ReaderModel& model);
+
+// The map's rect, so the Activity can put it in the same place the builder
+// does rather than guessing at it.
+fui::Rect readerMapRect(const fui::DeviceContext& device);
 
 // The rect the comic occupies, and the two halves of it that pan. Shared with
 // the Activity: it blits into `readerViewport` and registers the halves, so a
