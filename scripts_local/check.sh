@@ -50,13 +50,16 @@ if [ "${1:-}" = "--committed" ]; then
   echo "verifying HEAD ($(git rev-parse --short HEAD)) in a throwaway worktree"
   echo "  your working tree is untouched, and its uncommitted work is not in this build"
   git worktree add --quiet --detach "$TRIAL" HEAD || exit 1
+  # Clean up even when this run is interrupted. A killed --committed used to
+  # leave ~600MB registered in TMPDIR until the same tree ran it again, and
+  # long builds get killed on purpose here, so that is the normal case rather
+  # than the rare one. One was found orphaned from a run that died mid-build.
+  trap 'git worktree remove --force "$TRIAL" 2>/dev/null; git worktree prune 2>/dev/null' EXIT INT TERM
   # A fresh worktree does not populate submodules, and the host tests compile
   # FreeInkUI out of freeink-sdk/.
   git -C "$TRIAL" submodule update --init --recursive --quiet
   (cd "$TRIAL" && ./scripts_local/check.sh "${2:-}")
-  code=$?
-  git worktree remove --force "$TRIAL" 2>/dev/null || true
-  exit $code
+  exit $?
 fi
 
 DIRTY="$(dirty_count)"
