@@ -1,36 +1,52 @@
 #pragma once
 
-// Knucklebones on the device. The thin layer: the renderer, storage, input and
-// the shelf. Everything it knows about the game itself lives in the three
+// Knucklebones on the device. The thin layer: the renderer, input and the
+// shelf. Everything it knows about the game itself lives in the three
 // freestanding headers beside it, which is what lets those be tested without a
 // panel.
 //
-// It owns exactly three things, and no fourth: which screen is showing, the
-// game, and the how-to page. Every other question -- where Back goes, whose
-// turn it is, whether a tap is allowed -- is answered by KnucklebonesFlow.h, so
-// there is nowhere here for a second opinion to form.
+// It derives from LinkActivity rather than Activity, so the two-device path is
+// the same code as the solo one plus a different opponent. The game never sees
+// a radio, an address or a packet: it sees a match with a turn.
+//
+// It owns four things and no fifth: which screen is showing, the game, the
+// how-to page, and which seat this device plays. Every other question -- where
+// Back goes, whose turn it is, whether a tap is allowed -- is answered by
+// KnucklebonesFlow.h, so there is nowhere here for a second opinion to form.
 
 #include <memory>
 
-#include "../../activities/Activity.h"
+#include "../link/LinkActivity.h"
 #include "../ui/ToyboxScreen.h"
 #include "KnucklebonesCore.h"
 #include "KnucklebonesFlow.h"
 
-class KnucklebonesActivity final : public Activity {
+class KnucklebonesActivity final : public linkplay::LinkActivity {
  public:
   KnucklebonesActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
-      : Activity("Knucklebones", renderer, mappedInput) {}
+      : linkplay::LinkActivity("Knucklebones", renderer, mappedInput) {}
   ~KnucklebonesActivity() override = default;
 
   static std::unique_ptr<Activity> create(GfxRenderer& renderer, MappedInputManager& mappedInput);
 
   void onEnter() override;
-  void loop() override;
-  void render(RenderLock&&) override;
+
+ protected:
+  // --- what LinkActivity asks of a game ------------------------------------
+  linkplay::PlayBase& linkState() override { return play; }
+  const linkplay::PlayBase& linkState() const override { return play; }
+  const char* linkGameTitle() const override { return "KNUCKLEBONES"; }
+  const char* linkHeadline() const override;
+  void onMatchStart(bool goesFirst) override;
+  bool takeOpponentState() override;
+  void onRematch() override;
+  void onLinkEnded() override;
+  bool matchGameOver() const override { return knucklebones::over(game); }
+  void gameLoop() override;
+  void gameRender() override;
 
  private:
-  void beginMatch();
+  void beginSoloMatch();
   void takeOpponentTurn();
   void goTo(knucklebones::Screen next);
 
@@ -38,10 +54,15 @@ class KnucklebonesActivity final : public Activity {
   knucklebones::Game game{};
   int howToPage = 0;
   int menuSelected = -1;
-  // The seat this device plays. Always 0 against the built-in opponent; kept as
-  // a field rather than assumed so the two-device path can set it to 1 without
-  // any screen or rule learning that seats exist.
+  // The seat this device plays. Always 0 against the built-in opponent, and set
+  // from the coin toss in a match. Kept as a field rather than assumed so no
+  // screen and no rule has to learn that seats exist.
   int seat = 0;
+
+  // The whole shared state is the Game: 24 bytes, trivially copyable, and the
+  // same description both devices already play by. There is no second wire
+  // format to drift from the first.
+  linkplay::Play<knucklebones::Game> play;
 
   toybox::Interactions interactions;
   bool interactionsReady = false;
