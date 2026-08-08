@@ -2278,6 +2278,23 @@ void testTheBoardOnlyAcceptsAColumnOnYourOwnTurn() {
             .action == knuckleui::ActionColumn);
 }
 
+void testTheBoardFitsThePanel() {
+  // The first layout was 12px too tall for the panel and nothing complained:
+  // the opponent's column scores drew behind the header band and mine ran off
+  // the bottom. Arithmetic that overflows silently is exactly what a test is
+  // for, so the extremes of the drawn board are pinned to the screen.
+  const fui::Rect theirs = knuckleui::columnRect(device(), 0, false);
+  const fui::Rect mine = knuckleui::columnRect(device(), 0, true);
+  // Clear of the header band and its rule, so no score can hide under it.
+  CHECK(theirs.y >= toybox::kHeaderHeight + toybox::kRule);
+  // And clear of the bottom edge. No room is reserved beneath it: both score
+  // rows sit on the inner edges beside the strip, which is the fix -- outside,
+  // one collided with the header and the other with the panel's bottom.
+  CHECK(mine.y + mine.height <= 800);
+  // The scores really are between the grids, not outside them.
+  CHECK(theirs.y + theirs.height < mine.y);
+}
+
 void testTheTwoGridsDoNotOverlap() {
   // They face each other across the strip. If the arithmetic ever puts one on
   // top of the other the dice would draw over each other, and no assertion
@@ -2360,6 +2377,7 @@ int main() {
   testKnucklebonesMenuOffersItsThreeRows();
   testTappingAColumnReportsThatColumn();
   testTheBoardOnlyAcceptsAColumnOnYourOwnTurn();
+  testTheBoardFitsThePanel();
   testTheTwoGridsDoNotOverlap();
   testTheResultNamesTheOutcome();
   testTheHowToEndsOnGotIt();

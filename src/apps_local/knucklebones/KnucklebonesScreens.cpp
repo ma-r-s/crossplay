@@ -13,22 +13,36 @@ namespace kb = knucklebones;
 // panel is 800 tall, the header band and its rule take 112, and what is left
 // divides into two 300px grids and a strip wide enough for a die and a line of
 // text.
-constexpr int16_t kCell = 92;
+// 86 rather than 92, which was the first guess and did not fit. The vertical
+// budget is 800: header and its air (100), two grids (270 each), two rows of
+// column scores (24 each), and a strip tall enough to hold a die at cell size
+// (96). At 92 the totals came to 812 and the arithmetic did not complain -- the
+// opponent's scores drew behind the header band and mine ran off the bottom
+// edge, which is only visible by looking.
+constexpr int16_t kCell = 86;
 constexpr int16_t kCellGap = 6;
 constexpr int16_t kGridSide = kCell * kb::kColumns + kCellGap * (kb::kColumns - 1);
+constexpr int16_t kScoreHeight = 24;
 
 // The die drawn in the strip between the grids, and again inside every cell.
 constexpr int16_t kPipSize = 10;
 
 int16_t gridLeft(const fui::DeviceContext& device) { return static_cast<int16_t>((device.width - kGridSide) / 2); }
 
+constexpr int16_t kStripHeight = 96;
+
 int16_t theirsTop() { return static_cast<int16_t>(toybox::kHeaderHeight + toybox::kGutter * 2); }
 
-int16_t stripTop() { return static_cast<int16_t>(theirsTop() + kGridSide + toybox::kGutter); }
+// Both score rows sit on the INNER edge of their grid, beside the strip, rather
+// than on the outer edges. Outside, they had nowhere to go: one collided with
+// the header band and the other with the bottom of the panel.
+int16_t theirsScoreTop() { return static_cast<int16_t>(theirsTop() + kGridSide + 4); }
 
-constexpr int16_t kStripHeight = 84;
+int16_t stripTop() { return static_cast<int16_t>(theirsScoreTop() + kScoreHeight); }
 
-int16_t yoursTop() { return static_cast<int16_t>(stripTop() + kStripHeight + toybox::kGutter); }
+int16_t yoursScoreTop() { return static_cast<int16_t>(stripTop() + kStripHeight + 4); }
+
+int16_t yoursTop() { return static_cast<int16_t>(yoursScoreTop() + kScoreHeight); }
 
 // One cell's rect. Row 0 is the near end for whoever owns the grid, so your own
 // grid stacks upward from the bottom and the opponent's stacks downward from
@@ -87,9 +101,8 @@ void drawGrid(toybox::Screen& screen, const kb::Grid& grid, const bool yours) {
     style.font = toybox::kSmallFont;
     style.align = fui::TextAlign::Center;
     const int16_t left = static_cast<int16_t>(gridLeft(device) + column * (kCell + kCellGap));
-    const int16_t y = yours ? static_cast<int16_t>(yoursTop() + kGridSide + 2)
-                            : static_cast<int16_t>(theirsTop() - toybox::kGutter - 18);
-    screen.target().text(fui::makeRect(left, y, kCell, 20), label, style);
+    const int16_t y = yours ? yoursScoreTop() : theirsScoreTop();
+    screen.target().text(fui::makeRect(left, y, kCell, kScoreHeight), label, style);
   }
 }
 
