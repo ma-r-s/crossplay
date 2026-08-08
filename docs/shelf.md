@@ -199,7 +199,15 @@ activities, so it pulls in `ActivityManager` and cannot be built freestanding.
 
 Its whole job is three facts -- which folder is open, which folder Home should
 select, which row each folder should select -- and those are verified in the
-simulator instead. Both were wrong at some point and both were caught by looking:
+simulator instead.
+
+The last two of those now outlive a reboot, in `/.crosspoint/shelf.cfg` beside
+`player.cfg`. They are plain `.bss` otherwise, and `main.cpp` deep-sleeps on the
+idle timeout with wake being effectively a chip reset, so the shelf used to
+forget which game you were playing every time you put the device down. Verified
+by driving it twice: one run opens the third game and leaves, and a second run
+from a cold boot must land Home on Games and the folder's cursor on that same
+game. Both were wrong at some point and both were caught by looking:
 leaving a folder put the cursor on Browse Files, and returning from the third
 game put it on the first. If you touch that bookkeeping, drive it:
 

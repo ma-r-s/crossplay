@@ -1,6 +1,10 @@
 #include "Shelf.h"
 
+#include <HalStorage.h>
 #include <Logging.h>
+
+#include <cstdio>
+#include <cstdlib>
 
 #include "../activities/ActivityManager.h"
 #include "ShelfFolderActivity.h"
@@ -71,6 +75,14 @@ constexpr bool everyFolderHasAMark() {
 }
 static_assert(everyFolderHasAMark(), "every shelf folder needs a mark; see tools_local/icons.txt");
 
+// Beside the reader's own state and the player's name, so clearing
+// `.crosspoint/` clears this too and there is one place to look. Inside the
+// guard because the host build has no storage and an unused constant is a
+// -Werror failure there.
+#if defined(ARDUINO_ARCH_ESP32) || defined(SIMULATOR)
+constexpr char kStatePath[] = "/.crosspoint/shelf.cfg";
+#endif
+
 // Where leave() sends an app. Set when an item is opened, read when it leaves.
 // -1 means "nothing is open below Home", which is what a folder itself sees.
 int openFolderIndex = -1;
@@ -84,6 +96,90 @@ int lastFolder = -1;
 // Per folder, the row that was opened last. Sized by the table so a third
 // folder needs no thought here.
 int lastItem[kFolderCount] = {};
+
+// Both of the above survive the device going to sleep, which they did not
+// before. `main.cpp` deep-sleeps on the idle timeout and says of it that wake is
+// effectively a chip reset, so every time Mario put the device down and came
+// back the shelf had forgotten which game he was playing. That was invisible
+// while a folder held eight games and all eight were on screen. Now that the
+// folder pages, forgetting also means landing on page one, so the game he plays
+// most is behind a tap he should not have to make.
+//
+// Written next to the reader's own state rather than into CrossPointState,
+// which is upstream's file: a fork-local fact belongs in a fork-local file, and
+// player.cfg already established the pattern.
+bool stateLoaded = false;
+
+void loadState() {
+  stateLoaded = true;
+#if defined(ARDUINO_ARCH_ESP32) || defined(SIMULATOR)
+  if (!Storage.exists(kStatePath)) return;
+  char buffer[64] = {};
+  if (Storage.readFileToBuffer(kStatePath, buffer, sizeof(buffer)) == 0) return;
+
+  // Parsed into locals and committed only if the whole line is good, so a
+  // truncated or corrupt file leaves the defaults rather than half of them. The
+  // worst this can cost is starting at the top, which is why it fails quietly
+  // instead of logging: there is nothing for anyone to do about it.
+  char* cursor = buffer;
+  char* next = nullptr;
+  const long folderValue = strtol(cursor, &next, 10);
+  if (next == cursor) return;
+  cursor = next;
+
+  int items[kFolderCount] = {};
+  for (int i = 0; i < kFolderCount; ++i) {
+    const long value = strtol(cursor, &next, 10);
+    if (next == cursor) return;
+    cursor = next;
+    // Clamped against the registry as it is now, not as it was when written. A
+    // game removed since the last boot would otherwise select a row that no
+    // longer exists.
+    const int limit = kFolders[i].count - 1;
+    items[i] = value < 0 ? 0 : (value > limit ? (limit > 0 ? limit : 0) : static_cast<int>(value));
+  }
+
+  lastFolder = folderValue < 0 || folderValue >= kFolderCount ? -1 : static_cast<int>(folderValue);
+  for (int i = 0; i < kFolderCount; ++i) lastItem[i] = items[i];
+#endif
+}
+
+void saveState() {
+#if defined(ARDUINO_ARCH_ESP32) || defined(SIMULATOR)
+  char line[64];
+  int used = snprintf(line, sizeof(line), "%d", lastFolder);
+  for (int i = 0; i < kFolderCount && used > 0 && used < static_cast<int>(sizeof(line)); ++i) {
+    used += snprintf(line + used, sizeof(line) - used, " %d", lastItem[i]);
+  }
+  if (used <= 0 || used >= static_cast<int>(sizeof(line))) {
+    LOG_ERR("SHELF", "State line did not fit %d bytes", static_cast<int>(sizeof(line)));
+    return;
+  }
+  snprintf(line + used, sizeof(line) - used, "\n");
+  Storage.writeFile(kStatePath, String(line));
+#endif
+}
+
+// Every path that reads or writes the remembered position goes through this
+// first. Lazily rather than at boot because the shelf has no init hook, and
+// unconditionally rather than only on the read paths because openFolder passes
+// the current lastItem back in: without the load, the first navigation of a
+// session would write the defaults over the saved file and the persistence
+// would silently do nothing.
+void ensureLoaded() {
+  if (!stateLoaded) loadState();
+}
+
+// Only when something actually changed. Opening a folder happens on every Back,
+// and SPIFFS sectors have a finite erase count, so an unconditional write here
+// would be a write per navigation for no gain.
+void saveIfChanged(const int folder, const int item) {
+  ensureLoaded();
+  if (lastFolder == folder && (folder < 0 || lastItem[folder] == item)) return;
+  lastFolder = folder;
+  if (folder >= 0) lastItem[folder] = item;
+  saveState();
+}
 
 // Replaces the running activity, or logs and stays put. Every launch in this
 // file funnels through here so an OOM cannot leave the shelf thinking it opened
@@ -114,7 +210,8 @@ void openFolder(const int index, GfxRenderer& renderer, MappedInputManager& mapp
   // rather than in leave() keeps the fact true even when a folder is reached by
   // some route that did not go through leave().
   openFolderIndex = -1;
-  lastFolder = index;
+  ensureLoaded();
+  saveIfChanged(index, lastItem[index]);
   replaceWith(ShelfFolderActivity::create(renderer, mappedInput, index), kFolders[index].title);
 }
 
@@ -132,7 +229,7 @@ void openItem(const int folder, const int item, GfxRenderer& renderer, MappedInp
   // Recorded before the launch, not after: replaceActivity destroys the caller,
   // so there is no "after" to run in.
   openFolderIndex = folder;
-  lastItem[folder] = item;
+  saveIfChanged(folder, item);
   if (!replaceWith(parent.items[item].create(renderer, mappedInput), parent.items[item].title)) {
     openFolderIndex = -1;
   }
@@ -156,9 +253,15 @@ void leave(GfxRenderer& renderer, MappedInputManager& mappedInput) {
   activityManager.goHome();
 }
 
-int lastFolderOnHome() { return lastFolder; }
+int lastFolderOnHome() {
+  ensureLoaded();
+  return lastFolder;
+}
 
-int lastItemIn(const int index) { return index >= 0 && index < kFolderCount ? lastItem[index] : 0; }
+int lastItemIn(const int index) {
+  ensureLoaded();
+  return index >= 0 && index < kFolderCount ? lastItem[index] : 0;
+}
 
 const freeink::Icon* folderMark(const int index) {
   return index >= 0 && index < kFolderCount ? kFolders[index].mark : nullptr;
