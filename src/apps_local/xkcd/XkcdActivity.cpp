@@ -813,7 +813,7 @@ bool XkcdActivity::fetchOne(const uint16_t num, char* whyNot, const int whyNotCa
       snprintf(whyNot, whyNotCap, "No room on the card for #%u.", static_cast<unsigned>(num));
       return false;
     }
-    if (!PngToBmpConverter::pngFileTo1BitBmpStreamWithSize(png, bmp, xkcd::kPanelWidth, xkcd::kMaxComicHeight)) {
+    if (!PngToBmpConverter::pngFileTo1BitBmpStreamFitWithin(png, bmp, xkcd::kPanelWidth, xkcd::kMaxComicHeight)) {
       bmp.close();
       snprintf(whyNot, whyNotCap, "#%u is in a format this build cannot decode.", static_cast<unsigned>(num));
       return false;
@@ -968,14 +968,16 @@ void XkcdActivity::runUpdate() {
   }
 
   if (fetched_ > 0) {
-    HalFile index;
-    if (Storage.openFileForWrite("XKCD", kIndexPath, index)) {
-      // openFileForWrite truncates, so the header is patched in place through
-      // a seek instead.
-      index.close();
-    }
+    // **Not openFileForWrite.** It carries O_TRUNC, and calling it here -- with
+    // a comment saying why it must not be called -- emptied index.dat before
+    // the patch ran. The pack survived as an 8-byte file: a correct header for
+    // an archive with no records in it.
+    //
+    // Not openFileForAppend either: on hosts where that is O_APPEND the seek
+    // below is ignored and the header lands at EOF. openFileForUpdate is plain
+    // O_RDWR, which is what patching in place actually needs.
     HalFile patch;
-    if (Storage.openFileForAppend("XKCD", kIndexPath, patch)) {
+    if (Storage.openFileForUpdate("XKCD", kIndexPath, patch)) {
       const uint32_t total = static_cast<uint32_t>(archive_.count() + fetched_);
       uint8_t head[8];
       head[0] = static_cast<uint8_t>(total & 0xFF);

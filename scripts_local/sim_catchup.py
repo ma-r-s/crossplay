@@ -61,9 +61,12 @@ patch(
     "  bool removeDir(const char *path);",
     "  bool openFileForAppend(const char *moduleName, const char *path,\n"
     "                         HalFile &file);\n"
+    "  bool openFileForUpdate(const char *moduleName, const char *path,\n"
+    "                         HalFile &file);\n"
     "  bool removeDir(const char *path);",
-    "HalStorage::openFileForAppend (header)",
+    "HalStorage::openFileForAppend + openFileForUpdate (header)",
 )
+
 
 patch(
     src / "HalStorage.cpp",
@@ -75,8 +78,15 @@ patch(
     "  return file.isOpen();\n"
     "}\n"
     "\n"
+    "bool HalStorage::openFileForUpdate(const char *moduleName, const char *path,\n"
+    "                                   HalFile &file) {\n"
+    "  (void)moduleName;\n"
+    "  file = open(path, O_RDWR);\n"
+    "  return file.isOpen();\n"
+    "}\n"
+    "\n"
     "std::vector<String> HalStorage::listFiles(",
-    "HalStorage::openFileForAppend (implementation)",
+    "HalStorage::openFileForAppend + openFileForUpdate (implementation)",
 )
 
 patch(

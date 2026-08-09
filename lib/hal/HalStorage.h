@@ -49,6 +49,12 @@ class HalStorage {
   // a few records when the device fetches the comics published since the pack
   // was built; the alternative was copying a 90MB file to add 30KB.
   bool openFileForAppend(const char* moduleName, const char* path, HalFile& file);
+  // Read-write in place: no O_TRUNC and no append, so a seek followed by a
+  // write actually lands where the seek asked. Needed to patch a header in a
+  // file you are not rewriting -- openFileForWrite would destroy it, and
+  // openFileForAppend sends every write to the end on hosts where it maps to
+  // O_APPEND, which silently made the header land at EOF.
+  bool openFileForUpdate(const char* moduleName, const char* path, HalFile& file);
   bool removeDir(const char* path);
 
   static HalStorage& getInstance() { return instance; }
