@@ -11,6 +11,7 @@
 #include "battleship/BattleshipActivity.h"
 #include "checkers/CheckersActivity.h"
 #include "connectfour/ConnectFourActivity.h"
+#include "yahtzee/YahtzeeActivity.h"
 #include "chess/ChessActivity.h"
 #include "connections/ConnectionsActivity.h"
 #include "dungeon/DungeonActivity.h"
@@ -40,6 +41,7 @@ constexpr shelf::Item kGames[] = {
     {"MURDLE", &icon_murdle_32, &MurdleActivity::create},
     {"CHECKERS", &icon_checkers_32, &CheckersActivity::create},
     {"CONNECT FOUR", &icon_connectfour_32, &ConnectFourActivity::create},
+    {"YAHTZEE", &icon_yahtzee_32, &YahtzeeActivity::create},
 };
 constexpr shelf::Item kApps[] = {
     {"STUDY", &icon_study_32, &StudyActivity::create},

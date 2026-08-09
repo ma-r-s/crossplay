@@ -46,11 +46,13 @@ restyled to match the design language the apps use.
 | **Murdle**      | A logic grid built through the solver, so you never have to guess. |
 | **Checkers**    | English draughts, where taking is compulsory and the board says so. |
 | **Connect Four**| Drop a disc, get four in a line. Seven columns, one tap each.        |
+| **Yahtzee**     | Thirteen boxes, three rolls a turn, and the Joker rules in full.     |
 | **Study**       | Anki decks with the FSRS scheduler, offline.                       |
 | **Hacker News** | The front page in a reading serif, articles kept on the card.      |
 | **xkcd**        | The archive, packed for the card and drawn one to one.             |
 
-Chess, Battleship, Jaipur, Checkers and Connect Four play over **PLAY NEARBY**: put two devices next to
+Chess, Battleship, Jaipur, Checkers, Connect Four and Yahtzee play over
+**PLAY NEARBY**: put two devices next to
 each other and they find one another. No pairing screen, no room code, no
 account, no router, no internet.
 
