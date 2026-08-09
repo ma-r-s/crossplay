@@ -28,6 +28,8 @@ constexpr int16_t kRingWeight = 4;
 // The waiting disc in the lip. Smaller than a played one, so the channel cannot
 // be mistaken for a row.
 constexpr int16_t kLipRadius = 16;
+// Twenty-one discs a colour, which is what is in the box.
+constexpr int kDiscsPerSide = c4::kCells / 2;
 
 // The lip: a shallow channel across the top of the board, holding the disc you
 // are about to drop.
@@ -44,9 +46,6 @@ constexpr int16_t kSlotHeight = 42;
 
 int16_t gridLeft(const fui::DeviceContext& device) { return static_cast<int16_t>((device.width - kGridWidth) / 2); }
 
-// The assembly is slot row, gutter, frame, grid, frame.
-constexpr int16_t kAssemblyHeight = kSlotHeight + toybox::kBoardFrame * 2 + kGridHeight;
-
 // Where the BOARD screen's grid starts, as a pure function of the device.
 //
 // Pure on purpose. cellRect, columnAt and the drawing all call this, so a tap
@@ -55,14 +54,19 @@ constexpr int16_t kAssemblyHeight = kSlotHeight + toybox::kBoardFrame * 2 + kGri
 // rect instead would give the hit-test a different answer from the drawing the
 // moment either is called at a different point in the layout.
 //
-// Centred between the header and the status capsule, so the slack is spread
-// rather than left in one lump at the bottom.
+// ANCHORED under the header, not centred.
+//
+// It was centred, with a comment claiming that beat leaving the slack in one
+// lump. The design language disagrees by name: a block floating with equal
+// slack above and below reads as unresolved, and the measurement bore that out
+// -- 112px of white above the board and 100px below, a quarter of the panel
+// split into two symmetric nothings. Chess and Checkers both anchor within
+// 15-33px of the header. The band that frees up goes to the disc strips below,
+// which is the same answer Checkers reached for the same gap.
 int16_t boardGridTop(const fui::DeviceContext& device) {
+  (void)device;
   const int16_t top = static_cast<int16_t>(toybox::kHeaderHeight + toybox::kGutter * 2);
-  const int16_t bottom = static_cast<int16_t>(device.height - toybox::kMargin - toybox::kPillHeight - toybox::kGutter);
-  const int16_t slack = static_cast<int16_t>(bottom - top - kAssemblyHeight);
-  const int16_t assembly = static_cast<int16_t>(top + (slack > 0 ? slack / 2 : 0));
-  return static_cast<int16_t>(assembly + toybox::kBoardFrame + kSlotHeight);
+  return static_cast<int16_t>(top + toybox::kBoardFrame + kSlotHeight);
 }
 
 // The lip sits directly on top of the grid now, inside the same frame, so
@@ -165,57 +169,72 @@ void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
 
   static const char* const kLines[] = {
       "TAP A COLUMN. YOUR DISC FALLS TO THE LOWEST FREE PLACE IN IT.",
-      "FOUR IN A ROW WINS. ACROSS, UP, OR EITHER DIAGONAL.",
-      "A FULL COLUMN TAKES NO MORE. A FULL BOARD WITH NO FOUR IS A DRAW.",
+"FOUR IN A LINE WINS. ACROSS, UP, OR ON EITHER DIAGONAL LIKE THIS ONE.",
+"A FULL COLUMN STOPS TAKING DISCS, AND ITS SLOT AT THE TOP GOES GREY.",
   };
   fui::TextStyle body;
   body.font = toybox::kBodyFont;
   body.align = fui::TextAlign::Center;
   body.maxLines = 3;
-  screen.target().text(fui::makeRect(area.x, static_cast<int16_t>(area.y + 24), area.width, 130), kLines[page], body);
+  screen.target().text(fui::makeRect(area.x, static_cast<int16_t>(area.y + 24), area.width, 120), kLines[page], body);
 
-  // A fragment of the real board at the real size, showing the page. Four wide
-  // and two deep, which is exactly enough to hold the thing being taught.
+  // A fragment of the real board at the real size. FOUR deep, not two: at 4x2
+  // the picture on page two was geometrically incapable of showing a vertical
+  // or a diagonal four, so it showed the one win everybody already knows and
+  // filled the other row with empty holes.
   const fui::DeviceContext device = screen.device();
-  const int16_t top = static_cast<int16_t>(area.y + 180);
-  const int16_t left = static_cast<int16_t>((device.width - kCell * 4) / 2);
+  constexpr int kFragmentSide = 4;
+  const int16_t top = static_cast<int16_t>(area.y + 200);
+  const int16_t left = static_cast<int16_t>((device.width - kCell * kFragmentSide) / 2);
   const fui::Rect frame = fui::makeRect(static_cast<int16_t>(left - toybox::kBoardFrame),
                                         static_cast<int16_t>(top - toybox::kBoardFrame),
-                                        static_cast<int16_t>(kCell * 4 + toybox::kBoardFrame * 2),
-                                        static_cast<int16_t>(kCell * 2 + toybox::kBoardFrame * 2));
+                                        static_cast<int16_t>(kCell * kFragmentSide + toybox::kBoardFrame * 2),
+                                        static_cast<int16_t>(kCell * kFragmentSide + toybox::kBoardFrame * 2));
   screen.target().stroke(frame, fui::Paint::solid(fui::Color::Black), toybox::kBoardFrame);
-  screen.target().fill(fui::makeRect(left, top, static_cast<int16_t>(kCell * 4), static_cast<int16_t>(kCell * 2)),
-                       fui::Paint::dither(fui::Color::LightGray));
+  screen.target().fill(
+      fui::makeRect(left, top, static_cast<int16_t>(kCell * kFragmentSide), static_cast<int16_t>(kCell * kFragmentSide)),
+      fui::Paint::dither(fui::Color::LightGray));
 
-  // Page 0: a disc on its way into a column that already holds one, so
-  // "falls to the lowest free place" is a picture rather than a claim.
-  // Page 1: four in a row, marked the way the result screen marks it.
-  // Page 2: a full column beside an empty one.
-  static const char* const kBoards[][2] = {
-      {"....", ".L.."},          // top row, bottom row; '.' empty
-      {"....", "LLLL"},
-      {"D...", "D..."},
+  // Page 0: a column with two in it and a third landing, so "falls to the
+  //         lowest free place" is a picture of the place rather than a claim.
+  // Page 1: a DIAGONAL four, which is the win a new player misses and the one
+  //         the old 4x2 fragment could not draw.
+  // Page 2: one column full to the brim beside one that is not, which is the
+  //         thing the board's own signal -- a dimmed slot -- is about.
+  static const char* const kBoards[3][kFragmentSide] = {
+      {"....", "....", ".L..", ".D.."},
+      {"...L", "..LD", ".LDD", "LDLD"},
+      {"D...", "L...", "D...", "LD.."},
   };
-  for (int row = 0; row < 2; ++row) {
-    for (int column = 0; column < 4; ++column) {
+  for (int row = 0; row < kFragmentSide; ++row) {
+    for (int column = 0; column < kFragmentSide; ++column) {
       const int16_t cx = static_cast<int16_t>(left + column * kCell + kCell / 2);
       const int16_t cy = static_cast<int16_t>(top + row * kCell + kCell / 2);
-      const char c = kBoards[page][row][column];
       toybox::disc(screen, cx, cy, kDiscRadius, fui::Color::White);
+      const char c = kBoards[page][row][column];
       if (c == '.') continue;
       drawDisc(screen, cx, cy, c == 'L' ? c4::kLight : c4::kDark);
-      if (page == 1) {
-        toybox::bracket(screen,
-                        fui::makeRect(static_cast<int16_t>(left + column * kCell),
-                                      static_cast<int16_t>(top + row * kCell), kCell, kCell),
-                        18, 4);
-      }
     }
   }
   if (page == 0) {
-    // The disc above the board, in the slot, mid-drop.
-    drawDisc(screen, static_cast<int16_t>(left + kCell + kCell / 2),
-             static_cast<int16_t>(top - toybox::kBoardFrame - kSlotHeight / 2), c4::kLight);
+    // The disc on its way in, sitting in the lip where a real one would.
+    toybox::ring(screen, static_cast<int16_t>(left + kCell + kCell / 2),
+                 static_cast<int16_t>(top - toybox::kBoardFrame - kSlotHeight / 2), kLipRadius, kRingWeight,
+                 fui::Color::Black, fui::Color::White);
+  }
+  if (page == 1) {
+    // The same line mark the result screen uses, in the same ink it would use:
+    // opposite to the winning discs, which here are light. Teaching a white
+    // line and then drawing a black one would make the picture a lie about the
+    // one screen it is preparing you for.
+    constexpr int16_t kWeight = 7;
+    const int16_t x0 = static_cast<int16_t>(left + kCell / 2);
+    const int16_t y0 = static_cast<int16_t>(top + 3 * kCell + kCell / 2);
+    for (int step = 0; step <= 3 * kCell; ++step) {
+      screen.target().fill(fui::makeRect(static_cast<int16_t>(x0 + step - kWeight / 2),
+                                         static_cast<int16_t>(y0 - step - kWeight / 2), kWeight, kWeight),
+                           fui::Paint::solid(fui::Color::Black));
+    }
   }
 }
 
@@ -261,16 +280,30 @@ void drawGrid(toybox::Screen& screen, const int16_t top, const int16_t lip, cons
   // frame looks like: you drop from the top of the object, not from the air
   // above it.
   //
-  // A FULL column shows plain slab, which reads as sealed. Not a crossed-out
-  // mark: there is no ambiguity to resolve, since the column below is visibly
-  // full to the brim, and a negative mark would be the only ink on this screen
-  // that says "no".
+  // A FULL column DIMS. It does not vanish.
+  //
+  // It used to vanish, and that is the design language's named failure: a
+  // control that disappears takes its space with it, so you cannot tell whether
+  // the action is unavailable or whether you misremembered the screen. Six
+  // rings and a gap in a row of seven is not something anyone notices. The
+  // defence written here -- that the column below is visibly full to the brim --
+  // does not survive a full column whose topmost disc is light, which is the
+  // quietest state on the board.
+  //
+  // Dither is this fork's disabled treatment, so the slot keeps its size and
+  // its place and loses only its solidity.
   if (lip > 0) {
     for (int column = 0; column < c4::kColumns; ++column) {
-      if ((waiting & (1 << column)) == 0) continue;
-      toybox::ring(screen, static_cast<int16_t>(left + column * kCell + kCell / 2),
-                   static_cast<int16_t>(lipTop + lip / 2), kLipRadius, kRingWeight, fui::Color::Black,
-                   seat == c4::kDark ? fui::Color::Black : fui::Color::White);
+      const int16_t cx = static_cast<int16_t>(left + column * kCell + kCell / 2);
+      const int16_t cy = static_cast<int16_t>(lipTop + lip / 2);
+      if ((waiting & (1 << column)) != 0) {
+        toybox::ring(screen, cx, cy, kLipRadius, kRingWeight, fui::Color::Black,
+                     seat == c4::kDark ? fui::Color::Black : fui::Color::White);
+        continue;
+      }
+      screen.target().fill(fui::makeRect(static_cast<int16_t>(cx - kLipRadius), static_cast<int16_t>(cy - kLipRadius),
+                                         static_cast<int16_t>(kLipRadius * 2), static_cast<int16_t>(kLipRadius * 2)),
+                           fui::Paint::dither(fui::Color::DarkGray));
     }
     // And a rule under it, so the lip is not mistaken for a seventh row of
     // places you could win in.
@@ -289,31 +322,69 @@ void drawGrid(toybox::Screen& screen, const int16_t top, const int16_t lip, cons
     }
   }
 
-  // The last disc played, ringed inside. Forty-two identical discs do not say
+  // The last disc played, DOTTED inside. Forty-two identical discs do not say
   // what just changed, and "what did they do" is the first thing a player asks
-  // on their turn. Inside the disc rather than around the cell, so it cannot be
-  // confused with the winning-line mark.
+  // on their turn.
+  //
+  // A dot, not a ring. The ring was radius 12 weight 3 in contrasting ink,
+  // which is Checkers' king mark pixel for pixel: the same glyph meaning "this
+  // piece is promoted" on one board of discs and "this was the last move" on
+  // the one next door. It also read differently by colour -- concentric rings
+  // on a light disc are a bullseye, heavier than the same mark on a dark one --
+  // so the weight of the mark depended on whose move it was. A filled dot is
+  // one shape at one weight on both.
+  //
+  // Suppressed on the result screen, a draw included: nothing is going to
+  // change again, so "what just changed" has nothing left to say.
   if (markLine == nullptr && game.lastColumn != c4::kNoColumn) {
     const int drawRow = c4::kRows - 1 - game.lastRow;
-    const int16_t cx = static_cast<int16_t>(left + game.lastColumn * kCell + kCell / 2);
-    const int16_t cy = static_cast<int16_t>(top + drawRow * kCell + kCell / 2);
     const bool solid = game.cell[game.lastColumn][game.lastRow] == c4::kDark;
-    toybox::ring(screen, cx, cy, 12, 3, solid ? fui::Color::White : fui::Color::Black,
-                 solid ? fui::Color::Black : fui::Color::White);
+    toybox::disc(screen, static_cast<int16_t>(left + game.lastColumn * kCell + kCell / 2),
+                 static_cast<int16_t>(top + drawRow * kCell + kCell / 2), 8,
+                 solid ? fui::Color::White : fui::Color::Black);
   }
 
-  // The four that ended it. Corner marks, so the discs themselves stay legible
-  // underneath -- which colour won is the point.
-  if (markLine != nullptr) {
-    for (int i = 0; i < c4::kLine; ++i) {
-      if (markLine[i] < 0) continue;
-      const int column = markLine[i] / c4::kRows;
-      const int row = markLine[i] % c4::kRows;
-      const int drawRow = c4::kRows - 1 - row;
-      toybox::bracket(screen,
-                      fui::makeRect(static_cast<int16_t>(left + column * kCell),
-                                    static_cast<int16_t>(top + drawRow * kCell), kCell, kCell),
-                      20, 4);
+  // The four that ended it, as a LINE through their centres.
+  //
+  // Corner brackets were the obvious reuse and they were wrong twice over. On
+  // four CONTIGUOUS cells the arms abut into an 8px rung and the top rail runs
+  // 62% black across 256px: not four marks, a ladder, and the loudest object on
+  // the screen. Worse, an arm sits 4px inside a cell edge and a disc has 6px of
+  // clearance, so 2px of paper separates a black disc from a black cage -- at
+  // 220ppi they fuse and you can no longer count four discs. The mark ate the
+  // thing it was marking, on both colours.
+  //
+  // A line also says the right word. Chess and Checkers bracket ONE isolated
+  // thing; this is a game named for connecting four, and the shape that means
+  // that is a line. Drawn in the opposite ink to the winning discs, which are
+  // all one colour by definition, so it reads on either.
+  if (markLine != nullptr && markLine[0] >= 0 && markLine[c4::kLine - 1] >= 0) {
+    const int firstColumn = markLine[0] / c4::kRows;
+    const int firstRow = markLine[0] % c4::kRows;
+    const int lastColumn = markLine[c4::kLine - 1] / c4::kRows;
+    const int lastRow = markLine[c4::kLine - 1] % c4::kRows;
+    const fui::Paint ink =
+        fui::Paint::solid(game.cell[firstColumn][firstRow] == c4::kDark ? fui::Color::White : fui::Color::Black);
+
+    const int16_t x0 = static_cast<int16_t>(left + firstColumn * kCell + kCell / 2);
+    const int16_t y0 = static_cast<int16_t>(top + (c4::kRows - 1 - firstRow) * kCell + kCell / 2);
+    const int16_t x1 = static_cast<int16_t>(left + lastColumn * kCell + kCell / 2);
+    const int16_t y1 = static_cast<int16_t>(top + (c4::kRows - 1 - lastRow) * kCell + kCell / 2);
+
+    // A fill-only target has no line primitive, so this is a square brush
+    // stepped along the run. The brush is what gives it weight on the
+    // diagonals, where a single-pixel trace would be a third as heavy as the
+    // same line drawn horizontally.
+    constexpr int16_t kWeight = 7;
+    const int dx = x1 > x0 ? x1 - x0 : x0 - x1;
+    const int dy = y1 > y0 ? y1 - y0 : y0 - y1;
+    const int steps = dx > dy ? dx : dy;
+    for (int step = 0; step <= steps; ++step) {
+      const int16_t x = static_cast<int16_t>(x0 + (x1 - x0) * step / (steps == 0 ? 1 : steps));
+      const int16_t y = static_cast<int16_t>(y0 + (y1 - y0) * step / (steps == 0 ? 1 : steps));
+      screen.target().fill(
+          fui::makeRect(static_cast<int16_t>(x - kWeight / 2), static_cast<int16_t>(y - kWeight / 2), kWeight, kWeight),
+          ink);
     }
   }
 }
@@ -341,14 +412,68 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   // slab, which says "not yours" with the same ink the capsule spends words on.
   drawGrid(screen, boardGridTop(device), kSlotHeight, model.game, model.yourTurn ? model.open : 0, model.seat,
            nullptr);
+
+  // What each side has LEFT to play, in the band the anchored board frees up.
+  //
+  // Twenty-one discs a colour is the physical game, and the count is real
+  // information late on: a player who can see they have four left plays
+  // differently. Remaining rather than played, for the same reason Checkers
+  // shows remaining pieces -- two strips of what has been used are both empty
+  // exactly when the game begins.
+  //
+  // Yours is the LOWER strip, nearest you, and it also answers the question the
+  // capsule never did: which colour am I. Before this, nothing on any screen
+  // said so, and in a link game the coin toss decides your seat, so a player
+  // could not even fall back on "I am always light".
+  {
+    // Pinned above the CAPSULE, not under the board. Anchoring the board alone
+    // just moved the white from two lumps into one big one at the bottom; two
+    // anchored blocks with the slack between them is what Chess does and what
+    // the space actually wants.
+    constexpr int16_t kPitch = 20;
+    constexpr int16_t kSmall = 8;
+    const int16_t rowPitch = static_cast<int16_t>(kSmall * 2 + toybox::kGutter);
+    const int16_t bandTop = static_cast<int16_t>(device.height - toybox::kMargin - toybox::kPillHeight -
+                                                 toybox::kGutter * 2 - rowPitch * 2);
+    const int16_t left = gridLeft(device);
+    int played[2] = {0, 0};
+    for (int column = 0; column < c4::kColumns; ++column) {
+      for (int row = 0; row < c4::kRows; ++row) {
+        const uint8_t cell = model.game.cell[column][row];
+        if (cell == c4::kLight) ++played[0];
+        else if (cell == c4::kDark) ++played[1];
+      }
+    }
+    for (int strip = 0; strip < 2; ++strip) {
+      // Strip 0 is theirs, nearest the board; strip 1 is yours, nearest you.
+      const uint8_t side = strip == 0 ? c4::other(model.seat) : model.seat;
+      const int left_ = kDiscsPerSide - played[side == c4::kLight ? 0 : 1];
+      const int16_t cy = static_cast<int16_t>(bandTop + strip * rowPitch + kSmall);
+      for (int i = 0; i < left_; ++i) {
+        toybox::ring(screen, static_cast<int16_t>(left + kSmall + i * kPitch), cy, kSmall, 2, fui::Color::Black,
+                     side == c4::kDark ? fui::Color::Black : fui::Color::White);
+      }
+    }
+  }
 }
 
 void buildResult(toybox::Screen& screen, const ResultModel& model) {
   const bool won = (model.seat == c4::kLight && model.outcome == c4::Outcome::LightWins) ||
                    (model.seat == c4::kDark && model.outcome == c4::Outcome::DarkWins);
 
+  // Name them, if they have a name. They had a face and a name on the capsule
+  // for the whole game and became an anonymous "THEY" at the one moment it
+  // mattered: opponentName was carried into this model and never read.
+  char headline[40];
+  if (model.outcome != c4::Outcome::Draw && !won && model.opponentName != nullptr) {
+    std::snprintf(headline, sizeof(headline), "%s WINS", model.opponentName);
+  } else {
+    std::snprintf(headline, sizeof(headline), "%s",
+                  model.outcome == c4::Outcome::Draw ? "A DRAW" : (won ? "YOU WIN" : "THEY WIN"));
+  }
+
   fui::HeaderProps header;
-  header.title = model.outcome == c4::Outcome::Draw ? "A DRAW" : (won ? "YOU WIN" : "THEY WIN");
+  header.title = headline;
   header.borderEdges = fui::EdgesNone;
   screen.header(header);
   screen.insetContent(fui::Insets{toybox::kGutter, toybox::kMargin, toybox::kMargin, toybox::kMargin});

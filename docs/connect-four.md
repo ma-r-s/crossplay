@@ -167,7 +167,8 @@ capsule spends words on.
 
 ### Empty places are drawn
 
-Every one of the forty-two, as a white disc punched into the dithered slab. A
+Every one of the forty-two, as a white disc punched into the dithered slab -- a
+hole, not an outline. A
 Connect Four board is a thing with holes in it; a grid that only appears where
 discs have landed is a different object.
 
