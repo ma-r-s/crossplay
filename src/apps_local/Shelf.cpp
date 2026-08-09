@@ -11,10 +11,12 @@
 #include "hackernews/HackerNewsActivity.h"
 #include "insider/InsiderActivity.h"
 #include "jaipur/JaipurActivity.h"
+#include "murdle/MurdleActivity.h"
 #include "player/PlayerActivity.h"
 #include "solitaire/SolitaireActivity.h"
 #include "study/StudyActivity.h"
 #include "ui/ToyboxIcons.h"
+#include "xkcd/XkcdActivity.h"
 
 namespace {
 
@@ -26,13 +28,15 @@ constexpr shelf::Item kGames[] = {
     {"BATTLESHIP", &icon_battleship_32, &BattleshipActivity::create},
     {"CONNECTIONS", &icon_connections_32, &ConnectionsActivity::create},
     {"SOLITAIRE", &icon_solitaire_32, &SolitaireActivity::create},
-    {"DUNGEONS", &icon_dungeon_32, &DungeonActivity::create},
+    {"D&DIAGRAMS", &icon_dungeon_32, &DungeonActivity::create},
     {"INSIDER", &icon_insider_32, &InsiderActivity::create},
     {"JAIPUR", &icon_jaipur_32, &JaipurActivity::create},
+    {"MURDLE", &icon_murdle_32, &MurdleActivity::create},
 };
 constexpr shelf::Item kApps[] = {
     {"STUDY", &icon_study_32, &StudyActivity::create},
     {"HACKER NEWS", &icon_hackernews_32, &HackerNewsActivity::create},
+    {"XKCD", &icon_xkcd_32, &XkcdActivity::create},
 };
 
 // The two rows Home grows, in reading order. Titles are Title Case because

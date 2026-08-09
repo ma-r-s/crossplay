@@ -14,7 +14,6 @@ hook on every simulator build.
 
 Deliberately NOT sent upstream as a PR. Mario wants to see how CrossPoint solves
 the same problem and compare, and a merged PR would make their answer ours.
-See docs/crosspoint-migration.md.
 
 Every edit is idempotent, and anything unexpected is reported rather than
 swallowed -- when the simulator catches up, this should start saying so.
@@ -35,14 +34,50 @@ def patch(path, anchor, replacement, what):
         return  # already applied this build cycle
     if anchor not in text:
         # Upstream changed shape. Either they fixed it, or they moved it.
-        print(f"[sim-catchup] '{what}' no longer applies -- the simulator has "
-              f"changed. Check whether the patch is still needed, then delete it.")
+        print(
+            f"[sim-catchup] '{what}' no longer applies -- the simulator has "
+            f"changed. Check whether the patch is still needed, then delete it."
+        )
         return
     path.write_text(text.replace(anchor, replacement, 1))
     print(f"[sim-catchup] applied: {what}")
 
 
-src = pathlib.Path(env.subst("$PROJECT_LIBDEPS_DIR")) / env.subst("$PIOENV") / "simulator" / "src"
+src = (
+    pathlib.Path(env.subst("$PROJECT_LIBDEPS_DIR"))
+    / env.subst("$PIOENV")
+    / "simulator"
+    / "src"
+)
+
+# HalStorage has no way to add to an existing file: openFileForWrite carries
+# O_TRUNC on both the device and here. lib/hal gained openFileForAppend for the
+# xkcd pack, which grows by a few records when the device fetches the comics
+# published since the pack was built -- the alternative was rewriting a 90MB
+# file to add 30KB. The simulator ships its own HalStorage, and a library's own
+# headers shadow ours, so it needs the same method.
+patch(
+    src / "HalStorage.h",
+    "  bool removeDir(const char *path);",
+    "  bool openFileForAppend(const char *moduleName, const char *path,\n"
+    "                         HalFile &file);\n"
+    "  bool removeDir(const char *path);",
+    "HalStorage::openFileForAppend (header)",
+)
+
+patch(
+    src / "HalStorage.cpp",
+    "std::vector<String> HalStorage::listFiles(",
+    "bool HalStorage::openFileForAppend(const char *moduleName, const char *path,\n"
+    "                                   HalFile &file) {\n"
+    "  (void)moduleName;\n"
+    "  file = open(path, O_RDWR | O_CREAT | O_APPEND);\n"
+    "  return file.isOpen();\n"
+    "}\n"
+    "\n"
+    "std::vector<String> HalStorage::listFiles(",
+    "HalStorage::openFileForAppend (implementation)",
+)
 
 patch(
     src / "BoardConfig.h",
@@ -62,7 +97,44 @@ if arduino.exists() and "inline int digitalRead(int)" not in arduino.read_text()
         print("[sim-catchup] Arduino.h now declares digitalRead -- drop this patch.")
     else:
         with arduino.open("a") as fh:
-            fh.write("\n// sim-catchup: the simulator has no GPIO; reads are inert.\n"
-                     "inline int digitalRead(int) { return 0; }\n"
-                     "inline void digitalWrite(int, int) {}\n")
+            fh.write(
+                "\n// sim-catchup: the simulator has no GPIO; reads are inert.\n"
+                "inline int digitalRead(int) { return 0; }\n"
+                "inline void digitalWrite(int, int) {}\n"
+            )
         print("[sim-catchup] applied: digitalRead / digitalWrite")
+
+# The simulator's ESPMock answers 1024*1024 to every heap question, always. Two
+# guards in this firmware read getMaxAllocHeap() and decide whether one more
+# buffer fits (util/DictZip.cpp, util/Dictionary.cpp), so against a constant
+# three times larger than an X4 Pro's whole heap, neither branch has ever been
+# taken outside a device. A frozen number also makes a leak invisible.
+#
+# src/platform/sim_heap.cpp counts what the firmware allocates and answers from
+# the device's budget. This points ESPMock at it. Patched here rather than
+# shadowed from sim-stubs/ for the reason at the top of this file: a library's
+# own include path wins over the project's -I.
+patch(
+    src / "Arduino.h",
+    "struct ESPMock {\n"
+    "  uint32_t getFreeHeap() { return 1024 * 1024; }\n"
+    "  void restart() {}\n"
+    "  uint32_t getHeapSize() { return 1024 * 1024; }\n"
+    "  uint32_t getMinFreeHeap() { return 1024 * 1024; }\n"
+    "  uint32_t getMaxAllocHeap() { return 1024 * 1024; }\n"
+    "};",
+    'extern "C" {\n'
+    "uint32_t crossplay_sim_free_heap();\n"
+    "uint32_t crossplay_sim_heap_size();\n"
+    "uint32_t crossplay_sim_min_free_heap();\n"
+    "uint32_t crossplay_sim_max_alloc_heap();\n"
+    "}\n\n"
+    "struct ESPMock {\n"
+    "  uint32_t getFreeHeap() { return crossplay_sim_free_heap(); }\n"
+    "  void restart() {}\n"
+    "  uint32_t getHeapSize() { return crossplay_sim_heap_size(); }\n"
+    "  uint32_t getMinFreeHeap() { return crossplay_sim_min_free_heap(); }\n"
+    "  uint32_t getMaxAllocHeap() { return crossplay_sim_max_alloc_heap(); }\n"
+    "};",
+    "ESPMock reports the device's heap budget, not a constant megabyte",
+)

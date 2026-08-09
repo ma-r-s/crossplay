@@ -21,6 +21,7 @@ namespace fui = freeink::ui;
 
 namespace {
 constexpr fui::ActionId ACTION_ROW = 1;
+constexpr fui::ActionId ACTION_SCAN = 2;
 }  // namespace
 
 WifiSelectionActivity::WifiSelectionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
@@ -52,6 +53,13 @@ void WifiSelectionActivity::onRowEvent(const fui::ActionEvent& event, void* user
   self->selectNetwork(static_cast<int>(self->selectedNetworkIndex));
 }
 
+void WifiSelectionActivity::onScanEvent(const fui::ActionEvent&, void* user) {
+  auto* self = static_cast<WifiSelectionActivity*>(user);
+  if (self->state != WifiSelectionState::NETWORK_LIST) return;
+  self->app.clearTapFlash();  // the scan screen replaces this one
+  self->startWifiScan();
+}
+
 void WifiSelectionActivity::onEnter() {
   Activity::onEnter();
 
@@ -77,7 +85,8 @@ void WifiSelectionActivity::onEnter() {
   autoConnecting = false;
   manualNetworkListRequested = false;
   autoAttemptedSsids.clear();
-  autoAttemptedSsids.reserve(WIFI_STORE.getCredentials().size());
+  const size_t savedCredentialCount = WIFI_STORE.getCredentialCount();
+  autoAttemptedSsids.reserve(savedCredentialCount);
 
   // Cache MAC address for display
   uint8_t mac[6];
@@ -92,6 +101,7 @@ void WifiSelectionActivity::onEnter() {
   topIndex = 0;
   app.setTheme(uiThemeTokens(uiTarget));
   app.on(ACTION_ROW, &WifiSelectionActivity::onRowEvent, this);
+  app.on(ACTION_SCAN, &WifiSelectionActivity::onScanEvent, this);
   app.setScreen(&WifiSelectionActivity::listScreen, this);
 
   // Trigger first update to show scanning message
@@ -100,10 +110,10 @@ void WifiSelectionActivity::onEnter() {
   // Attempt to auto-connect to known networks. Try the last successful
   // network first for speed, then scan and try any visible saved networks by
   // signal strength. The user can interrupt this and show the scan result.
-  if (allowAutoConnect && !WIFI_STORE.getCredentials().empty()) {
+  if (allowAutoConnect && savedCredentialCount != 0) {
     const std::string lastSsid = WIFI_STORE.getLastConnectedSsid();
     if (!lastSsid.empty()) {
-      const auto* cred = WIFI_STORE.findCredential(lastSsid);
+      const auto cred = WIFI_STORE.findCredential(lastSsid);
       if (cred && tryAutoConnectCredential(*cred)) {
         return;
       }
@@ -255,7 +265,7 @@ void WifiSelectionActivity::selectNetwork(const int index) {
   autoConnecting = false;
 
   // Check if we have saved credentials for this network
-  const auto* savedCred = WIFI_STORE.findCredential(selectedSSID);
+  const auto savedCred = WIFI_STORE.findCredential(selectedSSID);
   if (savedCred && !savedCred->password.empty()) {
     // Use saved password - connect directly
     enteredPassword = savedCred->password;
@@ -345,7 +355,7 @@ bool WifiSelectionActivity::tryNextSavedNetworkFromScan() {
       continue;
     }
 
-    const auto* cred = WIFI_STORE.findCredential(network.ssid);
+    const auto cred = WIFI_STORE.findCredential(network.ssid);
     if (cred && tryAutoConnectCredential(*cred)) {
       return true;
     }
@@ -540,7 +550,7 @@ void WifiSelectionActivity::loop() {
 
   // Reached once the hidden-network SSID has been entered (and was non-empty).
   if (state == WifiSelectionState::HIDDEN_SSID_ENTRY) {
-    const auto* savedCred = WIFI_STORE.findCredential(selectedSSID);
+    const auto savedCred = WIFI_STORE.findCredential(selectedSSID);
     if (savedCred && !savedCred->password.empty()) {
       // We already know this hidden network - connect with the saved password
       enteredPassword = savedCred->password;
@@ -815,7 +825,9 @@ void WifiSelectionActivity::render(RenderLock&&) {
   Rect screen = theme.getScreenSafeArea(renderer, true, false);
 
   // Draw header
-  char countStr[32];
+  // STR_NETWORKS_FOUND is ~37 bytes once the Arabic translation is substituted,
+  // so 32 truncated it. See ClockSyncActivity for the same class of bug.
+  char countStr[64];
   snprintf(countStr, sizeof(countStr), tr(STR_NETWORKS_FOUND), realNetworkCount);
   GUI.drawHeader(renderer, Rect{screen.x, screen.y + metrics.topPadding, screen.width, metrics.headerHeight},
                  tr(STR_WIFI_NETWORKS), countStr);
@@ -874,6 +886,21 @@ void WifiSelectionActivity::buildListScreen(UiApp::ScreenType& screen) {
 
   if (networks.empty()) {
     screen.centeredText(tr(STR_NO_NETWORKS), screen.theme().bodyText);
+    if (mappedInput.hasTouch()) {
+      // Touch has no OK button to rescan with; offer the retry on screen instead
+      // of the "Press OK" hint renderNetworkList draws for button boards.
+      const auto& theme = screen.theme();
+      const fui::Rect body = screen.body();
+      const int16_t buttonWidth = static_cast<int16_t>(body.width / 2);
+      const fui::Rect buttonRect{static_cast<int16_t>(body.x + (body.width - buttonWidth) / 2),
+                                 static_cast<int16_t>(body.y + body.height * 2 / 3), buttonWidth, theme.rowHeight};
+      fui::ButtonProps scan;
+      scan.label = tr(STR_RETRY);
+      scan.action = ACTION_SCAN;
+      scan.inputMask = fui::InputTouch;
+      scan.text = theme.bodyText;
+      fui::button(screen.frame(), buttonRect, scan);
+    }
     return;
   }
 
@@ -903,6 +930,12 @@ void WifiSelectionActivity::buildListScreen(UiApp::ScreenType& screen) {
   // Tap opens; long-press a saved network forgets it (physical buttons stay in loop()).
   props.inputMask = fui::InputTouch | fui::InputLongPress;
   props.valueInset = 8;  // air between the signal bars and the row edge
+  // Long SSIDs wrap onto a second line inside the row (two body lines always
+  // fit the theme row height) instead of truncating; the trailing value is
+  // just the short status glyphs, so skip the balanced 60%-band wrap cap.
+  props.labelText = screen.theme().bodyText;
+  props.labelText.maxLines = 2;
+  props.balanceWrappedLabelWithValue = false;
   const auto rows = fui::listVisibleRows(screen.body(), screen.theme().rowHeight, screen.theme().listRowGap);
   visibleRows = rows > 0 ? rows : 1;
   topIndex = scrollListBy(topIndex, 0, visibleRows, static_cast<int>(networks.size()));  // clamp to range
@@ -914,8 +947,9 @@ void WifiSelectionActivity::renderNetworkList(const Rect* screen, const ThemeMet
   uiReady = false;
   app.render();
   uiReady = true;
-  if (networks.empty()) {
-    // Below the centered "no networks" line the app drew.
+  if (networks.empty() && !mappedInput.hasTouch()) {
+    // Below the centered "no networks" line the app drew. Touch boards get an
+    // on-screen Retry button from the screen builder instead of this hint.
     const auto height = renderer.getLineHeight(UI_10_FONT_ID);
     const auto top = screen->y + (screen->height - height) / 2;
     UITheme::drawCenteredText(renderer, *screen, SMALL_FONT_ID, top + height + 10, tr(STR_PRESS_OK_SCAN));

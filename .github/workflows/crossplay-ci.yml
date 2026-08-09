@@ -1,0 +1,113 @@
+# CrossPlay's own CI.
+#
+# Upstream's ci.yml only fires on pushes to `master`, which this fork does not
+# have, so without this the default branch had no checks at all and the repo
+# front page said nothing about whether HEAD compiles. It has been wrong before:
+# `xteink` once did not build for three commits because every local check.sh ran
+# against a dirty tree.
+#
+# Deliberately narrow. It builds the firmware and the simulator and runs the
+# host suites, and it does not try to reproduce clang-format or cppcheck --
+# those are upstream's jobs, they run on every pull request already, and a
+# second copy would only drift.
+name: CrossPlay
+
+on:
+  push:
+    branches: [xteink]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+
+      - name: Install PlatformIO Core
+        run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
+
+      - name: Cache PlatformIO packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+
+      # The simulator links against SDL2, and on Linux its MD5Builder is a thin
+      # wrapper over OpenSSL (CommonCrypto on macOS). The firmware needs
+      # neither. Both are usually present on the runner; naming them here is
+      # what stops a runner image change from looking like our bug.
+      - name: Install the simulator's host libraries
+        run: sudo apt-get update && sudo apt-get install -y libsdl2-dev libssl-dev
+
+      # The two flags only add .su and .ci files beside the objects; they change
+      # no code, so this is still the build the next step checks. Asking for them
+      # here rather than in a second build keeps CI one firmware compile long.
+      - name: Build the firmware
+        run: PLATFORMIO_BUILD_FLAGS="-fstack-usage -fcallgraph-info=su" pio run -e x4pro
+
+      # v1.0.0 shipped a render task that needed 8016 bytes of an 8192-byte
+      # stack and crashed on the first device that ever ran it. Nothing here
+      # measured stack, and nothing on a host could: frame sizes belong to the
+      # target ABI. This reads the numbers the firmware compiler just emitted.
+      - name: Stack fits its task
+        run: python3 scripts_local/stack_budget.py --build-dir .pio/build/x4pro
+
+      - name: Build the simulator
+        run: pio run -e simulator_x4_pro
+
+      # ui:paperOnTheBand is a known baseline failure; a tree where it passes is
+      # one whose work fixes it. Everything else must be green.
+      #
+      # That exemption used to be `bash "$suite" || echo "::warning::"`, which
+      # forgave the ui suite for failing rather than forgiving paperOnTheBand
+      # for failing. Those differ exactly when it matters: test_ui.cpp not
+      # compiling exits non-zero with no FAIL lines at all, which the old form
+      # reported as the expected baseline and passed. It never shipped a false
+      # green, but only because the one tree that did not compile was caught by
+      # a local check.sh before it was pushed.
+      #
+      # So assert the shape of a baseline run instead of its exit code: the
+      # summary line proves the binary built AND ran to the end, and every FAIL
+      # line must be the one we know about.
+      - name: Host tests
+        run: |
+          for suite in host-tests/*/run.sh; do
+            name=$(basename "$(dirname "$suite")")
+            if [ "$name" != "ui" ]; then
+              bash "$suite"
+              continue
+            fi
+
+            status=0
+            out=$(bash "$suite" 2>&1) || status=$?
+            printf '%s\n' "$out"
+            if [ "$status" -eq 0 ]; then
+              continue
+            fi
+
+            if ! printf '%s\n' "$out" | grep -qE '^[0-9]+ checks, [0-9]+ failed$'; then
+              echo "::error::ui suite did not run to completion (build error, crash or timeout)"
+              exit 1
+            fi
+            unexpected=$(printf '%s\n' "$out" | grep -E '^FAIL ' | grep -v '  paperOnTheBand$' || true)
+            if [ -n "$unexpected" ]; then
+              echo "::error::ui suite failed beyond the paperOnTheBand baseline:"
+              printf '%s\n' "$unexpected"
+              exit 1
+            fi
+            echo "::warning::ui suite failed only paperOnTheBand, the known baseline"
+          done

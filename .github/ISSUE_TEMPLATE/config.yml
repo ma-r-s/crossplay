@@ -1,13 +1,20 @@
-blank_issues_enabled: false
+# Blank issues are on. The templates that used to live beside this file were
+# CrossPoint's, and one of them made you tick a box swearing your idea was "not
+# an interactive app (game, calculator, notepad)" before you could file it.
+# CrossPlay is eight games and a news reader, so nobody could have filed a
+# truthful feature request here.
+blank_issues_enabled: true
+
 contact_links:
-  - name: Scope or Roadmap Question (start here if unsure)
-    url: https://github.com/crosspoint-reader/crosspoint-reader/discussions
+  - name: Something wrong with reading, not with the apps?
+    url: https://github.com/crosspoint-reader/crosspoint-reader/issues
     about: |
-      Not sure if your idea fits CrossPoint's scope? Start a Discussion before filing an issue.
-      See SCOPE.md and ROADMAP.md for what is in, out, and currently paused.
-  - name: Read the Scope document
-    url: https://github.com/crosspoint-reader/crosspoint-reader/blob/master/SCOPE.md
-    about: The authoritative list of what CrossPoint will and will not accept.
-  - name: Read the Roadmap
-    url: https://github.com/crosspoint-reader/crosspoint-reader/blob/master/ROADMAP.md
-    about: Current phase, what is being closed out, and what comes next.
+      The reader, the EPUB engine, sync and the file browser are CrossPoint's,
+      and this fork tracks it daily. If you can reproduce it on stock CrossPoint
+      it belongs upstream, where far more people will see it.
+
+  - name: What is on the shelf, and what is deliberately not
+    url: https://github.com/ma-r-s/crossplay/blob/xteink/LOCAL_SCOPE.md
+    about: |
+      What this fork accepts, what it turns down, and why. Worth two minutes
+      before proposing an app.

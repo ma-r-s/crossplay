@@ -1148,7 +1148,7 @@ void JaipurActivity::drawStartMenu() {
   const fui::InputSnapshot noInput{};
   interactionsReady = false;
   toybox::Frame frame(target, target.deviceContext(), noInput, interactions);
-  toybox::Screen screen(frame, toybox::themeTokens());
+  toybox::Screen screen(frame);
   const fui::Rect slot = jaipurui::buildStartMenu(screen, startModel());
   drawPriceList(Rect{slot.x, slot.y, slot.width, slot.height});
   interactionsReady = true;
@@ -1162,7 +1162,7 @@ void JaipurActivity::drawBoard() {
   const fui::InputSnapshot noInput{};
   interactionsReady = false;
   toybox::Frame frame(target, target.deviceContext(), noInput, interactions);
-  toybox::Screen screen(frame, toybox::themeTokens());
+  toybox::Screen screen(frame);
   const fui::Rect slot = jaipurui::buildBoardChrome(screen, boardModel());
   bodySlot = Rect{slot.x, slot.y, slot.width, slot.height};
   const Layout laid = layoutBoard(bodySlot);
@@ -1189,7 +1189,7 @@ void JaipurActivity::drawRoundOver() {
   const fui::InputSnapshot noInput{};
   interactionsReady = false;
   toybox::Frame frame(target, target.deviceContext(), noInput, interactions);
-  toybox::Screen screen(frame, toybox::themeTokens());
+  toybox::Screen screen(frame);
   const fui::Rect slot = jaipurui::buildRoundOver(screen, roundModel());
   bodySlot = Rect{slot.x, slot.y, slot.width, slot.height};
   drawRoundSurface(bodySlot);
@@ -1204,7 +1204,7 @@ void JaipurActivity::drawTutorial() {
   const fui::InputSnapshot noInput{};
   interactionsReady = false;
   toybox::Frame frame(target, target.deviceContext(), noInput, interactions);
-  toybox::Screen screen(frame, toybox::themeTokens());
+  toybox::Screen screen(frame);
   jaipurui::TutorialModel model;
   model.page = tutorialPage;
   jaipurui::buildTutorial(screen, model);

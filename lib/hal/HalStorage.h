@@ -43,6 +43,12 @@ class HalStorage {
   bool openFileForWrite(const char* moduleName, const char* path, HalFile& file);
   bool openFileForWrite(const char* moduleName, const std::string& path, HalFile& file);
   bool openFileForWrite(const char* moduleName, const String& path, HalFile& file);
+  // Open positioned at the end, creating the file if it is not there.
+  // openFileForWrite() carries O_TRUNC, so it cannot be used to add to a file
+  // that already has something in it. Added for the xkcd pack, which grows by
+  // a few records when the device fetches the comics published since the pack
+  // was built; the alternative was copying a 90MB file to add 30KB.
+  bool openFileForAppend(const char* moduleName, const char* path, HalFile& file);
   bool removeDir(const char* path);
 
   static HalStorage& getInstance() { return instance; }

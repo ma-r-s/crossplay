@@ -1,0 +1,308 @@
+#!/usr/bin/env python3
+"""Build the X4 Pro simulator for the browser.
+
+The desktop simulator is a PlatformIO `native` build: the whole firmware
+compiled for the host with SDL2 for the panel and a FreeRTOS shim on pthreads.
+Emscripten supports all three of those, so the port is mostly a translation
+rather than a rewrite -- take the exact compile lines PlatformIO already
+produces and run them through em++ instead of g++.
+
+    pio run -e simulator_x4_pro          # once, to refresh compile_commands.json
+    source ../.emsdk/emsdk_env.sh
+    python tools_local/wasm/build.py
+
+Why compile_commands.json rather than a hand-written source list: the source
+set, the include paths and the twenty-odd -D flags are all decided by
+platformio.sim.ini and its lib dependency resolution. Duplicating them here
+would be a second source of truth that silently drifts the first time someone
+adds a library, and the failure mode is a browser build that is subtly not the
+firmware.
+
+Three things genuinely differ from the desktop build and are handled below:
+
+  * SDL does not come along. The desktop simulator uses it for the panel and
+    the keyboard; in a browser the page already has a canvas and already gets
+    pointer events, and Emscripten's SDL port wants a blocking main loop on the
+    thread that owns the GL context -- which the firmware's render task is not.
+    So stubs/SDL.h + src/sdl_browser.cpp answer the twenty-three SDL functions
+    the simulator's two HAL files call with plain memory, and src/wasm_main.cpp
+    replaces simulator_main.cpp with a main() that starts the firmware on a
+    worker and returns. The page then reads the composited frame straight out
+    of the heap. Nothing in src/ or lib/ changes.
+  * The SD card is a directory on the host. --preload-file packages it into a
+    virtual filesystem mounted at the same path.
+  * Networking is libcurl, which does not exist here. See stubs/.
+
+How this got here, so nobody spends the same three hours
+--------------------------------------------------------
+The first version kept SDL and reached for Emscripten flags to make main()'s
+`while (!display.shouldQuit())` loop survive a browser. Every one of them cost
+a day and none of them worked: -sPROXY_TO_PTHREAD puts main on a worker but
+leaves SDL's canvas on the wrong thread; OFFSCREENCANVAS_SUPPORT then breaks
+the runtime's own main-thread getContext; OFFSCREEN_FRAMEBUFFER trips an assert
+in the proxying queue; -sASYNCIFY finally booted but every screen drawn through
+FreeInkUI arrived as a fragment.
+
+The answer was not another flag. The browser simulator on the fork's earlier
+base does not use SDL at all -- the page owns the canvas, the module exports a
+framebuffer pointer and an input function, and main() returns immediately with
+the firmware running on a worker. That is the design here, arrived at by stubbing SDL rather than
+writing a second HAL, so our own HalDisplay keeps doing the compositing and the
+grayscale preview comes along.
+
+Two real bugs also fell out of that detour and the fixes are kept:
+
+  * `char` is unsigned on both targets this firmware runs on (ESP32-C3 RISC-V,
+    Apple Silicon) and signed on wasm32, so byte arithmetic above 127 differed
+    here only. -fno-signed-char makes wasm match.
+  * The object cache keyed on timestamps alone, so adding a flag rebuilt
+    nothing. That is why -fno-signed-char was once written off as "not the fix"
+    when no object had ever seen it. compile_one() now stamps the command line.
+"""
+
+import json
+import os
+import shlex
+import pathlib
+import shutil
+import subprocess
+import sys
+import concurrent.futures
+
+REPO = pathlib.Path(__file__).resolve().parents[2]
+OUT = REPO / "site" / "emulator"
+OBJ = REPO / ".pio" / "build" / "wasm"
+STUBS = REPO / "tools_local" / "wasm" / "stubs"
+SRC = REPO / "tools_local" / "wasm" / "src"
+SDROOT = REPO / "tools_local" / "wasm" / "sdcard"
+
+# Sources whose desktop implementation cannot work in a browser.
+SKIP_SOURCES = {
+    # Owns the SDL window and a main() that never returns. src/wasm_main.cpp
+    # replaces it with one that starts the firmware on a worker and returns to
+    # the browser's event loop.
+    #
+    # This set stays as small as it can be. The first attempt also skipped the
+    # webserver sources, assuming they were the simulator's own desktop-only
+    # plumbing; CrossPointWebServer is firmware code that several activities
+    # link against, and the simulator's WebServer/WebSocketsServer shims build
+    # under emcc unchanged. Skipping a source means stubbing every activity
+    # that references it, which is almost never the cheaper trade.
+    "simulator_main.cpp",
+    # Replaced by src/http_canned.cpp, which answers from files on the card.
+    # Hacker News and the Connections daily are the two apps that look broken
+    # without a network, and the browser build has no sockets.
+    "HttpDownloader.cpp",
+}
+
+# Our own translation units, compiled with the same flags as the rest by
+# borrowing the first entry's command line.
+EXTRA_SOURCES = [
+    SRC / "sdl_browser.cpp",
+    SRC / "wasm_main.cpp",
+    SRC / "link_browser.cpp",
+    SRC / "http_canned.cpp",
+]
+
+
+def load_entries():
+    cc = REPO / "compile_commands.json"
+    if not cc.exists():
+        sys.exit("compile_commands.json missing -- run: pio run -e simulator_x4_pro")
+    entries = json.loads(cc.read_text())
+    out = []
+    for e in entries:
+        src = pathlib.Path(e["file"])
+        if not src.is_absolute():
+            src = (REPO / src).resolve()
+        if src.name in SKIP_SOURCES:
+            continue
+        if not src.exists():
+            continue
+        cmd = e.get("command")
+        args = shlex.split(cmd) if cmd else list(e["arguments"])
+        out.append((src, args))
+    if not out:
+        sys.exit("compile_commands.json has no usable entries")
+    # Our own sources are not in compile_commands.json, so give them a real
+    # entry's flags. Pick the widest one rather than the first: PlatformIO gives
+    # each library only the include paths it declared, and wasm_main.cpp needs
+    # the simulator's own headers (HalDisplay.h, the FreeRTOS shim) which only
+    # the firmware's translation units see.
+    template = max(
+        (a for _, a in out), key=lambda a: sum(x.startswith("-I") for x in a)
+    )
+    for extra in EXTRA_SOURCES:
+        if not extra.exists():
+            sys.exit(f"missing {extra}")
+        out.append((extra, template))
+    return out
+
+
+def translate(args, obj_path, is_c):
+    """Rewrite one g++/gcc command line for em++/emcc."""
+    out = ["emcc" if is_c else "em++"]
+    out.append(f"-I{STUBS}")
+    skip_next = False
+    for i, a in enumerate(args[1:], start=1):
+        if skip_next:
+            skip_next = False
+            continue
+        if a == "-o":
+            skip_next = True
+            continue
+        if a == "-c":
+            continue
+        # Host SDL2 headers. There is no SDL in this build at all; stubs/SDL.h
+        # is what the simulator's HAL sees, and it must not be shadowed.
+        if a.startswith("-I") and "SDL2" in a:
+            continue
+        if a.startswith("-l") and "SDL2" in a:
+            continue
+        # The source file itself is the last argument; re-added by the caller.
+        if a.endswith((".cpp", ".c", ".cc")):
+            continue
+        if a.startswith("-D_THREAD_SAFE"):
+            continue
+        if out[0] == "emcc" and a.startswith("-std=gnu++"):
+            continue
+        out.append(a)
+    out += [
+        "-pthread",
+        # `char` is unsigned on both targets this firmware really runs on --
+        # ESP32-C3 (RISC-V) and Apple Silicon -- and signed on wasm32. Code that
+        # does arithmetic on a byte above 127 therefore came out negative here
+        # only, and the renderer rejected every row it was asked to draw at a
+        # negative y. This makes wasm agree with both real targets.
+        "-fno-signed-char",
+        "-Wno-unused-command-line-argument",
+        # -Oz throughout: this build is a download before it is a hot loop, and
+        # an e-ink frame takes about a millisecond either way.
+        "-Oz",
+        "-c",
+        "-o",
+        str(obj_path),
+    ]
+    return out
+
+
+def compile_one(job):
+    src, args = job
+    rel = src.relative_to(REPO) if src.is_relative_to(REPO) else pathlib.Path(src.name)
+    obj = OBJ / (str(rel).replace("/", "_") + ".o")
+    obj.parent.mkdir(parents=True, exist_ok=True)
+    cmd = translate(args, obj, src.suffix == ".c") + [str(src)]
+    # Skip work the object is already newer than -- but only if it was built by
+    # this exact command line. Timestamps alone are not enough: adding a flag to
+    # translate() leaves every object untouched and newer than its source, so
+    # the next run silently relinks the old ones. That is not hypothetical. It
+    # is how -fno-signed-char was added, "tested", and written off as not the
+    # fix, when in fact no object had ever seen it.
+    stamp = obj.with_suffix(obj.suffix + ".cmd")
+    want = " ".join(cmd)
+    fresh = (
+        obj.exists()
+        and obj.stat().st_mtime > src.stat().st_mtime
+        and stamp.exists()
+        and stamp.read_text() == want
+    )
+    if fresh:
+        return (src, obj, 0, "")
+    p = subprocess.run(cmd, capture_output=True, text=True)
+    if p.returncode == 0:
+        stamp.write_text(want)
+    return (src, obj, p.returncode, p.stderr)
+
+
+def main():
+    if not shutil.which("em++"):
+        sys.exit("em++ not on PATH -- source .emsdk/emsdk_env.sh first")
+
+    if "--clean" in sys.argv and OBJ.exists():
+        shutil.rmtree(OBJ)
+    entries = load_entries()
+    print(f"compiling {len(entries)} translation units")
+    OBJ.mkdir(parents=True, exist_ok=True)
+
+    objs, failures = [], []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=os.cpu_count()) as ex:
+        for src, obj, rc, err in ex.map(compile_one, entries):
+            if rc == 0:
+                objs.append(obj)
+            else:
+                failures.append((src, err))
+
+    print(f"  ok {len(objs)}   failed {len(failures)}")
+    if failures:
+        print("\nfirst failures:")
+        for src, err in failures[:8]:
+            first = "\n".join(
+                l for l in err.splitlines() if "error:" in l or "fatal" in l
+            )[:600]
+            print(f"\n--- {src}")
+            print(first or err[:400])
+        sys.exit(1)
+
+    OUT.mkdir(parents=True, exist_ok=True)
+    exported = [
+        "_main",
+        "_malloc",
+        "_free",
+        "_crossplay_frame_ptr",
+        "_crossplay_frame_width",
+        "_crossplay_frame_height",
+        "_crossplay_frame_rotation",
+        "_crossplay_consume_dirty",
+        "_crossplay_touch",
+        "_crossplay_key",
+        "_crossplay_link_bind",
+        "_crossplay_link_inbox",
+        "_crossplay_link_inbox_size",
+        "_crossplay_link_deliver",
+    ]
+    link = [
+        "em++",
+        *[str(o) for o in objs],
+        "-o",
+        str(OUT / "crossplay.js"),
+        # No HTML shell: the site's own page is the front end (site/assets/
+        # emulator.js), so the device boots inside the hero rather than on a
+        # page of its own.
+        # No SDL, no GL, no ASYNCIFY. main() returns as soon as it has started
+        # the firmware worker, and the page drives everything after that.
+        "-pthread",
+        "-sPTHREAD_POOL_SIZE=8",
+        # The simulator's FreeRTOS shim drops xTaskCreate's stackDepth on the
+        # floor and hands the task to std::thread, so every task takes the
+        # platform default. macOS gives a spawned thread 512KB; emscripten gives
+        # a pthread 64KB, which is under what an EPUB layout pass wants.
+        "-sSTACK_SIZE=4MB",
+        "-sDEFAULT_PTHREAD_STACK_SIZE=4MB",
+        "-sALLOW_MEMORY_GROWTH=1",
+        "-sINITIAL_MEMORY=134217728",
+        # The runtime must outlive main(): the firmware worker is still running
+        # and every exported function below has to stay callable.
+        "-sEXIT_RUNTIME=0",
+        "-sMODULARIZE=1",
+        "-sEXPORT_NAME=createCrossplay",
+        "-sENVIRONMENT=web,worker",
+        "-sEXPORTED_RUNTIME_METHODS=ccall,cwrap,HEAPU8,HEAPU32,FS",
+        "-sEXPORTED_FUNCTIONS=" + ",".join(exported),
+        # Off for the shipped build: the page has no console to read them in
+        # and they cost about a megabyte. Turn them back on while debugging.
+        "-sASSERTIONS=0",
+        # -Oz over -O2: this is a download before it is a hot loop, and an e-ink
+        # frame takes 1ms either way.
+        "-Oz",
+        f"--preload-file={SDROOT}@/fs_",
+    ]
+    print("linking ...")
+    p = subprocess.run(link, capture_output=True, text=True)
+    if p.returncode != 0:
+        print(p.stderr[-4000:])
+        sys.exit("link failed")
+    print(f"wrote {OUT}")
+
+
+if __name__ == "__main__":
+    main()

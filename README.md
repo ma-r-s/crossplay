@@ -1,287 +1,152 @@
-# CrossPoint Reader
+<h1 align="center">
+  <img src="site/assets/logo.svg#gh-light-mode-only" width="72" alt="CrossPlay"><img src="site/assets/logo-dark.svg#gh-dark-mode-only" width="72" alt="CrossPlay"><br>
+  CrossPlay
+</h1>
 
-[![Fund contributors](https://img.shields.io/badge/%F0%9F%91%91_Fund_contributors-royalty.dev-BB953A?style=for-the-badge&labelColor=1a1a1a)](https://app.royalty.dev/crosspoint-reader/crosspoint-reader)
+<p align="center">
+  <strong>E-ink is good at waiting.</strong><br>
+  So is a chess position, a flashcard, a puzzle you are halfway through.
+</p>
 
-CrossPoint is open-source e-reader firmware - community-built, fully hackable, free forever. It's maintained by a growing community of developers and readers who believe your device should do what you want - not what a manufacturer decided for you.
+<p align="center">
+  <a href="https://github.com/ma-r-s/crossplay/releases">Releases</a> &middot;
+  <a href="docs/shelf.md">What is on it</a> &middot;
+  <a href="docs/identity.md">Design language</a> &middot;
+  <a href="LOCAL_SCOPE.md">Scope</a>
+</p>
 
-**Now running on:** ESP32C3-based Xteink [X4](https://www.xteink.com/products/xteink-x4) and [X3](https://www.xteink.com/products/xteink-x3).
+<p align="center">
+  <a href="https://github.com/ma-r-s/crossplay/actions/workflows/crossplay-ci.yml"><img src="https://github.com/ma-r-s/crossplay/actions/workflows/crossplay-ci.yml/badge.svg?branch=xteink" alt="Build status for the xteink branch"></a>
+</p>
 
-![CrossPoint Reader running on Xteink device](./docs/images/cover.jpg)
+![CrossPlay on the Xteink X4 Pro](site/assets/shots/og.png)
 
-> If you're planning to buy an Xteink device, consider purchasing an **X3/X4 Developer Edition** through https://crosspointreader.com. CrossPoint receives a small share of each sale, helping fund development costs.
+CrossPlay is a fork of [CrossPoint](https://crosspointreader.com/) for the
+**Xteink X4 Pro**. CrossPoint turns the device into an excellent e-reader.
+CrossPlay keeps all of that and adds the other things a screen that holds still
+is good at: games you think about rather than react to, spaced-repetition
+flashcards, comics, and two devices that play together with nothing to set up.
 
-## What can CrossPoint do?
+It is a personal fork, built in the open. Upstream lands on a `base` branch and
+is merged in continuously. The reading side is CrossPoint's and stays CrossPoint's:
+the EPUB engine, sync and the file browser are theirs, and the reader's chrome is
+restyled to match the design language the apps use.
 
-- **Reader engine**: EPUB 2/3 rendering with embedded-style option, image handling, hyphenation, kerning, chapter navigation, footnotes, bookmarks, dictionary lookups ([StarDict](docs/dictionary.md)), go-to-percent, auto page turn, orientation control, focus reading, KOReader progress sync and more. 
+## What is on it
 
-- **Various formats**: native handling for `.epub`, `.xtc/.xtch`, `.txt`, and `.bmp`.
+|                 |                                                                    |
+| --------------- | ------------------------------------------------------------------ |
+| **Chess**       | A full engine on the device, or a board between two of them.       |
+| **Battleship**  | Lay out a fleet, then hunt someone else's.                         |
+| **Connections** | The daily word grid, with an archive of past boards.               |
+| **Solitaire**   | Klondike, turned sideways because that is the shape of a tableau.  |
+| **D&Diagrams**  | A nonogram whose clues are a dungeon. 64 of them.                  |
+| **Insider**     | A party game for a table and one device.                           |
+| **Jaipur**      | The two-player trading game, solo or nearby.                       |
+| **Murdle**      | A logic grid built through the solver, so you never have to guess. |
+| **Study**       | Anki decks with the FSRS scheduler, offline.                       |
+| **Hacker News** | The front page in a reading serif, articles kept on the card.      |
+| **xkcd**        | The archive, packed for the card and drawn one to one.             |
 
-- **Screenshots.**
+Chess, Battleship and Jaipur play over **PLAY NEARBY**: put two devices next to
+each other and they find one another. No pairing screen, no room code, no
+account, no router, no internet.
 
-- **Custom fonts**: install your favorite fonts on the SD card.
+## Install it
 
-- **Tilt page turn (X3 only)**.
+CrossPlay targets the **Xteink X4 Pro** only. For every other supported device,
+CrossPoint upstream is the right answer and is excellent.
 
-- **Library workflow**: folder browser, hidden-file toggle, long-press delete, recent books, SD-cache management.
+> **No one has run this on a physical device.** It is built against a simulator
+> and a browser build of the same sources, and I do not have an X4 Pro. The host
+> suites pass and both firmware targets compile, but that is not the same as
+> known to boot. If you flash it, you are the first: please
+> [say what happened](https://github.com/ma-r-s/crossplay/issues), either way.
 
-- **Wireless workflows**:
-  
-  - File transfer web UI
-  - EPUB Optimizer
-  - Web settings UI/API (edit many device settings from browser)
-  - WebSocket fast uploads
-  - WebDAV handler
-  - AP mode (hotspot) and STA mode (join existing Wi-Fi), both with QR helpers
-  - Calibre wireless connect flow
-  - OPDS browser with saved servers (up to 8), search, pagination, and direct download
-  - OTA update checks and installs from GitHub releases
+You do not need to have installed CrossPoint first.
 
-- **Customization**: multiple themes (Classic, Lyra, Lyra Extended, RoundedRaff), sleep screen modes, front/side button remapping, status bar controls, power-button behavior, refresh cadence, and more.
+1. Download `crossplay-<version>-x4pro.bin` from the
+   [releases page](https://github.com/ma-r-s/crossplay/releases).
+2. Plug the device into a computer over USB.
+3. Open [crosspointreader.com](https://crosspointreader.com/#flash-tools) in
+   Chrome or Edge (the web flasher needs WebSerial, which Firefox and Safari do
+   not have), choose **Custom .bin**, and select the file you downloaded.
+4. Or from a terminal, if you would rather not trust a web page with your
+   serial port:
 
-- **Localization**: 24 UI languages and counting. RTL support.
+   ```bash
+   esptool.py --chip esp32s3 --baud 921600 write_flash 0x0 crossplay-<version>-x4pro.bin
+   ```
 
-### Coming soon:
+Two things worth knowing before you start:
 
-- More themes.
+- **`--chip esp32s3`, and only the X4 Pro.** The X4 and X3 are ESP32-C3. This
+  binary is not for them and flashing it there is a cross-chip flash. Install
+  [CrossPoint](https://crosspointreader.com/) on those instead: it is excellent
+  and it is what this is built on.
+- **Flashing replaces the firmware, not the SD card.** Your library, your
+  reading positions and your fonts are files on that card and are left alone.
+  Installing stock CrossPoint over the top puts the device back where it was,
+  which makes this cheap to try. If a flash goes wrong,
+  [docs/fix-bricked-xteink.md](docs/fix-bricked-xteink.md) is the way back.
 
-- Much more! stay tuned.
+## Try it without a device
 
----
+[**crossplay.ma-r-s.com**](https://crossplay.ma-r-s.com) runs the real firmware
+in the browser: the same `src/` and `lib/` the device build compiles, put
+through `em++` instead of `g++`, against an SD card of its own. Click the screen
+in the hero, or ask for two devices and watch them find each other.
 
-## USB-locked devices (Xteink Unlocker)
+The browser build fakes three things, all documented in
+[site/README.md](site/README.md): the network answers from a snapshot, Study's
+headword font is the small cut under the big one's name, and sleep is off.
 
-Some Xteink units purchased from third-party stores (e.g. AliExpress) ship with USB flashing locked from the factory.
-If your device is locked, you will need to use the **Xteink Unlocker** tool available at
-https://crosspointreader.com/#unlock-tool before you can flash CrossPoint.
-
-**You do not need this tool if you bought your device directly from xteink.com.** Those units are not locked.
-
-**Not sure if your device is locked?** Power it on, connect the USB-C cable, and try flashing via the web flasher first (see
-[Install firmware](#install-firmware) below). If the browser's serial device picker does not show your device, try a different
-USB port or browser before assuming the device is locked. Only reach for the unlocker if the device still doesn't appear.
-
-> ### ⚠️ WARNING: READ THIS BEFORE USING THE UNLOCKER ⚠️
-> 
-> **The only officially supported firmwares in the unlock tool are CrossPoint and CrossInk.**
-> 
-> Flashing any other firmware on a USB-locked device may **permanently brick the device** or leave it **permanently
-> stuck on that firmware with no recovery path**. Once USB flashing is re-locked, your only way back is via OTA, and if
-> the firmware you flashed doesn't support OTA, **there is no way out**.
-
-## Install firmware
-
-### Web installer (recommended)
-
-1. Connect your device to your computer via USB-C and wake/unlock the device
-2. Go to https://crosspointreader.com/#flash-tools, select device (X3 or X4), and choose an official CrossPoint release.
-
-### Web installer (specific version)
-
-1. Connect your device to your computer via USB-C and wake/unlock the device
-2. Download a `firmware.bin` from [Releases](https://github.com/crosspoint-reader/crosspoint-reader/releases), local build, or continuous integration artifact.
-3. Go to https://crosspointreader.com/#flash-tools, select device (X3 or X4), click "Custom .bin" and upload a `firmware.bin`.
-
-### Revert to Official Firmware
-
-To revert to the official firmware, you can also flash the latest official firmware using https://crosspointreader.com/#flash-tools.
-
-### Command line
-
-1. Install [`esptool`](https://github.com/espressif/esptool):
-
-```bash
-pip install esptool
-```
-
-2. Download `firmware.bin` from the [releases page](https://github.com/crosspoint-reader/crosspoint-reader/releases).
-3. Connect your device via USB-C.
-4. Find the device port. On Linux, run `dmesg` after connecting. On macOS:
-
-```bash
-log stream --predicate 'subsystem == "com.apple.iokit"' --info
-```
-
-5. Flash:
-
-```bash
-esptool.py --chip esp32c3 --port /dev/ttyACM0 --baud 921600 write_flash 0x10000 /path/to/firmware.bin
-```
-
-Adjust `/dev/ttyACM0` to match your system.
-
-### Manual
-
-See [Development quick start](#development-quick-start) below.
-
----
-
-## Custom SD-card fonts
-
-Convert your own TTF/OTF files into `.cpfont` files that load from the SD card. No firmware reflash is needed.
-
-1. Go to https://crosspointreader.com/fonts and open the "SD-card font builder" form.
-2. Upload up to four styles (regular, bold, italic, bold-italic), set the family name, point sizes, and Unicode range.
-3. Download the generated `.cpfont` files.
-4. Copy them to your SD card under `/fonts/YourFont/` (or `/.fonts/YourFont/` to hide the folder).
-5. Select the font on the device from the font settings.
-
-Conversion runs the firmware repo's `lib/EpdFont/scripts/fontconvert_sdcard.py` script unmodified, so output matches a local host build.
-
----
-
-## Documentation
-
-- [User Guide](./USER_GUIDE.md)
-- [Web server usage](./docs/webserver.md)
-- [Web server endpoints](./docs/webserver-endpoints.md)
-- [Project scope](./SCOPE.md)
-- [Contributing docs](./docs/contributing/README.md)
-- [Touch and UI development](./docs/contributing/touch-and-ui.md) - FreeInkUI components for new screens, the touch bridge for existing ones, and build envs for the non-Xteink touch devices
-
----
-
-## Development quick start
-
-### Prerequisites
-
-- [pioarduino](https://github.com/pioarduino/pioarduino) or VS Code + pioarduino plugin
-- Python 3.8+
-- `clang-format` 21
-- USB-C cable supporting data transfer
-
-### Setup
+## Build it
 
 ```bash
-git clone --recursive https://github.com/crosspoint-reader/crosspoint-reader
-cd crosspoint-reader
-
-# if cloned without --recursive:
-git submodule update --init --recursive
+pio run -e x4pro                 # the firmware
+pio run -e simulator_x4_pro      # a desktop simulator, SDL2 + a FreeRTOS shim
+./scripts_local/check.sh         # host tests and both builds
 ```
 
-### Nix/NixOS
+`ui:paperOnTheBand` is a known baseline failure; a tree where it passes is one
+whose work fixes it.
 
-Nix/NixOS users can enter the development shell with either `nix develop` (flakes) or `nix-shell`:
+The apps live in `src/apps_local/`, which is what keeps the merge with upstream
+close to conflict-free. It is not the whole diff: the settings screens, the
+reader's menus and parts of `lib/` are reworked too, and those are where a merge
+conflict will come from if one does. Read
+[LOCAL_SCOPE.md](LOCAL_SCOPE.md) and [docs/shelf.md](docs/shelf.md) before
+adding anything, and [docs/building-apps.md](docs/building-apps.md) for how an
+app is put together.
 
-```bash
-nix develop -f nix
-# or
-nix-shell nix
-```
+## The website
 
-To flash a connected ESP32-C3 device, enable PlatformIO's udev rules in your NixOS configuration:
+`site/` is static: one HTML file, one stylesheet, two scripts (the emulator's
+front end and the avatar word lists), the assets they name, and the browser
+build under `site/emulator/`. See [site/README.md](site/README.md) for
+how to serve it (a plain `http.server` will not do, the threads need COOP/COEP)
+and what has to be true before it deploys.
 
-```nix
-services.udev.packages = with pkgs; [ platformio-core.udev ];
-```
+## Credit and licence
 
-After rebuilding the system configuration, reconnect the device or reload udev rules.
+CrossPlay is MIT, like the project it forks, and it is a fork in git's sense as
+well as in the README's: this repository is a GitHub fork of
+[crosspoint-reader/crosspoint-reader](https://github.com/crosspoint-reader/crosspoint-reader),
+shares its commit history, and merges every upstream release rather than
+re-implementing it. It stands on
+[CrossPoint](https://github.com/crosspoint-reader/crosspoint-reader) and the
+[FreeInk SDK](https://freeink.org/); upstream's own README is kept at
+[docs/crosspoint-readme.md](docs/crosspoint-readme.md).
 
-### Build / flash / monitor
+xkcd comics are by Randall Munroe, [CC BY-NC 2.5](https://xkcd.com/license.html),
+fetched by the device from [xkcd.com](https://xkcd.com). Connections puzzles are
+the New York Times'; CrossPlay ships none of them and downloads only what you
+ask for. Type is Jersey 25 and Instrument Serif, both SIL OFL.
 
-```bash
-pio run --target upload
-```
+Jaipur, Insider, Murdle, Battleship and Connections are trademarks of their respective owners. CrossPlay implements the games; it is not affiliated with, endorsed by or sponsored by any of them.
 
-### Contributor pre-PR checks
-
-```bash
-./bin/clang-format-fix
-pio check -e default
-pio run -e default
-```
-
-### Debugging
-
-After flashing the new features, it’s recommended to capture detailed logs from the serial port.
-
-First, make sure all required Python packages are installed:
-
-```python
-python3 -m pip install pyserial colorama matplotlib
-```
-
-After that run the script:
-
-```sh
-# For Linux
-# This was tested on Debian and should work on most Linux systems.
-python3 scripts/debugging_monitor.py
-
-# For macOS
-python3 scripts/debugging_monitor.py /dev/cu.usbmodem2101
-```
-
-Minor adjustments may be required for Windows.
-
----
-
-## Internals
-
-CrossPoint Reader is pretty aggressive about caching data down to the SD card to minimise RAM usage. The ESP32-C3 only has ~380KB of usable RAM, so we have to be careful. A lot of the decisions made in the design of the firmware were based on this constraint.
-
-### Data caching
-
-The first time chapters of a book are loaded, they are cached to the SD card. Subsequent loads are served from the
-cache. This cache directory exists at `.crosspoint` on the SD card. The structure is as follows:
-
-```text
-.crosspoint/
-├── epub_<hash>/         # one directory per book, named by content hash
-│   ├── progress.bin     # reading position (chapter, page, etc.)
-│   ├── cover.bmp        # generated cover image
-│   ├── book.bin         # metadata: title, author, spine, TOC
-│   ├── css_rules.cache  # parsed CSS rule cache
-│   ├── img_*            # rendered image cache files
-│   └── sections/        # per-chapter layout cache
-│       ├── 0.bin
-│       ├── 1.bin
-│       └── ...
-├── settings.json        # device settings
-├── state.json           # resume/runtime state
-└── recent.json          # recent books list
-```
-
-Removing `/.crosspoint` clears all cached metadata and forces a full regeneration on next open. Book deletes, overwrites, and moves done through the firmware or web UI clear or re-key matching caches; manual SD-card edits may leave stale cache directories behind.
-
-For more details on the internal file structures, see the [file formats document](./docs/file-formats.md).
-
----
-
-## Contributing
-
-Contributions are welcome. If you're new to the codebase, start with the [contributing docs](./docs/contributing/README.md). For things to work on, check the [ideas discussion board](https://github.com/crosspoint-reader/crosspoint-reader/discussions/categories/ideas) — leave a comment before starting so we don't duplicate effort.
-
-Everyone here is a volunteer, so please be respectful and patient. For governance and community expectations, see [GOVERNANCE.md](./GOVERNANCE.md).
-
----
-
-## Community forks
-
-One of the best things about open source is that anyone can take the code in a different direction. If you need something outside CrossPoint's [scope](./SCOPE.md), check out the community forks:
-
-- [CrossInk](https://github.com/uxjulia/CrossInk) — Typography and reading tracking: Bionic Reading (bolds word stems to create fixation points), guide dots between words, improved paragraph indents, and replaces the default fonts with ChareInk/Lexend/Bitter.
-
-- [papyrix-reader](https://github.com/bigbag/papyrix-reader) — Adds FB2 and MD format support. Actively maintained with Arabic script support. Custom themes via SD card.
-
-- ~~[crosspet](https://github.com/trilwu/crosspet) — A Vietnamese fork that adds a Tamagotchi-style virtual chicken that grows based on your reading milestones (pages read, streaks, care). Also: Flashcards, Weather, Pomodoro timer, and mini-games.~~ (Unmaintained)
-
-- [crosspoint-reader-cjk](https://github.com/aBER0724/crosspoint-reader-cjk) — Purpose-built for Chinese, Japanese, and Korean reading.
-
-- [inx](https://github.com/obijuankenobiii/inx) — Completely reimagines the user interface with tabbed navigation.
-
-- ~~[PlusPoint](https://github.com/ngxson/pluspoint-reader) — custom JS apps support.~~ (Unmaintained)
-
-- [crosspoint-reader-papers3](https://github.com/juicecultus/crosspoint-reader-papers3) — Crosspoint port for M5Stack Paper S3. 
-
-- [t5s3-reader](https://github.com/ShallowGreen123/t5s3-reader) — Crosspoint port for LilyGo T5 ePaper S3 / T5S3 4.7-inch e-paper device.
-
-**Note:** Many of these features will make their way into CrossPoint over time. We maintain a slower pace to ensure rock-solid stability and squash bugs before they reach your device.
-
-Want to build your own device? Be sure to check out the [de-link](https://github.com/iandchasse/de-link) project.
-
----
-
-CrossPoint Reader is **not affiliated with Xteink or any device manufacturer**.
-
-Huge shoutout to [diy-esp32-epub-reader](https://github.com/atomic14/diy-esp32-epub-reader), which inspired this project.
+Reading positions sync to CrossPoint's own server by default. That is
+upstream's infrastructure rather than this fork's, inherited so that flashing
+CrossPlay over CrossPoint does not orphan an existing sync; the address is a
+setting and can be pointed at any KOSync server.

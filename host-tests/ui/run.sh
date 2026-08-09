@@ -20,7 +20,10 @@ SDK=../../freeink-sdk/libs/ui/FreeInkUI
 # can carry real icons and still be tested with no renderer and no device.
 ICONS=../../freeink-sdk/libs/assets/Icons
 mkdir -p "$BUILD_DIR"
-c++ -std=c++17 -Wall -Wextra -Werror -I"$SDK/include" -I"$ICONS/include" \
+# -Wno-comment and -Wno-format-truncation: see host-tests/dungeon/run.sh for
+# why both are GCC-only noise here rather than bugs worth chasing.
+c++ -std=c++17 -Wall -Wextra -Werror -Wno-comment -Wno-format-truncation \
+  -I"$SDK/include" -I"$ICONS/include" \
   "$SDK/src/FreeInkUI.cpp" \
   ../../src/apps_local/battleship/BattleshipScreens.cpp \
   ../../src/apps_local/ShelfScreen.cpp \
@@ -33,9 +36,14 @@ c++ -std=c++17 -Wall -Wextra -Werror -I"$SDK/include" -I"$ICONS/include" \
   ../../src/apps_local/insider/InsiderCore.cpp \
   ../../src/apps_local/insider/InsiderScreens.cpp \
   ../../src/apps_local/link/LinkScreens.cpp \
+  ../../src/apps_local/murdle/MurdleCast.cpp \
+  ../../src/apps_local/murdle/MurdleCore.cpp \
+  ../../src/apps_local/murdle/MurdleScreens.cpp \
+  ../../src/apps_local/murdle/MurdleText.cpp \
   ../../src/apps_local/player/PlayerAvatar.cpp \
   ../../src/apps_local/player/PlayerName.cpp \
   ../../src/apps_local/player/PlayerScreen.cpp \
   ../../src/apps_local/study/StudyScreens.cpp \
+  ../../src/apps_local/xkcd/XkcdScreens.cpp \
   test_ui.cpp -o "$BUILD_DIR/test_ui"
 "$BUILD_DIR/test_ui"

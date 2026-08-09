@@ -68,7 +68,7 @@ unreadable  = eye-off
 # (memory is the mechanism too, and it is mush at 32px).
 study       = languages
 
-# Dungeons & Diagrams. A folded map is the only silhouette on the shelf built
+# D&Diagrams. A folded map is the only silhouette on the shelf built
 # from a zigzag, so it cannot be confused with the crown, hull, grid, suit,
 # joystick, newspaper or letterforms already there -- and the game is literally
 # the drawing of one.
@@ -104,3 +104,58 @@ insider     = venetian-mask
 # balance is the theme but reads as justice), package and shopping-basket (both
 # say commerce generically and neither says which game).
 jaipur      = gem
+# The xkcd app. A comic is a row of panels, so the mark is the panel itself:
+# `gallery-vertical-end` is a stack of framed rectangles, which is both the
+# shape of a strip and the shape of the reader's own stepping. Rejected:
+# `image` (every app that shows anything could claim it), `smile` (says
+# "comedy" rather than "comic", and the fork already spends faces on the
+# player avatar), `newspaper` (taken by Hacker News, and two apps that both
+# read as "a page of text" is the one thing a 62px row cannot disambiguate).
+xkcd        = gallery-vertical-end
+# Murdle: a murder-mystery logic grid. `footprints` -- two shoe soles, and
+# nothing else on this shelf is that shape. `fingerprint` was the first choice
+# and this lucide pin does not carry it; of what is here, `puzzle` is a jigsaw
+# tab and this is not a jigsaw, `user-search` and `file-search` are both a
+# magnifying glass with interior detail that blobs at 32px in one bit, and
+# `drama` was already rejected for Insider for the same reason. A skull would
+# announce the wrong tone for a game that is arithmetic.
+murdle      = footprints
+
+# ---------------------------------------------------------------------------
+# The four axes of Murdle's deduction grid, at 24px.
+#
+# These replace the single letters S/W/P/M that used to label the axes. The
+# letters worked, but they cost four letters out of the twenty-six the *items*
+# are labelled with -- and worse, S meant both "the suspects axis" and STABLE,
+# which is exactly the ambiguity the single-letter labels exist to remove. An
+# icon is not a letter, so it collides with nothing.
+#
+# Picked for silhouette at 24px in one bit, and for being unmistakable next to
+# each other: a head, a tool, a pin and a heart share no outline.
+murdle_suspects = user      # a head and shoulders; `users` is two heads and mush at 24px
+murdle_weapons  = hammer    # `axe` reads as woodcutting and `swords` is two crossed
+                            # blades that blur into an X at this size
+murdle_places   = map-pin   # the universal "a place". `house` is one kind of place
+                            # and half the table is outdoors
+murdle_motives  = heart     # why, rather than what. `brain` is detail that fills in
+                            # at 24px, `flame` reads as danger rather than motive
+
+
+# ---------------------------------------------------------------------------
+# The three faces of a case, at 24px, drawn white on the header band.
+#
+# The header used to carry one label that named the NEXT face and cycled. On a
+# panel that takes a second to redraw, reaching the third face meant two full
+# refreshes and a guess about which order they came in. Two icons go straight
+# there, and a picture survives the 40px of band left beside the title where a
+# word would not.
+#
+# Picked to be unmistakable from each other at a glance rather than to be
+# beautiful: horizontal rules, a lattice, and a rectangle with a corner.
+murdle_face_clues = list        # the numbered lines. `scroll-text` is a curl of
+                                # paper that blurs shut at 24px in one bit
+murdle_face_grid  = grid-2x2    # four cells, which is literally the board.
+                                # `table` reads as a header row plus body
+murdle_face_info  = folder      # the case file that holds the cast. `users` is
+                                # two heads and mush, and the page is not only
+                                # people -- it is weapons and places too

@@ -125,8 +125,21 @@ inline fui::StyleSet disabledStepperStyles() {
   return styles;
 }
 
-inline fui::ThemeTokens themeTokens() {
-  fui::ThemeTokens tokens = fui::defaultThemeTokens(fui::FONT_SLOT_SMALL, fui::FONT_SLOT_BODY, fui::FONT_SLOT_TITLE);
+// One palette, built once, handed out by reference.
+//
+// ThemeTokens is 2712 bytes. Returned by value it landed on the caller's stack,
+// and toybox::Screen then copied it a second time; between them they were most
+// of the 8192-byte render task, which is how v1.0.0 crashed on the first device
+// that ran it (issue #1). Nothing ever varied: every one of the 22 call sites
+// asked for this same palette.
+//
+// The static also makes the reference safe by construction. Screen used to own
+// a copy precisely because a reference could outlive a temporary; a function
+// -local static outlives everything, so the guarantee is kept and the copy is
+// not needed to get it.
+inline const fui::ThemeTokens& themeTokens() {
+  static const fui::ThemeTokens instance = [] {
+    fui::ThemeTokens tokens = fui::defaultThemeTokens(fui::FONT_SLOT_SMALL, fui::FONT_SLOT_BODY, fui::FONT_SLOT_TITLE);
 
   tokens.spaceXs = 4;
   // Screen::takeRow() uses spaceSm as the gap between rows, so it has to be
@@ -170,7 +183,9 @@ inline fui::ThemeTokens themeTokens() {
   // Screen::header() takes the band's StyleSet from the popup slot, which is
   // the SDK's convention for "chrome surface" rather than an oversight.
   tokens.popup = invertedStyles();
-  return tokens;
+    return tokens;
+  }();
+  return instance;
 }
 
 }  // namespace toybox

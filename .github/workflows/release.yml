@@ -1,8 +1,12 @@
 name: Compile Release
+# FORK CHANGE: was `push: tags: ['*']`. This builds gh_release, which is
+# -DFREEINK_DEVICE_X4/X3 and therefore ESP32-C3. The only device this fork
+# targets is the X4 Pro, an S3, so on a tag push this raced
+# crossplay-release.yml and published a second binary for the wrong chip.
+# Kept rather than deleted so merges from upstream stay clean; run it by hand
+# if you ever need upstream's artefacts out of this tree.
 on:
-  push:
-    tags:
-      - '*'
+  workflow_dispatch:
 
 jobs:
   build-release:

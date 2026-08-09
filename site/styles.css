@@ -1,0 +1,1281 @@
+/* CrossPlay
+ *
+ * Black and white on purpose. The projects this one is built on all carry a
+ * colour accent; the absence of one is the most differentiated this page can
+ * be, and it is honest about what the panel does. See docs/identity.md.
+ *
+ * Jersey 25 and Instrument Serif are the two faces the device itself draws, so
+ * the page is set in the product rather than in something chosen to resemble it.
+ * Body prose is a system stack: the device uses a bitmap cut because its
+ * renderer floods antialiased edges, which is a constraint the browser does not
+ * have, and imitating it here would be costume rather than character.
+ */
+
+@font-face {
+  font-family: "Jersey 25";
+  src: url("assets/fonts/jersey25.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Instrument Serif";
+  src: url("assets/fonts/instrumentserif.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Instrument Serif";
+  src: url("assets/fonts/instrumentserif-italic.woff2") format("woff2");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+:root {
+  --ink: #111110;
+  --paper: #f5f2ea;
+  --paper-2: #ebe7db;
+  --edge: #a9a494;
+  --muted: #46443c;
+  --tooth: rgba(17, 17, 16, 0.22);
+  --display: "Jersey 25", "Arial Narrow", sans-serif;
+  --serif: "Instrument Serif", Georgia, serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --body:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+  --wrap: 1180px;
+  --bar: 3.1rem;
+  --gutter: clamp(1.25rem, 4vw, 3rem);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #f2f1ec;
+    --paper: #100f0e;
+    --paper-2: #1a1917;
+    --edge: #5a564c;
+    --muted: #b8b5aa;
+    --tooth: rgba(242, 241, 236, 0.16);
+  }
+}
+:root[data-theme="dark"] {
+  --ink: #f2f1ec;
+  --paper: #100f0e;
+  --paper-2: #1a1917;
+  --edge: #5a564c;
+  --muted: #b8b5aa;
+  --tooth: rgba(242, 241, 236, 0.16);
+}
+:root[data-theme="light"] {
+  --ink: #111110;
+  --paper: #f5f2ea;
+  --paper-2: #ebe7db;
+  --edge: #a9a494;
+  --muted: #46443c;
+  --tooth: rgba(17, 17, 16, 0.22);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: 17px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap {
+  max-width: var(--wrap);
+  margin: 0 auto;
+  padding-inline: var(--gutter);
+}
+
+/* --- the band -------------------------------------------------------------
+ * The device's header is a solid black bar with knocked-out white type that
+ * never repaints. It is the single most recognisable thing the fork draws, so
+ * it marks sections here.
+ */
+.band {
+  background: #111110;
+  color: #faf9f6;
+  font-family: var(--display);
+  font-size: clamp(1.6rem, 5vw, 2.6rem);
+  letter-spacing: 0.02em;
+  padding: 0.45em var(--gutter) 0.3em;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.band .band-note {
+  font-family: var(--mono);
+  font-size: clamp(0.62rem, 1.6vw, 0.78rem);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+.band-rule {
+  height: 3px;
+  background: var(--ink);
+}
+
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 1.2rem;
+  /* Block, not flex. As a flex container the hero's eyebrow made three
+   * independent items of its two text runs and the middle dot, so at 390px it
+   * broke into two ragged columns with the dot stranded between them and the
+   * rule floating at half height. Inline text wraps like text. */
+  display: block;
+}
+.eyebrow::before {
+  content: "";
+  display: inline-block;
+  width: 2rem;
+  height: 1px;
+  vertical-align: middle;
+  margin-right: 0.7rem;
+  background: currentColor;
+}
+
+h1,
+h2,
+h3,
+.hed {
+  font-weight: 400;
+  margin: 0;
+}
+
+h1 {
+  font-family: var(--display);
+  font-size: clamp(2.9rem, 8.5vw, 6rem);
+  line-height: 0.94;
+  letter-spacing: -0.005em;
+}
+/* The band label is the section's real heading: scannable, and it gives each
+ * <section> an accessible name. The aphorism under it keeps the display size. */
+.band h2 {
+  font-family: var(--display);
+  font-size: clamp(1.6rem, 5vw, 2.6rem);
+  letter-spacing: 0.02em;
+  font-weight: 400;
+  margin: 0;
+}
+.hed {
+  font-family: var(--display);
+  font-size: clamp(2rem, 5.5vw, 3.4rem);
+  line-height: 1.02;
+  margin: 0 0 0.6rem;
+}
+.hed.small {
+  font-size: clamp(1.5rem, 3.4vw, 2.2rem);
+  margin-top: 2.5rem;
+}
+h3 {
+  font-family: var(--display);
+  font-size: 1.5rem;
+  line-height: 1.1;
+}
+
+.lede {
+  font-family: var(--serif);
+  font-size: clamp(1.25rem, 2.6vw, 1.7rem);
+  line-height: 1.42;
+  max-width: 34ch;
+  color: var(--ink);
+  margin: 1.4rem 0 0;
+}
+.prose {
+  max-width: 62ch;
+}
+.prose p {
+  margin: 0 0 1.05rem;
+}
+.prose p:last-child {
+  margin-bottom: 0;
+}
+
+section {
+  padding-block: clamp(3.5rem, 9vw, 7rem);
+}
+section.tight {
+  padding-block: clamp(2.5rem, 6vw, 4.5rem);
+}
+
+/* --- corner brackets ------------------------------------------------------
+ * The frame the chess board and every menu ornament wears. Reused here as the
+ * device-screen frame so a screenshot reads as being on the device.
+ */
+.bracket {
+  position: relative;
+  padding: 14px;
+}
+.bracket::before,
+.bracket::after {
+  content: "";
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border: 3px solid var(--ink);
+}
+.bracket::before {
+  top: 0;
+  left: 0;
+  border-right: 0;
+  border-bottom: 0;
+}
+.bracket::after {
+  bottom: 0;
+  right: 0;
+  border-left: 0;
+  border-top: 0;
+}
+
+/* --- the top bar ---------------------------------------------------------
+ * The name, always on screen, the way an operating system puts it there. It is
+ * a bar rather than a floating mark because the band headings run to the left
+ * edge: anything floating over that corner lands on top of a word.
+ */
+.topbar {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 50;
+  height: var(--bar);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-inline: var(--gutter);
+  background: var(--paper);
+  border-bottom: 1px solid var(--edge);
+}
+.wordmark {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--display);
+  font-size: 1.4rem;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  color: var(--ink);
+  text-decoration: none;
+}
+.mark {
+  width: 1.45rem;
+  height: 1.45rem;
+  flex: none;
+  display: block;
+}
+/* An empty bar is a bar that is in the way. The neighbours put a source link
+ * and the primary action in theirs; this adds the two sections worth jumping
+ * to as well, since the page is long and the bands are its only landmarks. */
+.topnav {
+  display: flex;
+  align-items: center;
+  gap: clamp(0.9rem, 2.4vw, 1.7rem);
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.topnav a {
+  color: var(--muted);
+  text-decoration: none;
+  padding-block: 0.4rem;
+  border-bottom: 1px solid transparent;
+}
+.topnav a:hover,
+.topnav a:focus-visible {
+  color: var(--ink);
+  border-bottom-color: var(--ink);
+}
+.topnav-out {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--ink) !important;
+}
+.topnav-out svg {
+  display: block;
+}
+/* The section jumps go first on a narrow bar; the source link and the action
+ * are the two that survive. */
+@media (max-width: 720px) {
+  .topnav a[href="#shelf"],
+  .topnav a[href="#nearby"] {
+    display: none;
+  }
+}
+@media (max-width: 380px) {
+  .topnav-out span {
+    display: none;
+  }
+}
+.eyebrow-sep {
+  opacity: 0.5;
+  margin: 0 0.35rem;
+}
+body {
+  padding-top: var(--bar);
+}
+/* Anchors must not land underneath the bar. */
+html {
+  scroll-padding-top: calc(var(--bar) + 0.5rem);
+}
+
+/* --- hero -----------------------------------------------------------------
+ * One screen. The first thing anyone sees should not be a fragment of itself,
+ * so the hero is bounded by the viewport and the device inside it is sized in
+ * svh -- which is the honest unit on a phone, where the toolbar moves.
+ */
+.hero {
+  min-height: calc(100svh - var(--bar));
+  display: flex;
+  align-items: center;
+  padding-top: clamp(1.5rem, 4vh, 3rem);
+  padding-bottom: clamp(1.5rem, 4vh, 3rem);
+}
+.hero-grid {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  gap: clamp(1.5rem, 5vw, 4rem);
+  align-items: center;
+}
+@media (max-width: 860px) {
+  .hero {
+    min-height: 0;
+    padding-top: clamp(2rem, 6vw, 3rem);
+    padding-bottom: clamp(3rem, 8vw, 4rem);
+  }
+  .hero-grid {
+    grid-template-columns: 1fr;
+  }
+}
+/* A laptop in landscape has less height than a phone has in portrait. Trim the
+ * hero's own type rather than let it push the device off the fold. */
+@media (min-width: 861px) and (max-height: 900px) {
+  .hero h1 {
+    font-size: clamp(2.6rem, 5.4vw, 4.6rem);
+  }
+  .hero .lede {
+    font-size: clamp(1.05rem, 1.5vw, 1.25rem);
+    margin-top: 1rem;
+  }
+  .hero .cta-row {
+    margin-top: 1.4rem;
+  }
+  .hero .hero-meta {
+    margin-top: 1.1rem;
+  }
+  .hero .eyebrow {
+    margin-bottom: 0.9rem;
+  }
+}
+
+.cta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 2.2rem;
+}
+.btn {
+  font-family: var(--display);
+  font-size: 1.3rem;
+  letter-spacing: 0.03em;
+  text-decoration: none;
+  padding: 0.5em 1.15em 0.38em;
+  border: 3px solid var(--ink);
+  color: var(--ink);
+  background: var(--paper);
+  display: inline-block;
+  transition: transform 0.08s ease;
+}
+.btn:hover {
+  transform: translateY(-2px);
+}
+.btn.primary {
+  background: var(--ink);
+  color: var(--paper);
+}
+.btn[aria-disabled="true"] {
+  opacity: 0.42;
+  pointer-events: none;
+}
+
+.hero-meta {
+  margin-top: 1.6rem;
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.1rem;
+}
+
+/* --- screenshots ---------------------------------------------------------- */
+.shot {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: #fff;
+  border: 1px solid var(--edge);
+}
+/* Never invert a screenshot. The panel really is black ink on light paper, and
+ * flipping it to match a dark page would misrepresent the product. Keeping the
+ * white also makes each shot read as a lit screen against a dark page, which is
+ * closer to how the device looks on a desk than an inverted one would be. */
+
+figure {
+  margin: 0;
+}
+figcaption {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-top: 0.65rem;
+}
+
+/* --- the shelf grid ------------------------------------------------------- */
+.shelf {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: clamp(1.5rem, 3vw, 2.5rem);
+  margin-top: 3rem;
+  /* The two landscape cards span two columns, and without dense packing a
+   * wide card that cannot fit the remaining space leaves a visible hole and
+   * pushes a gap to the end of the grid. The cards are independent, so
+   * back-filling them out of source order costs nothing. */
+  grid-auto-flow: dense;
+}
+
+/* On a phone, eleven cards stacked is a mile of scrolling to learn one idea.
+ * A snap track shows one at a time and you flick between them, which is how
+ * you would look through them on a shelf. No JavaScript: scroll snapping is
+ * the browser's own, it keeps the keyboard and the scrollbar working, and it
+ * degrades to a plain scroller anywhere it is not supported. */
+@media (max-width: 700px) {
+  .shelf {
+    display: flex;
+    grid-auto-flow: unset;
+    gap: 0.9rem;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    /* Bleed to the screen edges so a half-visible neighbour says "there are
+     * more", then pad the ends back in so the first and last still centre. */
+    margin-inline: calc(var(--gutter) * -1);
+    /* Half of what is left over once a card has taken its 76vw, so the first
+     * and last card can sit in the middle of the screen like any other.
+     *
+     * vw and not %: a percentage flex-basis resolves against the track's
+     * content box, which is the track minus this very padding, so the two can
+     * never be made to agree. The first card ended up 25px left of centre.
+     * Against the viewport the arithmetic is just 12 + 76/2 = 50. */
+    padding-inline: 12vw;
+    scroll-padding-inline: 12vw;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .shelf::-webkit-scrollbar {
+    display: none;
+  }
+  .shelf .card {
+    /* 76vw leaves about 8vw of the next card showing at rest, which is what
+     * says there are more without a second card competing for attention. */
+    flex: 0 0 76vw;
+    scroll-snap-align: center;
+  }
+  /* Same width as the rest. It used to be wider, which broke the rhythm: with
+   * centre snapping every card has to be the same size or the track lurches. */
+  .shelf .card.wide {
+    flex-basis: 76vw;
+  }
+  /* And the same well. The landscape override exists so Solitaire and the
+   * reader can span two grid columns above 720px; in a one-card-at-a-time
+   * carousel there is no second column to span, so it just produced a short
+   * card with a screen's worth of dead space under it. Back to the portrait
+   * well the base rule already letterboxes into, which keeps every card the
+   * same height and every caption on the same line. The shot is not shrunk,
+   * only centred. */
+  .shelf .card.wide .shot-wrap {
+    aspect-ratio: 480 / 800;
+  }
+  .shelf-hint {
+    display: block;
+  }
+}
+.shelf-hint {
+  display: none;
+  margin: 0.9rem 0 0;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+/* Two apps render landscape (Solitaire, and the xkcd reader), so the shots are
+ * not one shape. Pin every well to the portrait panel ratio and letterbox the
+ * wide ones, or the grid rows go ragged and the captions stop lining up. */
+.card .shot-wrap {
+  background: var(--paper-2);
+  padding: 10px;
+  aspect-ratio: 480 / 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.card .shot-wrap .shot {
+  max-height: 100%;
+  width: auto;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+/* Solitaire and the reader really are landscape on the device. Letterboxing
+ * them into a portrait well shrinks them to illegibility, so they take two
+ * columns and their own ratio instead -- the app shown at the shape it is.
+ * Only above the breakpoint where the grid has two columns to give. */
+.card.wide .shot-wrap {
+  aspect-ratio: 800 / 480;
+}
+@media (min-width: 720px) {
+  .card.wide {
+    grid-column: span 2;
+  }
+}
+.card h3 {
+  font-size: 1.35rem;
+}
+.card p {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.tag {
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  border: 1px solid var(--edge);
+  padding: 0.15em 0.5em;
+  align-self: flex-start;
+  color: var(--muted);
+}
+
+/* --- split rows ----------------------------------------------------------- */
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: clamp(2rem, 6vw, 4.5rem);
+  align-items: center;
+}
+.split.start {
+  align-items: start;
+}
+.split.reverse > :first-child {
+  order: 2;
+}
+@media (max-width: 860px) {
+  .split {
+    grid-template-columns: 1fr;
+  }
+  .split.reverse > :first-child {
+    order: 0;
+  }
+}
+.pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+/* --- comparison table ----------------------------------------------------- */
+.table-scroll {
+  overflow-x: auto;
+  margin-top: 2.5rem;
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 560px;
+}
+th,
+td {
+  text-align: left;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--edge);
+  vertical-align: top;
+  font-size: 0.95rem;
+}
+thead th {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 3px solid var(--ink);
+}
+tbody th {
+  font-family: var(--display);
+  font-size: 1.25rem;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+/* --- footer --------------------------------------------------------------- */
+footer {
+  border-top: 3px solid var(--ink);
+  padding-block: 3rem 4rem;
+  font-size: 0.92rem;
+}
+footer a {
+  color: var(--ink);
+}
+.foot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 2rem;
+}
+.foot-grid h4 {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 0.7rem;
+  font-weight: 400;
+}
+.foot-grid ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.foot-grid li {
+  margin-bottom: 0.4rem;
+}
+
+/* --- theme toggle --------------------------------------------------------- */
+.theme-toggle {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  background: var(--paper);
+  color: var(--ink);
+  border: 2px solid var(--ink);
+  padding: 0.5em 0.8em;
+  cursor: pointer;
+  z-index: 20;
+}
+
+a {
+  color: inherit;
+}
+a:focus-visible,
+button:focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: 3px;
+}
+
+.skip {
+  position: absolute;
+  left: -9999px;
+}
+.skip:focus {
+  left: 1rem;
+  top: 1rem;
+  position: fixed;
+  z-index: 50;
+  background: var(--ink);
+  color: var(--paper);
+  padding: 0.6em 1em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+  }
+}
+
+/* --- additions ------------------------------------------------------------ */
+
+/* Nearest-neighbour only where the shot is shown at or above native size.
+ * In the shelf the same rule was a ~52% downscale, which drops every other
+ * pixel and turns the dithered greys into moire. */
+.bracket .shot,
+.strip-shot .shot,
+.trio .shot {
+  image-rendering: pixelated;
+}
+
+/* The reader is inherited rather than a peer of the eleven, and as a twelfth
+ * card it also left a half-empty final row. A full-width strip says both. */
+.strip {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  gap: clamp(1.5rem, 4vw, 3rem);
+  align-items: center;
+  margin-top: clamp(2.5rem, 6vw, 4rem);
+  padding-top: clamp(2rem, 4vw, 3rem);
+  border-top: 3px solid var(--ink);
+}
+.strip h3 {
+  font-size: clamp(1.6rem, 3.2vw, 2.2rem);
+  margin: 0.5rem 0 0.6rem;
+}
+.strip p {
+  margin: 0;
+  color: var(--muted);
+  max-width: 46ch;
+}
+.strip-shot {
+  background: var(--paper-2);
+  padding: 12px;
+}
+@media (max-width: 720px) {
+  .strip {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Three stills read as a sequence, so they are numbered and equal width. */
+.trio {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: clamp(1.25rem, 3vw, 2.25rem);
+  margin-top: 3rem;
+}
+.prose-after {
+  margin-top: clamp(2.5rem, 5vw, 3.5rem);
+}
+
+/* --- the device stage ----------------------------------------------------
+ * One device, or two of them playing against each other. Asking for two takes
+ * the hero's full width and drops the copy: at that point the page has stopped
+ * arguing and started demonstrating, and two panels big enough to play on are
+ * worth more than a headline nobody is reading any more.
+ */
+.device-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.9rem;
+  justify-self: center;
+}
+/* display:flex on .device would otherwise beat the hidden attribute, which is
+ * how going back to one player left both devices on screen. The same trap the
+ * key row hit; it is worth checking for every flex element that gets hidden. */
+.device[hidden] {
+  display: none;
+}
+.device-row {
+  display: flex;
+  gap: clamp(0.8rem, 2vw, 1.6rem);
+  align-items: flex-start;
+  justify-content: center;
+}
+.players {
+  display: flex;
+  gap: 0.4rem;
+}
+.players button {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--edge);
+  padding: 0.4em 0.9em;
+  cursor: pointer;
+}
+.players button[aria-pressed="true"] {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+.hero.two-up .hero-text {
+  display: none;
+}
+.hero.two-up .hero-grid {
+  grid-template-columns: 1fr;
+}
+/* Two panels side by side get half the room, so they cap smaller. Width-led
+ * for the same reason as above: setting height as well would cancel
+ * aspect-ratio and stretch the panel. */
+.hero.two-up .device-screen {
+  width: min(
+    calc((100vw - 2 * var(--gutter) - 1.6rem) / 2),
+    min(58svh, 560px) * 0.6
+  );
+}
+@media (max-width: 860px) {
+  .device-row {
+    flex-wrap: wrap;
+  }
+}
+/* Matches the width gate in index.html. Below this the panel is a screenshot
+ * and nothing offers to boot it, so the affordances go too. */
+@media (max-width: 759px) {
+  .players {
+    display: none;
+  }
+  .device-screen {
+    cursor: default;
+  }
+  .device-screen::after {
+    display: none;
+  }
+}
+
+/* --- the device ----------------------------------------------------------
+ * A screenshot that becomes the running firmware in place. The box is sized
+ * once and never resized: an app that flips to landscape letterboxes inside it
+ * rather than shoving the page around under whoever is reading it.
+ */
+.device {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  justify-self: center;
+}
+.device-screen {
+  position: relative;
+  display: block;
+  margin: 0;
+  padding: 0;
+  border: 3px solid var(--ink);
+  background: #fff;
+  cursor: pointer;
+  line-height: 0;
+  /* The panel's own proportion, height-led so the hero fits one screen on a
+   * laptop. Width follows; nothing here is a fixed pixel count.
+   *
+   * Width is stated rather than left to aspect-ratio because every flex
+   * ancestor shrink-to-fits, so `max-width: 100%` never got the chance to
+   * bite: at 320px the derived width was 366px and the whole page scrolled
+   * sideways, taking the headline and the buttons with it. Stating the width
+   * and letting aspect-ratio derive the height puts the cap back. */
+  aspect-ratio: 480 / 800;
+  /* Width-led, and sized against the viewport rather than the parent.
+   *
+   * `min(100%, ...)` looked equivalent and was not: every ancestor here is a
+   * shrink-to-fit flex item, so the percentage resolved against a box whose own
+   * width depends on this one. It collapsed to 255px, and then to 214px once
+   * the poster <img> was removed on boot, so the device visibly shrank the
+   * moment you started it. A viewport-relative cap has no such circularity, so
+   * the box is the same size before and after, which is the whole point of
+   * booting in place. */
+  width: min(calc(100vw - 2 * var(--gutter)), min(64svh, 620px) * 0.6);
+  height: auto;
+}
+.device-screen[aria-disabled="true"] {
+  cursor: default;
+}
+.device-screen .shot,
+.device-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+}
+/* A tap on the panel is a tap on the panel, not a page scroll. */
+.device-canvas {
+  touch-action: none;
+}
+/* The prompt, drawn over the screenshot rather than beside it, because the
+ * screenshot is the button. It goes away the moment the device is real. */
+.device-screen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: transparent;
+  transition: background 0.12s ease;
+}
+.device-screen:hover::after,
+.device-screen:focus-visible::after {
+  background: rgba(17, 17, 16, 0.08);
+}
+/* The tint is a pseudo-element laid over the whole screen, so once the canvas
+ * is under there it would swallow every tap. Keyed off the same data-state the
+ * script sets, because a stale class name here is invisible: the device renders
+ * perfectly and simply never responds. */
+.device[data-state] .device-screen::after {
+  display: none;
+}
+/* Hint and key row share one fixed-height slot so swapping the prompt for the
+ * controls does not nudge the device up the page. Seamless means nothing moves. */
+.device-hint,
+.device-keys {
+  min-height: 2rem;
+  display: flex;
+  align-items: center;
+}
+/* display:flex above would otherwise beat the hidden attribute. */
+.device-hint[hidden],
+.device-keys[hidden] {
+  display: none;
+}
+.device-hint {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.device-hint::before {
+  content: "\2192\00a0\00a0";
+}
+.is-booting .device-hint {
+  opacity: 0.55;
+}
+.device-keys {
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.device-keys button {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--edge);
+  padding: 0.38em 0.7em;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: none;
+}
+.device-keys button:active {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+/* --- the face generator --------------------------------------------------- */
+/* The device names itself with three words and draws its face from them. This
+ * is that, live, with the firmware's own art and word lists -- which is also
+ * the only kind of ornament docs/identity.md allows: made of the app's own
+ * material, and showing real data rather than decoration. */
+.facer {
+  display: grid;
+  grid-template-columns: minmax(0, 0.6fr) minmax(0, 1fr);
+  gap: clamp(1.5rem, 4vw, 3rem);
+  align-items: center;
+  margin-top: clamp(2rem, 5vw, 3rem);
+  border: 3px solid var(--ink);
+  padding: clamp(1.25rem, 3vw, 2.25rem);
+}
+@media (max-width: 720px) {
+  .facer {
+    grid-template-columns: 1fr;
+  }
+}
+.facer-face {
+  background: #fff;
+  color: #111110;
+  border: 1px solid var(--edge);
+  padding: 8%;
+}
+.facer-face svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.facer-label {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0;
+}
+.facer-name {
+  font-family: var(--display);
+  font-size: clamp(1.8rem, 4.5vw, 2.9rem);
+  line-height: 1.05;
+  margin: 0.2rem 0 1.2rem;
+}
+.facer-slots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+.facer-slot {
+  flex: 1 1 6rem;
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  color: var(--ink);
+  cursor: pointer;
+  padding: 0.55rem 0.7rem;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-height: 44px;
+}
+.facer-slot:hover {
+  background: var(--ink);
+  color: var(--paper);
+}
+.facer-slot-k {
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+.facer-slot-v {
+  font-family: var(--display);
+  font-size: 1.25rem;
+  line-height: 1;
+}
+.facer-roll {
+  margin-top: 1rem;
+  font-size: 1.15rem;
+}
+.facer-note {
+  margin: 1.2rem 0 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+  max-width: 48ch;
+}
+
+/* --- second-pass fixes ---------------------------------------------------- */
+
+/* The bracket is an inline wrapper when it frames only a panel, so it needs to
+ * be a block to have a box at all. Previously it wrapped the whole <figure>
+ * and its bottom-right mark hung below the caption like a stray glyph. */
+.trio .bracket {
+  display: block;
+}
+
+/* In dark mode a shot's own black header band is the page background, so every
+ * panel looked decapitated -- three floating "CHESS" words with no top edge.
+ * The panel is always light, so its border has to be too. */
+@media (prefers-color-scheme: dark) {
+  .shot {
+    border-color: #cfcbbe;
+  }
+}
+:root[data-theme="dark"] .shot {
+  border-color: #cfcbbe;
+}
+:root[data-theme="light"] .shot {
+  border-color: var(--edge);
+}
+
+/* The face is the device's own art at a size the device never draws it; at
+ * ~500px the 1-bit strokes read as a blob and it competes with the
+ * screenshots, which identity.md says are the artwork. */
+.facer {
+  grid-template-columns: 180px minmax(0, 1fr);
+  align-items: start;
+}
+.facer-face {
+  max-width: 180px;
+}
+@media (max-width: 720px) {
+  .facer {
+    grid-template-columns: 1fr;
+  }
+  .facer-face {
+    max-width: 150px;
+  }
+}
+
+/* The comparison table is the one artefact that answers "which fork do I
+ * want", and at 340px it scrolled a 580px table with no cue: the whole
+ * Relationship column was invisible. Stack each row instead. */
+@media (max-width: 720px) {
+  table,
+  tbody,
+  tr,
+  td,
+  th {
+    display: block;
+  }
+  thead {
+    display: none;
+  }
+  table {
+    min-width: 0;
+  }
+  tbody tr {
+    border-bottom: 3px solid var(--ink);
+    padding-bottom: 1rem;
+    margin-bottom: 1rem;
+  }
+  tbody th {
+    padding: 0 0 0.3rem;
+    border: 0;
+  }
+  tbody td {
+    padding: 0 0 0.5rem;
+    border: 0;
+  }
+  tbody td::before {
+    content: attr(data-label);
+    display: block;
+    font-family: var(--mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 0.15rem;
+  }
+  .table-scroll {
+    overflow-x: visible;
+  }
+}
+
+/* "fig 1 · why a still screen" earns nothing on a phone, and wrapping it made
+ * four of five bands 101px tall against one at 60px. */
+@media (max-width: 560px) {
+  .band .band-note {
+    display: none;
+  }
+}
+
+/* Asking for two devices used to boot two identical Home screens and leave you
+ * there. PLAY NEARBY is three taps down a menu, and nobody guesses three taps.
+ * The route is short enough to just print. */
+.players-hint {
+  margin: 0.55rem 0 0;
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  max-width: 34ch;
+  line-height: 1.7;
+}
+.players-hint b {
+  color: var(--ink);
+  font-weight: 400;
+  border-bottom: 1px solid var(--edge);
+}
+
+/* --- paper tooth ----------------------------------------------------------
+ * The page was flat white, which made every section read as a hole with things
+ * floating in it. This is the device's own grey: a 1-bit checkerboard, which is
+ * literally the only tone the panel can make, laid over the paper at an opacity
+ * where you feel it rather than see it.
+ *
+ * Fixed rather than scrolling so it behaves like stock, not like a pattern
+ * printed on the content. Behind everything, and pointer-events: none, so it
+ * cannot eat a click. identity.md rules out decoration that is not made of the
+ * product's own material; dither is the one texture that qualifies.
+ */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: repeating-conic-gradient(
+    var(--tooth) 0% 25%,
+    transparent 0% 50%
+  );
+  background-size: 3px 3px;
+  opacity: 0.5;
+}
+
+/* Denser under the device, faded out with a mask, so the panel sits on
+ * something instead of hovering in the middle of an empty column. */
+.device-stage {
+  position: relative;
+}
+.device-stage::before {
+  content: "";
+  position: absolute;
+  /* Vertical spill only. Bleeding it sideways too pushed 12px of horizontal
+   * scroll onto a 320px viewport, which is the exact defect the device width
+   * was just fixed for. The mask does the softening; the inset does not need
+   * to help. */
+  inset: -2.5rem 0;
+  z-index: -1;
+  background-image: repeating-conic-gradient(
+    var(--tooth) 0% 25%,
+    transparent 0% 50%
+  );
+  background-size: 3px 3px;
+  -webkit-mask-image: radial-gradient(ellipse at center, #000 35%, transparent 72%);
+  mask-image: radial-gradient(ellipse at center, #000 35%, transparent 72%);
+}
+
+/* A dither at 3px is a moire generator on a low-DPI screen at some zoom levels.
+ * Anyone who has asked for less motion has usually asked for less of this too. */
+@media (prefers-reduced-motion: reduce) {
+  body::before,
+  .device-stage::before {
+    display: none;
+  }
+}
+
+/* --- the small print ------------------------------------------------------
+ * Credits used to be a fourth column in .foot-grid, which gave a paragraph
+ * with six times its neighbours' text a quarter of the width to say it in. It
+ * ran as a tall ribbon down one side with three empty columns beside it.
+ *
+ * Full width and flowed into columns instead, a size smaller than the rest of
+ * the footer, which is what small print is for.
+ */
+.foot-fine {
+  margin-top: 2.6rem;
+  padding-top: 1.6rem;
+  border-top: 1px solid var(--edge);
+}
+.foot-fine-cols {
+  columns: 3 22ch;
+  column-gap: 2rem;
+  font-size: 0.78rem;
+  line-height: 1.65;
+  color: var(--muted);
+}
+.foot-fine-cols p {
+  margin: 0 0 0.85rem;
+  /* A three-line paragraph split across a column break is unreadable, and the
+   * credits are five short ones. */
+  break-inside: avoid;
+}
+.foot-fine-cols p:last-child {
+  margin-bottom: 0;
+}
+
+/* The one thing a visitor must not miss on the install section: nothing has
+ * ever booted this on a panel. Bordered rather than tinted, because the page
+ * has no colour to warn with and a grey box would read as an aside. */
+.untested {
+  margin: 0 0 1.6rem;
+  padding: 0.9rem 1.1rem;
+  border: 2px solid var(--ink);
+  font-size: 0.95rem;
+  line-height: 1.6;
+  max-width: 62ch;
+}

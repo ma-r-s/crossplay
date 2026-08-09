@@ -154,7 +154,7 @@ fui::Rect buildBoardChrome(toybox::Screen& screen, const BoardModel& model) {
   // Registering no action is what makes a mid-game capsule inert: with
   // NO_ACTION the component draws it and adds nothing to the hit table, so
   // there is no tappable region to drift out of step with the label.
-  status.action = model.gameOver ? ActionPlayAgain : fui::NO_ACTION;
+  status.action = model.gameOver ? static_cast<fui::ActionId>(ActionPlayAgain) : fui::NO_ACTION;
   status.borderEdges = fui::EdgesNone;
   screen.button(status, linkui::withOpponentFace(screen, screen.takeBottom(toybox::kPillHeight), model.theirName));
 

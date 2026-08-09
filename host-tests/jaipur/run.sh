@@ -6,7 +6,7 @@
 #   host-tests/jaipur/run.sh
 set -e
 cd "$(dirname "$0")"
-BUILD_DIR="${TMPDIR:-/tmp}/jaipur-tests"
+BUILD_DIR="${TMPDIR:-/tmp}/jaipur-tests-$(cd ../.. && pwd | cksum | cut -d" " -f1)"
 mkdir -p "$BUILD_DIR"
 SRC=../../src/apps_local/jaipur
 c++ -std=c++17 -Wall -Wextra -Werror -O2 -I$SRC $SRC/JaipurCore.cpp $SRC/JaipurBrain.cpp \

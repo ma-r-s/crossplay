@@ -72,7 +72,7 @@ class EpubReaderActivity final : public Activity {
   // Consumed in onExit() to relocate the finished book into /Read/.
   bool pendingReadFolderMove = false;
   // Next-book suggestion menu for the End-of-Book screen
-  EndOfBookOptions endOfBookOptions;
+  EndOfBookOptions endOfBookOptions{renderer};
 
   // Footnote support
   std::vector<FootnoteEntry> currentPageFootnotes;

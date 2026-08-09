@@ -4,6 +4,10 @@ The visual language for this fork's apps. Not for the reader: that is upstream's
 craft and upstream's frozen theme surface. This governs `src/apps_local/` only.
 The vocabulary lives in [`src/apps_local/ui/Toybox.h`](../src/apps_local/ui/Toybox.h).
 
+For what the fork *is* and how it talks about itself -- the layer above this
+one, and the one that governs anything the public sees -- read
+[`identity.md`](identity.md).
+
 ## Where it comes from
 
 Playdate. We want its personality. But we cannot want it naively, because the

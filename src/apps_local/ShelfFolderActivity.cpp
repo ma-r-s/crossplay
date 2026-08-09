@@ -31,7 +31,14 @@ void ShelfFolderActivity::onEnter() {
   toybox::ensureFonts(renderer);
   // Land on whatever was opened last. This activity is destroyed the moment it
   // launches something, so the selection cannot survive in a member.
+  //
+  // Landing on it is not the same as *showing* it. A row drawn inverted on
+  // arrival reads as "this is what you are about to do", and on a panel driven
+  // by touch you are not about to do it -- you are about to tap something else.
+  // So the cursor exists from the first frame and is only drawn once a button
+  // moves it, which is the only input that needs to see where it is.
   selected = shelf::lastItemIn(folder);
+  cursorShown = false;
   buildItems();
   requestUpdate();
 }
@@ -58,11 +65,21 @@ void ShelfFolderActivity::loop() {
 
   if (itemCount > 0 && (next || prev)) {
     // Selection is app-owned state; the component only styles what it is told.
-    selected = (selected + (next ? 1 : itemCount - 1)) % itemCount;
+    // The first press reveals the cursor where it already is rather than moving
+    // it, so an arrow key never skips the row you were looking at.
+    if (cursorShown) selected = (selected + (next ? 1 : itemCount - 1)) % itemCount;
+    cursorShown = true;
     requestUpdate();
     return;
   }
   if (itemCount > 0 && mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+    // Confirm with nothing shown would open a row the user cannot see. Show it
+    // instead; the second press opens it.
+    if (!cursorShown) {
+      cursorShown = true;
+      requestUpdate();
+      return;
+    }
     shelf::openItem(folder, selected, renderer, mappedInput);
     return;
   }
@@ -89,11 +106,11 @@ void ShelfFolderActivity::render(RenderLock&&) {
   renderer.clearScreen();
   fui::GfxRendererTarget target = toybox::makeTarget(renderer);
   const fui::DeviceContext device = target.deviceContext();
-  const fui::ThemeTokens tokens = toybox::themeTokens();
+  const fui::ThemeTokens& tokens = toybox::themeTokens();
   const fui::InputSnapshot noInput{};
   interactionsReady = false;
   toybox::Frame frame(target, device, noInput, interactions);
-  toybox::Screen screen(frame, tokens);
+  toybox::Screen screen(frame);
 
   // Keep the selection on screen. The list is virtualized, so a selection below
   // the fold would otherwise be styled on a row that is never drawn.
@@ -116,7 +133,7 @@ void ShelfFolderActivity::render(RenderLock&&) {
   model.items = items;
   model.icons = icons;
   model.count = itemCount;
-  model.selected = selected;
+  model.selected = cursorShown ? selected : -1;
   model.topIndex = topIndex;
   model.playerName = self.showsDeviceName ? player::name() : nullptr;
   shelfui::buildMenu(screen, model);

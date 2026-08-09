@@ -83,7 +83,8 @@ EOF
 }
 
 # Just the card's shape. CrossPoint boots English, so the langSku workaround the
-# Chinese-first CrossMux fork needed here is gone -- verified with an empty card.
+# fork's Chinese-first earlier base needed here is gone -- verified with an
+# empty card.
 seed_fs() {
   local root="${1:-$CROSSPOINT_SIM_SD}"
   mkdir -p "$root/books" "$root/.crosspoint"

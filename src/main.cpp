@@ -749,6 +749,23 @@ void loop() {
     activityManager.requestUpdate();
   }
 
+  // While on external power the percent climbs with no user interaction to
+  // repaint it (gauge boards like the X4 Pro report SoC continuously), so poll
+  // for a change once a minute. Off-charger the percent moves too slowly to
+  // justify unsolicited e-ink refreshes.
+  if (gpio.isUsbConnected()) {
+    static unsigned long lastBatteryPollTime = 0UL;
+    static uint16_t lastBatteryPercent = 0xFFFF;
+    if (millis() - lastBatteryPollTime >= 60000UL) {
+      lastBatteryPollTime = millis();
+      const uint16_t percent = powerManager.getBatteryPercentage();
+      if (lastBatteryPercent != 0xFFFF && percent != lastBatteryPercent) {
+        activityManager.requestUpdate();
+      }
+      lastBatteryPercent = percent;
+    }
+  }
+
   const unsigned long activityStartTime = millis();
   activityManager.loop();
   const unsigned long activityDuration = millis() - activityStartTime;

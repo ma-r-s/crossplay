@@ -5,7 +5,7 @@
 #   host-tests/insider/run.sh
 set -e
 cd "$(dirname "$0")"
-BUILD_DIR="${TMPDIR:-/tmp}/insider-tests"
+BUILD_DIR="${TMPDIR:-/tmp}/insider-tests-$(cd ../.. && pwd | cksum | cut -d" " -f1)"
 mkdir -p "$BUILD_DIR"
 SRC=../../src/apps_local/insider
 c++ -std=c++17 -Wall -Wextra -Werror -O2 $SRC/InsiderCore.cpp \

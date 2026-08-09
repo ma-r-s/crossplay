@@ -74,8 +74,7 @@ int16_t listRowHeight(const fui::DrawTarget& target, const fui::ThemeTokens& tok
 // The width a story headline is actually drawn into, and the style its count
 // footnote uses. Exported so the Activity can fit a title to the same space the
 // component will give it rather than to a second guess at that space.
-int16_t listTitleWidth(const fui::DrawTarget& target, const fui::DeviceContext& device,
-                       const fui::ThemeTokens& tokens);
+int16_t listTitleWidth(const fui::DrawTarget& target, const fui::DeviceContext& device, const fui::ThemeTokens& tokens);
 fui::TextStyle listCountStyle(const fui::ThemeTokens& tokens);
 
 // `text` cut to at most `lines` lines of `width`, breaking only between words

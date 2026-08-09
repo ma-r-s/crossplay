@@ -157,8 +157,12 @@ void testFreshBoard() {
   CHECK(game.result() == connections::Result::Playing);
   CHECK(!game.canSubmit());
 
-  // All sixteen words are on the board exactly once.
-  std::set<std::string> seen(boardWords(game).begin(), boardWords(game).end());
+  // All sixteen words are on the board exactly once. Name the vector: calling
+  // boardWords() twice would take begin() from one temporary and end() from
+  // another, and walking between two unrelated allocations is undefined. It
+  // survived on Apple clang and segfaulted the moment CI ran it under GCC.
+  const std::vector<std::string> words = boardWords(game);
+  std::set<std::string> seen(words.begin(), words.end());
   CHECK(seen.size() == 16);
   CHECK(seen.count("RACECAR") == 1);
 
@@ -424,7 +428,8 @@ void testShuffle() {
   zero.start(samplePuzzle(), 0);
   one.start(samplePuzzle(), 1);
   CHECK(zero.tileCount() == 16);
-  CHECK(std::set<std::string>(boardWords(zero).begin(), boardWords(zero).end()).size() == 16);
+  const std::vector<std::string> zeroWords = boardWords(zero);
+  CHECK(std::set<std::string>(zeroWords.begin(), zeroWords.end()).size() == 16);
   CHECK(boardWords(zero) != boardWords(one));
   CHECK(boardWords(zero) != boardWords(a));
 }

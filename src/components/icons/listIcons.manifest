@@ -4,6 +4,10 @@
 #     --svgdir <freeink-sdk>/libs/assets/Icons/lucide/icons \
 #     --sizes 24,32 --out src/components/icons/listIcons.h
 # then clang-format -i the output.
+#
+# Stock Lucide icons ONLY. Hand-modified icons (sun-filled, moon-filled) live in
+# customListIcons.h, which is not generated — a full regeneration of listIcons.h
+# is safe and must not touch that file.
 folder = folder
 file-text = file-text
 image = image
@@ -14,10 +18,6 @@ library = library
 radio-tower = radio-tower
 sun = sun
 moon = moon
-# sun-filled / moon-filled are not stock Lucide: copy sun.svg / moon.svg and add
-# fill="currentColor" to the <circle> (sun) / the single <path> (moon), drop the
-# copies into the svgdir, then regenerate. No permanent SVG source is kept.
-sun-filled = sun-filled
-moon-filled = moon-filled
 upload = upload
 download = download
+bookmark = bookmark

@@ -114,6 +114,7 @@ class WifiSelectionActivity final : public Activity {
 
   static void listScreen(UiApp::ScreenType& screen, void* user);
   static void onRowEvent(const freeink::ui::ActionEvent& event, void* user);
+  static void onScanEvent(const freeink::ui::ActionEvent& event, void* user);
   void buildListScreen(UiApp::ScreenType& screen);
 
   void renderNetworkList(const Rect* screen, const ThemeMetrics* metrics);

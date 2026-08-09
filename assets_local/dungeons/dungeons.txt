@@ -1,4 +1,4 @@
-# Dungeons & Diagrams: every puzzle, as plain text.
+# D&Diagrams: every puzzle, as plain text.
 #
 # One block per dungeon:
 #   <code> <name>

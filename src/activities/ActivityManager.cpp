@@ -21,6 +21,20 @@
 #include "util/FrontlightPanelActivity.h"
 #include "util/FullScreenMessageActivity.h"
 
+// Upstream's 8192 is sized for the X4 and X3: an ESP32-C3 with ~380KB and no
+// PSRAM, where every kilobyte of a task stack is one the reader cannot have.
+// The X4 Pro is an S3 with 8MB of PSRAM, so this fork can afford the headroom
+// and needs it: its own screens draw through FreeInkUI, whose deepest path
+// wanted 9440 bytes and crashed v1.0.0 on the first device that ran it.
+//
+// Left as an overridable default rather than a changed literal so the number
+// this fork uses lives in this fork's platformio.ini, and merges from upstream
+// touching this line stay trivial. scripts_local/stack_budget.py checks the
+// value against the real worst path on every CI run.
+#ifndef CROSSPOINT_RENDER_TASK_STACK
+#define CROSSPOINT_RENDER_TASK_STACK 8192
+#endif
+
 static portMUX_TYPE activityManagerSpinlock = portMUX_INITIALIZER_UNLOCKED;
 
 void ActivityManager::begin() {
@@ -30,7 +44,7 @@ void ActivityManager::begin() {
   constexpr BaseType_t renderTaskCore = 0;
 #endif
   xTaskCreatePinnedToCore(&renderTaskTrampoline, "ActivityManagerRender",
-                          8192,               // Stack size
+                          CROSSPOINT_RENDER_TASK_STACK,  // Stack size
                           this,               // Parameters
                           1,                  // Priority
                           &renderTaskHandle,  // Task handle

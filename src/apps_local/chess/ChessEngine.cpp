@@ -102,7 +102,10 @@ const int8_t* tableFor(const uint8_t type) {
 int moveScore(const Position& position, const Move& move) {
   int score = 0;
   if ((move.flags & FlagCapture) != 0) {
-    const uint8_t victim = (move.flags & FlagEnPassant) != 0 ? Pawn : pieceType(position.squares[move.to]);
+    // static_cast keeps both arms uint8_t: Piece is an enum and pieceType()
+    // returns the plain type, which -Wextra flags as a mixed conditional.
+    const uint8_t victim =
+        (move.flags & FlagEnPassant) != 0 ? static_cast<uint8_t>(Pawn) : pieceType(position.squares[move.to]);
     const uint8_t attacker = pieceType(position.squares[move.from]);
     score += 10000 + kPieceValue[victim] * 10 - kPieceValue[attacker];
   }

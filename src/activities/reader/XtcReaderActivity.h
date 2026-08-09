@@ -21,7 +21,7 @@ class XtcReaderActivity final : public Activity {
   uint32_t currentPage = 0;
   int pagesUntilFullRefresh = 0;
   // Next-book suggestion menu for the End-of-Book screen
-  EndOfBookOptions endOfBookOptions;
+  EndOfBookOptions endOfBookOptions{renderer};
 
   enum class StatusBarOverlayPosition { Bottom, Top };
   struct StatusBarInfo {

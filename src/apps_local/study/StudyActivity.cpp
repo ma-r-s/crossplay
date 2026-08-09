@@ -367,8 +367,11 @@ bool StudyActivity::loadCurrent() {
   // The face changes per card. This is the feature: Mario learned to read in
   // one typeface and found the others hard afterwards, so the deck stops
   // letting him settle into any of them.
-  const int family = static_cast<int>(nextRandom(shuffle_) % study::StudyFonts::kFamilyCount);
-  fontsReady_ = fonts_.load(renderer, family);
+  // Preference, not requirement: whichever faces are actually on the card get
+  // used, so a partial install degrades to fewer letterforms rather than to
+  // tofu. See StudyFonts::loadPreferred.
+  const int wanted = static_cast<int>(nextRandom(shuffle_) % study::StudyFonts::kFamilyCount);
+  fontsReady_ = fonts_.loadPreferred(renderer, wanted) >= 0;
   if (fontsReady_) {
     fonts_.prewarm(renderer, note_.field(study::Field::Headword), note_.field(study::Field::Sentence));
   }
@@ -881,7 +884,7 @@ void StudyActivity::render(RenderLock&&) {
     const fui::InputSnapshot noInput{};
     interactionsReady_ = false;
     toybox::Frame frame(target, target.deviceContext(), noInput, interactions_);
-    toybox::Screen screen(frame, toybox::themeTokens());
+    toybox::Screen screen(frame);
 
     studyui::DeckModel model;
     buildDeckModel(model);

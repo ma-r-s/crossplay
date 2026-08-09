@@ -247,7 +247,7 @@ void InsiderActivity::render(RenderLock&&) {
   const fui::InputSnapshot noInput{};
   interactionsReady = false;
   toybox::Frame frame(target, target.deviceContext(), noInput, interactions);
-  toybox::Screen screen(frame, toybox::themeTokens());
+  toybox::Screen screen(frame);
 
   switch (view) {
     case View::Rules: {

@@ -1,0 +1,579 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CrossPlay</title>
+<meta name="description" content="A fork of CrossPoint for the Xteink X4 Pro. Games, flashcards and comics built for a screen whose talent is holding still, and two devices that find each other with nothing to configure.">
+<meta property="og:title" content="CrossPlay">
+<meta property="og:description" content="Everything else a still screen is good at. A fork of CrossPoint for the Xteink X4 Pro.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://crossplay.ma-r-s.com/">
+<!-- Absolute, or no unfurler resolves it. Stamped by site/set-host.py; the
+     placeholder below is what an unstamped deploy looks like. -->
+<meta property="og:image" content="https://crossplay.ma-r-s.com/assets/shots/og.png">
+<meta property="og:image:alt" content="The CrossPlay wordmark and the line E-ink is good at waiting, beside the device showing its Games shelf.">
+<meta property="og:site_name" content="CrossPlay">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<!-- Vercel Web Analytics. Page counts only: cookieless, no fingerprint, no
+     personal data, which is the only kind this site has any business setting.
+     The script is same-origin, so the require-corp policy in vercel.json lets
+     it through. It 404s harmlessly until Web Analytics is switched on for the
+     project, and `defer` keeps it off the critical path either way. -->
+<script defer src="/_vercel/insights/script.js"></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<!-- Always on screen, top left, the way an OS puts its name there. Whatever
+     you have scrolled to, you can still tell what you are looking at. A bar
+     rather than a floating chip because the section headings run to the left
+     edge and a chip would sit on top of them. -->
+<div class="topbar">
+  <a class="wordmark" href="#top">
+    <!-- Inlined rather than <img> so the mark follows currentColor, and so the
+         theme toggle moves it too. Same shape as assets/favicon.svg. -->
+    <svg class="mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+      <rect x="8.4" y="8.4" width="15.2" height="15.2" rx="1.6" fill="currentColor" />
+      <g fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="square">
+        <path d="M2.6 10.4V2.6h7.8" />
+        <path d="M29.4 10.4V2.6h-7.8" />
+        <path d="M2.6 21.6v7.8h7.8" />
+        <path d="M29.4 21.6v7.8h-7.8" />
+      </g>
+    </svg>
+    <span>CrossPlay</span>
+  </a>
+  <nav class="topnav" aria-label="Sections">
+    <a href="#shelf">The shelf</a>
+    <a href="#nearby">Play nearby</a>
+    <a href="#get">Install</a>
+    <a class="topnav-out" href="https://github.com/ma-r-s/crossplay">
+      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false" width="15" height="15">
+        <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/>
+      </svg>
+      <span>GitHub</span>
+    </a>
+  </nav>
+</div>
+
+<header class="hero wrap" id="top">
+  <div class="hero-grid">
+    <div class="hero-text">
+      <p class="eyebrow">A fork of CrossPoint <span class="eyebrow-sep">&middot;</span> Xteink X4 Pro</p>
+      <h1>E-ink is good at waiting.</h1>
+      <p class="lede">
+        So is a chess position, a flashcard, a puzzle you are halfway through.
+        The Xteink X4 Pro is a cheap e-reader, and
+        <a href="https://crosspointreader.com/">CrossPoint</a> already makes it a
+        great one. CrossPlay is firmware that adds everything that is not reading,
+        and lets two of them find each other with nothing to configure.
+      </p>
+      <div class="cta-row">
+        <a class="btn primary" href="#shelf">See what is on it</a>
+        <a class="btn" href="#get">Install it</a>
+      </div>
+      <p class="hero-meta">
+        <span>Open firmware</span><span>No app store</span><span>No account</span><span>MIT licensed</span>
+      </p>
+    </div>
+
+    <!-- The device. It starts as a screenshot and becomes the running firmware
+         in the same box, at the same size, so nothing on the page moves.
+         Asking for a second one clones this element, boots another instance,
+         and the two find each other over PLAY NEARBY exactly as two devices on
+         a table would. -->
+    <div class="device-stage" id="stage">
+      <div class="players" id="players" role="group" aria-label="How many devices">
+        <button type="button" data-players="1" aria-pressed="true">1 player</button>
+        <button type="button" data-players="2" aria-pressed="false">2 players</button>
+      </div>
+      <p class="players-hint" id="playersHint" hidden>
+        On each one: <b>Games</b>, then <b>Chess</b>, then <b>Play nearby</b>. They
+        find each other from there.
+      </p>
+      <div class="device-row" id="deviceRow">
+        <div class="device">
+          <button class="device-screen" type="button"
+                  aria-label="Start the device and run it here in the page">
+            <img class="shot" src="assets/shots/games.png" width="480" height="800"
+                 alt="The Games folder on the device: a black GAMES header band above outlined rows reading CHESS, BATTLESHIP, CONNECTIONS, SOLITAIRE, D&amp;DIAGRAMS, INSIDER, JAIPUR and MURDLE, each with a small icon. A footer bar shows the device's name, Mop Specs Grin, beside a drawn face. No row is highlighted.">
+          </button>
+          <p class="device-hint">Click the screen to try it</p>
+          <div class="device-keys" hidden>
+            <button type="button" data-key="back">Back</button>
+            <button type="button" data-key="ok">OK</button>
+            <button type="button" data-key="up" aria-label="Up">&uarr;</button>
+            <button type="button" data-key="down" aria-label="Down">&darr;</button>
+            <button type="button" data-key="left" aria-label="Left">&larr;</button>
+            <button type="button" data-key="right" aria-label="Right">&rarr;</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+
+<!-- ===================================================================== -->
+<div class="band" id="shelf"><h2>The shelf</h2><span class="band-note">fig 1 · one vocabulary</span></div>
+<div class="band-rule"></div>
+
+<section class="wrap">
+  <div class="prose">
+    <p class="eyebrow">What a still screen is good at</p>
+    <p class="hed">Reading was never the whole of it.</p>
+    <p>
+      E-ink holds a page at no power for as long as you need it. So does a chess
+      position, a flashcard, a logic grid, an article you saved to finish. The
+      screen puts up a situation, you think, you decide. A panel that cannot
+      animate is the right one for that, and so far it has been spent on books.
+    </p>
+  </div>
+
+  <div class="shelf">
+
+    <article class="card">
+      <div class="shot-wrap"><img class="shot" src="assets/shots/chess.png" width="480" height="800" loading="lazy" decoding="async" alt="A chess board a few moves in, knight and pawns developed, with the move list below and a BLACK TO MOVE status bar."></div>
+      <span class="tag">Game · plays nearby</span>
+      <h3>Chess</h3>
+      <p>A full engine on the device, or a board between two of them. Pick up exactly where the position was left.</p>
+    </article>
+
+    <article class="card">
+      <div class="shot-wrap"><img class="shot" src="assets/shots/connections.png" width="480" height="800" loading="lazy" decoding="async" alt="A Connections board part-solved: two solid black bands read HOUSE STYLES with CAPE COD, MISSION, RANCH, TUDOR and JEANS BRANDS with DIESEL, GAP, LUCKY, WRANGLER. Eight word tiles remain below, with STEER selected, and all four mistake dots still unused."></div>
+      <span class="tag">Game · daily</span>
+      <h3>Connections</h3>
+      <p>The daily word grid, set in a serif of its own, with an archive of past boards for when today's is done.</p>
+    </article>
+
+    <article class="card">
+      <div class="shot-wrap"><img class="shot" src="assets/shots/dd.png" width="480" height="800" loading="lazy" decoding="async" alt="A D&amp;Diagrams nonogram called THE TOMB OF THE SUMMER, most of the way solved: black wall cells form corridors around white floor, birds and a treasure gem sit in rooms, and the row and column clue numbers that are already satisfied are shown inverted."></div>
+      <span class="tag">Game · 64 puzzles</span>
+      <h3>D&amp;Diagrams</h3>
+      <p>A nonogram whose clues are a dungeon. 64 of them, plus a tutorial that is a lesson rather than a level.</p>
+    </article>
+
+    <article class="card">
+      <div class="shot-wrap"><img class="shot" src="assets/shots/murdle.png" width="480" height="800" loading="lazy" decoding="async" alt="A Murdle deduction grid partway through a case: dashes mark eliminated pairings and filled squares mark confirmed ones across the suspect, weapon, place and motive blocks. A key at the foot reads F=FELIX, G=GRETA, U=UMA, K=KARL and so on, above an ACCUSE button."></div>
+      <span class="tag">Game · generated</span>
+      <h3>Murdle</h3>
+      <p>A logic grid you can always finish from the clues alone. Every case is built through the solver, so you never have to guess.</p>
+    </article>
+
+    <article class="card">
+      <div class="shot-wrap"><img class="shot" src="assets/shots/jaipur.png" width="480" height="800" loading="lazy" decoding="async" alt="A Jaipur hand in progress: a line reading THEY TOOK A SILVER above the score SEALS 0-0, YOU 5, THEM 0, DECK 34. The market shows five goods, the token rows their values, and the player holds a diamond and five camels against their opponent's six cards."></div>
+      <span class="tag">Game · plays nearby</span>
+      <h3>Jaipur</h3>
+      <p>The two-player trading game, against an opponent that only ever sees what you see, or against someone sitting opposite you.</p>
+    </article>
+
+    <article class="card">
+      <div class="shot-wrap"><img class="shot" src="assets/shots/battleship.png" width="480" height="800" loading="lazy" decoding="async" alt="A Battleship game in progress: a line reading THEY MISSED AT H9, the opponent's grid marked with five misses and one solid hit, your own fleet on a small map below showing where they have fired, and a TAP A TARGET prompt."></div>
+      <span class="tag">Game · plays nearby</span>
+      <h3>Battleship</h3>
+      <p>Lay out a fleet, then hunt someone else's. The game PLAY NEARBY was built for, and the reason the layer exists.</p>
+    </article>
+
+    <article class="card">
+      <div class="shot-wrap"><img class="shot" src="assets/shots/insider.png" width="480" height="800" loading="lazy" decoding="async" alt="An Insider role handed to one player: a header reading PASS IT ON, 1 OF 8, a scroll icon, the role MASTER, the line THE WORD IS BUFFALO, the instruction ANSWER YES OR NO. NOTHING ELSE, and a PASS TO PLAYER 2 button."></div>
+      <span class="tag">Game · one device, a table</span>
+      <h3>Insider</h3>
+      <p>A party game for up to eight people and a single device that goes round the table. No second device needed, and no phones.</p>
+    </article>
+
+    <article class="card wide">
+      <div class="shot-wrap"><img class="shot" src="assets/shots/solitaire.png" width="800" height="480" loading="lazy" decoding="async" alt="A Klondike game in progress in landscape: the ace of spades has gone up to a foundation, the waste pile shows the five and ten of clubs and the queen of clubs, seven tableau columns hold face-down and face-up cards, and one column is outlined as selected."></div>
+      <span class="tag">Game · landscape</span>
+      <h3>Solitaire</h3>
+      <p>Klondike, turned sideways because that is the shape of a tableau. Your last sixteen deals are drawn from your own record.</p>
+    </article>
+
+    <article class="card">
+      <div class="shot-wrap"><img class="shot" src="assets/shots/study.png" width="480" height="800" loading="lazy" decoding="async" alt="A Study flashcard with the answer shown: the character 了, its pinyin le, the meaning &quot;indicates a completed or finished action&quot;, an example sentence with translation, a line reading SEEN 6 LAPSED 0 NOW 21d, and four grading buttons -- AGAIN 10m, HARD 1.3mo, GOOD 2.5mo, EASY 6.2mo."></div>
+      <span class="tag">App · spaced repetition</span>
+      <h3>Study</h3>
+      <p>Your own Anki decks with the FSRS scheduler, offline. The review history lives on the card, not in a cloud.</p>
+    </article>
+
+    <article class="card">
+      <div class="shot-wrap"><img class="shot" src="assets/shots/hackernews.png" width="480" height="800" loading="lazy" decoding="async" alt="The Hacker News front page on the device: story titles set in a reading serif with point scores beside them, the first row inverted as the selection."></div>
+      <span class="tag">App · reads the web</span>
+      <h3>Hacker News</h3>
+      <p>The front page in a reading serif, with articles pulled down and kept on the card so a saved one is still there with the radio off.</p>
+    </article>
+
+    <article class="card">
+      <div class="shot-wrap"><img class="shot" src="assets/shots/xkcd.png" width="480" height="800" loading="lazy" decoding="async" alt="An xkcd comic rendered on the device in one-bit black and white, captioned #3281 Antiques Roadshow."></div>
+      <span class="tag">App · the whole archive</span>
+      <h3>xkcd</h3>
+      <p>The archive packed onto the SD card and drawn one to one, with new strips fetched as they land. A comic is line art, which is exactly what this panel is best at.</p>
+    </article>
+
+  </div>
+
+  <p class="shelf-hint">Swipe for the rest</p>
+
+  <div class="strip">
+    <div class="strip-text">
+      <span class="tag">Inherited from CrossPoint</span>
+      <h3>And it is still a reader.</h3>
+      <p>
+        Untouched. CrossPlay adds a shelf beside the library and never gets in
+        its way, and every CrossPoint release lands here within the week.
+      </p>
+    </div>
+    <div class="strip-shot">
+      <img class="shot" src="assets/shots/reader.png" width="800" height="480" loading="lazy" decoding="async"
+           alt="The EPUB reader showing justified body text from a novel, with a chapter marker and a percentage read in the footer.">
+    </div>
+  </div>
+</section>
+
+<!-- ===================================================================== -->
+<div class="band" id="nearby"><h2>Play nearby</h2><span class="band-note">fig 2 · no setup</span></div>
+<div class="band-rule"></div>
+
+<section class="wrap">
+  <div class="prose">
+    <p class="eyebrow">Two devices, one table</p>
+    <p class="hed">It just says <em>play nearby</em>.</p>
+    <p>
+      Put two of them next to each other and they find one another. There is no
+      pairing screen, no room code, no account, no router and no internet. The
+      entire surface of it is one row on a menu.
+    </p>
+    <p>
+      The measure for this was the DS: you sat down next to someone and it
+      worked, and nothing about the experience ever mentioned a network. If a
+      person ever has to know how it connects, that is a bug.
+    </p>
+  </div>
+
+  <div class="trio">
+    <figure>
+      <span class="bracket"><img class="shot" src="assets/shots/link-search.png" width="480" height="800" loading="lazy" decoding="async"
+           alt="A screen headed LOOKING FOR A PLAYER with a radio icon. Two seats are listed: the first shows a drawn face beside YOU and the word READY, the second shows a blank head beside four dashes and the word LOOKING."></span>
+      <figcaption>1 · Someone taps play nearby</figcaption>
+    </figure>
+    <figure>
+      <span class="bracket"><img class="shot" src="assets/shots/link-a.png" width="480" height="800" loading="lazy" decoding="async"
+           alt="A chess game in progress on the first device: knights developed, a move list reading 1. d4 Nc6, 2. Nf3 Nb4, a drawn face in the corner and a status bar reading YOUR MOVE."></span>
+      <figcaption>2 · Your board, mid-game</figcaption>
+    </figure>
+    <figure>
+      <span class="bracket"><img class="shot" src="assets/shots/link-b.png" width="480" height="800" loading="lazy" decoding="async"
+           alt="The same game on the second device, seen from the other side of the board with the pieces mirrored, the same move list, a different drawn face and a status bar reading SLICK'S MOVE."></span>
+      <figcaption>3 · Their board, from their side</figcaption>
+    </figure>
+  </div>
+
+  <div class="prose prose-after">
+    <p class="hed small">Everyone is a face and three words.</p>
+    <p>
+      A device names itself with three words, and the face beside it is drawn
+      from that name: hair, eyes, mouth, fourteen options apiece. Nothing is
+      stored and nothing is sent. The other device rebuilds your face from the
+      name its radio already carried, so it can never arrive stale, and the
+      person opposite you is <em>Bald</em> rather than a MAC address.
+    </p>
+    <p>
+      Chess, Jaipur and Battleship use it today. It is a layer rather than a
+      feature, so the next game gets it for free.
+    </p>
+  </div>
+
+  <div class="facer" id="facer" hidden>
+    <div class="facer-face">
+      <svg id="facerSvg" viewBox="0 0 120 120" role="img" aria-labelledby="facerName"
+           fill="none" stroke="currentColor" stroke-width="5"
+           stroke-linecap="round" stroke-linejoin="round"></svg>
+    </div>
+    <div class="facer-controls">
+      <p class="facer-label">Name</p>
+      <p class="facer-name" id="facerName">&nbsp;</p>
+      <div class="facer-slots">
+        <button type="button" class="facer-slot" data-slot="hair"><span class="facer-slot-k">Hair</span><span class="facer-slot-v" id="v-hair"></span></button>
+        <button type="button" class="facer-slot" data-slot="eyes"><span class="facer-slot-k">Eyes</span><span class="facer-slot-v" id="v-eyes"></span></button>
+        <button type="button" class="facer-slot" data-slot="mouth"><span class="facer-slot-k">Mouth</span><span class="facer-slot-v" id="v-mouth"></span></button>
+      </div>
+      <button type="button" class="btn facer-roll" id="facerRoll">Roll a new one</button>
+      <p class="facer-note"><span id="facerCount">Every face</span>. Tap a word to change one.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===================================================================== -->
+<div class="band" id="get"><h2>Get it</h2><span class="band-note">fig 3 · your device, your rules</span></div>
+<div class="band-rule"></div>
+
+<section class="wrap tight">
+  <div class="split start">
+    <div class="prose">
+      <p class="eyebrow">Open firmware</p>
+      <p class="hed">Nothing here asks permission.</p>
+      <p>
+        There is no store between you and the device, no review, no account and
+        no subscription. It is a binary you flash and source you can read.
+      </p>
+      <p class="untested">
+      <strong>No one has run this on a physical device.</strong> It is built
+      against a simulator and a browser build of the same sources, and I do not
+      have an X4 Pro. The tests pass and both firmware targets compile, which is
+      not the same as known to boot. If you flash it, you are the first.
+    </p>
+    <ol class="steps">
+        <li><strong>Check your device.</strong> CrossPlay targets the <strong>Xteink X4 Pro</strong> only. For every other supported device, CrossPoint upstream is the right answer and is excellent.</li>
+        <li><strong>Keep your books.</strong> Flashing replaces the firmware, not the SD card. Your library, your reading positions and your fonts are files on that card and are left alone.</li>
+        <li><strong>Download <code>crossplay-&lt;version&gt;-x4pro.bin</code></strong> from the <a href="https://github.com/ma-r-s/crossplay/releases">releases page</a>. You do not need to have installed CrossPoint first.</li>
+        <li><strong>Flash it over USB.</strong> <a href="https://crosspointreader.com/#flash-tools">CrossPoint's web flasher</a> in Chrome or Edge, choosing <strong>Custom .bin</strong>. It needs WebSerial, which Firefox and Safari do not have. From a terminal instead: <code>esptool.py --chip esp32s3 --baud 921600 write_flash 0x0 crossplay-&lt;version&gt;-x4pro.bin</code>.</li>
+        <li><strong>You can go back.</strong> Flashing stock CrossPoint over the top returns the device exactly to where it was.</li>
+      </ol>
+      <div class="cta-row">
+        <a class="btn primary" href="https://github.com/ma-r-s/crossplay/releases">Releases</a>
+        <a class="btn" href="https://github.com/ma-r-s/crossplay">Read the source</a>
+      </div>
+    </div>
+    <div class="bracket">
+      <figure>
+        <img class="shot" src="assets/shots/home.png" width="480" height="800" loading="lazy" decoding="async"
+             alt="The device Home screen: the cover of Alice's Adventures in Wonderland above menu rows reading Browse Files, Recent Books, File Transfer, Settings, Games and Apps.">
+        <figcaption>Games and Apps, beside the library</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<!-- ===================================================================== -->
+<footer>
+  <div class="wrap">
+    <!-- Three short columns, then the small print as its own full-width block.
+         Credits carries six times the text of any other column, and as a
+         quarter-width grid cell it ran as a tall ribbon down one side with
+         three empty columns beside it. Small print is small print: it flows
+         across the page in a smaller size, out of the way of the links. -->
+    <div class="foot-grid">
+      <div>
+        <h4>CrossPlay</h4>
+        <p class="foot-note">A fork of CrossPoint for the Xteink X4 Pro. Built by one person, in the open. MIT licensed, like the project it forks.</p>
+      </div>
+      <div>
+        <h4>Project</h4>
+        <ul>
+          <li><a href="https://github.com/ma-r-s/crossplay">Source</a></li>
+          <li><a href="https://github.com/ma-r-s/crossplay/releases">Releases</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Upstream</h4>
+        <ul>
+          <li><a href="https://crosspointreader.com/">CrossPoint</a></li>
+          <li><a href="https://freeink.org/">FreeInk</a></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="foot-fine">
+      <h4>Credits</h4>
+      <div class="foot-fine-cols">
+        <p>xkcd comics by Randall Munroe, <a href="https://xkcd.com/license.html">CC BY-NC 2.5</a>, fetched by the device from <a href="https://xkcd.com">xkcd.com</a>. Connections puzzles are the New York Times'; CrossPlay ships none of them and downloads only what you ask for.</p>
+        <p>Hacker News comes from the public <a href="https://hn.algolia.com/api">Algolia API</a>, and opening an article sends its URL through <a href="https://r.jina.ai">r.jina.ai</a> to get readable text back, which means that third party learns what you are reading.</p>
+        <p>Reading positions sync to CrossPoint's own server by default, which is upstream's infrastructure rather than ours. The address is a setting and can be pointed anywhere that speaks KOSync.</p>
+        <p>Jaipur, Insider, Murdle, Battleship and Connections are trademarks of their respective owners. CrossPlay implements the games; it is not affiliated with, endorsed by or sponsored by any of them.</p>
+        <p>Type is Jersey 25 and Instrument Serif, both SIL OFL.</p>
+      </div>
+    </div>
+    <p class="foot-toggle">
+      <button class="theme-toggle" id="themeToggle" type="button" aria-pressed="false">Invert</button>
+    </p>
+  </div>
+</footer>
+
+<script src="assets/avatar-data.js"></script>
+<script src="assets/emulator.js"></script>
+<script>
+(function () {
+  var root = document.documentElement;
+  var toggle = document.getElementById('themeToggle');
+  function prefersDark() {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  }
+  function sync() {
+    var dark = (root.getAttribute('data-theme') || (prefersDark() ? 'dark' : 'light')) === 'dark';
+    toggle.setAttribute('aria-pressed', String(dark));
+  }
+  try {
+    var saved = localStorage.getItem('crossplay-theme');
+    if (saved) root.setAttribute('data-theme', saved);
+  } catch (e) {}
+  sync();
+  toggle.addEventListener('click', function () {
+    var current = root.getAttribute('data-theme') || (prefersDark() ? 'dark' : 'light');
+    var next = current === 'dark' ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    try { localStorage.setItem('crossplay-theme', next); } catch (e) {}
+    sync();
+  });
+
+
+  // Click the screenshot and it becomes the device, in place. The module and
+  // its card are 9MB, so nothing is fetched until someone asks for it; the
+  // poster stays until the first real frame paints, so the box never blinks.
+  var hero = document.querySelector('.hero');
+  var row = document.getElementById('deviceRow');
+  var players = document.getElementById('players');
+  // Captured before anything boots, so a second device starts from the same
+  // markup rather than from a clone of a running one.
+  var blank = row.firstElementChild.cloneNode(true);
+
+  // The live device is 9MB of WebAssembly, eight worker threads and a hundred
+  // megabytes of heap. A phone will either refuse it or be killed for it, and a
+  // page that crashes your browser is worse than a page that shows you a
+  // screenshot. So below tablet width the panel stays a picture and says why.
+  var canRun = window.matchMedia('(min-width: 760px)').matches;
+
+  function bootDevice(device) {
+    if (!canRun) return Promise.resolve(null);
+    if (device.dataset.state) return Promise.resolve(null);
+    device.dataset.state = 'booting';
+    var screen = device.querySelector('.device-screen');
+    var hint = device.querySelector('.device-hint');
+    var keys = device.querySelector('.device-keys');
+    hint.textContent = 'Starting the device';
+    return window.Crossplay.boot(screen, {
+      // The second device gets a name of its own, so the two faces on the
+      // PLAY NEARBY screen are the two devices rather than one twice.
+      name: device.dataset.name,
+      onFirstFrame: function () {
+        device.dataset.state = 'live';
+        // The poster has done its job; drop it rather than leave a second copy
+        // of the panel stacked under a live one.
+        var poster = device.querySelector('img.shot');
+        if (poster) poster.remove();
+        // NOT `disabled`: Chrome stops delivering pointer events to the whole
+        // subtree of a disabled button, and the live canvas is inside this one.
+        // The delegated handler below keys off dataset.state instead.
+        // Not aria-disabled: it announced the live device as unavailable.
+        // Taking it out of the tab order leaves the canvas as the single stop,
+        // which is the thing that actually takes the keys.
+        screen.tabIndex = -1;
+        screen.removeAttribute('aria-label');
+        hint.hidden = true;
+        keys.hidden = false;
+      },
+    })
+      .then(function (instance) {
+        keys.querySelectorAll('button').forEach(function (b) {
+          instance.bindButton(b, instance.scancodes[b.dataset.key]);
+        });
+        // Kept on the element, not in a list: two boots resolve in whatever
+        // order they finish, so a positional array had the second device's
+        // instance at index 0 and hiding "the second one" blanked the first.
+        device.crossplay = instance;
+        return instance;
+      })
+      .catch(function (e) {
+        delete device.dataset.state;
+        hint.textContent = String(e.message || e);
+        console.error(e);
+      });
+  }
+
+  if (!canRun) {
+    players.hidden = true;
+    row.querySelector('.device-hint').textContent = 'Open this on a laptop to use it';
+  }
+
+  row.addEventListener('click', function (e) {
+    var screen = e.target.closest('.device-screen');
+    if (!screen) return;
+    var device = screen.closest('.device');
+    if (!device.dataset.state) bootDevice(device);
+  });
+
+  function setPlayers(count) {
+    players.querySelectorAll('button').forEach(function (b) {
+      b.setAttribute('aria-pressed', String(Number(b.dataset.players) === count));
+    });
+    hero.classList.toggle('two-up', count === 2);
+    document.getElementById('playersHint').hidden = count !== 2;
+    var second = row.children[1];
+    if (count === 2 && !second) {
+      second = blank.cloneNode(true);
+      second.dataset.name = 'BUN WINK FANGS';
+      row.appendChild(second);
+    }
+    if (!second) return;
+    second.hidden = count === 1;
+    // Both devices boot together: the second one exists to be played against,
+    // and making someone click two screenshots to get there is a step with no
+    // decision in it.
+    if (count === 2) {
+      bootDevice(row.children[0]);
+      bootDevice(second);
+    }
+    // A hidden instance keeps running the firmware -- there is no clean way to
+    // tear a wasm module down -- but stops being drawn, which is the whole
+    // cost of it.
+    // Walk the DOM rather than a list, so "visible" always means the device
+    // that is on screen. A boot that failed leaves no instance, and one throw
+    // here would take the whole control down with it.
+    Array.prototype.forEach.call(row.children, function (d) {
+      if (d.crossplay) d.crossplay.setVisible(!d.hidden);
+    });
+  }
+
+  players.addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-players]');
+    if (b && window.Crossplay) setPlayers(Number(b.dataset.players));
+  });
+
+  // The face-and-name generator. Same word lists and same art the firmware
+  // uses (see tools_local/gen_avatar_web.py), so this is the device's own
+  // behaviour rather than an illustration of it. Hidden until the data is
+  // present, so a failed fetch leaves no broken control behind.
+  var A = window.CROSSPLAY_AVATAR;
+  if (A) {
+    var pick = { hair: 7, eyes: 12, mouth: 0 };  // MOP SPECS GRIN, the one the shot shows
+    var svg = document.getElementById('facerSvg');
+    var nameEl = document.getElementById('facerName');
+    function draw() {
+      var g = A.base;
+      ['hair', 'eyes', 'mouth'].forEach(function (slot) {
+        var word = A.words[slot][pick[slot]];
+        g += A.parts[slot][word];
+        document.getElementById('v-' + slot).textContent = word;
+      });
+      svg.innerHTML = g;
+      nameEl.textContent =
+        A.words.hair[pick.hair] + ' ' + A.words.eyes[pick.eyes] + ' ' + A.words.mouth[pick.mouth];
+    }
+    document.querySelectorAll('.facer-slot').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var slot = b.dataset.slot;
+        pick[slot] = (pick[slot] + 1) % A.words[slot].length;
+        draw();
+      });
+    });
+    document.getElementById('facerRoll').addEventListener('click', function () {
+      ['hair', 'eyes', 'mouth'].forEach(function (slot) {
+        pick[slot] = Math.floor(Math.random() * A.words[slot].length);
+      });
+      draw();
+    });
+    document.getElementById('facerCount').textContent =
+      (A.words.hair.length * A.words.eyes.length * A.words.mouth.length).toLocaleString('en-US') + ' faces';
+    document.getElementById('facer').hidden = false;
+    draw();
+  }
+})();
+</script>
+</body>
+</html>

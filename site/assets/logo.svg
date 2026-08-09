@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="CrossPlay">
+  <title>CrossPlay</title>
+  <!--
+    The screen, inside the frame this fork draws around everything.
+
+    Corner brackets are the one mark CrossPlay invented rather than inherited:
+    they sit around the chess board, the mini board on its menu, and every
+    Toybox panel. docs/identity.md rules out a mascot and rules out anything not
+    made of the product's own material, and this is the most of that material
+    any single shape can carry.
+
+    It is also the version that survives being small. Four right angles and a
+    solid block have no detail to lose at 16px, and unlike a pair of overlapping
+    rectangles it does not collide with the copy/duplicate glyph every desktop
+    already uses.
+  -->
+  <rect x="8.4" y="8.4" width="15.2" height="15.2" rx="1.6" fill="currentColor" />
+  <g fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="square">
+    <path d="M2.6 10.4V2.6h7.8" />
+    <path d="M29.4 10.4V2.6h-7.8" />
+    <path d="M2.6 21.6v7.8h7.8" />
+    <path d="M29.4 21.6v7.8h-7.8" />
+  </g>
+</svg>

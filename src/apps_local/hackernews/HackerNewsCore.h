@@ -114,7 +114,7 @@ std::vector<std::string> paragraphsFromMarkdown(std::string_view markdown);
 struct Story {
   uint32_t id = 0;
   std::string title;
-  std::string url;      // empty for an Ask HN or a text post
+  std::string url;  // empty for an Ask HN or a text post
   std::string author;
   int points = 0;
   int commentCount = 0;
@@ -217,7 +217,7 @@ class CommentScanner {
 
   bool inString_ = false;
   bool escaped_ = false;
-  bool isKey_ = false;   // the string being read sits before a colon
+  bool isKey_ = false;  // the string being read sits before a colon
   bool wantValue_ = false;
   std::string buffer_;
   std::string key_;

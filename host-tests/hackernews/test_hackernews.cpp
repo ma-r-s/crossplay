@@ -306,12 +306,11 @@ void testCommentOrdering() {
   // The trap, minimised: keys in the order Algolia really sends them, so
   // "children" precedes "text" at every level. A scanner that emits a comment
   // when its object closes puts the reply above the comment it answers.
-  const std::string json =
-      R"({"author":"story","children":[)"
-      R"({"author":"alice","children":[)"
-      R"({"author":"bob","children":[],"text":"bob replies"})"
-      R"(],"text":"alice speaks"})"
-      R"(],"text":"the story"})";
+  const std::string json = R"({"author":"story","children":[)"
+                           R"({"author":"alice","children":[)"
+                           R"({"author":"bob","children":[],"text":"bob replies"})"
+                           R"(],"text":"alice speaks"})"
+                           R"(],"text":"the story"})";
 
   const auto comments = scan(json, 4096, {});
   CHECK(comments.size() == 2);
@@ -444,11 +443,10 @@ void testOnlyChildrenArraysNest() {
   // "options" array on every node, and a response that ever carried objects in
   // one would otherwise manufacture comments out of them and indent the real
   // replies by an extra level.
-  const std::string json =
-      R"({"author":"story","children":[)"
-      R"({"author":"alice","options":[{"kind":"noise"},{"kind":"more noise"}],)"
-      R"("children":[{"author":"bob","options":[],"children":[],"text":"reply"}],"text":"top"})"
-      R"(],"text":"the story"})";
+  const std::string json = R"({"author":"story","children":[)"
+                           R"({"author":"alice","options":[{"kind":"noise"},{"kind":"more noise"}],)"
+                           R"("children":[{"author":"bob","options":[],"children":[],"text":"reply"}],"text":"top"})"
+                           R"(],"text":"the story"})";
 
   int seen = 0;
   const auto comments = scan(json, 4096, {}, &seen);

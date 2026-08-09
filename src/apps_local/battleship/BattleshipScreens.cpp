@@ -117,14 +117,14 @@ fui::Rect buildPlaceChrome(toybox::Screen& screen, const PlaceModel& model) {
 
   fui::ButtonProps shuffle;
   shuffle.label = "SHUFFLE";
-  shuffle.action = model.canEdit ? ActionShuffle : fui::NO_ACTION;
+  shuffle.action = model.canEdit ? static_cast<fui::ActionId>(ActionShuffle) : fui::NO_ACTION;
   shuffle.borderEdges = fui::EdgesNone;
   if (!model.canEdit) shuffle.styles = toybox::disabledButtonStyles();
   screen.button(shuffle, fui::makeRect(footer.x, footer.y, half, footer.height));
 
   fui::ButtonProps ready;
   ready.label = "READY";
-  ready.action = model.canEdit ? ActionReady : fui::NO_ACTION;
+  ready.action = model.canEdit ? static_cast<fui::ActionId>(ActionReady) : fui::NO_ACTION;
   ready.borderEdges = fui::EdgesNone;
   if (!model.canEdit) ready.styles = toybox::disabledButtonStyles();
   screen.button(ready, fui::makeRect(static_cast<int16_t>(footer.right() - half), footer.y, half, footer.height));
@@ -157,7 +157,8 @@ fui::Rect buildBoardChrome(toybox::Screen& screen, const BoardModel& model) {
   // reporting: with NO_ACTION the component draws it and adds nothing to the
   // hit table, so there is no tappable region to drift out of step with the
   // label. It is a button exactly when it says something you can press.
-  status.action = model.gameOver ? ActionPlayAgain : (model.canFire ? ActionFire : fui::NO_ACTION);
+  status.action = model.gameOver ? static_cast<fui::ActionId>(ActionPlayAgain)
+                                 : (model.canFire ? static_cast<fui::ActionId>(ActionFire) : fui::NO_ACTION);
   status.borderEdges = fui::EdgesNone;
   // Present but not pressable: dithered rather than absent, so the trigger does
   // not appear and disappear as you aim.
