@@ -991,9 +991,21 @@ html.immersive body {
   border: 0;
   display: block;
 }
-/* A tap on the panel is a tap on the panel, not a page scroll. */
+/* A tap on the panel is a tap on the panel, not a page scroll -- and a press
+ * held on it is the firmware's press, not the browser's.
+ *
+ * touch-action stops the scroll and nothing else. Minesweeper flags a cell by
+ * holding it, and a held finger is also what a browser waits for before it
+ * starts selecting text and, on iOS, raises the copy/look-up callout. So the
+ * one gesture in the whole product that needs a long press was the one that
+ * also selected the page underneath it. These belong on the button as well as
+ * the canvas: before the first frame the poster is what you are holding. */
+.device-screen,
 .device-canvas {
   touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 /* The prompt, drawn over the screenshot rather than beside it, because the
  * screenshot is the button. It goes away the moment the device is real. */
