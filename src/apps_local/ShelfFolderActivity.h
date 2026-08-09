@@ -45,9 +45,11 @@ class ShelfFolderActivity final : public Activity {
   const freeink::Icon* icons[kMaxRowsPerPage] = {};
   // The whole folder's count, not the page's.
   int itemCount = 0;
+  // Where the shelf resumes, and therefore which page is shown. NOT a cursor:
+  // nothing draws it as a selection and no button moves it as one. See
+  // docs/buttons.md.
   int selected = 0;
   // Whether the cursor has been revealed. See onEnter().
-  bool cursorShown = false;
   // How many rows a page holds, from the last render. Cached rather than derived
   // in loop() because it is a property of the screen's geometry and not of the
   // selection, so no input can make it disagree with what was drawn. The page

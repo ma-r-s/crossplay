@@ -97,6 +97,12 @@ Paging pagingFor(const fui::DeviceContext& device, const fui::ThemeTokens& token
 // view rather than being styled on a row that is never drawn.
 int pageFor(int selected, int rowsPerPage);
 
+// How many pages `itemCount` rows need. Beside pageFor because it is the same
+// piece of knowledge, and the activity needs it to page with the side keys
+// without reaching for the whole Paging struct (which needs a device and a
+// token set it does not have in loop()).
+int pageCountFor(int itemCount, int rowsPerPage);
+
 // The body rect the list occupies. `hasPages` is what the page bar costs it, and
 // it is a separate argument rather than derived because pagingFor has to ask
 // this question both ways round to resolve the circularity. Shared with the

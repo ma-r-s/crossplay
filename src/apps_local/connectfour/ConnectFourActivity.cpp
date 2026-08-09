@@ -115,6 +115,20 @@ void ConnectFourActivity::gameLoop() {
     return;
   }
 
+  // HOW TO PLAY pages on the two side keys. They are the device's only physical
+  // buttons and the case labels them previous and next page; a page of a
+  // how-to is a page. NEXT stays tappable -- a button is never the only route.
+  if (screen == c4::Screen::HowTo) {
+    const bool forward = mappedInput.wasReleased(MappedInputManager::Button::Down);
+    const bool backward = mappedInput.wasReleased(MappedInputManager::Button::Up);
+    if (forward || backward) {
+      const int pages = c4ui::howToPages();
+      howToPage = (howToPage + (forward ? 1 : pages - 1)) % pages;
+      requestUpdate();
+      return;
+    }
+  }
+
   if (screen == c4::Screen::Board) {
     if (inMatch()) {
       if (!linkYourTurn()) {

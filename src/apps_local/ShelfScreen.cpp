@@ -48,6 +48,11 @@ int pageFor(const int selected, const int rowsPerPage) {
   return selected / rowsPerPage;
 }
 
+int pageCountFor(const int itemCount, const int rowsPerPage) {
+  if (rowsPerPage <= 0 || itemCount <= 0) return 1;
+  return (itemCount + rowsPerPage - 1) / rowsPerPage;
+}
+
 void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   fui::HeaderProps header;
   header.title = model.title;

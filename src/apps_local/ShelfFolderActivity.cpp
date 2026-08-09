@@ -45,7 +45,6 @@ void ShelfFolderActivity::onEnter() {
   // So the cursor exists from the first frame and is only drawn once a button
   // moves it, which is the only input that needs to see where it is.
   selected = shelf::lastItemIn(folder);
-  cursorShown = false;
   itemCount = shelf::folders()[folder].count;
   if (selected >= itemCount) selected = itemCount > 0 ? itemCount - 1 : 0;
   // The page itself is built in render(), which is the only place that knows how
@@ -70,29 +69,43 @@ void ShelfFolderActivity::loop() {
     input.touchX = static_cast<int16_t>(tapX);
     input.touchY = static_cast<int16_t>(tapY);
   }
+  // The two side keys PAGE. They are the only physical buttons the X4 Pro has,
+  // the case labels them previous and next page, and the reader turns pages with
+  // them -- so paging the shelf with them is consistency with what the hardware
+  // already says, not a new thing to learn. That is also why there is no
+  // on-screen hint for it: the affordance is moulded into the case.
+  //
+  // They used to move a CURSOR, opened with Confirm. On this device that was a
+  // dead end in the most literal way: `frontButtonConfirm` resolves to
+  // PIN_UNASSIGNED, which InputManager::begin skips entirely, so Confirm can
+  // never fire. You could move a selection you had no way to act on. The
+  // design language had already removed this exact input model from Chess and
+  // Connections for being a second, worse one running beside the real one;
+  // here it was second, worse, and broken.
+  //
+  // The page marks stay tappable. A button must never be the only route to
+  // something, or the invisible input model wins arguments it should not.
   const bool next = mappedInput.wasReleased(MappedInputManager::Button::Down);
   const bool prev = mappedInput.wasReleased(MappedInputManager::Button::Up);
 
   if (itemCount > 0 && (next || prev)) {
-    // Selection is app-owned state; the component only styles what it is told.
-    // The first press reveals the cursor where it already is rather than moving
-    // it, so an arrow key never skips the row you were looking at.
-    if (cursorShown) selected = (selected + (next ? 1 : itemCount - 1)) % itemCount;
-    cursorShown = true;
-    requestUpdate();
-    return;
-  }
-  if (itemCount > 0 && mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    // Confirm with nothing shown would open a row the user cannot see. Show it
-    // instead; the second press opens it.
-    if (!cursorShown) {
-      cursorShown = true;
-      requestUpdate();
-      return;
+    // Paging is moving the selection onto another page, because the page is
+    // DERIVED from the selection and stored nowhere. Same landing rule as
+    // tapping a page mark: the page's first row.
+    const int pages = shelfui::pageCountFor(itemCount, rowsPerPage);
+    if (pages > 1) {
+      const int page = shelfui::pageFor(selected, rowsPerPage);
+      // Wraps, because there is no cursor to run off the end of and a page key
+      // that stops working at the last page reads as a broken key.
+      const int landing = ((page + (next ? 1 : pages - 1)) % pages) * rowsPerPage;
+      if (landing >= 0 && landing < itemCount) {
+        selected = landing;
+        requestUpdate();
+      }
     }
-    shelf::openItem(folder, selected, renderer, mappedInput);
     return;
   }
+
   if (!input.touchReleased || !interactionsReady) return;
 
   const fui::ActionEvent event = interactions.route(input);
@@ -171,7 +184,11 @@ void ShelfFolderActivity::render(RenderLock&&) {
   model.count = onThisPage;
   // Page-relative, because the model is one page. The cursor is always on the
   // page being drawn: the page is derived from it.
-  model.selected = cursorShown ? selected - first : -1;
+  // Never styled as a selection. `selected` is where the shelf will return you
+  // to, and which page to show -- it is not a cursor, and drawing it inverted on
+  // arrival would say "this is what you are about to do" to someone who has
+  // just walked in.
+  model.selected = -1;
   model.playerName = self.showsDeviceName ? player::name() : nullptr;
   model.page = page;
   model.pageCount = paging.pageCount;
