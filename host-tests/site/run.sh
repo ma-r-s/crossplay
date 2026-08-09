@@ -51,7 +51,11 @@ fi
 # The landscape rule has to actually turn the box over. A rule that sets only
 # the width leaves aspect-ratio at 480/800 and the panel stays tall, which is
 # the bug wearing the fix's clothes.
-land="$(awk '/\.device-screen\[data-orient="landscape"\]/,/^}/' "$CSS")"
+# Anchored at column 0 so it takes the base rule and not the full-screen
+# override, which is a second block matching the same selector text. Unanchored,
+# awk returned both and the check passed on whichever one still had the
+# aspect-ratio -- including the wrong one.
+land="$(awk '/^\.device-screen\[data-orient="landscape"\]/,/^}/' "$CSS")"
 if [ -z "$land" ]; then
   bad "no .device-screen[data-orient=\"landscape\"] block in styles.css"
 else
