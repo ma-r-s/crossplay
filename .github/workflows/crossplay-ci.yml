@@ -71,13 +71,43 @@ jobs:
 
       # ui:paperOnTheBand is a known baseline failure; a tree where it passes is
       # one whose work fixes it. Everything else must be green.
+      #
+      # That exemption used to be `bash "$suite" || echo "::warning::"`, which
+      # forgave the ui suite for failing rather than forgiving paperOnTheBand
+      # for failing. Those differ exactly when it matters: test_ui.cpp not
+      # compiling exits non-zero with no FAIL lines at all, which the old form
+      # reported as the expected baseline and passed. It never shipped a false
+      # green, but only because the one tree that did not compile was caught by
+      # a local check.sh before it was pushed.
+      #
+      # So assert the shape of a baseline run instead of its exit code: the
+      # summary line proves the binary built AND ran to the end, and every FAIL
+      # line must be the one we know about.
       - name: Host tests
         run: |
           for suite in host-tests/*/run.sh; do
             name=$(basename "$(dirname "$suite")")
-            if [ "$name" = "ui" ]; then
-              bash "$suite" || echo "::warning::ui suite failed (paperOnTheBand is the known baseline)"
-            else
+            if [ "$name" != "ui" ]; then
               bash "$suite"
+              continue
             fi
+
+            status=0
+            out=$(bash "$suite" 2>&1) || status=$?
+            printf '%s\n' "$out"
+            if [ "$status" -eq 0 ]; then
+              continue
+            fi
+
+            if ! printf '%s\n' "$out" | grep -qE '^[0-9]+ checks, [0-9]+ failed$'; then
+              echo "::error::ui suite did not run to completion (build error, crash or timeout)"
+              exit 1
+            fi
+            unexpected=$(printf '%s\n' "$out" | grep -E '^FAIL ' | grep -v '  paperOnTheBand$' || true)
+            if [ -n "$unexpected" ]; then
+              echo "::error::ui suite failed beyond the paperOnTheBand baseline:"
+              printf '%s\n' "$unexpected"
+              exit 1
+            fi
+            echo "::warning::ui suite failed only paperOnTheBand, the known baseline"
           done
