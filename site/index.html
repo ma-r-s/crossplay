@@ -104,13 +104,14 @@
                  alt="The Games folder on the device: a black GAMES header band above outlined rows reading CHESS, BATTLESHIP, CONNECTIONS, SOLITAIRE, D&amp;DIAGRAMS, INSIDER, JAIPUR and MURDLE, each with a small icon. A footer bar shows the device's name, Mop Specs Grin, beside a drawn face. No row is highlighted.">
           </button>
           <p class="device-hint">Click the screen to try it</p>
+          <!-- The device has two buttons: the side page keys. Back is a swipe
+               from the left edge, not a key, so that control performs the swipe
+               rather than pressing a pin that does not exist. There is no OK,
+               left or right. -->
           <div class="device-keys" hidden>
-            <button type="button" data-key="back">Back</button>
-            <button type="button" data-key="ok">OK</button>
-            <button type="button" data-key="up" aria-label="Up">&uarr;</button>
-            <button type="button" data-key="down" aria-label="Down">&darr;</button>
-            <button type="button" data-key="left" aria-label="Left">&larr;</button>
-            <button type="button" data-key="right" aria-label="Right">&rarr;</button>
+            <button type="button" data-key="swipeback">Back</button>
+            <button type="button" data-key="up" aria-label="Previous page">&uarr; Page</button>
+            <button type="button" data-key="down" aria-label="Next page">&darr; Page</button>
           </div>
         </div>
       </div>
@@ -164,6 +165,35 @@
       <span class="tag">Game · generated</span>
       <h3>Murdle</h3>
       <p>A logic grid you can always finish from the clues alone. Every case is built through the solver, so you never have to guess.</p>
+    </article>
+
+    <article class="card">
+      <div class="shot-wrap"><img class="shot" src="assets/shots/yahtzee.png" width="480" height="800" loading="lazy" decoding="async" alt="A Yahtzee turn in progress: five dice showing two, two, five, four and three above a scorecard listing all thirteen boxes for both players, with the score each box would take pencilled into the empty ones, a bonus line reading 63 MORE, and a capsule reading ROLL AGAIN, 2 LEFT."></div>
+      <span class="tag">Game · plays nearby</span>
+      <h3>Yahtzee</h3>
+      <p>Every box shows what it would score before you commit to it. Including the Joker rules, which most versions quietly drop.</p>
+    </article>
+
+    <article class="card">
+      <div class="shot-wrap"><img class="shot" src="assets/shots/connectfour.png" width="480" height="800" loading="lazy" decoding="async" alt="A Connect Four board part-way through a game: a dithered slab with forty-two holes, outlined and solid discs stacked in the columns, a row of waiting discs above marking every column that will still take one, and a status bar reading YOUR DROP."></div>
+      <span class="tag">Game · plays nearby</span>
+      <h3>Connect Four</h3>
+      <p>Seven columns, one tap each, four in a line to win. The opponent looks seven moves ahead and will not hand you the game.</p>
+    </article>
+
+    <article class="card">
+      <div class="shot-wrap"><img class="shot" src="assets/shots/checkers.png" width="480" height="800" loading="lazy" decoding="async" alt="A game of Checkers where a capture has become compulsory: the status bar reads YOU MUST TAKE, corner marks single out the one light piece with a legal move, and two rows of small discs below the board show twelve dark pieces against eleven light."></div>
+      <span class="tag">Game · plays nearby</span>
+      <h3>Checkers</h3>
+      <p>English draughts, where taking is compulsory. The board marks every piece that can move, so the rule shows itself instead of leaving you tapping men that will not lift.</p>
+      <div class="shot-wrap"><img class="shot" src="assets/shots/knucklebones.png" width="480" height="800" loading="lazy" decoding="async" alt="A Knucklebones match in progress: two three-by-three grids of dice facing each other, the opponent's on a dotted grey ground above and the player's below with corner brackets marking the three columns a die can go in. Between them sits the die just rolled, showing one. Column totals read 5, 6 and 1 under the top grid; large totals of 12 and 4 stand beside each grid. A black bar along the bottom reads YOUR ROLL."></div>
+      <span class="tag">Game · plays nearby</span>
+      <h3>Knucklebones</h3>
+      <p>Roll a die, drop it in a column. Matching dice multiply, and every die you place destroys its twins in the column facing it.</p>
+      <div class="shot-wrap"><img class="shot" src="assets/shots/minesweeper.png" width="480" height="800" loading="lazy" decoding="async" alt="A Minesweeper board part way through: a framed eight-by-ten grid where dug cells are white and show counts of one, two and three, and undug cells are a dotted grey. Two flags stand in the bottom-left corner. Below the board a line reads 8 OF 10 beside a flag mark."></div>
+      <span class="tag">Game</span>
+      <h3>Minesweeper</h3>
+      <p>Tap to dig, hold to flag. Your first dig is always safe and always opens a space, because the mines are laid after it.</p>
     </article>
 
     <article class="card">
@@ -386,7 +416,7 @@
         <p>xkcd comics by Randall Munroe, <a href="https://xkcd.com/license.html">CC BY-NC 2.5</a>, fetched by the device from <a href="https://xkcd.com">xkcd.com</a>. Connections puzzles are the New York Times'; CrossPlay ships none of them and downloads only what you ask for.</p>
         <p>Hacker News comes from the public <a href="https://hn.algolia.com/api">Algolia API</a>, and opening an article sends its URL through <a href="https://r.jina.ai">r.jina.ai</a> to get readable text back, which means that third party learns what you are reading.</p>
         <p>Reading positions sync to CrossPoint's own server by default, which is upstream's infrastructure rather than ours. The address is a setting and can be pointed anywhere that speaks KOSync.</p>
-        <p>Jaipur, Insider, Murdle, Battleship and Connections are trademarks of their respective owners. CrossPlay implements the games; it is not affiliated with, endorsed by or sponsored by any of them.</p>
+        <p>Jaipur, Insider, Murdle, Battleship, Connections and Knucklebones are trademarks of their respective owners. CrossPlay implements the games; it is not affiliated with, endorsed by or sponsored by any of them.</p>
         <p>Type is Jersey 25 and Instrument Serif, both SIL OFL.</p>
       </div>
     </div>
@@ -471,6 +501,14 @@
     })
       .then(function (instance) {
         keys.querySelectorAll('button').forEach(function (b) {
+          // Back is not a key on this device -- it is a left-edge swipe, and
+          // that is the only reason every app is exitable with the back pin
+          // unassigned. So this control performs the swipe. The other two are
+          // the real side page keys.
+          if (b.dataset.key === 'swipeback') {
+            b.addEventListener('click', function () { instance.swipeBack(); });
+            return;
+          }
           instance.bindButton(b, instance.scancodes[b.dataset.key]);
         });
         // Kept on the element, not in a list: two boots resolve in whatever

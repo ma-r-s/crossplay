@@ -111,7 +111,6 @@ void ChessActivity::resetGame() {
   saveSettings();
   chess::setStartPosition(position);
   selectedSquare = -1;
-  cursorSquare = 12;  // e2
   gameOver = false;
   engineThinking = false;
   historyCount = 0;
@@ -308,20 +307,9 @@ void ChessActivity::routeStartMenu() {
     input.touchX = static_cast<int16_t>(tapX);
     input.touchY = static_cast<int16_t>(tapY);
   }
-  input.focusNext = mappedInput.wasReleased(MappedInputManager::Button::Down);
-  input.focusPrev = mappedInput.wasReleased(MappedInputManager::Button::Up);
-  input.confirm = mappedInput.wasReleased(MappedInputManager::Button::Confirm);
+  // No focusNext/focusPrev/confirm. Rows are tapped. Confirm does not exist on
+  // this device, so a row selection only a button could open was a dead end.
 
-  if (input.focusNext || input.focusPrev) {
-    const int rows = chessui::startRows(startModel());
-    startIndex = (startIndex + (input.focusNext ? 1 : rows - 1)) % rows;
-    requestUpdate();
-    return;
-  }
-  if (input.confirm) {
-    activateStartRow(chessui::startRowAt(startModel(), startIndex));
-    return;
-  }
   if (!input.touchReleased || !interactionsReady) return;
 
   const fui::ActionEvent event = interactions.route(input);
@@ -447,7 +435,6 @@ bool ChessActivity::loadGame() {
   }
 
   selectedSquare = -1;
-  cursorSquare = 12;
   engineThinking = false;
   refreshLegalMoves();
   LOG_INF("CHESS", "Resumed saved game (%d plies)", historyCount);
@@ -752,37 +739,28 @@ void ChessActivity::gameLoop() {
     if (!gameOver) {
       const int square = squareAtPoint(touchX, touchY);
       if (square >= 0) {
-        cursorSquare = square;
         handleSquareActivated(square);
       }
     }
     return;
   }
 
-  // Button navigation moves a cursor around the board. Up/Down step a rank,
-  // Left/Right step a file, matching how the board is drawn.
-  const struct {
-    MappedInputManager::Button button;
-    int fileDelta;
-    int rankDelta;
-  } steps[] = {
-      {MappedInputManager::Button::Up, 0, 1},
-      {MappedInputManager::Button::Down, 0, -1},
-      {MappedInputManager::Button::Left, -1, 0},
-      {MappedInputManager::Button::Right, 1, 0},
-  };
-  for (const auto& step : steps) {
-    if (!mappedInput.wasReleased(step.button)) continue;
-    const int file = std::clamp(fileOf(cursorSquare) + step.fileDelta, 0, 7);
-    const int rank = std::clamp(rankOf(cursorSquare) + step.rankDelta, 0, 7);
-    cursorSquare = rank * 8 + file;
-    requestUpdate();
-    return;
-  }
-
-  if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    handleSquareActivated(cursorSquare);
-  }
+  // No button navigation. The board is pointing, and pointing is fingers.
+  //
+  // There was a D-pad cursor here, moved by Up/Down/Left/Right and committed
+  // with Confirm. On the X4 Pro three of those four buttons do not exist --
+  // left, right and confirm are PIN_UNASSIGNED in the board profile and are
+  // never configured as inputs -- so the cursor could move up and down a file
+  // and could never be acted on.
+  //
+  // It was worse than the shelf's version, which at least drew itself: this one
+  // was guarded by `!mappedInput.hasTouch()`, so on a touch device it was
+  // INVISIBLE, and Up/Down still moved it and still called requestUpdate(). A
+  // guaranteed full-panel repaint that changed nothing on screen, which is
+  // exactly what a bug looks like on e-ink.
+  //
+  // See docs/buttons.md. Up and Down are the two side page keys and they page;
+  // they do not push things around a board.
 }
 
 void ChessActivity::drawSquareContents(const BoardGeometry& geometry, const int square) const {
@@ -823,9 +801,6 @@ void ChessActivity::drawSquareContents(const BoardGeometry& geometry, const int 
       // you can still see what you are taking.
       toybox::cornerMarks(renderer, Rect{x, y, size, size}, std::max(10, size / 4), toybox::kFrame);
     }
-  }
-  if (square == cursorSquare && !mappedInput.hasTouch()) {
-    renderer.drawRect(x + 3, y + 3, size - 6, size - 6, toybox::kHairline, true);
   }
 }
 
@@ -959,22 +934,9 @@ void ChessActivity::routeSettings() {
     input.touchX = static_cast<int16_t>(tapX);
     input.touchY = static_cast<int16_t>(tapY);
   }
-  input.focusNext = mappedInput.wasReleased(MappedInputManager::Button::Down);
-  input.focusPrev = mappedInput.wasReleased(MappedInputManager::Button::Up);
-  input.confirm = mappedInput.wasReleased(MappedInputManager::Button::Confirm);
+  // No focusNext/focusPrev/confirm. Rows are tapped. Confirm does not exist on
+  // this device, so a row selection only a button could open was a dead end.
 
-  if (input.focusNext || input.focusPrev) {
-    // Focus is app-owned state (the SDK's model: the app supplies stable state,
-    // the runtime resolves the styling), so the wrap-around lives here.
-    const int rows = visibleMenuRows();
-    menuIndex = (menuIndex + (input.focusNext ? 1 : rows - 1)) % rows;
-    requestUpdate();
-    return;
-  }
-  if (input.confirm) {
-    activateMenuRow(menuRowAt(menuIndex));
-    return;
-  }
   if (!input.touchReleased || !interactionsReady) return;
 
   const fui::ActionEvent event = interactions.route(input);

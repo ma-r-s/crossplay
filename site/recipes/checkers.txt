@@ -1,0 +1,30 @@
+# site/assets/shots/checkers.png
+#
+# The must-take position: the one screen that shows every decision the board
+# makes. The capsule reads YOU MUST TAKE, exactly one piece wears corner marks
+# because exactly one capture exists, and the material strips show light a
+# piece down.
+#
+# Reached by playing, not by seeding, so it depends on the opponent being
+# deterministic -- which testTheOpponentIsDeterministicAndPure asserts.
+
+input:
+  2000:TAP:120,635      # GAMES on the home shelf
+  3500:TAP:262,688      # the second page mark -- the folder pages at eight
+  5000:TAP:240,143      # CHECKERS, first row of page two
+  6500:TAP:240,143      # PLAY
+  8500:TAP:44,406       # pick up the light man on (0,5)
+  10000:TAP:100,352     # step it to (1,4)
+  13500:TAP:156,408     # pick up (2,5) after the opponent replies
+  15000:TAP:212,352     # step it to (3,4), which offers them the capture
+  19000:QUIT
+
+shot:
+  18000:./qa-artifacts/checkers.bmp
+
+# Board squares are 56px from a board origin of (16, 100):
+#   x = 16 + file * 56 + 28      file 0..7 -> 44 100 156 212 268 324 380 436
+#   y = 100 + rank * 56 + 28     rank 0..7 -> 128 184 240 296 352 408 464 520
+# Rank 0 is the far end from whichever side this device plays.
+
+downsample: 2x2 box, 960x1600 -> 480x800 8-bit grey

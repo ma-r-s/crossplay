@@ -15,6 +15,10 @@
 
 #include "../../src/apps_local/ShelfScreen.h"
 #include "../../src/apps_local/battleship/BattleshipScreens.h"
+#include "../../src/apps_local/checkers/CheckersScreens.h"
+#include "../../src/apps_local/knucklebones/KnucklebonesScreens.h"
+#include "../../src/apps_local/minesweeper/MinesweeperScreens.h"
+#include "../../src/apps_local/connectfour/ConnectFourScreens.h"
 #include "../../src/apps_local/chess/ChessScreens.h"
 #include "../../src/apps_local/connections/ConnectionsScreens.h"
 #include "../../src/apps_local/hackernews/HackerNewsScreens.h"
@@ -794,6 +798,230 @@ void testShelfFolderDrawsItsOwnNameAndRows() {
   CHECK(!other.target.drew("GAMES"));
 }
 
+// A folder with more rows than fit, which is every GAMES folder from the tenth
+// game onward.
+//
+// The row icons are drawn by this fork rather than by the list component, so
+// they carry their own idea of where a row is, and it used to be the absolute
+// item index. That is the same thing as the row only while nothing scrolls. At
+// ten items the tenth icon painted below the band in black, on top of the black
+// player footer; once scrolled, every icon sat a row away from its label. The
+// three shelf tests that already existed all used lists short enough to fit, so
+// none of them could see it.
+//
+// Asserted as "each visible label has its own icon on its own row" rather than
+// as a count, because the count was right the whole time the positions were
+// wrong. A distinct icon per row is what makes an off-by-N detectable at all.
+//
+// Driven at both pages, because they fail differently and an earlier draft of
+// this test only had the second. On page one the rows past the fold must simply
+// not be drawn, which is the tenth-icon-on-the-footer case. On page two the
+// drawn ones must have moved up with their labels.
+void checkShelfIconsSitOnTheirRows(const int page) {
+  constexpr int kCount = 12;
+  const freeink::Icon* const palette[kCount] = {&icon_chess_32,     &icon_battleship_32, &icon_connections_32,
+                                                &icon_solitaire_32, &icon_nearby_32,     &icon_games_32,
+                                                &icon_apps_32,      &icon_hackernews_32, &icon_unreadable_32,
+                                                &icon_study_32,     &icon_dungeon_32,    &icon_insider_32};
+
+  fui::ListItem items[kCount] = {};
+  char labels[kCount][8] = {};
+  for (int i = 0; i < kCount; ++i) {
+    std::snprintf(labels[i], sizeof(labels[i]), "GAME%02d", i);
+    items[i].label = labels[i];
+    items[i].actionValue = static_cast<int16_t>(i);
+  }
+
+  const fui::ThemeTokens tokens = toybox::themeTokens();
+  const shelfui::Paging paging = shelfui::pagingFor(device(), tokens, true, kCount);
+  // The list has to overflow one page or neither case under test exists.
+  CHECK(paging.pageCount > 1);
+  const fui::Rect band = shelfui::listBand(device(), true, true);
+
+  shelfui::MenuModel model;
+  model.title = "GAMES";
+  model.playerName = "SPIKY GRIM BEARD";
+  model.page = page;
+  model.pageCount = paging.pageCount;
+
+  // The screen is handed one page, sliced, exactly as the activity hands it one.
+  // The last page is short, so this is not always rowsPerPage.
+  const int first = page * paging.rowsPerPage;
+  const int onThisPage = kCount - first < paging.rowsPerPage ? kCount - first : paging.rowsPerPage;
+  model.items = items + first;
+  model.icons = palette + first;
+  model.count = onThisPage;
+  model.selected = 0;
+
+  Rendered menu;
+  buildShelf(menu, model);
+
+  // Half a row: an icon one row out of place is a whole rowHeight + gap away,
+  // so this is generous about text metrics and still exact about rows.
+  const int tolerance = tokens.rowHeight / 2;
+  int paired = 0;
+  for (int i = 0; i < kCount; ++i) {
+    const fui::Rect* icon = nullptr;
+    for (const auto& blit : menu.target.blits) {
+      if (blit.data == palette[i]->bits) {
+        icon = &blit.rect;
+        break;
+      }
+    }
+    const fui::Rect* label = nullptr;
+    for (const auto& run : menu.target.texts) {
+      if (run.text == labels[i]) {
+        label = &run.rect;
+        break;
+      }
+    }
+
+    // Scrolled off the top, or below the fold. The icon must be gone too: this
+    // is the half that used to paint onto the player footer.
+    if (label == nullptr) {
+      CHECK(icon == nullptr);
+      continue;
+    }
+
+    // Guarded rather than asserted-and-continued: a missing icon here used to
+    // segfault the rest of the loop, which is a worse failure report than the
+    // one line that is actually wrong.
+    CHECK(icon != nullptr);
+    if (icon == nullptr) continue;
+
+    CHECK(icon->y >= band.y);
+    CHECK(icon->y + icon->height <= band.y + band.height);
+    const int iconMid = icon->y + icon->height / 2;
+    const int labelMid = label->y + label->height / 2;
+    CHECK(iconMid >= labelMid - tolerance && iconMid <= labelMid + tolerance);
+    ++paired;
+  }
+
+  CHECK(paired == onThisPage);
+}
+
+void testShelfIconsFollowTheRowsWhenTheListScrolls() {
+  // Page one of a folder that overflows: the rows past the fold are the ones
+  // that used to paint their icons onto the player footer.
+  checkShelfIconsSitOnTheirRows(0);
+  // And page two, where every drawn icon has moved up by a page and the ones
+  // above the band must be gone.
+  checkShelfIconsSitOnTheirRows(1);
+}
+
+// The shelf pages rather than scrolls, which is what makes a folder of forty
+// games reachable on a panel whose only gesture is a tap: there is no swipe
+// anywhere in this fork, and the list component's 3px overflow track is drawn
+// but not tappable, so before this every row past the ninth could be reached
+// only with the physical buttons.
+void testTheShelfPagesWhenAFolderOverflows() {
+  constexpr int kCount = 12;
+  fui::ListItem items[kCount] = {};
+  char labels[kCount][8] = {};
+  for (int i = 0; i < kCount; ++i) {
+    std::snprintf(labels[i], sizeof(labels[i]), "GAME%02d", i);
+    items[i].label = labels[i];
+    items[i].actionValue = static_cast<int16_t>(i);
+  }
+
+  const fui::ThemeTokens tokens = toybox::themeTokens();
+
+  // A folder that fits pays nothing for paging: no bar, and every row it could
+  // hold before it is still there.
+  const shelfui::Paging small = shelfui::pagingFor(device(), tokens, true, 3);
+  CHECK(small.pageCount == 1);
+  CHECK(small.rowsPerPage ==
+        fui::listVisibleRows(shelfui::listBand(device(), true, false), tokens.rowHeight, tokens.listRowGap));
+
+  const shelfui::Paging paging = shelfui::pagingFor(device(), tokens, true, kCount);
+  CHECK(paging.pageCount == 2);
+  // The bar costs a row, so a paged folder holds fewer than an unpaged one.
+  CHECK(paging.rowsPerPage < small.rowsPerPage);
+  CHECK(paging.rowsPerPage * paging.pageCount >= kCount);
+
+  // Every item is on exactly one page. This is the assertion that catches the
+  // list component clamping topIndex to count - visible so its last screen is
+  // full (list.h:164): under that rule page two of twelve showed items four to
+  // eleven, repeating half of page one. It is why the screen is handed a slice.
+  for (int page = 0; page < paging.pageCount; ++page) {
+    const int first = page * paging.rowsPerPage;
+    const int onThisPage = kCount - first < paging.rowsPerPage ? kCount - first : paging.rowsPerPage;
+
+    shelfui::MenuModel model;
+    model.title = "GAMES";
+    model.playerName = "SPIKY GRIM BEARD";
+    model.items = items + first;
+    model.count = onThisPage;
+    model.selected = 0;
+    model.page = page;
+    model.pageCount = paging.pageCount;
+
+    Rendered menu;
+    buildShelf(menu, model);
+    for (int i = 0; i < kCount; ++i) {
+      const bool belongsHere = i >= first && i < first + onThisPage;
+      CHECK(menu.target.drew(labels[i]) == belongsHere);
+    }
+  }
+
+  // And the pips are reachable. Rendered page one, tapping the bar must offer
+  // every other page, because being able to leave page one is the entire point.
+  shelfui::MenuModel model;
+  model.title = "GAMES";
+  model.playerName = "SPIKY GRIM BEARD";
+  model.items = items;
+  model.count = paging.rowsPerPage;
+  model.selected = 0;
+  model.page = 0;
+  model.pageCount = paging.pageCount;
+
+  Rendered menu;
+  buildShelf(menu, model);
+  const fui::Rect band = shelfui::listBand(device(), true, true);
+
+  // Found by probing rather than by recomputing the layout, so the test cannot
+  // agree with the builder by making the same arithmetic mistake twice.
+  int barY = -1;
+  for (int y = band.y + band.height; y < 800 && barY < 0; ++y) {
+    if (menu.tap(device().width / 2, y).action == shelfui::ActionGoToPage) barY = y;
+  }
+  CHECK(barY > 0);
+  CHECK(barY > band.y + band.height);
+
+  // Every page is one tap away, and the targets are contiguous *within the
+  // cluster*: a sweep hits pages in ascending order with no dead pixel between
+  // the first target and the last. Outside the cluster there is deliberately
+  // nothing, because the marks are a position indicator with air around them
+  // rather than a bar of buttons -- so this asserts no gap rather than no miss.
+  // A gap between adjacent pages is a strip the thumb finds and the eye cannot.
+  int reached[8] = {};
+  int firstHit = -1;
+  int lastHit = -1;
+  int gaps = 0;
+  int previous = -1;
+  for (int x = toybox::kMargin; x < device().width - toybox::kMargin; ++x) {
+    const fui::ActionEvent hit = menu.tap(x, barY);
+    if (hit.action != shelfui::ActionGoToPage) {
+      if (firstHit >= 0 && lastHit == x - 1) continue;  // past the cluster's end
+      continue;
+    }
+    CHECK(hit.value >= 0 && hit.value < paging.pageCount);
+    if (firstHit < 0) firstHit = x;
+    if (lastHit >= 0 && x != lastHit + 1) ++gaps;
+    // Ascending left to right: page one is on the left, as it reads.
+    CHECK(hit.value >= previous);
+    previous = hit.value;
+    lastHit = x;
+    if (hit.value < 8) ++reached[hit.value];
+  }
+  CHECK(firstHit > 0);
+  CHECK(gaps == 0);
+  for (int p = 0; p < paging.pageCount; ++p) CHECK(reached[p] > 0);
+  // A cluster, not the whole bar: it must leave the edges alone or it is the
+  // control this was rewritten to stop being.
+  CHECK(lastHit - firstHit < band.width - 2 * toybox::kMargin);
+}
+
 void testAFolderWithoutADeviceNameHasNoFooter() {
   fui::ListItem items[1] = {};
   items[0].label = "STUDY";
@@ -823,8 +1051,8 @@ void testAFolderWithoutADeviceNameHasNoFooter() {
   // The footer is not just hidden, its space is returned to the list. A folder
   // that reserved room for a control it never draws is dead space, and the list
   // would think it had one row less than it does.
-  const fui::Rect withName = shelfui::listBand(device(), true);
-  const fui::Rect without = shelfui::listBand(device(), false);
+  const fui::Rect withName = shelfui::listBand(device(), true, false);
+  const fui::Rect without = shelfui::listBand(device(), false, false);
   CHECK(without.height > withName.height);
   CHECK(without.height - withName.height == toybox::kRowHeight + toybox::kGutter);
 }
@@ -2186,6 +2414,523 @@ void testMurdleMenuHeadlineIsTheDoorAcrossItsWidth() {
   CHECK(!out.interactions.overflowed());
 }
 
+
+// --- connect four ----------------------------------------------------------
+
+template <typename Model, void (*Build)(toybox::Screen&, const Model&)>
+void buildC4(Rendered& out, const Model& model) {
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, device(), noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  Build(screen, model);
+}
+
+// The load-bearing one. The whole column is the target, so every pixel of it
+// must resolve to that column and nothing outside it may.
+void testTheColumnYouTapIsTheColumnTheRulesGet() {
+  for (int column = 0; column < connectfour::kColumns; ++column) {
+    const fui::Rect slot = c4ui::slotRect(device(), column);
+    const fui::Rect bottom = c4ui::cellRect(device(), column, 0);
+    const int probes[6][2] = {
+        {slot.x, slot.y},
+        {slot.x + slot.width - 1, slot.y},
+        {slot.x, slot.y + slot.height - 1},
+        {bottom.x, bottom.y},
+        {bottom.x + bottom.width - 1, bottom.y + bottom.height - 1},
+        {slot.x + slot.width / 2, (slot.y + bottom.y) / 2},
+    };
+    for (const auto& probe : probes) {
+      CHECK(c4ui::columnAt(device(), probe[0], probe[1]) == column);
+    }
+  }
+  // Each column is a distinct strip: neighbours never share a pixel.
+  for (int column = 0; column + 1 < connectfour::kColumns; ++column) {
+    const fui::Rect a = c4ui::cellRect(device(), column, 0);
+    const fui::Rect b = c4ui::cellRect(device(), column + 1, 0);
+    CHECK(a.x + a.width == b.x);
+  }
+}
+
+// Row 0 is the bottom in the rules. If that flip ever inverts, discs pile
+// downward from the ceiling and nothing else in the app would notice.
+void testRowZeroIsDrawnAtTheBottom() {
+  const fui::Rect floorCell = c4ui::cellRect(device(), 3, 0);
+  const fui::Rect topCell = c4ui::cellRect(device(), 3, connectfour::kRows - 1);
+  CHECK(floorCell.y > topCell.y);
+  CHECK(floorCell.y - topCell.y == (connectfour::kRows - 1) * floorCell.height);
+  // And the slot sits above everything, because that is where a disc goes in.
+  CHECK(c4ui::slotRect(device(), 3).y < topCell.y);
+}
+
+void testTheConnectFourGridKeepsOffTheChrome() {
+  const int capsuleY = 800 - toybox::kMargin - toybox::kPillHeight / 2;
+  CHECK(c4ui::columnAt(device(), 240, capsuleY) == connectfour::kNoColumn);
+  CHECK(c4ui::columnAt(device(), 240, toybox::kHeaderHeight / 2) == connectfour::kNoColumn);
+  // And off the sides, where there is no column at all.
+  const fui::Rect first = c4ui::cellRect(device(), 0, 0);
+  CHECK(c4ui::columnAt(device(), first.x - 1, first.y) == connectfour::kNoColumn);
+  const fui::Rect last = c4ui::cellRect(device(), connectfour::kColumns - 1, 0);
+  CHECK(c4ui::columnAt(device(), last.x + last.width, last.y) == connectfour::kNoColumn);
+  // The board clears the capsule.
+  CHECK(last.y + last.height + toybox::kBoardFrame + toybox::kPillHeight + toybox::kGutter * 2 <= 800);
+  CHECK(c4ui::slotRect(device(), 0).y >= toybox::kHeaderHeight);
+}
+
+void testTheBoardSaysWhoseDrop() {
+  c4ui::BoardModel model;
+  connectfour::start(model.game);
+  model.open = connectfour::openColumns(model.game);
+  model.yourTurn = true;
+
+  Rendered mine;
+  buildC4<c4ui::BoardModel, c4ui::buildBoard>(mine, model);
+  CHECK(mine.target.drew("YOUR DROP"));
+  CHECK(!mine.interactions.overflowed());
+
+  model.yourTurn = false;
+  Rendered theirs;
+  buildC4<c4ui::BoardModel, c4ui::buildBoard>(theirs, model);
+  CHECK(theirs.target.drew("THEIR DROP"));
+  CHECK(!theirs.target.drew("YOUR DROP"));
+}
+
+void testTheConnectFourResultNamesTheOutcomeFromYourSeat() {
+  c4ui::ResultModel won;
+  connectfour::start(won.game);
+  won.outcome = connectfour::Outcome::LightWins;
+  won.seat = connectfour::kLight;
+  Rendered a;
+  buildC4<c4ui::ResultModel, c4ui::buildResult>(a, won);
+  CHECK(a.target.drew("YOU WIN"));
+
+  c4ui::ResultModel lost = won;
+  lost.seat = connectfour::kDark;
+  Rendered b;
+  buildC4<c4ui::ResultModel, c4ui::buildResult>(b, lost);
+  CHECK(b.target.drew("THEY WIN"));
+
+  c4ui::ResultModel drawn = won;
+  drawn.outcome = connectfour::Outcome::Draw;
+  Rendered c;
+  buildC4<c4ui::ResultModel, c4ui::buildResult>(c, drawn);
+  CHECK(c.target.drew("A DRAW"));
+}
+
+// A board full of discs is a lot of registered controls if anyone ever
+// registers them. Forty-two cells plus seven slots is well past the
+// twenty-four slot cap, so this asserts the arithmetic path is really being
+// taken rather than the buffer silently dropping half the board.
+void testAFullBoardDoesNotOverflowTheInteractionBuffer() {
+  c4ui::BoardModel model;
+  connectfour::start(model.game);
+  uint32_t rng = 0x2468ACE0u;
+  while (!connectfour::over(model.game)) {
+    int legal[connectfour::kColumns];
+    int count = 0;
+    for (int c = 0; c < connectfour::kColumns; ++c) {
+      if (connectfour::canDrop(model.game, c)) legal[count++] = c;
+    }
+    rng = rng * 1664525u + 1013904223u;
+    connectfour::drop(model.game, legal[rng % static_cast<uint32_t>(count)]);
+  }
+  model.open = connectfour::openColumns(model.game);
+  Rendered out;
+  buildC4<c4ui::BoardModel, c4ui::buildBoard>(out, model);
+  CHECK(!out.interactions.overflowed());
+}
+
+// --- checkers --------------------------------------------------------------
+
+template <typename Model, void (*Build)(toybox::Screen&, const Model&)>
+void buildCk(Rendered& out, const Model& model) {
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, device(), noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  Build(screen, model);
+}
+
+// The load-bearing one, and harder here than in Minesweeper: the board is drawn
+// from the playing side's end, so the same square is in a different place for
+// each seat. squareRect and squareAt must be exact inverses for BOTH.
+void testTheSquareYouTapIsTheSquareTheRulesGet() {
+  const uint8_t seats[] = {checkers::kLight, checkers::kDarkSeat};
+  for (const uint8_t seat : seats) {
+    for (int file = 0; file < checkers::kSize; ++file) {
+      for (int rank = 0; rank < checkers::kSize; ++rank) {
+        const fui::Rect box = checkui::squareRect(device(), file, rank, seat);
+        const int probes[4][2] = {{box.x, box.y},
+                                  {box.x + box.width - 1, box.y},
+                                  {box.x, box.y + box.height - 1},
+                                  {box.x + box.width - 1, box.y + box.height - 1}};
+        for (const auto& probe : probes) {
+          int gotFile = -1;
+          int gotRank = -1;
+          CHECK(checkui::squareAt(device(), probe[0], probe[1], seat, gotFile, gotRank));
+          CHECK(gotFile == file);
+          CHECK(gotRank == rank);
+        }
+      }
+    }
+    // And the two seats really do disagree about where a square is, or the
+    // flip is not happening at all.
+    const fui::Rect mine = checkui::squareRect(device(), 0, 0, seat);
+    const fui::Rect theirs =
+        checkui::squareRect(device(), 0, 0, seat == checkers::kLight ? checkers::kDarkSeat : checkers::kLight);
+    CHECK(mine.x != theirs.x || mine.y != theirs.y);
+  }
+}
+
+void testTheBoardKeepsOffTheChrome() {
+  int f = -1;
+  int r = -1;
+  const int capsuleY = 800 - toybox::kMargin - toybox::kPillHeight / 2;
+  CHECK(!checkui::squareAt(device(), 240, capsuleY, checkers::kLight, f, r));
+  CHECK(!checkui::squareAt(device(), 240, toybox::kHeaderHeight / 2, checkers::kLight, f, r));
+
+  const fui::Rect last = checkui::squareRect(device(), checkers::kSize - 1, checkers::kSize - 1, checkers::kLight);
+  CHECK(last.y + last.height + toybox::kPillHeight + toybox::kGutter * 2 <= 800);
+  const fui::Rect first = checkui::squareRect(device(), 0, 0, checkers::kLight);
+  CHECK(first.y >= toybox::kHeaderHeight + toybox::kRule);
+}
+
+void testTheBoardSaysWhoseMoveAndWho() {
+  checkui::BoardModel model;
+  checkers::start(model.game);
+  model.yourTurn = true;
+
+  Rendered mine;
+  buildCk<checkui::BoardModel, checkui::buildBoard>(mine, model);
+  CHECK(mine.target.drew("YOUR MOVE"));
+
+  model.yourTurn = false;
+  Rendered theirs;
+  buildCk<checkui::BoardModel, checkui::buildBoard>(theirs, model);
+  CHECK(theirs.target.drew("THEIR MOVE"));
+  CHECK(!theirs.target.drew("YOUR MOVE"));
+}
+
+void testTheResultNamesTheOutcomeFromYourSeat() {
+  checkui::ResultModel won;
+  won.outcome = checkers::Outcome::LightWins;
+  won.seat = checkers::kLight;
+  Rendered a;
+  buildCk<checkui::ResultModel, checkui::buildResult>(a, won);
+  CHECK(a.target.drew("YOU WIN"));
+
+  // The same outcome, from the other seat, must read the other way.
+  checkui::ResultModel lost = won;
+  lost.seat = checkers::kDarkSeat;
+  Rendered b;
+  buildCk<checkui::ResultModel, checkui::buildResult>(b, lost);
+  CHECK(b.target.drew("THEY WIN"));
+
+  checkui::ResultModel drawn;
+  drawn.outcome = checkers::Outcome::Draw;
+  Rendered c;
+  buildCk<checkui::ResultModel, checkui::buildResult>(c, drawn);
+  CHECK(c.target.drew("A DRAW"));
+  // And it says why, because a draw nobody understands reads as a bug.
+  CHECK(c.target.drew("FORTY MOVES EACH WITH NOTHING TAKEN."));
+}
+
+void testTheCheckersHowToPagesAndEnds() {
+  for (int page = 0; page < checkui::howToPages(); ++page) {
+    checkui::HowToModel model;
+    model.page = page;
+    Rendered out;
+    buildCk<checkui::HowToModel, checkui::buildHowTo>(out, model);
+    CHECK(out.target.drew(page + 1 < checkui::howToPages() ? "NEXT" : "GOT IT"));
+    char progress[8];
+    std::snprintf(progress, sizeof(progress), "%d/%d", page + 1, checkui::howToPages());
+    CHECK(out.target.drew(progress));
+  }
+}
+
+// --- knucklebones ----------------------------------------------------------
+
+template <typename Model, void (*Build)(toybox::Screen&, const Model&)>
+void buildKb(Rendered& out, const Model& model) {
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, device(), noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  Build(screen, model);
+}
+
+void testKnucklebonesMenuOffersItsThreeRows() {
+  knuckleui::MenuModel model;
+  Rendered menu;
+  buildKb<knuckleui::MenuModel, knuckleui::buildMenu>(menu, model);
+
+  CHECK(menu.target.drew("KNUCKLEBONES"));
+  CHECK(menu.target.drew("PLAY"));
+  CHECK(menu.target.drew("PLAY NEARBY"));
+  CHECK(menu.target.drew("HOW TO PLAY"));
+  CHECK(!menu.interactions.overflowed());
+
+  const int firstRowY = toybox::kHeaderHeight + toybox::kGutter * 3 + toybox::kRowHeight / 2;
+  const fui::ActionEvent first = menu.tap(240, firstRowY);
+  CHECK(first.action == knuckleui::ActionMenuRow);
+  CHECK(first.value == static_cast<int>(knuckleui::MenuRow::Play));
+
+  // The nearby row says who when somebody is there, rather than promising into
+  // an empty room a thing the device cannot deliver.
+  knuckleui::MenuModel withPeer = model;
+  withPeer.nearbyName = "MOP SPECS GRIN";
+  Rendered peer;
+  buildKb<knuckleui::MenuModel, knuckleui::buildMenu>(peer, withPeer);
+  CHECK(peer.target.drew("MOP SPECS GRIN"));
+  CHECK(!menu.target.drew("MOP SPECS GRIN"));
+}
+
+// The one that matters on a touch device: the column a thumb lands on has to be
+// the column the rules receive. Asserted by tapping the drawn target rather
+// than by recomputing the geometry, so the test cannot agree with the builder
+// by repeating its mistake.
+void testTappingAColumnReportsThatColumn() {
+  knuckleui::BoardModel model;
+  model.die = 4;
+  model.yourTurn = true;
+
+  Rendered board;
+  buildKb<knuckleui::BoardModel, knuckleui::buildBoard>(board, model);
+
+  for (int column = 0; column < knucklebones::kColumns; ++column) {
+    const fui::Rect target = knuckleui::columnRect(device(), column, true);
+    const fui::ActionEvent hit =
+        board.tap(target.x + target.width / 2, static_cast<int16_t>(target.y + target.height / 2));
+    CHECK(hit.action == knuckleui::ActionColumn);
+    CHECK(hit.value == column);
+  }
+}
+
+void testTheBoardOnlyAcceptsAColumnOnYourOwnTurn() {
+  knuckleui::BoardModel model;
+  model.die = 4;
+  model.yourTurn = false;
+
+  Rendered board;
+  buildKb<knuckleui::BoardModel, knuckleui::buildBoard>(board, model);
+
+  // Still drawn -- you watch them play, because a board that blanks on their
+  // turn makes a slow panel look broken -- but nothing is live.
+  CHECK(board.target.drew("THEIR ROLL"));
+  for (int column = 0; column < knucklebones::kColumns; ++column) {
+    const fui::Rect target = knuckleui::columnRect(device(), column, true);
+    CHECK(board.tap(target.x + target.width / 2, static_cast<int16_t>(target.y + target.height / 2)).action !=
+          knuckleui::ActionColumn);
+  }
+
+  // A full column offers no target either, on your own turn. A tap that does
+  // nothing reads, on a panel this slow, as the device having missed it.
+  knuckleui::BoardModel filled;
+  filled.die = 4;
+  filled.yourTurn = true;
+  for (int row = 0; row < knucklebones::kRows; ++row) filled.yours.cell[1][row] = 2;
+
+  Rendered some;
+  buildKb<knuckleui::BoardModel, knuckleui::buildBoard>(some, filled);
+  const fui::Rect fullColumn = knuckleui::columnRect(device(), 1, true);
+  CHECK(some.tap(fullColumn.x + fullColumn.width / 2, static_cast<int16_t>(fullColumn.y + fullColumn.height / 2))
+            .action != knuckleui::ActionColumn);
+  const fui::Rect openColumn = knuckleui::columnRect(device(), 0, true);
+  CHECK(some.tap(openColumn.x + openColumn.width / 2, static_cast<int16_t>(openColumn.y + openColumn.height / 2))
+            .action == knuckleui::ActionColumn);
+}
+
+void testTheBoardFitsThePanel() {
+  // The first layout was 12px too tall for the panel and nothing complained:
+  // the opponent's column scores drew behind the header band and mine ran off
+  // the bottom. Arithmetic that overflows silently is exactly what a test is
+  // for, so the extremes of the drawn board are pinned to the screen.
+  const fui::Rect theirs = knuckleui::columnRect(device(), 0, false);
+  const fui::Rect mine = knuckleui::columnRect(device(), 0, true);
+  // Clear of the header band and its rule, so no score can hide under it.
+  CHECK(theirs.y >= toybox::kHeaderHeight + toybox::kRule);
+  // And clear of the bottom edge. No room is reserved beneath it: both score
+  // rows sit on the inner edges beside the strip, which is the fix -- outside,
+  // one collided with the header and the other with the panel's bottom.
+  CHECK(mine.y + mine.height <= 800);
+  // The scores really are between the grids, not outside them.
+  CHECK(theirs.y + theirs.height < mine.y);
+}
+
+void testTheTwoGridsDoNotOverlap() {
+  // They face each other across the strip. If the arithmetic ever puts one on
+  // top of the other the dice would draw over each other, and no assertion
+  // about text would notice.
+  for (int column = 0; column < knucklebones::kColumns; ++column) {
+    const fui::Rect mine = knuckleui::columnRect(device(), column, true);
+    const fui::Rect theirs = knuckleui::columnRect(device(), column, false);
+    CHECK(theirs.y + theirs.height <= mine.y);
+    CHECK(mine.y + mine.height <= 800);
+    CHECK(theirs.y >= toybox::kHeaderHeight);
+  }
+}
+
+void testTheResultNamesTheOutcome() {
+  knuckleui::ResultModel won;
+  won.yourScore = 40;
+  won.theirScore = 12;
+  Rendered a;
+  buildKb<knuckleui::ResultModel, knuckleui::buildResult>(a, won);
+  CHECK(a.target.drew("YOU WIN"));
+  CHECK(a.target.drew("40 - 12"));
+
+  knuckleui::ResultModel lost;
+  lost.yourScore = 12;
+  lost.theirScore = 40;
+  Rendered b;
+  buildKb<knuckleui::ResultModel, knuckleui::buildResult>(b, lost);
+  CHECK(b.target.drew("THEY WIN"));
+
+  knuckleui::ResultModel drew;
+  drew.yourScore = 20;
+  drew.theirScore = 20;
+  Rendered c;
+  buildKb<knuckleui::ResultModel, knuckleui::buildResult>(c, drew);
+  CHECK(c.target.drew("A DRAW"));
+}
+
+void testTheHowToEndsOnGotIt() {
+  for (int page = 0; page < knuckleui::howToPages(); ++page) {
+    knuckleui::HowToModel model;
+    model.page = page;
+    Rendered out;
+    buildKb<knuckleui::HowToModel, knuckleui::buildHowTo>(out, model);
+    CHECK(out.target.drew("HOW TO PLAY"));
+    // Where you are in the sequence. Without it the only cue is NEXT becoming
+    // GOT IT, which arrives too late to be one.
+    char progress[8];
+    std::snprintf(progress, sizeof(progress), "%d/%d", page + 1, knuckleui::howToPages());
+    CHECK(out.target.drew(progress));
+    // The last page says so, or a player pages forever looking for the end.
+    CHECK(out.target.drew(page + 1 < knuckleui::howToPages() ? "NEXT" : "GOT IT"));
+  }
+}
+
+// --- minesweeper -----------------------------------------------------------
+
+template <typename Model, void (*Build)(toybox::Screen&, const Model&)>
+void buildMs(Rendered& out, const Model& model) {
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, device(), noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  Build(screen, model);
+}
+
+// The load-bearing one on a touch device: the cell a thumb lands on must be the
+// cell the rules receive.
+//
+// The grid is hit-tested arithmetically rather than registered as eighty
+// buttons -- the interaction buffer holds twenty-four, and a regular grid is
+// not what that buffer is for. So this asserts the two directions against each
+// other: every cell's drawn rect must map back to that same cell, from all four
+// of its corners, and points outside the board must map to nothing.
+void testTheCellYouTapIsTheCellTheRulesGet() {
+  for (int column = 0; column < minesweeper::kColumns; ++column) {
+    for (int row = 0; row < minesweeper::kRows; ++row) {
+      const fui::Rect box = mineui::cellRect(device(), column, row);
+      const int probes[4][2] = {{box.x, box.y},
+                                {box.x + box.width - 1, box.y},
+                                {box.x, box.y + box.height - 1},
+                                {box.x + box.width - 1, box.y + box.height - 1}};
+      for (const auto& probe : probes) {
+        int gotColumn = -1;
+        int gotRow = -1;
+        CHECK(mineui::cellAt(device(), probe[0], probe[1], gotColumn, gotRow));
+        CHECK(gotColumn == column);
+        CHECK(gotRow == row);
+      }
+    }
+  }
+
+  // Off the board in every direction, including the capsule and the header,
+  // which are other people's controls.
+  const fui::Rect first = mineui::cellRect(device(), 0, 0);
+  const fui::Rect last = mineui::cellRect(device(), minesweeper::kColumns - 1, minesweeper::kRows - 1);
+  int c = -1;
+  int r = -1;
+  CHECK(!mineui::cellAt(device(), first.x - 1, first.y, c, r));
+  CHECK(!mineui::cellAt(device(), first.x, first.y - 1, c, r));
+  CHECK(!mineui::cellAt(device(), last.x + last.width, last.y, c, r));
+  CHECK(!mineui::cellAt(device(), last.x, last.y + last.height, c, r));
+  CHECK(!mineui::cellAt(device(), 240, 780, c, r));
+}
+
+void testTheMinesweeperBoardFitsThePanel() {
+  // Eighty cells, a tool capsule and a counter on one 800px panel. Arithmetic
+  // that overflows is silent, so the extremes are pinned.
+  const fui::Rect first = mineui::cellRect(device(), 0, 0);
+  const fui::Rect last = mineui::cellRect(device(), minesweeper::kColumns - 1, minesweeper::kRows - 1);
+  CHECK(first.x >= 0);
+  CHECK(first.y >= toybox::kHeaderHeight + toybox::kRule);
+  CHECK(last.x + last.width <= 480);
+  // Room left under the board for the counter and the tool capsule.
+  CHECK(last.y + last.height + toybox::kPillHeight + toybox::kGutter * 2 <= 800);
+}
+
+void testTheCounterSaysWhatItCounts() {
+  mineui::BoardModel model;
+  minesweeper::start(model.game, 5u);
+  model.game.status = minesweeper::Status::Playing;
+
+  Rendered out;
+  buildMs<mineui::BoardModel, mineui::buildBoard>(out, model);
+  // A bare numeral could not say what it counted, and with no total on screen
+  // the player could not recover the denominator.
+  CHECK(out.target.drew("10 OF 10"));
+
+  minesweeper::toggleFlag(model.game, 0, 0);
+  minesweeper::toggleFlag(model.game, 1, 0);
+  Rendered flagged;
+  buildMs<mineui::BoardModel, mineui::buildBoard>(flagged, model);
+  CHECK(flagged.target.drew("8 OF 10"));
+
+  // There is no tool switch any more: dig is a tap and flag is a hold, so
+  // neither word should appear as a control.
+  CHECK(!out.target.drew("DIG"));
+  CHECK(!out.target.drew("FLAG"));
+}
+
+void testTheBoardStaysWithinItsOwnArea() {
+  // The capsule at the bottom belongs to the tool switch, and the header to the
+  // device. A grid hit-tested by arithmetic would happily claim both if its
+  // bounds were wrong, and nothing on screen would show it.
+  int c = -1;
+  int r = -1;
+  const int stripY = 800 - toybox::kMargin - toybox::kPillHeight / 2;
+  CHECK(!mineui::cellAt(device(), 120, stripY, c, r));
+  CHECK(!mineui::cellAt(device(), 360, stripY, c, r));
+  CHECK(!mineui::cellAt(device(), 240, toybox::kHeaderHeight / 2, c, r));
+}
+
+void testTheMinesweeperResultNamesTheOutcome() {
+  mineui::ResultModel won;
+  won.won = true;
+  Rendered a;
+  buildMs<mineui::ResultModel, mineui::buildResult>(a, won);
+  CHECK(a.target.drew("CLEARED"));
+
+  mineui::ResultModel lost;
+  Rendered b;
+  buildMs<mineui::ResultModel, mineui::buildResult>(b, lost);
+  CHECK(b.target.drew("BOOM"));
+}
+
+void testTheHowToPagesAndEndsOnGotIt() {
+  for (int page = 0; page < mineui::howToPages(); ++page) {
+    mineui::HowToModel model;
+    model.page = page;
+    Rendered out;
+    buildMs<mineui::HowToModel, mineui::buildHowTo>(out, model);
+    CHECK(out.target.drew("HOW TO PLAY"));
+    CHECK(out.target.drew(page + 1 < mineui::howToPages() ? "NEXT" : "GOT IT"));
+    char progress[8];
+    std::snprintf(progress, sizeof(progress), "%d/%d", page + 1, mineui::howToPages());
+    CHECK(out.target.drew(progress));
+  }
+}
+
 int main() {
   testSearchingAsksNothing();
   testMurdleGridResolvesEveryCellItDrew();
@@ -2216,7 +2961,20 @@ int main() {
   testHnList();
   testHnFitLines();
   testHnReaderShowsWhereYouAre();
+  testTheColumnYouTapIsTheColumnTheRulesGet();
+  testRowZeroIsDrawnAtTheBottom();
+  testTheConnectFourGridKeepsOffTheChrome();
+  testTheBoardSaysWhoseDrop();
+  testTheConnectFourResultNamesTheOutcomeFromYourSeat();
+  testAFullBoardDoesNotOverflowTheInteractionBuffer();
+  testTheSquareYouTapIsTheSquareTheRulesGet();
+  testTheBoardKeepsOffTheChrome();
+  testTheBoardSaysWhoseMoveAndWho();
+  testTheResultNamesTheOutcomeFromYourSeat();
+  testTheCheckersHowToPagesAndEnds();
   testShelfFolderDrawsItsOwnNameAndRows();
+  testShelfIconsFollowTheRowsWhenTheListScrolls();
+  testTheShelfPagesWhenAFolderOverflows();
   testAFolderWithoutADeviceNameHasNoFooter();
   testTheShelfFooterIsADoorWithAFaceOnIt();
   testPlayerOffersThreeSeparateWords();
@@ -2242,6 +3000,15 @@ int main() {
   testInsiderSteppersDieAtTheEnds();
   testInsiderRevealAlwaysSaysTheWord();
   testInsiderTutorialLosesNoWords();
+
+  testKnucklebonesMenuOffersItsThreeRows();
+  testTappingAColumnReportsThatColumn();
+  testTheBoardOnlyAcceptsAColumnOnYourOwnTurn();
+  testTheMinesweeperBoardFitsThePanel();
+  testTheTwoGridsDoNotOverlap();
+
+  testMurdleGridResolvesEveryCellItDrew();
+  testTheCellYouTapIsTheCellTheRulesGet();
 
   std::printf("%d checks, %d failed\n", checksRun, checksFailed);
   return checksFailed == 0 ? 0 : 1;

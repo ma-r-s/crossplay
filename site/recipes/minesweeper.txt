@@ -1,0 +1,15 @@
+# How site/assets/shots/minesweeper.png was captured. Run from wt/minesweeper.
+#
+# Saved because every other shot on this site was captured by hand and its
+# recipe discarded, so not one of them can be reproduced. One line per game
+# stops that pile growing.
+#
+# rm -f fs_agent/.crosspoint/shelf.cfg
+# ./scripts_local/sim-shot.sh \
+#   '2500:DOWN;2700:DOWN;2900:DOWN;3100:DOWN;4000:ENTER;5000:DOWN;5200:DOWN;5400:DOWN;5600:DOWN;5800:DOWN;6000:DOWN;6200:DOWN;6400:DOWN;6600:DOWN;7600:ENTER;9500:TAP:240,143;11500:TAP:240,200;14000:TAP:50,620,900;17000:TAP:110,620,900;20000:QUIT' \
+#   '19000:qa-artifacts/ms-v3.bmp'
+# then downsample qa-artifacts/ms-v3.png from 960x1600 to 480x800 (LANCZOS).
+#
+# NOT reproducible byte-for-byte yet: the board is seeded from millis(), so the
+# minefield differs every run. That is task #8, and this file is honest about
+# it rather than implying otherwise.

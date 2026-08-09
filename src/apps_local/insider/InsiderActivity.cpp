@@ -11,6 +11,7 @@
 #include "../../components/UITheme.h"
 #include "../Shelf.h"
 #include "../ui/ToyboxFonts.h"
+#include "../ui/ToyboxSeed.h"
 #include "../ui/ToyboxTheme.h"
 
 namespace {
@@ -65,7 +66,7 @@ void InsiderActivity::dealRound() {
   // and by the time anybody taps DEAL it has been running for seconds, so the
   // low bits are genuinely unpredictable. Mixed rather than used raw: the timer
   // advances in even steps and the bottom bit of a raw reading is not random.
-  insider::Rng rng(static_cast<uint32_t>(millis()) * 2654435761u + 1u);
+  insider::Rng rng(toybox::seed());
   const int word = deck.draw(rng);
   round.deal(players, word, rng);
   seat = 0;

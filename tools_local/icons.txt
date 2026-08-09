@@ -159,3 +159,43 @@ murdle_face_grid  = grid-2x2    # four cells, which is literally the board.
 murdle_face_info  = folder      # the case file that holds the cast. `users` is
                                 # two heads and mush, and the page is not only
                                 # people -- it is weapons and places too
+
+# Checkers. `circle-dot` is a disc inside a ring, which is exactly what a
+# crowned checker is: two pieces stacked. Rejected: `grid-3x3` (connections owns
+# the grid), `crown` (chess owns it), `circle` (a plain disc says nothing).
+checkers = circle-dot
+# Knucklebones. A die is the game: you roll one every turn and the whole board
+# is made of them, so the mark is the object rather than a metaphor for it.
+# `dice-5` over the other faces because five pips are symmetric and read as a
+# die at 32px, where `dice-1` is a dot in a box and `dice-6` fills in.
+#
+# Rejected: `swords` (diagonal, and already rejected for the games folder for
+# fighting the column), `skull` (Cult of the Lamb's tone, not this device's),
+# `grid-3x3` (that is the board, and connections already owns a grid).
+knucklebones = dice-5
+# Minesweeper. `bomb` is the object the whole game is about avoiding, and a
+# sphere with a lit fuse is a silhouette nothing else on the shelf has.
+# Rejected: `flag` (that is the tool, not the game, and the game is not about
+# flags), `grid-3x3` (connections owns the grid), `land-mine` is not in this
+# lucide pin.
+minesweeper = bomb
+
+# Minesweeper's flag. Hand-drawn three times and wrong three times: the pennant
+# and the pole kept ending up the same height, so no flag could emerge from the
+# geometry at any size. The fork already vendors Lucide and generates from it,
+# and `flag` is there. Solitaire's pips went the same way after three rounds of
+# hand-drawing.
+mineflag = flag
+
+# Yahtzee. NOT a die, and that is the whole point: Knucklebones' mark is a die
+# and the two sit on consecutive rows of the same folder, where they read as the
+# same icon. A game's icon has to separate it from its NEIGHBOURS, not just be a
+# fair picture of the game -- the same lesson Connect Four learned when its 2x2
+# of discs read as a checkerboard directly under CHECKERS.
+#
+# So: the CARD. Thirteen boxes filled once each is what makes Yahtzee Yahtzee
+# rather than "a dice game", and the card is literally the screen. Two boxes
+# written in and one still waiting, which is the game in one picture.
+# Rejected: five small dice (illegible at 32px, and still dice), a dice cup (too
+# much detail), a single die with a different pip count (still the neighbour's
+# mark with a typo).

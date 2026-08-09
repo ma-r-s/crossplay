@@ -1,0 +1,32 @@
+# site/assets/shots/connectfour.png
+#
+# A game part-way through, so the board shows every decision it makes: the
+# dithered slab with its forty-two holes, discs stacked to different heights,
+# the ring on the last disc played, and the slot row holding a waiting disc
+# over every column that will still take one.
+#
+# Reproducible only because the opponent is deterministic, which
+# testTheBrainIsDeterministicAndPure asserts. Replaying these taps replays the
+# same game.
+
+input:
+  2000:TAP:120,635      # GAMES on the home shelf
+  3500:TAP:262,688      # the second page mark -- the folder holds eight a page
+  5000:TAP:240,210      # CONNECT FOUR, second row of page two
+  6500:TAP:240,143      # PLAY
+  8500:TAP:240,400      # centre column
+  11000:TAP:176,400     # one to its left
+  13500:TAP:304,400     # one to its right
+  16000:TAP:112,400     # out to the second column
+  20000:QUIT
+
+shot:
+  18500:./qa-artifacts/connectfour.bmp
+
+# The whole column is the target, lip and grid alike, so any y inside the board
+# works. Column centres:
+#   x = 16 + column * 64 + 32   ->  48 112 176 240 304 368 432
+# The grid is centred vertically between the header and the status capsule;
+# y = 400 is inside it for every column.
+
+downsample: 2x2 box, 960x1600 -> 480x800 8-bit grey

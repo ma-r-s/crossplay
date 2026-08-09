@@ -10,8 +10,12 @@
 #include "ChessScreens.h"
 #include "ChessWire.h"
 
-// Chess board screen. Works with touch and with buttons: tap a piece then tap a
-// destination, or move a cursor with the D-pad and press Confirm twice.
+// Chess board screen. Tap a piece, then tap a destination.
+//
+// Touch only, and that is the device rather than a preference: the X4 Pro has
+// two buttons, both side page keys. This header used to promise "move a cursor
+// with the D-pad and press Confirm twice", which was never possible here --
+// left, right and confirm are unassigned pins. See docs/buttons.md.
 //
 // You play one colour, the engine answers as the other. Board input is ignored
 // while it is thinking. The gear in the header opens the settings overlay.
@@ -188,7 +192,6 @@ class ChessActivity final : public linkplay::LinkActivity {
   int historyBase = 0;
 
   int selectedSquare = -1;
-  int cursorSquare = 12;  // e2, a plausible first move
   bool gameOver = false;
   bool engineThinking = false;
 
