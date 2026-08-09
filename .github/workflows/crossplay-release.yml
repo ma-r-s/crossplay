@@ -106,12 +106,30 @@ jobs:
           generate_release_notes: false
           body: |
             Games and small tools for the **Xteink X4 Pro**, on top of
-            [CrossPoint](https://crosspointreader.com/). Chess, Battleship,
-            Connections, Solitaire, D&Diagrams, Insider, Jaipur and Murdle,
-            plus spaced-repetition flashcards, Hacker News and the xkcd
-            archive. Chess, Battleship and Jaipur play over **PLAY NEARBY**:
-            two devices next to each other find one another with nothing to
-            type.
+            [CrossPoint](https://crosspointreader.com/). Thirteen games --
+            Chess, Checkers, Connect Four, Yahtzee, Knucklebones, Minesweeper,
+            Battleship, Connections, Solitaire, D&Diagrams, Insider, Jaipur and
+            Murdle -- plus spaced-repetition flashcards, Hacker News and the
+            xkcd archive. Seven of them play over **PLAY NEARBY**: Chess,
+            Checkers, Connect Four, Yahtzee, Knucklebones, Battleship and
+            Jaipur. Two devices next to each other find one another with
+            nothing to type.
+
+            ### Which file to download
+
+            **`crossplay-<version>-x4pro-full.bin`** is the one to flash over
+            USB. It is the whole firmware -- bootloader, partition table and
+            application in one image -- so it installs on a device that has
+            never run CrossPoint.
+
+            **`firmware.bin`** is the application on its own, for a device that
+            is already running this. Settings -> Check for updates fetches it
+            over Wi-Fi, or you can copy it to the SD card and pick it there.
+            Keep that filename: the updater matches it exactly.
+
+            v1.0.0 and v1.0.1 published only the application image and told you
+            to write it to `0x0`, which on an ESP32-S3 is where the bootloader
+            lives. Do not follow the install steps from those two releases.
 
             Try the whole thing in a browser first, without owning one:
             **[crossplay.ma-r-s.com](https://crossplay.ma-r-s.com)** runs this
@@ -139,6 +157,10 @@ jobs:
             [docs/fix-bricked-xteink.md](https://github.com/ma-r-s/crossplay/blob/xteink/docs/fix-bricked-xteink.md)
             is the way back.
 
-            Install steps, including the `esptool` route if you would rather not
-            trust a web page with your serial port, are in the
-            [README](https://github.com/ma-r-s/crossplay#install-it).
+            Full install steps are in the
+            [README](https://github.com/ma-r-s/crossplay#install-it). The short
+            version, once `pip install esptool` has run:
+
+            ```
+            esptool.py --chip esp32s3 --baud 921600 write_flash 0x0 crossplay-<version>-x4pro-full.bin
+            ```
