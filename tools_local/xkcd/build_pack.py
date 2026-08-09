@@ -12,14 +12,25 @@ native 1-bit format at **native size** (never scaled), and writes the three
 files the app reads. Both the download cache and the pack are resumable:
 interrupt it and run it again.
 
-Why native size, and why landscape
-----------------------------------
-Measured over 1048 comics sampled evenly across the archive: the widest xkcd
-ever published is 780px and p99 is 740. The landscape panel is 800. So at 1:1
-**nothing is ever downscaled and nothing ever needs to pan sideways** -- 75% of
-the archive needs no panning at all. Portrait would mean fit-to-width, which
-shrinks 56% of the archive (worst case 0.62), and hand-lettered strokes one or
-two pixels wide do not survive that on a 1-bit panel.
+One objective: never pan on two axes if one will do
+---------------------------------------------------
+Posture and zoom are chosen together to make that true, and it comes out true
+for 97% of the archive. Each of the comic's two dimensions lands in one of
+three bands against the device's SHORT (480) and LONG (756) sides, so there are
+nine cases and no others; `layout()` is that matrix, and the matrix itself is
+drawn in docs/xkcd-pack-format.md.
+
+The scale may fall from the target cap height to the floor -- about a sixth --
+when that is what removes a panning axis. That single allowance takes the
+archive from 68% to 85% needing no panning at all.
+
+What is stored is the artwork at the size its lettering needs, in the posture
+that costs the fewest axes. Comics that pan also carry a small whole-comic
+OVERVIEW, reached with OK; only 15% need one, and each is at most a screenful.
+
+Both are built here, on a host, with a real resampling filter before a single
+dither. That is the whole reason there is a pack: resampling art that is
+already 1-bit is mush, and the device cannot hold the greyscale original.
 
 Why the dither comes from convert.cpp
 -------------------------------------
@@ -45,19 +56,30 @@ import urllib.request
 UA = {"User-Agent": "CrossPoint-xkcd-pack/1 (personal e-reader; contact via github)"}
 
 MAGIC = 0x44434B58  # "XKCD"
-FORMAT_VERSION = 2
+FORMAT_VERSION = 3
 INDEX_HEADER_BYTES = 16
-INDEX_RECORD_BYTES = 32
+INDEX_RECORD_BYTES = 40
 
 # Kept in step with XkcdCore.h. Asserted against the header at startup so the
 # two cannot quietly disagree about how wide a record is.
-MAX_COMIC_WIDTH = 800
 MAX_COMIC_HEIGHT = 16384
 
-# The drawable area, panel minus the reader's bar. Kept in step with
-# xkcdui::readerViewport.
+# The panel, and the drawable area (panel minus the reader's bar). Kept in step
+# with xkcd::kPanelWidth and xkcdui::readerViewport.
+PANEL_WIDTH = 480
 PORTRAIT_VIEWPORT_H = 756
-LANDSCAPE_VIEWPORT_H = 436
+
+# Anything wider than the panel pans sideways, and its width is snapped onto a
+# grid of COLUMN_STEP so every column reveals a full step and the last ends
+# flush. The anti-sliver guarantee lives in this arithmetic rather than in a
+# check, because a runtime "is this column worth it?" test is the shape of rule
+# that gave #1606 -- 481px wide -- a second column revealing one pixel.
+COLUMN_OVERLAP = 48
+COLUMN_STEP = PANEL_WIDTH - COLUMN_OVERLAP  # 432
+MAX_COLUMNS = 8
+
+# Widest thing the format may hold.
+MAX_COMIC_WIDTH = COLUMN_STEP * MAX_COLUMNS + COLUMN_OVERLAP  # 3504
 
 # Comic 404 does not exist, and that is the joke. Requesting it returns an
 # actual 404, so it is skipped by name rather than by error handling.
@@ -227,6 +249,222 @@ def to_gray(path: pathlib.Path):
     return img.convert("L")
 
 
+def cap_height(gray) -> float | None:
+    """How tall this comic's lettering is, in source pixels.
+
+    **This is the number that decides whether a comic can be read on a 480px
+    panel, and it is not constant across the archive.** Cap height runs from
+    3px on a dense infographic to 25px on a big-lettered strip, so any single
+    zoom multiplier necessarily over-zooms one class to rescue the other. That
+    is exactly the mistake that shipped first: #3266 was zoomed to 1.23x
+    because that was two columns, and two columns was a tidy invariant rather
+    than a readable result. Its lettering came out 5px tall.
+
+    Measured by connected components: a letter is one blob, so the median blob
+    height over letter-shaped blobs tracks cap height. Run length in a column
+    does NOT work -- that is stroke width, and it returns 2 for the entire
+    archive.
+    """
+    w, h = gray.size
+    px = gray.load()
+    parent = {}
+
+    def find(a):
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    prev = {}
+    box = {}
+    nxt = 0
+    for y in range(h):
+        cur = {}
+        run = None
+        for x in range(w + 1):
+            ink = x < w and px[x, y] < 128
+            if ink and run is None:
+                run = x
+            elif not ink and run is not None:
+                lab = None
+                for xx in range(max(0, run - 1), min(w, x + 1)):
+                    if xx in prev:
+                        found = find(prev[xx])
+                        if lab is None:
+                            lab = found
+                        elif found != lab:
+                            parent[found] = lab
+                if lab is None:
+                    lab = nxt
+                    nxt += 1
+                    parent[lab] = lab
+                    box[lab] = [run, y, x - 1, y]
+                for xx in range(run, x):
+                    cur[xx] = lab
+                b = box[find(lab)]
+                b[0] = min(b[0], run)
+                b[1] = min(b[1], y)
+                b[2] = max(b[2], x - 1)
+                b[3] = max(b[3], y)
+                run = None
+        prev = cur
+
+    heights = []
+    for lab, b in box.items():
+        if find(lab) != lab:
+            continue
+        bw, bh = b[2] - b[0] + 1, b[3] - b[1] + 1
+        # Letter-shaped: not a stray dither dot, not a frame or a long rule.
+        if 3 <= bh <= 40 and 2 <= bw <= 60 and bh * 6 >= bw:
+            heights.append(bh)
+    if len(heights) < 25:
+        return None
+    heights.sort()
+    return heights[len(heights) // 2]
+
+
+SHORT_SIDE = PANEL_WIDTH  # 480
+LONG_SIDE = PORTRAIT_VIEWPORT_H  # 756
+
+
+class Limits:
+    """The three numbers layout() needs, lifted out of argparse so the rule can
+    be tested without one. See host-tests/xkcd/test_layout.py."""
+
+    def __init__(self, target_cap=12.0, min_cap=10.0, max_upscale=3.0):
+        self.target_cap = target_cap
+        self.min_cap = min_cap
+        self.max_upscale = max_upscale
+
+
+def _posture(W, H, cap, across, down, args):
+    """Best outcome for one posture: (axes, scale, which axis pans).
+
+    Scale may fall from the target cap height to the floor -- about a sixth --
+    if that is what makes an axis stop panning. That single allowance rescues
+    28% of the archive from panning at all.
+    """
+    target, floor = args.target_cap / cap, args.min_cap / cap
+    s_w, s_h = across / W, down / H
+    fit = min(s_w, s_h)
+    if fit >= floor:
+        return 0, min(args.max_upscale, max(fit, floor)), "whole"
+    if s_w >= floor:
+        return 1, min(args.max_upscale, s_w), "down"
+    if s_h >= floor:
+        return 1, min(args.max_upscale, s_h), "across"
+    return 2, min(args.max_upscale, target), "both"
+
+
+def _taps(W, H, s, across, down):
+    w, h = round(W * s), round(H * s)
+    c = 1 if w <= across else 1 + math.ceil((w - across) / COLUMN_STEP)
+    r = 1 if h <= down else 1 + math.ceil((h - down) / (down / 2))
+    return c * r
+
+
+def layout(W, H, cap, args):
+    """Which way round, and how big. Returns (posture, scale, which pans).
+
+    The nine cases of docs/xkcd-pack-format.md, computed rather than tabulated.
+    A comic with too little lettering to measure has no readable scale to aim
+    at, so it simply fits whole in whichever posture shows it larger.
+    """
+    if not cap:
+        p = min(args.max_upscale, SHORT_SIDE / W, LONG_SIDE / H)
+        t = min(args.max_upscale, LONG_SIDE / W, SHORT_SIDE / H)
+        return ("turned", t, "whole") if t > p else ("portrait", p, "whole")
+
+    pa, ps, pw = _posture(W, H, cap, SHORT_SIDE, LONG_SIDE, args)
+    ta, ts, tw = _posture(W, H, cap, LONG_SIDE, SHORT_SIDE, args)
+
+    # 1. Fewest panning axes. Six of the nine cases end here.
+    if pa != ta:
+        return ("portrait", ps, pw) if pa < ta else ("turned", ts, tw)
+
+    # 2. Tied, and the SAME axis pans either way: the axis that does not pan
+    #    goes on the smallest side that holds it, leaving the longer side for
+    #    the one that does. Deciding this by tap count instead ties far too
+    #    often -- 334 wide-and-short comics stayed portrait on a tap tie, which
+    #    is #1518 zoomed 3x into five columns instead of turned into three.
+    if pa == 1 and pw == tw:
+        if pw == "across":
+            return (
+                ("turned", ts, tw)
+                if round(H * ts) <= SHORT_SIDE
+                else ("portrait", ps, pw)
+            )
+        return (
+            ("portrait", ps, pw) if round(W * ps) <= SHORT_SIDE else ("turned", ts, tw)
+        )
+
+    # 3. Still tied: fewest taps, then stay portrait. Turning the device is a
+    #    real cost and a tie means turning buys nothing.
+    pt = _taps(W, H, ps, SHORT_SIDE, LONG_SIDE)
+    tt = _taps(W, H, ts, LONG_SIDE, SHORT_SIDE)
+    return ("portrait", ps, pw) if pt <= tt else ("turned", ts, tw)
+
+
+def snap_width(sw: int, sh: int, scale: float, pans: str) -> float:
+    """Put a panning width on the column grid, without breaking layout()'s promise.
+
+    Every column must reveal a full COLUMN_STEP and the last must end flush, so
+    a width over the panel is snapped to COLUMN_STEP * N + COLUMN_OVERLAP.
+
+    Two bugs have lived here, which is why it is a function with tests rather
+    than six lines inside the build loop:
+
+    * **One column is a legal answer.** Forcing a minimum of two blew a comic
+      that came out 481px wide up to 912, where it started panning. Both-axes
+      went 2.8% -> 8.9%.
+    * **Snapping moves the scale, so it moves the HEIGHT too.** A comic
+      layout() promised would pan across only got pushed past the viewport and
+      panned both ways. 8.9% -> 6.6%. So the snap steps down until the promise
+      layout() made still holds.
+    * **Rounding can push a fitting width one pixel over**, and the snap would
+      then send a pan-down-only comic to the next grid stop, adding a sideways
+      axis. Found by test_layout.py the day it was written; the two above were
+      found by hand, months of reading later.
+
+    The invariant, stated once: **this function never increases the number of
+    panning axes.**
+    """
+    # When layout() promised the width would fit, rounding must not be allowed
+    # to push it one pixel over: the snap would then send it to the next grid
+    # stop and add the very axis layout() had just avoided. Clamp instead.
+    if pans in ("whole", "down"):
+        if round(sw * scale) > PANEL_WIDTH:
+            scale = PANEL_WIDTH / sw
+        return scale
+
+    if round(sw * scale) <= PANEL_WIDTH:
+        return scale
+    cols = max(1, round((sw * scale - COLUMN_OVERLAP) / COLUMN_STEP))
+    cols = min(cols, MAX_COLUMNS)
+    while cols > 1:
+        trial = (COLUMN_STEP * cols + COLUMN_OVERLAP) / sw
+        if pans != "across" or round(sh * trial) <= PORTRAIT_VIEWPORT_H:
+            break
+        cols -= 1
+    return (COLUMN_STEP * cols + COLUMN_OVERLAP) / sw
+
+
+def resample(gray, sw: int, sh: int, scale: float):
+    """Scale on the host, with a real filter, before the single dither.
+
+    This is why both renditions are built here rather than on the device:
+    enlarging or shrinking 8-bit greyscale and dithering once is a completely
+    different thing from resampling art that is already 1-bit, which is mush.
+    """
+    if abs(scale - 1.0) <= 0.001:
+        return gray
+    from PIL import Image as _Image
+
+    return gray.resize(
+        (max(1, round(sw * scale)), max(1, round(sh * scale))), _Image.LANCZOS
+    )
+
+
 class Converter:
     """One long-lived convert.cpp process for the whole archive."""
 
@@ -313,20 +551,10 @@ def main() -> int:
         help="stop after N comics (for a quick test pack)",
     )
     ap.add_argument(
-        "--portrait-width", type=int, default=480, help="the portrait panel's width"
-    )
-    ap.add_argument(
         "--rotate-cw",
         action="store_true",
         help="turn sideways comics the other way, if tipping the device "
         "clockwise feels wrong",
-    )
-    ap.add_argument(
-        "--min-scale",
-        type=float,
-        default=1.0,
-        help="how far a comic may be shrunk before it is zoomed and read in "
-        "columns instead. Below this the lettering goes.",
     )
     ap.add_argument(
         "--max-upscale",
@@ -336,24 +564,25 @@ def main() -> int:
         "archive is 106px wide and would otherwise be blown up 4.5x.",
     )
     ap.add_argument(
-        "--rotate-aspect",
+        "--target-cap",
         type=float,
-        default=1.4,
-        help="store a comic sideways only when it is at least this wide "
-        "relative to its height. Turning the device has to be earned, so a "
-        "near-square comic stays upright.",
+        default=12.0,
+        help="how tall this comic's lettering should be on the panel, in "
+        "pixels. The closer view is zoomed until it reaches this and no "
+        "further, so a dense infographic zooms hard and a big-lettered strip "
+        "barely at all.",
     )
     ap.add_argument(
-        "--pane-budget",
-        type=int,
-        default=6,
-        help="the most screens a zoomed comic may cost. Past this it takes the "
-        "shrink instead: forty tiles is not reading.",
+        "--min-cap",
+        type=float,
+        default=10.0,
+        help="a comic whose lettering is already at least this tall on the "
+        "page is readable as it is, and gets no closer view.",
     )
     ap.add_argument(
-        "--no-rotate",
+        "--no-overview",
         action="store_true",
-        help="never store a comic sideways; shrink wide ones to fit instead",
+        help="build page renditions only, for a smaller pack with no zoom",
     )
     args = ap.parse_args()
 
@@ -403,103 +632,91 @@ def main() -> int:
 
             # --- which way round, and how big -------------------------
             #
-            # Three rules, in order. All of them follow from one fact: xkcd
-            # letters at a roughly constant size in source pixels, so how far a
-            # comic has been *shrunk* is the only thing deciding whether it can
-            # be read.
+            # ONE objective, above every other consideration: **never pan on
+            # two axes if one will do.** Posture and zoom are chosen together
+            # to make that true as often as possible, and it comes out true for
+            # 97% of the archive.
             #
-            # 1. SIDEWAYS. A clearly wide comic is stored **rotated**, so the
-            #    reader turns the device rather than the app turning the panel.
-            #    The screen layout never moves: the bar stays where it was and
-            #    the controls stay where they were. Rotating the panel instead
-            #    was the first attempt and it shuffled the whole UI around
-            #    underneath the reader.
+            # Each of the comic's two dimensions lands in one of three bands
+            # against the device's SHORT (480) and LONG (756) sides, so there
+            # are nine cases and no others. See docs/xkcd-pack-format.md for
+            # the matrix; `layout()` below is that matrix, computed.
             #
-            #    Rotating also fixes the shrink that made these unreadable: a
-            #    694x272 strip fitted into a 480 panel is 0.69x, but turned on
-            #    its side it is 272 across and fits comfortably.
-            #
-            # 2. SCALE. Fit the panel -- up as well as down, since 44% of the
-            #    archive is narrower than 480. A rotated comic is fitted whole,
-            #    both axes, because the point of turning it is to see all of it.
-            #
-            # 3. ZOOM RATHER THAN SHRINK, WITHIN A BUDGET. If fitting an
-            #    upright comic would shrink it past --min-scale, keep it big
-            #    and let it be read in columns instead. But only while that
-            #    stays under --pane-budget: #1732 is 740x14957 and zooming it
-            #    would cost forty tiles, which is not reading.
+            # The scale is allowed to fall from the target cap height to the
+            # floor -- about a sixth -- when that buys a whole axis. That one
+            # allowance takes the archive from 68% to 85% no-panning.
             sw, sh = gray.size
-            sideways = (not args.no_rotate) and (sw / sh) >= args.rotate_aspect
-            vw, vh = args.portrait_width, PORTRAIT_VIEWPORT_H
+            cap = cap_height(gray)
+            posture, scale, pans = layout(sw, sh, cap, args)
 
-            if sideways:
+            if posture == "turned":
                 from PIL import Image as _Image
 
-                # Turned so the comic's own top ends up on the left of the
-                # portrait screen, i.e. you tip the device clockwise to read
-                # it. One transpose, and --rotate-cw flips which way.
+                # Turned so the comic's own top-left ends up at the stored
+                # image's top-right; the reader walks it in the comic's frame,
+                # not the stored image's. See xkcd::startOf.
                 gray = gray.transpose(
                     _Image.ROTATE_90 if args.rotate_cw else _Image.ROTATE_270
                 )
                 sw, sh = gray.size
-                # Fitted whole: the reason to turn a comic is to see all of it,
-                # so neither axis may overflow.
-                scale = min(args.max_upscale, vw / sw, vh / sh)
-            else:
-                fit = min(args.max_upscale, vw / sw)
-                scale = fit
-                if fit < args.min_scale:
-                    zoomed = args.min_scale
-                    panes = math.ceil(sw * zoomed / vw) * math.ceil(sh * zoomed / vh)
-                    if panes <= args.pane_budget:
-                        scale = zoomed
 
-            # The stored image still has to fit the format, whatever the rules
-            # above decided. #2067 is 960px wide, and keeping it at full size
-            # put it past the 800px ceiling -- so it was rejected outright and
-            # went **missing from the archive**, with only a line in the build
-            # log. A comic silently absent is worse than one shown small.
-            if sw * scale > MAX_COMIC_WIDTH:
-                scale = MAX_COMIC_WIDTH / sw
             if sh * scale > MAX_COMIC_HEIGHT:
-                scale = min(scale, MAX_COMIC_HEIGHT / sh)
+                scale = MAX_COMIC_HEIGHT / sh
 
-            if abs(scale - 1.0) > 0.001:
-                from PIL import Image as _Image
+            scale = snap_width(sw, sh, scale, pans)
 
-                gray = gray.resize(
-                    (max(1, round(sw * scale)), max(1, round(sh * scale))),
-                    _Image.LANCZOS,
-                )
-
-            w, h = gray.size
-            if w > MAX_COMIC_WIDTH or h > MAX_COMIC_HEIGHT or w == 0 or h == 0:
-                # Nothing sampled in the archive trips this, but it is reported
-                # loudly rather than dropped: a comic missing from the app with
-                # no explanation is a bug report waiting to happen.
-                skipped.append((num, f"{w}x{h} exceeds the pack limits"))
+            art = resample(gray, sw, sh, scale)
+            aw, ah = art.size
+            if aw > MAX_COMIC_WIDTH or ah > MAX_COMIC_HEIGHT or aw == 0 or ah == 0:
+                skipped.append((num, f"{aw}x{ah} exceeds the pack limits"))
                 continue
 
-            stride, bits = conv.convert(gray)
+            stride, bits = conv.convert(art)
+
+            # The overview, for comics that pan: the whole thing on one screen,
+            # reached with OK. Only 15% of the archive needs one, and each is at
+            # most a screenful, so it costs a fourteenth of what the old
+            # zoomed-in second rendition did.
+            overview_bits = None
+            overview_stride = overview_h = overview_w = 0
+            if not args.no_overview and (aw > PANEL_WIDTH or ah > PORTRAIT_VIEWPORT_H):
+                fit = min(PANEL_WIDTH / sw, PORTRAIT_VIEWPORT_H / sh)
+                whole = resample(gray, sw, sh, fit)
+                overview_w, overview_h = whole.size
+                overview_stride, overview_bits = conv.convert(whole)
 
             title = fold(meta.get("safe_title") or meta.get("title") or f"#{num}")
             alt = fold(meta.get("alt") or "")
 
-            records.append(
-                dict(
-                    num=num,
-                    width=w,
-                    height=h,
-                    stride=stride,
-                    year=int(meta.get("year") or 0),
-                    month=int(meta.get("month") or 0),
-                    day=int(meta.get("day") or 0),
-                    imageOffset=images.tell(),
-                    textOffset=text.tell(),
-                    flags=1 if sideways else 0,
-                )
+            rec = dict(
+                num=num,
+                width=aw,
+                height=ah,
+                stride=stride,
+                year=int(meta.get("year") or 0),
+                month=int(meta.get("month") or 0),
+                day=int(meta.get("day") or 0),
+                imageOffset=images.tell(),
+                textOffset=text.tell(),
+                flags=1 if posture == "turned" else 0,
+                overviewWidth=0,
+                overviewHeight=0,
+                overviewStride=0,
+                overviewOffset=0,
             )
             images.write(bits)
+            if overview_bits is not None:
+                # Straight after its own page rendition, so reading one and
+                # then the other is a short seek rather than a jump across a
+                # 130MB file.
+                rec.update(
+                    overviewWidth=overview_w,
+                    overviewHeight=overview_h,
+                    overviewStride=overview_stride,
+                    overviewOffset=images.tell(),
+                )
+                images.write(overview_bits)
+            records.append(rec)
             text.write(title.encode("ascii", "ignore") + b"\0")
             text.write(alt.encode("ascii", "ignore") + b"\0")
 
@@ -524,8 +741,11 @@ def main() -> int:
             )
         )
         for r in records:
+            # Byte 21 is reserved, then the closer rendition. Bytes 32..39 are
+            # reserved padding so a future field can be added without moving
+            # any of the ones above it. Kept in step with xkcd::decodeRecord.
             rec = struct.pack(
-                "<HHHHHBBIIB",
+                "<HHHHHBBIIBxHHHI",
                 r["num"],
                 r["width"],
                 r["height"],
@@ -536,21 +756,77 @@ def main() -> int:
                 r["imageOffset"],
                 r["textOffset"],
                 r["flags"],
+                r["overviewWidth"],
+                r["overviewHeight"],
+                r["overviewStride"],
+                r["overviewOffset"],
             )
-            # Bytes 20..31 are reserved padding, so a future field can be added
-            # without moving any of the ones above it. Kept in step with
-            # xkcd::decodeRecord.
-            assert len(rec) == 21, len(rec)
+            assert len(rec) == 32, len(rec)
             f.write(rec + b"\0" * (INDEX_RECORD_BYTES - len(rec)))
 
     total = (args.out / "images.dat").stat().st_size
+    n = max(1, len(records))
     land = sum(1 for r in records if r["flags"] & 1)
+    close = sum(1 for r in records if r["overviewWidth"])
+    pans = sum(1 for r in records if r["height"] > PORTRAIT_VIEWPORT_H)
     print(f"\n{len(records)} comics, {total / 1e6:.0f} MB of artwork", file=sys.stderr)
     print(
         f"  {len(records) - land} upright, {land} sideways "
-        f"({100 * land / max(1, len(records)):.0f}% ask you to turn the device)",
+        f"({100 * land / n:.0f}% ask you to turn the device)",
         file=sys.stderr,
     )
+    print(
+        f"  {len(records) - pans} fit on one screen ({100 * (len(records) - pans) / n:.0f}%), "
+        f"{pans} pan down",
+        file=sys.stderr,
+    )
+    across = sum(1 for r in records if r["width"] > PANEL_WIDTH)
+    downs = sum(1 for r in records if r["height"] > PORTRAIT_VIEWPORT_H)
+    both = sum(
+        1
+        for r in records
+        if r["width"] > PANEL_WIDTH and r["height"] > PORTRAIT_VIEWPORT_H
+    )
+    print(
+        f"  panning: {n - across - downs + both} none ({100 * (n - across - downs + both) / n:.0f}%), "
+        f"{downs - both} down, {across - both} across, {both} BOTH ({100 * both / n:.1f}%)",
+        file=sys.stderr,
+    )
+    print(
+        f"  {close} carry a whole-comic overview ({100 * close / n:.0f}%)",
+        file=sys.stderr,
+    )
+
+    # The two guarantees this build exists to make, checked against what was
+    # actually written rather than asserted in a comment. If either of these
+    # ever prints, the sliver is back.
+    ragged = [
+        r
+        for r in records
+        if r["width"] > PANEL_WIDTH and (r["width"] - COLUMN_OVERLAP) % COLUMN_STEP
+    ]
+    huge = [
+        r
+        for r in records
+        if r["overviewWidth"]
+        and (r["overviewWidth"] > PANEL_WIDTH or r["overviewHeight"] > PORTRAIT_VIEWPORT_H)
+    ]
+    if ragged:
+        print(
+            f"  BROKEN: {len(ragged)} panning widths are off the column grid",
+            file=sys.stderr,
+        )
+    if huge:
+        print(
+            f"  BROKEN: {len(huge)} overviews do not fit on one screen",
+            file=sys.stderr,
+        )
+    if not ragged and not huge:
+        print(
+            f"  every panning column reveals a full {COLUMN_STEP}px; "
+            f"every overview fits on one screen",
+            file=sys.stderr,
+        )
     if skipped:
         print(f"skipped {len(skipped)}:", file=sys.stderr)
         for num, why in skipped[:40]:

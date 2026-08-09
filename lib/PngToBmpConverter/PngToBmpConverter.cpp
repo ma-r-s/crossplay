@@ -843,3 +843,7 @@ bool PngToBmpConverter::pngFileTo1BitBmpStreamWithSize(HalFile& pngFile, Print& 
                                                        int targetMaxHeight) {
   return pngFileToBmpStreamInternal(pngFile, bmpOut, targetMaxWidth, targetMaxHeight, true, true);
 }
+
+bool PngToBmpConverter::pngFileTo1BitBmpStreamFitWithin(HalFile& pngFile, Print& bmpOut, int maxWidth, int maxHeight) {
+  return pngFileToBmpStreamInternal(pngFile, bmpOut, maxWidth, maxHeight, true, false);
+}

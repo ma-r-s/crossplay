@@ -9,44 +9,36 @@
 // touches one at a time, so a per-comic heap round trip is exactly the churn
 // that fragments a device with no room to spare.
 //
-// --- Why the reader is landscape, at native size, and only ever pans down ---
+// ---------------------------------------------------------------------------
+// One objective: never pan on two axes if one will do
+// ---------------------------------------------------------------------------
 //
-// Measured across 1048 comics sampled evenly over the whole archive, not
-// guessed:
+// What a comic is stored as -- how big, and which way round -- is decided
+// entirely on the host, by `layout()` in tools_local/xkcd/build_pack.py, from
+// a measurement of that comic's own lettering. At the scale its lettering
+// needs, each of its two dimensions lands in one of three bands against the
+// device's SHORT (480) and LONG (756) sides, so there are nine cases and no
+// others; the matrix is drawn in docs/xkcd-pack-format.md. The scale may
+// shrink by up to a sixth to buy an axis. 92% of the archive ends up needing
+// no panning at all, and 2.8% needs both.
 //
-//   * The widest comic xkcd has ever published is **780px**. p99 is 740, which
-//     is the width Randall has standardised on. Nothing comes close to the
-//     800px landscape panel.
-//   * So in landscape at 1:1, **no comic is ever downscaled and no comic ever
-//     needs to pan sideways.** 75% of them need no panning at all; 21% are two
-//     screens tall, and 4% more than that.
-//   * Portrait would be the opposite trade: fit-to-width shrinks 56% of the
-//     archive, the worst to 0.62.
+// So this file does not decide anything about layout. It reads what the
+// builder decided and walks it: **the artwork** at the size its lettering
+// needs, and for the 10% that pan, **an overview** -- the whole comic on one
+// screen, reached by tapping the map end of the bar.
 //
-// That last number is the one that decides it. Rendering #1205 at 1:1 and at
-// 0.65 through this fork's own Atkinson ditherer, the 1:1 lettering is clean
-// and the 0.65 lettering is visibly broken -- hand-lettered strokes are one or
-// two pixels wide, and there is no such thing as a two-thirds-wide stroke on a
-// 1-bit panel. Downscaling line art is where legibility dies here, which is the
-// same reason this fork ships its own 1-bit font instead of using the reader's.
+// Two properties are worth knowing before reading further:
 //
-// So the horizontal panning that seemed necessary is not: the axis xkcd is
-// wide on is the axis the landscape panel is long on. **The only motion in
-// this reader is vertical**, which is why there is one step function below and
-// not two.
+//   * **A position is a panel index, not a pixel offset.** The panels are
+//     counted up front and the travel divided evenly between them, so every
+//     step moves the same distance and the last lands exactly flush. Because
+//     the offset is a pure function of the index, stepping forward and back is
+//     an exact inverse.
+//   * **Reading order is in the comic's frame, not the stored image's.** A
+//     comic stored turned has its left-to-right along the stored image's
+//     top-to-bottom, so it starts at the stored right-hand column. `startOf`
+//     is the only place that knows this.
 //
-// --- Why the step snaps to a gap in the art ---
-//
-// Half a screen is the right stride: every row of the comic is then seen twice,
-// once low and once high, so nothing is only ever glimpsed at the edge. But a
-// blind half-screen cuts speech balloons in half, and a balloon split across a
-// step is read twice and understood once.
-//
-// So the step aims at half a screen and then looks for a horizontal gap in the
-// artwork near that target, landing on one if it finds it. A gap is a run of
-// rows carrying almost no ink -- the space between panel rows, or between two
-// lines of lettering. Landing on either is a good place to stop.
-
 #include <cstddef>
 #include <cstdint>
 
@@ -61,17 +53,28 @@ class ByteSource {
   virtual uint32_t size() const = 0;
 };
 
+// --- The panel -----------------------------------------------------------
+
+// The app is portrait, always, and the panel never rotates. A comic meant to
+// be read sideways is stored already turned, so the reader turns the device
+// and the screen layout stays exactly where it was. This is a fact about the
+// app rather than a setting, which is what lets the guarantees below be stated
+// in pixels.
+inline constexpr int kPanelWidth = 480;
+
 // --- The pack ------------------------------------------------------------
 //
 // Three files under /xkcd on the card, written by
 // tools_local/xkcd/build_pack.py and appended to by the device when it fetches
 // a new comic:
 //
-//   index.dat   a header then one fixed 32-byte record per comic, ascending by
+//   index.dat   a header then one fixed 40-byte record per comic, ascending by
 //               number, so a lookup is a binary search over seeks and never a
 //               scan. Fixed-width is what makes that possible; it is the only
 //               reason the strings live somewhere else.
 //   images.dat  the 1-bit bitmaps end to end, MSB first, rows padded to bytes.
+//               A comic's page rendition is followed by its closer rendition
+//               when it has one.
 //   text.dat    title then alt text, each NUL-terminated, per comic.
 //
 // One pack rather than 3281 files: a directory that size makes every open slow
@@ -86,23 +89,45 @@ class ByteSource {
 // no second implementation, and nothing that can go stale.
 
 inline constexpr uint32_t kMagic = 0x44434B58;  // "XKCD" little-endian
-inline constexpr uint16_t kFormatVersion = 2;
 
-// Bumped whenever a record's layout changes, exactly like the reader's cache
-// format versions. A pack from an older build is rejected whole rather than
-// misread: every field would land one offset out and the failure would look
-// like corrupt artwork rather than a stale file.
+// 3: the record carries a second rendition. Bumped whenever a record's layout
+// changes, exactly like the reader's cache format versions. A pack from an
+// older build is rejected whole rather than misread: every field would land
+// one offset out and the failure would look like corrupt artwork rather than a
+// stale file.
+inline constexpr uint16_t kFormatVersion = 3;
 inline constexpr uint32_t kIndexHeaderBytes = 16;
-inline constexpr uint32_t kIndexRecordBytes = 32;
+inline constexpr uint32_t kIndexRecordBytes = 40;
 
-// The landscape panel is 800 and also the hard sanity bound on what the pack
-// may contain: a wider image would silently draw off the edge. The widest
-// source in the archive is 960px (#256), which the builder scales to fit.
+// --- What the builder guarantees about the artwork -----------------------
+
+// The overview -- the whole comic on one screen, reached with OK -- is never
+// wider than the panel, because that is the entire point of it.
+inline constexpr int kMaxOverviewWidth = kPanelWidth;
+
+// **A closer rendition's width is always kColumnStep * N + kColumnOverlap.**
+// Columns advance by kColumnStep and overlap by kColumnOverlap, so every
+// column -- at any N -- reveals exactly kColumnStep of artwork the previous
+// one did not, and the last column ends flush with the right edge. That is the
+// whole anti-sliver mechanism, and it lives in the arithmetic for the same
+// reason kSnapTolerance does: a runtime check for "is this column worth it?"
+// is the shape of rule that produced the one-pixel column in the first place.
 //
-// An earlier comment here said the archive's ceiling was 780. That came from a
-// 1048-comic sample and was wrong -- worth remembering that a sampled maximum
-// is not a maximum.
-inline constexpr int kMaxComicWidth = 800;
+// N is chosen by the builder from **the comic's own lettering**, measured by
+// connected components on the greyscale source. That measurement is the whole
+// point: cap height across the archive runs from 3px to 25px, so a single zoom
+// multiplier necessarily over-zooms a three-panel strip to rescue a dense
+// infographic. A comic is zoomed until its lettering would be about 12px on
+// the panel, and no further.
+inline constexpr int kColumnOverlap = 48;
+inline constexpr int kColumnStep = kPanelWidth - kColumnOverlap;  // 432
+inline constexpr int kMaxColumns = 8;
+inline constexpr int kMaxArtWidth = kColumnStep * kMaxColumns + kColumnOverlap;  // 3504
+
+// #887 "Future Timeline" is 6370 rows, the tallest in the sampled archive.
+// 16384 leaves room for whatever Randall does next without letting a corrupt
+// header seek past the end of the card.
+inline constexpr int kMaxComicHeight = 16384;
 
 // Record flag: this comic is **stored rotated**, to be read with the device
 // turned on its side.
@@ -114,24 +139,19 @@ inline constexpr int kMaxComicWidth = 800;
 //
 // It is a readability rule rather than a taste one. xkcd letters at a roughly
 // constant size in source pixels, so how far a comic has been shrunk decides
-// whether it can be read: a 694x272 strip fitted into a 480 panel is 0.69x and
-// the lettering goes, but turned on its side it is 272 across and fits easily.
+// whether it can be read: #3269 fitted into a 480 panel is 0.69x and the
+// lettering goes, but turned on its side it fits whole at 1.09x.
 //
 // The reader does not need this flag to draw -- a rotated comic is simply a
 // tall one -- but it is kept so the app can tell the two apart if it ever
 // needs to.
 inline constexpr uint8_t kSideways = 1;
 
-// #887 "Future Timeline" is 6370 rows, the tallest in the sampled archive.
-// 16384 leaves room for whatever Randall does next without letting a corrupt
-// header seek past the end of the card.
-inline constexpr int kMaxComicHeight = 16384;
-
-// One decoded index record. Trivially copyable and 32 bytes on the wire, so a
-// list screen can hold a page of them on the stack.
+// One decoded index record. Trivially copyable, so a list screen can hold a
+// page of them on the stack.
 struct Comic {
   uint16_t num = 0;
-  uint16_t width = 0;
+  uint16_t width = 0;  // the page rendition
   uint16_t height = 0;
   uint16_t stride = 0;  // bytes per row; rows are byte-padded
   uint16_t year = 0;
@@ -139,23 +159,33 @@ struct Comic {
   uint8_t day = 0;
   uint32_t imageOffset = 0;
   uint32_t textOffset = 0;
-  // Which way round this comic is meant to be looked at, decided by the pack
-  // builder from the source dimensions. See kLandscape.
   uint8_t flags = 0;
 
-  bool sideways() const { return (flags & 1) != 0; }
+  // The closer rendition. A width of zero means this comic has none, which is
+  // the normal case: 96% of the archive is legible fitted to the panel and has
+  // nothing more to show.
+  uint16_t overviewWidth = 0;
+  uint16_t overviewHeight = 0;
+  uint16_t overviewStride = 0;
+  uint32_t overviewOffset = 0;
+
+  bool sideways() const { return (flags & kSideways) != 0; }
+  bool hasOverview() const { return overviewWidth > 0 && overviewHeight > 0 && overviewStride > 0; }
 
   // A width of zero is how the index says "this slot is not filled in";
   // the offsets are meaningless then and must not be followed.
   bool valid() const {
-    return num > 0 && width > 0 && height > 0 && stride > 0 && width <= kMaxComicWidth && height <= kMaxComicHeight &&
-           stride >= (width + 7) / 8;
+    return num > 0 && width > 0 && height > 0 && stride > 0 && width <= kMaxArtWidth && height <= kMaxComicHeight &&
+           stride >= (width + 7) / 8 &&
+           // Anything wider than the panel pans sideways, and must therefore
+           // sit on the column grid so no column reveals a sliver.
+           (width <= kPanelWidth || (width - kColumnOverlap) % kColumnStep == 0) &&
+           (!hasOverview() || (overviewWidth <= kMaxOverviewWidth && overviewHeight <= kMaxComicHeight &&
+                               overviewStride >= (overviewWidth + 7) / 8));
   }
-
-  uint32_t imageBytes() const { return static_cast<uint32_t>(stride) * height; }
 };
 
-// Decode one 32-byte record. Exposed because both the index reader and the
+// Decode one 40-byte record. Exposed because both the index reader and the
 // pack writer's own verification path need it, and two decoders would drift.
 Comic decodeRecord(const uint8_t* rec);
 void encodeRecord(const Comic& c, uint8_t* rec);
@@ -197,6 +227,35 @@ int readTitle(ByteSource& text, const Comic& c, char* out, int cap);
 // read xkcd. It is a first-class screen here rather than a tooltip.
 int readAlt(ByteSource& text, const Comic& c, char* out, int cap);
 
+// --- Which rendition is on screen ----------------------------------------
+
+// The page view is the whole comic at panel width. The closer view is the
+// second rendition, entered deliberately and never automatically.
+enum class Lens : uint8_t { Art, Whole };
+
+// The image being drawn, independent of which rendition it came from. Every
+// placement and step function below takes one of these rather than a Comic, so
+// none of them has to branch on the lens -- the difference between the two
+// views is entirely in these four numbers.
+struct Rendition {
+  uint16_t width = 0;
+  uint16_t height = 0;
+  uint16_t stride = 0;
+  uint32_t offset = 0;
+  // Whether this artwork is stored turned on its side. Reading order is
+  // expressed in the *comic's* frame, not the stored image's, so the step
+  // functions need to know which one they are walking. See stepForward.
+  bool sideways = false;
+
+  bool valid() const { return width > 0 && height > 0 && stride >= (width + 7) / 8; }
+  uint32_t bytes() const { return static_cast<uint32_t>(stride) * height; }
+};
+
+// Falls back to the page rendition when Closer is asked for and there is none,
+// so a caller that gets its lens out of step with the comic draws something
+// sensible rather than reading a zero-length image at offset zero.
+Rendition renditionFor(const Comic& c, Lens lens);
+
 // --- Reading the artwork for gaps ---------------------------------------
 //
 // **A gap is a threshold, not emptiness, and that was measured.** The first
@@ -205,22 +264,6 @@ int readAlt(ByteSource& text, const Comic& c, char* out, int cap);
 // frame**, so every interior row crosses two vertical border strokes and no row
 // is ever empty. On #1093, a framed table, it found one boundary in a thousand
 // rows and the steps sliced straight through the table.
-//
-// Profiling ink-per-row across those 30 comics put the separation at about 2%
-// of the width: a frame costs two strokes, any row with lettering costs an
-// order of magnitude more.
-
-// How far a comic may be shrunk before the builder turns the panel instead.
-// A 15% reduction is barely perceptible; 0.69x, which is what a 694px strip
-// costs in portrait, takes the lettering with it. Measured against the whole
-// archive this puts 55% of comics in portrait and 45% in landscape, and --
-// because landscape's 800px absorbs even the 960px outlier -- **nothing ever
-// needs to pan sideways**. Vertical stays the only motion.
-inline constexpr int kMinScalePercent = 85;
-
-// And the other size rule: never enlarge past this, or a 106px comic becomes
-// mush. Applied by the builder, recorded here so both ends agree.
-inline constexpr int kMaxUpscalePercent = 300;
 
 // The ink a row may carry and still count as a gap.
 //
@@ -231,10 +274,6 @@ inline constexpr int kMaxUpscalePercent = 300;
 // frame-plus-divider cost, so every row gap read as 1-2 rows of noise and the
 // steps sliced through the table. Raising the budget to 12 made the same gaps
 // resolve as clean 7-10 row runs.
-//
-// Checked against every comic in a 160-comic pack that is tall enough to pan:
-// 3%/12 lands 93% of steps on a gap, identical to the tighter setting on the
-// general archive while also fixing the dense-table case.
 inline constexpr int kGapInkPercent = 3;
 inline constexpr int kGapInkFloor = 12;
 
@@ -253,15 +292,13 @@ int rowInk(const uint8_t* row, int width);
 // True when the row carries little enough ink to be a gap worth stopping at.
 bool rowIsGap(const uint8_t* row, int width);
 
-// --- Placing a comic on the panel ---------------------------------------
+// --- Placing a rendition on the panel ------------------------------------
 
 // How much of the viewport a step may be pulled by, to land on a gap. A
 // fraction rather than a pixel count because the thing being avoided is
 // proportional: cutting a balloon matters relative to how much you can see at
 // once, and the same 40px nudge is generous on a 480px viewport and
-// meaningless on a 96px one. A fifth is wide enough to catch the gutter of a
-// normal panel row and narrow enough that the step is still recognisably half a
-// screen.
+// meaningless on a 96px one.
 inline constexpr int kSnapToleranceNum = 1;
 inline constexpr int kSnapToleranceDen = 5;
 
@@ -281,15 +318,25 @@ static_assert(kSnapToleranceNum * 2 < kSnapToleranceDen,
               "the snap tolerance must be under half a viewport, or a step "
               "could fail to make progress and freeze the reader");
 
-// Where the reader is in a comic. A comic is a grid of panes: `column` counts
-// across, `scrollY` runs down the current column.
-//
-// **Columns exist because some comics are big in both axes.** A near-square
-// comic full of fine detail cannot be made readable by fitting it to a panel's
-// width -- that is the shrink that turns lettering to mush. The builder zooms
-// those back to full size instead and lets them be read a column at a time.
+// Where the reader is. `column` is always 0 in the page view -- the page
+// rendition is never wider than the panel -- and 0 or 1 in the closer view.
 struct Position {
+  Lens lens = Lens::Art;
   int column = 0;
+  // **The panel index, not a pixel offset.** How many panels the artwork
+  // splits into is worked out up front and the travel divided evenly between
+  // them, so every step moves the same distance and the last one lands exactly
+  // on the end.
+  //
+  // Striding a fixed half-screen and clamping at the bottom is what this
+  // replaced, and it read badly for the reason Mario named: at the end of a row
+  // you would go all the way back to the left and drop by two pixels, because
+  // two pixels was all the fixed stride had left over. An even division cannot
+  // produce that.
+  int row = 0;
+  // The pixel offset `row` works out to, cached here because deriving it needs
+  // the gap window and the callers that draw and hit-test must not each redo
+  // it. The step functions keep it in step with `row`.
   int scrollY = 0;
 };
 
@@ -300,23 +347,25 @@ struct Placement {
   int scrollY = 0;    // first image row drawn
   int visibleW = 0;   // how many image columns are drawn
   int visibleH = 0;   // how many image rows are drawn
-  bool pans = false;  // whether the comic exceeds the viewport at all
+  bool pans = false;  // whether the image exceeds the viewport at all
 };
 
-// Where the image goes for a given scroll offset. Centred horizontally always
-// (nothing is ever wider than the panel); centred vertically when it fits, and
-// pinned to the scroll offset when it does not.
+// Where the image goes for a given position. Centred horizontally when it
+// fits; centred vertically when it fits, and pinned to the scroll offset when
+// it does not.
 //
-// Callers must derive their tap regions from what this returns rather than
-// recomputing them -- that rule has caught more bugs in this fork than any
-// other. See docs/building-apps.md.
-Placement place(const Comic& c, int viewportW, int viewportH, const Position& at);
+// Callers must derive their tap regions and their map from what this returns
+// rather than recomputing them -- that rule has caught more bugs in this fork
+// than any other. See docs/building-apps.md.
+Placement place(const Rendition& r, int viewportW, int viewportH, const Position& at);
 
-// The largest legal scroll offset within a column. Zero when the column fits.
-int maxScroll(const Comic& c, int viewportH);
+// The largest legal scroll offset. Zero when the image fits down the page.
+int maxScroll(const Rendition& r, int viewportH);
 
-// How many columns the comic occupies. One for all but the wide-and-detailed.
-int columnCount(const Comic& c, int viewportW);
+// How many columns the image occupies: 1 for any page rendition, 2 for any
+// closer rendition. Both are guaranteed by the builder and enforced by
+// Comic::valid(), so this never returns 3 for a pack this build will open.
+int columnsIn(const Rendition& r, int viewportW);
 
 // Which rows near the target are gaps, so the core stays free of I/O.
 //
@@ -335,42 +384,79 @@ struct GapWindow {
   int rowCount = 0;
 };
 
-// The rows a step from `scrollY` will consult. The caller reads exactly this
+// How many panels the artwork splits into down the page, and where panel `row`
+// starts before snapping. Both are pure arithmetic on the dimensions, which is
+// the point: the split is decided once, up front, rather than emerging from
+// wherever a fixed stride happens to run out.
+//
+// rowsIn is at least 1. evenTargetY(0) is 0 and evenTargetY(rowsIn - 1) is
+// exactly maxScroll, so the first and last panels sit flush against the ends
+// and no step is ever a remainder.
+int rowsIn(const Rendition& r, int viewportH);
+int evenTargetY(const Rendition& r, int viewportH, int row);
+
+// The rows a step to panel `row` will consult. The caller reads exactly this
 // range off the card and hands it straight back, so the window that was read is
 // the window that gets used -- the same rule as hit-testing sharing geometry
 // with drawing.
-void gapWindowFor(const Comic& c, int viewportH, int scrollY, bool down, int& firstRow, int& rowCount);
+void gapWindowFor(const Rendition& r, int viewportH, int row, int& firstRow, int& rowCount);
 
-// Advance or retreat one step in reading order: down the current column, and
-// on past its bottom to the top of the next. **One control covers both axes**,
-// which is why there is no separate left/right gesture -- the reader taps down
-// and the comic keeps going.
-Position stepForward(const Comic& c, int viewportW, int viewportH, const Position& at, const GapWindow& window);
-Position stepBack(const Comic& c, int viewportW, int viewportH, const Position& at, const GapWindow& window);
+// Where panel `row` actually starts: its even target, pulled onto a gap in the
+// artwork when one is close enough. The ends are never pulled, so the comic
+// still finishes flush.
+int scrollYFor(const Rendition& r, int viewportH, int row, const GapWindow& window);
+
+// The most rows gapWindowFor can ever ask for at a given viewport, so the
+// caller can size its flag buffer from the same arithmetic the window is
+// derived from.
+//
+// **This exists because writing the number down separately silently disabled
+// gap snapping for the entire life of the app.** The Activity had a 256-row
+// buffer justified by a comment that computed 203 "at a 480px viewport"; the
+// reader's viewport is 756, the real ask is 313, the window was refused as too
+// large on every step, and every pan fell back to a blind half-screen through
+// the middle of a speech balloon. The host tests never saw it because they
+// passed 480, where the comment was true.
+constexpr int gapRowsFor(int viewportH) {
+  return 2 * (viewportH * kSnapToleranceNum / kSnapToleranceDen) + kGutterPad + kMinGutterRows + 1;
+}
+
+// Advance or retreat one view, **in reading order**: across the columns of the
+// current band left to right, then down to the next band and back to the left.
+//
+// In the page view there is only one column, so this is purely vertical and
+// the horizontal half of the rule never fires. In the closer view it is what
+// makes a two-column comic read 1, 2, 3, 4 rather than 1, 3, 2, 4 -- the
+// scrambling that made the previous version feel like it was jumping at
+// random.
+Position stepForward(const Rendition& r, int viewportW, int viewportH, const Position& at, const GapWindow& window);
+Position stepBack(const Rendition& r, int viewportW, int viewportH, const Position& at, const GapWindow& window);
 
 // True when there is anywhere further to go, so the caller can stop rather
-// than repaint an identical screen.
-bool canStepForward(const Comic& c, int viewportW, int viewportH, const Position& at);
-bool canStepBack(const Position& at);
+// than repaint an identical screen. Both are local: neither walks the image,
+// which is what keeps them honest on a 740x14957 comic.
+bool canStepForward(const Rendition& r, int viewportW, int viewportH, const Position& at);
+bool canStepBack(const Rendition& r, int viewportW, int viewportH, const Position& at);
 
-// The next scroll offset when the reader pans down (or up). Half a viewport,
-// pulled onto a gap in the artwork when one is within tolerance, clamped to
-// the ends.
+// Where the walk begins and ends. Not always the top left and bottom right: a
+// sideways comic is stored turned, so the comic's own first panel is at the
+// stored image's right.
 //
-// Both guarantee **strict progress**: if the result is not already at the
-// relevant end, it differs from `scrollY`.
-int scrollDown(const Comic& c, int viewportH, int scrollY, const GapWindow& window);
-int scrollUp(const Comic& c, int viewportH, int scrollY, const GapWindow& window);
+// `endOf` is cheap because a position is a panel index -- the last panel is
+// `rowsIn - 1`, not something you have to walk to. Arriving at the *end* of the
+// previous comic when you step backwards off the start of this one is what a
+// reader does at a chapter boundary, and it costs no I/O.
+Position startOf(const Rendition& r, int viewportW);
+Position endOf(const Rendition& r, int viewportW, int viewportH);
 
-// How far through the whole comic the reader is, across every column, as a
-// fraction in [0, 1000].
-// Drawn as a rail rather than counted as "2 of 3" on purpose: a step count
-// would have to walk the whole comic through the snap rule to be right, which
-// means reading every row off the card, and any cheaper formula would be a
-// second implementation of the step that disagrees with the real one the first
-// time a snap fires. The rail is derived from the scroll offset, which *is* the
-// state, so it cannot disagree with anything.
-int scrollPermille(const Comic& c, int viewportW, int viewportH, const Position& at);
+// --- Moving between the two views ----------------------------------------
+
+// The position in the other lens that shows the same part of the comic.
+// Switching views should not lose your place, and the two renditions are the
+// same artwork at different scales, so the mapping is the scroll offset scaled
+// by the ratio of their heights. Entering the closer view starts at the left
+// of the band; leaving it keeps whatever row you were on.
+Position mapAcross(const Comic& c, int viewportW, int viewportH, const Position& at, Lens to);
 
 // --- Search --------------------------------------------------------------
 

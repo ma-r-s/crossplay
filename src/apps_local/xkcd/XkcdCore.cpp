@@ -80,7 +80,12 @@ Comic decodeRecord(const uint8_t* rec) {
   c.imageOffset = rd32(rec + 12);
   c.textOffset = rd32(rec + 16);
   c.flags = rec[20];
-  // bytes 21..31 are padding, reserved so a new field does not move the others
+  // byte 21 is reserved
+  c.overviewWidth = rd16(rec + 22);
+  c.overviewHeight = rd16(rec + 24);
+  c.overviewStride = rd16(rec + 26);
+  c.overviewOffset = rd32(rec + 28);
+  // bytes 32..39 are padding, reserved so a new field does not move the others
   return c;
 }
 
@@ -97,6 +102,10 @@ void encodeRecord(const Comic& c, uint8_t* rec) {
   wr32(rec + 12, c.imageOffset);
   wr32(rec + 16, c.textOffset);
   rec[20] = c.flags;
+  wr16(rec + 22, c.overviewWidth);
+  wr16(rec + 24, c.overviewHeight);
+  wr16(rec + 26, c.overviewStride);
+  wr32(rec + 28, c.overviewOffset);
 }
 
 bool Archive::open(ByteSource& index) {
@@ -166,42 +175,62 @@ int readAlt(ByteSource& text, const Comic& c, char* out, int cap) {
   return readString(text, c.textOffset, 1, out, cap);
 }
 
-int maxScroll(const Comic& c, int viewportH) {
+Rendition renditionFor(const Comic& c, Lens lens) {
+  Rendition r;
+  const bool whole = lens == Lens::Whole && c.hasOverview();
+  r.width = whole ? c.overviewWidth : c.width;
+  r.height = whole ? c.overviewHeight : c.height;
+  r.stride = whole ? c.overviewStride : c.stride;
+  r.offset = whole ? c.overviewOffset : c.imageOffset;
+  r.sideways = c.sideways();
+  return r;
+}
+
+int maxScroll(const Rendition& r, int viewportH) {
   if (viewportH <= 0) return 0;
-  const int over = static_cast<int>(c.height) - viewportH;
+  const int over = static_cast<int>(r.height) - viewportH;
   return over > 0 ? over : 0;
 }
 
-int columnCount(const Comic& c, int viewportW) {
+int columnsIn(const Rendition& r, int viewportW) {
   if (viewportW <= 0) return 1;
-  const int cols = (static_cast<int>(c.width) + viewportW - 1) / viewportW;
-  return cols < 1 ? 1 : cols;
+  const int over = static_cast<int>(r.width) - viewportW;
+  if (over <= 0) return 1;
+  // Derived from the step the columns actually advance by, so this and place()
+  // cannot disagree. Computing it from the viewport width instead was the bug
+  // a column-guarantee test found immediately: at three columns or more the
+  // last one revealed a sliver, because the columns were spaced 480 apart
+  // while the width was laid out on a 432 grid.
+  return 1 + (over + kColumnStep - 1) / kColumnStep;
 }
 
-Placement place(const Comic& c, int viewportW, int viewportH, const Position& at) {
+Placement place(const Rendition& r, int viewportW, int viewportH, const Position& at) {
   Placement p;
-  const int cols = columnCount(c, viewportW);
-  int column = at.column < 0 ? 0 : (at.column >= cols ? cols - 1 : at.column);
+  if (!r.valid() || viewportW <= 0 || viewportH <= 0) return p;
 
-  // Columns are whole viewports side by side, with the last one pulled back so
-  // it ends flush against the right edge of the artwork rather than running
-  // off into blank space.
-  p.scrollX = column * viewportW;
-  const int overX = static_cast<int>(c.width) - viewportW;
+  const int cols = columnsIn(r, viewportW);
+  const int column = at.column < 0 ? 0 : (at.column >= cols ? cols - 1 : at.column);
+
+  // Columns advance by kColumnStep, not by a whole viewport, so consecutive
+  // columns overlap by kColumnOverlap and a word split at the seam stays
+  // readable on both sides. The last is clamped flush to the right edge, which
+  // for a width on the column grid is exactly where it already lands.
+  p.scrollX = column * kColumnStep;
+  const int overX = static_cast<int>(r.width) - viewportW;
   if (p.scrollX > overX) p.scrollX = overX < 0 ? 0 : overX;
 
-  p.visibleW = static_cast<int>(c.width) - p.scrollX;
+  p.visibleW = static_cast<int>(r.width) - p.scrollX;
   if (p.visibleW > viewportW) p.visibleW = viewportW;
 
-  // Centred horizontally when the comic fits across, flush left when it does
-  // not. No branch on the column count is needed: a comic with more than one
+  // Centred horizontally when the image fits across, flush left when it does
+  // not. No branch on the column count is needed: an image with more than one
   // column is by definition wider than the viewport, so this is negative and
   // the clamp takes it to zero. A guard for that case was written first and a
   // mutation test showed it could never change the answer.
-  p.originX = (viewportW - static_cast<int>(c.width)) / 2;
+  p.originX = (viewportW - static_cast<int>(r.width)) / 2;
   if (p.originX < 0) p.originX = 0;
 
-  const int maxS = maxScroll(c, viewportH);
+  const int maxS = maxScroll(r, viewportH);
   p.pans = maxS > 0 || cols > 1;
 
   if (maxS <= 0) {
@@ -214,8 +243,8 @@ Placement place(const Comic& c, int viewportW, int viewportH, const Position& at
     // and putting it on the page turns every comic into a comic plus an
     // explanation. The bar is the way to it.
     p.scrollY = 0;
-    p.visibleH = c.height;
-    p.originY = (viewportH - static_cast<int>(c.height)) / 2;
+    p.visibleH = r.height;
+    p.originY = (viewportH - static_cast<int>(r.height)) / 2;
     if (p.originY < 0) p.originY = 0;
     return p;
   }
@@ -226,50 +255,120 @@ Placement place(const Comic& c, int viewportW, int viewportH, const Position& at
   return p;
 }
 
-bool canStepBack(const Position& at) { return at.column > 0 || at.scrollY > 0; }
+// --- Walking a rendition in reading order --------------------------------
+//
+// **Reading order is expressed in the comic's frame, not the stored image's.**
+// For an upright comic those are the same thing: across the columns of a band
+// left to right, then down to the next band and back to the left.
+//
+// A sideways comic is stored turned a quarter turn clockwise, so the comic's
+// own axes are relabelled: its left-to-right became the stored image's
+// top-to-bottom, and its top-to-bottom became the stored image's right-to-left.
+// Walking the stored image as if it were upright therefore starts in the wrong
+// corner -- at what the reader, holding the device turned, sees as the bottom
+// left of the comic. So for those the walk runs down a stored column and then
+// leftwards to the next, beginning at the rightmost.
+//
+// The previous version went down a column and back to the *top* of the next
+// one for everything, which read a multi-panel comic 1, 4, 7, 2, 5, 8. On
+// e-ink there is no animation to show the view moving sideways, so that came
+// across as jumping at random.
 
-bool canStepForward(const Comic& c, int viewportW, int viewportH, const Position& at) {
-  const int maxS = maxScroll(c, viewportH);
-  if (at.scrollY < maxS) return true;
-  return at.column + 1 < columnCount(c, viewportW);
+namespace {
+
+// The first column of the walk, and the direction it runs in. One place, so
+// the starting corner and the stepping cannot disagree about which way round
+// the comic is.
+int firstColumn(const Rendition& r, int viewportW) { return r.sideways ? columnsIn(r, viewportW) - 1 : 0; }
+int lastColumn(const Rendition& r, int viewportW) { return r.sideways ? 0 : columnsIn(r, viewportW) - 1; }
+int columnAdvance(const Rendition& r) { return r.sideways ? -1 : 1; }
+
+}  // namespace
+
+Position startOf(const Rendition& r, int viewportW) {
+  Position p;
+  p.column = firstColumn(r, viewportW);
+  p.row = 0;
+  p.scrollY = 0;
+  return p;
 }
 
-Position stepForward(const Comic& c, int viewportW, int viewportH, const Position& at, const GapWindow& window) {
-  Position next = at;
-  const int maxS = maxScroll(c, viewportH);
+Position endOf(const Rendition& r, int viewportW, int viewportH) {
+  Position p;
+  p.column = lastColumn(r, viewportW);
+  p.row = rowsIn(r, viewportH) - 1;
+  if (p.row < 0) p.row = 0;
+  p.scrollY = evenTargetY(r, viewportH, p.row);
+  return p;
+}
 
-  if (at.scrollY < maxS) {
-    next.scrollY = scrollDown(c, viewportH, at.scrollY, window);
+bool canStepBack(const Rendition& r, int viewportW, int viewportH, const Position& at) {
+  (void)viewportH;
+  return at.row > 0 || at.column != firstColumn(r, viewportW);
+}
+
+bool canStepForward(const Rendition& r, int viewportW, int viewportH, const Position& at) {
+  if (at.column != lastColumn(r, viewportW)) return true;
+  return at.row + 1 < rowsIn(r, viewportH);
+}
+
+Position stepForward(const Rendition& r, int viewportW, int viewportH, const Position& at, const GapWindow& window) {
+  Position next = at;
+
+  // Across the band first. Only when it is exhausted does the reader drop to
+  // the next band, and dropping returns to the band's own starting side.
+  if (at.column != lastColumn(r, viewportW)) {
+    next.column = at.column + columnAdvance(r);
     return next;
   }
-  // Off the bottom of this column, so on to the top of the next. This is the
-  // whole reason there is no separate sideways gesture: one control walks the
-  // comic in reading order however many columns it has.
-  if (at.column + 1 < columnCount(c, viewportW)) {
-    next.column = at.column + 1;
-    next.scrollY = 0;
+  if (at.row + 1 < rowsIn(r, viewportH)) {
+    next.column = firstColumn(r, viewportW);
+    next.row = at.row + 1;
+    next.scrollY = scrollYFor(r, viewportH, next.row, window);
   }
   return next;
 }
 
-Position stepBack(const Comic& c, int viewportW, int viewportH, const Position& at, const GapWindow& window) {
-  (void)viewportW;  // symmetry with stepForward; the column index is enough
+Position stepBack(const Rendition& r, int viewportW, int viewportH, const Position& at, const GapWindow& window) {
   Position prev = at;
-  if (at.scrollY > 0) {
-    prev.scrollY = scrollUp(c, viewportH, at.scrollY, window);
+
+  if (at.column != firstColumn(r, viewportW)) {
+    prev.column = at.column - columnAdvance(r);
     return prev;
   }
-  if (at.column > 0) {
-    prev.column = at.column - 1;
-    prev.scrollY = maxScroll(c, viewportH);
+  if (at.row > 0) {
+    // Back up a band and land on the side the reader left it from, so a step
+    // back and a step forward are exact inverses. They are: the position is a
+    // panel index, and the pixel offset is a pure function of it.
+    prev.row = at.row - 1;
+    prev.scrollY = scrollYFor(r, viewportH, prev.row, window);
+    prev.column = lastColumn(r, viewportW);
   }
   return prev;
 }
 
-void gapWindowFor(const Comic& c, int viewportH, int scrollY, bool down, int& firstRow, int& rowCount) {
-  const int step = viewportH / 2 > 0 ? viewportH / 2 : 1;
+int rowsIn(const Rendition& r, int viewportH) {
+  const int travel = maxScroll(r, viewportH);
+  if (travel <= 0) return 1;
+  const int stride = viewportH / 2 > 0 ? viewportH / 2 : 1;
+  // Ceiling division: enough panels that no single step exceeds half a screen.
+  // The travel is then shared out between them equally, which is what stops the
+  // last step from being whatever a fixed stride happened to have left over.
+  return 1 + (travel + stride - 1) / stride;
+}
+
+int evenTargetY(const Rendition& r, int viewportH, int row) {
+  const int rows = rowsIn(r, viewportH);
+  const int travel = maxScroll(r, viewportH);
+  if (rows <= 1 || travel <= 0) return 0;
+  if (row <= 0) return 0;
+  if (row >= rows - 1) return travel;  // exactly flush, never a remainder
+  return static_cast<int>((static_cast<int64_t>(travel) * row) / (rows - 1));
+}
+
+void gapWindowFor(const Rendition& r, int viewportH, int row, int& firstRow, int& rowCount) {
   const int tol = viewportH * kSnapToleranceNum / kSnapToleranceDen;
-  const int target = down ? scrollY + step : scrollY - step;
+  const int target = evenTargetY(r, viewportH, row);
 
   // A landing row L is `kGutterPad` above the first inked row after a gap run,
   // so to judge every L in [target-tol, target+tol] we need the rows from the
@@ -278,7 +377,7 @@ void gapWindowFor(const Comic& c, int viewportH, int scrollY, bool down, int& fi
   int hi = target + tol + kGutterPad;
 
   if (lo < 0) lo = 0;
-  if (hi > static_cast<int>(c.height) - 1) hi = static_cast<int>(c.height) - 1;
+  if (hi > static_cast<int>(r.height) - 1) hi = static_cast<int>(r.height) - 1;
   if (hi < lo) {
     firstRow = 0;
     rowCount = 0;
@@ -292,7 +391,7 @@ namespace {
 
 // The best landing row within tolerance of `target`, or `target` itself when
 // the window shows no gap worth stopping at.
-int snapToGap(const Comic& c, int viewportH, int target, const GapWindow& w) {
+int snapToGap(const Rendition& r, int viewportH, int target, const GapWindow& w) {
   if (!w.isGap || w.rowCount <= 0) return target;
 
   const int tol = viewportH * kSnapToleranceNum / kSnapToleranceDen;
@@ -307,7 +406,7 @@ int snapToGap(const Comic& c, int viewportH, int target, const GapWindow& w) {
 
   for (int i = 0; i < w.rowCount; ++i) {
     const int y = w.firstRow + i;
-    if (y < 0 || y >= static_cast<int>(c.height)) {
+    if (y < 0 || y >= static_cast<int>(r.height)) {
       gapRun = 0;
       continue;
     }
@@ -333,58 +432,54 @@ int snapToGap(const Comic& c, int viewportH, int target, const GapWindow& w) {
 
 }  // namespace
 
-int scrollDown(const Comic& c, int viewportH, int scrollY, const GapWindow& window) {
-  const int maxS = maxScroll(c, viewportH);
-  if (scrollY < 0) scrollY = 0;
-  if (scrollY >= maxS) return maxS;
+int scrollYFor(const Rendition& r, int viewportH, int row, const GapWindow& window) {
+  const int travel = maxScroll(r, viewportH);
+  if (travel <= 0) return 0;
+  const int rows = rowsIn(r, viewportH);
+  if (row <= 0) return 0;
+  // The last panel sits exactly flush with the bottom. Snapping it would stop
+  // short and demand one more tap to close a gap the reader can already see --
+  // and it is the panel whose position matters most, because it is the one a
+  // ragged stride used to ruin.
+  if (row >= rows - 1) return travel;
 
-  const int step = viewportH / 2 > 0 ? viewportH / 2 : 1;
-  const int target = scrollY + step;
-  // The last step lands exactly on the end rather than somewhere near it, so
-  // the bottom of the comic is always flush with the bottom of the screen.
-  // Snapping here would stop short and demand one more tap to close a gap the
-  // reader can already see.
-  if (target >= maxS) return maxS;
-
-  int next = snapToGap(c, viewportH, target, window);
-  if (next > maxS) next = maxS;
-  if (next < 0) next = 0;
-  return next;
+  const int target = evenTargetY(r, viewportH, row);
+  int y = snapToGap(r, viewportH, target, window);
+  if (y < 0) y = 0;
+  if (y > travel) y = travel;
+  return y;
 }
 
-int scrollUp(const Comic& c, int viewportH, int scrollY, const GapWindow& window) {
-  const int maxS = maxScroll(c, viewportH);
-  if (scrollY > maxS) scrollY = maxS;
-  if (scrollY <= 0) return 0;
+Position mapAcross(const Comic& c, int viewportW, int viewportH, const Position& at, Lens to) {
+  if (to == Lens::Whole && !c.hasOverview()) return at;
 
-  const int step = viewportH / 2 > 0 ? viewportH / 2 : 1;
-  const int target = scrollY - step;
-  if (target <= 0) return 0;
+  const Rendition from = renditionFor(c, at.lens);
+  const Rendition dest = renditionFor(c, to);
+  if (!from.valid() || !dest.valid() || from.height == 0) return at;
 
-  int prev = snapToGap(c, viewportH, target, window);
-  if (prev < 0) prev = 0;
-  if (prev > maxS) prev = maxS;
-  return prev;
-}
+  Position out = startOf(dest, viewportW);
+  out.lens = to;
 
-int scrollPermille(const Comic& c, int viewportW, int viewportH, const Position& at) {
-  const int cols = columnCount(c, viewportW);
-  const int maxS = maxScroll(c, viewportH);
-
-  // Measured against the *end* position rather than a notional total, so the
-  // rail reaches 1000 exactly when the reader reaches the last pane. Deriving
-  // it from a total instead left a two-column comic showing half-full at its
-  // final screen.
-  const int perColumn = maxS > 0 ? maxS : 1;
-  const int end = (cols - 1) * perColumn + maxS;
-  if (end <= 0) return 1000;  // the whole comic is on screen
-
-  int col = at.column < 0 ? 0 : (at.column >= cols ? cols - 1 : at.column);
-  int y = at.scrollY < 0 ? 0 : (at.scrollY > maxS ? maxS : at.scrollY);
-  const int done = col * perColumn + y;
-  if (done <= 0) return 0;
-  if (done >= end) return 1000;
-  return done * 1000 / end;
+  // The two renditions are the same artwork at different scales, so the row
+  // under the top of the screen maps by the ratio of their heights. Rounded to
+  // the nearest panel of the destination, because a panel index is what a
+  // position now is -- landing between two panels would put the reader
+  // somewhere no step could reach.
+  const int fromTravel = maxScroll(from, viewportH);
+  const int destTravel = maxScroll(dest, viewportH);
+  const int y = at.scrollY < 0 ? 0 : (at.scrollY > fromTravel ? fromTravel : at.scrollY);
+  if (destTravel > 0 && from.height > 0) {
+    const int scaled = static_cast<int>(static_cast<int64_t>(y) * static_cast<int64_t>(dest.height) /
+                                        static_cast<int64_t>(from.height));
+    const int rows = rowsIn(dest, viewportH);
+    int row =
+        rows > 1 ? static_cast<int>((static_cast<int64_t>(scaled) * (rows - 1) + destTravel / 2) / destTravel) : 0;
+    if (row < 0) row = 0;
+    if (row > rows - 1) row = rows - 1;
+    out.row = row;
+    out.scrollY = evenTargetY(dest, viewportH, row);
+  }
+  return out;
 }
 
 int rowInk(const uint8_t* row, int width) {

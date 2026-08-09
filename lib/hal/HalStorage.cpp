@@ -140,6 +140,17 @@ bool HalStorage::openFileForAppend(const char* moduleName, const char* path, Hal
   return ok;
 }
 
+bool HalStorage::openFileForUpdate(const char* moduleName, const char* path, HalFile& file) {
+  StorageLock lock;  // ensure thread safety for the duration of this function
+  FsFile fsFile = SDCard.open(path, O_RDWR);
+  const bool ok = fsFile.isOpen();
+  if (!ok) {
+    LOG_ERR(moduleName, "Failed to open %s for update", path);
+  }
+  file = HalFile(std::make_unique<HalFile::Impl>(std::move(fsFile)));
+  return ok;
+}
+
 bool HalStorage::removeDir(const char* path) { HAL_STORAGE_WRAPPED_CALL(removeDir, path); }
 
 // HalFile implementation

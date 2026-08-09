@@ -10,6 +10,15 @@ namespace {
 // that has to be panned instead of seen.
 constexpr int16_t kBarHeight = 44;
 
+// The map at the right-hand end of the bar, and the OK mark beside it that
+// says the Confirm button has something to do. Sized so a long title still
+// gets most of the bar: the old rail took a fifth of the panel and cut
+// "Paleontology" to "Paleon".
+constexpr int16_t kMapWidth = 40;
+constexpr int16_t kMapHeight = 26;
+constexpr int16_t kMapMinSide = 6;
+constexpr int16_t kOkWidth = 56;
+
 // The top of any body: below the header band and the rule Toybox draws under
 // it. Shared by every screen here so they line up with each other and with the
 // shelf the reader just came from.
@@ -365,6 +374,81 @@ fui::Rect readerPanDownHalf(const fui::DeviceContext& device) {
                        static_cast<int16_t>(view.height - half));
 }
 
+// The map's box: the right-hand end of the bar, inset so it does not touch the
+// panel edge. Shared with the Activity so the two cannot disagree about where
+// it is.
+fui::Rect readerMapRect(const fui::DeviceContext& device) {
+  const fui::Rect panel = device.screen();
+  const int16_t h = kMapHeight;
+  const int16_t w = kMapWidth;
+  const int16_t y = static_cast<int16_t>(panel.height - kBarHeight + (kBarHeight - h) / 2);
+  const int16_t x = static_cast<int16_t>(panel.width - toybox::kGutter * 2 - w);
+  return fui::makeRect(x, y, w, h);
+}
+
+namespace {
+
+// The comic's own shape, with the part you can see filled in.
+//
+// Ornament made of the app's own material carrying the app's own data, the
+// same rule as the menu's mosaic: the material here is the wild variation in
+// comic shape that made this app hard to build at all, and the data is where
+// you are in one.
+void drawMap(toybox::Screen& screen, const fui::Rect& box, const ReaderModel& model) {
+  // Fit the comic's aspect into the box. #1732 is 912x18400, which at its true
+  // aspect is under a pixel wide with a sub-pixel "you are here" inside it, so
+  // the outline is floored at kMapMinSide. What that turns into for a very
+  // tall comic is a vertical bar with a block in it -- which is the affordance
+  // a comic that long wants anyway, so the degradation runs the right way.
+  int w = box.width;
+  int h = box.height;
+  if (model.imageW > 0 && model.imageH > 0) {
+    if (static_cast<int64_t>(model.imageW) * box.height > static_cast<int64_t>(model.imageH) * box.width) {
+      h = static_cast<int>(static_cast<int64_t>(box.width) * model.imageH / model.imageW);
+    } else {
+      w = static_cast<int>(static_cast<int64_t>(box.height) * model.imageW / model.imageH);
+    }
+  }
+  if (w < kMapMinSide) w = kMapMinSide;
+  if (h < kMapMinSide) h = kMapMinSide;
+  if (w > box.width) w = box.width;
+  if (h > box.height) h = box.height;
+
+  const int16_t ox = static_cast<int16_t>(box.x + box.width - w);
+  const int16_t oy = static_cast<int16_t>(box.y + (box.height - h) / 2);
+  const fui::Rect outline = fui::makeRect(ox, oy, static_cast<int16_t>(w), static_cast<int16_t>(h));
+
+  // Outline first, then the visible part knocked in solid. On the black bar
+  // that reads as "this much exists, and this much of it is on your screen".
+  screen.target().stroke(outline, fui::Paint::solid(fui::Color::White), 1);
+
+  if (model.imageW <= 0 || model.imageH <= 0) return;
+  auto span = [](int start, int extent, int total, int into) {
+    if (total <= 0) return 0;
+    int v = static_cast<int>(static_cast<int64_t>(extent) * into / total);
+    (void)start;
+    return v;
+  };
+  int vw = span(model.viewX, model.viewW, model.imageW, w);
+  int vh = span(model.viewY, model.viewH, model.imageH, h);
+  int vx = span(0, model.viewX, model.imageW, w);
+  int vy = span(0, model.viewY, model.imageH, h);
+  // A view that rounds to nothing still has to be visible: the block is the
+  // only part of this that moves.
+  if (vw < 2) vw = 2;
+  if (vh < 2) vh = 2;
+  if (vx + vw > w) vx = w - vw;
+  if (vy + vh > h) vy = h - vh;
+  if (vx < 0) vx = 0;
+  if (vy < 0) vy = 0;
+
+  screen.target().fill(fui::makeRect(static_cast<int16_t>(ox + vx), static_cast<int16_t>(oy + vy),
+                                     static_cast<int16_t>(vw), static_cast<int16_t>(vh)),
+                       fui::Paint::solid(fui::Color::White));
+}
+
+}  // namespace
+
 void buildReaderBar(toybox::Screen& screen, const ReaderModel& model) {
   const fui::Rect panel = screen.device().screen();
   const fui::Rect bar = fui::makeRect(0, static_cast<int16_t>(panel.height - kBarHeight), panel.width, kBarHeight);
@@ -379,16 +463,16 @@ void buildReaderBar(toybox::Screen& screen, const ReaderModel& model) {
   fui::TextStyle label = owned(screen.theme().smallText, fui::TextAlign::Left);
   label.color = fui::Color::White;
 
-  // The label gets what the rail and ALT do not need, bounded by what it must
-  // not touch. Handing a long title the whole bar was the defect the shelf's
-  // player row had: the component centres across the whole rect, so at the
-  // widest value the text runs straight through its neighbours.
-  //
-  // The rail is a fraction of the panel rather than a fixed 180, and absent
-  // entirely when the comic does not pan. At 480 wide the fixed version left
-  // the title eleven characters and cut "Paleontology" to "Paleon".
-  const int16_t railWidth = model.pans ? static_cast<int16_t>(panel.width / 5) : 0;
-  const int16_t labelWidth = static_cast<int16_t>(panel.width - toybox::kGutter * 3 - railWidth);
+  // The label gets what the map and the OK mark do not need, bounded by what
+  // it must not touch. Handing a long title the whole bar was the defect the
+  // shelf's player row had: the component centres across the whole rect, so at
+  // the widest value the text runs straight through its neighbours.
+  const bool showMap = model.imageW > 0 && model.imageH > 0 &&
+                       (model.viewW < model.imageW || model.viewH < model.imageH || model.hasOverview);
+  const fui::Rect map = readerMapRect(screen.device());
+  const int16_t okWidth = model.hasOverview ? kOkWidth : 0;
+  const int16_t reserved = showMap ? static_cast<int16_t>(map.width + okWidth + toybox::kGutter) : 0;
+  const int16_t labelWidth = static_cast<int16_t>(panel.width - toybox::kGutter * 3 - reserved);
   // The full bar height, not a guessed 22px band inside it: the target centres
   // text on the font's *line box*, which is taller than the ink, so a short
   // rect pushes the baseline past the bottom of the panel. That drew the title
@@ -397,33 +481,47 @@ void buildReaderBar(toybox::Screen& screen, const ReaderModel& model) {
   fitLabel(screen.target(), left, labelWidth, label, fitted, sizeof(fitted));
   screen.target().text(fui::makeRect(toybox::kGutter, bar.y, labelWidth, kBarHeight), fitted, label);
 
-  // The rail: how far through the comic you are. Only drawn when there is
-  // somewhere to go, because a full rail on a comic that fits says nothing
-  // and a rail is not a control, so nothing is lost by its absence.
-  if (model.pans) {
-    const int16_t railX = static_cast<int16_t>(panel.width - toybox::kGutter * 2 - railWidth);
-    const int16_t railY = static_cast<int16_t>(bar.y + kBarHeight / 2 - 3);
-    const fui::Rect rail = fui::makeRect(railX, railY, railWidth, 6);
-    screen.target().fill(rail, fui::Paint::solid(fui::Color::White));
+  if (showMap) drawMap(screen, map, model);
 
-    // The filled part is knocked back out in black. Two rectangles rather than
-    // a thumb: a thumb on a 6px rail is a 6px square and reads as dirt.
-    const int16_t filled = static_cast<int16_t>(static_cast<int32_t>(railWidth) * model.permille / 1000);
-    if (filled < railWidth) {
-      screen.target().fill(
-          fui::makeRect(static_cast<int16_t>(railX + filled), railY, static_cast<int16_t>(railWidth - filled), 6),
-          fui::Paint::solid(fui::Color::Black));
-      screen.target().fill(fui::makeRect(static_cast<int16_t>(railX + filled), railY, 2, 6),
-                           fui::Paint::solid(fui::Color::White));
-    }
+  // The OK mark. Only when there is a closer view, because a control that does
+  // nothing is worse than no control: it is the reason the disabled-button
+  // finding in this fork mattered at all.
+  if (model.hasOverview) {
+    fui::TextStyle ok = owned(screen.theme().smallText, fui::TextAlign::Right);
+    ok.color = fui::Color::White;
+    // It said "OK" while the toggle was on the Confirm button. The X4 Pro has
+    // no Confirm button, so naming one was doubly wrong: it pointed at a key
+    // that cannot fire, and it read as a key rather than as something to tap.
+    // These say what tapping does instead.
+    //
+    // Two words rather than "+" and "-": **'+' draws as nothing in this face.**
+    // The subset claims U+0020-007E but the plus is not in the cut, so it comes
+    // out zero-width with no box, no fallback and no log line -- the same
+    // defect as the missing ellipsis.
+    const int16_t okX = static_cast<int16_t>(map.x - kOkWidth);
+    screen.target().text(fui::makeRect(okX, bar.y, kOkWidth, kBarHeight), model.showingWhole ? "READ" : "ALL", ok);
   }
 
-  // **No ALT button.** The whole bar is the control instead. It already carries
-  // the number and the title, it is the only chrome on the screen, and a button
-  // sitting beside the artwork advertising a joke you may not want to read is a
-  // poor trade for the ink. Tapping the bar shows the alt text.
-  if (model.hasAlt) {
-    screen.frame().hit(bar, ActionShowAlt);
+  // **The whole bar is the alt text, except the map, which toggles the
+  // overview.** Two rects that do not overlap, so which one wins is not a
+  // question about hit-test ordering.
+  //
+  // The toggle was on the Confirm button, which reads better and costs no
+  // comic pixels -- on a device that has that button. **The X4 Pro does not.**
+  // Its BoardConfig leaves back/confirm/left/right as unassigned pins, so
+  // `InputManager::begin` never configures them and they can never fire; the
+  // two side keys and power are the whole set. The simulator synthesises the
+  // missing ones, so a button-driven control looks perfectly fine there
+  // forever, which is exactly how this shipped. See docs/buttons.md:
+  // **pointing is touch, stepping is the two side keys, nothing else is a
+  // button.**
+  const int16_t toggleX = model.hasOverview ? static_cast<int16_t>(map.x - kOkWidth - toybox::kGutter) : panel.width;
+  if (model.hasOverview) {
+    screen.frame().hit(fui::makeRect(toggleX, bar.y, static_cast<int16_t>(panel.width - toggleX), kBarHeight),
+                       ActionToggleOverview);
+  }
+  if (model.hasAlt && toggleX > 0) {
+    screen.frame().hit(fui::makeRect(0, bar.y, toggleX, kBarHeight), ActionShowAlt);
   }
 }
 
