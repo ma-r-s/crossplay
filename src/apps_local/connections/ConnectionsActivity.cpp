@@ -611,8 +611,9 @@ void ConnectionsActivity::loop() {
     // Any input on a finished or failed import goes back to the menu.
     int x = 0;
     int y = 0;
-    if (mappedInput.wasScreenTapped(x, y) || mappedInput.wasReleased(MappedInputManager::Button::Confirm) ||
-        mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    // No Confirm: it is PIN_UNASSIGNED on the X4 Pro and can never fire, so
+    // OR-ing it in implied a control that is not there. Tap or Back.
+    if (mappedInput.wasScreenTapped(x, y) || mappedInput.wasReleased(MappedInputManager::Button::Back)) {
       if (importStep == ImportStep::Done || importStep == ImportStep::Failed) {
         view = View::Menu;
         requestUpdate();
