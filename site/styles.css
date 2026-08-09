@@ -1006,6 +1006,18 @@ html.immersive body {
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
+  /* The panel is a <button>, so iOS paints its own translucent blue over the
+   * whole thing on every tap -- on a device whose screen is one bit deep, a
+   * blue flash is the most out-of-place thing on the page. The key row already
+   * turned this off; the panel is where it actually shows. */
+  -webkit-tap-highlight-color: transparent;
+}
+/* Belt and braces for the drag itself: a swipe across the canvas that begins
+ * on the poster, before any of the above has a live element to apply to, could
+ * still paint a selection over the frame. Nothing inside the device is text. */
+.device-screen ::selection,
+.device-screen::selection {
+  background: transparent;
 }
 /* The prompt, drawn over the screenshot rather than beside it, because the
  * screenshot is the button. It goes away the moment the device is real. */
