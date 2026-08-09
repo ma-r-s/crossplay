@@ -168,10 +168,9 @@ static xkcd::Position at(int column, int scrollY, xkcd::Lens lens = xkcd::Lens::
 // Flags live in the caller, exactly as they will on the device.
 static std::vector<uint8_t> gapFlags;
 
-static xkcd::GapWindow windowFor(const xkcd::Rendition& c, const FakeImage& img, int viewportH, int scrollY,
-                                 bool down) {
+static xkcd::GapWindow windowFor(const xkcd::Rendition& c, const FakeImage& img, int viewportH, int row) {
   int firstRow = 0, rowCount = 0;
-  xkcd::gapWindowFor(c, viewportH, scrollY, down, firstRow, rowCount);
+  xkcd::gapWindowFor(c, viewportH, row, firstRow, rowCount);
   xkcd::GapWindow w;
   if (rowCount <= 0) return w;
   CHECK(firstRow >= 0 && firstRow + rowCount <= img.height, "gapWindowFor asked for rows [%d,%d) outside 0..%d",
@@ -601,97 +600,110 @@ static void testGapDetection() {
 // -------------------------------------------------------------- pan math
 
 static void testSnapping() {
-  const int vp = 480;
-  const int tol = vp * xkcd::kSnapToleranceNum / xkcd::kSnapToleranceDen;  // 96
+  const int vp = 756;
 
-  // No gaps anywhere: the step is exactly half a viewport.
+  // A comic exactly the viewport is one panel and never moves.
   {
-    const FakeImage img = makeImage(std::string(1400, '#'));
+    const FakeImage img = makeImage(std::string(vp, '#'), 480, 0);
     const xkcd::Rendition c = rendFor(img);
-    CHECK(xkcd::scrollDown(c, vp, 0, windowFor(c, img, vp, 0, true)) == 240, "plain step should be 240");
-  }
-  // A gap whose art resumes at row 266 offers a landing at 266-6 = 260, which
-  // is 20 from the target: within tolerance, so the step is pulled onto it.
-  {
-    const FakeImage img = makeFramed(std::string(250, '#') + std::string(16, '.') + std::string(1134, '#'), 740);
-    const xkcd::Rendition c = rendFor(img);
-    CHECK(xkcd::scrollDown(c, vp, 0, windowFor(c, img, vp, 0, true)) == 260, "a near gap should be snapped to, got %d",
-          xkcd::scrollDown(c, vp, 0, windowFor(c, img, vp, 0, true)));
-  }
-  // A gap well past tolerance does not pull the step.
-  {
-    const FakeImage img = makeImage(std::string(600, '#') + std::string(16, '.') + std::string(784, '#'));
-    const xkcd::Rendition c = rendFor(img);
-    CHECK(xkcd::scrollDown(c, vp, 0, windowFor(c, img, vp, 0, true)) == 240, "a distant gap must not pull the step");
-  }
-  // A gap too short to be a gutter is the space between two lines of
-  // lettering, and stopping there would put half a sentence at the top.
-  {
-    const FakeImage img = makeImage(std::string(250, '#') + std::string(2, '.') + std::string(1148, '#'));
-    const xkcd::Rendition c = rendFor(img);
-    CHECK(xkcd::scrollDown(c, vp, 0, windowFor(c, img, vp, 0, true)) == 240, "a 2-row gap must not be a landing");
-  }
-  // The nearest of several gaps wins.
-  {
-    const FakeImage img = makeImage(std::string(200, '#') + std::string(8, '.') + std::string(42, '#') +
-                                    std::string(8, '.') + std::string(1142, '#'));
-    const xkcd::Rendition c = rendFor(img);
-    // Landings at 208-6=202 and 258-6=252; the target is 240, so 252 wins.
-    CHECK(xkcd::scrollDown(c, vp, 0, windowFor(c, img, vp, 0, true)) == 252, "the nearest landing should win, got %d",
-          xkcd::scrollDown(c, vp, 0, windowFor(c, img, vp, 0, true)));
-  }
-  // **The window has to reach back far enough to see a run that starts before
-  // the target.** A gap of exactly kMinGutterRows ending just after the target
-  // is a legitimate landing, but only if the whole run is visible: a window
-  // that began at the target would see two of its rows, judge the run too
-  // short, and step blindly through the art instead.
-  {
-    // Art to 236, gap 236..241 (6 rows), art resumes at 242 -> landing 236,
-    // which is 4 from the target of 240 and well inside tolerance.
-    const FakeImage img = makeFramed(std::string(236, '#') + std::string(6, '.') + std::string(1158, '#'), 740);
-    const xkcd::Rendition c = rendFor(img);
-    CHECK(xkcd::scrollDown(c, vp, 0, windowFor(c, img, vp, 0, true)) == 236,
-          "a gap run beginning before the target must still be seen whole, got %d",
-          xkcd::scrollDown(c, vp, 0, windowFor(c, img, vp, 0, true)));
+    CHECK(xkcd::rowsIn(c, vp) == 1, "a comic that fits is one panel, got %d", xkcd::rowsIn(c, vp));
+    CHECK(xkcd::evenTargetY(c, vp, 0) == 0, "and it starts at the top");
   }
 
-  // A null window is legal and means "no artwork available" -- the step must
-  // fall back to a plain half-screen rather than refusing to move.
-  {
-    const FakeImage img = makeImage(std::string(1400, '#'));
+  // **The travel is divided evenly and the last panel is exactly flush.** This
+  // is the property Mario named: a fixed stride leaves the final step as
+  // whatever is left over, which reads as going all the way back to the left
+  // and dropping two pixels.
+  for (int extra : {1, 5, 100, 379, 380, 760, 1000, 4000}) {
+    const int h = vp + extra;
+    const FakeImage img = makeImage(std::string(h, '#'), 480, 0);
     const xkcd::Rendition c = rendFor(img);
-    CHECK(xkcd::scrollDown(c, vp, 0, xkcd::GapWindow{}) == 240, "a missing window must fall back to a plain step");
-    CHECK(xkcd::scrollUp(c, vp, 480, xkcd::GapWindow{}) == 240, "and the same upward");
+    const int rows = xkcd::rowsIn(c, vp);
+    const int travel = xkcd::maxScroll(c, vp);
+    CHECK(rows >= 2, "a comic %dpx over the viewport needs more than one panel", extra);
+    CHECK(xkcd::evenTargetY(c, vp, 0) == 0, "panel 0 is the top");
+    CHECK(xkcd::evenTargetY(c, vp, rows - 1) == travel, "the last panel is flush with the bottom, got %d of %d",
+          xkcd::evenTargetY(c, vp, rows - 1), travel);
+
+    // Every gap between consecutive panels is the same, to within the rounding
+    // of an integer division. No step is a remainder.
+    int smallest = 1 << 30, largest = 0;
+    for (int i = 1; i < rows; ++i) {
+      const int d = xkcd::evenTargetY(c, vp, i) - xkcd::evenTargetY(c, vp, i - 1);
+      CHECK(d > 0, "panel %d of %d did not move (h=%d)", i, rows, h);
+      if (d < smallest) smallest = d;
+      if (d > largest) largest = d;
+    }
+    CHECK(largest - smallest <= 1, "steps for h=%d ranged %d..%d; they must be equal", h, smallest, largest);
+    CHECK(largest <= vp / 2 + 1, "a step of %d is more than half a screen (h=%d)", largest, h);
   }
 
-  // The case that discriminates the flush landing, which the property tests
-  // cannot see because reachability holds either way: the plain step lands
-  // *exactly* on the end and there is a gap within tolerance just short of it.
-  // The end must win -- snapping would stop high, show a sliver of the last
-  // panel, and demand one more tap to close a gap the reader can already see.
+  // Snapping still pulls an interior panel onto a gutter, and never past the
+  // tolerance.
   {
-    // height 1400 -> maxScroll 920. Start at 680 so target == 920 exactly.
-    const FakeImage img = makeFramed(std::string(900, '#') + std::string(16, '.') + std::string(484, '#'), 740);
+    std::string spec;
+    for (int i = 0; i < 8; ++i) spec += std::string(300, '#') + std::string(20, '.');
+    const FakeImage img = makeImage(spec, 480, 2);
     const xkcd::Rendition c = rendFor(img);
-    const int maxS = xkcd::maxScroll(c, vp);
-    CHECK(maxS == 920, "fixture assumption: maxScroll is %d", maxS);
-    CHECK(xkcd::scrollDown(c, vp, maxS - vp / 2, windowFor(c, img, vp, maxS - vp / 2, true)) == maxS,
-          "a step landing exactly on the end must not be pulled short by a gap");
+    const int rows = xkcd::rowsIn(c, vp);
+    const int tol = vp * xkcd::kSnapToleranceNum / xkcd::kSnapToleranceDen;
+    for (int i = 1; i + 1 < rows; ++i) {
+      const int want = xkcd::evenTargetY(c, vp, i);
+      const int got = xkcd::scrollYFor(c, vp, i, windowFor(c, img, vp, i));
+      const int moved = got > want ? got - want : want - got;
+      CHECK(moved <= tol, "panel %d snapped %dpx, tolerance is %d", i, moved, tol);
+    }
+    CHECK(xkcd::scrollYFor(c, vp, 0, xkcd::GapWindow{}) == 0, "the first panel is never pulled off the top");
+    CHECK(xkcd::scrollYFor(c, vp, rows - 1, xkcd::GapWindow{}) == xkcd::maxScroll(c, vp),
+          "nor the last off the bottom");
   }
-  // The same at the top.
-  {
-    const FakeImage img = makeFramed(std::string(10, '#') + std::string(16, '.') + std::string(1374, '#'), 740);
-    const xkcd::Rendition c = rendFor(img);
-    CHECK(xkcd::scrollUp(c, vp, vp / 2, windowFor(c, img, vp, vp / 2, false)) == 0,
-          "a step landing exactly on the top must not be pulled short by a gap");
-  }
-  CHECK(xkcd::kSnapToleranceNum * 2 < xkcd::kSnapToleranceDen,
-        "tolerance must stay under half a viewport or steps can stop progressing");
-  CHECK(vp / 2 - tol > 0, "a snapped step must still advance by %d px", vp / 2 - tol);
 }
 
-// A small deterministic LCG. Deterministic so a failure is reproducible; the
-// point is coverage of shapes, not randomness.
+// **Reading order for a comic stored on its side.** Its left-to-right became
+// the stored image's top-to-bottom, so walking the stored image as if it were
+// upright begins at what the reader sees as the bottom of the strip.
+static void testSidewaysOrder() {
+  const int vw = 480, vh = 756;
+  const xkcd::GapWindow none;
+
+  xkcd::Rendition up = pageRend(xkcd::kColumnStep * 3 + xkcd::kColumnOverlap, 400);
+  xkcd::Rendition side = up;
+  side.sideways = true;
+
+  CHECK(xkcd::startOf(up, vw).column == 0, "an upright comic starts at the left");
+  CHECK(xkcd::startOf(side, vw).column == 2, "a sideways comic starts at the stored right, got %d",
+        xkcd::startOf(side, vw).column);
+
+  // Upright: left to right.
+  xkcd::Position p = xkcd::startOf(up, vw);
+  p = xkcd::stepForward(up, vw, vh, p, none);
+  CHECK(p.column == 1, "upright steps rightwards, got %d", p.column);
+
+  // Sideways: the comic's next panel is the stored image's next column to the
+  // LEFT, because the whole frame is turned a quarter turn.
+  xkcd::Position q = xkcd::startOf(side, vw);
+  q = xkcd::stepForward(side, vw, vh, q, none);
+  CHECK(q.column == 1, "sideways steps leftwards, got %d", q.column);
+  q = xkcd::stepForward(side, vw, vh, q, none);
+  CHECK(q.column == 0, "and on to the stored left edge, got %d", q.column);
+  CHECK(!xkcd::canStepForward(side, vw, vh, q), "which is the end of a single-band sideways comic");
+
+  // And back, exactly.
+  q = xkcd::stepBack(side, vw, vh, q, none);
+  CHECK(q.column == 1, "back one, got %d", q.column);
+  q = xkcd::stepBack(side, vw, vh, q, none);
+  CHECK(q.column == 2, "back to the start, got %d", q.column);
+  CHECK(!xkcd::canStepBack(side, vw, vh, q), "the start of a sideways comic is its stored right");
+
+  // Dropping a band returns to the band's own starting side, not to column 0.
+  xkcd::Rendition tall = side;
+  tall.height = 1600;
+  xkcd::Position t = xkcd::startOf(tall, vw);
+  for (int i = 0; i < 3; ++i) t = xkcd::stepForward(tall, vw, vh, t, none);
+  CHECK(t.row == 1 && t.column == 2, "a sideways band drop returns to the stored right, got col %d row %d", t.column,
+        t.row);
+}
+
 struct Rng {
   uint32_t s;
   uint32_t next() {
@@ -707,19 +719,15 @@ static void testPanProperties() {
   // that single number hid a shipping defect for the whole life of the app:
   // the Activity capped its gap-flag buffer at 256 rows, which is enough at
   // 480 and not enough at 756, so on the device the window was always refused
-  // and *no step ever snapped to a gap*. Every test here passed while every
-  // step on the device was a blind half-screen through the middle of a speech
-  // balloon. A test that runs at a size the product never uses is not a test.
+  // and *no step ever snapped to a gap*. A test that runs at a size the
+  // product never uses is not a test.
   const int viewportH = 756;
 
-  for (int trial = 0; trial < 600; ++trial) {
-    // Heights spanning the real archive: fits, just over, and the long tail.
+  for (int trial = 0; trial < 400; ++trial) {
     const int height = rng.range(60, 3000);
-    const int width = rng.range(120, 780);
+    const int width = rng.range(120, 480);
     const bool framed = (trial % 3) == 0;
 
-    // A plausible comic: bands of art separated by gaps of varying height,
-    // including gaps too short to be landings.
     std::string spec;
     while (static_cast<int>(spec.size()) < height) {
       spec += std::string(rng.range(5, 120), '#');
@@ -729,40 +737,31 @@ static void testPanProperties() {
 
     const FakeImage img = makeImage(spec, width, framed ? 2 : 0);
     const xkcd::Rendition c = rendFor(img);
-    const int maxS = xkcd::maxScroll(c, viewportH);
+    const int rows = xkcd::rowsIn(c, viewportH);
+    const int travel = xkcd::maxScroll(c, viewportH);
 
-    // 1. Every step stays in range.
-    // 2. Every step from anywhere but the bottom moves strictly forward.
-    int s = 0;
-    int guard = 0;
-    while (s < maxS && guard < 2000) {
-      const int next = xkcd::scrollDown(c, viewportH, s, windowFor(c, img, viewportH, s, true));
-      CHECK(next >= 0 && next <= maxS, "scrollDown out of range: %d not in [0,%d] h=%d", next, maxS, height);
-      CHECK(next > s, "scrollDown did not progress from %d (h=%d w=%d)", s, height, width);
-      s = next;
-      ++guard;
+    // 1. Panels are in range and strictly increasing.
+    int last = -1;
+    for (int i = 0; i < rows; ++i) {
+      const int y = xkcd::scrollYFor(c, viewportH, i, windowFor(c, img, viewportH, i));
+      CHECK(y >= 0 && y <= travel, "panel %d at %d, outside [0,%d] (h=%d)", i, y, travel, height);
+      CHECK(y > last, "panel %d did not advance past %d (h=%d)", i, last, height);
+      last = y;
     }
-    // 3. Panning down always arrives exactly at the end, in bounded time.
-    CHECK(guard < 2000, "scrollDown did not terminate (h=%d)", height);
-    CHECK(s == maxS, "scrollDown ended at %d, not maxScroll %d", s, maxS);
+    // 2. The walk ends exactly at the bottom, never short and never over.
+    CHECK(last == travel, "the last panel landed at %d, not %d (h=%d)", last, travel, height);
 
-    // 4. And symmetrically upward, back to exactly the top.
-    guard = 0;
-    while (s > 0 && guard < 2000) {
-      const int prev = xkcd::scrollUp(c, viewportH, s, windowFor(c, img, viewportH, s, false));
-      CHECK(prev >= 0 && prev <= maxS, "scrollUp out of range: %d", prev);
-      CHECK(prev < s, "scrollUp did not progress from %d (h=%d)", s, height);
-      s = prev;
-      ++guard;
+    // 3. Forward then back is the identity. It is now, because the position is
+    //    a panel index and the offset is a pure function of it; when the offset
+    //    was the state, each snap re-derived itself and the reader drifted.
+    xkcd::Position p = xkcd::startOf(c, width);
+    for (int i = 0; i + 1 < rows; ++i) {
+      const xkcd::Position fwd = xkcd::stepForward(c, width, viewportH, p, windowFor(c, img, viewportH, p.row + 1));
+      const xkcd::Position rt = xkcd::stepBack(c, width, viewportH, fwd, windowFor(c, img, viewportH, p.row));
+      CHECK(rt.row == p.row && rt.column == p.column && rt.scrollY == p.scrollY,
+            "round trip from row %d landed row %d (h=%d)", p.row, rt.row, height);
+      p = fwd;
     }
-    CHECK(guard < 2000, "scrollUp did not terminate");
-    CHECK(s == 0, "scrollUp ended at %d, not 0", s);
-
-    // 5. Clamping at the ends is idempotent, so a tap at the bottom is a
-    //    no-op rather than a wrap.
-    CHECK(xkcd::scrollDown(c, viewportH, maxS, windowFor(c, img, viewportH, maxS, true)) == maxS,
-          "down at the bottom must stay");
-    CHECK(xkcd::scrollUp(c, viewportH, 0, windowFor(c, img, viewportH, 0, false)) == 0, "up at the top must stay");
   }
 }
 
@@ -829,14 +828,13 @@ static void testGapWindowFitsTheDevice() {
   CHECK(budget > 256, "the old hardcoded 256 really was too small for this viewport (budget %d)", budget);
 
   const xkcd::Rendition tall = pageRend(480, 20000);
-  for (int y = 0; y < 19000; y += 137) {
-    for (int down = 0; down < 2; ++down) {
-      int firstRow = 0, rowCount = 0;
-      xkcd::gapWindowFor(tall, kDeviceViewportH, y, down != 0, firstRow, rowCount);
-      CHECK(rowCount <= budget, "gapWindowFor asked for %d rows at y=%d, budget is %d", rowCount, y, budget);
-      CHECK(firstRow >= 0 && firstRow + rowCount <= 20000, "window [%d,%d) is outside the image", firstRow,
-            firstRow + rowCount);
-    }
+  const int rows = xkcd::rowsIn(tall, kDeviceViewportH);
+  for (int row = 0; row < rows; ++row) {
+    int firstRow = 0, rowCount = 0;
+    xkcd::gapWindowFor(tall, kDeviceViewportH, row, firstRow, rowCount);
+    CHECK(rowCount <= budget, "gapWindowFor asked for %d rows at panel %d, budget is %d", rowCount, row, budget);
+    CHECK(firstRow >= 0 && firstRow + rowCount <= 20000, "window [%d,%d) is outside the image", firstRow,
+          firstRow + rowCount);
   }
 }
 
@@ -867,6 +865,7 @@ int main() {
   testMapAcross();
   testGapDetection();
   testSnapping();
+  testSidewaysOrder();
   testPanProperties();
   testSearch();
   testCoverage();

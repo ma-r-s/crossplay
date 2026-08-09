@@ -260,6 +260,10 @@ struct Rendition {
   uint16_t height = 0;
   uint16_t stride = 0;
   uint32_t offset = 0;
+  // Whether this artwork is stored turned on its side. Reading order is
+  // expressed in the *comic's* frame, not the stored image's, so the step
+  // functions need to know which one they are walking. See stepForward.
+  bool sideways = false;
 
   bool valid() const { return width > 0 && height > 0 && stride >= (width + 7) / 8; }
   uint32_t bytes() const { return static_cast<uint32_t>(stride) * height; }
@@ -337,6 +341,20 @@ static_assert(kSnapToleranceNum * 2 < kSnapToleranceDen,
 struct Position {
   Lens lens = Lens::Page;
   int column = 0;
+  // **The panel index, not a pixel offset.** How many panels the artwork
+  // splits into is worked out up front and the travel divided evenly between
+  // them, so every step moves the same distance and the last one lands exactly
+  // on the end.
+  //
+  // Striding a fixed half-screen and clamping at the bottom is what this
+  // replaced, and it read badly for the reason Mario named: at the end of a row
+  // you would go all the way back to the left and drop by two pixels, because
+  // two pixels was all the fixed stride had left over. An even division cannot
+  // produce that.
+  int row = 0;
+  // The pixel offset `row` works out to, cached here because deriving it needs
+  // the gap window and the callers that draw and hit-test must not each redo
+  // it. The step functions keep it in step with `row`.
   int scrollY = 0;
 };
 
@@ -384,11 +402,27 @@ struct GapWindow {
   int rowCount = 0;
 };
 
-// The rows a step from `scrollY` will consult. The caller reads exactly this
+// How many panels the artwork splits into down the page, and where panel `row`
+// starts before snapping. Both are pure arithmetic on the dimensions, which is
+// the point: the split is decided once, up front, rather than emerging from
+// wherever a fixed stride happens to run out.
+//
+// rowsIn is at least 1. evenTargetY(0) is 0 and evenTargetY(rowsIn - 1) is
+// exactly maxScroll, so the first and last panels sit flush against the ends
+// and no step is ever a remainder.
+int rowsIn(const Rendition& r, int viewportH);
+int evenTargetY(const Rendition& r, int viewportH, int row);
+
+// The rows a step to panel `row` will consult. The caller reads exactly this
 // range off the card and hands it straight back, so the window that was read is
 // the window that gets used -- the same rule as hit-testing sharing geometry
 // with drawing.
-void gapWindowFor(const Rendition& r, int viewportH, int scrollY, bool down, int& firstRow, int& rowCount);
+void gapWindowFor(const Rendition& r, int viewportH, int row, int& firstRow, int& rowCount);
+
+// Where panel `row` actually starts: its even target, pulled onto a gap in the
+// artwork when one is close enough. The ends are never pulled, so the comic
+// still finishes flush.
+int scrollYFor(const Rendition& r, int viewportH, int row, const GapWindow& window);
 
 // The most rows gapWindowFor can ever ask for at a given viewport, so the
 // caller can size its flag buffer from the same arithmetic the window is
@@ -422,14 +456,9 @@ Position stepBack(const Rendition& r, int viewportW, int viewportH, const Positi
 bool canStepForward(const Rendition& r, int viewportW, int viewportH, const Position& at);
 bool canStepBack(const Rendition& r, int viewportW, int viewportH, const Position& at);
 
-// The next scroll offset when the reader moves down (or up) a band. Half a
-// viewport, pulled onto a gap in the artwork when one is within tolerance,
-// clamped to the ends.
-//
-// Both guarantee **strict progress**: if the result is not already at the
-// relevant end, it differs from `scrollY`.
-int scrollDown(const Rendition& r, int viewportH, int scrollY, const GapWindow& window);
-int scrollUp(const Rendition& r, int viewportH, int scrollY, const GapWindow& window);
+// Where the walk begins. Not always the top left: a sideways comic is stored
+// turned, so the comic's own first panel is at the stored image's right.
+Position startOf(const Rendition& r, int viewportW);
 
 // --- Moving between the two views ----------------------------------------
 

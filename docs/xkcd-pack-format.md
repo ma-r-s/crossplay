@@ -250,3 +250,33 @@ tools_local/xkcd/inspect_pack.py --pack fs_mario/xkcd --num 1093 --out /tmp/x.pn
 Add `--closer` to render the second rendition instead. Red lines are where the
 reader stops; what you are checking is that none of them cuts through a line of
 lettering.
+
+
+## How the reader walks a comic
+
+Two rules, both of which came from Mario looking at the result rather than the
+code.
+
+**The panels are counted first, then the travel is divided evenly between
+them.** A fixed half-screen stride leaves the last step as whatever is left
+over, so at the end of a row of columns you would go all the way back to the
+left and drop two pixels. `xkcd::rowsIn` works out how many panels the artwork
+splits into, and `evenTargetY` spaces them equally, with panel 0 at the top and
+the last exactly flush with the bottom. Gap snapping still nudges the interior
+panels onto a gutter, but never the two ends and never past a fifth of a
+screen, so the steps stay visibly equal.
+
+A useful side effect: a position is now a *panel index* rather than a pixel
+offset, and the offset is a pure function of it. Stepping forward and back is
+therefore an exact inverse, where before each snap re-derived itself from
+wherever the reader happened to be and the position drifted.
+
+**Reading order is expressed in the comic's frame, not the stored image's.** A
+sideways comic is stored a quarter turn clockwise, which relabels its axes: the
+comic's left-to-right becomes the stored image's top-to-bottom, and its
+top-to-bottom becomes the stored image's right-to-left. Walking the stored
+image as though it were upright therefore starts in the wrong corner -- at what
+the reader, holding the device turned, sees as the bottom of the strip. So a
+sideways comic starts at the stored image's **right-hand** column and walks
+leftwards. `xkcd::startOf` is the one place that knows this, so the starting
+corner and the stepping cannot disagree.

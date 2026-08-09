@@ -204,6 +204,14 @@ bool XkcdActivity::loadComic(const int position) {
   // is the wrong way round -- OK pulls back to the whole comic, which is the
   // thing you want occasionally, not the thing you want first.
   if (comic_.hasCloser()) at_.lens = xkcd::Lens::Closer;
+  // ...and at the comic's own first panel, which for a sideways comic is not
+  // the stored image's top left. Reading one from the wrong corner starts you
+  // at what you see, holding the device turned, as the bottom of the strip.
+  {
+    const fui::Rect view = xkcdui::readerViewport(fui::GfxRendererTarget(renderer).deviceContext());
+    at_ = xkcd::startOf(xkcd::renditionFor(comic_, at_.lens), view.width);
+    at_.lens = comic_.hasCloser() ? xkcd::Lens::Closer : xkcd::Lens::Page;
+  }
   xkcd::readTitle(*textSrc_, comic_, title_, sizeof(title_));
   xkcd::readAlt(*textSrc_, comic_, alt_, sizeof(alt_));
   markRead(comic_.num);
@@ -365,7 +373,10 @@ void XkcdActivity::pan(const bool down) {
   int firstRow = 0;
   int rowCount = 0;
   const xkcd::Rendition r = xkcd::renditionFor(comic_, at_.lens);
-  xkcd::gapWindowFor(r, viewportH, at_.scrollY, down, firstRow, rowCount);
+  // The window for the panel the step is heading to. Which panel that is comes
+  // straight from the walk, so the rows read are the rows the step will judge.
+  const int target = down ? at_.row + 1 : at_.row - 1;
+  xkcd::gapWindowFor(r, viewportH, target, firstRow, rowCount);
 
   xkcd::GapWindow window;
   if (rowCount > 0 && rowCount <= kMaxGapRows && r.stride <= kMaxStride) {
