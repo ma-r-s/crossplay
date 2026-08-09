@@ -82,11 +82,22 @@ build_repo() {  # artifact_epoch, source_epoch
 checks=0
 failed=0
 
+# $CARRY is what check.sh would have handed across the worktree boundary; empty
+# means it handed nothing. It is a variable of this harness rather than an
+# ambient CHECK_OUTER_BRANCH because check.sh exports that one to every suite it
+# runs, this suite included -- so a run under check.sh inherited "xteink" and
+# the three cases that must stay silent could not. Neither the carried branch
+# nor the deploy branch is read from the environment here for the same reason.
 run_gate() {  # runs the gate in $WORK/repo, echoes "fired" or "silent"
   (
     cd "$WORK/repo"
     FAILED=0
-    DEPLOY_BRANCH="${DEPLOY_BRANCH:-xteink}"
+    DEPLOY_BRANCH=xteink
+    if [ -n "${CARRY:-}" ]; then
+      export CHECK_OUTER_BRANCH="$CARRY"
+    else
+      unset CHECK_OUTER_BRANCH
+    fi
     . "$WORK/gate.sh" >"$WORK/out" 2>&1
     [ "$FAILED" -eq 0 ] && echo silent || echo fired
   )
@@ -127,11 +138,11 @@ build_repo "$OLD" "$NEW"
 (cd "$WORK/repo" && git checkout --quiet --detach HEAD)
 expect "a detached HEAD alone cannot see the branch" silent
 
-CHECK_OUTER_BRANCH=xteink expect "the branch carried in reaches the gate" fired
+CARRY=xteink expect "the branch carried in reaches the gate" fired
 
 # And the carried branch is compared, not merely present: a feature branch
 # handed across stays quiet.
-CHECK_OUTER_BRANCH=app/something expect "a carried feature branch stays quiet" silent
+CARRY=app/something expect "a carried feature branch stays quiet" silent
 
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]
