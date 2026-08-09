@@ -131,28 +131,57 @@ Menu ----> Board ----> Result
 `back()` is an exhaustive switch with no `default`. `leavesApp()` is true only
 for `Menu`: the first Back means stop playing, the second means leave.
 
-### The slot row
+### The lip
 
-Seven empty places above the grid, one per column, holding your disc on your
-turn.
+A shallow channel across the top of the board, inside the frame and on the same
+dithered slab, holding the disc you are about to drop.
 
 It exists because a Connect Four board has no "here" until a disc lands. The
-grid is the history; the slot row is the move. It also makes the column read as
-the target, which it is: `columnAt` covers slot and grid alike, top to bottom,
-so each column is one 64px strip about 500px tall. That is the most forgiving
+grid is the history; the lip is the move. It also makes the column read as the
+target, which it is: `columnAt` covers lip and grid alike, top to bottom, so
+each column is one 64px strip about 480px tall. That is the most forgiving
 target this panel can offer, and aiming at a single cell would be the only hard
 tap in the game for nothing in return, because the row a disc lands on is not
 the player's to choose.
 
-**A full column shows nothing in its slot**, rather than a crossed-out mark.
-There is no ambiguity to resolve (the column below is visibly full to the brim)
-and a negative mark would be the only ink on the screen that says "no".
+It took two goes to get right, and both failures were invisible in source:
+
+- **On white paper above the board it did not read at all.** A light disc is a
+  white fill with a black rim, so on paper it is a rim around nothing, which is
+  exactly what an empty hole looks like. Seven of them above a board of holes
+  read as one more row of holes. Inside the frame, on the slab, a waiting disc
+  reads as the same piece it is about to become. That is also physically what a
+  Connect Four frame is: you drop from the top of the object.
+- **At full cell height it was a row.** Pixel-identical to a row of played light
+  pieces, with a 3px rule as the only separator, which fails precisely when it
+  matters because the top row will one day be full of exactly those pieces. So
+  the lip is 42px deep with 16px discs, against 64px cells and 26px discs. The
+  rule stays.
+
+**A full column shows plain slab**, which reads as sealed. Not a crossed-out
+mark: the column below is visibly full to the brim, so there is nothing to
+resolve, and a negative mark would be the only ink on the screen saying "no".
+
+**On their turn the lip is empty.** It says "not yours" with the same ink the
+capsule spends words on.
 
 ### Empty places are drawn
 
-Every one of the forty-two, as a thin ring. A Connect Four board is a thing with
-holes in it; a grid that only appears where discs have landed is a different
-object.
+Every one of the forty-two, as a white disc punched into the dithered slab. A
+Connect Four board is a thing with holes in it; a grid that only appears where
+discs have landed is a different object.
+
+The slab also does the work that ring weights could not. Three states, three
+textures:
+
+| state | drawn as                       |
+| ----- | ------------------------------ |
+| empty | white disc on dithered ground  |
+| light | white disc with a 4px black rim |
+| dark  | solid black                    |
+
+The first version distinguished them by ring weight instead: 2px empty, 4px
+light, solid dark. Nothing at 220ppi tells a 2px ring from a 4px one.
 
 ### The last disc is ringed
 

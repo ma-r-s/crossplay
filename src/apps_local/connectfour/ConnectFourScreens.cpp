@@ -25,19 +25,27 @@ constexpr int16_t kGridHeight = kCell * c4::kRows;
 // this open the discs have to carry the weight.
 constexpr int16_t kDiscRadius = 26;
 constexpr int16_t kRingWeight = 4;
+// The waiting disc in the lip. Smaller than a played one, so the channel cannot
+// be mistaken for a row.
+constexpr int16_t kLipRadius = 16;
 
-// The slot row above the grid: seven empty places, one per column, where the
-// disc you are about to drop would go in.
+// The lip: a shallow channel across the top of the board, holding the disc you
+// are about to drop.
 //
 // It exists because a Connect Four board has no "here" until a disc lands. The
-// grid is the history; the slot row is the move, and it is also what makes the
+// grid is the history; the lip is the move, and it is also what makes the
 // column read as a target rather than the cell you happen to touch.
-constexpr int16_t kSlotHeight = 56;
+//
+// SHALLOWER than a row, and its discs are smaller, because at full height they
+// were pixel-identical to a row of played light pieces and the 3px rule was
+// the only thing saying otherwise. That is not enough separation for a board
+// whose top row will one day be full of exactly those pieces.
+constexpr int16_t kSlotHeight = 42;
 
 int16_t gridLeft(const fui::DeviceContext& device) { return static_cast<int16_t>((device.width - kGridWidth) / 2); }
 
 // The assembly is slot row, gutter, frame, grid, frame.
-constexpr int16_t kAssemblyHeight = kSlotHeight + toybox::kGutter + toybox::kBoardFrame * 2 + kGridHeight;
+constexpr int16_t kAssemblyHeight = kSlotHeight + toybox::kBoardFrame * 2 + kGridHeight;
 
 // Where the BOARD screen's grid starts, as a pure function of the device.
 //
@@ -54,11 +62,13 @@ int16_t boardGridTop(const fui::DeviceContext& device) {
   const int16_t bottom = static_cast<int16_t>(device.height - toybox::kMargin - toybox::kPillHeight - toybox::kGutter);
   const int16_t slack = static_cast<int16_t>(bottom - top - kAssemblyHeight);
   const int16_t assembly = static_cast<int16_t>(top + (slack > 0 ? slack / 2 : 0));
-  return static_cast<int16_t>(assembly + kSlotHeight + toybox::kGutter + toybox::kBoardFrame);
+  return static_cast<int16_t>(assembly + toybox::kBoardFrame + kSlotHeight);
 }
 
+// The lip sits directly on top of the grid now, inside the same frame, so
+// there is no gutter between them.
 int16_t boardSlotTop(const fui::DeviceContext& device) {
-  return static_cast<int16_t>(boardGridTop(device) - toybox::kBoardFrame - toybox::kGutter - kSlotHeight);
+  return static_cast<int16_t>(boardGridTop(device) - kSlotHeight);
 }
 
 // A disc: dark solid, light outlined, the same convention as the board next
@@ -213,13 +223,18 @@ void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
 // screen so the position cannot be drawn two different ways.
 namespace {
 
-void drawGrid(toybox::Screen& screen, const int16_t top, const c4::Game& game, const int* markLine) {
+// `lip` is the height of the band above the grid that belongs to the board --
+// the top of the frame, where a disc goes in. Zero on the result screen, which
+// has no move to make.
+void drawGrid(toybox::Screen& screen, const int16_t top, const int16_t lip, const c4::Game& game,
+              const uint8_t waiting, const uint8_t seat, const int* markLine) {
   const int16_t left = gridLeft(screen.device());
+  const int16_t lipTop = static_cast<int16_t>(top - lip);
 
   const fui::Rect frame =
-      fui::makeRect(static_cast<int16_t>(left - toybox::kBoardFrame), static_cast<int16_t>(top - toybox::kBoardFrame),
+      fui::makeRect(static_cast<int16_t>(left - toybox::kBoardFrame), static_cast<int16_t>(lipTop - toybox::kBoardFrame),
                     static_cast<int16_t>(kGridWidth + toybox::kBoardFrame * 2),
-                    static_cast<int16_t>(kGridHeight + toybox::kBoardFrame * 2));
+                    static_cast<int16_t>(kGridHeight + lip + toybox::kBoardFrame * 2));
   screen.target().stroke(frame, fui::Paint::solid(fui::Color::Black), toybox::kBoardFrame);
 
   // The slab, then the holes punched in it, then the discs sitting in them.
@@ -233,7 +248,35 @@ void drawGrid(toybox::Screen& screen, const int16_t top, const c4::Game& game, c
   //   empty  white disc on dithered ground -- a hole
   //   light  white disc with a heavy black rim
   //   dark   solid black
-  screen.target().fill(fui::makeRect(left, top, kGridWidth, kGridHeight), fui::Paint::dither(fui::Color::LightGray));
+  screen.target().fill(fui::makeRect(left, lipTop, kGridWidth, static_cast<int16_t>(kGridHeight + lip)),
+                       fui::Paint::dither(fui::Color::LightGray));
+
+  // The lip: the board's own top edge, where a disc goes in, with your disc
+  // waiting over every column that will still take one.
+  //
+  // It is INSIDE the frame and on the same dithered slab, and that is the whole
+  // point. Drawn on white paper above the board, a light disc is a ring on
+  // nothing and reads as one more empty hole; on the slab it reads as the same
+  // piece it will be a moment later. It is also physically what a Connect Four
+  // frame looks like: you drop from the top of the object, not from the air
+  // above it.
+  //
+  // A FULL column shows plain slab, which reads as sealed. Not a crossed-out
+  // mark: there is no ambiguity to resolve, since the column below is visibly
+  // full to the brim, and a negative mark would be the only ink on this screen
+  // that says "no".
+  if (lip > 0) {
+    for (int column = 0; column < c4::kColumns; ++column) {
+      if ((waiting & (1 << column)) == 0) continue;
+      toybox::ring(screen, static_cast<int16_t>(left + column * kCell + kCell / 2),
+                   static_cast<int16_t>(lipTop + lip / 2), kLipRadius, kRingWeight, fui::Color::Black,
+                   seat == c4::kDark ? fui::Color::Black : fui::Color::White);
+    }
+    // And a rule under it, so the lip is not mistaken for a seventh row of
+    // places you could win in.
+    screen.target().fill(fui::makeRect(left, static_cast<int16_t>(top - toybox::kRule), kGridWidth, toybox::kRule),
+                         fui::Paint::solid(fui::Color::Black));
+  }
 
   for (int column = 0; column < c4::kColumns; ++column) {
     for (int row = 0; row < c4::kRows; ++row) {
@@ -294,26 +337,10 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
       status, model.opponentName != nullptr ? linkui::withOpponentFace(screen, capsule, model.opponentName) : capsule);
 
   const fui::DeviceContext device = screen.device();
-
-  // The slot row. On your turn every open column holds your disc, waiting: the
-  // board shows what a tap would do before you make it, which is the only
-  // preview an e-ink screen can offer without a hover it does not have.
-  //
-  // A FULL column shows nothing at all rather than a crossed-out mark. There is
-  // no ambiguity to resolve -- the column below is visibly full to the brim --
-  // and a negative mark would be the only ink on this screen that says "no".
-  if (model.yourTurn) {
-    const int16_t left = gridLeft(device);
-    const int16_t top = boardSlotTop(device);
-    for (int column = 0; column < c4::kColumns; ++column) {
-      if ((model.open & (1 << column)) == 0) continue;
-      toybox::ring(screen, static_cast<int16_t>(left + column * kCell + kCell / 2),
-                   static_cast<int16_t>(top + kSlotHeight / 2), 22, 3, fui::Color::Black,
-                   model.seat == c4::kDark ? fui::Color::Black : fui::Color::White);
-    }
-  }
-
-  drawGrid(screen, boardGridTop(device), model.game, nullptr);
+  // The lip carries your waiting discs only on your turn. On theirs it is plain
+  // slab, which says "not yours" with the same ink the capsule spends words on.
+  drawGrid(screen, boardGridTop(device), kSlotHeight, model.game, model.yourTurn ? model.open : 0, model.seat,
+           nullptr);
 }
 
 void buildResult(toybox::Screen& screen, const ResultModel& model) {
@@ -348,8 +375,8 @@ void buildResult(toybox::Screen& screen, const ResultModel& model) {
   // twitching.
   const fui::Rect area = screen.body();
   const int16_t slack = static_cast<int16_t>(area.height - kGridHeight - toybox::kBoardFrame * 2);
-  drawGrid(screen, static_cast<int16_t>(area.y + (slack > 0 ? slack / 2 : 0) + toybox::kBoardFrame), model.game,
-           model.outcome == c4::Outcome::Draw ? nullptr : model.line);
+  drawGrid(screen, static_cast<int16_t>(area.y + (slack > 0 ? slack / 2 : 0) + toybox::kBoardFrame), 0, model.game, 0,
+           model.seat, model.outcome == c4::Outcome::Draw ? nullptr : model.line);
 }
 
 }  // namespace c4ui

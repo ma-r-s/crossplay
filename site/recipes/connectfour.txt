@@ -11,19 +11,20 @@
 
 input:
   2000:TAP:120,635      # GAMES on the home shelf
-  3500:TAP:240,671      # CONNECT FOUR, the tenth row -- page 2 of the folder
-  5000:TAP:240,143      # PLAY
-  7000:TAP:240,400      # centre column
-  10000:TAP:176,400     # one to its left
-  13000:TAP:304,400     # one to its right
-  16000:TAP:240,400     # centre again
+  3500:TAP:262,688      # the second page mark -- the folder holds eight a page
+  5000:TAP:240,210      # CONNECT FOUR, second row of page two
+  6500:TAP:240,143      # PLAY
+  8500:TAP:240,400      # centre column
+  11000:TAP:176,400     # one to its left
+  13500:TAP:304,400     # one to its right
+  16000:TAP:112,400     # out to the second column
   20000:QUIT
 
 shot:
-  19000:./qa-artifacts/connectfour.bmp
+  18500:./qa-artifacts/connectfour.bmp
 
-# The whole column is the target, slot row and grid alike, so any y inside the
-# board works. Column centres:
+# The whole column is the target, lip and grid alike, so any y inside the board
+# works. Column centres:
 #   x = 16 + column * 64 + 32   ->  48 112 176 240 304 368 432
 # The grid is centred vertically between the header and the status capsule;
 # y = 400 is inside it for every column.
