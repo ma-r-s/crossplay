@@ -14,9 +14,13 @@
 // the 32 ways to keep dice it enumerates every outcome of re-rolling the rest
 // and takes the expectation. That is only affordable because dice are
 // unordered: enumerating multisets with multinomial weights turns 6^5 = 7776
-// outcomes into 252, and the whole decision into about 3,200 evaluations
-// instead of 250,000. On this device that is the difference between instant and
-// a visible stall.
+// ordered outcomes into 252. Counted over a whole chooseHold call, across all
+// 32 masks: 1,683 evaluations against 16,807 -- a ten-fold saving.
+//
+// It used to claim "3,200 instead of 250,000", which is 78-fold and wrong in
+// both terms. 250,000 is 32 x 7776, which assumes every mask re-rolls all five
+// dice; most re-roll fewer. Ten-fold is still the difference between instant
+// and a visible stall on this device, and it is the number that is true.
 
 #include <cstdint>
 
@@ -28,10 +32,19 @@ namespace yahtzee {
 // the opportunity cost of spending a box: taking a box is good when the dice
 // beat what that box would usually give you later.
 //
-// Without this the brain takes whatever scores most right now, which means
-// Chance on the first turn of every game and a zero in Yahtzee at the end of
-// it. The numbers are ordinary Yahtzee folk knowledge and are not tuned to the
-// tests; what matters is the ordering, not the third significant figure.
+// Measured rather than asserted, because the justification written here first
+// was wrong in both halves. Removing kBoxWorth entirely, over 200 games:
+//
+//   shipped          first-turn Chance   0/200,  Yahtzee crossed out 135/200
+//   kBoxWorth gone   first-turn Chance  45/200,  Yahtzee crossed out 122/200
+//
+// So it does stop first-turn Chance, but that was 22% of games and not "every
+// game"; and it makes the Yahtzee box WORSE, not better -- this brain crosses
+// Yahtzee out in two games of every three either way. Solo strength is 219
+// against 220 without it, and the record against a greedy mover is identical.
+//
+// It is kept because the ordering it encodes is right and the cost is nothing,
+// not because it is doing what the first comment claimed.
 constexpr int kBoxWorth[kCategories] = {
     2,   // Ones
     4,   // Twos
@@ -76,9 +89,6 @@ inline int takeValue(const Card& card, const uint8_t* die, const Category catego
     }
   }
 
-  // The bonus for rolling another Yahtzee is banked whatever box is taken, so
-  // it does not belong in the comparison between boxes. It is here only so a
-  // Joker turn is not undervalued against a turn that scores the same.
   return value - kBoxWorth[index] * 10;
 }
 

@@ -109,6 +109,33 @@ void testEveryCategoryScoresWhatTheRulesSay() {
   CHECK(rawScore(d, Category::SmallStraight) == 0);
 }
 
+// Every printed constant, against its literal. The old bonus test asserted
+// bonusEarned(card) == kUpperBonus, which is true whatever kUpperBonus is: a
+// mutation run found the 35 in that test's own NAME was not pinned, and neither
+// were 25, 30, 40 or 100.
+void testThePrintedNumbersAreTheNumbersOnTheCard() {
+  CHECK(kUpperBonusThreshold == 63);
+  CHECK(kUpperBonus == 35);
+  CHECK(kFullHouseScore == 25);
+  CHECK(kSmallStraightScore == 30);
+  CHECK(kLargeStraightScore == 40);
+  CHECK(kYahtzeeScore == 50);
+  CHECK(kYahtzeeBonus == 100);
+  CHECK(kDice == 5);
+  CHECK(kRollsPerTurn == 3);
+  CHECK(kCategories == 13);
+
+  // And they reach a real card, so renaming a constant cannot quietly detach
+  // the literal from the score.
+  Card card{};
+  startCard(card);
+  for (int i = 0; i < kUpperEnd; ++i) card.box[i] = static_cast<int8_t>((i + 1) * 3);
+  CHECK(total(card) == 63 + 35);
+  startCard(card);
+  card.box[static_cast<int>(Category::LargeStraight)] = static_cast<int8_t>(kLargeStraightScore);
+  CHECK(total(card) == 40);
+}
+
 void testTheUpperBonusIsSixtyThreeAndThirtyFive() {
   Card card{};
   startCard(card);
@@ -189,8 +216,12 @@ void testAJokerPaysStraightsAndFullHouseInFull() {
   CHECK(game.card[0].yahtzeeBonuses == 1);
 }
 
-void testACrossedOutYahtzeeEarnsNoBonusAndNoJoker() {
-  // [house]: Yahtzee box holding zero means no bonus and no Joker.
+void testACrossedOutYahtzeeStillTriggersTheJokerButEarnsNoBonus() {
+  // Hasbro is NOT silent here, which this file used to claim. The rulebook says
+  // the Joker applies when the Yahtzee box "has been previously filled with 50
+  // OR ZERO", and their support says a zero earns no bonus but still forces the
+  // Joker rules. Marking a written-down rule as [house] is worse than getting
+  // it wrong, because it stops anyone looking it up.
   Game game{};
   start(game, 1);
   game.card[0].box[static_cast<int>(Category::Yahtzee)] = 0;
@@ -198,14 +229,60 @@ void testACrossedOutYahtzeeEarnsNoBonusAndNoJoker() {
   setDice(game, 3, 3, 3, 3, 3);
   game.rollsUsed = 1;
 
+  // No bonus. That half was right.
   CHECK(!yahtzeeBonusDue(game.card[0], game.die));
-  CHECK(!jokerApplies(game.card[0], game.die));
-  // Nothing is compulsory, and the straights score what the dice say: nothing.
-  CHECK(canScore(game.card[0], game.die, Category::Chance));
-  CHECK(scoreFor(game.card[0], game.die, Category::LargeStraight) == 0);
+  // But the Joker is live, so the shaped boxes pay in full.
+  CHECK(jokerLive(game.card[0], game.die));
+  CHECK(jokerApplies(game.card[0], game.die));
+  CHECK(scoreFor(game.card[0], game.die, Category::LargeStraight) == kLargeStraightScore);
+  CHECK(scoreFor(game.card[0], game.die, Category::FullHouse) == kFullHouseScore);
   CHECK(take(game, Category::LargeStraight));
-  CHECK(game.card[0].box[static_cast<int>(Category::LargeStraight)] == 0);
+  CHECK(game.card[0].box[static_cast<int>(Category::LargeStraight)] == kLargeStraightScore);
   CHECK(game.card[0].yahtzeeBonuses == 0);
+
+  // And the compulsory-upper rule applies to a zeroed Yahtzee box too.
+  Game forced{};
+  start(forced, 2);
+  forced.card[0].box[static_cast<int>(Category::Yahtzee)] = 0;
+  setDice(forced, 5, 5, 5, 5, 5);
+  forced.rollsUsed = 1;
+  CHECK(canScore(forced.card[0], forced.die, Category::Fives));
+  CHECK(!canScore(forced.card[0], forced.die, Category::Chance));
+}
+
+// Rule (3) is a LOWER SECTION restriction, not "any free box". The first
+// version offered free upper boxes while the lower section was open: 30,240
+// (card, dice, category) triples Hasbro forbids, reached in 1.25% of games.
+void testAJokerMustGoInTheLowerSectionWhileAnyOfItIsFree() {
+  Game game{};
+  start(game, 7);
+  game.card[0].box[static_cast<int>(Category::Yahtzee)] = kYahtzeeScore;
+  game.card[0].box[static_cast<int>(Category::Threes)] = 9;  // matching upper gone
+  setDice(game, 3, 3, 3, 3, 3);
+  game.rollsUsed = 1;
+
+  CHECK(jokerApplies(game.card[0], game.die));
+  // Every lower box is offered.
+  for (int i = kUpperEnd; i < kCategories; ++i) {
+    const Category c = static_cast<Category>(i);
+    if (scored(game.card[0], c)) continue;
+    CHECK(canScore(game.card[0], game.die, c));
+  }
+  // And no upper box is, however free.
+  for (int i = 0; i < kUpperEnd; ++i) {
+    const Category c = static_cast<Category>(i);
+    if (scored(game.card[0], c)) continue;
+    CHECK(!canScore(game.card[0], game.die, c));
+    CHECK(!take(game, c));
+  }
+
+  // Fill every lower box: now, and only now, an upper box takes the zero.
+  for (int i = kUpperEnd; i < kCategories; ++i) {
+    if (game.card[0].box[i] == kUnscored) game.card[0].box[i] = 0;
+  }
+  CHECK(!anyLowerBoxFree(game.card[0]));
+  CHECK(canScore(game.card[0], game.die, Category::Ones));
+  CHECK(scoreFor(game.card[0], game.die, Category::Ones) == 0);
 }
 
 void testTheFirstYahtzeeIsNotABonus() {
@@ -423,6 +500,74 @@ void testPlausibleRejectsWhatPlayCannotProduce() {
     bad.card[0].box[static_cast<int>(Category::Chance)] = 30;
     bad.card[1].box[static_cast<int>(Category::Chance)] = 30;
     CHECK(plausible(bad));
+  }
+  {  // a value inside the cap but not a shape the box can hold
+    //
+    // Every one of these sets turn = 1, because filling one box on card 0 makes
+    // it one ahead and the turn-parity clause would otherwise be the thing
+    // doing the rejecting. That is exactly how the suite's own "floating disc"
+    // board in Connect Four turned out to be testing something else.
+    const int8_t kBadValues[][2] = {
+        {static_cast<int8_t>(Category::SmallStraight), 17},  {static_cast<int8_t>(Category::Yahtzee), 25},
+        {static_cast<int8_t>(Category::FullHouse), 13},      {static_cast<int8_t>(Category::LargeStraight), 7},
+        {static_cast<int8_t>(Category::Twos), 3},            {static_cast<int8_t>(Category::Sixes), 7},
+        {static_cast<int8_t>(Category::ThreeOfAKind), 2},    {static_cast<int8_t>(Category::Chance), 3},
+    };
+    for (const auto& entry : kBadValues) {
+      Game bad = good;
+      bad.turn = 1;
+      bad.card[0].box[entry[0]] = entry[1];
+      // The parity clause must be satisfied, so only the shape can reject.
+      CHECK(kCategories - boxesLeft(bad.card[0]) == kCategories - boxesLeft(bad.card[1]) + 1);
+      CHECK(!plausible(bad));
+    }
+    // And the legal values in those same boxes really are accepted, or the
+    // check above is rejecting everything.
+    const int8_t kGoodValues[][2] = {
+        {static_cast<int8_t>(Category::SmallStraight), static_cast<int8_t>(kSmallStraightScore)},
+        {static_cast<int8_t>(Category::SmallStraight), 0},
+        {static_cast<int8_t>(Category::Yahtzee), static_cast<int8_t>(kYahtzeeScore)},
+        {static_cast<int8_t>(Category::Twos), 4},
+        {static_cast<int8_t>(Category::Sixes), 12},
+        {static_cast<int8_t>(Category::ThreeOfAKind), 18},
+    };
+    for (const auto& entry : kGoodValues) {
+      Game ok = good;
+      ok.turn = 1;
+      ok.card[0].box[entry[0]] = entry[1];
+      CHECK(plausible(ok));
+    }
+  }
+  {  // thirteen bonuses is one too many: the first Yahtzee costs a turn
+    Game bad = good;
+    bad.card[0].box[static_cast<int>(Category::Yahtzee)] = kYahtzeeScore;
+    bad.card[1].box[static_cast<int>(Category::Yahtzee)] = kYahtzeeScore;
+    bad.card[0].yahtzeeBonuses = kCategories;
+    CHECK(!plausible(bad));
+    bad.card[0].yahtzeeBonuses = kCategories - 1;
+    CHECK(plausible(bad));
+  }
+  {  // a finished game with a turn still in progress
+    Game bad{};
+    start(bad, 6);
+    for (int i = 0; i < kCategories; ++i) {
+      bad.card[0].box[i] = 0;
+      bad.card[1].box[i] = 0;
+    }
+    bad.turn = 0;
+    CHECK(over(bad));
+    CHECK(plausible(bad));
+    bad.rollsUsed = 2;
+    CHECK(!plausible(bad));
+    bad.rollsUsed = 0;
+    bad.held = 0b00011;
+    CHECK(!plausible(bad));
+  }
+  {  // dice held before anything was rolled
+    Game bad = good;
+    bad.held = 0b00101;
+    CHECK(bad.rollsUsed == 0);
+    CHECK(!plausible(bad));
   }
   {  // a Yahtzee bonus with no Yahtzee behind it
     Game bad = good;
@@ -760,7 +905,12 @@ void testTheBrainScoresLikeAPlayerNotABot() {
   const int average = totalScore / kGames;
   std::printf("  brain solo: average %d, worst %d over %d games\n", average, worst, kGames);
   CHECK(average >= 180);
-  CHECK(worst >= 100);
+  // NOT a floor on the worst game. Re-running this harness across 61 seed bases
+  // fails a "worst >= 100" bound on three of them, lowest 89 -- so that
+  // assertion was measuring the seed, not the brain. A bad hand really can cost
+  // a game, and a test that pretends otherwise fails for whoever changes an
+  // unrelated constant.
+  CHECK(worst >= 60);
 }
 
 }  // namespace
@@ -768,12 +918,14 @@ void testTheBrainScoresLikeAPlayerNotABot() {
 int main() {
   testAFreshCardIsEmptyAndScoresNothing();
   testEveryCategoryScoresWhatTheRulesSay();
+  testThePrintedNumbersAreTheNumbersOnTheCard();
   testTheUpperBonusIsSixtyThreeAndThirtyFive();
   testTheBonusStopsBeingPossibleWhenItStops();
 
   testASecondYahtzeeEarnsTheBonusEvenWithTheUpperBoxFree();
   testAJokerPaysStraightsAndFullHouseInFull();
-  testACrossedOutYahtzeeEarnsNoBonusAndNoJoker();
+  testACrossedOutYahtzeeStillTriggersTheJokerButEarnsNoBonus();
+  testAJokerMustGoInTheLowerSectionWhileAnyOfItIsFree();
   testTheFirstYahtzeeIsNotABonus();
 
   testThreeRollsAndNoMore();

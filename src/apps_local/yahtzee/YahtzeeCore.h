@@ -241,45 +241,77 @@ inline int maxScore(const Category category) {
   return 0;
 }
 
-// The Joker rules, which is where implementations usually go wrong. There are
-// THREE separate things here and conflating any two of them is the bug.
+// The Joker rules, which is where implementations usually go wrong. THREE
+// separate rules, and conflating any two of them is the bug.
 //
-// Hasbro: roll a Yahtzee when the Yahtzee box already holds 50 and
-//   (1) you score a 100 bonus, straight away;
-//   (2) you MUST use the matching upper box if it is free;
-//   (3) if it is not free, any lower box may be used, and the straights and the
-//       full house pay in full whatever the dice actually show.
+// Hasbro, verbatim in structure: roll a Yahtzee when the Yahtzee box is already
+// filled, and
+//   (1) if it holds 50, you score a 100 bonus -- immediately, whatever box you
+//       then take. A zero there earns nothing.
+//   (2) you MUST use the matching upper box if it is free.
+//   (3) otherwise you must use a box in the LOWER SECTION, and there the
+//       straights and the full house pay in full whatever the dice show. Only
+//       when every lower box is also filled may you put a zero in an upper one.
 //
-// (1) does not depend on (2) or (3). The first version made the bonus
-// conditional on the matching upper box being already filled, which silently
-// robbed a player of a hundred points for the common case of rolling five
-// threes with the Threes box still open.
+// Two things here were wrong and both came from guessing rather than reading.
 //
-// **[house]** Hasbro is silent on what happens when the Yahtzee box holds a
-// zero, because you crossed it out earlier. We take the widely used reading:
-// no bonus and no Joker, the dice score normally. It is the strictest option
-// and the only one that never rewards a player for having failed.
+// Rule (1) does not depend on (2) or (3). The first version made the bonus
+// conditional on the matching upper box being gone, which silently robs a
+// player of a hundred points for five threes with Threes still open.
+//
+// Rule (3) is a LOWER SECTION restriction, not "any free box". The second
+// version offered free upper boxes while the lower section was still open --
+// 30,240 (card, dice, category) triples that Hasbro forbids, reached in 1.25%
+// of real games. The code was wider than its own comment, which already said
+// "any lower box".
+//
+// **A Yahtzee box holding ZERO still triggers the Joker.** This file used to
+// claim Hasbro was silent here and pick the strictest reading as [house]. That
+// was simply wrong: the rulebook says the Joker applies when the box "has been
+// previously filled with 50 or zero", and Hasbro's own support says a zero
+// earns no bonus but still forces the Joker rules. A [house] marker on a rule
+// that is written down is worse than the wrong rule, because it stops anyone
+// looking it up.
 inline bool yahtzeeBonusDue(const Card& card, const uint8_t* die) {
   if (!isYahtzee(die)) return false;
   if (!scored(card, Category::Yahtzee)) return false;
+  // The bonus, and only the bonus, needs the 50.
   return card.box[static_cast<int>(Category::Yahtzee)] != 0;
 }
 
-// Whether rule (3) is live: a bonus is due AND the matching upper box is gone,
-// so a lower box has to take it and pays in full.
+// Whether the Joker is live at all: a Yahtzee, and the Yahtzee box already
+// filled with anything. Rules (2) and (3) hang off this; rule (1) does not.
+inline bool jokerLive(const Card& card, const uint8_t* die) {
+  return isYahtzee(die) && scored(card, Category::Yahtzee);
+}
+
+inline bool anyLowerBoxFree(const Card& card) {
+  for (int i = kUpperEnd; i < kCategories; ++i) {
+    if (card.box[i] == kUnscored) return true;
+  }
+  return false;
+}
+
+// Whether rule (3) is in force: the Joker is live, the matching upper box is
+// gone, so a lower box must take it and the shaped ones pay in full.
 inline bool jokerApplies(const Card& card, const uint8_t* die) {
-  if (!yahtzeeBonusDue(card, die)) return false;
+  if (!jokerLive(card, die)) return false;
   return scored(card, static_cast<Category>(die[0] - 1));
 }
 
-// Whether `category` may be taken with these dice. A box is playable when it is
-// free, with one exception: rule (2), the compulsory matching upper box.
+// Whether `category` may be taken with these dice.
 inline bool canScore(const Card& card, const uint8_t* die, const Category category) {
   if (category == Category::Count) return false;
   if (scored(card, category)) return false;
-  if (!yahtzeeBonusDue(card, die)) return true;
+  if (!jokerLive(card, die)) return true;
+
+  // Rule (2): the matching upper box, if free, is compulsory.
   const Category matching = static_cast<Category>(die[0] - 1);
   if (!scored(card, matching)) return category == matching;
+
+  // Rule (3): the lower section, while any of it is open.
+  if (anyLowerBoxFree(card)) return static_cast<int>(category) >= kUpperEnd;
+  // Everything below is full: a zero goes in an upper box of your choice.
   return true;
 }
 
@@ -383,6 +415,10 @@ inline bool plausible(const Game& game) {
   if (game.turn > 1) return false;
   if (game.rollsUsed > kRollsPerTurn) return false;
   if (game.held >= (1 << kDice)) return false;
+  // Nothing is held before the first roll of a turn: roll() clears it, and
+  // toggleHold refuses. A wire state with held dice at rollsUsed 0 reaches
+  // roll()'s `if (first) game.held = 0` from a direction play cannot.
+  if (game.rollsUsed == 0 && game.held != 0) return false;
   for (int i = 0; i < kDice; ++i) {
     if (game.die[i] < 1 || game.die[i] > kFaces) return false;
   }
@@ -392,9 +428,45 @@ inline bool plausible(const Game& game) {
       const int8_t value = card.box[i];
       if (value == kUnscored) continue;
       if (value < 0) return false;
-      if (value > maxScore(static_cast<Category>(i))) return false;
+      const Category category = static_cast<Category>(i);
+      if (value > maxScore(category)) return false;
+      // The FIXED-value boxes hold their value or a zero, nothing between. A
+      // magnitude cap gets the size right and the shape wrong: 17 in Small
+      // Straight and 25 in Yahtzee both passed it, and neither is a score the
+      // rules can produce.
+      switch (category) {
+        case Category::FullHouse:
+        case Category::SmallStraight:
+        case Category::LargeStraight:
+        case Category::Yahtzee:
+          if (value != 0 && value != maxScore(category)) return false;
+          break;
+        case Category::Ones:
+        case Category::Twos:
+        case Category::Threes:
+        case Category::Fours:
+        case Category::Fives:
+        case Category::Sixes:
+          // An upper box is a multiple of its own face.
+          if (value % (i + 1) != 0) return false;
+          break;
+        case Category::ThreeOfAKind:
+        case Category::FourOfAKind:
+          // Five dice, at least three of a kind, so the total cannot be under
+          // 1+1+1+1+1 and cannot be 2 or 3.
+          if (value != 0 && value < kDice) return false;
+          break;
+        case Category::Chance:
+          if (value != 0 && value < kDice) return false;
+          break;
+        case Category::Count:
+          return false;
+      }
     }
-    if (card.yahtzeeBonuses > kCategories) return false;
+    // TWELVE, not thirteen. The first Yahtzee costs a turn to score in the
+    // Yahtzee box and earns no bonus, so twelve turns remain in which one can
+    // be earned. The off-by-one let an impossible card through.
+    if (card.yahtzeeBonuses > kCategories - 1) return false;
     // A bonus cannot exist without a Yahtzee having been scored above zero.
     if (card.yahtzeeBonuses > 0 &&
         (!scored(card, Category::Yahtzee) || card.box[static_cast<int>(Category::Yahtzee)] == 0)) {
@@ -407,6 +479,8 @@ inline bool plausible(const Game& game) {
   const int filled1 = kCategories - boxesLeft(game.card[1]);
   if (filled0 != filled1 && filled0 != filled1 + 1) return false;
   if (!over(game) && game.turn != (filled0 == filled1 ? 0 : 1)) return false;
+  // A finished game has no turn in progress.
+  if (over(game) && (game.rollsUsed != 0 || game.held != 0)) return false;
   return true;
 }
 
