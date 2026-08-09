@@ -37,6 +37,25 @@ std::string cannedPathFor(const std::string& url) {
   // r.jina.ai fronts an arbitrary article; one piece of prose answers for all
   // of them, which is what a demo needs and all it needs.
   if (startsWith(url, "https://r.jina.ai/")) return "/canned/hn-article.txt";
+  // The published Connections archive. A 40-puzzle slice of the real thing,
+  // cut by tools_local/wasm/connections_subset.py -- without this the app
+  // opened on ARCHIVE 0, sent you through the Wi-Fi picker, and returned you
+  // to the same empty screen with nothing said. It was the only app on the
+  // shelf that could not be played here at all.
+  if (startsWith(url, "https://raw.githubusercontent.com/Eyefyre/NYT-Connections-Answers/")) {
+    return "/canned/connections.json";
+  }
+  // xkcd's latest-comic endpoint, answering with the newest comic that is
+  // actually on this card, so UPDATE says "up to date" instead of "xkcd.com
+  // did not answer". The card's pack IS current as far as this build is
+  // concerned, so that is the honest answer rather than a softer one.
+  //
+  // Must be tested before any other xkcd.com prefix: the per-comic URL is
+  // https://xkcd.com/<n>/info.0.json and this one is a strict prefix of
+  // nothing else, but a broad "https://xkcd.com/" rule added later would
+  // shadow it. Per-comic is deliberately left unanswered -- it is only
+  // reached when there is something newer to fetch, and there never is.
+  if (startsWith(url, "https://xkcd.com/info.0.json")) return "/canned/xkcd-latest.json";
   return "";
 }
 

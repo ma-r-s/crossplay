@@ -19,6 +19,11 @@ build
 /.venv
 *.local*
 *.cpfont
+# ...except the browser demo's card, which is a shipped asset rather than a
+# build artifact, exactly like tools_local/wasm/sdcard/xkcd/images.dat next to
+# it. Without this a fresh worktree rebuilds the web card 1.3MB lighter and the
+# Study app draws no Chinese at all -- silently, because nothing fails.
+!tools_local/wasm/sdcard/study/fonts/KaiTi/*.cpfont
 lib/EpdFont/scripts/downloaded_fonts/
 lib/EpdFont/scripts/instanced_fonts/
 lib/EpdFont/scripts/output/
