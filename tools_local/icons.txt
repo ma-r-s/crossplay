@@ -186,3 +186,16 @@ minesweeper = bomb
 # and `flag` is there. Solitaire's pips went the same way after three rounds of
 # hand-drawing.
 mineflag = flag
+
+# Yahtzee. NOT a die, and that is the whole point: Knucklebones' mark is a die
+# and the two sit on consecutive rows of the same folder, where they read as the
+# same icon. A game's icon has to separate it from its NEIGHBOURS, not just be a
+# fair picture of the game -- the same lesson Connect Four learned when its 2x2
+# of discs read as a checkerboard directly under CHECKERS.
+#
+# So: the CARD. Thirteen boxes filled once each is what makes Yahtzee Yahtzee
+# rather than "a dice game", and the card is literally the screen. Two boxes
+# written in and one still waiting, which is the game in one picture.
+# Rejected: five small dice (illegible at 32px, and still dice), a dice cup (too
+# much detail), a single die with a different pip count (still the neighbour's
+# mark with a typo).
