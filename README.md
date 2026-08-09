@@ -102,9 +102,9 @@ cable: **Settings -> Check for updates** fetches it over Wi-Fi, or you can copy
 it onto the SD card and choose it from the same screen. The updater matches that
 exact filename, so do not rename it.
 
-`-full.bin` is for the USB install only. Handing it to the on-device updater
-writes a bootloader into an application slot, so the firmware validates the
-image first and refuses it rather than flashing it.
+`-full.bin` is for the USB install only. Do not hand it to the on-device
+updater: that would be writing a bootloader into a slot meant for the
+application.
 
 Two things worth knowing before you start:
 

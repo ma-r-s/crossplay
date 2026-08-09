@@ -375,7 +375,7 @@
         <li><strong>Flash it over USB.</strong> You need <a href="https://github.com/espressif/esptool">esptool</a>, which is one <code>pip install esptool</code> on Windows, macOS or Linux alike. With the device plugged in:
           <br><code>esptool.py --chip esp32s3 --baud 921600 write_flash 0x0 crossplay-&lt;version&gt;-x4pro-full.bin</code>
         </li>
-        <li><strong>Updating later needs no cable.</strong> Use <strong>Settings &rarr; Check for updates</strong> over Wi-Fi, or put the other release file, <code>firmware.bin</code>, on the SD card and pick it there. That file is the app on its own, which is what a device that already has a bootloader wants. The <code>-full.bin</code> is for USB only; the device validates what it is given and refuses it.</li>
+        <li><strong>Updating later needs no cable.</strong> Use <strong>Settings &rarr; Check for updates</strong> over Wi-Fi, or put the other release file, <code>firmware.bin</code>, on the SD card and pick it there. That file is the app on its own, which is what a device that already has a bootloader wants. The <code>-full.bin</code> is for USB only -- do not hand it to the updater, which would be writing a bootloader into a slot meant for the application.</li>
         <li><strong>You can go back.</strong> Flashing stock CrossPoint over the top returns the device exactly to where it was.</li>
       </ol>
       <div class="cta-row">
