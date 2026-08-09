@@ -21,10 +21,12 @@ input:
   5000:TAP:240,275      # YAHTZEE, third row of page two
   6500:TAP:240,143      # PLAY
   9000:TAP:240,760      # ROLL -- the capsule is the roll button
-  12000:QUIT
+  11500:TAP:100,120      # hold the first die
+  13000:TAP:230,120      # and the third
+  16000:QUIT
 
 shot:
-  11000:./qa-artifacts/yahtzee.bmp
+  15000:./qa-artifacts/yahtzee.bmp
 
 # The five dice are 62px with 12px gaps, centred, at y = kHeaderHeight + kGutter.
 # Category rows are 33px tall starting under the column headers; the gap between

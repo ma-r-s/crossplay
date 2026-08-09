@@ -369,7 +369,7 @@ void testAGameIsExactlyTwentySixTurnsAndThenOver() {
   CHECK(!canRoll(game));
   CHECK(!roll(game));
   CHECK(!take(game, Category::Chance));
-  CHECK(takeableBoxes(game) == 0);
+  CHECK(takeableBoxes(game, game.turn) == 0);
 }
 
 void testEveryRandomGameStaysPlausible() {
@@ -491,10 +491,10 @@ void testTakeableBoxesAgreesWithWhatTheRulesAccept() {
     Game game{};
     start(game, 0x9000u + trial);
     // Nothing rolled: nothing is takeable, however empty the card is.
-    CHECK(takeableBoxes(game) == 0);
+    CHECK(takeableBoxes(game, game.turn) == 0);
     while (!over(game)) {
       roll(game);
-      const uint16_t mask = takeableBoxes(game);
+      const uint16_t mask = takeableBoxes(game, game.turn);
       int offered = 0;
       for (int i = 0; i < kCategories; ++i) {
         const bool marked = (mask & (1u << i)) != 0;
@@ -518,13 +518,64 @@ void testTakeableBoxesAgreesWithWhatTheRulesAccept() {
   }
 }
 
+// The screen bug this signature exists to make impossible. During the
+// opponent's turn the card being LOOKED at is not the card being played, and
+// the first version read card[game.turn] -- so your column filled with previews
+// computed from their dice, about three repaints a turn, every game.
+void testNothingIsTakeableOnACardWhoseTurnItIsNot() {
+  Game game{};
+  start(game, 4711);
+  roll(game);
+  CHECK(game.turn == 0);
+  CHECK(takeableBoxes(game, 0) != 0);
+  CHECK(takeableBoxes(game, 1) == 0);
+
+  take(game, chooseBox(game.card[0], game.die));
+  roll(game);
+  CHECK(game.turn == 1);
+  CHECK(takeableBoxes(game, 1) != 0);
+  CHECK(takeableBoxes(game, 0) == 0);
+
+  // And the mask really is about the seat's own card, not the mover's. Fill a
+  // box on ONE card only and the two masks must differ in that bit.
+  Game skewed{};
+  start(skewed, 99);
+  skewed.card[0].box[static_cast<int>(Category::Chance)] = 20;
+  skewed.card[1].box[static_cast<int>(Category::Ones)] = 3;
+  skewed.turn = 0;
+  skewed.rollsUsed = 1;
+  setDice(skewed, 1, 2, 3, 4, 5);
+  const uint16_t mine = takeableBoxes(skewed, 0);
+  CHECK((mine & (1u << static_cast<int>(Category::Chance))) == 0);
+  CHECK((mine & (1u << static_cast<int>(Category::Ones))) != 0);
+}
+
+void testTheJokerHintFiresExactlyWhenABoxIsForced() {
+  Game game{};
+  start(game, 3);
+  game.card[0].box[static_cast<int>(Category::Yahtzee)] = kYahtzeeScore;
+  setDice(game, 4, 4, 4, 4, 4);
+  game.rollsUsed = 2;
+  // Fours still free: one box is legal and the card has to say why.
+  CHECK(jokerForcing(game, 0));
+  CHECK(takeableBoxes(game, 0) == (1u << static_cast<int>(Category::Fours)));
+
+  // Fours gone: a bonus is still due but nothing is forced, so no hint.
+  game.card[0].box[static_cast<int>(Category::Fours)] = 16;
+  CHECK(!jokerForcing(game, 0));
+  CHECK(yahtzeeBonusDue(game.card[0], game.die));
+
+  // And never for the seat that is not playing.
+  CHECK(!jokerForcing(game, 1));
+}
+
 void testUnderAJokerExactlyOneBoxIsOffered() {
   Game game{};
   start(game, 11);
   game.card[0].box[static_cast<int>(Category::Yahtzee)] = kYahtzeeScore;
   setDice(game, 2, 2, 2, 2, 2);
   game.rollsUsed = 2;
-  const uint16_t mask = takeableBoxes(game);
+  const uint16_t mask = takeableBoxes(game, 0);
   CHECK(mask == (1u << static_cast<int>(Category::Twos)));
   // This is the ONE case where a free row cannot be tapped, which is why the
   // card has to draw the difference.
@@ -738,6 +789,8 @@ int main() {
   testBackIsTotalAndAlwaysReachesTheTop();
   testTheStageIsDerivedFromTheRollsUsed();
   testTakeableBoxesAgreesWithWhatTheRulesAccept();
+  testNothingIsTakeableOnACardWhoseTurnItIsNot();
+  testTheJokerHintFiresExactlyWhenABoxIsForced();
   testUnderAJokerExactlyOneBoxIsOffered();
 
   testTheBrainOnlyEverTakesALegalBox();

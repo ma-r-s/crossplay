@@ -19,11 +19,17 @@ constexpr int16_t kDieGap = 12;
 constexpr int16_t kDiceBandHeight = kDieSize;
 
 // The scorecard. Fifteen lines: six upper, the bonus, seven lower, the total.
-// Thirty-three pixels each is the number that makes all of them fit under the
-// dice with the capsule still on screen, and it is the reason this table is not
-// built from the list component -- a ListProps row is 62px and six of those
-// would be the whole card.
-constexpr int16_t kLineHeight = 33;
+// This is the reason the table is not built from the list component -- a
+// ListProps row is 62px and six of those would be the whole card.
+//
+// Thirty-SIX, not thirty-three. Thirty-three was justified as "the number that
+// makes all of them fit", and it fit with forty-six pixels left over that were
+// never assigned to anything: the table is laid out from an absolute top and
+// the capsule comes off takeBottom, so the slack between them belonged to
+// neither. Thirty-six spends forty-five of it, which also takes the row from
+// 3.8mm to 4.15mm at 220ppi -- and this row is the only irreversible tap in the
+// game, so it should not have been the smallest target on the screen.
+constexpr int16_t kLineHeight = 36;
 constexpr int16_t kColumnHeaderHeight = 22;
 // Where the two score columns end. The name has everything to the left of them.
 constexpr int16_t kYourRight = 336;
@@ -91,12 +97,19 @@ void drawDie(toybox::Screen& screen, const fui::Rect& box, const int face, const
   // A held die is framed OUTSIDE its own edge, so it grows rather than shrinks.
   // The same rule the Checkers board learned: an inset frame eats the thing it
   // is marking and makes it look smaller than its neighbours.
+  //
+  // With a GAP. The frame used to sit flush against the die's own 3px stroke
+  // and the two merged into one 7px rule -- measured, border ink 57..63
+  // contiguous -- so a held die read as heavier rather than bigger. The design
+  // language names this exact failure: two parallel strokes a few pixels apart
+  // on a 1-bit panel merge into one thick line, and these were zero apart.
   if (!held) return;
-  screen.target().stroke(fui::makeRect(static_cast<int16_t>(box.x - toybox::kFrame),
-                                       static_cast<int16_t>(box.y - toybox::kFrame),
-                                       static_cast<int16_t>(box.width + toybox::kFrame * 2),
-                                       static_cast<int16_t>(box.height + toybox::kFrame * 2)),
-                         fui::Paint::solid(fui::Color::Black), toybox::kFrame);
+  constexpr int16_t kGap = 4;
+  const int16_t inset = static_cast<int16_t>(toybox::kFrame + kGap);
+  screen.target().stroke(
+      fui::makeRect(static_cast<int16_t>(box.x - inset), static_cast<int16_t>(box.y - inset),
+                    static_cast<int16_t>(box.width + inset * 2), static_cast<int16_t>(box.height + inset * 2)),
+      fui::Paint::solid(fui::Color::Black), toybox::kFrame);
 }
 
 const char* categoryName(const int index) {
@@ -114,14 +127,21 @@ void drawNumber(toybox::Screen& screen, const int16_t right, const int16_t y, co
   fui::TextStyle style;
   style.font = bold ? toybox::kBodyFont : toybox::kSmallFont;
   style.align = fui::TextAlign::Right;
-  screen.target().text(fui::makeRect(static_cast<int16_t>(right - 90), y, 90, kLineHeight), text, style);
+  screen.target().text(fui::makeRect(static_cast<int16_t>(right - 90), y, static_cast<int16_t>(90 - 8), kLineHeight),
+                       text, style);
 }
 
 // An empty box: the printed card's box, waiting for a number.
+// The design language says hairlines are for grid cells and secondary outlines,
+// "never for anything you want noticed". This outline is the ENTIRE carrier of
+// pencilled-versus-written, which is a decision-changing distinction: a
+// committed zero and a previewed zero were the same glyph separated by one
+// pixel. kRule is the lightest weight that survives 220ppi for load-bearing
+// work.
 void drawEmptyBox(toybox::Screen& screen, const int16_t right, const int16_t y) {
   screen.target().stroke(fui::makeRect(static_cast<int16_t>(right - kBoxWidth), static_cast<int16_t>(y + 4), kBoxWidth,
-                                       static_cast<int16_t>(kLineHeight - 10)),
-                         fui::Paint::solid(fui::Color::Black), toybox::kHairline);
+                                       static_cast<int16_t>(kLineHeight - 12)),
+                         fui::Paint::solid(fui::Color::Black), toybox::kRule);
 }
 
 // A box with what you WOULD score in it, which is the whole decision in this
@@ -132,10 +152,16 @@ void drawPreview(toybox::Screen& screen, const int16_t right, const int16_t y, c
   drawEmptyBox(screen, right, y);
   char text[8];
   std::snprintf(text, sizeof(text), "%d", value);
+  // Right-aligned INSIDE the box, matching drawNumber, so a column of thirteen
+  // rows has one edge. Centring the previews and right-aligning the committed
+  // numbers put their digits 25px apart on a 62px column and turned the column
+  // into a zigzag that alternated row by row.
   fui::TextStyle style;
   style.font = toybox::kSmallFont;
-  style.align = fui::TextAlign::Center;
-  screen.target().text(fui::makeRect(static_cast<int16_t>(right - kBoxWidth), y, kBoxWidth, kLineHeight), text, style);
+  style.align = fui::TextAlign::Right;
+  screen.target().text(
+      fui::makeRect(static_cast<int16_t>(right - kBoxWidth), y, static_cast<int16_t>(kBoxWidth - 8), kLineHeight), text,
+      style);
 }
 
 }  // namespace
@@ -146,17 +172,25 @@ fui::Rect dieRect(const fui::DeviceContext& device, const int index) {
 }
 
 int dieAt(const fui::DeviceContext& device, const int x, const int y) {
-  const int16_t top = contentTop();
-  if (y < top || y >= top + kDiceBandHeight) return -1;
-  const int16_t left = diceLeft(device);
+  // The band is widened by the held frame, because the frame is part of the die
+  // as far as a finger is concerned. It used to sit entirely outside the hit
+  // rect, so tapping the visible black border of a held die -- the obvious
+  // place to press to release it -- did nothing. That is the pill()/pillRect()
+  // defect building-apps.md uses as its worked example.
+  constexpr int16_t kReach = toybox::kFrame + 4;
+  const int16_t top = static_cast<int16_t>(contentTop() - kReach);
+  if (y < top || y >= contentTop() + kDiceBandHeight + kReach) return -1;
+  const int16_t left = static_cast<int16_t>(diceLeft(device) - kReach);
   if (x < left) return -1;
-  const int offset = x - left;
-  const int slot = offset / (kDieSize + kDieGap);
+  const int offset = x - diceLeft(device) + kReach;
+  const int slot = (offset - kReach) / (kDieSize + kDieGap);
   if (slot < 0 || slot >= yz::kDice) return -1;
-  // The gap between two dice belongs to neither. A tap there must miss rather
-  // than land on whichever die happens to be to its left: these are five
-  // separate switches and a fat-fingered hold is a wasted turn.
-  if (offset - slot * (kDieSize + kDieGap) >= kDieSize) return -1;
+  // The gap between two dice still belongs to neither, minus the reach each
+  // die now claims for its frame. A tap in what is left must miss rather than
+  // land on whichever die happens to be to its left: these are five separate
+  // switches and a fat-fingered hold is a wasted turn.
+  const int within = offset - kReach - slot * (kDieSize + kDieGap);
+  if (within < -kReach || within >= kDieSize + kReach) return -1;
   return slot;
 }
 
@@ -271,15 +305,28 @@ void buildCard(toybox::Screen& screen, const CardModel& model) {
   // you cannot.
   fui::ButtonProps action;
   char rollLabel[24];
+  // A capsule that cannot act DIMS. It was solid black with a white knockout,
+  // identical to a live ROLL, so a player learns "the black bar is the button"
+  // and then taps it twice for nothing. Jaipur and Battleship both already do
+  // this on the same control.
   if (!model.yourTurn) {
     action.label = "THEIR TURN";
     action.action = fui::NO_ACTION;
+    action.styles = toybox::disabledButtonStyles();
   } else if (stage == yz::Stage::Spent) {
-    action.label = "TAKE A BOX";
+    action.label = model.joker ? "YAHTZEE! TAKE THE MARKED BOX" : "TAKE A BOX";
     action.action = fui::NO_ACTION;
+    action.styles = toybox::disabledButtonStyles();
   } else {
     const int left = yz::kRollsPerTurn - game.rollsUsed;
-    std::snprintf(rollLabel, sizeof(rollLabel), left == yz::kRollsPerTurn ? "ROLL" : "ROLL AGAIN (%d LEFT)", left);
+    if (model.joker) {
+      // The one moment in Yahtzee where a free row refuses a tap. Unexplained,
+      // twelve boxes silently stop showing previews and the card reads as
+      // simply dead.
+      std::snprintf(rollLabel, sizeof(rollLabel), "YAHTZEE! ONE BOX ONLY");
+    } else {
+      std::snprintf(rollLabel, sizeof(rollLabel), left == yz::kRollsPerTurn ? "ROLL" : "ROLL AGAIN (%d LEFT)", left);
+    }
     action.label = rollLabel;
     action.action = ActionRoll;
   }
@@ -346,18 +393,49 @@ void buildCard(toybox::Screen& screen, const CardModel& model) {
                                      toybox::kHairline),
                        fui::Paint::solid(fui::Color::Black));
   char bonusText[40];
-  if (yz::bonusEarned(yours) > 0) {
-    std::snprintf(bonusText, sizeof(bonusText), "BONUS  +%d", yz::kUpperBonus);
-  } else if (yz::upperBonusStillPossible(yours)) {
-    std::snprintf(bonusText, sizeof(bonusText), "BONUS  %d MORE", yz::upperShortfall(yours));
-  } else {
-    // Say it is gone rather than counting down toward a number that can no
-    // longer arrive. A shortfall you cannot close is worse than no shortfall.
-    std::snprintf(bonusText, sizeof(bonusText), "BONUS  OUT OF REACH");
-  }
+  std::snprintf(bonusText, sizeof(bonusText), "BONUS");
   screen.target().text(fui::makeRect(toybox::kMargin, static_cast<int16_t>(bonusY + 4), 260, kLineHeight), bonusText,
                        name);
-  drawNumber(screen, kTheirRight, static_cast<int16_t>(bonusY + 4), yz::bonusEarned(theirs), false);
+
+  // BOTH columns get the same thing. It used to put your shortfall as a
+  // sentence in the NAME column and their bonusEarned as a bare integer 300px
+  // away -- one row carrying two quantities in two notations, and theirs was
+  // uninformative besides: it read 0 for the whole game whether they were three
+  // points off or mathematically out.
+  for (int column = 0; column < 2; ++column) {
+    const yz::Card& card = column == 0 ? yours : theirs;
+    const int16_t right = column == 0 ? kYourRight : kTheirRight;
+    char cell[16];
+    if (yz::bonusEarned(card) > 0) {
+      std::snprintf(cell, sizeof(cell), "+%d", yz::kUpperBonus);
+    } else if (yz::upperBonusStillPossible(card)) {
+      std::snprintf(cell, sizeof(cell), "%d MORE", yz::upperShortfall(card));
+    } else {
+      // Say it is gone rather than counting down toward a number that can no
+      // longer arrive. A shortfall you cannot close is worse than none.
+      std::snprintf(cell, sizeof(cell), "GONE");
+    }
+    fui::TextStyle cellStyle;
+    cellStyle.font = toybox::kSmallFont;
+    cellStyle.align = fui::TextAlign::Right;
+    screen.target().text(fui::makeRect(static_cast<int16_t>(right - 100), static_cast<int16_t>(bonusY + 4),
+                                       static_cast<int16_t>(100 - 8), kLineHeight),
+                         cell, cellStyle);
+  }
+
+  // The Yahtzee bonus, on the Yahtzee row, when there is one. A hundred points
+  // is the largest scoring event in the game and it landed in TOTAL with no row
+  // and no event to point at.
+  if (yours.yahtzeeBonuses > 0 || theirs.yahtzeeBonuses > 0) {
+    const fui::Rect yahtzeeRow = rowRect(device, static_cast<int>(yz::Category::Yahtzee));
+    char extra[24];
+    std::snprintf(extra, sizeof(extra), "+%d", (yours.yahtzeeBonuses + theirs.yahtzeeBonuses) * yz::kYahtzeeBonus);
+    fui::TextStyle mark;
+    mark.font = toybox::kSmallFont;
+    mark.align = fui::TextAlign::Left;
+    screen.target().text(fui::makeRect(static_cast<int16_t>(yahtzeeRow.x + 150), yahtzeeRow.y, 110, kLineHeight), extra,
+                         mark);
+  }
 
   // The totals, under a rule, in the heavier face.
   const int16_t totalY = static_cast<int16_t>(tableTop() + kTotalLine * kLineHeight);

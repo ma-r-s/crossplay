@@ -76,14 +76,39 @@ inline Screen screenFor(const Game& game) { return over(game) ? Screen::Result :
 // the Joker rule it collapses to a single box, which is the one case where a
 // player taps a free row and is refused -- so the card has to show it. See
 // docs/yahtzee.md.
-inline uint16_t takeableBoxes(const Game& game) {
+// `seat` is the card being LOOKED at, not the side to move, and those differ for
+// the whole of the opponent's turn. The first version took only the game and
+// read `card[game.turn]`, so during their turn the screen was handed the boxes
+// free on THEIR card and drew them down your column, with the numbers computed
+// from their dice. About three repaints a turn, thirteen turns, every game,
+// in solo play.
+inline uint16_t takeableBoxes(const Game& game, const uint8_t seat) {
   if (over(game) || game.rollsUsed == 0) return 0;
-  const Card& card = game.card[game.turn];
+  // Nothing is takeable on a card whose turn it is not. A preview is an offer,
+  // and an offer that cannot be accepted is a lie however well drawn.
+  if (game.turn != seat) return 0;
+  // Indexed by seat rather than turn, though the guard above makes them equal
+  // on every path that gets here -- a mutation swapping them survives the suite
+  // and is an EQUIVALENT mutant, not a gap. Kept as `seat` because that is what
+  // the function is about, and because deleting the guard would then be caught
+  // by one assertion rather than needing two.
+  const Card& card = game.card[seat];
   uint16_t mask = 0;
   for (int i = 0; i < kCategories; ++i) {
     if (canScore(card, game.die, static_cast<Category>(i))) mask |= static_cast<uint16_t>(1u << i);
   }
   return mask;
+}
+
+// Whether a Joker is forcing the hand: a bonus is due and the matching upper
+// box is still free, so exactly one of thirteen boxes is legal. The one moment
+// in this game where a free row refuses a tap, and therefore the one that has
+// to be said out loud.
+inline bool jokerForcing(const Game& game, const uint8_t seat) {
+  if (over(game) || game.rollsUsed == 0 || game.turn != seat) return false;
+  const Card& card = game.card[seat];
+  if (!yahtzeeBonusDue(card, game.die)) return false;
+  return !scored(card, static_cast<Category>(game.die[0] - 1));
 }
 
 // How far the upper section still has to go for the 35-point bonus, or 0 once

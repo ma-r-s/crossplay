@@ -5,6 +5,7 @@
 #include "../Shelf.h"
 #include "../ui/Toybox.h"
 #include "../ui/ToyboxFonts.h"
+#include "../ui/ToyboxSeed.h"
 #include "../ui/ToyboxTheme.h"
 #include "YahtzeeBrain.h"
 #include "YahtzeeScreens.h"
@@ -29,7 +30,7 @@ void YahtzeeActivity::goTo(const yz::Screen next) {
 }
 
 void YahtzeeActivity::beginSoloGame() {
-  yz::start(game, static_cast<uint32_t>(millis()));
+  yz::start(game, toybox::seed());
   seat = 0;
   goTo(yz::Screen::Card);
 }
@@ -72,7 +73,7 @@ void YahtzeeActivity::onMatchStart(const bool goesFirst) {
   // Starting on a zeroed Game here is safe in a way it was not in Checkers: an
   // empty Yahtzee card is not a finished game, so over() is false and nothing
   // announces a winner before the first roll.
-  if (goesFirst) yz::start(game, static_cast<uint32_t>(millis()));
+  if (goesFirst) yz::start(game, toybox::seed());
   goTo(yz::Screen::Card);
 }
 
@@ -232,7 +233,8 @@ void YahtzeeActivity::gameRender() {
     case yz::Screen::Card: {
       yzui::CardModel model;
       model.game = game;
-      model.takeable = yz::takeableBoxes(game);
+      model.takeable = yz::takeableBoxes(game, seat);
+      model.joker = yz::jokerForcing(game, seat);
       model.seat = seat;
       model.yourTurn = inMatch() ? linkYourTurn() : game.turn == seat;
       model.opponentName = inMatch() ? opponentName() : nullptr;

@@ -32,8 +32,13 @@ struct HowToModel {
 struct CardModel {
   yahtzee::Game game{};
   // Which boxes a tap can take, from the rules rather than recomputed here.
-  // Zero before the first roll, and exactly one under a live Joker.
+  // Zero before the first roll, zero on their turn, and exactly one under a
+  // live Joker.
   uint16_t takeable = 0;
+  // A Joker is forcing the hand: one box is legal and twelve free ones are not.
+  // Without saying so the card looks like it has simply stopped offering
+  // anything, which is what a dead screen looks like.
+  bool joker = false;
   // Which seat this device plays.
   uint8_t seat = 0;
   bool yourTurn = true;

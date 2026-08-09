@@ -11,6 +11,7 @@
 #include "../../components/UITheme.h"
 #include "../Shelf.h"
 #include "../ui/ToyboxFonts.h"
+#include "../ui/ToyboxSeed.h"
 #include "../ui/ToyboxTheme.h"
 #include "MurdleCast.h"
 #include "MurdleText.h"
@@ -156,7 +157,7 @@ void MurdleActivity::generateCase() {
   // millis() is the only entropy on this device that differs between two boots.
   // Mixed rather than used raw: the timer advances in even steps and the low
   // bit of a raw reading is not random.
-  seed = static_cast<uint32_t>(millis()) * 2654435761u + 0x9E3779B9u;
+  seed = toybox::seed();
   const murdle::Shape shape = murdle::shapeOf(tier);
 
   const uint32_t startedAt = millis();

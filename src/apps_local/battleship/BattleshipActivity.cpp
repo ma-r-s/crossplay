@@ -11,6 +11,7 @@
 #include "../Shelf.h"
 #include "../ui/Toybox.h"
 #include "../ui/ToyboxFonts.h"
+#include "../ui/ToyboxSeed.h"
 #include "../ui/ToyboxTheme.h"
 
 namespace {
@@ -49,7 +50,7 @@ void BattleshipActivity::onEnter() {
   // Mixed from the clock, so two games in a row are not the same game. The
   // fleet you are given is the first thing you see, and a deterministic one
   // would be noticed by the second session.
-  seed = static_cast<uint32_t>(millis()) * 2654435761u + 1u;
+  seed = toybox::seed();
   loadStats();
   hasSavedGame = loadGame();
   goToMenu();
