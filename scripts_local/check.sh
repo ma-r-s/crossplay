@@ -139,6 +139,32 @@ if [ "${1:-}" != "--tests" ]; then
   done
 fi
 
+# The published browser build is a committed artifact, and a committed artifact
+# is a claim about the source next to it. Nothing else checks that claim, so it
+# went stale twice in one afternoon: once when app/simheap changed what the
+# simulator reports for heap, and again an hour later when app/xkcdclose fixed a
+# panic. Both times site/emulator/ still described the code from before, and the
+# live page would have shipped it.
+#
+# Only enforced on xteink, because that is the branch the site deploys from. In
+# an app worktree the artifact is stale by construction -- nobody rebuilds a
+# 6-minute wasm per feature commit -- and a check that is always red is a check
+# people learn to scroll past.
+if [ "$(git branch --show-current 2>/dev/null)" = "xteink" ]; then
+  ART=$(git log -1 --format=%ct -- site/emulator 2>/dev/null)
+  SRC=$(git log -1 --format=%ct -- src lib assets_local tools_local/wasm 2>/dev/null)
+  if [ -n "$ART" ] && [ -n "$SRC" ] && [ "$ART" -lt "$SRC" ]; then
+    echo
+    echo "browser artifact is STALE"
+    echo "  site/emulator/ was built at $(git log -1 --format=%h\ %s -- site/emulator | cut -c1-58)"
+    echo "  but $(git log -1 --format=%h\ %s -- src lib assets_local tools_local/wasm | cut -c1-58) came after it"
+    echo "  the live page would ship code older than this branch. Rebuild:"
+    echo "    pio run -e simulator_x4_pro -t compiledb"
+    echo "    source ../.emsdk/emsdk_env.sh && python3 tools_local/wasm/build.py"
+    FAILED=1
+  fi
+fi
+
 echo
 if [ "$FAILED" -eq 0 ]; then
   echo "all green. logs in $LOGS"
