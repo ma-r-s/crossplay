@@ -312,6 +312,179 @@ void testPlausibleRejectsWhatPlayCannotProduce() {
   }
 }
 
+// --- gaps a mutation run found: assertions that were not asserting -----------
+
+// Swapping the win check and the draw check in drop() survived the whole suite.
+// It is not a rare case: 2,408 of 3,000,000 random games end with the
+// forty-second disc completing a line, and every one of them would have been
+// announced as a draw.
+void testAWinOnTheVeryLastDiscIsAWinNotADraw() {
+  Game game{};
+  const char* rows[kRows] = {".LDLDLD", "DLDLDLD", "LDLDLDL", "LDLDLDL", "DLDLDLD", "DLDLDLD"};
+  paint(game, rows);
+  CHECK(!boardFull(game));
+  CHECK(discCount(game) == kCells - 1);
+  // The one free cell completes light's column-0 pair upward into a four.
+  game.cell[0][5] = kEmpty;
+  game.cell[0][4] = kLight;
+  game.cell[0][3] = kLight;
+  game.cell[0][2] = kLight;
+  game.turn = kLight;
+  game.outcome = Outcome::Running;
+  CHECK(landingRow(game, 0) == 5);
+  CHECK(drop(game, 0));
+  CHECK(boardFull(game));
+  // Both conditions are true at once. The win has to win.
+  CHECK(game.outcome == Outcome::LightWins);
+  CHECK(winningLine(game, kLight, nullptr));
+}
+
+// Every clause of plausible() must be the one doing the rejecting for at least
+// one board, or it is untested however many boards the suite feeds it. The
+// suite's own "floating disc" case was being caught by turn parity, and its
+// "two ahead" case built a board three ahead.
+void testEachPlausibleClauseRejectsSomethingOnItsOwn() {
+  // Gravity, with the counts and the turn left consistent.
+  {
+    Game bad{};
+    const char* rows[kRows] = {".......", ".......", ".......", ".......", "L......", ".D....."};
+    paint(bad, rows);
+    bad.turn = kLight;
+    bad.lastColumn = 1;
+    bad.lastRow = 0;
+    CHECK(!plausible(bad));
+  }
+  // Exactly two ahead, not three.
+  {
+    Game bad{};
+    const char* rows[kRows] = {".......", ".......", ".......", ".......", ".......", "LL....."};
+    paint(bad, rows);
+    bad.turn = kDark;
+    bad.lastColumn = 1;
+    bad.lastRow = 0;
+    CHECK(!plausible(bad));
+  }
+  // A last-move row off the board, with the column in range.
+  {
+    Game bad{};
+    start(bad);
+    drop(bad, 3);
+    bad.lastRow = 9;
+    CHECK(!plausible(bad));
+  }
+  // A last move pointing at an empty cell. The board reads this to draw its
+  // marker, so it would render a disc that is not there.
+  {
+    Game bad{};
+    start(bad);
+    drop(bad, 3);
+    bad.lastColumn = 6;
+    CHECK(!plausible(bad));
+  }
+  // Discs on the board and no last move recorded at all.
+  {
+    Game bad{};
+    start(bad);
+    drop(bad, 3);
+    bad.lastColumn = kNoColumn;
+    bad.lastRow = kNoColumn;
+    CHECK(!plausible(bad));
+  }
+  // The outcome disagreeing with the board, in both directions.
+  {
+    Game bad{};
+    start(bad);
+    for (int i = 0; i < 3; ++i) {
+      drop(bad, 2);
+      drop(bad, 3);
+    }
+    drop(bad, 2);
+    CHECK(plausible(bad));
+    CHECK(bad.outcome == Outcome::LightWins);
+    Game running = bad;
+    running.outcome = Outcome::Running;
+    CHECK(!plausible(running));
+    Game wrongWinner = bad;
+    wrongWinner.outcome = Outcome::DarkWins;
+    CHECK(!plausible(wrongWinner));
+    Game claimedDraw = bad;
+    claimedDraw.outcome = Outcome::Draw;
+    CHECK(!plausible(claimedDraw));
+    // A win that handed the turn over.
+    Game handedOver = bad;
+    handedOver.turn = kDark;
+    CHECK(!plausible(handedOver));
+  }
+  // A full board still claiming to be running: the wedge. over() is false, no
+  // column accepts, chooseColumn returns nothing, and the activity loops
+  // forever without repainting.
+  {
+    Game bad{};
+    const char* rows[kRows] = {"DLDLDLD", "DLDLDLD", "LDLDLDL", "LDLDLDL", "DLDLDLD", "DLDLDLD"};
+    paint(bad, rows);
+    bad.turn = kLight;
+    bad.lastColumn = 0;
+    bad.lastRow = 5;
+    bad.outcome = Outcome::Running;
+    CHECK(boardFull(bad));
+    CHECK(!plausible(bad));
+  }
+}
+
+// A failed search must leave the caller's array alone. It used to write each
+// cell before testing the next, so a losing direction scribbled partial
+// indices: 8,132,315 times over 4,265,889 positions of random play.
+void testAFailedWinningLineSearchWritesNothing() {
+  Game game{};
+  const char* rows[kRows] = {".......", ".......", ".......", ".......", ".......", "LLD...."};
+  paint(game, rows);
+  int line[kLine] = {-1, -1, -1, -1};
+  CHECK(!winningLine(game, kLight, line));
+  for (const int index : line) CHECK(index == -1);
+  CHECK(!winningLine(game, kDark, line));
+  for (const int index : line) CHECK(index == -1);
+
+  // And across real play, where the failing searches actually happen.
+  uint32_t rng = 0x0DDBA11u;
+  for (int trial = 0; trial < 300; ++trial) {
+    Game live{};
+    start(live);
+    while (!over(live)) {
+      int probe[kLine] = {-1, -1, -1, -1};
+      const bool light = winningLine(live, kLight, probe);
+      if (!light) {
+        for (const int index : probe) CHECK(index == -1);
+      }
+      int legal[kColumns];
+      int count = 0;
+      for (int c = 0; c < kColumns; ++c) {
+        if (canDrop(live, c)) legal[count++] = c;
+      }
+      drop(live, legal[nextRandom(rng) % static_cast<uint32_t>(count)]);
+    }
+  }
+}
+
+// The evaluation has to be zero-sum, or the search's own parity decides which
+// side its asymmetry favours. It was not: the two sides disagreed in 63,392 of
+// 138,663 reachable positions, worst gap 300.
+void testTheEvaluationIsZeroSum() {
+  uint32_t rng = 0x5EED1234u;
+  for (int trial = 0; trial < 400; ++trial) {
+    Game game{};
+    start(game);
+    while (!over(game)) {
+      CHECK(evaluate(game, kLight) == -evaluate(game, kDark));
+      int legal[kColumns];
+      int count = 0;
+      for (int c = 0; c < kColumns; ++c) {
+        if (canDrop(game, c)) legal[count++] = c;
+      }
+      drop(game, legal[nextRandom(rng) % static_cast<uint32_t>(count)]);
+    }
+  }
+}
+
 void testBackIsTotalAndAlwaysReachesTheTop() {
   const Screen all[] = {Screen::Menu, Screen::HowTo, Screen::Board, Screen::Result};
   for (const Screen screen : all) {
@@ -537,6 +710,10 @@ int main() {
   testAFullBoardWithNoLineIsADraw();
   testEveryRandomGameEndsAndEndsCorrectly();
   testPlausibleRejectsWhatPlayCannotProduce();
+  testAWinOnTheVeryLastDiscIsAWinNotADraw();
+  testEachPlausibleClauseRejectsSomethingOnItsOwn();
+  testAFailedWinningLineSearchWritesNothing();
+  testTheEvaluationIsZeroSum();
   testBackIsTotalAndAlwaysReachesTheTop();
   testPhaseAndScreenAreDerivedNotStored();
   testOpenColumnsAgreeWithWhatTheBoardAccepts();
