@@ -53,11 +53,21 @@ restyled to match the design language the apps use.
 | **Hacker News** | The front page in a reading serif, articles kept on the card.      |
 | **xkcd**        | The archive, packed for the card and drawn one to one.             |
 
-Chess, Battleship, Jaipur, Checkers, Connect Four and Yahtzee play over
-**PLAY NEARBY**: put two devices next to
-Chess, Battleship, Jaipur and Knucklebones play over **PLAY NEARBY**: put two devices next to
+Chess, Battleship, Jaipur, Knucklebones, Checkers, Connect Four and Yahtzee play
+over **PLAY NEARBY**: put two devices next to
 each other and they find one another. No pairing screen, no room code, no
 account, no router, no internet.
+
+Each game's rules, its state machines and the decisions behind them:
+[Checkers](docs/checkers.md) &middot;
+[Connect Four](docs/connect-four.md) &middot;
+[Yahtzee](docs/yahtzee.md) &middot;
+[Knucklebones](docs/knucklebones.md) &middot;
+[Minesweeper](docs/minesweeper.md) &middot;
+[Jaipur](docs/jaipur.md) &middot;
+[Murdle](docs/murdle.md).
+How the two physical buttons are used, and why there are only two:
+[buttons](docs/buttons.md).
 
 ## Install it
 

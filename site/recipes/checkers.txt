@@ -10,16 +10,17 @@
 
 input:
   2000:TAP:120,635      # GAMES on the home shelf
-  3500:TAP:240,671      # CHECKERS, the ninth row
-  5000:TAP:240,143      # PLAY
-  7000:TAP:44,406       # pick up the light man on (0,5)
-  8500:TAP:100,352      # step it to (1,4)
-  12000:TAP:156,408     # pick up (2,5) after the opponent replies
-  13500:TAP:212,352     # step it to (3,4), which offers them the capture
-  17000:QUIT
+  3500:TAP:262,688      # the second page mark -- the folder pages at eight
+  5000:TAP:240,143      # CHECKERS, first row of page two
+  6500:TAP:240,143      # PLAY
+  8500:TAP:44,406       # pick up the light man on (0,5)
+  10000:TAP:100,352     # step it to (1,4)
+  13500:TAP:156,408     # pick up (2,5) after the opponent replies
+  15000:TAP:212,352     # step it to (3,4), which offers them the capture
+  19000:QUIT
 
 shot:
-  16000:./qa-artifacts/checkers.bmp
+  18000:./qa-artifacts/checkers.bmp
 
 # Board squares are 56px from a board origin of (16, 100):
 #   x = 16 + file * 56 + 28      file 0..7 -> 44 100 156 212 268 324 380 436
