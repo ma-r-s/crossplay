@@ -36,6 +36,24 @@ loads no third-party fonts, scripts or images, and it must stay that way. Adding
 an analytics snippet or a Google Fonts link will silently fail to load under
 these headers rather than warn.
 
+**Only `/assets/fonts/` is cached `immutable`, and nothing else may join it
+without a content hash in its filename.** `immutable` is a promise that a URL's
+bytes will never change, and it is enforced by the browser refusing to ask
+again -- for a year, with no revalidation, whatever the server now holds.
+`/assets/(.*)` carried that rule until 2026-08-09, over files that change
+constantly: `emulator.js` alone changed eight times in the preceding month, and
+every one of those changes was invisible to anyone who had loaded the page
+before. It surfaced as a landscape fix that worked for new visitors and not for
+the author, because `styles.css` sits outside `/assets/` and revalidates, so he
+got the new stylesheet and the old script. Fonts keep the rule because a font
+that changes gets a new filename anyway. Everything else falls through to
+Vercel's default, `max-age=0, must-revalidate`, which costs a 304 and is worth
+it.
+
+Note that `curl` cannot catch this class of bug and neither can a fresh
+incognito window: both start with an empty cache and always see the new file.
+The check that would have caught it is loading the page normally, twice.
+
 ## Looking at it
 
 A plain `python3 -m http.server` will serve the page but **not** the emulator:
@@ -43,8 +61,15 @@ without COOP/COEP the module has no `SharedArrayBuffer` and never starts, and
 what you see is a stuck canvas rather than an error. Serve it with the headers:
 
 ```bash
-uv run --with playwright python site/serve.py 8099
+python3 site/serve.py 8099
 ```
+
+`serve.py` needs nothing but the standard library -- the `uv run --with
+playwright` this used to say is `pageshot.py`'s dependency, not its own, and
+made a plain static server look like it needed a toolchain. It serves the
+directory it lives in, so run it from whichever worktree you want to look at
+and give each one its own port. That is how to see a change before it deploys,
+which beats finding out in production.
 
 Changes must be _looked at_, not reasoned about -- the same rule the device
 apps follow. `pageshot.py` renders full-page and sliced captures at any width
@@ -83,7 +108,7 @@ rebuilds it, which is the next thing to write.
 page of its own. `assets/emulator.js` is the entire front end: it creates a
 canvas inside whatever element you hand it, reads the composited frame out of
 the module's heap, and feeds pointer and key events back in. That is why the
-hero screenshot can *become* the device without navigating anywhere.
+hero screenshot can _become_ the device without navigating anywhere.
 
 Two things it must keep doing, both of which have already been got wrong once:
 
