@@ -25,13 +25,23 @@ import pathlib
 Import("env")  # noqa: F821  (SCons injects this)
 
 
-def patch(path, anchor, replacement, what):
+def patch(path, anchor, replacement, what, marker=None):
+    """Insert `replacement` in place of `anchor`, once.
+
+    `marker` is how "already applied" is decided, and it needs to be something
+    the insertion leaves behind for good -- a symbol name, not the replacement
+    text. Keying on the replacement looks equivalent and is not: two patches
+    sharing an anchor each stop matching once the other inserts itself in the
+    middle, so both re-apply on every build and the file collects duplicate
+    declarations until it will not compile. Editing a patch has the same
+    effect on a tree already patched by the old version.
+    """
     if not path.exists():
         print(f"[sim-catchup] MISSING {path.name}: cannot apply '{what}'")
         return
     text = path.read_text()
-    if replacement in text:
-        return  # already applied this build cycle
+    if (marker or replacement) in text:
+        return  # already applied
     if anchor not in text:
         # Upstream changed shape. Either they fixed it, or they moved it.
         print(
@@ -61,10 +71,19 @@ patch(
     "  bool removeDir(const char *path);",
     "  bool openFileForAppend(const char *moduleName, const char *path,\n"
     "                         HalFile &file);\n"
+    "  bool removeDir(const char *path);",
+    "HalStorage::openFileForAppend (header)",
+    marker="openFileForAppend",
+)
+
+patch(
+    src / "HalStorage.h",
+    "  bool removeDir(const char *path);",
     "  bool openFileForUpdate(const char *moduleName, const char *path,\n"
     "                         HalFile &file);\n"
     "  bool removeDir(const char *path);",
-    "HalStorage::openFileForAppend + openFileForUpdate (header)",
+    "HalStorage::openFileForUpdate (header)",
+    marker="openFileForUpdate",
 )
 
 
@@ -78,6 +97,14 @@ patch(
     "  return file.isOpen();\n"
     "}\n"
     "\n"
+    "std::vector<String> HalStorage::listFiles(",
+    "HalStorage::openFileForAppend (implementation)",
+    marker="HalStorage::openFileForAppend(",
+)
+
+patch(
+    src / "HalStorage.cpp",
+    "std::vector<String> HalStorage::listFiles(",
     "bool HalStorage::openFileForUpdate(const char *moduleName, const char *path,\n"
     "                                   HalFile &file) {\n"
     "  (void)moduleName;\n"
@@ -86,7 +113,8 @@ patch(
     "}\n"
     "\n"
     "std::vector<String> HalStorage::listFiles(",
-    "HalStorage::openFileForAppend + openFileForUpdate (implementation)",
+    "HalStorage::openFileForUpdate (implementation)",
+    marker="HalStorage::openFileForUpdate(",
 )
 
 patch(
