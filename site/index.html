@@ -123,12 +123,18 @@
                  alt="The device Home screen, which is where the firmware starts: the cover of Alice's Adventures in Wonderland at the top, then menu rows reading Browse Files, Recent Books, File Transfer, Settings, Games and Apps.">
           </button>
           <p class="device-hint">Click the screen to try it</p>
-          <!-- The device has two buttons: the side page keys. Back is a swipe
-               from the left edge, not a key, so that control performs the swipe
-               rather than pressing a pin that does not exist. There is no OK,
-               left or right. -->
+          <!-- The device has two buttons: the side page keys. There is no OK,
+               left or right, and no Back either -- back is a swipe in from the
+               left edge of the screen. The first control here performs that
+               swipe rather than pressing a pin that does not exist, so it is
+               drawn dashed and set apart: a gesture the page does for you, not
+               a third key. You can also just drag from the left edge of the
+               panel, which is what it is doing. In a browser tab on a phone
+               that drag is the browser's own back gesture first, which is the
+               reason this control has to exist at all. -->
           <div class="device-keys" hidden>
-            <button type="button" data-key="swipeback">Back</button>
+            <button type="button" data-key="swipeback"
+                    title="Swipes in from the left edge, which is how this device goes back. It has no Back button.">&larr; Swipe back</button>
             <button type="button" data-key="up" aria-label="Previous page">&uarr; Page</button>
             <button type="button" data-key="down" aria-label="Next page">&darr; Page</button>
             <!-- Only ever visible in the phone's full-screen mode, where the
@@ -527,6 +533,45 @@
     document.documentElement.classList.toggle('immersive', on);
   }
 
+  // Leaving full screen puts the panel back to the picture you tapped, rather
+  // than leaving a live device running at a third of the size in the middle of
+  // a page of prose. The firmware keeps running behind it -- there is no clean
+  // way to tear a wasm module down, and stopping it would lose the game anyway
+  // -- so coming back is instant and the board is where you left it. setVisible
+  // is exactly this: stop drawing, keep running, repaint from the framebuffer
+  // on the way back.
+  //
+  // The alternative, which is what this did first, was to drop out of full
+  // screen and shrink. Nobody wants a device they cannot read; if you are done,
+  // you are done with the device, not with its size.
+  function showDevice(device, on) {
+    var screen = device.querySelector('.device-screen');
+    var poster = device.querySelector('img.shot');
+    var hint = device.querySelector('.device-hint');
+    var keys = device.querySelector('.device-keys');
+    var instance = device.crossplay;
+    if (poster) poster.hidden = on;
+    if (instance) {
+      instance.canvas.hidden = !on;
+      instance.setVisible(on);
+    }
+    hint.hidden = on;
+    keys.hidden = !on;
+    if (on) {
+      device.dataset.state = 'live';
+      screen.tabIndex = -1;
+      screen.removeAttribute('aria-label');
+    } else {
+      // Back to a button: the tint, the tab stop and the label all return, or
+      // the panel looks tappable to a mouse and to nothing else.
+      delete device.dataset.state;
+      screen.tabIndex = 0;
+      screen.setAttribute('aria-label', 'Start the device and run it here in the page');
+      hint.textContent = 'Tap to pick it up where you left it';
+    }
+    setImmersive(on && immersiveByDefault);
+  }
+
   function bootDevice(device) {
     if (device.dataset.state) return Promise.resolve(null);
     device.dataset.state = 'booting';
@@ -540,10 +585,12 @@
       name: device.dataset.name,
       onFirstFrame: function () {
         device.dataset.state = 'live';
-        // The poster has done its job; drop it rather than leave a second copy
-        // of the panel stacked under a live one.
+        // Hidden, not removed. It used to be removed, on the reasoning that a
+        // second copy of the panel stacked under a live one is dead weight --
+        // true until there was a way back out, and then it was the picture the
+        // panel has to return to.
         var poster = device.querySelector('img.shot');
-        if (poster) poster.remove();
+        if (poster) poster.hidden = true;
         // NOT `disabled`: Chrome stops delivering pointer events to the whole
         // subtree of a disabled button, and the live canvas is inside this one.
         // The delegated handler below keys off dataset.state instead.
@@ -568,7 +615,7 @@
             return;
           }
           if (b.dataset.key === 'close') {
-            b.addEventListener('click', function () { setImmersive(false); });
+            b.addEventListener('click', function () { showDevice(device, false); });
             return;
           }
           instance.bindButton(b, instance.scancodes[b.dataset.key]);
@@ -598,7 +645,15 @@
     var screen = e.target.closest('.device-screen');
     if (!screen) return;
     var device = screen.closest('.device');
-    if (!device.dataset.state) bootDevice(device);
+    // A live device swallows its own taps: the canvas is inside this button, so
+    // every tap on the running firmware arrives here too, and resuming on
+    // `crossplay exists` alone re-asserted full screen and forced a repaint on
+    // each one. Only a device that is booting or already live is left alone.
+    if (device.dataset.state) return;
+    // Booted once and put away: show it again rather than boot a second module
+    // into the same box.
+    if (device.crossplay) { showDevice(device, true); return; }
+    bootDevice(device);
   });
 
   function setPlayers(count) {
