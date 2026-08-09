@@ -165,9 +165,20 @@ void XkcdActivity::closeArchive() {
   textSrc_.reset();
   // HalFile members outlive any single scope, so they are closed at the
   // intended release point rather than left to the destructor.
-  if (indexFile_) indexFile_->close();
-  if (imageFile_) imageFile_->close();
-  if (textFile_) textFile_->close();
+  //
+  // isOpen(), not the pointer. The pointer says an object exists; it says
+  // nothing about whether the file behind it was ever opened, and close() on an
+  // unopened HalFile asserts (HalStorage.cpp:176, impl != nullptr).
+  //
+  // openArchive() short-circuits: with no pack on the card the first open fails
+  // and the second and third are never even attempted, so those two HalFiles
+  // still hold the null impl they were default-constructed with. Backing out of
+  // the app then closed them and panicked the device. Reported from hardware,
+  // github.com/ma-r-s/crossplay/issues/5, and not reproducible in the simulator
+  // because the simulator ships its own HalStorage without that assert.
+  if (indexFile_ && indexFile_->isOpen()) indexFile_->close();
+  if (imageFile_ && imageFile_->isOpen()) imageFile_->close();
+  if (textFile_ && textFile_->isOpen()) textFile_->close();
   indexFile_.reset();
   imageFile_.reset();
   textFile_.reset();
