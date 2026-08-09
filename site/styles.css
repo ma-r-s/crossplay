@@ -834,18 +834,85 @@ button:focus-visible {
     flex-wrap: wrap;
   }
 }
-/* Matches the width gate in index.html. Below this the panel is a screenshot
- * and nothing offers to boot it, so the affordances go too. */
+/* One device runs at any width; two need a screen wide enough to see both, so
+ * only that toggle goes. The panel stays a live button. */
 @media (max-width: 759px) {
   .players {
     display: none;
   }
-  .device-screen {
-    cursor: default;
-  }
-  .device-screen::after {
-    display: none;
-  }
+}
+
+/* --- full screen on a phone ----------------------------------------------
+ *
+ * Not the Fullscreen API: iPhone Safari only grants it to <video>, so asking
+ * for it there silently does nothing. A fixed stage over the page works
+ * everywhere, and the manifest turns it into true full screen once the page is
+ * on a home screen.
+ *
+ * The class goes on <html> as well so the page behind cannot scroll under the
+ * device -- a swipe meant for the firmware would otherwise drag the article
+ * about e-ink past it. */
+.immersive .device-stage,
+.device-stage.immersive {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  margin: 0;
+  background: var(--paper);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  /* Notches and the home indicator. Without this the key row sits under the
+   * bar you swipe up from, which is the one place a control must not be. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+html.immersive,
+html.immersive body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+/* The device gets the whole viewport minus the key row. Both orientations read
+ * these two, so a phone turned sideways fills the width the same way a laptop
+ * does.
+ *
+ * 5rem, not the 3.4rem the row and its gap actually measure: the stage centres
+ * a column whose height it does not know exactly, and reserving the measured
+ * minimum put the keys 10px past the bottom of a turned phone. The slack is
+ * cheaper than the arithmetic, and a control you cannot reach is the one bug
+ * this mode must not have. */
+.device-stage.immersive .device-screen {
+  --panel-long: calc(100svh - 5rem);
+  --panel-room: calc(100vw - 0.5rem);
+  border-width: 2px;
+}
+/* In the page, a landscape panel keeps the long edge it had standing up: it is
+ * the same device on its side, and the hero has a column to stay inside. Full
+ * screen has no such column and one job, so here it grows until it hits the
+ * viewport instead. Dividing by 0.6 is the difference between "as tall as the
+ * screen allows" and "as wide as the screen is tall", which on a phone turned
+ * sideways is 535px against 321px for the same device. */
+.device-stage.immersive .device-screen[data-orient="landscape"] {
+  width: min(var(--panel-room), calc(var(--panel-long) / 0.6));
+}
+.device-stage.immersive .device-hint {
+  display: none;
+}
+/* Bigger targets than the desktop row: these are thumbs, and Back is the one
+ * control that has to work every time, because the swipe that normally does it
+ * is the browser's own back gesture in a tab. */
+.device-stage.immersive .device-keys button {
+  padding: 0.6em 1em;
+  font-size: 0.8rem;
+}
+/* Only a way out of full screen, so only ever shown there. */
+.device-close {
+  display: none;
+}
+.device-stage.immersive .device-close {
+  display: inline-block;
 }
 
 /* --- the device ----------------------------------------------------------

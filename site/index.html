@@ -19,6 +19,20 @@
 <meta name="twitter:card" content="summary_large_image">
 <link rel="stylesheet" href="styles.css">
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<!-- Add to Home Screen. This is the only route to real full screen on an
+     iPhone: Safari gives the Fullscreen API to <video> and nothing else, so
+     asking an element for it there is a no-op. It also settles the back
+     problem. This device has no Back button -- back is a swipe in from the
+     left edge -- and in a browser tab that is the same gesture the browser
+     uses to go back a page, so the two fight and the browser wins. A
+     home-screen launch has no browser gesture to lose to, and the device's
+     own swipe works as designed. In a tab, the Back control in the key row
+     is the way, which is why that control exists. -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="CrossPlay">
+<meta name="theme-color" content="#111110">
 <!-- Vercel Web Analytics. Page counts only: cookieless, no fingerprint, no
      personal data, which is the only kind this site has any business setting.
      The script is same-origin, so the require-corp policy in vercel.json lets
@@ -117,6 +131,11 @@
             <button type="button" data-key="swipeback">Back</button>
             <button type="button" data-key="up" aria-label="Previous page">&uarr; Page</button>
             <button type="button" data-key="down" aria-label="Next page">&darr; Page</button>
+            <!-- Only ever visible in the phone's full-screen mode, where the
+                 page around the device is gone and there is otherwise no way
+                 out. Lives in this row rather than floating over the panel so
+                 it can never sit on top of something you are trying to tap. -->
+            <button type="button" data-key="close" class="device-close">Done</button>
           </div>
         </div>
       </div>
@@ -477,14 +496,38 @@
   // markup rather than from a clone of a running one.
   var blank = row.firstElementChild.cloneNode(true);
 
-  // The live device is 9MB of WebAssembly, eight worker threads and a hundred
-  // megabytes of heap. A phone will either refuse it or be killed for it, and a
-  // page that crashes your browser is worse than a page that shows you a
-  // screenshot. So below tablet width the panel stays a picture and says why.
-  var canRun = window.matchMedia('(min-width: 760px)').matches;
+  // One device runs anywhere; two need a laptop.
+  //
+  // The width gate that used to be here blocked phones entirely, on the
+  // reasoning that 9MB of WebAssembly and a hundred megabytes of heap would
+  // either be refused or get the tab killed. That was never measured, and the
+  // hard prerequisite was already in place: vercel.json sends COOP/COEP, so
+  // SharedArrayBuffer and the thread pool are available. A phone is also the
+  // input this firmware was actually designed for -- the X4 Pro is a
+  // touchscreen with two page keys, and a mouse has been the awkward
+  // substitute all along.
+  //
+  // Two instances is a different claim: it doubles both numbers, and the pair
+  // exists to show PLAY NEARBY, which needs two things you can look at at
+  // once. That stays on a wide screen.
+  var wide = window.matchMedia('(min-width: 760px)');
+  var canPair = wide.matches;
+  // A phone gets the device on its own, filling the screen, because 375px of
+  // width shared with a page of prose is not a device you can play.
+  var immersiveByDefault = !wide.matches;
+
+  // Full-screen on a phone: the page around the device goes away and the panel
+  // takes the whole viewport. Not the Fullscreen API -- iPhone Safari does not
+  // give it to anything but <video>, so a page that asks for it there simply
+  // does nothing. A fixed, inset-0 stage works on every browser and is what
+  // the manifest turns into real full screen once this is on a home screen.
+  var stage = document.getElementById('stage');
+  function setImmersive(on) {
+    stage.classList.toggle('immersive', on);
+    document.documentElement.classList.toggle('immersive', on);
+  }
 
   function bootDevice(device) {
-    if (!canRun) return Promise.resolve(null);
     if (device.dataset.state) return Promise.resolve(null);
     device.dataset.state = 'booting';
     var screen = device.querySelector('.device-screen');
@@ -511,6 +554,7 @@
         screen.removeAttribute('aria-label');
         hint.hidden = true;
         keys.hidden = false;
+        if (immersiveByDefault) setImmersive(true);
       },
     })
       .then(function (instance) {
@@ -521,6 +565,10 @@
           // the real side page keys.
           if (b.dataset.key === 'swipeback') {
             b.addEventListener('click', function () { instance.swipeBack(); });
+            return;
+          }
+          if (b.dataset.key === 'close') {
+            b.addEventListener('click', function () { setImmersive(false); });
             return;
           }
           instance.bindButton(b, instance.scancodes[b.dataset.key]);
@@ -538,9 +586,12 @@
       });
   }
 
-  if (!canRun) {
+  if (!canPair) {
+    // Two devices need two things you can see at once, so the toggle goes.
+    // The one device stays, and the hint says what tapping it will cost --
+    // this is the real firmware, and it is a 9MB download either way.
     players.hidden = true;
-    row.querySelector('.device-hint').textContent = 'Open this on a laptop to use it';
+    row.querySelector('.device-hint').textContent = 'Tap to run it here (9MB)';
   }
 
   row.addEventListener('click', function (e) {

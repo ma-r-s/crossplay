@@ -1,0 +1,19 @@
+{
+  "name": "CrossPlay",
+  "short_name": "CrossPlay",
+  "description": "The CrossPlay firmware for the Xteink X4 Pro, running in your browser.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#faf9f6",
+  "theme_color": "#111110",
+  "icons": [
+    {
+      "src": "/assets/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
