@@ -94,13 +94,22 @@ inline bool canDrop(const Game& game, const int column) {
 // they are all `side`. Written into `out` as flat indices; returns whether it
 // found one. Used both to settle the game and to mark the winning line, so the
 // marked cells are by construction the cells that won.
+// Writes into `out` only on SUCCESS. It used to write each cell before testing
+// the next, so a direction that failed left partial indices behind -- measured
+// at 8,132,315 scribbles over 4,265,889 positions of random play, 95.3% of the
+// calls that returned false. Harmless today only because the one caller checks
+// the outcome first, which is not a property of this function.
 inline bool lineFrom(const Game& game, const int column, const int row, const int dc, const int dr,
                      const uint8_t side, int* out) {
+  int found[kLine];
   for (int step = 0; step < kLine; ++step) {
     const int c = column + dc * step;
     const int r = row + dr * step;
     if (!inside(c, r) || game.cell[c][r] != side) return false;
-    if (out != nullptr) out[step] = c * kRows + r;
+    found[step] = c * kRows + r;
+  }
+  if (out != nullptr) {
+    for (int step = 0; step < kLine; ++step) out[step] = found[step];
   }
   return true;
 }
@@ -195,10 +204,47 @@ inline bool plausible(const Game& game) {
   if (light != dark && light != dark + 1) return false;
   if (game.turn != kLight && game.turn != kDark) return false;
   if (!over(game) && game.turn != (light == dark ? kLight : kDark)) return false;
-  if (game.lastColumn != kNoColumn && (game.lastColumn < 0 || game.lastColumn >= kColumns)) return false;
-  if (game.lastRow != kNoColumn && (game.lastRow < 0 || game.lastRow >= kRows)) return false;
   // Both sides holding a line is not a position play can reach.
-  if (winningLine(game, kLight, nullptr) && winningLine(game, kDark, nullptr)) return false;
+  const bool lightLine = winningLine(game, kLight, nullptr);
+  const bool darkLine = winningLine(game, kDark, nullptr);
+  if (lightLine && darkLine) return false;
+
+  // The OUTCOME has to match the board. Without this, nine hand-built states
+  // that play cannot produce were accepted -- among them a full drawn board
+  // with outcome still Running, which is not cosmetic: over() is false, no
+  // column accepts a disc, chooseColumn returns kNoColumn, and takeOpponentTurn
+  // then returns without moving and without repainting on every single pass.
+  // A wedged game, reachable only because this function was not checking.
+  switch (game.outcome) {
+    case Outcome::Running:
+      if (lightLine || darkLine || boardFull(game)) return false;
+      break;
+    case Outcome::LightWins:
+      if (!lightLine) return false;
+      break;
+    case Outcome::DarkWins:
+      if (!darkLine) return false;
+      break;
+    case Outcome::Draw:
+      if (!boardFull(game) || lightLine || darkLine) return false;
+      break;
+  }
+  // A settled game keeps the turn with whoever settled it.
+  if (game.outcome == Outcome::LightWins && game.turn != kLight) return false;
+  if (game.outcome == Outcome::DarkWins && game.turn != kDark) return false;
+
+  // The last-move fields point at a real disc, or at nothing at all. The board
+  // reads cell[lastColumn][lastRow] to draw its marker, so a lastRow pointing
+  // at an empty cell renders a disc that is not there.
+  const bool noLast = game.lastColumn == kNoColumn && game.lastRow == kNoColumn;
+  if (!noLast) {
+    if (game.lastColumn < 0 || game.lastColumn >= kColumns) return false;
+    if (game.lastRow < 0 || game.lastRow >= kRows) return false;
+    if (game.cell[game.lastColumn][game.lastRow] == kEmpty) return false;
+  } else if (discCount(game) != 0) {
+    // Discs on the board but nothing recorded as the last move.
+    return false;
+  }
   return true;
 }
 

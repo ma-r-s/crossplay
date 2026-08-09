@@ -1,5 +1,6 @@
 #include "ConnectFourActivity.h"
 
+#include <Logging.h>
 #include <Memory.h>
 
 #include "../Shelf.h"
@@ -71,7 +72,25 @@ void ConnectFourActivity::onMatchStart(const bool goesFirst) {
   goTo(c4::Screen::Board);
 }
 
-bool ConnectFourActivity::takeOpponentState() { return play.takeOpponent(game); }
+bool ConnectFourActivity::takeOpponentState() {
+  // Validate what arrives. plausible() has claimed since it was written that it
+  // is "checked on anything arriving over the wire", and nothing called it:
+  // linkplay checks the byte length and copies. A packet landed in the live
+  // Game unexamined.
+  //
+  // Taken into a scratch copy first, so a rejected state leaves the board
+  // exactly as it was rather than half-overwritten. A dropped update reads as
+  // the opponent still thinking, which is the honest failure and one the
+  // player can act on; a corrupt board is neither.
+  c4::Game arriving{};
+  if (!play.takeOpponent(arriving)) return false;
+  if (!c4::plausible(arriving)) {
+    LOG_ERR("C4", "rejected an implausible board from the wire");
+    return false;
+  }
+  game = arriving;
+  return true;
+}
 
 void ConnectFourActivity::onRematch() { onMatchStart(play.goesFirst()); }
 

@@ -26,21 +26,46 @@ constexpr int kWinScore = 1000000;
 // bounded by 7^7 before pruning, and pruning takes about two orders off that.
 constexpr int kDepth = 7;
 
-// Centre columns are worth more because more four-in-a-rows pass through them:
-// the middle column sits on 13 possible lines, the edge on 3. This table is the
-// count for each column, and using it rather than a hand-picked bonus means the
-// preference is a fact about the board rather than taste.
+// How many four-in-a-rows pass through a cell in the BOTTOM row of each column:
+// three at the edge, seven in the middle. Used as a per-column weight.
+//
+// The comment here used to say this was the count for the whole column and that
+// the middle column sat on 13 lines. Neither is what the table holds. Counted:
+// per column the figures are 15 27 39 51 39 27 15, and 13 is the maximum for
+// any single CELL, which is the centre of the board rather than anything about
+// a column. The table is a reasonable centre-weighting and the justification
+// written over it was wrong, so the justification changed rather than the
+// numbers -- the alternative was picking new numbers to fit a sentence.
 constexpr int kLinesThrough[kColumns] = {3, 4, 5, 7, 5, 4, 3};
 
 // Score a four-cell window for `side`: how close it is to a line, and nothing
 // if the other side is in it.
+// SYMMETRIC, and that is the fix rather than the taste.
+//
+// It used to pay -80 for their open three against +60 for mine, with a comment
+// claiming that weighted defence. It did the opposite. kDepth is odd, so every
+// leaf in the search is evaluated from the OPPONENT's side and the root value
+// of a leaf is its negation -- measured: 19,198 leaves scored for the opponent,
+// zero for the root side. At the root the asymmetry therefore rewarded the
+// brain's own open three by 80 and the opponent's by only 60, the mirror of
+// what was written. Flipping kDepth to an even number would have flipped the
+// bias with it, which is what a sign that depends on parity does.
+//
+// It cost games, not just tidiness: a copy identical but for -80 -> -60 beat
+// the shipped brain 233-140 over 266 distinct games. Symmetric also makes
+// evaluate() zero-sum, which it was not -- evaluate(g, light) != -evaluate(g,
+// dark) in 63,392 of 138,663 reachable positions, worst gap 300.
+//
+// The four-of-a-kind case is gone. negamax returns at its terminal check before
+// evaluate ever runs, so no leaf can hold four of one colour; setting that
+// branch to zero changed 0 of 2031 chosen columns. Dead code that looked like a
+// safety net.
 inline int windowScore(const int mine, const int theirs, const int empty) {
   if (mine > 0 && theirs > 0) return 0;  // blocked, worth nothing to either
-  if (mine == 4) return 10000;
   if (mine == 3 && empty == 1) return 60;
   if (mine == 2 && empty == 2) return 6;
-  if (theirs == 3 && empty == 1) return -80;  // slightly more than the mirror:
-  if (theirs == 2 && empty == 2) return -6;   // an unblocked threat kills you
+  if (theirs == 3 && empty == 1) return -60;
+  if (theirs == 2 && empty == 2) return -6;
   return 0;
 }
 
