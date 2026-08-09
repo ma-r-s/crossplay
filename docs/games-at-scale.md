@@ -186,10 +186,14 @@ first line:
   two different files from one render. The scaler and its settings are part of
   the recipe.
 - **The SD card decides the picture, and it is gitignored** (`fs_`, `fs_*/`).
-  The committed `games.png` shows a device called Mop Specs Grin, and
-  `index.html` says so in its alt text; a working tree today says Punk Bushy
-  Pout. No tap script alone can reproduce these shots, so a **committed seed
-  card** is a third prerequisite that the first version of this plan missed
+  The device's own three-word name is drawn into the footer of every shelf shot
+  and is generated per card, so `games.png` has already named three different
+  devices across three captures; the alt text in `index.html` named the first of
+  them long after the file had moved on, because nothing ties prose to pixels.
+  The recent-books list is the same hazard one level up: this tree's card has no
+  book, so its Home screen reads "No open book" where the shipped `home.png`
+  shows Alice. No tap script alone can reproduce these shots, so a **committed
+  seed card** is a third prerequisite that the first version of this plan missed
   entirely.
 
 So an entry needs three pinned inputs, not one: the script, the downsample, and
@@ -367,7 +371,7 @@ and "no build step for the site" (the site already has one).
    the last page, which at five pages is the least visible place on the device.
    Alphabetical fixes that and reorders the list under the user every time. The
    cheapest answer is neither: the registry is a handwritten table, so a new game
-   gets *inserted* where it belongs rather than appended, and no code decides it.
+   gets _inserted_ where it belongs rather than appended, and no code decides it.
 
 ## What the reviews changed
 

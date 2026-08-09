@@ -100,8 +100,13 @@
         <div class="device">
           <button class="device-screen" type="button"
                   aria-label="Start the device and run it here in the page">
-            <img class="shot" src="assets/shots/games.png" width="480" height="800"
-                 alt="The Games folder on the device: a black GAMES header band above outlined rows reading CHESS, BATTLESHIP, CONNECTIONS, SOLITAIRE, D&amp;DIAGRAMS, INSIDER, JAIPUR and MURDLE, each with a small icon. A footer bar shows the device's name, Mop Specs Grin, beside a drawn face. No row is highlighted.">
+            <!-- This is the frame the firmware actually paints first, not a
+                 nicer screen from further in. The poster is swapped for the
+                 live canvas on the first real frame, so any other picture here
+                 makes the panel jump the moment it boots -- and the two-player
+                 hint above already tells you to start from Games in this menu. -->
+            <img class="shot" src="assets/shots/home.png" width="480" height="800"
+                 alt="The device Home screen, which is where the firmware starts: the cover of Alice's Adventures in Wonderland at the top, then menu rows reading Browse Files, Recent Books, File Transfer, Settings, Games and Apps.">
           </button>
           <p class="device-hint">Click the screen to try it</p>
           <!-- The device has two buttons: the side page keys. Back is a swipe
@@ -186,10 +191,16 @@
       <span class="tag">Game · plays nearby</span>
       <h3>Checkers</h3>
       <p>English draughts, where taking is compulsory. The board marks every piece that can move, so the rule shows itself instead of leaving you tapping men that will not lift.</p>
+    </article>
+
+    <article class="card">
       <div class="shot-wrap"><img class="shot" src="assets/shots/knucklebones.png" width="480" height="800" loading="lazy" decoding="async" alt="A Knucklebones match in progress: two three-by-three grids of dice facing each other, the opponent's on a dotted grey ground above and the player's below with corner brackets marking the three columns a die can go in. Between them sits the die just rolled, showing one. Column totals read 5, 6 and 1 under the top grid; large totals of 12 and 4 stand beside each grid. A black bar along the bottom reads YOUR ROLL."></div>
       <span class="tag">Game · plays nearby</span>
       <h3>Knucklebones</h3>
       <p>Roll a die, drop it in a column. Matching dice multiply, and every die you place destroys its twins in the column facing it.</p>
+    </article>
+
+    <article class="card">
       <div class="shot-wrap"><img class="shot" src="assets/shots/minesweeper.png" width="480" height="800" loading="lazy" decoding="async" alt="A Minesweeper board part way through: a framed eight-by-ten grid where dug cells are white and show counts of one, two and three, and undug cells are a dotted grey. Two flags stand in the bottom-left corner. Below the board a line reads 8 OF 10 beside a flag mark."></div>
       <span class="tag">Game</span>
       <h3>Minesweeper</h3>
