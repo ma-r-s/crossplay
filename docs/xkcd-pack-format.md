@@ -122,96 +122,60 @@ There is no transcript. Roughly half the archive has one and they average 800
 characters; storing them would be ~1.3MB for a full-text search nobody asked
 for yet.
 
-## The rules the builder applies
+## The rule: never pan on two axes if one will do
 
-All measured over the whole archive — 3278 comics, dimensions read from the
-download cache, not sampled.
+Posture and zoom are chosen together to make that true, and it comes out true
+for 97% of the archive.
 
-**The archive is not one width, and that is the whole problem.** Widths run
-from 106 to 960px, median 526, with a quarter of the archive piled at 740 and
-**44% narrower than the 480 panel**. The distribution is continuous from 200 to
-760 with no empty stretch anywhere, which is why none of the rules below is
-allowed to change _how the reader works_: wherever such a threshold went, real
-comics would sit either side of it arbitrarily close.
+`W` and `H` are the comic's width and height **at the scale its lettering
+needs** — cap height, measured on the greyscale source by connected components,
+settles that first. The device offers `SHORT = 480` and `LONG = 756`, and
+turning it swaps which one runs across. Each of `W` and `H` therefore lands in
+one of three bands, so there are **nine cases and no others**:
 
-**1. Which way round (`--rotate-gain`, default 1.30).** Compare what each
-posture buys and turn the comic when turning it helps:
+|                  | W &le; 480          | 480 &lt; W &le; 756  | W &gt; 756           |
+| ---------------- | ------------------- | -------------------- | -------------------- |
+| **H &le; 480**   | portrait, whole     | turned, whole        | **turned, across**   |
+| **480 &lt; H &le; 756** | portrait, whole | portrait, across | portrait, across     |
+| **H &gt; 756**   | portrait, down      | **turned, down**     | fewest taps, both    |
 
-```
-upright  = min(maxUpscale, 480 / w)                fit the width, pan down
-sideways = min(maxUpscale, 480 / h, 756 / w)       fit both, never pan
-```
+Read one out loud: bottom-left is a comic narrow enough for the short side but
+too tall for the long one, so it goes portrait and pans down only. Top-right is
+wider than anything, but its height fits the short side — so it turns, height on
+the 480 side, length running along the 756 side, and pans across only.
 
-46% of the archive is stored sideways. The reader turns the _device_; the panel
-itself never rotates, so the bar and the controls never move. A first version
-called `setOrientation` per comic and turned the whole UI around underneath the
-reader, which was rightly rejected: it is the comic that is sideways, not the
-app. Doing it in the pack is also cheaper and _removes_ device code.
+Three rules produce that table:
 
-Worth knowing: below an aspect of 1.575 (the panel's own ratio) this gain
-_equals_ the aspect ratio, and above it the gain is always exactly 1.575. So
-this is the old `--rotate-aspect` rule restated in terms of what it buys. It
-differs only where the upscale cap binds — a 200x100 comic is already at 2.4x
-upright, and the gain form correctly declines to turn it.
+1. **Fewest panning axes wins.** `portrait axes = (W > 480) + (H > 756)`,
+   `turned axes = (W > 756) + (H > 480)`. Six of the nine cells end here.
+2. **On a tie where the same axis pans either way, the axis that does *not* pan
+   goes on the smallest side that contains it.** That leaves the longer side for
+   the one that does, so it reads in fewer taps and wastes no space. Deciding
+   this by counting taps instead ties far too often: 334 wide-and-short comics
+   stayed portrait on a tap tie, which is #1518 zoomed 3x into five columns
+   rather than turned and read in three.
+3. **Anything still tied: fewest taps, then stay portrait.** Turning the device
+   is a real cost and a tie means turning buys nothing.
 
-`--rotate-cw` flips which way they turn. That is a rebuild, not a code change.
+**The scale may shrink by up to a sixth to buy an axis.** The target is 12px of
+cap height on the panel and the floor is 10px; a comic that only just overflows
+takes the smaller lettering and fits instead. That one allowance moves the
+archive from 68% to **85% needing no panning at all**, and cuts two-axis comics
+to 2.8%.
 
-**2. The page rendition.** Fit the panel width, **up as well as down**. A
-sideways comic is fitted _whole_, both axes, because the point of turning it is
-to see all of it.
+**Rotation** is what the table calls "turned": the comic is stored a quarter
+turn, and the reader turns the *device*. The panel itself never rotates, so the
+bar and the controls never move. `--rotate-cw` flips which way; that is a
+rebuild, not a code change.
 
-Then one correction: **if fitting the width overflows the screen by less than
-`--fit-height-slack` (8%), fit the height instead.** A pan control that moves
-the comic three pixels is the same defect as a column that reveals one, and the
-page view had it — #3179 is _enlarged_ 1.51x to 480x757 and then pans by a
-single pixel. 96 comics were in that state; this removes all of them for at
-most 8% of scale and a thin margin down the sides.
+**A width that pans is snapped onto the column grid**, `COLUMN_STEP * N +
+COLUMN_OVERLAP`, so every column reveals a full 432px and the last ends flush.
+`N = 1` is a legal answer and forcing a minimum of two was a real bug: a comic
+that came out 481px wide was blown up to 912 and started panning, which took
+the two-axis share from 2.8% to 8.9%.
 
-**3. The closer rendition**, for comics whose lettering the page view cannot
-render readable. **These open in the closer view**, and Confirm pulls back to
-the whole comic: showing a comic too small to read and making you ask for the
-readable one is the wrong way round.
-
-How far to zoom comes from **that comic's own lettering**, measured on the host
-by connected components (a letter is one blob; the median letter-shaped blob
-height is cap height). This is the measurement the whole feature turns on:
-
-```
-cap height in source px:  min 3   p10 10   median 12   p90 13   max 25
-```
-
-**A single zoom multiplier cannot serve both ends of that.** The first version
-fixed the closer view at two columns because two columns was a tidy invariant,
-which zoomed #3266 to 1.23x and left its lettering 5px tall on the panel --
-still unreadable, which is exactly what it was reported as. A comic is now
-zoomed until its lettering would be `--target-cap` (12px) on the panel and no
-further, so #3266 goes to 2.98x and a big-lettered strip barely moves.
-
-A comic whose lettering is already `--min-cap` (10px) tall on the page view is
-readable as it is and gets no closer view at all. Across the archive the page
-view already delivers a median of 13.7px, which is why this affects the bottom
-quartile rather than everything.
-
-The width is then snapped to the column grid:
-
-```
-kCloserWidth    = 2 * 480 - 48   = 912    two columns overlapping by 48px
---max-closer-scale               = 1.25   past this it is magnification, not detail
-kMinCloserWidth = 480 + 756/2    = 720    column two must be worth the tap
-
-closerScale = min(--max-closer-scale, kCloserWidth / w)
-exists      = pageScale < --closer-floor  and  closerW >= kMinCloserWidth
-```
-
-The guarantee is in the dimensions, not in a check. That distinction is the
-whole lesson of the previous version: it decided at _runtime_ whether a second
-column was worth showing, and the answer it gave for #1606 — 481px wide — was
-a whole extra column revealing **one pixel**. Measured across the archive, the
-second column now reveals at least **432px**, well over half a screen, in every
-one of the 246 comics that qualify.
-
-The 48px overlap is so a word split at the column seam is readable on both
-sides.
+**Comics that pan also carry a whole-comic overview**, reached with OK, never
+larger than one screen. Only 15% need one.
 
 **A gap in the artwork is a threshold, not emptiness.** 20 of 30 sampled comics
 are drawn inside a frame, so every interior row crosses two vertical strokes and

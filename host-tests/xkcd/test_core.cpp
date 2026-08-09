@@ -74,15 +74,15 @@ static Pack buildPack(const std::vector<std::pair<uint16_t, std::string>>& comic
     // A page rendition is fitted to the panel width, and a wider one is not a
     // legal record -- Archive::at rejects it. Building the fixture at 740
     // wide, as this did before the rework, now correctly fails to load.
-    c.width = xkcd::kMaxPageWidth;
+    c.width = xkcd::kPanelWidth;
     c.height = 400;
-    c.stride = (xkcd::kMaxPageWidth + 7) / 8;
+    c.stride = (xkcd::kPanelWidth + 7) / 8;
     // Every other comic carries a closer view, so the archive path is
     // exercised with and without one.
     if (num % 2 == 1) {
-      c.closerWidth = xkcd::kMaxCloserWidth;
+      c.closerWidth = xkcd::kPanelWidth;
       c.closerHeight = 800;
-      c.closerStride = (xkcd::kMaxCloserWidth + 7) / 8;
+      c.closerStride = (xkcd::kPanelWidth + 7) / 8;
       c.closerOffset = 12345;
     }
     c.year = 2020;
@@ -154,7 +154,7 @@ static xkcd::Rendition rendFor(const FakeImage& img) {
   return r;
 }
 
-static xkcd::Position at(int column, int scrollY, xkcd::Lens lens = xkcd::Lens::Page) {
+static xkcd::Position at(int column, int scrollY, xkcd::Lens lens = xkcd::Lens::Art) {
   xkcd::Position p;
   p.lens = lens;
   p.column = column;
@@ -215,7 +215,7 @@ static void testRecordRoundTrip() {
   CHECK(out.day == in.day, "day");
   CHECK(out.imageOffset == in.imageOffset, "imageOffset %u", out.imageOffset);
   CHECK(out.textOffset == in.textOffset, "textOffset");
-  const xkcd::Rendition back = xkcd::renditionFor(out, xkcd::Lens::Page);
+  const xkcd::Rendition back = xkcd::renditionFor(out, xkcd::Lens::Art);
   CHECK(back.bytes() == 93u * 6370u, "page bytes %u", back.bytes());
   CHECK(out.closerWidth == in.closerWidth && out.closerHeight == in.closerHeight, "closer dimensions");
   CHECK(out.closerStride == in.closerStride && out.closerOffset == in.closerOffset, "closer stride and offset");
@@ -357,16 +357,16 @@ static void testPlacement() {
   // "the page view never pans sideways" a guarantee rather than a hope.
   xkcd::Comic bad;
   bad.num = 1;
-  bad.width = static_cast<uint16_t>(xkcd::kMaxPageWidth + 1);
+  bad.width = static_cast<uint16_t>(xkcd::kPanelWidth + 1);
   bad.height = 400;
   bad.stride = 61;
   CHECK(!bad.valid(), "a page rendition wider than the panel must be rejected outright");
 
   xkcd::Comic ok = bad;
-  ok.width = xkcd::kMaxPageWidth;
+  ok.width = xkcd::kPanelWidth;
   ok.stride = 60;
   CHECK(ok.valid(), "a page rendition exactly the panel's width is fine");
-  CHECK(xkcd::columnsIn(xkcd::renditionFor(ok, xkcd::Lens::Page), vw) == 1,
+  CHECK(xkcd::columnsIn(xkcd::renditionFor(ok, xkcd::Lens::Art), vw) == 1,
         "a page rendition is always exactly one column");
 
   // A corrupt record must still not place the image at a negative origin and
@@ -377,8 +377,8 @@ static void testPlacement() {
 
 // ----------------------------------------------------------- the two views
 
-// The closer rendition, exactly as the builder makes them: two columns wide,
-// overlapping by kColumnOverlap.
+// A comic as the builder now writes one: the artwork at the size its lettering
+// needs (which may pan), plus a whole-comic overview that always fits a screen.
 static xkcd::Comic withCloser(int pw, int ph, int cw, int ch) {
   xkcd::Comic c;
   c.num = 3266;
@@ -395,34 +395,41 @@ static xkcd::Comic withCloser(int pw, int ph, int cw, int ch) {
 
 static void testCloserView() {
   const int vw = 480, vh = 756;
-  // #3266-shaped: 740x731 at source, fitted to 480x474 for the page, and
-  // 912x901 for the closer view.
-  const xkcd::Comic c = withCloser(480, 474, 912, 901);
-  CHECK(c.valid(), "a comic with a closer view is valid");
+  // #3266-shaped: 740x731 at source, stored as 912x901 artwork that pans, with
+  // a 480x474 overview of the whole thing behind OK.
+  const xkcd::Comic c = withCloser(912, 901, 480, 474);
+  CHECK(c.valid(), "artwork that pans, plus an overview, is a valid record");
   CHECK(c.hasCloser(), "and it says so");
 
-  const xkcd::Rendition page = xkcd::renditionFor(c, xkcd::Lens::Page);
-  const xkcd::Rendition close = xkcd::renditionFor(c, xkcd::Lens::Closer);
-  CHECK(page.offset == 1000 && page.width == 480, "the page rendition is selected by lens");
-  CHECK(close.offset == 5000 && close.width == 912, "and so is the closer one");
+  const xkcd::Rendition page = xkcd::renditionFor(c, xkcd::Lens::Art);
+  const xkcd::Rendition close = xkcd::renditionFor(c, xkcd::Lens::Whole);
+  CHECK(page.offset == 1000 && page.width == 912, "the artwork is selected by lens");
+  CHECK(close.offset == 5000 && close.width == 480, "and so is the overview");
+
+  // An overview wider than the panel is not an overview.
+  xkcd::Comic bad = c;
+  bad.closerWidth = 912;
+  bad.closerStride = (912 + 7) / 8;
+  CHECK(!bad.valid(), "an overview wider than the panel must be rejected");
 
   // A comic with no closer view falls back to the page rather than reading a
   // zero-length image at offset zero.
   xkcd::Comic plain = c;
   plain.closerWidth = 0;
   CHECK(!plain.hasCloser(), "closerWidth 0 is the sentinel for 'no closer view'");
-  CHECK(xkcd::renditionFor(plain, xkcd::Lens::Closer).offset == 1000, "asking for a closer view there gives the page");
+  CHECK(xkcd::renditionFor(plain, xkcd::Lens::Whole).offset == 1000,
+        "asking for an overview that does not exist gives the artwork");
 
-  CHECK(xkcd::columnsIn(page, vw) == 1, "the page view has one column");
-  CHECK(xkcd::columnsIn(close, vw) == 2, "the closer view has exactly two");
+  CHECK(xkcd::columnsIn(close, vw) == 1, "an overview is always one column");
+  CHECK(xkcd::columnsIn(page, vw) == 2, "this artwork is two");
 
   // **The anti-sliver guarantee, stated as a test.** Column one is pulled back
   // flush with the right edge, so the new artwork it reveals is width - 480.
   // The builder's kMinCloserWidth is what keeps that at half a screen or more,
   // and this is the property that must never regress: the defect this whole
   // rework exists to fix was a second column revealing one pixel.
-  const xkcd::Placement c0 = xkcd::place(close, vw, vh, at(0, 0));
-  const xkcd::Placement c1 = xkcd::place(close, vw, vh, at(1, 0));
+  const xkcd::Placement c0 = xkcd::place(page, vw, vh, at(0, 0));
+  const xkcd::Placement c1 = xkcd::place(page, vw, vh, at(1, 0));
   CHECK(c0.scrollX == 0, "column 0 starts at the left edge");
   CHECK(c1.scrollX + c1.visibleW == 912, "column 1 ends flush with the artwork");
   CHECK(c1.scrollX == xkcd::kColumnStep, "column 1 reveals exactly one step of new art, got %d", c1.scrollX);
@@ -432,7 +439,7 @@ static void testCloserView() {
   // full kColumnStep and the last ends flush. Checked across the whole legal
   // range because the zoom is chosen from the comic's own lettering now, so N
   // is whatever readability asked for.
-  for (int cols = 2; cols <= xkcd::kMaxCloserColumns; ++cols) {
+  for (int cols = 2; cols <= xkcd::kMaxColumns; ++cols) {
     const int width = xkcd::kColumnStep * cols + xkcd::kColumnOverlap;
     const xkcd::Rendition r = pageRend(width, 900);
     CHECK(xkcd::columnsIn(r, vw) == cols, "%dpx should be %d columns, got %d", width, cols, xkcd::columnsIn(r, vw));
@@ -459,8 +466,8 @@ static void testCloserView() {
   CHECK(!ragged.valid(), "a closer width off the column grid must be rejected");
 
   // Out-of-range columns clamp rather than reading off the end of the image.
-  CHECK(xkcd::place(close, vw, vh, at(9, 0)).scrollX == 912 - 480, "over-column clamps");
-  CHECK(xkcd::place(close, vw, vh, at(-3, 0)).scrollX == 0, "negative column clamps");
+  CHECK(xkcd::place(page, vw, vh, at(9, 0)).scrollX == 912 - 480, "over-column clamps");
+  CHECK(xkcd::place(page, vw, vh, at(-3, 0)).scrollX == 0, "negative column clamps");
 }
 
 // **Reading order.** Across the band, then down and back to the left. The
@@ -527,23 +534,23 @@ static void testMapAcross() {
   const int vw = 480, vh = 756;
   const xkcd::Comic c = withCloser(480, 1000, 912, 1900);
 
-  const xkcd::Position mid = at(0, 244, xkcd::Lens::Page);  // the bottom of the page view
-  const xkcd::Position into = xkcd::mapAcross(c, vw, vh, mid, xkcd::Lens::Closer);
-  CHECK(into.lens == xkcd::Lens::Closer, "we are in the closer view");
+  const xkcd::Position mid = at(0, 244, xkcd::Lens::Art);  // the bottom of the page view
+  const xkcd::Position into = xkcd::mapAcross(c, vw, vh, mid, xkcd::Lens::Whole);
+  CHECK(into.lens == xkcd::Lens::Whole, "we are in the closer view");
   CHECK(into.column == 0, "and at the left of the band, where reading order starts");
   CHECK(into.scrollY > 244, "the same row is further down a taller rendition, got %d", into.scrollY);
-  CHECK(into.scrollY <= xkcd::maxScroll(xkcd::renditionFor(c, xkcd::Lens::Closer), vh), "and still in range");
+  CHECK(into.scrollY <= xkcd::maxScroll(xkcd::renditionFor(c, xkcd::Lens::Whole), vh), "and still in range");
 
-  const xkcd::Position back = xkcd::mapAcross(c, vw, vh, into, xkcd::Lens::Page);
-  CHECK(back.lens == xkcd::Lens::Page, "and back out again");
+  const xkcd::Position back = xkcd::mapAcross(c, vw, vh, into, xkcd::Lens::Art);
+  CHECK(back.lens == xkcd::Lens::Art, "and back out again");
   CHECK(back.scrollY >= 240 && back.scrollY <= 244, "landing within a few rows of where we left, got %d", back.scrollY);
 
   // Asking for a closer view that does not exist must leave the reader where
   // they are rather than in a lens with no image behind it.
   xkcd::Comic plain = c;
   plain.closerWidth = 0;
-  const xkcd::Position stay = xkcd::mapAcross(plain, vw, vh, mid, xkcd::Lens::Closer);
-  CHECK(stay.lens == xkcd::Lens::Page && stay.scrollY == 244, "no closer view means nothing moves");
+  const xkcd::Position stay = xkcd::mapAcross(plain, vw, vh, mid, xkcd::Lens::Whole);
+  CHECK(stay.lens == xkcd::Lens::Art && stay.scrollY == 244, "no closer view means nothing moves");
 }
 
 static void testGapDetection() {

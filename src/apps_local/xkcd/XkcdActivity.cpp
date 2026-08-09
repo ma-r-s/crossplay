@@ -37,7 +37,7 @@ constexpr const char* kTmpBmp = "/xkcd/.tmp.bmp";
 // widest possible comic is 1600 bytes -- too big for the stack under the
 // 256-byte rule, so it lives in the .bss as a single fixed pool.
 constexpr int kBandRows = 16;
-constexpr int kMaxStride = (xkcd::kMaxCloserWidth + 7) / 8;
+constexpr int kMaxStride = (xkcd::kMaxArtWidth + 7) / 8;
 uint8_t gBand[kBandRows * kMaxStride];
 
 // The gap flags for one step, sized from the same arithmetic the window is
@@ -203,14 +203,19 @@ bool XkcdActivity::loadComic(const int position) {
   // comic too small to read and making the reader ask for the readable version
   // is the wrong way round -- OK pulls back to the whole comic, which is the
   // thing you want occasionally, not the thing you want first.
-  if (comic_.hasCloser()) at_.lens = xkcd::Lens::Closer;
-  // ...and at the comic's own first panel, which for a sideways comic is not
-  // the stored image's top left. Reading one from the wrong corner starts you
-  // at what you see, holding the device turned, as the bottom of the strip.
+  // **A comic opens as the artwork itself**, at the size its lettering needs
+  // and in the posture that costs the fewest panning axes. The builder settled
+  // both; there is nothing left to decide here. OK pulls back to the whole
+  // comic on one screen, for the 15% that pan at all.
+  //
+  // It starts at the comic's own first panel, which for a comic stored turned
+  // is not the stored image's top left. Reading one from the wrong corner
+  // starts you at what you see, holding the device turned, as the bottom of
+  // the strip.
   {
     const fui::Rect view = xkcdui::readerViewport(fui::GfxRendererTarget(renderer).deviceContext());
-    at_ = xkcd::startOf(xkcd::renditionFor(comic_, at_.lens), view.width);
-    at_.lens = comic_.hasCloser() ? xkcd::Lens::Closer : xkcd::Lens::Page;
+    at_ = xkcd::startOf(xkcd::renditionFor(comic_, xkcd::Lens::Art), view.width);
+    at_.lens = xkcd::Lens::Art;
   }
   xkcd::readTitle(*textSrc_, comic_, title_, sizeof(title_));
   xkcd::readAlt(*textSrc_, comic_, alt_, sizeof(alt_));
@@ -641,7 +646,7 @@ void XkcdActivity::handleAction(const fui::ActionId action, const int16_t value)
     case xkcdui::ActionToggleCloser: {
       if (!comic_.hasCloser()) break;
       const fui::Rect view = xkcdui::readerViewport(fui::GfxRendererTarget(renderer).deviceContext());
-      const xkcd::Lens to = at_.lens == xkcd::Lens::Closer ? xkcd::Lens::Page : xkcd::Lens::Closer;
+      const xkcd::Lens to = at_.lens == xkcd::Lens::Whole ? xkcd::Lens::Art : xkcd::Lens::Whole;
       // Switching views keeps your place: the two renditions are the same
       // artwork at different scales, so the row under the top of the screen
       // maps straight across. Landing back at the top of a 3000-row comic
@@ -776,7 +781,7 @@ bool XkcdActivity::fetchOne(const uint16_t num, char* whyNot, const int whyNotCa
       snprintf(whyNot, whyNotCap, "No room on the card for #%u.", static_cast<unsigned>(num));
       return false;
     }
-    if (!PngToBmpConverter::pngFileTo1BitBmpStreamWithSize(png, bmp, xkcd::kMaxPageWidth, xkcd::kMaxComicHeight)) {
+    if (!PngToBmpConverter::pngFileTo1BitBmpStreamWithSize(png, bmp, xkcd::kPanelWidth, xkcd::kMaxComicHeight)) {
       bmp.close();
       snprintf(whyNot, whyNotCap, "#%u is in a format this build cannot decode.", static_cast<unsigned>(num));
       return false;
@@ -801,7 +806,7 @@ bool XkcdActivity::fetchOne(const uint16_t num, char* whyNot, const int whyNotCa
   int32_t bh = static_cast<int32_t>(head[22] | (head[23] << 8) | (head[24] << 16) | (head[25] << 24));
   const bool topDown = bh < 0;
   if (bh < 0) bh = -bh;
-  if (bw <= 0 || bh <= 0 || bw > xkcd::kMaxPageWidth || bh > xkcd::kMaxComicHeight || !topDown) {
+  if (bw <= 0 || bh <= 0 || bw > xkcd::kPanelWidth || bh > xkcd::kMaxComicHeight || !topDown) {
     snprintf(whyNot, whyNotCap, "#%u came out %dx%d, which the pack cannot hold.", static_cast<unsigned>(num),
              static_cast<int>(bw), static_cast<int>(bh));
     return false;
@@ -1037,7 +1042,7 @@ void XkcdActivity::render(RenderLock&&) {
       model.viewW = p.visibleW;
       model.viewH = p.visibleH;
       model.hasCloser = comic_.hasCloser();
-      model.inCloser = at_.lens == xkcd::Lens::Closer;
+      model.inCloser = at_.lens == xkcd::Lens::Whole;
       model.hasAlt = alt_[0] != '\0';
       xkcdui::buildReaderBar(screen, model);
 

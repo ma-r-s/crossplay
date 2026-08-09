@@ -177,11 +177,11 @@ int readAlt(ByteSource& text, const Comic& c, char* out, int cap) {
 
 Rendition renditionFor(const Comic& c, Lens lens) {
   Rendition r;
-  const bool closer = lens == Lens::Closer && c.hasCloser();
-  r.width = closer ? c.closerWidth : c.width;
-  r.height = closer ? c.closerHeight : c.height;
-  r.stride = closer ? c.closerStride : c.stride;
-  r.offset = closer ? c.closerOffset : c.imageOffset;
+  const bool whole = lens == Lens::Whole && c.hasCloser();
+  r.width = whole ? c.closerWidth : c.width;
+  r.height = whole ? c.closerHeight : c.height;
+  r.stride = whole ? c.closerStride : c.stride;
+  r.offset = whole ? c.closerOffset : c.imageOffset;
   r.sideways = c.sideways();
   return r;
 }
@@ -442,7 +442,7 @@ int scrollYFor(const Rendition& r, int viewportH, int row, const GapWindow& wind
 }
 
 Position mapAcross(const Comic& c, int viewportW, int viewportH, const Position& at, Lens to) {
-  if (to == Lens::Closer && !c.hasCloser()) return at;
+  if (to == Lens::Whole && !c.hasCloser()) return at;
 
   const Rendition from = renditionFor(c, at.lens);
   const Rendition dest = renditionFor(c, to);

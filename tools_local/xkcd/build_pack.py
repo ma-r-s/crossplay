@@ -12,17 +12,21 @@ native 1-bit format at **native size** (never scaled), and writes the three
 files the app reads. Both the download cache and the pack are resumable:
 interrupt it and run it again.
 
-Two renditions per comic
-------------------------
-The PAGE rendition is the whole comic, fitted so its full width is on the
-panel, so the page view has no horizontal axis and the only motion is down.
-93% of the archive opens here and never moves at all.
+One objective: never pan on two axes if one will do
+---------------------------------------------------
+Posture and zoom are chosen together to make that true, and it comes out true
+for 97% of the archive. Each of the comic's two dimensions lands in one of
+three bands against the device's SHORT (480) and LONG (756) sides, so there are
+nine cases and no others; `layout()` is that matrix, and the matrix itself is
+drawn in docs/xkcd-pack-format.md.
 
-The CLOSER rendition is for comics that fit-to-width cannot render legible --
-the big near-square ones like #3266 and #256, which rotation cannot help. Those
-comics OPEN in it, and Confirm pulls back to the whole comic. It is always
-exactly two columns wide, which is how the "whole extra view for one pixel of
-new artwork" defect is prevented rather than merely tested for.
+The scale may fall from the target cap height to the floor -- about a sixth --
+when that is what removes a panning axis. That single allowance takes the
+archive from 68% to 85% needing no panning at all.
+
+What is stored is the artwork at the size its lettering needs, in the posture
+that costs the fewest axes. Comics that pan also carry a small whole-comic
+OVERVIEW, reached with OK; only 15% need one, and each is at most a screenful.
 
 Both are built here, on a host, with a real resampling filter before a single
 dither. That is the whole reason there is a pack: resampling art that is
@@ -65,23 +69,16 @@ MAX_COMIC_HEIGHT = 16384
 PANEL_WIDTH = 480
 PORTRAIT_VIEWPORT_H = 756
 
-# The page rendition is fitted to the panel width, so it is never wider than
-# the panel and the page view therefore has no horizontal axis at all. This is
-# the whole repair: the previous build kept any comic wider than 480 at full
-# size and read it in columns, which gave #1606 -- 481px wide -- a second
-# column revealing one pixel.
-MAX_PAGE_WIDTH = PANEL_WIDTH
-
-# The closer rendition is ALWAYS exactly two columns, overlapping by
-# COLUMN_OVERLAP so a word split at the seam is readable on both sides. The
-# anti-sliver guarantee lives in these numbers rather than in a check, because
-# a runtime "is this column worth it?" test is the shape of rule that produced
-# the one-pixel column in the first place.
+# Anything wider than the panel pans sideways, and its width is snapped onto a
+# grid of COLUMN_STEP so every column reveals a full step and the last ends
+# flush. The anti-sliver guarantee lives in this arithmetic rather than in a
+# check, because a runtime "is this column worth it?" test is the shape of rule
+# that gave #1606 -- 481px wide -- a second column revealing one pixel.
 COLUMN_OVERLAP = 48
 COLUMN_STEP = PANEL_WIDTH - COLUMN_OVERLAP  # 432
 MAX_CLOSER_COLUMNS = 8
 
-# Widest thing the format may hold, which is the closer rendition's ceiling.
+# Widest thing the format may hold.
 MAX_COMIC_WIDTH = COLUMN_STEP * MAX_CLOSER_COLUMNS + COLUMN_OVERLAP  # 3504
 
 # Comic 404 does not exist, and that is the joke. Requesting it returns an
@@ -326,6 +323,78 @@ def cap_height(gray) -> float | None:
     return heights[len(heights) // 2]
 
 
+SHORT_SIDE = PANEL_WIDTH  # 480
+LONG_SIDE = PORTRAIT_VIEWPORT_H  # 756
+
+
+def _posture(W, H, cap, across, down, args):
+    """Best outcome for one posture: (axes, scale, which axis pans).
+
+    Scale may fall from the target cap height to the floor -- about a sixth --
+    if that is what makes an axis stop panning. That single allowance rescues
+    28% of the archive from panning at all.
+    """
+    target, floor = args.target_cap / cap, args.min_cap / cap
+    s_w, s_h = across / W, down / H
+    fit = min(s_w, s_h)
+    if fit >= floor:
+        return 0, min(args.max_upscale, max(fit, floor)), "whole"
+    if s_w >= floor:
+        return 1, min(args.max_upscale, s_w), "down"
+    if s_h >= floor:
+        return 1, min(args.max_upscale, s_h), "across"
+    return 2, min(args.max_upscale, target), "both"
+
+
+def _taps(W, H, s, across, down):
+    w, h = round(W * s), round(H * s)
+    c = 1 if w <= across else 1 + math.ceil((w - across) / COLUMN_STEP)
+    r = 1 if h <= down else 1 + math.ceil((h - down) / (down / 2))
+    return c * r
+
+
+def layout(W, H, cap, args):
+    """Which way round, and how big. Returns (posture, scale, which pans).
+
+    The nine cases of docs/xkcd-pack-format.md, computed rather than tabulated.
+    A comic with too little lettering to measure has no readable scale to aim
+    at, so it simply fits whole in whichever posture shows it larger.
+    """
+    if not cap:
+        p = min(args.max_upscale, SHORT_SIDE / W, LONG_SIDE / H)
+        t = min(args.max_upscale, LONG_SIDE / W, SHORT_SIDE / H)
+        return ("turned", t, "whole") if t > p else ("portrait", p, "whole")
+
+    pa, ps, pw = _posture(W, H, cap, SHORT_SIDE, LONG_SIDE, args)
+    ta, ts, tw = _posture(W, H, cap, LONG_SIDE, SHORT_SIDE, args)
+
+    # 1. Fewest panning axes. Six of the nine cases end here.
+    if pa != ta:
+        return ("portrait", ps, pw) if pa < ta else ("turned", ts, tw)
+
+    # 2. Tied, and the SAME axis pans either way: the axis that does not pan
+    #    goes on the smallest side that holds it, leaving the longer side for
+    #    the one that does. Deciding this by tap count instead ties far too
+    #    often -- 334 wide-and-short comics stayed portrait on a tap tie, which
+    #    is #1518 zoomed 3x into five columns instead of turned into three.
+    if pa == 1 and pw == tw:
+        if pw == "across":
+            return (
+                ("turned", ts, tw)
+                if round(H * ts) <= SHORT_SIDE
+                else ("portrait", ps, pw)
+            )
+        return (
+            ("portrait", ps, pw) if round(W * ps) <= SHORT_SIDE else ("turned", ts, tw)
+        )
+
+    # 3. Still tied: fewest taps, then stay portrait. Turning the device is a
+    #    real cost and a tie means turning buys nothing.
+    pt = _taps(W, H, ps, SHORT_SIDE, LONG_SIDE)
+    tt = _taps(W, H, ts, LONG_SIDE, SHORT_SIDE)
+    return ("portrait", ps, pw) if pt <= tt else ("turned", ts, tw)
+
+
 def resample(gray, sw: int, sh: int, scale: float):
     """Scale on the host, with a real filter, before the single dither.
 
@@ -428,9 +497,6 @@ def main() -> int:
         help="stop after N comics (for a quick test pack)",
     )
     ap.add_argument(
-        "--portrait-width", type=int, default=480, help="the portrait panel's width"
-    )
-    ap.add_argument(
         "--rotate-cw",
         action="store_true",
         help="turn sideways comics the other way, if tipping the device "
@@ -442,14 +508,6 @@ def main() -> int:
         default=3.0,
         help="never enlarge a comic by more than this. One comic in the "
         "archive is 106px wide and would otherwise be blown up 4.5x.",
-    )
-    ap.add_argument(
-        "--rotate-gain",
-        type=float,
-        default=1.30,
-        help="turn a comic sideways when doing so makes it at least this much "
-        "bigger. Turning the device has to be earned, so a near-square comic "
-        "(which gains almost nothing) stays upright.",
     )
     ap.add_argument(
         "--target-cap",
@@ -468,29 +526,9 @@ def main() -> int:
         "page is readable as it is, and gets no closer view.",
     )
     ap.add_argument(
-        "--max-closer-scale",
-        type=float,
-        default=6.0,
-        help="never enlarge a closer view past this, whatever the lettering "
-        "says. A safety bound, not a design constant.",
-    )
-    ap.add_argument(
-        "--no-rotate",
-        action="store_true",
-        help="never store a comic sideways; shrink wide ones to fit instead",
-    )
-    ap.add_argument(
         "--no-closer",
         action="store_true",
         help="build page renditions only, for a smaller pack with no zoom",
-    )
-    ap.add_argument(
-        "--fit-height-slack",
-        type=float,
-        default=0.08,
-        help="when fitting the width overflows the screen by less than this, "
-        "fit the height instead so the whole comic is on one screen. Stops a "
-        "comic from carrying a pan control that moves it three pixels.",
     )
     args = ap.parse_args()
 
@@ -540,135 +578,94 @@ def main() -> int:
 
             # --- which way round, and how big -------------------------
             #
-            # Two renditions, and one fact underneath both: xkcd letters at a
-            # roughly constant size in source pixels, so how far a comic has
-            # been *shrunk* is the only thing deciding whether it can be read.
+            # ONE objective, above every other consideration: **never pan on
+            # two axes if one will do.** Posture and zoom are chosen together
+            # to make that true as often as possible, and it comes out true for
+            # 97% of the archive.
             #
-            # 1. WHICH WAY ROUND. Compare what each posture actually buys and
-            #    turn the comic when turning it helps by --rotate-gain. The
-            #    reader turns the device; the app never turns the panel, so the
-            #    bar and the controls never move. (Rotating the panel was the
-            #    first attempt and it shuffled the whole UI around underneath
-            #    the reader.)
+            # Each of the comic's two dimensions lands in one of three bands
+            # against the device's SHORT (480) and LONG (756) sides, so there
+            # are nine cases and no others. See docs/xkcd-pack-format.md for
+            # the matrix; `layout()` below is that matrix, computed.
             #
-            # 2. THE PAGE RENDITION, which is how every comic opens. Fitted so
-            #    its full width is on the panel -- up as well as down, since
-            #    44% of the archive is narrower than 480. A sideways comic is
-            #    fitted *whole*, because the reason to turn one is to see all
-            #    of it. Either way the result is never wider than the panel, so
-            #    **the page view has no horizontal axis at all**.
-            #
-            # 3. THE CLOSER RENDITION, for the 4% that fit-to-width cannot
-            #    render legible -- the big near-square ones like #3266 and
-            #    #256, which rotation cannot help. Always exactly two columns
-            #    wide, so its second column always reveals at least half a
-            #    screen of new artwork. Comics that cannot satisfy that get no
-            #    closer view, which is the honest answer.
+            # The scale is allowed to fall from the target cap height to the
+            # floor -- about a sixth -- when that buys a whole axis. That one
+            # allowance takes the archive from 68% to 85% no-panning.
             sw, sh = gray.size
-            vw, vh = args.portrait_width, PORTRAIT_VIEWPORT_H
-
-            # Measured on the UPRIGHT source, before any rotation. Cap height
-            # is a property of the artwork; measuring it after a transpose
-            # returns the letters' *width*, which sent a third of the archive
-            # into a closer view it did not need.
             cap = cap_height(gray)
+            posture, scale, pans = layout(sw, sh, cap, args)
 
-            upright_scale = min(args.max_upscale, vw / sw)
-            sideways_scale = min(args.max_upscale, vw / sh, vh / sw)
-            sideways = (
-                not args.no_rotate
-            ) and sideways_scale >= upright_scale * args.rotate_gain
-
-            if sideways:
+            if posture == "turned":
                 from PIL import Image as _Image
 
-                # Turned so the comic's own top ends up on the left of the
-                # portrait screen, i.e. you tip the device clockwise to read
-                # it. One transpose, and --rotate-cw flips which way.
+                # Turned so the comic's own top-left ends up at the stored
+                # image's top-right; the reader walks it in the comic's frame,
+                # not the stored image's. See xkcd::startOf.
                 gray = gray.transpose(
                     _Image.ROTATE_90 if args.rotate_cw else _Image.ROTATE_270
                 )
                 sw, sh = gray.size
-                page_scale = sideways_scale
-            else:
-                page_scale = upright_scale
 
-            # A pan control that moves the comic by a few pixels is the same
-            # defect as a column that reveals one, and the page view had it
-            # too: #3179 is *enlarged* 1.51x to 480x757 and then pans by a
-            # single pixel. So when fitting the width overflows the screen by
-            # only a little, fit the height instead and put the whole comic on
-            # one screen. Costs at most --fit-height-slack of scale and a
-            # margin down the sides; removes 96 one-tap-for-nothing controls.
-            if not sideways:
-                fitted_h = sh * page_scale
-                if vh < fitted_h <= vh * (1.0 + args.fit_height_slack):
-                    page_scale = vh / sh
+            if sh * scale > MAX_COMIC_HEIGHT:
+                scale = MAX_COMIC_HEIGHT / sh
 
-            if sh * page_scale > MAX_COMIC_HEIGHT:
-                page_scale = MAX_COMIC_HEIGHT / sh
+            # Snap the width onto the column grid, so every column reveals a
+            # full COLUMN_STEP and the last ends flush.
+            #
+            # **One column is a legal answer**, and forcing a minimum of two was
+            # a real bug: a comic that came out 481px wide -- one pixel over --
+            # was blown up to 912 and started panning, which took the both-axes
+            # share from the predicted 2.8% to 8.9%.
+            #
+            # Snapping moves the SCALE, so it moves the height too. A comic that
+            # layout() promised would pan across only can be pushed past the
+            # viewport by the snap and end up panning both ways -- which is how
+            # 6.6% of the archive was still panning twice after the first fix.
+            # So the snap steps down until the promise holds.
+            if round(sw * scale) > PANEL_WIDTH:
+                cols = max(1, round((sw * scale - COLUMN_OVERLAP) / COLUMN_STEP))
+                cols = min(cols, MAX_CLOSER_COLUMNS)
+                while cols > 1:
+                    trial = (COLUMN_STEP * cols + COLUMN_OVERLAP) / sw
+                    if pans != "across" or round(sh * trial) <= PORTRAIT_VIEWPORT_H:
+                        break
+                    cols -= 1
+                scale = (COLUMN_STEP * cols + COLUMN_OVERLAP) / sw
 
-            page = resample(gray, sw, sh, page_scale)
-            pw, ph = page.size
-            if pw > MAX_PAGE_WIDTH or ph > MAX_COMIC_HEIGHT or pw == 0 or ph == 0:
-                # Nothing in the archive trips this, but it is reported loudly
-                # rather than dropped: a comic missing from the app with no
-                # explanation is a bug report waiting to happen. #2067 once
-                # vanished exactly this way, with one line in the build log.
-                skipped.append(
-                    (num, f"page rendition {pw}x{ph} exceeds the pack limits")
-                )
+            art = resample(gray, sw, sh, scale)
+            aw, ah = art.size
+            if aw > MAX_COMIC_WIDTH or ah > MAX_COMIC_HEIGHT or aw == 0 or ah == 0:
+                skipped.append((num, f"{aw}x{ah} exceeds the pack limits"))
                 continue
 
-            stride, bits = conv.convert(page)
+            stride, bits = conv.convert(art)
 
-            # The closer rendition, for comics the page view cannot render
-            # readable. **These OPEN in the closer view**, because showing a
-            # comic too small to read and making you ask for the readable one
-            # is the wrong way round; OK pulls back to the whole comic.
-            #
-            # How far to zoom comes from THIS COMIC's lettering, not from a
-            # column count. The first version fixed the closer view at two
-            # columns because that was a tidy invariant, which zoomed #3266 to
-            # 1.23x and left its lettering 5px tall. Cap height across the
-            # archive runs 3px to 25px; one multiplier cannot serve both ends.
+            # The overview, for comics that pan: the whole thing on one screen,
+            # reached with OK. Only 15% of the archive needs one, and each is at
+            # most a screenful, so it costs a fourteenth of what the old
+            # zoomed-in second rendition did.
             closer_bits = None
             closer_stride = closer_h = closer_w = 0
-            want = args.max_closer_scale
-            if cap:
-                want = min(args.max_closer_scale, args.target_cap / cap)
-            # Snap to the column grid, so every column reveals a full step and
-            # the last one ends flush. This is the anti-sliver guarantee, and
-            # it holds at any number of columns.
-            cols = max(2, round((sw * want - COLUMN_OVERLAP) / COLUMN_STEP))
-            cols = min(cols, MAX_CLOSER_COLUMNS)
-            closer_w = COLUMN_STEP * cols + COLUMN_OVERLAP
-            closer_scale = closer_w / sw
-            if (
-                not args.no_closer
-                and cap
-                and cap * page_scale < args.min_cap
-                and closer_scale > page_scale
-                and sh * closer_scale <= MAX_COMIC_HEIGHT
-            ):
-                closer = resample(gray, sw, sh, closer_scale)
-                closer_w, closer_h = closer.size
-                closer_stride, closer_bits = conv.convert(closer)
+            if not args.no_closer and (aw > PANEL_WIDTH or ah > PORTRAIT_VIEWPORT_H):
+                fit = min(PANEL_WIDTH / sw, PORTRAIT_VIEWPORT_H / sh)
+                whole = resample(gray, sw, sh, fit)
+                closer_w, closer_h = whole.size
+                closer_stride, closer_bits = conv.convert(whole)
 
             title = fold(meta.get("safe_title") or meta.get("title") or f"#{num}")
             alt = fold(meta.get("alt") or "")
 
             rec = dict(
                 num=num,
-                width=pw,
-                height=ph,
+                width=aw,
+                height=ah,
                 stride=stride,
                 year=int(meta.get("year") or 0),
                 month=int(meta.get("month") or 0),
                 day=int(meta.get("day") or 0),
                 imageOffset=images.tell(),
                 textOffset=text.tell(),
-                flags=1 if sideways else 0,
+                flags=1 if posture == "turned" else 0,
                 closerWidth=0,
                 closerHeight=0,
                 closerStride=0,
@@ -750,37 +747,51 @@ def main() -> int:
         f"{pans} pan down",
         file=sys.stderr,
     )
+    across = sum(1 for r in records if r["width"] > PANEL_WIDTH)
+    downs = sum(1 for r in records if r["height"] > PORTRAIT_VIEWPORT_H)
+    both = sum(
+        1
+        for r in records
+        if r["width"] > PANEL_WIDTH and r["height"] > PORTRAIT_VIEWPORT_H
+    )
     print(
-        f"  {close} have a closer view ({100 * close / n:.0f}%)",
+        f"  panning: {n - across - downs + both} none ({100 * (n - across - downs + both) / n:.0f}%), "
+        f"{downs - both} down, {across - both} across, {both} BOTH ({100 * both / n:.1f}%)",
+        file=sys.stderr,
+    )
+    print(
+        f"  {close} carry a whole-comic overview ({100 * close / n:.0f}%)",
         file=sys.stderr,
     )
 
     # The two guarantees this build exists to make, checked against what was
     # actually written rather than asserted in a comment. If either of these
     # ever prints, the sliver is back.
-    wide = [r for r in records if r["width"] > MAX_PAGE_WIDTH]
-    thin = [
+    ragged = [
+        r
+        for r in records
+        if r["width"] > PANEL_WIDTH and (r["width"] - COLUMN_OVERLAP) % COLUMN_STEP
+    ]
+    huge = [
         r
         for r in records
         if r["closerWidth"]
-        and r["closerWidth"] - PANEL_WIDTH < PORTRAIT_VIEWPORT_H // 2
+        and (r["closerWidth"] > PANEL_WIDTH or r["closerHeight"] > PORTRAIT_VIEWPORT_H)
     ]
-    if wide:
+    if ragged:
         print(
-            f"  BROKEN: {len(wide)} page renditions are wider than the panel",
+            f"  BROKEN: {len(ragged)} panning widths are off the column grid",
             file=sys.stderr,
         )
-    if thin:
+    if huge:
         print(
-            f"  BROKEN: {len(thin)} closer views are not a whole number of columns wide",
+            f"  BROKEN: {len(huge)} overviews do not fit on one screen",
             file=sys.stderr,
         )
-    if not wide and not thin:
-        widest = max((r["closerWidth"] for r in records if r["closerWidth"]), default=0)
-        cols = (widest - COLUMN_OVERLAP) // COLUMN_STEP if widest else 0
+    if not ragged and not huge:
         print(
-            f"  no page rendition pans sideways; every closer column reveals a "
-            f"full {COLUMN_STEP}px; widest closer view {widest}px ({cols} columns)",
+            f"  every panning column reveals a full {COLUMN_STEP}px; "
+            f"every overview fits on one screen",
             file=sys.stderr,
         )
     if skipped:

@@ -114,11 +114,9 @@ inline constexpr uint32_t kIndexRecordBytes = 40;
 
 // --- What the builder guarantees about the artwork -----------------------
 
-// The page rendition is fitted to the panel width, so it is never wider than
-// the panel. `Comic::valid()` enforces it, which is what makes "the page view
-// has one column" a property of the format rather than a hope about the data:
-// a pack that violated it would be rejected, not silently read in columns.
-inline constexpr int kMaxPageWidth = kPanelWidth;
+// The overview -- the whole comic on one screen, reached with OK -- is never
+// wider than the panel, because that is the entire point of it.
+inline constexpr int kMaxOverviewWidth = kPanelWidth;
 
 // **A closer rendition's width is always kColumnStep * N + kColumnOverlap.**
 // Columns advance by kColumnStep and overlap by kColumnOverlap, so every
@@ -136,8 +134,8 @@ inline constexpr int kMaxPageWidth = kPanelWidth;
 // the panel, and no further.
 inline constexpr int kColumnOverlap = 48;
 inline constexpr int kColumnStep = kPanelWidth - kColumnOverlap;  // 432
-inline constexpr int kMaxCloserColumns = 8;
-inline constexpr int kMaxCloserWidth = kColumnStep * kMaxCloserColumns + kColumnOverlap;  // 3504
+inline constexpr int kMaxColumns = 8;
+inline constexpr int kMaxArtWidth = kColumnStep * kMaxColumns + kColumnOverlap;  // 3504
 
 // #887 "Future Timeline" is 6370 rows, the tallest in the sampled archive.
 // 16384 leaves room for whatever Randall does next without letting a corrupt
@@ -190,16 +188,13 @@ struct Comic {
   // A width of zero is how the index says "this slot is not filled in";
   // the offsets are meaningless then and must not be followed.
   bool valid() const {
-    return num > 0 && width > 0 && height > 0 && stride > 0 && width <= kMaxPageWidth && height <= kMaxComicHeight &&
+    return num > 0 && width > 0 && height > 0 && stride > 0 && width <= kMaxArtWidth && height <= kMaxComicHeight &&
            stride >= (width + 7) / 8 &&
-           (!hasCloser() || (closerWidth <= kMaxCloserWidth && closerHeight <= kMaxComicHeight &&
-                             closerStride >= (closerWidth + 7) / 8 &&
-                             // The column arithmetic, enforced by the format: a
-                             // closer view that is not a whole number of steps
-                             // wide could have a last column revealing almost
-                             // nothing, which is the defect this all exists to
-                             // prevent. Reject it rather than draw it.
-                             (closerWidth - kColumnOverlap) % kColumnStep == 0));
+           // Anything wider than the panel pans sideways, and must therefore
+           // sit on the column grid so no column reveals a sliver.
+           (width <= kPanelWidth || (width - kColumnOverlap) % kColumnStep == 0) &&
+           (!hasCloser() || (closerWidth <= kMaxOverviewWidth && closerHeight <= kMaxComicHeight &&
+                             closerStride >= (closerWidth + 7) / 8));
   }
 };
 
@@ -249,7 +244,7 @@ int readAlt(ByteSource& text, const Comic& c, char* out, int cap);
 
 // The page view is the whole comic at panel width. The closer view is the
 // second rendition, entered deliberately and never automatically.
-enum class Lens : uint8_t { Page, Closer };
+enum class Lens : uint8_t { Art, Whole };
 
 // The image being drawn, independent of which rendition it came from. Every
 // placement and step function below takes one of these rather than a Comic, so
@@ -339,7 +334,7 @@ static_assert(kSnapToleranceNum * 2 < kSnapToleranceDen,
 // Where the reader is. `column` is always 0 in the page view -- the page
 // rendition is never wider than the panel -- and 0 or 1 in the closer view.
 struct Position {
-  Lens lens = Lens::Page;
+  Lens lens = Lens::Art;
   int column = 0;
   // **The panel index, not a pixel offset.** How many panels the artwork
   // splits into is worked out up front and the travel divided evenly between
