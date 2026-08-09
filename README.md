@@ -34,24 +34,24 @@ restyled to match the design language the apps use.
 
 ## What is on it
 
-|                 |                                                                    |
-| --------------- | ------------------------------------------------------------------ |
-| **Chess**       | A full engine on the device, or a board between two of them.       |
-| **Battleship**  | Lay out a fleet, then hunt someone else's.                         |
-| **Connections** | The daily word grid, with an archive of past boards.               |
-| **Solitaire**   | Klondike, turned sideways because that is the shape of a tableau.  |
-| **D&Diagrams**  | A nonogram whose clues are a dungeon. 64 of them.                  |
-| **Insider**     | A party game for a table and one device.                           |
-| **Jaipur**      | The two-player trading game, solo or nearby.                       |
-| **Murdle**      | A logic grid built through the solver, so you never have to guess. |
-| **Checkers**    | English draughts, where taking is compulsory and the board says so. |
-| **Connect Four**| Drop a disc, get four in a line. Seven columns, one tap each.        |
-| **Yahtzee**     | Thirteen boxes, three rolls a turn, and the Joker rules in full.     |
+|                  |                                                                             |
+| ---------------- | --------------------------------------------------------------------------- |
+| **Chess**        | A full engine on the device, or a board between two of them.                |
+| **Battleship**   | Lay out a fleet, then hunt someone else's.                                  |
+| **Connections**  | The daily word grid, with an archive of past boards.                        |
+| **Solitaire**    | Klondike, turned sideways because that is the shape of a tableau.           |
+| **D&Diagrams**   | A nonogram whose clues are a dungeon. 64 of them.                           |
+| **Insider**      | A party game for a table and one device.                                    |
+| **Jaipur**       | The two-player trading game, solo or nearby.                                |
+| **Murdle**       | A logic grid built through the solver, so you never have to guess.          |
+| **Checkers**     | English draughts, where taking is compulsory and the board says so.         |
+| **Connect Four** | Drop a disc, get four in a line. Seven columns, one tap each.               |
+| **Yahtzee**      | Thirteen boxes, three rolls a turn, and the Joker rules in full.            |
 | **Knucklebones** | Cult of the Lamb's dice game. Matching dice multiply; yours destroy theirs. |
-| **Minesweeper** | Tap to dig, hold to flag. The first dig is always safe. |
-| **Study**       | Anki decks with the FSRS scheduler, offline.                       |
-| **Hacker News** | The front page in a reading serif, articles kept on the card.      |
-| **xkcd**        | The archive, packed for the card and drawn one to one.             |
+| **Minesweeper**  | Tap to dig, hold to flag. The first dig is always safe.                     |
+| **Study**        | Anki decks with the FSRS scheduler, offline.                                |
+| **Hacker News**  | The front page in a reading serif, articles kept on the card.               |
+| **xkcd**         | The archive, packed for the card and drawn one to one.                      |
 
 Chess, Battleship, Jaipur, Knucklebones, Checkers, Connect Four and Yahtzee play
 over **PLAY NEARBY**: put two devices next to
@@ -82,18 +82,29 @@ CrossPoint upstream is the right answer and is excellent.
 
 You do not need to have installed CrossPoint first.
 
-1. Download `crossplay-<version>-x4pro.bin` from the
-   [releases page](https://github.com/ma-r-s/crossplay/releases).
+1. Download `crossplay-<version>-x4pro-full.bin` from the
+   [releases page](https://github.com/ma-r-s/crossplay/releases). That is the
+   whole firmware: second-stage bootloader at `0x0`, partition table at
+   `0x8000`, application at `0x10000`, in one file.
 2. Plug the device into a computer over USB.
-3. Open [crosspointreader.com](https://crosspointreader.com/#flash-tools) in
-   Chrome or Edge (the web flasher needs WebSerial, which Firefox and Safari do
-   not have), choose **Custom .bin**, and select the file you downloaded.
-4. Or from a terminal, if you would rather not trust a web page with your
-   serial port:
+3. Install [esptool](https://github.com/espressif/esptool) if you have not
+   (`pip install esptool`, same on Windows, macOS and Linux) and run:
 
    ```bash
-   esptool.py --chip esp32s3 --baud 921600 write_flash 0x0 crossplay-<version>-x4pro.bin
+   esptool.py --chip esp32s3 --baud 921600 write_flash 0x0 crossplay-<version>-x4pro-full.bin
    ```
+
+### Updating an install you already have
+
+The release also carries `firmware.bin`, which is the application on its own.
+That is the file for a device that already has a bootloader, and it needs no
+cable: **Settings -> Check for updates** fetches it over Wi-Fi, or you can copy
+it onto the SD card and choose it from the same screen. The updater matches that
+exact filename, so do not rename it.
+
+`-full.bin` is for the USB install only. Handing it to the on-device updater
+writes a bootloader into an application slot, so the firmware validates the
+image first and refuses it rather than flashing it.
 
 Two things worth knowing before you start:
 
