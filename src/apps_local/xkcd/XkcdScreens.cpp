@@ -489,30 +489,39 @@ void buildReaderBar(toybox::Screen& screen, const ReaderModel& model) {
   if (model.hasCloser) {
     fui::TextStyle ok = owned(screen.theme().smallText, fui::TextAlign::Right);
     ok.color = fui::Color::White;
-    // Just "OK", not "OK+" and "OK-": **'+' draws as nothing in this face.**
-    // The subset claims U+0020-007E but the plus is not in the cut, so it
-    // comes out zero-width with no box, no fallback and no log line -- the
-    // same defect as the missing ellipsis, and the same one the Hacker News
-    // app hit with a curly apostrophe. Nothing is lost: which state you are in
-    // is what the map beside it is for.
+    // It said "OK" while the toggle was on the Confirm button. The X4 Pro has
+    // no Confirm button, so naming one was doubly wrong: it pointed at a key
+    // that cannot fire, and it read as a key rather than as something to tap.
+    // These say what tapping does instead.
+    //
+    // Two words rather than "+" and "-": **'+' draws as nothing in this face.**
+    // The subset claims U+0020-007E but the plus is not in the cut, so it comes
+    // out zero-width with no box, no fallback and no log line -- the same
+    // defect as the missing ellipsis.
     const int16_t okX = static_cast<int16_t>(map.x - kOkWidth);
-    screen.target().text(fui::makeRect(okX, bar.y, kOkWidth, kBarHeight), "OK", ok);
+    screen.target().text(fui::makeRect(okX, bar.y, kOkWidth, kBarHeight), model.inCloser ? "READ" : "ALL", ok);
   }
 
-  // **No ALT button, and no zoom button either.** The whole bar is the alt
-  // control, exactly as it has always been: it already carries the number and
-  // the title, it is the only chrome on the screen, and a button sitting
-  // beside the artwork advertising a joke you may not want to read is a poor
-  // trade for the ink.
+  // **The whole bar is the alt text, except the map, which toggles the
+  // overview.** Two rects that do not overlap, so which one wins is not a
+  // question about hit-test ordering.
   //
-  // The closer view is deliberately *not* a second tap target carved out of
-  // this bar. Doing that would silently change what the right-hand end of a
-  // bar the reader has tapped three thousand times does, and 44px of bar is
-  // about 3mm of glass. It is on the Confirm button instead: zero comic
-  // pixels, no collision with the alt text, and nothing to mis-tap. The OK
-  // mark next to the map is what says so.
-  if (model.hasAlt) {
-    screen.frame().hit(bar, ActionShowAlt);
+  // The toggle was on the Confirm button, which reads better and costs no
+  // comic pixels -- on a device that has that button. **The X4 Pro does not.**
+  // Its BoardConfig leaves back/confirm/left/right as unassigned pins, so
+  // `InputManager::begin` never configures them and they can never fire; the
+  // two side keys and power are the whole set. The simulator synthesises the
+  // missing ones, so a button-driven control looks perfectly fine there
+  // forever, which is exactly how this shipped. See docs/buttons.md:
+  // **pointing is touch, stepping is the two side keys, nothing else is a
+  // button.**
+  const int16_t toggleX = model.hasCloser ? static_cast<int16_t>(map.x - kOkWidth - toybox::kGutter) : panel.width;
+  if (model.hasCloser) {
+    screen.frame().hit(fui::makeRect(toggleX, bar.y, static_cast<int16_t>(panel.width - toggleX), kBarHeight),
+                       ActionToggleCloser);
+  }
+  if (model.hasAlt && toggleX > 0) {
+    screen.frame().hit(fui::makeRect(0, bar.y, toggleX, kBarHeight), ActionShowAlt);
   }
 }
 
