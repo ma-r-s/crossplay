@@ -21,6 +21,7 @@ enum : fui::ActionId {
   ActionHowToNext = 5,
   ActionAgain = 6,
   ActionDone = 7,
+  ActionToggleMode = 8,
 };
 
 enum class MenuRow : int { Play = 0, HowTo, Count };
@@ -49,6 +50,13 @@ struct BoardModel {
   // found. The board is still drawn: a finished minefield is the thing you want
   // to look at.
   bool showMines = false;
+  // What a tap on a cell does. Flagging used to be reachable only by holding,
+  // which is the one gesture of its kind in the whole fork and the only control
+  // anywhere in it that nothing on screen mentions. On a panel that repaints in
+  // a second there is also no press feedback to learn it from. So the mode is
+  // drawn, and a tap on it switches: the board can then say what a tap will do
+  // instead of the player having to remember.
+  bool flagMode = false;
 };
 
 struct ResultModel {

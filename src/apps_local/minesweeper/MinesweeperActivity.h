@@ -41,6 +41,10 @@ class MinesweeperActivity final : public Activity {
   int holdRow = -1;
   unsigned long holdSinceMs = 0;
   bool holdFired = false;
+  // What a tap on a cell does. Starts on DIG, because the first move of every
+  // game is a dig and a player who never finds the control still has a whole
+  // game. Survives only the screen, not the app: a fresh board starts digging.
+  bool flagMode = false;
   int howToPage = 0;
   int menuSelected = -1;
 

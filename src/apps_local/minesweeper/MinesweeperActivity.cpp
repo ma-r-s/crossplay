@@ -109,6 +109,7 @@ void MinesweeperActivity::beginGame() {
   holdColumn = -1;
   holdRow = -1;
   holdFired = false;
+  flagMode = false;
   resultRecorded = false;
   goTo(ms::Screen::Board);
 }
@@ -160,6 +161,11 @@ void MinesweeperActivity::loop() {
         holdFired = false;
         requestUpdate();
       } else if (!holdFired && millis() - holdSinceMs >= kFlagHoldMs) {
+        // Still a flag, in both modes, rather than "whatever the mode is not".
+        // The symmetry was tempting and is a trap: in FLAG mode it would make
+        // a held finger dig, and digging is the move that can end the game.
+        // A hold you did not mean should never cost more than an extra tap to
+        // undo. In FLAG mode it simply agrees with the tap.
         holdFired = true;
         if (ms::toggleFlag(game, column, row)) requestUpdate();
         mappedInput.swallowCurrentTouch();
@@ -189,7 +195,8 @@ void MinesweeperActivity::loop() {
     int row = 0;
     if (mineui::cellAt(device, tapX, tapY, column, row)) {
       // The rules decide legality, not the screen and not here.
-      if (ms::reveal(game, column, row)) requestUpdate();
+      const bool changed = flagMode ? ms::toggleFlag(game, column, row) : ms::reveal(game, column, row);
+      if (changed) requestUpdate();
       return;
     }
   }
@@ -225,6 +232,11 @@ void MinesweeperActivity::loop() {
 
     case mineui::ActionDone:
       goTo(ms::Screen::Menu);
+      return;
+
+    case mineui::ActionToggleMode:
+      flagMode = !flagMode;
+      requestUpdate();
       return;
 
     default:
@@ -266,6 +278,7 @@ void MinesweeperActivity::render(RenderLock&&) {
       model.holdColumn = holdColumn;
       model.holdRow = holdRow;
       model.showMines = ms::over(game);
+      model.flagMode = flagMode;
       mineui::buildBoard(surface, model);
       break;
     }

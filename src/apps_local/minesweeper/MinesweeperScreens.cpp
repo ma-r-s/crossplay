@@ -168,7 +168,7 @@ void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
 
   static const char* const kLines[] = {
       "A NUMBER COUNTS THE MINES TOUCHING IT. THREE MEANS THREE OF ITS EIGHT NEIGHBOURS.",
-      "TAP A CELL TO DIG IT. HOLD A CELL TO PLANT A FLAG.",
+      "TAP A CELL TO DIG IT. SWITCH THE BUTTON UNDER THE BOARD TO FLAG, AND A TAP PLANTS A FLAG INSTEAD. HOLDING A CELL ALWAYS FLAGS IT.",
       "YOUR FIRST DIG IS ALWAYS SAFE, AND ALWAYS OPENS A SPACE.",
   };
   fui::TextStyle body;
@@ -259,19 +259,42 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
     screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), 4);
   }
 
-  // The counter, labelled. A bare numeral and a mark could not say what it
+  // The bottom strip carries two different things, so it is split rather than
+  // shared: on the left what is left to find, on the right what a tap will do.
+  //
+  // The counter is labelled. A bare numeral and a mark could not say what it
   // counted, and with no total on screen the player could not recover the
   // denominator -- so it names both, and the flag beside it says which unit.
+  const fui::Rect strip = screen.takeBottom(toybox::kPillHeight, toybox::kGutter);
+
+  // The mode, as a control rather than a caption: outlined while it is DIG,
+  // inverted once it is FLAG.
+  //
+  // rowStyles() rather than the button default, and that is the whole point.
+  // The default paints solid in every state, so the two modes came out
+  // identical black pills differing by one word -- three letters against four,
+  // which is not a difference a glance carries on a one-bit panel, and it made
+  // DIG look like the emphasised action when it is only the resting one.
+  // rowStyles is what settings rows already use for exactly this shape of
+  // thing, so the fork's own two-state vocabulary is doing the work.
+  fui::ButtonProps mode;
+  mode.label = model.flagMode ? "FLAG" : "DIG";
+  mode.action = ActionToggleMode;
+  mode.styles = toybox::rowStyles();
+  mode.state = model.flagMode ? fui::StateSelected : fui::StateNormal;
+  const int16_t modeWidth = static_cast<int16_t>(strip.width / 3);
+  screen.button(mode, fui::makeRect(static_cast<int16_t>(strip.right() - modeWidth), strip.y, modeWidth,
+                                    strip.height));
+
   char line[24];
   std::snprintf(line, sizeof(line), "%d OF %d", ms::minesRemaining(model.game), ms::kMines);
   fui::TextStyle count;
   count.font = toybox::kDisplayFont;
   count.align = fui::TextAlign::Center;
-  const fui::Rect strip = screen.takeBottom(toybox::kPillHeight, toybox::kGutter);
   const int16_t markSide = static_cast<int16_t>(strip.height);
-  screen.target().text(fui::makeRect(strip.x, strip.y, static_cast<int16_t>(strip.width - markSide), strip.height),
-                       line, count);
-  drawFlag(screen, fui::makeRect(static_cast<int16_t>(strip.right() - markSide), strip.y, markSide, markSide), false);
+  const int16_t countWidth = static_cast<int16_t>(strip.width - modeWidth - markSide - toybox::kGutter);
+  screen.target().text(fui::makeRect(strip.x, strip.y, countWidth, strip.height), line, count);
+  drawFlag(screen, fui::makeRect(static_cast<int16_t>(strip.x + countWidth), strip.y, markSide, markSide), false);
 }
 
 void buildResult(toybox::Screen& screen, const ResultModel& model) {
