@@ -170,9 +170,18 @@ rebuild, not a code change.
 
 **A width that pans is snapped onto the column grid**, `COLUMN_STEP * N +
 COLUMN_OVERLAP`, so every column reveals a full 432px and the last ends flush.
-`N = 1` is a legal answer and forcing a minimum of two was a real bug: a comic
-that came out 481px wide was blown up to 912 and started panning, which took
-the two-axis share from 2.8% to 8.9%.
+
+The snap has one invariant and it has been broken three times: **it never
+increases the number of panning axes.** `N = 1` is a legal answer, and forcing
+a minimum of two blew a comic that came out 481px wide up to 912, where it
+started panning (2.8% -> 8.9%). Snapping also moves the *scale*, so it moves
+the height, which pushed across-only comics past the viewport (8.9% -> 6.6%).
+And rounding can put a fitting width one pixel over, after which the snap sent
+pan-down-only comics to the next grid stop (6.6% -> 4.1%).
+
+The first two were found by hand, weeks apart. The third was found by
+`host-tests/xkcd/test_layout.py` the day it was written, which is the argument
+for the suite existing: the rule now sits at the 2.8% the model predicted.
 
 **Comics that pan also carry a whole-comic overview**, reached with OK, never
 larger than one screen. Only 15% need one.

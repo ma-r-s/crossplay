@@ -327,6 +327,16 @@ SHORT_SIDE = PANEL_WIDTH  # 480
 LONG_SIDE = PORTRAIT_VIEWPORT_H  # 756
 
 
+class Limits:
+    """The three numbers layout() needs, lifted out of argparse so the rule can
+    be tested without one. See host-tests/xkcd/test_layout.py."""
+
+    def __init__(self, target_cap=12.0, min_cap=10.0, max_upscale=3.0):
+        self.target_cap = target_cap
+        self.min_cap = min_cap
+        self.max_upscale = max_upscale
+
+
 def _posture(W, H, cap, across, down, args):
     """Best outcome for one posture: (axes, scale, which axis pans).
 
@@ -393,6 +403,50 @@ def layout(W, H, cap, args):
     pt = _taps(W, H, ps, SHORT_SIDE, LONG_SIDE)
     tt = _taps(W, H, ts, LONG_SIDE, SHORT_SIDE)
     return ("portrait", ps, pw) if pt <= tt else ("turned", ts, tw)
+
+
+def snap_width(sw: int, sh: int, scale: float, pans: str) -> float:
+    """Put a panning width on the column grid, without breaking layout()'s promise.
+
+    Every column must reveal a full COLUMN_STEP and the last must end flush, so
+    a width over the panel is snapped to COLUMN_STEP * N + COLUMN_OVERLAP.
+
+    Two bugs have lived here, which is why it is a function with tests rather
+    than six lines inside the build loop:
+
+    * **One column is a legal answer.** Forcing a minimum of two blew a comic
+      that came out 481px wide up to 912, where it started panning. Both-axes
+      went 2.8% -> 8.9%.
+    * **Snapping moves the scale, so it moves the HEIGHT too.** A comic
+      layout() promised would pan across only got pushed past the viewport and
+      panned both ways. 8.9% -> 6.6%. So the snap steps down until the promise
+      layout() made still holds.
+    * **Rounding can push a fitting width one pixel over**, and the snap would
+      then send a pan-down-only comic to the next grid stop, adding a sideways
+      axis. Found by test_layout.py the day it was written; the two above were
+      found by hand, months of reading later.
+
+    The invariant, stated once: **this function never increases the number of
+    panning axes.**
+    """
+    # When layout() promised the width would fit, rounding must not be allowed
+    # to push it one pixel over: the snap would then send it to the next grid
+    # stop and add the very axis layout() had just avoided. Clamp instead.
+    if pans in ("whole", "down"):
+        if round(sw * scale) > PANEL_WIDTH:
+            scale = PANEL_WIDTH / sw
+        return scale
+
+    if round(sw * scale) <= PANEL_WIDTH:
+        return scale
+    cols = max(1, round((sw * scale - COLUMN_OVERLAP) / COLUMN_STEP))
+    cols = min(cols, MAX_CLOSER_COLUMNS)
+    while cols > 1:
+        trial = (COLUMN_STEP * cols + COLUMN_OVERLAP) / sw
+        if pans != "across" or round(sh * trial) <= PORTRAIT_VIEWPORT_H:
+            break
+        cols -= 1
+    return (COLUMN_STEP * cols + COLUMN_OVERLAP) / sw
 
 
 def resample(gray, sw: int, sh: int, scale: float):
@@ -609,28 +663,7 @@ def main() -> int:
             if sh * scale > MAX_COMIC_HEIGHT:
                 scale = MAX_COMIC_HEIGHT / sh
 
-            # Snap the width onto the column grid, so every column reveals a
-            # full COLUMN_STEP and the last ends flush.
-            #
-            # **One column is a legal answer**, and forcing a minimum of two was
-            # a real bug: a comic that came out 481px wide -- one pixel over --
-            # was blown up to 912 and started panning, which took the both-axes
-            # share from the predicted 2.8% to 8.9%.
-            #
-            # Snapping moves the SCALE, so it moves the height too. A comic that
-            # layout() promised would pan across only can be pushed past the
-            # viewport by the snap and end up panning both ways -- which is how
-            # 6.6% of the archive was still panning twice after the first fix.
-            # So the snap steps down until the promise holds.
-            if round(sw * scale) > PANEL_WIDTH:
-                cols = max(1, round((sw * scale - COLUMN_OVERLAP) / COLUMN_STEP))
-                cols = min(cols, MAX_CLOSER_COLUMNS)
-                while cols > 1:
-                    trial = (COLUMN_STEP * cols + COLUMN_OVERLAP) / sw
-                    if pans != "across" or round(sh * trial) <= PORTRAIT_VIEWPORT_H:
-                        break
-                    cols -= 1
-                scale = (COLUMN_STEP * cols + COLUMN_OVERLAP) / sw
+            scale = snap_width(sw, sh, scale, pans)
 
             art = resample(gray, sw, sh, scale)
             aw, ah = art.size
