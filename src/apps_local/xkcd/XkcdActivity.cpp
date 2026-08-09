@@ -665,8 +665,8 @@ void XkcdActivity::handleAction(const fui::ActionId action, const int16_t value)
       handleAction(xkcdui::ActionPrevComic, 0);
       break;
     }
-    case xkcdui::ActionToggleCloser: {
-      if (!comic_.hasCloser()) break;
+    case xkcdui::ActionToggleOverview: {
+      if (!comic_.hasOverview()) break;
       const fui::Rect view = xkcdui::readerViewport(fui::GfxRendererTarget(renderer).deviceContext());
       const xkcd::Lens to = at_.lens == xkcd::Lens::Whole ? xkcd::Lens::Art : xkcd::Lens::Whole;
       // Switching views keeps your place: the two renditions are the same
@@ -802,7 +802,7 @@ bool XkcdActivity::fetchOne(const uint16_t num, char* whyNot, const int whyNotCa
   // Two things a fetched comic does NOT get, both honest limitations rather
   // than oversights. It never gets a **closer view**, because that needs the
   // greyscale original resampled a second time and the device has thrown it
-  // away by now; `closerWidth` stays zero and the OK mark simply does not
+  // away by now; `overviewWidth` stays zero and the OK mark simply does not
   // appear. And it is never stored **sideways**, because PngToBmpConverter
   // cannot rotate; a wide comic fetched over wifi arrives upright and small
   // until the next host pack build.
@@ -1075,8 +1075,8 @@ void XkcdActivity::render(RenderLock&&) {
       model.viewY = p.scrollY;
       model.viewW = p.visibleW;
       model.viewH = p.visibleH;
-      model.hasCloser = comic_.hasCloser();
-      model.inCloser = at_.lens == xkcd::Lens::Whole;
+      model.hasOverview = comic_.hasOverview();
+      model.showingWhole = at_.lens == xkcd::Lens::Whole;
       model.hasAlt = alt_[0] != '\0';
       xkcdui::buildReaderBar(screen, model);
 

@@ -10,48 +10,35 @@
 // that fragments a device with no room to spare.
 //
 // ---------------------------------------------------------------------------
-// Two views, and only one of them has a sideways axis
+// One objective: never pan on two axes if one will do
 // ---------------------------------------------------------------------------
 //
-// **The page view** is the whole comic: the artwork is stored already fitted
-// so its full width is on the panel, so the page view has **no horizontal axis
-// at all** and the only motion is down, half a screen at a time, snapped to a
-// gap in the art. 93% of the archive opens here and never moves.
+// What a comic is stored as -- how big, and which way round -- is decided
+// entirely on the host, by `layout()` in tools_local/xkcd/build_pack.py, from
+// a measurement of that comic's own lettering. At the scale its lettering
+// needs, each of its two dimensions lands in one of three bands against the
+// device's SHORT (480) and LONG (756) sides, so there are nine cases and no
+// others; the matrix is drawn in docs/xkcd-pack-format.md. The scale may
+// shrink by up to a sixth to buy an axis. 92% of the archive ends up needing
+// no panning at all, and 2.8% needs both.
 //
-// That is a repair, not a preference. The previous version kept any comic
-// wider than the panel at full size and read it in columns, which meant #1606
-// -- 481px wide -- was given a whole second column to reveal **one pixel** of
-// new artwork. 226 comics paid an extra column for under 96px. Worse, the
-// column walk went down one column and back to the top of the next, so a
-// multi-panel comic was read 1, 4, 7, 2, 5, 8; on e-ink, where there is no
-// animation to show that the view moved sideways, that is indistinguishable
-// from jumping somewhere at random.
+// So this file does not decide anything about layout. It reads what the
+// builder decided and walks it: **the artwork** at the size its lettering
+// needs, and for the 10% that pan, **an overview** -- the whole comic on one
+// screen, reached by tapping the map end of the bar.
 //
-// The obvious repair is to move the threshold rather than remove it. The
-// archive says no: source widths are continuous from 200 to 760px with no
-// empty stretch anywhere, so wherever a width threshold goes, real comics sit
-// either side of it arbitrarily close and behave completely differently. **A
-// rule that changes how the reader works cannot be decided by measuring the
-// artwork.** So it is not decided automatically at all.
+// Two properties are worth knowing before reading further:
 //
-// **The closer view** is a second stored rendition -- it has to be stored,
-// because the panel is 1-bit and resampling 1-bit art on the device is mush.
-// It exists only for comics the page view cannot render legible: the big
-// near-square ones like #3266, #256 and #1110, which rotation cannot help.
+//   * **A position is a panel index, not a pixel offset.** The panels are
+//     counted up front and the travel divided evenly between them, so every
+//     step moves the same distance and the last lands exactly flush. Because
+//     the offset is a pure function of the index, stepping forward and back is
+//     an exact inverse.
+//   * **Reading order is in the comic's frame, not the stored image's.** A
+//     comic stored turned has its left-to-right along the stored image's
+//     top-to-bottom, so it starts at the stored right-hand column. `startOf`
+//     is the only place that knows this.
 //
-// **Those comics open in it.** Showing a comic too small to read and making
-// the reader ask for the readable one is the wrong way round; the Confirm
-// button pulls *back* to the whole comic, which is the thing you want
-// occasionally rather than the thing you want first. That the builder decides
-// which view a comic opens in is not the cliff this file spent so long
-// avoiding: both views use the same controls, and one button press undoes the
-// choice if it was wrong for a particular comic.
-//
-// It has a horizontal axis, so its guarantee has to be built into its
-// dimensions rather than checked afterwards -- see kColumnStep. However many
-// columns it ends up with, every one of them reveals a full 432px of artwork
-// the last did not.
-
 #include <cstddef>
 #include <cstdint>
 
@@ -177,13 +164,13 @@ struct Comic {
   // The closer rendition. A width of zero means this comic has none, which is
   // the normal case: 96% of the archive is legible fitted to the panel and has
   // nothing more to show.
-  uint16_t closerWidth = 0;
-  uint16_t closerHeight = 0;
-  uint16_t closerStride = 0;
-  uint32_t closerOffset = 0;
+  uint16_t overviewWidth = 0;
+  uint16_t overviewHeight = 0;
+  uint16_t overviewStride = 0;
+  uint32_t overviewOffset = 0;
 
   bool sideways() const { return (flags & kSideways) != 0; }
-  bool hasCloser() const { return closerWidth > 0 && closerHeight > 0 && closerStride > 0; }
+  bool hasOverview() const { return overviewWidth > 0 && overviewHeight > 0 && overviewStride > 0; }
 
   // A width of zero is how the index says "this slot is not filled in";
   // the offsets are meaningless then and must not be followed.
@@ -193,8 +180,8 @@ struct Comic {
            // Anything wider than the panel pans sideways, and must therefore
            // sit on the column grid so no column reveals a sliver.
            (width <= kPanelWidth || (width - kColumnOverlap) % kColumnStep == 0) &&
-           (!hasCloser() || (closerWidth <= kMaxOverviewWidth && closerHeight <= kMaxComicHeight &&
-                             closerStride >= (closerWidth + 7) / 8));
+           (!hasOverview() || (overviewWidth <= kMaxOverviewWidth && overviewHeight <= kMaxComicHeight &&
+                               overviewStride >= (overviewWidth + 7) / 8));
   }
 };
 

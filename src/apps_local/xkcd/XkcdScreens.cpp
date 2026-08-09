@@ -468,9 +468,9 @@ void buildReaderBar(toybox::Screen& screen, const ReaderModel& model) {
   // shelf's player row had: the component centres across the whole rect, so at
   // the widest value the text runs straight through its neighbours.
   const bool showMap = model.imageW > 0 && model.imageH > 0 &&
-                       (model.viewW < model.imageW || model.viewH < model.imageH || model.hasCloser);
+                       (model.viewW < model.imageW || model.viewH < model.imageH || model.hasOverview);
   const fui::Rect map = readerMapRect(screen.device());
-  const int16_t okWidth = model.hasCloser ? kOkWidth : 0;
+  const int16_t okWidth = model.hasOverview ? kOkWidth : 0;
   const int16_t reserved = showMap ? static_cast<int16_t>(map.width + okWidth + toybox::kGutter) : 0;
   const int16_t labelWidth = static_cast<int16_t>(panel.width - toybox::kGutter * 3 - reserved);
   // The full bar height, not a guessed 22px band inside it: the target centres
@@ -486,7 +486,7 @@ void buildReaderBar(toybox::Screen& screen, const ReaderModel& model) {
   // The OK mark. Only when there is a closer view, because a control that does
   // nothing is worse than no control: it is the reason the disabled-button
   // finding in this fork mattered at all.
-  if (model.hasCloser) {
+  if (model.hasOverview) {
     fui::TextStyle ok = owned(screen.theme().smallText, fui::TextAlign::Right);
     ok.color = fui::Color::White;
     // It said "OK" while the toggle was on the Confirm button. The X4 Pro has
@@ -499,7 +499,7 @@ void buildReaderBar(toybox::Screen& screen, const ReaderModel& model) {
     // out zero-width with no box, no fallback and no log line -- the same
     // defect as the missing ellipsis.
     const int16_t okX = static_cast<int16_t>(map.x - kOkWidth);
-    screen.target().text(fui::makeRect(okX, bar.y, kOkWidth, kBarHeight), model.inCloser ? "READ" : "ALL", ok);
+    screen.target().text(fui::makeRect(okX, bar.y, kOkWidth, kBarHeight), model.showingWhole ? "READ" : "ALL", ok);
   }
 
   // **The whole bar is the alt text, except the map, which toggles the
@@ -515,10 +515,10 @@ void buildReaderBar(toybox::Screen& screen, const ReaderModel& model) {
   // forever, which is exactly how this shipped. See docs/buttons.md:
   // **pointing is touch, stepping is the two side keys, nothing else is a
   // button.**
-  const int16_t toggleX = model.hasCloser ? static_cast<int16_t>(map.x - kOkWidth - toybox::kGutter) : panel.width;
-  if (model.hasCloser) {
+  const int16_t toggleX = model.hasOverview ? static_cast<int16_t>(map.x - kOkWidth - toybox::kGutter) : panel.width;
+  if (model.hasOverview) {
     screen.frame().hit(fui::makeRect(toggleX, bar.y, static_cast<int16_t>(panel.width - toggleX), kBarHeight),
-                       ActionToggleCloser);
+                       ActionToggleOverview);
   }
   if (model.hasAlt && toggleX > 0) {
     screen.frame().hit(fui::makeRect(0, bar.y, toggleX, kBarHeight), ActionShowAlt);

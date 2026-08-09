@@ -58,7 +58,7 @@ enum : fui::ActionId {
   ActionGo = 416,
   // The closer view. Reached from the Confirm button rather than a tap
   // target; see buildReaderBar.
-  ActionToggleCloser = 417,
+  ActionToggleOverview = 417,
 };
 
 // --- The front door ------------------------------------------------------
@@ -134,8 +134,8 @@ struct ReaderModel {
   int viewW = 0;
   int viewH = 0;
 
-  bool hasCloser = false;  // there is a closer view to switch to
-  bool inCloser = false;   // and we are in it
+  bool hasOverview = false;   // there is a closer view to switch to
+  bool showingWhole = false;  // and we are in it
   bool hasAlt = false;
 };
 

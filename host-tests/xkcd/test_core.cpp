@@ -80,10 +80,10 @@ static Pack buildPack(const std::vector<std::pair<uint16_t, std::string>>& comic
     // Every other comic carries a closer view, so the archive path is
     // exercised with and without one.
     if (num % 2 == 1) {
-      c.closerWidth = xkcd::kPanelWidth;
-      c.closerHeight = 800;
-      c.closerStride = (xkcd::kPanelWidth + 7) / 8;
-      c.closerOffset = 12345;
+      c.overviewWidth = xkcd::kPanelWidth;
+      c.overviewHeight = 800;
+      c.overviewStride = (xkcd::kPanelWidth + 7) / 8;
+      c.overviewOffset = 12345;
     }
     c.year = 2020;
     c.month = 1;
@@ -217,8 +217,8 @@ static void testRecordRoundTrip() {
   CHECK(out.textOffset == in.textOffset, "textOffset");
   const xkcd::Rendition back = xkcd::renditionFor(out, xkcd::Lens::Art);
   CHECK(back.bytes() == 93u * 6370u, "page bytes %u", back.bytes());
-  CHECK(out.closerWidth == in.closerWidth && out.closerHeight == in.closerHeight, "closer dimensions");
-  CHECK(out.closerStride == in.closerStride && out.closerOffset == in.closerOffset, "closer stride and offset");
+  CHECK(out.overviewWidth == in.overviewWidth && out.overviewHeight == in.overviewHeight, "closer dimensions");
+  CHECK(out.overviewStride == in.overviewStride && out.overviewOffset == in.overviewOffset, "closer stride and offset");
 
   // The record must stay 40 bytes: the whole point of a fixed width is that a
   // lookup is a seek. If this ever changes, kFormatVersion has to change too.
@@ -379,27 +379,27 @@ static void testPlacement() {
 
 // A comic as the builder now writes one: the artwork at the size its lettering
 // needs (which may pan), plus a whole-comic overview that always fits a screen.
-static xkcd::Comic withCloser(int pw, int ph, int cw, int ch) {
+static xkcd::Comic withOverview(int pw, int ph, int cw, int ch) {
   xkcd::Comic c;
   c.num = 3266;
   c.width = static_cast<uint16_t>(pw);
   c.height = static_cast<uint16_t>(ph);
   c.stride = static_cast<uint16_t>((pw + 7) / 8);
   c.imageOffset = 1000;
-  c.closerWidth = static_cast<uint16_t>(cw);
-  c.closerHeight = static_cast<uint16_t>(ch);
-  c.closerStride = static_cast<uint16_t>((cw + 7) / 8);
-  c.closerOffset = 5000;
+  c.overviewWidth = static_cast<uint16_t>(cw);
+  c.overviewHeight = static_cast<uint16_t>(ch);
+  c.overviewStride = static_cast<uint16_t>((cw + 7) / 8);
+  c.overviewOffset = 5000;
   return c;
 }
 
-static void testCloserView() {
+static void testOverview() {
   const int vw = 480, vh = 756;
   // #3266-shaped: 740x731 at source, stored as 912x901 artwork that pans, with
   // a 480x474 overview of the whole thing behind OK.
-  const xkcd::Comic c = withCloser(912, 901, 480, 474);
+  const xkcd::Comic c = withOverview(912, 901, 480, 474);
   CHECK(c.valid(), "artwork that pans, plus an overview, is a valid record");
-  CHECK(c.hasCloser(), "and it says so");
+  CHECK(c.hasOverview(), "and it says so");
 
   const xkcd::Rendition page = xkcd::renditionFor(c, xkcd::Lens::Art);
   const xkcd::Rendition close = xkcd::renditionFor(c, xkcd::Lens::Whole);
@@ -408,15 +408,15 @@ static void testCloserView() {
 
   // An overview wider than the panel is not an overview.
   xkcd::Comic bad = c;
-  bad.closerWidth = 912;
-  bad.closerStride = (912 + 7) / 8;
+  bad.overviewWidth = 912;
+  bad.overviewStride = (912 + 7) / 8;
   CHECK(!bad.valid(), "an overview wider than the panel must be rejected");
 
   // A comic with no closer view falls back to the page rather than reading a
   // zero-length image at offset zero.
   xkcd::Comic plain = c;
-  plain.closerWidth = 0;
-  CHECK(!plain.hasCloser(), "closerWidth 0 is the sentinel for 'no closer view'");
+  plain.overviewWidth = 0;
+  CHECK(!plain.hasOverview(), "overviewWidth 0 is the sentinel for 'no closer view'");
   CHECK(xkcd::renditionFor(plain, xkcd::Lens::Whole).offset == 1000,
         "asking for an overview that does not exist gives the artwork");
 
@@ -425,7 +425,7 @@ static void testCloserView() {
 
   // **The anti-sliver guarantee, stated as a test.** Column one is pulled back
   // flush with the right edge, so the new artwork it reveals is width - 480.
-  // The builder's kMinCloserWidth is what keeps that at half a screen or more,
+  // The builder's kMshowingWholeWidth is what keeps that at half a screen or more,
   // and this is the property that must never regress: the defect this whole
   // rework exists to fix was a second column revealing one pixel.
   const xkcd::Placement c0 = xkcd::place(page, vw, vh, at(0, 0));
@@ -461,8 +461,8 @@ static void testCloserView() {
   // And a width that is not a whole number of steps is not a legal record, so
   // the reader can never be handed one whose last column reveals a sliver.
   xkcd::Comic ragged = c;
-  ragged.closerWidth = 913;
-  ragged.closerStride = (913 + 7) / 8;
+  ragged.overviewWidth = 913;
+  ragged.overviewStride = (913 + 7) / 8;
   CHECK(!ragged.valid(), "a closer width off the column grid must be rejected");
 
   // Out-of-range columns clamp rather than reading off the end of the image.
@@ -532,7 +532,7 @@ static void testReadingOrder() {
 // Switching views must not lose your place.
 static void testMapAcross() {
   const int vw = 480, vh = 756;
-  const xkcd::Comic c = withCloser(480, 1000, 912, 1900);
+  const xkcd::Comic c = withOverview(480, 1000, 912, 1900);
 
   const xkcd::Position mid = at(0, 244, xkcd::Lens::Art);  // the bottom of the page view
   const xkcd::Position into = xkcd::mapAcross(c, vw, vh, mid, xkcd::Lens::Whole);
@@ -548,7 +548,7 @@ static void testMapAcross() {
   // Asking for a closer view that does not exist must leave the reader where
   // they are rather than in a lens with no image behind it.
   xkcd::Comic plain = c;
-  plain.closerWidth = 0;
+  plain.overviewWidth = 0;
   const xkcd::Position stay = xkcd::mapAcross(plain, vw, vh, mid, xkcd::Lens::Whole);
   CHECK(stay.lens == xkcd::Lens::Art && stay.scrollY == 244, "no closer view means nothing moves");
 }
@@ -867,7 +867,7 @@ int main() {
   testArchive();
   testRejectsBadPacks();
   testPlacement();
-  testCloserView();
+  testOverview();
   testReadingOrder();
   testMapAcross();
   testGapDetection();

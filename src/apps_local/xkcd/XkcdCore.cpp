@@ -81,10 +81,10 @@ Comic decodeRecord(const uint8_t* rec) {
   c.textOffset = rd32(rec + 16);
   c.flags = rec[20];
   // byte 21 is reserved
-  c.closerWidth = rd16(rec + 22);
-  c.closerHeight = rd16(rec + 24);
-  c.closerStride = rd16(rec + 26);
-  c.closerOffset = rd32(rec + 28);
+  c.overviewWidth = rd16(rec + 22);
+  c.overviewHeight = rd16(rec + 24);
+  c.overviewStride = rd16(rec + 26);
+  c.overviewOffset = rd32(rec + 28);
   // bytes 32..39 are padding, reserved so a new field does not move the others
   return c;
 }
@@ -102,10 +102,10 @@ void encodeRecord(const Comic& c, uint8_t* rec) {
   wr32(rec + 12, c.imageOffset);
   wr32(rec + 16, c.textOffset);
   rec[20] = c.flags;
-  wr16(rec + 22, c.closerWidth);
-  wr16(rec + 24, c.closerHeight);
-  wr16(rec + 26, c.closerStride);
-  wr32(rec + 28, c.closerOffset);
+  wr16(rec + 22, c.overviewWidth);
+  wr16(rec + 24, c.overviewHeight);
+  wr16(rec + 26, c.overviewStride);
+  wr32(rec + 28, c.overviewOffset);
 }
 
 bool Archive::open(ByteSource& index) {
@@ -177,11 +177,11 @@ int readAlt(ByteSource& text, const Comic& c, char* out, int cap) {
 
 Rendition renditionFor(const Comic& c, Lens lens) {
   Rendition r;
-  const bool whole = lens == Lens::Whole && c.hasCloser();
-  r.width = whole ? c.closerWidth : c.width;
-  r.height = whole ? c.closerHeight : c.height;
-  r.stride = whole ? c.closerStride : c.stride;
-  r.offset = whole ? c.closerOffset : c.imageOffset;
+  const bool whole = lens == Lens::Whole && c.hasOverview();
+  r.width = whole ? c.overviewWidth : c.width;
+  r.height = whole ? c.overviewHeight : c.height;
+  r.stride = whole ? c.overviewStride : c.stride;
+  r.offset = whole ? c.overviewOffset : c.imageOffset;
   r.sideways = c.sideways();
   return r;
 }
@@ -451,7 +451,7 @@ int scrollYFor(const Rendition& r, int viewportH, int row, const GapWindow& wind
 }
 
 Position mapAcross(const Comic& c, int viewportW, int viewportH, const Position& at, Lens to) {
-  if (to == Lens::Whole && !c.hasCloser()) return at;
+  if (to == Lens::Whole && !c.hasOverview()) return at;
 
   const Rendition from = renditionFor(c, at.lens);
   const Rendition dest = renditionFor(c, to);

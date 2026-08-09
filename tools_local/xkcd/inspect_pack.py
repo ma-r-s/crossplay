@@ -57,10 +57,10 @@ def read_index(pack: pathlib.Path):
                 imageOffset=f[7],
                 textOffset=f[8],
                 flags=f[9],
-                closerWidth=f[10],
-                closerHeight=f[11],
-                closerStride=f[12],
-                closerOffset=f[13],
+                overviewWidth=f[10],
+                overviewHeight=f[11],
+                overviewStride=f[12],
+                overviewOffset=f[13],
             )
         )
     return out, version, maxnum
@@ -130,9 +130,9 @@ def main() -> int:
         help="also draw every candidate landing in green",
     )
     ap.add_argument(
-        "--closer",
+        "--overview",
         action="store_true",
-        help="render the closer rendition instead of the page one",
+        help="render the whole-comic overview instead of the artwork",
     )
     args = ap.parse_args()
 
@@ -148,11 +148,11 @@ def main() -> int:
     # Which of the two renditions to look at. The page one is what every comic
     # opens as; --closer is the opt-in second image, which only 4% of the
     # archive has.
-    if args.closer:
-        if not rec["closerWidth"]:
+    if args.overview:
+        if not rec["overviewWidth"]:
             sys.exit(f"#{args.num} has no closer view")
-        w, h, stride = rec["closerWidth"], rec["closerHeight"], rec["closerStride"]
-        offset = rec["closerOffset"]
+        w, h, stride = rec["overviewWidth"], rec["overviewHeight"], rec["overviewStride"]
+        offset = rec["overviewOffset"]
     else:
         w, h, stride = rec["width"], rec["height"], rec["stride"]
         offset = rec["imageOffset"]

@@ -76,10 +76,10 @@ PORTRAIT_VIEWPORT_H = 756
 # that gave #1606 -- 481px wide -- a second column revealing one pixel.
 COLUMN_OVERLAP = 48
 COLUMN_STEP = PANEL_WIDTH - COLUMN_OVERLAP  # 432
-MAX_CLOSER_COLUMNS = 8
+MAX_COLUMNS = 8
 
 # Widest thing the format may hold.
-MAX_COMIC_WIDTH = COLUMN_STEP * MAX_CLOSER_COLUMNS + COLUMN_OVERLAP  # 3504
+MAX_COMIC_WIDTH = COLUMN_STEP * MAX_COLUMNS + COLUMN_OVERLAP  # 3504
 
 # Comic 404 does not exist, and that is the joke. Requesting it returns an
 # actual 404, so it is skipped by name rather than by error handling.
@@ -440,7 +440,7 @@ def snap_width(sw: int, sh: int, scale: float, pans: str) -> float:
     if round(sw * scale) <= PANEL_WIDTH:
         return scale
     cols = max(1, round((sw * scale - COLUMN_OVERLAP) / COLUMN_STEP))
-    cols = min(cols, MAX_CLOSER_COLUMNS)
+    cols = min(cols, MAX_COLUMNS)
     while cols > 1:
         trial = (COLUMN_STEP * cols + COLUMN_OVERLAP) / sw
         if pans != "across" or round(sh * trial) <= PORTRAIT_VIEWPORT_H:
@@ -580,7 +580,7 @@ def main() -> int:
         "page is readable as it is, and gets no closer view.",
     )
     ap.add_argument(
-        "--no-closer",
+        "--no-overview",
         action="store_true",
         help="build page renditions only, for a smaller pack with no zoom",
     )
@@ -677,13 +677,13 @@ def main() -> int:
             # reached with OK. Only 15% of the archive needs one, and each is at
             # most a screenful, so it costs a fourteenth of what the old
             # zoomed-in second rendition did.
-            closer_bits = None
-            closer_stride = closer_h = closer_w = 0
-            if not args.no_closer and (aw > PANEL_WIDTH or ah > PORTRAIT_VIEWPORT_H):
+            overview_bits = None
+            overview_stride = overview_h = overview_w = 0
+            if not args.no_overview and (aw > PANEL_WIDTH or ah > PORTRAIT_VIEWPORT_H):
                 fit = min(PANEL_WIDTH / sw, PORTRAIT_VIEWPORT_H / sh)
                 whole = resample(gray, sw, sh, fit)
-                closer_w, closer_h = whole.size
-                closer_stride, closer_bits = conv.convert(whole)
+                overview_w, overview_h = whole.size
+                overview_stride, overview_bits = conv.convert(whole)
 
             title = fold(meta.get("safe_title") or meta.get("title") or f"#{num}")
             alt = fold(meta.get("alt") or "")
@@ -699,23 +699,23 @@ def main() -> int:
                 imageOffset=images.tell(),
                 textOffset=text.tell(),
                 flags=1 if posture == "turned" else 0,
-                closerWidth=0,
-                closerHeight=0,
-                closerStride=0,
-                closerOffset=0,
+                overviewWidth=0,
+                overviewHeight=0,
+                overviewStride=0,
+                overviewOffset=0,
             )
             images.write(bits)
-            if closer_bits is not None:
+            if overview_bits is not None:
                 # Straight after its own page rendition, so reading one and
                 # then the other is a short seek rather than a jump across a
                 # 130MB file.
                 rec.update(
-                    closerWidth=closer_w,
-                    closerHeight=closer_h,
-                    closerStride=closer_stride,
-                    closerOffset=images.tell(),
+                    overviewWidth=overview_w,
+                    overviewHeight=overview_h,
+                    overviewStride=overview_stride,
+                    overviewOffset=images.tell(),
                 )
-                images.write(closer_bits)
+                images.write(overview_bits)
             records.append(rec)
             text.write(title.encode("ascii", "ignore") + b"\0")
             text.write(alt.encode("ascii", "ignore") + b"\0")
@@ -756,10 +756,10 @@ def main() -> int:
                 r["imageOffset"],
                 r["textOffset"],
                 r["flags"],
-                r["closerWidth"],
-                r["closerHeight"],
-                r["closerStride"],
-                r["closerOffset"],
+                r["overviewWidth"],
+                r["overviewHeight"],
+                r["overviewStride"],
+                r["overviewOffset"],
             )
             assert len(rec) == 32, len(rec)
             f.write(rec + b"\0" * (INDEX_RECORD_BYTES - len(rec)))
@@ -767,7 +767,7 @@ def main() -> int:
     total = (args.out / "images.dat").stat().st_size
     n = max(1, len(records))
     land = sum(1 for r in records if r["flags"] & 1)
-    close = sum(1 for r in records if r["closerWidth"])
+    close = sum(1 for r in records if r["overviewWidth"])
     pans = sum(1 for r in records if r["height"] > PORTRAIT_VIEWPORT_H)
     print(f"\n{len(records)} comics, {total / 1e6:.0f} MB of artwork", file=sys.stderr)
     print(
@@ -808,8 +808,8 @@ def main() -> int:
     huge = [
         r
         for r in records
-        if r["closerWidth"]
-        and (r["closerWidth"] > PANEL_WIDTH or r["closerHeight"] > PORTRAIT_VIEWPORT_H)
+        if r["overviewWidth"]
+        and (r["overviewWidth"] > PANEL_WIDTH or r["overviewHeight"] > PORTRAIT_VIEWPORT_H)
     ]
     if ragged:
         print(
