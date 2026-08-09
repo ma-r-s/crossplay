@@ -900,6 +900,14 @@ html.immersive body {
 .device-stage.immersive .device-hint {
   display: none;
 }
+/* The dither patch under the panel exists so the device is not hovering in an
+ * empty column. Full screen has no column and the device is the whole page, so
+ * it has nothing to sit on and nothing to soften -- and the stage being fixed
+ * inset:0 stretched that masked ellipse across the entire viewport, which read
+ * as a picture behind the device rather than as texture under it. */
+.device-stage.immersive::before {
+  display: none;
+}
 /* Bigger targets than the desktop row: these are thumbs, and Back is the one
  * control that has to work every time, because the swipe that normally does it
  * is the browser's own back gesture in a tab. */
@@ -1055,6 +1063,17 @@ html.immersive body {
 .device-keys button:active {
   background: var(--ink);
   color: var(--paper);
+}
+/* Back is the odd one out and has to look it. The other two controls are the
+ * device's two real side keys; this one is a gesture -- a swipe in from the
+ * left edge -- that the page performs for you, because a swipe is awkward with
+ * a mouse and, in a browser tab on a phone, is the browser's own back gesture
+ * before it is ever the device's. A solid border beside two solid borders said
+ * "third key", which is the same lie the four invented buttons told before
+ * they were removed. Dashed, and set apart, says "not a key". */
+.device-keys [data-key="swipeback"] {
+  border-style: dashed;
+  margin-right: 0.35rem;
 }
 
 /* --- the face generator --------------------------------------------------- */
