@@ -104,13 +104,14 @@
                  alt="The Games folder on the device: a black GAMES header band above outlined rows reading CHESS, BATTLESHIP, CONNECTIONS, SOLITAIRE, D&amp;DIAGRAMS, INSIDER, JAIPUR and MURDLE, each with a small icon. A footer bar shows the device's name, Mop Specs Grin, beside a drawn face. No row is highlighted.">
           </button>
           <p class="device-hint">Click the screen to try it</p>
+          <!-- The device has two buttons: the side page keys. Back is a swipe
+               from the left edge, not a key, so that control performs the swipe
+               rather than pressing a pin that does not exist. There is no OK,
+               left or right. -->
           <div class="device-keys" hidden>
-            <button type="button" data-key="back">Back</button>
-            <button type="button" data-key="ok">OK</button>
-            <button type="button" data-key="up" aria-label="Up">&uarr;</button>
-            <button type="button" data-key="down" aria-label="Down">&darr;</button>
-            <button type="button" data-key="left" aria-label="Left">&larr;</button>
-            <button type="button" data-key="right" aria-label="Right">&rarr;</button>
+            <button type="button" data-key="swipeback">Back</button>
+            <button type="button" data-key="up" aria-label="Previous page">&uarr; Page</button>
+            <button type="button" data-key="down" aria-label="Next page">&darr; Page</button>
           </div>
         </div>
       </div>
@@ -500,6 +501,14 @@
     })
       .then(function (instance) {
         keys.querySelectorAll('button').forEach(function (b) {
+          // Back is not a key on this device -- it is a left-edge swipe, and
+          // that is the only reason every app is exitable with the back pin
+          // unassigned. So this control performs the swipe. The other two are
+          // the real side page keys.
+          if (b.dataset.key === 'swipeback') {
+            b.addEventListener('click', function () { instance.swipeBack(); });
+            return;
+          }
           instance.bindButton(b, instance.scancodes[b.dataset.key]);
         });
         // Kept on the element, not in a list: two boots resolve in whatever
