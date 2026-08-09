@@ -16,6 +16,12 @@ cd "$REPO"
 
 # Per tree. Several trees run this at once now, and one shared log directory
 # meant the failure you were reading could be another tree's.
+# The branch the site deploys from. Named rather than spelled inline because
+# the browser-artifact gate at the foot of this file is the only check that is
+# branch-conditional, and a constant buried in one `if` is a constant nobody
+# can test against.
+DEPLOY_BRANCH="${DEPLOY_BRANCH:-xteink}"
+
 TAG="$(printf '%s' "$REPO" | shasum | cut -c1-8)"
 LOGS="${TMPDIR:-/tmp}/xteink-check-$TAG"
 mkdir -p "$LOGS"
@@ -58,6 +64,12 @@ if [ "${1:-}" = "--committed" ]; then
   # A fresh worktree does not populate submodules, and the host tests compile
   # FreeInkUI out of freeink-sdk/.
   git -C "$TRIAL" submodule update --init --recursive --quiet
+  # The trial worktree is detached, so `git branch --show-current` is empty
+  # inside it, and the browser-artifact gate at the foot of this file -- the
+  # only branch-conditional check here -- switched itself off in the one mode
+  # you run precisely because you are about to rely on the result. Carry the
+  # real branch across the boundary.
+  export CHECK_OUTER_BRANCH="$(git branch --show-current 2>/dev/null)"
   (cd "$TRIAL" && ./scripts_local/check.sh "${2:-}")
   exit $?
 fi
@@ -146,11 +158,15 @@ fi
 # panic. Both times site/emulator/ still described the code from before, and the
 # live page would have shipped it.
 #
-# Only enforced on xteink, because that is the branch the site deploys from. In
+# Only enforced on $DEPLOY_BRANCH, because that is where the site deploys from. In
 # an app worktree the artifact is stale by construction -- nobody rebuilds a
 # 6-minute wasm per feature commit -- and a check that is always red is a check
 # people learn to scroll past.
-if [ "$(git branch --show-current 2>/dev/null)" = "xteink" ]; then
+#
+# CHECK_OUTER_BRANCH is set by the --committed path above and is empty for a
+# normal run; it exists because the branch is unknowable from inside a detached
+# worktree. Do not set it by hand.
+if [ "${CHECK_OUTER_BRANCH:-$(git branch --show-current 2>/dev/null)}" = "$DEPLOY_BRANCH" ]; then
   ART=$(git log -1 --format=%ct -- site/emulator 2>/dev/null)
   SRC=$(git log -1 --format=%ct -- src lib assets_local tools_local/wasm 2>/dev/null)
   if [ -n "$ART" ] && [ -n "$SRC" ] && [ "$ART" -lt "$SRC" ]; then
