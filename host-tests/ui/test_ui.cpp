@@ -16,6 +16,7 @@
 #include "../../src/apps_local/ShelfScreen.h"
 #include "../../src/apps_local/battleship/BattleshipScreens.h"
 #include "../../src/apps_local/checkers/CheckersScreens.h"
+#include "../../src/apps_local/connectfour/ConnectFourScreens.h"
 #include "../../src/apps_local/chess/ChessScreens.h"
 #include "../../src/apps_local/connections/ConnectionsScreens.h"
 #include "../../src/apps_local/hackernews/HackerNewsScreens.h"
@@ -2411,6 +2412,131 @@ void testMurdleMenuHeadlineIsTheDoorAcrossItsWidth() {
   CHECK(!out.interactions.overflowed());
 }
 
+
+// --- connect four ----------------------------------------------------------
+
+template <typename Model, void (*Build)(toybox::Screen&, const Model&)>
+void buildC4(Rendered& out, const Model& model) {
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, device(), noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  Build(screen, model);
+}
+
+// The load-bearing one. The whole column is the target, so every pixel of it
+// must resolve to that column and nothing outside it may.
+void testTheColumnYouTapIsTheColumnTheRulesGet() {
+  for (int column = 0; column < connectfour::kColumns; ++column) {
+    const fui::Rect slot = c4ui::slotRect(device(), column);
+    const fui::Rect bottom = c4ui::cellRect(device(), column, 0);
+    const int probes[6][2] = {
+        {slot.x, slot.y},
+        {slot.x + slot.width - 1, slot.y},
+        {slot.x, slot.y + slot.height - 1},
+        {bottom.x, bottom.y},
+        {bottom.x + bottom.width - 1, bottom.y + bottom.height - 1},
+        {slot.x + slot.width / 2, (slot.y + bottom.y) / 2},
+    };
+    for (const auto& probe : probes) {
+      CHECK(c4ui::columnAt(device(), probe[0], probe[1]) == column);
+    }
+  }
+  // Each column is a distinct strip: neighbours never share a pixel.
+  for (int column = 0; column + 1 < connectfour::kColumns; ++column) {
+    const fui::Rect a = c4ui::cellRect(device(), column, 0);
+    const fui::Rect b = c4ui::cellRect(device(), column + 1, 0);
+    CHECK(a.x + a.width == b.x);
+  }
+}
+
+// Row 0 is the bottom in the rules. If that flip ever inverts, discs pile
+// downward from the ceiling and nothing else in the app would notice.
+void testRowZeroIsDrawnAtTheBottom() {
+  const fui::Rect floorCell = c4ui::cellRect(device(), 3, 0);
+  const fui::Rect topCell = c4ui::cellRect(device(), 3, connectfour::kRows - 1);
+  CHECK(floorCell.y > topCell.y);
+  CHECK(floorCell.y - topCell.y == (connectfour::kRows - 1) * floorCell.height);
+  // And the slot sits above everything, because that is where a disc goes in.
+  CHECK(c4ui::slotRect(device(), 3).y < topCell.y);
+}
+
+void testTheConnectFourGridKeepsOffTheChrome() {
+  const int capsuleY = 800 - toybox::kMargin - toybox::kPillHeight / 2;
+  CHECK(c4ui::columnAt(device(), 240, capsuleY) == connectfour::kNoColumn);
+  CHECK(c4ui::columnAt(device(), 240, toybox::kHeaderHeight / 2) == connectfour::kNoColumn);
+  // And off the sides, where there is no column at all.
+  const fui::Rect first = c4ui::cellRect(device(), 0, 0);
+  CHECK(c4ui::columnAt(device(), first.x - 1, first.y) == connectfour::kNoColumn);
+  const fui::Rect last = c4ui::cellRect(device(), connectfour::kColumns - 1, 0);
+  CHECK(c4ui::columnAt(device(), last.x + last.width, last.y) == connectfour::kNoColumn);
+  // The board clears the capsule.
+  CHECK(last.y + last.height + toybox::kBoardFrame + toybox::kPillHeight + toybox::kGutter * 2 <= 800);
+  CHECK(c4ui::slotRect(device(), 0).y >= toybox::kHeaderHeight);
+}
+
+void testTheBoardSaysWhoseDrop() {
+  c4ui::BoardModel model;
+  connectfour::start(model.game);
+  model.open = connectfour::openColumns(model.game);
+  model.yourTurn = true;
+
+  Rendered mine;
+  buildC4<c4ui::BoardModel, c4ui::buildBoard>(mine, model);
+  CHECK(mine.target.drew("YOUR DROP"));
+  CHECK(!mine.interactions.overflowed());
+
+  model.yourTurn = false;
+  Rendered theirs;
+  buildC4<c4ui::BoardModel, c4ui::buildBoard>(theirs, model);
+  CHECK(theirs.target.drew("THEIR DROP"));
+  CHECK(!theirs.target.drew("YOUR DROP"));
+}
+
+void testTheConnectFourResultNamesTheOutcomeFromYourSeat() {
+  c4ui::ResultModel won;
+  connectfour::start(won.game);
+  won.outcome = connectfour::Outcome::LightWins;
+  won.seat = connectfour::kLight;
+  Rendered a;
+  buildC4<c4ui::ResultModel, c4ui::buildResult>(a, won);
+  CHECK(a.target.drew("YOU WIN"));
+
+  c4ui::ResultModel lost = won;
+  lost.seat = connectfour::kDark;
+  Rendered b;
+  buildC4<c4ui::ResultModel, c4ui::buildResult>(b, lost);
+  CHECK(b.target.drew("THEY WIN"));
+
+  c4ui::ResultModel drawn = won;
+  drawn.outcome = connectfour::Outcome::Draw;
+  Rendered c;
+  buildC4<c4ui::ResultModel, c4ui::buildResult>(c, drawn);
+  CHECK(c.target.drew("A DRAW"));
+}
+
+// A board full of discs is a lot of registered controls if anyone ever
+// registers them. Forty-two cells plus seven slots is well past the
+// twenty-four slot cap, so this asserts the arithmetic path is really being
+// taken rather than the buffer silently dropping half the board.
+void testAFullBoardDoesNotOverflowTheInteractionBuffer() {
+  c4ui::BoardModel model;
+  connectfour::start(model.game);
+  uint32_t rng = 0x2468ACE0u;
+  while (!connectfour::over(model.game)) {
+    int legal[connectfour::kColumns];
+    int count = 0;
+    for (int c = 0; c < connectfour::kColumns; ++c) {
+      if (connectfour::canDrop(model.game, c)) legal[count++] = c;
+    }
+    rng = rng * 1664525u + 1013904223u;
+    connectfour::drop(model.game, legal[rng % static_cast<uint32_t>(count)]);
+  }
+  model.open = connectfour::openColumns(model.game);
+  Rendered out;
+  buildC4<c4ui::BoardModel, c4ui::buildBoard>(out, model);
+  CHECK(!out.interactions.overflowed());
+}
+
 // --- checkers --------------------------------------------------------------
 
 template <typename Model, void (*Build)(toybox::Screen&, const Model&)>
@@ -2548,6 +2674,12 @@ int main() {
   testHnList();
   testHnFitLines();
   testHnReaderShowsWhereYouAre();
+  testTheColumnYouTapIsTheColumnTheRulesGet();
+  testRowZeroIsDrawnAtTheBottom();
+  testTheConnectFourGridKeepsOffTheChrome();
+  testTheBoardSaysWhoseDrop();
+  testTheConnectFourResultNamesTheOutcomeFromYourSeat();
+  testAFullBoardDoesNotOverflowTheInteractionBuffer();
   testTheSquareYouTapIsTheSquareTheRulesGet();
   testTheBoardKeepsOffTheChrome();
   testTheBoardSaysWhoseMoveAndWho();

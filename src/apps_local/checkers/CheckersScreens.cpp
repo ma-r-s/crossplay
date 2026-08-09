@@ -21,59 +21,6 @@ int16_t boardTop() { return static_cast<int16_t>(toybox::kHeaderHeight + toybox:
 
 int16_t boardLeft(const fui::DeviceContext& device) { return static_cast<int16_t>((device.width - kBoardSide) / 2); }
 
-// A filled disc of radius `r`, by rows. Used in pairs to make rings: a disc in
-// ink with a smaller one in paper on top is a closed ring, which the first
-// version did not manage.
-//
-// Circle test per row rather than a table of half-widths. The table gave a
-// flat-topped lozenge, and worse, jumped by five between entries.
-void disc(toybox::Screen& screen, const int16_t cx, const int16_t cy, const int16_t r, const fui::Color colour) {
-  const fui::Paint paint = fui::Paint::solid(colour);
-  for (int16_t dy = static_cast<int16_t>(-r); dy <= r; ++dy) {
-    int16_t half = 0;
-    while ((half + 1) * (half + 1) + dy * dy <= r * r) ++half;
-    if (half <= 0) continue;
-    screen.target().fill(
-        fui::makeRect(static_cast<int16_t>(cx - half), static_cast<int16_t>(cy + dy), static_cast<int16_t>(half * 2), 1),
-        paint);
-  }
-}
-
-// Four corner marks around a square: flag it without covering what stands on
-// it. Toybox's cornerMarks takes a GfxRenderer, which a freestanding screen
-// builder does not have, so this is the same shape drawn from fills.
-void bracket(toybox::Screen& screen, const fui::Rect& box, const int16_t arm, const int16_t weight) {
-  const fui::Paint ink = fui::Paint::solid(fui::Color::Black);
-  const int16_t right = static_cast<int16_t>(box.x + box.width - arm);
-  const int16_t bottom = static_cast<int16_t>(box.y + box.height - weight);
-  const int16_t far = static_cast<int16_t>(box.x + box.width - weight);
-  const int16_t low = static_cast<int16_t>(box.y + box.height - arm);
-  screen.target().fill(fui::makeRect(box.x, box.y, arm, weight), ink);
-  screen.target().fill(fui::makeRect(right, box.y, arm, weight), ink);
-  screen.target().fill(fui::makeRect(box.x, bottom, arm, weight), ink);
-  screen.target().fill(fui::makeRect(right, bottom, arm, weight), ink);
-  screen.target().fill(fui::makeRect(box.x, box.y, weight, arm), ink);
-  screen.target().fill(fui::makeRect(far, box.y, weight, arm), ink);
-  screen.target().fill(fui::makeRect(box.x, low, weight, arm), ink);
-  screen.target().fill(fui::makeRect(far, low, weight, arm), ink);
-}
-
-// A piece. Pieces are round because everything else on this board is square,
-// and at 56px that difference does more work than any detail inside them would.
-//
-// Light pieces are outlined, dark are solid: the same convention chess uses
-// here, where filled means WHOSE and never whose turn.
-//
-// The rim used to be vertical bars at each band's ends. Nothing closed the top
-// or the bottom, and consecutive bars did not overlap where the half-width
-// table jumped, so a light piece rendered as two parenthesis arcs and four
-// floating dots with the dither showing straight through. Nested discs close by
-// construction.
-//
-// The king mark is a RING, not the square the first version drew. Twenty lines
-// up this file argues that pieces are round because everything else is square;
-// a square crown contradicted that, and on a light piece it was the only closed
-// shape present, so it read as the piece.
 void drawDisc(toybox::Screen& screen, const fui::Rect& where, const bool filled, const bool king) {
   const int16_t cx = static_cast<int16_t>(where.x + where.width / 2);
   const int16_t cy = static_cast<int16_t>(where.y + where.height / 2);
@@ -81,12 +28,12 @@ void drawDisc(toybox::Screen& screen, const fui::Rect& where, const bool filled,
   const fui::Color body = filled ? fui::Color::Black : fui::Color::White;
   const fui::Color mark = filled ? fui::Color::White : fui::Color::Black;
 
-  disc(screen, cx, cy, kRadius, fui::Color::Black);
-  disc(screen, cx, cy, static_cast<int16_t>(kRadius - 3), body);
+  toybox::disc(screen, cx, cy, kRadius, fui::Color::Black);
+  toybox::disc(screen, cx, cy, static_cast<int16_t>(kRadius - 3), body);
   if (!king) return;
   // The stacked second piece, in the opposite ink so it reads on both colours.
-  disc(screen, cx, cy, 12, mark);
-  disc(screen, cx, cy, 9, body);
+  toybox::disc(screen, cx, cy, 12, mark);
+  toybox::disc(screen, cx, cy, 9, body);
 }
 
 }  // namespace
@@ -136,7 +83,11 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   const fui::Rect band = screen.body();
   screen.list(list);
 
-  toybox::iconAtRowRight(screen, band, static_cast<int>(MenuRow::PlayNearby), linkui::nearbyMark(),
+  // topIndex is zero: this menu is three rows and never scrolls, so the row is
+  // always where its index says. Passing it explicitly is the point -- the
+  // parameter is required precisely so a list that DOES scroll cannot silently
+  // paint its icons against the wrong rows.
+  toybox::iconAtRowRight(screen, band, static_cast<int>(MenuRow::PlayNearby), 0, linkui::nearbyMark(),
                          model.selected == static_cast<int>(MenuRow::PlayNearby));
 }
 
@@ -268,8 +219,8 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
       const int16_t cy = static_cast<int16_t>(stripTop + row * rowPitch + kSmall);
       for (int i = 0; i < held; ++i) {
         const int16_t cx = static_cast<int16_t>(stripLeft + i * kPitch);
-        disc(screen, cx, cy, kSmall, fui::Color::Black);
-        disc(screen, cx, cy, static_cast<int16_t>(kSmall - 2), filled ? fui::Color::Black : fui::Color::White);
+        toybox::disc(screen, cx, cy, kSmall, fui::Color::Black);
+        toybox::disc(screen, cx, cy, static_cast<int16_t>(kSmall - 2), filled ? fui::Color::Black : fui::Color::White);
       }
     }
   }
@@ -281,7 +232,7 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   if (model.picked == ck::kNothingPicked && model.yourTurn) {
     for (int square = 0; square < ck::kCells; ++square) {
       if ((model.movable & (static_cast<uint64_t>(1) << square)) == 0) continue;
-      bracket(screen, squareRect(device, square % ck::kSize, square / ck::kSize, model.seat), 14, 3);
+      toybox::bracket(screen, squareRect(device, square % ck::kSize, square / ck::kSize, model.seat), 14, 3);
     }
   }
 
@@ -309,11 +260,11 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
     // of the same DIAMETER covers 78% of the square pip it replaced, so it read
     // noticeably smaller than its sibling until the radius grew to match by
     // area.
-    disc(screen, static_cast<int16_t>(box.x + box.width / 2), static_cast<int16_t>(box.y + box.height / 2), 9,
+    toybox::disc(screen, static_cast<int16_t>(box.x + box.width / 2), static_cast<int16_t>(box.y + box.height / 2), 9,
          fui::Color::Black);
     for (int taken = 0; taken < ck::kCells; ++taken) {
       if ((model.takenMasks[i] & (static_cast<uint64_t>(1) << taken)) == 0) continue;
-      bracket(screen, squareRect(device, taken % ck::kSize, taken / ck::kSize, model.seat), 18, 4);
+      toybox::bracket(screen, squareRect(device, taken % ck::kSize, taken / ck::kSize, model.seat), 18, 4);
     }
   }
 }

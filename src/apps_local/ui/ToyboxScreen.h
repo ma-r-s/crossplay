@@ -147,4 +147,57 @@ inline void iconAtRowRight(Screen& screen, const freeink::ui::Rect& band, const 
                          fui::Paint::solid(selected ? fui::Color::White : fui::Color::Black));
 }
 
+// A filled disc, by rows.
+//
+// Lives here rather than in one game because two of them are made of discs, and
+// the first hand-rolled version was wrong in a way that is easy to repeat: it
+// stacked fixed-height bars from a table of half-widths and drew the outline as
+// vertical bars at each bar's ends. Nothing closed the top or the bottom, and
+// consecutive bars did not overlap where the table jumped, so an outlined piece
+// rendered as two parenthesis arcs and four floating dots.
+//
+// Use it in pairs to make a ring: a disc in ink with a smaller disc in paper on
+// top closes by construction. The circle test is per row, which also avoids the
+// flat-topped lozenge silhouette the table produced.
+inline void disc(Screen& screen, const int16_t cx, const int16_t cy, const int16_t r,
+                 const freeink::ui::Color colour) {
+  namespace fui = freeink::ui;
+  const fui::Paint paint = fui::Paint::solid(colour);
+  for (int16_t dy = static_cast<int16_t>(-r); dy <= r; ++dy) {
+    int16_t half = 0;
+    while ((half + 1) * (half + 1) + dy * dy <= r * r) ++half;
+    if (half <= 0) continue;
+    screen.target().fill(
+        fui::makeRect(static_cast<int16_t>(cx - half), static_cast<int16_t>(cy + dy), static_cast<int16_t>(half * 2), 1),
+        paint);
+  }
+}
+
+// A ring: `r` outside, `weight` thick, over whatever `fill` the middle should be.
+inline void ring(Screen& screen, const int16_t cx, const int16_t cy, const int16_t r, const int16_t weight,
+                 const freeink::ui::Color edge, const freeink::ui::Color fill) {
+  disc(screen, cx, cy, r, edge);
+  disc(screen, cx, cy, static_cast<int16_t>(r - weight), fill);
+}
+
+// Four corner marks around a rect: flag a square without covering what stands on
+// it. GfxRenderer has cornerMarks for the same job, but a freestanding screen
+// builder has no renderer, so this is that shape drawn from fills.
+inline void bracket(Screen& screen, const freeink::ui::Rect& box, const int16_t arm, const int16_t weight) {
+  namespace fui = freeink::ui;
+  const fui::Paint ink = fui::Paint::solid(fui::Color::Black);
+  const int16_t right = static_cast<int16_t>(box.x + box.width - arm);
+  const int16_t bottom = static_cast<int16_t>(box.y + box.height - weight);
+  const int16_t far = static_cast<int16_t>(box.x + box.width - weight);
+  const int16_t low = static_cast<int16_t>(box.y + box.height - arm);
+  screen.target().fill(fui::makeRect(box.x, box.y, arm, weight), ink);
+  screen.target().fill(fui::makeRect(right, box.y, arm, weight), ink);
+  screen.target().fill(fui::makeRect(box.x, bottom, arm, weight), ink);
+  screen.target().fill(fui::makeRect(right, bottom, arm, weight), ink);
+  screen.target().fill(fui::makeRect(box.x, box.y, weight, arm), ink);
+  screen.target().fill(fui::makeRect(far, box.y, weight, arm), ink);
+  screen.target().fill(fui::makeRect(box.x, low, weight, arm), ink);
+  screen.target().fill(fui::makeRect(far, low, weight, arm), ink);
+}
+
 }  // namespace toybox
