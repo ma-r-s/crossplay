@@ -41,17 +41,59 @@ jobs:
       - name: Build
         run: pio run -e gh_release_x4pro
 
-      # The updater downloads whatever asset the release names, so the name has
-      # to say which device it is for. Someone reading the releases page should
-      # not have to guess.
+      # Two .bin files, because the two ways of installing this need different
+      # images and shipping only one of them is what went wrong before.
+      #
+      #   -full.bin  bootloader + partition table + app, flashed at 0x0 over
+      #              USB. This is the one a first install needs. v1.0.0 and
+      #              v1.0.1 shipped the app on its own and told people to write
+      #              it to 0x0 -- which on an S3 is where the bootloader lives,
+      #              so it landed on top of it.
+      #   firmware.bin  the app alone. The over-the-air updater matches this
+      #              name exactly (lib/JsonParser/ReleaseJsonParser.cpp:47) and
+      #              the SD-card updater looks for the same name on the card.
+      #              Named for the device in the release title, not the file:
+      #              renaming it is what silently switched both updaters off.
+      #
+      # -fm/-fs/-ff keep: the flash mode, size and frequency already in the
+      # bootloader header are the ones this build was configured with. Passing
+      # them again by hand is a second copy of a fact that can drift; verified
+      # byte-identical to spelling them out.
       - name: Name the artefacts
         run: |
           mkdir -p dist
-          cp .pio/build/gh_release_x4pro/firmware.bin \
-             "dist/crossplay-${GITHUB_REF_NAME}-x4pro.bin"
+          pip install --upgrade esptool
+          python -m esptool --chip esp32s3 merge-bin --format raw \
+            -o "dist/crossplay-${GITHUB_REF_NAME}-x4pro-full.bin" \
+            -fm keep -fs keep -ff keep \
+            0x0     .pio/build/gh_release_x4pro/bootloader.bin \
+            0x8000  .pio/build/gh_release_x4pro/partitions.bin \
+            0x10000 .pio/build/gh_release_x4pro/firmware.bin
+          cp .pio/build/gh_release_x4pro/firmware.bin dist/firmware.bin
           cp .pio/build/gh_release_x4pro/firmware.elf \
              "dist/crossplay-${GITHUB_REF_NAME}-x4pro.elf"
           ls -la dist
+
+      # A merged image that is not actually merged is indistinguishable from
+      # the app image it replaces until someone bricks a device with it, so
+      # check the three magic numbers rather than trust the exit code.
+      - name: The merged image really is merged
+        run: |
+          full="dist/crossplay-${GITHUB_REF_NAME}-x4pro-full.bin"
+          fail=0
+          check() {  # offset, expected-magic, what
+            got=$(dd if="$full" bs=1 skip=$1 count=2 2>/dev/null | xxd -p)
+            if [ "$got" != "$2" ]; then
+              echo "::error::$full at $(printf '0x%x' $1): expected $2 ($3), got $got"
+              fail=1
+            else
+              echo "  $(printf '0x%-7x' $1) $got  $3"
+            fi
+          }
+          check 0     e903 "bootloader"
+          check 32768 aa50 "partition table"
+          check 65536 e907 "app"
+          exit $fail
 
       - name: Publish
         uses: softprops/action-gh-release@v2
