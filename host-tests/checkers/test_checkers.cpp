@@ -302,7 +302,8 @@ void testDestinationsMatchWhatCanActuallyBePlayed() {
 
   for (int square = 0; square < kCells; ++square) {
     uint8_t squares[kMaxMoves];
-    const int found = destinations(game, square, squares, kMaxMoves);
+    uint64_t taken[kMaxMoves];
+    const int found = destinations(game, square, squares, taken, kMaxMoves);
     int expected = 0;
     for (int i = 0; i < count; ++i) {
       if (list[i].from == square) ++expected;
@@ -314,11 +315,47 @@ void testDestinationsMatchWhatCanActuallyBePlayed() {
       CHECK(moveBetween(game, square, squares[d], move));
       CHECK(move.from == square);
       CHECK(move.to == squares[d]);
+      // The capture mask travels with the destination, so the screen marks the
+      // right victims without recomputing the rules.
+      CHECK(move.taken == taken[d]);
     }
   }
   // A destination the rules never offered cannot be built at the boundary.
   Move bogus{};
   CHECK(!moveBetween(game, indexOf(0, 5), indexOf(4, 1), bogus));
+}
+
+// The screen's two board hints must agree with what the board accepts, or a
+// player is told a piece can move and then finds it will not lift.
+void testMovableSetAndMustTakeAgreeWithCanPick() {
+  Game game{};
+  start(game);
+  uint32_t rng = 0x51ED270Bu;
+
+  for (int ply = 0; ply < 400 && !over(game); ++ply) {
+    const uint64_t mask = movableSquares(game);
+    int marked = 0;
+    for (int square = 0; square < kCells; ++square) {
+      const bool inMask = (mask & (static_cast<uint64_t>(1) << square)) != 0;
+      CHECK(inMask == canPick(game, square));
+      if (inMask) ++marked;
+    }
+    CHECK(marked > 0);
+
+    Move list[kMaxMoves];
+    const int count = moves(game, list);
+    // captureAvailable is a promise about EVERY legal move, not just the first.
+    const bool must = captureAvailable(game);
+    for (int i = 0; i < count; ++i) CHECK((list[i].taken != 0) == must);
+
+    // And it is only false when no capture exists anywhere for this side.
+    if (!must) {
+      for (int i = 0; i < count; ++i) CHECK(list[i].taken == 0);
+    }
+
+    rng = rng * 1664525u + 1013904223u;
+    play(game, list[rng % static_cast<uint32_t>(count)]);
+  }
 }
 
 void testPhaseIsDerivedAndOnlyYourTurnAccepts() {
@@ -624,6 +661,7 @@ int main() {
   testBackIsTotalAndAlwaysReachesTheTop();
   testOnlyAPieceWithAMoveCanBePicked();
   testDestinationsMatchWhatCanActuallyBePlayed();
+  testMovableSetAndMustTakeAgreeWithCanPick();
   testPhaseIsDerivedAndOnlyYourTurnAccepts();
   testTheOpponentOnlyEverPlaysALegalMove();
   testTheOpponentIsDeterministicAndPure();

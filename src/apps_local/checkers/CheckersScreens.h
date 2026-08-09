@@ -37,10 +37,21 @@ struct BoardModel {
   // than recomputed -- the same discipline as hit-testing being derived from
   // the drawing.
   uint8_t destinations[checkers::kMaxMoves] = {};
+  // What each of those landings captures, carried straight from the rules.
+  uint64_t takenMasks[checkers::kMaxMoves] = {};
   int destinationCount = 0;
+  // Every piece with a legal move, so a compulsory capture is visible before
+  // the player discovers it by tapping men that will not lift.
+  uint64_t movable = 0;
   // Which seat this device plays, so the board can be drawn from that side.
   uint8_t seat = checkers::kLight;
+  // How many pieces each side still has, so the material strips can show what
+  // has been taken. Twelve each at the start.
+  int yourPieces = checkers::kMen;
+  int theirPieces = checkers::kMen;
   bool yourTurn = true;
+  // A capture is available, so every legal move is one.
+  bool mustTake = false;
   const char* opponentName = nullptr;
 };
 

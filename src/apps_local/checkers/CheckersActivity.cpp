@@ -167,11 +167,16 @@ void CheckersActivity::gameLoop() {
       // mandatory capture -- cannot be lifted at all.
       if (ck::canPick(game, square)) {
         picked = square;
-        destinationCount = ck::destinations(game, square, destinations, ck::kMaxMoves);
-      } else {
+        destinationCount = ck::destinations(game, square, destinations, takenMasks, ck::kMaxMoves);
+        requestUpdate();
+      } else if (picked != ck::kNothingPicked) {
         clearPick();
+        requestUpdate();
       }
-      requestUpdate();
+      // Tapping a piece that cannot move with nothing in hand changes nothing,
+      // so it must not repaint. A refresh that leaves the screen identical is
+      // worse than doing nothing: on e-ink the panel visibly blinks and comes
+      // back the same, which is exactly what a bug looks like.
       return;
     }
   }
@@ -250,7 +255,14 @@ void CheckersActivity::gameRender() {
       model.game = game;
       model.picked = picked;
       model.destinationCount = destinationCount;
-      for (int i = 0; i < destinationCount; ++i) model.destinations[i] = destinations[i];
+      for (int i = 0; i < destinationCount; ++i) {
+        model.destinations[i] = destinations[i];
+        model.takenMasks[i] = takenMasks[i];
+      }
+      model.movable = ck::movableSquares(game);
+      model.mustTake = ck::captureAvailable(game);
+      model.yourPieces = ck::pieceCount(game, seat);
+      model.theirPieces = ck::pieceCount(game, seat == ck::kLight ? ck::kDarkSeat : ck::kLight);
       model.seat = seat;
       model.yourTurn = inMatch() ? linkYourTurn() : game.turn == seat;
       model.opponentName = inMatch() ? opponentName() : nullptr;

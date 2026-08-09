@@ -26,6 +26,8 @@ constexpr int kCells = kSize * kSize;
 // multi-jump tree is bounded by the pieces it can take. 48 is comfortably above
 // any real position and keeps the move list a fixed array.
 constexpr int kMaxMoves = 48;
+// Pieces per side at the start: the three back rows of playable squares.
+constexpr int kMen = 12;
 
 constexpr uint8_t kEmpty = 0;
 constexpr uint8_t kPiece = 1 << 0;  // occupied

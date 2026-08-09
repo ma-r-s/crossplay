@@ -87,15 +87,44 @@ inline bool moveBetween(const Game& game, const int from, const int to, Move& ou
 // Where a picked piece may land. Written into `squares`, returning how many, so
 // the screen can mark them without recomputing the rules a second time -- the
 // same discipline as hit-testing being derived from the drawing.
-inline int destinations(const Game& game, const int from, uint8_t* squares, const int capacity) {
+// `taken` receives WHAT each landing captures. The rules already computed it;
+// dropping it meant a jump drew a mark two squares away with nothing saying
+// which enemy disc died, and a chain drew one six squares away with the route
+// invisible. In checkers the chain is the game.
+inline int destinations(const Game& game, const int from, uint8_t* squares, uint64_t* taken, const int capacity) {
   Move list[kMaxMoves];
   const int count = moves(game, list);
   int found = 0;
   for (int i = 0; i < count && found < capacity; ++i) {
     if (list[i].from != from) continue;
-    squares[found++] = list[i].to;
+    squares[found] = list[i].to;
+    taken[found] = list[i].taken;
+    ++found;
   }
   return found;
+}
+
+// Whether the side to move is forced to capture. Asked of the move list rather
+// than recomputed, so it cannot disagree with what the board will accept.
+inline bool captureAvailable(const Game& game) {
+  Move list[kMaxMoves];
+  const int count = moves(game, list);
+  return count > 0 && list[0].taken != 0;
+}
+
+// Every square holding a piece with a legal move, as a bitmask.
+//
+// This is how the compulsory-capture rule becomes visible. Without it a player
+// taps a man that cannot move and the screen comes back identical, which is
+// what a bug looks like -- and three moves in, seven of twelve men go dead at
+// once with nothing announcing it. Marking what CAN move makes the board
+// demonstrate the rule instead of describing it.
+inline uint64_t movableSquares(const Game& game) {
+  Move list[kMaxMoves];
+  const int count = moves(game, list);
+  uint64_t mask = 0;
+  for (int i = 0; i < count; ++i) mask |= static_cast<uint64_t>(1) << list[i].from;
+  return mask;
 }
 
 }  // namespace checkers

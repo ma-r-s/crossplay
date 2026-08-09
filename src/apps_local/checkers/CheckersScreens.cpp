@@ -21,36 +21,72 @@ int16_t boardTop() { return static_cast<int16_t>(toybox::kHeaderHeight + toybox:
 
 int16_t boardLeft(const fui::DeviceContext& device) { return static_cast<int16_t>((device.width - kBoardSide) / 2); }
 
-// A disc, from stacked bars. Pieces are round because everything else on this
-// board is square, and at 56px that difference does more work than any detail
-// inside them would.
-void drawDisc(toybox::Screen& screen, const fui::Rect& where, const bool filled, const bool king) {
-  static const int8_t kHalf[] = {9, 14, 17, 19, 20, 20, 19, 17, 14, 9};
+// A filled disc of radius `r`, by rows. Used in pairs to make rings: a disc in
+// ink with a smaller one in paper on top is a closed ring, which the first
+// version did not manage.
+//
+// Circle test per row rather than a table of half-widths. The table gave a
+// flat-topped lozenge, and worse, jumped by five between entries.
+void disc(toybox::Screen& screen, const int16_t cx, const int16_t cy, const int16_t r, const fui::Color colour) {
+  const fui::Paint paint = fui::Paint::solid(colour);
+  for (int16_t dy = static_cast<int16_t>(-r); dy <= r; ++dy) {
+    int16_t half = 0;
+    while ((half + 1) * (half + 1) + dy * dy <= r * r) ++half;
+    if (half <= 0) continue;
+    screen.target().fill(
+        fui::makeRect(static_cast<int16_t>(cx - half), static_cast<int16_t>(cy + dy), static_cast<int16_t>(half * 2), 1),
+        paint);
+  }
+}
+
+// Four corner marks around a square: flag it without covering what stands on
+// it. Toybox's cornerMarks takes a GfxRenderer, which a freestanding screen
+// builder does not have, so this is the same shape drawn from fills.
+void bracket(toybox::Screen& screen, const fui::Rect& box, const int16_t arm, const int16_t weight) {
   const fui::Paint ink = fui::Paint::solid(fui::Color::Black);
+  const int16_t right = static_cast<int16_t>(box.x + box.width - arm);
+  const int16_t bottom = static_cast<int16_t>(box.y + box.height - weight);
+  const int16_t far = static_cast<int16_t>(box.x + box.width - weight);
+  const int16_t low = static_cast<int16_t>(box.y + box.height - arm);
+  screen.target().fill(fui::makeRect(box.x, box.y, arm, weight), ink);
+  screen.target().fill(fui::makeRect(right, box.y, arm, weight), ink);
+  screen.target().fill(fui::makeRect(box.x, bottom, arm, weight), ink);
+  screen.target().fill(fui::makeRect(right, bottom, arm, weight), ink);
+  screen.target().fill(fui::makeRect(box.x, box.y, weight, arm), ink);
+  screen.target().fill(fui::makeRect(far, box.y, weight, arm), ink);
+  screen.target().fill(fui::makeRect(box.x, low, weight, arm), ink);
+  screen.target().fill(fui::makeRect(far, low, weight, arm), ink);
+}
+
+// A piece. Pieces are round because everything else on this board is square,
+// and at 56px that difference does more work than any detail inside them would.
+//
+// Light pieces are outlined, dark are solid: the same convention chess uses
+// here, where filled means WHOSE and never whose turn.
+//
+// The rim used to be vertical bars at each band's ends. Nothing closed the top
+// or the bottom, and consecutive bars did not overlap where the half-width
+// table jumped, so a light piece rendered as two parenthesis arcs and four
+// floating dots with the dither showing straight through. Nested discs close by
+// construction.
+//
+// The king mark is a RING, not the square the first version drew. Twenty lines
+// up this file argues that pieces are round because everything else is square;
+// a square crown contradicted that, and on a light piece it was the only closed
+// shape present, so it read as the piece.
+void drawDisc(toybox::Screen& screen, const fui::Rect& where, const bool filled, const bool king) {
   const int16_t cx = static_cast<int16_t>(where.x + where.width / 2);
   const int16_t cy = static_cast<int16_t>(where.y + where.height / 2);
+  constexpr int16_t kRadius = 23;
+  const fui::Color body = filled ? fui::Color::Black : fui::Color::White;
+  const fui::Color mark = filled ? fui::Color::White : fui::Color::Black;
 
-  for (int i = 0; i < 10; ++i) {
-    const int16_t half = kHalf[i];
-    const fui::Rect band = fui::makeRect(static_cast<int16_t>(cx - half), static_cast<int16_t>(cy - 20 + i * 4),
-                                         static_cast<int16_t>(half * 2), 4);
-    // Light pieces are outlined, dark are solid. That is the same convention
-    // chess uses here -- filled means whose, never whose turn.
-    screen.target().fill(band, filled ? ink : fui::Paint::solid(fui::Color::White));
-  }
-  // The rim, so an outlined piece is a piece rather than a hole.
-  for (int i = 0; i < 10; ++i) {
-    const int16_t half = kHalf[i];
-    screen.target().fill(fui::makeRect(static_cast<int16_t>(cx - half), static_cast<int16_t>(cy - 20 + i * 4), 3, 4),
-                         ink);
-    screen.target().fill(
-        fui::makeRect(static_cast<int16_t>(cx + half - 3), static_cast<int16_t>(cy - 20 + i * 4), 3, 4), ink);
-  }
+  disc(screen, cx, cy, kRadius, fui::Color::Black);
+  disc(screen, cx, cy, static_cast<int16_t>(kRadius - 3), body);
   if (!king) return;
-  // A king carries a second, smaller ring: crowned pieces are stacked in the
-  // physical game, and a ring reads as that stack without needing a crown.
-  const fui::Rect inner = fui::makeRect(static_cast<int16_t>(cx - 9), static_cast<int16_t>(cy - 9), 18, 18);
-  screen.target().stroke(inner, fui::Paint::solid(filled ? fui::Color::White : fui::Color::Black), 3);
+  // The stacked second piece, in the opposite ink so it reads on both colours.
+  disc(screen, cx, cy, 12, mark);
+  disc(screen, cx, cy, 9, body);
 }
 
 }  // namespace
@@ -167,20 +203,25 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   // The status capsule, taken first so the board can never grow into it. Every
   // other game in the fork ends on one of these.
   fui::ButtonProps status;
-  status.label = model.yourTurn ? "YOUR MOVE" : "THEIR MOVE";
+  // "YOU MUST TAKE" is the caption for the corner marks below: the marks show
+  // WHICH pieces, the capsule says why there are so few of them.
+  status.label = model.yourTurn ? (model.mustTake ? "YOU MUST TAKE" : "YOUR MOVE") : "THEIR MOVE";
   status.action = fui::NO_ACTION;
   status.borderEdges = fui::EdgesNone;
   const fui::Rect capsule = screen.takeBottom(toybox::kPillHeight, toybox::kGutter);
   screen.button(
       status, model.opponentName != nullptr ? linkui::withOpponentFace(screen, capsule, model.opponentName) : capsule);
 
-  const fui::Rect corner = squareRect(device, 0, 0, model.seat);
+  // Nine pixels, and the same nine the rect is grown by, so the border sits
+  // flush against the squares and the surface reads as one object. It was
+  // stroked at three, leaving six pixels of white between it and the board and
+  // making it LIGHTER than the selection frame drawn inside it -- the weight
+  // order the metrics header exists to prevent.
   const fui::Rect frame = fui::makeRect(static_cast<int16_t>(boardLeft(device) - toybox::kBoardFrame),
                                         static_cast<int16_t>(boardTop() - toybox::kBoardFrame),
                                         static_cast<int16_t>(kBoardSide + toybox::kBoardFrame * 2),
                                         static_cast<int16_t>(kBoardSide + toybox::kBoardFrame * 2));
-  (void)corner;
-  screen.target().stroke(frame, fui::Paint::solid(fui::Color::Black), 3);
+  screen.target().stroke(frame, fui::Paint::solid(fui::Color::Black), toybox::kBoardFrame);
 
   for (int rank = 0; rank < ck::kSize; ++rank) {
     for (int file = 0; file < ck::kSize; ++file) {
@@ -196,18 +237,84 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
     }
   }
 
-  // The piece in hand, and where it may go. Destinations come from the rules'
-  // own move list, so a marked square is always a playable one.
+  // What each side still HAS, in the band between the board and the capsule.
+  //
+  // Remaining rather than captured, which is not the obvious way round. Two
+  // strips of losses are both EMPTY at the start, so the band is blank exactly
+  // when the game begins, and reserving the slots with placeholder marks put
+  // twenty-four dashes on screen carrying nothing. Remaining pieces are always
+  // twelve-ish and always shrinking, so the strip is full of information from
+  // the first frame and the question a checkers player actually asks -- am I up
+  // or down -- is answered by which row is longer. No counting twenty-four discs
+  // on the board, and no number to read.
+  //
+  // Theirs sits nearest the board, yours nearest you, matching the ends the two
+  // sides are drawn from. Filled means whose, the same as on the board.
+  {
+    constexpr int16_t kPitch = 32;
+    constexpr int16_t kSmall = 11;
+    const int16_t bandTop = static_cast<int16_t>(boardTop() + kBoardSide + toybox::kBoardFrame);
+    const int16_t bandHeight = static_cast<int16_t>(capsule.y - toybox::kGutter - bandTop);
+    const int16_t rowPitch = static_cast<int16_t>(kSmall * 2 + toybox::kGutter);
+    // Centred in the band rather than pinned under the board: the slack is
+    // spread around the strips, not left in one lump at the bottom.
+    const int16_t stripTop = static_cast<int16_t>(bandTop + (bandHeight - rowPitch * 2) / 2);
+    const int16_t stripLeft = static_cast<int16_t>(boardLeft(device) + kSmall);
+    const bool yoursAreFilled = model.seat == ck::kDarkSeat;
+
+    for (int row = 0; row < 2; ++row) {
+      const int held = row == 0 ? model.theirPieces : model.yourPieces;
+      const bool filled = row == 0 ? !yoursAreFilled : yoursAreFilled;
+      const int16_t cy = static_cast<int16_t>(stripTop + row * rowPitch + kSmall);
+      for (int i = 0; i < held; ++i) {
+        const int16_t cx = static_cast<int16_t>(stripLeft + i * kPitch);
+        disc(screen, cx, cy, kSmall, fui::Color::Black);
+        disc(screen, cx, cy, static_cast<int16_t>(kSmall - 2), filled ? fui::Color::Black : fui::Color::White);
+      }
+    }
+  }
+
+  // With nothing in hand, mark every piece that HAS a move. Under a compulsory
+  // capture that set collapses from seven squares to one, and the board shows
+  // the rule rather than the player finding it by tapping men that will not
+  // lift.
+  if (model.picked == ck::kNothingPicked && model.yourTurn) {
+    for (int square = 0; square < ck::kCells; ++square) {
+      if ((model.movable & (static_cast<uint64_t>(1) << square)) == 0) continue;
+      bracket(screen, squareRect(device, square % ck::kSize, square / ck::kSize, model.seat), 14, 3);
+    }
+  }
+
+  // The piece in hand, framed OUTSIDE its square. An inset frame eats the piece
+  // and makes its square look smaller than its neighbours, which is written
+  // down in the design language and was ignored here.
   if (model.picked != ck::kNothingPicked) {
     const fui::Rect box = squareRect(device, model.picked % ck::kSize, model.picked / ck::kSize, model.seat);
-    screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), 5);
+    screen.target().stroke(fui::makeRect(static_cast<int16_t>(box.x - toybox::kFrame),
+                                         static_cast<int16_t>(box.y - toybox::kFrame),
+                                         static_cast<int16_t>(box.width + toybox::kFrame * 2),
+                                         static_cast<int16_t>(box.height + toybox::kFrame * 2)),
+                           fui::Paint::solid(fui::Color::Black), toybox::kFrame);
   }
+
+  // Where it may land, and what that landing takes. Destinations come from the
+  // rules' own move list, so a marked square is always a playable one.
   for (int i = 0; i < model.destinationCount; ++i) {
     const int square = model.destinations[i];
     const fui::Rect box = squareRect(device, square % ck::kSize, square / ck::kSize, model.seat);
-    const fui::Rect pip = fui::makeRect(static_cast<int16_t>(box.x + box.width / 2 - 7),
-                                        static_cast<int16_t>(box.y + box.height / 2 - 7), 14, 14);
-    screen.target().fill(pip, fui::Paint::solid(fui::Color::Black));
+    // Round, not square. On a board where every cell is square and every piece
+    // is round, "a disc goes here" is a round event -- and a square pip would
+    // read as the king mark at a glance.
+    // Radius nine, not seven. Chess marks a destination at 13px of 53; a circle
+    // of the same DIAMETER covers 78% of the square pip it replaced, so it read
+    // noticeably smaller than its sibling until the radius grew to match by
+    // area.
+    disc(screen, static_cast<int16_t>(box.x + box.width / 2), static_cast<int16_t>(box.y + box.height / 2), 9,
+         fui::Color::Black);
+    for (int taken = 0; taken < ck::kCells; ++taken) {
+      if ((model.takenMasks[i] & (static_cast<uint64_t>(1) << taken)) == 0) continue;
+      bracket(screen, squareRect(device, taken % ck::kSize, taken / ck::kSize, model.seat), 18, 4);
+    }
   }
 }
 

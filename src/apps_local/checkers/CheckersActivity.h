@@ -54,6 +54,7 @@ class CheckersActivity final : public linkplay::LinkActivity {
   // own move list rather than worked out again.
   int picked = checkers::kNothingPicked;
   uint8_t destinations[checkers::kMaxMoves] = {};
+  uint64_t takenMasks[checkers::kMaxMoves] = {};
   int destinationCount = 0;
 
   linkplay::Play<checkers::Game> play;
