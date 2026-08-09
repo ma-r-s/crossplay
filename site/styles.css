@@ -821,14 +821,13 @@ button:focus-visible {
 .hero.two-up .hero-grid {
   grid-template-columns: 1fr;
 }
-/* Two panels side by side get half the room, so they cap smaller. Width-led
- * for the same reason as above: setting height as well would cancel
- * aspect-ratio and stretch the panel. */
+/* Two panels side by side get half the room, so they cap smaller. Only the two
+ * inputs change: the width expression and the landscape rule are shared, so a
+ * second device turning sideways behaves like the first one rather than
+ * needing its own copy of the arithmetic. */
 .hero.two-up .device-screen {
-  width: min(
-    calc((100vw - 2 * var(--gutter) - 1.6rem) / 2),
-    min(58svh, 560px) * 0.6
-  );
+  --panel-long: min(58svh, 560px);
+  --panel-room: calc((100vw - 2 * var(--gutter) - 1.6rem) / 2);
 }
 @media (max-width: 860px) {
   .device-row {
@@ -878,6 +877,12 @@ button:focus-visible {
    * bite: at 320px the derived width was 366px and the whole page scrolled
    * sideways, taking the headline and the buttons with it. Stating the width
    * and letting aspect-ratio derive the height puts the cap back. */
+  /* The two inputs the size is derived from, so an orientation or a second
+   * device overrides these rather than restating the whole expression.
+   * --panel-long is the device's long edge; --panel-room is how much width
+   * this panel is allowed. */
+  --panel-long: min(64svh, 620px);
+  --panel-room: calc(100vw - 2 * var(--gutter));
   aspect-ratio: 480 / 800;
   /* Width-led, and sized against the viewport rather than the parent.
    *
@@ -888,8 +893,16 @@ button:focus-visible {
    * moment you started it. A viewport-relative cap has no such circularity, so
    * the box is the same size before and after, which is the whole point of
    * booting in place. */
-  width: min(calc(100vw - 2 * var(--gutter)), min(64svh, 620px) * 0.6);
+  width: min(var(--panel-room), calc(var(--panel-long) * 0.6));
   height: auto;
+}
+/* Turned sideways, set by emulator.js off the frame's own rotation. The long
+ * edge stays the long edge -- the same object on its side, not a smaller one.
+ * Before this the box stayed portrait and the landscape frame was letterboxed
+ * into it at 0.6 scale, which is what made Solitaire tiny. */
+.device-screen[data-orient="landscape"] {
+  aspect-ratio: 800 / 480;
+  width: min(var(--panel-room), var(--panel-long));
 }
 .device-screen[aria-disabled="true"] {
   cursor: default;
@@ -1225,7 +1238,11 @@ body::before {
     transparent 0% 50%
   );
   background-size: 3px 3px;
-  -webkit-mask-image: radial-gradient(ellipse at center, #000 35%, transparent 72%);
+  -webkit-mask-image: radial-gradient(
+    ellipse at center,
+    #000 35%,
+    transparent 72%
+  );
   mask-image: radial-gradient(ellipse at center, #000 35%, transparent 72%);
 }
 

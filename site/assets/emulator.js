@@ -181,6 +181,14 @@
         var portrait = deg === 90 || deg === 270;
         logicalW = portrait ? PANEL_H : PANEL_W;
         logicalH = portrait ? PANEL_W : PANEL_H;
+        // Report the shape; the page decides what to do with it. Without this
+        // the panel stayed the portrait box it was born as, fit() had to
+        // letterbox a landscape frame into a tall hole, and Solitaire came out
+        // at half size between two grey bars. A device you turn does not
+        // shrink, it turns, and only the page knows how much room it has to
+        // turn in. Set before sizeCanvas() so the box is already the new shape
+        // when getBoundingClientRect() reads it, rather than one frame late.
+        mount.dataset.orient = portrait ? "portrait" : "landscape";
       }
       sizeCanvas();
       var box = fit();
