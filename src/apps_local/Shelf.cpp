@@ -18,6 +18,7 @@
 #include "hackernews/HackerNewsActivity.h"
 #include "insider/InsiderActivity.h"
 #include "jaipur/JaipurActivity.h"
+#include "knucklebones/KnucklebonesActivity.h"
 #include "murdle/MurdleActivity.h"
 #include "player/PlayerActivity.h"
 #include "solitaire/SolitaireActivity.h"
@@ -42,6 +43,7 @@ constexpr shelf::Item kGames[] = {
     {"CHECKERS", &icon_checkers_32, &CheckersActivity::create},
     {"CONNECT FOUR", &icon_connectfour_32, &ConnectFourActivity::create},
     {"YAHTZEE", &icon_yahtzee_32, &YahtzeeActivity::create},
+    {"KNUCKLEBONES", &icon_knucklebones_32, &KnucklebonesActivity::create},
 };
 constexpr shelf::Item kApps[] = {
     {"STUDY", &icon_study_32, &StudyActivity::create},

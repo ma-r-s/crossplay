@@ -66,6 +66,7 @@ enum class GameId : uint16_t {
   Jaipur = 0x0402,  // 0x0401 had no record of the last move in its state
   Checkers = 0x0601,
   Yahtzee = 0x0801,
+  Knucklebones = 0x0501,
   // Reserved for host tests, which need an id no real game will ever use.
   Test = 0xFF01,
 };

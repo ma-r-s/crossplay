@@ -47,12 +47,14 @@ restyled to match the design language the apps use.
 | **Checkers**    | English draughts, where taking is compulsory and the board says so. |
 | **Connect Four**| Drop a disc, get four in a line. Seven columns, one tap each.        |
 | **Yahtzee**     | Thirteen boxes, three rolls a turn, and the Joker rules in full.     |
+| **Knucklebones** | Cult of the Lamb's dice game. Matching dice multiply; yours destroy theirs. |
 | **Study**       | Anki decks with the FSRS scheduler, offline.                       |
 | **Hacker News** | The front page in a reading serif, articles kept on the card.      |
 | **xkcd**        | The archive, packed for the card and drawn one to one.             |
 
 Chess, Battleship, Jaipur, Checkers, Connect Four and Yahtzee play over
 **PLAY NEARBY**: put two devices next to
+Chess, Battleship, Jaipur and Knucklebones play over **PLAY NEARBY**: put two devices next to
 each other and they find one another. No pairing screen, no room code, no
 account, no router, no internet.
 
@@ -148,7 +150,7 @@ fetched by the device from [xkcd.com](https://xkcd.com). Connections puzzles are
 the New York Times'; CrossPlay ships none of them and downloads only what you
 ask for. Type is Jersey 25 and Instrument Serif, both SIL OFL.
 
-Jaipur, Insider, Murdle, Battleship and Connections are trademarks of their respective owners. CrossPlay implements the games; it is not affiliated with, endorsed by or sponsored by any of them.
+Jaipur, Insider, Murdle, Battleship, Connections and Knucklebones are trademarks of their respective owners. CrossPlay implements the games; it is not affiliated with, endorsed by or sponsored by any of them.
 
 Reading positions sync to CrossPoint's own server by default. That is
 upstream's infrastructure rather than this fork's, inherited so that flashing

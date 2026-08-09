@@ -16,6 +16,7 @@
 #include "../../src/apps_local/ShelfScreen.h"
 #include "../../src/apps_local/battleship/BattleshipScreens.h"
 #include "../../src/apps_local/checkers/CheckersScreens.h"
+#include "../../src/apps_local/knucklebones/KnucklebonesScreens.h"
 #include "../../src/apps_local/connectfour/ConnectFourScreens.h"
 #include "../../src/apps_local/chess/ChessScreens.h"
 #include "../../src/apps_local/connections/ConnectionsScreens.h"
@@ -2644,6 +2645,168 @@ void testTheCheckersHowToPagesAndEnds() {
   }
 }
 
+// --- knucklebones ----------------------------------------------------------
+
+template <typename Model, void (*Build)(toybox::Screen&, const Model&)>
+void buildKb(Rendered& out, const Model& model) {
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, device(), noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  Build(screen, model);
+}
+
+void testKnucklebonesMenuOffersItsThreeRows() {
+  knuckleui::MenuModel model;
+  Rendered menu;
+  buildKb<knuckleui::MenuModel, knuckleui::buildMenu>(menu, model);
+
+  CHECK(menu.target.drew("KNUCKLEBONES"));
+  CHECK(menu.target.drew("PLAY"));
+  CHECK(menu.target.drew("PLAY NEARBY"));
+  CHECK(menu.target.drew("HOW TO PLAY"));
+  CHECK(!menu.interactions.overflowed());
+
+  const int firstRowY = toybox::kHeaderHeight + toybox::kGutter * 3 + toybox::kRowHeight / 2;
+  const fui::ActionEvent first = menu.tap(240, firstRowY);
+  CHECK(first.action == knuckleui::ActionMenuRow);
+  CHECK(first.value == static_cast<int>(knuckleui::MenuRow::Play));
+
+  // The nearby row says who when somebody is there, rather than promising into
+  // an empty room a thing the device cannot deliver.
+  knuckleui::MenuModel withPeer = model;
+  withPeer.nearbyName = "MOP SPECS GRIN";
+  Rendered peer;
+  buildKb<knuckleui::MenuModel, knuckleui::buildMenu>(peer, withPeer);
+  CHECK(peer.target.drew("MOP SPECS GRIN"));
+  CHECK(!menu.target.drew("MOP SPECS GRIN"));
+}
+
+// The one that matters on a touch device: the column a thumb lands on has to be
+// the column the rules receive. Asserted by tapping the drawn target rather
+// than by recomputing the geometry, so the test cannot agree with the builder
+// by repeating its mistake.
+void testTappingAColumnReportsThatColumn() {
+  knuckleui::BoardModel model;
+  model.die = 4;
+  model.yourTurn = true;
+
+  Rendered board;
+  buildKb<knuckleui::BoardModel, knuckleui::buildBoard>(board, model);
+
+  for (int column = 0; column < knucklebones::kColumns; ++column) {
+    const fui::Rect target = knuckleui::columnRect(device(), column, true);
+    const fui::ActionEvent hit =
+        board.tap(target.x + target.width / 2, static_cast<int16_t>(target.y + target.height / 2));
+    CHECK(hit.action == knuckleui::ActionColumn);
+    CHECK(hit.value == column);
+  }
+}
+
+void testTheBoardOnlyAcceptsAColumnOnYourOwnTurn() {
+  knuckleui::BoardModel model;
+  model.die = 4;
+  model.yourTurn = false;
+
+  Rendered board;
+  buildKb<knuckleui::BoardModel, knuckleui::buildBoard>(board, model);
+
+  // Still drawn -- you watch them play, because a board that blanks on their
+  // turn makes a slow panel look broken -- but nothing is live.
+  CHECK(board.target.drew("THEIR ROLL"));
+  for (int column = 0; column < knucklebones::kColumns; ++column) {
+    const fui::Rect target = knuckleui::columnRect(device(), column, true);
+    CHECK(board.tap(target.x + target.width / 2, static_cast<int16_t>(target.y + target.height / 2)).action !=
+          knuckleui::ActionColumn);
+  }
+
+  // A full column offers no target either, on your own turn. A tap that does
+  // nothing reads, on a panel this slow, as the device having missed it.
+  knuckleui::BoardModel filled;
+  filled.die = 4;
+  filled.yourTurn = true;
+  for (int row = 0; row < knucklebones::kRows; ++row) filled.yours.cell[1][row] = 2;
+
+  Rendered some;
+  buildKb<knuckleui::BoardModel, knuckleui::buildBoard>(some, filled);
+  const fui::Rect fullColumn = knuckleui::columnRect(device(), 1, true);
+  CHECK(some.tap(fullColumn.x + fullColumn.width / 2, static_cast<int16_t>(fullColumn.y + fullColumn.height / 2))
+            .action != knuckleui::ActionColumn);
+  const fui::Rect openColumn = knuckleui::columnRect(device(), 0, true);
+  CHECK(some.tap(openColumn.x + openColumn.width / 2, static_cast<int16_t>(openColumn.y + openColumn.height / 2))
+            .action == knuckleui::ActionColumn);
+}
+
+void testTheBoardFitsThePanel() {
+  // The first layout was 12px too tall for the panel and nothing complained:
+  // the opponent's column scores drew behind the header band and mine ran off
+  // the bottom. Arithmetic that overflows silently is exactly what a test is
+  // for, so the extremes of the drawn board are pinned to the screen.
+  const fui::Rect theirs = knuckleui::columnRect(device(), 0, false);
+  const fui::Rect mine = knuckleui::columnRect(device(), 0, true);
+  // Clear of the header band and its rule, so no score can hide under it.
+  CHECK(theirs.y >= toybox::kHeaderHeight + toybox::kRule);
+  // And clear of the bottom edge. No room is reserved beneath it: both score
+  // rows sit on the inner edges beside the strip, which is the fix -- outside,
+  // one collided with the header and the other with the panel's bottom.
+  CHECK(mine.y + mine.height <= 800);
+  // The scores really are between the grids, not outside them.
+  CHECK(theirs.y + theirs.height < mine.y);
+}
+
+void testTheTwoGridsDoNotOverlap() {
+  // They face each other across the strip. If the arithmetic ever puts one on
+  // top of the other the dice would draw over each other, and no assertion
+  // about text would notice.
+  for (int column = 0; column < knucklebones::kColumns; ++column) {
+    const fui::Rect mine = knuckleui::columnRect(device(), column, true);
+    const fui::Rect theirs = knuckleui::columnRect(device(), column, false);
+    CHECK(theirs.y + theirs.height <= mine.y);
+    CHECK(mine.y + mine.height <= 800);
+    CHECK(theirs.y >= toybox::kHeaderHeight);
+  }
+}
+
+void testTheResultNamesTheOutcome() {
+  knuckleui::ResultModel won;
+  won.yourScore = 40;
+  won.theirScore = 12;
+  Rendered a;
+  buildKb<knuckleui::ResultModel, knuckleui::buildResult>(a, won);
+  CHECK(a.target.drew("YOU WIN"));
+  CHECK(a.target.drew("40 - 12"));
+
+  knuckleui::ResultModel lost;
+  lost.yourScore = 12;
+  lost.theirScore = 40;
+  Rendered b;
+  buildKb<knuckleui::ResultModel, knuckleui::buildResult>(b, lost);
+  CHECK(b.target.drew("THEY WIN"));
+
+  knuckleui::ResultModel drew;
+  drew.yourScore = 20;
+  drew.theirScore = 20;
+  Rendered c;
+  buildKb<knuckleui::ResultModel, knuckleui::buildResult>(c, drew);
+  CHECK(c.target.drew("A DRAW"));
+}
+
+void testTheHowToEndsOnGotIt() {
+  for (int page = 0; page < knuckleui::howToPages(); ++page) {
+    knuckleui::HowToModel model;
+    model.page = page;
+    Rendered out;
+    buildKb<knuckleui::HowToModel, knuckleui::buildHowTo>(out, model);
+    CHECK(out.target.drew("HOW TO PLAY"));
+    // Where you are in the sequence. Without it the only cue is NEXT becoming
+    // GOT IT, which arrives too late to be one.
+    char progress[8];
+    std::snprintf(progress, sizeof(progress), "%d/%d", page + 1, knuckleui::howToPages());
+    CHECK(out.target.drew(progress));
+    // The last page says so, or a player pages forever looking for the end.
+    CHECK(out.target.drew(page + 1 < knuckleui::howToPages() ? "NEXT" : "GOT IT"));
+  }
+}
+
 int main() {
   testSearchingAsksNothing();
   testMurdleGridResolvesEveryCellItDrew();
@@ -2713,6 +2876,12 @@ int main() {
   testInsiderSteppersDieAtTheEnds();
   testInsiderRevealAlwaysSaysTheWord();
   testInsiderTutorialLosesNoWords();
+
+  testKnucklebonesMenuOffersItsThreeRows();
+  testTappingAColumnReportsThatColumn();
+  testTheBoardOnlyAcceptsAColumnOnYourOwnTurn();
+  testTheBoardFitsThePanel();
+  testTheTwoGridsDoNotOverlap();
 
   std::printf("%d checks, %d failed\n", checksRun, checksFailed);
   return checksFailed == 0 ? 0 : 1;
