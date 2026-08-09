@@ -451,9 +451,16 @@ Position stepBack(const Rendition& r, int viewportW, int viewportH, const Positi
 bool canStepForward(const Rendition& r, int viewportW, int viewportH, const Position& at);
 bool canStepBack(const Rendition& r, int viewportW, int viewportH, const Position& at);
 
-// Where the walk begins. Not always the top left: a sideways comic is stored
-// turned, so the comic's own first panel is at the stored image's right.
+// Where the walk begins and ends. Not always the top left and bottom right: a
+// sideways comic is stored turned, so the comic's own first panel is at the
+// stored image's right.
+//
+// `endOf` is cheap because a position is a panel index -- the last panel is
+// `rowsIn - 1`, not something you have to walk to. Arriving at the *end* of the
+// previous comic when you step backwards off the start of this one is what a
+// reader does at a chapter boundary, and it costs no I/O.
 Position startOf(const Rendition& r, int viewportW);
+Position endOf(const Rendition& r, int viewportW, int viewportH);
 
 // --- Moving between the two views ----------------------------------------
 

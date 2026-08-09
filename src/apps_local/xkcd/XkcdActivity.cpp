@@ -553,18 +553,15 @@ void XkcdActivity::loop() {
   const bool backward = mappedInput.wasReleased(MappedInputManager::Button::PageBack) ||
                         mappedInput.wasReleased(MappedInputManager::Button::Up);
 
-  // Confirm is the closer view, and it is a button rather than a tap target
-  // for a specific reason: the whole bar has meant "show me the alt text" for
-  // as long as this app has existed, and carving a second meaning out of one
-  // end of it would silently change what a gesture the reader already knows
-  // does. A button costs no comic pixels and cannot be mis-tapped. The OK mark
-  // beside the map is what advertises it.
-  if (view_ == View::Reader && mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    handleAction(xkcdui::ActionToggleCloser, 0);
-    return;
-  }
+  // **No Confirm binding.** docs/buttons.md section 4: Up and Down page,
+  // nothing else is a button, because on this device nothing else IS a button.
+  // The overview toggle lived here until the tap target replaced it, and
+  // leaving the dead binding behind is precisely what let an unreachable
+  // control ship in the first place -- the simulator synthesises Confirm, so
+  // it looked fine forever.
+
   if (view_ == View::Reader && (forward || backward)) {
-    handleAction(forward ? xkcdui::ActionNextComic : xkcdui::ActionPrevComic, 0);
+    handleAction(forward ? xkcdui::ActionPanDown : xkcdui::ActionPanUp, 0);
     return;
   }
   if (view_ == View::List && (forward || backward)) {
@@ -635,14 +632,39 @@ void XkcdActivity::handleAction(const fui::ActionId action, const int16_t value)
       openList(listFirst_ - kPageRows);
       requestUpdate();
       break;
-    case xkcdui::ActionPanUp:
-      pan(false);
-      requestUpdate();
+    // **Forward means forward.** One action, on the side key and on the tap
+    // half alike: walk this comic's views, and when there are none left,
+    // continue into the next comic. docs/buttons.md asks for exactly this --
+    // Up and Down page, and paging by button is never the only route, so the
+    // artwork halves do the same thing.
+    //
+    // The old split (buttons change comic, taps pan within one) left next/prev
+    // comic reachable ONLY by button, which the doc forbids, and left the
+    // device's moulded page keys not paging the comic they are labelled for.
+    // It also made the keys do nothing on the 92% of comics that are a single
+    // view.
+    case xkcdui::ActionPanDown: {
+      const fui::Rect view = xkcdui::readerViewport(fui::GfxRendererTarget(renderer).deviceContext());
+      const xkcd::Rendition r = xkcd::renditionFor(comic_, at_.lens);
+      if (xkcd::canStepForward(r, view.width, view.height, at_)) {
+        pan(true);
+        requestUpdate();
+        break;
+      }
+      handleAction(xkcdui::ActionNextComic, 0);
       break;
-    case xkcdui::ActionPanDown:
-      pan(true);
-      requestUpdate();
+    }
+    case xkcdui::ActionPanUp: {
+      const fui::Rect view = xkcdui::readerViewport(fui::GfxRendererTarget(renderer).deviceContext());
+      const xkcd::Rendition r = xkcd::renditionFor(comic_, at_.lens);
+      if (xkcd::canStepBack(r, view.width, view.height, at_)) {
+        pan(false);
+        requestUpdate();
+        break;
+      }
+      handleAction(xkcdui::ActionPrevComic, 0);
       break;
+    }
     case xkcdui::ActionToggleCloser: {
       if (!comic_.hasCloser()) break;
       const fui::Rect view = xkcdui::readerViewport(fui::GfxRendererTarget(renderer).deviceContext());
@@ -667,6 +689,16 @@ void XkcdActivity::handleAction(const fui::ActionId action, const int16_t value)
     case xkcdui::ActionPrevComic:
       if (archiveOpen_ && position_ > 0) {
         openComicAt(position_ - 1);
+        // At its END, not its start: backing off the top of one comic should
+        // show you the bottom of the one before, exactly as a reader shows the
+        // last page of the chapter you just stepped into. Free, because a
+        // position is a panel index rather than something to walk to.
+        {
+          const fui::Rect view = xkcdui::readerViewport(fui::GfxRendererTarget(renderer).deviceContext());
+          const xkcd::Lens lens = at_.lens;
+          at_ = xkcd::endOf(xkcd::renditionFor(comic_, lens), view.width, view.height);
+          at_.lens = lens;
+        }
         requestUpdate();
       }
       break;
@@ -1049,10 +1081,10 @@ void XkcdActivity::render(RenderLock&&) {
       // The two halves that move you through the comic, registered from the
       // same function the artwork was placed against. Registered after the bar
       // so the bar's own control wins where they overlap.
-      if (p.pans) {
-        frame.hit(xkcdui::readerPanUpHalf(target.deviceContext()), xkcdui::ActionPanUp);
-        frame.hit(xkcdui::readerPanDownHalf(target.deviceContext()), xkcdui::ActionPanDown);
-      }
+      // Always registered, not only when the comic pans: forward now always
+      // has somewhere to go, so a dead tap half would be the odd case.
+      frame.hit(xkcdui::readerPanUpHalf(target.deviceContext()), xkcdui::ActionPanUp);
+      frame.hit(xkcdui::readerPanDownHalf(target.deviceContext()), xkcdui::ActionPanDown);
       break;
     }
     case View::Number: {

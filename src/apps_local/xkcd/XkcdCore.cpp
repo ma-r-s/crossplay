@@ -293,6 +293,15 @@ Position startOf(const Rendition& r, int viewportW) {
   return p;
 }
 
+Position endOf(const Rendition& r, int viewportW, int viewportH) {
+  Position p;
+  p.column = lastColumn(r, viewportW);
+  p.row = rowsIn(r, viewportH) - 1;
+  if (p.row < 0) p.row = 0;
+  p.scrollY = evenTargetY(r, viewportH, p.row);
+  return p;
+}
+
 bool canStepBack(const Rendition& r, int viewportW, int viewportH, const Position& at) {
   (void)viewportH;
   return at.row > 0 || at.column != firstColumn(r, viewportW);
