@@ -173,3 +173,16 @@ checkers = circle-dot
 # fighting the column), `skull` (Cult of the Lamb's tone, not this device's),
 # `grid-3x3` (that is the board, and connections already owns a grid).
 knucklebones = dice-5
+# Minesweeper. `bomb` is the object the whole game is about avoiding, and a
+# sphere with a lit fuse is a silhouette nothing else on the shelf has.
+# Rejected: `flag` (that is the tool, not the game, and the game is not about
+# flags), `grid-3x3` (connections owns the grid), `land-mine` is not in this
+# lucide pin.
+minesweeper = bomb
+
+# Minesweeper's flag. Hand-drawn three times and wrong three times: the pennant
+# and the pole kept ending up the same height, so no flag could emerge from the
+# geometry at any size. The fork already vendors Lucide and generates from it,
+# and `flag` is there. Solitaire's pips went the same way after three rounds of
+# hand-drawing.
+mineflag = flag
