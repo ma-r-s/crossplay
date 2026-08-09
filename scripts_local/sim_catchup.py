@@ -103,3 +103,38 @@ if arduino.exists() and "inline int digitalRead(int)" not in arduino.read_text()
                 "inline void digitalWrite(int, int) {}\n"
             )
         print("[sim-catchup] applied: digitalRead / digitalWrite")
+
+# The simulator's ESPMock answers 1024*1024 to every heap question, always. Two
+# guards in this firmware read getMaxAllocHeap() and decide whether one more
+# buffer fits (util/DictZip.cpp, util/Dictionary.cpp), so against a constant
+# three times larger than an X4 Pro's whole heap, neither branch has ever been
+# taken outside a device. A frozen number also makes a leak invisible.
+#
+# src/platform/sim_heap.cpp counts what the firmware allocates and answers from
+# the device's budget. This points ESPMock at it. Patched here rather than
+# shadowed from sim-stubs/ for the reason at the top of this file: a library's
+# own include path wins over the project's -I.
+patch(
+    src / "Arduino.h",
+    "struct ESPMock {\n"
+    "  uint32_t getFreeHeap() { return 1024 * 1024; }\n"
+    "  void restart() {}\n"
+    "  uint32_t getHeapSize() { return 1024 * 1024; }\n"
+    "  uint32_t getMinFreeHeap() { return 1024 * 1024; }\n"
+    "  uint32_t getMaxAllocHeap() { return 1024 * 1024; }\n"
+    "};",
+    'extern "C" {\n'
+    "uint32_t crossplay_sim_free_heap();\n"
+    "uint32_t crossplay_sim_heap_size();\n"
+    "uint32_t crossplay_sim_min_free_heap();\n"
+    "uint32_t crossplay_sim_max_alloc_heap();\n"
+    "}\n\n"
+    "struct ESPMock {\n"
+    "  uint32_t getFreeHeap() { return crossplay_sim_free_heap(); }\n"
+    "  void restart() {}\n"
+    "  uint32_t getHeapSize() { return crossplay_sim_heap_size(); }\n"
+    "  uint32_t getMinFreeHeap() { return crossplay_sim_min_free_heap(); }\n"
+    "  uint32_t getMaxAllocHeap() { return crossplay_sim_max_alloc_heap(); }\n"
+    "};",
+    "ESPMock reports the device's heap budget, not a constant megabyte",
+)
