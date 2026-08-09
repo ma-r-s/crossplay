@@ -175,16 +175,29 @@ void HackerNewsActivity::loop() {
     }
   }
 
+  // The two side keys PAGE the story list. They are the device's only physical
+  // buttons and the case labels them previous and next page.
+  //
+  // They used to move `selected_` one story at a time -- a row cursor that only
+  // Confirm could open, and Confirm is PIN_UNASSIGNED on the X4 Pro and never
+  // fires. So you could walk an inverted highlight down thirty stories and had
+  // no way to open any of them. See docs/buttons.md.
+  //
+  // Paging moves the VIEW, not a selection: `selected_` is now only ever set by
+  // tapping a story, which is the thing that opens it. Rows stay tappable, so a
+  // button is never the only route.
   const bool next = mappedInput.wasReleased(MappedInputManager::Button::Down);
   const bool prev = mappedInput.wasReleased(MappedInputManager::Button::Up);
   if (phase_ == Phase::List && !stories_.empty() && (next || prev)) {
     const int count = static_cast<int>(stories_.size());
-    selected_ = (selected_ + (next ? 1 : count - 1)) % count;
-    requestUpdate();
-    return;
-  }
-  if (phase_ == Phase::List && mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    request(Pending::Article, "OPENING");
+    const int perPage = visibleRows_;
+    if (perPage > 0) {
+      const int pages = (count + perPage - 1) / perPage;
+      const int page = topIndex_ / perPage;
+      // Wraps: a page key that stops working at the last page reads as broken.
+      topIndex_ = ((page + (next ? 1 : pages - 1)) % pages) * perPage;
+      requestUpdate();
+    }
     return;
   }
 
@@ -529,10 +542,19 @@ void HackerNewsActivity::render(RenderLock&&) {
       // Computing it a second time here is how a list scrolls by a different
       // number of rows than it shows.
       const int16_t rowHeight = hnui::listRowHeight(target, tokens);
-      topIndex_ = static_cast<int>(
-          fui::listTopIndexFor(static_cast<int16_t>(selected_), static_cast<uint16_t>(topIndex_),
-                               fui::listVisibleRows(hnui::listBand(device), rowHeight, tokens.listRowGap),
-                               static_cast<uint16_t>(stories_.size())));
+      // Cached for loop(), which pages with the side keys and cannot measure:
+      // listVisibleRows needs a draw target. The shelf caches rowsPerPage the
+      // same way and for the same reason.
+      visibleRows_ = fui::listVisibleRows(hnui::listBand(device), rowHeight, tokens.listRowGap);
+      // topIndex_ is no longer derived from the selection. It was
+      // listTopIndexFor(selected_, ...), which scrolled the view to keep a row
+      // cursor visible -- and that cursor is gone. Paging owns the view now, so
+      // deriving it here would fight the page keys. It only needs clamping.
+      if (visibleRows_ > 0) {
+        const int maxTop = static_cast<int>(stories_.size()) - visibleRows_;
+        if (topIndex_ > maxTop) topIndex_ = maxTop < 0 ? 0 : maxTop;
+        if (topIndex_ < 0) topIndex_ = 0;
+      }
       hnui::ListModel model;
       model.items = rows_.empty() ? nullptr : rows_.data();
       model.count = static_cast<int>(rows_.size());

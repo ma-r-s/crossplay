@@ -363,14 +363,40 @@ the start of a game and fill as it goes. The layout allocates their space from
 the first frame, because a board that reflows halfway through a game is worse
 than one with a little air in it.
 
-**Games are touch-only. There is no cursor.** Chess grew a board cursor before
-touch was settled, and Connections inherited a menu cursor from the same habit.
-Both were dead weight: an on-screen cursor that only physical buttons move is a
-second, worse input model running alongside the real one, and it comes with its
-own bugs. A calendar cursor that persisted across months produced a black square
-that meant nothing and could not be explained. Removing it removed the bug
-class, not the bug. Keep the physical buttons for Back and system functions; the
-game itself is fingers.
+**Pointing is fingers. Stepping is buttons. There is no cursor.**
+
+Chess grew a board cursor before touch was settled, and Connections inherited a
+menu cursor from the same habit. Both were dead weight: an on-screen cursor that
+only physical buttons move is a second, worse input model running alongside the
+real one, and it comes with its own bugs. A calendar cursor that persisted
+across months produced a black square that meant nothing and could not be
+explained. Removing it removed the bug class, not the bug.
+
+The shelf kept one until 2026-08 and it was worse than dead: the side keys moved
+a selection that only **Confirm** could open, and `frontButtonConfirm` on the X4
+Pro resolves to `PIN_UNASSIGNED`. You could move a cursor you had no way to act
+on.
+
+This rule used to end "keep the physical buttons for Back and system functions",
+and that is not possible on this device. **The X4 Pro has two buttons**: the
+side page keys, wired to logical Up and Down. Back, Confirm, Left and Right are
+all unassigned in the board profile and are never configured as inputs. Back is
+a left-edge swipe, which `wasReleased(Button::Back)` already folds in.
+
+So the rule is:
+
+- **Pointing** -- which cell, column, card, box -- is touch, always. The answer
+  is a position and the finger names it exactly; a button can only express it by
+  inventing a cursor.
+- **Stepping** -- next page, previous page -- is the two side keys. These have
+  no position, so drawing a control for them is drawing a place for something
+  that does not live anywhere.
+- **Never only a button.** Every page key action stays reachable by touch, or
+  the invisible input model wins arguments it should not.
+
+And no on-screen hint for them: they are moulded page-turn keys on a device
+whose reader turns pages with them. The affordance is in the case. See
+[buttons.md](buttons.md).
 
 **A control that cannot act dims. It does not disappear.** A button that
 vanishes takes its space with it, so the layout jumps and you lose your place;

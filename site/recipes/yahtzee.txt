@@ -1,0 +1,35 @@
+# site/assets/shots/yahtzee.png
+#
+# A turn mid-roll, which is the only state that shows everything the card does:
+# five real dice, the preview number in every box the hand could still take, the
+# committed scores beside them, the bonus line doing its arithmetic, and the
+# capsule counting the rolls left.
+#
+# NOT REPRODUCIBLE YET, and that is worth saying plainly rather than letting a
+# future capture quietly disagree with the one on the site. YahtzeeActivity's
+# beginSoloGame seeds from millis(), so replaying these taps gives a different
+# hand every time. The layout, the previews and the capsule are all identical;
+# only the dice and therefore the numbers change.
+#
+# This is one of the five millis() seeding sites that task #8 exists to pin.
+# Once it is pinned this recipe replays exactly, and until then a re-capture
+# needs its alt text checked against whatever it actually rolled.
+
+input:
+  2000:TAP:120,635      # GAMES on the home shelf
+  3500:TAP:262,688      # the second page mark -- the folder holds eight a page
+  5000:TAP:240,275      # YAHTZEE, third row of page two
+  6500:TAP:240,143      # PLAY
+  9000:TAP:240,760      # ROLL -- the capsule is the roll button
+  11500:TAP:100,120      # hold the first die
+  13000:TAP:230,120      # and the third
+  16000:QUIT
+
+shot:
+  15000:./qa-artifacts/yahtzee.bmp
+
+# The five dice are 62px with 12px gaps, centred, at y = kHeaderHeight + kGutter.
+# Category rows are 33px tall starting under the column headers; the gap between
+# two dice belongs to neither, so a tap there is a deliberate miss.
+
+downsample: 2x2 box, 960x1600 -> 480x800 8-bit grey

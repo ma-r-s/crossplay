@@ -11,6 +11,7 @@
 #include "../Shelf.h"
 #include "../ui/Toybox.h"
 #include "../ui/ToyboxFonts.h"
+#include "../ui/ToyboxSeed.h"
 #include "../ui/ToyboxIcons.h"
 #include "../ui/ToyboxTheme.h"
 #include "JaipurArt.h"
@@ -195,7 +196,7 @@ void JaipurActivity::onEnter() {
   Activity::onEnter();
   toybox::ensureFonts(renderer);
   // Mixed from the clock, so two games in a row are not the same game.
-  seed = static_cast<uint32_t>(millis()) * 2654435761u + 1u;
+  seed = toybox::seed();
 
   hasSavedGame = loadGame();
   goToMenu();

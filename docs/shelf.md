@@ -54,6 +54,45 @@ that is how the previous base's Apps menu ended up holding Reading Stats and the
 WiFi transfer page next to Sokoban. "Apps" beside "Games" means the useful ones
 beside the fun ones, and needs no explanation.
 
+## Pages, not scrolling
+
+A folder that does not fit is drawn a page at a time, with a row of pips above
+the footer. Tapping a pip goes straight to that page.
+
+**The reason is touch, not taste.** `ShelfFolderActivity` handles exactly one
+gesture, `wasScreenTapped`: there is no swipe anywhere in this fork, and the
+list component's 3px overflow track is drawn but not tappable. So before this,
+every row past the ninth could be reached only with the physical buttons, on a
+device whose games are touch-only on purpose. Scrolling was not worse-looking;
+it was unreachable.
+
+Three things follow, and each was got wrong once:
+
+- **The page is derived from the selection, never stored.** Two facts that must
+  agree are one fact stored once. A page member drifts the moment a button moves
+  the cursor off it, and then the screen styles a row it is not showing.
+- **The screen is handed a slice, not the folder plus an offset.** The list
+  component clamps `topIndex` to `count - visible` so its last screen is always
+  full (`list.h:164`), which is right for scrolling and wrong for paging: page
+  two of twelve showed items four to eleven, repeating half of page one. A page
+  is a short list, so it is passed as one, and the component never learns pages
+  exist. `ListItem::actionValue` still carries the absolute index, so a tap
+  reports which game it is rather than which row.
+- **The marks are an indicator, not a row of buttons.** A small centred cluster
+  with air around it; targets a thumb wide and contiguous *within the cluster
+  only*, so the screen edges do nothing. They stay tappable because
+  `BaseTheme::drawButtonHints` returns early when `gpio.hasTouch()` and the X4
+  Pro has a GT911: upstream teaches nothing about the physical buttons on a
+  touch device, so a touch user cannot discover that Up and Down would page.
+  Touch has to stay complete. The iOS home screen resolves the same tension the
+  same way.
+
+Pips rather than prev/next arrows because arrows are up to `pageCount - 1` taps
+to the far end and say nothing about where you are. A right chevron was the
+obvious glyph for "next" and is exactly what could not be used: on this device a
+right chevron already means "opens", and it is the only affordance the player
+bar has.
+
 ## The three rules
 
 **1. A folder holds items, never folders.** There is nowhere in `shelf::Folder`
@@ -135,6 +174,13 @@ blank icon gutter is silent otherwise. Pick for silhouette rather than
 literalness: the label already says the name, so the icon's job is to be
 distinct at a glance in a 62px row.
 
+**A folder has no size limit.** It used to: the folder activity read the whole
+registry into fixed arrays of sixteen and clamped in silence, so a seventeenth
+game simply did not appear, with no log and nothing to grep for. The screen is
+now handed one page at a time, so only a page is ever copied and the arrays are
+sized by the tallest band this panel can draw rather than by how many games
+Mario has promised people.
+
 **4. Leave through the shelf.**
 
 ```cpp
@@ -157,7 +203,15 @@ activities, so it pulls in `ActivityManager` and cannot be built freestanding.
 
 Its whole job is three facts -- which folder is open, which folder Home should
 select, which row each folder should select -- and those are verified in the
-simulator instead. Both were wrong at some point and both were caught by looking:
+simulator instead.
+
+The last two of those now outlive a reboot, in `/.crosspoint/shelf.cfg` beside
+`player.cfg`. They are plain `.bss` otherwise, and `main.cpp` deep-sleeps on the
+idle timeout with wake being effectively a chip reset, so the shelf used to
+forget which game you were playing every time you put the device down. Verified
+by driving it twice: one run opens the third game and leaves, and a second run
+from a cold boot must land Home on Games and the folder's cursor on that same
+game. Both were wrong at some point and both were caught by looking:
 leaving a folder put the cursor on Browse Files, and returning from the third
 game put it on the first. If you touch that bookkeeping, drive it:
 

@@ -79,6 +79,9 @@ class HackerNewsActivity final : public Activity {
   std::vector<hn::Story> stories_;
   int selected_ = 0;
   int topIndex_ = 0;
+  // How many story rows fit, measured in render() and read by loop() so the
+  // side keys can page. Zero until the list has been drawn once.
+  int visibleRows_ = 0;
 
   // The flattened document the reader draws, and where in it we are.
   std::string document_;

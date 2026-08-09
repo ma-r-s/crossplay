@@ -69,21 +69,18 @@
   // Scancodes, matching HalGPIO's own table. Kept here rather than as button
   // indices so the firmware's remapping stays the only thing that decides what
   // a button does.
+  // The X4 Pro has TWO buttons: the side page keys, wired to logical up and
+  // down. There is no back, ok, left or right key -- those pins are unassigned
+  // in the board profile and are never configured as inputs.
+  //
+  // The simulator this is compiled from does have all six, so pressing them
+  // here worked and taught a control scheme the hardware cannot honour. This
+  // demo is the first thing anyone touches, so it should teach the device.
   var SCANCODE = {
-    back: 41,
-    ok: 40,
-    right: 79,
-    left: 80,
     down: 81,
     up: 82,
   };
   var KEYS = {
-    Escape: SCANCODE.back,
-    Backspace: SCANCODE.back,
-    Enter: SCANCODE.ok,
-    NumpadEnter: SCANCODE.ok,
-    ArrowRight: SCANCODE.right,
-    ArrowLeft: SCANCODE.left,
     ArrowDown: SCANCODE.down,
     ArrowUp: SCANCODE.up,
   };
@@ -318,6 +315,30 @@
       el.addEventListener("pointercancel", release);
     }
 
+    // Back is a SWIPE on this device, not a key: MappedInputManager::wasReleased
+    // folds a left-edge left-to-right drag into Button::Back, which is the only
+    // reason every app is exitable with the back pin unassigned. So the demo's
+    // Back control performs that swipe rather than pressing a button that does
+    // not exist -- what it does here is exactly what a thumb does there.
+    function swipeBack() {
+      if (!injectTouch) return;
+      // LOGICAL portrait coordinates, which is what toPanel hands the firmware:
+      // logicalW is the panel's short side. Using PANEL_W here would swipe off
+      // the side of a 480-wide screen.
+      var y = Math.round(logicalH / 2);
+      var steps = 8;
+      // The gesture wants a start inside the left quarter
+      // (LEFT_EDGE_BACK_GESTURE_FRAC_X = 0.25) and more horizontal travel than
+      // vertical. 5% to 55% is comfortably both.
+      var from = Math.round(logicalW * 0.05);
+      var to = Math.round(logicalW * 0.55);
+      injectTouch(0, from, y);
+      for (var i = 1; i <= steps; i++) {
+        injectTouch(1, Math.round(from + ((to - from) * i) / steps), y);
+      }
+      injectTouch(2, to, y);
+    }
+
     return new Promise(function (resolve, reject) {
       var script = document.createElement("script");
       script.src = "emulator/crossplay.js";
@@ -397,6 +418,7 @@
             resolve({
               canvas: canvas,
               bindButton: bindButton,
+              swipeBack: swipeBack,
               scancodes: SCANCODE,
               // Hiding a device stops it being drawn; the firmware behind it
               // keeps running, because there is no clean way to tear a wasm

@@ -28,6 +28,8 @@ c++ -std=c++17 -Wall -Wextra -Werror -Wno-comment -Wno-format-truncation \
   ../../src/apps_local/battleship/BattleshipScreens.cpp \
   ../../src/apps_local/ShelfScreen.cpp \
   ../../src/apps_local/chess/ChessScreens.cpp \
+  ../../src/apps_local/checkers/CheckersScreens.cpp \
+  ../../src/apps_local/connectfour/ConnectFourScreens.cpp \
   ../../src/apps_local/connections/ConnectionsCore.cpp \
   ../../src/apps_local/connections/ConnectionsScreens.cpp \
   ../../src/apps_local/dungeon/DungeonCore.cpp \
@@ -35,7 +37,9 @@ c++ -std=c++17 -Wall -Wextra -Werror -Wno-comment -Wno-format-truncation \
   ../../src/apps_local/hackernews/HackerNewsScreens.cpp \
   ../../src/apps_local/insider/InsiderCore.cpp \
   ../../src/apps_local/insider/InsiderScreens.cpp \
+  ../../src/apps_local/knucklebones/KnucklebonesScreens.cpp \
   ../../src/apps_local/link/LinkScreens.cpp \
+  ../../src/apps_local/minesweeper/MinesweeperScreens.cpp \
   ../../src/apps_local/murdle/MurdleCast.cpp \
   ../../src/apps_local/murdle/MurdleCore.cpp \
   ../../src/apps_local/murdle/MurdleScreens.cpp \
