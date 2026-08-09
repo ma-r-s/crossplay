@@ -316,7 +316,7 @@ fui::Rect buildStartMenu(toybox::Screen& screen, const StartModel& model) {
   // and recognised everywhere.
   for (int i = 0; i < count; ++i) {
     if (startRowAt(model, i) != StartRow::PlayNearby) continue;
-    toybox::iconAtRowRight(screen, listBand, i, linkui::nearbyMark(), i == model.selected);
+    toybox::iconAtRowRight(screen, listBand, i, 0, linkui::nearbyMark(), i == model.selected);
   }
 
   return screen.body();

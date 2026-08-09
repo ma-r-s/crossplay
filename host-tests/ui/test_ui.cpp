@@ -795,6 +795,230 @@ void testShelfFolderDrawsItsOwnNameAndRows() {
   CHECK(!other.target.drew("GAMES"));
 }
 
+// A folder with more rows than fit, which is every GAMES folder from the tenth
+// game onward.
+//
+// The row icons are drawn by this fork rather than by the list component, so
+// they carry their own idea of where a row is, and it used to be the absolute
+// item index. That is the same thing as the row only while nothing scrolls. At
+// ten items the tenth icon painted below the band in black, on top of the black
+// player footer; once scrolled, every icon sat a row away from its label. The
+// three shelf tests that already existed all used lists short enough to fit, so
+// none of them could see it.
+//
+// Asserted as "each visible label has its own icon on its own row" rather than
+// as a count, because the count was right the whole time the positions were
+// wrong. A distinct icon per row is what makes an off-by-N detectable at all.
+//
+// Driven at both pages, because they fail differently and an earlier draft of
+// this test only had the second. On page one the rows past the fold must simply
+// not be drawn, which is the tenth-icon-on-the-footer case. On page two the
+// drawn ones must have moved up with their labels.
+void checkShelfIconsSitOnTheirRows(const int page) {
+  constexpr int kCount = 12;
+  const freeink::Icon* const palette[kCount] = {&icon_chess_32,     &icon_battleship_32, &icon_connections_32,
+                                                &icon_solitaire_32, &icon_nearby_32,     &icon_games_32,
+                                                &icon_apps_32,      &icon_hackernews_32, &icon_unreadable_32,
+                                                &icon_study_32,     &icon_dungeon_32,    &icon_insider_32};
+
+  fui::ListItem items[kCount] = {};
+  char labels[kCount][8] = {};
+  for (int i = 0; i < kCount; ++i) {
+    std::snprintf(labels[i], sizeof(labels[i]), "GAME%02d", i);
+    items[i].label = labels[i];
+    items[i].actionValue = static_cast<int16_t>(i);
+  }
+
+  const fui::ThemeTokens tokens = toybox::themeTokens();
+  const shelfui::Paging paging = shelfui::pagingFor(device(), tokens, true, kCount);
+  // The list has to overflow one page or neither case under test exists.
+  CHECK(paging.pageCount > 1);
+  const fui::Rect band = shelfui::listBand(device(), true, true);
+
+  shelfui::MenuModel model;
+  model.title = "GAMES";
+  model.playerName = "SPIKY GRIM BEARD";
+  model.page = page;
+  model.pageCount = paging.pageCount;
+
+  // The screen is handed one page, sliced, exactly as the activity hands it one.
+  // The last page is short, so this is not always rowsPerPage.
+  const int first = page * paging.rowsPerPage;
+  const int onThisPage = kCount - first < paging.rowsPerPage ? kCount - first : paging.rowsPerPage;
+  model.items = items + first;
+  model.icons = palette + first;
+  model.count = onThisPage;
+  model.selected = 0;
+
+  Rendered menu;
+  buildShelf(menu, model);
+
+  // Half a row: an icon one row out of place is a whole rowHeight + gap away,
+  // so this is generous about text metrics and still exact about rows.
+  const int tolerance = tokens.rowHeight / 2;
+  int paired = 0;
+  for (int i = 0; i < kCount; ++i) {
+    const fui::Rect* icon = nullptr;
+    for (const auto& blit : menu.target.blits) {
+      if (blit.data == palette[i]->bits) {
+        icon = &blit.rect;
+        break;
+      }
+    }
+    const fui::Rect* label = nullptr;
+    for (const auto& run : menu.target.texts) {
+      if (run.text == labels[i]) {
+        label = &run.rect;
+        break;
+      }
+    }
+
+    // Scrolled off the top, or below the fold. The icon must be gone too: this
+    // is the half that used to paint onto the player footer.
+    if (label == nullptr) {
+      CHECK(icon == nullptr);
+      continue;
+    }
+
+    // Guarded rather than asserted-and-continued: a missing icon here used to
+    // segfault the rest of the loop, which is a worse failure report than the
+    // one line that is actually wrong.
+    CHECK(icon != nullptr);
+    if (icon == nullptr) continue;
+
+    CHECK(icon->y >= band.y);
+    CHECK(icon->y + icon->height <= band.y + band.height);
+    const int iconMid = icon->y + icon->height / 2;
+    const int labelMid = label->y + label->height / 2;
+    CHECK(iconMid >= labelMid - tolerance && iconMid <= labelMid + tolerance);
+    ++paired;
+  }
+
+  CHECK(paired == onThisPage);
+}
+
+void testShelfIconsFollowTheRowsWhenTheListScrolls() {
+  // Page one of a folder that overflows: the rows past the fold are the ones
+  // that used to paint their icons onto the player footer.
+  checkShelfIconsSitOnTheirRows(0);
+  // And page two, where every drawn icon has moved up by a page and the ones
+  // above the band must be gone.
+  checkShelfIconsSitOnTheirRows(1);
+}
+
+// The shelf pages rather than scrolls, which is what makes a folder of forty
+// games reachable on a panel whose only gesture is a tap: there is no swipe
+// anywhere in this fork, and the list component's 3px overflow track is drawn
+// but not tappable, so before this every row past the ninth could be reached
+// only with the physical buttons.
+void testTheShelfPagesWhenAFolderOverflows() {
+  constexpr int kCount = 12;
+  fui::ListItem items[kCount] = {};
+  char labels[kCount][8] = {};
+  for (int i = 0; i < kCount; ++i) {
+    std::snprintf(labels[i], sizeof(labels[i]), "GAME%02d", i);
+    items[i].label = labels[i];
+    items[i].actionValue = static_cast<int16_t>(i);
+  }
+
+  const fui::ThemeTokens tokens = toybox::themeTokens();
+
+  // A folder that fits pays nothing for paging: no bar, and every row it could
+  // hold before it is still there.
+  const shelfui::Paging small = shelfui::pagingFor(device(), tokens, true, 3);
+  CHECK(small.pageCount == 1);
+  CHECK(small.rowsPerPage ==
+        fui::listVisibleRows(shelfui::listBand(device(), true, false), tokens.rowHeight, tokens.listRowGap));
+
+  const shelfui::Paging paging = shelfui::pagingFor(device(), tokens, true, kCount);
+  CHECK(paging.pageCount == 2);
+  // The bar costs a row, so a paged folder holds fewer than an unpaged one.
+  CHECK(paging.rowsPerPage < small.rowsPerPage);
+  CHECK(paging.rowsPerPage * paging.pageCount >= kCount);
+
+  // Every item is on exactly one page. This is the assertion that catches the
+  // list component clamping topIndex to count - visible so its last screen is
+  // full (list.h:164): under that rule page two of twelve showed items four to
+  // eleven, repeating half of page one. It is why the screen is handed a slice.
+  for (int page = 0; page < paging.pageCount; ++page) {
+    const int first = page * paging.rowsPerPage;
+    const int onThisPage = kCount - first < paging.rowsPerPage ? kCount - first : paging.rowsPerPage;
+
+    shelfui::MenuModel model;
+    model.title = "GAMES";
+    model.playerName = "SPIKY GRIM BEARD";
+    model.items = items + first;
+    model.count = onThisPage;
+    model.selected = 0;
+    model.page = page;
+    model.pageCount = paging.pageCount;
+
+    Rendered menu;
+    buildShelf(menu, model);
+    for (int i = 0; i < kCount; ++i) {
+      const bool belongsHere = i >= first && i < first + onThisPage;
+      CHECK(menu.target.drew(labels[i]) == belongsHere);
+    }
+  }
+
+  // And the pips are reachable. Rendered page one, tapping the bar must offer
+  // every other page, because being able to leave page one is the entire point.
+  shelfui::MenuModel model;
+  model.title = "GAMES";
+  model.playerName = "SPIKY GRIM BEARD";
+  model.items = items;
+  model.count = paging.rowsPerPage;
+  model.selected = 0;
+  model.page = 0;
+  model.pageCount = paging.pageCount;
+
+  Rendered menu;
+  buildShelf(menu, model);
+  const fui::Rect band = shelfui::listBand(device(), true, true);
+
+  // Found by probing rather than by recomputing the layout, so the test cannot
+  // agree with the builder by making the same arithmetic mistake twice.
+  int barY = -1;
+  for (int y = band.y + band.height; y < 800 && barY < 0; ++y) {
+    if (menu.tap(device().width / 2, y).action == shelfui::ActionGoToPage) barY = y;
+  }
+  CHECK(barY > 0);
+  CHECK(barY > band.y + band.height);
+
+  // Every page is one tap away, and the targets are contiguous *within the
+  // cluster*: a sweep hits pages in ascending order with no dead pixel between
+  // the first target and the last. Outside the cluster there is deliberately
+  // nothing, because the marks are a position indicator with air around them
+  // rather than a bar of buttons -- so this asserts no gap rather than no miss.
+  // A gap between adjacent pages is a strip the thumb finds and the eye cannot.
+  int reached[8] = {};
+  int firstHit = -1;
+  int lastHit = -1;
+  int gaps = 0;
+  int previous = -1;
+  for (int x = toybox::kMargin; x < device().width - toybox::kMargin; ++x) {
+    const fui::ActionEvent hit = menu.tap(x, barY);
+    if (hit.action != shelfui::ActionGoToPage) {
+      if (firstHit >= 0 && lastHit == x - 1) continue;  // past the cluster's end
+      continue;
+    }
+    CHECK(hit.value >= 0 && hit.value < paging.pageCount);
+    if (firstHit < 0) firstHit = x;
+    if (lastHit >= 0 && x != lastHit + 1) ++gaps;
+    // Ascending left to right: page one is on the left, as it reads.
+    CHECK(hit.value >= previous);
+    previous = hit.value;
+    lastHit = x;
+    if (hit.value < 8) ++reached[hit.value];
+  }
+  CHECK(firstHit > 0);
+  CHECK(gaps == 0);
+  for (int p = 0; p < paging.pageCount; ++p) CHECK(reached[p] > 0);
+  // A cluster, not the whole bar: it must leave the edges alone or it is the
+  // control this was rewritten to stop being.
+  CHECK(lastHit - firstHit < band.width - 2 * toybox::kMargin);
+}
+
 void testAFolderWithoutADeviceNameHasNoFooter() {
   fui::ListItem items[1] = {};
   items[0].label = "STUDY";
@@ -824,8 +1048,8 @@ void testAFolderWithoutADeviceNameHasNoFooter() {
   // The footer is not just hidden, its space is returned to the list. A folder
   // that reserved room for a control it never draws is dead space, and the list
   // would think it had one row less than it does.
-  const fui::Rect withName = shelfui::listBand(device(), true);
-  const fui::Rect without = shelfui::listBand(device(), false);
+  const fui::Rect withName = shelfui::listBand(device(), true, false);
+  const fui::Rect without = shelfui::listBand(device(), false, false);
   CHECK(without.height > withName.height);
   CHECK(without.height - withName.height == toybox::kRowHeight + toybox::kGutter);
 }
@@ -2330,6 +2554,8 @@ int main() {
   testTheResultNamesTheOutcomeFromYourSeat();
   testTheCheckersHowToPagesAndEnds();
   testShelfFolderDrawsItsOwnNameAndRows();
+  testShelfIconsFollowTheRowsWhenTheListScrolls();
+  testTheShelfPagesWhenAFolderOverflows();
   testAFolderWithoutADeviceNameHasNoFooter();
   testTheShelfFooterIsADoorWithAFaceOnIt();
   testPlayerOffersThreeSeparateWords();

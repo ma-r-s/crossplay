@@ -27,22 +27,34 @@ class ShelfFolderActivity final : public Activity {
   void render(RenderLock&&) override;
 
  private:
-  void buildItems();
+  // Fills the two arrays with one page of the folder, starting at `first`.
+  void buildPage(int first, int count);
 
-  // Sized for the largest folder we would ever put on one screen without
-  // paging. The list virtualizes, so this bounds the registry read, not the
-  // scroll. A folder that outgrows it is a sign it wants splitting, not a
-  // bigger number.
-  static constexpr int kMaxItems = 16;
+  // One screen's worth of rows, not one folder's worth of items.
+  //
+  // This used to be sized by the registry, so the folder's size was bounded by
+  // an activity's array and a seventeenth game could not exist. Now that the
+  // screen is handed a page at a time, only the page is ever copied, and a
+  // folder can hold as many games as Mario writes down. Nine rows fit a folder
+  // with the player bar and ten without; the slack is there so a token change
+  // cannot silently overflow it, and static_assert catches it if one does.
+  static constexpr int kMaxRowsPerPage = 16;
 
   const int folder;
-  freeink::ui::ListItem items[kMaxItems] = {};
-  const freeink::Icon* icons[kMaxItems] = {};
+  freeink::ui::ListItem items[kMaxRowsPerPage] = {};
+  const freeink::Icon* icons[kMaxRowsPerPage] = {};
+  // The whole folder's count, not the page's.
   int itemCount = 0;
   int selected = 0;
   // Whether the cursor has been revealed. See onEnter().
   bool cursorShown = false;
-  int topIndex = 0;
+  // How many rows a page holds, from the last render. Cached rather than derived
+  // in loop() because it is a property of the screen's geometry and not of the
+  // selection, so no input can make it disagree with what was drawn. The page
+  // itself is deliberately not stored: that one would drift the moment a button
+  // moved the cursor. A tap can only arrive after a render, which is what makes
+  // this safe -- interactionsReady says so.
+  int rowsPerPage = 1;
 
   toybox::Interactions interactions;
   bool interactionsReady = false;
