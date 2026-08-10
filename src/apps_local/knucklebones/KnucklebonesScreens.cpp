@@ -74,51 +74,106 @@ void artChrome(toybox::Screen& screen, const char* title, const char* rightLabel
 // The budget now: header and air (100), grid (231), column scores (22), the
 // strip with the die (83), column scores (22), grid (231), then the capsule and
 // its margins. 777 of 800.
-constexpr int16_t kCell = 73;
 constexpr int16_t kCellGap = 6;
-constexpr int16_t kGridSide = kCell * kb::kColumns + kCellGap * (kb::kColumns - 1);
 constexpr int16_t kScoreHeight = 22;
 
 // The die drawn inside every cell.
 constexpr int16_t kPipSize = 9;
 
-// Anchored left rather than centred. Centred, the grid left 44% of the panel
-// permanently empty down its full height while every number on the screen was
-// squeezed to the smallest type the fork uses. The gutter now carries one large
-// total per grid, beside the grid it belongs to -- which also kills the
-// ordering ambiguity that a single "9 - 12" line could not resolve, since
-// left-to-right reads as top-to-bottom to everyone.
-constexpr int16_t kGridLeft = toybox::kMargin;
+// TEMP ART PASS, round 2. Mario rejected every board candidate in round one
+// for the same two sins: the whole composition hugged the left edge, and the
+// column scores stayed in the smallest cut the fork owns. So these candidates
+// change the board's whole shape rather than its trimmings. The matched-dice
+// inversion he did like rides along in all three.
+//
+//  0  shipping: square cells, grids left, totals alone in the right gutter
+//  1  MAT: cells widened until the grids fill the panel; mirrored score
+//     bands on each player's own side; the strip between the grids becomes a
+//     scoreboard, THEM - die - YOU
+//  2  ACROSS: the grids side by side like two cards on a table, named totals
+//     above each, the die big in the space that frees below
+//  3  CENTRED: the shipping rhythm on the panel's own axis, totals named in
+//     the strip
+int boardLayout() { return boardVariant(); }
 
-int16_t gridLeft(const fui::DeviceContext&) { return kGridLeft; }
+int16_t bCellW() {
+  switch (boardLayout()) {
+    case 1:
+      return 140;
+    case 2:
+      return 70;
+    default:
+      return 73;
+  }
+}
+int16_t bCellH() {
+  switch (boardLayout()) {
+    case 1:
+      return 74;
+    case 2:
+      return 70;
+    default:
+      return 73;
+  }
+}
+int16_t bGridW() { return static_cast<int16_t>(bCellW() * kb::kColumns + kCellGap * (kb::kColumns - 1)); }
+int16_t bGridH() { return static_cast<int16_t>(bCellH() * kb::kRows + kCellGap * (kb::kRows - 1)); }
 
-constexpr int16_t kStripHeight = 83;
+int16_t gridLeftOf(const fui::DeviceContext& device, const bool yours) {
+  switch (boardLayout()) {
+    case 1:
+    case 3:
+      return static_cast<int16_t>((device.width - bGridW()) / 2);
+    case 2:
+      // YOU left, THEM right, the order the Yahtzee card taught.
+      return yours ? 12 : static_cast<int16_t>(12 + bGridW() + 12);
+    default:
+      // Shipping: anchored left so the right gutter can carry the totals.
+      return toybox::kMargin;
+  }
+}
 
-int16_t theirsTop() { return static_cast<int16_t>(toybox::kHeaderHeight + toybox::kGutter * 2); }
+int16_t gridTopOf(const bool yours) {
+  switch (boardLayout()) {
+    case 1:
+      return yours ? 448 : 126;
+    case 2:
+      return 190;
+    case 3:
+      return yours ? 452 : 100;
+    default:
+      return yours ? 450 : 100;
+  }
+}
 
-int16_t theirsScoreTop() { return static_cast<int16_t>(theirsTop() + kGridSide + 2); }
+int16_t scoreTopOf(const bool yours) {
+  switch (boardLayout()) {
+    case 1:
+      // Mirrored: their tally on their far side, yours on your near side.
+      return yours ? 688 : 92;
+    case 2:
+      return 420;
+    case 3:
+      return yours ? 687 : 335;
+    default:
+      return yours ? 683 : 333;
+  }
+}
 
-int16_t stripTop() { return static_cast<int16_t>(theirsScoreTop() + kScoreHeight); }
+int16_t scoreBandH() { return boardLayout() == 0 ? kScoreHeight : 28; }
 
-int16_t yoursTop() { return static_cast<int16_t>(stripTop() + kStripHeight + toybox::kGutter); }
-
-// Below your grid, not above it. Above, it sat in the same band as the corner
-// brackets that mark a playable column and read as a number inside the bracket.
-// Both score rows are still on the side of their grid that faces the middle for
-// the opponent and the edge for you, which is the only asymmetry that matters:
-// each number is adjacent to the grid it describes.
-int16_t yoursScoreTop() { return static_cast<int16_t>(yoursTop() + kGridSide + 2); }
-
-// One cell's rect. Row 0 is the near end for whoever owns the grid, so your own
-// grid stacks upward from the bottom and the opponent's stacks downward from
-// the top -- the two grids face each other across the strip, the way two
-// players face each other across a table.
+// One cell's rect. Row 0 is the near end for whoever owns the grid, so your
+// own grid stacks upward from the bottom and the opponent's stacks downward
+// from the top -- facing each other across the strip the way two players face
+// each other across a table. Side by side (layout 2) has no facing, so both
+// grids stack the way gravity fills them.
 fui::Rect cellRect(const fui::DeviceContext& device, const int column, const int row, const bool yours) {
-  const int16_t left = static_cast<int16_t>(gridLeft(device) + column * (kCell + kCellGap));
-  const int16_t top = yours ? yoursTop() : theirsTop();
-  const int16_t offset = yours ? static_cast<int16_t>(kGridSide - kCell - row * (kCell + kCellGap))
-                               : static_cast<int16_t>(row * (kCell + kCellGap));
-  return fui::makeRect(left, static_cast<int16_t>(top + offset), kCell, kCell);
+  const int16_t left = static_cast<int16_t>(gridLeftOf(device, yours) + column * (bCellW() + kCellGap));
+  const int16_t top = gridTopOf(yours);
+  const bool upward = yours || boardLayout() == 2;
+  const int16_t offset = upward ? static_cast<int16_t>(bGridH() - bCellH() - row * (bCellH() + kCellGap))
+                                : static_cast<int16_t>(row * (bCellH() + kCellGap));
+  return fui::makeRect(left, static_cast<int16_t>(top + offset), bCellW(), bCellH());
 }
 
 // The pip layout of a die face, as offsets in a 3x3 lattice. Drawn rather than
@@ -133,11 +188,16 @@ void drawFace(toybox::Screen& screen, const fui::Rect& where, const uint8_t valu
   if (value < 1 || value > kb::kFaces) return;
 
   const fui::Paint ink = fui::Paint::solid(paper ? fui::Color::White : fui::Color::Black);
-  const int16_t step = static_cast<int16_t>(where.width / 4);
+  // Pips lay out on the shorter side and centre on the longer one, so a die in
+  // a widened cell is still a die rather than a stretched one.
+  const int16_t side = where.width < where.height ? where.width : where.height;
+  const int16_t originX = static_cast<int16_t>(where.x + (where.width - side) / 2);
+  const int16_t originY = static_cast<int16_t>(where.y + (where.height - side) / 2);
+  const int16_t step = static_cast<int16_t>(side / 4);
   for (int index = 0; index < 9; ++index) {
     if (kLayouts[value][index] == 0) continue;
-    const int16_t cx = static_cast<int16_t>(where.x + step * (index % 3 + 1));
-    const int16_t cy = static_cast<int16_t>(where.y + step * (index / 3 + 1));
+    const int16_t cx = static_cast<int16_t>(originX + step * (index % 3 + 1));
+    const int16_t cy = static_cast<int16_t>(originY + step * (index / 3 + 1));
     screen.target().fill(fui::makeRect(static_cast<int16_t>(cx - kPipSize / 2), static_cast<int16_t>(cy - kPipSize / 2),
                                        kPipSize, kPipSize),
                          ink);
@@ -152,8 +212,9 @@ void drawGrid(toybox::Screen& screen, const kb::Grid& grid, const bool yours) {
   // only cue was remembering that yours is nearer. One side marked, not both,
   // so the board still reads as one object.
   if (!yours) {
-    const fui::Rect ground = fui::makeRect(static_cast<int16_t>(kGridLeft - 4), static_cast<int16_t>(theirsTop() - 4),
-                                           static_cast<int16_t>(kGridSide + 8), static_cast<int16_t>(kGridSide + 8));
+    const fui::Rect ground =
+        fui::makeRect(static_cast<int16_t>(gridLeftOf(device, false) - 4), static_cast<int16_t>(gridTopOf(false) - 4),
+                      static_cast<int16_t>(bGridW() + 8), static_cast<int16_t>(bGridH() + 8));
     screen.target().fill(ground, fui::Paint::dither(fui::Color::LightGray));
   }
 
@@ -167,7 +228,7 @@ void drawGrid(toybox::Screen& screen, const kb::Grid& grid, const bool yours) {
       // surface, which the ink-budget rule frowns at; that trade is exactly
       // what the render is for.
       bool matched = false;
-      if (boardVariant() == 2 && value != kb::kEmpty) {
+      if (boardLayout() != 0 && value != kb::kEmpty) {
         int same = 0;
         for (int r = 0; r < kb::kRows; ++r) {
           if (grid.cell[column][r] == value) ++same;
@@ -197,12 +258,15 @@ void drawGrid(toybox::Screen& screen, const kb::Grid& grid, const bool yours) {
     char label[8];
     std::snprintf(label, sizeof(label), "%d", columnTotal);
     fui::TextStyle style;
-    style.font = toybox::kSmallFont;
+    // The body cut off layout 0: "the numbers are so little" was half of what
+    // sank round one, and a column score is a number the game is played for.
+    style.font = boardLayout() == 0 ? toybox::kSmallFont : toybox::kUiFont;
     style.align = fui::TextAlign::Center;
-    const int16_t left = static_cast<int16_t>(kGridLeft + column * (kCell + kCellGap));
-    screen.target().text(fui::makeRect(left, yours ? yoursScoreTop() : theirsScoreTop(), kCell, kScoreHeight), label,
-                         style);
+    const int16_t left = static_cast<int16_t>(gridLeftOf(device, yours) + column * (bCellW() + kCellGap));
+    screen.target().text(fui::makeRect(left, scoreTopOf(yours), bCellW(), scoreBandH()), label, style);
   }
+
+  if (boardLayout() != 0) return;  // candidates draw named totals in buildBoard
 
   // The grand total, in the gutter, beside the grid it belongs to and at a size
   // that can be read across a table. Ten numbers at the smallest cut the fork
@@ -213,10 +277,10 @@ void drawGrid(toybox::Screen& screen, const kb::Grid& grid, const bool yours) {
   fui::TextStyle big;
   big.font = toybox::kDisplayFont;
   big.align = fui::TextAlign::Center;
-  const int16_t gutterX = static_cast<int16_t>(kGridLeft + kGridSide + toybox::kGutter);
+  const int16_t gutterX = static_cast<int16_t>(gridLeftOf(device, yours) + bGridW() + toybox::kGutter);
   const int16_t gutterW = static_cast<int16_t>(device.width - toybox::kMargin - gutterX);
-  const int16_t top = yours ? yoursTop() : theirsTop();
-  screen.target().text(fui::makeRect(gutterX, static_cast<int16_t>(top + (kGridSide - 48) / 2), gutterW, 48), total,
+  const int16_t top = gridTopOf(yours);
+  screen.target().text(fui::makeRect(gutterX, static_cast<int16_t>(top + (bGridH() - 48) / 2), gutterW, 48), total,
                        big);
 }
 
@@ -393,7 +457,7 @@ fui::Rect columnRect(const fui::DeviceContext& device, const int column, const b
   const fui::Rect top = cellRect(device, column, kb::kRows - 1, yours);
   const fui::Rect bottom = cellRect(device, column, 0, yours);
   const int16_t y = top.y < bottom.y ? top.y : bottom.y;
-  return fui::makeRect(top.x, y, kCell, kGridSide);
+  return fui::makeRect(top.x, y, bCellW(), bGridH());
 }
 
 int howToPages() { return 3; }
@@ -766,10 +830,10 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   header.borderEdges = fui::EdgesNone;
   screen.header(header);
 
-  // TEMP ART PASS, board candidates 1 and 2: the one screen in this file with
-  // no bottom margin gets the same 16px every other screen here has, so the
-  // capsule sits off the bezel instead of in it.
-  if (boardVariant() >= 1) {
+  // TEMP ART PASS: every candidate gives the one screen in this file with no
+  // bottom margin the same 16px every other screen here has, so the capsule
+  // sits off the bezel instead of in it.
+  if (boardLayout() != 0) {
     screen.insetContent(fui::Insets{0, 0, toybox::kMargin, 0});
   }
 
@@ -799,20 +863,77 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   // already says WHOSE piece, not whose turn, so a filled die read as "theirs"
   // to anyone arriving from there. The capsule carries the turn now, which is
   // what a capsule is for.
+  // Where the die in hand sits, and how big it is, per layout: in the strip on
+  // the facing layouts, large in the freed band on the side-by-side one.
+  int16_t dieSize = 73;
+  int16_t dieY = 360;
+  switch (boardLayout()) {
+    case 1:
+      dieSize = 64;
+      dieY = 372;
+      break;
+    case 2:
+      dieSize = 84;
+      dieY = 549;
+      break;
+    case 3:
+      dieSize = 73;
+      dieY = 371;
+      break;
+    default:
+      break;
+  }
   if (model.die != kb::kEmpty) {
-    // Centred on the panel, not on the grid. It belongs to neither player -- it
-    // is the one object both are looking at -- and hung off the left with the
-    // grid it read as part of that grid's furniture.
-    // TEMP ART PASS, candidates 1 and 2: centred over the grid instead, so the
-    // die sits on the table it is about to land on rather than in the gutter's
-    // no-man's-land.
-    const int16_t dieX = boardVariant() >= 1 ? static_cast<int16_t>(kGridLeft + (kGridSide - kCell) / 2)
-                                             : static_cast<int16_t>((device.width - kCell) / 2);
-    const fui::Rect dieRect =
-        fui::makeRect(dieX, static_cast<int16_t>(stripTop() + (kStripHeight - kCell) / 2), kCell, kCell);
+    // Centred on the panel, not on a grid. It belongs to neither player: it is
+    // the one object both are looking at.
+    const fui::Rect dieRect = fui::makeRect(static_cast<int16_t>((device.width - dieSize) / 2), dieY, dieSize, dieSize);
     screen.target().fill(dieRect, fui::Paint::solid(fui::Color::White));
     screen.target().stroke(dieRect, fui::Paint::solid(fui::Color::Black), 4);
     drawFace(screen, dieRect, model.die, false);
+  }
+
+  // TEMP ART PASS: named totals for the candidates. The shipping layout keeps
+  // its gutter totals (drawn in drawGrid); the candidates name each number so
+  // neither position nor order has to be remembered.
+  if (boardLayout() != 0) {
+    char mineText[8];
+    char theirsText[8];
+    std::snprintf(mineText, sizeof(mineText), "%d", kb::score(model.yours));
+    std::snprintf(theirsText, sizeof(theirsText), "%d", kb::score(model.theirs));
+    fui::TextStyle nameStyle;
+    nameStyle.font = toybox::kTileFont;
+    fui::TextStyle numberStyle;
+    numberStyle.font = toybox::kDisplayFont;
+
+    if (boardLayout() == 2) {
+      // Above each grid, centred on the grid it counts.
+      nameStyle.align = fui::TextAlign::Center;
+      numberStyle.align = fui::TextAlign::Center;
+      for (int side = 0; side < 2; ++side) {
+        const bool mine = side == 0;
+        const int16_t x = gridLeftOf(device, mine);
+        screen.target().text(fui::makeRect(x, 100, bGridW(), 22), mine ? "YOU" : "THEM", nameStyle);
+        screen.target().text(fui::makeRect(x, 124, bGridW(), 52), mine ? mineText : theirsText, numberStyle);
+      }
+    } else {
+      // In the strip, flanking the die: THEM on the left because their grid is
+      // above, YOU on the right because yours is below -- and named, because
+      // that mapping should not have to be remembered.
+      const int16_t stripY = boardLayout() == 1 ? 368 : 371;
+      const int16_t dieLeft = static_cast<int16_t>((device.width - dieSize) / 2);
+      const int16_t zoneW = static_cast<int16_t>(dieLeft - toybox::kMargin - toybox::kGutter);
+      nameStyle.align = fui::TextAlign::Left;
+      numberStyle.align = fui::TextAlign::Left;
+      screen.target().text(fui::makeRect(toybox::kMargin, stripY, zoneW, 20), "THEM", nameStyle);
+      screen.target().text(fui::makeRect(toybox::kMargin, static_cast<int16_t>(stripY + 22), zoneW, 50), theirsText,
+                           numberStyle);
+      const int16_t rightX = static_cast<int16_t>(dieLeft + dieSize + toybox::kGutter);
+      const int16_t rightW = static_cast<int16_t>(device.width - toybox::kMargin - rightX);
+      nameStyle.align = fui::TextAlign::Right;
+      numberStyle.align = fui::TextAlign::Right;
+      screen.target().text(fui::makeRect(rightX, stripY, rightW, 20), "YOU", nameStyle);
+      screen.target().text(fui::makeRect(rightX, static_cast<int16_t>(stripY + 22), rightW, 50), mineText, numberStyle);
+    }
   }
 
   // The columns of your own grid, as targets, and only while the placement is
