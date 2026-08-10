@@ -186,6 +186,16 @@ def find_deck_dirs(card):
 
 CJK_RANGES = ((0x2E80, 0x9FFF), (0xF900, 0xFAFF), (0xFF00, 0xFFEF))
 
+# Serif faces most machines already have, for the "want a big headword?" offer
+# on decks that need no CJK. A student should not need to know what a TTF is
+# to get type that looks right.
+SYSTEM_FONTS = [
+    "/System/Library/Fonts/Supplemental/Georgia.ttf",
+    "/System/Library/Fonts/Supplemental/Times New Roman.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf",
+]
+
 
 def deck_has_cjk(deck_dir):
     """Whether this deck needs the CJK font pipeline at all.
@@ -443,6 +453,22 @@ def cmd_setup(args):
     # --font skips the whole pipeline: the built-in serif draws it, and the
     # device falls back per card even if stale fonts are lying around.
     needs_cjk = deck_has_cjk(deck_dir)
+    if not needs_cjk and not args.font and not args.no_font:
+        # Offer the big face rather than requiring the user to know it exists.
+        # The built-in serif works, but at 18pt where the fitted face is three
+        # times that -- the difference between "works" and "looks right".
+        found = next((f for f in SYSTEM_FONTS if pathlib.Path(f).is_file()), None)
+        if found:
+            answer = (
+                input(
+                    f"\nBuild a large headword face from {pathlib.Path(found).stem}?"
+                    f" (sized to fit this deck's longest word) [Y/n] "
+                )
+                .strip()
+                .lower()
+            )
+            if answer in ("", "y", "yes"):
+                args.font = found
     if not needs_cjk and not args.font:
         print(
             "\nNo CJK in this deck; the built-in face will draw it."
@@ -639,6 +665,11 @@ def main():
     s.add_argument(
         "--font",
         help="build the headword/sentence faces from this TTF (any language)",
+    )
+    s.add_argument(
+        "--no-font",
+        action="store_true",
+        help="use the built-in face without being asked about a bigger one",
     )
     s.add_argument(
         "--map",

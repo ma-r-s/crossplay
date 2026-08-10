@@ -11,7 +11,13 @@ several decks; the deck screen switches between them.
 
 ## What you need
 
-- Anki installed on this computer, with the deck you want to study.
+- **The tools.** They live in this repository, not in the firmware: clone it
+  (or download it as a zip from the same place you got the firmware) and run
+  everything below from the repository root. Nothing needs to be installed
+  from it -- the scripts run in place.
+- Anki installed on this computer, with the deck you want to study. A deck
+  downloaded from AnkiWeb's shared decks counts: import it into Anki first,
+  and it converts like any other.
 - The reader's SD card, mounted (or any directory, for a look around).
 - Python 3. Everything else installs itself into a private environment
   (`.venv-study/`) the first time it is needed; nothing touches your system
@@ -79,8 +85,10 @@ exactly as they would in Anki.
   the typeface per card, which stops you learning the shape of one font instead
   of the character. Ship whichever of the five you have; the reader uses what
   it finds.
-- **Any other deck** needs nothing: the built-in serif draws it. For a large
-  custom headword face, hand setup any TTF:
+- **Any other deck** needs nothing: the built-in serif draws it. Setup offers
+  to build a large headword face from a font your system already has (Georgia
+  on a Mac); accept and the type looks right with no further thought. To pick
+  your own face, hand it any TTF -- and `--no-font` skips the question:
 
   ```bash
   ./tools_local/study/study.py setup --font ~/Fonts/Georgia.ttf

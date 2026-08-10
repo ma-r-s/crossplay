@@ -134,7 +134,8 @@ s.append(Paragraph("Finds your Anki profile, lists your decks so you pick one, f
                    "converts, and builds the fonts only if they are missing or no longer cover the "
                    "deck. Run it again to switch deck. Nearly any note type converts (first field = "
                    "word, second = meaning; <font face='Courier'>--map</font> overrides; cloze "
-                   "cannot). Non-CJK decks need no fonts at all, or bring one with "
+                   "cannot). Non-CJK decks need no fonts; setup offers a big "
+                   "headword face from a system font, or bring one with "
                    "<font face='Courier'>--font YourFont.ttf</font>. The long version of everything "
                    "on this page is docs/study.md.", NOTE))
 
