@@ -2893,10 +2893,15 @@ void testTheCounterSaysWhatItCounts() {
   buildMs<mineui::BoardModel, mineui::buildBoard>(flagged, model);
   CHECK(flagged.target.drew("8 OF 10"));
 
-  // There is no tool switch any more: dig is a tap and flag is a hold, so
-  // neither word should appear as a control.
-  CHECK(!out.target.drew("DIG"));
+  // The tool switch says what a tap will do: the resting mode reads DIG, and
+  // only flag mode wears the other word.
+  CHECK(out.target.drew("DIG"));
   CHECK(!out.target.drew("FLAG"));
+  mineui::BoardModel flagging = model;
+  flagging.flagMode = true;
+  Rendered mode;
+  buildMs<mineui::BoardModel, mineui::buildBoard>(mode, flagging);
+  CHECK(mode.target.drew("FLAG"));
 }
 
 void testTheBoardStaysWithinItsOwnArea() {
@@ -2925,6 +2930,9 @@ void testTheMinesweeperResultNamesTheOutcome() {
 }
 
 void testTheHowToPagesAndEndsOnGotIt() {
+  // Four pages now: the win condition (flags are notes, none are needed) got
+  // a page of its own in the art pass.
+  CHECK(mineui::howToPages() == 4);
   for (int page = 0; page < mineui::howToPages(); ++page) {
     mineui::HowToModel model;
     model.page = page;
@@ -2932,10 +2940,44 @@ void testTheHowToPagesAndEndsOnGotIt() {
     buildMs<mineui::HowToModel, mineui::buildHowTo>(out, model);
     CHECK(out.target.drew("HOW TO PLAY"));
     CHECK(out.target.drew(page + 1 < mineui::howToPages() ? "NEXT" : "GOT IT"));
-    char progress[8];
-    std::snprintf(progress, sizeof(progress), "%d/%d", page + 1, mineui::howToPages());
+    // The counter lives in the black band, jaipur's way.
+    char progress[16];
+    std::snprintf(progress, sizeof(progress), "%d OF %d", page + 1, mineui::howToPages());
     CHECK(out.target.drew(progress));
   }
+}
+
+void testTheMinesweeperMenuLeadsWithTheRecord() {
+  // The front door in the band order: record line on top, the last field with
+  // its verdict as the ornament, doors anchored to the floor with PLAY first.
+  mineui::MenuModel model;
+  model.hasHistory = true;
+  model.wins = 12;
+  model.losses = 5;
+  minesweeper::start(model.lastBoard, 9u);
+  model.lastBoard.cell[3][4] |= minesweeper::kMine | minesweeper::kRevealed;
+
+  Rendered out;
+  buildMs<mineui::MenuModel, mineui::buildMenu>(out, model);
+  CHECK(out.target.drew("17 PLAYED   12 CLEARED"));
+  CHECK(out.target.drew("LAST GAME: BOOM"));
+  CHECK(out.target.drew("HOW TO PLAY"));
+  CHECK(!out.interactions.overflowed());
+
+  // The same floor arithmetic the builder uses, exercised from the other end.
+  const int listHeight = 2 * toybox::kRowHeight + toybox::kGutter / 2 + toybox::kGutter;
+  const int firstRowY = 800 - toybox::kMargin - listHeight + toybox::kRowHeight / 2;
+  const fui::ActionEvent first = out.tap(240, firstRowY);
+  CHECK(first.action == mineui::ActionMenuRow);
+  CHECK(first.value == static_cast<int>(mineui::MenuRow::Play));
+
+  // A mine that was never dug reads CLEARED instead.
+  mineui::MenuModel won = model;
+  minesweeper::start(won.lastBoard, 9u);
+  won.lastBoard.cell[3][4] |= minesweeper::kMine;
+  Rendered cleared;
+  buildMs<mineui::MenuModel, mineui::buildMenu>(cleared, won);
+  CHECK(cleared.target.drew("LAST GAME: CLEARED"));
 }
 
 int main() {
@@ -3012,6 +3054,11 @@ int main() {
   testTappingAColumnReportsThatColumn();
   testTheBoardOnlyAcceptsAColumnOnYourOwnTurn();
   testTheMinesweeperBoardFitsThePanel();
+  testTheCounterSaysWhatItCounts();
+  testTheBoardStaysWithinItsOwnArea();
+  testTheMinesweeperResultNamesTheOutcome();
+  testTheHowToPagesAndEndsOnGotIt();
+  testTheMinesweeperMenuLeadsWithTheRecord();
   testTheTwoGridsDoNotOverlap();
 
   testMurdleGridResolvesEveryCellItDrew();

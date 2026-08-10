@@ -36,19 +36,6 @@ void MinesweeperActivity::onEnter() {
   screen = ms::Screen::Menu;
   menuSelected = -1;
   loadHistory();
-#if defined(SIMULATOR)
-  // ART_DEMO drops straight onto a deterministic mid-game board so the art
-  // candidates render comparably. Deleted with the ballot switches, the way
-  // the four games' seeds were.
-  if (std::getenv("ART_DEMO") != nullptr) {
-    ms::start(game, 20260810u);
-    ms::reveal(game, 2, 7);
-    ms::toggleFlag(game, 6, 1);
-    flagMode = false;
-    resultRecorded = false;
-    screen = ms::Screen::Board;
-  }
-#endif
   requestUpdate();
 }
 
