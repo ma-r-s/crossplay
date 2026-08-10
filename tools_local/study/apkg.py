@@ -40,10 +40,10 @@ FONT_SUFFIXES = (".ttf", ".otf", ".ttc")
 IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp")
 
 REEXPORT_ADVICE = (
-    "this .apkg was exported for old Anki versions, and its internal format"
-    " predates the one the converter reads. In Anki, export the deck again"
-    ' with "Support older Anki versions" unchecked (and "Include scheduling'
-    ' information" checked), then retry.'
+    "this .apkg could not be read even as an old-format package. In Anki,"
+    ' import it, then export the deck again with "Support older Anki'
+    ' versions" unchecked (and "Include scheduling information" checked),'
+    " then retry."
 )
 
 
@@ -166,6 +166,117 @@ def _keepable(name):
     return name.lower().endswith(FONT_SUFFIXES + IMAGE_SUFFIXES)
 
 
+def _protobuf_varint(value):
+    out = bytearray()
+    while True:
+        byte = value & 0x7F
+        value >>= 7
+        if value:
+            out.append(byte | 0x80)
+        else:
+            out.append(byte)
+            return bytes(out)
+
+
+def _packed_floats(field, values):
+    payload = b"".join(struct.pack("<f", float(v)) for v in values)
+    return _protobuf_varint((field << 3) | 2) + _protobuf_varint(len(payload)) + payload
+
+
+def _upgrade_legacy(collection_path):
+    """Materialise the modern tables a schema-11 collection keeps as JSON.
+
+    Every AnkiWeb shared deck arrives in this format on purpose (so old
+    clients can import it), which makes 'legacy' the common case for the
+    installer's target user, not a corner. The cards/notes/revlog tables are
+    already shaped right; only the metadata moved: notetypes, fields,
+    templates, decks and deck presets live as JSON blobs in the `col` row.
+    This writes them into real tables in OUR extracted copy, shaped exactly
+    as the modern queries expect, protobuf and all, so anki_to_deck.py runs
+    unchanged. Returns True if the collection now looks modern.
+    """
+    db = sqlite3.connect(collection_path)
+    try:
+        try:
+            row = db.execute("select models, decks, dconf, conf from col").fetchone()
+        except sqlite3.OperationalError:
+            return False
+        if row is None:
+            return False
+        models = json.loads(row[0] or "{}")
+        decks = json.loads(row[1] or "{}")
+        dconf = json.loads(row[2] or "{}")
+        conf = json.loads(row[3] or "{}")
+
+        db.executescript(
+            """
+            create table notetypes (id integer primary key, name text);
+            create table fields (ntid integer, ord integer, name text);
+            create table templates (ntid integer, ord integer, name text);
+            create table decks (id integer primary key, name text, kind blob);
+            create table deck_config (id integer primary key, config blob);
+            create table config (key text primary key, val blob);
+            """
+        )
+
+        for mid, model in models.items():
+            db.execute(
+                "insert into notetypes values (?, ?)", (int(mid), model.get("name", ""))
+            )
+            for field in model.get("flds", []):
+                db.execute(
+                    "insert into fields values (?, ?, ?)",
+                    (int(mid), field.get("ord", 0), field.get("name", "")),
+                )
+            for template in model.get("tmpls", []):
+                db.execute(
+                    "insert into templates values (?, ?, ?)",
+                    (int(mid), template.get("ord", 0), template.get("name", "")),
+                )
+
+        for did, deck in decks.items():
+            # Modern names use the unit separator where the JSON used '::',
+            # and the preset id travels as DeckKind{ normal{ config_id } }.
+            name = str(deck.get("name", "")).replace("::", "\x1f")
+            inner = b"\x08" + _protobuf_varint(int(deck.get("conf", 1) or 1))
+            kind = b"\x0a" + _protobuf_varint(len(inner)) + inner
+            db.execute("insert into decks values (?, ?, ?)", (int(did), name, kind))
+
+        for conf_id, preset in dconf.items():
+            blob = b""
+            new_delays = (preset.get("new") or {}).get("delays") or []
+            lapse_delays = (preset.get("lapse") or {}).get("delays") or []
+            if new_delays:
+                blob += _packed_floats(1, new_delays)
+            if lapse_delays:
+                blob += _packed_floats(2, lapse_delays)
+            per_day = (preset.get("new") or {}).get("perDay")
+            if per_day is not None:
+                blob += _protobuf_varint((9 << 3) | 0) + _protobuf_varint(int(per_day))
+            rev_per_day = (preset.get("rev") or {}).get("perDay")
+            if rev_per_day is not None:
+                blob += _protobuf_varint((10 << 3) | 0) + _protobuf_varint(
+                    int(rev_per_day)
+                )
+            max_interval = preset.get("maxIvl")
+            if max_interval is not None:
+                blob += _protobuf_varint((16 << 3) | 0) + _protobuf_varint(
+                    int(max_interval)
+                )
+            db.execute("insert into deck_config values (?, ?)", (int(conf_id), blob))
+
+        if conf.get("rollover") is not None:
+            db.execute(
+                "insert into config values ('rollover', ?)",
+                (str(int(conf["rollover"])).encode(),),
+            )
+
+        db.commit()
+    finally:
+        db.close()
+    return _probe_schema(collection_path)
+
+
 def _connect(collection_path):
     """Read-only, with Anki's collation: name columns declare `unicase`, and
     even an ORDER BY over them fails without it registered."""
@@ -230,7 +341,7 @@ def extract(apkg_path, out_dir):
                 raise ApkgError(f"{apkg_path.name} has no collection inside")
             collection.write_bytes(zf.read(member))
 
-        if not _probe_schema(collection):
+        if not _probe_schema(collection) and not _upgrade_legacy(collection):
             raise ApkgError(REEXPORT_ADVICE)
 
         kept = skipped = 0

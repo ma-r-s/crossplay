@@ -127,14 +127,60 @@ def main():
                 with_state += 1
         ok(with_state == 10, f"{with_state} cards carry FSRS state, wanted 10")
 
-        # --- the legacy package is refused, politely ----------------------
+        # --- the legacy package converts too ------------------------------
+        # Every AnkiWeb shared deck ships in this format, so it is the common
+        # case for a new user, not a corner: the schema-11 JSON metadata is
+        # upgraded into real tables and the same pipeline runs.
+        legacy_info = apkg.extract(fixtures / "legacy.apkg", tmp / "legacy")
+        legacy_decks = apkg.list_decks(legacy_info["collection"])
+        ok(
+            any("SAT Vocabulary" in n for n, _ in legacy_decks),
+            f"legacy deck list: {legacy_decks}",
+        )
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(HERE / "anki_to_deck.py"),
+                str(legacy_info["collection"]),
+                "--deck",
+                next(n for n, _ in legacy_decks if "SAT Vocabulary" in n),
+                "--out",
+                str(tmp / "legacy-deck"),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        ok(
+            result.returncode == 0,
+            f"legacy conversion failed:\n{result.stdout}\n{result.stderr}",
+        )
+        ok(
+            "30 cards" in result.stdout and "1 skipped" in result.stdout,
+            f"legacy conversion counts wrong:\n{result.stdout}",
+        )
+        ok(
+            "learn [1.0, 10.0]" in result.stdout,
+            f"legacy deck preset (steps) did not come through:\n{result.stdout}",
+        )
+
+        # --- a package that is not readable in any format is refused ------
+        import zipfile as zf_mod
+
+        broken = tmp / "broken.apkg"
+        junk_db = tmp / "junkdb.anki2"
+        db = __import__("sqlite3").connect(junk_db)
+        db.execute("create table empty_table (x)")
+        db.commit()
+        db.close()
+        with zf_mod.ZipFile(broken, "w") as zf:
+            zf.write(junk_db, "collection.anki2")
         try:
-            apkg.extract(fixtures / "legacy.apkg", tmp / "legacy")
-            ok(False, "legacy package was not refused")
+            apkg.extract(broken, tmp / "brokenout")
+            ok(False, "unreadable package was not refused")
         except apkg.ApkgError as exc:
             ok(
-                "Support older Anki versions" in str(exc),
-                f"refusal lacks re-export advice: {exc}",
+                "Support older Anki" in str(exc),
+                f"refusal lacks advice: {exc}",
             )
 
         # --- garbage is refused too ---------------------------------------
