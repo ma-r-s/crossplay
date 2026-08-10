@@ -48,6 +48,18 @@ function callGlue(expression) {
   return JSON.parse(json);
 }
 
+async function ensureFt() {
+  if (self.ftModule) return;
+  progress("Loading the type engine");
+  importScripts("/study/ft.js");
+  self.ftModule = await createFtModule({
+    locateFile: function (path) {
+      return "/study/" + path;
+    },
+  });
+  self.ftModule._ft_init();
+}
+
 var handlers = {
   open: function (msg) {
     pyodide.FS.writeFile("/work/deck.apkg", new Uint8Array(msg.buffer));
@@ -59,6 +71,20 @@ var handlers = {
     pyodide.globals.set("_mapping", pyodide.toPy(msg.mapping || null));
     post("converted", {
       result: callGlue("web_glue.convert(_deck, _mapping)"),
+    });
+  },
+
+  fonts: async function (msg) {
+    await ensureFt();
+    if (msg.ttf) {
+      pyodide.FS.writeFile("/work/custom.ttf", new Uint8Array(msg.ttf));
+    }
+    pyodide.globals.set("_mode", msg.mode);
+    pyodide.globals.set("_fontline", function (line) {
+      post("fontline", { text: line });
+    });
+    post("fonts", {
+      result: callGlue("web_glue.build_fonts(_mode, _fontline)"),
     });
   },
 

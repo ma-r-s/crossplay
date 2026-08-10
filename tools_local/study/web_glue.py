@@ -22,6 +22,9 @@ import sys
 
 HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+# The wasm-FreeType stand-in for freetype-py. First on the path, and present
+# only in the site's tools.zip, so the CLI keeps the real binding.
+sys.path.insert(0, str(HERE / "web_shims"))
 
 import apkg  # noqa: E402
 import study as study_cli  # noqa: E402
@@ -29,14 +32,33 @@ import study as study_cli  # noqa: E402
 WORK = pathlib.Path("/work")
 
 
-def _run_tool(script_name, argv):
+class _Tee(io.StringIO):
+    """A capture buffer that also forwards whole lines to a callback, so the
+    page can show a slow tool's progress while it runs."""
+
+    def __init__(self, callback):
+        super().__init__()
+        self._callback = callback
+        self._pending = ""
+
+    def write(self, text):
+        if self._callback:
+            self._pending += text
+            while "\n" in self._pending:
+                line, self._pending = self._pending.split("\n", 1)
+                if line.strip():
+                    self._callback(line)
+        return super().write(text)
+
+
+def _run_tool(script_name, argv, tee=None):
     """Run a tool the way its own command line would, capturing everything.
 
     runpy with run_name __main__ so the tool's argparse, prints and
     sys.exit all behave exactly as they do in a terminal. The exit code and
     the combined output come back; nothing escapes to the real stdout.
     """
-    buf = io.StringIO()
+    buf = _Tee(tee)
     code = 0
     saved_argv = sys.argv
     sys.argv = [script_name] + [str(a) for a in argv]
@@ -53,6 +75,12 @@ def _run_tool(script_name, argv):
     finally:
         sys.argv = saved_argv
     return code, buf.getvalue()
+
+
+def _deck_files():
+    """Every converted file, fonts included, as deck-relative paths."""
+    out = WORK / "deck"
+    return sorted(str(p.relative_to(out)) for p in out.rglob("*") if p.is_file())
 
 
 def open_apkg():
@@ -122,14 +150,67 @@ def convert(deck_name, mapping):
             "checkFailed": check_code != 0,
             "slug": study_cli.slug(deck_name),
             "hasCjk": study_cli.deck_has_cjk(out),
-            "files": sorted(p.name for p in out.iterdir()),
+            "files": _deck_files(),
+        }
+    )
+
+
+def build_fonts(mode, tee=None):
+    """Build the deck's faces the way make_fonts.py always has.
+
+    mode "cjk" uses the TTFs the package's media carried; mode "custom" uses
+    whatever TTF the worker put at /work/custom.ttf (the bundled serif or the
+    user's own). Then check_deck runs again, against the real faces this
+    time, and its verdict replaces the built-in-only one.
+    """
+    out = WORK / "deck"
+    fonts_dir = out / "fonts"
+    shutil.rmtree(fonts_dir, ignore_errors=True)
+
+    if mode == "cjk":
+        argv = [
+            "--media",
+            WORK / "unpacked" / "media",
+            "--deck",
+            out,
+            "--out",
+            fonts_dir,
+        ]
+    elif mode == "custom":
+        argv = ["--font", WORK / "custom.ttf", "--deck", out, "--out", fonts_dir]
+    else:
+        return json.dumps({"error": f"unknown font mode {mode!r}"})
+
+    code, log = _run_tool("make_fonts.py", argv, tee=tee)
+    if code != 0:
+        shutil.rmtree(fonts_dir, ignore_errors=True)
+        return json.dumps({"error": log.strip() or "font build failed"})
+
+    check_code, check_log = _run_tool("check_deck.py", [out, "--fonts", fonts_dir])
+
+    import hashlib
+
+    hashes = {}
+    for rel in _deck_files():
+        if rel.endswith(".cpfont"):
+            digest = hashlib.sha256((out / rel).read_bytes()).hexdigest()
+            hashes[rel] = digest
+
+    return json.dumps(
+        {
+            "log": log,
+            "checkLog": check_log,
+            "checkFailed": check_code != 0,
+            "files": _deck_files(),
+            "hashes": hashes,
         }
     )
 
 
 def deck_file(name):
     """One converted file's bytes, for injection or writing to the card."""
-    path = (WORK / "deck" / name).resolve()
-    if path.parent != (WORK / "deck").resolve():
+    root = (WORK / "deck").resolve()
+    path = (root / name).resolve()
+    if root not in path.parents:
         raise ValueError(f"not a deck file: {name}")
     return path.read_bytes()

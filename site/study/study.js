@@ -49,6 +49,12 @@
         onOpened(msg.result);
       } else if (msg.type === "converted") {
         onConverted(msg.result);
+      } else if (msg.type === "fontline") {
+        var progressLine = $("typeProgress");
+        progressLine.hidden = false;
+        progressLine.textContent = msg.text;
+      } else if (msg.type === "fonts") {
+        onFonts(msg.result);
       } else if (msg.type === "deckfiles") {
         onDeckFiles(msg.files);
       } else if (msg.type === "error") {
@@ -232,10 +238,80 @@
     return mapping.length ? mapping : null;
   }
 
-  // ---- steps 3 and 4 placeholders ----------------------------------------
+  // ---- step 3: the type ---------------------------------------------------
+
+  var fonts = null; // last build_fonts result
+
+  function startTypeStep() {
+    $("typePlaceholder").hidden = true;
+    $("typeBody").hidden = false;
+    $("typeLog").hidden = true;
+    $("typeProgress").hidden = true;
+
+    if (converted.hasCjk) {
+      $("typeChoices").hidden = true;
+      if (opened && opened.fonts.length > 0) {
+        buildFonts("cjk", null);
+      } else {
+        var log = $("typeLog");
+        log.hidden = false;
+        log.textContent =
+          "This deck uses Chinese characters, and the package carries no" +
+          " fonts to draw them with.\nIn Anki, add the faces your template" +
+          " uses to the collection's media (files named like _simsun.ttf)," +
+          " then export again.";
+      }
+      return;
+    }
+    $("typeChoices").hidden = false;
+  }
+
+  function buildFonts(mode, ttfBuffer) {
+    var progressLine = $("typeProgress");
+    progressLine.hidden = false;
+    progressLine.textContent =
+      "Building faces… (a Chinese deck takes a minute)";
+    $("typeLog").hidden = true;
+    var message = { type: "fonts", mode: mode };
+    if (ttfBuffer) {
+      message.ttf = ttfBuffer;
+      worker.postMessage(message, [ttfBuffer]);
+    } else {
+      worker.postMessage(message);
+    }
+  }
+
+  function onFonts(result) {
+    $("typeProgress").hidden = true;
+    var log = $("typeLog");
+    log.hidden = false;
+    if (result.error) {
+      log.textContent = result.error;
+      return;
+    }
+    fonts = result;
+    converted.files = result.files;
+    log.textContent = result.log;
+
+    // The checker's verdict, now against the real faces.
+    $("checkLog").textContent = result.checkLog;
+    var verdict = $("reportVerdict");
+    if (result.checkFailed) {
+      verdict.textContent = "Converted, with things you should see:";
+      verdict.className = "study-verdict is-bad";
+    } else {
+      verdict.textContent = "Every card renders.";
+      verdict.className = "study-verdict is-good";
+    }
+  }
+
+  // ---- downstream state ---------------------------------------------------
 
   function resetDownstream() {
     converted = null;
+    fonts = null;
+    $("typePlaceholder").hidden = false;
+    $("typeBody").hidden = true;
     $("previewPlaceholder").hidden = false;
     $("previewMount").hidden = true;
     $("writePlaceholder").hidden = false;
@@ -243,7 +319,7 @@
   }
 
   function enableDownstream() {
-    // Preview (step 3) and writing (step 4) hang off the converted deck.
+    startTypeStep();
     $("writePlaceholder").hidden = true;
     $("writeBody").hidden = false;
     $("writeStatus").textContent = "";
@@ -325,6 +401,38 @@
     if (chosenDeck) convert(chosenDeck, mappingFromGrid());
   });
 
+  // The face radios: built-in does nothing (there is nothing to build),
+  // bundled fetches the serif this site ships, own asks for a TTF.
+  document.querySelectorAll('input[name="face"]').forEach(function (radio) {
+    radio.addEventListener("change", function () {
+      if (!converted) return;
+      if (radio.value === "builtin") {
+        fonts = null;
+        $("typeLog").hidden = true;
+        $("typeProgress").hidden = true;
+        convert(chosenDeck, null); // back to the fontless deck and report
+      } else if (radio.value === "bundled") {
+        fetch("/study/DejaVuSerif.ttf")
+          .then(function (response) {
+            return response.arrayBuffer();
+          })
+          .then(function (buffer) {
+            buildFonts("custom", buffer);
+          });
+      } else if (radio.value === "own") {
+        $("ttfpick").click();
+      }
+    });
+  });
+  $("ttfpick").addEventListener("change", function () {
+    var file = $("ttfpick").files[0];
+    $("ttfpick").value = "";
+    if (!file) return;
+    file.arrayBuffer().then(function (buffer) {
+      buildFonts("custom", buffer);
+    });
+  });
+
   // Same-origin only, so a link cannot make this page fetch from elsewhere:
   // ?deck=demo/sat-vocabulary.apkg resolves under /study/.
   var params = new URLSearchParams(location.search);
@@ -340,7 +448,7 @@
   window.StudyInstaller = {
     withDeckFiles: withDeckFiles,
     state: function () {
-      return { opened: opened, converted: converted, deck: chosenDeck };
+      return { opened: opened, converted: converted, fonts: fonts, deck: chosenDeck };
     },
   };
 })();
