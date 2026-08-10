@@ -181,7 +181,13 @@
   </div>
   <div class="study-pane" id="previewPane">
     <p class="study-placeholder" id="previewPlaceholder">Waiting for a converted deck.</p>
-    <div class="study-device" id="previewMount" hidden></div>
+    <div id="previewBody" hidden>
+      <div class="cta-row">
+        <button class="btn primary" id="previewBoot" type="button">Boot the device with this deck</button>
+      </div>
+      <p class="study-status-line" id="previewStatus"></p>
+      <div class="study-device" id="previewMount" hidden></div>
+    </div>
   </div>
 </section>
 

@@ -226,6 +226,14 @@
   margin-top: 1rem;
 }
 
+.study-preview-frame {
+  width: min(100%, 420px);
+  aspect-ratio: 3 / 5;
+  border: 1px solid var(--edge);
+  background: #faf9f6;
+  display: block;
+}
+
 .study-status-line {
   font-family: var(--mono);
   font-size: 0.85rem;

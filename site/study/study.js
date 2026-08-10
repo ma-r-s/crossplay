@@ -305,21 +305,85 @@
     }
   }
 
+  // ---- step 4: the preview ------------------------------------------------
+
+  var previewFrame = null;
+
+  function killPreview() {
+    if (previewFrame) {
+      previewFrame.remove();
+      previewFrame = null;
+    }
+    $("previewMount").hidden = true;
+    $("previewStatus").textContent = "";
+  }
+
+  function bootPreview() {
+    if (!converted) return;
+    $("previewStatus").textContent = "Collecting the deck…";
+    withDeckFiles(function (files) {
+      killPreview();
+      var mount = $("previewMount");
+      mount.hidden = false;
+      previewFrame = document.createElement("iframe");
+      previewFrame.className = "study-preview-frame";
+      previewFrame.title = "The device, running your deck";
+      previewFrame.src = "/study/preview.html";
+      mount.appendChild(previewFrame);
+
+      var slug = converted.slug;
+      var payload = {};
+      var transfers = [];
+      Object.keys(files).forEach(function (name) {
+        payload["/fs_/study/" + slug + "/" + name] = files[name];
+        transfers.push(files[name]);
+      });
+      var last = new TextEncoder().encode(slug).buffer;
+      payload["/fs_/study/.last"] = last;
+      transfers.push(last);
+
+      var listener = function (event) {
+        if (event.origin !== location.origin || !event.data) return;
+        if (event.data.type === "preview-waiting") {
+          previewFrame.contentWindow.postMessage(
+            { type: "boot", files: payload },
+            location.origin,
+            transfers,
+          );
+          $("previewStatus").textContent =
+            "Booting the firmware… (about ten seconds)";
+        } else if (event.data.type === "preview-ready") {
+          $("previewStatus").textContent =
+            "This is the real firmware. Tap the panel the way you would tap the reader.";
+          window.removeEventListener("message", listener);
+        } else if (event.data.type === "preview-error") {
+          $("previewStatus").textContent =
+            "The preview did not start: " + event.data.message;
+          window.removeEventListener("message", listener);
+        }
+      };
+      window.addEventListener("message", listener);
+    });
+  }
+
   // ---- downstream state ---------------------------------------------------
 
   function resetDownstream() {
     converted = null;
     fonts = null;
+    killPreview();
     $("typePlaceholder").hidden = false;
     $("typeBody").hidden = true;
     $("previewPlaceholder").hidden = false;
-    $("previewMount").hidden = true;
+    $("previewBody").hidden = true;
     $("writePlaceholder").hidden = false;
     $("writeBody").hidden = true;
   }
 
   function enableDownstream() {
     startTypeStep();
+    $("previewPlaceholder").hidden = true;
+    $("previewBody").hidden = false;
     $("writePlaceholder").hidden = true;
     $("writeBody").hidden = false;
     $("writeStatus").textContent = "";
@@ -401,6 +465,8 @@
     if (chosenDeck) convert(chosenDeck, mappingFromGrid());
   });
 
+  $("previewBoot").addEventListener("click", bootPreview);
+
   // The face radios: built-in does nothing (there is nothing to build),
   // bundled fetches the serif this site ships, own asks for a TTF.
   document.querySelectorAll('input[name="face"]').forEach(function (radio) {
@@ -448,7 +514,12 @@
   window.StudyInstaller = {
     withDeckFiles: withDeckFiles,
     state: function () {
-      return { opened: opened, converted: converted, fonts: fonts, deck: chosenDeck };
+      return {
+        opened: opened,
+        converted: converted,
+        fonts: fonts,
+        deck: chosenDeck,
+      };
     },
   };
 })();

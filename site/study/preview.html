@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Device preview</title>
+<meta name="robots" content="noindex">
+<style>
+  html, body { height: 100%; margin: 0; background: transparent; }
+  #stage { position: absolute; inset: 0; }
+  #stage canvas { width: 100%; height: 100%; display: block; outline: none; }
+</style>
+</head>
+<body>
+<!-- The installer's preview frame. One boot per document: the parent tears
+     this iframe down and makes a new one for every deck it wants to show,
+     because a wasm module with a live worker cannot be torn down cleanly but
+     a document can. The deck files arrive by postMessage before boot. -->
+<div id="stage"></div>
+<script src="/assets/emulator.js"></script>
+<script>
+(function () {
+  var booted = false;
+  window.addEventListener("message", function (event) {
+    if (event.origin !== location.origin) return;
+    var msg = event.data;
+    if (!msg || msg.type !== "boot" || booted) return;
+    booted = true;
+    var files = {};
+    Object.keys(msg.files).forEach(function (path) {
+      files[path] = new Uint8Array(msg.files[path]);
+    });
+    Crossplay.boot(document.getElementById("stage"), {
+      env: { CROSSPLAY_AUTOSTART: "study" },
+      wipe: ["/fs_/study"],
+      files: files,
+      onFirstFrame: function () {
+        parent.postMessage({ type: "preview-ready" }, location.origin);
+      },
+    }).then(function (device) {
+      // For scripted tests: real users tap the canvas.
+      window.__device = device;
+    }).catch(function (error) {
+      parent.postMessage(
+        { type: "preview-error", message: String((error && error.message) || error) },
+        location.origin
+      );
+    });
+  });
+  parent.postMessage({ type: "preview-waiting" }, location.origin);
+})();
+</script>
+</body>
+</html>

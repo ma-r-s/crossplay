@@ -30,6 +30,28 @@
   // On globalThis rather than on the module: link_browser.cpp reaches this from
   // a MAIN_THREAD_EM_ASM snippet, which runs proxied on the main thread where
   // `Module` does not resolve to the calling instance.
+  // Recursively empty a MEMFS directory, leaving the directory itself.
+  // Tolerant of the path not existing; used by the postRun card surgery.
+  function wipeTree(FS, path) {
+    var names;
+    try {
+      names = FS.readdir(path);
+    } catch (e) {
+      return;
+    }
+    names.forEach(function (name) {
+      if (name === "." || name === "..") return;
+      var child = path + "/" + name;
+      var mode = FS.stat(child).mode;
+      if (FS.isDir(mode)) {
+        wipeTree(FS, child);
+        FS.rmdir(child);
+      } else {
+        FS.unlink(child);
+      }
+    });
+  }
+
   var radio = (globalThis.crossplayRadio = {
     taken: [],
     seats: {},
@@ -349,18 +371,31 @@
 
     return new Promise(function (resolve, reject) {
       var script = document.createElement("script");
-      script.src = "emulator/crossplay.js";
+      // Root-absolute, so pages in subdirectories (/study/) can boot the same
+      // device the hero does. From the front page the two resolve identically.
+      script.src = "/emulator/crossplay.js";
       script.onerror = function () {
-        reject(new Error("Could not load emulator/crossplay.js"));
+        reject(new Error("Could not load /emulator/crossplay.js"));
       };
       script.onload = function () {
         createCrossplay({
           // Emscripten resolves crossplay.wasm and crossplay.data against the
           // page, not against the script that loaded it, so booting the device
-          // from index.html would look for them at the site root.
+          // from any page would look for them beside that page.
           locateFile: function (path) {
-            return "emulator/" + path;
+            return "/emulator/" + path;
           },
+          // Environment variables the firmware reads with getenv, set before
+          // main() runs. The installer preview uses CROSSPLAY_AUTOSTART to
+          // boot straight into Study; nothing else sets any.
+          preRun: [
+            function (mod) {
+              var env = options.env || {};
+              for (var key in env) {
+                mod.ENV[key] = String(env[key]);
+              }
+            },
+          ],
           // Both instances mount the same preloaded card, so both would name
           // themselves the same thing and PLAY NEARBY would show you two
           // identical faces. Overwriting one file is enough, and it keeps the
@@ -372,23 +407,37 @@
           // card is up and after main() has started the firmware worker, which
           // is still long before anything asks who this device is -- the name
           // is read lazily, first by the shelf footer.
-          postRun: options.name
-            ? [
-                function (mod) {
-                  try {
-                    mod.FS.writeFile(
-                      "/fs_/.crosspoint/player.cfg",
-                      new TextEncoder().encode(options.name + "\n"),
-                    );
-                  } catch (e) {
-                    console.warn(
-                      "[device] could not name it:",
-                      (e && (e.message || e.errno)) || e,
-                    );
+          postRun: [
+            function (mod) {
+              try {
+                if (options.name) {
+                  mod.FS.writeFile(
+                    "/fs_/.crosspoint/player.cfg",
+                    new TextEncoder().encode(options.name + "\n"),
+                  );
+                }
+                // Card surgery for pages that inject their own content (the
+                // installer preview): empty the named directories, then write
+                // the given files. MEMFS only; the real card never sees this.
+                (options.wipe || []).forEach(function (path) {
+                  wipeTree(mod.FS, path);
+                });
+                var files = options.files || {};
+                for (var path in files) {
+                  var slash = path.lastIndexOf("/");
+                  if (slash > 0) {
+                    mod.FS.createPath("/", path.slice(0, slash), true, true);
                   }
-                },
-              ]
-            : [],
+                  mod.FS.writeFile(path, files[path]);
+                }
+              } catch (e) {
+                console.warn(
+                  "[device] card injection failed:",
+                  (e && (e.message || e.errno)) || e,
+                );
+              }
+            },
+          ],
           print: function (t) {
             console.log("[device]", t);
           },
@@ -428,6 +477,13 @@
               bindButton: bindButton,
               swipeBack: swipeBack,
               scancodes: SCANCODE,
+              // Raw touch injection in logical panel pixels (phase 0 down,
+              // 1 move, 2 up), for pages that drive the device from script:
+              // the installer's tests do, and synthetic PointerEvents cannot
+              // get through setPointerCapture.
+              touch: function (phase, x, y) {
+                injectTouch(phase, x, y);
+              },
               // Hiding a device stops it being drawn; the firmware behind it
               // keeps running, because there is no clean way to tear a wasm
               // module down. Showing it again repaints from the framebuffer

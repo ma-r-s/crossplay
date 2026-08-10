@@ -3,6 +3,8 @@
 #include <HalStorage.h>
 #include <Logging.h>
 
+#include <strings.h>
+
 #include <cstdio>
 #include <cstdlib>
 
@@ -243,6 +245,30 @@ void openItem(const int folder, const int item, GfxRenderer& renderer, MappedInp
   if (!replaceWith(parent.items[item].create(renderer, mappedInput), parent.items[item].title)) {
     openFolderIndex = -1;
   }
+}
+
+void autostartFromEnv(GfxRenderer& renderer, MappedInputManager& mappedInput) {
+  // Once per process: leaving the app afterwards must land on the shelf like
+  // any other exit, not bounce straight back in.
+  static bool consumed = false;
+  if (consumed) {
+    return;
+  }
+  const char* wanted = std::getenv("CROSSPLAY_AUTOSTART");
+  if (wanted == nullptr || *wanted == '\0') {
+    return;
+  }
+  consumed = true;
+  for (int folder = 0; folder < kFolderCount; ++folder) {
+    for (int item = 0; item < kFolders[folder].count; ++item) {
+      if (strcasecmp(kFolders[folder].items[item].title, wanted) == 0) {
+        LOG_INF("SHELF", "Autostart into %s", kFolders[folder].items[item].title);
+        openItem(folder, item, renderer, mappedInput);
+        return;
+      }
+    }
+  }
+  LOG_ERR("SHELF", "Autostart: no item titled '%s'", wanted);
 }
 
 void openPlayer(GfxRenderer& renderer, MappedInputManager& mappedInput) {
