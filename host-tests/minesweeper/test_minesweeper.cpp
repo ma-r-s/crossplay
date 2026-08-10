@@ -249,20 +249,14 @@ void testBackIsTotalAndAlwaysReachesTheTop() {
   CHECK(!leavesApp(Screen::Board));
 }
 
-void testTheScreenFollowsTheRules() {
-  Game game{};
-  start(game, 5u);
-  CHECK(screenFor(game) == Screen::Board);
-  CHECK(boardAccepts(game));
-
-  game.status = Status::Lost;
-  CHECK(screenFor(game) == Screen::Result);
-  CHECK(!boardAccepts(game));
-
-  game.status = Status::Won;
-  CHECK(screenFor(game) == Screen::Result);
-  CHECK(!boardAccepts(game));
-}
+// testTheScreenFollowsTheRules is gone with the helpers it pinned (screenFor,
+// boardAccepts): a settled game no longer implies the Result screen -- the
+// board stays, wearing its verdict, and Result is a door the player takes.
+// The new rule is pinned where it lives, in the ui suite
+// (testTheSettledBoardStaysAndWearsItsVerdict). Deleting the helpers without
+// this file noticing is also how the whole suite went dark for a release:
+// the compile error sat in two check logs whose summaries were read through
+// a tail window that cut it off.
 
 // The one-line reproducer for the flood bug a cold critic found: on a board
 // with no mines at all, one tap must open every cell and win.
@@ -391,7 +385,6 @@ int main() {
   testClearingEverySafeCellWins();
   testRandomPlayHoldsEveryInvariant();
   testBackIsTotalAndAlwaysReachesTheTop();
-  testTheScreenFollowsTheRules();
   testAnEmptyBoardOpensCompletely();
   testNoRevealedZeroEverTouchesACoveredCell();
   testMinesReachEveryCell();
