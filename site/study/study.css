@@ -1,0 +1,235 @@
+/* Study installer page. Everything shared comes from /styles.css; this file
+   is only what the installer needs and nothing on the main page does. */
+
+.study-hero {
+  padding-top: clamp(2.5rem, 6vw, 4.5rem);
+  padding-bottom: clamp(1.5rem, 4vw, 3rem);
+}
+
+.study-hero h1 {
+  margin: 0.35rem 0 0.9rem;
+}
+
+.study-privacy {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  color: var(--muted);
+  border-left: 3px solid var(--edge);
+  padding-left: 0.9rem;
+  max-width: 44rem;
+}
+
+/* --- step 1: the dropzone ---------------------------------------------- */
+
+.study-dropzone {
+  margin-top: 1.6rem;
+  border: 2px dashed var(--edge);
+  background: var(--paper-2);
+  padding: clamp(2rem, 6vw, 3.5rem) 1.5rem;
+  text-align: center;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease;
+  max-width: 44rem;
+}
+
+.study-dropzone:hover,
+.study-dropzone:focus-visible,
+.study-dropzone.dragging {
+  border-color: var(--ink);
+}
+
+.study-dropzone.dragging {
+  background: var(--paper);
+}
+
+.study-drop-big {
+  font-family: var(--display);
+  font-size: clamp(1.4rem, 3.5vw, 2rem);
+  margin: 0;
+}
+
+.study-drop-small {
+  color: var(--muted);
+  margin: 0.4rem 0 0;
+  font-size: 0.9rem;
+}
+
+.study-alt {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin-top: 0.8rem;
+}
+
+.linklike {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--ink);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.study-status {
+  margin-top: 1.2rem;
+  max-width: 44rem;
+}
+
+.study-progress {
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin: 0;
+}
+
+.study-progress.is-error {
+  color: var(--ink);
+  border-left: 3px solid var(--ink);
+  padding-left: 0.9rem;
+  white-space: pre-wrap;
+}
+
+/* --- the opened-package summary ---------------------------------------- */
+
+.study-summary {
+  margin-top: 1.4rem;
+  padding: 1.2rem 1.4rem;
+  max-width: 44rem;
+}
+
+.study-card-title {
+  font-family: var(--display);
+  font-size: 1.3rem;
+  margin: 0 0 0.6rem;
+}
+
+.study-facts {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin: 0.6rem 0 0;
+}
+
+.study-warn {
+  border-left: 3px solid var(--ink);
+  padding-left: 0.9rem;
+  font-size: 0.9rem;
+  margin-top: 0.8rem;
+}
+
+.study-deck-choice {
+  display: block;
+  padding: 0.35rem 0;
+  cursor: pointer;
+}
+
+.study-deck-choice input {
+  margin-right: 0.6rem;
+}
+
+.study-deck-cards {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin-left: 0.5rem;
+}
+
+/* --- step 2: the report ------------------------------------------------- */
+
+.study-pane {
+  margin-top: 1.6rem;
+  max-width: 54rem;
+}
+
+.study-placeholder {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.85rem;
+}
+
+.study-verdict {
+  font-family: var(--display);
+  font-size: 1.25rem;
+  margin: 0 0 0.8rem;
+}
+
+.study-verdict.is-bad::before,
+.study-verdict.is-good::before {
+  content: "";
+  display: inline-block;
+  width: 0.7em;
+  height: 0.7em;
+  margin-right: 0.5em;
+  background: var(--ink);
+}
+
+.study-verdict.is-good::before {
+  border-radius: 50%;
+}
+
+.study-log {
+  background: var(--paper-2);
+  border: 1px solid var(--edge);
+  padding: 0.9rem 1.1rem;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  overflow-x: auto;
+  white-space: pre;
+  margin: 0 0 0.9rem;
+}
+
+.study-mapping {
+  margin-top: 0.6rem;
+}
+
+.study-mapping summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.study-mapping p {
+  font-size: 0.9rem;
+  color: var(--muted);
+  max-width: 40rem;
+}
+
+.study-map-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+  gap: 0.5rem 1rem;
+  margin: 0.8rem 0 1rem;
+}
+
+.study-map-grid label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+}
+
+.study-map-grid input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--edge);
+  background: var(--paper);
+  color: var(--ink);
+}
+
+/* --- steps 3 and 4 ------------------------------------------------------ */
+
+.study-device {
+  margin-top: 1rem;
+}
+
+.study-status-line {
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-top: 0.9rem;
+  white-space: pre-wrap;
+}

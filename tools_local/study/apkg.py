@@ -97,7 +97,9 @@ def _zstd_decompress(data):
         raise ApkgError(
             "reading a modern .apkg needs the zstandard package (pip install zstandard)"
         ) from exc
-    return zstandard.ZstdDecompressor().decompress(data, max_output_size=1 << 31)
+    # 1GB cap, and not a bit more: this runs on wasm32 too, where 1 << 31
+    # overflows the C ssize_t the binding converts into.
+    return zstandard.ZstdDecompressor().decompress(data, max_output_size=1 << 30)
 
 
 def _media_names_v3(blob):

@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your Anki deck, on the device &middot; CrossPlay</title>
+<meta name="description" content="Drop the .apkg Anki exports, see your own cards running on the real firmware, then write the deck to the SD card. Everything happens in this tab; nothing is uploaded anywhere.">
+<meta property="og:title" content="Your Anki deck, on the device">
+<meta property="og:description" content="Drop an Anki export, preview your cards on the real firmware, write to the card. Nothing leaves this tab.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://crossplay.ma-r-s.com/study/">
+<meta property="og:image" content="https://crossplay.ma-r-s.com/assets/shots/og.png">
+<meta property="og:site_name" content="CrossPlay">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="/study/study.css">
+<link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#111110">
+<script defer src="/_vercel/insights/script.js"></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<div class="topbar">
+  <a class="wordmark" href="/">
+    <svg class="mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+      <rect x="8.4" y="8.4" width="15.2" height="15.2" rx="1.6" fill="currentColor" />
+      <g fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="square">
+        <path d="M2.6 10.4V2.6h7.8" />
+        <path d="M29.4 10.4V2.6h-7.8" />
+        <path d="M2.6 21.6v7.8h7.8" />
+        <path d="M29.4 21.6v7.8h-7.8" />
+      </g>
+    </svg>
+    <span>CrossPlay</span>
+  </a>
+  <nav class="topnav" aria-label="Sections">
+    <a href="/#get">Install the firmware</a>
+    <a class="topnav-out" href="https://github.com/ma-r-s/crossplay">
+      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false" width="15" height="15">
+        <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/>
+      </svg>
+      <span>GitHub</span>
+    </a>
+  </nav>
+</div>
+
+<header class="hero wrap study-hero" id="top">
+  <div class="prose">
+    <p class="eyebrow">Study <span class="eyebrow-sep">&middot;</span> Anki on the reader</p>
+    <h1>Your deck, on the device.</h1>
+    <p class="lede">
+      The Study app schedules with the same FSRS algorithm Anki uses and syncs
+      every review back, so the reader is a real Anki client, not an export.
+      This page puts a deck on it: drop the <code>.apkg</code> Anki exports,
+      see your own cards running on the real firmware, then write the deck to
+      the SD card.
+    </p>
+    <p class="study-privacy">
+      Everything on this page happens inside this tab. Your deck is opened,
+      converted and previewed by code running locally; nothing is uploaded
+      anywhere, and the page works offline once loaded.
+    </p>
+  </div>
+</header>
+
+<main id="main">
+
+<div class="band" id="drop"><h2>Drop your deck</h2><span class="band-note">step 1 &middot; the .apkg Anki exports</span></div>
+<div class="band-rule"></div>
+<section class="wrap">
+  <div class="prose">
+    <p>
+      In Anki: <strong>File &rsaquo; Export</strong>, format
+      <strong>Anki Deck Package (.apkg)</strong>, with
+      <strong>Include scheduling information</strong> checked so cards arrive
+      as learned as they are, and <strong>Support older Anki versions</strong>
+      unchecked. A deck downloaded from AnkiWeb's shared decks works too:
+      import it into Anki first, then export it the same way.
+    </p>
+  </div>
+
+  <div class="study-dropzone" id="dropzone" role="button" tabindex="0"
+       aria-label="Choose or drop an .apkg file">
+    <p class="study-drop-big">Drop the .apkg here</p>
+    <p class="study-drop-small">or click to choose a file</p>
+    <input type="file" id="filepick" accept=".apkg,.colpkg,application/zip" hidden>
+  </div>
+  <p class="study-alt">
+    No deck handy? <button class="linklike" id="sample" type="button">Try the
+    sample deck</button>, thirty SAT words with some review history.
+  </p>
+
+  <div class="study-status" id="openStatus" hidden>
+    <p class="study-progress" id="openProgress"></p>
+  </div>
+
+  <div class="study-summary card" id="openSummary" hidden>
+    <h3 class="study-card-title" id="summaryTitle"></h3>
+    <div id="deckChoices"></div>
+    <p class="study-facts" id="summaryFacts"></p>
+    <p class="study-warn" id="summaryWarn" hidden></p>
+  </div>
+</section>
+
+<div class="band" id="report"><h2>The honest report</h2><span class="band-note">step 2 &middot; what converts, what cannot</span></div>
+<div class="band-rule"></div>
+<section class="wrap">
+  <div class="prose">
+    <p>
+      The converter says what it understood, and the checker walks every card
+      asking the questions a glance cannot: can every character be drawn, does
+      every headword fit the screen, does every sentence wrap sanely. What you
+      read below is those tools' own words, not a summary of them. A deck that
+      passes here renders on the device; a card that would surprise you is
+      listed before it can.
+    </p>
+  </div>
+
+  <div class="study-pane" id="reportPane">
+    <p class="study-placeholder" id="reportPlaceholder">Waiting for a deck.</p>
+    <div id="reportBody" hidden>
+      <p class="study-verdict" id="reportVerdict"></p>
+      <pre class="study-log" id="convertLog"></pre>
+      <pre class="study-log study-log-check" id="checkLog"></pre>
+      <details class="study-mapping">
+        <summary>The fields came out wrong?</summary>
+        <p>
+          The converter guesses by field order: first field is the word, second
+          the meaning. Name them yourself and it converts again:
+        </p>
+        <div class="study-map-grid" id="mapGrid"></div>
+        <button class="btn" id="remap" type="button">Convert again with these fields</button>
+      </details>
+    </div>
+  </div>
+</section>
+
+<div class="band" id="preview"><h2>Try it on the device</h2><span class="band-note">step 3 &middot; the real firmware, your cards</span></div>
+<div class="band-rule"></div>
+<section class="wrap">
+  <div class="prose">
+    <p>
+      This is not a mock-up of the app: it is the firmware, compiled for the
+      browser, with your converted deck placed on its virtual SD card. Tap
+      through your own cards exactly as they will draw on the reader, before
+      anything is written to hardware.
+    </p>
+  </div>
+  <div class="study-pane" id="previewPane">
+    <p class="study-placeholder" id="previewPlaceholder">Waiting for a converted deck.</p>
+    <div class="study-device" id="previewMount" hidden></div>
+  </div>
+</section>
+
+<div class="band" id="write"><h2>Write it to the card</h2><span class="band-note">step 4 &middot; the SD card, or a zip</span></div>
+<div class="band-rule"></div>
+<section class="wrap">
+  <div class="prose">
+    <p>
+      Put the reader's SD card in this computer, then let the page write the
+      deck into its <code>/study/</code> folder. Decks already on the card are
+      left alone; this deck is added alongside them. If your browser cannot
+      write folders (Firefox and Safari cannot yet), you get the same files as
+      a zip and one sentence about where to unpack it.
+    </p>
+  </div>
+  <div class="study-pane" id="writePane">
+    <p class="study-placeholder" id="writePlaceholder">Waiting for a converted deck.</p>
+    <div id="writeBody" hidden>
+      <div class="cta-row">
+        <button class="btn primary" id="writeCard" type="button">Choose the SD card and write</button>
+        <button class="btn" id="writeZip" type="button">Download as a zip</button>
+      </div>
+      <p class="study-status-line" id="writeStatus"></p>
+    </div>
+  </div>
+</section>
+
+<div class="band" id="sync"><h2>After you study: sync back</h2><span class="band-note">the loop &middot; reviews return to Anki</span></div>
+<div class="band-rule"></div>
+<section class="wrap">
+  <div class="prose">
+    <p>
+      Reviews you do on the reader are written to the card after every answer.
+      To carry them back into Anki, the computer-side tool replays them into
+      your collection with the same grades and timestamps, then Anki's own
+      Sync button takes them to AnkiWeb. That part lives in the repository
+      (<code>tools_local/study/study.py sync</code>) and is documented in
+      <a href="https://github.com/ma-r-s/crossplay/blob/xteink/docs/study.md">docs/study.md</a>.
+    </p>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-grid">
+      <div>
+        <h4>CrossPlay</h4>
+        <p class="foot-note">A fork of CrossPoint for the Xteink X4 Pro. Built by one person, in the open. MIT licensed, like the project it forks.</p>
+      </div>
+      <div>
+        <h4>Project</h4>
+        <ul>
+          <li><a href="https://github.com/ma-r-s/crossplay">Source</a></li>
+          <li><a href="https://github.com/ma-r-s/crossplay/releases">Releases</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Upstream</h4>
+        <ul>
+          <li><a href="https://crosspointreader.com/">CrossPoint</a></li>
+          <li><a href="https://apps.ankiweb.net/">Anki</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="foot-fine">
+      <h4>Fine print</h4>
+      <div class="foot-fine-cols">
+        <p>Anki is a trademark of Ankitects Pty Ltd. CrossPlay's Study app reads and writes Anki's formats but is not affiliated with, endorsed by or sponsored by Ankitects.</p>
+        <p>This page runs Python in your browser via <a href="https://pyodide.org">Pyodide</a> (MPL-2.0), served from this site. No analytics beyond a cookieless page count, no accounts, no uploads.</p>
+      </div>
+    </div>
+    <p class="foot-toggle">
+      <button class="theme-toggle" id="themeToggle" type="button" aria-pressed="false">Invert</button>
+    </p>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  var toggle = document.getElementById('themeToggle');
+  function prefersDark() {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  }
+  function sync() {
+    var dark = (root.getAttribute('data-theme') || (prefersDark() ? 'dark' : 'light')) === 'dark';
+    toggle.setAttribute('aria-pressed', String(dark));
+  }
+  try {
+    var saved = localStorage.getItem('crossplay-theme');
+    if (saved) root.setAttribute('data-theme', saved);
+  } catch (e) {}
+  sync();
+  toggle.addEventListener('click', function () {
+    var current = root.getAttribute('data-theme') || (prefersDark() ? 'dark' : 'light');
+    var next = current === 'dark' ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    try { localStorage.setItem('crossplay-theme', next); } catch (e) {}
+    sync();
+  });
+})();
+</script>
+<script src="/study/study.js"></script>
+</body>
+</html>
