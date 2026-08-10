@@ -2634,15 +2634,18 @@ void testTheResultNamesTheOutcomeFromYourSeat() {
 }
 
 void testTheCheckersHowToPagesAndEnds() {
+  // The tutorial shape: the whole page is the button, the tap line says
+  // whether another page follows, and the counter lives in the band.
   for (int page = 0; page < checkui::howToPages(); ++page) {
     checkui::HowToModel model;
     model.page = page;
     Rendered out;
     buildCk<checkui::HowToModel, checkui::buildHowTo>(out, model);
-    CHECK(out.target.drew(page + 1 < checkui::howToPages() ? "NEXT" : "GOT IT"));
-    char progress[8];
-    std::snprintf(progress, sizeof(progress), "%d/%d", page + 1, checkui::howToPages());
+    CHECK(out.target.drew(page + 1 < checkui::howToPages() ? "TAP TO CONTINUE" : "TAP TO FINISH"));
+    char progress[16];
+    std::snprintf(progress, sizeof(progress), "%d OF %d", page + 1, checkui::howToPages());
     CHECK(out.target.drew(progress));
+    CHECK(out.tap(240, 300).action == checkui::ActionHowToNext);
   }
 }
 
@@ -2667,7 +2670,11 @@ void testKnucklebonesMenuOffersItsThreeRows() {
   CHECK(menu.target.drew("HOW TO PLAY"));
   CHECK(!menu.interactions.overflowed());
 
-  const int firstRowY = toybox::kHeaderHeight + toybox::kGutter * 3 + toybox::kRowHeight / 2;
+  // The doors anchor to the bottom now, so the first row is found from the
+  // content's floor rather than the header -- the same arithmetic the builder
+  // uses, exercised from the other end.
+  const int listHeight = 3 * toybox::kRowHeight + 2 * (toybox::kGutter / 2) + toybox::kGutter;
+  const int firstRowY = 800 - toybox::kMargin - listHeight + toybox::kRowHeight / 2;
   const fui::ActionEvent first = menu.tap(240, firstRowY);
   CHECK(first.action == knuckleui::ActionMenuRow);
   CHECK(first.value == static_cast<int>(knuckleui::MenuRow::Play));
