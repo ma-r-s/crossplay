@@ -62,11 +62,12 @@ def _run_tool(script_name, argv, tee=None):
     """
     buf = _Tee(tee)
     code = 0
+    namespace = {}
     saved_argv = sys.argv
     sys.argv = [script_name] + [str(a) for a in argv]
     try:
         with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
-            runpy.run_path(str(HERE / script_name), run_name="__main__")
+            namespace = runpy.run_path(str(HERE / script_name), run_name="__main__")
     except SystemExit as exc:
         if isinstance(exc.code, int) or exc.code is None:
             code = exc.code or 0
@@ -76,7 +77,7 @@ def _run_tool(script_name, argv, tee=None):
             code = 1
     finally:
         sys.argv = saved_argv
-    return code, buf.getvalue()
+    return code, buf.getvalue(), namespace
 
 
 def _deck_files():
@@ -110,6 +111,8 @@ def open_apkg():
             "fonts": fonts,
             "images": len(media) - len(fonts),
             "mediaSkipped": info["media_skipped"],
+            "audio": info["audio"],
+            "pictures": info["pictures"],
         }
     )
 
@@ -137,21 +140,21 @@ def convert(deck_name, mapping):
     argv = [collection, "--deck", deck_name, "--out", out]
     for pair in mapping or []:
         argv += ["--map", pair]
-    code, log = _run_tool("anki_to_deck.py", argv)
+    code, log, used = _run_tool("anki_to_deck.py", argv)
     if code != 0:
         return json.dumps({"error": log.strip() or "conversion failed"})
 
     media = WORK / "unpacked" / "media"
     images_log = ""
     if any(p.suffix.lower() in apkg.IMAGE_SUFFIXES for p in media.iterdir()):
-        icode, images_log = _run_tool(
+        icode, images_log, _ = _run_tool(
             "make_images.py",
             ["--collection", collection, "--out", out, "--media", media],
         )
         if icode != 0:
             images_log += "\n(image packing failed; the deck works without it)"
 
-    check_code, check_log = _run_tool("check_deck.py", [out])
+    check_code, check_log, _ = _run_tool("check_deck.py", [out])
 
     # The page's headline numbers come from here, parsed from the converter's
     # own summary line, so they can never disagree with the log below them.
@@ -187,8 +190,11 @@ def convert(deck_name, mapping):
                 "select name from fields where ntid = ? order by ord", (dominant_id,)
             )
         ]
-        profile = anki_to_deck.PROFILES.get(type_rows[0][0])
-        guess = profile or anki_to_deck.generic_profile(fields, mapping_dict(mapping))
+        # What really ran, straight out of the converter's namespace. Deriving
+        # it again here is how the page came to show "type" as the word while
+        # the deck was built from "german".
+        used_profiles = used.get("USED_PROFILES") or {}
+        guess = dict(used_profiles.get(type_rows[0][0]) or {})
     db.close()
 
     sample = None
@@ -197,6 +203,12 @@ def convert(deck_name, mapping):
         sample = dict(zip(check_deck_mod.FIELD_NAMES, first))
     except (StopIteration, OSError, SystemExit):
         pass
+
+    problems = {}
+    for line in check_log.splitlines():
+        found = re.match(r"\s+(?:ok|FAIL)\s+(.*?): (\d+)$", line)
+        if found and int(found.group(2)):
+            problems[found.group(1)] = int(found.group(2))
 
     counts = re.search(
         r"deck '.*': (\d+) cards \((\d+) with scheduling state, (\d+) skipped\)",
@@ -223,11 +235,14 @@ def convert(deck_name, mapping):
             "fields": fields,
             "guess": {k: v for k, v in guess.items() if v},
             "noteTypes": len(type_rows),
+            "problems": problems,
         }
     )
 
 
 def build_fonts(mode, tee=None):
+    import re
+
     """Build the deck's faces the way make_fonts.py always has.
 
     mode "cjk" uses the TTFs the package's media carried; mode "custom" uses
@@ -253,12 +268,18 @@ def build_fonts(mode, tee=None):
     else:
         return json.dumps({"error": f"unknown font mode {mode!r}"})
 
-    code, log = _run_tool("make_fonts.py", argv, tee=tee)
+    code, log, used = _run_tool("make_fonts.py", argv, tee=tee)
     if code != 0:
         shutil.rmtree(fonts_dir, ignore_errors=True)
         return json.dumps({"error": log.strip() or "font build failed"})
 
-    check_code, check_log = _run_tool("check_deck.py", [out, "--fonts", fonts_dir])
+    check_code, check_log, _ = _run_tool("check_deck.py", [out, "--fonts", fonts_dir])
+
+    problems = {}
+    for line in check_log.splitlines():
+        found = re.match(r"\s+(?:ok|FAIL)\s+(.*?): (\d+)$", line)
+        if found and int(found.group(2)):
+            problems[found.group(1)] = int(found.group(2))
 
     import hashlib
 
@@ -275,6 +296,7 @@ def build_fonts(mode, tee=None):
             "checkFailed": check_code != 0,
             "files": _deck_files(),
             "hashes": hashes,
+            "problems": problems,
         }
     )
 
@@ -324,7 +346,7 @@ def sync_local():
     logs = []
     failed = False
     for deck_dir in decks:
-        code, log = _run_tool("deck_to_anki.py", [deck_dir, collection])
+        code, log, used = _run_tool("deck_to_anki.py", [deck_dir, collection])
         logs.append(f"== {deck_dir.name}\n{log.rstrip()}")
         failed = failed or code != 0
     return json.dumps({"log": "\n\n".join(logs), "failed": failed})

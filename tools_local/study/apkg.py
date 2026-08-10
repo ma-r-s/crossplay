@@ -38,6 +38,8 @@ MODERN_TABLES = {"decks", "notetypes", "deck_config"}
 # "disk" is RAM.
 FONT_SUFFIXES = (".ttf", ".otf", ".ttc")
 IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp")
+# Never extracted: the device has no speaker. Counted so the page can say so.
+AUDIO_SUFFIXES = (".mp3", ".ogg", ".wav", ".m4a", ".flac", ".opus", ".aac")
 
 REEXPORT_ADVICE = (
     "this .apkg could not be read even as an old-format package. In Anki,"
@@ -345,12 +347,19 @@ def extract(apkg_path, out_dir):
             raise ApkgError(REEXPORT_ADVICE)
 
         kept = skipped = 0
+        # Counted by kind, because "media skipped" is not a number a user can
+        # act on but "this deck has 431 sounds the reader cannot play" is.
+        audio = pictures = 0
         for zip_name, real_name in _media_map(zf, version).items():
             if zip_name not in members:
                 continue
             if not _keepable(real_name):
                 skipped += 1
+                if real_name.lower().endswith(AUDIO_SUFFIXES):
+                    audio += 1
                 continue
+            if real_name.lower().endswith(IMAGE_SUFFIXES):
+                pictures += 1
             data = zf.read(zip_name)
             if version >= 3:
                 data = _zstd_decompress(data)
@@ -363,6 +372,8 @@ def extract(apkg_path, out_dir):
         "version": version,
         "media_kept": kept,
         "media_skipped": skipped,
+        "audio": audio,
+        "pictures": pictures,
     }
 
 

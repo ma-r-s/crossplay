@@ -210,7 +210,15 @@ fi
 # CHECK_OUTER_BRANCH is set by the --committed path above and is empty for a
 # normal run; it exists because the branch is unknowable from inside a detached
 # worktree. Do not set it by hand.
-if [ "${CHECK_OUTER_BRANCH:-$(git branch --show-current 2>/dev/null)}" = "$DEPLOY_BRANCH" ]; then
+#
+# 2026-08-10: the branch gate was itself the bug. On app/installer the guard
+# never ran, so the site's Study page previewed a deck on twelve-hour-old
+# firmware and told the user "this is the real firmware" while the real one
+# had a fixed card layout. A user-test agent caught it; nothing here did.
+# Any branch that changes firmware AND ships site/emulator now gets the
+# warning; only $DEPLOY_BRANCH treats it as a failure, because a feature
+# branch legitimately rebuilds the 6-minute artifact once, at the end.
+if true; then
   ART=$(git log -1 --format=%ct -- site/emulator 2>/dev/null)
   SRC=$(git log -1 --format=%ct -- src lib assets_local tools_local/wasm 2>/dev/null)
   if [ -n "$ART" ] && [ -n "$SRC" ] && [ "$ART" -lt "$SRC" ]; then
@@ -221,7 +229,12 @@ if [ "${CHECK_OUTER_BRANCH:-$(git branch --show-current 2>/dev/null)}" = "$DEPLO
     echo "  the live page would ship code older than this branch. Rebuild:"
     echo "    pio run -e simulator_x4_pro -t compiledb"
     echo "    source ../.emsdk/emsdk_env.sh && python3 tools_local/wasm/build.py"
-    FAILED=1
+    echo "  anything the page previews is running that older firmware."
+    if [ "${CHECK_OUTER_BRANCH:-$(git branch --show-current 2>/dev/null)}" = "$DEPLOY_BRANCH" ]; then
+      FAILED=1
+    else
+      echo "  (warning only off $DEPLOY_BRANCH -- rebuild before you land)"
+    fi
   fi
 fi
 

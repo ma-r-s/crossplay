@@ -47,6 +47,14 @@ META_SENTENCE_ON_QUESTION = 1 << 0
 # Note types whose sentence is a question-side prompt rather than an answer.
 SENTENCE_ON_QUESTION_TYPES = {"HSK", "HSK+"}
 
+# Filled during a run: note type -> the field mapping this conversion really
+# used. The installer page reads it back (through runpy's namespace) to fill
+# its "what goes where" dropdowns. It used to re-derive the mapping itself,
+# without the empty-field and categorical filters the converter applies, so
+# the page showed one mapping while the deck was built from another -- and a
+# user "correcting" the page's version made their deck worse.
+USED_PROFILES = {}
+
 # Card states, matching study::State on the device. Anki's `cards.type` uses
 # the same first four values, which is not a coincidence -- keeping them equal
 # is what lets a card round-trip without a translation table.
@@ -451,6 +459,7 @@ def collect_notes(db, deck_name, limit=None, override=None):
             if counts.get(ordinal, 0) <= total * 0.05
         }
 
+    USED_PROFILES.clear()
     announced = set()
     notes, skipped, cloze_skipped = [], 0, 0
     for (
@@ -468,6 +477,8 @@ def collect_notes(db, deck_name, limit=None, override=None):
         card_ord,
     ) in rows:
         profile = PROFILES.get(nt_name)
+        if profile:
+            USED_PROFILES.setdefault(nt_name, dict(profile))
         if not profile:
             # By name, and by content: a renamed cloze type would otherwise fall
             # through to the generic profile and put the raw markup -- answer
@@ -494,6 +505,7 @@ def collect_notes(db, deck_name, limit=None, override=None):
                 profile = dict(
                     profile, headword=profile["meaning"], meaning=profile["headword"]
                 )
+            USED_PROFILES.setdefault(nt_name, dict(profile))
             if nt_name not in announced:
                 announced.add(nt_name)
                 print(

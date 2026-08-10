@@ -211,6 +211,54 @@
     });
   }
 
+  // check_deck's labels, in the words a person would use, and whether the
+  // problem is fatal to those cards or merely worth knowing.
+  var PROBLEM_WORDS = {
+    "a card whose faces do not work as a question and an answer": function (n) {
+      return (
+        n +
+        (n === 1 ? " card arrives" : " cards arrive") +
+        " broken: nothing to reveal, or the answer already showing in the" +
+        " question. Usually the deck itself has those gaps."
+      );
+    },
+    "a character no installed font can draw at all": function (n) {
+      return (
+        n +
+        (n === 1 ? " card uses characters" : " cards use characters") +
+        " the reader has no font for, and would come out blank. Pick a font" +
+        " file below that covers this language."
+      );
+    },
+    "a glyph the headword face cannot draw": function (n) {
+      return (
+        n +
+        (n === 1 ? " card has a character" : " cards have characters") +
+        " the chosen font cannot draw. They would come out blank."
+      );
+    },
+    "a Latin glyph the built-in serif cannot draw": function (n) {
+      return (
+        n +
+        (n === 1 ? " card uses a character" : " cards use characters") +
+        " outside the reader's built-in type. Those characters go missing."
+      );
+    },
+    "headword too wide for the screen": function (n) {
+      return n + " word(s) are too wide for the screen and will be cut.";
+    },
+  };
+
+  function describeProblems(problems) {
+    var lines = [];
+    Object.keys(problems || {}).forEach(function (label) {
+      var count = problems[label];
+      var say = PROBLEM_WORDS[label];
+      lines.push(say ? say(count) : count + " x " + label);
+    });
+    return lines;
+  }
+
   function onConverted(result) {
     if (result.error) {
       $("reportPlaceholder").hidden = true;
@@ -222,6 +270,13 @@
       $("convertLog").textContent = result.error;
       $("checkLog").textContent = "";
       $("samplePanel").hidden = true;
+      $("skipNotice").hidden = true;
+      $("summaryFacts").textContent = "";
+      // Nothing was produced, so there is nowhere to go: a live Next button
+      // here walked the user onto an empty step with no way back but the tabs.
+      $("next2").disabled = true;
+      reachedStep = 2;
+      goTo(2);
       return;
     }
     converted = result;
@@ -233,12 +288,8 @@
     else goTo(currentStep);
 
     var verdict = $("reportVerdict");
-    if (result.hasCjk && opened && opened.fonts.length === 0) {
-      verdict.textContent =
-        "This deck is written in characters the reader has no font for.";
-      verdict.className = "study-verdict is-bad";
-    } else if (result.checkFailed) {
-      verdict.textContent = "Converted, with things you should see:";
+    if (result.checkFailed || (result.problems && Object.keys(result.problems).length)) {
+      verdict.textContent = "Converted, but read this first:";
       verdict.className = "study-verdict is-bad";
     } else {
       verdict.textContent = "Every card renders.";
@@ -264,23 +315,44 @@
     }
     $("summaryFacts").textContent = facts.join(" · ") + (facts.length ? "." : "");
 
-    var notice = $("skipNotice");
+    var notes = [];
     if (result.skipped > 0) {
-      notice.textContent =
+      notes.push(
         result.skipped +
-        (result.skipped === 1 ? " card stays behind: " : " cards stay behind: ") +
-        (result.clozeSkipped > 0
-          ? "cloze cards have a hole in the question, and this card format" +
-            " has nowhere to put a hole. They stay in Anki."
-          : "their note type could not be read. The full log below has each one.");
-      notice.hidden = false;
-    } else {
-      notice.hidden = true;
+          (result.skipped === 1 ? " card stays behind: " : " cards stay behind: ") +
+          (result.clozeSkipped > 0
+            ? "cloze cards have a hole in the question, and this card format" +
+              " has nowhere to put a hole. They stay in Anki."
+            : "their note type could not be read."),
+      );
     }
+    // What the package carried that the reader cannot use. Silence here read
+    // as "nothing was lost" for a deck whose answers were all photographs.
+    if (opened && opened.pictures > 0 && !result.imagesPacked) {
+      notes.push(
+        opened.pictures +
+          " picture(s) in this deck are not carried over; cards whose answer" +
+          " was only a picture arrive blank.",
+      );
+    }
+    if (opened && opened.audio > 0) {
+      notes.push(
+        opened.audio +
+          " sound(s) are dropped: the reader has no speaker.",
+      );
+    }
+    describeProblems(result.problems).forEach(function (line) {
+      notes.push(line);
+    });
+
+    var notice = $("skipNotice");
+    notice.textContent = notes.join(" ");
+    notice.hidden = notes.length === 0;
 
     $("convertLog").textContent =
       result.log + (result.imagesLog ? "\n" + result.imagesLog : "");
     $("checkLog").textContent = result.checkLog;
+    $("next2").disabled = false;
     fillSample(result.sample);
     buildMapGrid(result);
 
@@ -369,10 +441,30 @@
     $("typeLog").hidden = true;
     $("typeProgress").hidden = true;
 
+    // A deck the built-in face cannot draw gets the bundled CJK face built
+    // for it straight away, rather than being told what it cannot have.
+    var needsFont =
+      converted.hasCjk ||
+      (converted.problems &&
+        converted.problems["a character no installed font can draw at all"]);
+    if (needsFont && !(opened && opened.fonts.length)) {
+      $("typeChoices").hidden = false;
+      var cjk = faceRadio("cjk");
+      if (cjk && !cjk.checked) {
+        cjk.checked = true;
+        faceBefore = "cjk";
+        fetch("/study/NotoSansCJK.otf")
+          .then(function (response) {
+            return response.arrayBuffer();
+          })
+          .then(function (buffer) {
+            buildFonts("custom", buffer);
+          });
+      }
+      return;
+    }
+
     if (converted.hasCjk) {
-      // The package's own faces are the right default, but a user with a
-      // Japanese deck and no bundled fonts still has a way through: their
-      // own TTF. Hiding the chooser here made that a dead end.
       $("typeChoices").hidden = !!(opened && opened.fonts.length);
       if (opened && opened.fonts.length > 0) {
         buildFonts("cjk", null);
@@ -438,13 +530,17 @@
     // The checker's verdict, now against the real faces.
     $("checkLog").textContent = result.checkLog;
     var verdict = $("reportVerdict");
-    if (result.checkFailed) {
-      verdict.textContent = "Converted, with things you should see:";
+    var fontProblems = describeProblems(result.problems);
+    if (result.checkFailed || fontProblems.length) {
+      verdict.textContent = "Converted, but read this first:";
       verdict.className = "study-verdict is-bad";
     } else {
       verdict.textContent = "Every card renders.";
       verdict.className = "study-verdict is-good";
     }
+    var notice = $("skipNotice");
+    notice.textContent = fontProblems.join(" ");
+    notice.hidden = fontProblems.length === 0;
   }
 
   // ---- step 4: the preview ------------------------------------------------
@@ -1003,10 +1099,14 @@
         $("typeLog").hidden = true;
         $("typeProgress").hidden = true;
         convert(chosenDeck, null); // back to the fontless deck and report
-      } else if (radio.value === "bundled") {
-        faceBefore = "bundled";
+      } else if (radio.value === "bundled" || radio.value === "cjk") {
+        faceBefore = radio.value;
         $("ownName").textContent = "";
-        fetch("/study/DejaVuSerif.ttf")
+        fetch(
+          radio.value === "cjk"
+            ? "/study/NotoSansCJK.otf"
+            : "/study/DejaVuSerif.ttf",
+        )
           .then(function (response) {
             return response.arrayBuffer();
           })
