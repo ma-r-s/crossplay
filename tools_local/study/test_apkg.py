@@ -134,6 +134,49 @@ def main():
                 with_state += 1
         ok(with_state == 10, f"{with_state} cards carry FSRS state, wanted 10")
 
+        # --- the faces: which side each field lands on --------------------
+        import anki_to_deck
+
+        # A generic vocabulary deck keeps its sentence on the answer face.
+        meta = (deck_out / "meta.dat").read_bytes()
+        (flags,) = struct.unpack_from("<H", meta, 10)
+        ok(
+            flags & anki_to_deck.META_SENTENCE_ON_QUESTION == 0,
+            "a vocabulary deck must not put its sentence on the question face",
+        )
+        # An HSK deck does, because reading the word in context is the point.
+        ok(
+            "HSK" in anki_to_deck.SENTENCE_ON_QUESTION_TYPES,
+            "the HSK note type lost its sentence-on-question habit",
+        )
+        hsk_meta = tmp / "hsk-meta.dat"
+        anki_to_deck.write_meta(
+            hsk_meta, "HSK", {}, 0, 4, anki_to_deck.META_SENTENCE_ON_QUESTION
+        )
+        (hsk_flags,) = struct.unpack_from("<H", hsk_meta.read_bytes(), 10)
+        ok(
+            hsk_flags & anki_to_deck.META_SENTENCE_ON_QUESTION != 0,
+            "write_meta dropped the sentence-on-question flag",
+        )
+
+        # A field that is empty everywhere must never win a slot on its name
+        # alone: one real deck is [Front, Back, Meaning] with Meaning blank on
+        # every note, and name-matching alone gave 115 cards a blank answer.
+        blank = anki_to_deck.generic_profile(
+            ["Front", "Back", "Meaning"], None, {"Meaning"}
+        )
+        ok(
+            blank["meaning"] == "Back",
+            f"the empty field won the answer face: {blank['meaning']!r}",
+        )
+        named = anki_to_deck.generic_profile(
+            ["Word", "Part of Speech", "Definition", "Sentence"]
+        )
+        ok(
+            named["meaning"] == "Definition" and named["partOfSpeech"] == "Part of Speech",
+            f"named fields mapped wrong: {named}",
+        )
+
         # --- the legacy package converts too ------------------------------
         # Every AnkiWeb shared deck ships in this format, so it is the common
         # case for a new user, not a corner: the schema-11 JSON metadata is

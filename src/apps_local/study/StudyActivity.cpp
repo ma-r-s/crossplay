@@ -877,7 +877,10 @@ void StudyActivity::drawCard(const Rect& body) {
     y = drawWrapped(kSmallFontId, y, maxWidth, note_.field(study::Field::PartOfSpeech));
   }
 
-  if (!note_.empty(study::Field::Sentence)) {
+  // The sentence follows the deck's own habit: an HSK card wants it in front of
+  // you while you read, a vocabulary card wants it kept back with the answer it
+  // half gives away. Both used to show it on the question face.
+  if (!note_.empty(study::Field::Sentence) && (answer || deck_.meta().sentenceOnQuestion)) {
     // The rule, as the Anki template has it: the word above, the sentence it
     // lives in below. Hairline against the footer's kRule, so the two dividers
     // read as different weights rather than competing.

@@ -91,6 +91,16 @@ def try_one(path):
         code, log = run_tool("check_deck.py", [tmp / "deck"])
         verdict = log.strip().splitlines()[-1] if log.strip() else "no output"
         marker = "ok " if code == 0 else "CHECK FAILED"
+        # The faces, always: "it renders" and "the right thing is on the right
+        # side" are different questions, and only the second one catches a
+        # sentence sitting on the face that asks you to recall it.
+        lines = log.splitlines()
+        for i, line in enumerate(lines):
+            if line.startswith("sentence "):
+                print(f"    {line.strip()}")
+            if line.startswith("the first card"):
+                for face in lines[i + 1 : i + 3]:
+                    print(f"    {face.rstrip()[:150]}")
         print(f"  {marker}: {verdict}")
         if code != 0:
             fails = [l for l in log.splitlines() if "FAIL" in l]

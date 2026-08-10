@@ -75,6 +75,15 @@ struct DeckMeta {
   uint8_t relearnStepCount = 0;
   char name[64] = {};
 
+  // Whether this deck's example sentence belongs on the question face as well
+  // as the answer. False for a vocabulary deck, where the sentence is part of
+  // what you are trying to recall; true for an HSK-style deck, where reading
+  // the word in a sentence IS the exercise. Written by the converter from the
+  // note type, because only the deck knows which kind it is: for its first
+  // year this was hardcoded on, so a Barron's SAT card showed its own example
+  // sentence while asking you to define the word.
+  bool sentenceOnQuestion = false;
+
   // True when the deck shipped real optimized weights rather than zeros.
   bool hasParams() const;
 };

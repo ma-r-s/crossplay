@@ -13,6 +13,9 @@ constexpr uint8_t kMetaMagic[8] = {'X', 'S', 'T', 'U', 'D', 'Y', 'M', 0};
 // beside v2 content is a state nobody should have to reason about.
 constexpr uint16_t kFormatVersion = 2;
 
+// meta.dat flag bits, mirroring anki_to_deck.py. See DeckMeta.
+constexpr uint16_t kMetaSentenceOnQuestion = 1 << 0;
+
 // Everything on disk is little-endian, and the ESP32-S3 is too, but a raw
 // reinterpret_cast on a byte buffer is an unaligned load -- which faults on
 // RISC-V and is undefined everywhere. memcpy compiles to the same instruction
@@ -87,6 +90,11 @@ bool StudyDeck::openMeta(ByteSource& meta) {
   if (!meta.read(0, header, sizeof(header))) return false;
   if (std::memcmp(header, kMetaMagic, sizeof(kMetaMagic)) != 0) return false;
   if (readU16(header + 8) != kFormatVersion) return false;
+
+  // The two bytes after the version are flags. Every deck written before they
+  // meant anything has zeroes there, which reads as the common case: the
+  // sentence stays on the answer face.
+  meta_.sentenceOnQuestion = (readU16(header + 10) & kMetaSentenceOnQuestion) != 0;
 
   const uint8_t* p = header + 12;
   for (int i = 0; i < kNumParams; ++i) {

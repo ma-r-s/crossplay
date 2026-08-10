@@ -38,6 +38,8 @@ MAX_WIDTH = SCREEN_WIDTH - 2 * MARGIN
 MAX_SENTENCE_LINES = 6
 
 DECK_MAGIC = b"XSTUDYD\0"
+META_MAGIC = b"XSTUDYM\0"
+META_SENTENCE_ON_QUESTION = 1 << 0
 FIELD_NAMES = [
     "headword",
     "reading",
@@ -69,6 +71,56 @@ def read_deck(path):
                 raw = raw[:-2]
             note.append(raw.decode("utf-8"))
         yield i, note
+
+
+def sentence_on_question(deck_dir):
+    """Whether this deck shows its example sentence while asking the question.
+
+    Read from meta.dat rather than assumed, because the whole point of the
+    face check below is to compare against what the device will really draw.
+    """
+    path = deck_dir / "meta.dat"
+    if not path.is_file():
+        return False
+    head = path.read_bytes()[:12]
+    if len(head) < 12 or head[:8] != META_MAGIC:
+        return False
+    (flags,) = struct.unpack_from("<H", head, 10)
+    return bool(flags & META_SENTENCE_ON_QUESTION)
+
+
+def check_faces(fields, on_question):
+    """What each face of one card will show, and what is wrong with it.
+
+    Rendering is only half of "will this deck work". The other half is
+    whether the two faces are a question and an answer: a card whose front
+    is blank cannot be asked, a card whose back adds nothing cannot be
+    answered, and a card whose front already contains its own answer is
+    worse than useless because it teaches you that you knew it.
+
+    This check exists because none of that was verified until a Barron's SAT
+    deck put every card's example sentence on the question face, and the
+    only thing that noticed was a human reading the screen.
+    """
+    headword, reading, meaning, pos, sentence, s_reading, s_meaning = fields
+    question = [headword] + ([sentence] if on_question else [])
+    answer = [reading, meaning, pos, s_reading, s_meaning]
+    if not on_question:
+        answer.append(sentence)
+
+    problems = []
+    if not headword.strip():
+        problems.append("nothing on the question face")
+    if not any(part.strip() for part in answer):
+        problems.append("nothing on the answer face that was not already on the question")
+    # The answer, given away by the question. Substring rather than equality:
+    # a definition repeated inside the prompt is the same failure whether or
+    # not the prompt has anything else in it. Short meanings are skipped: a
+    # two-letter "meaning" inside a sentence is a coincidence, not a leak.
+    lowered_question = " ".join(question).lower()
+    if len(meaning.strip()) >= 4 and meaning.strip().lower() in lowered_question:
+        problems.append("the answer is already visible on the question face")
+    return question, answer, problems
 
 
 def read_cpfont(path):
@@ -184,11 +236,16 @@ def main():
         sentence_fonts[family] = read_cpfont(st)
 
     serif = builtin_serif_coverage(repo_root)
+    on_question = sentence_on_question(args.deck)
     print(f"deck   {args.deck}")
     print(f"faces  {', '.join(families) if families else 'built-in serif only'}")
+    print(
+        f"sentence  {'on the question face too' if on_question else 'on the answer face only'}"
+    )
     print()
 
     problems = {
+        "a card whose faces do not work as a question and an answer": [],
         "a glyph the headword face cannot draw": [],
         "a Latin glyph the built-in serif cannot draw": [],
         "headword too wide for the screen": [],
@@ -196,9 +253,18 @@ def main():
         f"an unbreakable run longer than the {LINE_BYTES}-byte line buffer": [],
     }
     notes = 0
+    first_faces = None
     for index, fields in read_deck(args.deck / "deck.dat"):
         notes += 1
         headword, sentence = fields[0], fields[4]
+
+        question, answer, face_problems = check_faces(fields, on_question)
+        if first_faces is None:
+            first_faces = (question, answer)
+        for problem in face_problems:
+            problems["a card whose faces do not work as a question and an answer"].append(
+                f"note {index} {headword[:24]!r}: {problem}"
+            )
 
         for family in families:
             # Every character, not just the CJK ones. The device draws the
@@ -272,6 +338,12 @@ def main():
         if len(found) > args.show:
             print(f"          ... and {len(found) - args.show} more")
     print()
+    if first_faces:
+        print("\nthe first card, as the device will draw it:")
+        for label, parts in (("question", first_faces[0]), ("answer", first_faces[1])):
+            shown = [part for part in parts if part.strip()]
+            print(f"  {label}: {' | '.join(shown) if shown else '(nothing)'}"[:200])
+        print()
     print("every card renders" if failed == 0 else f"{failed} problems found")
     return 0 if failed == 0 else 1
 

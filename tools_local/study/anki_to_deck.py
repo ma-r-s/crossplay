@@ -33,6 +33,20 @@ CARD_RECORD_SIZE = 32
 NUM_PARAMS = 19
 MAX_STEPS = 6
 
+# meta.dat flags (the uint16 after the version, zero in every deck written
+# before this existed -- which is why the default is the common case).
+#
+# Bit 0: draw the example sentence on the QUESTION face as well as the answer.
+# That is an HSK-template habit: a hanzi alone is a recall test, the same hanzi
+# inside a sentence is the reading exercise the deck is for, so the sentence
+# belongs in front of you while you think. It is wrong for a vocabulary deck,
+# where the example sentence is part of the answer -- and it silently was the
+# behaviour for every deck until a Barron's SAT list made it obvious.
+META_SENTENCE_ON_QUESTION = 1 << 0
+
+# Note types whose sentence is a question-side prompt rather than an answer.
+SENTENCE_ON_QUESTION_TYPES = {"HSK", "HSK+"}
+
 # Card states, matching study::State on the device. Anki's `cards.type` uses
 # the same first four values, which is not a coincidence -- keeping them equal
 # is what lets a card round-trip without a translation table.
@@ -126,9 +140,19 @@ FIELD_NAME_PATTERNS = {
 }
 
 
-def generic_profile(fields_in_order, override=None):
+def generic_profile(fields_in_order, override=None, blank_fields=()):
+    """Map a note type's fields onto the device's seven slots.
+
+    `blank_fields` is the set of field names this deck leaves empty on
+    (nearly) every note. They are skipped, because a name is a claim and the
+    content is the evidence: one real deck has fields [Front, Back, Meaning]
+    where "Meaning" is empty on all 115 notes and "Back" holds the
+    definition. Matching on the name alone put the empty field on the answer
+    face and produced 115 cards with nothing to reveal.
+    """
     profile = {key: "" for key in FIELD_ORDER}
     claimed = set()
+    usable = [f for f in fields_in_order if f not in blank_fields]
 
     def claim(slot, field_name):
         if not profile[slot] and field_name not in claimed:
@@ -137,7 +161,7 @@ def generic_profile(fields_in_order, override=None):
 
     for slot, patterns in FIELD_NAME_PATTERNS.items():
         for pattern in patterns:
-            for field_name in fields_in_order:
+            for field_name in usable:
                 if pattern in field_name.lower():
                     claim(slot, field_name)
                     break
@@ -146,7 +170,7 @@ def generic_profile(fields_in_order, override=None):
 
     # Positional fallback for whatever names told us nothing: the first
     # unclaimed field is the word, the next the meaning.
-    unclaimed = [f for f in fields_in_order if f not in claimed]
+    unclaimed = [f for f in usable if f not in claimed]
     if not profile["headword"] and unclaimed:
         claim("headword", unclaimed.pop(0))
     if not profile["meaning"] and unclaimed:
@@ -362,6 +386,33 @@ def collect_notes(db, deck_name, limit=None, override=None):
     ):
         template_counts[nt_name] = count
 
+    # How often each field of each note type actually carries text. A field
+    # that is empty everywhere is a field the deck's author abandoned, and
+    # mapping a face onto it produces a blank card face.
+    filled = {}
+    totals = {}
+    for _cid, flds, nt_name, *_rest in rows:
+        values = flds.split("\x1f")
+        totals[nt_name] = totals.get(nt_name, 0) + 1
+        counts = filled.setdefault(nt_name, {})
+        for ordinal, value in enumerate(values):
+            if clean(value):
+                counts[ordinal] = counts.get(ordinal, 0) + 1
+
+    def blank_fields_for(nt_name):
+        by_ordinal = ordinals.get(nt_name, {})
+        total = totals.get(nt_name, 0)
+        if not total:
+            return set()
+        counts = filled.get(nt_name, {})
+        # 5%: a handful of notes missing a field is normal; a field filled on
+        # almost none of them is not a field this deck uses.
+        return {
+            name
+            for name, ordinal in by_ordinal.items()
+            if counts.get(ordinal, 0) <= total * 0.05
+        }
+
     announced = set()
     notes, skipped, cloze_skipped = [], 0, 0
     for (
@@ -392,7 +443,7 @@ def collect_notes(db, deck_name, limit=None, override=None):
                 if nt_name in ordinals
                 else []
             )
-            profile = generic_profile(in_order, override)
+            profile = generic_profile(in_order, override, blank_fields_for(nt_name))
             # The second card of a two-template type asks the question the other
             # way round, so the word and the meaning trade places. Only for the
             # generic path: a written profile said what it meant.
@@ -435,6 +486,7 @@ def collect_notes(db, deck_name, limit=None, override=None):
         notes.append(
             {
                 "ankiCardId": cid,
+                "noteType": nt_name,
                 "fields": [
                     headword,
                     clean(get("reading")),
@@ -565,7 +617,7 @@ def write_cards(notes, path, crt, rollover, learn_steps, relearn_steps):
     assert path.stat().st_size == len(notes) * CARD_RECORD_SIZE
 
 
-def write_meta(path, name, config, crt, rollover):
+def write_meta(path, name, config, crt, rollover, flags=0):
     params = config.get("params") or []
     if len(params) != NUM_PARAMS:
         print(
@@ -575,7 +627,7 @@ def write_meta(path, name, config, crt, rollover):
     encoded = name.encode("utf-8")[:255]
     with open(path, "wb") as f:
         f.write(META_MAGIC)
-        f.write(struct.pack("<HH", FORMAT_VERSION, 0))
+        f.write(struct.pack("<HH", FORMAT_VERSION, flags))
         f.write(struct.pack("<%df" % NUM_PARAMS, *params))
         f.write(
             struct.pack(
@@ -716,7 +768,12 @@ def main():
         config.get("learnSteps") or [1.0, 10.0],
         config.get("relearnSteps") or [10.0],
     )
-    write_meta(args.out / "meta.dat", name, config, crt, rollover)
+    # The sentence goes on the answer face unless this deck's note type is one
+    # whose template puts it in front of you while you answer.
+    flags = 0
+    if any(n["noteType"] in SENTENCE_ON_QUESTION_TYPES for n in notes):
+        flags |= META_SENTENCE_ON_QUESTION
+    write_meta(args.out / "meta.dat", name, config, crt, rollover, flags)
     (args.out / "revlog.dat").touch()
     glyphs = write_glyphs(notes, args.out)
 
