@@ -349,12 +349,16 @@ void drawTabs(toybox::Screen& screen, const fui::Rect& strip, const BoardModel& 
     if (active) {
       target.fill(tab, fui::Paint::solid(fui::Color::Black));
     } else if (i > 0) {
-      target.fill(fui::makeRect(x, static_cast<int16_t>(strip.y + 6), toybox::kHairline,
-                                static_cast<int16_t>(strip.height - 12)),
-                  fui::Paint::solid(fui::Color::Black));
+      // Full height: an inset divider reads as a broken line when the fill
+      // changes beside it.
+      target.fill(fui::makeRect(x, strip.y, toybox::kHairline, strip.height), fui::Paint::solid(fui::Color::Black));
     }
     char label[16];
-    std::snprintf(label, sizeof(label), "%s %d", tabs[i].label, tabs[i].count);
+    if (i == 0 && model.handTabLabel != nullptr) {
+      std::snprintf(label, sizeof(label), "%s", model.handTabLabel);
+    } else {
+      std::snprintf(label, sizeof(label), "%s %d", tabs[i].label, tabs[i].count);
+    }
     fui::TextStyle style = styled(toybox::kSmallFont, fui::TextAlign::Center);
     style.color = active ? fui::Color::White : fui::Color::Black;
     target.text(tab, label, style);

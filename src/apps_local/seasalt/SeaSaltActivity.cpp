@@ -281,6 +281,21 @@ seasaltui::BoardModel SeaSaltActivity::boardModel() {
   // the modal chooser screens that resized and re-homed them are gone.
   using seasalt::Step;
   const Step step = game.currentStep();
+  if (tab == 0 && myTurn()) {
+    switch (step) {
+      case Step::ChooseKeep:
+        model.handTabLabel = "KEEP";
+        break;
+      case Step::ChoosePile:
+        model.handTabLabel = "PLACE";
+        break;
+      case Step::CrabPick:
+        model.handTabLabel = "DIG";
+        break;
+      default:
+        break;
+    }
+  }
   if (tab == 0 && myTurn() && step == Step::ChooseKeep) {
     for (int i = 0; i < 2; ++i) {
       if (game.drawn[i] == seasalt::kNoCard) continue;

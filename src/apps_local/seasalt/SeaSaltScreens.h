@@ -95,6 +95,9 @@ struct BoardModel {
   // Which of the three views is up, and the cards it shows. One page's worth:
   // the activity pages past kMaxBoardTiles on the side keys.
   int tab = 0;  // 0 hand, 1 yours, 2 theirs
+  // When a decision is pending, the first segment says what the grid shows
+  // (KEEP / PLACE / DIG) instead of claiming to be the hand. Null = "HAND n".
+  const char* handTabLabel = nullptr;
   int handCount = 0;
   int yoursCount = 0;
   int theirsCount = 0;
