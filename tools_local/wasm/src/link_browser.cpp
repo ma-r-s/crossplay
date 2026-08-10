@@ -167,9 +167,7 @@ EMSCRIPTEN_KEEPALIVE void crossplay_link_bind(const int id) { linkplay::instance
 
 // Where the page writes a packet before announcing it. One buffer is enough:
 // deliver runs on the main thread, and the main thread is one thread.
-EMSCRIPTEN_KEEPALIVE uintptr_t crossplay_link_inbox() {
-  return reinterpret_cast<uintptr_t>(linkplay::inbox);
-}
+EMSCRIPTEN_KEEPALIVE uintptr_t crossplay_link_inbox() { return reinterpret_cast<uintptr_t>(linkplay::inbox); }
 EMSCRIPTEN_KEEPALIVE int crossplay_link_inbox_size() { return static_cast<int>(linkplay::kMaxPacketBytes); }
 
 // fromSlot identifies the sender the way the socket did on the desktop: taken

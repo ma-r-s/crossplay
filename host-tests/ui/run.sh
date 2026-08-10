@@ -44,6 +44,7 @@ c++ -std=c++17 -Wall -Wextra -Werror -Wno-comment -Wno-format-truncation \
   ../../src/apps_local/murdle/MurdleCore.cpp \
   ../../src/apps_local/murdle/MurdleScreens.cpp \
   ../../src/apps_local/murdle/MurdleText.cpp \
+  ../../src/apps_local/seasalt/SeaSaltScreens.cpp \
   ../../src/apps_local/player/PlayerAvatar.cpp \
   ../../src/apps_local/player/PlayerName.cpp \
   ../../src/apps_local/player/PlayerScreen.cpp \

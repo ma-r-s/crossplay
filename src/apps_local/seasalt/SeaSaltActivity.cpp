@@ -1,0 +1,1119 @@
+#include "SeaSaltActivity.h"
+
+#include <HalStorage.h>
+#include <Logging.h>
+#include <Memory.h>
+
+#include <cstdio>
+#include <cstring>
+
+#include "../Shelf.h"
+#include "../ui/ToyboxSeed.h"
+#include "../ui/ToyboxTheme.h"
+#include "SeaSaltCards.h"
+
+namespace {
+
+namespace fui = freeink::ui;
+
+constexpr char kSavePath[] = "/.crosspoint/seasalt.sav";
+constexpr char kStatsPath[] = "/.crosspoint/seasalt.stats";
+constexpr int kSaveVersion = 1;
+
+char hexDigit(const int v) { return static_cast<char>(v < 10 ? '0' + v : 'a' + (v - 10)); }
+int hexValue(const char c) {
+  if (c >= '0' && c <= '9') return c - '0';
+  if (c >= 'a' && c <= 'f') return 10 + (c - 'a');
+  return -1;
+}
+
+// The per-kind rule, spoken at the moment a card is selected. This is the
+// hint system Mario asked for: nobody should have to remember what a card
+// does, so the card says it when touched.
+constexpr const char* kKindHints[14] = {
+    "PAIRS WITH ANOTHER CRAB. THE PAIR DIGS ANY CARD OUT OF A PILE.",
+    "PAIRS WITH ANOTHER BOAT. THE PAIR BUYS ANOTHER TURN.",
+    "PAIRS WITH ANOTHER FISH. THE PAIR DRAWS A CARD.",
+    "PAIRS WITH A SHARK. THE PAIR STEALS FROM THEIR HAND.",
+    "PAIRS WITH A SWIMMER. THE PAIR STEALS FROM THEIR HAND.",
+    "WORTH 0-2-4-6-8-10 AS YOU COLLECT 1 TO 6.",
+    "WORTH 0-3-6-9-12 AS YOU COLLECT 1 TO 5.",
+    "WORTH 1-3-5 AS YOU COLLECT 1 TO 3.",
+    "TWO SAILORS ARE 5. THE CAPTAIN PAYS 3 EACH.",
+    "SCORES YOUR BIGGEST COLOUR. HOLD ALL FOUR AND YOU WIN.",
+    "1 POINT PER BOAT YOU HOLD.",
+    "1 POINT PER FISH YOU HOLD.",
+    "2 POINTS PER GULL YOU HOLD.",
+    "3 POINTS PER SAILOR YOU HOLD.",
+};
+
+// What two selected cards mean when they pair.
+constexpr const char* kPairHints[5] = {
+    "TWO CRABS. PLAY THEM TO DIG ANY CARD OUT OF A PILE.",
+    "TWO BOATS. THE POINT IS YOURS EITHER WAY. PLAYING THEM BUYS ANOTHER TURN.",
+    "TWO FISH. PLAY THEM TO DRAW A CARD.",
+    "SWIMMER AND SHARK. PLAY THEM TO STEAL FROM THEIR HAND.",
+    "SWIMMER AND SHARK. PLAY THEM TO STEAL FROM THEIR HAND.",
+};
+
+bool isPair(const uint8_t a, const uint8_t b) {
+  const seasalt::Kind ka = seasalt::kindOf(a);
+  const seasalt::Kind kb = seasalt::kindOf(b);
+  if (ka == kb) return ka == seasalt::Kind::Crab || ka == seasalt::Kind::Boat || ka == seasalt::Kind::Fish;
+  return (ka == seasalt::Kind::Swimmer && kb == seasalt::Kind::Shark) ||
+         (ka == seasalt::Kind::Shark && kb == seasalt::Kind::Swimmer);
+}
+
+}  // namespace
+
+std::unique_ptr<Activity> SeaSaltActivity::create(GfxRenderer& renderer, MappedInputManager& mappedInput) {
+  return makeUniqueNoThrow<SeaSaltActivity>(renderer, mappedInput);
+}
+
+void SeaSaltActivity::onEnter() {
+  Activity::onEnter();
+  toybox::ensureFonts(renderer);
+  // Mixed from the clock, so two games in a row are not the same game.
+  seed = toybox::seed();
+  loadStats();
+  hasSavedGame = loadGame();
+  if (!hasSavedGame) {
+    game.newGame(nextSeed(), 0);
+  }
+  refreshContinueDetail();
+  view = View::Menu;
+  requestUpdate();
+}
+
+void SeaSaltActivity::onExit() {
+  saveGame();
+  saveStats();
+  Activity::onExit();
+}
+
+// --- link ------------------------------------------------------------------
+
+const char* SeaSaltActivity::linkHeadline() const {
+  const int mine = game.score[seat];
+  const int theirs = game.score[seat ^ 1];
+  if (game.mermaidsHeld(seat) == seasalt::kMermaidsToWin) {
+    std::snprintf(headline, sizeof(headline), "FOUR MERMAIDS");
+  } else if (game.mermaidsHeld(seat ^ 1) == seasalt::kMermaidsToWin) {
+    std::snprintf(headline, sizeof(headline), "THEIR MERMAIDS");
+  } else {
+    std::snprintf(headline, sizeof(headline), mine >= theirs ? "YOU WIN %d - %d" : "THEY WIN %d - %d", mine, theirs);
+  }
+  return headline;
+}
+
+void SeaSaltActivity::onMatchStart(const bool goesFirst) {
+  // The dealer deals and sends; the other device adopts the state whole, so
+  // both play the same shuffle without a seed ever crossing on its own.
+  seat = goesFirst ? 0 : 1;
+  if (goesFirst) {
+    game.newGame(nextSeed(), 0);
+    link.play(game);
+  }
+  statsCounted = false;
+  clearSelection();
+  report[0] = '\0';
+  tab = 0;
+  page = 0;
+  view = View::Board;
+  requestUpdate();
+}
+
+bool SeaSaltActivity::takeOpponentState() {
+  seasalt::Game incoming;
+  if (!link.takeOpponent(incoming)) return false;
+  game = incoming;
+  clearSelection();
+  view = viewForStep();
+  requestUpdate();
+  return true;
+}
+
+void SeaSaltActivity::onRematch() { onMatchStart(linkYourTurn()); }
+
+void SeaSaltActivity::onLinkEnded() {
+  seat = 0;
+  hasSavedGame = loadGame();
+  if (!hasSavedGame) game.newGame(nextSeed(), 0);
+  goToMenu();
+}
+
+void SeaSaltActivity::drawLinkArt(const Rect& slot) {
+  // A fan of the game's own card faces, the menu ornament reused.
+  namespace fui = freeink::ui;
+  fui::GfxRendererTarget target = toybox::makeTarget(renderer);
+  const int16_t size = 48;
+  const int kinds[4] = {1, 0, 9, 4};  // boat, crab, mermaid, shark
+  const int16_t step = static_cast<int16_t>((slot.width - size) / 3);
+  for (int i = 0; i < 4; ++i) {
+    target.bitmap(fui::makeRect(static_cast<int16_t>(slot.x + i * step),
+                                static_cast<int16_t>(slot.y + (slot.height - size) / 2), size, size),
+                  fui::bitmapFromIcon(seasaltui::kindIcon48(kinds[i])), fui::BitmapMode::Contain,
+                  fui::Paint::solid(fui::Color::Black));
+  }
+}
+
+// --- models ----------------------------------------------------------------
+
+seasaltui::StartModel SeaSaltActivity::startModel() const {
+  seasaltui::StartModel model;
+  model.hasSavedGame = hasSavedGame;
+  model.continueDetail = continueDetail;
+  model.played = played;
+  model.won = won;
+  model.selected = menuSelected;
+  return model;
+}
+
+int SeaSaltActivity::groupPoints(const uint8_t card, const int mySeat) const {
+  using namespace seasalt;
+  const Kind kind = kindOf(card);
+  const int held = game.countHeld(mySeat, kind);
+  switch (kind) {
+    case Kind::Crab:
+    case Kind::Boat:
+    case Kind::Fish:
+      return held / 2;
+    case Kind::Swimmer:
+    case Kind::Shark: {
+      const int sw = game.countHeld(mySeat, Kind::Swimmer);
+      const int sh = game.countHeld(mySeat, Kind::Shark);
+      return sw < sh ? sw : sh;
+    }
+    case Kind::Shell:
+      return kShellScore[held];
+    case Kind::Octopus:
+      return kOctopusScore[held];
+    case Kind::Penguin:
+      return kPenguinScore[held];
+    case Kind::Sailor:
+      return kSailorScore[held];
+    case Kind::Lighthouse:
+      return game.countHeld(mySeat, Kind::Boat);
+    case Kind::ShoalOfFish:
+      return game.countHeld(mySeat, Kind::Fish);
+    case Kind::PenguinColony:
+      return 2 * game.countHeld(mySeat, Kind::Penguin);
+    case Kind::Captain:
+      return 3 * game.countHeld(mySeat, Kind::Sailor);
+    case Kind::Mermaid: {
+      // The mermaids' whole share: score with them minus score without them.
+      seasalt::Game bare = game;
+      for (int c = 0; c < kCards; ++c) {
+        if (kindOf(static_cast<uint8_t>(c)) == Kind::Mermaid &&
+            (bare.place[c] == static_cast<uint8_t>(handOf(mySeat)) ||
+             bare.place[c] == static_cast<uint8_t>(tableOf(mySeat)))) {
+          bare.place[c] = static_cast<uint8_t>(Place::Deck);
+        }
+      }
+      return game.cardPoints(mySeat) - bare.cardPoints(mySeat);
+    }
+  }
+  return 0;
+}
+
+seasaltui::CardTile SeaSaltActivity::tileFor(const uint8_t card, const int forSeat, const bool selected) const {
+  seasaltui::CardTile tile;
+  tile.kind = static_cast<uint8_t>(seasalt::kindOf(card));
+  tile.colour = static_cast<uint8_t>(seasalt::colourOf(card));
+  tile.groupPoints = static_cast<int8_t>(groupPoints(card, forSeat));
+  tile.held = static_cast<uint8_t>(game.countHeld(forSeat, seasalt::kindOf(card)));
+  tile.supply = seasalt::kKindSupply[tile.kind];
+  tile.selected = selected;
+  return tile;
+}
+
+seasaltui::PileTile SeaSaltActivity::pileTileFor(const int pile) const {
+  seasaltui::PileTile tile;
+  const uint8_t top = game.pileTop(pile);
+  tile.size = static_cast<uint8_t>(game.pileSize(pile));
+  if (top != seasalt::kNoCard) {
+    tile.kind = static_cast<uint8_t>(seasalt::kindOf(top));
+    tile.colour = static_cast<uint8_t>(seasalt::colourOf(top));
+  }
+  return tile;
+}
+
+seasaltui::BoardModel SeaSaltActivity::boardModel() {
+  using namespace seasalt;
+  seasaltui::BoardModel model;
+  model.yourTotal = game.score[seat];
+  model.theirTotal = game.score[seat ^ 1];
+  model.theyHold = game.handSize(seat ^ 1);
+  model.theirTableCount = game.tableSize(seat ^ 1);
+  model.yourTableCount = game.tableSize(seat);
+  // Your biggest colour group, mark and count.
+  int best = 0, bestAt = 0;
+  for (int i = 0; i < kColourCount; ++i) {
+    const int n = game.countHeldColour(seat, static_cast<Colour>(i));
+    if (n > best) {
+      best = n;
+      bestAt = i;
+    }
+  }
+  model.bestColourCount = best;
+  model.bestColour = static_cast<uint8_t>(bestAt);
+  model.deckCount = game.deckRemaining();
+  model.piles[0] = pileTileFor(0);
+  model.piles[1] = pileTileFor(1);
+  model.tab = tab;
+  model.handCount = game.handSize(seat);
+  model.yoursCount = game.tableSize(seat);
+  model.theirsCount = game.tableSize(seat ^ 1);
+
+  // The cards of the active tab, in card-id order, one page's worth.
+  const Place where = tab == 0 ? handOf(seat) : (tab == 1 ? tableOf(seat) : tableOf(seat ^ 1));
+  const int forSeat = tab == 2 ? seat ^ 1 : seat;
+  const int total = tab == 0 ? model.handCount : (tab == 1 ? model.yoursCount : model.theirsCount);
+  model.pages =
+      total > 0 ? (total + seasaltui::BoardModel::kMaxBoardTiles - 1) / seasaltui::BoardModel::kMaxBoardTiles : 1;
+  if (page >= model.pages) page = model.pages - 1;
+  model.page = page;
+  int skip = page * seasaltui::BoardModel::kMaxBoardTiles;
+  for (int c = 0; c < kCards && model.tileCount < seasaltui::BoardModel::kMaxBoardTiles; ++c) {
+    if (game.place[c] != static_cast<uint8_t>(where)) continue;
+    if (skip-- > 0) continue;
+    const bool selected = tab == 0 && (sel[0] == static_cast<uint8_t>(c) || sel[1] == static_cast<uint8_t>(c));
+    model.tiles[model.tileCount++] = tileFor(static_cast<uint8_t>(c), forSeat, selected);
+  }
+
+  composeHint();
+  model.hint = hint;
+  model.primaryLabel = primaryLabel;
+  model.primaryEnabled = primaryEnabled;
+  model.callPoints = game.cardPoints(seat);
+  model.canCall = myTurn() && game.currentStep() == Step::Play && game.currentPhase() == seasalt::Phase::Playing &&
+                  game.mayEndRound(seat);
+  return model;
+}
+
+seasaltui::RoundModel SeaSaltActivity::roundModel() const {
+  seasaltui::RoundModel model;
+  model.round = game.round;
+  model.deckOut = game.ender == seasalt::kNoSeat && game.mermaidsHeld(0) < seasalt::kMermaidsToWin &&
+                  game.mermaidsHeld(1) < seasalt::kMermaidsToWin;
+  model.mermaidWin = game.mermaidsHeld(0) == seasalt::kMermaidsToWin || game.mermaidsHeld(1) == seasalt::kMermaidsToWin;
+  model.youCalled = game.ender == seat;
+  model.wasLastChance = game.betWasLastChance != 0;
+  model.betWon = game.betWon();
+  model.yourCards = game.cardPoints(seat);
+  model.theirCards = game.cardPoints(seat ^ 1);
+  model.yourBonus = game.colourBonus(seat);
+  model.theirBonus = game.colourBonus(seat ^ 1);
+  model.yourBanked = game.roundScore(seat);
+  model.theirBanked = game.roundScore(seat ^ 1);
+  model.yourTotal = game.score[seat];
+  model.theirTotal = game.score[seat ^ 1];
+  model.matchOver = game.currentPhase() == seasalt::Phase::GameOver;
+  model.youWonMatch = game.matchWinner() == seat;
+  model.theirName = inMatch() ? opponentName() : nullptr;
+  return model;
+}
+
+// --- the hint system --------------------------------------------------------
+
+void SeaSaltActivity::composeHint() {
+  using namespace seasalt;
+  primaryEnabled = false;
+
+  if (!myTurn()) {
+    std::snprintf(hint, sizeof(hint), "%s", report[0] ? report : "THEIR TURN.");
+    std::snprintf(primaryLabel, sizeof(primaryLabel), "THEIR TURN");
+    return;
+  }
+
+  if (game.currentStep() == Step::Take) {
+    if (report[0] != '\0') {
+      std::snprintf(hint, sizeof(hint), "%s", report);
+    } else {
+      std::snprintf(hint, sizeof(hint), "TAKE A CARD. THE DECK DEALS TWO, A PILE SHOWS WHAT YOU GET.");
+    }
+    std::snprintf(primaryLabel, sizeof(primaryLabel), "TAKE FROM ABOVE");
+    return;
+  }
+
+  // Step::Play. What is selected decides everything.
+  const int selected = (sel[0] != kNoCard) + (sel[1] != kNoCard);
+  if (selected == 2) {
+    if (isPair(sel[0], sel[1])) {
+      const int k = static_cast<int>(kindOf(sel[0]));
+      std::snprintf(hint, sizeof(hint), "%s", kPairHints[k <= 4 ? k : 0]);
+      std::snprintf(primaryLabel, sizeof(primaryLabel), "PLAY THE PAIR");
+      primaryEnabled = true;
+    } else {
+      std::snprintf(hint, sizeof(hint), "THESE TWO DO NOT PAIR. A PAIR IS TWO ALIKE, OR SWIMMER AND SHARK.");
+      std::snprintf(primaryLabel, sizeof(primaryLabel), "END TURN");
+      primaryEnabled = true;
+    }
+    return;
+  }
+  if (selected == 1) {
+    std::snprintf(hint, sizeof(hint), "%s", kKindHints[static_cast<int>(kindOf(sel[0]))]);
+    std::snprintf(primaryLabel, sizeof(primaryLabel), "END TURN");
+    primaryEnabled = true;
+    return;
+  }
+  if (tab != 0) {
+    std::snprintf(hint, sizeof(hint), "PAIRS LAID HERE ALREADY DID THEIR WORK. POINTS COUNT EITHER WAY.");
+  } else if (report[0] != '\0') {
+    std::snprintf(hint, sizeof(hint), "%s", report);
+  } else {
+    std::snprintf(hint, sizeof(hint), "TAP A CARD TO SEE WHAT IT DOES. END THE TURN WHEN DONE.");
+  }
+  std::snprintf(primaryLabel, sizeof(primaryLabel), "END TURN");
+  primaryEnabled = true;
+}
+
+// --- drawing ---------------------------------------------------------------
+
+namespace {
+template <typename Model>
+freeink::ui::Rect paint(GfxRenderer& renderer, toybox::Interactions& interactions, bool& interactionsReady,
+                        freeink::ui::Rect (*build)(toybox::Screen&, const Model&), const Model& model,
+                        const char* name) {
+  namespace fui = freeink::ui;
+  renderer.clearScreen();
+  fui::GfxRendererTarget target = toybox::makeTarget(renderer);
+  const fui::InputSnapshot noInput{};
+  interactionsReady = false;
+  toybox::Frame frame(target, target.deviceContext(), noInput, interactions);
+  toybox::Screen screen(frame);
+  const fui::Rect slot = build(screen, model);
+  interactionsReady = true;
+  toybox::reportOverflow(interactions, name);
+  return slot;
+}
+}  // namespace
+
+void SeaSaltActivity::drawStartMenu() {
+  const fui::Rect slot =
+      paint(renderer, interactions, interactionsReady, seasaltui::buildStartMenu, startModel(), "SeaSalt menu");
+  // The menu's ornament: the four suits of the sea, from the game's own art.
+  drawLinkArt(Rect{slot.x, static_cast<int16_t>(slot.y + 40), slot.width, static_cast<int16_t>(slot.height - 80)});
+}
+
+void SeaSaltActivity::drawBoard() {
+  const fui::Rect grid =
+      paint(renderer, interactions, interactionsReady, seasaltui::buildBoard, boardModel(), "SeaSalt board");
+  gridSlot = Rect{grid.x, grid.y, grid.width, grid.height};
+}
+
+void SeaSaltActivity::drawKeep() {
+  seasaltui::KeepModel model;
+  model.left = tileFor(game.drawn[0], seat, false);
+  model.right = tileFor(game.drawn[1], seat, false);
+  // A drawn card is not held yet: the census should show what taking it makes.
+  model.left.held += 1;
+  model.right.held += 1;
+  paint(renderer, interactions, interactionsReady, seasaltui::buildKeepChoice, model, "SeaSalt keep");
+}
+
+void SeaSaltActivity::drawPileChoice() {
+  seasaltui::PileChoiceModel model;
+  model.digging = game.currentStep() == seasalt::Step::CrabPile;
+  if (!model.digging) model.rejected = tileFor(game.pendingDiscard, seat, false);
+  model.piles[0] = pileTileFor(0);
+  model.piles[1] = pileTileFor(1);
+  paint(renderer, interactions, interactionsReady, seasaltui::buildPileChoice, model, "SeaSalt pile");
+}
+
+void SeaSaltActivity::drawDig() {
+  using namespace seasalt;
+  seasaltui::DigModel model;
+  const int total = game.pileSize(game.crabPile);
+  model.pages = total > 0 ? (total + seasaltui::DigModel::kMaxTiles - 1) / seasaltui::DigModel::kMaxTiles : 1;
+  if (digPage >= model.pages) digPage = model.pages - 1;
+  model.page = digPage;
+  int skip = digPage * seasaltui::DigModel::kMaxTiles;
+  for (int c = 0; c < kCards && model.tileCount < seasaltui::DigModel::kMaxTiles; ++c) {
+    if (game.place[c] != static_cast<uint8_t>(pileAt(game.crabPile))) continue;
+    if (skip-- > 0) continue;
+    model.tiles[model.tileCount++] = tileFor(static_cast<uint8_t>(c), seat, false);
+  }
+  const fui::Rect grid = paint(renderer, interactions, interactionsReady, seasaltui::buildDig, model, "SeaSalt dig");
+  gridSlot = Rect{grid.x, grid.y, grid.width, grid.height};
+}
+
+void SeaSaltActivity::drawCall() {
+  seasaltui::CallModel model;
+  model.yourPoints = game.cardPoints(seat);
+  paint(renderer, interactions, interactionsReady, seasaltui::buildCallChoice, model, "SeaSalt call");
+}
+
+void SeaSaltActivity::drawRoundOver() {
+  paint(renderer, interactions, interactionsReady, seasaltui::buildRoundOver, roundModel(), "SeaSalt round");
+}
+
+void SeaSaltActivity::drawTutorial() {
+  seasaltui::TutorialModel model;
+  model.page = tutorialPage;
+  renderer.clearScreen();
+  fui::GfxRendererTarget target = toybox::makeTarget(renderer);
+  const fui::InputSnapshot noInput{};
+  interactionsReady = false;
+  toybox::Frame frame(target, target.deviceContext(), noInput, interactions);
+  toybox::Screen screen(frame);
+  seasaltui::buildTutorial(screen, model);
+  interactionsReady = true;
+  toybox::reportOverflow(interactions, "SeaSalt rules");
+}
+
+void SeaSaltActivity::gameRender() {
+  switch (view) {
+    case View::Menu:
+      drawStartMenu();
+      break;
+    case View::Board:
+      drawBoard();
+      break;
+    case View::Keep:
+      drawKeep();
+      break;
+    case View::PileChoice:
+      drawPileChoice();
+      break;
+    case View::Dig:
+      drawDig();
+      break;
+    case View::Call:
+      drawCall();
+      break;
+    case View::RoundOver:
+      drawRoundOver();
+      break;
+    case View::Rules:
+      drawTutorial();
+      break;
+  }
+  renderer.displayBuffer();
+}
+
+// --- flow ------------------------------------------------------------------
+
+bool SeaSaltActivity::myTurn() const { return game.turn == static_cast<uint8_t>(seat); }
+
+SeaSaltActivity::View SeaSaltActivity::viewForStep() const {
+  using namespace seasalt;
+  switch (game.currentPhase()) {
+    case seasalt::Phase::RoundOver:
+    case seasalt::Phase::GameOver:
+      return View::RoundOver;
+    default:
+      break;
+  }
+  if (!myTurn()) return View::Board;
+  switch (game.currentStep()) {
+    case Step::ChooseKeep:
+      return View::Keep;
+    case Step::ChoosePile:
+      return View::PileChoice;
+    case Step::CrabPile:
+      return View::PileChoice;
+    case Step::CrabPick:
+      return View::Dig;
+    default:
+      return View::Board;
+  }
+}
+
+void SeaSaltActivity::clearSelection() {
+  sel[0] = seasalt::kNoCard;
+  sel[1] = seasalt::kNoCard;
+}
+
+void SeaSaltActivity::goToMenu() {
+  hasSavedGame = game.currentPhase() != seasalt::Phase::GameOver;
+  refreshContinueDetail();
+  saveGame();
+  clearSelection();
+  view = View::Menu;
+  requestUpdate();
+}
+
+void SeaSaltActivity::startNewGame() {
+  game.newGame(nextSeed(), 0);
+  statsCounted = false;
+  hasSavedGame = true;
+  clearSelection();
+  report[0] = '\0';
+  tab = 0;
+  page = 0;
+  view = View::Board;
+  requestUpdate();
+}
+
+void SeaSaltActivity::afterHumanAction() {
+  clearSelection();
+  const seasalt::Phase phase = game.currentPhase();
+  if (phase == seasalt::Phase::RoundOver || phase == seasalt::Phase::GameOver) {
+    if (phase == seasalt::Phase::GameOver && !statsCounted) {
+      statsCounted = true;
+      ++played;
+      if (game.matchWinner() == seat) ++won;
+      saveStats();
+    }
+    view = View::RoundOver;
+  } else if (!myTurn() && !inMatch()) {
+    view = View::Board;
+    opponentPending = true;
+  } else {
+    view = viewForStep();
+  }
+  requestUpdate();
+}
+
+void SeaSaltActivity::playOpponentTurn() {
+  using namespace seasalt;
+  const int them = seat ^ 1;
+  uint32_t rng = nextSeed();
+  report[0] = '\0';
+  int laid[5] = {0, 0, 0, 0, 0};
+  bool called = false, bet = false, stole = false;
+
+  int guard = 0;
+  while (game.currentPhase() != seasalt::Phase::RoundOver && game.currentPhase() != seasalt::Phase::GameOver &&
+         game.turn == static_cast<uint8_t>(them) && ++guard < 200) {
+    const Decision d = seasalt::decide(observe(game, them), Skill::Navigator, rng);
+    bool ok = false;
+    switch (d.act) {
+      case Decision::Act::TakeDeck:
+        ok = game.takeFromDeck();
+        break;
+      case Decision::Act::TakePile:
+        ok = game.takeFromPile(d.a);
+        break;
+      case Decision::Act::Keep:
+        ok = game.keepDrawn(d.a);
+        break;
+      case Decision::Act::DiscardTo:
+        ok = game.discardTo(d.a);
+        break;
+      case Decision::Act::LayDuo: {
+        uint8_t a = kNoCard, b = kNoCard;
+        const Kind ka = d.kind == Kind::Swimmer ? Kind::Swimmer : d.kind;
+        const Kind kb = d.kind == Kind::Swimmer ? Kind::Shark : d.kind;
+        for (int c = 0; c < kCards; ++c) {
+          if (game.place[c] != static_cast<uint8_t>(handOf(them))) continue;
+          const Kind k = kindOf(static_cast<uint8_t>(c));
+          if (k == ka && a == kNoCard) {
+            a = static_cast<uint8_t>(c);
+            continue;
+          }
+          if (k == kb && b == kNoCard && c != a) b = static_cast<uint8_t>(c);
+        }
+        ok = a != kNoCard && b != kNoCard && game.playDuo(a, b);
+        if (ok) {
+          ++laid[static_cast<int>(d.kind)];
+          if (d.kind == Kind::Swimmer) stole = true;
+        }
+        break;
+      }
+      case Decision::Act::EndTurn:
+        ok = game.endTurn();
+        break;
+      case Decision::Act::Stop:
+        ok = game.endRound(false);
+        called = true;
+        break;
+      case Decision::Act::LastChance:
+        ok = game.endRound(true);
+        called = true;
+        bet = true;
+        break;
+      case Decision::Act::DigPile:
+        ok = game.chooseCrabPile(d.a);
+        break;
+      case Decision::Act::DigCard:
+        ok = game.takeCrabCard(d.a);
+        break;
+    }
+    if (!ok) {
+      LOG_ERR("SEASALT", "the brain offered a move the rules refused (act %d)", static_cast<int>(d.act));
+      break;
+    }
+  }
+
+  // Narrate the headline of what just happened, most important first.
+  if (called) {
+    std::snprintf(report, sizeof(report),
+                  bet ? "THEY BET LAST CHANCE. ONE MORE TURN, MAKE IT COUNT." : "THEY CALLED STOP.");
+  } else if (stole) {
+    std::snprintf(report, sizeof(report), "THEY PLAYED SWIMMER AND SHARK AND STOLE FROM YOUR HAND.");
+  } else if (laid[1] > 0) {
+    std::snprintf(report, sizeof(report), "THEY PLAYED BOATS FOR EXTRA TURNS. YOUR MOVE NOW.");
+  } else if (laid[0] > 0) {
+    std::snprintf(report, sizeof(report), "THEY PLAYED TWO CRABS AND DUG THROUGH A PILE.");
+  } else if (laid[2] > 0) {
+    std::snprintf(report, sizeof(report), "THEY PLAYED TWO FISH AND DREW A CARD.");
+  } else {
+    std::snprintf(report, sizeof(report), "THEY TOOK A CARD. YOUR MOVE.");
+  }
+
+  const seasalt::Phase phase = game.currentPhase();
+  if (phase == seasalt::Phase::RoundOver || phase == seasalt::Phase::GameOver) {
+    if (phase == seasalt::Phase::GameOver && !statsCounted) {
+      statsCounted = true;
+      ++played;
+      if (game.matchWinner() == seat) ++won;
+      saveStats();
+    }
+    view = View::RoundOver;
+  } else {
+    view = viewForStep();
+  }
+  requestUpdate();
+}
+
+void SeaSaltActivity::gameLoop() {
+  if (!interactionsReady) return;
+
+  if (opponentPending) {
+    opponentPending = false;
+    playOpponentTurn();
+    return;
+  }
+
+  switch (view) {
+    case View::Menu:
+      routeStartMenu();
+      break;
+    case View::Board:
+      routeBoard();
+      break;
+    case View::Keep:
+      routeKeep();
+      break;
+    case View::PileChoice:
+      routePileChoice();
+      break;
+    case View::Dig:
+      routeDig();
+      break;
+    case View::Call:
+      routeCall();
+      break;
+    case View::RoundOver:
+      routeRoundOver();
+      break;
+    case View::Rules:
+      routeTutorial();
+      break;
+  }
+}
+
+// --- routing ---------------------------------------------------------------
+
+void SeaSaltActivity::activateStartRow(const seasaltui::StartRow row) {
+  switch (row) {
+    case seasaltui::StartRow::Continue:
+      report[0] = '\0';
+      clearSelection();
+      view = viewForStep();
+      requestUpdate();
+      break;
+    case seasaltui::StartRow::NewGame:
+      startNewGame();
+      break;
+    case seasaltui::StartRow::PlayNearby:
+      enterLink(linkplay::GameId::SeaSalt);
+      break;
+    case seasaltui::StartRow::HowToPlay:
+      tutorialPage = 0;
+      view = View::Rules;
+      requestUpdate();
+      break;
+    case seasaltui::StartRow::Count:
+      break;
+  }
+}
+
+void SeaSaltActivity::routeStartMenu() {
+  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    // See src/apps_local/Shelf.h: no app names its own destination.
+    shelf::leave(renderer, mappedInput);
+    return;
+  }
+  int tapX = 0, tapY = 0;
+  if (!mappedInput.wasScreenTapped(tapX, tapY)) return;
+  fui::InputSnapshot input;
+  input.touchReleased = true;
+  input.touchX = static_cast<int16_t>(tapX);
+  input.touchY = static_cast<int16_t>(tapY);
+  const fui::ActionEvent event = interactions.route(input);
+  if (event.action == seasaltui::ActionStartRow) {
+    menuSelected = event.value;
+    activateStartRow(seasaltui::startRowAt(startModel(), event.value));
+  }
+}
+
+void SeaSaltActivity::handleCardTap(const int tileIndex) {
+  using namespace seasalt;
+  if (tab != 0 || !myTurn() || game.currentStep() != Step::Play) return;
+  // The tile index is a position in card-id order on this page; find the card.
+  int skip = page * seasaltui::BoardModel::kMaxBoardTiles + tileIndex;
+  uint8_t card = kNoCard;
+  for (int c = 0; c < kCards; ++c) {
+    if (game.place[c] != static_cast<uint8_t>(handOf(seat))) continue;
+    if (skip-- == 0) {
+      card = static_cast<uint8_t>(c);
+      break;
+    }
+  }
+  if (card == kNoCard) return;
+
+  // Tap a selected card to unselect it; a third card replaces the older pick.
+  if (sel[0] == card) {
+    sel[0] = sel[1];
+    sel[1] = kNoCard;
+  } else if (sel[1] == card) {
+    sel[1] = kNoCard;
+  } else if (sel[0] == kNoCard) {
+    sel[0] = card;
+  } else if (sel[1] == kNoCard) {
+    sel[1] = card;
+  } else {
+    sel[0] = sel[1];
+    sel[1] = card;
+  }
+  requestUpdate();
+}
+
+void SeaSaltActivity::routeBoard() {
+  using namespace seasalt;
+  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    if (linkRequested()) {
+      leaveLink();
+      return;
+    }
+    goToMenu();
+    return;
+  }
+
+  // The side keys page the card grid.
+  const seasaltui::BoardModel probe = boardModel();
+  if (probe.pages > 1) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::Up) && page > 0) {
+      --page;
+      requestUpdate();
+      return;
+    }
+    if (mappedInput.wasReleased(MappedInputManager::Button::Down) && page < probe.pages - 1) {
+      ++page;
+      requestUpdate();
+      return;
+    }
+  }
+
+  int tapX = 0, tapY = 0;
+  if (!mappedInput.wasScreenTapped(tapX, tapY)) return;
+
+  fui::InputSnapshot input;
+  input.touchReleased = true;
+  input.touchX = static_cast<int16_t>(tapX);
+  input.touchY = static_cast<int16_t>(tapY);
+  const fui::ActionEvent event = interactions.route(input);
+  switch (event.action) {
+    case seasaltui::ActionTabHand:
+      tab = 0;
+      page = 0;
+      requestUpdate();
+      return;
+    case seasaltui::ActionTabYours:
+      tab = 1;
+      page = 0;
+      clearSelection();
+      requestUpdate();
+      return;
+    case seasaltui::ActionTabTheirs:
+      tab = 2;
+      page = 0;
+      clearSelection();
+      requestUpdate();
+      return;
+    case seasaltui::ActionDeck:
+      if (myTurn() && game.currentStep() == Step::Take && game.takeFromDeck()) {
+        report[0] = '\0';
+        afterHumanAction();
+      }
+      return;
+    case seasaltui::ActionPileA:
+    case seasaltui::ActionPileB: {
+      const int pile = event.action == seasaltui::ActionPileA ? 0 : 1;
+      if (myTurn() && game.currentStep() == Step::Take && game.takeFromPile(pile)) {
+        report[0] = '\0';
+        afterHumanAction();
+      }
+      return;
+    }
+    case seasaltui::ActionCall:
+      view = View::Call;
+      requestUpdate();
+      return;
+    case seasaltui::ActionPrimary: {
+      const int selected = (sel[0] != kNoCard) + (sel[1] != kNoCard);
+      if (selected == 2 && isPair(sel[0], sel[1])) {
+        if (game.playDuo(sel[0], sel[1])) afterHumanAction();
+        return;
+      }
+      if (game.endTurn()) afterHumanAction();
+      return;
+    }
+    default:
+      break;
+  }
+
+  // Not chrome: maybe a card.
+  const fui::Rect grid = fui::makeRect(gridSlot.x, gridSlot.y, gridSlot.width, gridSlot.height);
+  const int index =
+      seasaltui::cardIndexAt(grid, probe.tileCount, static_cast<int16_t>(tapX), static_cast<int16_t>(tapY));
+  if (index >= 0) handleCardTap(index);
+}
+
+void SeaSaltActivity::routeKeep() {
+  // No Back: the draw is made, the choice is owed.
+  int tapX = 0, tapY = 0;
+  if (!mappedInput.wasScreenTapped(tapX, tapY)) return;
+  fui::InputSnapshot input;
+  input.touchReleased = true;
+  input.touchX = static_cast<int16_t>(tapX);
+  input.touchY = static_cast<int16_t>(tapY);
+  const fui::ActionEvent event = interactions.route(input);
+  if (event.action == seasaltui::ActionKeepLeft || event.action == seasaltui::ActionKeepRight) {
+    if (game.keepDrawn(event.action == seasaltui::ActionKeepLeft ? 0 : 1)) afterHumanAction();
+  }
+}
+
+void SeaSaltActivity::routePileChoice() {
+  using namespace seasalt;
+  int tapX = 0, tapY = 0;
+  if (!mappedInput.wasScreenTapped(tapX, tapY)) return;
+  fui::InputSnapshot input;
+  input.touchReleased = true;
+  input.touchX = static_cast<int16_t>(tapX);
+  input.touchY = static_cast<int16_t>(tapY);
+  const fui::ActionEvent event = interactions.route(input);
+  if (event.action != seasaltui::ActionPileA && event.action != seasaltui::ActionPileB) return;
+  const int pile = event.action == seasaltui::ActionPileA ? 0 : 1;
+  if (game.currentStep() == Step::CrabPile) {
+    if (game.chooseCrabPile(pile)) {
+      digPage = 0;
+      view = View::Dig;
+      requestUpdate();
+    }
+    return;
+  }
+  if (game.discardTo(pile)) afterHumanAction();
+}
+
+void SeaSaltActivity::routeDig() {
+  using namespace seasalt;
+  const int total = game.pileSize(game.crabPile);
+  const int pages = total > 0 ? (total + seasaltui::DigModel::kMaxTiles - 1) / seasaltui::DigModel::kMaxTiles : 1;
+  if (pages > 1) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::Up) && digPage > 0) {
+      --digPage;
+      requestUpdate();
+      return;
+    }
+    if (mappedInput.wasReleased(MappedInputManager::Button::Down) && digPage < pages - 1) {
+      ++digPage;
+      requestUpdate();
+      return;
+    }
+  }
+  int tapX = 0, tapY = 0;
+  if (!mappedInput.wasScreenTapped(tapX, tapY)) return;
+  const int count = total - digPage * seasaltui::DigModel::kMaxTiles > seasaltui::DigModel::kMaxTiles
+                        ? seasaltui::DigModel::kMaxTiles
+                        : total - digPage * seasaltui::DigModel::kMaxTiles;
+  const fui::Rect grid = fui::makeRect(gridSlot.x, gridSlot.y, gridSlot.width, gridSlot.height);
+  const int index = seasaltui::cardIndexAt(grid, count, static_cast<int16_t>(tapX), static_cast<int16_t>(tapY));
+  if (index < 0) return;
+  int skip = digPage * seasaltui::DigModel::kMaxTiles + index;
+  for (int c = 0; c < kCards; ++c) {
+    if (game.place[c] != static_cast<uint8_t>(pileAt(game.crabPile))) continue;
+    if (skip-- == 0) {
+      if (game.takeCrabCard(static_cast<uint8_t>(c))) afterHumanAction();
+      return;
+    }
+  }
+}
+
+void SeaSaltActivity::routeCall() {
+  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    view = View::Board;  // deciding not to call is allowed
+    requestUpdate();
+    return;
+  }
+  int tapX = 0, tapY = 0;
+  if (!mappedInput.wasScreenTapped(tapX, tapY)) return;
+  fui::InputSnapshot input;
+  input.touchReleased = true;
+  input.touchX = static_cast<int16_t>(tapX);
+  input.touchY = static_cast<int16_t>(tapY);
+  const fui::ActionEvent event = interactions.route(input);
+  if (event.action != seasaltui::ActionStop && event.action != seasaltui::ActionLastChance) return;
+  if (game.endRound(event.action == seasaltui::ActionLastChance)) {
+    report[0] = '\0';
+    afterHumanAction();
+  }
+}
+
+void SeaSaltActivity::routeRoundOver() {
+  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    goToMenu();
+    return;
+  }
+  int tapX = 0, tapY = 0;
+  if (!mappedInput.wasScreenTapped(tapX, tapY)) return;
+  fui::InputSnapshot input;
+  input.touchReleased = true;
+  input.touchX = static_cast<int16_t>(tapX);
+  input.touchY = static_cast<int16_t>(tapY);
+  const fui::ActionEvent event = interactions.route(input);
+  if (event.action == seasaltui::ActionContinue) {
+    // The player after the one who ended the round starts the next one.
+    const uint8_t starter = game.ender != seasalt::kNoSeat ? static_cast<uint8_t>(game.ender ^ 1)
+                                                           : static_cast<uint8_t>(game.roundStarter ^ 1);
+    const uint8_t s0 = game.score[0];
+    const uint8_t s1 = game.score[1];
+    const uint8_t round = game.round;
+    game.deal(nextSeed(), starter);
+    game.score[0] = s0;
+    game.score[1] = s1;
+    game.round = static_cast<uint8_t>(round + 1);
+    report[0] = '\0';
+    clearSelection();
+    tab = 0;
+    page = 0;
+    if (!myTurn() && !inMatch()) opponentPending = true;
+    view = View::Board;
+    requestUpdate();
+    return;
+  }
+  if (event.action == seasaltui::ActionPlayAgain) {
+    startNewGame();
+  }
+}
+
+void SeaSaltActivity::routeTutorial() {
+  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    view = View::Menu;
+    requestUpdate();
+    return;
+  }
+  int tapX = 0, tapY = 0;
+  if (!mappedInput.wasScreenTapped(tapX, tapY)) return;
+  fui::InputSnapshot input;
+  input.touchReleased = true;
+  input.touchX = static_cast<int16_t>(tapX);
+  input.touchY = static_cast<int16_t>(tapY);
+  if (interactions.route(input).action != seasaltui::ActionAdvance) return;
+  ++tutorialPage;
+  if (tutorialPage >= seasaltui::tutorialPages()) {
+    tutorialPage = 0;
+    view = View::Menu;
+  }
+  requestUpdate();
+}
+
+// --- persistence -----------------------------------------------------------
+
+uint32_t SeaSaltActivity::nextSeed() {
+  seed = seed * 1664525u + 1013904223u + static_cast<uint32_t>(millis());
+  return seed | 1u;
+}
+
+void SeaSaltActivity::refreshContinueDetail() {
+  std::snprintf(continueDetail, sizeof(continueDetail), "ROUND %d, %d-%d", game.round, game.score[seat],
+                game.score[seat ^ 1]);
+}
+
+void SeaSaltActivity::saveGame() const {
+  if (linkRequested()) return;
+  if (!hasSavedGame || game.currentPhase() == seasalt::Phase::GameOver) {
+    if (Storage.exists(kSavePath)) Storage.remove(kSavePath);
+    return;
+  }
+  char buffer[16 + 2 * sizeof(seasalt::Game) + 4] = {};
+  int at = std::snprintf(buffer, sizeof(buffer), "%d %d ", kSaveVersion, seat);
+  const auto* bytes = reinterpret_cast<const uint8_t*>(&game);
+  for (size_t i = 0; i < sizeof(seasalt::Game); ++i) {
+    buffer[at++] = hexDigit((bytes[i] >> 4) & 0xF);
+    buffer[at++] = hexDigit(bytes[i] & 0xF);
+  }
+  buffer[at] = '\0';
+  Storage.writeFile(kSavePath, String(buffer));
+}
+
+bool SeaSaltActivity::loadGame() {
+  if (!Storage.exists(kSavePath)) return false;
+  char buffer[16 + 2 * sizeof(seasalt::Game) + 4] = {};
+  if (Storage.readFileToBuffer(kSavePath, buffer, sizeof(buffer)) == 0) return false;
+
+  int version = 0;
+  int savedSeat = 0;
+  int consumed = 0;
+  if (std::sscanf(buffer, "%d %d %n", &version, &savedSeat, &consumed) < 2) return false;
+  if (version != kSaveVersion) {
+    LOG_INF("SEASALT", "ignoring a save from another build");
+    return false;
+  }
+  const char* hex = buffer + consumed;
+  if (std::strlen(hex) < 2 * sizeof(seasalt::Game)) {
+    LOG_ERR("SEASALT", "corrupt save, starting fresh");
+    return false;
+  }
+  seasalt::Game restored;
+  auto* bytes = reinterpret_cast<uint8_t*>(&restored);
+  for (size_t i = 0; i < sizeof(seasalt::Game); ++i) {
+    const int high = hexValue(hex[2 * i]);
+    const int low = hexValue(hex[2 * i + 1]);
+    if (high < 0 || low < 0) {
+      LOG_ERR("SEASALT", "corrupt save, starting fresh");
+      return false;
+    }
+    bytes[i] = static_cast<uint8_t>((high << 4) | low);
+  }
+
+  // A save that breaks conservation came from another build. Every card must
+  // be in a real place, and the deck must match the deal cursor.
+  int inDeck = 0;
+  for (int c = 0; c < seasalt::kCards; ++c) {
+    if (restored.place[c] >= seasalt::kPlaceCount) {
+      LOG_ERR("SEASALT", "save holds an impossible position, starting fresh");
+      return false;
+    }
+    if (restored.place[c] == static_cast<uint8_t>(seasalt::Place::Deck)) ++inDeck;
+  }
+  if (inDeck != seasalt::kCards - restored.deckNext ||
+      restored.phase > static_cast<uint8_t>(seasalt::Phase::GameOver) ||
+      restored.step > static_cast<uint8_t>(seasalt::Step::CrabPick)) {
+    LOG_ERR("SEASALT", "save holds an impossible position, starting fresh");
+    return false;
+  }
+
+  game = restored;
+  seat = savedSeat & 1;
+  return true;
+}
+
+void SeaSaltActivity::loadStats() {
+  char buffer[32] = {};
+  if (Storage.readFileToBuffer(kStatsPath, buffer, sizeof(buffer)) == 0) return;
+  int p = 0, w = 0;
+  if (std::sscanf(buffer, "%d %d", &p, &w) == 2 && p >= 0 && w >= 0 && w <= p) {
+    played = p;
+    won = w;
+  }
+}
+
+void SeaSaltActivity::saveStats() const {
+  char buffer[32];
+  std::snprintf(buffer, sizeof(buffer), "%d %d", played, won);
+  Storage.writeFile(kStatsPath, String(buffer));
+}

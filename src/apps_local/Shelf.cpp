@@ -10,14 +10,14 @@
 #include "ShelfFolderActivity.h"
 #include "battleship/BattleshipActivity.h"
 #include "checkers/CheckersActivity.h"
-#include "connectfour/ConnectFourActivity.h"
-#include "yahtzee/YahtzeeActivity.h"
 #include "chess/ChessActivity.h"
+#include "connectfour/ConnectFourActivity.h"
 #include "connections/ConnectionsActivity.h"
 #include "dungeon/DungeonActivity.h"
 #include "hackernews/HackerNewsActivity.h"
 #include "insider/InsiderActivity.h"
 #include "jaipur/JaipurActivity.h"
+#include "seasalt/SeaSaltActivity.h"
 #include "knucklebones/KnucklebonesActivity.h"
 #include "minesweeper/MinesweeperActivity.h"
 #include "murdle/MurdleActivity.h"
@@ -26,6 +26,7 @@
 #include "study/StudyActivity.h"
 #include "ui/ToyboxIcons.h"
 #include "xkcd/XkcdActivity.h"
+#include "yahtzee/YahtzeeActivity.h"
 
 namespace {
 
@@ -40,6 +41,7 @@ constexpr shelf::Item kGames[] = {
     {"D&DIAGRAMS", &icon_dungeon_32, &DungeonActivity::create},
     {"INSIDER", &icon_insider_32, &InsiderActivity::create},
     {"JAIPUR", &icon_jaipur_32, &JaipurActivity::create},
+    {"SEA SALT", &icon_seasalt_32, &SeaSaltActivity::create},
     {"MURDLE", &icon_murdle_32, &MurdleActivity::create},
     {"CHECKERS", &icon_checkers_32, &CheckersActivity::create},
     {"CONNECT FOUR", &icon_connectfour_32, &ConnectFourActivity::create},

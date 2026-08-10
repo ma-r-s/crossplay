@@ -17,8 +17,6 @@
 // Both are guarded by a mutex rather than made lock-free: the firmware touches
 // them once a frame, and a browser build has no realtime deadline to miss.
 
-#include "SDL.h"
-
 #include <emscripten/emscripten.h>
 #include <emscripten/threading.h>
 
@@ -26,6 +24,8 @@
 #include <cstring>
 #include <ctime>
 #include <mutex>
+
+#include "SDL.h"
 
 namespace {
 
@@ -107,9 +107,7 @@ const char* SDL_GetError() { return ""; }
 // Handles the simulator only null-checks. Returning a fixed non-null address
 // keeps every `if (!window)` guard behaving as it does on the desktop without
 // allocating anything to leak.
-SDL_Window* SDL_CreateWindow(const char*, int, int, int, int, uint32_t) {
-  return reinterpret_cast<SDL_Window*>(1);
-}
+SDL_Window* SDL_CreateWindow(const char*, int, int, int, int, uint32_t) { return reinterpret_cast<SDL_Window*>(1); }
 SDL_Renderer* SDL_CreateRenderer(SDL_Window*, int, uint32_t) { return reinterpret_cast<SDL_Renderer*>(2); }
 SDL_Texture* SDL_CreateTexture(SDL_Renderer*, uint32_t, int, int, int) { return reinterpret_cast<SDL_Texture*>(3); }
 int SDL_SetHint(const char*, const char*) { return 1; }

@@ -168,7 +168,8 @@ void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
 
   static const char* const kLines[] = {
       "A NUMBER COUNTS THE MINES TOUCHING IT. THREE MEANS THREE OF ITS EIGHT NEIGHBOURS.",
-      "TAP A CELL TO DIG IT. SWITCH THE BUTTON UNDER THE BOARD TO FLAG, AND A TAP PLANTS A FLAG INSTEAD. HOLDING A CELL ALWAYS FLAGS IT.",
+      ("TAP A CELL TO DIG IT. SWITCH THE BUTTON UNDER THE BOARD TO FLAG, AND A TAP PLANTS A FLAG INSTEAD. HOLDING A "
+       "CELL ALWAYS FLAGS IT."),
       "YOUR FIRST DIG IS ALWAYS SAFE, AND ALWAYS OPENS A SPACE.",
   };
   fui::TextStyle body;
@@ -283,8 +284,7 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   mode.styles = toybox::rowStyles();
   mode.state = model.flagMode ? fui::StateSelected : fui::StateNormal;
   const int16_t modeWidth = static_cast<int16_t>(strip.width / 3);
-  screen.button(mode, fui::makeRect(static_cast<int16_t>(strip.right() - modeWidth), strip.y, modeWidth,
-                                    strip.height));
+  screen.button(mode, fui::makeRect(static_cast<int16_t>(strip.right() - modeWidth), strip.y, modeWidth, strip.height));
 
   char line[24];
   std::snprintf(line, sizeof(line), "%d OF %d", ms::minesRemaining(model.game), ms::kMines);
