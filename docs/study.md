@@ -9,7 +9,18 @@ No editing, no audio. Everything else -- adding cards, retraining FSRS,
 browsing -- happens in Anki, where those things are good. The card can hold
 several decks; the deck screen switches between them.
 
-## What you need
+## The no-terminal way
+
+The site has an installer page: **[crossplay.ma-r-s.com/study](https://crossplay.ma-r-s.com/study/)**.
+Export your deck from Anki (`File > Export`, .apkg, scheduling included),
+drop it on the page, see your own cards running on the emulated device, and
+write the deck to the SD card -- then, after studying, the same page replays
+your reviews back into your Anki collection. Everything happens in the tab;
+nothing is uploaded anywhere. The page runs the exact tools documented
+below, so the two routes cannot disagree; the command line remains the power
+tool, and the only route that pushes to AnkiWeb itself.
+
+## What you need (the command-line way)
 
 - **The tools.** They live in this repository, not in the firmware: clone it
   (or download it as a zip from the same place you got the firmware) and run

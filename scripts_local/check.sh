@@ -181,6 +181,19 @@ if [ "${CHECK_OUTER_BRANCH:-$(git branch --show-current 2>/dev/null)}" = "$DEPLO
   fi
 fi
 
+# The installer page runs the study tools out of a committed zip
+# (site/study/tools.zip); a stale zip is a page converting with last week's
+# converter while the CLI has this week's, the exact drift the Pyodide design
+# exists to prevent. The check is byte-exact and instant, so unlike the wasm
+# gate above it runs in every tree.
+if [ -f site/study/tools.zip ]; then
+  if ! python3 tools_local/study/sync_site.py --check > /dev/null 2>&1; then
+    echo
+    echo "site/study/tools.zip is STALE -- run: python3 tools_local/study/sync_site.py"
+    FAILED=1
+  fi
+fi
+
 echo
 if [ "$FAILED" -eq 0 ]; then
   echo "all green. logs in $LOGS"
