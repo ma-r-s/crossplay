@@ -27,6 +27,10 @@ constexpr Troop tileKind(uint8_t packed) { return static_cast<Troop>(packed & 0x
 
 bool hasEffect(Troop kind) { return kind != Troop::Kwak && kind != Troop::Roxy; }
 
+// Gate and Nullify restrict the placement itself; the rest fire after it. Only
+// the latter are something a player chooses to use or decline.
+bool firesAfterPlacement(Special s) { return s != Special::None && s != Special::Gate && s != Special::Nullify; }
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -89,6 +93,21 @@ constexpr Terrain buildProvingGround() {
     }
   }
   t.regionCount = static_cast<uint8_t>(r);
+
+  // Every special base kind, all on one board. No terrain Repos printed does
+  // that -- each of theirs uses a single kind throughout -- but nothing in the
+  // rules forbids it, and it gives the tests one place to exercise all seven.
+  // Bases 4 and 9 carry the two placement restrictions because they are the
+  // only two no other test places on.
+  t.special[2] = static_cast<uint8_t>(Special::Recall);
+  t.special[3] = static_cast<uint8_t>(Special::Exhume);
+  t.special[7] = static_cast<uint8_t>(Special::Draw);
+  t.special[8] = static_cast<uint8_t>(Special::Suppress);
+  t.special[12] = static_cast<uint8_t>(Special::Shove);
+  t.special[4] = static_cast<uint8_t>(Special::Nullify);
+  t.special[9] = static_cast<uint8_t>(Special::Gate);
+  // 6 and 7 only, the way Tropical Pool prints a pair of values on its buoys.
+  t.gate[9] = static_cast<uint8_t>((1u << static_cast<int>(Troop::Star)) | (1u << static_cast<int>(Troop::Roxy)));
   return t;
 }
 
@@ -147,11 +166,12 @@ Troop Game::reserveAt(int seat, int index) const {
   return static_cast<Troop>(deck[index]);
 }
 
-void Game::newGame(uint32_t gameSeed, int terrainIndex, int starter) {
+void Game::newGame(uint32_t gameSeed, int terrainIndex, int starter, bool withSpecialBases) {
   *this = Game{};
   seed = gameSeed;
   terrain = static_cast<uint8_t>(terrainIndex);
   turn = static_cast<uint8_t>(starter);
+  specialBases = withSpecialBases ? 1 : 0;
 
   // The starter racks 3 and the opponent 4: the second player's compensation
   // for moving second, and the only asymmetry in the set-up.
@@ -251,6 +271,16 @@ bool Game::placeableWith(int seat, int slot, Troop kind, bool hookWaiver, uint64
   const Terrain& b = board();
   if (slot < 0 || slot >= b.slotCount()) return false;
   if (rack[seat][static_cast<int>(kind)] == 0) return false;
+  // A suppressed troop is lying facedown on the rack. It still counts against
+  // the 8, it just cannot be played this turn.
+  if (frozenKind[seat] == static_cast<uint8_t>(kind)) return false;
+
+  // Both placement restrictions are special base rules, so both switch off with
+  // the setting: "treat all special bases like bases with no effect."
+  if (specialBases) {
+    const uint8_t admits = b.gate[slot];
+    if (admits != 0 && !(admits & (1u << static_cast<int>(kind)))) return false;
+  }
 
   const bool connected = (reach & (uint64_t{1} << slot)) != 0;
 
@@ -265,6 +295,10 @@ bool Game::placeableWith(int seat, int slot, Troop kind, bool hookWaiver, uint64
   if (holder != kNoSeat && holder != seat && !covers(kind, occupantTroop(slot))) return false;
 
   if (connected) return true;
+  // Hook's waiver is a troop effect, and a Nullify base is where troop effects
+  // do not happen -- so Hook cannot use it to land on one. See docs/toybattle.md
+  // for why this reading was chosen over the loose one.
+  if (specialBases && b.specialAt(slot) == Special::Nullify) return false;
   return hookWaiver && kind == Troop::Hook;
 }
 
@@ -296,6 +330,54 @@ bool Game::hasAnyLegalMove(int seat) const {
   if (canDraw(seat)) return true;
   Step scratch[1];
   return legalPlacements(seat, scratch, 1) > 0;
+}
+
+bool Game::isWellFormed() const {
+  if (terrain >= kTerrainCount) return false;
+  const Terrain& b = board();
+
+  if (turn >= kSeats) return false;
+  if (phase > static_cast<uint8_t>(Phase::GameOver)) return false;
+  if (ending > static_cast<uint8_t>(Ending::Stuck)) return false;
+  if (winner != kNoSeat && winner >= kSeats) return false;
+  if (specialBases > 1) return false;
+  if (placementCount > kMaxPlacements) return false;
+
+  for (int i = 0; i < placementCount; ++i) {
+    if (placeSlot[i] >= b.slotCount()) return false;
+    if (tileSeat(placeTile[i]) >= kSeats) return false;
+  }
+
+  if (b.regionCount < kMaxRegions && (regionsTaken >> b.regionCount) != 0) return false;
+  int banked = 0;
+  for (int r = 0; r < b.regionCount; ++r) {
+    if (regionsTaken & (1u << r)) banked += b.regions[r].medals;
+  }
+  if (medals[0] + medals[1] != banked) return false;
+
+  for (int seat = 0; seat < kSeats; ++seat) {
+    if (reserveTaken[seat] > kReserveSize) return false;
+    if (rackSize(seat) > kRackLimit) return false;
+    if (frozenKind[seat] != kNoSlot && frozenKind[seat] >= kTroopKinds) return false;
+    if (frozenKind[seat] != kNoSlot && rack[seat][frozenKind[seat]] == 0) return false;
+
+    // Per-kind conservation against the shuffle the seed describes. Anything
+    // drawn is on the rack, in the discard, or on the board -- and this also
+    // proves the seed and the state belong to the same game, which a length
+    // check on the packet cannot.
+    int drawn[kTroopKinds] = {};
+    for (int i = 0; i < reserveTaken[seat]; ++i) ++drawn[static_cast<int>(reserveAt(seat, kSetAside + i))];
+    int held[kTroopKinds] = {};
+    for (int k = 0; k < kTroopKinds; ++k) held[k] = rack[seat][k] + discarded[seat][k];
+    for (int i = 0; i < placementCount; ++i) {
+      if (tileSeat(placeTile[i]) == seat) ++held[static_cast<int>(tileKind(placeTile[i]))];
+    }
+    for (int k = 0; k < kTroopKinds; ++k) {
+      if (held[k] != drawn[k]) return false;
+      if (rack[seat][k] + discarded[seat][k] > kCopiesEach) return false;
+    }
+  }
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -358,10 +440,105 @@ void settleRegions(Game& g) {
   }
 }
 
+// Picks a troop from a rack at random, the way "point at one without looking"
+// picks one. Returns kTroopKinds when the rack is empty.
+int blindPick(Game& g, int seat, uint32_t salt) {
+  const int held = g.rackSize(seat);
+  if (held == 0) return kTroopKinds;
+  int pick =
+      static_cast<int>(mix32(g.seed ^ salt ^ (static_cast<uint32_t>(g.rngTick) << 16)) % static_cast<uint32_t>(held));
+  ++g.rngTick;
+  for (int k = 0; k < kTroopKinds; ++k) {
+    if (pick < g.rack[seat][k]) return k;
+    pick -= g.rack[seat][k];
+  }
+  return kTroopKinds;
+}
+
+// The special base under a placement, applied after every troop effect of the
+// turn. Two rules govern all of them: only visible troops can be interacted
+// with, and an effect that would push a rack past 8 cannot be applied at all
+// (the aid is explicit that it is refused rather than clamped).
+//
+// `placed` is the slot whose base is firing, so Recall can exclude the troop
+// that just landed there.
+bool applyBaseEffect(Game& g, int seat, const Step& s, int placed) {
+  const Terrain& b = g.board();
+  const Special what = b.specialAt(placed);
+  const int foe = other(seat);
+
+  switch (what) {
+    case Special::None:
+    case Special::Gate:
+    case Special::Nullify:
+      return false;  // restrictions, not effects: nothing fires afterwards
+
+    case Special::Draw:
+      if (g.rackSize(seat) >= kRackLimit) return false;
+      if (g.reserveRemaining(seat) == 0) return false;
+      drawTroops(g, seat, 1);
+      return true;
+
+    case Special::Exhume: {
+      if (g.rackSize(seat) >= kRackLimit) return false;
+      if (s.baseKind >= kTroopKinds) return false;
+      if (g.discarded[seat][s.baseKind] == 0) return false;
+      --g.discarded[seat][s.baseKind];
+      ++g.rack[seat][s.baseKind];
+      return true;
+    }
+
+    case Special::Recall: {
+      if (g.rackSize(seat) >= kRackLimit) return false;
+      if (s.baseFrom >= b.baseCount) return false;
+      if (s.baseFrom == placed) return false;  // "one of your OTHER troops"
+      if (g.occupantSeat(s.baseFrom) != seat) return false;
+      int who = 0;
+      Troop what2 = Troop::Kwak;
+      if (!popVisible(g, s.baseFrom, &who, &what2)) return false;
+      ++g.rack[seat][static_cast<int>(what2)];
+      settleRegions(g);
+      return true;
+    }
+
+    case Special::Shove: {
+      // An adjacent enemy troop, moved to a base beside where it stood,
+      // ignoring the placement rules entirely -- so strength, ownership and
+      // connection all stop mattering for this one move.
+      if (s.baseFrom >= b.baseCount || s.baseTo >= b.baseCount) return false;
+      if (!(b.adj[placed] & (uint64_t{1} << s.baseFrom))) return false;
+      if (!(b.adj[s.baseFrom] & (uint64_t{1} << s.baseTo))) return false;
+      if (g.occupantSeat(s.baseFrom) != foe) return false;
+      int who = 0;
+      Troop what2 = Troop::Kwak;
+      if (!popVisible(g, s.baseFrom, &who, &what2)) return false;
+      g.placeSlot[g.placementCount] = s.baseTo;
+      g.placeTile[g.placementCount] = packTile(who, what2);
+      ++g.placementCount;
+      settleRegions(g);
+      return true;
+    }
+
+    case Special::Suppress: {
+      const int picked = blindPick(g, foe, 0xB1F1E1D0u);
+      if (picked >= kTroopKinds) return false;
+      g.frozenKind[foe] = static_cast<uint8_t>(picked);
+      return true;
+    }
+  }
+  return false;
+}
+
 bool applyStep(Game& g, int seat, const Step& s, bool chainContinues) {
   const Terrain& b = g.board();
   const Troop kind = static_cast<Troop>(s.kind);
   if (s.kind >= kTroopKinds) return false;
+
+  // Troop effects do not happen on a Station Metal-X base, so claiming one
+  // there is not a legal move rather than a silent no-op.
+  if (g.specialBases && b.specialAt(s.slot) == Special::Nullify && s.useEffect) return false;
+  // And the base flag has to name a base that actually has something to fire.
+  if (s.useBase && !(g.specialBases && firesAfterPlacement(b.specialAt(s.slot)))) return false;
 
   // A Cap'n's effect *is* the extra placement, so the flag and the presence of
   // a following step have to agree. Anything else is a move that means two
@@ -414,17 +591,15 @@ bool applyStep(Game& g, int seat, const Step& s, bool chainContinues) {
     }
     case Troop::XB42: {
       const int foe = other(seat);
-      const int held = g.rackSize(foe);
-      if (held > 0) {
-        int pick = static_cast<int>(mix32(g.seed ^ (uint32_t{0xB5} << 8) ^ g.rngTick) % static_cast<uint32_t>(held));
-        ++g.rngTick;
-        for (int k = 0; k < kTroopKinds; ++k) {
-          if (pick < g.rack[foe][k]) {
-            --g.rack[foe][k];
-            ++g.discarded[foe][k];
-            break;
-          }
-          pick -= g.rack[foe][k];
+      const int picked = blindPick(g, foe, 0xB5000000u);
+      if (picked < kTroopKinds) {
+        --g.rack[foe][picked];
+        ++g.discarded[foe][picked];
+        // A suppressed troop that has just been shot off the rack cannot stay
+        // suppressed: the mark would otherwise freeze a kind the seat is free
+        // to draw again later.
+        if (g.frozenKind[foe] == static_cast<uint8_t>(picked) && g.rack[foe][picked] == 0) {
+          g.frozenKind[foe] = kNoSlot;
         }
       }
       break;
@@ -453,7 +628,25 @@ bool tryApply(Game& g, const Move& move) {
       // never happens.
       if (g.currentPhase() != Phase::Playing) return true;
     }
+
+    // "First apply all the effects of Troops you just placed, then apply any
+    // special base effects." So a Cap'n chain runs both troop effects before
+    // either base fires, and the bases then fire in the order they were
+    // occupied. Getting this backwards is a real difference: a base that
+    // returns a troop to your rack changes what the extra placement could
+    // have been.
+    for (int i = 0; i < move.stepCount; ++i) {
+      const Step& s = move.steps[i];
+      if (!s.useBase) continue;
+      if (!applyBaseEffect(g, seat, s, s.slot)) return false;
+      if (g.currentPhase() != Phase::Playing) return true;
+    }
   }
+
+  // The suppressed troop goes back on the rack at the end of the turn it sat
+  // out. Clearing the mover's own mark here is exactly that: the enemy set it
+  // during their turn, this turn happened without it, and now it is spent.
+  g.frozenKind[seat] = kNoSlot;
 
   g.turn = static_cast<uint8_t>(other(seat));
   if (!g.hasAnyLegalMove(g.turn)) {

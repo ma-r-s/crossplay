@@ -101,7 +101,14 @@ wins, and **a tie goes to the player who did not end it**.
 
 Officially optional: _"For your first games, we suggest playing without special
 base effects. Treat all special bases like bases with no effect."_ That sanction
-is why the MVP ships without them and is still the real game.
+is why this is **a setting rather than a phase of the project**, and why "off"
+is a real way to play rather than a crippled one.
+
+**The setting lives in `Game`, not in app settings.** Two linked devices must
+agree on it, the opponent has to see it to play correctly, and a brain that
+cannot read it would misvalue every position on a board it thinks is inert. The
+app setting chooses the default; `newGame` bakes it into the state and it never
+changes mid-game.
 
 Two global rules govern them when they land:
 
@@ -122,6 +129,22 @@ Two global rules govern them when they land:
 
 The last two are restrictions that apply _before_ placing, not effects that fire
 after.
+
+**One reading had to be chosen, and it is worth Mario's eye.** Station Metal-X
+says troop effects are not applied on its bases. Hook's effect _is_ the
+connection waiver, so the strict reading is that Hook cannot use it to land on a
+Metal-X base, and a Cap'n placed on one grants no extra placement. The loose
+reading would treat the waiver as spent before the base is reached. The engine
+implements the strict one, because the alternative lets a troop use an effect on
+a base defined as the place effects do not happen, and because a rule that
+sometimes applies is worse than either rule. Both are defensible; if the printed
+board contradicts this, it is a one-line change and the test that pins it is
+`testGateAndNullify`.
+
+The ordering matters and is the aid's, not ours: **all troop effects of the turn
+first, then the base effects, in the order the bases were occupied.** A Cap'n
+chain therefore runs both placements and both troop effects before either base
+fires, which changes what the extra placement could have been.
 
 ### Not implemented, and deliberately
 
@@ -176,12 +199,24 @@ measured against a greedy baseline before a single pixel is drawn.
 
 ## Open items
 
-- **No real terrain is implemented yet, on purpose.** Only Castle Field has
-  ever been photographed, and at an angle, so authoring it from that would be
-  guessing with a straight face. `kProvingGround` is ours and is named so: a
-  5x3 lattice with an H.Q. at each end and its eight cells as regions. It gives
-  every rule something to bite on and it claims to be nothing it is not.
-  Shipping needs a real source for the eight boards, and that is the one input
-  the internet does not have. A photo of the box contents settles it.
+- **No real terrain is implemented yet, on purpose.** `kProvingGround` is ours
+  and is named so: a 5x3 lattice with an H.Q. at each end, its eight cells as
+  regions, and every special base kind on the one board (no terrain Repos
+  printed mixes them; this one exists so the tests have somewhere to run).
+- **Nobody has published clean scans of all eight boards.** Searched 2026-08-10
+  and this is what exists:
+  - Repos' own fan render, on rprod.com as
+    `elements/toy-graphics-boxbottom-boards-*.png` and on BGG as image 8785448.
+    All eight, overlapping, and only Battlefield fully visible.
+  - The rulebook's Castle Field photo, at an angle.
+  - BGG image 9404840 ("Map 5"), a near-top-down of Battlefield with pieces on
+    it: topology readable, one board.
+  - 180 images in the BGG gallery, surveyed. The rest are angled table shots,
+    component photos, DIY boards, and the Polish edition's marketing sheets.
+  - The BGA doc wiki holds the eight troop icons and no boards.
+  - **Board Game Arena has all eight clean, plus a Winter skin.** Its assets
+    live behind a game table, which needs an account, so this is Mario's to
+    capture: one screenshot per terrain settles the whole question.
 - Medals objective per terrain: unknown, same reason. `kProvingGround` uses 7,
   which is the number on the rulebook's own illustration of the objective.
+- **There is a 2026 expansion, La Croisette**, rules downloaded and out of scope.

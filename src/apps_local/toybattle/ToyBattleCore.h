@@ -72,6 +72,25 @@ struct Region {
   uint8_t medals = 0;
 };
 
+// What a special base does, one kind per real terrain. Named for the mechanic
+// rather than the terrain, because the terrain is only where Repos put it.
+//
+// Caribbean Sea has no entry: it has no special bases at all, and is asymmetric
+// instead (2 H.Q. against 1), which the terrain already expresses.
+//
+// The last two are *placement restrictions*: the aid is explicit that they
+// happen before the troop is placed, not after.
+enum class Special : uint8_t {
+  None = 0,
+  Recall,    // Castle Field: return one of your OTHER troops, anywhere, to your rack
+  Draw,      // City of Clouds: draw 1 from your reserve
+  Shove,     // Volcanic Jungle: move an adjacent enemy troop to a base beside its start
+  Exhume,    // Cursed Cemetery: take one of your own troops out of the discard
+  Suppress,  // Battlefield: an enemy rack troop, picked blind, sits out their next turn
+  Gate,      // Tropical Pool: only the printed values may be placed here
+  Nullify,   // Station Metal-X: troop effects do not apply on this base
+};
+
 // Slots are numbered bases first, then H.Q. A base is a slot below
 // `baseCount`; an H.Q. is not a base and is never a stepping stone.
 struct Terrain {
@@ -84,6 +103,13 @@ struct Terrain {
   Region regions[kMaxRegions] = {};
   uint8_t edgeCount = 0;
   Edge edges[kMaxEdges] = {};
+  // Per base. A real terrain uses one kind throughout; PROVING GROUND mixes
+  // them because it is the board the tests live on.
+  uint8_t special[kMaxBases] = {};
+  // Special::Gate only: which troop kinds this slot admits, as a bitmask over
+  // Troop. 0 means ungated, which is every slot on every terrain but Tropical
+  // Pool's. Indexed by slot, not base, because the gate covers the H.Q. too.
+  uint8_t gate[kMaxSlots] = {};
   // Normalised 0..1000, so the renderer and hit-testing share one geometry
   // rather than computing it twice. Slot i, bases then H.Q.
   uint16_t x[kMaxSlots] = {};
@@ -95,6 +121,9 @@ struct Terrain {
   constexpr bool isBase(int slot) const { return slot < baseCount; }
   constexpr bool isHq(int slot) const { return slot >= baseCount && slot < slotCount(); }
   constexpr int hqOwner(int slot) const { return hqSeat[slot - baseCount]; }
+  constexpr Special specialAt(int slot) const {
+    return isBase(slot) ? static_cast<Special>(special[slot]) : Special::None;
+  }
 };
 
 // Fills `adj` from `edges`. Authoring an edge list twice, once per direction,
@@ -135,6 +164,14 @@ struct Step {
   bool useEffect = false;
   // Jumbo: the base whose visible enemy troop is discarded. Unused otherwise.
   uint8_t target = kNoSlot;
+
+  // The special base under this placement, if any, is a second decision with
+  // its own choices. Declining is legal here too, and a base whose effect the
+  // player declines is the same as a base with no effect.
+  bool useBase = false;
+  uint8_t baseFrom = kNoSlot;  // Recall: my troop's base. Shove: the victim's base.
+  uint8_t baseTo = kNoSlot;    // Shove: where the victim goes.
+  uint8_t baseKind = kNoSlot;  // Exhume: which of my discarded troops to take back.
 };
 
 struct Move {
@@ -177,6 +214,20 @@ struct Game {
   uint8_t medals[kSeats] = {};
   uint16_t regionsTaken = 0;
 
+  // Whether this game plays with special base effects. It lives in the state
+  // rather than in app settings on purpose: two linked devices must agree on
+  // it, and the opponent has to see it to play correctly. The app setting
+  // chooses the default and `newGame` bakes it in. The rulebook itself
+  // sanctions playing without ("treat all special bases like bases with no
+  // effect"), so off is a real way to play, not a crippled one.
+  uint8_t specialBases = 1;
+
+  // Battlefield's suppression: a troop the enemy pointed at blind, which sits
+  // out this seat's next turn and returns at the end of it. It stays on the
+  // rack throughout and still counts against the 8. kNoSlot when nothing is
+  // suppressed.
+  uint8_t frozenKind[kSeats] = {kNoSlot, kNoSlot};
+
   // XB-42 steals at random. The tick advances with every random draw so both
   // devices produce the same victim from the same seed.
   uint8_t rngTick = 0;
@@ -189,8 +240,16 @@ struct Game {
   // --- set-up -------------------------------------------------------------
 
   // The rulebook's order: shuffle 24, set 4 aside unseen, starter racks 3 and
-  // the opponent racks 4.
-  void newGame(uint32_t gameSeed, int terrainIndex, int starter);
+  // the opponent racks 4. `withSpecialBases` is baked into the state here and
+  // never changes mid-game.
+  void newGame(uint32_t gameSeed, int terrainIndex, int starter, bool withSpecialBases = true);
+
+  // A state that arrived over the radio is not trusted. The link layer checks
+  // the payload length and nothing else, so a corrupt packet reaches here as a
+  // `turn` of 200 indexing a two-seat array. Everything indexed or iterated is
+  // range-checked; call this before letting a received state anywhere near a
+  // screen or a brain.
+  bool isWellFormed() const;
 
   // --- playing ------------------------------------------------------------
 

@@ -94,6 +94,11 @@ static void checkInvariants(const Game& g, const char* where) {
     if (g.regionsTaken & (1u << r)) banked += b.regions[r].medals;
   }
   check(g.medals[0] + g.medals[1] == banked, where);
+
+  // The state is also the wire format, so every legally reached position must
+  // pass the validator a received packet will be held to. A validator that
+  // only ever sees hand-picked cases is a validator nobody has tested.
+  check(g.isWellFormed(), where);
 }
 
 // --- targeted tests --------------------------------------------------------
@@ -343,6 +348,164 @@ static void testStuckEnding() {
   check(t.winner == 0, "a tie goes against whoever could not act");
 }
 
+// --- special bases ---------------------------------------------------------
+
+static void testSpecialBaseSetting() {
+  // The setting lives in the state, not in app settings, because two linked
+  // devices have to agree on it and the opponent has to see it.
+  Game on = bare();
+  Game off;
+  off.newGame(7u, 0, 0, /*withSpecialBases=*/false);
+  check(on.specialBases == 1, "special bases default on");
+  check(off.specialBases == 0, "and can be turned off for the whole game");
+
+  // Base 9 is gated to 6 and 7. With the setting off it is an ordinary base.
+  clearRack(off, 0);
+  clearRack(off, 1);
+  off.placementCount = 0;
+  give(off, 0, Troop::Skully, 1);
+  give(on, 0, Troop::Skully, 1);
+  // A held line along the bottom row, so base 9 is connected in both games and
+  // the gate is the only thing that can refuse the placement.
+  for (int base = 10; base <= 14; ++base) {
+    put(off, 0, base, Troop::Roxy);
+    put(on, 0, base, Troop::Roxy);
+  }
+  check(!on.canPlaceHere(0, 9, Troop::Skully, false), "a 1 cannot land on a base gated to 6 and 7");
+  check(off.canPlaceHere(0, 9, Troop::Skully, false), "unless special bases are switched off");
+}
+
+static void testGateAndNullify() {
+  Game g = bare();
+  give(g, 0, Troop::Roxy, 1);
+  give(g, 0, Troop::Star, 1);
+  give(g, 0, Troop::Skully, 1);
+  for (int base = 10; base <= 14; ++base) put(g, 0, base, Troop::Roxy);  // a line to base 9
+  check(g.canPlaceHere(0, 9, Troop::Roxy, false), "a 7 is one of the printed values");
+  check(g.canPlaceHere(0, 9, Troop::Star, false), "and so is a 6");
+  check(!g.canPlaceHere(0, 9, Troop::Skully, false), "a 1 is not");
+
+  // Station Metal-X: effects do not apply on the base, so claiming one there
+  // is not a legal move rather than a no-op that quietly does nothing.
+  Game n = bare();
+  give(n, 0, Troop::Skully, 2);
+  give(n, 0, Troop::Hook, 1);
+  put(n, 0, 0, Troop::Roxy);
+  put(n, 0, 1, Troop::Roxy);
+  put(n, 0, 2, Troop::Roxy);
+  put(n, 0, 3, Troop::Roxy);
+  check(n.canPlaceHere(0, 4, Troop::Skully, false), "the base itself takes a troop normally");
+  check(!n.isLegal(Move::place(4, Troop::Skully, true)), "but its effect cannot be used there");
+  check(n.isLegal(Move::place(4, Troop::Skully, false)), "declining is the only way to play it");
+
+  // And Hook's waiver is a troop effect, so it cannot reach one either.
+  Game h = bare();
+  give(h, 0, Troop::Hook, 1);
+  check(!h.canPlaceHere(0, 4, Troop::Hook, true), "Hook cannot jump onto a base that nullifies effects");
+  check(h.canPlaceHere(0, 7, Troop::Hook, true), "though it still reaches an ordinary far base");
+}
+
+static void testBaseEffects() {
+  // Recall: one of your OTHER troops, from anywhere, back to the rack.
+  Game r = bare();
+  give(r, 0, Troop::Roxy, 1);
+  put(r, 0, 0, Troop::Roxy);
+  put(r, 0, 1, Troop::Roxy);
+  Move m = Move::place(2, Troop::Roxy);
+  m.steps[0].useBase = true;
+  m.steps[0].baseFrom = 0;
+  check(r.isLegal(m), "Castle Field's base calls a troop home");
+  Game after = r;
+  check(after.apply(m), "and it applies");
+  check(after.occupantSeat(0) == kNoSeat, "the recalled troop leaves the board");
+  check(after.rack[0][static_cast<int>(Troop::Roxy)] == 1, "and lands back on the rack");
+
+  Move self = Move::place(2, Troop::Roxy);
+  self.steps[0].useBase = true;
+  self.steps[0].baseFrom = 2;
+  check(!r.isLegal(self), "it may not recall the troop that just landed: 'one of your OTHER troops'");
+
+  // Draw: one from the reserve, refused rather than clamped at a full rack.
+  Game d = bare();
+  give(d, 0, Troop::Roxy, 1);
+  for (int base : {0, 1, 2}) put(d, 0, base, Troop::Roxy);  // a line out to base 7
+  Move dm = Move::place(7, Troop::Roxy);
+  dm.steps[0].useBase = true;
+  check(d.isLegal(dm), "City of Clouds draws one");
+  Game dAfter = d;
+  check(dAfter.apply(dm) && dAfter.rackSize(0) == 1, "and the rack grows by exactly one");
+
+  Game full = bare();
+  give(full, 0, Troop::Roxy, 1);
+  give(full, 0, Troop::Star, 8);
+  for (int base : {0, 1, 2}) put(full, 0, base, Troop::Roxy);
+  Move fm = Move::place(7, Troop::Roxy);
+  fm.steps[0].useBase = true;
+  check(!full.isLegal(fm), "an effect that would exceed 8 cannot be applied at all");
+
+  // Exhume: one of your own out of the discard.
+  Game e = bare();
+  give(e, 0, Troop::Roxy, 1);
+  for (int base : {0, 1, 2}) put(e, 0, base, Troop::Roxy);
+  e.discarded[0][static_cast<int>(Troop::Jumbo)] = 1;
+  Move em = Move::place(3, Troop::Roxy);
+  em.steps[0].useBase = true;
+  em.steps[0].baseKind = static_cast<uint8_t>(Troop::Jumbo);
+  check(e.isLegal(em), "Cursed Cemetery brings one back");
+  Game eAfter = e;
+  check(eAfter.apply(em), "and it applies");
+  check(eAfter.rack[0][static_cast<int>(Troop::Jumbo)] == 1, "onto the rack");
+  check(eAfter.discarded[0][static_cast<int>(Troop::Jumbo)] == 0, "out of the discard");
+
+  Move theirs = Move::place(3, Troop::Roxy);
+  theirs.steps[0].useBase = true;
+  theirs.steps[0].baseKind = static_cast<uint8_t>(Troop::Star);
+  check(!e.isLegal(theirs), "and only a troop that is actually in your discard");
+
+  // Shove: an adjacent enemy troop, moved beside where it stood, ignoring the
+  // placement rules -- so it may land on a base its strength could not take.
+  Game s = bare();
+  give(s, 0, Troop::Skully, 1);
+  put(s, 0, 10, Troop::Roxy);  // a line along the bottom out to base 12
+  put(s, 0, 11, Troop::Roxy);
+  put(s, 1, 13, Troop::Roxy);  // adjacent to base 12
+  put(s, 1, 14, Troop::Star);
+  Move sm = Move::place(12, Troop::Skully);
+  sm.steps[0].useBase = true;
+  sm.steps[0].baseFrom = 13;
+  sm.steps[0].baseTo = 14;
+  check(s.isLegal(sm), "Volcanic Jungle shoves the neighbour");
+  Game sAfter = s;
+  check(sAfter.apply(sm), "and it applies");
+  check(sAfter.occupantSeat(13) == kNoSeat, "the shoved troop leaves its base");
+  check(sAfter.occupantTroop(14) == Troop::Roxy, "and lands on top of one a 7 could not have covered");
+  check(sAfter.stackDepth(14) == 2, "stacking as it goes");
+
+  Move far = Move::place(12, Troop::Skully);
+  far.steps[0].useBase = true;
+  far.steps[0].baseFrom = 13;
+  far.steps[0].baseTo = 0;
+  check(!s.isLegal(far), "but only to a base beside where it started");
+}
+
+static void testSuppression() {
+  Game g = bare();
+  give(g, 0, Troop::Roxy, 1);
+  give(g, 1, Troop::Star, 1);                                      // the only thing seat 1 holds, so the pick is known
+  for (int base : {10, 11, 12, 13}) put(g, 0, base, Troop::Roxy);  // a line out to base 8
+  Move m = Move::place(8, Troop::Roxy);
+  m.steps[0].useBase = true;
+  check(g.apply(m), "Battlefield points at a troop on the enemy rack");
+  check(g.frozenKind[1] == static_cast<uint8_t>(Troop::Star), "the pointed troop is face down");
+  check(g.rackSize(1) == 1, "it stays on the rack and still counts against the 8");
+  check(!g.canPlaceHere(1, 14, Troop::Star, false), "and cannot be placed this turn");
+
+  // It comes back at the end of the turn it sat out.
+  check(g.turn == 1, "it is the suppressed player's turn");
+  check(g.apply(Move::draw()), "who draws instead");
+  check(g.frozenKind[1] == kNoSlot, "and gets it back at the end of that turn");
+}
+
 static void testWireFormat() {
   check(sizeof(Game) <= 192, "Game fits one LinkPlay packet");
   Game a;
@@ -357,6 +520,54 @@ static void testWireFormat() {
   memcpy(&b, wire, sizeof(Game));
   check(memcmp(&a, &b, sizeof(Game)) == 0, "a state survives the wire byte for byte");
   check(b.occupantSeat(0) == 0, "and means the same thing at the other end");
+}
+
+// The link layer checks payload length and nothing else, so every other
+// guarantee is this function's job. Each mutant below is a byte a corrupt
+// packet could plausibly carry into an array index. A validator nobody has
+// tried to break is a validator that has never been tested.
+static void testValidatorRejectsCorruption() {
+  Game good;
+  good.newGame(31337u, 0, 0);
+  check(good.isWellFormed(), "a dealt game is well formed");
+
+  auto mutant = [&](void (*wreck)(Game&), const char* what) {
+    Game m = good;
+    wreck(m);
+    check(!m.isWellFormed(), what);
+  };
+
+  mutant([](Game& m) { m.turn = 200; }, "a turn that would index past the seats is rejected");
+  mutant([](Game& m) { m.terrain = 9; }, "a terrain index with no terrain behind it is rejected");
+  mutant([](Game& m) { m.phase = 7; }, "a phase outside the enum is rejected");
+  mutant([](Game& m) { m.ending = 9; }, "an ending outside the enum is rejected");
+  mutant([](Game& m) { m.winner = 5; }, "a winner who is not a seat is rejected");
+  mutant([](Game& m) { m.placementCount = 200; }, "a placement count past the board is rejected");
+  mutant([](Game& m) { m.specialBases = 4; }, "a setting that is neither on nor off is rejected");
+  mutant([](Game& m) { m.frozenKind[0] = 99; }, "a suppressed troop that is not a troop is rejected");
+  mutant([](Game& m) { m.medals[0] = 9; }, "medals nobody won are rejected");
+  mutant([](Game& m) { m.regionsTaken = 0xFFFF; }, "regions the terrain does not have are rejected");
+  mutant([](Game& m) { m.rack[0][0] = 8; }, "a rack holding more copies than exist is rejected");
+  mutant([](Game& m) { m.reserveTaken[0] = 19; }, "a reserve count the rack cannot account for is rejected");
+  mutant(
+      [](Game& m) {
+        m.placeSlot[0] = 3;
+        m.placeTile[0] = 0;
+        m.placementCount = 1;
+      },
+      "a troop on the board that was never drawn is rejected");
+  mutant([](Game& m) { m.seed ^= 0x5A5A5A5Au; }, "a state whose seed describes a different shuffle is rejected");
+
+  // And the validator is not merely returning false for everything: a state
+  // reached by real play still passes.
+  Game played = good;
+  give(played, 0, Troop::Roxy, 0);
+  Step steps[64];
+  const int n = played.legalPlacements(0, steps, 64);
+  check(n > 0, "the dealt position has a move");
+  check(played.apply(Move::place(steps[0].slot, static_cast<Troop>(steps[0].kind), steps[0].useEffect)),
+        "which applies");
+  check(played.isWellFormed(), "and leaves a well-formed state");
 }
 
 // --- soak ------------------------------------------------------------------
@@ -403,18 +614,68 @@ static std::vector<Move> legalMoves(const Game& g) {
       Move withEffect = Move::place(slot, kind, true);
       if (g.isLegal(withEffect)) out.push_back(withEffect);
     }
+
+    // The special base under the placement, with every choice it might need.
+    // Without this the soak would only ever decline them, and a whole half of
+    // the rules would sit untested behind a flag that is on by default.
+    const Terrain& b = g.board();
+    if (!g.specialBases || !b.isBase(slot)) continue;
+    switch (b.specialAt(slot)) {
+      case Special::Draw:
+      case Special::Suppress: {
+        Move m = Move::place(slot, kind, steps[i].useEffect);
+        m.steps[0].useBase = true;
+        if (g.isLegal(m)) out.push_back(m);
+        break;
+      }
+      case Special::Recall: {
+        for (int from = 0; from < b.baseCount; ++from) {
+          Move m = Move::place(slot, kind, steps[i].useEffect);
+          m.steps[0].useBase = true;
+          m.steps[0].baseFrom = static_cast<uint8_t>(from);
+          if (g.isLegal(m)) out.push_back(m);
+        }
+        break;
+      }
+      case Special::Exhume: {
+        for (int k = 0; k < kTroopKinds; ++k) {
+          Move m = Move::place(slot, kind, steps[i].useEffect);
+          m.steps[0].useBase = true;
+          m.steps[0].baseKind = static_cast<uint8_t>(k);
+          if (g.isLegal(m)) out.push_back(m);
+        }
+        break;
+      }
+      case Special::Shove: {
+        for (int from = 0; from < b.baseCount; ++from) {
+          for (int to = 0; to < b.baseCount; ++to) {
+            Move m = Move::place(slot, kind, steps[i].useEffect);
+            m.steps[0].useBase = true;
+            m.steps[0].baseFrom = static_cast<uint8_t>(from);
+            m.steps[0].baseTo = static_cast<uint8_t>(to);
+            if (g.isLegal(m)) out.push_back(m);
+          }
+        }
+        break;
+      }
+      case Special::None:
+      case Special::Gate:
+      case Special::Nullify:
+        break;
+    }
   }
   return out;
 }
 
-static void soak(int matches) {
+static void soak(int matches, bool specialBases) {
   int finished = 0;
   int byHq = 0, byMedals = 0, byStuck = 0;
   long moves = 0;
+  long baseEffects = 0;
 
   for (int match = 0; match < matches; ++match) {
     Game g;
-    g.newGame(rnd(), 0, static_cast<int>(rnd() & 1u));
+    g.newGame(rnd(), 0, static_cast<int>(rnd() & 1u), specialBases);
     checkInvariants(g, "soak: after the deal");
 
     int turns = 0;
@@ -423,6 +684,7 @@ static void soak(int matches) {
       check(!options.empty(), "soak: a playing position always has a legal move");
       const Move& chosen = options[rnd() % options.size()];
       const int before = g.turn;
+      if (chosen.kind == Move::Kind::Place && chosen.steps[0].useBase) ++baseEffects;
       check(g.apply(chosen), "soak: a move that isLegal accepted must apply");
       check(g.currentPhase() != Phase::Playing || g.turn != before, "soak: the turn passes");
       checkInvariants(g, "soak: after a move");
@@ -456,7 +718,15 @@ static void soak(int matches) {
   // endings: an ending nothing ever reaches is an ending nothing tests.
   check(byHq > 0, "soak: random play captures an H.Q. sometimes");
   check(byMedals > 0, "soak: and meets the medals objective sometimes");
-  printf("soak       %d matches, %ld moves  (hq %d, medals %d, stuck %d)\n", matches, moves, byHq, byMedals, byStuck);
+  // And the same for the setting: a soak that never fired a base effect would
+  // report green for rules it never ran.
+  if (specialBases) {
+    check(baseEffects > 0, "soak: special bases actually fire when they are on");
+  } else {
+    check(baseEffects == 0, "soak: and never fire when they are off");
+  }
+  printf("soak %-3s  %d matches, %ld moves, %ld base effects  (hq %d, medals %d, stuck %d)\n",
+         specialBases ? "on" : "off", matches, moves, baseEffects, byHq, byMedals, byStuck);
 }
 
 int main() {
@@ -471,8 +741,14 @@ int main() {
   testCapnChain();
   testEffectsAndRackLimit();
   testStuckEnding();
+  testSpecialBaseSetting();
+  testGateAndNullify();
+  testBaseEffects();
+  testSuppression();
   testWireFormat();
-  soak(300);
+  testValidatorRejectsCorruption();
+  soak(300, /*specialBases=*/true);
+  soak(300, /*specialBases=*/false);
 
   printf("toybattle  %d checks, 0 failed\n", checks);
   return 0;
