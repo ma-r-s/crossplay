@@ -61,13 +61,19 @@ them:
   hole in it, and this card format has nowhere to put a hole. Cloze stays in
   Anki.
 
+The supported scripts are English (anything the built-in Latin face covers)
+and Chinese. Other scripts -- Korean, Arabic, Cyrillic and the rest -- are out
+of scope: nothing stops the converter, but nobody has made the fonts or the
+text layout right for them, and setup will warn about every character the
+built-in face cannot draw rather than pretend.
+
 Scheduling state comes along: a card due in 21 days in Anki is due in 21 days
 on the reader, with the same stability and difficulty. New decks start fresh,
 exactly as they would in Anki.
 
 ### Fonts
 
-- **A CJK deck** (Chinese, Japanese) needs real CJK faces. The converter builds
+- **A Chinese deck** needs real CJK faces. The converter builds
   them from the TTFs in your Anki media folder -- `_simsun.ttf`, `_simhei.ttf`,
   `_msyahei.ttf`, `_kaiti.ttf`, `_fangsong.ttf` -- and the reader randomises
   the typeface per card, which stops you learning the shape of one font instead

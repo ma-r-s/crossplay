@@ -144,11 +144,17 @@ def list_decks(collection):
 
 
 def slug(name):
-    """A deck name as a directory name: 'Spanish::Food & Drink' -> 'food-drink'."""
+    """A deck path as a directory name: 'Spanish::Food & Drink' -> 'spanish-food-drink'.
+
+    The whole path, not the last component: 'Spanish::Food' and 'Travel::Food'
+    are different decks, and giving them the same directory would silently wire
+    one deck's reviews to the other's cards. Capped at 31 characters because
+    that is the device's name buffer.
+    """
     import re
 
-    last = name.split("::")[-1].lower()
-    return re.sub(r"[^a-z0-9]+", "-", last).strip("-") or "deck"
+    flat = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "deck"
+    return flat[:31].rstrip("-")
 
 
 def find_deck_dir(card):
@@ -194,6 +200,37 @@ def deck_has_cjk(deck_dir):
         if f.is_file():
             text += f.read_text(encoding="utf-8")
     return any(a <= ord(c) <= b for c in text for a, b in [r for r in CJK_RANGES])
+
+
+def deck_entry(config, deck_dir):
+    """The config entry for a deck directory, healing old keys as it goes.
+
+    Entries are keyed by directory name. Configs written before that (or cards
+    whose directory predates path-slugs, like Mario's 'mandarin') miss on the
+    exact key -- but a config entry whose key matches no directory on the card
+    is unclaimed, and when exactly one entry and one directory are unclaimed
+    they can only be each other. The key is rewritten to the directory name so
+    the guess happens once, not forever.
+    """
+    entry = config["decks"].get(deck_dir.name)
+    if entry is not None:
+        return entry
+    # Both sides must be singular: one entry with no directory, one directory
+    # with no entry. One orphan entry against two unclaimed directories could
+    # belong to either, and guessing would hand a reconvert the wrong Anki
+    # deck -- which regenerates the directory with another deck's cards.
+    orphan_entries = [
+        key for key in config["decks"] if not (deck_dir.parent / key).is_dir()
+    ]
+    unclaimed_dirs = [
+        d for d in find_deck_dirs(deck_dir.parent.parent) if d.name not in config["decks"]
+    ]
+    if len(orphan_entries) == 1 and unclaimed_dirs == [deck_dir]:
+        entry = config["decks"].pop(orphan_entries[0])
+        config["decks"][deck_dir.name] = entry
+        save_config(config)
+        return entry
+    return None
 
 
 def anki_is_running():
@@ -327,7 +364,27 @@ def cmd_setup(args):
         die(f"{target} is not a directory.")
 
     name = args.name or deck.split("::")[-1]
-    deck_dir = target / "study" / slug(name)
+    deck_dir = target / "study" / slug(deck)
+    # The 31-character cap can fold two long deck paths onto one directory, and
+    # the recorded entry says whose it is. A collision steps aside rather than
+    # silently rewiring one deck's reviews to another's cards.
+    recorded = config["decks"].get(deck_dir.name)
+    if deck_dir.is_dir() and recorded and recorded.get("deck") != deck:
+        base = slug(deck)[:28].rstrip("-")
+        n = 2
+        while (target / "study" / f"{base}-{n}").is_dir():
+            n += 1
+        deck_dir = target / "study" / f"{base}-{n}"
+        print(f"  {slug(deck)} already belongs to {recorded['deck']!r}; using {deck_dir.name}")
+    if deck_dir.is_dir():
+        pending = deck_dir / "revlog.dat"
+        reviews = pending.stat().st_size // 32 if pending.is_file() else 0
+        if reviews:
+            print(
+                f"\nThis deck is already on the card with {reviews} review(s) not yet"
+                f" synced to Anki.\nReconverting now resets the card states those reviews"
+                f" produced; they return on the next sync.\nCleaner: run 'study.py sync' first."
+            )
     font_dir = deck_dir / "fonts"
 
     # Cards from before per-deck fonts have one shared /study/fonts. When the
@@ -391,6 +448,15 @@ def cmd_setup(args):
             "\nNo CJK in this deck; the built-in face will draw it."
             " (Pass --font YourFont.ttf for a large custom headword face.)"
         )
+        # Still verified: a deck can carry the odd glyph the built-in face
+        # lacks, and a character that silently does not paint is the kind of
+        # gap nobody notices until an exam. Warn, do not block -- it is a few
+        # characters in a side field, not a blank deck.
+        if not run("check_deck.py", deck_dir):
+            print(
+                "  warning: the glyphs listed above will not appear on the"
+                " device; everything else renders."
+            )
     else:
         need_fonts = args.rebuild_fonts or args.font or not (
             font_dir.is_dir() and any(font_dir.iterdir())
@@ -438,7 +504,7 @@ def cmd_setup(args):
         # Remembered so a reconvert can rebuild the face when the deck grows
         # words the current subset lacks.
         entry["font"] = str(pathlib.Path(args.font).expanduser())
-    config["decks"][slug(name)] = entry
+    config["decks"][deck_dir.name] = entry
     # The old single-deck keys would shadow the map on the next load.
     config.pop("deck", None)
     config.pop("name", None)
@@ -468,6 +534,8 @@ def cmd_sync(args):
     # Replay every deck first, then push to AnkiWeb once: each replay is local
     # and cheap, and one push carries them all.
     extra = ["--dry-run"] if args.dry_run else []
+    if args.force:
+        extra.append("--force")
     for deck_dir in deck_dirs:
         if len(deck_dirs) > 1:
             print(f"\n== {deck_dir.name} ==")
@@ -479,12 +547,13 @@ def cmd_sync(args):
         # the system Python (macOS marks it externally managed), so it lives in
         # the tooling venv and is pulled in the first time anyone asks.
         ensure_venv("anki")
-        if not run("deck_to_anki.py", "--push-only", collection, venv=True):
+        push = ["--force"] if args.force else []
+        if not run("deck_to_anki.py", "--push-only", collection, *push, venv=True):
             die("AnkiWeb push failed. Reviews are applied locally; re-run to retry the push.")
 
     if args.reconvert and not args.dry_run:
         for deck_dir in deck_dirs:
-            entry = config["decks"].get(deck_dir.name)
+            entry = deck_entry(config, deck_dir)
             if entry is None:
                 print(
                     f"\n{deck_dir.name}: not in {CONFIG.name}, cannot reconvert it"
@@ -540,7 +609,7 @@ def cmd_status(args):
     for deck_dir in deck_dirs:
         revlog = deck_dir / "revlog.dat"
         pending = revlog.stat().st_size // 32 if revlog.is_file() else 0
-        entry = config["decks"].get(deck_dir.name, {})
+        entry = deck_entry(config, deck_dir) or {}
         label = entry.get("deck", deck_dir.name)
         print(
             f"{deck_dir.name:20} {label:40} "

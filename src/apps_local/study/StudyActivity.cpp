@@ -167,6 +167,7 @@ void StudyActivity::beginDeckSession() {
   scheduler_ = study::Scheduler(fsrs_, steps);
 
   shuffle_ = static_cast<uint32_t>(today_) * 2654435761u + 1u;
+  writeFailed_ = false;
   reviewedThisSession_ = 0;
   againThisSession_ = 0;
   learningCount_ = 0;
@@ -579,6 +580,12 @@ void StudyActivity::grade(const study::Rating rating) {
   // not otherwise need is a bigger change than the one card it would rescue.
   undo_.valid = more;
   if (!more) {
+    // Recount before showing the deck screen: dueTotal_/newTotal_ are from
+    // session start, and "45 TO GO" over a finished session reads as a broken
+    // counter. With zero waiting and reviewedThisSession_ intact, the screen's
+    // DONE state -- which was unreachable while this recount was missing --
+    // finally renders.
+    buildQueue();
     refreshStats();
     view_ = View::Deck;
   }
@@ -809,19 +816,22 @@ bool StudyActivity::fitsAsDrawn(const int fontId, const char* text, const int ma
     runLength = 0;
     return renderer.getTextWidth(fontId, run) <= maxWidth;
   };
+  // The same isBreakable the wrap uses, decoded the same way. A private
+  // approximation here once treated every 3-byte character as a break, so an
+  // em-dash inside a word split the *measured* runs while the renderer drew
+  // the word whole -- the guard approved exactly the overflow it exists to
+  // stop.
   for (const char* p = text; *p != '\0';) {
-    const unsigned char lead = static_cast<unsigned char>(*p);
-    const int bytes = lead < 0x80 ? 1 : (lead < 0xE0 ? 2 : (lead < 0xF0 ? 3 : 4));
-    const bool breakable = *p == ' ' || bytes >= 3;  // CJK is three bytes in UTF-8
-    if (breakable) {
+    const char* at = p;
+    const uint32_t codepoint = nextCodepoint(p);
+    if (codepoint == 0) break;
+    if (isBreakable(codepoint)) {
       if (!runFits()) return false;
-      p += bytes;
       continue;
     }
+    const int bytes = static_cast<int>(p - at);
     if (runLength + bytes < static_cast<int>(sizeof(run))) {
-      for (int i = 0; i < bytes && *p != '\0'; ++i) run[runLength++] = *p++;
-    } else {
-      ++p;
+      for (int i = 0; i < bytes; ++i) run[runLength++] = at[i];
     }
   }
   return runFits();
@@ -1040,9 +1050,13 @@ void StudyActivity::routeAction(const fui::ActionEvent& event) {
   // sit on this screen past the rollover hour, and what was due then is not
   // what is due now.
   buildQueue();
-  reviewedThisSession_ = 0;
-  againThisSession_ = 0;
-  if (takeNext()) view_ = View::Card;
+  if (takeNext()) {
+    // Reset the summary only when a session truly starts: a tap that finds
+    // nothing to review must not wipe the DONE screen it lands back on.
+    reviewedThisSession_ = 0;
+    againThisSession_ = 0;
+    view_ = View::Card;
+  }
   requestUpdate();
 }
 

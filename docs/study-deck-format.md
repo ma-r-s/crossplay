@@ -208,7 +208,7 @@ preset does, verified by reading the weights back out of `meta.dat`.
     tools_local/study/anki_to_deck.py <collection.anki2> \
         --deck 'Mandarin: Vocabulary' --out /Volumes/SDCARD/study/<deck>
     tools_local/study/make_fonts.py --media <collection.media> \
-        --deck /Volumes/SDCARD/study/<deck> --out /Volumes/SDCARD/study/fonts
+        --deck /Volumes/SDCARD/study/<deck> --out /Volumes/SDCARD/study/<deck>/fonts
 
     # after studying, replay the reviews back into Anki (close Anki first)
     tools_local/study/deck_to_anki.py /Volumes/SDCARD/study/<deck> <collection.anki2>
@@ -260,7 +260,7 @@ it would quietly bias the parameters the device then runs. `revlog.dat` is never
 an append-only record rather than a queue, and it is the only copy of that
 history.
 
-The fonts live under `/study/fonts/` rather than `/.fonts/` deliberately. The
+The fonts live under `/study/<deck>/fonts/` rather than `/.fonts/` deliberately. The
 font registry scans `/.fonts` and `/fonts`, and a family installed there
 appears in **Settings > Reader > Font Family** -- where these would be a trap,
 because they are subset to this deck's 2769 glyphs and would show boxes for
