@@ -126,9 +126,20 @@ void SeaSaltActivity::onMatchStart(const bool goesFirst) {
 bool SeaSaltActivity::takeOpponentState() {
   seasalt::Game incoming;
   if (!link.takeOpponent(incoming)) return false;
+  static const char* kNames[seasalt::kKindCount] = {
+      "CRAB", "BOAT",   "FISH",    "SWIMMER",    "SHARK", "SHELL", "TURTLE",
+      "GULL", "SAILOR", "MERMAID", "LIGHTHOUSE", "SHOAL", "NEST",  "CAPTAIN",
+  };
+  seasalt::describeTheirTurn(game, incoming, seat, kNames, report, sizeof(report));
   game = incoming;
   clearSelection();
+  if (game.currentPhase() == seasalt::Phase::GameOver) countMatchEnd();
   view = viewForStep();
+  // The rules may have nothing for this device even though the transport just
+  // handed it the turn: LAST CHANCE moves the game turn without a send of its
+  // own, and the loser deals a round the winner banked. Hand it straight back
+  // rather than sitting on it. See SeaSaltLink.h.
+  if (seasalt::linkAction(game, seat, linkYourTurn()) == seasalt::LinkAction::Pass) link.play(game);
   requestUpdate();
   return true;
 }
@@ -286,7 +297,7 @@ seasaltui::BoardModel SeaSaltActivity::boardModel() {
   model.primaryLabel = primaryLabel;
   model.primaryEnabled = primaryEnabled;
   model.callPoints = game.cardPoints(seat);
-  model.canCall = myTurn() && game.currentStep() == Step::Play && game.currentPhase() == seasalt::Phase::Playing &&
+  model.canCall = mayAct() && game.currentStep() == Step::Play && game.currentPhase() == seasalt::Phase::Playing &&
                   game.mayEndRound(seat);
   return model;
 }
@@ -311,6 +322,8 @@ seasaltui::RoundModel SeaSaltActivity::roundModel() const {
   model.matchOver = game.currentPhase() == seasalt::Phase::GameOver;
   model.youWonMatch = game.matchWinner() == seat;
   model.theirName = inMatch() ? opponentName() : nullptr;
+  model.waitingOnThem =
+      inMatch() && !model.matchOver && seasalt::linkAction(game, seat, linkYourTurn()) != seasalt::LinkAction::Deal;
   return model;
 }
 
@@ -521,6 +534,22 @@ void SeaSaltActivity::gameRender() {
 
 bool SeaSaltActivity::myTurn() const { return game.turn == static_cast<uint8_t>(seat); }
 
+bool SeaSaltActivity::mayAct() const {
+  if (!myTurn()) return false;
+  if (!inMatch()) return true;
+  // Both must say yes, not merely agree: battleship's subtle version of this
+  // guard let a tap through on the opponent's turn because the two nos agreed.
+  return linkYourTurn();
+}
+
+void SeaSaltActivity::countMatchEnd() {
+  if (statsCounted) return;
+  statsCounted = true;
+  ++played;
+  if (game.matchWinner() == seat) ++won;
+  saveStats();
+}
+
 SeaSaltActivity::View SeaSaltActivity::viewForStep() const {
   using namespace seasalt;
   switch (game.currentPhase()) {
@@ -574,13 +603,17 @@ void SeaSaltActivity::startNewGame() {
 void SeaSaltActivity::afterHumanAction() {
   clearSelection();
   const seasalt::Phase phase = game.currentPhase();
+
+  // Over a link, my span ends when the game turn leaves me or the round does:
+  // that state is the packet. A boat pair keeps the turn, so nothing sends and
+  // I keep playing, which is exactly the rulebook's extra turn.
+  if (inMatch() && (game.turn != static_cast<uint8_t>(seat) || phase == seasalt::Phase::RoundOver ||
+                    phase == seasalt::Phase::GameOver)) {
+    link.play(game);
+  }
+
   if (phase == seasalt::Phase::RoundOver || phase == seasalt::Phase::GameOver) {
-    if (phase == seasalt::Phase::GameOver && !statsCounted) {
-      statsCounted = true;
-      ++played;
-      if (game.matchWinner() == seat) ++won;
-      saveStats();
-    }
+    if (phase == seasalt::Phase::GameOver) countMatchEnd();
     view = View::RoundOver;
   } else if (!myTurn() && !inMatch()) {
     view = View::Board;
@@ -777,7 +810,7 @@ void SeaSaltActivity::routeStartMenu() {
 
 void SeaSaltActivity::handleCardTap(const int tileIndex) {
   using namespace seasalt;
-  if (tab != 0 || !myTurn() || game.currentStep() != Step::Play) return;
+  if (tab != 0 || !mayAct() || game.currentStep() != Step::Play) return;
   // The tile index is a position in card-id order on this page; find the card.
   int skip = page * seasaltui::BoardModel::kMaxBoardTiles + tileIndex;
   uint8_t card = kNoCard;
@@ -860,7 +893,7 @@ void SeaSaltActivity::routeBoard() {
       requestUpdate();
       return;
     case seasaltui::ActionDeck:
-      if (myTurn() && game.currentStep() == Step::Take && game.takeFromDeck()) {
+      if (mayAct() && game.currentStep() == Step::Take && game.takeFromDeck()) {
         report[0] = '\0';
         afterHumanAction();
       }
@@ -868,17 +901,19 @@ void SeaSaltActivity::routeBoard() {
     case seasaltui::ActionPileA:
     case seasaltui::ActionPileB: {
       const int pile = event.action == seasaltui::ActionPileA ? 0 : 1;
-      if (myTurn() && game.currentStep() == Step::Take && game.takeFromPile(pile)) {
+      if (mayAct() && game.currentStep() == Step::Take && game.takeFromPile(pile)) {
         report[0] = '\0';
         afterHumanAction();
       }
       return;
     }
     case seasaltui::ActionCall:
+      if (!mayAct()) return;
       view = View::Call;
       requestUpdate();
       return;
     case seasaltui::ActionPrimary: {
+      if (!mayAct()) return;
       const int selected = (sel[0] != kNoCard) + (sel[1] != kNoCard);
       if (selected == 2 && isPair(sel[0], sel[1])) {
         if (game.playDuo(sel[0], sel[1])) afterHumanAction();
@@ -1001,6 +1036,8 @@ void SeaSaltActivity::routeRoundOver() {
   input.touchY = static_cast<int16_t>(tapY);
   const fui::ActionEvent event = interactions.route(input);
   if (event.action == seasaltui::ActionContinue) {
+    if (inMatch() && seasalt::linkAction(game, seat, linkYourTurn()) != seasalt::LinkAction::Deal)
+      return;  // drawn disabled; THEY DEAL
     // The player after the one who ended the round starts the next one.
     const uint8_t starter = game.ender != seasalt::kNoSeat ? static_cast<uint8_t>(game.ender ^ 1)
                                                            : static_cast<uint8_t>(game.roundStarter ^ 1);
@@ -1015,7 +1052,11 @@ void SeaSaltActivity::routeRoundOver() {
     clearSelection();
     tab = 0;
     page = 0;
-    if (!myTurn() && !inMatch()) opponentPending = true;
+    if (inMatch()) {
+      link.play(game);  // the deal is a state like any other
+    } else if (!myTurn()) {
+      opponentPending = true;
+    }
     view = View::Board;
     requestUpdate();
     return;

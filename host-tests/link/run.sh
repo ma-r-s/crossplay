@@ -46,4 +46,13 @@ c++ -std=c++17 -Wall -Wextra -Werror -O2 $SRC/LinkProtocol.cpp $SRC/LinkSession.
 c++ -std=c++17 -Wall -Wextra -Werror -O2 $SRC/LinkProtocol.cpp $SRC/LinkSession.cpp \
   $SRC/LinkRadio.cpp $SRC/LinkPlay.cpp ../../src/apps_local/battleship/BattleshipCore.cpp \
   test_battleshiplink.cpp -o "$BUILD_DIR/test_battleshiplink"
+
+# Sea Salt stresses the one thing no earlier game did: a game turn that is a
+# SEQUENCE of decisions against a transport that only alternates whole spans,
+# plus a round boundary where the loser deals. See SeaSaltLink.h.
+c++ -std=c++17 -Wall -Wextra -Werror -O2 $SRC/LinkProtocol.cpp $SRC/LinkSession.cpp \
+  $SRC/LinkRadio.cpp $SRC/LinkPlay.cpp ../../src/apps_local/seasalt/SeaSaltCore.cpp \
+  ../../src/apps_local/seasalt/SeaSaltBrain.cpp \
+  test_seasaltlink.cpp -o "$BUILD_DIR/test_seasaltlink"
+"$BUILD_DIR/test_seasaltlink"
 "$BUILD_DIR/test_battleshiplink"

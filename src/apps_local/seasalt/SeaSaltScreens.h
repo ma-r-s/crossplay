@@ -179,6 +179,9 @@ struct RoundModel {
   int theirTotal = 0;
   bool matchOver = false;
   const char* theirName = nullptr;
+  // Over a link, exactly one device deals the next round. The other is told
+  // so rather than given a button that would be refused.
+  bool waitingOnThem = false;
 };
 fui::Rect buildRoundOver(toybox::Screen& screen, const RoundModel& model);
 

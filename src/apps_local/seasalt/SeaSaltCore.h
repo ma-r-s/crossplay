@@ -157,6 +157,12 @@ struct Game {
   // one turn grant two.
   uint8_t extraTurns = 0;
 
+  // Explicit tail padding. The struct is memcmp'd and shipped as raw bytes,
+  // and 138 bytes of fields under 4-byte alignment leaves two bytes no field
+  // owns -- which the link soak caught as three matches whose devices agreed
+  // about every card and still compared unequal.
+  uint8_t spare[2] = {0, 0};
+
   // --- set-up -------------------------------------------------------------
 
   // Shuffles all 58, deals nothing to hands (the rulebook deals no opening
@@ -234,6 +240,11 @@ struct Game {
 
 static_assert(std::is_trivially_copyable<Game>::value, "Game travels as raw bytes");
 static_assert(sizeof(Game) <= 192, "Game must fit one LinkPlay packet");
+// Exact, because every byte of this struct is compared, saved and transmitted.
+// A layout with padding in it has bytes no field owns, and those are whatever
+// the stack left there. Change the fields and this fails, which is the
+// reminder to bump linkplay::GameId and the save version.
+static_assert(sizeof(Game) == 140, "Game must have no padding: see the comment above");
 
 // What one seat is allowed to know: the game with every hidden place collapsed
 // to Unknown. Cards keep their identity wherever they are public, so a pile is

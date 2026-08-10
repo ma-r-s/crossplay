@@ -159,13 +159,13 @@ void drawHintBox(toybox::Screen& screen, const fui::Rect& box, const char* text)
   const fui::Paint ink = fui::Paint::solid(fui::Color::Black);
   for (int16_t x = box.x; x < box.x + box.width; x += 10) {
     const int16_t w = static_cast<int16_t>(x + 6 <= box.x + box.width ? 6 : box.x + box.width - x);
-    target.fill(fui::makeRect(x, box.y, w, 1), ink);
-    target.fill(fui::makeRect(x, box.y + box.height - 1, w, 1), ink);
+    target.fill(fui::makeRect(x, box.y, w, 2), ink);
+    target.fill(fui::makeRect(x, box.y + box.height - 2, w, 2), ink);
   }
   for (int16_t y = box.y; y < box.y + box.height; y += 10) {
     const int16_t h = static_cast<int16_t>(y + 6 <= box.y + box.height ? 6 : box.y + box.height - y);
-    target.fill(fui::makeRect(box.x, y, 1, h), ink);
-    target.fill(fui::makeRect(box.x + box.width - 1, y, 1, h), ink);
+    target.fill(fui::makeRect(box.x, y, 2, h), ink);
+    target.fill(fui::makeRect(box.x + box.width - 2, y, 2, h), ink);
   }
 
   // Up to two centred lines, split on the sentence break when there is one.
@@ -301,8 +301,7 @@ void drawFacts(toybox::Screen& screen, const fui::Rect& strip, const BoardModel&
   target.fill(fui::makeRect(x, strip.y, toybox::kHairline, strip.height), fui::Paint::solid(fui::Color::Black));
   char value[8];
   std::snprintf(value, sizeof(value), "%d", model.bestColourCount);
-  target.text(fui::makeRect(x + 8, strip.y + (strip.height - 24) / 2, 20, 24), value,
-              styled(toybox::kUiFont, fui::TextAlign::Left));
+  target.text(fui::makeRect(x + 8, strip.y, 28, strip.height), value, styled(toybox::kUiFont, fui::TextAlign::Left));
   blitIcon(screen, fui::makeRect(x + 32, strip.y + (strip.height - 20) / 2, 20, 20), *kColourMarks[model.bestColour]);
   target.text(fui::makeRect(x + 58, strip.y + strip.height / 2 - 8, cellW - 62, 16), "BEST", capStyle);
 }
@@ -402,26 +401,32 @@ fui::Rect buildBoard(toybox::Screen& screen, const BoardModel& model) {
   // The pills. CALL IT sits beside the primary like the mockup: wide primary,
   // narrow call.
   const fui::Rect pillRow = screen.takeBottom(toybox::kPillHeight);
+  screen.takeBottom(8);  // the gap the welded hint box was missing
   {
-    const int16_t callW = model.canCall ? 150 : 0;
+    // The call pill never disappears: a control that cannot act dims. Below
+    // seven points it is the running score, which you want anyway.
+    const int16_t callW = 150;
     fui::ButtonProps primary;
     primary.label = model.primaryLabel;
     primary.action = model.primaryEnabled ? ActionPrimary : fui::NO_ACTION;
     if (!model.primaryEnabled) primary.styles = toybox::disabledButtonStyles();
     primary.borderEdges = fui::EdgesNone;
-    screen.button(primary,
-                  fui::makeRect(pillRow.x, pillRow.y,
-                                static_cast<int16_t>(pillRow.width - callW - (callW ? kCardGap : 0)), pillRow.height));
+    screen.button(primary, fui::makeRect(pillRow.x, pillRow.y, static_cast<int16_t>(pillRow.width - callW - kCardGap),
+                                         pillRow.height));
+    char call[20];
+    fui::ButtonProps callPill;
     if (model.canCall) {
-      char call[20];
       std::snprintf(call, sizeof(call), "%d - CALL IT", model.callPoints);
-      fui::ButtonProps callPill;
-      callPill.label = call;
       callPill.action = ActionCall;
-      callPill.borderEdges = fui::EdgesNone;
-      screen.button(callPill, fui::makeRect(static_cast<int16_t>(pillRow.x + pillRow.width - callW), pillRow.y, callW,
-                                            pillRow.height));
+    } else {
+      std::snprintf(call, sizeof(call), "%d PTS", model.callPoints);
+      callPill.action = fui::NO_ACTION;
+      callPill.styles = toybox::disabledButtonStyles();
     }
+    callPill.label = call;
+    callPill.borderEdges = fui::EdgesNone;
+    screen.button(callPill, fui::makeRect(static_cast<int16_t>(pillRow.x + pillRow.width - callW), pillRow.y, callW,
+                                          pillRow.height));
   }
   const fui::Rect hint = screen.takeBottom(54, toybox::kGutter / 2);
   drawHintBox(screen, hint, model.hint);
@@ -451,8 +456,9 @@ fui::Rect buildKeepChoice(toybox::Screen& screen, const KeepModel& model) {
 
   const fui::Rect body = screen.body();
   const int16_t cardW = static_cast<int16_t>((body.width - toybox::kGutter) / 2);
-  const int16_t cardH = 190;
-  const int16_t top = static_cast<int16_t>(body.y + (body.height - cardH) / 2);
+  const int16_t cardH = 160;
+  // Top-biased: equal slack above and below is unresolved centring.
+  const int16_t top = static_cast<int16_t>(body.y + (body.height - cardH) / 3);
   const fui::Rect left = fui::makeRect(body.x, top, cardW, cardH);
   const fui::Rect right = fui::makeRect(static_cast<int16_t>(body.x + cardW + toybox::kGutter), top, cardW, cardH);
   drawCardTile(screen, left, model.left);
@@ -580,8 +586,14 @@ fui::Rect buildRoundOver(toybox::Screen& screen, const RoundModel& model) {
   target.text(totals, running, styled(toybox::kDisplayFont, fui::TextAlign::Center));
 
   fui::ButtonProps go;
-  go.label = model.matchOver ? "PLAY AGAIN" : "NEXT ROUND";
-  go.action = model.matchOver ? ActionPlayAgain : ActionContinue;
+  if (model.waitingOnThem) {
+    go.label = "THEY DEAL";
+    go.action = fui::NO_ACTION;
+    go.styles = toybox::disabledButtonStyles();
+  } else {
+    go.label = model.matchOver ? "PLAY AGAIN" : "NEXT ROUND";
+    go.action = model.matchOver ? ActionPlayAgain : ActionContinue;
+  }
   go.borderEdges = fui::EdgesNone;
   screen.button(go, linkui::withOpponentFace(screen, screen.takeBottom(toybox::kPillHeight), model.theirName));
 

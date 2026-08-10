@@ -7,6 +7,7 @@
 #include "../ui/ToyboxScreen.h"
 #include "SeaSaltBrain.h"
 #include "SeaSaltCore.h"
+#include "SeaSaltLink.h"
 #include "SeaSaltScreens.h"
 
 // Sea Salt & Paper. Touch only, in the fork's usual three layers: SeaSaltCore
@@ -96,6 +97,11 @@ class SeaSaltActivity final : public linkplay::LinkActivity {
   void playOpponentTurn();
   void afterHumanAction();  // shared exit: re-derive view, queue the brain
   bool myTurn() const;
+  // Whether this device may commit a move right now. In a match that is not
+  // the same question as myTurn(): the transport turn must agree. Battleship
+  // taught that checking they MATCH is not enough -- both must say yes.
+  bool mayAct() const;
+  void countMatchEnd();
 
   uint32_t nextSeed();
   bool loadGame();
