@@ -15,37 +15,15 @@ namespace {
 
 namespace c4 = connectfour;
 
-// --- TEMP ART PASS ----------------------------------------------------------
-// Runtime layout switches so one build renders every candidate for Mario to
-// pick from (ART_MENU / ART_HOWTO / ART_BOARD = 1 or 2, 0 = shipping layout).
-// The losing layouts and this switch are deleted together in the commit that
-// keeps the winner.
-int artVariant(const char* name) {
-#if defined(SIMULATOR)
-  const char* value = std::getenv(name);
-  return value == nullptr ? 0 : std::atoi(value);
-#else
-  (void)name;
-  return 0;
-#endif
-}
-int menuVariant() {
-  static const int variant = artVariant("ART_MENU");
-  return variant;
-}
-int howToVariant() {
-  static const int variant = artVariant("ART_HOWTO");
-  return variant;
-}
-int boardVariant() {
-  static const int variant = artVariant("ART_BOARD");
-  return variant;
-}
-
-void artChrome(toybox::Screen& screen, const char* title, const char* rightLabel = nullptr) {
+// The header band with the offset rule under it, as jaipur and the dungeon
+// wear it. A local copy rather than a shared helper, for the reason
+// LinkScreens gives: a copy is cheaper than a header dependency between apps.
+void toyboxChrome(toybox::Screen& screen, const char* title, const char* rightLabel = nullptr) {
   fui::HeaderProps header;
   header.title = title;
   header.rightLabel = rightLabel;
+  // rightLabel is drawn with subtitleText, and the theme's default is black on
+  // the black band. Jaipur paid for this discovery; see its toyboxChrome.
   header.subtitleText = fui::TextStyle{};
   header.subtitleText.font = toybox::kUiFont;
   header.subtitleText.color = fui::Color::White;
@@ -58,19 +36,12 @@ void artChrome(toybox::Screen& screen, const char* title, const char* rightLabel
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 }
 
-// TEMP ART PASS: the record and finished board the menu candidates draw. The
-// real thing needs the save-file decision; these stand in so the layouts can
-// be judged on a device that has been played. Column stacks, bottom first;
-// light's diagonal from column 1 up to column 4 is the win.
-constexpr int kDemoPlayed = 18;
-constexpr int kDemoWon = 11;
-const char* const kDemoColumns[c4::kColumns] = {"D", "DL", "LDL", "DLDL", "LDDLL", "DL", "DL"};
-constexpr int kDemoLine[4][2] = {{1, 1}, {2, 2}, {3, 3}, {4, 4}};  // {column, row from bottom}
-
-// The slab at an arbitrary cell size, for menu ornaments: frame, dither,
-// holes, discs, and the winning four marked the way the result screen marks
-// them.
-void miniSlab(toybox::Screen& screen, const int16_t left, const int16_t top, const int16_t cell) {
+// The slab at an arbitrary cell size, drawn from the saved final board, for
+// the menu's ornament: frame, dither, holes, discs, and the winning four
+// marked the way the result screen marks them. `cells` is column-major
+// bottom-up; `line` holds four flat indices or -1s.
+void miniSlab(toybox::Screen& screen, const int16_t left, const int16_t top, const int16_t cell, const uint8_t* cells,
+              const int* line) {
   const int16_t width = static_cast<int16_t>(cell * c4::kColumns);
   const int16_t height = static_cast<int16_t>(cell * c4::kRows);
   screen.target().stroke(
@@ -85,22 +56,25 @@ void miniSlab(toybox::Screen& screen, const int16_t left, const int16_t top, con
       const int16_t cx = static_cast<int16_t>(left + column * cell + cell / 2);
       const int16_t cy = static_cast<int16_t>(top + (c4::kRows - 1 - row) * cell + cell / 2);
       toybox::disc(screen, cx, cy, radius, fui::Color::White);
-      const char* stack = kDemoColumns[column];
-      if (row >= static_cast<int>(std::strlen(stack))) continue;
+      const uint8_t piece = cells[column * c4::kRows + row];
+      if (piece == c4::kEmpty) continue;
       toybox::ring(screen, cx, cy, radius, 3, fui::Color::Black,
-                   stack[row] == 'D' ? fui::Color::Black : fui::Color::White);
+                   piece == c4::kDark ? fui::Color::Black : fui::Color::White);
     }
   }
-  // The winning four, marked with the result screen's own stroke.
-  constexpr int16_t kWeight = 5;
-  for (int i = 0; i < 4; ++i) {
-    const int column = kDemoLine[i][0];
-    const int row = kDemoLine[i][1];
+  if (line == nullptr || line[0] < 0) return;
+  // The mark scales with the cell. At full size the result screen's mark
+  // covers about forty percent of a disc; a fixed-size mark at ornament scale
+  // swallowed the whole disc, and a marked light disc read as a dark one.
+  const int16_t weight = static_cast<int16_t>(cell / 10 < 2 ? 2 : cell / 10);
+  for (int i = 0; i < c4::kLine; ++i) {
+    const int column = line[i] / c4::kRows;
+    const int row = line[i] % c4::kRows;
     const int16_t cx = static_cast<int16_t>(left + column * cell + cell / 2);
     const int16_t cy = static_cast<int16_t>(top + (c4::kRows - 1 - row) * cell + cell / 2);
-    screen.target().fill(fui::makeRect(static_cast<int16_t>(cx - kWeight * 2), static_cast<int16_t>(cy - kWeight * 2),
-                                       kWeight * 4, kWeight * 4),
-                         fui::Paint::solid(fui::Color::Black), kWeight);
+    screen.target().fill(fui::makeRect(static_cast<int16_t>(cx - weight * 2), static_cast<int16_t>(cy - weight * 2),
+                                       static_cast<int16_t>(weight * 4), static_cast<int16_t>(weight * 4)),
+                         fui::Paint::solid(fui::Color::Black), weight);
   }
 }
 
@@ -204,16 +178,14 @@ int columnAt(const fui::DeviceContext& device, const int x, const int y) {
 
 int howToPages() { return 3; }
 
-namespace {
+void buildMenu(toybox::Screen& screen, const MenuModel& model) {
+  toyboxChrome(screen, "CONNECT FOUR");
 
-// TEMP ART PASS, menu candidate 1: the documented band order. Record, rule,
-// the last game's final slab with its winning four as the ornament, doors
-// anchored bottom.
-void buildMenuBands(toybox::Screen& screen, const MenuModel& model) {
-  artChrome(screen, "CONNECT FOUR");
-
+  // The front door in the documented band order: record, rule, the last
+  // game's final slab with its winning four as the ornament, doors anchored
+  // bottom.
   char record[48];
-  std::snprintf(record, sizeof(record), "%d PLAYED   %d WON", kDemoPlayed, kDemoWon);
+  std::snprintf(record, sizeof(record), "%d PLAYED   %d WON", model.wins + model.losses + model.draws, model.wins);
   const fui::Rect line = screen.takeTop(26);
   fui::TextStyle small;
   small.font = toybox::kTileFont;
@@ -231,6 +203,8 @@ void buildMenuBands(toybox::Screen& screen, const MenuModel& model) {
   rows[static_cast<int>(MenuRow::HowTo)].label = "HOW TO PLAY";
   rows[static_cast<int>(MenuRow::HowTo)].actionValue = static_cast<int16_t>(MenuRow::HowTo);
 
+  // Row 0 reads selected by default, jaipur's own trick: the most likely tap
+  // is also the loudest thing below the rule.
   const int selected = model.selected < 0 ? 0 : model.selected;
   fui::ListProps list;
   list.items = rows;
@@ -247,6 +221,11 @@ void buildMenuBands(toybox::Screen& screen, const MenuModel& model) {
   toybox::iconAtRowRight(screen, listBand, static_cast<int>(MenuRow::PlayNearby), 0, linkui::nearbyMark(),
                          selected == static_cast<int>(MenuRow::PlayNearby));
 
+  if (!model.hasHistory || model.lastCells == nullptr) return;
+
+  // The last game, held where the eye rests: the final slab with the four
+  // that ended it still marked. Ornament made of the app's own material and
+  // the app's own data, the only kind this fork allows.
   constexpr int16_t kMini = 30;
   const int16_t slabW = static_cast<int16_t>(kMini * c4::kColumns);
   const int16_t slabH = static_cast<int16_t>(kMini * c4::kRows);
@@ -255,107 +234,16 @@ void buildMenuBands(toybox::Screen& screen, const MenuModel& model) {
   const int16_t blockH = static_cast<int16_t>(slabH + 14 + 24);
   const int16_t top = static_cast<int16_t>(areaTop + (room > blockH ? (room - blockH) / 2 : 12));
   const fui::DeviceContext device = screen.device();
-  miniSlab(screen, static_cast<int16_t>((device.width - slabW) / 2), top, kMini);
+  miniSlab(screen, static_cast<int16_t>((device.width - slabW) / 2), top, kMini, model.lastCells, model.lastLine);
+
+  const char* caption = "LAST GAME: A DRAW";
+  if (model.lastOutcome == 0) caption = "LAST GAME: YOU WON";
+  if (model.lastOutcome == 1) caption = "LAST GAME: THEY WON";
   fui::TextStyle cap;
   cap.font = toybox::kTileFont;
   cap.align = fui::TextAlign::Center;
-  screen.target().text(fui::makeRect(content.x, static_cast<int16_t>(top + slabH + 14), content.width, 24),
-                       "LAST GAME: YOU WON", cap);
-}
-
-// TEMP ART PASS, menu candidate 2: the dungeon's shape. The slab is the
-// centrepiece, one solid PLAY, the lesser doors sharing a row.
-void buildMenuScoreboard(toybox::Screen& screen, const MenuModel& model) {
-  artChrome(screen, "CONNECT FOUR");
-
-  fui::ButtonProps play;
-  play.label = "PLAY";
-  play.action = ActionMenuRow;
-  play.value = static_cast<int16_t>(MenuRow::Play);
-  play.text = toybox::buttonText(screen.theme());
-  play.radius = toybox::kPillRadius;
-  screen.button(play, screen.takeBottom(toybox::kPillHeight, toybox::kGutter));
-
-  const fui::Rect lesser = screen.takeBottom(toybox::kRowHeight, toybox::kGutter);
-  const int16_t half = static_cast<int16_t>((lesser.width - toybox::kGutter) / 2);
-  fui::ButtonProps nearby;
-  nearby.label = "NEARBY";
-  nearby.action = ActionMenuRow;
-  nearby.value = static_cast<int16_t>(MenuRow::PlayNearby);
-  nearby.styles = toybox::rowStyles();
-  screen.button(nearby, fui::makeRect(lesser.x, lesser.y, half, lesser.height));
-  fui::ButtonProps how;
-  how.label = "HOW TO PLAY";
-  how.action = ActionMenuRow;
-  how.value = static_cast<int16_t>(MenuRow::HowTo);
-  how.styles = toybox::rowStyles();
-  screen.button(how,
-                fui::makeRect(static_cast<int16_t>(lesser.x + half + toybox::kGutter), lesser.y, half, lesser.height));
-
-  const fui::Rect area = screen.body();
-  constexpr int16_t kMini = 56;
-  const int16_t slabW = static_cast<int16_t>(kMini * c4::kColumns);
-  const int16_t slabH = static_cast<int16_t>(kMini * c4::kRows);
-  const int16_t blockH = static_cast<int16_t>(24 + 10 + slabH + 16 + 24);
-  const int16_t blockTop = static_cast<int16_t>(area.y + (area.height > blockH ? (area.height - blockH) / 2 : 0));
-  fui::TextStyle label;
-  label.font = toybox::kTileFont;
-  label.align = fui::TextAlign::Left;
-  screen.target().text(fui::makeRect(area.x, blockTop, area.width, 24), "LAST GAME", label);
-  const fui::DeviceContext device = screen.device();
-  miniSlab(screen, static_cast<int16_t>((device.width - slabW) / 2), static_cast<int16_t>(blockTop + 34), kMini);
-  char tally[48];
-  std::snprintf(tally, sizeof(tally), "YOU WON   -   %d PLAYED   %d WON", kDemoPlayed, kDemoWon);
-  fui::TextStyle rec;
-  rec.font = toybox::kTileFont;
-  rec.align = fui::TextAlign::Center;
-  screen.target().text(fui::makeRect(area.x, static_cast<int16_t>(blockTop + 34 + slabH + 16), area.width, 24), tally,
-                       rec);
-}
-
-}  // namespace
-
-void buildMenu(toybox::Screen& screen, const MenuModel& model) {
-  // TEMP ART PASS: candidate layouts, picked by env var, deleted with the
-  // losers once Mario chooses.
-  if (menuVariant() == 1) {
-    buildMenuBands(screen, model);
-    return;
-  }
-  if (menuVariant() == 2) {
-    buildMenuScoreboard(screen, model);
-    return;
-  }
-
-  fui::HeaderProps header;
-  header.title = "CONNECT FOUR";
-  header.borderEdges = fui::EdgesNone;
-  screen.header(header);
-  screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
-
-  fui::ListItem rows[static_cast<int>(MenuRow::Count)] = {};
-  rows[static_cast<int>(MenuRow::Play)].label = "PLAY";
-  rows[static_cast<int>(MenuRow::Play)].actionValue = static_cast<int16_t>(MenuRow::Play);
-  rows[static_cast<int>(MenuRow::PlayNearby)].label = "PLAY NEARBY";
-  rows[static_cast<int>(MenuRow::PlayNearby)].subtitle = model.nearbyName;
-  rows[static_cast<int>(MenuRow::PlayNearby)].actionValue = static_cast<int16_t>(MenuRow::PlayNearby);
-  rows[static_cast<int>(MenuRow::HowTo)].label = "HOW TO PLAY";
-  rows[static_cast<int>(MenuRow::HowTo)].actionValue = static_cast<int16_t>(MenuRow::HowTo);
-
-  fui::ListProps list;
-  list.items = rows;
-  list.count = static_cast<uint16_t>(MenuRow::Count);
-  list.selectedIndex = static_cast<int16_t>(model.selected);
-  list.action = ActionMenuRow;
-  const fui::Rect band = screen.body();
-  screen.list(list);
-
-  // topIndex is zero: this menu is three rows and never scrolls, so the row is
-  // always where its index says. Passing it explicitly is the point -- the
-  // parameter is required precisely so a list that DOES scroll cannot silently
-  // paint its icons against the wrong rows.
-  toybox::iconAtRowRight(screen, band, static_cast<int>(MenuRow::PlayNearby), 0, linkui::nearbyMark(),
-                         model.selected == static_cast<int>(MenuRow::PlayNearby));
+  screen.target().text(fui::makeRect(content.x, static_cast<int16_t>(top + slabH + 14), content.width, 24), caption,
+                       cap);
 }
 
 namespace {
@@ -364,88 +252,17 @@ namespace {
 // places the same picture. `top` is the fragment's own top edge.
 void howToFragment(toybox::Screen& screen, const int16_t top, const int page);
 
-// TEMP ART PASS, how-to candidate 2: the tutorial shape jaipur ships.
-void buildHowToGuide(toybox::Screen& screen, const HowToModel& model) {
-  const int pages = howToPages();
-  const int page = model.page < 0 ? 0 : (model.page >= pages ? pages - 1 : model.page);
-
-  char progress[16];
-  std::snprintf(progress, sizeof(progress), "%d OF %d", page + 1, pages);
-  artChrome(screen, "HOW TO PLAY", progress);
-  const fui::Rect body = screen.body();
-  screen.frame().hit(body, ActionHowToNext, 0);
-
-  constexpr int16_t kDot = 14;
-  constexpr int16_t kDotGap = 10;
-  const int16_t dotRow = static_cast<int16_t>(pages * kDot + (pages - 1) * kDotGap);
-  const int16_t dotX = static_cast<int16_t>(body.x + (body.width - dotRow) / 2);
-  const int16_t dotY = static_cast<int16_t>(body.bottom() - kDot);
-  for (int i = 0; i < pages; ++i) {
-    const fui::Rect dotAt = fui::makeRect(static_cast<int16_t>(dotX + i * (kDot + kDotGap)), dotY, kDot, kDot);
-    if (i == page) {
-      screen.target().fill(dotAt, fui::Paint::solid(fui::Color::Black), 7);
-    } else {
-      screen.target().stroke(dotAt, fui::Paint::dither(fui::Color::DarkGray), toybox::kHairline, 7);
-    }
-  }
-  fui::TextStyle tapLine;
-  tapLine.font = toybox::kTileFont;
-  tapLine.align = fui::TextAlign::Center;
-  screen.target().text(fui::makeRect(body.x, static_cast<int16_t>(dotY - 34), body.width, 22),
-                       page + 1 == pages ? "TAP TO FINISH" : "TAP TO CONTINUE", tapLine);
-
-  static const char* const kTitles[] = {"THE DROP", "FOUR IN A LINE", "FULL COLUMNS"};
-  fui::TextStyle title;
-  title.font = toybox::kDisplayFont;
-  title.align = fui::TextAlign::Center;
-  screen.target().text(fui::makeRect(body.x, body.y, body.width, 46), kTitles[page], title);
-
-  static const char* const kLines[] = {
-      "TAP A COLUMN. YOUR DISC FALLS TO THE LOWEST FREE PLACE IN IT.",
-      "FOUR IN A LINE WINS. ACROSS, UP, OR ON EITHER DIAGONAL LIKE THIS ONE.",
-      "A FULL COLUMN STOPS TAKING DISCS, AND ITS SLOT AT THE TOP GOES GREY.",
-  };
-  fui::TextStyle cap;
-  cap.font = toybox::kUiFont;
-  cap.align = fui::TextAlign::Center;
-  cap.maxLines = 3;
-  const int16_t capTop = static_cast<int16_t>(body.bottom() - 56 - 154);
-  screen.target().text(fui::makeRect(body.x, capTop, body.width, 150), kLines[page], cap);
-
-  // The fragment centred in the band the caption leaves, with headroom for
-  // page 0's lip disc above the frame.
-  constexpr int16_t kFragment = kCell * 4;
-  const int16_t bandTop = static_cast<int16_t>(body.y + 92 + 46);
-  int16_t top = static_cast<int16_t>(bandTop + (capTop - bandTop - kFragment) / 2);
-  if (top < bandTop) top = bandTop;
-  howToFragment(screen, top, page);
-}
-
 }  // namespace
 
 void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
   const int page = model.page < 0 ? 0 : (model.page >= howToPages() ? howToPages() - 1 : model.page);
 
-  if (howToVariant() == 2) {
-    buildHowToGuide(screen, model);
-    return;
-  }
-
-  // TEMP ART PASS, how-to candidate 1: the page counter moves into the black
-  // band and the fragment takes the room the counter and the fixed offsets
-  // were holding.
-  const bool banded = howToVariant() == 1;
+  // The page counter lives in the black band, jaipur's way, so it costs no
+  // body space; the fragment centres in the room that frees, with headroom
+  // for page 0's lip disc above the frame.
   char progress[16];
-  if (banded) {
-    std::snprintf(progress, sizeof(progress), "%d OF %d", page + 1, howToPages());
-    artChrome(screen, "HOW TO PLAY", progress);
-  } else {
-    fui::HeaderProps header;
-    header.title = "HOW TO PLAY";
-    header.borderEdges = fui::EdgesNone;
-    screen.header(header);
-    screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
-  }
+  std::snprintf(progress, sizeof(progress), "%d OF %d", page + 1, howToPages());
+  toyboxChrome(screen, "HOW TO PLAY", progress);
 
   fui::ButtonProps next;
   next.label = page + 1 < howToPages() ? "NEXT" : "GOT IT";
@@ -453,14 +270,6 @@ void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
   screen.button(next, screen.takeBottom(toybox::kPillHeight, toybox::kGutter));
 
   const fui::Rect area = screen.body();
-  if (!banded) {
-    char counterText[8];
-    std::snprintf(counterText, sizeof(counterText), "%d/%d", page + 1, howToPages());
-    fui::TextStyle counter;
-    counter.font = toybox::kSmallFont;
-    counter.align = fui::TextAlign::Right;
-    screen.target().text(fui::makeRect(area.x, area.y, area.width, 20), counterText, counter);
-  }
 
   static const char* const kLines[] = {
       "TAP A COLUMN. YOUR DISC FALLS TO THE LOWEST FREE PLACE IN IT.",
@@ -471,20 +280,13 @@ void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
   body.font = toybox::kBodyFont;
   body.align = fui::TextAlign::Center;
   body.maxLines = 3;
-  screen.target().text(fui::makeRect(area.x, static_cast<int16_t>(area.y + (banded ? 0 : 24)), area.width, 120),
-                       kLines[page], body);
+  screen.target().text(fui::makeRect(area.x, area.y, area.width, 120), kLines[page], body);
 
-  if (banded) {
-    // Centred in what the caption leaves, with headroom for the lip disc.
-    constexpr int16_t kFragment = kCell * 4;
-    const int16_t bandTop = static_cast<int16_t>(area.y + 150 + 46);
-    int16_t top = static_cast<int16_t>(bandTop + (area.bottom() - bandTop - kFragment) / 2);
-    if (top < bandTop) top = bandTop;
-    howToFragment(screen, top, page);
-    return;
-  }
-
-  howToFragment(screen, static_cast<int16_t>(area.y + 200), page);
+  constexpr int16_t kFragment = kCell * 4;
+  const int16_t bandTop = static_cast<int16_t>(area.y + 150 + 46);
+  int16_t top = static_cast<int16_t>(bandTop + (area.bottom() - bandTop - kFragment) / 2);
+  if (top < bandTop) top = bandTop;
+  howToFragment(screen, top, page);
 }
 
 namespace {
@@ -754,69 +556,28 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
       }
     }
 
-    if (boardVariant() == 2) {
-      // TEMP ART PASS, board candidate 2: the count as a number worth reading
-      // across a table -- one disc at the board's own size naming the side, the
-      // remaining count in the display cut beside it. The 42-dot texture is
-      // gone entirely.
-      const int16_t rowH = 64;
-      const int16_t capTop =
-          static_cast<int16_t>(device.height - toybox::kMargin - toybox::kPillHeight - toybox::kGutter * 2);
-      const int16_t bandTop = static_cast<int16_t>(capTop - rowH * 2);
-      fui::TextStyle big;
-      big.font = toybox::kDisplayFont;
-      big.align = fui::TextAlign::Left;
-      for (int strip = 0; strip < 2; ++strip) {
-        const uint8_t side = strip == 0 ? c4::other(model.seat) : model.seat;
-        const int held = kDiscsPerSide - played[side == c4::kLight ? 0 : 1];
-        const int16_t cy = static_cast<int16_t>(bandTop + strip * rowH + rowH / 2);
-        toybox::ring(screen, static_cast<int16_t>(left + kDiscRadius), cy, kDiscRadius, kRingWeight, fui::Color::Black,
+    // Each tray row led by its count, so the tray reads as a number with a
+    // picture rather than as texture. The dots stay as the honest
+    // disc-per-disc picture of what is left in the box.
+    constexpr int16_t kPitch = 18;
+    constexpr int16_t kSmall = 8;
+    const int16_t rowPitch = static_cast<int16_t>(kSmall * 2 + toybox::kGutter);
+    const int16_t bandTop = static_cast<int16_t>(device.height - toybox::kMargin - toybox::kPillHeight -
+                                                 toybox::kGutter * 2 - rowPitch * 2);
+    for (int strip = 0; strip < 2; ++strip) {
+      // Strip 0 is theirs, nearest the board; strip 1 is yours, nearest you.
+      const uint8_t side = strip == 0 ? c4::other(model.seat) : model.seat;
+      const int held = kDiscsPerSide - played[side == c4::kLight ? 0 : 1];
+      const int16_t cy = static_cast<int16_t>(bandTop + strip * rowPitch + kSmall);
+      char lead[8];
+      std::snprintf(lead, sizeof(lead), "%d", held);
+      fui::TextStyle label;
+      label.font = toybox::kTileFont;
+      label.align = fui::TextAlign::Left;
+      screen.target().text(fui::makeRect(left, static_cast<int16_t>(cy - 11), 40, 22), lead, label);
+      for (int i = 0; i < held; ++i) {
+        toybox::ring(screen, static_cast<int16_t>(left + 44 + kSmall + i * kPitch), cy, kSmall, 2, fui::Color::Black,
                      side == c4::kDark ? fui::Color::Black : fui::Color::White);
-        char count[8];
-        std::snprintf(count, sizeof(count), "%d", held);
-        screen.target().text(fui::makeRect(static_cast<int16_t>(left + kDiscRadius * 2 + toybox::kGutter * 2),
-                                           static_cast<int16_t>(cy - 24), 120, 48),
-                             count, big);
-      }
-    } else if (boardVariant() == 1) {
-      // TEMP ART PASS, board candidate 1: the rows keep their disc-per-disc
-      // honesty but each is led by its count, so the tray reads as a number
-      // with a picture rather than as texture.
-      constexpr int16_t kPitch = 18;
-      constexpr int16_t kSmall = 8;
-      const int16_t rowPitch = static_cast<int16_t>(kSmall * 2 + toybox::kGutter);
-      const int16_t bandTop = static_cast<int16_t>(device.height - toybox::kMargin - toybox::kPillHeight -
-                                                   toybox::kGutter * 2 - rowPitch * 2);
-      for (int strip = 0; strip < 2; ++strip) {
-        const uint8_t side = strip == 0 ? c4::other(model.seat) : model.seat;
-        const int held = kDiscsPerSide - played[side == c4::kLight ? 0 : 1];
-        const int16_t cy = static_cast<int16_t>(bandTop + strip * rowPitch + kSmall);
-        char lead[8];
-        std::snprintf(lead, sizeof(lead), "%d", held);
-        fui::TextStyle label;
-        label.font = toybox::kTileFont;
-        label.align = fui::TextAlign::Left;
-        screen.target().text(fui::makeRect(left, static_cast<int16_t>(cy - 11), 40, 22), lead, label);
-        for (int i = 0; i < held; ++i) {
-          toybox::ring(screen, static_cast<int16_t>(left + 44 + kSmall + i * kPitch), cy, kSmall, 2, fui::Color::Black,
-                       side == c4::kDark ? fui::Color::Black : fui::Color::White);
-        }
-      }
-    } else {
-      constexpr int16_t kPitch = 20;
-      constexpr int16_t kSmall = 8;
-      const int16_t rowPitch = static_cast<int16_t>(kSmall * 2 + toybox::kGutter);
-      const int16_t bandTop = static_cast<int16_t>(device.height - toybox::kMargin - toybox::kPillHeight -
-                                                   toybox::kGutter * 2 - rowPitch * 2);
-      for (int strip = 0; strip < 2; ++strip) {
-        // Strip 0 is theirs, nearest the board; strip 1 is yours, nearest you.
-        const uint8_t side = strip == 0 ? c4::other(model.seat) : model.seat;
-        const int left_ = kDiscsPerSide - played[side == c4::kLight ? 0 : 1];
-        const int16_t cy = static_cast<int16_t>(bandTop + strip * rowPitch + kSmall);
-        for (int i = 0; i < left_; ++i) {
-          toybox::ring(screen, static_cast<int16_t>(left + kSmall + i * kPitch), cy, kSmall, 2, fui::Color::Black,
-                       side == c4::kDark ? fui::Color::Black : fui::Color::White);
-        }
       }
     }
   }

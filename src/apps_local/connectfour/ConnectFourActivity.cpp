@@ -1,5 +1,6 @@
 #include "ConnectFourActivity.h"
 
+#include <HalStorage.h>
 #include <Logging.h>
 #include <Memory.h>
 
@@ -24,7 +25,97 @@ void ConnectFourActivity::onEnter() {
   toybox::ensureFonts(renderer);
   screen = c4::Screen::Menu;
   menuSelected = -1;
+  loadHistory();
   requestUpdate();
+}
+
+// Beside the reader's own state and the player's name. A fork-local fact in a
+// fork-local file, the pattern knucklebones.sav set.
+#if defined(ARDUINO_ARCH_ESP32) || defined(SIMULATOR)
+constexpr char kHistoryPath[] = "/.crosspoint/connectfour.sav";
+#endif
+
+// wins losses draws outcome, the four winning cells as flat indices (-1s on a
+// draw), then the 42 cells column-major bottom-up -- colours normalised so
+// light is always the seat this device played.
+constexpr int kHistoryValues = 4 + c4::kLine + c4::kCells;
+
+void ConnectFourActivity::loadHistory() {
+#if defined(ARDUINO_ARCH_ESP32) || defined(SIMULATOR)
+  if (!Storage.exists(kHistoryPath)) return;
+  char buffer[256] = {};
+  if (Storage.readFileToBuffer(kHistoryPath, buffer, sizeof(buffer)) == 0) return;
+
+  // Parsed into locals and committed only if the whole line is good, so a
+  // truncated file leaves an empty menu rather than half a board. Losing this
+  // costs an ornament, so it fails quietly.
+  int values[kHistoryValues] = {};
+  char* cursor = buffer;
+  for (int i = 0; i < kHistoryValues; ++i) {
+    char* next = nullptr;
+    const long value = strtol(cursor, &next, 10);
+    if (next == cursor) return;
+    values[i] = static_cast<int>(value);
+    cursor = next;
+  }
+
+  int at = 0;
+  wins = values[at++];
+  losses = values[at++];
+  draws = values[at++];
+  lastOutcome = values[at++];
+  for (int i = 0; i < c4::kLine; ++i) lastLine[i] = values[at++];
+  for (int i = 0; i < c4::kCells; ++i) lastCells[i] = static_cast<uint8_t>(values[at++]);
+  hasHistory = true;
+#endif
+}
+
+void ConnectFourActivity::recordResult() {
+  if (resultRecorded) return;
+  resultRecorded = true;
+
+  const bool won = (seat == c4::kLight && game.outcome == c4::Outcome::LightWins) ||
+                   (seat == c4::kDark && game.outcome == c4::Outcome::DarkWins);
+  lastOutcome = 2;
+  if (game.outcome != c4::Outcome::Draw) lastOutcome = won ? 0 : 1;
+  if (game.outcome == c4::Outcome::Draw)
+    ++draws;
+  else if (won)
+    ++wins;
+  else
+    ++losses;
+
+  // Colours normalised so light is always this device's seat. The board never
+  // rotates in Connect Four -- gravity reads the same from both chairs -- so a
+  // colour swap is the whole normalisation.
+  for (int column = 0; column < c4::kColumns; ++column) {
+    for (int row = 0; row < c4::kRows; ++row) {
+      uint8_t cell = game.cell[column][row];
+      if (seat == c4::kDark && cell != c4::kEmpty) cell = c4::other(cell);
+      lastCells[column * c4::kRows + row] = cell;
+    }
+  }
+  for (int i = 0; i < c4::kLine; ++i) lastLine[i] = -1;
+  if (game.outcome == c4::Outcome::LightWins)
+    c4::winningLine(game, c4::kLight, lastLine);
+  else if (game.outcome == c4::Outcome::DarkWins)
+    c4::winningLine(game, c4::kDark, lastLine);
+  hasHistory = true;
+
+#if defined(ARDUINO_ARCH_ESP32) || defined(SIMULATOR)
+  char line[256];
+  int used = snprintf(line, sizeof(line), "%d %d %d %d %d %d %d %d", wins, losses, draws, lastOutcome, lastLine[0],
+                      lastLine[1], lastLine[2], lastLine[3]);
+  for (int i = 0; i < c4::kCells && used > 0 && used < static_cast<int>(sizeof(line)); ++i) {
+    used += snprintf(line + used, sizeof(line) - used, " %d", lastCells[i]);
+  }
+  if (used <= 0 || used >= static_cast<int>(sizeof(line))) {
+    LOG_ERR("C4", "History line did not fit %d bytes", static_cast<int>(sizeof(line)));
+    return;
+  }
+  snprintf(line + used, sizeof(line) - used, "\n");
+  Storage.writeFile(kHistoryPath, String(line));
+#endif
 }
 
 void ConnectFourActivity::goTo(const c4::Screen next) {
@@ -35,25 +126,7 @@ void ConnectFourActivity::goTo(const c4::Screen next) {
 void ConnectFourActivity::beginSoloGame() {
   c4::start(game);
   seat = c4::kLight;
-#if defined(SIMULATOR)
-  // TEMP ART PASS: a reproducible mid-game position, so every layout candidate
-  // is judged on the same board. Deleted with the variant switch. Column
-  // stacks, bottom first.
-  if (std::getenv("ART_DEMO") != nullptr) {
-    static const char* const kDemo[c4::kColumns] = {"D", "DL", "LDL", "DLD", "LDD", "DL", "L"};
-    for (int column = 0; column < c4::kColumns; ++column) {
-      for (int row = 0; row < c4::kRows; ++row) {
-        const char* stack = kDemo[column];
-        if (row < static_cast<int>(strlen(stack))) {
-          game.cell[column][row] = stack[row] == 'D' ? c4::kDark : c4::kLight;
-        } else {
-          game.cell[column][row] = c4::kEmpty;
-        }
-      }
-    }
-    game.turn = seat;
-  }
-#endif
+  resultRecorded = false;
   goTo(c4::Screen::Board);
 }
 
@@ -80,6 +153,7 @@ const char* ConnectFourActivity::linkHeadline() const {
 void ConnectFourActivity::onMatchStart(const bool goesFirst) {
   // start() puts light to move, so whoever goes first IS light.
   seat = goesFirst ? c4::kLight : c4::kDark;
+  resultRecorded = false;
   // BOTH sides deal. Connect Four has no randomness: the opening board is
   // empty on any device, so start() is identical on both and there is nothing
   // to wait for.
@@ -161,6 +235,7 @@ void ConnectFourActivity::gameLoop() {
       takeOpponentTurn();
       return;
     } else if (c4::over(game)) {
+      recordResult();
       goTo(c4::Screen::Result);
       return;
     }
@@ -255,6 +330,13 @@ void ConnectFourActivity::gameRender() {
     case c4::Screen::Menu: {
       c4ui::MenuModel model;
       model.selected = menuSelected;
+      model.hasHistory = hasHistory;
+      model.wins = wins;
+      model.losses = losses;
+      model.draws = draws;
+      model.lastOutcome = lastOutcome;
+      model.lastCells = lastCells;
+      model.lastLine = lastLine;
       c4ui::buildMenu(surface, model);
       break;
     }
