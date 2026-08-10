@@ -235,7 +235,7 @@
     var verdict = $("reportVerdict");
     if (result.hasCjk && opened && opened.fonts.length === 0) {
       verdict.textContent =
-        "This deck needs CJK faces and the package carries none.";
+        "This deck is written in characters the reader has no font for.";
       verdict.className = "study-verdict is-bad";
     } else if (result.checkFailed) {
       verdict.textContent = "Converted, with things you should see:";
@@ -370,17 +370,22 @@
     $("typeProgress").hidden = true;
 
     if (converted.hasCjk) {
-      $("typeChoices").hidden = true;
+      // The package's own faces are the right default, but a user with a
+      // Japanese deck and no bundled fonts still has a way through: their
+      // own TTF. Hiding the chooser here made that a dead end.
+      $("typeChoices").hidden = !!(opened && opened.fonts.length);
       if (opened && opened.fonts.length > 0) {
         buildFonts("cjk", null);
       } else {
         var log = $("typeLog");
         log.hidden = false;
         log.textContent =
-          "This deck uses Chinese characters, and the package carries no" +
-          " fonts to draw them with.\nIn Anki, add the faces your template" +
-          " uses to the collection's media (files named like _simsun.ttf)," +
-          " then export again.";
+          "This deck needs a font for its characters, and the package" +
+          " carries none.\n\nTwo ways forward: pick a font file yourself" +
+          " above (any .ttf covering the script works, and the page fits it" +
+          " to your longest word), or in Anki add the faces your template" +
+          " uses to the collection's media (files named like _simsun.ttf)" +
+          " and export again.";
       }
       return;
     }

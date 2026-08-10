@@ -246,6 +246,7 @@ def main():
 
     problems = {
         "a card whose faces do not work as a question and an answer": [],
+        "a character no installed font can draw at all": [],
         "a glyph the headword face cannot draw": [],
         "a Latin glyph the built-in serif cannot draw": [],
         "headword too wide for the screen": [],
@@ -287,6 +288,18 @@ def main():
                     f"note {index} in {family}: {''.join(sorted(missing_hw | missing_st))!r}"
                 )
                 break
+
+        # With no font families installed, the built-in serif is all there is,
+        # and it has no CJK. The per-family checks below simply do not run in
+        # that case, so a Japanese deck with no fonts built used to be told
+        # "every card renders" and would have drawn blank on the device.
+        if not families:
+            unreachable = {c for c in headword + sentence if is_cjk(c)}
+            if unreachable:
+                problems["a character no installed font can draw at all"].append(
+                    f"note {index}: {''.join(sorted(unreachable))[:12]!r}"
+                    " needs a CJK font, and none is installed"
+                )
 
         if serif is not None:
             for name, text in zip(FIELD_NAMES, fields):

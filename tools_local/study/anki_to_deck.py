@@ -140,7 +140,9 @@ FIELD_NAME_PATTERNS = {
 }
 
 
-def generic_profile(fields_in_order, override=None, blank_fields=()):
+def generic_profile(
+    fields_in_order, override=None, blank_fields=(), categorical_fields=()
+):
     """Map a note type's fields onto the device's seven slots.
 
     `blank_fields` is the set of field names this deck leaves empty on
@@ -149,6 +151,14 @@ def generic_profile(fields_in_order, override=None, blank_fields=()):
     where "Meaning" is empty on all 115 notes and "Back" holds the
     definition. Matching on the name alone put the empty field on the answer
     face and produced 115 cards with nothing to reveal.
+
+    `categorical_fields` are fields with only a handful of distinct values
+    across the whole deck: a tag or a category, not a card's content. They
+    are skipped by the POSITIONAL fallback only, never by a name match --
+    a name is stated intent, position is a guess, and a guess should not
+    land on a label. A real German deck is [type, german, english, ...]
+    where "type" is one of three words; taking field one as the question
+    asked 2871 cards to recall the word "other".
     """
     profile = {key: "" for key in FIELD_ORDER}
     claimed = set()
@@ -169,8 +179,11 @@ def generic_profile(fields_in_order, override=None, blank_fields=()):
                 break
 
     # Positional fallback for whatever names told us nothing: the first
-    # unclaimed field is the word, the next the meaning.
-    unclaimed = [f for f in usable if f not in claimed]
+    # unclaimed field is the word, the next the meaning. Categorical fields
+    # sit this out, but stay available if nothing else is left.
+    unclaimed = [
+        f for f in usable if f not in claimed and f not in categorical_fields
+    ] or [f for f in usable if f not in claimed]
     if not profile["headword"] and unclaimed:
         claim("headword", unclaimed.pop(0))
     if not profile["meaning"] and unclaimed:
@@ -399,6 +412,31 @@ def collect_notes(db, deck_name, limit=None, override=None):
             if clean(value):
                 counts[ordinal] = counts.get(ordinal, 0) + 1
 
+    # Distinct values per field, the signal that separates a card's content
+    # from a label attached to it.
+    distinct = {}
+    for _cid, flds, nt_name, *_rest in rows:
+        values = flds.split("\x1f")
+        seen = distinct.setdefault(nt_name, {})
+        for ordinal, value in enumerate(values):
+            text = clean(value)
+            if text:
+                seen.setdefault(ordinal, set()).add(text)
+
+    def categorical_fields_for(nt_name):
+        by_ordinal = ordinals.get(nt_name, {})
+        total = totals.get(nt_name, 0)
+        # Under thirty notes there is no distribution to read: a small deck
+        # legitimately repeats itself.
+        if total < 30:
+            return set()
+        counts = distinct.get(nt_name, {})
+        return {
+            name
+            for name, ordinal in by_ordinal.items()
+            if 0 < len(counts.get(ordinal, ())) <= min(10, total * 0.05)
+        }
+
     def blank_fields_for(nt_name):
         by_ordinal = ordinals.get(nt_name, {})
         total = totals.get(nt_name, 0)
@@ -443,7 +481,12 @@ def collect_notes(db, deck_name, limit=None, override=None):
                 if nt_name in ordinals
                 else []
             )
-            profile = generic_profile(in_order, override, blank_fields_for(nt_name))
+            profile = generic_profile(
+                in_order,
+                override,
+                blank_fields_for(nt_name),
+                categorical_fields_for(nt_name),
+            )
             # The second card of a two-template type asks the question the other
             # way round, so the word and the meaning trade places. Only for the
             # generic path: a written profile said what it meant.
