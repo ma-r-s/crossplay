@@ -338,8 +338,16 @@ def main():
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    ap.add_argument("deck", type=pathlib.Path, help="deck directory on the SD card")
+    ap.add_argument(
+        "deck", type=pathlib.Path, nargs="?", help="deck directory on the SD card"
+    )
     ap.add_argument("collection", type=pathlib.Path, help="collection.anki2")
+    ap.add_argument(
+        "--push-only",
+        action="store_true",
+        help="skip the replay and just push the collection to AnkiWeb; how the"
+        " multi-deck sync pushes once after replaying every deck",
+    )
     ap.add_argument(
         "--sync",
         action="store_true",
@@ -354,6 +362,16 @@ def main():
         "--force", action="store_true", help="skip the Anki-is-running check"
     )
     args = ap.parse_args()
+
+    if args.push_only:
+        if not args.collection.exists():
+            sys.exit(f"missing {args.collection}")
+        if not args.force and anki_is_running():
+            sys.exit("Anki appears to be running. Close it first.")
+        sync_to_ankiweb(args.collection, args.username, None, args.sync_media)
+        return
+    if args.deck is None:
+        sys.exit("a deck directory is required (or pass --push-only)")
 
     revlog = args.deck / "revlog.dat"
     cards_path = args.deck / "cards.dat"

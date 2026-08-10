@@ -72,7 +72,11 @@ class StudyActivity final : public Activity {
                uint32_t& revlogOffset, bool& written);
   // Pick the next card: a learning card whose minute has come, else the queue,
   // else the learning card that is closest to due.
-  bool findDeckDir();
+  bool findDeckDirs();
+  void beginDeckSession();
+  bool openDeckAt(int index);
+  void closeDeck();
+  void switchDeck();
   bool takeNext();
   // Take back the last answer. One level only: "I meant Good, not Again" is the
   // case that matters, and a deeper stack would need the queue's whole history
@@ -86,6 +90,7 @@ class StudyActivity final : public Activity {
   void buildDeckModel(studyui::DeckModel& out) const;
   void routeAction(const fui::ActionEvent& event);
 
+  bool fitsAsDrawn(int fontId, const char* text, int maxWidth) const;
   void drawCard(const Rect& body);
   void drawImage(const Rect& body);
   // The whole header band is the affordance when a card has a photograph.
@@ -159,7 +164,13 @@ class StudyActivity final : public Activity {
   // cell on the answer side, so the two faces divide the same bar the same way.
   static constexpr int kUndoSlots = 4;
 
-  // Discovered by findDeckDir at onEnter; empty until then.
+  // Every deck on the card, discovered at onEnter. Eight is not a limit anyone
+  // will meet: it is one SD card full of separate study subjects.
+  static constexpr int kMaxDecks = 8;
+  char deckNames_[kMaxDecks][32] = {};
+  int deckCount_ = 0;
+  int deckIndex_ = 0;
+  // The open deck's directory, /study/<name>; empty until a deck is open.
   char deckDir_[48] = "";
 
   int currentIndex_ = -1;

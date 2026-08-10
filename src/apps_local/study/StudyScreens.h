@@ -20,6 +20,7 @@ namespace studyui {
 // Actions the deck screen can produce.
 inline constexpr fui::ActionId ActionStudy = 1;
 inline constexpr fui::ActionId ActionForecast = 2;
+inline constexpr fui::ActionId ActionSwitchDeck = 3;
 
 // How many days either side of today the ornament shows. Two weeks back is far
 // enough to see a habit, two weeks forward far enough to see a backlog coming,
@@ -53,6 +54,12 @@ struct DeckModel {
   int lifetimeReviews = 0;
   bool sessionOver = false;  // nothing left to answer right now
   bool writeFailed = false;
+  // Which of the card's decks this is. With one deck the row is a label; with
+  // more it is the switcher, and tapping it cycles. Cycling rather than a list
+  // because a card realistically holds two or three decks, and a dedicated
+  // screen for choosing among three things is a screen too many.
+  int deckIndex = 0;
+  int deckCount = 1;
 };
 
 void buildDeck(toybox::Screen& screen, const DeckModel& model);

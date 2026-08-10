@@ -252,10 +252,10 @@ gaps = Table(
             ),
         ],
         [
-            Paragraph("<b>One deck at a time</b>", NOTE),
+            Paragraph("<b>Several decks</b>", NOTE),
             Paragraph(
-                "The reader opens whichever single deck is under /study. Switching means "
-                "running setup again; it offers to replace and warns about unsynced reviews.",
+                "Run setup once per deck; adding alongside is the default. The DECK 1/2 row "
+                "on the reader's deck screen cycles between them, and sync covers them all.",
                 NOTE,
             ),
         ],

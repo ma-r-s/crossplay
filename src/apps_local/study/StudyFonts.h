@@ -45,6 +45,12 @@ class StudyFonts {
   // because rolling an absent family and walking to the next would double the
   // first present family's share -- and the whole point of the roll is that no
   // face gets favoured.
+  // Fonts live inside the deck's own directory -- they are subset to that
+  // deck's glyphs, so they were never really shareable. setRoot points at the
+  // open deck; probe falls back to the legacy shared /study/fonts when the
+  // deck brings none of its own, because Mario's card predates the move and a
+  // firmware update must not silently take his typefaces away.
+  void setRoot(const char* deckDir);
   void probe();
   int presentCount() const { return presentCount_; }
   int presentFamily(int i) const { return (i >= 0 && i < presentCount_) ? present_[i] : -1; }
@@ -85,6 +91,7 @@ class StudyFonts {
   int familyIndex_ = -1;
   int present_[kFamilyCount] = {};
   int presentCount_ = 0;
+  char root_[64] = "";
 };
 
 // Point sizes the pipeline builds. These are the stock converter's units,

@@ -1794,6 +1794,36 @@ void testStudyHeadlineIsTheHitTarget() {
   }
 }
 
+void testStudyDeckRowSwitchesOnlyWhenThereIsSomewhereToGo() {
+  int forecast[studyui::kForecastDays] = {};
+  forecast[0] = 5;
+
+  // One deck: no switcher. A control that cycles through one thing is a
+  // control that does nothing, and drawing it would advertise a feature the
+  // card does not have.
+  {
+    Rendered out;
+    buildStudyDeck(out, deckWithWork(forecast));
+    CHECK(!out.target.drew("DECK 1/1"));
+  }
+
+  // Two decks: the row names the open one, says how many there are, and
+  // tapping it is the switch.
+  {
+    Rendered out;
+    studyui::DeckModel model = deckWithWork(forecast);
+    model.deckIndex = 0;
+    model.deckCount = 2;
+    buildStudyDeck(out, model);
+    const auto* row = out.target.find("DECK 1/2   Mandarin: Vocabulary   >");
+    CHECK(row != nullptr);
+    if (row != nullptr) {
+      const fui::ActionEvent onRow = out.tap(row->rect.x + 20, row->rect.y + 10);
+      CHECK(onRow.action == studyui::ActionSwitchDeck);
+    }
+  }
+}
+
 void testStudyOffersNothingWhenNothingIsDue() {
   int forecast[studyui::kForecastDays] = {};
   studyui::DeckModel model;
@@ -2987,6 +3017,7 @@ int main() {
   testBothSeatsWearTheirOwnFace();
   testStudyDeckLeadsWithTheCount();
   testStudyHeadlineIsTheHitTarget();
+  testStudyDeckRowSwitchesOnlyWhenThereIsSomewhereToGo();
   testStudyOffersNothingWhenNothingIsDue();
   testStudyForecastBarsStayInsideTheirPanel();
   testStudyRecordShowsTheStreak();

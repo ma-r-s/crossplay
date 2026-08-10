@@ -99,22 +99,32 @@ rollover hour, which is exactly Anki's own numbering. Keeping that means a due
 date computed here and a due date computed on the phone agree without any
 timezone conversation.
 
-## Where the deck lives
+## Where decks live
 
-The reader scans `/study/` for the first directory holding a `meta.dat` and
-opens that; the `fonts` directory is skipped. The name is the tool's choice
-(study.py names it after the deck; Mario's card predates that and says
-`mandarin`) and the device never depends on it. One deck at a time is still the
-rule -- study.py keeps the card in that state by offering to remove a previous
-deck before installing a different one.
+The reader scans `/study/` and every directory holding a `meta.dat` is a deck,
+sorted by name so the order is stable across boots; a `fonts` directory is
+skipped. Directory names are the tool's choice (study.py slugs the deck name;
+Mario's card predates that and says `mandarin`) and the device never depends on
+them. With more than one deck, the deck screen grows a `DECK 1/2` row that
+cycles, and `/study/.last` holds the name of the deck to reopen on next entry.
+
+Fonts live *inside* the deck at `/study/<deck>/fonts` -- they are subset to
+that deck's glyphs, so they were never really shareable. A card with the old
+shared `/study/fonts` keeps working: the device falls back to it when a deck
+brings no fonts of its own, and study.py moves the shared fonts into the deck
+on its next run.
 
 Fonts are trusted per card, not per install: before drawing, the activity
-measures the headword (and sentence) in the chosen face, and a width of zero --
-a face that would paint nothing -- falls back to the built-in serif for that
-card. Stale or mis-built fonts degrade to plain type rather than to a blank
-screen. The face table on the device is the five CJK families plus `Custom`,
-the name `make_fonts.py --font` builds under for decks in other scripts;
-whichever families are present are the ones the per-card randomiser draws from.
+measures the headword (and sentence) in the chosen face, and a card the face
+cannot render -- nothing painted at all, or a single unbreakable word wider
+than the screen -- falls back to the built-in serif for that card. Stale,
+mis-built or wrongly-sized fonts degrade to plain type rather than to a blank
+or an overflow. The face table on the device is the five CJK families plus
+`Custom`, the name `make_fonts.py --font` builds under for decks in other
+scripts; whichever families are present are the ones the per-card randomiser
+draws from. A `Custom` face is built at whatever size lets the deck's longest
+word fit the screen, but keeps the `_50` filename: the name is the device's
+lookup key, not a measurement.
 
 ## revlog.dat
 

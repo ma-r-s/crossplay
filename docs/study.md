@@ -5,8 +5,9 @@ converted from your own Anki collection, schedules reviews with the same FSRS
 algorithm and the same parameters Anki uses, and syncs every review back so
 Anki (and AnkiWeb) treat them exactly as if you had done them on your phone.
 
-One deck at a time, no editing, no audio. Everything else -- adding cards,
-retraining FSRS, browsing -- happens in Anki, where those things are good.
+No editing, no audio. Everything else -- adding cards, retraining FSRS,
+browsing -- happens in Anki, where those things are good. The card can hold
+several decks; the deck screen switches between them.
 
 ## What you need
 
@@ -29,8 +30,13 @@ remembered in `~/.config/crosspoint-study.json`, so the next run asks nothing.
 
 Put the card in the reader: **Apps > STUDY**.
 
-Every prompt has a flag (`--collection`, `--deck`, `--to`, `--name`), so the
-command is scriptable once you know your answers.
+Run setup again to put another deck on the card -- adding alongside is the
+default, replacing is offered. On the reader, the `DECK 1/2` row on the deck
+screen cycles between them, and the reader remembers which one you had open.
+Each deck keeps its own scheduling state, review log, stats and fonts.
+
+Every prompt has a flag (`--collection`, `--deck`, `--to`, `--name`, `--add`,
+`--replace`), so the command is scriptable once you know your answers.
 
 ### Which decks convert
 
@@ -74,6 +80,10 @@ exactly as they would in Anki.
   ./tools_local/study/study.py setup --font ~/Fonts/Georgia.ttf
   ```
 
+  The size is fitted to the deck: the face is built as large as the longest
+  word allows, so an English deck's `incontrovertible` fits where a Chinese
+  deck's four characters would.
+
 - A card whose text the installed fonts cannot draw falls back to the built-in
   face on its own, per card. A wrong font install can look plain; it cannot
   look blank.
@@ -85,10 +95,12 @@ exactly as they would in Anki.
 ```
 
 Quit Anki first (two writers is how a collection gets corrupted; the tool
-checks and refuses). Every review you did on the reader is replayed into your
-collection: same grades, same timestamps, same revlog entries Anki itself would
-have written. A backup of the collection is made first. Reviews you undid on
-the reader are skipped -- as far as Anki learns, they never happened.
+checks and refuses). Every review you did on the reader -- across every deck on
+the card -- is replayed into your collection: same grades, same timestamps,
+same revlog entries Anki itself would have written. A backup of the collection
+is made first. Reviews you undid on the reader are skipped -- as far as Anki
+learns, they never happened. With `--ankiweb` the push happens once, after all
+decks have replayed.
 
 Add flags for the two common extras:
 
@@ -101,8 +113,9 @@ Add flags for the two common extras:
   `$ANKI_PASSWORD` or a prompt; they are used for the login call and never
   stored or logged. The sync library installs itself into the tooling venv on
   first use.
-- `--reconvert` refreshes the deck on the card afterwards, so new cards you
+- `--reconvert` refreshes every deck on the card afterwards, so new cards you
   added in Anki, edits, and re-optimised FSRS parameters all reach the reader.
+  Fonts that no longer cover a grown deck are rebuilt on the spot.
 - `--dry-run` reports what would change and writes nothing.
 
 `./tools_local/study/study.py status` shows what is configured and how many
@@ -148,9 +161,6 @@ export.
 
 - **Editing, adding, custom study, browsing** -- Anki does these better on a
   screen with a keyboard.
-- **A second deck** -- one deck, studied properly, is the design. Swapping
-  decks is `setup` again (it offers to replace, and warns if unsynced reviews
-  would be lost).
 - **Audio** -- the device has no speaker.
 - **A second level of undo** -- the state before the previous review is not
   kept.

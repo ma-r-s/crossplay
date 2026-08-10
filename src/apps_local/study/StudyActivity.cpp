@@ -138,27 +138,76 @@ void StudyActivity::onEnter() {
   Activity::onEnter();
   toybox::ensureFonts(renderer);
 
-  if (openDeck()) {
-    fonts_.probe();
-    today_ = study::dayNumber(deck_.meta(), static_cast<int64_t>(time(nullptr)));
-    startMinute_ = nowMinute();
-    fsrs_ = study::Fsrs(deck_.meta().hasParams() ? deck_.meta().params : nullptr, deck_.meta().desiredRetention);
-    fsrs_.setMaximumInterval(deck_.meta().maximumInterval);
-
-    study::Steps steps;
-    steps.learnCount = deck_.meta().learnStepCount;
-    steps.relearnCount = deck_.meta().relearnStepCount;
-    for (int i = 0; i < study::kMaxLearningSteps; ++i) {
-      steps.learn[i] = deck_.meta().learnSteps[i];
-      steps.relearn[i] = deck_.meta().relearnSteps[i];
-    }
-    if (steps.learnCount == 0 && steps.relearnCount == 0) steps = study::Steps::defaults();
-    scheduler_ = study::Scheduler(fsrs_, steps);
-
-    shuffle_ = static_cast<uint32_t>(today_) * 2654435761u + 1u;
-    buildQueue();
-    refreshStats();
+  if (findDeckDirs() && openDeckAt(deckIndex_)) {
+    beginDeckSession();
     view_ = View::Deck;
+  } else {
+    LOG_ERR("STUDY", "No deck under %s -- run tools_local/study/study.py setup", kStudyRoot);
+  }
+  requestUpdate();
+}
+
+// Everything that starts over when a deck opens -- first open and every switch.
+void StudyActivity::beginDeckSession() {
+  fonts_.setRoot(deckDir_);
+  fonts_.probe();
+  today_ = study::dayNumber(deck_.meta(), static_cast<int64_t>(time(nullptr)));
+  startMinute_ = nowMinute();
+  fsrs_ = study::Fsrs(deck_.meta().hasParams() ? deck_.meta().params : nullptr, deck_.meta().desiredRetention);
+  fsrs_.setMaximumInterval(deck_.meta().maximumInterval);
+
+  study::Steps steps;
+  steps.learnCount = deck_.meta().learnStepCount;
+  steps.relearnCount = deck_.meta().relearnStepCount;
+  for (int i = 0; i < study::kMaxLearningSteps; ++i) {
+    steps.learn[i] = deck_.meta().learnSteps[i];
+    steps.relearn[i] = deck_.meta().relearnSteps[i];
+  }
+  if (steps.learnCount == 0 && steps.relearnCount == 0) steps = study::Steps::defaults();
+  scheduler_ = study::Scheduler(fsrs_, steps);
+
+  shuffle_ = static_cast<uint32_t>(today_) * 2654435761u + 1u;
+  reviewedThisSession_ = 0;
+  againThisSession_ = 0;
+  learningCount_ = 0;
+  undo_ = Undo{};
+  currentIndex_ = -1;
+  buildQueue();
+  refreshStats();
+}
+
+void StudyActivity::closeDeck() {
+  if (cardSource_) cardSource_->flush();
+  revlogFile_.flush();
+  fonts_.unload(renderer);
+  imageSource_.reset();
+  revlogSource_.reset();
+  metaSource_.reset();
+  deckSource_.reset();
+  cardSource_.reset();
+  // Member handles get reused by the next openDeck, and a HalFile must be
+  // closed before the same variable opens a different path.
+  metaFile_.close();
+  deckFile_.close();
+  cardFile_.close();
+  revlogFile_.close();
+  revlogReadFile_.close();
+  imageFile_.close();
+  images_ = study::StudyImages{};
+}
+
+void StudyActivity::switchDeck() {
+  if (deckCount_ < 2) return;
+  closeDeck();
+  const int next = (deckIndex_ + 1) % deckCount_;
+  if (openDeckAt(next)) {
+    beginDeckSession();
+    view_ = View::Deck;
+  } else {
+    // A deck that was there at scan time and is not now is a pulled SD card;
+    // there is nothing sane to show but the empty state.
+    LOG_ERR("STUDY", "Deck %s vanished", deckNames_[next]);
+    view_ = View::NoDeck;
   }
   requestUpdate();
 }
@@ -182,14 +231,15 @@ int StudyActivity::nowMinute() const {
   return minutes > 1439 ? 1439 : minutes;
 }
 
-bool StudyActivity::findDeckDir() {
-  // One deck at a time is still the rule; this only stops the *name* mattering.
-  // First directory under /study holding a meta.dat wins. openNextFile hands
-  // back entries in directory order, so with one deck installed -- the case the
-  // tool maintains -- there is nothing to be ambiguous about.
+bool StudyActivity::findDeckDirs() {
+  // Every directory under /study holding a meta.dat is a deck. Sorted by name
+  // so the order is the same on every boot -- openNextFile hands entries back
+  // in FAT order, which changes when files do, and a switcher that reshuffles
+  // itself between sessions would make "the next deck" mean nothing.
+  deckCount_ = 0;
   HalFile root = Storage.open(kStudyRoot);
   if (!root.isOpen() || !root.isDirectory()) return false;
-  while (true) {
+  while (deckCount_ < kMaxDecks) {
     HalFile entry = root.openNextFile();
     if (!entry.isOpen()) break;
     if (!entry.isDirectory()) continue;
@@ -198,19 +248,51 @@ bool StudyActivity::findDeckDir() {
     if (std::strcmp(name, kFontsDirName) == 0) continue;
     char probe[96];
     std::snprintf(probe, sizeof(probe), "%s/%s/meta.dat", kStudyRoot, name);
-    if (Storage.exists(probe)) {
-      std::snprintf(deckDir_, sizeof(deckDir_), "%s/%s", kStudyRoot, name);
-      return true;
+    if (!Storage.exists(probe)) continue;
+    std::snprintf(deckNames_[deckCount_], sizeof(deckNames_[0]), "%s", name);
+    ++deckCount_;
+  }
+  for (int i = 1; i < deckCount_; ++i) {
+    for (int j = i; j > 0 && std::strcmp(deckNames_[j], deckNames_[j - 1]) < 0; --j) {
+      char swap[32];
+      std::memcpy(swap, deckNames_[j], sizeof(swap));
+      std::memcpy(deckNames_[j], deckNames_[j - 1], sizeof(swap));
+      std::memcpy(deckNames_[j - 1], swap, sizeof(swap));
     }
   }
-  return false;
+
+  // Reopen whatever was open last time. A device that greets you with a deck
+  // you were not studying feels like someone else's.
+  deckIndex_ = 0;
+  char last[32] = "";
+  HalFile lastFile;
+  char lastPath[64];
+  std::snprintf(lastPath, sizeof(lastPath), "%s/.last", kStudyRoot);
+  if (Storage.openFileForRead("STUDY", lastPath, lastFile)) {
+    const int n = lastFile.read(last, sizeof(last) - 1);
+    if (n > 0) last[n] = '\0';
+    for (int i = 0; i < deckCount_; ++i) {
+      if (std::strcmp(deckNames_[i], last) == 0) deckIndex_ = i;
+    }
+  }
+  return deckCount_ > 0;
+}
+
+bool StudyActivity::openDeckAt(const int index) {
+  if (index < 0 || index >= deckCount_) return false;
+  deckIndex_ = index;
+  std::snprintf(deckDir_, sizeof(deckDir_), "%s/%s", kStudyRoot, deckNames_[index]);
+
+  char lastPath[64];
+  std::snprintf(lastPath, sizeof(lastPath), "%s/.last", kStudyRoot);
+  HalFile lastFile;
+  if (Storage.openFileForWrite("STUDY", lastPath, lastFile)) {
+    lastFile.write(deckNames_[index], std::strlen(deckNames_[index]));
+  }
+  return openDeck();
 }
 
 bool StudyActivity::openDeck() {
-  if (!findDeckDir()) {
-    LOG_ERR("STUDY", "No deck under %s -- run tools_local/study/study.py setup", kStudyRoot);
-    return false;
-  }
   char path[96];
   std::snprintf(path, sizeof(path), "%s/meta.dat", deckDir_);
   if (!Storage.openFileForRead("STUDY", path, metaFile_)) return false;
@@ -710,6 +792,41 @@ int StudyActivity::drawWrapped(const int fontId, int y, const int maxWidth, cons
   return y;
 }
 
+bool StudyActivity::fitsAsDrawn(const int fontId, const char* text, const int maxWidth) const {
+  // Two ways a face can fail a card, both ending in a card you cannot read.
+  // Nothing painted at all -- stale or mis-built fonts -- shows as total width
+  // zero. And a single unbreakable run wider than the screen: the wrap breaks
+  // on spaces and before CJK characters, so "capricious" at the 100px headword
+  // size has nowhere to break and hangs off both edges. 927 of the GRE deck's
+  // 1992 headwords did exactly that. Runs are measured the same way drawWrapped
+  // breaks them, so the two cannot disagree.
+  if (renderer.getTextWidth(fontId, text) == 0) return false;
+  char run[kLineBytes];
+  int runLength = 0;
+  const auto runFits = [&]() {
+    if (runLength == 0) return true;
+    run[runLength] = '\0';
+    runLength = 0;
+    return renderer.getTextWidth(fontId, run) <= maxWidth;
+  };
+  for (const char* p = text; *p != '\0';) {
+    const unsigned char lead = static_cast<unsigned char>(*p);
+    const int bytes = lead < 0x80 ? 1 : (lead < 0xE0 ? 2 : (lead < 0xF0 ? 3 : 4));
+    const bool breakable = *p == ' ' || bytes >= 3;  // CJK is three bytes in UTF-8
+    if (breakable) {
+      if (!runFits()) return false;
+      p += bytes;
+      continue;
+    }
+    if (runLength + bytes < static_cast<int>(sizeof(run))) {
+      for (int i = 0; i < bytes && *p != '\0'; ++i) run[runLength++] = *p++;
+    } else {
+      ++p;
+    }
+  }
+  return runFits();
+}
+
 void StudyActivity::drawCard(const Rect& body) {
   const int maxWidth = renderer.getScreenWidth() - 2 * toybox::kMargin;
   int headwordFont = fontsReady_ ? fonts_.headwordFontId() : kReadingFontId;
@@ -723,11 +840,11 @@ void StudyActivity::drawCard(const Rect& body) {
   // have appeared; the built-in serif always has something to say.
   if (fontsReady_) {
     const char* headwordText = note_.field(study::Field::Headword);
-    if (*headwordText != '\0' && renderer.getTextWidth(headwordFont, headwordText) == 0) {
+    if (*headwordText != '\0' && !fitsAsDrawn(headwordFont, headwordText, maxWidth)) {
       headwordFont = kReadingFontId;
     }
     const char* sentenceText = note_.field(study::Field::Sentence);
-    if (*sentenceText != '\0' && renderer.getTextWidth(sentenceFont, sentenceText) == 0) {
+    if (*sentenceText != '\0' && !fitsAsDrawn(sentenceFont, sentenceText, maxWidth)) {
       sentenceFont = kMeaningFontId;
     }
   }
@@ -907,11 +1024,17 @@ void StudyActivity::buildDeckModel(studyui::DeckModel& out) const {
   out.streak = stats_.streak;
   out.retention = stats_.retention();
   out.lifetimeReviews = stats_.lifetimeReviews;
+  out.deckIndex = deckIndex_;
+  out.deckCount = deckCount_;
   out.sessionOver = (queueCount_ - queuePos_) + learningCount_ == 0;
   out.writeFailed = writeFailed_;
 }
 
 void StudyActivity::routeAction(const fui::ActionEvent& event) {
+  if (event.action == studyui::ActionSwitchDeck) {
+    switchDeck();
+    return;
+  }
   if (event.action != studyui::ActionStudy) return;
   // Re-scan rather than resuming a stale queue: a session can end, the user can
   // sit on this screen past the rollover hour, and what was due then is not
