@@ -186,16 +186,47 @@ than it looks: every placement is public and permanent, the discard is face up,
 so the only genuine unknowns are the 4 troops each player set aside unseen and
 the order of the reserve. The belief state is a small multiset and it is exact.
 
-### The AI is the risk, and the reason it is built first
+### The opponent
 
-Sudden death by touching the H.Q., plus Cap'n handing out a free second
-placement, means a lethal threat can arrive from two placements away in a single
-turn. One ply plus a good evaluation, which was enough for Jaipur, hangs the
-H.Q. here every game. The floor is two ply with the chain modelled.
+Built before any pixel, because it is the part that decides whether this is fun.
 
-Branching is about 8 rack kinds x ~20 slots, plus the draw. Tractable, but it is
-the piece that decides whether this is fun or embarrassing, so it gets built and
-measured against a greedy baseline before a single pixel is drawn.
+**The threat that matters is exact, not searched.** Sudden death by touching an
+H.Q. looked like it would force a real two-ply search. It does not, and the
+reason is a rule: _any_ troop captures an H.Q., so there is no question of which
+one they hold. Whether they can take yours next turn is therefore a property of
+the board alone -- is your H.Q. in their reachable set, and can they place at
+all -- and it is computed exactly from public information. `hqIsExposed` is that
+question, and both skills consult it on every candidate move. The expensive
+search the game seemed to demand was the wrong tool for the one threat it has.
+
+**It cannot cheat, because its input holds no secret.** `chooseMove` takes an
+`Observation`: the board, the discards, both rack sizes, and the multiset the
+enemy rack must have been drawn from. Two things a player also cannot know are
+modelled rather than simulated -- the enemy rack's composition, rebuilt from the
+public multiset so positions can be played forward, and the order of either
+reserve, which is why `observe` clears the seed and a draw is worth tempo rather
+than a known troop. Carrying the seed would have handed over both reserves in
+reading order; that is the one leak this design had to be careful about.
+
+**Two skills, and the split is where it measured rather than where it was
+designed.** Both keep the same reflexes: take the win in front of you, never
+leave your own H.Q. open. Recruit has nothing else and plays freely among the
+safe moves. General weighs medals, territory, reach and tempo.
+
+The first version put the split somewhere else -- General also raced for
+regions, valued pressure on the enemy H.Q., and looked one turn ahead at the
+threat a Cap'n's second placement makes. Over 600 games each of those was worth
+**nothing**: 48%, 48% and 50% against the same opponent without them, where 50%
+is a coin toss. They were deleted rather than tuned. The gap that does exist is
+between having an evaluation at all and not having one, and that one is 99%
+(598/600). Reflexes alone still beat a random player 77%, so Recruit is a real
+opponent and not a stooge.
+
+The lesson worth keeping: **the first head-to-head ran 60 games and read 53%,
+and the bound was set to 53%.** That is a bound tuned to its observation, inside
+a noise band of about +/- 6%, and it certified a difference that did not exist.
+The bands in `test_brain.cpp` are now well below what was measured, and the
+sample is 600.
 
 ## Open items
 

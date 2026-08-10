@@ -201,7 +201,14 @@ constexpr uint8_t kNoSeat = 0xFF;
 // Trivially copyable, so LinkPlay ships it as raw bytes between two identical
 // builds.
 struct Game {
-  uint32_t seed = 0;  // both reserves derive from this; both devices rebuild them
+  // Field order is layout, not taste. Every byte of this struct is memcmp'd,
+  // saved and put on the wire, so a hole no field owns ships whatever the stack
+  // left there -- two identical games would compare unequal and a packet would
+  // carry four bytes of noise. The two wide fields lead, the bytes follow, and
+  // the static_assert at the bottom is what keeps it that way.
+  uint32_t seed = 0;        // both reserves derive from this; both devices rebuild them
+  uint16_t regionsTaken = 0;
+
   uint8_t terrain = 0;
   uint8_t turn = 0;
   uint8_t phase = static_cast<uint8_t>(Phase::Playing);
@@ -212,7 +219,6 @@ struct Game {
   uint8_t rack[kSeats][kTroopKinds] = {};       // a multiset; rack order is not a rule
   uint8_t discarded[kSeats][kTroopKinds] = {};  // face up, so both players know it
   uint8_t medals[kSeats] = {};
-  uint16_t regionsTaken = 0;
 
   // Whether this game plays with special base effects. It lives in the state
   // rather than in app settings on purpose: two linked devices must agree on
@@ -303,5 +309,12 @@ struct Game {
 
 static_assert(std::is_trivially_copyable<Game>::value, "Game travels as raw bytes");
 static_assert(sizeof(Game) <= 192, "Game must fit one LinkPlay packet");
+// Exact, because every byte is compared, saved and transmitted. This is the sum
+// of the fields: 4 + 2 + 142. If it fails, the fields have grown a hole that no
+// field owns, and those bytes are whatever the stack left there -- which is a
+// state that does not memcmp equal to itself and a packet with noise in it.
+// Reorder to close the hole rather than relaxing this, and bump the save
+// version and linkplay::GameId when the layout genuinely changes.
+static_assert(sizeof(Game) == 148, "Game must have no padding: see the comment above");
 
 }  // namespace toybattle
