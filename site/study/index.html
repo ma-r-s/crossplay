@@ -120,6 +120,27 @@
           <p id="typePlaceholder" hidden></p>
         </div>
       </div>
+      <div class="wiz-sample" id="samplePanel" hidden>
+        <div class="wiz-card" aria-label="How the first card will read">
+          <p class="wiz-card-side">question</p>
+          <p class="wiz-card-word" id="sampleWord"></p>
+          <p class="wiz-card-reading" id="sampleReading"></p>
+          <div class="wiz-card-rule"></div>
+          <p class="wiz-card-side">answer</p>
+          <p class="wiz-card-meaning" id="sampleMeaning"></p>
+          <p class="wiz-card-pos" id="samplePos"></p>
+          <p class="wiz-card-sentence" id="sampleSentence"></p>
+          <p class="wiz-card-sub" id="sampleSentenceMeaning"></p>
+        </div>
+        <div class="wiz-map">
+          <p class="wiz-type-label">
+            What goes where. Your deck's fields, by name; change any of them
+            and the card on the left redraws:
+          </p>
+          <div class="study-map-grid" id="mapGrid"></div>
+          <p class="study-facts" id="mapNote" hidden></p>
+        </div>
+      </div>
       <p class="study-placeholder" id="reportPlaceholder" hidden>Converting…</p>
       <details class="study-mapping" id="reportBody" hidden>
         <summary>The tools' own words, in full</summary>
@@ -132,15 +153,6 @@
       <div class="wiz-next">
         <button class="btn primary" id="next2" type="button">Next: try it on the device</button>
       </div>
-      <details class="study-mapping">
-        <summary>The fields came out wrong?</summary>
-        <p>
-          The converter guesses by field order: first field is the word,
-          second the meaning. Name them yourself and it converts again:
-        </p>
-        <div class="study-map-grid" id="mapGrid"></div>
-        <button class="btn" id="remap" type="button">Convert again with these fields</button>
-      </details>
     </section>
 
     <!-- Step 3: the preview ---------------------------------------------- -->

@@ -103,6 +103,7 @@
     sourceName = file.name;
     $("openSummary").hidden = true;
     $("reportBody").hidden = true;
+    $("samplePanel").hidden = true;
     $("reportVerdict").textContent = "";
     $("summaryFacts").textContent = "";
     $("skipNotice").hidden = true;
@@ -200,6 +201,7 @@
     $("reportPlaceholder").hidden = false;
     $("reportPlaceholder").textContent = "Converting…";
     $("reportBody").hidden = true;
+    $("samplePanel").hidden = true;
     if (reachedStep >= 2) goTo(2);
     worker.postMessage({
       type: "convert",
@@ -219,7 +221,7 @@
       $("reportVerdict").className = "study-verdict is-bad";
       $("convertLog").textContent = result.error;
       $("checkLog").textContent = "";
-      buildMapGrid();
+      $("samplePanel").hidden = true;
       return;
     }
     converted = result;
@@ -279,34 +281,82 @@
     $("convertLog").textContent =
       result.log + (result.imagesLog ? "\n" + result.imagesLog : "");
     $("checkLog").textContent = result.checkLog;
-    buildMapGrid();
+    fillSample(result.sample);
+    buildMapGrid(result);
 
     enableDownstream();
   }
 
-  function buildMapGrid() {
+  function buildMapGrid(result) {
     var grid = $("mapGrid");
-    if (grid.childElementCount) return;
+    grid.innerHTML = "";
+    if (!result.fields || !result.fields.length) {
+      $("samplePanel").hidden = true;
+      return;
+    }
     SLOTS.forEach(function (slot) {
       var label = document.createElement("label");
       label.textContent = slot[1];
-      var input = document.createElement("input");
-      input.type = "text";
-      input.placeholder = "Anki field name";
-      input.dataset.slot = slot[0];
-      label.appendChild(input);
+      var select = document.createElement("select");
+      select.dataset.slot = slot[0];
+      var none = document.createElement("option");
+      none.value = "";
+      none.textContent = "(not shown)";
+      select.appendChild(none);
+      result.fields.forEach(function (field) {
+        var option = document.createElement("option");
+        option.value = field;
+        option.textContent = field;
+        select.appendChild(option);
+      });
+      select.value = (result.guess && result.guess[slot[0]]) || "";
+      select.addEventListener("change", function () {
+        convert(chosenDeck, mappingFromGrid());
+      });
+      label.appendChild(select);
       grid.appendChild(label);
     });
+    var note = $("mapNote");
+    if (result.noteTypes > 1) {
+      note.textContent =
+        "This deck mixes " +
+        result.noteTypes +
+        " kinds of cards; these choices apply to all of them, so only" +
+        " change things if the card on the left looks wrong.";
+      note.hidden = false;
+    } else {
+      note.hidden = true;
+    }
   }
 
   function mappingFromGrid() {
     var mapping = [];
-    var inputs = $("mapGrid").querySelectorAll("input");
-    inputs.forEach(function (input) {
-      var value = input.value.trim();
-      if (value) mapping.push(input.dataset.slot + "=" + value);
+    var selects = $("mapGrid").querySelectorAll("select");
+    selects.forEach(function (select) {
+      if (select.value) mapping.push(select.dataset.slot + "=" + select.value);
     });
     return mapping.length ? mapping : null;
+  }
+
+  function fillSample(sample) {
+    if (!sample) {
+      $("samplePanel").hidden = true;
+      return;
+    }
+    $("samplePanel").hidden = false;
+    var parts = [
+      ["sampleWord", sample.headword],
+      ["sampleReading", sample.reading],
+      ["sampleMeaning", sample.meaning],
+      ["samplePos", sample.partOfSpeech],
+      ["sampleSentence", sample.sentence],
+      ["sampleSentenceMeaning", sample.sentenceMeaning],
+    ];
+    parts.forEach(function (pair) {
+      var el = $(pair[0]);
+      el.textContent = pair[1] || "";
+      el.hidden = !pair[1];
+    });
   }
 
   // ---- step 3: the type ---------------------------------------------------
@@ -889,10 +939,6 @@
 
   $("sample").addEventListener("click", function () {
     loadFromUrl("/study/demo/sat-vocabulary.apkg", "sat-vocabulary.apkg");
-  });
-
-  $("remap").addEventListener("click", function () {
-    if (chosenDeck) convert(chosenDeck, mappingFromGrid());
   });
 
   $("previewBoot").addEventListener("click", bootPreview);

@@ -92,6 +92,31 @@ def build_collection(base_dir):
     note.fields[0] = "A word that means everywhere at once: {{c1::ubiquitous}}"
     col.add_note(note, deck_id)
 
+    # A note type shaped like Barron's SAT list: the second field is the part
+    # of speech, not the meaning, and the field names say so. The positional
+    # guess once put "V." on the answer face of every such card; the fixture
+    # keeps that bug dead.
+    vocab = col.models.new("Vocabulary")
+    for field_name in ("Word", "Part of Speech", "Definition", "Sentence"):
+        col.models.add_field(vocab, col.models.new_field(field_name))
+    template = col.models.new_template("Card 1")
+    template["qfmt"] = "{{Word}}"
+    template["afmt"] = "{{FrontSide}}<hr>{{Definition}}"
+    col.models.add_template(vocab, template)
+    col.models.add(vocab)
+    vocab = col.models.by_name("Vocabulary")
+    for word, pos, definition, sentence in (
+        ("abase", "V.", "lower; humiliate", "He refused to abase himself."),
+        ("lucid", "ADJ.", "clear and easy to understand", "A lucid answer."),
+        ("zeal", "N.", "eager enthusiasm", "Her zeal was obvious."),
+    ):
+        note = col.new_note(vocab)
+        note.fields[0] = word
+        note.fields[1] = pos
+        note.fields[2] = definition
+        note.fields[3] = sentence
+        col.add_note(note, deck_id)
+
     # Give the first ten cards real review state, written the way Anki stores
     # it: type/queue 2, a due day, an interval, and FSRS memory in `data`.
     # Ten revlog rows go with them so scheduling_summary sees reviews.

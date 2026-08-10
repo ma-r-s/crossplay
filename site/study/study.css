@@ -476,8 +476,100 @@
   }
 }
 
+/* --- the sample card and its field mapping ------------------------------- */
+
+.wiz-sample {
+  display: grid;
+  grid-template-columns: minmax(15rem, 19rem) minmax(0, 1fr);
+  gap: 2rem;
+  margin: 0.9rem 0 0.3rem;
+  align-items: start;
+}
+
+.wiz-card {
+  border: 1.5px solid var(--ink);
+  background: #faf9f6;
+  color: #111110;
+  padding: 1rem 1.1rem 1.2rem;
+}
+
+.wiz-card-side {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #777;
+  margin: 0 0 0.3rem;
+}
+
+.wiz-card-word {
+  font-family: var(--serif);
+  font-size: 1.7rem;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.wiz-card-reading {
+  font-family: var(--serif);
+  font-style: italic;
+  color: #444;
+  margin: 0.1rem 0 0;
+}
+
+.wiz-card-rule {
+  border-top: 1px solid #bbb;
+  margin: 0.8rem 0 0.6rem;
+}
+
+.wiz-card-meaning {
+  font-family: var(--serif);
+  font-size: 1rem;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.wiz-card-pos {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: #666;
+  margin: 0.25rem 0 0;
+}
+
+.wiz-card-sentence {
+  font-family: var(--serif);
+  font-size: 0.9rem;
+  margin: 0.55rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+.wiz-card-sub {
+  font-family: var(--serif);
+  font-size: 0.85rem;
+  color: #555;
+  margin: 0.2rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+.wiz-map select {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 0.82rem;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid var(--edge);
+  background: var(--paper);
+  color: var(--ink);
+}
+
+@media (max-width: 720px) {
+  .wiz-sample {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* [hidden] must win over the display: grid/flex the layout classes set,
    or the state machine's hidden-toggling silently stops working. */
+#samplePanel[hidden],
 #previewBody[hidden],
 #writeBody[hidden],
 #reportBody[hidden],

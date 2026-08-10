@@ -26,7 +26,9 @@ sys.path.insert(0, str(HERE))
 # only in the site's tools.zip, so the CLI keeps the real binding.
 sys.path.insert(0, str(HERE / "web_shims"))
 
+import anki_to_deck  # noqa: E402
 import apkg  # noqa: E402
+import check_deck as check_deck_mod  # noqa: E402
 import study as study_cli  # noqa: E402
 
 WORK = pathlib.Path("/work")
@@ -112,6 +114,15 @@ def open_apkg():
     )
 
 
+def mapping_dict(mapping):
+    out = {}
+    for pair in mapping or []:
+        key, _, value = pair.partition("=")
+        if value:
+            out[key] = value
+    return out
+
+
 def convert(deck_name, mapping):
     """Convert one deck and immediately check it, like setup does.
 
@@ -146,6 +157,47 @@ def convert(deck_name, mapping):
     # own summary line, so they can never disagree with the log below them.
     import re
 
+    # What the user's question needs: the fields of the deck's dominant note
+    # type, the mapping the converter just used for it, and the first card
+    # exactly as converted -- so the page can show 'this is how a card will
+    # read' and let the user move fields around with real content in view.
+    import sqlite3 as _sql
+
+    db = _sql.connect(f"file:{collection}?mode=ro", uri=True)
+    db.create_collation(
+        "unicase", lambda a, b: (a.lower() > b.lower()) - (a.lower() < b.lower())
+    )
+    like = deck_name.replace("::", "\x1f")
+    type_rows = db.execute(
+        """select nt.name, nt.id, count(*) as n from cards c
+           join notes nn on nn.id = c.nid
+           join notetypes nt on nt.id = nn.mid
+           join decks d on d.id = c.did
+           where d.name = ? or d.name like ?
+           group by nt.id order by n desc""",
+        (like, like + "\x1f%"),
+    ).fetchall()
+    fields = []
+    guess = {}
+    if type_rows:
+        dominant_id = type_rows[0][1]
+        fields = [
+            row[0]
+            for row in db.execute(
+                "select name from fields where ntid = ? order by ord", (dominant_id,)
+            )
+        ]
+        profile = anki_to_deck.PROFILES.get(type_rows[0][0])
+        guess = profile or anki_to_deck.generic_profile(fields, mapping_dict(mapping))
+    db.close()
+
+    sample = None
+    try:
+        _, first = next(check_deck_mod.read_deck(out / "deck.dat"))
+        sample = dict(zip(check_deck_mod.FIELD_NAMES, first))
+    except (StopIteration, OSError, SystemExit):
+        pass
+
     counts = re.search(
         r"deck '.*': (\d+) cards \((\d+) with scheduling state, (\d+) skipped\)",
         log,
@@ -167,6 +219,10 @@ def convert(deck_name, mapping):
             "skipped": int(counts.group(3)) if counts else None,
             "clozeSkipped": int(cloze_line.group(1)) if cloze_line else 0,
             "imagesPacked": int(images_packed.group(1)) if images_packed else 0,
+            "sample": sample,
+            "fields": fields,
+            "guess": {k: v for k, v in guess.items() if v},
+            "noteTypes": len(type_rows),
         }
     )
 

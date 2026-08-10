@@ -67,7 +67,7 @@ def main():
             f"deck list missing SAT Vocabulary: {names}",
         )
         sat_cards = next(c for n, c in decks if "SAT Vocabulary" in n)
-        ok(sat_cards == 31, f"expected 31 cards (30 basic + 1 cloze), got {sat_cards}")
+        ok(sat_cards == 34, f"expected 34 cards (30 basic + 3 vocab + 1 cloze), got {sat_cards}")
 
         summary = apkg.scheduling_summary(info["collection"])
         ok(
@@ -100,8 +100,8 @@ def main():
             f"anki_to_deck failed on the unwrapped export:\n{result.stdout}\n{result.stderr}",
         )
         ok(
-            "30 cards" in result.stdout,
-            f"expected 30 converted cards in:\n{result.stdout}",
+            "33 cards" in result.stdout,
+            f"expected 33 converted cards in:\n{result.stdout}",
         )
         ok(
             "1 skipped" in result.stdout,
@@ -109,9 +109,16 @@ def main():
         )
 
         notes = dict(check_deck.read_deck(deck_out / "deck.dat"))
-        ok(len(notes) == 30, f"deck.dat holds {len(notes)} notes, wanted 30")
+        ok(len(notes) == 33, f"deck.dat holds {len(notes)} notes, wanted 33")
         headwords = {fields[0] for fields in notes.values()}
         ok("incontrovertible" in headwords, "a known headword is missing from deck.dat")
+
+        # The Barron's-shaped note type: field NAMES must win over position,
+        # or every answer face reads "V." instead of the definition.
+        abase = next(f for f in notes.values() if f[0] == "abase")
+        ok(abase[2] == "lower; humiliate", f"meaning took the wrong field: {abase[2]!r}")
+        ok(abase[3] == "V.", f"part of speech took the wrong field: {abase[3]!r}")
+        ok(abase[4].startswith("He refused"), f"sentence took the wrong field: {abase[4]!r}")
         ok(
             all("<img" not in f for fields in notes.values() for f in fields),
             "markup leaked into a converted field",
@@ -119,9 +126,9 @@ def main():
 
         # Scheduling state survived the export + convert round trip.
         cards = (deck_out / "cards.dat").read_bytes()
-        ok(len(cards) == 30 * 32, f"cards.dat is {len(cards)} bytes, wanted {30 * 32}")
+        ok(len(cards) == 33 * 32, f"cards.dat is {len(cards)} bytes, wanted {33 * 32}")
         with_state = 0
-        for i in range(30):
+        for i in range(33):
             stability = struct.unpack_from("<f", cards, i * 32 + 8)[0]
             if stability > 0:
                 with_state += 1
@@ -155,7 +162,7 @@ def main():
             f"legacy conversion failed:\n{result.stdout}\n{result.stderr}",
         )
         ok(
-            "30 cards" in result.stdout and "1 skipped" in result.stdout,
+            "33 cards" in result.stdout and "1 skipped" in result.stdout,
             f"legacy conversion counts wrong:\n{result.stdout}",
         )
         ok(

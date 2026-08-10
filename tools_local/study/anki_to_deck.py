@@ -96,21 +96,62 @@ PROFILES = {
 }
 
 
-# A note type nobody wrote a profile for still converts: its first field is the
-# word and its second the meaning, which is what Anki's own stock "Basic" is and
-# what most homemade types follow, since the first field is the one Anki sorts
-# and duplicates-checks by. On a two-template type ("Basic (and reversed card)")
-# the second card runs the other way, so its fields swap. --map overrides any of
-# this without editing source.
+# A note type nobody wrote a profile for still converts. Fields are claimed by
+# NAME first: a deck built as [Word, Part of Speech, Definition, Sentence]
+# says what each field is right there in its names, and the old positional
+# rule ("second field is the meaning") put "V." on the answer face of every
+# card in exactly that deck -- Barron's SAT list, one of the most-downloaded
+# vocabulary decks there is. Position remains the fallback for types named
+# like Anki's stock "Basic", whose first field is the word and second the
+# meaning (the first field is the one Anki sorts and duplicate-checks by).
+# On a two-template type ("Basic (and reversed card)") the second card runs
+# the other way, so its fields swap. --map overrides any of this.
 #
-# Cloze types are refused by name instead: the front of a cloze card is the text
-# with a hole in it, and this deck format has nowhere to put a hole.
+# Cloze types are refused by name instead: the front of a cloze card is the
+# text with a hole in it, and this deck format has nowhere to put a hole.
+#
+# Order matters within each pattern list: first match claims the field.
+FIELD_NAME_PATTERNS = {
+    "headword": ("word", "front", "question", "term", "expression", "vocab"),
+    "reading": ("reading", "pronunciation", "pinyin", "phonetic", "ipa"),
+    "meaning": ("definition", "meaning", "back", "answer", "translation"),
+    "partOfSpeech": ("part of speech", "partofspeech", "pos", "word type"),
+    "sentence": ("sentence", "example", "usage"),
+    "sentenceReading": ("sentence reading", "example reading"),
+    "sentenceMeaning": (
+        "sentence meaning",
+        "sentence translation",
+        "example translation",
+    ),
+}
+
+
 def generic_profile(fields_in_order, override=None):
     profile = {key: "" for key in FIELD_ORDER}
-    if fields_in_order:
-        profile["headword"] = fields_in_order[0]
-    if len(fields_in_order) > 1:
-        profile["meaning"] = fields_in_order[1]
+    claimed = set()
+
+    def claim(slot, field_name):
+        if not profile[slot] and field_name not in claimed:
+            profile[slot] = field_name
+            claimed.add(field_name)
+
+    for slot, patterns in FIELD_NAME_PATTERNS.items():
+        for pattern in patterns:
+            for field_name in fields_in_order:
+                if pattern in field_name.lower():
+                    claim(slot, field_name)
+                    break
+            if profile[slot]:
+                break
+
+    # Positional fallback for whatever names told us nothing: the first
+    # unclaimed field is the word, the next the meaning.
+    unclaimed = [f for f in fields_in_order if f not in claimed]
+    if not profile["headword"] and unclaimed:
+        claim("headword", unclaimed.pop(0))
+    if not profile["meaning"] and unclaimed:
+        claim("meaning", unclaimed.pop(0))
+
     if override:
         profile.update(override)
     return profile
@@ -649,7 +690,9 @@ def main():
     for pair in args.map or []:
         key, _, field = pair.partition("=")
         if key not in FIELD_ORDER or not field:
-            sys.exit(f"--map wants <slot>=<Anki field name>; slots: {', '.join(FIELD_ORDER)}")
+            sys.exit(
+                f"--map wants <slot>=<Anki field name>; slots: {', '.join(FIELD_ORDER)}"
+            )
         override[key] = field
 
     notes, skipped = collect_notes(db, args.deck, args.limit, override or None)
