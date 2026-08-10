@@ -2,6 +2,8 @@
 
 #include <Memory.h>
 
+#include <cstdlib>
+
 #include "../Shelf.h"
 #include "../ui/Toybox.h"
 #include "../ui/ToyboxFonts.h"
@@ -32,6 +34,23 @@ void YahtzeeActivity::goTo(const yz::Screen next) {
 void YahtzeeActivity::beginSoloGame() {
   yz::start(game, toybox::seed());
   seat = 0;
+#if defined(SIMULATOR)
+  // TEMP ART PASS: a reproducible mid-game card, so every layout candidate is
+  // judged on the same state. Deleted with the variant switch.
+  if (std::getenv("ART_DEMO") != nullptr) {
+    static const int8_t kYours[yz::kCategories] = {3, -1, 9, 16, -1, -1, -1, -1, 25, 30, -1, -1, -1};
+    static const int8_t kTheirs[yz::kCategories] = {-1, 6, -1, -1, 15, 18, 22, -1, -1, -1, -1, -1, 21};
+    for (int i = 0; i < yz::kCategories; ++i) {
+      game.card[seat].box[i] = kYours[i];
+      game.card[1 - seat].box[i] = kTheirs[i];
+    }
+    static const uint8_t kDice[yz::kDice] = {5, 5, 2, 5, 3};
+    for (int i = 0; i < yz::kDice; ++i) game.die[i] = kDice[i];
+    game.held = 0b01011;
+    game.rollsUsed = 1;
+    game.turn = 0;
+  }
+#endif
   goTo(yz::Screen::Card);
 }
 

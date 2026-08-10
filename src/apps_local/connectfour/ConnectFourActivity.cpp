@@ -3,6 +3,9 @@
 #include <Logging.h>
 #include <Memory.h>
 
+#include <cstdlib>
+#include <cstring>
+
 #include "../Shelf.h"
 #include "../ui/Toybox.h"
 #include "../ui/ToyboxFonts.h"
@@ -32,6 +35,25 @@ void ConnectFourActivity::goTo(const c4::Screen next) {
 void ConnectFourActivity::beginSoloGame() {
   c4::start(game);
   seat = c4::kLight;
+#if defined(SIMULATOR)
+  // TEMP ART PASS: a reproducible mid-game position, so every layout candidate
+  // is judged on the same board. Deleted with the variant switch. Column
+  // stacks, bottom first.
+  if (std::getenv("ART_DEMO") != nullptr) {
+    static const char* const kDemo[c4::kColumns] = {"D", "DL", "LDL", "DLD", "LDD", "DL", "L"};
+    for (int column = 0; column < c4::kColumns; ++column) {
+      for (int row = 0; row < c4::kRows; ++row) {
+        const char* stack = kDemo[column];
+        if (row < static_cast<int>(strlen(stack))) {
+          game.cell[column][row] = stack[row] == 'D' ? c4::kDark : c4::kLight;
+        } else {
+          game.cell[column][row] = c4::kEmpty;
+        }
+      }
+    }
+    game.turn = seat;
+  }
+#endif
   goTo(c4::Screen::Board);
 }
 
@@ -260,8 +282,10 @@ void ConnectFourActivity::gameRender() {
       // The winning line comes from the rules' own search, so the cells marked
       // ARE the cells that won rather than a second opinion about where they
       // were.
-      if (game.outcome == c4::Outcome::LightWins) c4::winningLine(game, c4::kLight, model.line);
-      else if (game.outcome == c4::Outcome::DarkWins) c4::winningLine(game, c4::kDark, model.line);
+      if (game.outcome == c4::Outcome::LightWins)
+        c4::winningLine(game, c4::kLight, model.line);
+      else if (game.outcome == c4::Outcome::DarkWins)
+        c4::winningLine(game, c4::kDark, model.line);
       model.opponentName = inMatch() ? opponentName() : nullptr;
       c4ui::buildResult(surface, model);
       break;

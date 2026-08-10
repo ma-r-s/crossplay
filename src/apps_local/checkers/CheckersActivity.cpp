@@ -2,6 +2,8 @@
 
 #include <Memory.h>
 
+#include <cstdlib>
+
 #include "../Shelf.h"
 #include "../ui/Toybox.h"
 #include "../ui/ToyboxFonts.h"
@@ -36,6 +38,39 @@ void CheckersActivity::clearPick() {
 void CheckersActivity::beginSoloGame() {
   ck::start(game);
   seat = ck::kLight;
+#if defined(SIMULATOR)
+  // TEMP ART PASS: a reproducible mid-game position with a compulsory capture
+  // live, so every layout candidate is judged on the same board. Deleted with
+  // the variant switch. rank 0 is dark's home row; l/L yours, d/D theirs.
+  if (std::getenv("ART_DEMO") != nullptr) {
+    static const char* const kDemo[ck::kSize] = {
+        ".d.d...d", "d.....d.", "...D....", "..d.....", "...l....", "l...l...", ".l.l...l", "..l.L...",
+    };
+    for (int rank = 0; rank < ck::kSize; ++rank) {
+      for (int file = 0; file < ck::kSize; ++file) {
+        uint8_t cell = ck::kEmpty;
+        switch (kDemo[rank][file]) {
+          case 'l':
+            cell = ck::kPiece;
+            break;
+          case 'L':
+            cell = ck::kPiece | ck::kKing;
+            break;
+          case 'd':
+            cell = ck::kPiece | ck::kDark;
+            break;
+          case 'D':
+            cell = ck::kPiece | ck::kDark | ck::kKing;
+            break;
+          default:
+            break;
+        }
+        game.cell[ck::indexOf(file, rank)] = cell;
+      }
+    }
+    game.turn = ck::kLight;
+  }
+#endif
   clearPick();
   goTo(ck::Screen::Board);
 }
