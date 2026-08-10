@@ -392,8 +392,33 @@ freeink::ui::Rect paint(GfxRenderer& renderer, toybox::Interactions& interaction
 void SeaSaltActivity::drawStartMenu() {
   const fui::Rect slot =
       paint(renderer, interactions, interactionsReady, seasaltui::buildStartMenu, startModel(), "SeaSalt menu");
-  // The menu's ornament: the four suits of the sea, from the game's own art.
-  drawLinkArt(Rect{slot.x, static_cast<int16_t>(slot.y + 40), slot.width, static_cast<int16_t>(slot.height - 80)});
+  fui::GfxRendererTarget target = toybox::makeTarget(renderer);
+
+  // THE DECK, Mario's pick of three rendered ornaments: the distribution card
+  // that ships in the real box -- every face and its count. The menu's dead
+  // middle becomes the one reference a player actually consults between
+  // rounds, and nothing else on the device shows it.
+  const int16_t rowH = 44;
+  const int16_t colW = static_cast<int16_t>(slot.width / 2);
+  const int16_t top = static_cast<int16_t>(slot.y + (slot.height - 7 * rowH) / 2);
+  fui::TextStyle name;
+  name.font = toybox::kSmallFont;
+  name.align = fui::TextAlign::Left;
+  fui::TextStyle count;
+  count.font = toybox::kSmallFont;
+  count.align = fui::TextAlign::Right;
+  for (int k = 0; k < seasalt::kKindCount; ++k) {
+    const int col = k / 7;
+    const int row = k % 7;
+    const int16_t x = static_cast<int16_t>(slot.x + col * colW + (col ? 14 : 0));
+    const int16_t y = static_cast<int16_t>(top + row * rowH);
+    target.bitmap(fui::makeRect(x, y + (rowH - 24) / 2, 24, 24), fui::bitmapFromIcon(seasaltui::kindIcon24(k)),
+                  fui::BitmapMode::Contain, fui::Paint::solid(fui::Color::Black));
+    target.text(fui::makeRect(x + 32, y, colW - 96, rowH), seasaltui::kindName(k), name);
+    char n[8];
+    std::snprintf(n, sizeof(n), "X%d", seasalt::kKindSupply[k]);
+    target.text(fui::makeRect(x + colW - 64, y, 50 - (col ? 14 : 0), rowH), n, count);
+  }
 }
 
 void SeaSaltActivity::drawBoard() {

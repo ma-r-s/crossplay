@@ -51,6 +51,11 @@ const freeink::Icon* const kIcon48[14] = {
     &icon_ss_shell_48,      &icon_ss_octopus_48, &icon_ss_penguin_48, &icon_ss_sailor_48,  &icon_ss_mermaid_48,
     &icon_ss_lighthouse_48, &icon_ss_shoal_48,   &icon_ss_nest_48,    &icon_ss_captain_48,
 };
+const freeink::Icon* const kIcon24[14] = {
+    &icon_ss_crab_24,       &icon_ss_boat_24,    &icon_ss_fish_24,    &icon_ss_swimmer_24, &icon_ss_shark_24,
+    &icon_ss_shell_24,      &icon_ss_octopus_24, &icon_ss_penguin_24, &icon_ss_sailor_24,  &icon_ss_mermaid_24,
+    &icon_ss_lighthouse_24, &icon_ss_shoal_24,   &icon_ss_nest_24,    &icon_ss_captain_24,
+};
 const freeink::Icon* const kIcon40[14] = {
     &icon_ss_crab_40,       &icon_ss_boat_40,    &icon_ss_fish_40,    &icon_ss_swimmer_40, &icon_ss_shark_40,
     &icon_ss_shell_40,      &icon_ss_octopus_40, &icon_ss_penguin_40, &icon_ss_sailor_40,  &icon_ss_mermaid_40,
@@ -100,10 +105,12 @@ void drawCardTile(toybox::Screen& screen, const fui::Rect& cell, const CardTile&
   const fui::Rect mark = fui::makeRect(cell.x + 7, cell.y + 7, markSize, markSize);
   blitIcon(screen, mark, *kColourMarks[tile.colour]);
 
-  char points[8];
-  std::snprintf(points, sizeof(points), "%d", tile.groupPoints);
-  target.text(fui::makeRect(cell.x, cell.y + 5, cell.width - 9, 24), points,
-              styled(toybox::kUiFont, fui::TextAlign::Right));
+  if (tile.groupPoints >= 0) {
+    char points[8];
+    std::snprintf(points, sizeof(points), "%d", tile.groupPoints);
+    target.text(fui::makeRect(cell.x, cell.y + 5, cell.width - 9, 24), points,
+                styled(toybox::kUiFont, fui::TextAlign::Right));
+  }
 
   const freeink::Icon& face = tall ? *kIcon48[tile.kind] : *kIcon40[tile.kind];
   const int16_t faceSize = tall ? 48 : 40;
@@ -189,6 +196,7 @@ void drawHintBox(toybox::Screen& screen, const fui::Rect& box, const char* text)
 const char* kindName(const int kind) { return kKindNames[kind]; }
 const freeink::Icon& colourMark(const int colour) { return *kColourMarks[colour]; }
 const freeink::Icon& kindIcon48(const int kind) { return *kIcon48[kind]; }
+const freeink::Icon& kindIcon24(const int kind) { return *kIcon24[kind]; }
 const freeink::Icon& kindIcon40(const int kind) { return *kIcon40[kind]; }
 
 // --- the front door ---------------------------------------------------------

@@ -197,5 +197,6 @@ const freeink::Icon& colourMark(int colour);
 // The face for a kind, at the two card cuts.
 const freeink::Icon& kindIcon48(int kind);
 const freeink::Icon& kindIcon40(int kind);
+const freeink::Icon& kindIcon24(int kind);
 
 }  // namespace seasaltui
