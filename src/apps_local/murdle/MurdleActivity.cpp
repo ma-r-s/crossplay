@@ -238,7 +238,12 @@ void MurdleActivity::loop() {
     return;
   }
 
-  if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
+  // wasReleased, not wasPressed, and the difference is a whole screen: this
+  // fired on the press edge and left to the folder, then the folder -- which
+  // listens for the release like every other screen -- consumed the same
+  // gesture's release and left again, so one Back from the Murdle menu landed
+  // on Home. Every other game listens for the release; now this one does too.
+  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     switch (view) {
       case View::Menu:
         flushSave();

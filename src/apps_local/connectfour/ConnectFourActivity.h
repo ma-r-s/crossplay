@@ -39,11 +39,31 @@ class ConnectFourActivity final : public linkplay::LinkActivity {
   void beginSoloGame();
   void takeOpponentTurn();
   void goTo(connectfour::Screen next);
+  // The last finished game and the running tally, for the menu's ornament.
+  // Written when a game ends, read once on entry -- knucklebones' pattern.
+  void recordResult();
+  void loadHistory();
 
   connectfour::Screen screen = connectfour::Screen::Menu;
   connectfour::Game game{};
   int howToPage = 0;
   int menuSelected = -1;
+
+  // What the menu draws instead of being three rows and white space. Kept here
+  // rather than in the core: the rules do not have a history, a device does.
+  bool hasHistory = false;
+  // 0 won, 1 lost, 2 draw, from this device's seat.
+  int lastOutcome = 2;
+  // Column-major, row 0 at the bottom, always from this device's perspective:
+  // kLight is always the seat this device played.
+  uint8_t lastCells[connectfour::kCells] = {};
+  // Flat indices (column * kRows + row) of the four that ended it, -1s on a
+  // draw.
+  int lastLine[connectfour::kLine] = {-1, -1, -1, -1};
+  int wins = 0;
+  int losses = 0;
+  int draws = 0;
+  bool resultRecorded = false;
   // Which colour this device plays. Light in a solo game; the coin toss decides
   // it in a match, and nothing else in the app has to learn seats exist.
   uint8_t seat = connectfour::kLight;

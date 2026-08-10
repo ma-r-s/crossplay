@@ -3,6 +3,7 @@
 #include <FreeInkUIIcon.h>
 
 #include <cstdio>
+#include <cstdlib>
 
 #include "../link/LinkScreens.h"
 #include "../ui/ToyboxIcons.h"
@@ -12,6 +13,27 @@ namespace yzui {
 namespace {
 
 namespace yz = yahtzee;
+
+// The header band with the offset rule under it, as jaipur and the dungeon
+// wear it. A local copy rather than a shared helper, for the reason
+// LinkScreens gives: a copy is cheaper than a header dependency between apps.
+void toyboxChrome(toybox::Screen& screen, const char* title, const char* rightLabel = nullptr) {
+  fui::HeaderProps header;
+  header.title = title;
+  header.rightLabel = rightLabel;
+  // rightLabel is drawn with subtitleText, and the theme's default is black on
+  // the black band. Jaipur paid for this discovery; see its toyboxChrome.
+  header.subtitleText = fui::TextStyle{};
+  header.subtitleText.font = toybox::kUiFont;
+  header.subtitleText.color = fui::Color::White;
+  header.subtitleText.align = fui::TextAlign::Right;
+  header.borderEdges = fui::EdgesNone;
+  screen.header(header);
+  const fui::Rect band = screen.device().screen();
+  screen.target().fill(fui::makeRect(0, toybox::kHeaderHeight + 4, band.width, toybox::kRule),
+                       fui::Paint::solid(fui::Color::Black));
+  screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
+}
 
 // The dice band, directly under the header.
 constexpr int16_t kDieSize = 62;
@@ -43,9 +65,13 @@ constexpr int kBonusLine = yz::kUpperEnd;
 constexpr int kTotalLine = yz::kCategories + 1;
 constexpr int kLines = yz::kCategories + 2;
 
-int16_t contentTop() { return static_cast<int16_t>(toybox::kHeaderHeight + toybox::kGutter); }
+// Four pixels shaved off each of the two gaps above the table, spent below
+// it: the TOTAL row ended eight pixels from the ROLL capsule and read as
+// touching it. The whole card lifts, so the row grid keeps its rhythm and
+// dieAt / categoryAt stay in step with the drawing by construction.
+int16_t contentTop() { return static_cast<int16_t>(toybox::kHeaderHeight + toybox::kGutter - 4); }
 int16_t tableTop() {
-  return static_cast<int16_t>(contentTop() + kDiceBandHeight + toybox::kGutter + kColumnHeaderHeight);
+  return static_cast<int16_t>(contentTop() + kDiceBandHeight + toybox::kGutter - 4 + kColumnHeaderHeight);
 }
 
 // A category's line in the table: itself, or one lower once the bonus line has
@@ -76,13 +102,13 @@ void drawDie(toybox::Screen& screen, const fui::Rect& box, const int face, const
   // printed. A table rather than six branches, so a wrong face is a wrong entry
   // rather than a wrong shape.
   static const uint16_t kPips[7] = {
-      0,           // unused
-      0b000010000, // 1
-      0b100000001, // 2
-      0b100010001, // 3
-      0b101000101, // 4
-      0b101010101, // 5
-      0b101101101, // 6
+      0,            // unused
+      0b000010000,  // 1
+      0b100000001,  // 2
+      0b100010001,  // 3
+      0b101000101,  // 4
+      0b101010101,  // 5
+      0b101101101,  // 6
   };
   const int16_t xs[3] = {left, mid, right};
   const int16_t ys[3] = {top, centre, bottom};
@@ -114,7 +140,7 @@ void drawDie(toybox::Screen& screen, const fui::Rect& box, const int face, const
 
 const char* categoryName(const int index) {
   static const char* const kNames[yz::kCategories] = {
-      "ONES", "TWOS", "THREES", "FOURS", "FIVES", "SIXES", "THREE OF A KIND",
+      "ONES",           "TWOS",       "THREES",         "FOURS",          "FIVES",   "SIXES",  "THREE OF A KIND",
       "FOUR OF A KIND", "FULL HOUSE", "SMALL STRAIGHT", "LARGE STRAIGHT", "YAHTZEE", "CHANCE",
   };
   return kNames[index];
@@ -210,14 +236,24 @@ int categoryAt(const fui::DeviceContext& device, const int x, const int y) {
   return line < kBonusLine ? line : line - 1;
 }
 
-int howToPages() { return 3; }
+// Four pages: the fourth is the one the first version never said -- what the
+// lower boxes pay, and the Joker the card silently enforces.
+int howToPages() { return 4; }
 
 void buildMenu(toybox::Screen& screen, const MenuModel& model) {
-  fui::HeaderProps header;
-  header.title = "YAHTZEE";
-  header.borderEdges = fui::EdgesNone;
-  screen.header(header);
-  screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
+  toyboxChrome(screen, "YAHTZEE");
+
+  // The front door in the documented band order: record, rule, the personal
+  // best and the hand that earned it as the ornament, doors anchored bottom.
+  char record[48];
+  std::snprintf(record, sizeof(record), "%d PLAYED   %d WON", model.played, model.won);
+  const fui::Rect line = screen.takeTop(26);
+  fui::TextStyle small;
+  small.font = toybox::kTileFont;
+  small.align = fui::TextAlign::Left;
+  screen.target().text(line, record, small);
+  screen.target().fill(fui::makeRect(line.x, static_cast<int16_t>(line.bottom() + 6), line.width, toybox::kRule),
+                       fui::Paint::solid(fui::Color::Black));
 
   fui::ListItem rows[static_cast<int>(MenuRow::Count)] = {};
   rows[static_cast<int>(MenuRow::Play)].label = "PLAY";
@@ -228,26 +264,126 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   rows[static_cast<int>(MenuRow::HowTo)].label = "HOW TO PLAY";
   rows[static_cast<int>(MenuRow::HowTo)].actionValue = static_cast<int16_t>(MenuRow::HowTo);
 
+  // Row 0 reads selected by default, jaipur's own trick: the most likely tap
+  // is also the loudest thing below the rule.
+  const int selected = model.selected < 0 ? 0 : model.selected;
   fui::ListProps list;
   list.items = rows;
   list.count = static_cast<uint16_t>(MenuRow::Count);
-  list.selectedIndex = static_cast<int16_t>(model.selected);
+  list.selectedIndex = static_cast<int16_t>(selected);
   list.action = ActionMenuRow;
-  const fui::Rect band = screen.body();
-  screen.list(list);
+  const int count = static_cast<int>(MenuRow::Count);
+  const int16_t listHeight =
+      static_cast<int16_t>(count * toybox::kRowHeight + (count - 1) * toybox::kGutter / 2 + toybox::kGutter);
+  const fui::Rect content = screen.contentRect();
+  const fui::Rect listBand =
+      fui::makeRect(content.x, static_cast<int16_t>(content.bottom() - listHeight), content.width, listHeight);
+  screen.list(list, listHeight, fui::LayoutAnchor::Bottom);
+  toybox::iconAtRowRight(screen, listBand, static_cast<int>(MenuRow::PlayNearby), 0, linkui::nearbyMark(),
+                         selected == static_cast<int>(MenuRow::PlayNearby));
 
-  toybox::iconAtRowRight(screen, band, static_cast<int>(MenuRow::PlayNearby), 0, linkui::nearbyMark(),
-                         model.selected == static_cast<int>(MenuRow::PlayNearby));
+  if (model.played == 0) return;
+
+  // The ornament: the personal best big, and -- once one exists -- the hand of
+  // the most recent Yahtzee under it. Data the device actually holds; a fresh
+  // device shows only its record line and the doors, honestly empty.
+  const fui::DeviceContext device = screen.device();
+  const bool hasHand = model.yahtzees > 0 && model.yahtzeeFace >= 1 && model.yahtzeeFace <= yz::kFaces;
+  const int16_t blockH = static_cast<int16_t>(24 + 64 + (hasHand ? 18 + kDieSize + 14 + 24 : 0));
+  const int16_t areaTop = static_cast<int16_t>(line.bottom() + 6 + toybox::kRule);
+  const int16_t room = static_cast<int16_t>(listBand.y - areaTop);
+  const int16_t blockTop = static_cast<int16_t>(areaTop + (room > blockH ? (room - blockH) / 2 : 12));
+
+  fui::TextStyle label;
+  label.font = toybox::kTileFont;
+  label.align = fui::TextAlign::Center;
+  screen.target().text(fui::makeRect(content.x, blockTop, content.width, 24), "PERSONAL BEST", label);
+
+  char bestText[8];
+  std::snprintf(bestText, sizeof(bestText), "%d", model.best);
+  fui::TextStyle big;
+  big.font = toybox::kDisplayFont;
+  big.align = fui::TextAlign::Center;
+  screen.target().text(fui::makeRect(content.x, static_cast<int16_t>(blockTop + 28), content.width, 64), bestText, big);
+
+  if (!hasHand) return;
+
+  const int16_t diceTop = static_cast<int16_t>(blockTop + 28 + 64 + 18);
+  for (int i = 0; i < yz::kDice; ++i) {
+    const fui::Rect box =
+        fui::makeRect(static_cast<int16_t>(diceLeft(device) + i * (kDieSize + kDieGap)), diceTop, kDieSize, kDieSize);
+    drawDie(screen, box, model.yahtzeeFace, false);
+  }
+  char capText[32];
+  std::snprintf(capText, sizeof(capText), "%d YAHTZEES ROLLED", model.yahtzees);
+  fui::TextStyle cap;
+  cap.font = toybox::kTileFont;
+  cap.align = fui::TextAlign::Center;
+  screen.target().text(fui::makeRect(content.x, static_cast<int16_t>(diceTop + kDieSize + 14), content.width, 24),
+                       capText, cap);
 }
+
+namespace {
+
+// The page's picture: a hand of dice for the first three, the pay table for
+// the fourth. `top` is the diagram's own top edge; returns its height.
+int16_t howToDiagram(toybox::Screen& screen, const int16_t top, const int page) {
+  const fui::DeviceContext device = screen.device();
+  if (page < 3) {
+    // Real dice at the real size: a hand being kept, then the hand that hand
+    // becomes, then a top-half run worth the bonus.
+    static const uint8_t kFaces[3][yz::kDice] = {{5, 5, 2, 5, 3}, {5, 5, 5, 5, 1}, {4, 4, 4, 4, 4}};
+    static const uint8_t kHeld[3] = {0b01011, 0b01111, 0b11111};
+    for (int i = 0; i < yz::kDice; ++i) {
+      const fui::Rect box =
+          fui::makeRect(static_cast<int16_t>(diceLeft(device) + i * (kDieSize + kDieGap)), top, kDieSize, kDieSize);
+      drawDie(screen, box, kFaces[page][i], (kHeld[page] & (1 << i)) != 0);
+    }
+    return kDieSize;
+  }
+
+  // The pay table, name left, value right, the card's own hairline between
+  // rows.
+  static const char* const kNames[7] = {"THREE OF A KIND", "FOUR OF A KIND", "FULL HOUSE", "SMALL STRAIGHT",
+                                        "LARGE STRAIGHT",  "YAHTZEE",        "CHANCE"};
+  static const char* const kValues[7] = {"ALL FIVE DICE", "ALL FIVE DICE", "25", "30", "40", "50", "ALL FIVE DICE"};
+  constexpr int16_t kRowH = 32;
+  const int16_t width = static_cast<int16_t>(device.width - toybox::kMargin * 2);
+  fui::TextStyle nameStyle;
+  nameStyle.font = toybox::kTileFont;
+  nameStyle.align = fui::TextAlign::Left;
+  fui::TextStyle valueStyle;
+  valueStyle.font = toybox::kTileFont;
+  valueStyle.align = fui::TextAlign::Right;
+  for (int i = 0; i < 7; ++i) {
+    const int16_t rowY = static_cast<int16_t>(top + i * kRowH);
+    screen.target().text(fui::makeRect(toybox::kMargin, rowY, 260, kRowH), kNames[i], nameStyle);
+    screen.target().text(fui::makeRect(toybox::kMargin, rowY, width, kRowH), kValues[i], valueStyle);
+    if (i > 0) {
+      screen.target().fill(fui::makeRect(toybox::kMargin, static_cast<int16_t>(rowY - 2), width, toybox::kHairline),
+                           fui::Paint::dither(fui::Color::DarkGray));
+    }
+  }
+  return kRowH * 7;
+}
+
+const char* const kHowToLines[] = {
+    "ROLL FIVE DICE. TAP THE ONES YOU WANT TO KEEP AND ROLL AGAIN, UP TO THREE ROLLS.",
+    "THEN PUT THE HAND IN ONE BOX ON YOUR CARD. EVERY BOX IS USED EXACTLY ONCE.",
+    "SIXTY-THREE IN THE TOP HALF EARNS THIRTY-FIVE MORE. THIRTEEN TURNS EACH.",
+    "A SECOND YAHTZEE SCORES 100 MORE, AND MAY FORCE THE ONE MARKED BOX.",
+};
+
+}  // namespace
 
 void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
   const int page = model.page < 0 ? 0 : (model.page >= howToPages() ? howToPages() - 1 : model.page);
 
-  fui::HeaderProps header;
-  header.title = "HOW TO PLAY";
-  header.borderEdges = fui::EdgesNone;
-  screen.header(header);
-  screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
+  // The page counter lives in the black band, jaipur's way, so it costs no
+  // body space; the diagram centres in the room that frees.
+  char progress[16];
+  std::snprintf(progress, sizeof(progress), "%d OF %d", page + 1, howToPages());
+  toyboxChrome(screen, "HOW TO PLAY", progress);
 
   fui::ButtonProps next;
   next.label = page + 1 < howToPages() ? "NEXT" : "GOT IT";
@@ -255,35 +391,18 @@ void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
   screen.button(next, screen.takeBottom(toybox::kPillHeight, toybox::kGutter));
 
   const fui::Rect area = screen.body();
-  char progress[8];
-  std::snprintf(progress, sizeof(progress), "%d/%d", page + 1, howToPages());
-  fui::TextStyle counter;
-  counter.font = toybox::kSmallFont;
-  counter.align = fui::TextAlign::Right;
-  screen.target().text(fui::makeRect(area.x, area.y, area.width, 20), progress, counter);
 
-  static const char* const kLines[] = {
-      "ROLL FIVE DICE. TAP THE ONES YOU WANT TO KEEP AND ROLL AGAIN, UP TO THREE ROLLS.",
-      "THEN PUT THE HAND IN ONE BOX ON YOUR CARD. EVERY BOX IS USED EXACTLY ONCE.",
-      "SIXTY-THREE IN THE TOP HALF EARNS THIRTY-FIVE MORE. THIRTEEN TURNS EACH.",
-  };
   fui::TextStyle body;
   body.font = toybox::kBodyFont;
   body.align = fui::TextAlign::Center;
   body.maxLines = 4;
-  screen.target().text(fui::makeRect(area.x, static_cast<int16_t>(area.y + 24), area.width, 150), kLines[page], body);
+  screen.target().text(fui::makeRect(area.x, area.y, area.width, 200), kHowToLines[page], body);
 
-  // Real dice at the real size, showing the page: a hand being kept, then the
-  // hand that hand becomes, then a top-half run worth the bonus.
-  static const uint8_t kFaces[3][yz::kDice] = {{5, 5, 2, 5, 3}, {5, 5, 5, 5, 1}, {4, 4, 4, 4, 4}};
-  static const uint8_t kHeld[3] = {0b01011, 0b01111, 0b11111};
-  const fui::DeviceContext device = screen.device();
-  const int16_t top = static_cast<int16_t>(area.y + 210);
-  for (int i = 0; i < yz::kDice; ++i) {
-    const fui::Rect box =
-        fui::makeRect(static_cast<int16_t>(diceLeft(device) + i * (kDieSize + kDieGap)), top, kDieSize, kDieSize);
-    drawDie(screen, box, kFaces[page][i], (kHeld[page] & (1 << i)) != 0);
-  }
+  const int16_t bandTop = static_cast<int16_t>(area.y + 210);
+  const int16_t height = page < 3 ? kDieSize : 32 * 7;
+  int16_t top = static_cast<int16_t>(bandTop + (area.bottom() - bandTop - height) / 2);
+  if (top < bandTop) top = bandTop;
+  howToDiagram(screen, top, page);
 }
 
 void buildCard(toybox::Screen& screen, const CardModel& model) {
@@ -346,10 +465,9 @@ void buildCard(toybox::Screen& screen, const CardModel& model) {
     fui::TextStyle prompt;
     prompt.font = toybox::kBodyFont;
     prompt.align = fui::TextAlign::Center;
-    screen.target().text(
-        fui::makeRect(toybox::kMargin, static_cast<int16_t>(contentTop() + kDiceBandHeight / 2 - 12),
-                      static_cast<int16_t>(device.width - toybox::kMargin * 2), 26),
-        model.yourTurn ? "ROLL TO START YOUR TURN" : "THEY ARE ROLLING", prompt);
+    screen.target().text(fui::makeRect(toybox::kMargin, static_cast<int16_t>(contentTop() + kDiceBandHeight / 2 - 12),
+                                       static_cast<int16_t>(device.width - toybox::kMargin * 2), 26),
+                         model.yourTurn ? "ROLL TO START YOUR TURN" : "THEY ARE ROLLING", prompt);
   }
 
   // Column headers.
@@ -439,9 +557,9 @@ void buildCard(toybox::Screen& screen, const CardModel& model) {
 
   // The totals, under a rule, in the heavier face.
   const int16_t totalY = static_cast<int16_t>(tableTop() + kTotalLine * kLineHeight);
-  screen.target().fill(fui::makeRect(toybox::kMargin, totalY, static_cast<int16_t>(device.width - toybox::kMargin * 2),
-                                     toybox::kRule),
-                       fui::Paint::solid(fui::Color::Black));
+  screen.target().fill(
+      fui::makeRect(toybox::kMargin, totalY, static_cast<int16_t>(device.width - toybox::kMargin * 2), toybox::kRule),
+      fui::Paint::solid(fui::Color::Black));
   fui::TextStyle totalName;
   totalName.font = toybox::kBodyFont;
   totalName.align = fui::TextAlign::Left;

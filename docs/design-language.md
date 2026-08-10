@@ -4,7 +4,7 @@ The visual language for this fork's apps. Not for the reader: that is upstream's
 craft and upstream's frozen theme surface. This governs `src/apps_local/` only.
 The vocabulary lives in [`src/apps_local/ui/Toybox.h`](../src/apps_local/ui/Toybox.h).
 
-For what the fork *is* and how it talks about itself -- the layer above this
+For what the fork _is_ and how it talks about itself -- the layer above this
 one, and the one that governs anything the public sees -- read
 [`identity.md`](identity.md).
 
@@ -211,7 +211,7 @@ tell -- a symptom that survives every variant is not a variant problem.
 The same defect then explained every weak hairstyle. An outlined cap traces the
 skull, so its lower edge is a second line parallel to the first, and it reads as
 a **headband** rather than as hair. The only outlined styles that ever worked
-(spikes, tufts, a mohawk) worked because they *broke* the silhouette instead of
+(spikes, tufts, a mohawk) worked because they _broke_ the silhouette instead of
 tracing it. Every hairstyle is now solid, which does both and is the only
 treatment that survives the 48px row size.
 
@@ -436,5 +436,9 @@ no extra tap.
   it without argument (record line, rule, ornament, bottom-anchored doors), and
   the ornament rule survived contact with a game whose material is a grid --
   the menu draws the shots you fired in the game you just played, so it is
-  different every time and identical on nobody else's device. What is still
-  untested is whether it holds for a game with no persistent record at all.
+  different every time and identical on nobody else's device. The 2026-08-10
+  art pass settled the remaining question: it does NOT hold for a game with no
+  record, and the honest fix is the record, not the pattern. Checkers, Connect
+  Four and Yahtzee had byte-identical empty menus because they saved nothing;
+  each got a one-line .sav (knucklebones' shape) and the pattern then carried
+  all five games of that pass, Minesweeper included, without adjustment.

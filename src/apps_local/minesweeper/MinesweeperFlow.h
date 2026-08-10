@@ -66,13 +66,12 @@ constexpr Screen back(const Screen screen) {
 
 constexpr bool leavesApp(const Screen screen) { return screen == Screen::Menu; }
 
-// Whether a tap on the board can do anything at all right now. The board is
-// still drawn when it cannot -- a finished game is the thing you want to look
-// at -- but it stops accepting.
-inline bool boardAccepts(const Game& game) { return !over(game); }
-
-// The screen a game's own status implies, so the activity never decides this
-// twice. Derived from the rules rather than tracked beside them.
-inline Screen screenFor(const Game& game) { return over(game) ? Screen::Result : Screen::Board; }
+// A settled game does NOT imply the Result screen. The board stays, mines
+// bared, wearing the verdict as its capsule; Result is a door the player
+// takes from there. The first version navigated away on the next tick, so
+// the finished minefield -- the thing you want to look at -- flashed for
+// under a repaint and vanished, and Mario called the ending anticlimactic.
+// (Two helpers that codified the old rule, screenFor and boardAccepts, were
+// defined here and never called from anywhere; they are gone.)
 
 }  // namespace minesweeper

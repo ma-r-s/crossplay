@@ -76,8 +76,10 @@ inline int evaluate(const Game& game, const uint8_t side) {
 
   for (int column = 0; column < kColumns; ++column) {
     for (int row = 0; row < kRows; ++row) {
-      if (game.cell[column][row] == side) score += kLinesThrough[column];
-      else if (game.cell[column][row] == enemy) score -= kLinesThrough[column];
+      if (game.cell[column][row] == side)
+        score += kLinesThrough[column];
+      else if (game.cell[column][row] == enemy)
+        score -= kLinesThrough[column];
     }
   }
 
@@ -93,9 +95,12 @@ inline int evaluate(const Game& game, const uint8_t side) {
         int empty = 0;
         for (int step = 0; step < kLine; ++step) {
           const uint8_t cell = game.cell[column + dir[0] * step][row + dir[1] * step];
-          if (cell == side) ++mine;
-          else if (cell == enemy) ++theirs;
-          else ++empty;
+          if (cell == side)
+            ++mine;
+          else if (cell == enemy)
+            ++theirs;
+          else
+            ++empty;
         }
         score += windowScore(mine, theirs, empty);
       }
@@ -112,8 +117,8 @@ constexpr int kSearchOrder[kColumns] = {3, 2, 4, 1, 5, 0, 6};
 inline int negamax(Game game, const uint8_t side, const int depth, int alpha, const int beta) {
   if (game.outcome != Outcome::Running) {
     if (game.outcome == Outcome::Draw) return 0;
-    const bool sideWon = (game.outcome == Outcome::LightWins && side == kLight) ||
-                         (game.outcome == Outcome::DarkWins && side == kDark);
+    const bool sideWon =
+        (game.outcome == Outcome::LightWins && side == kLight) || (game.outcome == Outcome::DarkWins && side == kDark);
     // Deeper wins score lower, so a mate in one is preferred to a mate in five
     // and a loss is postponed as long as possible. Without this the brain finds
     // a win and then wanders, because every winning line scores the same.
@@ -151,10 +156,10 @@ inline int chooseColumn(const Game& game) {
     Game next = game;
     drop(next, column);
     const int score = -negamax(next, other(side), kDepth - 1, -kWinScore * 2, kWinScore * 2);
-    const bool better = bestColumn == kNoColumn || score > bestScore ||
-                        (score == bestScore && kLinesThrough[column] > kLinesThrough[bestColumn]) ||
-                        (score == bestScore && kLinesThrough[column] == kLinesThrough[bestColumn] &&
-                         column < bestColumn);
+    const bool better =
+        bestColumn == kNoColumn || score > bestScore ||
+        (score == bestScore && kLinesThrough[column] > kLinesThrough[bestColumn]) ||
+        (score == bestScore && kLinesThrough[column] == kLinesThrough[bestColumn] && column < bestColumn);
     if (better) {
       bestColumn = column;
       bestScore = score;

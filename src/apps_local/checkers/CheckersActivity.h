@@ -40,11 +40,28 @@ class CheckersActivity final : public linkplay::LinkActivity {
   void takeOpponentTurn();
   void goTo(checkers::Screen next);
   void clearPick();
+  // The last finished game and the running tally, for the menu's ornament.
+  // Written when a game ends, read once on entry -- knucklebones' pattern.
+  void recordResult();
+  void loadHistory();
 
   checkers::Screen screen = checkers::Screen::Menu;
   checkers::Game game{};
   int howToPage = 0;
   int menuSelected = -1;
+
+  // What the menu draws instead of being three rows and white space. Kept here
+  // rather than in the core: the rules do not have a history, a device does.
+  bool hasHistory = false;
+  // 0 won, 1 lost, 2 draw, from this device's seat.
+  int lastOutcome = 2;
+  uint8_t lastCells[checkers::kCells] = {};
+  int lastYourPieces = 0;
+  int lastTheirPieces = 0;
+  int wins = 0;
+  int losses = 0;
+  int draws = 0;
+  bool resultRecorded = false;
   // Which seat this device plays. Light in a solo game; the coin toss decides
   // it in a match, and nothing else in the app has to learn seats exist.
   uint8_t seat = checkers::kLight;
