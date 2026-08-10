@@ -4,6 +4,7 @@
 
 #include "../link/LinkScreens.h"
 #include "SeaSaltArt.h"
+#include "SeaSaltCore.h"
 #include "SeaSaltMarks.h"
 
 namespace seasaltui {
@@ -142,7 +143,7 @@ void drawCardTile(toybox::Screen& screen, const fui::Rect& cell, const CardTile&
   }
 
   char census[12];
-  std::snprintf(census, sizeof(census), "%d OF %d", tile.held, tile.supply);
+  std::snprintf(census, sizeof(census), "X%d", tile.supply);
   target.text(fui::makeRect(cell.x, censusTop, cell.width, 16), census,
               styled(toybox::kSmallFont, fui::TextAlign::Center));
 }
@@ -163,7 +164,9 @@ void drawPileTile(toybox::Screen& screen, const fui::Rect& cell, const PileTile&
   target.text(fui::makeRect(cell.x, cell.y + 5, cell.width - 8, 24), depth,
               styled(toybox::kUiFont, fui::TextAlign::Right));
   blitIcon(screen, fui::makeRect(cell.x + (cell.width - 40) / 2, cell.y + 26, 40, 40), *kIcon40[pile.kind]);
-  target.text(fui::makeRect(cell.x, cell.y + cell.height - 22, cell.width, 18), kKindNames[pile.kind],
+  char pileLine[20];
+  std::snprintf(pileLine, sizeof(pileLine), "%s X%d", kKindNames[pile.kind], seasalt::kKindSupply[pile.kind]);
+  target.text(fui::makeRect(cell.x, cell.y + cell.height - 23, cell.width, 16), pileLine,
               styled(toybox::kSmallFont, fui::TextAlign::Center));
 }
 
@@ -571,13 +574,11 @@ void buildTutorial(toybox::Screen& screen, const TutorialModel& model) {
     target.text(fui::makeRect(body.x, static_cast<int16_t>(body.y + y), body.width, 18), text,
                 styled(toybox::kSmallFont, fui::TextAlign::Center));
   };
-  auto tile = [&](const int16_t x, const int16_t y, const int kind, const int colour, const int held, const int supply,
-                  const int pts) {
+  auto tile = [&](const int16_t x, const int16_t y, const int kind, const int colour, const int supply, const int pts) {
     CardTile t;
     t.kind = static_cast<uint8_t>(kind);
     t.colour = static_cast<uint8_t>(colour);
     t.groupPoints = static_cast<int8_t>(pts);
-    t.held = static_cast<uint8_t>(held);
     t.supply = static_cast<uint8_t>(supply);
     drawCardTile(screen, fui::makeRect(static_cast<int16_t>(body.x + x), static_cast<int16_t>(body.y + y), 104, 125),
                  t);
@@ -588,23 +589,23 @@ void buildTutorial(toybox::Screen& screen, const TutorialModel& model) {
       caption(10, "TAKE ONE CARD A TURN.");
       small(52, "DRAW TWO AND KEEP ONE,");
       small(74, "OR TAKE THE TOP OF A DISCARD PILE.");
-      tile(64, 100, 1, 0, 1, 8, 0);
-      tile(280, 100, 2, 2, 1, 7, 0);
+      tile(64, 100, 1, 0, 8, 0);
+      tile(280, 100, 2, 2, 7, 0);
       small(250, "FIRST TO 40 POINTS WINS THE GAME.");
       break;
     case 1:
       caption(10, "PAIRS HAVE POWERS.");
-      tile(10, 44, 1, 0, 2, 8, 1);
+      tile(10, 44, 1, 0, 8, 1);
       small(180, "TWO BOATS: TAKE ANOTHER TURN.");
-      tile(122, 210, 2, 2, 2, 7, 1);
+      tile(122, 210, 2, 2, 7, 1);
       small(346, "TWO FISH: DRAW A CARD.");
-      tile(240, 376, 0, 4, 2, 9, 1);
+      tile(240, 376, 0, 4, 9, 1);
       small(512, "TWO CRABS: DIG THROUGH A PILE.");
       break;
     case 2:
       caption(10, "SWIMMER AND SHARK HUNT TOGETHER.");
-      tile(110, 50, 3, 1, 1, 5, 0);
-      tile(230, 50, 4, 3, 1, 5, 0);
+      tile(110, 50, 3, 1, 5, 0);
+      tile(230, 50, 4, 3, 5, 0);
       small(200, "PLAY BOTH: STEAL A RANDOM CARD");
       small(222, "FROM THEIR HAND.");
       small(266, "A PAIR IS A POINT WHETHER YOU");
@@ -612,10 +613,10 @@ void buildTutorial(toybox::Screen& screen, const TutorialModel& model) {
       break;
     case 3:
       caption(10, "COLLECTORS GROW.");
-      tile(10, 50, 5, 0, 2, 6, 2);
-      tile(124, 50, 6, 1, 2, 5, 3);
-      tile(238, 50, 7, 6, 2, 3, 3);
-      tile(352, 50, 8, 9, 2, 2, 5);
+      tile(10, 50, 5, 0, 6, 2);
+      tile(124, 50, 6, 1, 5, 3);
+      tile(238, 50, 7, 6, 3, 3);
+      tile(352, 50, 8, 9, 2, 5);
       small(200, "SHELLS 0-2-4-6-8-10. TURTLES 0-3-6-9-12.");
       small(222, "GULLS 1-3-5. SAILORS 0 THEN 5.");
       small(266, "ONE-OFF CARDS MULTIPLY THEM:");
@@ -624,7 +625,7 @@ void buildTutorial(toybox::Screen& screen, const TutorialModel& model) {
       break;
     case 4:
       caption(10, "MERMAIDS COUNT COLOURS.");
-      tile(184, 50, 9, 5, 1, 4, 0);
+      tile(184, 50, 9, 5, 4, 0);
       small(200, "EACH MERMAID SCORES YOUR BIGGEST");
       small(222, "COLOUR GROUP. EACH TAKES A NEW COLOUR.");
       small(266, "HOLD ALL FOUR: YOU WIN ON THE SPOT.");

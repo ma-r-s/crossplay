@@ -66,8 +66,9 @@ struct CardTile {
   // pair's 1, two turtles show their 3. The census already carries the count,
   // so the corner number answers "what is this worth", not "how many".
   int8_t groupPoints = 0;
-  uint8_t held = 0;    // how many of this kind the holder has
-  uint8_t supply = 0;  // how many exist in the deck
+  // How many of this kind exist in the deck, printed as X9: the held count
+  // is the tiles themselves -- you can see how many crabs you hold.
+  uint8_t supply = 0;
   bool selected = false;
 };
 

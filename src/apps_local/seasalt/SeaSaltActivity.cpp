@@ -232,7 +232,6 @@ seasaltui::CardTile SeaSaltActivity::tileFor(const uint8_t card, const int forSe
   tile.kind = static_cast<uint8_t>(seasalt::kindOf(card));
   tile.colour = static_cast<uint8_t>(seasalt::colourOf(card));
   tile.groupPoints = static_cast<int8_t>(groupPoints(card, forSeat));
-  tile.held = static_cast<uint8_t>(game.countHeld(forSeat, seasalt::kindOf(card)));
   tile.supply = seasalt::kKindSupply[tile.kind];
   tile.selected = selected;
   return tile;
@@ -285,9 +284,7 @@ seasaltui::BoardModel SeaSaltActivity::boardModel() {
   if (tab == 0 && myTurn() && step == Step::ChooseKeep) {
     for (int i = 0; i < 2; ++i) {
       if (game.drawn[i] == seasalt::kNoCard) continue;
-      seasaltui::CardTile tile = tileFor(game.drawn[i], seat, false);
-      tile.held += 1;  // the census previews what keeping it makes
-      model.tiles[model.tileCount++] = tile;
+      model.tiles[model.tileCount++] = tileFor(game.drawn[i], seat, false);
     }
     model.pages = 1;
     model.page = 0;
