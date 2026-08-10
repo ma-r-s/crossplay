@@ -16,14 +16,14 @@
 #include "../../src/apps_local/ShelfScreen.h"
 #include "../../src/apps_local/battleship/BattleshipScreens.h"
 #include "../../src/apps_local/checkers/CheckersScreens.h"
-#include "../../src/apps_local/knucklebones/KnucklebonesScreens.h"
-#include "../../src/apps_local/minesweeper/MinesweeperScreens.h"
-#include "../../src/apps_local/connectfour/ConnectFourScreens.h"
 #include "../../src/apps_local/chess/ChessScreens.h"
+#include "../../src/apps_local/connectfour/ConnectFourScreens.h"
 #include "../../src/apps_local/connections/ConnectionsScreens.h"
 #include "../../src/apps_local/hackernews/HackerNewsScreens.h"
 #include "../../src/apps_local/insider/InsiderScreens.h"
+#include "../../src/apps_local/knucklebones/KnucklebonesScreens.h"
 #include "../../src/apps_local/link/LinkScreens.h"
+#include "../../src/apps_local/minesweeper/MinesweeperScreens.h"
 #include "../../src/apps_local/murdle/MurdleScreens.h"
 #include "../../src/apps_local/murdle/MurdleText.h"
 #include "../../src/apps_local/player/PlayerAvatar.h"
@@ -1477,7 +1477,7 @@ void buildHnNotice(Rendered& out, const hnui::NoticeModel& model) {
 
 hnui::ReaderModel articleModel() {
   hnui::ReaderModel model;
-  model.title = "ARTICLE";
+  model.title = "A tiny e-ink game console";
   model.text = "Some words that go on for a while and wrap onto more than one line of the panel.";
   model.pageLabel = "1/3";
   model.showingComments = false;
@@ -1637,6 +1637,16 @@ void testHnReaderShowsWhereYouAre() {
     if (run.text == "3/12" && run.color == fui::Color::White) paperOnTheBand = true;
   }
   CHECK(paperOnTheBand);
+
+  // The band carries the story's own headline, in paper for the same reason,
+  // and in its own case: a title is content, not chrome. The mode word the
+  // band used to shout belongs to the footer's swap button alone.
+  bool headlineOnTheBand = false;
+  for (const auto& run : out.target.texts) {
+    if (run.text == "A tiny e-ink game console" && run.color == fui::Color::White) headlineOnTheBand = true;
+  }
+  CHECK(headlineOnTheBand);
+  CHECK(!drewText(out, "ARTICLE"));
 }
 
 void testHnFitLines() {
@@ -2443,7 +2453,6 @@ void testMurdleMenuHeadlineIsTheDoorAcrossItsWidth() {
   CHECK(out.target.drew("NEW CASE"));
   CHECK(!out.interactions.overflowed());
 }
-
 
 // --- connect four ----------------------------------------------------------
 

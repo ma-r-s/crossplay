@@ -114,8 +114,9 @@ finding that mattered came with a mutant or a number, not an opinion.
 **A test that asserts a thing was drawn cannot tell you it was visible.** The
 how-to's page counter went in as the header's `rightLabel`; the host test
 asserting it was drawn passed, and the panel showed nothing, because it renders
-black on the black header band. Same class as the known-failing `paperOnTheBand`
-test. It is drawn in the body now.
+black on the black header band. Same class as `paperOnTheBand`, the pin that
+stayed red until the HN reader styled the right slot. It is drawn in the body
+now.
 
 **Arithmetic that overflows a panel does not complain.** The first board layout
 totalled 812px against 800: the opponent's column scores drew behind the header
