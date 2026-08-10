@@ -211,8 +211,7 @@ inline uint8_t chooseHold(const Card& card, const uint8_t* die) {
     // would NOT give that -- 0b00011 keeps two dice and sorts before 0b00100,
     // which keeps one -- so the popcount has to be compared explicitly. Without
     // it the comment would have been describing something the loop does not do.
-    if (!seen || value > bestValue ||
-        (value == bestValue && __builtin_popcount(mask) < __builtin_popcount(bestMask))) {
+    if (!seen || value > bestValue || (value == bestValue && __builtin_popcount(mask) < __builtin_popcount(bestMask))) {
       seen = true;
       bestValue = value;
       bestMask = mask;

@@ -23,6 +23,13 @@ enum class MenuRow : int { Play = 0, PlayNearby, HowTo, Count };
 struct MenuModel {
   const char* nearbyName = nullptr;
   int selected = -1;
+  // The record, for the front door's ornament. yahtzeeFace is the face of the
+  // most recent five-of-a-kind scored on this device, 0 until the first.
+  int played = 0;
+  int won = 0;
+  int best = 0;
+  int yahtzees = 0;
+  int yahtzeeFace = 0;
 };
 
 struct HowToModel {
