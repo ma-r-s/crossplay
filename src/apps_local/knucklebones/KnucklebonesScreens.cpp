@@ -343,21 +343,28 @@ void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
 
   if (page == 1) {
     // The multiplier, shown as the contrast the sentence names: three 4s in one
-    // column against the same three spread out.
+    // column against the same three spread out. Each score sits BESIDE its
+    // grid at the grid's own middle, the way the board carries totals beside
+    // the play surface. Below the grid, the 36 sat nearer the next grid than
+    // its own and read as a caption for the wrong picture -- and the 12
+    // crowded the NEXT capsule.
     constexpr int16_t kMini = 58;
     const uint8_t stacked[kb::kColumns][kb::kRows] = {{4, 4, 4}, {kNone, kNone, kNone}, {kNone, kNone, kNone}};
     const uint8_t spread[kb::kColumns][kb::kRows] = {{4, kNone, kNone}, {4, kNone, kNone}, {4, kNone, kNone}};
     const int16_t width = kMini * kb::kColumns + 4 * (kb::kColumns - 1);
     const int16_t left = static_cast<int16_t>((device.width - width) / 2);
+    const int16_t gridH = static_cast<int16_t>(3 * kMini + 8);
+    const int16_t zoneX = static_cast<int16_t>(left + width + toybox::kGutter);
+    const int16_t zoneW = static_cast<int16_t>(device.width - toybox::kMargin - zoneX);
     fui::TextStyle score;
     score.font = toybox::kDisplayFont;
     score.align = fui::TextAlign::Center;
     miniGrid(screen, left, diagramTop, kMini, stacked, false);
-    screen.target().text(fui::makeRect(area.x, static_cast<int16_t>(diagramTop + 3 * kMini + 14), area.width, 44), "36",
+    screen.target().text(fui::makeRect(zoneX, static_cast<int16_t>(diagramTop + (gridH - 44) / 2), zoneW, 44), "36",
                          score);
-    const int16_t secondTop = static_cast<int16_t>(diagramTop + 3 * kMini + 66);
+    const int16_t secondTop = static_cast<int16_t>(diagramTop + gridH + 40);
     miniGrid(screen, left, secondTop, kMini, spread, false);
-    screen.target().text(fui::makeRect(area.x, static_cast<int16_t>(secondTop + 3 * kMini + 14), area.width, 44), "12",
+    screen.target().text(fui::makeRect(zoneX, static_cast<int16_t>(secondTop + (gridH - 44) / 2), zoneW, 44), "12",
                          score);
     return;
   }
