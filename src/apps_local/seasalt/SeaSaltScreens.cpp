@@ -114,7 +114,14 @@ void drawCardTile(toybox::Screen& screen, const fui::Rect& cell, const CardTile&
 
   const freeink::Icon& face = tall ? *kIcon48[tile.kind] : *kIcon40[tile.kind];
   const int16_t faceSize = tall ? 48 : 40;
-  const int16_t faceTop = static_cast<int16_t>(cell.y + (tall ? 28 : 22));
+  // The face and the name travel as one group, centred between the corner
+  // band and the census. Pinning the face near the top opened a void at the
+  // bottom of any cell taller than the board's.
+  const int16_t bandBottom = static_cast<int16_t>(cell.y + 30);
+  const int16_t groupSpace = static_cast<int16_t>(cell.y + cell.height - 24 - bandBottom);
+  const int16_t groupH = static_cast<int16_t>(faceSize + (tall ? 22 : 0));
+  const int16_t faceTop =
+      static_cast<int16_t>(bandBottom + (groupSpace > groupH ? (groupSpace - groupH) / 2 : (tall ? 0 : -8)));
   blitIcon(screen, fui::makeRect(cell.x + (cell.width - faceSize) / 2, faceTop, faceSize, faceSize), face);
 
   const int16_t censusTop = static_cast<int16_t>(cell.y + cell.height - 20);
@@ -455,12 +462,16 @@ fui::Rect buildKeepChoice(toybox::Screen& screen, const KeepModel& model) {
   drawHintBox(screen, hintBox, "THE OTHER GOES FACE UP ON A PILE.");
 
   const fui::Rect body = screen.body();
-  const int16_t cardW = static_cast<int16_t>((body.width - toybox::kGutter) / 2);
-  const int16_t cardH = 160;
+  // The one card shape: two portrait cards, centred as a pair. Full-width
+  // halves made them landscape slabs, and a card is not a slab.
+  const int16_t cardW = kChoiceCardW;
+  const int16_t cardH = kChoiceCardH;
   // Top-biased: equal slack above and below is unresolved centring.
   const int16_t top = static_cast<int16_t>(body.y + (body.height - cardH) / 3);
-  const fui::Rect left = fui::makeRect(body.x, top, cardW, cardH);
-  const fui::Rect right = fui::makeRect(static_cast<int16_t>(body.x + cardW + toybox::kGutter), top, cardW, cardH);
+  const int16_t pairW = static_cast<int16_t>(2 * cardW + toybox::kGutter * 2);
+  const int16_t leftX = static_cast<int16_t>(body.x + (body.width - pairW) / 2);
+  const fui::Rect left = fui::makeRect(leftX, top, cardW, cardH);
+  const fui::Rect right = fui::makeRect(static_cast<int16_t>(leftX + cardW + toybox::kGutter * 2), top, cardW, cardH);
   drawCardTile(screen, left, model.left);
   drawCardTile(screen, right, model.right);
   screen.frame().hit(left, ActionKeepLeft, 0);
@@ -482,11 +493,12 @@ fui::Rect buildPileChoice(toybox::Screen& screen, const PileChoiceModel& model) 
   const fui::Rect body = screen.body();
   int16_t pileTop = body.y;
   if (!model.digging) {
-    // The rejected card, small, above the two piles it could land on.
-    const int16_t cardW = 108;
-    drawCardTile(screen, fui::makeRect(static_cast<int16_t>(body.x + (body.width - cardW) / 2), body.y, cardW, 125),
+    // The rejected card, the one card shape, above the two piles.
+    drawCardTile(screen,
+                 fui::makeRect(static_cast<int16_t>(body.x + (body.width - kChoiceCardW) / 2), body.y, kChoiceCardW,
+                               kChoiceCardH),
                  model.rejected);
-    pileTop = static_cast<int16_t>(body.y + 150);
+    pileTop = static_cast<int16_t>(body.y + kChoiceCardH + toybox::kGutter * 2);
   }
 
   const int16_t pileW = static_cast<int16_t>((body.width - toybox::kGutter) / 2);
@@ -635,9 +647,9 @@ void buildTutorial(toybox::Screen& screen, const TutorialModel& model) {
 
   switch (model.page) {
     case 0:
-      caption(10, "EVERY TURN: TAKE ONE CARD.");
-      small(40, "DRAW TWO AND KEEP ONE,");
-      small(62, "OR TAKE THE TOP OF A DISCARD PILE.");
+      caption(10, "TAKE ONE CARD A TURN.");
+      small(52, "DRAW TWO AND KEEP ONE,");
+      small(74, "OR TAKE THE TOP OF A DISCARD PILE.");
       tile(64, 100, 1, 0, 1, 8, 0);
       tile(280, 100, 2, 2, 1, 7, 0);
       small(250, "FIRST TO 40 POINTS WINS THE GAME.");

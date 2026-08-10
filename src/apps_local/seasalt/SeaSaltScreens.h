@@ -120,6 +120,13 @@ struct BoardModel {
 // the rect the exported geometry functions describe.
 fui::Rect buildBoard(toybox::Screen& screen, const BoardModel& model);
 
+// One card, one shape. The board's grid derives its cells, and every screen
+// that shows a single card at rest uses this enlarged cut of the same aspect
+// -- the keep chooser's cards turning into landscape slabs is how Mario
+// learned the tile stretched into whatever rect it was handed.
+constexpr int16_t kChoiceCardW = 150;
+constexpr int16_t kChoiceCardH = 177;  // the board cell's 106x125, scaled
+
 // The card grid's geometry, shared between drawing and hit-testing so the two
 // cannot drift. `count` is the page's tile count.
 fui::Rect cardCellRect(const fui::Rect& grid, int index, int count);

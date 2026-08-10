@@ -345,7 +345,7 @@ void SeaSaltActivity::composeHint() {
     } else {
       std::snprintf(hint, sizeof(hint), "TAKE A CARD. THE DECK DEALS TWO, A PILE SHOWS WHAT YOU GET.");
     }
-    std::snprintf(primaryLabel, sizeof(primaryLabel), "TAKE FROM ABOVE");
+    std::snprintf(primaryLabel, sizeof(primaryLabel), "TAKE A CARD");
     return;
   }
 

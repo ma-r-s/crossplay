@@ -25,10 +25,10 @@
 #include "../../src/apps_local/link/LinkScreens.h"
 #include "../../src/apps_local/minesweeper/MinesweeperScreens.h"
 #include "../../src/apps_local/murdle/MurdleScreens.h"
-#include "../../src/apps_local/seasalt/SeaSaltScreens.h"
 #include "../../src/apps_local/murdle/MurdleText.h"
 #include "../../src/apps_local/player/PlayerAvatar.h"
 #include "../../src/apps_local/player/PlayerScreen.h"
+#include "../../src/apps_local/seasalt/SeaSaltScreens.h"
 #include "../../src/apps_local/study/StudyScreens.h"
 #include "../../src/apps_local/ui/ToyboxIcons.h"
 
@@ -2931,7 +2931,6 @@ void testTheHowToPagesAndEndsOnGotIt() {
   }
 }
 
-
 // --- sea salt & paper -------------------------------------------------------
 
 template <typename Model>
@@ -2962,8 +2961,7 @@ void testTheSeaSaltCardYouTapIsTheCardTheRulesGet() {
       CHECK(seasaltui::cardIndexAt(grid, count, static_cast<int16_t>(cell.x + cell.width / 2),
                                    static_cast<int16_t>(cell.y + cell.height / 2)) == i);
       CHECK(seasaltui::cardIndexAt(grid, count, cell.x, cell.y) == i);
-      CHECK(seasaltui::cardIndexAt(grid, count,
-                                   static_cast<int16_t>(cell.x + cell.width - 1),
+      CHECK(seasaltui::cardIndexAt(grid, count, static_cast<int16_t>(cell.x + cell.width - 1),
                                    static_cast<int16_t>(cell.y + cell.height - 1)) == i);
       // And the whole grid stays inside the rect the builder returned.
       CHECK(cell.y + cell.height <= grid.y + grid.height);
@@ -2971,8 +2969,7 @@ void testTheSeaSaltCardYouTapIsTheCardTheRulesGet() {
     // The gap between cards belongs to nobody.
     if (count >= 2) {
       const fui::Rect first = seasaltui::cardCellRect(grid, 0, count);
-      CHECK(seasaltui::cardIndexAt(grid, count, static_cast<int16_t>(first.x + first.width + 3),
-                                   first.y) != 0);
+      CHECK(seasaltui::cardIndexAt(grid, count, static_cast<int16_t>(first.x + first.width + 3), first.y) != 0);
     }
   }
 }
@@ -3074,6 +3071,22 @@ void testTheSeaSaltRoundOverNamesTheBet() {
   CHECK(out2.target.drew("THE DECK RAN OUT. NOBODY SCORES."));
 }
 
+// One card, one shape: the choice cut keeps the board cell's aspect, so a
+// card cannot become a landscape slab on one screen and a portrait card on
+// the next. Mario caught the drift by playing; this pins it.
+void testTheSeaSaltCardKeepsItsShape() {
+  seasaltui::BoardModel model;
+  model.tileCount = 8;
+  Rendered out;
+  const fui::Rect grid = buildSs(out, seasaltui::buildBoard, model);
+  const fui::Rect cell = seasaltui::cardCellRect(grid, 0, 8);
+  const float cellAspect = static_cast<float>(cell.height) / static_cast<float>(cell.width);
+  const float choiceAspect =
+      static_cast<float>(seasaltui::kChoiceCardH) / static_cast<float>(seasaltui::kChoiceCardW);
+  CHECK(cellAspect > choiceAspect - 0.05f);
+  CHECK(cellAspect < choiceAspect + 0.05f);
+}
+
 void testTheSeaSaltTutorialPagesAndEnds() {
   for (int page = 0; page < seasaltui::tutorialPages(); ++page) {
     seasaltui::TutorialModel model;
@@ -3095,6 +3108,7 @@ int main() {
   testTheSeaSaltKeepChoiceOffersExactlyTwoCards();
   testTheSeaSaltCallChoiceSaysWhatEachWordCosts();
   testTheSeaSaltRoundOverNamesTheBet();
+  testTheSeaSaltCardKeepsItsShape();
   testTheSeaSaltTutorialPagesAndEnds();
   testSearchingAsksNothing();
   testMurdleGridResolvesEveryCellItDrew();
