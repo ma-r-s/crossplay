@@ -70,6 +70,17 @@ if [ "${1:-}" = "--committed" ]; then
   # you run precisely because you are about to rely on the result. Carry the
   # real branch across the boundary.
   export CHECK_OUTER_BRANCH="$(git branch --show-current 2>/dev/null)"
+  # The trial worktree sits in TMPDIR, outside the workspace, so the installer
+  # suite's venv lookup cannot climb to it. Resolve the venv HERE and carry it
+  # across, or --committed skips those tests in the one mode you run because
+  # you are about to rely on the result -- the same trap CHECK_OUTER_BRANCH
+  # exists for.
+  for candidate in "$REPO/.venv-study/bin/python" "$REPO/../../firmware-next/.venv-study/bin/python"; do
+    if [ -x "$candidate" ]; then
+      export CHECK_OUTER_STUDY_PY="$(cd "$(dirname "$candidate")" && pwd)/python"
+      break
+    fi
+  done
   (cd "$TRIAL" && ./scripts_local/check.sh "${2:-}")
   exit $?
 fi
@@ -107,10 +118,13 @@ done
 # happen.
 WS_PY="$REPO"
 while [ "$WS_PY" != "/" ] && [ ! -e "$WS_PY/.xteink-workspace" ]; do WS_PY="$(dirname "$WS_PY")"; done
-STUDY_PY=""
-for candidate in "$REPO/.venv-study/bin/python" "$WS_PY/firmware-next/.venv-study/bin/python"; do
-  [ -x "$candidate" ] && STUDY_PY="$candidate" && break
-done
+STUDY_PY="${CHECK_OUTER_STUDY_PY:-}"
+if [ ! -x "$STUDY_PY" ]; then
+  STUDY_PY=""
+  for candidate in "$REPO/.venv-study/bin/python" "$WS_PY/firmware-next/.venv-study/bin/python"; do
+    [ -x "$candidate" ] && STUDY_PY="$candidate" && break
+  done
+fi
 if [ -n "$STUDY_PY" ]; then
   for args in "tools_local/study/test_apkg.py" \
               "tools_local/study/test_web_glue.py" \
