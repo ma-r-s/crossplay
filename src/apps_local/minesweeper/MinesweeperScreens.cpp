@@ -371,12 +371,17 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   const fui::DeviceContext device = screen.device();
   const fui::Rect first = cellRect(device, 0, 0);
 
-  // A frame, so the minefield is one object rather than eighty rectangles that
-  // happen to be adjacent. Full width: the side bars ride the bezel, the top
-  // and bottom bars bound the terrain.
-  screen.target().stroke(fui::makeRect(0, static_cast<int16_t>(first.y - toybox::kBoardFrame), device.width,
-                                       static_cast<int16_t>(kBoardHeight + toybox::kBoardFrame * 2)),
-                         fui::Paint::solid(fui::Color::Black), 3);
+  // A frame, so the minefield is one object rather than eighty rectangles
+  // that happen to be adjacent. Two full-width bars TIGHT against the first
+  // and last rows, not the floating kBoardFrame rule the inset board wore:
+  // that outset is 9px, which on a full-bleed surface put the top bar flush
+  // under the header band (where it vanished into it) and the bottom bar
+  // adrift below the field, with the side bars under the cells. Full bleed
+  // means the bezel is the side frame; the bars bound the terrain.
+  screen.target().fill(fui::makeRect(0, static_cast<int16_t>(first.y - toybox::kRule), device.width, toybox::kRule),
+                       fui::Paint::solid(fui::Color::Black));
+  screen.target().fill(fui::makeRect(0, static_cast<int16_t>(first.y + kBoardHeight), device.width, toybox::kRule),
+                       fui::Paint::solid(fui::Color::Black));
 
   for (int column = 0; column < ms::kColumns; ++column) {
     for (int row = 0; row < ms::kRows; ++row) {
