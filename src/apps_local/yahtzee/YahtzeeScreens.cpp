@@ -65,9 +65,13 @@ constexpr int kBonusLine = yz::kUpperEnd;
 constexpr int kTotalLine = yz::kCategories + 1;
 constexpr int kLines = yz::kCategories + 2;
 
-int16_t contentTop() { return static_cast<int16_t>(toybox::kHeaderHeight + toybox::kGutter); }
+// Four pixels shaved off each of the two gaps above the table, spent below
+// it: the TOTAL row ended eight pixels from the ROLL capsule and read as
+// touching it. The whole card lifts, so the row grid keeps its rhythm and
+// dieAt / categoryAt stay in step with the drawing by construction.
+int16_t contentTop() { return static_cast<int16_t>(toybox::kHeaderHeight + toybox::kGutter - 4); }
 int16_t tableTop() {
-  return static_cast<int16_t>(contentTop() + kDiceBandHeight + toybox::kGutter + kColumnHeaderHeight);
+  return static_cast<int16_t>(contentTop() + kDiceBandHeight + toybox::kGutter - 4 + kColumnHeaderHeight);
 }
 
 // A category's line in the table: itself, or one lower once the bonus line has
