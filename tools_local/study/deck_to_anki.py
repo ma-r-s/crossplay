@@ -277,7 +277,10 @@ def sync_to_ankiweb(collection_path, username, password, sync_media):
     copy. Anki ships that client as a Python package, so there is no reason to
     write a second one.
 
-    Requires `anki` (pip install anki). Credentials are read from the
+    Requires Anki's own Python library. `study.py sync --ankiweb` installs it
+    into the tooling venv automatically; by hand it is
+    `uv pip install --python .venv-study/bin/python anki` (the system Python is
+    externally managed on macOS and refuses plain pip). Credentials come from the
     environment or prompted for, never stored and never logged.
     """
     try:
@@ -286,7 +289,8 @@ def sync_to_ankiweb(collection_path, username, password, sync_media):
     except ImportError:
         sys.exit(
             "syncing needs Anki's own library:\n"
-            "    pip install anki\n"
+            "    uv pip install --python .venv-study/bin/python anki\n"
+            "(or just use study.py sync --ankiweb, which installs it itself)\n"
             "or run this from a venv that has it."
         )
 

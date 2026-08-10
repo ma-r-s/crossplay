@@ -216,9 +216,14 @@ def main():
     )
     ap.add_argument(
         "--media",
-        required=True,
         type=pathlib.Path,
-        help="Anki collection.media directory",
+        help="Anki collection.media directory (holds _simsun.ttf and friends)",
+    )
+    ap.add_argument(
+        "--font",
+        type=pathlib.Path,
+        help="build one family, 'Custom', from this TTF instead of the five"
+        " CJK faces -- for decks in any other language",
     )
     ap.add_argument(
         "--deck",
@@ -266,13 +271,25 @@ def main():
     headword += latin
     sentence += latin
 
+    # --font swaps the whole table for one family named Custom. The device
+    # knows that name (StudyFonts::kFamilies) and rolls over whichever families
+    # are present, so one family simply means no randomisation.
+    if args.font:
+        if not args.font.is_file():
+            sys.exit(f"no font at {args.font}")
+        faces = [(args.font, "Custom")]
+    elif args.media:
+        faces = [(args.media / filename, name) for filename, name in FACES]
+    else:
+        sys.exit("need --media (CJK faces from Anki) or --font (any TTF)")
+
     total = 0
-    for filename, family in FACES:
+    built = 0
+    for src, family in faces:
         if args.only and args.only != family:
             continue
-        src = args.media / filename
         if not src.exists():
-            print(f"  skip {family}: no {filename} in the media folder")
+            print(f"  skip {family}: no {src.name} in the media folder")
             continue
         out_dir = args.out / family
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -292,10 +309,16 @@ def main():
                     note = f", {100.0 * changed / max(samples, 1):.0f}% of bytes thresholded"
                 size_kb = produced.stat().st_size / 1024
                 total += produced.stat().st_size
+                built += 1
                 print(
                     f"  {family:16} {label:8} {size:3}px  {len(chars):5} glyphs  {size_kb:7.0f} KB{note}"
                 )
 
+    if built == 0:
+        sys.exit(
+            "no faces built. A CJK deck wants _simsun.ttf and friends in your"
+            " Anki media folder; any other deck can use --font YourFont.ttf."
+        )
     print(f"\ntotal {total / (1024 * 1024):.1f} MB -> {args.out}")
 
 

@@ -99,6 +99,23 @@ rollover hour, which is exactly Anki's own numbering. Keeping that means a due
 date computed here and a due date computed on the phone agree without any
 timezone conversation.
 
+## Where the deck lives
+
+The reader scans `/study/` for the first directory holding a `meta.dat` and
+opens that; the `fonts` directory is skipped. The name is the tool's choice
+(study.py names it after the deck; Mario's card predates that and says
+`mandarin`) and the device never depends on it. One deck at a time is still the
+rule -- study.py keeps the card in that state by offering to remove a previous
+deck before installing a different one.
+
+Fonts are trusted per card, not per install: before drawing, the activity
+measures the headword (and sentence) in the chosen face, and a width of zero --
+a face that would paint nothing -- falls back to the built-in serif for that
+card. Stale or mis-built fonts degrade to plain type rather than to a blank
+screen. The face table on the device is the five CJK families plus `Custom`,
+the name `make_fonts.py --font` builds under for decks in other scripts;
+whichever families are present are the ones the per-card randomiser draws from.
+
 ## revlog.dat
 
 Append-only, 32 bytes per review, never shortened. This is the file that makes
@@ -179,12 +196,12 @@ preset does, verified by reading the weights back out of `meta.dat`.
 
     # build the deck and the five CJK faces
     tools_local/study/anki_to_deck.py <collection.anki2> \
-        --deck 'Mandarin: Vocabulary' --out /Volumes/SDCARD/study/mandarin
+        --deck 'Mandarin: Vocabulary' --out /Volumes/SDCARD/study/<deck>
     tools_local/study/make_fonts.py --media <collection.media> \
-        --deck /Volumes/SDCARD/study/mandarin --out /Volumes/SDCARD/study/fonts
+        --deck /Volumes/SDCARD/study/<deck> --out /Volumes/SDCARD/study/fonts
 
     # after studying, replay the reviews back into Anki (close Anki first)
-    tools_local/study/deck_to_anki.py /Volumes/SDCARD/study/mandarin <collection.anki2>
+    tools_local/study/deck_to_anki.py /Volumes/SDCARD/study/<deck> <collection.anki2>
 
 The sync is idempotent: a device review is keyed by the millisecond it was
 answered, which is also Anki's revlog primary key, so re-running it applies
@@ -199,7 +216,7 @@ protobuf protocol with USN tracking, chunked transfer and a full-sync fallback,
 and a client that gets it subtly wrong does not fail loudly -- it corrupts the
 collection on the server, which for most people is the only copy.
 
-    deck_to_anki.py /Volumes/SDCARD/study/mandarin ~/…/collection.anki2 --sync
+    deck_to_anki.py /Volumes/SDCARD/study/<deck> ~/…/collection.anki2 --sync
 
 Credentials come from `$ANKI_USERNAME` / `$ANKI_PASSWORD` or a prompt, and are
 never stored or logged. Anki must not be running: it holds the collection open,

@@ -132,7 +132,11 @@ s.append(Paragraph("<b>Once</b> -- puts a deck and its fonts on the card", BODY)
 s.append(Paragraph("./tools_local/study/study.py setup", CODE))
 s.append(Paragraph("Finds your Anki profile, lists your decks so you pick one, finds the SD card, "
                    "converts, and builds the fonts only if they are missing or no longer cover the "
-                   "deck. Run it again to switch deck.", NOTE))
+                   "deck. Run it again to switch deck. Nearly any note type converts (first field = "
+                   "word, second = meaning; <font face='Courier'>--map</font> overrides; cloze "
+                   "cannot). Non-CJK decks need no fonts at all, or bring one with "
+                   "<font face='Courier'>--font YourFont.ttf</font>. The long version of everything "
+                   "on this page is docs/study.md.", NOTE))
 
 s.append(Paragraph("<b>After every session</b> -- puts your reviews back into Anki", BODY))
 s.append(Paragraph("./tools_local/study/study.py sync --ankiweb", CODE))
@@ -152,7 +156,7 @@ left = []
 left.append(Paragraph("On the SD card", H2))
 left.append(
     Paragraph(
-        "<font face='Courier'>/study/mandarin/</font> &nbsp;the deck (~70 KB)<br/>"
+        "<font face='Courier'>/study/&lt;deck&gt;/</font> &nbsp;the deck, named after itself (~70 KB)<br/>"
         "<font face='Courier'>/study/fonts/</font> &nbsp;&nbsp;&nbsp;five CJK faces (~32 MB)",
         NOTE,
     )
@@ -250,7 +254,8 @@ gaps = Table(
         [
             Paragraph("<b>One deck at a time</b>", NOTE),
             Paragraph(
-                "The app reads /study/mandarin. Switching decks means reconverting.",
+                "The reader opens whichever single deck is under /study. Switching means "
+                "running setup again; it offers to replace and warns about unsynced reviews.",
                 NOTE,
             ),
         ],

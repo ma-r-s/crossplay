@@ -95,6 +95,27 @@ PROFILES = {
     },
 }
 
+
+# A note type nobody wrote a profile for still converts: its first field is the
+# word and its second the meaning, which is what Anki's own stock "Basic" is and
+# what most homemade types follow, since the first field is the one Anki sorts
+# and duplicates-checks by. On a two-template type ("Basic (and reversed card)")
+# the second card runs the other way, so its fields swap. --map overrides any of
+# this without editing source.
+#
+# Cloze types are refused by name instead: the front of a cloze card is the text
+# with a hole in it, and this deck format has nowhere to put a hole.
+def generic_profile(fields_in_order, override=None):
+    profile = {key: "" for key in FIELD_ORDER}
+    if fields_in_order:
+        profile["headword"] = fields_in_order[0]
+    if len(fields_in_order) > 1:
+        profile["meaning"] = fields_in_order[1]
+    if override:
+        profile.update(override)
+    return profile
+
+
 FIELD_ORDER = [
     "headword",
     "reading",
@@ -258,11 +279,11 @@ def deck_config_for(db, deck_name):
     return parse_deck_config(row[0]) if row else {}
 
 
-def collect_notes(db, deck_name, limit=None):
+def collect_notes(db, deck_name, limit=None, override=None):
     like = deck_name.replace("::", "\x1f")
     rows = db.execute(
         """select c.id, n.flds, nt.name, c.data, c.due, c.ivl, c.reps, c.lapses, c.type,
-                  c.queue, c.left
+                  c.queue, c.left, c.ord
            from cards c
            join notes n on n.id = c.nid
            join notetypes nt on nt.id = n.mid
@@ -292,12 +313,58 @@ def collect_notes(db, deck_name, limit=None):
     ):
         ordinals.setdefault(nt_name, {})[f_name] = ord_
 
-    notes, skipped = [], 0
-    for cid, flds, nt_name, data, due, ivl, reps, lapses, ctype, queue, left in rows:
+    # How many card templates each note type has, for the reversed-card swap.
+    template_counts = {}
+    for nt_name, count in db.execute(
+        "select nt.name, count(*) from templates t join notetypes nt on nt.id = t.ntid group by nt.name"
+    ):
+        template_counts[nt_name] = count
+
+    announced = set()
+    notes, skipped, cloze_skipped = [], 0, 0
+    for (
+        cid,
+        flds,
+        nt_name,
+        data,
+        due,
+        ivl,
+        reps,
+        lapses,
+        ctype,
+        queue,
+        left,
+        card_ord,
+    ) in rows:
         profile = PROFILES.get(nt_name)
         if not profile:
-            skipped += 1
-            continue
+            if "cloze" in nt_name.lower():
+                cloze_skipped += 1
+                continue
+            in_order = (
+                sorted(ordinals.get(nt_name, {}), key=ordinals[nt_name].get)
+                if nt_name in ordinals
+                else []
+            )
+            profile = generic_profile(in_order, override)
+            # The second card of a two-template type asks the question the other
+            # way round, so the word and the meaning trade places. Only for the
+            # generic path: a written profile said what it meant.
+            if template_counts.get(nt_name, 1) == 2 and card_ord == 1 and not override:
+                profile = dict(
+                    profile, headword=profile["meaning"], meaning=profile["headword"]
+                )
+            if nt_name not in announced:
+                announced.add(nt_name)
+                print(
+                    f"  note type {nt_name!r} has no profile; using "
+                    f"{profile['headword']!r} as the word and {profile['meaning']!r} as the meaning"
+                    + (
+                        " (reversed cards swap them)"
+                        if template_counts.get(nt_name, 1) == 2
+                        else ""
+                    )
+                )
         parts = flds.split("\x1f")
         by_ord = ordinals.get(nt_name, {})
 
@@ -344,7 +411,12 @@ def collect_notes(db, deck_name, limit=None):
                 "lastReviewDay": last_review.get(cid, -1),
             }
         )
-    return notes, skipped
+    if cloze_skipped:
+        print(
+            f"  {cloze_skipped} cloze card(s) skipped: a cloze front is text with a hole in it,"
+            f" and this format has nowhere to put a hole"
+        )
+    return notes, skipped + cloze_skipped
 
 
 def write_deck(notes, path):
@@ -545,6 +617,13 @@ def main():
     ap.add_argument(
         "--limit", type=int, help="only convert the first N cards (for testing)"
     )
+    ap.add_argument(
+        "--map",
+        action="append",
+        metavar="SLOT=FIELD",
+        help="for note types without a profile: which Anki field fills which slot"
+        " (e.g. --map headword=Word --map reading=Pronunciation); repeatable",
+    )
     args = ap.parse_args()
 
     if not args.collection.exists():
@@ -560,10 +639,20 @@ def main():
         except (TypeError, ValueError):
             pass
 
-    notes, skipped = collect_notes(db, args.deck, args.limit)
+    override = {}
+    for pair in args.map or []:
+        key, _, field = pair.partition("=")
+        if key not in FIELD_ORDER or not field:
+            sys.exit(f"--map wants <slot>=<Anki field name>; slots: {', '.join(FIELD_ORDER)}")
+        override[key] = field
+
+    notes, skipped = collect_notes(db, args.deck, args.limit, override or None)
     if not notes:
         sys.exit(
-            f"no convertible cards in '{args.deck}'. Known note types: {', '.join(PROFILES)}"
+            f"no convertible cards in '{args.deck}'. Cards convert when their note type"
+            f" has a profile ({', '.join(PROFILES)}), or generically by field order --"
+            f" only cloze cards cannot. If the generic guess picked the wrong fields,"
+            f" name them: --map headword=Word --map meaning=Definition"
         )
     config = deck_config_for(db, args.deck)
 

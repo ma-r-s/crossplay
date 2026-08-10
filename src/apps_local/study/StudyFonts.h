@@ -33,10 +33,21 @@ namespace study {
 
 class StudyFonts {
  public:
-  static constexpr int kFamilyCount = 5;
+  static constexpr int kFamilyCount = 6;
 
-  // The five families, in the order Mario's card template lists them.
+  // The five families in the order Mario's card template lists them, plus
+  // "Custom": the name make_fonts.py --font builds under, so a deck in any
+  // language can bring one face of its own without touching this table.
   static const char* familyName(int index);
+
+  // Which families are actually on the card, checked once per session. The
+  // per-card randomiser draws from this list rather than from all six names,
+  // because rolling an absent family and walking to the next would double the
+  // first present family's share -- and the whole point of the roll is that no
+  // face gets favoured.
+  void probe();
+  int presentCount() const { return presentCount_; }
+  int presentFamily(int i) const { return (i >= 0 && i < presentCount_) ? present_[i] : -1; }
 
   // Load one family's two sizes, unloading whatever was resident. Returns
   // false and leaves nothing loaded if the files are missing, which is the
@@ -72,6 +83,8 @@ class StudyFonts {
   int headwordFontId_ = 0;
   int sentenceFontId_ = 0;
   int familyIndex_ = -1;
+  int present_[kFamilyCount] = {};
+  int presentCount_ = 0;
 };
 
 // Point sizes the pipeline builds. These are the stock converter's units,

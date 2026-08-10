@@ -72,6 +72,7 @@ class StudyActivity final : public Activity {
                uint32_t& revlogOffset, bool& written);
   // Pick the next card: a learning card whose minute has come, else the queue,
   // else the learning card that is closest to due.
+  bool findDeckDir();
   bool takeNext();
   // Take back the last answer. One level only: "I meant Good, not Again" is the
   // case that matters, and a deeper stack would need the queue's whole history
@@ -157,6 +158,9 @@ class StudyActivity final : public Activity {
   // Undo takes the leftmost quarter of the footer: the same width as one rating
   // cell on the answer side, so the two faces divide the same bar the same way.
   static constexpr int kUndoSlots = 4;
+
+  // Discovered by findDeckDir at onEnter; empty until then.
+  char deckDir_[48] = "";
 
   int currentIndex_ = -1;
   int today_ = 0;

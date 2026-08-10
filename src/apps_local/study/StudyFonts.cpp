@@ -2,6 +2,7 @@
 
 #include <FontCacheManager.h>
 #include <GfxRenderer.h>
+#include <HalStorage.h>
 #include <Logging.h>
 #include <SdCardFontRegistry.h>
 
@@ -13,7 +14,7 @@ namespace {
 
 // The order Mario's HSK template lists them in `var fonts = [...]`.
 constexpr const char* kFamilies[StudyFonts::kFamilyCount] = {
-    "SimSun", "SimHei", "MicrosoftYaHei", "KaiTi", "FangSong",
+    "SimSun", "SimHei", "MicrosoftYaHei", "KaiTi", "FangSong", "Custom",
 };
 
 constexpr const char* kFontRoot = "/study/fonts";
@@ -32,6 +33,19 @@ SdCardFontFamilyInfo describe(const char* family, const uint8_t pointSize) {
 }
 
 }  // namespace
+
+void StudyFonts::probe() {
+  presentCount_ = 0;
+  char path[128];
+  for (int i = 0; i < kFamilyCount; ++i) {
+    // The headword cut is the expensive one, so its presence is the test; a
+    // family with only the sentence cut is half-installed and load() would
+    // refuse it anyway.
+    std::snprintf(path, sizeof(path), "%s/%s/%s_%u.cpfont", kFontRoot, kFamilies[i], kFamilies[i], kHeadwordPointSize);
+    if (Storage.exists(path)) present_[presentCount_++] = i;
+  }
+  LOG_INF("STUDY", "%d of %d font families on the card", presentCount_, kFamilyCount);
+}
 
 const char* StudyFonts::familyName(const int index) {
   if (index < 0 || index >= kFamilyCount) return "";

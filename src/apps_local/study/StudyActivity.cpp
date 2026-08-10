@@ -18,7 +18,11 @@
 namespace {
 
 // Where anki_to_deck.py and make_fonts.py put their output.
-constexpr const char* kDeckDir = "/study/mandarin";
+// Where decks live. The directory name under /study is the tool's choice, not
+// ours: study.py names it after the deck, and Mario's card predates that and
+// says "mandarin". findDeckDir scans for whichever single deck is installed.
+constexpr const char* kStudyRoot = "/study";
+constexpr const char* kFontsDirName = "fonts";
 
 // The footer. One height for both faces, because it is drawn on the question
 // side too: docs/design-language.md asks a layout to reserve the space a
@@ -135,6 +139,7 @@ void StudyActivity::onEnter() {
   toybox::ensureFonts(renderer);
 
   if (openDeck()) {
+    fonts_.probe();
     today_ = study::dayNumber(deck_.meta(), static_cast<int64_t>(time(nullptr)));
     startMinute_ = nowMinute();
     fsrs_ = study::Fsrs(deck_.meta().hasParams() ? deck_.meta().params : nullptr, deck_.meta().desiredRetention);
@@ -177,25 +182,50 @@ int StudyActivity::nowMinute() const {
   return minutes > 1439 ? 1439 : minutes;
 }
 
+bool StudyActivity::findDeckDir() {
+  // One deck at a time is still the rule; this only stops the *name* mattering.
+  // First directory under /study holding a meta.dat wins. openNextFile hands
+  // back entries in directory order, so with one deck installed -- the case the
+  // tool maintains -- there is nothing to be ambiguous about.
+  HalFile root = Storage.open(kStudyRoot);
+  if (!root.isOpen() || !root.isDirectory()) return false;
+  while (true) {
+    HalFile entry = root.openNextFile();
+    if (!entry.isOpen()) break;
+    if (!entry.isDirectory()) continue;
+    char name[32];
+    entry.getName(name, sizeof(name));
+    if (std::strcmp(name, kFontsDirName) == 0) continue;
+    char probe[96];
+    std::snprintf(probe, sizeof(probe), "%s/%s/meta.dat", kStudyRoot, name);
+    if (Storage.exists(probe)) {
+      std::snprintf(deckDir_, sizeof(deckDir_), "%s/%s", kStudyRoot, name);
+      return true;
+    }
+  }
+  return false;
+}
+
 bool StudyActivity::openDeck() {
-  char path[96];
-  std::snprintf(path, sizeof(path), "%s/meta.dat", kDeckDir);
-  if (!Storage.openFileForRead("STUDY", path, metaFile_)) {
-    LOG_ERR("STUDY", "No deck at %s -- run tools_local/study/anki_to_deck.py", kDeckDir);
+  if (!findDeckDir()) {
+    LOG_ERR("STUDY", "No deck under %s -- run tools_local/study/study.py setup", kStudyRoot);
     return false;
   }
-  std::snprintf(path, sizeof(path), "%s/deck.dat", kDeckDir);
+  char path[96];
+  std::snprintf(path, sizeof(path), "%s/meta.dat", deckDir_);
+  if (!Storage.openFileForRead("STUDY", path, metaFile_)) return false;
+  std::snprintf(path, sizeof(path), "%s/deck.dat", deckDir_);
   if (!Storage.openFileForRead("STUDY", path, deckFile_)) return false;
 
   // O_RDWR without O_TRUNC: openFileForWrite truncates, which on cards.dat
   // would erase every card's scheduling state the moment the app opened.
-  std::snprintf(path, sizeof(path), "%s/cards.dat", kDeckDir);
+  std::snprintf(path, sizeof(path), "%s/cards.dat", deckDir_);
   cardFile_ = Storage.open(path, O_RDWR);
   if (!cardFile_.isOpen()) {
     LOG_ERR("STUDY", "Cannot open cards.dat for update");
     return false;
   }
-  std::snprintf(path, sizeof(path), "%s/revlog.dat", kDeckDir);
+  std::snprintf(path, sizeof(path), "%s/revlog.dat", deckDir_);
   revlogFile_ = Storage.open(path, O_RDWR | O_CREAT);
   if (!revlogFile_.isOpen()) LOG_ERR("STUDY", "Cannot open revlog.dat -- reviews will not be logged");
   // A second handle over the same file, for reading history back. Separate from
@@ -204,7 +234,7 @@ bool StudyActivity::openDeck() {
     revlogSource_ = makeUniqueNoThrow<FileSource>(revlogReadFile_);
   }
 
-  std::snprintf(path, sizeof(path), "%s/images.dat", kDeckDir);
+  std::snprintf(path, sizeof(path), "%s/images.dat", deckDir_);
   if (Storage.openFileForRead("STUDY", path, imageFile_)) {
     imageSource_ = makeUniqueNoThrow<FileSource>(imageFile_);
     if (imageSource_ && images_.open(*imageSource_)) {
@@ -221,7 +251,7 @@ bool StudyActivity::openDeck() {
   }
 
   if (!deck_.openMeta(*metaSource_) || !deck_.openDeck(*deckSource_)) {
-    LOG_ERR("STUDY", "%s is not a study deck (or is a different format version)", kDeckDir);
+    LOG_ERR("STUDY", "%s is not a study deck (or is a different format version)", deckDir_);
     return false;
   }
   LOG_INF("STUDY", "Deck '%s': %d cards", deck_.meta().name, deck_.noteCount());
@@ -367,11 +397,17 @@ bool StudyActivity::loadCurrent() {
   // The face changes per card. This is the feature: Mario learned to read in
   // one typeface and found the others hard afterwards, so the deck stops
   // letting him settle into any of them.
-  // Preference, not requirement: whichever faces are actually on the card get
-  // used, so a partial install degrades to fewer letterforms rather than to
-  // tofu. See StudyFonts::loadPreferred.
-  const int wanted = static_cast<int>(nextRandom(shuffle_) % study::StudyFonts::kFamilyCount);
-  fontsReady_ = fonts_.loadPreferred(renderer, wanted) >= 0;
+  // The roll is over the families the card actually has (probed at onEnter),
+  // not all six names: rolling an absent one and walking forward would favour
+  // whichever family follows the gaps. loadPreferred stays as the fallback for
+  // a family that is present but will not load -- a corrupt file, mid-copy.
+  const int present = fonts_.presentCount();
+  if (present > 0) {
+    const int pick = fonts_.presentFamily(static_cast<int>(nextRandom(shuffle_) % static_cast<uint32_t>(present)));
+    fontsReady_ = fonts_.load(renderer, pick) || fonts_.loadPreferred(renderer, pick) >= 0;
+  } else {
+    fontsReady_ = false;  // no families at all: the built-in serif draws everything
+  }
   if (fontsReady_) {
     fonts_.prewarm(renderer, note_.field(study::Field::Headword), note_.field(study::Field::Sentence));
   }
@@ -676,9 +712,25 @@ int StudyActivity::drawWrapped(const int fontId, int y, const int maxWidth, cons
 
 void StudyActivity::drawCard(const Rect& body) {
   const int maxWidth = renderer.getScreenWidth() - 2 * toybox::kMargin;
-  const int headwordFont = fontsReady_ ? fonts_.headwordFontId() : kReadingFontId;
-  const int sentenceFont = fontsReady_ ? fonts_.sentenceFontId() : kMeaningFontId;
+  int headwordFont = fontsReady_ ? fonts_.headwordFontId() : kReadingFontId;
+  int sentenceFont = fontsReady_ ? fonts_.sentenceFontId() : kMeaningFontId;
   const bool answer = face_ == Face::Answer;
+
+  // Trust the face per card, not per install. A custom face that cannot draw a
+  // single character of this text would leave the card blank -- a missing glyph
+  // simply is not painted -- and stale or mis-built fonts on a card are a
+  // normal state of someone setting up. Measured width zero means nothing would
+  // have appeared; the built-in serif always has something to say.
+  if (fontsReady_) {
+    const char* headwordText = note_.field(study::Field::Headword);
+    if (*headwordText != '\0' && renderer.getTextWidth(headwordFont, headwordText) == 0) {
+      headwordFont = kReadingFontId;
+    }
+    const char* sentenceText = note_.field(study::Field::Sentence);
+    if (*sentenceText != '\0' && renderer.getTextWidth(sentenceFont, sentenceText) == 0) {
+      sentenceFont = kMeaningFontId;
+    }
+  }
 
   // Anchored, not centred. docs/design-language.md: a block floating with equal
   // slack above and below reads as unresolved, so the word hangs from the
@@ -833,7 +885,7 @@ void StudyActivity::refreshStats() {
   // size is from when it was opened, and a session that just wrote forty
   // reviews would otherwise show none of them.
   char path[96];
-  std::snprintf(path, sizeof(path), "%s/revlog.dat", kDeckDir);
+  std::snprintf(path, sizeof(path), "%s/revlog.dat", deckDir_);
   revlogSource_.reset();
   if (Storage.openFileForRead("STUDY", path, revlogReadFile_)) {
     revlogSource_ = makeUniqueNoThrow<FileSource>(revlogReadFile_);
@@ -963,7 +1015,9 @@ void StudyActivity::render(RenderLock&&) {
     drawFooter(Rect{0, footerTop, width, kFooterHeight});
   } else {
     UITheme::drawCenteredWrappedText(renderer, Rect{0, bodyTop + 40, width, height - bodyTop - 120}, kMeaningFontId,
-                                     "No deck on the card. Convert one with anki_to_deck.py into /study/mandarin.", 4);
+                                     "No deck on the card yet. On your computer, run: study.py setup. "
+                                     "It finds your Anki collection and puts a deck here. See docs/study.md.",
+                                     4);
   }
 
   const auto labels = mappedInput.mapLabels("Back", "", "", "");

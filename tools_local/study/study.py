@@ -136,6 +136,51 @@ def list_decks(collection):
     return decks
 
 
+def slug(name):
+    """A deck name as a directory name: 'Spanish::Food & Drink' -> 'food-drink'."""
+    import re
+
+    last = name.split("::")[-1].lower()
+    return re.sub(r"[^a-z0-9]+", "-", last).strip("-") or "deck"
+
+
+def find_deck_dir(card):
+    """The one deck on the card, wherever setup (or an older setup) put it.
+
+    The device scans the same way, so what this returns is what the reader will
+    open. More than one match means two setups ran with different names; the
+    first alphabetically wins here and on the device, but setup prevents the
+    state by offering to remove the old deck first.
+    """
+    study = card / "study"
+    if not study.is_dir():
+        return None
+    dirs = sorted(
+        d
+        for d in study.iterdir()
+        if d.is_dir() and d.name != "fonts" and (d / "meta.dat").is_file()
+    )
+    return dirs[0] if dirs else None
+
+
+CJK_RANGES = ((0x2E80, 0x9FFF), (0xF900, 0xFAFF), (0xFF00, 0xFFEF))
+
+
+def deck_has_cjk(deck_dir):
+    """Whether this deck needs the CJK font pipeline at all.
+
+    Read from the glyph files the converter just wrote, because they are
+    exactly the characters the device will be asked to draw -- not from the
+    deck name or a language guess.
+    """
+    text = ""
+    for stem in ("glyphs-headword", "glyphs-sentence"):
+        f = deck_dir / f"{stem}.txt"
+        if f.is_file():
+            text += f.read_text(encoding="utf-8")
+    return any(a <= ord(c) <= b for c in text for a, b in [r for r in CJK_RANGES])
+
+
 def anki_is_running():
     try:
         out = subprocess.run(["pgrep", "-x", "Anki"], capture_output=True, text=True)
@@ -165,20 +210,46 @@ def choose(prompt, options, describe=str):
             return options[int(answer) - 1]
 
 
-def run(script, *args):
+def ensure_venv(*extra_packages):
+    """The tooling venv, created on first use rather than by hand.
+
+    Nothing goes anywhere near the system Python: macOS marks it externally
+    managed and `pip install` into it simply fails, which was the first wall a
+    fresh user hit. uv when it is there, the stdlib venv when it is not.
+    """
+    venv = REPO / ".venv-study/bin/python"
+    packages = ["fonttools", "freetype-py", "pillow", *extra_packages]
+    if not venv.exists():
+        print("Setting up the tooling environment (first run only)...")
+        if shutil.which("uv"):
+            subprocess.run(["uv", "venv", str(REPO / ".venv-study")], check=True)
+            subprocess.run(
+                ["uv", "pip", "install", "--python", str(venv), *packages], check=True
+            )
+        else:
+            subprocess.run(
+                [sys.executable, "-m", "venv", str(REPO / ".venv-study")], check=True
+            )
+            subprocess.run([str(venv), "-m", "pip", "install", "-q", *packages], check=True)
+    for package in extra_packages:
+        module = package.replace("-", "_")
+        if subprocess.run([str(venv), "-c", f"import {module}"], capture_output=True).returncode:
+            print(f"Installing {package} into the tooling environment (once)...")
+            if shutil.which("uv"):
+                subprocess.run(
+                    ["uv", "pip", "install", "--python", str(venv), package], check=True
+                )
+            else:
+                subprocess.run([str(venv), "-m", "pip", "install", "-q", package], check=True)
+    return venv
+
+
+def run(script, *args, venv=False):
     """Run one of the single-purpose tools, showing what it printed."""
-    interpreter = sys.executable
     # make_fonts needs fonttools and freetype-py, make_images needs pillow; the
     # rest are plain Python and run under whatever launched this.
-    if script in ("make_fonts.py", "make_images.py"):
-        venv = REPO / ".venv-study/bin/python"
-        if not venv.exists():
-            die(
-                "This step needs the tooling venv:\n"
-                "    uv venv .venv-study\n"
-                "    uv pip install --python .venv-study/bin/python fonttools freetype-py pillow"
-            )
-        interpreter = str(venv)
+    needs_venv = venv or script in ("make_fonts.py", "make_images.py")
+    interpreter = str(ensure_venv()) if needs_venv else sys.executable
     result = subprocess.run([interpreter, str(HERE / script), *[str(a) for a in args]])
     return result.returncode == 0
 
@@ -238,39 +309,82 @@ def cmd_setup(args):
         die(f"{target} is not a directory.")
 
     name = args.name or deck.split("::")[-1]
-    deck_dir = target / "study" / "mandarin"
+    deck_dir = target / "study" / slug(name)
     font_dir = target / "study" / "fonts"
 
+    # One deck at a time is the reader's rule, and the tool keeps the card in
+    # that state rather than leaving two behind and hoping. Removal is the one
+    # destructive thing this script can do, so it never happens silently and it
+    # names what would be lost.
+    existing = find_deck_dir(target)
+    if existing is not None and existing != deck_dir:
+        pending = existing / "revlog.dat"
+        reviews = pending.stat().st_size // 32 if pending.is_file() else 0
+        print(f"\nThe card already has a deck at {existing}.")
+        if reviews:
+            print(
+                f"  It holds {reviews} review(s) that have not been synced back to Anki."
+                f"\n  If they matter, cancel and run 'study.py sync' first."
+            )
+        if not args.replace:
+            answer = input("  Replace it? [y/N] ").strip().lower()
+            if answer != "y":
+                die("Cancelled; the card is unchanged.")
+        shutil.rmtree(existing)
+        print(f"  Removed {existing}.")
+
+    extra = []
+    for pair in args.map or []:
+        extra += ["--map", pair]
     print(f"\nConverting {deck!r} -> {deck_dir}")
     if not run(
-        "anki_to_deck.py", collection, "--deck", deck, "--name", name, "--out", deck_dir
+        "anki_to_deck.py", collection, "--deck", deck, "--name", name, "--out", deck_dir, *extra
     ):
         die("Conversion failed; nothing was changed on the card.")
 
-    # Fonts are 32MB and rarely change, so only build them when they are absent
-    # or when the deck has grown characters they do not cover.
-    need_fonts = args.rebuild_fonts or not (
-        font_dir.is_dir() and any(font_dir.iterdir())
-    )
-    if not need_fonts:
-        print("\nChecking the existing fonts cover this deck...")
-        need_fonts = not run("check_deck.py", deck_dir, "--fonts", font_dir)
+    # Fonts only matter when the deck needs glyphs the built-in serif lacks, or
+    # when the user asked for a face of their own. A Latin-script deck without
+    # --font skips the whole pipeline: the built-in serif draws it, and the
+    # device falls back per card even if stale fonts are lying around.
+    needs_cjk = deck_has_cjk(deck_dir)
+    if not needs_cjk and not args.font:
+        print(
+            "\nNo CJK in this deck; the built-in face will draw it."
+            " (Pass --font YourFont.ttf for a large custom headword face.)"
+        )
+    else:
+        need_fonts = args.rebuild_fonts or args.font or not (
+            font_dir.is_dir() and any(font_dir.iterdir())
+        )
+        if not need_fonts:
+            print("\nChecking the existing fonts cover this deck...")
+            need_fonts = not run("check_deck.py", deck_dir, "--fonts", font_dir)
+            if need_fonts:
+                print("They do not. Rebuilding.")
         if need_fonts:
-            print("They do not. Rebuilding.")
-    if need_fonts:
-        media = collection.parent / "collection.media"
-        if not media.is_dir():
-            die(
-                f"Cannot find {media} -- fonts are built from the ones in your Anki media folder."
-            )
-        print(f"\nBuilding fonts (a few minutes, ~32MB) -> {font_dir}")
-        if not run(
-            "make_fonts.py", "--media", media, "--deck", deck_dir, "--out", font_dir
-        ):
-            die(
-                "Font build failed. The deck is on the card but will render in the fallback face."
-            )
-        run("check_deck.py", deck_dir, "--fonts", font_dir)
+            font_args = ["--deck", deck_dir, "--out", font_dir]
+            if args.font:
+                font_args += ["--font", pathlib.Path(args.font).expanduser()]
+            media = collection.parent / "collection.media"
+            if media.is_dir():
+                font_args += ["--media", media]
+            elif not args.font:
+                die(
+                    f"Cannot find {media} -- CJK fonts are built from the ones in"
+                    f" your Anki media folder (_simsun.ttf and friends), or pass"
+                    f" --font YourFont.ttf to build from any TTF."
+                )
+            print(f"\nBuilding fonts -> {font_dir}")
+            if not run("make_fonts.py", *font_args):
+                die(
+                    "Font build failed. The deck is on the card and will render"
+                    " in the built-in face."
+                )
+            if not run("check_deck.py", deck_dir, "--fonts", font_dir):
+                print(
+                    "  warning: some cards have glyphs these fonts cannot draw;"
+                    " those cards fall back to the built-in face on the device."
+                )
 
     # The photographs. 290 of Mario's 301 cards carry one and the card offers it
     # on a tap, so a deck without them is a quieter deck than the same cards in
@@ -295,9 +409,9 @@ def cmd_sync(args):
     if not collection.is_file() or not card.is_dir():
         die("Nothing set up yet -- run 'setup' first, or pass --collection and --card.")
 
-    deck_dir = card / "study" / "mandarin"
-    if not deck_dir.is_dir():
-        die(f"No deck at {deck_dir}. Is the card mounted?")
+    deck_dir = find_deck_dir(card)
+    if deck_dir is None:
+        die(f"No deck under {card / 'study'}. Is the card mounted?")
 
     if anki_is_running() and not args.force:
         die(
@@ -308,7 +422,12 @@ def cmd_sync(args):
     extra = ["--sync"] if args.ankiweb else []
     if args.dry_run:
         extra.append("--dry-run")
-    if not run("deck_to_anki.py", deck_dir, collection, *extra):
+    # The AnkiWeb client is Anki's own Python library, which cannot go into the
+    # system Python (macOS marks it externally managed), so it lives in the
+    # tooling venv and is pulled in the first time anyone asks for --ankiweb.
+    if args.ankiweb:
+        ensure_venv("anki")
+    if not run("deck_to_anki.py", deck_dir, collection, *extra, venv=args.ankiweb):
         die("Sync failed. Your reviews are still on the card; nothing was lost.")
 
     if args.reconvert and not args.dry_run:
@@ -339,9 +458,9 @@ def cmd_status(args):
     print(f"collection  {config.get('collection')}")
     print(f"deck        {config.get('deck')}")
     print(f"card        {config.get('card')}")
-    deck_dir = pathlib.Path(config.get("card", "")) / "study" / "mandarin"
-    revlog = deck_dir / "revlog.dat"
-    if not deck_dir.is_dir():
+    deck_dir = find_deck_dir(pathlib.Path(config.get("card", "")))
+    revlog = (deck_dir / "revlog.dat") if deck_dir else pathlib.Path("/nonexistent")
+    if deck_dir is None:
         print("\nThe card is not mounted.")
     elif revlog.exists():
         pending = revlog.stat().st_size // 32
@@ -370,6 +489,22 @@ def main():
         "--rebuild-fonts",
         action="store_true",
         help="rebuild the fonts even if they look fine",
+    )
+    s.add_argument(
+        "--font",
+        help="build the headword/sentence faces from this TTF (any language)",
+    )
+    s.add_argument(
+        "--map",
+        action="append",
+        metavar="SLOT=FIELD",
+        help="for note types the converter does not know: which Anki field"
+        " fills which slot (e.g. --map headword=Word); repeatable",
+    )
+    s.add_argument(
+        "--replace",
+        action="store_true",
+        help="replace a different deck already on the card without asking",
     )
     s.set_defaults(func=cmd_setup)
 

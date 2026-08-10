@@ -1,0 +1,163 @@
+# Study: your Anki decks on the reader
+
+Study is a flashcard app that behaves like a real Anki client. It reads a deck
+converted from your own Anki collection, schedules reviews with the same FSRS
+algorithm and the same parameters Anki uses, and syncs every review back so
+Anki (and AnkiWeb) treat them exactly as if you had done them on your phone.
+
+One deck at a time, no editing, no audio. Everything else -- adding cards,
+retraining FSRS, browsing -- happens in Anki, where those things are good.
+
+## What you need
+
+- Anki installed on this computer, with the deck you want to study.
+- The reader's SD card, mounted (or any directory, for a look around).
+- Python 3. Everything else installs itself into a private environment
+  (`.venv-study/`) the first time it is needed; nothing touches your system
+  Python.
+
+## First time: put a deck on the card
+
+```bash
+./tools_local/study/study.py setup
+```
+
+That is the whole command. It finds your Anki collection, lists your decks,
+finds the SD card, and asks one question for each. Then it converts the deck,
+builds fonts if the deck needs them, and packs any sentence images. Answers are
+remembered in `~/.config/crosspoint-study.json`, so the next run asks nothing.
+
+Put the card in the reader: **Apps > STUDY**.
+
+Every prompt has a flag (`--collection`, `--deck`, `--to`, `--name`), so the
+command is scriptable once you know your answers.
+
+### Which decks convert
+
+Any deck whose note type the converter understands, which is nearly all of
+them:
+
+- **Stock "Basic"** (and "Basic (and reversed card)", where each direction
+  becomes its own card): first field is the word, second is the meaning.
+- **Any homemade note type**: same rule, first field and second field. The
+  converter prints the mapping it chose; if it guessed wrong, name the fields
+  yourself:
+
+  ```bash
+  ./tools_local/study/study.py setup --map headword=Word --map reading=Pronunciation
+  ```
+
+  Slots: `headword`, `reading`, `meaning`, `partOfSpeech`, `sentence`,
+  `sentenceReading`, `sentenceMeaning`.
+
+- **HSK / HSK+ / Basic+** have full built-in profiles (all seven slots).
+- **Cloze decks do not convert.** The front of a cloze card is text with a
+  hole in it, and this card format has nowhere to put a hole. Cloze stays in
+  Anki.
+
+Scheduling state comes along: a card due in 21 days in Anki is due in 21 days
+on the reader, with the same stability and difficulty. New decks start fresh,
+exactly as they would in Anki.
+
+### Fonts
+
+- **A CJK deck** (Chinese, Japanese) needs real CJK faces. The converter builds
+  them from the TTFs in your Anki media folder -- `_simsun.ttf`, `_simhei.ttf`,
+  `_msyahei.ttf`, `_kaiti.ttf`, `_fangsong.ttf` -- and the reader randomises
+  the typeface per card, which stops you learning the shape of one font instead
+  of the character. Ship whichever of the five you have; the reader uses what
+  it finds.
+- **Any other deck** needs nothing: the built-in serif draws it. For a large
+  custom headword face, hand setup any TTF:
+
+  ```bash
+  ./tools_local/study/study.py setup --font ~/Fonts/Georgia.ttf
+  ```
+
+- A card whose text the installed fonts cannot draw falls back to the built-in
+  face on its own, per card. A wrong font install can look plain; it cannot
+  look blank.
+
+## After every session: sync
+
+```bash
+./tools_local/study/study.py sync
+```
+
+Quit Anki first (two writers is how a collection gets corrupted; the tool
+checks and refuses). Every review you did on the reader is replayed into your
+collection: same grades, same timestamps, same revlog entries Anki itself would
+have written. A backup of the collection is made first. Reviews you undid on
+the reader are skipped -- as far as Anki learns, they never happened.
+
+Add flags for the two common extras:
+
+```bash
+./tools_local/study/study.py sync --ankiweb --reconvert
+```
+
+- `--ankiweb` pushes the updated collection to AnkiWeb afterwards, using
+  Anki's own sync client. Credentials come from `$ANKI_USERNAME` /
+  `$ANKI_PASSWORD` or a prompt; they are used for the login call and never
+  stored or logged. The sync library installs itself into the tooling venv on
+  first use.
+- `--reconvert` refreshes the deck on the card afterwards, so new cards you
+  added in Anki, edits, and re-optimised FSRS parameters all reach the reader.
+- `--dry-run` reports what would change and writes nothing.
+
+`./tools_local/study/study.py status` shows what is configured and how many
+reviews are waiting to sync.
+
+## The loop, in full
+
+1. Study on the reader. Reviews are written to the card after every answer, so
+   a dead battery loses nothing.
+2. `study.py sync` when you are back at the computer.
+3. In Anki, study other decks, add cards, or run
+   **Deck options > Optimize FSRS parameters** whenever Anki suggests it -- your
+   reader reviews count toward the optimisation like any others.
+4. `study.py sync --reconvert` (or plain `setup` again) carries new cards and
+   new parameters back to the card.
+
+There is no wall: the reader is a full citizen of your Anki ecosystem, not an
+export.
+
+## On the reader
+
+- Tap anywhere to reveal the answer; tap AGAIN / HARD / GOOD / EASY to grade.
+  The times on the buttons are computed the same way Anki computes them.
+- **UNDO** (footer, question side) takes back the last answer -- one level,
+  during the session.
+- **PHOTO** (header, answer side) shows the card's sentence image full screen,
+  when it has one. Tap to come back.
+- The deck screen shows the last two weeks, today's due count, retention, and
+  the streak.
+
+## When something looks wrong
+
+| Symptom                                  | Cause and fix                                                                                                                                   |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| "No deck on the card yet" on the reader  | The card has no converted deck. Run `study.py setup`.                                                                                           |
+| A headword draws in the small plain face | The installed fonts cannot draw that card, so it fell back. Re-run `setup` (it rebuilds fonts that no longer cover the deck), or pass `--font`. |
+| `no convertible cards` during setup      | Cloze-only deck, or a note type whose first field is empty. Use `--map` to name the right fields.                                               |
+| Sync says Anki is running                | Quit Anki and re-run. `--force` exists but means two writers.                                                                                   |
+| Word and meaning came out swapped        | The converter guessed fields by order. Re-run setup with `--map headword=... --map meaning=...`.                                                |
+| Reviews look doubled in Anki             | They cannot: replay is keyed by review timestamp, and rows that already exist are skipped. Run `sync` as often as you like.                     |
+
+## What is deliberately not here
+
+- **Editing, adding, custom study, browsing** -- Anki does these better on a
+  screen with a keyboard.
+- **A second deck** -- one deck, studied properly, is the design. Swapping
+  decks is `setup` again (it offers to replace, and warns if unsynced reviews
+  would be lost).
+- **Audio** -- the device has no speaker.
+- **A second level of undo** -- the state before the previous review is not
+  kept.
+
+## Under the hood
+
+The on-card format, the FSRS implementation and its Anki-agreement tests, and
+the sync mechanics are documented in
+[study-deck-format.md](study-deck-format.md). The one-page printable version of
+this guide is [study-quick-reference.pdf](study-quick-reference.pdf).
