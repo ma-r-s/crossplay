@@ -155,8 +155,13 @@ def _media_map(zf, version):
 
 def _keepable(name):
     """Flat basenames only: a media name with a path in it is nothing Anki
-    writes, and following one would let an archive write outside media_dir."""
-    if not name or name != pathlib.PurePosixPath(name).name or name.startswith("."):
+    writes, and following one would let an archive write outside media_dir.
+    Both flavors of separator, because the CLI also runs on Windows."""
+    if not name or name.startswith("."):
+        return False
+    if name != pathlib.PurePosixPath(name).name:
+        return False
+    if name != pathlib.PureWindowsPath(name).name:
         return False
     return name.lower().endswith(FONT_SUFFIXES + IMAGE_SUFFIXES)
 

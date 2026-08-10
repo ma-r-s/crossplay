@@ -26,6 +26,7 @@
   var workerReady = false;
   var pendingBuffer = null; // an .apkg waiting for the worker to come up
   var onReady = null; // one queued action for when the worker is up
+  var epoch = 0; // bumped on every reset; stale worker replies are dropped
   var opened = null; // last open_apkg result
   var converted = null; // last convert result
   var chosenDeck = null;
@@ -51,6 +52,15 @@
           onReady = null;
           queued();
         }
+      } else if (
+        msg.epoch !== undefined &&
+        msg.epoch !== epoch &&
+        ["converted", "fonts", "fontline", "zip", "deckfiles"].indexOf(
+          msg.type,
+        ) >= 0
+      ) {
+        // A reply from before the last reset: the deck it describes is gone.
+        return;
       } else if (msg.type === "opened") {
         onOpened(msg.result);
       } else if (msg.type === "converted") {
@@ -187,7 +197,12 @@
     $("reportPlaceholder").hidden = false;
     $("reportPlaceholder").textContent = "Converting…";
     $("reportBody").hidden = true;
-    worker.postMessage({ type: "convert", deck: deckName, mapping: mapping });
+    worker.postMessage({
+      type: "convert",
+      epoch: epoch,
+      deck: deckName,
+      mapping: mapping,
+    });
   }
 
   function onConverted(result) {
@@ -286,7 +301,7 @@
     progressLine.textContent =
       "Building faces… (a Chinese deck takes a minute)";
     $("typeLog").hidden = true;
-    var message = { type: "fonts", mode: mode };
+    var message = { type: "fonts", epoch: epoch, mode: mode };
     if (ttfBuffer) {
       message.ttf = ttfBuffer;
       worker.postMessage(message, [ttfBuffer]);
@@ -299,10 +314,26 @@
     $("typeProgress").hidden = true;
     var log = $("typeLog");
     log.hidden = false;
+    if (!converted) return; // a reset won the race; nothing to attach this to
     if (result.error) {
       log.textContent = result.error;
+      // A Latin deck draws fine in the built-in face; a CJK deck without its
+      // build stays unwritable rather than unreadable.
+      if (!converted.hasCjk) {
+        $("writeCard").disabled = !canPickFolders;
+        $("writeZip").disabled = false;
+        $("previewBoot").disabled = false;
+        setWriteStatus("");
+      } else {
+        setWriteStatus("The font build failed, so this deck stays unwritten.");
+      }
       return;
     }
+    $("writeCard").disabled = !canPickFolders;
+    $("writeZip").disabled = false;
+    $("previewBoot").disabled = false;
+    if ($("writeStatus").textContent.indexOf("Waiting") === 0)
+      setWriteStatus("");
     fonts = result;
     converted.files = result.files;
     log.textContent = result.log;
@@ -322,8 +353,13 @@
   // ---- step 4: the preview ------------------------------------------------
 
   var previewFrame = null;
+  var previewListener = null;
 
   function killPreview() {
+    if (previewListener) {
+      window.removeEventListener("message", previewListener);
+      previewListener = null;
+    }
     if (previewFrame) {
       previewFrame.remove();
       previewFrame = null;
@@ -356,8 +392,11 @@
       payload["/fs_/study/.last"] = last;
       transfers.push(last);
 
+      var frame = previewFrame;
       var listener = function (event) {
         if (event.origin !== location.origin || !event.data) return;
+        if (!frame.contentWindow || event.source !== frame.contentWindow)
+          return;
         if (event.data.type === "preview-waiting") {
           previewFrame.contentWindow.postMessage(
             { type: "boot", files: payload },
@@ -376,6 +415,7 @@
           window.removeEventListener("message", listener);
         }
       };
+      previewListener = listener;
       window.addEventListener("message", listener);
     });
   }
@@ -383,8 +423,11 @@
   // ---- downstream state ---------------------------------------------------
 
   function resetDownstream() {
+    epoch++;
     converted = null;
     fonts = null;
+    var builtin = document.querySelector('input[name="face"][value="builtin"]');
+    if (builtin) builtin.checked = true;
     killPreview();
     $("typePlaceholder").hidden = false;
     $("typeBody").hidden = true;
@@ -401,6 +444,13 @@
     $("writePlaceholder").hidden = true;
     $("writeBody").hidden = false;
     if (canPickFolders) $("writeStatus").textContent = "";
+    // A CJK deck written without its faces is a deck the device cannot draw:
+    // hold the write until the build lands (onFonts lifts this).
+    var needsFonts = converted.hasCjk && opened && opened.fonts.length > 0;
+    $("writeCard").disabled = needsFonts || !canPickFolders;
+    $("writeZip").disabled = needsFonts;
+    $("previewBoot").disabled = needsFonts;
+    if (needsFonts) setWriteStatus("Waiting for the faces to build…");
   }
 
   function onDeckFiles(files) {
@@ -416,7 +466,11 @@
   function withDeckFiles(callback) {
     if (!converted) return;
     deckFilesWaiter = callback;
-    worker.postMessage({ type: "deckfiles", names: converted.files });
+    worker.postMessage({
+      type: "deckfiles",
+      epoch: epoch,
+      names: converted.files,
+    });
   }
 
   // ---- step 5: writing to the card ---------------------------------------
@@ -450,20 +504,24 @@
           ).arrayBuffer();
         } catch (e) {}
         if (oldLog && oldLog.byteLength > 0) {
-          var reviews = Math.floor(oldLog.byteLength / 32);
+          var records = Math.floor(oldLog.byteLength / 32);
           var go = window.confirm(
             "This card already has a deck named " +
               slug +
-              " with " +
-              reviews +
-              " review(s) not yet synced back to Anki. Overwriting erases " +
-              "them. Sync first (the step below), or press OK to overwrite.",
+              " carrying " +
+              records +
+              " review record(s), possibly not yet synced back to Anki. " +
+              "Replacing the deck erases them. Sync first (the step below) " +
+              "if unsure, or press OK to replace it whole.",
           );
           if (!go) {
             setWriteStatus("Left the card untouched.");
             return;
           }
         }
+        // Replace, not merge: stale fonts or images surviving underneath a
+        // new conversion is exactly the surprise the report step rules out.
+        await study.removeEntry(slug, { recursive: true });
       }
 
       setWriteStatus("Collecting the deck…");
@@ -512,7 +570,7 @@
   function downloadZip() {
     if (!converted) return;
     setWriteStatus("Packing the zip…");
-    worker.postMessage({ type: "zip", slug: converted.slug });
+    worker.postMessage({ type: "zip", epoch: epoch, slug: converted.slug });
   }
 
   function onZip(buffer) {
@@ -533,7 +591,7 @@
 
   var syncDecks = null; // {deckName: {"revlog.dat": buf, "cards.dat": buf}}
   var syncProfileHandle = null;
-  var syncCollection = null; // ArrayBuffer
+  var syncCollection = null; // ArrayBuffer, read fresh at replay time
 
   function setSyncStatus(text) {
     $("syncStatus").textContent = text;
@@ -606,38 +664,62 @@
       );
       return;
     }
-    // The browser cannot see processes, but a hot journal is Anki's own
-    // fingerprint on disk: refuse rather than race it.
-    var names = ["collection.anki2-wal", "collection.anki2-journal"];
-    for (var i = 0; i < names.length; i++) {
-      try {
-        var extra = await (await profile.getFileHandle(names[i])).getFile();
-        if (extra.size > 0) {
-          setSyncStatus(
-            "Anki looks open (" +
-              names[i] +
-              " is not empty). Quit Anki fully, then pick the folder again.",
-          );
-          return;
-        }
-      } catch (e) {}
-    }
     syncProfileHandle = profile;
-    syncCollection = await (await collectionHandle.getFile()).arrayBuffer();
+    var size = (await collectionHandle.getFile()).size;
     setSyncStatus(
       "Collection found (" +
-        (syncCollection.byteLength / 1024 / 1024).toFixed(1) +
+        (size / 1024 / 1024).toFixed(1) +
         " MB). Quit Anki if it is open, then replay.",
     );
     $("syncRun").disabled = false;
   }
 
-  function runSync() {
-    if (!syncDecks || !syncCollection) return;
+  // The browser cannot see processes, but SQLite's sidecar files are Anki's
+  // fingerprint on disk: a non-empty -wal/-journal means unflushed writes,
+  // and an existing -shm means some connection is (or died) holding it open.
+  async function ankiLooksOpen(profile) {
+    try {
+      var shm = await profile.getFileHandle("collection.anki2-shm");
+      if (shm) return "collection.anki2-shm exists";
+    } catch (e) {}
+    var names = ["collection.anki2-wal", "collection.anki2-journal"];
+    for (var i = 0; i < names.length; i++) {
+      try {
+        var extra = await (await profile.getFileHandle(names[i])).getFile();
+        if (extra.size > 0) return names[i] + " is not empty";
+      } catch (e) {}
+    }
+    return null;
+  }
+
+  async function runSync() {
+    if (!syncDecks || !syncProfileHandle) return;
     ensureWorker();
     if (!workerReady) {
       onReady = runSync;
       setSyncStatus("Loading the Python runtime first…");
+      return;
+    }
+    // Check and read NOW, not at pick time: minutes may have passed, and an
+    // Anki session in between would otherwise be replayed over and reverted.
+    var open = await ankiLooksOpen(syncProfileHandle);
+    if (open) {
+      setSyncStatus(
+        "Anki looks open (" +
+          open +
+          "). Quit it fully, then replay. If Anki crashed recently, open and" +
+          " quit it once so it cleans up, then come back.",
+      );
+      return;
+    }
+    try {
+      syncCollection = await (
+        await (
+          await syncProfileHandle.getFileHandle("collection.anki2")
+        ).getFile()
+      ).arrayBuffer();
+    } catch (e) {
+      setSyncStatus("Could not read collection.anki2: " + (e.message || e));
       return;
     }
     setSyncStatus("Replaying…");

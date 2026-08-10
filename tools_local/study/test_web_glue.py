@@ -2,12 +2,18 @@
 """Exercise web_glue.py, the page's whole Python boundary, on the host.
 
     .venv-study/bin/python tools_local/study/test_web_glue.py
+    .venv-study/bin/python tools_local/study/test_web_glue.py --from-zip
 
 The page cannot be unit-tested from a shell, but its Python side can: the
 same open -> convert -> sync_local path the worker drives, against the
 committed sample deck, with a device review fabricated in the on-card
 format. What stays browser-only after this is the File System Access
 plumbing (pickers, backup, write-back), which is thin and hand-tested.
+
+--from-zip runs the identical suite from INSIDE a freshly built tools.zip,
+which is the code the browser actually gets. The plain run once passed
+while the page's sync step was dead, because deck_to_anki.py sat beside
+the test on disk and was missing from the zip's member list. Never again.
 
 Counted checks, printed, because "PASS (0 checks)" has bitten before.
 """
@@ -20,12 +26,30 @@ import struct
 import sys
 import tempfile
 import time
+import zipfile
 
 HERE = pathlib.Path(__file__).resolve().parent
 REPO = HERE.parents[1]
-sys.path.insert(0, str(HERE))
+
+FROM_ZIP = "--from-zip" in sys.argv
+if FROM_ZIP:
+    sys.path.insert(0, str(HERE))
+    import io
+
+    import sync_site
+
+    _zip_root = pathlib.Path(tempfile.mkdtemp(prefix="toolszip-"))
+    with zipfile.ZipFile(io.BytesIO(sync_site.build())) as zf:
+        zf.extractall(_zip_root)
+    sys.path.insert(0, str(_zip_root / "tools_local" / "study"))
+else:
+    sys.path.insert(0, str(HERE))
 
 import web_glue  # noqa: E402
+
+if FROM_ZIP:
+    got = pathlib.Path(web_glue.__file__).resolve()
+    assert str(_zip_root) in str(got), f"imported {got}, not the zip's copy"
 
 CHECKS = 0
 

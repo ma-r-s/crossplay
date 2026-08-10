@@ -10,12 +10,6 @@ importScripts("/pyodide/pyodide.js");
 
 var pyodide = null;
 
-function post(type, extra) {
-  var message = extra || {};
-  message.type = type;
-  self.postMessage(message);
-}
-
 function progress(text) {
   post("progress", { text: text });
 }
@@ -91,7 +85,7 @@ var handlers = {
   zip: function (msg) {
     pyodide.globals.set("_slug", msg.slug);
     var bytes = pyodide.runPython("web_glue.make_zip(_slug)").toJs();
-    self.postMessage({ type: "zip", buffer: bytes.buffer }, [bytes.buffer]);
+    self.postMessage({ type: "zip", epoch: currentEpoch, buffer: bytes.buffer }, [bytes.buffer]);
   },
 
   syncfiles: function (msg) {
@@ -123,9 +117,10 @@ var handlers = {
 
   syncfile: function () {
     var bytes = pyodide.runPython("web_glue.sync_file()").toJs();
-    self.postMessage({ type: "syncfile", buffer: bytes.buffer }, [
-      bytes.buffer,
-    ]);
+    self.postMessage(
+      { type: "syncfile", epoch: currentEpoch, buffer: bytes.buffer },
+      [bytes.buffer],
+    );
   },
 
   deckfiles: function (msg) {
@@ -138,14 +133,29 @@ var handlers = {
       files[name] = bytes.buffer;
       transfers.push(bytes.buffer);
     }
-    self.postMessage({ type: "deckfiles", files: files }, transfers);
+    self.postMessage({ type: "deckfiles", epoch: currentEpoch, files: files }, transfers);
   },
 };
 
+// Strictly sequential: the fonts handler awaits its module load, and a
+// message interleaving at that point (a new deck dropped mid-build) would
+// pull /work/deck out from under the build. Every reply carries the epoch
+// its request arrived with, so the page can drop results it no longer wants.
+var chain = Promise.resolve();
+var currentEpoch = 0;
+
+function post(type, extra) {
+  var message = extra || {};
+  message.type = type;
+  message.epoch = currentEpoch;
+  self.postMessage(message);
+}
+
 self.onmessage = function (event) {
   var msg = event.data;
-  Promise.resolve()
+  chain = chain
     .then(function () {
+      currentEpoch = msg.epoch || 0;
       if (msg.type === "init") return init();
       if (!pyodide) throw new Error("worker not initialised yet");
       return handlers[msg.type](msg);
