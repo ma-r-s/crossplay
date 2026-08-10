@@ -96,20 +96,24 @@
       <div class="wiz-check-head">
         <div id="openSummary" hidden>
           <h3 class="study-card-title" id="summaryTitle"></h3>
+          <p class="study-facts" id="sourceFile"></p>
           <div id="deckChoices"></div>
-          <p class="study-facts" id="summaryFacts"></p>
-          <p class="study-warn" id="summaryWarn" hidden></p>
           <p class="study-verdict" id="reportVerdict"></p>
+          <p class="study-facts" id="summaryFacts"></p>
+          <p class="study-warn" id="skipNotice" hidden></p>
+          <p class="study-warn" id="summaryWarn" hidden></p>
         </div>
         <div class="wiz-type" id="typeBody" hidden>
           <div id="typeChoices" hidden>
-            <p class="wiz-type-label">The headword face:</p>
+            <p class="wiz-type-label">Font for the word on the card front:</p>
             <label class="study-deck-choice"><input type="radio" name="face" value="builtin" checked>
-              Built-in serif <span class="study-deck-cards">nothing to build</span></label>
+              The reader's built-in serif</label>
             <label class="study-deck-choice"><input type="radio" name="face" value="bundled">
-              Large, from DejaVu Serif <span class="study-deck-cards">bundled, free</span></label>
+              Bigger type, sized so your longest word fits <span class="study-deck-cards">DejaVu Serif, bundled</span></label>
             <label class="study-deck-choice"><input type="radio" name="face" value="own">
-              Large, from your own TTF</label>
+              Bigger type from a font file you have
+              <button class="linklike" id="ttfChoose" type="button">choose .ttf</button>
+              <span class="study-deck-cards" id="ownName"></span></label>
             <input type="file" id="ttfpick" accept=".ttf,.otf" hidden>
           </div>
           <p class="study-progress" id="typeProgress" hidden></p>
@@ -117,10 +121,16 @@
         </div>
       </div>
       <p class="study-placeholder" id="reportPlaceholder" hidden>Converting…</p>
-      <div id="reportBody" hidden class="wiz-report">
-        <pre class="study-log" id="convertLog"></pre>
-        <pre class="study-log study-log-check" id="checkLog"></pre>
-        <pre class="study-log" id="typeLog" hidden></pre>
+      <details class="study-mapping" id="reportBody" hidden>
+        <summary>The tools' own words, in full</summary>
+        <div class="wiz-report">
+          <pre class="study-log" id="convertLog"></pre>
+          <pre class="study-log study-log-check" id="checkLog"></pre>
+          <pre class="study-log" id="typeLog" hidden></pre>
+        </div>
+      </details>
+      <div class="wiz-next">
+        <button class="btn primary" id="next2" type="button">Next: try it on the device</button>
       </div>
       <details class="study-mapping">
         <summary>The fields came out wrong?</summary>
@@ -146,6 +156,13 @@
             <button class="btn primary" id="previewBoot" type="button">Boot the device</button>
           </div>
           <p class="study-status-line" id="previewStatus"></p>
+          <p class="study-facts">
+            Reviews you do here are throwaway: writing puts a fresh deck on
+            the card.
+          </p>
+          <div class="wiz-next">
+            <button class="btn primary" id="next3" type="button">Next: write it to the card</button>
+          </div>
         </div>
         <div class="study-device" id="previewMount" hidden></div>
       </div>
@@ -189,12 +206,13 @@
         <div class="cta-row">
           <button class="btn" id="syncCard" type="button">1 &middot; Pick the SD card</button>
           <button class="btn" id="syncProfile" type="button" disabled>2 &middot; Pick the Anki profile folder</button>
-          <button class="btn primary" id="syncRun" type="button" disabled>3 &middot; Replay</button>
+          <button class="btn" id="syncRun" type="button" disabled>3 &middot; Replay</button>
         </div>
         <p class="study-status-line" id="syncStatus">
-          The profile folder is the one holding collection.anki2: on a Mac,
+          The profile folder is the one holding collection.anki2. Mac:
           Library &rsaquo; Application Support &rsaquo; Anki2 &rsaquo; your
-          profile.
+          profile. Windows: %APPDATA%\Anki2\your profile. Linux:
+          ~/.local/share/Anki2/your profile.
         </p>
         <pre class="study-log" id="syncLog" hidden></pre>
       </div>
@@ -205,8 +223,8 @@
   <div class="wiz-foot">
     <p class="wiz-fine">
       Runs the repository's own tools via <a href="https://pyodide.org">Pyodide</a>,
-      served from this site &middot; also a
-      <a href="https://github.com/ma-r-s/crossplay/blob/xteink/docs/study.md">command line</a>
+      served from this site &middot; also available as a
+      <a href="https://github.com/ma-r-s/crossplay/blob/xteink/docs/study.md">command-line tool</a>
       &middot; Anki is a trademark of Ankitects; no affiliation
     </p>
     <button class="theme-toggle" id="themeToggle" type="button" aria-pressed="false">Invert</button>

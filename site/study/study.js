@@ -13,13 +13,13 @@
   };
 
   var SLOTS = [
-    "headword",
-    "reading",
-    "meaning",
-    "partOfSpeech",
-    "sentence",
-    "sentenceReading",
-    "sentenceMeaning",
+    ["headword", "Word"],
+    ["reading", "Reading / pronunciation"],
+    ["meaning", "Meaning"],
+    ["partOfSpeech", "Part of speech"],
+    ["sentence", "Example sentence"],
+    ["sentenceReading", "Sentence reading"],
+    ["sentenceMeaning", "Sentence translation"],
   ];
 
   var worker = null;
@@ -28,6 +28,7 @@
   var onReady = null; // one queued action for when the worker is up
   var epoch = 0; // bumped on every reset; stale worker replies are dropped
   var opened = null; // last open_apkg result
+  var sourceName = ""; // the file the user gave us, echoed in the report
   var converted = null; // last convert result
   var chosenDeck = null;
 
@@ -39,7 +40,11 @@
     worker.onmessage = function (event) {
       var msg = event.data;
       if (msg.type === "progress") {
-        setProgress(msg.text + "…");
+        var note =
+          msg.text.indexOf("Starting the Python runtime") === 0
+            ? " (first visit downloads the converter, ~15 MB; later runs are instant)"
+            : "";
+        setProgress(msg.text + "…" + note);
       } else if (msg.type === "ready") {
         workerReady = true;
         if (pendingBuffer) {
@@ -95,7 +100,12 @@
 
   function takeFile(file) {
     if (!file) return;
+    sourceName = file.name;
     $("openSummary").hidden = true;
+    $("reportBody").hidden = true;
+    $("reportVerdict").textContent = "";
+    $("summaryFacts").textContent = "";
+    $("skipNotice").hidden = true;
     resetDownstream();
     reachedStep = 1;
     goTo(1);
@@ -114,12 +124,14 @@
     var p = $("openProgress");
     p.textContent = text;
     p.classList.remove("is-error");
+    p.classList.add("is-busy");
     $("openStatus").hidden = false;
   }
 
   function setError(text) {
     var p = $("openProgress");
     p.textContent = text;
+    p.classList.remove("is-busy");
     p.classList.add("is-error");
     $("openStatus").hidden = false;
   }
@@ -162,19 +174,8 @@
       });
     }
 
-    var facts = [result.cards + " cards"];
-    if (result.cardsWithState > 0) {
-      facts.push(
-        result.cardsWithState + " with review history that will come along",
-      );
-    }
-    if (result.fonts.length) {
-      facts.push("fonts in the package: " + result.fonts.join(", "));
-    }
-    if (result.images > 0) {
-      facts.push(result.images + (result.images === 1 ? " image" : " images"));
-    }
-    $("summaryFacts").textContent = facts.join(" · ") + ".";
+    $("sourceFile").textContent = sourceName ? "from " + sourceName : "";
+    $("openProgress").classList.remove("is-busy");
 
     var warn = $("summaryWarn");
     if (result.cardsWithState === 0 && result.reviews === 0) {
@@ -242,6 +243,39 @@
       verdict.className = "study-verdict is-good";
     }
 
+    var facts = [];
+    if (result.cards !== null) {
+      facts.push(result.cards + " cards will go on the device");
+    }
+    if (result.withState > 0) {
+      facts.push(result.withState + " arrive with their review history");
+    }
+    if (result.imagesPacked > 0) {
+      facts.push(
+        result.imagesPacked +
+          (result.imagesPacked === 1 ? " image" : " images") +
+          " packed",
+      );
+    }
+    if (opened && opened.fonts.length) {
+      facts.push("fonts found in the package: " + opened.fonts.join(", "));
+    }
+    $("summaryFacts").textContent = facts.join(" · ") + (facts.length ? "." : "");
+
+    var notice = $("skipNotice");
+    if (result.skipped > 0) {
+      notice.textContent =
+        result.skipped +
+        (result.skipped === 1 ? " card stays behind: " : " cards stay behind: ") +
+        (result.clozeSkipped > 0
+          ? "cloze cards have a hole in the question, and this card format" +
+            " has nowhere to put a hole. They stay in Anki."
+          : "their note type could not be read. The full log below has each one.");
+      notice.hidden = false;
+    } else {
+      notice.hidden = true;
+    }
+
     $("convertLog").textContent =
       result.log + (result.imagesLog ? "\n" + result.imagesLog : "");
     $("checkLog").textContent = result.checkLog;
@@ -255,11 +289,11 @@
     if (grid.childElementCount) return;
     SLOTS.forEach(function (slot) {
       var label = document.createElement("label");
-      label.textContent = slot;
+      label.textContent = slot[1];
       var input = document.createElement("input");
       input.type = "text";
       input.placeholder = "Anki field name";
-      input.dataset.slot = slot;
+      input.dataset.slot = slot[0];
       label.appendChild(input);
       grid.appendChild(label);
     });
@@ -414,8 +448,7 @@
           $("previewStatus").textContent =
             "Booting the firmware… (about ten seconds)";
         } else if (event.data.type === "preview-ready") {
-          $("previewStatus").textContent =
-            "This is the real firmware. Tap the panel the way you would tap the reader.";
+          $("previewStatus").textContent = "Booted.";
           window.removeEventListener("message", listener);
         } else if (event.data.type === "preview-error") {
           $("previewStatus").textContent =
@@ -436,6 +469,9 @@
     fonts = null;
     var builtin = document.querySelector('input[name="face"][value="builtin"]');
     if (builtin) builtin.checked = true;
+    faceBefore = "builtin";
+    var ownName = $("ownName");
+    if (ownName) ownName.textContent = "";
     killPreview();
     $("typePlaceholder").hidden = false;
     $("typeBody").hidden = true;
@@ -680,6 +716,7 @@
         " MB). Quit Anki if it is open, then replay.",
     );
     $("syncRun").disabled = false;
+    $("syncRun").classList.add("primary");
   }
 
   // The browser cannot see processes, but SQLite's sidecar files are Anki's
@@ -859,6 +896,23 @@
   });
 
   $("previewBoot").addEventListener("click", bootPreview);
+  $("next2").addEventListener("click", function () {
+    goTo(3);
+  });
+  $("next3").addEventListener("click", function () {
+    goTo(4);
+  });
+
+  // A deck dropped anywhere on the page counts: a fidgety user on step 3
+  // should not need to find their way back to step 1 first.
+  document.addEventListener("dragover", function (event) {
+    event.preventDefault();
+  });
+  document.addEventListener("drop", function (event) {
+    event.preventDefault();
+    var file = event.dataTransfer && event.dataTransfer.files[0];
+    if (file) takeFile(file);
+  });
 
   $("writeCard").addEventListener("click", writeToCard);
   $("writeZip").addEventListener("click", downloadZip);
@@ -879,16 +933,28 @@
   }
 
   // The face radios: built-in does nothing (there is nothing to build),
-  // bundled fetches the serif this site ships, own asks for a TTF.
+  // bundled fetches the serif this site ships, own asks for a TTF. The
+  // previous selection is remembered so cancelling the file picker does not
+  // leave a radio claiming a font that never loaded.
+  var faceBefore = "builtin";
+
+  function faceRadio(value) {
+    return document.querySelector('input[name="face"][value="' + value + '"]');
+  }
+
   document.querySelectorAll('input[name="face"]').forEach(function (radio) {
     radio.addEventListener("change", function () {
       if (!converted) return;
       if (radio.value === "builtin") {
+        faceBefore = "builtin";
+        $("ownName").textContent = "";
         fonts = null;
         $("typeLog").hidden = true;
         $("typeProgress").hidden = true;
         convert(chosenDeck, null); // back to the fontless deck and report
       } else if (radio.value === "bundled") {
+        faceBefore = "bundled";
+        $("ownName").textContent = "";
         fetch("/study/DejaVuSerif.ttf")
           .then(function (response) {
             return response.arrayBuffer();
@@ -901,10 +967,21 @@
       }
     });
   });
+  $("ttfChoose").addEventListener("click", function (event) {
+    event.preventDefault();
+    if (converted) $("ttfpick").click();
+  });
   $("ttfpick").addEventListener("change", function () {
     var file = $("ttfpick").files[0];
     $("ttfpick").value = "";
-    if (!file) return;
+    if (!file) {
+      // Cancelled: fall back to whatever was really in effect.
+      faceRadio(faceBefore).checked = true;
+      return;
+    }
+    faceBefore = "own";
+    faceRadio("own").checked = true;
+    $("ownName").textContent = file.name;
     file.arrayBuffer().then(function (buffer) {
       buildFonts("custom", buffer);
     });
@@ -947,6 +1024,8 @@
       button.classList.toggle("is-current", mine === step);
       button.classList.toggle("is-done", mine < step);
       button.disabled = mine > reachedStep;
+      if (mine === step) button.setAttribute("aria-current", "step");
+      else button.removeAttribute("aria-current");
     });
     $("modeInstall").setAttribute("aria-selected", "true");
     $("modeSyncBtn").setAttribute("aria-selected", "false");

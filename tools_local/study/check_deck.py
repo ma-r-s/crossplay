@@ -257,10 +257,11 @@ def main():
                     f"an unbreakable run longer than the {LINE_BYTES}-byte line buffer"
                 ].append(f"note {index} {name}: {run} bytes")
 
-    print(
-        f"checked {notes} notes across {len(families)} faces "
-        f"({notes * len(families)} card/face combinations)\n"
-    )
+    if families:
+        noun = "face" if len(families) == 1 else "faces"
+        print(f"checked {notes} notes across {len(families)} {noun}\n")
+    else:
+        print(f"checked {notes} notes against the built-in serif\n")
     failed = 0
     for what, found in problems.items():
         mark = "ok  " if not found else "FAIL"

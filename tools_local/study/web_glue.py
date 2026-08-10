@@ -142,6 +142,17 @@ def convert(deck_name, mapping):
 
     check_code, check_log = _run_tool("check_deck.py", [out])
 
+    # The page's headline numbers come from here, parsed from the converter's
+    # own summary line, so they can never disagree with the log below them.
+    import re
+
+    counts = re.search(
+        r"deck '.*': (\d+) cards \((\d+) with scheduling state, (\d+) skipped\)",
+        log,
+    )
+    images_packed = re.search(r"images: (\d+) packed", images_log)
+    cloze_line = re.search(r"(\d+) cloze card\(s\) skipped", log)
+
     return json.dumps(
         {
             "log": log,
@@ -151,6 +162,11 @@ def convert(deck_name, mapping):
             "slug": study_cli.slug(deck_name),
             "hasCjk": study_cli.deck_has_cjk(out),
             "files": _deck_files(),
+            "cards": int(counts.group(1)) if counts else None,
+            "withState": int(counts.group(2)) if counts else None,
+            "skipped": int(counts.group(3)) if counts else None,
+            "clozeSkipped": int(cloze_line.group(1)) if cloze_line else 0,
+            "imagesPacked": int(images_packed.group(1)) if images_packed else 0,
         }
     )
 

@@ -44,7 +44,7 @@ function callGlue(expression) {
 
 async function ensureFt() {
   if (self.ftModule) return;
-  progress("Loading the type engine");
+  progress("Loading the font engine");
   importScripts("/study/ft.js");
   self.ftModule = await createFtModule({
     locateFile: function (path) {

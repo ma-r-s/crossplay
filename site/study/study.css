@@ -297,7 +297,7 @@
   font-size: 0.74rem;
   line-height: 1.5;
   overflow: auto;
-  white-space: pre;
+  white-space: pre-wrap;
   margin: 0;
   max-height: 32vh;
 }
@@ -432,6 +432,48 @@
 
 .wiz-fine a {
   color: inherit;
+}
+
+.wizard .btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.wiz-next {
+  margin-top: 1.2rem;
+}
+
+.wiz-stepper button {
+  white-space: nowrap;
+}
+
+/* the working line pulses so a long first load reads as alive, not hung */
+.study-progress.is-busy::after {
+  content: "";
+  display: inline-block;
+  width: 0.55em;
+  height: 0.55em;
+  margin-left: 0.5em;
+  background: currentColor;
+  animation: study-pulse 1s ease-in-out infinite;
+  vertical-align: baseline;
+}
+
+@keyframes study-pulse {
+  0%,
+  100% {
+    opacity: 0.15;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .study-progress.is-busy::after {
+    animation: none;
+    opacity: 0.6;
+  }
 }
 
 /* [hidden] must win over the display: grid/flex the layout classes set,
