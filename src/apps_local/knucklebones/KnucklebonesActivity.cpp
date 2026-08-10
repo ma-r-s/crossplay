@@ -122,22 +122,6 @@ void KnucklebonesActivity::beginSoloMatch() {
   kb::start(game, static_cast<uint32_t>(millis()) * 2654435761u + 1u);
   seat = 0;
   resultRecorded = false;
-#if defined(SIMULATOR)
-  // TEMP ART PASS: a reproducible mid-game position, so every layout candidate
-  // is judged on the same board. Deleted with the variant switch.
-  if (std::getenv("ART_DEMO") != nullptr) {
-    static const uint8_t kMine[kb::kColumns][kb::kRows] = {{4, 4, 0}, {6, 2, 0}, {1, 0, 0}};
-    static const uint8_t kTheirs[kb::kColumns][kb::kRows] = {{5, 0, 0}, {3, 3, 3}, {2, 6, 0}};
-    for (int column = 0; column < kb::kColumns; ++column) {
-      for (int row = 0; row < kb::kRows; ++row) {
-        game.grid[seat].cell[column][row] = kMine[column][row];
-        game.grid[1 - seat].cell[column][row] = kTheirs[column][row];
-      }
-    }
-    game.turn = seat;
-    game.die = 4;
-  }
-#endif
   goTo(kb::Screen::Board);
 }
 
