@@ -11,4 +11,7 @@ mkdir -p "$BUILD_DIR"
 SRC=../../src/apps_local/seasalt
 c++ -std=c++17 -Wall -Wextra -Werror -O2 -I$SRC $SRC/SeaSaltCore.cpp \
   test_seasalt.cpp -o "$BUILD_DIR/test_seasalt"
+c++ -std=c++17 -Wall -Wextra -Werror -O2 -I$SRC $SRC/SeaSaltCore.cpp $SRC/SeaSaltBrain.cpp \
+  test_brain.cpp -o "$BUILD_DIR/test_brain"
 "$BUILD_DIR/test_seasalt"
+"$BUILD_DIR/test_brain"

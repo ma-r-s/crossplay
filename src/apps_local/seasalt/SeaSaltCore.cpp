@@ -493,6 +493,121 @@ bool Game::endRound(const bool lastChance) {
   return true;
 }
 
+// --- observation -----------------------------------------------------------
+
+Observation observe(const Game& game, const int seat) {
+  Observation obs;
+  obs.seat = static_cast<uint8_t>(seat);
+  obs.phase = game.phase;
+  obs.step = game.step;
+  obs.theirHandSize = static_cast<uint8_t>(game.handSize(seat ^ 1));
+  obs.deckRemaining = static_cast<uint8_t>(game.deckRemaining());
+  obs.score[0] = game.score[0];
+  obs.score[1] = game.score[1];
+  obs.extraTurns = game.extraTurns;
+  obs.theirRevealed = (game.revealedMask >> (seat ^ 1)) & 1u;
+  obs.crabPile = game.crabPile;
+
+  const bool myTurn = game.turn == seat;
+  if (myTurn) {
+    obs.drawn[0] = game.drawn[0];
+    obs.drawn[1] = game.drawn[1];
+    obs.pendingDiscard = game.pendingDiscard;
+  }
+
+  for (int c = 0; c < kCards; ++c) {
+    const Place p = static_cast<Place>(game.place[c]);
+    View v = View::Unknown;
+    if (p == handOf(seat)) {
+      v = View::MyHand;
+    } else if (p == tableOf(seat)) {
+      v = View::MyTable;
+    } else if (p == handOf(seat ^ 1)) {
+      v = obs.theirRevealed ? View::TheirHand : View::Unknown;
+    } else if (p == tableOf(seat ^ 1)) {
+      v = View::TheirTable;
+    } else if (p == Place::PileA) {
+      v = View::PileA;
+      obs.seq[c] = game.seq[c];
+    } else if (p == Place::PileB) {
+      v = View::PileB;
+      obs.seq[c] = game.seq[c];
+    } else if (p == Place::Drawn && myTurn) {
+      v = View::MyDrawn;
+    }
+    obs.view[c] = static_cast<uint8_t>(v);
+  }
+  return obs;
+}
+
+int Observation::countView(const View where, const Kind kind) const {
+  int n = 0;
+  const uint8_t w = static_cast<uint8_t>(where);
+  const uint8_t k = static_cast<uint8_t>(kind);
+  for (int c = 0; c < kCards; ++c) {
+    if (view[c] == w && kCardKind[c] == k) ++n;
+  }
+  return n;
+}
+
+int Observation::countMine(const Kind kind) const {
+  return countView(View::MyHand, kind) + countView(View::MyTable, kind);
+}
+
+int Observation::countMineColour(const Colour colour) const {
+  const uint8_t want = static_cast<uint8_t>(colour);
+  int n = 0;
+  for (int c = 0; c < kCards; ++c) {
+    if (view[c] != static_cast<uint8_t>(View::MyHand) && view[c] != static_cast<uint8_t>(View::MyTable)) continue;
+    if (kCardColour[c] == want) ++n;
+  }
+  return n;
+}
+
+int Observation::myPoints() const {
+  // The same arithmetic as Game::cardPoints, deliberately written against the
+  // view: the test that pins the two together is what proves observe() lost
+  // nothing a player is entitled to see.
+  int points = 0;
+  points += countMine(Kind::Crab) / 2;
+  points += countMine(Kind::Boat) / 2;
+  points += countMine(Kind::Fish) / 2;
+  const int swimmers = countMine(Kind::Swimmer);
+  const int sharks = countMine(Kind::Shark);
+  points += swimmers < sharks ? swimmers : sharks;
+
+  const int penguins = countMine(Kind::Penguin);
+  const int sailors = countMine(Kind::Sailor);
+  points += kShellScore[countMine(Kind::Shell)];
+  points += kOctopusScore[countMine(Kind::Octopus)];
+  points += kPenguinScore[penguins];
+  points += kSailorScore[sailors];
+
+  if (countMine(Kind::Lighthouse)) points += countMine(Kind::Boat);
+  if (countMine(Kind::ShoalOfFish)) points += countMine(Kind::Fish);
+  if (countMine(Kind::PenguinColony)) points += 2 * penguins;
+  if (countMine(Kind::Captain)) points += 3 * sailors;
+
+  const int mermaids = countMine(Kind::Mermaid);
+  if (mermaids > 0) {
+    int perColour[kColourCount];
+    for (int i = 0; i < kColourCount; ++i) perColour[i] = countMineColour(static_cast<Colour>(i));
+    for (int taken = 0; taken < mermaids; ++taken) {
+      int best = 0, bestAt = -1;
+      for (int i = 0; i < kColourCount; ++i) {
+        if (perColour[i] > best) {
+          best = perColour[i];
+          bestAt = i;
+        }
+      }
+      if (bestAt < 0) break;
+      points += best;
+      perColour[bestAt] = 0;
+    }
+  }
+  return points;
+}
+
 int Game::playablePairs(const int seat, const Kind kind) const {
   const Place hand = handOf(seat);
   switch (kind) {

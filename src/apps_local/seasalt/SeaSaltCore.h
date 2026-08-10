@@ -235,4 +235,45 @@ struct Game {
 static_assert(std::is_trivially_copyable<Game>::value, "Game travels as raw bytes");
 static_assert(sizeof(Game) <= 192, "Game must fit one LinkPlay packet");
 
+// What one seat is allowed to know: the game with every hidden place collapsed
+// to Unknown. Cards keep their identity wherever they are public, so a pile is
+// still a pile you can reason about; the deck and the opponent's unrevealed
+// hand collapse into the same fog, because telling them apart is exactly the
+// information the game is about.
+enum class View : uint8_t {
+  Unknown = 0,  // in the deck, or in their hand -- you cannot tell
+  MyHand,
+  MyTable,
+  TheirHand,  // only once they have revealed it by ending the round
+  TheirTable,
+  PileA,  // discards were placed face up, so an attentive player knows them.
+  PileB,  // See docs/seasalt.md: this port's AI remembers what it saw.
+  MyDrawn,
+};
+
+struct Observation {
+  uint8_t seat = 0;
+  uint8_t phase = 0;
+  uint8_t step = 0;
+  uint8_t view[kCards] = {};
+  uint8_t seq[kCards] = {};               // pile order, public exactly where the pile is
+  uint8_t drawn[2] = {kNoCard, kNoCard};  // mine mid-choice; theirs stay fog
+  uint8_t pendingDiscard = kNoCard;
+  uint8_t theirHandSize = 0;
+  uint8_t deckRemaining = 0;
+  uint8_t score[kSeats] = {};
+  uint8_t extraTurns = 0;
+  uint8_t theirRevealed = 0;
+  uint8_t crabPile = 0;  // meaningful only in Step::CrabPick
+
+  int countMine(Kind kind) const;  // hand + table, same reach as scoring
+  int countView(View where, Kind kind) const;
+  int countMineColour(Colour colour) const;
+  // My cards' worth, computed only from what I can see. For the observing
+  // seat this must equal Game::cardPoints exactly -- the tests hold it there.
+  int myPoints() const;
+};
+
+Observation observe(const Game& game, int seat);
+
 }  // namespace seasalt

@@ -125,3 +125,24 @@ arrived: drawn, taken off a pile, dug out by a crab, or stolen with a shark.
 
 The consequence worth knowing is that three mermaids in hand is a real target
 for a swimmer+shark steal, and that is intended.
+
+### The AI remembers the discard piles
+
+Every discard is placed face up in full view, so the pile contents are public
+information that a human simply forgets and the rulebook's "you may never look
+through a discard pile" polices. The AI plays with an attentive player's
+memory: `observe()` shows it both piles in full. What it can never see is the
+deck or your unrevealed hand -- those collapse into one indistinguishable fog,
+enforced by construction (the `Observation` has no field that could carry the
+difference) and by tests that hold the fog to exactly the right size.
+
+### What a hidden hand is estimated to be worth
+
+The Navigator's bet decision needs a number for "what is their hand worth". A
+first attempt averaged the unseen census and overshot by two points per card,
+because a hand is not an average: singles score nothing and any real player
+holds few singles. The shipped estimate is a table measured over 400
+brain-vs-brain matches -- a drafted hand is worth roughly `h(h+1)/6` points up
+to eight cards, then about 1.7 per card after. Assuming the opponent drafts is
+the honest prior; against a player who keeps junk it overestimates and the AI
+just plays slightly more cautiously.
