@@ -125,14 +125,14 @@ void drawCardTile(toybox::Screen& screen, const fui::Rect& cell, const CardTile&
   // The face and the name travel as one group, centred between the corner
   // band and the census. Pinning the face near the top opened a void at the
   // bottom of any cell taller than the board's.
-  const int16_t bandBottom = static_cast<int16_t>(cell.y + 30);
-  const int16_t groupSpace = static_cast<int16_t>(cell.y + cell.height - 24 - bandBottom);
-  const int16_t groupH = static_cast<int16_t>(faceSize + (tall ? 22 : 0));
+  const int16_t bandBottom = static_cast<int16_t>(cell.y + 28);
+  const int16_t groupSpace = static_cast<int16_t>(cell.y + cell.height - 23 - bandBottom);
+  const int16_t groupH = static_cast<int16_t>(faceSize + (tall ? 18 : 0));
   const int16_t faceTop =
       static_cast<int16_t>(bandBottom + (groupSpace > groupH ? (groupSpace - groupH) / 2 : (tall ? 0 : -8)));
   blitIcon(screen, fui::makeRect(cell.x + (cell.width - faceSize) / 2, faceTop, faceSize, faceSize), face);
 
-  const int16_t censusTop = static_cast<int16_t>(cell.y + cell.height - 20);
+  const int16_t censusTop = static_cast<int16_t>(cell.y + cell.height - 23);
   if (tall) {
     // The small font, as the design had it, centred in the whole band between
     // the face and the census rather than at a guessed offset.
@@ -143,7 +143,7 @@ void drawCardTile(toybox::Screen& screen, const fui::Rect& cell, const CardTile&
 
   char census[12];
   std::snprintf(census, sizeof(census), "%d OF %d", tile.held, tile.supply);
-  target.text(fui::makeRect(cell.x, censusTop, cell.width, 18), census,
+  target.text(fui::makeRect(cell.x, censusTop, cell.width, 16), census,
               styled(toybox::kSmallFont, fui::TextAlign::Center));
 }
 
