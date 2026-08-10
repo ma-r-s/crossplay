@@ -22,6 +22,18 @@ enum class MenuRow : int { Play = 0, PlayNearby, HowTo, Count };
 struct MenuModel {
   const char* nearbyName = nullptr;
   int selected = -1;
+  // The record and the last game's final position, for the front door's
+  // ornament. Cells are always light-perspective; null until a game has been
+  // finished on this device.
+  bool hasHistory = false;
+  // 0 won, 1 lost, 2 draw, from this device's seat.
+  int lastOutcome = 2;
+  const uint8_t* lastCells = nullptr;
+  int lastYourPieces = 0;
+  int lastTheirPieces = 0;
+  int wins = 0;
+  int losses = 0;
+  int draws = 0;
 };
 
 struct HowToModel {

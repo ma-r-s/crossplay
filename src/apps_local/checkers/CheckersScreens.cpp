@@ -14,38 +14,15 @@ namespace {
 
 namespace ck = checkers;
 
-// --- TEMP ART PASS ----------------------------------------------------------
-// Runtime layout switches so one build renders every candidate for Mario to
-// pick from (ART_MENU / ART_HOWTO / ART_BOARD = 1 or 2, 0 = shipping layout).
-// The losing layouts and this switch are deleted together in the commit that
-// keeps the winner. A local copy of knucklebones' scaffold, the fork's usual
-// price for keeping apps free of each other.
-int artVariant(const char* name) {
-#if defined(SIMULATOR)
-  const char* value = std::getenv(name);
-  return value == nullptr ? 0 : std::atoi(value);
-#else
-  (void)name;
-  return 0;
-#endif
-}
-int menuVariant() {
-  static const int variant = artVariant("ART_MENU");
-  return variant;
-}
-int howToVariant() {
-  static const int variant = artVariant("ART_HOWTO");
-  return variant;
-}
-int boardVariant() {
-  static const int variant = artVariant("ART_BOARD");
-  return variant;
-}
-
-void artChrome(toybox::Screen& screen, const char* title, const char* rightLabel = nullptr) {
+// The header band with the offset rule under it, as jaipur and the dungeon
+// wear it. A local copy rather than a shared helper, for the reason
+// LinkScreens gives: a copy is cheaper than a header dependency between apps.
+void toyboxChrome(toybox::Screen& screen, const char* title, const char* rightLabel = nullptr) {
   fui::HeaderProps header;
   header.title = title;
   header.rightLabel = rightLabel;
+  // rightLabel is drawn with subtitleText, and the theme's default is black on
+  // the black band. Jaipur paid for this discovery; see its toyboxChrome.
   header.subtitleText = fui::TextStyle{};
   header.subtitleText.font = toybox::kUiFont;
   header.subtitleText.color = fui::Color::White;
@@ -58,30 +35,21 @@ void artChrome(toybox::Screen& screen, const char* title, const char* rightLabel
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 }
 
-// TEMP ART PASS: the record and last position the menu candidates draw. The
-// real thing needs the save-file decision; these stand in so the layouts can
-// be judged on a device that has been played.
-constexpr int kDemoPlayed = 12;
-constexpr int kDemoWon = 7;
-// rank 0 is dark's home row. l/L yours, d/D theirs, capitals are kings.
-const char* const kDemoPosition[ck::kSize] = {
-    ".d.d...d", "d.....d.", "...D....", "..d.....", "...l....", "l...l...", ".l.l...l", "..l.L...",
-};
-
-// The board at an arbitrary cell size, for menu ornaments and how-to diagrams.
-// The live board's squareRect is tied to the live board's geometry.
+// The board at an arbitrary cell size, drawn from the saved final position,
+// for the menu's ornament. The live board's squareRect is tied to the live
+// board's geometry.
 void miniBoard(toybox::Screen& screen, const int16_t left, const int16_t top, const int16_t cell,
-               const char* const rows[ck::kSize]) {
+               const uint8_t* cells) {
   for (int rank = 0; rank < ck::kSize; ++rank) {
     for (int file = 0; file < ck::kSize; ++file) {
       const fui::Rect box =
           fui::makeRect(static_cast<int16_t>(left + file * cell), static_cast<int16_t>(top + rank * cell), cell, cell);
       if (ck::playable(file, rank)) screen.target().fill(box, fui::Paint::dither(fui::Color::LightGray));
       screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), toybox::kHairline);
-      const char piece = rows[rank][file];
-      if (piece == '.') continue;
-      const bool filled = piece == 'd' || piece == 'D';
-      const bool king = piece == 'D' || piece == 'L';
+      const uint8_t piece = cells[ck::indexOf(file, rank)];
+      if ((piece & ck::kPiece) == 0) continue;
+      const bool filled = (piece & ck::kDark) != 0;
+      const bool king = (piece & ck::kKing) != 0;
       const int16_t cx = static_cast<int16_t>(box.x + cell / 2);
       const int16_t cy = static_cast<int16_t>(box.y + cell / 2);
       const int16_t radius = static_cast<int16_t>(cell * 23 / 56);
@@ -147,15 +115,13 @@ bool squareAt(const fui::DeviceContext& device, const int x, const int y, const 
 
 int howToPages() { return 3; }
 
-namespace {
+void buildMenu(toybox::Screen& screen, const MenuModel& model) {
+  toyboxChrome(screen, "CHECKERS");
 
-// TEMP ART PASS, menu candidate 1: the documented band order. Record, rule,
-// the last game's final position as the ornament, doors anchored bottom.
-void buildMenuBands(toybox::Screen& screen, const MenuModel& model) {
-  artChrome(screen, "CHECKERS");
-
+  // The front door in the documented band order: record, rule, the last
+  // game's final position as the ornament, doors anchored bottom.
   char record[48];
-  std::snprintf(record, sizeof(record), "%d PLAYED   %d WON", kDemoPlayed, kDemoWon);
+  std::snprintf(record, sizeof(record), "%d PLAYED   %d WON", model.wins + model.losses + model.draws, model.wins);
   const fui::Rect line = screen.takeTop(26);
   fui::TextStyle small;
   small.font = toybox::kTileFont;
@@ -173,6 +139,8 @@ void buildMenuBands(toybox::Screen& screen, const MenuModel& model) {
   rows[static_cast<int>(MenuRow::HowTo)].label = "HOW TO PLAY";
   rows[static_cast<int>(MenuRow::HowTo)].actionValue = static_cast<int16_t>(MenuRow::HowTo);
 
+  // Row 0 reads selected by default, jaipur's own trick: the most likely tap
+  // is also the loudest thing below the rule.
   const int selected = model.selected < 0 ? 0 : model.selected;
   fui::ListProps list;
   list.items = rows;
@@ -189,8 +157,11 @@ void buildMenuBands(toybox::Screen& screen, const MenuModel& model) {
   toybox::iconAtRowRight(screen, listBand, static_cast<int>(MenuRow::PlayNearby), 0, linkui::nearbyMark(),
                          selected == static_cast<int>(MenuRow::PlayNearby));
 
-  // The last game, held where the eye rests. A caption says how it ended; the
-  // position says where.
+  if (!model.hasHistory || model.lastCells == nullptr) return;
+
+  // The last game, held where the eye rests: the final position with kings
+  // marked, and one line saying how it ended. Ornament made of the app's own
+  // material and the app's own data, the only kind this fork allows.
   constexpr int16_t kMini = 34;
   const int16_t side = static_cast<int16_t>(kMini * ck::kSize);
   const int16_t areaTop = static_cast<int16_t>(line.bottom() + 6 + toybox::kRule);
@@ -198,117 +169,36 @@ void buildMenuBands(toybox::Screen& screen, const MenuModel& model) {
   const int16_t blockH = static_cast<int16_t>(side + 12 + 24);
   const int16_t top = static_cast<int16_t>(areaTop + (room > blockH ? (room - blockH) / 2 : 12));
   const fui::DeviceContext device = screen.device();
-  miniBoard(screen, static_cast<int16_t>((device.width - side) / 2), top, kMini, kDemoPosition);
+  miniBoard(screen, static_cast<int16_t>((device.width - side) / 2), top, kMini, model.lastCells);
+
+  // The verb comes from the recorded outcome, never from the material: a win
+  // by blocking can leave the counts level, or even against the winner.
+  char caption[40];
+  const int margin = model.lastYourPieces - model.lastTheirPieces;
+  if (model.lastOutcome == 2) {
+    std::snprintf(caption, sizeof(caption), "LAST GAME: A DRAW");
+  } else if (model.lastOutcome == 0) {
+    if (margin > 0) {
+      std::snprintf(caption, sizeof(caption), "LAST GAME: WON BY %d", margin);
+    } else {
+      std::snprintf(caption, sizeof(caption), "LAST GAME: WON");
+    }
+  } else if (margin < 0) {
+    std::snprintf(caption, sizeof(caption), "LAST GAME: LOST BY %d", -margin);
+  } else {
+    std::snprintf(caption, sizeof(caption), "LAST GAME: LOST");
+  }
   fui::TextStyle cap;
   cap.font = toybox::kTileFont;
   cap.align = fui::TextAlign::Center;
-  screen.target().text(fui::makeRect(content.x, static_cast<int16_t>(top + side + 12), content.width, 24),
-                       "LAST GAME: WON BY 1", cap);
-}
-
-// TEMP ART PASS, menu candidate 2: the dungeon's shape. The position is the
-// centrepiece at the size the eye deserves, one solid PLAY, the lesser doors
-// sharing a row.
-void buildMenuScoreboard(toybox::Screen& screen, const MenuModel& model) {
-  artChrome(screen, "CHECKERS");
-
-  fui::ButtonProps play;
-  play.label = "PLAY";
-  play.action = ActionMenuRow;
-  play.value = static_cast<int16_t>(MenuRow::Play);
-  play.text = toybox::buttonText(screen.theme());
-  play.radius = toybox::kPillRadius;
-  screen.button(play, screen.takeBottom(toybox::kPillHeight, toybox::kGutter));
-
-  const fui::Rect lesser = screen.takeBottom(toybox::kRowHeight, toybox::kGutter);
-  const int16_t half = static_cast<int16_t>((lesser.width - toybox::kGutter) / 2);
-  fui::ButtonProps nearby;
-  nearby.label = "NEARBY";
-  nearby.action = ActionMenuRow;
-  nearby.value = static_cast<int16_t>(MenuRow::PlayNearby);
-  nearby.styles = toybox::rowStyles();
-  screen.button(nearby, fui::makeRect(lesser.x, lesser.y, half, lesser.height));
-  fui::ButtonProps how;
-  how.label = "HOW TO PLAY";
-  how.action = ActionMenuRow;
-  how.value = static_cast<int16_t>(MenuRow::HowTo);
-  how.styles = toybox::rowStyles();
-  screen.button(how,
-                fui::makeRect(static_cast<int16_t>(lesser.x + half + toybox::kGutter), lesser.y, half, lesser.height));
-
-  const fui::Rect area = screen.body();
-  constexpr int16_t kMini = 44;
-  const int16_t side = static_cast<int16_t>(kMini * ck::kSize);
-  const int16_t blockH = static_cast<int16_t>(24 + 10 + side + 14 + 24);
-  const int16_t blockTop = static_cast<int16_t>(area.y + (area.height > blockH ? (area.height - blockH) / 2 : 0));
-  fui::TextStyle label;
-  label.font = toybox::kTileFont;
-  label.align = fui::TextAlign::Left;
-  screen.target().text(fui::makeRect(area.x, blockTop, area.width, 24), "LAST GAME", label);
-  const fui::DeviceContext device = screen.device();
-  miniBoard(screen, static_cast<int16_t>((device.width - side) / 2), static_cast<int16_t>(blockTop + 34), kMini,
-            kDemoPosition);
-  char tally[48];
-  // ASCII only: Jersey's cut has no middle-dot glyph to fall back on.
-  std::snprintf(tally, sizeof(tally), "WON BY 1   -   %d PLAYED   %d WON", kDemoPlayed, kDemoWon);
-  fui::TextStyle rec;
-  rec.font = toybox::kTileFont;
-  rec.align = fui::TextAlign::Center;
-  screen.target().text(fui::makeRect(area.x, static_cast<int16_t>(blockTop + 34 + side + 14), area.width, 24), tally,
-                       rec);
-}
-
-}  // namespace
-
-void buildMenu(toybox::Screen& screen, const MenuModel& model) {
-  // TEMP ART PASS: candidate layouts, picked by env var, deleted with the
-  // losers once Mario chooses.
-  if (menuVariant() == 1) {
-    buildMenuBands(screen, model);
-    return;
-  }
-  if (menuVariant() == 2) {
-    buildMenuScoreboard(screen, model);
-    return;
-  }
-
-  fui::HeaderProps header;
-  header.title = "CHECKERS";
-  header.borderEdges = fui::EdgesNone;
-  screen.header(header);
-  screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
-
-  fui::ListItem rows[static_cast<int>(MenuRow::Count)] = {};
-  rows[static_cast<int>(MenuRow::Play)].label = "PLAY";
-  rows[static_cast<int>(MenuRow::Play)].actionValue = static_cast<int16_t>(MenuRow::Play);
-  rows[static_cast<int>(MenuRow::PlayNearby)].label = "PLAY NEARBY";
-  rows[static_cast<int>(MenuRow::PlayNearby)].subtitle = model.nearbyName;
-  rows[static_cast<int>(MenuRow::PlayNearby)].actionValue = static_cast<int16_t>(MenuRow::PlayNearby);
-  rows[static_cast<int>(MenuRow::HowTo)].label = "HOW TO PLAY";
-  rows[static_cast<int>(MenuRow::HowTo)].actionValue = static_cast<int16_t>(MenuRow::HowTo);
-
-  fui::ListProps list;
-  list.items = rows;
-  list.count = static_cast<uint16_t>(MenuRow::Count);
-  list.selectedIndex = static_cast<int16_t>(model.selected);
-  list.action = ActionMenuRow;
-  const fui::Rect band = screen.body();
-  screen.list(list);
-
-  // topIndex is zero: this menu is three rows and never scrolls, so the row is
-  // always where its index says. Passing it explicitly is the point -- the
-  // parameter is required precisely so a list that DOES scroll cannot silently
-  // paint its icons against the wrong rows.
-  toybox::iconAtRowRight(screen, band, static_cast<int>(MenuRow::PlayNearby), 0, linkui::nearbyMark(),
-                         model.selected == static_cast<int>(MenuRow::PlayNearby));
+  screen.target().text(fui::makeRect(content.x, static_cast<int16_t>(top + side + 12), content.width, 24), caption,
+                       cap);
 }
 
 namespace {
 
-// TEMP ART PASS: a 3x3 window of the live board, drawn with the live board's
-// own marks -- a dot is a landing, a bracket is a piece about to be taken.
-// Both candidates use it; the shipping layout keeps its two-row sketch so the
-// three renders can be compared honestly.
+// A 3x3 window of the live board, drawn with the live board's own marks -- a
+// dot is a landing, a bracket is a piece about to be taken.
 void lessonBoard(toybox::Screen& screen, const int16_t left, const int16_t top, const int16_t cell, const int page) {
   // Which parity is "dark" follows the pieces: the step page's column sits on
   // odd squares, the jump chain and the king's diagonals on even ones, and a
@@ -366,14 +256,15 @@ void lessonBoard(toybox::Screen& screen, const int16_t left, const int16_t top, 
   }
 }
 
-// TEMP ART PASS, how-to candidate 2: the tutorial shape jaipur ships.
-void buildHowToGuide(toybox::Screen& screen, const HowToModel& model) {
+// The tutorial shape jaipur ships: a titled page, the whole page as the
+// button, dots at the foot, the caption centred in what the diagram leaves.
+void doBuildHowTo(toybox::Screen& screen, const HowToModel& model) {
   const int pages = howToPages();
   const int page = model.page < 0 ? 0 : (model.page >= pages ? pages - 1 : model.page);
 
   char progress[16];
   std::snprintf(progress, sizeof(progress), "%d OF %d", page + 1, pages);
-  artChrome(screen, "HOW TO PLAY", progress);
+  toyboxChrome(screen, "HOW TO PLAY", progress);
   const fui::Rect body = screen.body();
   screen.frame().hit(body, ActionHowToNext, 0);
 
@@ -427,85 +318,7 @@ void buildHowToGuide(toybox::Screen& screen, const HowToModel& model) {
 
 }  // namespace
 
-void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
-  const int page = model.page < 0 ? 0 : (model.page >= howToPages() ? howToPages() - 1 : model.page);
-
-  if (howToVariant() == 2) {
-    buildHowToGuide(screen, model);
-    return;
-  }
-
-  // TEMP ART PASS, how-to candidate 1: counter in the band, the caption given
-  // the four lines it actually needs (the shipping maxLines = 3 clips CROWNED
-  // to CROWNE mid-word), and the diagram grown into the page.
-  const bool banded = howToVariant() == 1;
-  char progress[16];
-  if (banded) {
-    std::snprintf(progress, sizeof(progress), "%d OF %d", page + 1, howToPages());
-    artChrome(screen, "HOW TO PLAY", progress);
-  } else {
-    fui::HeaderProps header;
-    header.title = "HOW TO PLAY";
-    header.borderEdges = fui::EdgesNone;
-    screen.header(header);
-    screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
-  }
-
-  fui::ButtonProps next;
-  next.label = page + 1 < howToPages() ? "NEXT" : "GOT IT";
-  next.action = ActionHowToNext;
-  screen.button(next, screen.takeBottom(toybox::kPillHeight, toybox::kGutter));
-
-  const fui::Rect area = screen.body();
-  if (!banded) {
-    char counterText[8];
-    std::snprintf(counterText, sizeof(counterText), "%d/%d", page + 1, howToPages());
-    fui::TextStyle counter;
-    counter.font = toybox::kSmallFont;
-    counter.align = fui::TextAlign::Right;
-    screen.target().text(fui::makeRect(area.x, area.y, area.width, 20), counterText, counter);
-  }
-
-  static const char* const kLines[] = {
-      "MEN STEP DIAGONALLY FORWARD. REACH THE FAR ROW AND A MAN IS CROWNED.",
-      "IF YOU CAN TAKE, YOU MUST. A CHAIN OF JUMPS IS ONE MOVE.",
-      "A CROWNED PIECE MOVES BOTH WAYS. NO MOVES LEFT MEANS YOU HAVE LOST.",
-  };
-  fui::TextStyle body;
-  body.font = toybox::kBodyFont;
-  body.align = fui::TextAlign::Center;
-  body.maxLines = banded ? 4 : 3;
-  screen.target().text(fui::makeRect(area.x, static_cast<int16_t>(area.y + (banded ? 0 : 24)), area.width,
-                                     static_cast<int16_t>(banded ? 200 : 130)),
-                       kLines[page], body);
-
-  const fui::DeviceContext device = screen.device();
-  if (banded) {
-    // The real lesson, at a size worth the page it sits on.
-    constexpr int16_t kCell = 80;
-    const int16_t side = kCell * 3;
-    const int16_t bandTop = static_cast<int16_t>(area.y + 210);
-    const int16_t top = static_cast<int16_t>(bandTop + (area.bottom() - bandTop - side) / 2);
-    lessonBoard(screen, static_cast<int16_t>((device.width - side) / 2), top, kCell, page);
-    return;
-  }
-
-  // Three squares of the real board, at the real size, showing the page.
-  const int16_t top = static_cast<int16_t>(area.y + 190);
-  const int16_t left = static_cast<int16_t>((device.width - kSquare * 3) / 2);
-  for (int col = 0; col < 3; ++col) {
-    for (int row = 0; row < 2; ++row) {
-      const fui::Rect box = fui::makeRect(static_cast<int16_t>(left + col * kSquare),
-                                          static_cast<int16_t>(top + row * kSquare), kSquare, kSquare);
-      if (((col + row) & 1) == 1) screen.target().fill(box, fui::Paint::dither(fui::Color::LightGray));
-      screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), 1);
-      if (page == 0 && col == 1 && row == 1) drawDisc(screen, box, false, false);
-      if (page == 1 && col == 0 && row == 1) drawDisc(screen, box, false, false);
-      if (page == 1 && col == 1 && row == 0) drawDisc(screen, box, true, false);
-      if (page == 2 && col == 1 && row == 1) drawDisc(screen, box, false, true);
-    }
-  }
-}
+void buildHowTo(toybox::Screen& screen, const HowToModel& model) { doBuildHowTo(screen, model); }
 
 void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   fui::HeaderProps header;
@@ -567,59 +380,30 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   // Theirs sits nearest the board, yours nearest you, matching the ends the two
   // sides are drawn from. Filled means whose, the same as on the board.
   {
+    // Pinned up under the board rather than floating in the band's middle,
+    // each row led by its name. THEM and YOU turn the dots into data with a
+    // caption rather than decoration, and kill the ordering ambiguity two
+    // unlabelled rows always had.
     constexpr int16_t kSmall = 11;
+    constexpr int16_t kPitch = 28;
+    constexpr int16_t kLabelWidth = 72;
     const int16_t bandTop = static_cast<int16_t>(boardTop() + kBoardSide + toybox::kBoardFrame);
-    const int16_t bandHeight = static_cast<int16_t>(capsule.y - toybox::kGutter - bandTop);
     const int16_t rowPitch = static_cast<int16_t>(kSmall * 2 + toybox::kGutter);
     const bool yoursAreFilled = model.seat == ck::kDarkSeat;
-
-    if (boardVariant() >= 1) {
-      // TEMP ART PASS, board candidates 1 and 2: the strips pinned up under
-      // the board instead of floating in the band's middle, each row led by
-      // what it is -- the count as a numeral (1) or as a name (2). The dots
-      // then read as data with a caption rather than as decoration.
-      constexpr int16_t kPitch = 28;
-      const int16_t stripTop = static_cast<int16_t>(bandTop + toybox::kGutter + 4);
-      const int16_t labelWidth = boardVariant() == 1 ? 44 : 72;
-      for (int row = 0; row < 2; ++row) {
-        const int held = row == 0 ? model.theirPieces : model.yourPieces;
-        const bool filled = row == 0 ? !yoursAreFilled : yoursAreFilled;
-        const int16_t cy = static_cast<int16_t>(stripTop + row * rowPitch + kSmall);
-        char lead[8];
-        if (boardVariant() == 1) {
-          std::snprintf(lead, sizeof(lead), "%d", held);
-        } else {
-          std::snprintf(lead, sizeof(lead), "%s", row == 0 ? "THEM" : "YOU");
-        }
-        fui::TextStyle label;
-        label.font = toybox::kTileFont;
-        label.align = fui::TextAlign::Left;
-        screen.target().text(fui::makeRect(boardLeft(device), static_cast<int16_t>(cy - 11), labelWidth, 22), lead,
-                             label);
-        for (int i = 0; i < held; ++i) {
-          const int16_t cx = static_cast<int16_t>(boardLeft(device) + labelWidth + kSmall + i * kPitch);
-          toybox::disc(screen, cx, cy, kSmall, fui::Color::Black);
-          toybox::disc(screen, cx, cy, static_cast<int16_t>(kSmall - 2),
-                       filled ? fui::Color::Black : fui::Color::White);
-        }
-      }
-    } else {
-      constexpr int16_t kPitch = 32;
-      // Centred in the band rather than pinned under the board: the slack is
-      // spread around the strips, not left in one lump at the bottom.
-      const int16_t stripTop = static_cast<int16_t>(bandTop + (bandHeight - rowPitch * 2) / 2);
-      const int16_t stripLeft = static_cast<int16_t>(boardLeft(device) + kSmall);
-
-      for (int row = 0; row < 2; ++row) {
-        const int held = row == 0 ? model.theirPieces : model.yourPieces;
-        const bool filled = row == 0 ? !yoursAreFilled : yoursAreFilled;
-        const int16_t cy = static_cast<int16_t>(stripTop + row * rowPitch + kSmall);
-        for (int i = 0; i < held; ++i) {
-          const int16_t cx = static_cast<int16_t>(stripLeft + i * kPitch);
-          toybox::disc(screen, cx, cy, kSmall, fui::Color::Black);
-          toybox::disc(screen, cx, cy, static_cast<int16_t>(kSmall - 2),
-                       filled ? fui::Color::Black : fui::Color::White);
-        }
+    const int16_t stripTop = static_cast<int16_t>(bandTop + toybox::kGutter + 4);
+    for (int row = 0; row < 2; ++row) {
+      const int held = row == 0 ? model.theirPieces : model.yourPieces;
+      const bool filled = row == 0 ? !yoursAreFilled : yoursAreFilled;
+      const int16_t cy = static_cast<int16_t>(stripTop + row * rowPitch + kSmall);
+      fui::TextStyle label;
+      label.font = toybox::kTileFont;
+      label.align = fui::TextAlign::Left;
+      screen.target().text(fui::makeRect(boardLeft(device), static_cast<int16_t>(cy - 11), kLabelWidth, 22),
+                           row == 0 ? "THEM" : "YOU", label);
+      for (int i = 0; i < held; ++i) {
+        const int16_t cx = static_cast<int16_t>(boardLeft(device) + kLabelWidth + kSmall + i * kPitch);
+        toybox::disc(screen, cx, cy, kSmall, fui::Color::Black);
+        toybox::disc(screen, cx, cy, static_cast<int16_t>(kSmall - 2), filled ? fui::Color::Black : fui::Color::White);
       }
     }
   }
