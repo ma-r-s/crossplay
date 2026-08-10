@@ -92,7 +92,8 @@ runtime, with no compile error -- so drive it:
     ./scripts_local/check.sh
     ./scripts_local/sim-shot.sh '<taps>' '<shots>'   # save mark, then the library screen
 
-`ui:paperOnTheBand` is a known baseline failure; ignore that one.
+(`ui:paperOnTheBand` was a known baseline failure for a while; it is fixed
+and the suite runs clean now.)
 
 Last, the site: `site/emulator/` is a committed artifact, so the browser demo
 keeps running the old firmware until someone rebuilds it. Saving works there --
