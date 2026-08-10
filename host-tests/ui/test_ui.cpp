@@ -2922,11 +2922,41 @@ void testTheMinesweeperResultNamesTheOutcome() {
   Rendered a;
   buildMs<mineui::ResultModel, mineui::buildResult>(a, won);
   CHECK(a.target.drew("CLEARED"));
+  // The verdict as a sentence, not just a band word: Mario read the old
+  // result screen and could not tell whether he had won.
+  CHECK(a.target.drew("YOU CLEARED THE FIELD"));
 
   mineui::ResultModel lost;
   Rendered b;
   buildMs<mineui::ResultModel, mineui::buildResult>(b, lost);
   CHECK(b.target.drew("BOOM"));
+  CHECK(b.target.drew("YOU HIT A MINE"));
+}
+
+void testTheSettledBoardStaysAndWearsItsVerdict() {
+  // The ending is the board: a settled game keeps the minefield on screen and
+  // swaps the tool strip for a verdict capsule that doors to the stats. The
+  // first version navigated away the tick the game settled, so the finished
+  // field -- mines bared -- flashed for under a repaint.
+  mineui::BoardModel model;
+  minesweeper::start(model.game, 5u);
+  model.game.status = minesweeper::Status::Won;
+  model.showMines = true;
+
+  Rendered won;
+  buildMs<mineui::BoardModel, mineui::buildBoard>(won, model);
+  CHECK(won.target.drew("CLEARED"));
+  CHECK(!won.target.drew("DIG"));
+  CHECK(!won.target.drew("OF 10"));
+
+  // The capsule sits where the strip was, and is the door to the stats.
+  const fui::ActionEvent door = won.tap(240, 800 - toybox::kMargin - toybox::kPillHeight / 2);
+  CHECK(door.action == mineui::ActionSeeResult);
+
+  model.game.status = minesweeper::Status::Lost;
+  Rendered lost;
+  buildMs<mineui::BoardModel, mineui::buildBoard>(lost, model);
+  CHECK(lost.target.drew("BOOM"));
 }
 
 void testTheHowToPagesAndEndsOnGotIt() {
@@ -3057,6 +3087,7 @@ int main() {
   testTheCounterSaysWhatItCounts();
   testTheBoardStaysWithinItsOwnArea();
   testTheMinesweeperResultNamesTheOutcome();
+  testTheSettledBoardStaysAndWearsItsVerdict();
   testTheHowToPagesAndEndsOnGotIt();
   testTheMinesweeperMenuLeadsWithTheRecord();
   testTheTwoGridsDoNotOverlap();

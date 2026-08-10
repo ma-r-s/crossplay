@@ -22,6 +22,8 @@ enum : fui::ActionId {
   ActionAgain = 6,
   ActionDone = 7,
   ActionToggleMode = 8,
+  // The verdict capsule on a settled board: the door to the stats.
+  ActionSeeResult = 9,
 };
 
 enum class MenuRow : int { Play = 0, HowTo, Count };

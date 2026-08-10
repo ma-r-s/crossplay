@@ -414,6 +414,18 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
     screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), 4);
   }
 
+  // A settled board stays on screen, mines bared, and wears its verdict where
+  // the tools were: the counter and the mode are questions, and the game has
+  // just answered both. The capsule is the door to the stats -- the board is
+  // not yanked away the tick it becomes worth looking at.
+  if (ms::over(model.game)) {
+    fui::ButtonProps verdict;
+    verdict.label = model.game.status == ms::Status::Won ? "CLEARED" : "BOOM";
+    verdict.action = ActionSeeResult;
+    screen.button(verdict, screen.takeBottom(toybox::kPillHeight, toybox::kGutter));
+    return;
+  }
+
   boardStrip(screen, model);
 }
 
@@ -435,17 +447,23 @@ void buildResult(toybox::Screen& screen, const ResultModel& model) {
   screen.button(again, screen.takeBottom(toybox::kPillHeight, toybox::kGutter));
 
   const fui::Rect area = screen.body();
-  char line[48];
-  std::snprintf(line, sizeof(line), "%d OF %d CELLS OPENED", model.revealed, ms::kCells - ms::kMines);
+
+  // The verdict as a sentence, before the stats: BOOM in the band names the
+  // event, this names what it means for you.
   fui::TextStyle body;
   body.font = toybox::kBodyFont;
   body.align = fui::TextAlign::Center;
   body.maxLines = 2;
-  screen.target().text(fui::makeRect(area.x, static_cast<int16_t>(area.y + 40), area.width, 60), line, body);
+  screen.target().text(fui::makeRect(area.x, static_cast<int16_t>(area.y + 30), area.width, 60),
+                       model.won ? "YOU CLEARED THE FIELD" : "YOU HIT A MINE", body);
+
+  char line[48];
+  std::snprintf(line, sizeof(line), "%d OF %d CELLS OPENED", model.revealed, ms::kCells - ms::kMines);
+  screen.target().text(fui::makeRect(area.x, static_cast<int16_t>(area.y + 110), area.width, 60), line, body);
 
   char flags[48];
   std::snprintf(flags, sizeof(flags), "%d OF %d MINES FLAGGED", model.flagsRight, ms::kMines);
-  screen.target().text(fui::makeRect(area.x, static_cast<int16_t>(area.y + 110), area.width, 60), flags, body);
+  screen.target().text(fui::makeRect(area.x, static_cast<int16_t>(area.y + 180), area.width, 60), flags, body);
 }
 
 }  // namespace mineui
