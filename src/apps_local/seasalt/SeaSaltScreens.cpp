@@ -102,24 +102,26 @@ void drawCardTile(toybox::Screen& screen, const fui::Rect& cell, const CardTile&
 
   char points[8];
   std::snprintf(points, sizeof(points), "%d", tile.groupPoints);
-  target.text(fui::makeRect(cell.x, cell.y + 6, cell.width - 9, 20), points,
+  target.text(fui::makeRect(cell.x, cell.y + 5, cell.width - 9, 24), points,
               styled(toybox::kUiFont, fui::TextAlign::Right));
 
   const freeink::Icon& face = tall ? *kIcon48[tile.kind] : *kIcon40[tile.kind];
   const int16_t faceSize = tall ? 48 : 40;
-  const int16_t faceTop = static_cast<int16_t>(cell.y + (tall ? 26 : 22));
+  const int16_t faceTop = static_cast<int16_t>(cell.y + (tall ? 28 : 22));
   blitIcon(screen, fui::makeRect(cell.x + (cell.width - faceSize) / 2, faceTop, faceSize, faceSize), face);
 
+  const int16_t censusTop = static_cast<int16_t>(cell.y + cell.height - 20);
   if (tall) {
-    // 24 tall: the UI font's ink is deeper than it looks, and an 18px box put
-    // GULL's descender through the census under it.
-    target.text(fui::makeRect(cell.x, faceTop + faceSize + 1, cell.width, 24), kKindNames[tile.kind],
-                styled(toybox::kUiFont, fui::TextAlign::Center));
+    // The small font, as the design had it, centred in the whole band between
+    // the face and the census rather than at a guessed offset.
+    const int16_t nameTop = static_cast<int16_t>(faceTop + faceSize);
+    target.text(fui::makeRect(cell.x, nameTop, cell.width, censusTop - nameTop), kKindNames[tile.kind],
+                styled(toybox::kSmallFont, fui::TextAlign::Center));
   }
 
   char census[12];
   std::snprintf(census, sizeof(census), "%d OF %d", tile.held, tile.supply);
-  target.text(fui::makeRect(cell.x, cell.y + cell.height - 18, cell.width, 16), census,
+  target.text(fui::makeRect(cell.x, censusTop, cell.width, 18), census,
               styled(toybox::kSmallFont, fui::TextAlign::Center));
 }
 
@@ -130,17 +132,16 @@ void drawPileTile(toybox::Screen& screen, const fui::Rect& cell, const PileTile&
   target.fill(cell, fui::Paint::solid(fui::Color::White));
   target.stroke(cell, fui::Paint::solid(fui::Color::Black), 2);
   if (pile.size == 0) {
-    target.text(fui::makeRect(cell.x, cell.y + cell.height / 2 - 9, cell.width, 18), caption,
-                styled(toybox::kSmallFont, fui::TextAlign::Center));
+    target.text(cell, caption, styled(toybox::kSmallFont, fui::TextAlign::Center));
     return;
   }
   blitIcon(screen, fui::makeRect(cell.x + 6, cell.y + 6, 20, 20), *kColourMarks[pile.colour]);
   char depth[8];
   std::snprintf(depth, sizeof(depth), "%d", pile.size);
-  target.text(fui::makeRect(cell.x, cell.y + 5, cell.width - 8, 18), depth,
+  target.text(fui::makeRect(cell.x, cell.y + 5, cell.width - 8, 24), depth,
               styled(toybox::kUiFont, fui::TextAlign::Right));
   blitIcon(screen, fui::makeRect(cell.x + (cell.width - 40) / 2, cell.y + 26, 40, 40), *kIcon40[pile.kind]);
-  target.text(fui::makeRect(cell.x, cell.y + cell.height - 20, cell.width, 16), kKindNames[pile.kind],
+  target.text(fui::makeRect(cell.x, cell.y + cell.height - 22, cell.width, 18), kKindNames[pile.kind],
               styled(toybox::kSmallFont, fui::TextAlign::Center));
 }
 
@@ -173,10 +174,11 @@ void drawHintBox(toybox::Screen& screen, const fui::Rect& box, const char* text)
     char first[80];
     const int n = static_cast<int>(dot - text) + 1;
     std::snprintf(first, sizeof(first), "%.*s", n < 79 ? n : 79, text);
-    screen.target().text(fui::makeRect(box.x, box.y + box.height / 2 - 20, box.width, 18), first, style);
-    screen.target().text(fui::makeRect(box.x, box.y + box.height / 2 + 2, box.width, 18), dot + 2, style);
+    const int16_t half = static_cast<int16_t>(box.height / 2);
+    screen.target().text(fui::makeRect(box.x, box.y + 3, box.width, half - 3), first, style);
+    screen.target().text(fui::makeRect(box.x, box.y + half, box.width, half - 3), dot + 2, style);
   } else {
-    screen.target().text(fui::makeRect(box.x, box.y + box.height / 2 - 9, box.width, 18), text, style);
+    screen.target().text(box, text, style);
   }
 }
 
@@ -281,10 +283,10 @@ void drawFacts(toybox::Screen& screen, const fui::Rect& strip, const BoardModel&
       target.fill(fui::makeRect(x, strip.y, toybox::kHairline, strip.height), fui::Paint::solid(fui::Color::Black));
     char value[8];
     std::snprintf(value, sizeof(value), "%d", cells[i].value);
-    target.text(fui::makeRect(x + 8, strip.y + (strip.height - 24) / 2, 28, 24), value,
-                styled(toybox::kUiFont, fui::TextAlign::Left));
-    target.text(fui::makeRect(x + 40, strip.y + 5, cellW - 44, 16), cells[i].line1, capStyle);
-    target.text(fui::makeRect(x + 40, strip.y + strip.height - 21, cellW - 44, 16), cells[i].line2, capStyle);
+    target.text(fui::makeRect(x + 8, strip.y, 28, strip.height), value, styled(toybox::kUiFont, fui::TextAlign::Left));
+    const int16_t half = static_cast<int16_t>(strip.height / 2);
+    target.text(fui::makeRect(x + 40, strip.y + 2, cellW - 44, half - 2), cells[i].line1, capStyle);
+    target.text(fui::makeRect(x + 40, strip.y + half, cellW - 44, half - 2), cells[i].line2, capStyle);
   }
   // BEST: the count, the mark, the caption.
   const int16_t x = static_cast<int16_t>(strip.x + 3 * cellW);
@@ -319,9 +321,12 @@ void drawTabs(toybox::Screen& screen, const fui::Rect& strip, const BoardModel& 
     if (!active) target.stroke(tab, fui::Paint::solid(fui::Color::Black), toybox::kHairline);
     char label[16];
     std::snprintf(label, sizeof(label), "%s %d", tabs[i].label, tabs[i].count);
-    fui::TextStyle style = styled(toybox::kUiFont, fui::TextAlign::Center);
+    // The small font, as designed, and the whole tab as the text rect: the
+    // target centres vertically in the rect it is given, so a hand-computed
+    // band is only ever a centring bug waiting to happen.
+    fui::TextStyle style = styled(toybox::kSmallFont, fui::TextAlign::Center);
     style.color = active ? fui::Color::White : fui::Color::Black;
-    target.text(fui::makeRect(tab.x, tab.y + (tab.height - 24) / 2, tab.width, 24), label, style);
+    target.text(tab, label, style);
     screen.frame().hit(tab, tabs[i].action, 0);
   }
 }
@@ -366,11 +371,13 @@ fui::Rect buildBoard(toybox::Screen& screen, const BoardModel& model) {
     const fui::Rect deck = fui::makeRect(pilesRow.x, pilesRow.y, w, pilesRow.height);
     target.fill(deck, fui::Paint::dither(fui::Color::LightGray));
     target.stroke(deck, fui::Paint::solid(fui::Color::Black), 2);
-    target.text(fui::makeRect(deck.x, deck.y + 24, deck.width, 16), "DECK",
+    const int16_t mid = static_cast<int16_t>(deck.y + deck.height / 2);
+    target.text(fui::makeRect(deck.x, deck.y + 8, deck.width, mid - deck.y - 8), "DECK",
                 styled(toybox::kSmallFont, fui::TextAlign::Center));
     char n[8];
     std::snprintf(n, sizeof(n), "%d", model.deckCount);
-    target.text(fui::makeRect(deck.x, deck.y + 44, deck.width, 24), n, styled(toybox::kUiFont, fui::TextAlign::Center));
+    target.text(fui::makeRect(deck.x, mid, deck.width, deck.height / 2 - 8), n,
+                styled(toybox::kUiFont, fui::TextAlign::Center));
     screen.frame().hit(deck, ActionDeck, 0);
 
     for (int p = 0; p < 2; ++p) {
@@ -510,11 +517,11 @@ fui::Rect buildCallChoice(toybox::Screen& screen, const CallModel& model) {
   auto choice = [&](const fui::Rect& box, const char* word, const char* l1, const char* l2,
                     const fui::ActionId action) {
     screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), 2);
-    screen.target().text(fui::makeRect(box.x, box.y + 24, box.width, 30), word,
+    screen.target().text(fui::makeRect(box.x, box.y + 16, box.width, 48), word,
                          styled(toybox::kDisplayFont, fui::TextAlign::Center));
-    screen.target().text(fui::makeRect(box.x + 12, box.y + 74, box.width - 24, 18), l1,
+    screen.target().text(fui::makeRect(box.x + 12, box.y + 76, box.width - 24, 22), l1,
                          styled(toybox::kSmallFont, fui::TextAlign::Center));
-    screen.target().text(fui::makeRect(box.x + 12, box.y + 96, box.width - 24, 18), l2,
+    screen.target().text(fui::makeRect(box.x + 12, box.y + 100, box.width - 24, 22), l2,
                          styled(toybox::kSmallFont, fui::TextAlign::Center));
     screen.frame().hit(box, action, 0);
   };
