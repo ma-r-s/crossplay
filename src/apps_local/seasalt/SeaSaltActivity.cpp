@@ -27,35 +27,6 @@ int hexValue(const char c) {
   return -1;
 }
 
-// The per-kind rule, spoken at the moment a card is selected. This is the
-// hint system Mario asked for: nobody should have to remember what a card
-// does, so the card says it when touched.
-constexpr const char* kKindHints[14] = {
-    "PAIRS WITH ANOTHER CRAB. THE PAIR DIGS ANY CARD OUT OF A PILE.",
-    "PAIRS WITH ANOTHER BOAT. THE PAIR BUYS ANOTHER TURN.",
-    "PAIRS WITH ANOTHER FISH. THE PAIR DRAWS A CARD.",
-    "PAIRS WITH A SHARK. THE PAIR STEALS FROM THEIR HAND.",
-    "PAIRS WITH A SWIMMER. THE PAIR STEALS FROM THEIR HAND.",
-    "WORTH 0-2-4-6-8-10 AS YOU COLLECT 1 TO 6.",
-    "WORTH 0-3-6-9-12 AS YOU COLLECT 1 TO 5.",
-    "WORTH 1-3-5 AS YOU COLLECT 1 TO 3.",
-    "TWO SAILORS ARE 5. THE CAPTAIN PAYS 3 EACH.",
-    "SCORES YOUR BIGGEST COLOUR. HOLD ALL FOUR AND YOU WIN.",
-    "1 POINT PER BOAT YOU HOLD.",
-    "1 POINT PER FISH YOU HOLD.",
-    "2 POINTS PER GULL YOU HOLD.",
-    "3 POINTS PER SAILOR YOU HOLD.",
-};
-
-// What two selected cards mean when they pair.
-constexpr const char* kPairHints[5] = {
-    "TWO CRABS. PLAY THEM TO DIG ANY CARD OUT OF A PILE.",
-    "TWO BOATS. THE POINT IS YOURS EITHER WAY. PLAYING THEM BUYS ANOTHER TURN.",
-    "TWO FISH. PLAY THEM TO DRAW A CARD.",
-    "SWIMMER AND SHARK. PLAY THEM TO STEAL FROM THEIR HAND.",
-    "SWIMMER AND SHARK. PLAY THEM TO STEAL FROM THEIR HAND.",
-};
-
 bool isPair(const uint8_t a, const uint8_t b) {
   const seasalt::Kind ka = seasalt::kindOf(a);
   const seasalt::Kind kb = seasalt::kindOf(b);
@@ -389,7 +360,7 @@ void SeaSaltActivity::composeHint() {
       if (report[0] != '\0') {
         std::snprintf(hint, sizeof(hint), "%s", report);
       } else {
-        std::snprintf(hint, sizeof(hint), "TAKE A CARD. THE DECK DEALS TWO, A PILE SHOWS WHAT YOU GET.");
+        std::snprintf(hint, sizeof(hint), "TAKE A CARD. DECK DEALS TWO, PILES SHOW WHAT YOU GET.");
       }
       std::snprintf(primaryLabel, sizeof(primaryLabel), "TAKE A CARD");
       return;
@@ -420,7 +391,7 @@ void SeaSaltActivity::composeHint() {
   if (selected == 2) {
     if (isPair(sel[0], sel[1])) {
       const int k = static_cast<int>(kindOf(sel[0]));
-      std::snprintf(hint, sizeof(hint), "%s", kPairHints[k <= 4 ? k : 0]);
+      std::snprintf(hint, sizeof(hint), "%s", seasaltui::pairHint(k <= 4 ? k : 0));
       std::snprintf(primaryLabel, sizeof(primaryLabel), "PLAY THE PAIR");
       primaryEnabled = true;
     } else {
@@ -431,7 +402,7 @@ void SeaSaltActivity::composeHint() {
     return;
   }
   if (selected == 1) {
-    std::snprintf(hint, sizeof(hint), "%s", kKindHints[static_cast<int>(kindOf(sel[0]))]);
+    std::snprintf(hint, sizeof(hint), "%s", seasaltui::kindHint(static_cast<int>(kindOf(sel[0]))));
     std::snprintf(primaryLabel, sizeof(primaryLabel), "END TURN");
     primaryEnabled = true;
     return;
@@ -709,7 +680,7 @@ void SeaSaltActivity::playOpponentTurn() {
     std::snprintf(report, sizeof(report),
                   bet ? "THEY BET LAST CHANCE. ONE MORE TURN, MAKE IT COUNT." : "THEY CALLED STOP.");
   } else if (stole) {
-    std::snprintf(report, sizeof(report), "THEY PLAYED SWIMMER AND SHARK AND STOLE FROM YOUR HAND.");
+    std::snprintf(report, sizeof(report), "SWIMMER AND SHARK. THEY STOLE FROM YOUR HAND.");
   } else if (laid[1] > 0) {
     std::snprintf(report, sizeof(report), "THEY PLAYED BOATS FOR EXTRA TURNS. YOUR MOVE NOW.");
   } else if (laid[0] > 0) {

@@ -38,14 +38,14 @@ IN='2000:TAP:120,635;3600:TAP:240,605'   # Games -> SEA SALT
   "$IN;5600:TAP:240,535;7600:TAP:88,220;9600:TAP:69,378;12000:QUIT" \
   "9200:$OUT/sheet_keep.bmp;11400:$OUT/sheet_pile.bmp"
 
-# the tutorial's first page
+# every tutorial page: each tap advances one page
 ./scripts_local/sim-shot.sh \
-  "$IN;5600:TAP:240,733;8000:QUIT" \
-  "7400:$OUT/sheet_howto.bmp"
+  "$IN;5600:TAP:240,733;7400:TAP:240,400;9200:TAP:240,400;11000:TAP:240,400;12800:TAP:240,400;14600:TAP:240,400;17000:QUIT" \
+  "7000:$OUT/sheet_howto1.bmp;8800:$OUT/sheet_howto2.bmp;10600:$OUT/sheet_howto3.bmp;12400:$OUT/sheet_howto4.bmp;14200:$OUT/sheet_howto5.bmp;16000:$OUT/sheet_howto6.bmp"
 
 uv run --quiet --with pillow python - <<'PY'
 from PIL import Image, ImageDraw
-names = ["menu", "board", "selected", "keep", "pile", "call", "howto"]
+names = ["menu", "board", "selected", "keep", "pile", "call", "howto1", "howto2", "howto3", "howto4", "howto5", "howto6"]
 ims = []
 for n in names:
     try:

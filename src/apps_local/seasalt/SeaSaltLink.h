@@ -75,7 +75,7 @@ inline void describeTheirTurn(const Game& before, const Game& after, const int s
     return;
   }
   if (after.handSize(seat) < before.handSize(seat)) {
-    std::snprintf(out, size, "THEY PLAYED SWIMMER AND SHARK AND STOLE FROM YOUR HAND.");
+    std::snprintf(out, size, "SWIMMER AND SHARK. THEY STOLE FROM YOUR HAND.");
     return;
   }
   // A pair hitting their table is public; name the loudest one. Boats first:

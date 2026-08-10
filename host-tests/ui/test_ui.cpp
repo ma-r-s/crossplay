@@ -3051,6 +3051,32 @@ void testTheSeaSaltRoundOverNamesTheBet() {
   CHECK(out2.target.drew("THE DECK RAN OUT. NOBODY SCORES."));
 }
 
+
+// Every hint must fit the hint box: the split lines run ~9.5 device px per
+// character on the small face, and the box's inner width holds 46. This is
+// the check that would have caught "PLAYING THEM BUYS ANOTHER TURN" running
+// off the panel before Mario did.
+void testEverySeaSaltHintFitsTheBox() {
+  constexpr int kMaxLine = 46;
+  auto worstLine = [](const char* text) {
+    int worst = 0, run = 0;
+    for (const char* at = text; *at; ++at) {
+      if (*at == '.' && at[1] == ' ') {
+        run += 1;  // the period stays on the line
+        if (run > worst) worst = run;
+        run = 0;
+        ++at;  // skip the space
+        continue;
+      }
+      ++run;
+    }
+    if (run > worst) worst = run;
+    return worst;
+  };
+  for (int k = 0; k < 14; ++k) CHECK(worstLine(seasaltui::kindHint(k)) <= kMaxLine);
+  for (int k = 0; k < 5; ++k) CHECK(worstLine(seasaltui::pairHint(k)) <= kMaxLine);
+}
+
 void testTheSeaSaltTutorialPagesAndEnds() {
   for (int page = 0; page < seasaltui::tutorialPages(); ++page) {
     seasaltui::TutorialModel model;
@@ -3071,6 +3097,7 @@ int main() {
   testTheSeaSaltChromeIsTappableAndTheCallPillIsEarned();
   testTheSeaSaltCallChoiceSaysWhatEachWordCosts();
   testTheSeaSaltRoundOverNamesTheBet();
+  testEverySeaSaltHintFitsTheBox();
   testTheSeaSaltTutorialPagesAndEnds();
   testSearchingAsksNothing();
   testMurdleGridResolvesEveryCellItDrew();

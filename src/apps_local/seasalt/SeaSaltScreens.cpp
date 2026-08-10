@@ -1,6 +1,7 @@
 #include "SeaSaltScreens.h"
 
 #include <cstdio>
+#include <initializer_list>
 
 #include "../link/LinkScreens.h"
 #include "SeaSaltArt.h"
@@ -212,6 +213,32 @@ void drawHintBox(toybox::Screen& screen, const fui::Rect& box, const char* text)
 // --- vocabulary exports -----------------------------------------------------
 
 const char* kindName(const int kind) { return kKindNames[kind]; }
+
+// One rule per face, spoken at selection. Sentences split at the first ". "
+// into the hint box's two lines; keep every fragment under ~46 characters.
+constexpr const char* kKindHints[14] = {
+    "PAIRS WITH ANOTHER CRAB. THE PAIR DIGS ANY CARD OUT OF A PILE.",
+    "PAIRS WITH ANOTHER BOAT. THE PAIR BUYS ANOTHER TURN.",
+    "PAIRS WITH ANOTHER FISH. THE PAIR DRAWS A CARD.",
+    "PAIRS WITH A SHARK. THE PAIR STEALS FROM THEIR HAND.",
+    "PAIRS WITH A SWIMMER. THE PAIR STEALS FROM THEIR HAND.",
+    "WORTH 0-2-4-6-8-10 AS YOU COLLECT 1 TO 6.",
+    "WORTH 0-3-6-9-12 AS YOU COLLECT 1 TO 5.",
+    "WORTH 1-3-5 AS YOU COLLECT 1 TO 3.",
+    "TWO SAILORS ARE 5. THE CAPTAIN PAYS 3 EACH.",
+    "SCORES YOUR BIGGEST COLOUR. HOLD ALL FOUR AND YOU WIN.",
+    "1 POINT PER BOAT YOU HOLD.",
+    "1 POINT PER FISH YOU HOLD.",
+    "2 POINTS PER GULL YOU HOLD.",
+    "3 POINTS PER SAILOR YOU HOLD.",
+};
+constexpr const char* kPairHints[5] = {
+    "TWO CRABS. PLAY THEM TO DIG THROUGH A PILE.",   "TWO BOATS. PLAYING THEM BUYS ANOTHER TURN.",
+    "TWO FISH. PLAY THEM TO DRAW A CARD.",           "SWIMMER AND SHARK. PLAY THEM TO STEAL A CARD.",
+    "SWIMMER AND SHARK. PLAY THEM TO STEAL A CARD.",
+};
+const char* kindHint(const int kind) { return kKindHints[kind]; }
+const char* pairHint(const int duoKind) { return kPairHints[duoKind]; }
 const freeink::Icon& colourMark(const int colour) { return *kColourMarks[colour]; }
 const freeink::Icon& kindIcon48(const int kind) { return *kIcon48[kind]; }
 const freeink::Icon& kindIcon24(const int kind) { return *kIcon24[kind]; }
@@ -570,79 +597,92 @@ void buildTutorial(toybox::Screen& screen, const TutorialModel& model) {
   screen.frame().hit(body, ActionAdvance, 0);
 
   auto& target = screen.target();
+  // One rhythm for every page: a caption band, tile rows centred as a group,
+  // small lines on a 26px beat with a 12px breath between thoughts. Positions
+  // are computed, never eyeballed -- the eyeballed version shipped three
+  // pages of crowding.
   auto caption = [&](const int16_t y, const char* text) {
-    target.text(fui::makeRect(body.x, static_cast<int16_t>(body.y + y), body.width, 20), text,
+    target.text(fui::makeRect(body.x, static_cast<int16_t>(body.y + y), body.width, 26), text,
                 styled(toybox::kUiFont, fui::TextAlign::Center));
   };
   auto small = [&](const int16_t y, const char* text) {
-    target.text(fui::makeRect(body.x, static_cast<int16_t>(body.y + y), body.width, 18), text,
+    target.text(fui::makeRect(body.x, static_cast<int16_t>(body.y + y), body.width, 22), text,
                 styled(toybox::kSmallFont, fui::TextAlign::Center));
   };
-  auto tile = [&](const int16_t x, const int16_t y, const int kind, const int colour, const int supply, const int pts) {
-    CardTile t;
-    t.kind = static_cast<uint8_t>(kind);
-    t.colour = static_cast<uint8_t>(colour);
-    t.groupPoints = static_cast<int8_t>(pts);
-    t.supply = static_cast<uint8_t>(supply);
-    drawCardTile(screen, fui::makeRect(static_cast<int16_t>(body.x + x), static_cast<int16_t>(body.y + y), 104, 125),
-                 t);
+  struct TileSpec {
+    uint8_t kind, colour, supply;
+    int8_t pts;
+  };
+  // A centred row of grid-shaped cards. Four across fits exactly with an 8px
+  // gap; fewer get 16.
+  auto tileRow = [&](const int16_t y, std::initializer_list<TileSpec> specs) {
+    const int n = static_cast<int>(specs.size());
+    const int16_t gap = n >= 4 ? 8 : 16;
+    const int16_t rowW = static_cast<int16_t>(n * 106 + (n - 1) * gap);
+    int16_t x = static_cast<int16_t>(body.x + (body.width - rowW) / 2);
+    for (const TileSpec& spec : specs) {
+      CardTile t;
+      t.kind = spec.kind;
+      t.colour = spec.colour;
+      t.supply = spec.supply;
+      t.groupPoints = spec.pts;
+      drawCardTile(screen, fui::makeRect(x, static_cast<int16_t>(body.y + y), 106, 125), t);
+      x = static_cast<int16_t>(x + 106 + gap);
+    }
   };
 
   switch (model.page) {
     case 0:
-      caption(10, "TAKE ONE CARD A TURN.");
-      small(52, "DRAW TWO AND KEEP ONE,");
-      small(74, "OR TAKE THE TOP OF A DISCARD PILE.");
-      tile(64, 100, 1, 0, 8, 0);
-      tile(280, 100, 2, 2, 7, 0);
-      small(250, "FIRST TO 40 POINTS WINS THE GAME.");
+      caption(16, "TAKE ONE CARD A TURN.");
+      small(84, "DRAW TWO FROM THE DECK AND KEEP ONE,");
+      small(110, "OR TAKE THE TOP OF A DISCARD PILE.");
+      tileRow(176, {{1, 0, 8, 0}, {2, 2, 7, 0}});
+      caption(440, "FIRST TO 40 POINTS WINS.");
       break;
     case 1:
-      caption(10, "PAIRS HAVE POWERS.");
-      tile(10, 44, 1, 0, 8, 1);
-      small(180, "TWO BOATS: TAKE ANOTHER TURN.");
-      tile(122, 210, 2, 2, 7, 1);
-      small(346, "TWO FISH: DRAW A CARD.");
-      tile(240, 376, 0, 4, 9, 1);
-      small(512, "TWO CRABS: DIG THROUGH A PILE.");
+      caption(16, "PAIRS HAVE POWERS.");
+      tileRow(74, {{1, 0, 8, 1}, {2, 2, 7, 1}, {0, 4, 9, 1}});
+      small(254, "TWO BOATS: TAKE ANOTHER TURN.");
+      small(280, "TWO FISH: DRAW A CARD.");
+      small(306, "TWO CRABS: DIG THROUGH A PILE.");
+      small(396, "PLAY A PAIR FACE UP TO FIRE ITS POWER.");
+      small(422, "ITS POINT COUNTS PLAYED OR NOT.");
       break;
     case 2:
-      caption(10, "SWIMMER AND SHARK HUNT TOGETHER.");
-      tile(110, 50, 3, 1, 5, 0);
-      tile(230, 50, 4, 3, 5, 0);
-      small(200, "PLAY BOTH: STEAL A RANDOM CARD");
-      small(222, "FROM THEIR HAND.");
-      small(266, "A PAIR IS A POINT WHETHER YOU");
-      small(288, "PLAY IT OR KEEP IT IN HAND.");
+      caption(16, "SWIMMER AND SHARK.");
+      tileRow(74, {{3, 1, 5, 0}, {4, 3, 5, 0}});
+      small(254, "PLAY BOTH TOGETHER TO STEAL");
+      small(280, "A RANDOM CARD FROM THEIR HAND.");
+      small(370, "LIKE EVERY DUO, THE PAIR IS A POINT");
+      small(396, "WHETHER PLAYED OR KEPT IN HAND.");
       break;
     case 3:
-      caption(10, "COLLECTORS GROW.");
-      tile(10, 50, 5, 0, 6, 2);
-      tile(124, 50, 6, 1, 5, 3);
-      tile(238, 50, 7, 6, 3, 3);
-      tile(352, 50, 8, 9, 2, 5);
-      small(200, "SHELLS 0-2-4-6-8-10. TURTLES 0-3-6-9-12.");
-      small(222, "GULLS 1-3-5. SAILORS 0 THEN 5.");
-      small(266, "ONE-OFF CARDS MULTIPLY THEM:");
-      small(288, "LIGHTHOUSE 1 PER BOAT. SHOAL 1 PER FISH.");
-      small(310, "NEST 2 PER GULL. CAPTAIN 3 PER SAILOR.");
+      caption(16, "COLLECTORS GROW.");
+      tileRow(74, {{5, 0, 6, 2}, {6, 1, 5, 3}, {7, 6, 3, 3}, {8, 9, 2, 5}});
+      small(254, "SHELLS PAY 0-2-4-6-8-10 AS THEY ADD UP.");
+      small(280, "TURTLES 0-3-6-9-12. GULLS 1-3-5.");
+      small(306, "TWO SAILORS PAY 5.");
+      small(396, "THE ONE-OFF CARDS MULTIPLY THEM:");
+      small(422, "LIGHTHOUSE 1 PER BOAT. SHOAL 1 PER FISH.");
+      small(448, "NEST 2 PER GULL. CAPTAIN 3 PER SAILOR.");
       break;
     case 4:
-      caption(10, "MERMAIDS COUNT COLOURS.");
-      tile(184, 50, 9, 5, 4, 0);
-      small(200, "EACH MERMAID SCORES YOUR BIGGEST");
-      small(222, "COLOUR GROUP. EACH TAKES A NEW COLOUR.");
-      small(266, "HOLD ALL FOUR: YOU WIN ON THE SPOT.");
+      caption(16, "MERMAIDS COUNT COLOURS.");
+      tileRow(74, {{9, 5, 4, 0}});
+      small(254, "EACH MERMAID SCORES YOUR BIGGEST");
+      small(280, "COLOUR GROUP, EACH A DIFFERENT ONE.");
+      small(370, "HOLD ALL FOUR AND YOU WIN ON THE SPOT.");
       break;
     case 5:
-      caption(10, "ENDING A ROUND, FROM 7 POINTS.");
-      small(50, "STOP: EVERYBODY BANKS THEIR CARDS.");
-      small(94, "LAST CHANCE: A BET. THEY GET ONE MORE");
-      small(116, "TURN, THEN IF YOU STILL HAVE THE MOST,");
-      small(138, "YOU BANK CARDS PLUS YOUR COLOUR BONUS");
-      small(160, "AND THEY BANK ONLY THEIR BONUS.");
-      small(182, "IF THEY PASS YOU, IT IS REVERSED.");
-      small(226, "IF THE DECK RUNS OUT, NOBODY SCORES.");
+      caption(16, "ENDING A ROUND.");
+      small(84, "FROM 7 POINTS, ON YOUR TURN, CALL IT.");
+      small(164, "STOP: EVERYBODY BANKS THEIR CARDS.");
+      small(244, "LAST CHANCE: A BET THAT YOU HOLD THE MOST.");
+      small(270, "THEY GET ONE MORE TURN. IF YOU STILL LEAD,");
+      small(296, "YOU BANK CARDS PLUS YOUR COLOUR BONUS");
+      small(322, "AND THEY BANK ONLY THEIR BONUS.");
+      small(348, "IF THEY PASS YOU, IT IS REVERSED.");
+      small(430, "IF THE DECK RUNS OUT, NOBODY SCORES.");
       break;
   }
 

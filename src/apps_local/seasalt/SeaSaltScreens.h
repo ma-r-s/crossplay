@@ -178,6 +178,12 @@ void buildTutorial(toybox::Screen& screen, const TutorialModel& model);
 // The display vocabulary, exported because the activity writes hints and
 // reports in it. `kind` is the core's Kind as an int.
 const char* kindName(int kind);
+// The rule spoken when one card of `kind` is selected, and what a selected
+// pair means. Every line of these, after the hint box's sentence split, must
+// fit the box -- host-tests/ui measures them, because "PLAYING THEM BUYS
+// ANOTHER TURN" once ran straight off the panel.
+const char* kindHint(int kind);
+const char* pairHint(int duoKind);
 // The mark for a colour, at the one generated size (24px).
 const freeink::Icon& colourMark(int colour);
 // The face for a kind, at the two card cuts.
