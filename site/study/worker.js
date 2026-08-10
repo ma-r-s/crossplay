@@ -88,6 +88,46 @@ var handlers = {
     });
   },
 
+  zip: function (msg) {
+    pyodide.globals.set("_slug", msg.slug);
+    var bytes = pyodide.runPython("web_glue.make_zip(_slug)").toJs();
+    self.postMessage({ type: "zip", buffer: bytes.buffer }, [bytes.buffer]);
+  },
+
+  syncfiles: function (msg) {
+    // Stage the card's decks and the user's collection for the replay.
+    var FS = pyodide.FS;
+    // Clear any previous staging wholesale.
+    pyodide.runPython(
+      "import shutil, pathlib\n" +
+        "shutil.rmtree('/work/sync', ignore_errors=True)\n" +
+        "pathlib.Path('/work/sync/decks').mkdir(parents=True)\n",
+    );
+    FS.writeFile("/work/sync/collection.anki2", new Uint8Array(msg.collection));
+    Object.keys(msg.decks).forEach(function (deck) {
+      FS.mkdirTree("/work/sync/decks/" + deck);
+      var files = msg.decks[deck];
+      Object.keys(files).forEach(function (name) {
+        FS.writeFile(
+          "/work/sync/decks/" + deck + "/" + name,
+          new Uint8Array(files[name]),
+        );
+      });
+    });
+    post("syncfiles");
+  },
+
+  sync: function () {
+    post("sync", { result: callGlue("web_glue.sync_local()") });
+  },
+
+  syncfile: function () {
+    var bytes = pyodide.runPython("web_glue.sync_file()").toJs();
+    self.postMessage({ type: "syncfile", buffer: bytes.buffer }, [
+      bytes.buffer,
+    ]);
+  },
+
   deckfiles: function (msg) {
     var files = {};
     var transfers = [];

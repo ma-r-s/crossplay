@@ -221,12 +221,34 @@
   <div class="prose">
     <p>
       Reviews you do on the reader are written to the card after every answer.
-      To carry them back into Anki, the computer-side tool replays them into
-      your collection with the same grades and timestamps, then Anki's own
-      Sync button takes them to AnkiWeb. That part lives in the repository
-      (<code>tools_local/study/study.py sync</code>) and is documented in
-      <a href="https://github.com/ma-r-s/crossplay/blob/xteink/docs/study.md">docs/study.md</a>.
+      This step replays them into your Anki collection with the same grades
+      and timestamps Anki would have written, so a card you got right on the
+      couch is simply a card you got right. Then Anki's own Sync button
+      carries them to AnkiWeb; no credentials ever touch this page. Re-running
+      is safe: replay is keyed by review timestamp, and rows that already
+      exist are skipped.
     </p>
+    <p>
+      <strong>Quit Anki first.</strong> It holds the collection open, and two
+      writers is how a collection gets corrupted. A timestamped backup of the
+      collection is written beside it before anything changes. The same step
+      exists as a command
+      (<code>tools_local/study/study.py sync</code>, see
+      <a href="https://github.com/ma-r-s/crossplay/blob/xteink/docs/study.md">docs/study.md</a>),
+      which can also push to AnkiWeb itself.
+    </p>
+  </div>
+  <div class="study-pane" id="syncPane">
+    <div class="cta-row">
+      <button class="btn" id="syncCard" type="button">1 &middot; Pick the SD card</button>
+      <button class="btn" id="syncProfile" type="button" disabled>2 &middot; Pick your Anki profile folder</button>
+      <button class="btn primary" id="syncRun" type="button" disabled>3 &middot; Replay the reviews</button>
+    </div>
+    <p class="study-status-line" id="syncStatus">
+      The profile folder is the one holding collection.anki2: on a Mac,
+      Library &rsaquo; Application Support &rsaquo; Anki2 &rsaquo; your profile.
+    </p>
+    <pre class="study-log" id="syncLog" hidden></pre>
   </div>
 </section>
 

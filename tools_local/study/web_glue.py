@@ -214,3 +214,50 @@ def deck_file(name):
     if root not in path.parents:
         raise ValueError(f"not a deck file: {name}")
     return path.read_bytes()
+
+
+def make_zip(slug):
+    """The converted deck as a zip, laid out the way the card wants it.
+
+    The fallback for browsers without the File System Access API: the user
+    unpacks this at the root of the SD card and gets exactly what the write
+    step would have written.
+    """
+    import zipfile
+
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+        for rel in _deck_files():
+            zf.write(WORK / "deck" / rel, f"study/{slug}/{rel}")
+    return out.getvalue()
+
+
+def sync_local():
+    """Replay every deck the worker staged under /work/sync into the
+    collection copy beside them, exactly as `study.py sync` would.
+
+    The page put the card's deck directories at /work/sync/decks/<name> and
+    the user's collection at /work/sync/collection.anki2. deck_to_anki.py
+    does the replay per deck, idempotently (rows keyed by timestamp), and
+    the page writes the updated collection back to the real file, after its
+    own backup. Nothing here talks to AnkiWeb; Anki's own Sync button does
+    that part better than we could.
+    """
+    base = WORK / "sync"
+    collection = base / "collection.anki2"
+    decks = sorted(d for d in (base / "decks").iterdir() if d.is_dir())
+    if not decks:
+        return json.dumps({"error": "no decks with reviews were staged"})
+
+    logs = []
+    failed = False
+    for deck_dir in decks:
+        code, log = _run_tool("deck_to_anki.py", [deck_dir, collection])
+        logs.append(f"== {deck_dir.name}\n{log.rstrip()}")
+        failed = failed or code != 0
+    return json.dumps({"log": "\n\n".join(logs), "failed": failed})
+
+
+def sync_file():
+    """The replayed collection, for the page to write back."""
+    return (WORK / "sync" / "collection.anki2").read_bytes()
