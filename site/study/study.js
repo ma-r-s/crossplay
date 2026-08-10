@@ -97,6 +97,8 @@
     if (!file) return;
     $("openSummary").hidden = true;
     resetDownstream();
+    reachedStep = 1;
+    goTo(1);
     setProgress("Reading " + file.name + "…");
     file.arrayBuffer().then(function (buffer) {
       ensureWorker();
@@ -197,6 +199,7 @@
     $("reportPlaceholder").hidden = false;
     $("reportPlaceholder").textContent = "Converting…";
     $("reportBody").hidden = true;
+    if (reachedStep >= 2) goTo(2);
     worker.postMessage({
       type: "convert",
       epoch: epoch,
@@ -209,6 +212,8 @@
     if (result.error) {
       $("reportPlaceholder").hidden = true;
       $("reportBody").hidden = false;
+      reachedStep = Math.max(reachedStep, 2);
+      goTo(2);
       $("reportVerdict").textContent = "This deck did not convert.";
       $("reportVerdict").className = "study-verdict is-bad";
       $("convertLog").textContent = result.error;
@@ -220,6 +225,9 @@
 
     $("reportPlaceholder").hidden = true;
     $("reportBody").hidden = false;
+    reachedStep = Math.max(reachedStep, 4);
+    if (currentStep < 2) goTo(2);
+    else goTo(currentStep);
 
     var verdict = $("reportVerdict");
     if (result.hasCjk && opened && opened.fonts.length === 0) {
@@ -912,6 +920,59 @@
       loadFromUrl(resolved.pathname, resolved.pathname.split("/").pop());
     }
   }
+
+  // ---- the wizard shell ---------------------------------------------------
+  // One viewport, one step at a time. This block owns only visibility; the
+  // state machine above neither knows nor cares which step is on screen.
+
+  var currentStep = 1;
+  var reachedStep = 1;
+  var stepSections = {
+    1: $("stepDeck"),
+    2: $("stepCheck"),
+    3: $("stepTry"),
+    4: $("stepWrite"),
+  };
+  var stepButtons = document.querySelectorAll("#stepper button");
+
+  function goTo(step) {
+    currentStep = step;
+    if (step > reachedStep) reachedStep = step;
+    Object.keys(stepSections).forEach(function (key) {
+      stepSections[key].classList.toggle("is-current", Number(key) === step);
+    });
+    $("modeSync").classList.remove("is-current");
+    stepButtons.forEach(function (button) {
+      var mine = Number(button.dataset.step);
+      button.classList.toggle("is-current", mine === step);
+      button.classList.toggle("is-done", mine < step);
+      button.disabled = mine > reachedStep;
+    });
+    $("modeInstall").setAttribute("aria-selected", "true");
+    $("modeSyncBtn").setAttribute("aria-selected", "false");
+    $("stepper").classList.remove("is-hidden");
+  }
+
+  function showSyncMode() {
+    Object.keys(stepSections).forEach(function (key) {
+      stepSections[key].classList.remove("is-current");
+    });
+    $("modeSync").classList.add("is-current");
+    $("modeInstall").setAttribute("aria-selected", "false");
+    $("modeSyncBtn").setAttribute("aria-selected", "true");
+    $("stepper").classList.add("is-hidden");
+  }
+
+  stepButtons.forEach(function (button) {
+    button.addEventListener("click", function () {
+      goTo(Number(button.dataset.step));
+    });
+  });
+  $("modeInstall").addEventListener("click", function () {
+    goTo(currentStep);
+  });
+  $("modeSyncBtn").addEventListener("click", showSyncMode);
+  $("toSync").addEventListener("click", showSyncMode);
 
   // Exposed for the write step (phase 4) and tests; harmless otherwise.
   window.StudyInstaller = {

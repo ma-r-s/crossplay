@@ -1,37 +1,150 @@
-/* Study installer page. Everything shared comes from /styles.css; this file
-   is only what the installer needs and nothing on the main page does. */
+/* The Study installer, as a wizard: one viewport, no page scroll, one step
+   at a time. Shared tokens come from /styles.css; everything here is layout
+   and the handful of components the installer owns. Logs scroll inside
+   their own panes; the page itself never does. */
 
-.study-hero {
-  padding-top: clamp(2.5rem, 6vw, 4.5rem);
-  padding-bottom: clamp(1.5rem, 4vw, 3rem);
+.study-body {
+  height: 100vh;
+  overflow: hidden;
 }
 
-.study-hero h1 {
-  margin: 0.35rem 0 0.9rem;
+.wizard {
+  height: calc(100vh - var(--bar));
+  max-width: var(--wrap);
+  margin-inline: auto;
+  padding: 0 var(--gutter);
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  gap: 0.4rem;
 }
 
-.study-privacy {
-  font-family: var(--mono);
-  font-size: 0.82rem;
+/* --- head: title and mode ----------------------------------------------- */
+
+.wiz-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding-top: 0.9rem;
+}
+
+.wiz-title {
+  font-size: clamp(1.5rem, 3.2vw, 2.2rem);
+  margin: 0.1rem 0 0;
+}
+
+.wiz-mode {
+  display: flex;
+  border: 1.5px solid var(--ink);
+}
+
+.wiz-mode button {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.45rem 0.9rem;
+  background: var(--paper);
+  color: var(--ink);
+  border: none;
+  cursor: pointer;
+}
+
+.wiz-mode button[aria-selected="true"] {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+/* --- stepper -------------------------------------------------------------- */
+
+.wiz-stepper {
+  display: flex;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--edge);
+  padding-bottom: 0.5rem;
+}
+
+.wiz-stepper button {
+  font: inherit;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.7rem;
+  background: none;
+  border: 1px solid transparent;
   color: var(--muted);
-  border-left: 3px solid var(--edge);
-  padding-left: 0.9rem;
-  max-width: 44rem;
+  cursor: pointer;
 }
 
-/* --- step 1: the dropzone ---------------------------------------------- */
+.wiz-stepper button span {
+  display: inline-grid;
+  place-items: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+}
+
+.wiz-stepper button.is-current {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
+.wiz-stepper button.is-done {
+  color: var(--ink);
+}
+
+.wiz-stepper button.is-done span {
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
+}
+
+.wiz-stepper button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.wiz-stepper.is-hidden {
+  visibility: hidden;
+}
+
+/* --- the step area -------------------------------------------------------- */
+
+.wiz-body {
+  position: relative;
+  min-height: 0;
+}
+
+.wiz-step {
+  position: absolute;
+  inset: 0;
+  display: none;
+  overflow: auto; /* safety net on short screens; panes scroll first */
+  padding: 0.9rem 0.1rem;
+}
+
+.wiz-step.is-current {
+  display: block;
+}
+
+/* --- step 1: the deck ----------------------------------------------------- */
 
 .study-dropzone {
-  margin-top: 1.6rem;
+  height: 56%;
+  min-height: 11rem;
+  display: grid;
+  place-content: center;
+  text-align: center;
   border: 2px dashed var(--edge);
   background: var(--paper-2);
-  padding: clamp(2rem, 6vw, 3.5rem) 1.5rem;
-  text-align: center;
   cursor: pointer;
   transition:
     border-color 120ms ease,
     background 120ms ease;
-  max-width: 44rem;
+  padding: 1rem;
 }
 
 .study-dropzone:hover,
@@ -46,20 +159,22 @@
 
 .study-drop-big {
   font-family: var(--display);
-  font-size: clamp(1.4rem, 3.5vw, 2rem);
+  font-size: clamp(1.5rem, 3.5vw, 2.4rem);
   margin: 0;
 }
 
 .study-drop-small {
   color: var(--muted);
-  margin: 0.4rem 0 0;
-  font-size: 0.9rem;
+  margin: 0.6rem auto 0;
+  font-size: 0.88rem;
+  max-width: 34rem;
 }
 
 .study-alt {
   color: var(--muted);
   font-size: 0.9rem;
-  margin-top: 0.8rem;
+  margin-top: 0.9rem;
+  max-width: 44rem;
 }
 
 .linklike {
@@ -73,8 +188,7 @@
 }
 
 .study-status {
-  margin-top: 1.2rem;
-  max-width: 44rem;
+  margin-top: 1rem;
 }
 
 .study-progress {
@@ -91,54 +205,75 @@
   white-space: pre-wrap;
 }
 
-/* --- the opened-package summary ---------------------------------------- */
+/* --- step 2: the report --------------------------------------------------- */
 
-.study-summary {
-  margin-top: 1.4rem;
-  padding: 1.2rem 1.4rem;
-  max-width: 44rem;
+.wiz-check-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 0.5rem 2rem;
+  align-items: start;
 }
 
 .study-card-title {
   font-family: var(--display);
-  font-size: 1.3rem;
-  margin: 0 0 0.6rem;
+  font-size: 1.25rem;
+  margin: 0 0 0.2rem;
 }
 
 .study-facts {
   color: var(--muted);
-  font-size: 0.9rem;
-  margin: 0.6rem 0 0;
+  font-size: 0.85rem;
+  margin: 0.2rem 0 0;
 }
 
 .study-warn {
   border-left: 3px solid var(--ink);
   padding-left: 0.9rem;
-  font-size: 0.9rem;
-  margin-top: 0.8rem;
+  font-size: 0.85rem;
+  margin: 0.5rem 0 0;
 }
 
 .study-deck-choice {
   display: block;
-  padding: 0.35rem 0;
+  padding: 0.15rem 0;
+  font-size: 0.9rem;
   cursor: pointer;
 }
 
 .study-deck-choice input {
-  margin-right: 0.6rem;
+  margin-right: 0.5rem;
 }
 
 .study-deck-cards {
   color: var(--muted);
-  font-size: 0.85rem;
-  margin-left: 0.5rem;
+  font-size: 0.8rem;
+  margin-left: 0.4rem;
 }
 
-/* --- step 2: the report ------------------------------------------------- */
+.study-verdict {
+  font-family: var(--display);
+  font-size: 1.25rem;
+  margin: 0.5rem 0 0.3rem;
+}
 
-.study-pane {
-  margin-top: 1.6rem;
-  max-width: 54rem;
+.study-verdict.is-bad::before,
+.study-verdict.is-good::before {
+  content: "";
+  display: inline-block;
+  width: 0.65em;
+  height: 0.65em;
+  margin-right: 0.45em;
+  background: var(--ink);
+}
+
+.study-verdict.is-good::before {
+  border-radius: 50%;
+}
+
+.wiz-type-label {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin: 0 0 0.2rem;
 }
 
 .study-placeholder {
@@ -147,36 +282,29 @@
   font-size: 0.85rem;
 }
 
-.study-verdict {
-  font-family: var(--display);
-  font-size: 1.25rem;
-  margin: 0 0 0.8rem;
-}
-
-.study-verdict.is-bad::before,
-.study-verdict.is-good::before {
-  content: "";
-  display: inline-block;
-  width: 0.7em;
-  height: 0.7em;
-  margin-right: 0.5em;
-  background: var(--ink);
-}
-
-.study-verdict.is-good::before {
-  border-radius: 50%;
+.wiz-report {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.7rem;
+  margin-top: 0.5rem;
 }
 
 .study-log {
   background: var(--paper-2);
   border: 1px solid var(--edge);
-  padding: 0.9rem 1.1rem;
+  padding: 0.7rem 0.9rem;
   font-family: var(--mono);
-  font-size: 0.78rem;
+  font-size: 0.74rem;
   line-height: 1.5;
-  overflow-x: auto;
+  overflow: auto;
   white-space: pre;
-  margin: 0 0 0.9rem;
+  margin: 0;
+  max-height: 32vh;
+}
+
+#typeLog {
+  grid-column: 1 / -1;
+  max-height: 18vh;
 }
 
 .study-mapping {
@@ -186,20 +314,20 @@
 .study-mapping summary {
   cursor: pointer;
   color: var(--muted);
-  font-size: 0.9rem;
+  font-size: 0.85rem;
 }
 
 .study-mapping p {
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   color: var(--muted);
   max-width: 40rem;
 }
 
 .study-map-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
-  gap: 0.5rem 1rem;
-  margin: 0.8rem 0 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+  gap: 0.4rem 0.9rem;
+  margin: 0.6rem 0 0.8rem;
 }
 
 .study-map-grid label {
@@ -207,37 +335,146 @@
   align-items: center;
   gap: 0.5rem;
   font-family: var(--mono);
-  font-size: 0.8rem;
+  font-size: 0.78rem;
 }
 
 .study-map-grid input {
   flex: 1;
   min-width: 0;
   font: inherit;
-  padding: 0.3rem 0.5rem;
+  padding: 0.25rem 0.5rem;
   border: 1px solid var(--edge);
   background: var(--paper);
   color: var(--ink);
 }
 
-/* --- steps 3 and 4 ------------------------------------------------------ */
+/* --- step 3: the preview --------------------------------------------------- */
+
+.wiz-try {
+  display: grid;
+  grid-template-columns: minmax(15rem, 21rem) minmax(0, 1fr);
+  gap: 2rem;
+  height: 100%;
+  align-items: stretch;
+}
+
+.wiz-try-side p {
+  font-size: 0.95rem;
+  margin-top: 0;
+}
 
 .study-device {
-  margin-top: 1rem;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
 }
 
 .study-preview-frame {
-  width: min(100%, 420px);
+  height: 100%;
+  max-height: calc(100vh - var(--bar) - 12.5rem);
   aspect-ratio: 3 / 5;
+  max-width: 100%;
   border: 1px solid var(--edge);
   background: #faf9f6;
   display: block;
 }
 
+/* --- step 4 and sync ------------------------------------------------------- */
+
+.wiz-write,
+.wiz-sync {
+  max-width: 46rem;
+}
+
+.wiz-write p,
+.wiz-sync p {
+  font-size: 0.95rem;
+  margin-top: 0;
+}
+
 .study-status-line {
   font-family: var(--mono);
-  font-size: 0.85rem;
+  font-size: 0.83rem;
   color: var(--muted);
-  margin-top: 0.9rem;
+  margin-top: 0.8rem;
   white-space: pre-wrap;
+}
+
+.wiz-after {
+  margin-top: 1.2rem;
+  border-top: 1px solid var(--edge);
+  padding-top: 0.9rem;
+}
+
+#syncLog {
+  margin-top: 0.8rem;
+  max-height: 30vh;
+}
+
+/* --- foot ------------------------------------------------------------------ */
+
+.wiz-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-top: 1px solid var(--edge);
+  padding: 0.5rem 0 0.7rem;
+}
+
+.wiz-fine {
+  color: var(--muted);
+  font-size: 0.72rem;
+  margin: 0;
+}
+
+.wiz-fine a {
+  color: inherit;
+}
+
+/* [hidden] must win over the display: grid/flex the layout classes set,
+   or the state machine's hidden-toggling silently stops working. */
+#previewBody[hidden],
+#writeBody[hidden],
+#reportBody[hidden],
+#typeBody[hidden],
+#openSummary[hidden],
+#typeChoices[hidden] {
+  display: none !important;
+}
+
+/* --- small screens ---------------------------------------------------------- */
+
+@media (max-width: 720px) {
+  .study-body {
+    height: auto;
+    overflow: auto;
+  }
+
+  .wizard {
+    height: auto;
+  }
+
+  .wiz-step {
+    position: static;
+    padding: 0.7rem 0;
+  }
+
+  .wiz-stepper button {
+    padding: 0.3rem 0.4rem;
+  }
+
+  .wiz-check-head,
+  .wiz-report,
+  .wiz-try {
+    grid-template-columns: 1fr;
+  }
+
+  .study-preview-frame {
+    height: auto;
+    width: 100%;
+    max-height: none;
+  }
 }

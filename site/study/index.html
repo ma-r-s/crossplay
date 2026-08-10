@@ -19,7 +19,7 @@
 <meta name="theme-color" content="#111110">
 <script defer src="/_vercel/insights/script.js"></script>
 </head>
-<body>
+<body class="study-body">
 <a class="skip" href="#main">Skip to content</a>
 
 <div class="topbar">
@@ -46,249 +46,172 @@
   </nav>
 </div>
 
-<header class="hero wrap study-hero" id="top">
-  <div class="prose">
-    <p class="eyebrow">Study <span class="eyebrow-sep">&middot;</span> Anki on the reader</p>
-    <h1>Your deck, on the device.</h1>
-    <p class="lede">
-      The Study app schedules with the same FSRS algorithm Anki uses and syncs
-      every review back, so the reader is a real Anki client, not an export.
-      This page puts a deck on it: drop the <code>.apkg</code> Anki exports,
-      see your own cards running on the real firmware, then write the deck to
-      the SD card.
-    </p>
-    <p class="study-privacy">
-      Everything on this page happens inside this tab. Your deck is opened,
-      converted and previewed by code running locally, served from this site;
-      nothing about you or your deck is uploaded anywhere.
-    </p>
-  </div>
-</header>
+<main id="main" class="wizard">
 
-<main id="main">
-
-<div class="band" id="drop"><h2>Drop your deck</h2><span class="band-note">step 1 &middot; the .apkg Anki exports</span></div>
-<div class="band-rule"></div>
-<section class="wrap">
-  <div class="prose">
-    <p>
-      In Anki: <strong>File &rsaquo; Export</strong>, format
-      <strong>Anki Deck Package (.apkg)</strong>, with
-      <strong>Include scheduling information</strong> checked so cards arrive
-      as learned as they are, and <strong>Support older Anki versions</strong>
-      unchecked. A deck downloaded from AnkiWeb's shared decks works too:
-      import it into Anki first, then export it the same way.
-    </p>
+  <div class="wiz-head">
+    <div>
+      <p class="eyebrow">Study <span class="eyebrow-sep">&middot;</span> Anki on the reader</p>
+      <h1 class="wiz-title">Your deck, on the device.</h1>
+    </div>
+    <div class="wiz-mode" role="tablist" aria-label="What are you here to do">
+      <button type="button" id="modeInstall" role="tab" aria-selected="true">Put a deck on it</button>
+      <button type="button" id="modeSyncBtn" role="tab" aria-selected="false">Bring reviews back</button>
+    </div>
   </div>
 
-  <div class="study-dropzone" id="dropzone" role="button" tabindex="0"
-       aria-label="Choose or drop an .apkg file">
-    <p class="study-drop-big">Drop the .apkg here</p>
-    <p class="study-drop-small">or click to choose a file</p>
-    <input type="file" id="filepick" accept=".apkg,.colpkg,application/zip" hidden>
-  </div>
-  <p class="study-alt">
-    No deck handy? <button class="linklike" id="sample" type="button">Try the
-    sample deck</button>, thirty SAT words with some review history.
-  </p>
+  <nav class="wiz-stepper" id="stepper" aria-label="Steps">
+    <button type="button" data-step="1" class="is-current"><span>1</span> Deck</button>
+    <button type="button" data-step="2" disabled><span>2</span> Check</button>
+    <button type="button" data-step="3" disabled><span>3</span> Try it</button>
+    <button type="button" data-step="4" disabled><span>4</span> Write</button>
+  </nav>
 
-  <div class="study-status" id="openStatus" hidden>
-    <p class="study-progress" id="openProgress"></p>
-  </div>
+  <div class="wiz-body">
 
-  <div class="study-summary card" id="openSummary" hidden>
-    <h3 class="study-card-title" id="summaryTitle"></h3>
-    <div id="deckChoices"></div>
-    <p class="study-facts" id="summaryFacts"></p>
-    <p class="study-warn" id="summaryWarn" hidden></p>
-  </div>
-</section>
+    <!-- Step 1: the deck ------------------------------------------------- -->
+    <section class="wiz-step is-current" id="stepDeck">
+      <div class="study-dropzone" id="dropzone" role="button" tabindex="0"
+           aria-label="Choose or drop an .apkg file">
+        <p class="study-drop-big">Drop your .apkg here</p>
+        <p class="study-drop-small">
+          or click to choose &middot; in Anki: File &rsaquo; Export &rsaquo;
+          Anki Deck Package, "Include scheduling information" checked,
+          "Support older Anki versions" unchecked
+        </p>
+        <input type="file" id="filepick" accept=".apkg,.colpkg,application/zip" hidden>
+      </div>
+      <p class="study-alt">
+        No deck handy? <button class="linklike" id="sample" type="button">Try
+        the sample deck</button>, thirty SAT words with review history.
+        Everything happens inside this tab; nothing is uploaded anywhere.
+      </p>
+      <div class="study-status" id="openStatus" hidden>
+        <p class="study-progress" id="openProgress"></p>
+      </div>
+    </section>
 
-<div class="band" id="report"><h2>The honest report</h2><span class="band-note">step 2 &middot; what converts, what cannot</span></div>
-<div class="band-rule"></div>
-<section class="wrap">
-  <div class="prose">
-    <p>
-      The converter says what it understood, and the checker walks every card
-      asking the questions a glance cannot: can every character be drawn, does
-      every headword fit the screen, does every sentence wrap sanely. What you
-      read below is those tools' own words, not a summary of them. A deck that
-      passes here renders on the device; a card that would surprise you is
-      listed before it can.
-    </p>
-  </div>
-
-  <div class="study-pane" id="reportPane">
-    <p class="study-placeholder" id="reportPlaceholder">Waiting for a deck.</p>
-    <div id="reportBody" hidden>
-      <p class="study-verdict" id="reportVerdict"></p>
-      <pre class="study-log" id="convertLog"></pre>
-      <pre class="study-log study-log-check" id="checkLog"></pre>
+    <!-- Step 2: the honest report ---------------------------------------- -->
+    <section class="wiz-step" id="stepCheck">
+      <div class="wiz-check-head">
+        <div id="openSummary" hidden>
+          <h3 class="study-card-title" id="summaryTitle"></h3>
+          <div id="deckChoices"></div>
+          <p class="study-facts" id="summaryFacts"></p>
+          <p class="study-warn" id="summaryWarn" hidden></p>
+          <p class="study-verdict" id="reportVerdict"></p>
+        </div>
+        <div class="wiz-type" id="typeBody" hidden>
+          <div id="typeChoices" hidden>
+            <p class="wiz-type-label">The headword face:</p>
+            <label class="study-deck-choice"><input type="radio" name="face" value="builtin" checked>
+              Built-in serif <span class="study-deck-cards">nothing to build</span></label>
+            <label class="study-deck-choice"><input type="radio" name="face" value="bundled">
+              Large, from DejaVu Serif <span class="study-deck-cards">bundled, free</span></label>
+            <label class="study-deck-choice"><input type="radio" name="face" value="own">
+              Large, from your own TTF</label>
+            <input type="file" id="ttfpick" accept=".ttf,.otf" hidden>
+          </div>
+          <p class="study-progress" id="typeProgress" hidden></p>
+          <p id="typePlaceholder" hidden></p>
+        </div>
+      </div>
+      <p class="study-placeholder" id="reportPlaceholder" hidden>Converting…</p>
+      <div id="reportBody" hidden class="wiz-report">
+        <pre class="study-log" id="convertLog"></pre>
+        <pre class="study-log study-log-check" id="checkLog"></pre>
+        <pre class="study-log" id="typeLog" hidden></pre>
+      </div>
       <details class="study-mapping">
         <summary>The fields came out wrong?</summary>
         <p>
-          The converter guesses by field order: first field is the word, second
-          the meaning. Name them yourself and it converts again:
+          The converter guesses by field order: first field is the word,
+          second the meaning. Name them yourself and it converts again:
         </p>
         <div class="study-map-grid" id="mapGrid"></div>
         <button class="btn" id="remap" type="button">Convert again with these fields</button>
       </details>
-    </div>
-  </div>
-</section>
+    </section>
 
-<div class="band" id="type"><h2>The type</h2><span class="band-note">step 3 &middot; faces built for this deck</span></div>
-<div class="band-rule"></div>
-<section class="wrap">
-  <div class="prose">
-    <p>
-      A Chinese deck gets the five faces its Anki template randomises between,
-      built from the TTFs the package carried, subset to the characters the
-      deck really uses. An English deck needs nothing: the reader's built-in
-      serif draws it. What a big headword face adds is looks, so one is
-      offered, fitted so the deck's longest word spans the screen edge to
-      edge.
-    </p>
-  </div>
-  <div class="study-pane" id="typePane">
-    <p class="study-placeholder" id="typePlaceholder">Waiting for a converted deck.</p>
-    <div id="typeBody" hidden>
-      <div id="typeChoices" hidden>
-        <label class="study-deck-choice"><input type="radio" name="face" value="builtin" checked>
-          The built-in serif <span class="study-deck-cards">nothing to build</span></label>
-        <label class="study-deck-choice"><input type="radio" name="face" value="bundled">
-          A large headword face from DejaVu Serif <span class="study-deck-cards">bundled here, free license</span></label>
-        <label class="study-deck-choice"><input type="radio" name="face" value="own">
-          A large headword face from your own font <span class="study-deck-cards">any TTF you have</span></label>
-        <input type="file" id="ttfpick" accept=".ttf,.otf" hidden>
+    <!-- Step 3: the preview ---------------------------------------------- -->
+    <section class="wiz-step" id="stepTry">
+      <div id="previewBody" class="wiz-try">
+        <div class="wiz-try-side">
+          <p>
+            Not a mock-up: the firmware, compiled for the browser, your
+            converted deck on its virtual SD card. Tap the panel the way you
+            would tap the reader.
+          </p>
+          <div class="cta-row">
+            <button class="btn primary" id="previewBoot" type="button">Boot the device</button>
+          </div>
+          <p class="study-status-line" id="previewStatus"></p>
+        </div>
+        <div class="study-device" id="previewMount" hidden></div>
       </div>
-      <p class="study-progress" id="typeProgress" hidden></p>
-      <pre class="study-log" id="typeLog" hidden></pre>
-    </div>
-  </div>
-</section>
+      <p class="study-placeholder" id="previewPlaceholder" hidden></p>
+    </section>
 
-<div class="band" id="preview"><h2>Try it on the device</h2><span class="band-note">step 4 &middot; the real firmware, your cards</span></div>
-<div class="band-rule"></div>
-<section class="wrap">
-  <div class="prose">
-    <p>
-      This is not a mock-up of the app: it is the firmware, compiled for the
-      browser, with your converted deck placed on its virtual SD card. Tap
-      through your own cards exactly as they will draw on the reader, before
-      anything is written to hardware.
-    </p>
-  </div>
-  <div class="study-pane" id="previewPane">
-    <p class="study-placeholder" id="previewPlaceholder">Waiting for a converted deck.</p>
-    <div id="previewBody" hidden>
-      <div class="cta-row">
-        <button class="btn primary" id="previewBoot" type="button">Boot the device with this deck</button>
+    <!-- Step 4: write ----------------------------------------------------- -->
+    <section class="wiz-step" id="stepWrite">
+      <div id="writeBody" class="wiz-write">
+        <p>
+          Put the reader's SD card in this computer and write the deck into
+          its <code>study/</code> folder. Other decks are left alone; a deck
+          with the same name is replaced whole, and the page asks first when
+          that would erase reviews. No folder access in this browser? The zip
+          unpacks at the card's root.
+        </p>
+        <div class="cta-row">
+          <button class="btn primary" id="writeCard" type="button">Choose the SD card and write</button>
+          <button class="btn" id="writeZip" type="button">Download as a zip</button>
+        </div>
+        <p class="study-status-line" id="writeStatus"></p>
+        <p class="wiz-after">
+          Then, on the reader: <strong>Apps &rsaquo; STUDY</strong>. After
+          studying, come back and use <button class="linklike" id="toSync"
+          type="button">Bring reviews back</button>.
+        </p>
       </div>
-      <p class="study-status-line" id="previewStatus"></p>
-      <div class="study-device" id="previewMount" hidden></div>
-    </div>
-  </div>
-</section>
+      <p class="study-placeholder" id="writePlaceholder" hidden></p>
+    </section>
 
-<div class="band" id="write"><h2>Write it to the card</h2><span class="band-note">step 5 &middot; the SD card, or a zip</span></div>
-<div class="band-rule"></div>
-<section class="wrap">
-  <div class="prose">
-    <p>
-      Put the reader's SD card in this computer, then let the page write the
-      deck into its <code>/study/</code> folder. Other decks on the card are
-      left alone; a deck with the same name is replaced whole, and the page
-      asks first when that would erase reviews. If your browser cannot
-      write folders (Firefox and Safari cannot yet), you get the same files as
-      a zip and one sentence about where to unpack it.
-    </p>
-  </div>
-  <div class="study-pane" id="writePane">
-    <p class="study-placeholder" id="writePlaceholder">Waiting for a converted deck.</p>
-    <div id="writeBody" hidden>
-      <div class="cta-row">
-        <button class="btn primary" id="writeCard" type="button">Choose the SD card and write</button>
-        <button class="btn" id="writeZip" type="button">Download as a zip</button>
+    <!-- Mode B: sync back ------------------------------------------------- -->
+    <section class="wiz-step" id="modeSync">
+      <div class="wiz-sync">
+        <p>
+          Replays the reviews on the card into your Anki collection, same
+          grades, same timestamps; re-running is safe. A timestamped backup
+          is written first. <strong>Quit Anki before step 3.</strong> Then
+          Anki's own Sync button carries them to AnkiWeb; no credentials
+          touch this page.
+        </p>
+        <div class="cta-row">
+          <button class="btn" id="syncCard" type="button">1 &middot; Pick the SD card</button>
+          <button class="btn" id="syncProfile" type="button" disabled>2 &middot; Pick the Anki profile folder</button>
+          <button class="btn primary" id="syncRun" type="button" disabled>3 &middot; Replay</button>
+        </div>
+        <p class="study-status-line" id="syncStatus">
+          The profile folder is the one holding collection.anki2: on a Mac,
+          Library &rsaquo; Application Support &rsaquo; Anki2 &rsaquo; your
+          profile.
+        </p>
+        <pre class="study-log" id="syncLog" hidden></pre>
       </div>
-      <p class="study-status-line" id="writeStatus"></p>
-    </div>
-  </div>
-</section>
+    </section>
 
-<div class="band" id="sync"><h2>After you study: sync back</h2><span class="band-note">the loop &middot; reviews return to Anki</span></div>
-<div class="band-rule"></div>
-<section class="wrap">
-  <div class="prose">
-    <p>
-      Reviews you do on the reader are written to the card after every answer.
-      This step replays them into your Anki collection with the same grades
-      and timestamps Anki would have written, so a card you got right on the
-      couch is simply a card you got right. Then Anki's own Sync button
-      carries them to AnkiWeb; no credentials ever touch this page. Re-running
-      is safe: replay is keyed by review timestamp, and rows that already
-      exist are skipped.
-    </p>
-    <p>
-      <strong>Quit Anki first.</strong> It holds the collection open, and two
-      writers is how a collection gets corrupted. A timestamped backup of the
-      collection is written beside it before anything changes. The same step
-      exists as a command
-      (<code>tools_local/study/study.py sync</code>, see
-      <a href="https://github.com/ma-r-s/crossplay/blob/xteink/docs/study.md">docs/study.md</a>),
-      which can also push to AnkiWeb itself.
-    </p>
   </div>
-  <div class="study-pane" id="syncPane">
-    <div class="cta-row">
-      <button class="btn" id="syncCard" type="button">1 &middot; Pick the SD card</button>
-      <button class="btn" id="syncProfile" type="button" disabled>2 &middot; Pick your Anki profile folder</button>
-      <button class="btn primary" id="syncRun" type="button" disabled>3 &middot; Replay the reviews</button>
-    </div>
-    <p class="study-status-line" id="syncStatus">
-      The profile folder is the one holding collection.anki2: on a Mac,
-      Library &rsaquo; Application Support &rsaquo; Anki2 &rsaquo; your profile.
+
+  <div class="wiz-foot">
+    <p class="wiz-fine">
+      Runs the repository's own tools via <a href="https://pyodide.org">Pyodide</a>,
+      served from this site &middot; also a
+      <a href="https://github.com/ma-r-s/crossplay/blob/xteink/docs/study.md">command line</a>
+      &middot; Anki is a trademark of Ankitects; no affiliation
     </p>
-    <pre class="study-log" id="syncLog" hidden></pre>
+    <button class="theme-toggle" id="themeToggle" type="button" aria-pressed="false">Invert</button>
   </div>
-</section>
 
 </main>
-
-<footer>
-  <div class="wrap">
-    <div class="foot-grid">
-      <div>
-        <h4>CrossPlay</h4>
-        <p class="foot-note">A fork of CrossPoint for the Xteink X4 Pro. Built by one person, in the open. MIT licensed, like the project it forks.</p>
-      </div>
-      <div>
-        <h4>Project</h4>
-        <ul>
-          <li><a href="https://github.com/ma-r-s/crossplay">Source</a></li>
-          <li><a href="https://github.com/ma-r-s/crossplay/releases">Releases</a></li>
-        </ul>
-      </div>
-      <div>
-        <h4>Upstream</h4>
-        <ul>
-          <li><a href="https://crosspointreader.com/">CrossPoint</a></li>
-          <li><a href="https://apps.ankiweb.net/">Anki</a></li>
-        </ul>
-      </div>
-    </div>
-    <div class="foot-fine">
-      <h4>Fine print</h4>
-      <div class="foot-fine-cols">
-        <p>Anki is a trademark of Ankitects Pty Ltd. CrossPlay's Study app reads and writes Anki's formats but is not affiliated with, endorsed by or sponsored by Ankitects.</p>
-        <p>This page runs Python in your browser via <a href="https://pyodide.org">Pyodide</a> (MPL-2.0), served from this site. No analytics beyond a cookieless page count, no accounts, no uploads.</p>
-      </div>
-    </div>
-    <p class="foot-toggle">
-      <button class="theme-toggle" id="themeToggle" type="button" aria-pressed="false">Invert</button>
-    </p>
-  </div>
-</footer>
 
 <script>
 (function () {
