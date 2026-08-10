@@ -98,7 +98,15 @@ void drawCardTile(toybox::Screen& screen, const fui::Rect& cell, const CardTile&
   // Knock out, then frame. Selection thickens the card's own border, which
   // cannot collide with a neighbour by construction.
   target.fill(cell, fui::Paint::solid(fui::Color::White));
-  target.stroke(cell, fui::Paint::solid(fui::Color::Black), static_cast<uint8_t>(tile.selected ? 5 : 2));
+  target.stroke(cell, fui::Paint::solid(fui::Color::Black), 2);
+  if (tile.selected) {
+    // A halo OUTSIDE the card, in the grid gap. Thickening the card's own
+    // border inward kept eating whatever sat nearest the edge; out here it
+    // can touch nothing, because the cell's content is the same either way.
+    target.stroke(fui::makeRect(static_cast<int16_t>(cell.x - 3), static_cast<int16_t>(cell.y - 3),
+                                static_cast<int16_t>(cell.width + 6), static_cast<int16_t>(cell.height + 6)),
+                  fui::Paint::solid(fui::Color::Black), 2);
+  }
 
   const bool tall = cell.height >= 110;
   const int16_t markSize = 20;
@@ -326,18 +334,24 @@ void drawTabs(toybox::Screen& screen, const fui::Rect& strip, const BoardModel& 
       {"YOURS", model.yoursCount, ActionTabYours},
       {"THEIRS", model.theirsCount, ActionTabTheirs},
   };
-  const int16_t tabW = static_cast<int16_t>((strip.width - 2 * toybox::kHairline) / 3);
+  // One segmented bar, not three boxes: a single frame, hairline dividers,
+  // the active segment inverted.
+  target.stroke(strip, fui::Paint::solid(fui::Color::Black), 2);
+  const int16_t tabW = static_cast<int16_t>(strip.width / 3);
   for (int i = 0; i < 3; ++i) {
-    const int16_t x = static_cast<int16_t>(strip.x + i * (tabW + toybox::kHairline));
-    const fui::Rect tab = fui::makeRect(x, strip.y, tabW, strip.height);
+    const int16_t x = static_cast<int16_t>(strip.x + i * tabW);
+    const fui::Rect tab =
+        fui::makeRect(x, strip.y, i == 2 ? static_cast<int16_t>(strip.width - 2 * tabW) : tabW, strip.height);
     const bool active = model.tab == i;
-    target.fill(tab, fui::Paint::solid(active ? fui::Color::Black : fui::Color::White));
-    if (!active) target.stroke(tab, fui::Paint::solid(fui::Color::Black), toybox::kHairline);
+    if (active) {
+      target.fill(tab, fui::Paint::solid(fui::Color::Black));
+    } else if (i > 0) {
+      target.fill(fui::makeRect(x, static_cast<int16_t>(strip.y + 6), toybox::kHairline,
+                                static_cast<int16_t>(strip.height - 12)),
+                  fui::Paint::solid(fui::Color::Black));
+    }
     char label[16];
     std::snprintf(label, sizeof(label), "%s %d", tabs[i].label, tabs[i].count);
-    // The small font, as designed, and the whole tab as the text rect: the
-    // target centres vertically in the rect it is given, so a hand-computed
-    // band is only ever a centring bug waiting to happen.
     fui::TextStyle style = styled(toybox::kSmallFont, fui::TextAlign::Center);
     style.color = active ? fui::Color::White : fui::Color::Black;
     target.text(tab, label, style);
@@ -453,82 +467,6 @@ fui::Rect buildBoard(toybox::Screen& screen, const BoardModel& model) {
 }
 
 // --- the modal choices ------------------------------------------------------
-
-fui::Rect buildKeepChoice(toybox::Screen& screen, const KeepModel& model) {
-  toyboxChrome(screen, "SEA SALT");
-  const fui::Rect line = screen.takeTop(26, toybox::kGutter);
-  screen.target().text(line, "KEEP ONE.", styled(toybox::kUiFont, fui::TextAlign::Center));
-  const fui::Rect hintBox = screen.takeBottom(54, toybox::kGutter / 2);
-  drawHintBox(screen, hintBox, "THE OTHER GOES FACE UP ON A PILE.");
-
-  const fui::Rect body = screen.body();
-  // The one card shape: two portrait cards, centred as a pair. Full-width
-  // halves made them landscape slabs, and a card is not a slab.
-  const int16_t cardW = kChoiceCardW;
-  const int16_t cardH = kChoiceCardH;
-  // Top-biased: equal slack above and below is unresolved centring.
-  const int16_t top = static_cast<int16_t>(body.y + (body.height - cardH) / 3);
-  const int16_t pairW = static_cast<int16_t>(2 * cardW + toybox::kGutter * 2);
-  const int16_t leftX = static_cast<int16_t>(body.x + (body.width - pairW) / 2);
-  const fui::Rect left = fui::makeRect(leftX, top, cardW, cardH);
-  const fui::Rect right = fui::makeRect(static_cast<int16_t>(leftX + cardW + toybox::kGutter * 2), top, cardW, cardH);
-  drawCardTile(screen, left, model.left);
-  drawCardTile(screen, right, model.right);
-  screen.frame().hit(left, ActionKeepLeft, 0);
-  screen.frame().hit(right, ActionKeepRight, 0);
-  return body;
-}
-
-fui::Rect buildPileChoice(toybox::Screen& screen, const PileChoiceModel& model) {
-  toyboxChrome(screen, model.digging ? "CRAB" : "SEA SALT");
-  const fui::Rect line = screen.takeTop(26, toybox::kGutter);
-  char headline[48];
-  if (model.digging) {
-    std::snprintf(headline, sizeof(headline), "DIG THROUGH WHICH PILE?");
-  } else {
-    std::snprintf(headline, sizeof(headline), "THE %s GOES ON A PILE.", kKindNames[model.rejected.kind]);
-  }
-  screen.target().text(line, headline, styled(toybox::kUiFont, fui::TextAlign::Center));
-
-  const fui::Rect body = screen.body();
-  int16_t pileTop = body.y;
-  if (!model.digging) {
-    // The rejected card, the one card shape, above the two piles.
-    drawCardTile(screen,
-                 fui::makeRect(static_cast<int16_t>(body.x + (body.width - kChoiceCardW) / 2), body.y, kChoiceCardW,
-                               kChoiceCardH),
-                 model.rejected);
-    pileTop = static_cast<int16_t>(body.y + kChoiceCardH + toybox::kGutter * 2);
-  }
-
-  const int16_t pileW = static_cast<int16_t>((body.width - toybox::kGutter) / 2);
-  for (int p = 0; p < 2; ++p) {
-    const fui::Rect cell =
-        fui::makeRect(static_cast<int16_t>(body.x + p * (pileW + toybox::kGutter)), pileTop, pileW, 120);
-    drawPileTile(screen, cell, model.piles[p], model.digging ? "EMPTY" : "EMPTY - GOES HERE");
-    if (!model.digging || model.piles[p].size > 0) {
-      screen.frame().hit(cell, p == 0 ? ActionPileA : ActionPileB, 0);
-    }
-  }
-  return body;
-}
-
-fui::Rect buildDig(toybox::Screen& screen, const DigModel& model) {
-  toyboxChrome(screen, "CRAB");
-  const fui::Rect line = screen.takeTop(26, toybox::kGutter / 2);
-  screen.target().text(line, "TAKE ANY CARD FROM THIS PILE.", styled(toybox::kUiFont, fui::TextAlign::Center));
-  if (model.pages > 1) {
-    const fui::Rect pager = screen.takeBottom(24);
-    char label[24];
-    std::snprintf(label, sizeof(label), "SIDE KEYS - %d / %d", model.page + 1, model.pages);
-    screen.target().text(pager, label, styled(toybox::kSmallFont, fui::TextAlign::Center));
-  }
-  const fui::Rect grid = screen.body();
-  for (int i = 0; i < model.tileCount; ++i) {
-    drawCardTile(screen, cardCellRect(grid, i, model.tileCount), model.tiles[i]);
-  }
-  return grid;
-}
 
 fui::Rect buildCallChoice(toybox::Screen& screen, const CallModel& model) {
   char score[16];

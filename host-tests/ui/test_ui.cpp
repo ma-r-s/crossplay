@@ -3012,26 +3012,6 @@ void testTheSeaSaltChromeIsTappableAndTheCallPillIsEarned() {
   CHECK(callNow);
 }
 
-void testTheSeaSaltKeepChoiceOffersExactlyTwoCards() {
-  seasaltui::KeepModel model;
-  model.left.kind = 1;   // BOAT
-  model.right.kind = 9;  // MERMAID
-  Rendered out;
-  buildSs(out, seasaltui::buildKeepChoice, model);
-  CHECK(out.target.drew("BOAT"));
-  CHECK(out.target.drew("MERMAID"));
-  bool left = false, right = false;
-  for (int16_t y = 0; y < 800; y += 7) {
-    for (int16_t x = 0; x < 480; x += 7) {
-      const fui::ActionId a = out.tap(x, y).action;
-      left |= a == seasaltui::ActionKeepLeft;
-      right |= a == seasaltui::ActionKeepRight;
-    }
-  }
-  CHECK(left);
-  CHECK(right);
-}
-
 void testTheSeaSaltCallChoiceSaysWhatEachWordCosts() {
   seasaltui::CallModel model;
   model.yourPoints = 11;
@@ -3071,22 +3051,6 @@ void testTheSeaSaltRoundOverNamesTheBet() {
   CHECK(out2.target.drew("THE DECK RAN OUT. NOBODY SCORES."));
 }
 
-// One card, one shape: the choice cut keeps the board cell's aspect, so a
-// card cannot become a landscape slab on one screen and a portrait card on
-// the next. Mario caught the drift by playing; this pins it.
-void testTheSeaSaltCardKeepsItsShape() {
-  seasaltui::BoardModel model;
-  model.tileCount = 8;
-  Rendered out;
-  const fui::Rect grid = buildSs(out, seasaltui::buildBoard, model);
-  const fui::Rect cell = seasaltui::cardCellRect(grid, 0, 8);
-  const float cellAspect = static_cast<float>(cell.height) / static_cast<float>(cell.width);
-  const float choiceAspect =
-      static_cast<float>(seasaltui::kChoiceCardH) / static_cast<float>(seasaltui::kChoiceCardW);
-  CHECK(cellAspect > choiceAspect - 0.05f);
-  CHECK(cellAspect < choiceAspect + 0.05f);
-}
-
 void testTheSeaSaltTutorialPagesAndEnds() {
   for (int page = 0; page < seasaltui::tutorialPages(); ++page) {
     seasaltui::TutorialModel model;
@@ -3105,10 +3069,8 @@ void testTheSeaSaltTutorialPagesAndEnds() {
 int main() {
   testTheSeaSaltCardYouTapIsTheCardTheRulesGet();
   testTheSeaSaltChromeIsTappableAndTheCallPillIsEarned();
-  testTheSeaSaltKeepChoiceOffersExactlyTwoCards();
   testTheSeaSaltCallChoiceSaysWhatEachWordCosts();
   testTheSeaSaltRoundOverNamesTheBet();
-  testTheSeaSaltCardKeepsItsShape();
   testTheSeaSaltTutorialPagesAndEnds();
   testSearchingAsksNothing();
   testMurdleGridResolvesEveryCellItDrew();

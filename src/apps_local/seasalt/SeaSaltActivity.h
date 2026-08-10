@@ -50,7 +50,7 @@ class SeaSaltActivity final : public linkplay::LinkActivity {
   void gameRender() override;
 
  private:
-  enum class View : uint8_t { Menu, Board, Keep, PileChoice, Dig, Call, RoundOver, Rules };
+  enum class View : uint8_t { Menu, Board, Call, RoundOver, Rules };
 
   // --- state to screens ----------------------------------------------------
   seasaltui::StartModel startModel() const;
@@ -64,9 +64,6 @@ class SeaSaltActivity final : public linkplay::LinkActivity {
 
   void drawStartMenu();
   void drawBoard();
-  void drawKeep();
-  void drawPileChoice();
-  void drawDig();
   void drawCall();
   void drawRoundOver();
   void drawTutorial();
@@ -74,9 +71,6 @@ class SeaSaltActivity final : public linkplay::LinkActivity {
   // --- input ---------------------------------------------------------------
   void routeStartMenu();
   void routeBoard();
-  void routeKeep();
-  void routePileChoice();
-  void routeDig();
   void routeCall();
   void routeRoundOver();
   void routeTutorial();
@@ -119,7 +113,6 @@ class SeaSaltActivity final : public linkplay::LinkActivity {
   int tutorialPage = 0;
   int tab = 0;
   int page = 0;
-  int digPage = 0;
   bool hasSavedGame = false;
   uint32_t seed = 1;
   int played = 0;

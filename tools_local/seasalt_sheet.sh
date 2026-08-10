@@ -31,10 +31,11 @@ IN='2000:TAP:120,635;3600:TAP:240,605'   # Games -> SEA SALT
   "$IN;5600:TAP:240,535;7600:TAP:69,378;9600:TAP:408,770;12000:QUIT" \
   "5000:$OUT/sheet_menu.bmp;7200:$OUT/sheet_board.bmp;9200:$OUT/sheet_selected.bmp;11400:$OUT/sheet_call.bmp"
 
-# A Take-step save: the draw flow, deck -> keep one -> which pile.
+# A Take-step save: the draw flow, all of it ON the board -- deck deals two
+# into the grid, tap cell 0 to keep it, then the pile row takes the other.
 /tmp/seasalt_mkstate take > fs_agent/.crosspoint/seasalt.sav
 ./scripts_local/sim-shot.sh \
-  "$IN;5600:TAP:240,535;7600:TAP:88,220;9600:TAP:120,300;12000:QUIT" \
+  "$IN;5600:TAP:240,535;7600:TAP:88,220;9600:TAP:69,378;12000:QUIT" \
   "9200:$OUT/sheet_keep.bmp;11400:$OUT/sheet_pile.bmp"
 
 # the tutorial's first page

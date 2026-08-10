@@ -32,8 +32,6 @@ enum : fui::ActionId {
   ActionPileB = 7,
   ActionPrimary = 8,  // the wide bottom pill: whatever it currently says
   ActionCall = 9,     // "10 - CALL IT"
-  ActionKeepLeft = 10,
-  ActionKeepRight = 11,
   ActionStop = 12,
   ActionLastChance = 13,
   ActionContinue = 14,  // round over -> next round
@@ -120,43 +118,17 @@ struct BoardModel {
 // the rect the exported geometry functions describe.
 fui::Rect buildBoard(toybox::Screen& screen, const BoardModel& model);
 
-// One card, one shape. The board's grid derives its cells, and every screen
-// that shows a single card at rest uses this enlarged cut of the same aspect
-// -- the keep chooser's cards turning into landscape slabs is how Mario
-// learned the tile stretched into whatever rect it was handed.
-constexpr int16_t kChoiceCardW = 150;
-constexpr int16_t kChoiceCardH = 177;  // the board cell's 106x125, scaled
-
 // The card grid's geometry, shared between drawing and hit-testing so the two
 // cannot drift. `count` is the page's tile count.
+//
+// There are no chooser screens: keeping one of two drawn cards, placing the
+// rejected one on a pile and digging with the crabs are all BOARD states.
+// The grid shows the cards the current decision is about, at grid size, where
+// cards always live -- a card never changes shape or position by being asked
+// about. Mario caught the modal versions morphing three times before this
+// became the rule.
 fui::Rect cardCellRect(const fui::Rect& grid, int index, int count);
 int cardIndexAt(const fui::Rect& grid, int count, int16_t x, int16_t y);
-
-// Two off the deck: keep one. The other goes face up on a pile.
-struct KeepModel {
-  CardTile left;
-  CardTile right;
-};
-fui::Rect buildKeepChoice(toybox::Screen& screen, const KeepModel& model);
-
-// Which pile takes the rejected card -- or, when `digging`, which pile the
-// crab goes through. Same screen, because it is the same question.
-struct PileChoiceModel {
-  CardTile rejected;
-  PileTile piles[2];
-  bool digging = false;
-};
-fui::Rect buildPileChoice(toybox::Screen& screen, const PileChoiceModel& model);
-
-// The crab's dig: every card of one pile, pageable like the hand.
-struct DigModel {
-  static constexpr int kMaxTiles = 16;
-  CardTile tiles[kMaxTiles];
-  int tileCount = 0;
-  int page = 0;
-  int pages = 1;
-};
-fui::Rect buildDig(toybox::Screen& screen, const DigModel& model);
 
 // STOP or LAST CHANCE, with what each means, because this is the one decision
 // in the game whose consequences are not on the board.

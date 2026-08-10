@@ -276,20 +276,53 @@ seasaltui::BoardModel SeaSaltActivity::boardModel() {
   model.yoursCount = game.tableSize(seat);
   model.theirsCount = game.tableSize(seat ^ 1);
 
-  // The cards of the active tab, in card-id order, one page's worth.
-  const Place where = tab == 0 ? handOf(seat) : (tab == 1 ? tableOf(seat) : tableOf(seat ^ 1));
-  const int forSeat = tab == 2 ? seat ^ 1 : seat;
-  const int total = tab == 0 ? model.handCount : (tab == 1 ? model.yoursCount : model.theirsCount);
-  model.pages =
-      total > 0 ? (total + seasaltui::BoardModel::kMaxBoardTiles - 1) / seasaltui::BoardModel::kMaxBoardTiles : 1;
-  if (page >= model.pages) page = model.pages - 1;
-  model.page = page;
-  int skip = page * seasaltui::BoardModel::kMaxBoardTiles;
-  for (int c = 0; c < kCards && model.tileCount < seasaltui::BoardModel::kMaxBoardTiles; ++c) {
-    if (game.place[c] != static_cast<uint8_t>(where)) continue;
-    if (skip-- > 0) continue;
-    const bool selected = tab == 0 && (sel[0] == static_cast<uint8_t>(c) || sel[1] == static_cast<uint8_t>(c));
-    model.tiles[model.tileCount++] = tileFor(static_cast<uint8_t>(c), forSeat, selected);
+  // What the grid shows. The hand tab carries the current DECISION when one
+  // is pending: the two drawn cards, the rejected one awaiting a pile, or the
+  // pile being dug. Cards appear at grid size in grid positions, always --
+  // the modal chooser screens that resized and re-homed them are gone.
+  using seasalt::Step;
+  const Step step = game.currentStep();
+  if (tab == 0 && myTurn() && step == Step::ChooseKeep) {
+    for (int i = 0; i < 2; ++i) {
+      if (game.drawn[i] == seasalt::kNoCard) continue;
+      seasaltui::CardTile tile = tileFor(game.drawn[i], seat, false);
+      tile.held += 1;  // the census previews what keeping it makes
+      model.tiles[model.tileCount++] = tile;
+    }
+    model.pages = 1;
+    model.page = 0;
+  } else if (tab == 0 && myTurn() && step == Step::ChoosePile && game.pendingDiscard != seasalt::kNoCard) {
+    model.tiles[model.tileCount++] = tileFor(game.pendingDiscard, seat, false);
+    model.pages = 1;
+    model.page = 0;
+  } else if (tab == 0 && myTurn() && step == Step::CrabPick) {
+    const int total = game.pileSize(game.crabPile);
+    model.pages =
+        total > 0 ? (total + seasaltui::BoardModel::kMaxBoardTiles - 1) / seasaltui::BoardModel::kMaxBoardTiles : 1;
+    if (page >= model.pages) page = model.pages - 1;
+    model.page = page;
+    int skip = page * seasaltui::BoardModel::kMaxBoardTiles;
+    for (int c = 0; c < seasalt::kCards && model.tileCount < seasaltui::BoardModel::kMaxBoardTiles; ++c) {
+      if (game.place[c] != static_cast<uint8_t>(seasalt::pileAt(game.crabPile))) continue;
+      if (skip-- > 0) continue;
+      model.tiles[model.tileCount++] = tileFor(static_cast<uint8_t>(c), seat, false);
+    }
+  } else {
+    const seasalt::Place where =
+        tab == 0 ? seasalt::handOf(seat) : (tab == 1 ? seasalt::tableOf(seat) : seasalt::tableOf(seat ^ 1));
+    const int forSeat = tab == 2 ? seat ^ 1 : seat;
+    const int total = tab == 0 ? model.handCount : (tab == 1 ? model.yoursCount : model.theirsCount);
+    model.pages =
+        total > 0 ? (total + seasaltui::BoardModel::kMaxBoardTiles - 1) / seasaltui::BoardModel::kMaxBoardTiles : 1;
+    if (page >= model.pages) page = model.pages - 1;
+    model.page = page;
+    int skip = page * seasaltui::BoardModel::kMaxBoardTiles;
+    for (int c = 0; c < seasalt::kCards && model.tileCount < seasaltui::BoardModel::kMaxBoardTiles; ++c) {
+      if (game.place[c] != static_cast<uint8_t>(where)) continue;
+      if (skip-- > 0) continue;
+      const bool selected = tab == 0 && (sel[0] == static_cast<uint8_t>(c) || sel[1] == static_cast<uint8_t>(c));
+      model.tiles[model.tileCount++] = tileFor(static_cast<uint8_t>(c), forSeat, selected);
+    }
   }
 
   composeHint();
@@ -339,14 +372,35 @@ void SeaSaltActivity::composeHint() {
     return;
   }
 
-  if (game.currentStep() == Step::Take) {
-    if (report[0] != '\0') {
-      std::snprintf(hint, sizeof(hint), "%s", report);
-    } else {
-      std::snprintf(hint, sizeof(hint), "TAKE A CARD. THE DECK DEALS TWO, A PILE SHOWS WHAT YOU GET.");
-    }
-    std::snprintf(primaryLabel, sizeof(primaryLabel), "TAKE A CARD");
-    return;
+  switch (game.currentStep()) {
+    case Step::Take:
+      if (report[0] != '\0') {
+        std::snprintf(hint, sizeof(hint), "%s", report);
+      } else {
+        std::snprintf(hint, sizeof(hint), "TAKE A CARD. THE DECK DEALS TWO, A PILE SHOWS WHAT YOU GET.");
+      }
+      std::snprintf(primaryLabel, sizeof(primaryLabel), "TAKE A CARD");
+      return;
+    case Step::ChooseKeep:
+      std::snprintf(hint, sizeof(hint), "TWO FROM THE DECK. TAP THE ONE YOU KEEP.");
+      std::snprintf(primaryLabel, sizeof(primaryLabel), "KEEP ONE");
+      return;
+    case Step::ChoosePile:
+      std::snprintf(
+          hint, sizeof(hint), "THE %s GOES FACE UP. TAP A PILE ABOVE.",
+          game.pendingDiscard != kNoCard ? seasaltui::kindName(static_cast<int>(kindOf(game.pendingDiscard))) : "CARD");
+      std::snprintf(primaryLabel, sizeof(primaryLabel), "PLACE IT");
+      return;
+    case Step::CrabPile:
+      std::snprintf(hint, sizeof(hint), "THE CRABS DIG. TAP A PILE ABOVE TO SEARCH IT.");
+      std::snprintf(primaryLabel, sizeof(primaryLabel), "DIG");
+      return;
+    case Step::CrabPick:
+      std::snprintf(hint, sizeof(hint), "TAKE ANY ONE CARD FROM THIS PILE.");
+      std::snprintf(primaryLabel, sizeof(primaryLabel), "TAKE ONE");
+      return;
+    case Step::Play:
+      break;
   }
 
   // Step::Play. What is selected decides everything.
@@ -440,42 +494,6 @@ void SeaSaltActivity::drawBoard() {
   gridSlot = Rect{grid.x, grid.y, grid.width, grid.height};
 }
 
-void SeaSaltActivity::drawKeep() {
-  seasaltui::KeepModel model;
-  model.left = tileFor(game.drawn[0], seat, false);
-  model.right = tileFor(game.drawn[1], seat, false);
-  // A drawn card is not held yet: the census should show what taking it makes.
-  model.left.held += 1;
-  model.right.held += 1;
-  paint(renderer, interactions, interactionsReady, seasaltui::buildKeepChoice, model, "SeaSalt keep");
-}
-
-void SeaSaltActivity::drawPileChoice() {
-  seasaltui::PileChoiceModel model;
-  model.digging = game.currentStep() == seasalt::Step::CrabPile;
-  if (!model.digging) model.rejected = tileFor(game.pendingDiscard, seat, false);
-  model.piles[0] = pileTileFor(0);
-  model.piles[1] = pileTileFor(1);
-  paint(renderer, interactions, interactionsReady, seasaltui::buildPileChoice, model, "SeaSalt pile");
-}
-
-void SeaSaltActivity::drawDig() {
-  using namespace seasalt;
-  seasaltui::DigModel model;
-  const int total = game.pileSize(game.crabPile);
-  model.pages = total > 0 ? (total + seasaltui::DigModel::kMaxTiles - 1) / seasaltui::DigModel::kMaxTiles : 1;
-  if (digPage >= model.pages) digPage = model.pages - 1;
-  model.page = digPage;
-  int skip = digPage * seasaltui::DigModel::kMaxTiles;
-  for (int c = 0; c < kCards && model.tileCount < seasaltui::DigModel::kMaxTiles; ++c) {
-    if (game.place[c] != static_cast<uint8_t>(pileAt(game.crabPile))) continue;
-    if (skip-- > 0) continue;
-    model.tiles[model.tileCount++] = tileFor(static_cast<uint8_t>(c), seat, false);
-  }
-  const fui::Rect grid = paint(renderer, interactions, interactionsReady, seasaltui::buildDig, model, "SeaSalt dig");
-  gridSlot = Rect{grid.x, grid.y, grid.width, grid.height};
-}
-
 void SeaSaltActivity::drawCall() {
   seasaltui::CallModel model;
   model.yourPoints = game.cardPoints(seat);
@@ -507,15 +525,6 @@ void SeaSaltActivity::gameRender() {
       break;
     case View::Board:
       drawBoard();
-      break;
-    case View::Keep:
-      drawKeep();
-      break;
-    case View::PileChoice:
-      drawPileChoice();
-      break;
-    case View::Dig:
-      drawDig();
       break;
     case View::Call:
       drawCall();
@@ -551,25 +560,13 @@ void SeaSaltActivity::countMatchEnd() {
 }
 
 SeaSaltActivity::View SeaSaltActivity::viewForStep() const {
-  using namespace seasalt;
   switch (game.currentPhase()) {
     case seasalt::Phase::RoundOver:
     case seasalt::Phase::GameOver:
       return View::RoundOver;
     default:
-      break;
-  }
-  if (!myTurn()) return View::Board;
-  switch (game.currentStep()) {
-    case Step::ChooseKeep:
-      return View::Keep;
-    case Step::ChoosePile:
-      return View::PileChoice;
-    case Step::CrabPile:
-      return View::PileChoice;
-    case Step::CrabPick:
-      return View::Dig;
-    default:
+      // Every step of a turn lives on the board: the grid itself shows the
+      // pending decision. See boardModel().
       return View::Board;
   }
 }
@@ -742,15 +739,6 @@ void SeaSaltActivity::gameLoop() {
     case View::Board:
       routeBoard();
       break;
-    case View::Keep:
-      routeKeep();
-      break;
-    case View::PileChoice:
-      routePileChoice();
-      break;
-    case View::Dig:
-      routeDig();
-      break;
     case View::Call:
       routeCall();
       break;
@@ -810,8 +798,31 @@ void SeaSaltActivity::routeStartMenu() {
 
 void SeaSaltActivity::handleCardTap(const int tileIndex) {
   using namespace seasalt;
-  if (tab != 0 || !mayAct() || game.currentStep() != Step::Play) return;
-  // The tile index is a position in card-id order on this page; find the card.
+  if (tab != 0 || !mayAct()) return;
+
+  switch (game.currentStep()) {
+    case Step::ChooseKeep:
+      if (tileIndex <= 1 && game.keepDrawn(tileIndex)) afterHumanAction();
+      return;
+    case Step::CrabPick: {
+      int skip = page * seasaltui::BoardModel::kMaxBoardTiles + tileIndex;
+      for (int c = 0; c < kCards; ++c) {
+        if (game.place[c] != static_cast<uint8_t>(pileAt(game.crabPile))) continue;
+        if (skip-- == 0) {
+          if (game.takeCrabCard(static_cast<uint8_t>(c))) afterHumanAction();
+          return;
+        }
+      }
+      return;
+    }
+    case Step::Play:
+      break;
+    default:
+      return;  // ChoosePile wants a pile, not a card
+  }
+
+  // Step::Play: selection. The tile index is a position in card-id order on
+  // this page; find the card.
   int skip = page * seasaltui::BoardModel::kMaxBoardTiles + tileIndex;
   uint8_t card = kNoCard;
   for (int c = 0; c < kCards; ++c) {
@@ -901,11 +912,26 @@ void SeaSaltActivity::routeBoard() {
     case seasaltui::ActionPileA:
     case seasaltui::ActionPileB: {
       const int pile = event.action == seasaltui::ActionPileA ? 0 : 1;
-      if (mayAct() && game.currentStep() == Step::Take && game.takeFromPile(pile)) {
-        report[0] = '\0';
-        afterHumanAction();
+      if (!mayAct()) return;
+      switch (game.currentStep()) {
+        case Step::Take:
+          if (game.takeFromPile(pile)) {
+            report[0] = '\0';
+            afterHumanAction();
+          }
+          return;
+        case Step::ChoosePile:
+          if (game.discardTo(pile)) afterHumanAction();
+          return;
+        case Step::CrabPile:
+          if (game.chooseCrabPile(pile)) {
+            page = 0;
+            requestUpdate();
+          }
+          return;
+        default:
+          return;
       }
-      return;
     }
     case seasaltui::ActionCall:
       if (!mayAct()) return;
@@ -931,76 +957,6 @@ void SeaSaltActivity::routeBoard() {
   const int index =
       seasaltui::cardIndexAt(grid, probe.tileCount, static_cast<int16_t>(tapX), static_cast<int16_t>(tapY));
   if (index >= 0) handleCardTap(index);
-}
-
-void SeaSaltActivity::routeKeep() {
-  // No Back: the draw is made, the choice is owed.
-  int tapX = 0, tapY = 0;
-  if (!mappedInput.wasScreenTapped(tapX, tapY)) return;
-  fui::InputSnapshot input;
-  input.touchReleased = true;
-  input.touchX = static_cast<int16_t>(tapX);
-  input.touchY = static_cast<int16_t>(tapY);
-  const fui::ActionEvent event = interactions.route(input);
-  if (event.action == seasaltui::ActionKeepLeft || event.action == seasaltui::ActionKeepRight) {
-    if (game.keepDrawn(event.action == seasaltui::ActionKeepLeft ? 0 : 1)) afterHumanAction();
-  }
-}
-
-void SeaSaltActivity::routePileChoice() {
-  using namespace seasalt;
-  int tapX = 0, tapY = 0;
-  if (!mappedInput.wasScreenTapped(tapX, tapY)) return;
-  fui::InputSnapshot input;
-  input.touchReleased = true;
-  input.touchX = static_cast<int16_t>(tapX);
-  input.touchY = static_cast<int16_t>(tapY);
-  const fui::ActionEvent event = interactions.route(input);
-  if (event.action != seasaltui::ActionPileA && event.action != seasaltui::ActionPileB) return;
-  const int pile = event.action == seasaltui::ActionPileA ? 0 : 1;
-  if (game.currentStep() == Step::CrabPile) {
-    if (game.chooseCrabPile(pile)) {
-      digPage = 0;
-      view = View::Dig;
-      requestUpdate();
-    }
-    return;
-  }
-  if (game.discardTo(pile)) afterHumanAction();
-}
-
-void SeaSaltActivity::routeDig() {
-  using namespace seasalt;
-  const int total = game.pileSize(game.crabPile);
-  const int pages = total > 0 ? (total + seasaltui::DigModel::kMaxTiles - 1) / seasaltui::DigModel::kMaxTiles : 1;
-  if (pages > 1) {
-    if (mappedInput.wasReleased(MappedInputManager::Button::Up) && digPage > 0) {
-      --digPage;
-      requestUpdate();
-      return;
-    }
-    if (mappedInput.wasReleased(MappedInputManager::Button::Down) && digPage < pages - 1) {
-      ++digPage;
-      requestUpdate();
-      return;
-    }
-  }
-  int tapX = 0, tapY = 0;
-  if (!mappedInput.wasScreenTapped(tapX, tapY)) return;
-  const int count = total - digPage * seasaltui::DigModel::kMaxTiles > seasaltui::DigModel::kMaxTiles
-                        ? seasaltui::DigModel::kMaxTiles
-                        : total - digPage * seasaltui::DigModel::kMaxTiles;
-  const fui::Rect grid = fui::makeRect(gridSlot.x, gridSlot.y, gridSlot.width, gridSlot.height);
-  const int index = seasaltui::cardIndexAt(grid, count, static_cast<int16_t>(tapX), static_cast<int16_t>(tapY));
-  if (index < 0) return;
-  int skip = digPage * seasaltui::DigModel::kMaxTiles + index;
-  for (int c = 0; c < kCards; ++c) {
-    if (game.place[c] != static_cast<uint8_t>(pileAt(game.crabPile))) continue;
-    if (skip-- == 0) {
-      if (game.takeCrabCard(static_cast<uint8_t>(c))) afterHumanAction();
-      return;
-    }
-  }
 }
 
 void SeaSaltActivity::routeCall() {
