@@ -382,12 +382,12 @@ void buildBrief(toybox::Screen& screen, const BriefModel& model) {
     if (!seen[k]) continue;
     any = true;
     const tb::Special what = static_cast<tb::Special>(k);
-    const fui::Rect row = screen.takeTop(64, toybox::kGutter);
+    const fui::Rect row = screen.takeTop(52, toybox::kGutter);
 
-    const int16_t badge = 18;
+    const int16_t badge = 17;
     const fui::Point at{static_cast<int16_t>(row.x + badge), static_cast<int16_t>(row.y + row.height / 2)};
     toybox::disc(screen, at.x, at.y, badge, fui::Color::Black);
-    glyph(screen, at, 16, what, true);
+    glyph(screen, at, 15, what, true);
 
     char line[96];
     std::snprintf(line, sizeof(line), "%d x  %s", seen[k], specialBlurb(what));
@@ -396,7 +396,31 @@ void buildBrief(toybox::Screen& screen, const BriefModel& model) {
                          line, body);
   }
   if (!any) {
-    screen.target().text(screen.takeTop(60), "THIS TERRAIN HAS NO SPECIAL BASES.", body);
+    screen.target().text(screen.takeTop(52), "THIS TERRAIN HAS NO SPECIAL BASES.", body);
+  }
+
+  // A rule, then the troops. Two alphabets on one screen need telling apart:
+  // above it is what the ground does, below it is what your own troops do.
+  const fui::Rect gap = screen.takeTop(toybox::kRule + toybox::kGutter * 2, toybox::kGutter);
+  screen.target().fill(fui::makeRect(gap.x, static_cast<int16_t>(gap.y + toybox::kGutter), gap.width, toybox::kRule),
+                       fui::Paint::solid(fui::Color::Black));
+
+  for (int k = 0; k < tb::kTroopKinds; ++k) {
+    const tb::Troop troop = static_cast<tb::Troop>(k);
+    const fui::Rect row = screen.takeTop(40, 2);
+    const int16_t mid = static_cast<int16_t>(row.y + row.height / 2);
+
+    // The card's own face, small: the numeral it carries and the mark under it
+    // on the rack, side by side here so the two are learned together.
+    const fui::Rect tile =
+        fui::makeRect(row.x, static_cast<int16_t>(row.y + 2), 30, static_cast<int16_t>(row.height - 4));
+    screen.target().stroke(tile, fui::Paint::solid(fui::Color::Black), 2, 6);
+    centred(screen, tile, pip(troop), toybox::kSmallFont, false);
+    troopMark(screen, fui::Point{static_cast<int16_t>(row.x + 52), mid}, 12, troop);
+
+    screen.target().text(
+        fui::makeRect(static_cast<int16_t>(row.x + 74), row.y, static_cast<int16_t>(row.width - 74), row.height),
+        troopBlurb(troop), body);
   }
 }
 
@@ -534,7 +558,9 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
     if (!marked) {
       centred(screen, inner, pip(troop), toybox::kUiFont, false);
     } else {
-      centred(screen, fui::makeRect(inner.x, static_cast<int16_t>(inner.y + 5), inner.width, 26), pip(troop),
+      // Far enough down that the 5px border a picked card wears still leaves
+      // air above the numeral.
+      centred(screen, fui::makeRect(inner.x, static_cast<int16_t>(inner.y + 9), inner.width, 26), pip(troop),
               toybox::kUiFont, false);
       troopMark(screen,
                 fui::Point{static_cast<int16_t>(inner.x + inner.width / 2), static_cast<int16_t>(inner.bottom() - 17)},
