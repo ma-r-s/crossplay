@@ -150,6 +150,12 @@ void HomeActivity::onEnter() {
     selectorIndex = base + upstreamMenuRows() + shelfRow;
   }
 
+  // fork-local seam: boot straight into a named app when the environment asks
+  // for one (the site's installer preview, CROSSPLAY_AUTOSTART=chess ./bin/sim).
+  // Fires once per process; on hardware getenv finds nothing and this is free.
+  // Safe from onEnter because replaceActivity defers to the end of the loop.
+  shelf::autostartFromEnv(renderer, mappedInput);
+
   // Trigger first update
   requestUpdate();
 }

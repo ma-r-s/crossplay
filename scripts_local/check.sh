@@ -70,6 +70,17 @@ if [ "${1:-}" = "--committed" ]; then
   # you run precisely because you are about to rely on the result. Carry the
   # real branch across the boundary.
   export CHECK_OUTER_BRANCH="$(git branch --show-current 2>/dev/null)"
+  # The trial worktree sits in TMPDIR, outside the workspace, so the installer
+  # suite's venv lookup cannot climb to it. Resolve the venv HERE and carry it
+  # across, or --committed skips those tests in the one mode you run because
+  # you are about to rely on the result -- the same trap CHECK_OUTER_BRANCH
+  # exists for.
+  for candidate in "$REPO/.venv-study/bin/python" "$REPO/../../firmware-next/.venv-study/bin/python"; do
+    if [ -x "$candidate" ]; then
+      export CHECK_OUTER_STUDY_PY="$(cd "$(dirname "$candidate")" && pwd)/python"
+      break
+    fi
+  done
   (cd "$TRIAL" && ./scripts_local/check.sh "${2:-}")
   exit $?
 fi
@@ -97,6 +108,39 @@ for suite in host-tests/*/; do
     printf "  %-12s ok (%s sub-suite(s))\n" "$name" "$passed"
   fi
 done
+
+# The installer page's Python boundary. Two runs of the same suite: beside
+# the sources, and again from inside the committed tools.zip -- the second is
+# the code the browser actually gets, and it is how a zip member that a tool
+# imports but MEMBERS forgot fails a test instead of a user (which shipped
+# once: deck_to_anki.py). Needs the study venv; skipped LOUDLY without one,
+# because a skipped check that scrolls past as green is how vacuous passes
+# happen.
+WS_PY="$REPO"
+while [ "$WS_PY" != "/" ] && [ ! -e "$WS_PY/.xteink-workspace" ]; do WS_PY="$(dirname "$WS_PY")"; done
+STUDY_PY="${CHECK_OUTER_STUDY_PY:-}"
+if [ ! -x "$STUDY_PY" ]; then
+  STUDY_PY=""
+  for candidate in "$REPO/.venv-study/bin/python" "$WS_PY/firmware-next/.venv-study/bin/python"; do
+    [ -x "$candidate" ] && STUDY_PY="$candidate" && break
+  done
+fi
+if [ -n "$STUDY_PY" ]; then
+  for args in "tools_local/study/test_apkg.py" \
+              "tools_local/study/test_web_glue.py" \
+              "tools_local/study/test_web_glue.py --from-zip" \
+              "tools_local/study/test_font_parity.py"; do
+    if (cd "$REPO" && $STUDY_PY $args) > "$LOGS/installer.log" 2>&1; then
+      printf "  %-12s ok (%s)\n" "installer" "$(echo "$args" | sed 's|tools_local/study/||')"
+    else
+      printf "  %-12s FAILED (%s)\n" "installer" "$(echo "$args" | sed 's|tools_local/study/||')"
+      tail -5 "$LOGS/installer.log" | sed 's/^/      /'
+      FAILED=1
+    fi
+  done
+else
+  echo "  installer    SKIPPED: no .venv-study -- the page's Python suite did NOT run"
+fi
 
 if [ "${1:-}" != "--tests" ]; then
   # Shared, content-addressed object cache: a tree that has never built before
@@ -166,7 +210,15 @@ fi
 # CHECK_OUTER_BRANCH is set by the --committed path above and is empty for a
 # normal run; it exists because the branch is unknowable from inside a detached
 # worktree. Do not set it by hand.
-if [ "${CHECK_OUTER_BRANCH:-$(git branch --show-current 2>/dev/null)}" = "$DEPLOY_BRANCH" ]; then
+#
+# 2026-08-10: the branch gate was itself the bug. On app/installer the guard
+# never ran, so the site's Study page previewed a deck on twelve-hour-old
+# firmware and told the user "this is the real firmware" while the real one
+# had a fixed card layout. A user-test agent caught it; nothing here did.
+# Any branch that changes firmware AND ships site/emulator now gets the
+# warning; only $DEPLOY_BRANCH treats it as a failure, because a feature
+# branch legitimately rebuilds the 6-minute artifact once, at the end.
+if true; then
   ART=$(git log -1 --format=%ct -- site/emulator 2>/dev/null)
   SRC=$(git log -1 --format=%ct -- src lib assets_local tools_local/wasm 2>/dev/null)
   if [ -n "$ART" ] && [ -n "$SRC" ] && [ "$ART" -lt "$SRC" ]; then
@@ -177,6 +229,40 @@ if [ "${CHECK_OUTER_BRANCH:-$(git branch --show-current 2>/dev/null)}" = "$DEPLO
     echo "  the live page would ship code older than this branch. Rebuild:"
     echo "    pio run -e simulator_x4_pro -t compiledb"
     echo "    source ../.emsdk/emsdk_env.sh && python3 tools_local/wasm/build.py"
+    echo "  anything the page previews is running that older firmware."
+    if [ "${CHECK_OUTER_BRANCH:-$(git branch --show-current 2>/dev/null)}" = "$DEPLOY_BRANCH" ]; then
+      FAILED=1
+    else
+      echo "  (warning only off $DEPLOY_BRANCH -- rebuild before you land)"
+    fi
+  fi
+fi
+
+# The installer page runs the study tools out of a committed zip
+# (site/study/tools.zip); a stale zip is a page converting with last week's
+# converter while the CLI has this week's, the exact drift the Pyodide design
+# exists to prevent. The check is byte-exact and instant, so unlike the wasm
+# gate above it runs in every tree.
+if [ -f site/study/tools.zip ]; then
+  if ! python3 tools_local/study/sync_site.py --check > /dev/null 2>&1; then
+    echo
+    echo "site/study/tools.zip is STALE -- run: python3 tools_local/study/sync_site.py"
+    FAILED=1
+  fi
+fi
+
+# Same claim, same gate, for the wasm FreeType the font step runs on: edit
+# ftshim.c or its build and forget the rebuild, and the page quietly builds
+# fonts that are no longer byte-identical to the CLI's. Branch-gated like the
+# emulator gate above, and for the same reason.
+if [ "${CHECK_OUTER_BRANCH:-$(git branch --show-current 2>/dev/null)}" = "$DEPLOY_BRANCH" ]; then
+  FT_ART=$(git log -1 --format=%ct -- site/study/ft.js site/study/ft.wasm 2>/dev/null)
+  FT_SRC=$(git log -1 --format=%ct -- tools_local/wasm-ft 2>/dev/null)
+  if [ -n "$FT_ART" ] && [ -n "$FT_SRC" ] && [ "$FT_ART" -lt "$FT_SRC" ]; then
+    echo
+    echo "site/study/ft.{js,wasm} is STALE against tools_local/wasm-ft/ -- rebuild:"
+    echo "    python3 tools_local/wasm-ft/build.py"
+    echo "  and re-run tools_local/study/test_font_parity.py for the byte-identical check"
     FAILED=1
   fi
 fi

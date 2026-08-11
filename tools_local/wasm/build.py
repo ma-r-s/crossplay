@@ -286,7 +286,9 @@ def main():
         "-sMODULARIZE=1",
         "-sEXPORT_NAME=createCrossplay",
         "-sENVIRONMENT=web,worker",
-        "-sEXPORTED_RUNTIME_METHODS=ccall,cwrap,HEAPU8,HEAPU32,FS",
+        # ENV is how a page sets getenv-visible variables before main() runs;
+        # the installer preview uses it for CROSSPLAY_AUTOSTART.
+        "-sEXPORTED_RUNTIME_METHODS=ccall,cwrap,HEAPU8,HEAPU32,FS,ENV",
         "-sEXPORTED_FUNCTIONS=" + ",".join(exported),
         # Off for the shipped build: the page has no console to read them in
         # and they cost about a megabyte. Turn them back on while debugging.

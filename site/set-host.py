@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stamp the deployed hostname into index.html's share tags.
+"""Stamp the deployed hostname into every page's share tags.
 
 og:image and og:url have to be absolute or no unfurler resolves them, and the
 hostname is the one fact this repo cannot know. Rather than leave a comment
@@ -15,13 +15,18 @@ import pathlib
 import re
 import sys
 
-PAGE = pathlib.Path(__file__).resolve().parent / "index.html"
-PLACEHOLDER = "SET-YOUR-HOST"
+ROOT = pathlib.Path(__file__).resolve().parent
+# Every page with share tags. A new page joins this list or ships the
+# placeholder host in its unfurls.
+PAGES = {
+    ROOT / "index.html": "/",
+    ROOT / "study" / "index.html": "/study/",
+}
 
 
 def main():
-    html = PAGE.read_text()
-    current = re.search(r'<meta property="og:url" content="([^"]*)"', html)
+    first = next(iter(PAGES))
+    current = re.search(r'<meta property="og:url" content="([^"]*)"', first.read_text())
     if len(sys.argv) < 2:
         print(current.group(1) if current else "og:url is not set")
         return
@@ -30,25 +35,27 @@ def main():
     if not host.startswith("http"):
         sys.exit("give the full origin, e.g. https://crossplay.example")
 
-    html = re.sub(
-        r'<meta property="og:image" content="[^"]*"',
-        f'<meta property="og:image" content="{host}/assets/shots/og.png"',
-        html,
-    )
-    if current:
+    for page, path in PAGES.items():
+        html = page.read_text()
         html = re.sub(
-            r'<meta property="og:url" content="[^"]*"',
-            f'<meta property="og:url" content="{host}/"',
+            r'<meta property="og:image" content="[^"]*"',
+            f'<meta property="og:image" content="{host}/assets/shots/og.png"',
             html,
         )
-    else:
-        html = html.replace(
-            '<meta property="og:type" content="website">',
-            f'<meta property="og:type" content="website">\n'
-            f'<meta property="og:url" content="{host}/">',
-        )
-    PAGE.write_text(html)
-    print(f"stamped {host}")
+        if re.search(r'<meta property="og:url" content="', html):
+            html = re.sub(
+                r'<meta property="og:url" content="[^"]*"',
+                f'<meta property="og:url" content="{host}{path}"',
+                html,
+            )
+        else:
+            html = html.replace(
+                '<meta property="og:type" content="website">',
+                f'<meta property="og:type" content="website">\n'
+                f'<meta property="og:url" content="{host}{path}">',
+            )
+        page.write_text(html)
+        print(f"stamped {host}{path}")
 
 
 if __name__ == "__main__":

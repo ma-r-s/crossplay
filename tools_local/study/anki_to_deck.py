@@ -33,6 +33,28 @@ CARD_RECORD_SIZE = 32
 NUM_PARAMS = 19
 MAX_STEPS = 6
 
+# meta.dat flags (the uint16 after the version, zero in every deck written
+# before this existed -- which is why the default is the common case).
+#
+# Bit 0: draw the example sentence on the QUESTION face as well as the answer.
+# That is an HSK-template habit: a hanzi alone is a recall test, the same hanzi
+# inside a sentence is the reading exercise the deck is for, so the sentence
+# belongs in front of you while you think. It is wrong for a vocabulary deck,
+# where the example sentence is part of the answer -- and it silently was the
+# behaviour for every deck until a Barron's SAT list made it obvious.
+META_SENTENCE_ON_QUESTION = 1 << 0
+
+# Note types whose sentence is a question-side prompt rather than an answer.
+SENTENCE_ON_QUESTION_TYPES = {"HSK", "HSK+"}
+
+# Filled during a run: note type -> the field mapping this conversion really
+# used. The installer page reads it back (through runpy's namespace) to fill
+# its "what goes where" dropdowns. It used to re-derive the mapping itself,
+# without the empty-field and categorical filters the converter applies, so
+# the page showed one mapping while the deck was built from another -- and a
+# user "correcting" the page's version made their deck worse.
+USED_PROFILES = {}
+
 # Card states, matching study::State on the device. Anki's `cards.type` uses
 # the same first four values, which is not a coincidence -- keeping them equal
 # is what lets a card round-trip without a translation table.
@@ -96,21 +118,85 @@ PROFILES = {
 }
 
 
-# A note type nobody wrote a profile for still converts: its first field is the
-# word and its second the meaning, which is what Anki's own stock "Basic" is and
-# what most homemade types follow, since the first field is the one Anki sorts
-# and duplicates-checks by. On a two-template type ("Basic (and reversed card)")
-# the second card runs the other way, so its fields swap. --map overrides any of
-# this without editing source.
+# A note type nobody wrote a profile for still converts. Fields are claimed by
+# NAME first: a deck built as [Word, Part of Speech, Definition, Sentence]
+# says what each field is right there in its names, and the old positional
+# rule ("second field is the meaning") put "V." on the answer face of every
+# card in exactly that deck -- Barron's SAT list, one of the most-downloaded
+# vocabulary decks there is. Position remains the fallback for types named
+# like Anki's stock "Basic", whose first field is the word and second the
+# meaning (the first field is the one Anki sorts and duplicate-checks by).
+# On a two-template type ("Basic (and reversed card)") the second card runs
+# the other way, so its fields swap. --map overrides any of this.
 #
-# Cloze types are refused by name instead: the front of a cloze card is the text
-# with a hole in it, and this deck format has nowhere to put a hole.
-def generic_profile(fields_in_order, override=None):
+# Cloze types are refused by name instead: the front of a cloze card is the
+# text with a hole in it, and this deck format has nowhere to put a hole.
+#
+# Order matters within each pattern list: first match claims the field.
+FIELD_NAME_PATTERNS = {
+    "headword": ("word", "front", "question", "term", "expression", "vocab"),
+    "reading": ("reading", "pronunciation", "pinyin", "phonetic", "ipa"),
+    "meaning": ("definition", "meaning", "back", "answer", "translation"),
+    "partOfSpeech": ("part of speech", "partofspeech", "pos", "word type"),
+    "sentence": ("sentence", "example", "usage"),
+    "sentenceReading": ("sentence reading", "example reading"),
+    "sentenceMeaning": (
+        "sentence meaning",
+        "sentence translation",
+        "example translation",
+    ),
+}
+
+
+def generic_profile(
+    fields_in_order, override=None, blank_fields=(), categorical_fields=()
+):
+    """Map a note type's fields onto the device's seven slots.
+
+    `blank_fields` is the set of field names this deck leaves empty on
+    (nearly) every note. They are skipped, because a name is a claim and the
+    content is the evidence: one real deck has fields [Front, Back, Meaning]
+    where "Meaning" is empty on all 115 notes and "Back" holds the
+    definition. Matching on the name alone put the empty field on the answer
+    face and produced 115 cards with nothing to reveal.
+
+    `categorical_fields` are fields with only a handful of distinct values
+    across the whole deck: a tag or a category, not a card's content. They
+    are skipped by the POSITIONAL fallback only, never by a name match --
+    a name is stated intent, position is a guess, and a guess should not
+    land on a label. A real German deck is [type, german, english, ...]
+    where "type" is one of three words; taking field one as the question
+    asked 2871 cards to recall the word "other".
+    """
     profile = {key: "" for key in FIELD_ORDER}
-    if fields_in_order:
-        profile["headword"] = fields_in_order[0]
-    if len(fields_in_order) > 1:
-        profile["meaning"] = fields_in_order[1]
+    claimed = set()
+    usable = [f for f in fields_in_order if f not in blank_fields]
+
+    def claim(slot, field_name):
+        if not profile[slot] and field_name not in claimed:
+            profile[slot] = field_name
+            claimed.add(field_name)
+
+    for slot, patterns in FIELD_NAME_PATTERNS.items():
+        for pattern in patterns:
+            for field_name in usable:
+                if pattern in field_name.lower():
+                    claim(slot, field_name)
+                    break
+            if profile[slot]:
+                break
+
+    # Positional fallback for whatever names told us nothing: the first
+    # unclaimed field is the word, the next the meaning. Categorical fields
+    # sit this out, but stay available if nothing else is left.
+    unclaimed = [
+        f for f in usable if f not in claimed and f not in categorical_fields
+    ] or [f for f in usable if f not in claimed]
+    if not profile["headword"] and unclaimed:
+        claim("headword", unclaimed.pop(0))
+    if not profile["meaning"] and unclaimed:
+        claim("meaning", unclaimed.pop(0))
+
     if override:
         profile.update(override)
     return profile
@@ -321,6 +407,59 @@ def collect_notes(db, deck_name, limit=None, override=None):
     ):
         template_counts[nt_name] = count
 
+    # How often each field of each note type actually carries text. A field
+    # that is empty everywhere is a field the deck's author abandoned, and
+    # mapping a face onto it produces a blank card face.
+    filled = {}
+    totals = {}
+    for _cid, flds, nt_name, *_rest in rows:
+        values = flds.split("\x1f")
+        totals[nt_name] = totals.get(nt_name, 0) + 1
+        counts = filled.setdefault(nt_name, {})
+        for ordinal, value in enumerate(values):
+            if clean(value):
+                counts[ordinal] = counts.get(ordinal, 0) + 1
+
+    # Distinct values per field, the signal that separates a card's content
+    # from a label attached to it.
+    distinct = {}
+    for _cid, flds, nt_name, *_rest in rows:
+        values = flds.split("\x1f")
+        seen = distinct.setdefault(nt_name, {})
+        for ordinal, value in enumerate(values):
+            text = clean(value)
+            if text:
+                seen.setdefault(ordinal, set()).add(text)
+
+    def categorical_fields_for(nt_name):
+        by_ordinal = ordinals.get(nt_name, {})
+        total = totals.get(nt_name, 0)
+        # Under thirty notes there is no distribution to read: a small deck
+        # legitimately repeats itself.
+        if total < 30:
+            return set()
+        counts = distinct.get(nt_name, {})
+        return {
+            name
+            for name, ordinal in by_ordinal.items()
+            if 0 < len(counts.get(ordinal, ())) <= min(10, total * 0.05)
+        }
+
+    def blank_fields_for(nt_name):
+        by_ordinal = ordinals.get(nt_name, {})
+        total = totals.get(nt_name, 0)
+        if not total:
+            return set()
+        counts = filled.get(nt_name, {})
+        # 5%: a handful of notes missing a field is normal; a field filled on
+        # almost none of them is not a field this deck uses.
+        return {
+            name
+            for name, ordinal in by_ordinal.items()
+            if counts.get(ordinal, 0) <= total * 0.05
+        }
+
+    USED_PROFILES.clear()
     announced = set()
     notes, skipped, cloze_skipped = [], 0, 0
     for (
@@ -338,6 +477,8 @@ def collect_notes(db, deck_name, limit=None, override=None):
         card_ord,
     ) in rows:
         profile = PROFILES.get(nt_name)
+        if profile:
+            USED_PROFILES.setdefault(nt_name, dict(profile))
         if not profile:
             # By name, and by content: a renamed cloze type would otherwise fall
             # through to the generic profile and put the raw markup -- answer
@@ -351,7 +492,12 @@ def collect_notes(db, deck_name, limit=None, override=None):
                 if nt_name in ordinals
                 else []
             )
-            profile = generic_profile(in_order, override)
+            profile = generic_profile(
+                in_order,
+                override,
+                blank_fields_for(nt_name),
+                categorical_fields_for(nt_name),
+            )
             # The second card of a two-template type asks the question the other
             # way round, so the word and the meaning trade places. Only for the
             # generic path: a written profile said what it meant.
@@ -359,6 +505,7 @@ def collect_notes(db, deck_name, limit=None, override=None):
                 profile = dict(
                     profile, headword=profile["meaning"], meaning=profile["headword"]
                 )
+            USED_PROFILES.setdefault(nt_name, dict(profile))
             if nt_name not in announced:
                 announced.add(nt_name)
                 print(
@@ -394,6 +541,7 @@ def collect_notes(db, deck_name, limit=None, override=None):
         notes.append(
             {
                 "ankiCardId": cid,
+                "noteType": nt_name,
                 "fields": [
                     headword,
                     clean(get("reading")),
@@ -524,7 +672,7 @@ def write_cards(notes, path, crt, rollover, learn_steps, relearn_steps):
     assert path.stat().st_size == len(notes) * CARD_RECORD_SIZE
 
 
-def write_meta(path, name, config, crt, rollover):
+def write_meta(path, name, config, crt, rollover, flags=0):
     params = config.get("params") or []
     if len(params) != NUM_PARAMS:
         print(
@@ -534,7 +682,7 @@ def write_meta(path, name, config, crt, rollover):
     encoded = name.encode("utf-8")[:255]
     with open(path, "wb") as f:
         f.write(META_MAGIC)
-        f.write(struct.pack("<HH", FORMAT_VERSION, 0))
+        f.write(struct.pack("<HH", FORMAT_VERSION, flags))
         f.write(struct.pack("<%df" % NUM_PARAMS, *params))
         f.write(
             struct.pack(
@@ -647,9 +795,14 @@ def main():
 
     override = {}
     for pair in args.map or []:
-        key, _, field = pair.partition("=")
-        if key not in FIELD_ORDER or not field:
-            sys.exit(f"--map wants <slot>=<Anki field name>; slots: {', '.join(FIELD_ORDER)}")
+        key, sep, field = pair.partition("=")
+        if key not in FIELD_ORDER or not sep:
+            sys.exit(
+                f"--map wants <slot>=<Anki field name>; slots: {', '.join(FIELD_ORDER)}"
+            )
+        # An empty field is meaningful: "--map sentence=" says leave this slot
+        # blank. Rejecting it left the installer's "(not shown)" unable to
+        # clear anything, so the menu snapped back to the converter's guess.
         override[key] = field
 
     notes, skipped = collect_notes(db, args.deck, args.limit, override or None)
@@ -673,7 +826,12 @@ def main():
         config.get("learnSteps") or [1.0, 10.0],
         config.get("relearnSteps") or [10.0],
     )
-    write_meta(args.out / "meta.dat", name, config, crt, rollover)
+    # The sentence goes on the answer face unless this deck's note type is one
+    # whose template puts it in front of you while you answer.
+    flags = 0
+    if any(n["noteType"] in SENTENCE_ON_QUESTION_TYPES for n in notes):
+        flags |= META_SENTENCE_ON_QUESTION
+    write_meta(args.out / "meta.dat", name, config, crt, rollover, flags)
     (args.out / "revlog.dat").touch()
     glyphs = write_glyphs(notes, args.out)
 

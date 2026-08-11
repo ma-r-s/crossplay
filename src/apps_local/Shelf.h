@@ -105,6 +105,14 @@ void openItem(int folder, int item, GfxRenderer& renderer, MappedInputManager& m
 // site: leave() has to have somewhere to send it.
 void openPlayer(GfxRenderer& renderer, MappedInputManager& mappedInput);
 
+// Open the item named by the CROSSPLAY_AUTOSTART environment variable, if it
+// is set and matches an item title (case-insensitive). A no-op everywhere the
+// variable does not exist, which is every real device: this is how the site's
+// installer page boots its emulator straight into Study with the user's own
+// deck, and how `CROSSPLAY_AUTOSTART=chess ./bin/sim` skips the shelf during
+// development. Same getenv-in-firmware precedent as CROSSPLAY_SEED.
+void autostartFromEnv(GfxRenderer& renderer, MappedInputManager& mappedInput);
+
 // Go back one level: an app returns to its folder, a folder returns to Home.
 //
 // The current folder is module state rather than something each app carries,

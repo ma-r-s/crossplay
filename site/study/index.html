@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your Anki deck, on the device &middot; CrossPlay</title>
+<meta name="description" content="Drop the .apkg Anki exports, see your own cards running on the real firmware, then write the deck to the SD card. Everything happens in this tab; nothing is uploaded anywhere.">
+<meta property="og:title" content="Your Anki deck, on the device">
+<meta property="og:description" content="Drop an Anki export, preview your cards on the real firmware, write to the card. Nothing leaves this tab.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://crossplay.ma-r-s.com/study/">
+<meta property="og:image" content="https://crossplay.ma-r-s.com/assets/shots/og.png">
+<meta property="og:site_name" content="CrossPlay">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="/study/study.css">
+<link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#111110">
+<script defer src="/_vercel/insights/script.js"></script>
+</head>
+<body class="study-body">
+<a class="skip" href="#main">Skip to content</a>
+
+<div class="topbar">
+  <a class="wordmark" href="/">
+    <svg class="mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+      <rect x="8.4" y="8.4" width="15.2" height="15.2" rx="1.6" fill="currentColor" />
+      <g fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="square">
+        <path d="M2.6 10.4V2.6h7.8" />
+        <path d="M29.4 10.4V2.6h-7.8" />
+        <path d="M2.6 21.6v7.8h7.8" />
+        <path d="M29.4 21.6v7.8h-7.8" />
+      </g>
+    </svg>
+    <span>CrossPlay</span>
+  </a>
+  <nav class="topnav" aria-label="Sections">
+    <a href="/#get">Install the firmware</a>
+    <a class="topnav-out" href="https://github.com/ma-r-s/crossplay">
+      <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false" width="15" height="15">
+        <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/>
+      </svg>
+      <span>GitHub</span>
+    </a>
+  </nav>
+</div>
+
+<main id="main" class="wizard">
+
+  <div class="wiz-head">
+    <div>
+      <p class="eyebrow">Study <span class="eyebrow-sep">&middot;</span> Anki on the reader</p>
+      <h1 class="wiz-title">Your deck, on the device.</h1>
+    </div>
+    <div class="wiz-mode" role="tablist" aria-label="What are you here to do">
+      <button type="button" id="modeInstall" role="tab" aria-selected="true">Put a deck on it</button>
+      <button type="button" id="modeSyncBtn" role="tab" aria-selected="false">Bring reviews back</button>
+    </div>
+  </div>
+
+  <nav class="wiz-stepper" id="stepper" aria-label="Steps">
+    <button type="button" data-step="1" class="is-current"><span>1</span> Deck</button>
+    <button type="button" data-step="2" disabled><span>2</span> Check</button>
+    <button type="button" data-step="3" disabled><span>3</span> Try it</button>
+    <button type="button" data-step="4" disabled><span>4</span> Write</button>
+  </nav>
+
+  <div class="wiz-body">
+
+    <!-- Step 1: the deck ------------------------------------------------- -->
+    <section class="wiz-step is-current" id="stepDeck">
+      <div class="study-dropzone" id="dropzone" role="button" tabindex="0"
+           aria-label="Choose or drop an .apkg file">
+        <p class="study-drop-big">Drop your .apkg here</p>
+        <p class="study-drop-small">
+          or click to choose &middot; from Anki: File &rsaquo; Export &rsaquo;
+          Anki Deck Package, "Include scheduling information" checked
+          &middot; or any deck downloaded straight from AnkiWeb's shared
+          decks &middot; English and Chinese decks; cloze cards, pictures
+          and audio stay in Anki
+        </p>
+        <input type="file" id="filepick" accept=".apkg,.colpkg,application/zip" hidden>
+      </div>
+      <p class="study-alt">
+        No deck handy? <button class="linklike" id="sample" type="button">Try
+        the sample deck</button>, a few dozen SAT words with review history.
+        Everything happens inside this tab; nothing is uploaded anywhere.
+      </p>
+      <div class="study-status" id="openStatus" hidden>
+        <p class="study-progress" id="openProgress"></p>
+      </div>
+    </section>
+
+    <!-- Step 2: the honest report ---------------------------------------- -->
+    <section class="wiz-step" id="stepCheck">
+      <div class="wiz-check-head">
+        <div id="openSummary" hidden>
+          <h3 class="study-card-title" id="summaryTitle"></h3>
+          <p class="study-facts" id="sourceFile"></p>
+          <div id="deckChoices"></div>
+          <p class="study-verdict" id="reportVerdict"></p>
+          <p class="study-facts" id="summaryFacts"></p>
+          <p class="study-warn" id="skipNotice" hidden></p>
+          <p class="study-warn" id="summaryWarn" hidden></p>
+        </div>
+        <div class="wiz-type" id="typeBody" hidden>
+          <div id="typeChoices" hidden>
+            <p class="wiz-type-label">Font for the word on the card front:</p>
+            <label class="study-deck-choice"><input type="radio" name="face" value="builtin" checked>
+              The reader's built-in serif</label>
+            <label class="study-deck-choice"><input type="radio" name="face" value="bundled">
+              Bigger type, sized so your longest word fits <span class="study-deck-cards">DejaVu Serif, bundled</span></label>
+            <label class="study-deck-choice"><input type="radio" name="face" value="cjk">
+              Chinese, Japanese or Korean type <span class="study-deck-cards">Noto Sans CJK, bundled</span></label>
+            <label class="study-deck-choice"><input type="radio" name="face" value="own">
+              Bigger type from a font file you have
+              <button class="linklike" id="ttfChoose" type="button">choose .ttf</button>
+              <span class="study-deck-cards" id="ownName"></span></label>
+            <input type="file" id="ttfpick" accept=".ttf,.otf" hidden>
+          </div>
+          <p class="study-progress" id="typeProgress" hidden></p>
+          <p id="typePlaceholder" hidden></p>
+        </div>
+      </div>
+      <div class="wiz-sample" id="samplePanel" hidden>
+        <div class="wiz-card" aria-label="How the first card will read">
+          <p class="wiz-card-side">question</p>
+          <p class="wiz-card-word" id="sampleWord"></p>
+          <p class="wiz-card-reading" id="sampleReading"></p>
+          <div class="wiz-card-rule"></div>
+          <p class="wiz-card-side">answer</p>
+          <p class="wiz-card-meaning" id="sampleMeaning"></p>
+          <p class="wiz-card-pos" id="samplePos"></p>
+          <p class="wiz-card-sentence" id="sampleSentence"></p>
+          <p class="wiz-card-sub" id="sampleSentenceMeaning"></p>
+        </div>
+        <div class="wiz-map">
+          <p class="study-facts" id="sampleWhich"></p>
+          <p class="wiz-type-label">
+            What goes where. On the left are the reader's slots; the menus
+            hold your deck's own field names. Change one and the card
+            redraws:
+          </p>
+          <div class="study-map-grid" id="mapGrid"></div>
+          <p class="study-facts" id="mapNote" hidden></p>
+        </div>
+      </div>
+      <p class="study-placeholder" id="reportPlaceholder" hidden>Converting…</p>
+      <details class="study-mapping" id="reportBody" hidden>
+        <summary>The tools' own words, in full</summary>
+        <div class="wiz-report">
+          <pre class="study-log" id="convertLog"></pre>
+          <pre class="study-log study-log-check" id="checkLog"></pre>
+          <pre class="study-log" id="typeLog" hidden></pre>
+        </div>
+      </details>
+      <div class="wiz-next">
+        <button class="btn primary" id="next2" type="button">Next: try it on the device</button>
+      </div>
+    </section>
+
+    <!-- Step 3: the preview ---------------------------------------------- -->
+    <section class="wiz-step" id="stepTry">
+      <div id="previewBody" class="wiz-try">
+        <div class="wiz-try-side">
+          <p>
+            Not a mock-up: the firmware, compiled for the browser, your
+            converted deck on its virtual SD card. Tap the panel the way you
+            would tap the reader.
+          </p>
+          <div class="cta-row">
+            <button class="btn primary" id="previewBoot" type="button">Boot the device</button>
+          </div>
+          <p class="study-status-line" id="previewStatus"></p>
+          <p class="study-facts">
+            Reviews you do here are throwaway: writing puts a fresh deck on
+            the card.
+          </p>
+          <div class="wiz-next">
+            <button class="btn primary" id="next3" type="button">Next: write it to the card</button>
+          </div>
+        </div>
+        <div class="study-device" id="previewMount" hidden></div>
+      </div>
+      <p class="study-placeholder" id="previewPlaceholder" hidden></p>
+    </section>
+
+    <!-- Step 4: write ----------------------------------------------------- -->
+    <section class="wiz-step" id="stepWrite">
+      <div id="writeBody" class="wiz-write">
+        <p>
+          Put the reader's SD card in this computer and write the deck into
+          its <code>study/</code> folder. Other decks are left alone; a deck
+          with the same name is replaced whole, and the page asks first when
+          that would erase reviews. No folder access in this browser? The zip
+          unpacks at the card's root.
+        </p>
+        <div class="cta-row">
+          <button class="btn primary" id="writeCard" type="button">Choose the SD card and write</button>
+          <button class="btn" id="writeZip" type="button">Download as a zip</button>
+        </div>
+        <p class="study-status-line" id="writeStatus"></p>
+        <p class="wiz-after">
+          Then, on the reader: <strong>Apps &rsaquo; STUDY</strong>. After
+          studying, come back and use <button class="linklike" id="toSync"
+          type="button">Bring reviews back</button>.
+        </p>
+      </div>
+      <p class="study-placeholder" id="writePlaceholder" hidden></p>
+    </section>
+
+    <!-- Mode B: sync back ------------------------------------------------- -->
+    <section class="wiz-step" id="modeSync">
+      <div class="wiz-sync">
+        <p>
+          Replays the reviews on the card into your Anki collection, same
+          grades, same timestamps; re-running is safe. A timestamped backup
+          is written first. <strong>Quit Anki before step 3.</strong> Then
+          Anki's own Sync button carries them to AnkiWeb; no credentials
+          touch this page.
+        </p>
+        <div class="cta-row">
+          <button class="btn" id="syncCard" type="button">1 &middot; Pick the SD card</button>
+          <button class="btn" id="syncProfile" type="button" disabled>2 &middot; Pick the Anki profile folder</button>
+          <button class="btn" id="syncRun" type="button" disabled>3 &middot; Replay</button>
+        </div>
+        <p class="study-status-line" id="syncStatus">
+          The profile folder is the one holding collection.anki2. Mac:
+          ~/Library/Application Support/Anki2/&lt;your profile&gt; (the Library
+          folder is hidden in Finder: press Cmd-Shift-G and paste the path).
+          Windows: %APPDATA%\Anki2\&lt;your profile&gt;. Linux:
+          ~/.local/share/Anki2/&lt;your profile&gt;. The backup is written beside
+          collection.anki2 in that same folder. Needs Chrome or Edge; other
+          browsers cannot open a folder, so use the command-line tool.
+        </p>
+        <pre class="study-log" id="syncLog" hidden></pre>
+      </div>
+    </section>
+
+  </div>
+
+  <div class="wiz-foot">
+    <p class="wiz-fine">
+      Runs the repository's own tools via <a href="https://pyodide.org">Pyodide</a>,
+      served from this site &middot; also available as a
+      <a href="https://github.com/ma-r-s/crossplay/blob/xteink/docs/study.md">command-line tool</a>
+      &middot; Anki is a trademark of Ankitects; no affiliation
+    </p>
+    <button class="theme-toggle" id="themeToggle" type="button" aria-pressed="false">Invert</button>
+  </div>
+
+</main>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  var toggle = document.getElementById('themeToggle');
+  function prefersDark() {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  }
+  function sync() {
+    var dark = (root.getAttribute('data-theme') || (prefersDark() ? 'dark' : 'light')) === 'dark';
+    toggle.setAttribute('aria-pressed', String(dark));
+  }
+  try {
+    var saved = localStorage.getItem('crossplay-theme');
+    if (saved) root.setAttribute('data-theme', saved);
+  } catch (e) {}
+  sync();
+  toggle.addEventListener('click', function () {
+    var current = root.getAttribute('data-theme') || (prefersDark() ? 'dark' : 'light');
+    var next = current === 'dark' ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    try { localStorage.setItem('crossplay-theme', next); } catch (e) {}
+    sync();
+  });
+})();
+</script>
+<script src="/study/study.js"></script>
+</body>
+</html>

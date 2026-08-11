@@ -91,7 +91,16 @@ def find_collections():
 # macOS mounts several of its own volumes under /Volumes. Offering the user
 # "Recovery" as a place to put their flashcards is the kind of detail that
 # makes an auto-detector feel worse than typing the path.
-SYSTEM_VOLUMES = {"Recovery", "Preboot", "VM", "Update", "xarts", "iSCPreboot", "Hardware", "Data"}
+SYSTEM_VOLUMES = {
+    "Recovery",
+    "Preboot",
+    "VM",
+    "Update",
+    "xarts",
+    "iSCPreboot",
+    "Hardware",
+    "Data",
+}
 
 
 def find_sd_cards():
@@ -233,7 +242,9 @@ def deck_entry(config, deck_dir):
         key for key in config["decks"] if not (deck_dir.parent / key).is_dir()
     ]
     unclaimed_dirs = [
-        d for d in find_deck_dirs(deck_dir.parent.parent) if d.name not in config["decks"]
+        d
+        for d in find_deck_dirs(deck_dir.parent.parent)
+        if d.name not in config["decks"]
     ]
     if len(orphan_entries) == 1 and unclaimed_dirs == [deck_dir]:
         entry = config["decks"].pop(orphan_entries[0])
@@ -280,7 +291,10 @@ def ensure_venv(*extra_packages):
     fresh user hit. uv when it is there, the stdlib venv when it is not.
     """
     venv = REPO / ".venv-study/bin/python"
-    packages = ["fonttools", "freetype-py", "pillow", *extra_packages]
+    # fonttools is pinned to what Pyodide 0.29.1 ships: the installer page
+    # subsets fonts with that exact version, and test_font_parity.py holds
+    # the CLI byte-identical to the page. Bump the two together or not at all.
+    packages = ["fonttools==4.56.0", "freetype-py", "pillow", *extra_packages]
     if not venv.exists():
         print("Setting up the tooling environment (first run only)...")
         if shutil.which("uv"):
@@ -292,17 +306,23 @@ def ensure_venv(*extra_packages):
             subprocess.run(
                 [sys.executable, "-m", "venv", str(REPO / ".venv-study")], check=True
             )
-            subprocess.run([str(venv), "-m", "pip", "install", "-q", *packages], check=True)
+            subprocess.run(
+                [str(venv), "-m", "pip", "install", "-q", *packages], check=True
+            )
     for package in extra_packages:
         module = package.replace("-", "_")
-        if subprocess.run([str(venv), "-c", f"import {module}"], capture_output=True).returncode:
+        if subprocess.run(
+            [str(venv), "-c", f"import {module}"], capture_output=True
+        ).returncode:
             print(f"Installing {package} into the tooling environment (once)...")
             if shutil.which("uv"):
                 subprocess.run(
                     ["uv", "pip", "install", "--python", str(venv), package], check=True
                 )
             else:
-                subprocess.run([str(venv), "-m", "pip", "install", "-q", package], check=True)
+                subprocess.run(
+                    [str(venv), "-m", "pip", "install", "-q", package], check=True
+                )
     return venv
 
 
@@ -385,7 +405,9 @@ def cmd_setup(args):
         while (target / "study" / f"{base}-{n}").is_dir():
             n += 1
         deck_dir = target / "study" / f"{base}-{n}"
-        print(f"  {slug(deck)} already belongs to {recorded['deck']!r}; using {deck_dir.name}")
+        print(
+            f"  {slug(deck)} already belongs to {recorded['deck']!r}; using {deck_dir.name}"
+        )
     if deck_dir.is_dir():
         pending = deck_dir / "revlog.dat"
         reviews = pending.stat().st_size // 32 if pending.is_file() else 0
@@ -406,7 +428,9 @@ def cmd_setup(args):
     already = find_deck_dirs(target)
     if legacy_fonts.is_dir() and len(already) == 1:
         shutil.move(str(legacy_fonts), str(already[0] / "fonts"))
-        print(f"Moved the shared fonts into {already[0].name}/fonts (fonts are per-deck now).")
+        print(
+            f"Moved the shared fonts into {already[0].name}/fonts (fonts are per-deck now)."
+        )
 
     # Other decks may stay: the reader switches between them from its deck
     # screen. Replacing is the destructive choice, so it is never the default
@@ -418,7 +442,9 @@ def cmd_setup(args):
             answer = "r"
         else:
             answer = (
-                input("  [a]dd this deck alongside (default), [r]eplace them, or [c]ancel: ")
+                input(
+                    "  [a]dd this deck alongside (default), [r]eplace them, or [c]ancel: "
+                )
                 .strip()
                 .lower()
                 or "a"
@@ -433,7 +459,9 @@ def cmd_setup(args):
                     print(
                         f"  {other.name} holds {reviews} review(s) not yet synced to Anki."
                     )
-                    confirm = input(f"  Really remove {other.name}? [y/N] ").strip().lower()
+                    confirm = (
+                        input(f"  Really remove {other.name}? [y/N] ").strip().lower()
+                    )
                     if confirm != "y":
                         die("Cancelled; the card is unchanged.")
                 shutil.rmtree(other)
@@ -444,7 +472,15 @@ def cmd_setup(args):
         extra += ["--map", pair]
     print(f"\nConverting {deck!r} -> {deck_dir}")
     if not run(
-        "anki_to_deck.py", collection, "--deck", deck, "--name", name, "--out", deck_dir, *extra
+        "anki_to_deck.py",
+        collection,
+        "--deck",
+        deck,
+        "--name",
+        name,
+        "--out",
+        deck_dir,
+        *extra,
     ):
         die("Conversion failed; nothing was changed on the card.")
 
@@ -484,8 +520,10 @@ def cmd_setup(args):
                 " device; everything else renders."
             )
     else:
-        need_fonts = args.rebuild_fonts or args.font or not (
-            font_dir.is_dir() and any(font_dir.iterdir())
+        need_fonts = (
+            args.rebuild_fonts
+            or args.font
+            or not (font_dir.is_dir() and any(font_dir.iterdir()))
         )
         if not need_fonts:
             print("\nChecking the existing fonts cover this deck...")
@@ -575,7 +613,9 @@ def cmd_sync(args):
         ensure_venv("anki")
         push = ["--force"] if args.force else []
         if not run("deck_to_anki.py", "--push-only", collection, *push, venv=True):
-            die("AnkiWeb push failed. Reviews are applied locally; re-run to retry the push.")
+            die(
+                "AnkiWeb push failed. Reviews are applied locally; re-run to retry the push."
+            )
 
     if args.reconvert and not args.dry_run:
         for deck_dir in deck_dirs:
@@ -612,7 +652,9 @@ def cmd_sync(args):
                     else:
                         media = collection.parent / "collection.media"
                         if not media.is_dir():
-                            print("  fonts no longer cover the deck; re-run setup to rebuild them")
+                            print(
+                                "  fonts no longer cover the deck; re-run setup to rebuild them"
+                            )
                             continue
                         font_args += ["--media", media]
                     print("  fonts no longer cover the deck; rebuilding")
