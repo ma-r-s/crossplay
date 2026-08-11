@@ -624,10 +624,22 @@ The board drew the silhouette from `specialAt` too, so Tropical Pool's two gated
 H.Q. came out round: the one thing you must bring a 6 or a 7 to looked like the
 two you can take with anything. **A gate is per slot, so the silhouette is too.**
 
-**The joker cannot pass any of its gates**, because none of them list it. That is
-what the trace says and it is a real consequence -- Kwak can never enter a gated
-base nor take a gated H.Q. -- but La Croisette's gate *does* list the joker
-alongside 4-7, so the two boards disagree. Flagged rather than reconciled.
+**The joker passes every gate.** The first trace listed only printed values,
+which would have meant Kwak could never enter a gated base nor take a gated
+H.Q.; Mario corrected it, and it agrees with La Croisette's gate listing the
+joker alongside 4-7. So a gate admits its printed values plus Kwak, everywhere.
+
+**A gated slot says what it admits, on a tab under it.** The silhouette says
+there is a rule; the tab says what the rule is, and a gate you have to remember
+is a gate you misplay. Written as a range when the values run consecutively --
+`*1-2`, `*3-5`, `*6-7` -- with the star for the joker, which needs no legend
+because `*` is already Kwak's pip on the rack and in the how-to.
+
+It sits under the slot rather than inside it. Inside was tried first and clipped
+its own digits: the slot is 52px, the small cut is nearly twenty, and the strip
+fought a six-pixel border. Under it, the whole slot stays free for the troop and
+a knocked-out white plate keeps the values legible where a path runs beneath --
+the same trick the medals already use.
 
 ## Open items
 

@@ -177,6 +177,40 @@ void baseBadge(toybox::Screen& screen, const fui::Rect box, const tb::Special wh
   glyph(screen, at, 8, what, true);
 }
 
+
+// What a gate admits, in as few characters as fit under a troop. Written as a
+// range when the numbers run consecutively, which every gate on every printed
+// board so far does: 1-2, 3-5, 6-7. A joker is a star in front, because the
+// joker has no printed value and La Croisette's gate takes one.
+void gateLabel(const uint8_t admits, char* out, const int size) {
+  int lo = -1, hi = -1, count = 0;
+  for (int k = 1; k < tb::kTroopKinds; ++k) {
+    if (!(admits & (1u << k))) continue;
+    if (lo < 0) lo = k;
+    hi = k;
+    ++count;
+  }
+  const bool joker = (admits & 1u) != 0;
+  const bool run = count > 1 && (hi - lo + 1) == count;
+  int n = 0;
+  if (joker && n + 1 < size) out[n++] = '*';
+  if (count == 0) {
+    // A gate that admits only the joker. Nothing on a printed board does this,
+    // but the star alone says it rather than leaving an empty strip.
+  } else if (run) {
+    if (n + 3 < size) {
+      out[n++] = static_cast<char>('0' + lo);
+      out[n++] = '-';
+      out[n++] = static_cast<char>('0' + hi);
+    }
+  } else {
+    for (int k = 1; k < tb::kTroopKinds && n + 1 < size; ++k) {
+      if (admits & (1u << k)) out[n++] = static_cast<char>('0' + k);
+    }
+  }
+  out[n] = '\0';
+}
+
 // One base, drawn where `slotCenter` says it is.
 void drawSlot(toybox::Screen& screen, const fui::Point at, const tb::Game& game, const int slot, const bool candidate) {
   const tb::Terrain& b = game.board();
@@ -207,6 +241,30 @@ void drawSlot(toybox::Screen& screen, const fui::Point at, const tb::Game& game,
   screen.target().fill(box, fui::Paint::dither(holder == tb::kNoSeat ? fui::Color::LightGray : fui::Color::DarkGray),
                        corner);
   screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), edge, corner);
+
+  // A gated slot says what it admits on a tab just under it, on a white plate
+  // like the medals wear. Inside the slot it does not fit: the slot is 52px, the
+  // small cut is nearly twenty of them, and the strip clipped its own digits
+  // against a six-pixel border. Under it, the whole slot stays available for the
+  // troop, and the plate keeps the values legible where a path runs beneath.
+  //
+  // It has to survive a troop standing on the slot, for the reason the
+  // silhouette does: a gate you have to remember is a gate you misplay.
+  if (gated) {
+    char admits[10];
+    gateLabel(b.gate[slot], admits, static_cast<int>(sizeof(admits)));
+    fui::TextStyle values;
+    values.font = toybox::kTileFont;
+    values.align = fui::TextAlign::Center;
+    const int16_t lineH = screen.target().lineHeight(toybox::kTileFont);
+    const int16_t tabW = 46;
+    const fui::Rect tab = fui::makeRect(static_cast<int16_t>(at.x - tabW / 2),
+                                        static_cast<int16_t>(box.bottom() - 2), tabW,
+                                        static_cast<int16_t>(lineH + 4));
+    screen.target().fill(tab, fui::Paint::solid(fui::Color::White), 5);
+    screen.target().stroke(tab, fui::Paint::solid(fui::Color::Black), 2, 5);
+    screen.target().text(fui::makeRect(tab.x, static_cast<int16_t>(tab.y + 2), tab.width, lineH), admits, values);
+  }
 
   if (isHq) {
     centred(screen, box, b.hqOwner(slot) == 0 ? "H" : "E", toybox::kUiFont, false);

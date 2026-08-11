@@ -527,8 +527,8 @@ constexpr Terrain buildTropicalPool() {
       {(1u << 4) | (1u << 5) | (1u << 6) | (1u << 7), 2, 154, 442},
       {(1u << 3) | (1u << 4) | (1u << 8) | (1u << 9), 2, 846, 558},
   };
-  t.gate[14] = static_cast<uint8_t>((1u << static_cast<int>(Troop::Star)) | (1u << static_cast<int>(Troop::Roxy)));  // H.Q. 1
-  t.gate[15] = static_cast<uint8_t>((1u << static_cast<int>(Troop::Star)) | (1u << static_cast<int>(Troop::Roxy)));  // H.Q. 2
+  t.gate[14] = static_cast<uint8_t>((1u << static_cast<int>(Troop::Kwak)) | (1u << static_cast<int>(Troop::Star)) | (1u << static_cast<int>(Troop::Roxy)));  // H.Q. 1
+  t.gate[15] = static_cast<uint8_t>((1u << static_cast<int>(Troop::Kwak)) | (1u << static_cast<int>(Troop::Star)) | (1u << static_cast<int>(Troop::Roxy)));  // H.Q. 2
   t.regionCount = static_cast<uint8_t>(sizeof(regions) / sizeof(regions[0]));
   for (int i = 0; i < t.regionCount; ++i) {
     t.regions[i].bases = regions[i].bases;
@@ -538,15 +538,15 @@ constexpr Terrain buildTropicalPool() {
   }
 
   t.special[2] = static_cast<uint8_t>(Special::Gate);
-  t.gate[2] = static_cast<uint8_t>((1u << static_cast<int>(Troop::Skully)) | (1u << static_cast<int>(Troop::Capn)));
+  t.gate[2] = static_cast<uint8_t>((1u << static_cast<int>(Troop::Kwak)) | (1u << static_cast<int>(Troop::Skully)) | (1u << static_cast<int>(Troop::Capn)));
   t.special[4] = static_cast<uint8_t>(Special::Gate);
-  t.gate[4] = static_cast<uint8_t>((1u << static_cast<int>(Troop::Star)) | (1u << static_cast<int>(Troop::Roxy)));
+  t.gate[4] = static_cast<uint8_t>((1u << static_cast<int>(Troop::Kwak)) | (1u << static_cast<int>(Troop::Star)) | (1u << static_cast<int>(Troop::Roxy)));
   t.special[5] = static_cast<uint8_t>(Special::Gate);
-  t.gate[5] = static_cast<uint8_t>((1u << static_cast<int>(Troop::Jumbo)) | (1u << static_cast<int>(Troop::Hook)) | (1u << static_cast<int>(Troop::XB42)));
+  t.gate[5] = static_cast<uint8_t>((1u << static_cast<int>(Troop::Kwak)) | (1u << static_cast<int>(Troop::Jumbo)) | (1u << static_cast<int>(Troop::Hook)) | (1u << static_cast<int>(Troop::XB42)));
   t.special[8] = static_cast<uint8_t>(Special::Gate);
-  t.gate[8] = static_cast<uint8_t>((1u << static_cast<int>(Troop::Jumbo)) | (1u << static_cast<int>(Troop::Hook)) | (1u << static_cast<int>(Troop::XB42)));
+  t.gate[8] = static_cast<uint8_t>((1u << static_cast<int>(Troop::Kwak)) | (1u << static_cast<int>(Troop::Jumbo)) | (1u << static_cast<int>(Troop::Hook)) | (1u << static_cast<int>(Troop::XB42)));
   t.special[11] = static_cast<uint8_t>(Special::Gate);
-  t.gate[11] = static_cast<uint8_t>((1u << static_cast<int>(Troop::Skully)) | (1u << static_cast<int>(Troop::Capn)));
+  t.gate[11] = static_cast<uint8_t>((1u << static_cast<int>(Troop::Kwak)) | (1u << static_cast<int>(Troop::Skully)) | (1u << static_cast<int>(Troop::Capn)));
   return t;
 }
 
