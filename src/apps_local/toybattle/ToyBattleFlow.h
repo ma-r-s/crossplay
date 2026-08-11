@@ -93,6 +93,44 @@ constexpr Screen back(const Screen screen) {
 constexpr bool leavesApp(Screen s) { return s == Screen::Menu; }
 
 // ---------------------------------------------------------------------------
+// Continuing
+// ---------------------------------------------------------------------------
+//
+// A game in progress, as bytes. `Game` is a POD with an exact-size assert
+// because it is already the link layer's wire format, so the save is that
+// struct plus what was chosen before it started -- there is no second
+// description of a position anywhere in this app, and so no pair of
+// descriptions that can disagree.
+//
+// Solo only. A link game cannot be resumed because the other device is not
+// there to resume it, and a save that quietly restarts as a solo game against
+// the brain would be a worse outcome than no save.
+
+struct Saved {
+  Options options;
+  Game game;
+  uint8_t seat = 0;
+};
+
+// Bytes needed by `encodeSave`. Fixed: there is nothing variable in a position.
+constexpr int kSaveBytes = 8 + static_cast<int>(sizeof(Options)) + static_cast<int>(sizeof(Game)) + 1;
+
+// Writes exactly `kSaveBytes` into `out`. Returns the count written.
+int encodeSave(const Saved& saved, uint8_t* out);
+
+// Reads one back. Returns false -- and leaves `saved` untouched -- if the bytes
+// are the wrong length, the wrong magic, a version this build does not know, a
+// terrain index this build does not have, or fail the checksum. A truncated or
+// half-written save on an SD card that lost power is the ordinary case here,
+// not the exotic one, so every one of those is a return rather than a crash.
+bool decodeSave(const uint8_t* in, int length, Saved& saved);
+
+// A position worth offering to continue: still being played, and not a link
+// game. Checked on the way in and on the way out, so a finished game cannot be
+// written as a save nor offered as one if it somehow was.
+bool isResumable(const Saved& saved);
+
+// ---------------------------------------------------------------------------
 // Composing a move
 // ---------------------------------------------------------------------------
 

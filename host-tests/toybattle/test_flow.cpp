@@ -349,6 +349,68 @@ static void testEveryRefusalAgreesWithTheRules(int matches) {
   printf("refusals   %ld slots lit, %ld refused, every one agreeing with the rules\n", lit, refused);
 }
 
+
+// --- continuing -------------------------------------------------------------
+
+static void testASaveSurvivesOnlyIfItIsIntact() {
+  // A position with some history in it, so the bytes under test are not mostly
+  // zeroes -- a checksum looks strong against a save that is nearly empty.
+  Game g;
+  g.newGame(0xC0FFEEu, static_cast<int>(TerrainId::CastleField), 0, true);
+  for (int i = 0; i < 12 && g.currentPhase() == Phase::Playing; ++i) {
+    Draft d;
+    int asked = 0;
+    if (!driveToReady(g, d, &asked)) break;
+    g.apply(d.move);
+  }
+
+  Saved saved;
+  saved.options.terrain = static_cast<uint8_t>(TerrainId::CastleField);
+  saved.options.skill = Skill::General;
+  saved.options.specialBases = true;
+  saved.options.mode = Mode::Solo;
+  saved.game = g;
+  saved.seat = 1;
+
+  uint8_t bytes[kSaveBytes];
+  const int n = encodeSave(saved, bytes);
+  check(n == kSaveBytes, "a save is exactly the size it claims");
+
+  Saved back;
+  check(decodeSave(bytes, n, back), "an intact save decodes");
+  check(back.seat == saved.seat, "and the seat survives");
+  check(back.options.skill == saved.options.skill, "and the difficulty survives");
+  check(back.options.specialBases == saved.options.specialBases, "and the special bases setting survives");
+  check(back.game.placementCount == g.placementCount, "and the position survives");
+  check(memcmp(&back.game, &g, sizeof(Game)) == 0, "byte for byte");
+
+  // The property worth having: NO single-bit corruption is ever accepted. A
+  // card that lost power mid-write is the ordinary failure here, and a save
+  // that decodes into a plausible wrong position is worse than one that does
+  // not decode at all.
+  for (int byte = 0; byte < kSaveBytes; ++byte) {
+    for (int bit = 0; bit < 8; ++bit) {
+      uint8_t corrupt[kSaveBytes];
+      memcpy(corrupt, bytes, sizeof(corrupt));
+      corrupt[byte] = static_cast<uint8_t>(corrupt[byte] ^ (1u << bit));
+      Saved wrong;
+      check(!decodeSave(corrupt, kSaveBytes, wrong), "no single flipped bit is ever accepted");
+    }
+  }
+
+  // Truncation, at every length. A short read is what a half-written file is.
+  for (int len = 0; len < kSaveBytes; ++len) {
+    Saved wrong;
+    check(!decodeSave(bytes, len, wrong), "a truncated save is refused at every length");
+  }
+
+  // And a finished game is not offered as one to continue.
+  check(isResumable(saved), "a game in progress can be continued");
+  Saved link = saved;
+  link.options.mode = Mode::Link;
+  check(!isResumable(link), "a link game cannot: the other device is not there");
+}
+
 int main() {
   testNavigation();
   testQuestionsWithNoAnswerAreNotAsked();
@@ -357,6 +419,7 @@ int main() {
   testTheBoardCannotComposeAnIllegalMove(120, kPG);
   testTheBoardCannotComposeAnIllegalMove(120, static_cast<int>(TerrainId::CastleField));
   testEveryRefusalAgreesWithTheRules(40);
+  testASaveSurvivesOnlyIfItIsIntact();
 
   printf("flow       %d checks, 0 failed\n", checks);
   return 0;

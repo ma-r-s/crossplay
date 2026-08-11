@@ -1,5 +1,7 @@
 #include "ToyBattleFlow.h"
 
+#include <cstring>
+
 namespace toybattle {
 namespace {
 
@@ -429,6 +431,83 @@ uint8_t candidateTroops(const Game& game, const Draft& draft) {
   const int n = g.legalPlacements(game.turn, steps, static_cast<int>(sizeof(steps) / sizeof(steps[0])));
   for (int i = 0; i < n; ++i) mask = static_cast<uint8_t>(mask | (1u << steps[i].kind));
   return mask;
+}
+
+// ---------------------------------------------------------------------------
+// Continuing
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// "TB" and a format version. The version is checked rather than assumed because
+// `Game` is also the wire format and it has been reordered once already to kill
+// four bytes of padding; a save written by the build before that would decode
+// into a plausible, wrong position.
+constexpr uint8_t kSaveMagic0 = 'T';
+constexpr uint8_t kSaveMagic1 = 'B';
+constexpr uint8_t kSaveVersion = 1;
+
+uint8_t checksum(const uint8_t* p, int n) {
+  // Sum with a rotate, so that a run of zeroes from a half-erased sector does
+  // not check out the way a plain sum does.
+  uint8_t c = 0x5A;
+  for (int i = 0; i < n; ++i) {
+    c = static_cast<uint8_t>((c << 1) | (c >> 7));
+    c = static_cast<uint8_t>(c ^ p[i]);
+  }
+  return c;
+}
+
+}  // namespace
+
+int encodeSave(const Saved& saved, uint8_t* out) {
+  int n = 0;
+  out[n++] = kSaveMagic0;
+  out[n++] = kSaveMagic1;
+  out[n++] = kSaveVersion;
+  out[n++] = saved.seat;
+  out[n++] = static_cast<uint8_t>(sizeof(Options));
+  out[n++] = static_cast<uint8_t>(sizeof(Game));
+  out[n++] = 0;
+  out[n++] = 0;
+  memcpy(out + n, &saved.options, sizeof(Options));
+  n += static_cast<int>(sizeof(Options));
+  memcpy(out + n, &saved.game, sizeof(Game));
+  n += static_cast<int>(sizeof(Game));
+  out[n] = checksum(out, n);
+  ++n;
+  return n;
+}
+
+bool decodeSave(const uint8_t* in, const int length, Saved& saved) {
+  if (length != kSaveBytes) return false;
+  if (in[0] != kSaveMagic0 || in[1] != kSaveMagic1) return false;
+  if (in[2] != kSaveVersion) return false;
+  if (in[4] != sizeof(Options) || in[5] != sizeof(Game)) return false;
+  if (in[length - 1] != checksum(in, length - 1)) return false;
+
+  Saved out;
+  out.seat = in[3];
+  if (out.seat >= kSeats) return false;
+  memcpy(&out.options, in + 8, sizeof(Options));
+  memcpy(&out.game, in + 8 + sizeof(Options), sizeof(Game));
+
+  // The bytes checked out, which says they are the bytes that were written --
+  // not that they describe a game. A terrain index this build does not have is
+  // the ordinary way that happens: a save made after Mario adds a map, opened
+  // by a build from before it.
+  if (out.options.terrain >= kTerrainCount) return false;
+  if (out.game.terrain >= kTerrainCount) return false;
+  if (out.game.turn >= kSeats) return false;
+  if (!out.game.isWellFormed()) return false;
+
+  saved = out;
+  return true;
+}
+
+bool isResumable(const Saved& saved) {
+  if (saved.options.mode != Mode::Solo) return false;
+  return saved.game.currentPhase() == Phase::Playing;
 }
 
 }  // namespace toybattle
