@@ -255,6 +255,33 @@ def compile_one(job):
     return (src, obj, p.returncode, p.stderr)
 
 
+def write_provenance():
+    """Record the source revision this artifact was built from.
+
+    check.sh compares the last COMMIT touching site/emulator against the last
+    one touching src/lib/assets_local/tools_local/wasm, which is a proxy for
+    "was the artifact built from this source". The proxy breaks whenever a
+    source change produces an identical artifact -- a static_assert, a comment,
+    a test-only edit -- because then a rebuild changes no bytes, there is
+    nothing to commit, and the check can never be satisfied. That happened the
+    first time the check ever fired, on the GameId assert.
+
+    This file always changes when a rebuild happens, so the artifact gets a
+    commit of its own and the ordering means what it is supposed to mean. It
+    also makes the artifact say out loud what it was built from, which no
+    amount of commit archaeology did before.
+    """
+    rev, dirty = "unknown", ""
+    try:
+        rev = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO, capture_output=True, text=True).stdout.strip()
+        if subprocess.run(["git", "status", "--porcelain", "--", "src", "lib", "assets_local", "tools_local"],
+                          cwd=REPO, capture_output=True, text=True).stdout.strip():
+            dirty = " (working tree had uncommitted source changes)"
+    except OSError:
+        pass
+    (OUT / "BUILT_FROM").write_text(f"{rev}{dirty}\n")
+
+
 def main():
     if not shutil.which("em++"):
         sys.exit("em++ not on PATH -- source .emsdk/emsdk_env.sh first")
@@ -344,6 +371,7 @@ def main():
     if p.returncode != 0:
         print(p.stderr[-4000:])
         sys.exit("link failed")
+    write_provenance()
     print(f"wrote {OUT}")
 
 
