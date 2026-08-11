@@ -26,9 +26,13 @@ constexpr int16_t kRackTall = 70;
 constexpr int16_t kRackHeight = kRackTall + 8;
 constexpr int16_t kCapsuleTop = 800 - toybox::kMargin - toybox::kPillHeight;
 constexpr int16_t kRackTop = kCapsuleTop - toybox::kGutter - kRackHeight;
+// Two rows of counts sit directly above the rack, because the rack IS the hand
+// row of that table and the three numbers read together.
+constexpr int16_t kCountsRow = 17;
+constexpr int16_t kCountsTop = kRackTop - kCountsRow * 2 - 10;
 
 // The board owns everything between the header and the rack.
-constexpr int16_t kBoardHeight = kRackTop - toybox::kGutter - kBoardTop;
+constexpr int16_t kBoardHeight = kCountsTop - toybox::kGutter - kBoardTop;
 
 constexpr int16_t kSlot = 52;
 constexpr uint8_t kPathWeight = 5;
@@ -616,6 +620,38 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   }
 
   // The rack. A troop you cannot play dims rather than disappearing.
+  // Everything a player could count for themselves if the game were on a table:
+  // the pile heights are visible, the discard is face up, and their tiles can
+  // be counted even though their faces cannot be read. None of it was on screen.
+  {
+    const int me = model.seat, them = model.seat ^ 1;
+    int gone[2] = {0, 0};
+    for (int seat = 0; seat < tb::kSeats; ++seat) {
+      for (int k = 0; k < tb::kTroopKinds; ++k) gone[seat] += game.discarded[seat][k];
+    }
+    fui::TextStyle cell;
+    cell.font = toybox::kSmallFont;
+    cell.align = fui::TextAlign::Left;
+
+    // Both rows carry the same three columns, aligned, so the comparison is
+    // vertical and needs no arithmetic.
+    const int16_t left = toybox::kMargin;
+    const int16_t col[4] = {left, static_cast<int16_t>(left + 74), static_cast<int16_t>(left + 194),
+                            static_cast<int16_t>(left + 314)};
+    for (int row = 0; row < 2; ++row) {
+      const int seat = row == 0 ? them : me;
+      const int16_t y = static_cast<int16_t>(kCountsTop + row * kCountsRow);
+      char field[20];
+      screen.target().text(fui::makeRect(col[0], y, 72, kCountsRow), row == 0 ? "THEM" : "YOU", cell);
+      std::snprintf(field, sizeof(field), "HAND %d", game.rackSize(seat));
+      screen.target().text(fui::makeRect(col[1], y, 118, kCountsRow), field, cell);
+      std::snprintf(field, sizeof(field), "PILE %d", game.reserveRemaining(seat));
+      screen.target().text(fui::makeRect(col[2], y, 118, kCountsRow), field, cell);
+      std::snprintf(field, sizeof(field), "GONE %d", gone[seat]);
+      screen.target().text(fui::makeRect(col[3], y, 118, kCountsRow), field, cell);
+    }
+  }
+
   const uint8_t offer = toybattle::candidateTroops(game, model.draft);
   const tb::Draft& draft = model.draft;
   const bool chosenPending = toybattle::pending(game, draft) != toybattle::Ask::Troop;
