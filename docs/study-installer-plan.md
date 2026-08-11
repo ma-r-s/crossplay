@@ -1,5 +1,19 @@
 # The Study installer: a page that puts your Anki deck on the device
 
+**Shipped 2026-08-11** (merged as `2dadd20a`, live at crossplay.ma-r-s.com/study).
+Phases 1 to 5 below are built and verified on production: a real conversion, a
+real firmware boot, and a graded card writing a review record. Phase 6 remains
+its own future project. This file is kept as the record of what was decided and
+why, not as a to-do list; the state of the thing is in the page itself and in
+the `study-installer-state` project memory.
+
+**Scope, settled by Mario over three conversations: the page is for decks of
+English characters and numbers.** Chinese works on the device and through the
+command line (his own deck arrived that way and stays), but "someone else
+importing a Chinese deck" is explicitly not a goal, and the page's HSK-specific
+paths are known-imperfect on purpose. Cloze, pictures and audio are refused,
+loudly, by design.
+
 Decided with Mario, 2026-08-10. The ideal workflow is a section of the site;
 no installs, no terminal, no addons:
 
@@ -42,15 +56,22 @@ them, so the CLI, CI and the installer cannot drift apart.
 | Write to card | File System Access under study/<slug>/, unsynced-review overwrite guard; zip fallback via zipfile in Pyodide | done (pickers hand-tested) |
 | Review sync   | deck_to_anki.py replays in Pyodide against a staged copy; the page writes a timestamped backup then the collection; non-empty -wal/-journal stands in for the Anki-running check | done, tested (test_web_glue.py) |
 
-## Order of work
+## Order of work, as built
 
-1. Page skeleton on the site + apkg → conversion via Pyodide + flagging UI.
-   (Everything after the drop is our tested code; this phase is mostly UI.)
-2. The FreeType wasm module, tested byte-identical against the CLI.
-3. Emulator injection preview.
-4. Card writing + zip fallback.
-5. Review sync against the local collection.
-6. Device-native AnkiWeb client: its own project, not part of this page.
+1. ~~Page skeleton + apkg → conversion via Pyodide + flagging UI.~~ Done, and
+   later rebuilt as a single-viewport wizard: the first version was a scrolling
+   page of prose bands, which Mario called "a weird way to build a wizard".
+2. ~~The FreeType wasm module, byte-identical to the CLI.~~ Done; the
+   acceptance held on the first run and `test_font_parity.py` keeps it.
+3. ~~Emulator injection preview.~~ Done, via a `CROSSPLAY_AUTOSTART` firmware
+   seam and an iframe per boot.
+4. ~~Card writing + zip fallback.~~ Done.
+5. ~~Review sync against the local collection.~~ Done.
+6. Device-native AnkiWeb client: still its own project, not part of this page.
+
+**Not automated, and known:** the three File System Access pickers (SD card,
+Anki profile, write-back) open native dialogs, so nothing in CI or in three
+rounds of user-test agents has ever exercised them. They need one pass by hand.
 
 Work happens in a worktree (`./scripts/wt.sh new installer`), not in
 firmware-next, per the workspace rules. The CLI (`study.py`) remains the power
