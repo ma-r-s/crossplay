@@ -171,10 +171,18 @@ extern const Terrain kCityOfClouds;
 // close across a diagonal. Fourteen medals, objective 8.
 extern const Terrain kVolcanicJungle;
 
+// CURSED CEMETERY, traced by Mario 2026-08-11. Fifteen bases in an irregular
+// arrangement with four Exhume graves, and the first board that is
+// point-symmetric WITHOUT being a grid -- which is why the generator grew a
+// rotational symmetry mode: mirroring the rows and columns separately is only
+// equivalent to a half turn when every slot sits on a row-and-column crossing.
+// Ten regions, fourteen medals, objective 7.
+extern const Terrain kCursedCemetery;
+
 // Index into the table `terrainAt` walks. Stored in `Game::terrain`, so the
 // order is part of the save and wire format: append, never reorder.
-enum class TerrainId : uint8_t { CastleField = 0, ProvingGround, CityOfClouds, VolcanicJungle };
-constexpr int kTerrainCount = 4;
+enum class TerrainId : uint8_t { CastleField = 0, ProvingGround, CityOfClouds, VolcanicJungle, CursedCemetery };
+constexpr int kTerrainCount = 5;
 
 const Terrain& terrainAt(int index);
 

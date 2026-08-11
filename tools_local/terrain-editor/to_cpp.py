@@ -40,6 +40,50 @@ MAX_BASES, MAX_HQ, MAX_REGIONS, MAX_EDGES = 32, 4, 16, 72
 
 
 
+
+def symmetrise_rotational(xs, ys):
+    """Make a board exactly symmetric under a half turn about the middle.
+
+    Mirroring the x levels and the y levels independently is enough for a board
+    that is symmetric across both midlines, and it is enough for a point-
+    symmetric board that happens to be a complete grid, because there every slot
+    sits on a row-and-column crossing. It is NOT enough in general: Cursed
+    Cemetery is point-symmetric and irregular, and two slots can share a column
+    while their partners do not.
+
+    So pair each slot with the one nearest its rotated position, and give the
+    pair mirrored coordinates outright rather than averaging and rounding twice
+    -- rounding each of a pair independently left partners a unit apart, which
+    is nothing on the panel but is not what "symmetric" means.
+
+    Runs on already-normalised coordinates, so the centre is 500 by definition.
+    Refuses rather than guesses if the pairing is not an involution, which is
+    what an asymmetric board looks like from here.
+    """
+    n = len(xs)
+    partner = {}
+    for i in range(n):
+        tx, ty = 1000 - xs[i], 1000 - ys[i]
+        partner[i] = min(range(n), key=lambda k: (xs[k] - tx) ** 2 + (ys[k] - ty) ** 2)
+    bad = [i for i in range(n) if partner[partner[i]] != i]
+    if bad:
+        raise SystemExit(
+            f'symmetry "rotational": slots {bad} have no half-turn partner. '
+            'This board is not point-symmetric; use "both", "horizontal", '
+            '"vertical" or "none".'
+        )
+    ox, oy = list(xs), list(ys)
+    for i in range(n):
+        j = partner[i]
+        if j < i:
+            continue
+        ox[i] = round((xs[i] + (1000 - xs[j])) / 2.0)
+        oy[i] = round((ys[i] + (1000 - ys[j])) / 2.0)
+        ox[j] = 1000 - ox[i]
+        oy[j] = 1000 - oy[i]
+    return ox, oy
+
+
 def align(values, tol=20):
     """Snap near-equal coordinates onto one shared level.
 
@@ -323,8 +367,10 @@ def emit(model):
     # actually symmetric. Opt-in per board, because not every terrain is:
     # Caribbean Sea is deliberately lopsided, 2 H.Q. against 1.
     sym = model.get("symmetry", "none")
-    if sym not in ("none", "horizontal", "vertical", "both"):
-        raise SystemExit(f"unknown symmetry {sym!r}: none, horizontal, vertical or both")
+    if sym not in ("none", "horizontal", "vertical", "both", "rotational"):
+        raise SystemExit(
+            f"unknown symmetry {sym!r}: none, horizontal, vertical, both or rotational"
+        )
     tol = int(model.get("alignTolerance", 20))
     if sym != "none":
         before = (sorted(set(xs)), sorted(set(ys)))
@@ -342,6 +388,8 @@ def emit(model):
         xs = symmetrise(xs)
     if sym in ("vertical", "both"):
         ys = symmetrise(ys)
+    if sym == "rotational":
+        xs, ys = symmetrise_rotational(xs, ys)
     w(f"  const uint16_t xs[{nb + nh}] = {{{', '.join(str(v) for v in xs)}}};")
     w(f"  const uint16_t ys[{nb + nh}] = {{{', '.join(str(v) for v in ys)}}};")
     w(f"  for (int i = 0; i < {nb + nh}; ++i) {{")

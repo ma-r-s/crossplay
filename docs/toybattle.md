@@ -508,6 +508,30 @@ to the point nearest the region's centre, which is both symmetric and where the
 eye expects it. The search also refines four times rather than twice, because
 landing in the right region is not the same as converging tighter than the eye.
 
+## Cursed Cemetery
+
+Traced by Mario 2026-08-11, the fourth real terrain. Fifteen bases in an
+irregular arrangement with four Exhume graves, ten regions, fourteen medals,
+objective 7. Point-symmetric under a half turn like Volcanic Jungle, and the
+first board that is point-symmetric **without being a grid**.
+
+That distinction is why the generator grew a `"rotational"` symmetry mode.
+Mirroring the x levels and the y levels independently is equivalent to a half
+turn only when every slot sits on a row-and-column crossing, which is true of a
+complete lattice and false here: two slots can share a column while their
+partners do not. The rotational mode instead pairs each slot with the one
+nearest its rotated position and gives the pair mirrored coordinates outright.
+It refuses rather than guesses when the pairing is not an involution, which is
+what an asymmetric board looks like from inside it.
+
+Mirrored **outright**, not averaged: rounding each of a pair independently left
+partners a unit apart, which is nothing on the panel and is still not what
+symmetric means. Every slot's exact half-turn image is another slot.
+
+Its two H.Q. fence nothing. The triangles they sit in are real faces of the
+board but pay no medals, which is the case that made explicit H.Q. fences
+necessary -- see above.
+
 ## Open items
 
 - **The "Winter board" is not a ninth terrain.** BGG image 9252799, posted by
