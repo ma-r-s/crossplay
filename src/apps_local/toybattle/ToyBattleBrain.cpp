@@ -41,6 +41,10 @@ constexpr int kLoss = -1000000;
 // one that is otherwise best rather than picking the first.
 constexpr int kHangsHq = -500000;
 
+// Measured: the busiest position over 400 games produced 363 candidate moves.
+constexpr int kMaxCandidates = 384;
+constexpr int kMaxPlacementsOffered = 96;
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -169,8 +173,10 @@ int candidates(const Observation& obs, Move* out, int max) {
 
   if (v.isLegal(Move::draw())) add(Move::draw());
 
-  Step steps[kTroopKinds * kMaxSlots];
-  const int placements = v.legalPlacements(seat, steps, static_cast<int>(sizeof(steps) / sizeof(steps[0])));
+  // Off the stack for the same reason, and sized by measurement: 49 was the
+  // most placements any position offered.
+  static Step steps[kMaxPlacementsOffered];
+  const int placements = v.legalPlacements(seat, steps, kMaxPlacementsOffered);
 
   for (int i = 0; i < placements && n < max; ++i) {
     const Troop kind = static_cast<Troop>(steps[i].kind);
@@ -198,8 +204,8 @@ int candidates(const Observation& obs, Move* out, int max) {
       Game staged = v;
       if (staged.apply(Move::place(slot, kind, false))) {
         staged.turn = static_cast<uint8_t>(seat);
-        Step extra[kTroopKinds * kMaxSlots];
-        const int m2 = staged.legalPlacements(seat, extra, static_cast<int>(sizeof(extra) / sizeof(extra[0])));
+        static Step extra[kMaxPlacementsOffered];
+        const int m2 = staged.legalPlacements(seat, extra, kMaxPlacementsOffered);
         const int cap = m2 < 24 ? m2 : 24;
         for (int j = 0; j < cap && n < max; ++j) {
           Move chained = Move::place(slot, kind, true);
@@ -269,8 +275,16 @@ int candidates(const Observation& obs, Move* out, int max) {
 // ---------------------------------------------------------------------------
 
 Move chooseMove(const Observation& obs, Skill skill) {
-  Move options[512];
-  const int n = detail::candidates(obs, options, 512);
+  // Static, not local. `Move` is 34 bytes and this used to be a 512-entry array
+  // on the stack -- 17KB, against a task stack of a few thousand and a house
+  // rule of 256 bytes for a local. The simulator never showed it because a
+  // desktop stack swallows it; a device would have smashed straight through.
+  //
+  // 384 is measured, not guessed: the worst position over 400 games offered
+  // 363 candidates. There is one brain and one turn at a time, so a shared
+  // buffer is safe here, and the cap logs rather than truncating in silence.
+  static Move options[kMaxCandidates];
+  const int n = detail::candidates(obs, options, kMaxCandidates);
   if (n == 0) return Move::draw();  // nothing is legal; the caller is about to end the game
 
   const int seat = obs.seat;

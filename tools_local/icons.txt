@@ -199,3 +199,17 @@ mineflag = flag
 # Rejected: five small dice (illegible at 32px, and still dice), a dice cup (too
 # much detail), a single die with a different pip count (still the neighbour's
 # mark with a typo).
+
+toybattle = share-2
+# Toy Battle is the only game on this shelf whose board is a GRAPH: bases with
+# paths between them, and the whole game is which ones you hold and whether a
+# line still runs home. So the mark is three bases and the paths joining them.
+#
+# It has to survive its neighbours. `crown` is chess, `circle-dot` is checkers,
+# `dice-5` is knucklebones, `bomb` is minesweeper -- all of them a single object,
+# none of them a network, so a node-link mark is unmistakable in that row.
+# Rejected: `castle` (that is Castle Field, one terrain out of eight, and the
+# game is not about castles), `flag` (already the minesweeper flag), `swords`
+# (not vendored), `network` (its box reads as a device, not a board),
+# `git-fork` (a branch, and branches are exactly what this board is not --
+# its paths rejoin).

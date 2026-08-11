@@ -21,25 +21,19 @@ void ToyBattleActivity::onEnter() {
 }
 
 void ToyBattleActivity::beginGame() {
-  // A fixed seed while the layout is being chosen, so two variants photograph
-  // the same position and the comparison is about the drawing.
-  game.newGame(20260810u, static_cast<int>(tb::TerrainId::CastleField), 0, /*withSpecialBases=*/true);
+  // millis() is the only entropy on this device that differs between two boots,
+  // and it enters here and nowhere deeper: the core takes a seed and never
+  // reaches for a clock, which is what keeps a game replayable from its seed.
+  //
+  // This used to deal a rigged position -- fixed seed, twelve moves played out,
+  // the rack force-fed -- so two layout variants could be photographed from the
+  // same board. That was scaffolding for choosing a drawing, and it had no
+  // business surviving into a game somebody sits down with.
+  game.newGame(static_cast<uint32_t>(millis()) * 2654435761u + 1u, static_cast<int>(tb::TerrainId::CastleField), 0,
+               /*withSpecialBases=*/true);
   draft.clear();
+  notice = nullptr;
   seat = 0;
-
-  // Play a few turns of brain against brain so the shot shows a board with
-  // something on it. An empty board tells you nothing about a layout.
-  for (int i = 0; i < 12 && game.currentPhase() == tb::Phase::Playing; ++i) {
-    const tb::Observation obs = tb::observe(game, game.turn);
-    if (!game.apply(tb::chooseMove(obs, tb::Skill::General))) break;
-  }
-  // And make sure the near seat is actually holding something: a rack of eight
-  // empty slots shows nothing about how the rack reads.
-  game.turn = seat;
-  while (game.rackSize(seat) < 5 && game.canDraw(seat)) {
-    game.apply(tb::Move::draw());
-    game.turn = seat;
-  }
   goTo(tb::Screen::Board);
 }
 
@@ -108,6 +102,13 @@ void ToyBattleActivity::loop() {
     return;
   }
 
+  if (screen == tb::Screen::Board && game.currentPhase() != tb::Phase::Playing) {
+    // A finished game is a different screen. Leaving it on the board with the
+    // outcome in the prompt line left nowhere to go but Back.
+    goTo(tb::Screen::Result);
+    return;
+  }
+
   if (screen == tb::Screen::Board && game.currentPhase() == tb::Phase::Playing && game.turn != seat) {
     notice = nullptr;
     takeOpponentTurn();
@@ -163,7 +164,22 @@ void ToyBattleActivity::loop() {
   const fui::ActionEvent event = interactions.route(input);
   switch (event.action) {
     case tbui::ActionMenuRow:
-      if (static_cast<tbui::MenuRow>(event.value) == tbui::MenuRow::Play) beginGame();
+      switch (static_cast<tbui::MenuRow>(event.value)) {
+        case tbui::MenuRow::Play:
+          beginGame();
+          return;
+        case tbui::MenuRow::HowTo:
+          goTo(tb::Screen::HowTo);
+          return;
+        case tbui::MenuRow::Count:
+          return;
+      }
+      return;
+    case tbui::ActionAgain:
+      beginGame();
+      return;
+    case tbui::ActionDone:
+      goTo(tb::Screen::Menu);
       return;
     case tbui::ActionDraw:
       // The other half of a turn, and it had no way in before now.
@@ -217,10 +233,18 @@ void ToyBattleActivity::render(RenderLock&&) {
       tbui::buildBrief(surface, model);
       break;
     }
-    case tb::Screen::Menu:
-    case tb::Screen::Setup:
-    case tb::Screen::HowTo:
     case tb::Screen::Result: {
+      tbui::ResultModel model;
+      model.game = game;
+      model.seat = seat;
+      tbui::buildResult(surface, model);
+      break;
+    }
+    case tb::Screen::HowTo:
+      tbui::buildHowTo(surface);
+      break;
+    case tb::Screen::Menu:
+    case tb::Screen::Setup: {
       tbui::MenuModel model;
       model.selected = menuSelected;
       tbui::buildMenu(surface, model);

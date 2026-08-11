@@ -424,6 +424,81 @@ void buildBrief(toybox::Screen& screen, const BriefModel& model) {
   }
 }
 
+void buildResult(toybox::Screen& screen, const ResultModel& model) {
+  const tb::Game& game = model.game;
+  const bool won = game.winner == model.seat;
+
+  fui::HeaderProps header;
+  header.title = won ? "YOU WIN" : "YOU LOSE";
+  header.borderEdges = fui::EdgesNone;
+  screen.header(header);
+  screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
+
+  // How it ended, because the three endings are genuinely different games and
+  // "you lose" alone does not say which one you just played.
+  const char* how = "";
+  switch (game.endedBy()) {
+    case tb::Ending::HqCaptured:
+      how = won ? "YOU TOOK THEIR H.Q." : "THEY TOOK YOUR H.Q.";
+      break;
+    case tb::Ending::MedalsObjective:
+      how = won ? "YOU REACHED THE MEDALS" : "THEY REACHED THE MEDALS";
+      break;
+    case tb::Ending::Stuck:
+      how = "NOBODY COULD MOVE. MEDALS DECIDED IT";
+      break;
+    case tb::Ending::None:
+      break;
+  }
+  fui::TextStyle body;
+  body.font = toybox::kSmallFont;
+  body.align = fui::TextAlign::Center;
+  screen.target().text(screen.takeTop(28, toybox::kGutter), how, body);
+
+  char tally[40];
+  std::snprintf(tally, sizeof(tally), "MEDALS %d - %d", game.medals[model.seat], game.medals[model.seat ^ 1]);
+  fui::TextStyle big;
+  big.font = toybox::kDisplayFont;
+  big.align = fui::TextAlign::Center;
+  screen.target().text(screen.takeTop(60, toybox::kGutter), tally, big);
+
+  fui::ButtonProps done;
+  done.label = "DONE";
+  done.action = ActionDone;
+  screen.button(done, screen.takeBottom(toybox::kPillHeight, toybox::kGutter));
+
+  fui::ButtonProps again;
+  again.label = "PLAY AGAIN";
+  again.action = ActionAgain;
+  screen.button(again, screen.takeBottom(toybox::kPillHeight, toybox::kGutter));
+}
+
+void buildHowTo(toybox::Screen& screen) {
+  fui::HeaderProps header;
+  header.title = "HOW TO PLAY";
+  header.borderEdges = fui::EdgesNone;
+  screen.header(header);
+  screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
+
+  // Only what the marks and the briefing cannot say for themselves: the turn,
+  // the two rules that govern a placement, and the two ways to win.
+  static const char* const kLines[] = {
+      "EACH TURN: PLACE ONE TROOP, OR DRAW TWO.",
+      "A TROOP GOES ON AN EMPTY BASE, ONE OF YOURS, OR AN ENEMY TROOP WEAKER THAN IT.",
+      "IT MUST TRACE A PATH HOME TO YOUR H.Q. THROUGH BASES YOU HOLD.",
+      "HOLD EVERY BASE AROUND A REGION AND ITS MEDALS ARE YOURS FOR GOOD.",
+      "WIN BY REACHING THE MEDALS, OR BY PLACING A TROOP ON THEIR H.Q.",
+      "THE DUCK COVERS ANYTHING. ANYTHING COVERS THE DUCK.",
+  };
+  fui::TextStyle body;
+  body.font = toybox::kSmallFont;
+  body.align = fui::TextAlign::Left;
+  body.maxLines = 3;
+  for (const char* line : kLines) {
+    screen.target().text(screen.takeTop(62, toybox::kGutter), line, body);
+  }
+}
+
 void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   fui::HeaderProps header;
   header.title = "TOY BATTLE";

@@ -26,6 +26,8 @@ enum : fui::ActionId {
   ActionTake = 4,
   ActionSkip = 5,
   ActionBrief = 6,
+  ActionAgain = 7,
+  ActionDone = 8,
 };
 
 enum class MenuRow : int { Play = 0, HowTo, Count };
@@ -72,6 +74,17 @@ struct BriefModel {
   bool specialBases = true;
 };
 void buildBrief(toybox::Screen& screen, const BriefModel& model);
+
+struct ResultModel {
+  toybattle::Game game{};
+  uint8_t seat = 0;
+};
+void buildResult(toybox::Screen& screen, const ResultModel& model);
+
+// How the game is played, in one screen. Short on purpose: the marks carry the
+// troops and the briefing carries the terrain, so this only has to cover the
+// two things neither of those can say.
+void buildHowTo(toybox::Screen& screen);
 
 // What a troop does, in a few words, and why a tap was refused. Both feed the
 // one line under the title.
