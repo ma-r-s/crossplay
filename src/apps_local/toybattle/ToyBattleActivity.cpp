@@ -119,6 +119,7 @@ const char* ToyBattleActivity::promptText() const {
   // something needs to know why it did not work more than they need reminding
   // of the question.
   if (notice != nullptr && *notice != '\0') return notice;
+  if (!dealt) return "WAITING FOR THE DEAL";
   if (game.currentPhase() != tb::Phase::Playing) return game.winner == seat ? "YOU WIN" : "YOU LOSE";
   if (game.turn != seat) return "THEY ARE THINKING";
   switch (tb::pending(game, draft)) {
@@ -476,11 +477,17 @@ void ToyBattleActivity::onMatchStart(const bool goesFirst) {
   draft.clear();
   notice = nullptr;
   if (goesFirst) {
-    // The leader deals and keeps the turn, so its first placement carries the
-    // whole opening -- map, special bases and both reserves -- in the first
-    // state packet. Everything two devices must agree on lives in `Game`.
-    game.newGame(static_cast<uint32_t>(millis()) * 2654435761u + 1u, options.terrain, 0, options.specialBases);
+    // The leader deals and passes at once, rather than dealing and holding the
+    // turn. Holding it means the opening does not leave this device until the
+    // dealer has decided on a move, and the other player spends that whole time
+    // looking at an empty rack and a board with nothing on it -- which is
+    // exactly what two simulators showed.
+    //
+    // So the deal names the OTHER seat as the starter and goes out immediately.
+    // The coin toss decides who deals; it does not have to decide who moves.
+    game.newGame(static_cast<uint32_t>(millis()) * 2654435761u + 1u, options.terrain, 1, options.specialBases);
     dealt = true;
+    if (!link.play(game)) LOG_ERR("TB", "the link refused the opening on our own turn");
   } else {
     // The follower must not deal. A randomised opening would be a different
     // game on each device, and a zeroed one has no legal move and reads as
