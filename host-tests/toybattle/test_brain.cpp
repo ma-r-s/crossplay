@@ -57,12 +57,13 @@ static Move randomLegalMove(const Game& g) {
   return options[rnd() % options.size()];
 }
 
-enum class Player { Random, Recruit, General };
+enum class Player { Random, Recruit, Sergeant, General };
 
 static Move moveFor(const Game& g, Player p) {
   if (p == Player::Random) return randomLegalMove(g);
   const Observation obs = observe(g, g.turn);
-  return chooseMove(obs, p == Player::Recruit ? Skill::Recruit : Skill::General);
+  const Skill skill = p == Player::Recruit ? Skill::Recruit : (p == Player::Sergeant ? Skill::Sergeant : Skill::General);
+  return chooseMove(obs, skill);
 }
 
 // Plays one game and returns the winner, checking the brain's promises on every
@@ -181,7 +182,7 @@ static void testTakesTheWinInFrontOfIt() {
   g.placementCount = 0;
   for (int base = 10; base <= 14; ++base) put(g, 0, base, Troop::Roxy);
 
-  for (Skill s : {Skill::Recruit, Skill::General}) {
+  for (Skill s : {Skill::Recruit, Skill::Sergeant, Skill::General}) {
     const Observation obs = observe(g, 0);
     const Move m = chooseMove(obs, s);
     Game after = g;
@@ -219,7 +220,7 @@ static void testRefusesToHangItsHq() {
   const Observation obs = observe(g, 0);
   check(detail::hqIsExposed(g, 0, obs.unseen, obs.opponentRackSize), "the H.Q. is exposed to start with");
 
-  for (Skill s : {Skill::Recruit, Skill::General}) {
+  for (Skill s : {Skill::Recruit, Skill::Sergeant, Skill::General}) {
     const Move m = chooseMove(observe(g, 0), s);
     Game after = g;
     check(after.apply(m), "the move applies");
@@ -301,6 +302,12 @@ int main() {
   // nobody owns.
   const Record castle =
       faceOff(Player::General, Player::Recruit, 200, true, true, static_cast<int>(TerrainId::CastleField));
+  // The difficulty setting offers three rungs, so the three rungs have to BE a
+  // ladder rather than three names over the same opponent. Each step is checked
+  // against the one below it; if a change ever makes Sergeant as strong as
+  // General, this is what says so instead of a player noticing.
+  const Record generalVsSergeant = faceOff(Player::General, Player::Sergeant, 400, true, false);
+  const Record sergeantVsRecruit = faceOff(Player::Sergeant, Player::Recruit, 300, true, false);
 
   // Bands, deliberately well below what was measured (77%, 100%, 100%, 100%),
   // so that a real regression trips them and ordinary variance does not. A
@@ -311,6 +318,11 @@ int main() {
   check(generalNoBases.percent() >= 90, "with special bases switched off as well");
   check(generalVsRecruit.percent() >= 90, "General beats Recruit, which is the evaluation earning its place");
   check(castle.percent() >= 90, "and the same on Castle Field");
+  // Measured at 71% and 99%. The search is the biggest single step this brain
+  // has ever taken, and 60 is far enough below 71 to survive variance while
+  // still failing if the search stops working.
+  check(generalVsSergeant.percent() >= 60, "General out-searches Sergeant, so the top rung is a real rung");
+  check(sergeantVsRecruit.percent() >= 90, "and Sergeant out-evaluates Recruit, so the bottom one is too");
 
   printf("brain      %d checks, 0 failed\n", checks);
   printf("           vs random: recruit %d%% (%d/%d), general %d%% (%d%% with special bases off)\n",
@@ -319,5 +331,7 @@ int main() {
   printf("           general %d%% (%d/%d) vs recruit  <- the one that would catch a regression\n",
          generalVsRecruit.percent(), generalVsRecruit.wins, generalVsRecruit.games);
   printf("           general %d%% vs recruit on CASTLE FIELD over %d games\n", castle.percent(), castle.games);
+  printf("           the ladder: general %d%% vs sergeant, sergeant %d%% vs recruit\n", generalVsSergeant.percent(),
+         sergeantVsRecruit.percent());
   return 0;
 }

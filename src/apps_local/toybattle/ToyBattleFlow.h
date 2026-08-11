@@ -10,6 +10,7 @@
 
 #include <cstdint>
 
+#include "ToyBattleBrain.h"
 #include "ToyBattleCore.h"
 
 namespace toybattle {
@@ -18,15 +19,48 @@ namespace toybattle {
 // The shell
 // ---------------------------------------------------------------------------
 
-// Brief is the map briefing: what this terrain's special bases do. It is
-// reachable from the board, because that is where the question occurs to you.
-enum class Screen : uint8_t { Menu = 0, Setup, HowTo, Board, Brief, Result };
-constexpr int kScreenCount = 6;
+// What the player is here to do. Two modes rather than three: link is the only
+// two-player mode, because a game whose only hidden thing is your own rack does
+// not need a pass-the-device screen badly enough to earn one.
+enum class Mode : uint8_t { Solo = 0, Link };
+
+// Everything chosen before a game starts. Small, flat and copyable, because in a
+// link game the host sends this to the guest and both devices must agree on it
+// exactly -- a setting either side got to decide for itself is a desync waiting
+// for the first special base.
+struct Options {
+  uint8_t terrain = 0;
+  Skill skill = Skill::Sergeant;
+  bool specialBases = true;
+  Mode mode = Mode::Solo;
+};
+
+// The shell.
+//
+//   Menu     the top, and the only way out of the app
+//   Setup    map, difficulty, special bases, and the button that starts it
+//   MapPick  the terrain list, which needs a screen once there are eight
+//   Lobby    link only: looking for a device, and waiting for the host to choose
+//   HowTo    the rules, paginated
+//   Board    playing
+//   Brief    what this terrain's special bases do, read from the board
+//   Result   who won
+//
+// Brief is reachable from the board because that is where the question occurs to
+// you, and it is the one screen whose Back is not the menu.
+enum class Screen : uint8_t { Menu = 0, Setup, MapPick, Lobby, HowTo, Board, Brief, Result };
+constexpr int kScreenCount = 8;
 
 // Where Back goes from `screen`.
 //
 // Exhaustive switch, no default, so a new screen without a decided Back fails
 // the build rather than falling through to something plausible.
+//
+// Deliberately a function of the screen alone, not of the mode. Leaving Setup or
+// the Board in a link game also ends the session, but that is the activity's job
+// to carry out, not a second destination: a Back that depended on the mode would
+// be the shell machine reading the game machine, which is the coupling the split
+// exists to prevent.
 constexpr Screen back(const Screen screen) {
   switch (screen) {
     case Screen::Menu:
@@ -34,6 +68,10 @@ constexpr Screen back(const Screen screen) {
       // inventing a state for "gone".
       return Screen::Menu;
     case Screen::Setup:
+      return Screen::Menu;
+    case Screen::MapPick:
+      return Screen::Setup;
+    case Screen::Lobby:
       return Screen::Menu;
     case Screen::HowTo:
       return Screen::Menu;

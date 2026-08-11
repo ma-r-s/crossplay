@@ -306,6 +306,7 @@ Policy policyFor(Skill skill) {
     p.material = false;  // the two reflexes and nothing else
     return p;
   }
+  if (skill == Skill::Sergeant) return p;  // an evaluation, played greedily
   // Beam 8 at depth 3, which is where the tournament stopped paying: beam 12
   // and beam 24 are level with it head to head and cost two and four times as
   // much, and depth 3 beats the greedy brain this replaces 72.8% of 6400 games.

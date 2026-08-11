@@ -36,7 +36,8 @@ static uint32_t rnd() {
 // --- the shell -------------------------------------------------------------
 
 static void testNavigation() {
-  const Screen all[] = {Screen::Menu, Screen::Setup, Screen::HowTo, Screen::Board, Screen::Brief, Screen::Result};
+  const Screen all[] = {Screen::Menu,  Screen::Setup, Screen::MapPick, Screen::Lobby,
+                        Screen::HowTo, Screen::Board, Screen::Brief,   Screen::Result};
   check(sizeof(all) / sizeof(all[0]) == kScreenCount, "every screen is in the list under test");
 
   int exits = 0;
@@ -51,9 +52,11 @@ static void testNavigation() {
       ++hops;
     }
     check(at == Screen::Menu, "every screen reaches the menu by pressing Back");
-    // The briefing hangs off the board, so it is the one screen two presses
-    // deep. Everything else is one.
-    check(hops <= (s == Screen::Brief ? 2 : 1), "and the shell stays shallow");
+    // Two screens hang off another rather than off the menu: the briefing off
+    // the board, and the map list off setup. Everything else is one press from
+    // the top, and nothing is ever three.
+    const bool nested = s == Screen::Brief || s == Screen::MapPick;
+    check(hops <= (nested ? 2 : 1), "and the shell stays shallow");
   }
   check(exits == 1, "exactly one screen leaves the app");
 

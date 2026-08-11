@@ -27,10 +27,10 @@
 
 namespace toybattle {
 
-// Both skills keep the same two reflexes -- take the win in front of you, never
-// leave your own H.Q. open -- because in a game with sudden death those are
-// table stakes rather than a difficulty setting. Recruit has nothing else and
-// plays freely among the safe moves; General has an evaluation and a search.
+// All three rungs keep the same two reflexes -- take the win in front of you,
+// never leave your own H.Q. open -- because in a game with sudden death those
+// are table stakes rather than a difficulty setting. What separates them is what
+// sits on top.
 //
 // **What makes it strong is depth, and nothing else has ever measured.** Three
 // separate attempts to strengthen this brain by adding evaluation terms -- a
@@ -50,7 +50,16 @@ namespace toybattle {
 //
 // So: do not add an evaluation term to this file without a tournament run
 // showing it earns its place. Four have been tried and four have been deleted.
-enum class Skill : uint8_t { Recruit = 0, General };
+//
+// The rungs are the tournament's own tier list rather than three names invented
+// to fill a menu. Each beats the one below it decisively over 6400 games, so no
+// rung is a placebo:
+//
+//   Recruit   the two reflexes and no opinion   ~0% against General
+//   Sergeant  + an evaluation, played greedily   29% against General
+//   General   + the reply search                  --
+enum class Skill : uint8_t { Recruit = 0, Sergeant, General };
+constexpr int kSkillCount = 3;
 
 // How hard it plays, as knobs rather than as a name. Every previous attempt to
 // make this brain stronger added a term to the evaluation and measured nothing,
