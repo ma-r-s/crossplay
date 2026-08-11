@@ -329,12 +329,13 @@ presses from the top, that exactly one screen leaves the app, and that no pair
 can Back into each other. It also asserts its own screen list is complete
 against `kScreenCount`, which is what caught both new screens.
 
-**Three treatments were built and photographed rather than described.** FRONT
-DOOR is the documented band order plainly; SLAB carries the board's own material
-up into the menus with every setting value on screen at once; BRIEFING keeps the
-setup visible so starting is one tap. They live behind `tbui::Look`, a
-compile-time constant, and two thirds of `ToyBattleMenus.cpp` gets deleted when
-one is chosen. They are not a setting.
+**Three treatments were built and photographed rather than described**, and
+Mario picked the front door on 2026-08-11: the documented band order, plainly.
+The other two -- SLAB, which carried the board's own material up into the menus,
+and BRIEFING, which kept the setup on screen so starting was one tap -- were
+deleted the same day rather than left behind a flag. The renders are still in
+`qa-artifacts/` if the question comes back, and `scripts_local/shoot-shell.sh`
+is the recipe that produced them.
 
 Every picture in the shell is `miniBoard()` drawing the real terrain from its own
 normalised coordinates -- the menu ornament carries the position you would

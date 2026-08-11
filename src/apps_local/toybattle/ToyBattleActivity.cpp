@@ -67,7 +67,6 @@ tbui::MenuModel ToyBattleActivity::menuModel() const {
   model.won = won;
   model.options = options;
   model.preview = &preview;
-  model.look = kLook;
   return model;
 }
 
@@ -328,7 +327,7 @@ void ToyBattleActivity::gameLoop() {
       requestUpdate();
       return;
     case tbui::ActionPageNext:
-      if (howToPage + 1 >= tbui::howToPages(kLook)) {
+      if (howToPage + 1 >= tbui::howToPages()) {
         // The last page returns to the menu rather than dropping you into a
         // board: you have just been taught, and what you want next is to pick.
         openMenu();
@@ -411,16 +410,14 @@ void ToyBattleActivity::gameRender() {
     case tb::Screen::HowTo: {
       tbui::HowToModel model;
       model.page = howToPage;
-      model.look = kLook;
-      tbui::buildHowTo(surface, model);
+          tbui::buildHowTo(surface, model);
       break;
     }
     case tb::Screen::MapPick: {
       tbui::MapPickModel model;
       model.selected = options.terrain;
       model.topRow = mapTop;
-      model.look = kLook;
-      tbui::buildMapPick(surface, model);
+          tbui::buildMapPick(surface, model);
       break;
     }
     case tb::Screen::Setup: {
@@ -428,8 +425,7 @@ void ToyBattleActivity::gameRender() {
       model.options = options;
       model.selected = setupSelected;
       model.forLink = options.mode == tb::Mode::Link;
-      model.look = kLook;
-      tbui::buildSetup(surface, model);
+          tbui::buildSetup(surface, model);
       break;
     }
     case tb::Screen::Lobby:

@@ -3177,67 +3177,60 @@ void testToyBattleShell() {
   toybattle::Game preview;
   preview.newGame(7u, 0, 0, true);
 
-  for (int lookIndex = 0; lookIndex < tbui::kLookCount; ++lookIndex) {
-    const tbui::Look look = static_cast<tbui::Look>(lookIndex);
+  for (int save = 0; save < 2; ++save) {
+    tbui::MenuModel model;
+    model.hasSave = save != 0;
+    model.saveDetail = "2-1";
+    model.preview = &preview;
+    model.played = 3;
+    model.won = 2;
+    Rendered out;
+    buildTbMenu(out, model);
+    // The 24-rect ceiling. Past it a control draws and registers nothing, which
+    // looks exactly like a control that works.
+    CHECK(out.interactions.count() <= toybox::kMaxInteractions);
+    CHECK(out.interactions.count() > 0);
+    CHECK(out.target.drew("PLAY NEARBY"));
+    CHECK(out.target.drew("HOW TO PLAY"));
+    // A save that is offered has to say what it is offering.
+    CHECK(out.target.drew("CONTINUE") == (save != 0));
+  }
 
-    for (int save = 0; save < 2; ++save) {
-      tbui::MenuModel model;
-      model.look = look;
-      model.hasSave = save != 0;
-      model.saveDetail = "CASTLE FIELD   2-1";
-      model.preview = &preview;
-      model.played = 3;
-      model.won = 2;
-      Rendered out;
-      buildTbMenu(out, model);
-      // The 24-rect ceiling. Past it a control draws and registers nothing,
-      // which looks exactly like a control that works.
-      CHECK(out.interactions.count() <= toybox::kMaxInteractions);
-      CHECK(out.interactions.count() > 0);
-      CHECK(out.target.drew("PLAY NEARBY"));
-      CHECK(out.target.drew("HOW TO PLAY"));
-      // A save that is offered has to say what it is offering.
-      CHECK(out.target.drew("CONTINUE") == (save != 0));
-    }
+  for (int link = 0; link < 2; ++link) {
+    tbui::SetupModel model;
+    model.forLink = link != 0;
+    model.selected = 0;
+    Rendered out;
+    buildTbSetup(out, model);
+    CHECK(out.interactions.count() <= toybox::kMaxInteractions);
+    CHECK(out.target.drew("START"));
+    // Against a person there is no difficulty to choose, and the row that would
+    // set one must not be on the screen at all.
+    CHECK(out.target.drew("SERGEANT") == (link == 0));
+  }
 
-    for (int link = 0; link < 2; ++link) {
-      tbui::SetupModel model;
-      model.look = look;
-      model.forLink = link != 0;
-      model.selected = 0;
-      Rendered out;
-      buildTbSetup(out, model);
-      CHECK(out.interactions.count() <= toybox::kMaxInteractions);
-      CHECK(out.target.drew("START"));
-      // Against a person there is no difficulty to choose, and the row that
-      // would set one must not be on the screen at all.
-      CHECK(out.target.drew("SERGEANT") == (link == 0));
+  {
+    tbui::MapPickModel model;
+    Rendered out;
+    buildTbMaps(out, model);
+    CHECK(out.interactions.count() <= toybox::kMaxInteractions);
+    CHECK(out.interactions.count() >= toybattle::kTerrainCount);
+    for (int i = 0; i < toybattle::kTerrainCount; ++i) {
+      CHECK(out.target.drew(toybattle::terrainAt(i).name));
     }
+  }
 
-    {
-      tbui::MapPickModel model;
-      model.look = look;
-      Rendered out;
-      buildTbMaps(out, model);
-      CHECK(out.interactions.count() <= toybox::kMaxInteractions);
-      CHECK(out.interactions.count() >= toybattle::kTerrainCount);
-      for (int i = 0; i < toybattle::kTerrainCount; ++i) {
-        CHECK(out.target.drew(toybattle::terrainAt(i).name));
-      }
-    }
-
-    for (int page = 0; page < tbui::howToPages(look); ++page) {
-      tbui::HowToModel model;
-      model.look = look;
-      model.page = page;
-      Rendered out;
-      buildTbHowTo(out, model);
-      CHECK(out.interactions.count() <= toybox::kMaxInteractions);
-      // Every page has a way forward. The first version of this in another game
-      // put NEXT after three early-returning branches, so two of three pages
-      // had none.
-      CHECK(out.interactions.count() > 0);
-    }
+  for (int page = 0; page < tbui::howToPages(); ++page) {
+    tbui::HowToModel model;
+    model.page = page;
+    Rendered out;
+    buildTbHowTo(out, model);
+    CHECK(out.interactions.count() <= toybox::kMaxInteractions);
+    // Every page has a way forward. The first version of this in another game
+    // put NEXT after three early-returning branches, so two of three pages had
+    // none.
+    CHECK(out.interactions.count() > 0);
+    CHECK(out.target.drew(page + 1 == tbui::howToPages() ? "PLAY" : "NEXT"));
   }
 }
 

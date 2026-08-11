@@ -4,9 +4,11 @@
 // Free functions over plain models, drawing only through FreeInkUI, so they
 // build in host-tests/ui/ against a fake target with no renderer and no device.
 //
-// Three treatments of each are built at once and photographed side by side,
-// because an option described in prose gets judged on the prose. Two of the
-// three get deleted once one is chosen -- they are not a setting.
+// Three treatments of each were built at once and photographed side by side,
+// because an option described in prose gets judged on the prose. Mario picked
+// the front door on 2026-08-11 and the other two were deleted the same day --
+// they were never a setting, and the renders are in qa-artifacts/ if the
+// question ever comes back.
 
 #include "../ui/ToyboxScreen.h"
 #include "ToyBattleCore.h"
@@ -14,12 +16,6 @@
 
 namespace tbui {
 namespace fui = freeink::ui;
-
-// Which of the three treatments to draw. Temporary by construction: when Mario
-// picks one, this enum and two thirds of the file go with it.
-enum class Look : uint8_t { FrontDoor = 0, Slab, Briefing };
-constexpr int kLookCount = 3;
-const char* lookName(Look look);
 
 enum : fui::ActionId {
   // The 100s, so nothing here can collide with the board's ids in the 1..8
@@ -55,7 +51,6 @@ struct MenuModel {
   // The position behind the glass: the saved game if there is one, otherwise
   // the chosen map, empty. Never null.
   const toybattle::Game* preview = nullptr;
-  Look look = Look::FrontDoor;
 };
 
 int shellRowCount(const MenuModel& model);
@@ -71,7 +66,6 @@ struct SetupModel {
   int selected = -1;
   // Against a person there is no opponent to choose, so the row is not there.
   bool forLink = false;
-  Look look = Look::FrontDoor;
 };
 
 int setupRowCount(const SetupModel& model);
@@ -83,7 +77,6 @@ void buildSetup(toybox::Screen& screen, const SetupModel& model);
 struct MapPickModel {
   int selected = 0;
   int topRow = 0;
-  Look look = Look::FrontDoor;
 };
 
 void buildMapPick(toybox::Screen& screen, const MapPickModel& model);
@@ -92,10 +85,9 @@ void buildMapPick(toybox::Screen& screen, const MapPickModel& model);
 
 struct HowToModel {
   int page = 0;
-  Look look = Look::FrontDoor;
 };
 
-int howToPages(Look look);
+int howToPages();
 void buildHowTo(toybox::Screen& screen, const HowToModel& model);
 
 // --- shared material --------------------------------------------------------
