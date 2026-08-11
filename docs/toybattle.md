@@ -146,10 +146,29 @@ first, then the base effects, in the order the bases were occupied.** A Cap'n
 chain therefore runs both placements and both troop effects before either base
 fires, which changes what the extra placement could have been.
 
-### Not implemented, and deliberately
+### La Croisette
 
-There is a 2026 expansion, **La Croisette**. Out of scope; noted so nobody
-rediscovers it and thinks it was missed.
+The 2026 expansion, and it is **only a terrain**: its own rulebook says "there
+are no changes to the gameplay or victory conditions." Confirmed from the
+official PDF, and it needs no new mechanics at all -- its four special bases are
+kinds this engine already has:
+
+| On the board             | Effect                                          |
+| ------------------------ | ----------------------------------------------- |
+| Ice cream van            | `Draw` -- draw 1 from your reserve              |
+| Police box               | `Suppress` -- Battlefield's blind pick          |
+| Pier marked `4 - 7`      | `Gate` -- strengths 4, 5, 6, 7 **or the joker** |
+| Pier marked with a cross | `Nullify` -- troop effects do not apply         |
+
+Its medals objective is **5**, read off both badges.
+
+Note the gate admits the **joker as well as 4-7**, which is the first hard
+evidence of how a gate treats Kwak. `kProvingGround`'s gate was a guess made
+before this was known and admits only 6 and 7; that is fine for a board of ours,
+but the real Tropical Pool should be read the same careful way when it lands.
+
+**The board itself is not implemented, because it is not yet read reliably.**
+See "Open items".
 
 ## The shape of the implementation
 
@@ -230,7 +249,18 @@ sample is 600.
 
 ## Open items
 
-- **No real terrain is implemented yet, on purpose.** `kProvingGround` is ours
+- **La Croisette is traced but not implemented, and this is the honest gap.**
+  Its rules are settled (above) and its objective is 5. Its topology is not:
+  unlike Castle Field it is irregular -- diagonal roads, an asymmetric
+  coastline, structures at the board edge -- and from the one screenshot I
+  cannot tell reliably which of the right-hand structures are bases, how the
+  diagonals join, or which bases fence which region. Roughly 13 bases and 2
+  H.Q., but "roughly" is not something to write into a terrain table. What
+  would settle it: the board with each base tapped or highlighted, or simply a
+  second look together. Committing a guess here would be worse than the gap,
+  because a wrong path is invisible until someone cannot make a move they
+  should be able to make.
+- **No other real terrain is implemented yet, on purpose.** `kProvingGround` is ours
   and is named so: a 5x3 lattice with an H.Q. at each end, its eight cells as
   regions, and every special base kind on the one board (no terrain Repos
   printed mixes them; this one exists so the tests have somewhere to run).
