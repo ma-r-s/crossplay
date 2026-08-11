@@ -13,6 +13,9 @@
 
 namespace tb = toybattle;
 
+// The fork-local convention, the pattern knucklebones.sav set.
+static constexpr char kSavePath[] = "/.crosspoint/toybattle.sav";
+
 std::unique_ptr<Activity> ToyBattleActivity::create(GfxRenderer& renderer, MappedInputManager& mappedInput) {
   return std::make_unique<ToyBattleActivity>(renderer, mappedInput);
 }
@@ -45,6 +48,7 @@ void ToyBattleActivity::beginGame() {
   seat = 0;
   dealt = true;
   hasSave = true;
+  recorded = false;
   goTo(tb::Screen::Board);
 }
 
@@ -100,11 +104,17 @@ void ToyBattleActivity::refreshSaveLine() {
     saveDetail[0] = '\0';
     return;
   }
-  std::snprintf(saveDetail, sizeof(saveDetail), "%s   %d-%d", tb::terrainAt(preview.terrain).name,
-                preview.medals[seat], preview.medals[seat ^ 1]);
+  // The board behind the glass is the game you would actually return to, not a
+  // fresh one on the same map. A CONTINUE row that shows an empty board is
+  // offering something it does not have.
+  preview = game;
+  std::snprintf(saveDetail, sizeof(saveDetail), "%d-%d", game.medals[seat], game.medals[seat ^ 1]);
 }
 
 void ToyBattleActivity::goTo(const tb::Screen next) {
+  // Every road to the menu passes through here, so the front door is never
+  // showing a save line from before the last move.
+  if (next == tb::Screen::Menu) refreshSaveLine();
   screen = next;
   requestUpdate();
 }
@@ -168,6 +178,13 @@ void ToyBattleActivity::gameLoop() {
       shelf::leave(renderer, mappedInput);
       return;
     }
+    if (screen == tb::Screen::Board) {
+      // Leaving the board writes it, the same as leaving the app does. onExit
+      // is the call that matters because sleep makes it when the player does
+      // nothing, but a board abandoned by Back and then never slept would
+      // otherwise be a game the menu offers and cannot open.
+      saveGame();
+    }
     goTo(tb::back(screen));
     return;
   }
@@ -175,6 +192,16 @@ void ToyBattleActivity::gameLoop() {
   if (screen == tb::Screen::Board && dealt && game.currentPhase() != tb::Phase::Playing) {
     // A finished game is a different screen. Leaving it on the board with the
     // outcome in the prompt line left nowhere to go but Back.
+    //
+    // This is also the one place a result is recorded, and the one place the
+    // save is cleared: a finished game must not be offered as one to continue.
+    if (!recorded) {
+      recorded = true;
+      ++played;
+      if (game.winner == seat) ++won;
+      hasSave = false;
+      if (Storage.exists(kSavePath)) Storage.remove(kSavePath);
+    }
     goTo(tb::Screen::Result);
     return;
   }
@@ -435,11 +462,6 @@ void ToyBattleActivity::gameRender() {
 // Playing a person
 // ---------------------------------------------------------------------------
 
-namespace {
-// The fork-local convention, the pattern knucklebones.sav set.
-constexpr char kSavePath[] = "/.crosspoint/toybattle.sav";
-}  // namespace
-
 bool ToyBattleActivity::canAct() const {
   const bool mine = game.currentPhase() == tb::Phase::Playing && game.turn == seat;
   if (!inMatch()) return mine;
@@ -476,6 +498,7 @@ void ToyBattleActivity::onMatchStart(const bool goesFirst) {
   seat = goesFirst ? 0 : 1;
   draft.clear();
   notice = nullptr;
+  recorded = false;
   if (goesFirst) {
     // The leader deals and passes at once, rather than dealing and holding the
     // turn. Holding it means the opening does not leave this device until the

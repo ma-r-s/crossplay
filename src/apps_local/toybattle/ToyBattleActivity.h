@@ -81,11 +81,14 @@ class ToyBattleActivity final : public linkplay::LinkActivity {
   toybattle::Game preview{};
   int played = 0;
   int won = 0;
+  // A finish is recorded once, in one place. render() runs more than once per
+  // move, so a screen builder that counted a win would count several.
+  bool recorded = false;
 
   // Which of the three treatments to draw. A constant rather than a setting:
   // two of the three get deleted once one is chosen, and a build flag is enough
   // to photograph them side by side in the meantime.
-  static constexpr tbui::Look kLook = tbui::Look::FrontDoor;
+  static constexpr tbui::Look kLook = tbui::Look::Briefing;
 
   // A move is only sent when the rules AND the link both say it is your turn.
   // Asking whether they agree is not the same question and passes on the

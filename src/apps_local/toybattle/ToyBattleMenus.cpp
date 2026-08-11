@@ -100,10 +100,18 @@ void miniBoard(toybox::Screen& screen, const fui::Rect& box, const tb::Terrain& 
   const int slots = terrain.slotCount();
   if (slots <= 0) return;
 
-  // Node size from the room available, clamped so a fifteen-base map stays
-  // legible and a small one does not turn into paddles.
-  const int16_t node = static_cast<int16_t>(box.width < 300 ? 14 : 18);
-  const int16_t pad = static_cast<int16_t>(node / 2 + 2);
+  // Node size from the room actually available, not from a two-way guess. A
+  // fifteen-base lattice in a 100px thumbnail drew its nodes into each other and
+  // read as a blob; the divisor is what keeps neighbours apart at any size.
+  const int16_t shorter = static_cast<int16_t>(box.width < box.height ? box.width : box.height);
+  int16_t node = static_cast<int16_t>(shorter / 8);
+  if (node < 5) node = 5;
+  if (node > 18) node = 18;
+  // The H.Q. ring is drawn 3px OUTSIDE its node, so the padding has to clear the
+  // decoration and not just the node -- otherwise the topmost H.Q. fuses with
+  // whatever sits above the board, which is exactly what the rule under the
+  // record line did on the front door.
+  const int16_t pad = static_cast<int16_t>(node / 2 + 6);
   const int16_t left = static_cast<int16_t>(box.x + pad);
   const int16_t top = static_cast<int16_t>(box.y + pad);
   const int16_t usableW = static_cast<int16_t>(box.width - pad * 2);
@@ -132,9 +140,11 @@ void miniBoard(toybox::Screen& screen, const fui::Rect& box, const tb::Terrain& 
     const bool isHq = terrain.isHq(slot);
     const int held = game != nullptr && terrain.isBase(slot) ? game->occupantSeat(slot) : tb::kNoSeat;
 
-    // Square corners mean the base restricts what may be placed on it, which is
-    // the same silhouette rule the full board uses.
-    const int16_t radius = (terrain.isBase(slot) && terrain.gate[slot] != 0) ? 0 : 4;
+    // Square corners mean the base restricts what may be placed on it, the same
+    // silhouette rule the full board uses -- but only while it is big enough to
+    // read as a decision. Below that it is one node that does not match the
+    // others, which reads as a stray mark rather than as a rule.
+    const int16_t radius = (node >= 14 && terrain.isBase(slot) && terrain.gate[slot] != 0) ? 0 : 4;
 
     if (held == 0) {
       screen.target().fill(cell, ink, radius);
@@ -271,22 +281,24 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
       screen.button(door, slab);
 
       // The label is drawn over the slab rather than through it, because
-      // CONTINUE needs a second line saying what it continues and a button
-      // draws one.
+      // CONTINUE carries the score it would return you to and a button draws
+      // one string. On one line, not two: a display cut stacked over a caption
+      // inside a 74px slab clipped its own second line, and the score belongs
+      // at the end of the row anyway -- which is where every other list in this
+      // fork puts a value.
       const fui::Color inkColor = loud ? fui::Color::White : fui::Color::Black;
-      const bool twoLine = row == ShellRow::Continue && model.saveDetail[0] != '\0';
-      const int16_t nameH = screen.target().lineHeight(toybox::kDisplayFont);
-      const int16_t subH = screen.target().lineHeight(toybox::kTileFont);
-      const int16_t block = static_cast<int16_t>(twoLine ? nameH + subH : nameH);
-      const int16_t textTop = static_cast<int16_t>(slab.y + (slabH - block) / 2);
-      screen.target().text(fui::makeRect(static_cast<int16_t>(slab.x + toybox::kGutter), textTop,
-                                         static_cast<int16_t>(slab.width - toybox::kGutter * 2), nameH),
-                           shellRowLabel(row), styled(toybox::kDisplayFont, fui::TextAlign::Left, inkColor));
-      if (twoLine) {
-        screen.target().text(fui::makeRect(static_cast<int16_t>(slab.x + toybox::kGutter),
-                                           static_cast<int16_t>(textTop + nameH),
-                                           static_cast<int16_t>(slab.width - toybox::kGutter * 2), subH),
-                             model.saveDetail, styled(toybox::kTileFont, fui::TextAlign::Left, inkColor));
+      const int16_t lineH = screen.target().lineHeight(toybox::kDisplayFont);
+      const int16_t textTop = static_cast<int16_t>(slab.y + (slabH - lineH) / 2);
+      const bool hasScore = row == ShellRow::Continue && model.saveDetail[0] != '\0';
+      const int16_t scoreW = hasScore ? 110 : 0;
+      screen.target().text(
+          fui::makeRect(static_cast<int16_t>(slab.x + toybox::kGutter), textTop,
+                        static_cast<int16_t>(slab.width - toybox::kGutter * 2 - scoreW), lineH),
+          shellRowLabel(row), styled(toybox::kDisplayFont, fui::TextAlign::Left, inkColor));
+      if (hasScore) {
+        screen.target().text(fui::makeRect(static_cast<int16_t>(slab.right() - scoreW - toybox::kGutter), textTop,
+                                           scoreW, lineH),
+                             model.saveDetail, styled(toybox::kDisplayFont, fui::TextAlign::Right, inkColor));
       }
       if (row == ShellRow::Nearby) {
         toybox::iconAtRowRight(screen, slab, 0, 0, linkui::nearbyMark(), loud);
@@ -321,14 +333,22 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
     std::snprintf(rest, sizeof(rest), "%s   BASES %s", skillName(model.options.skill),
                   model.options.specialBases ? "ON" : "OFF");
     const int16_t pad = toybox::kGutter;
-    screen.target().text(fui::makeRect(static_cast<int16_t>(block.x + pad), static_cast<int16_t>(block.y + 14),
-                                       static_cast<int16_t>(block.width - pad * 2), 34),
-                         terrain.name, styled(toybox::kDisplayFont, fui::TextAlign::Left));
-    screen.target().text(fui::makeRect(static_cast<int16_t>(block.x + pad), static_cast<int16_t>(block.y + 54),
-                                       static_cast<int16_t>(block.width - pad * 2), 26),
-                         detail, styled(toybox::kTileFont, fui::TextAlign::Left));
-    screen.target().text(fui::makeRect(static_cast<int16_t>(block.x + pad), static_cast<int16_t>(block.y + 84),
-                                       static_cast<int16_t>(block.width - pad * 2), 26),
+    // The display cut draws taller than lineHeight() reports, which is why the
+    // detail line was crossing the map name. kDisplayLeading is that difference,
+    // stated once here rather than rediscovered per screen.
+    constexpr int16_t kDisplayLeading = 10;
+    const int16_t nameH = static_cast<int16_t>(screen.target().lineHeight(toybox::kDisplayFont) + kDisplayLeading);
+    const int16_t lineH = screen.target().lineHeight(toybox::kTileFont);
+    const int16_t stack = static_cast<int16_t>(nameH + lineH * 2);
+    const int16_t top = static_cast<int16_t>(block.y + (block.height - stack) / 2);
+    const int16_t textW = static_cast<int16_t>(block.width - pad * 2);
+    screen.target().text(fui::makeRect(static_cast<int16_t>(block.x + pad), top, textW, nameH), terrain.name,
+                         styled(toybox::kDisplayFont, fui::TextAlign::Left));
+    screen.target().text(
+        fui::makeRect(static_cast<int16_t>(block.x + pad), static_cast<int16_t>(top + nameH), textW, lineH), detail,
+        styled(toybox::kTileFont, fui::TextAlign::Left));
+    screen.target().text(fui::makeRect(static_cast<int16_t>(block.x + pad),
+                                       static_cast<int16_t>(top + nameH + lineH), textW, lineH),
                          rest, styled(toybox::kTileFont, fui::TextAlign::Left));
     screen.frame().hit(block, ActionOpenMaps, 0);
 
@@ -527,7 +547,7 @@ void buildSetup(toybox::Screen& screen, const SetupModel& model) {
     // with each clause tappable in place. Changing a setting never leaves the
     // screen, so there is nothing to come back from.
     int16_t y = static_cast<int16_t>(content.y);
-    const int16_t rowH = 88;
+    const int16_t rowH = 104;
     const char* labels[3] = {"MAP", "OPPONENT", "SPECIAL BASES"};
     const fui::ActionId actions[3] = {ActionOpenMaps, ActionPickSkill, ActionPickBases};
     char values[3][48];
@@ -538,18 +558,19 @@ void buildSetup(toybox::Screen& screen, const SetupModel& model) {
     std::snprintf(notes[0], sizeof(notes[0]), "%d MEDALS TO WIN, %d ON THE BOARD", terrain.medalsObjective,
                   medalsOn(terrain));
     std::snprintf(notes[1], sizeof(notes[1]), "%s", skillBlurb(model.options.skill));
-    std::snprintf(notes[2], sizeof(notes[2]), "%s", model.options.specialBases ? "BASES DO SOMETHING"
-                                                                              : "PLAIN BASES, AS THE RULEBOOK ALLOWS");
+    std::snprintf(notes[2], sizeof(notes[2]), "%s",
+                  model.options.specialBases ? "WELLS, GATES AND THE REST ARE LIVE"
+                                             : "PLAIN BASES, AS THE RULEBOOK ALLOWS");
 
     for (int i = 0; i < 3; ++i) {
       if (model.forLink && i == 1) continue;
       const fui::Rect row = fui::makeRect(content.x, y, content.width, rowH);
       screen.frame().hit(row, actions[i], 0);
-      screen.target().fill(fui::makeRect(row.x, static_cast<int16_t>(row.bottom() - toybox::kHairline), row.width,
-                                         toybox::kHairline),
-                           fui::Paint::solid(fui::Color::Black));
       const int16_t labelH = screen.target().lineHeight(toybox::kTileFont);
-      const int16_t valueH = screen.target().lineHeight(toybox::kDisplayFont);
+      // Same under-report as the card above: without the leading, the row's own
+      // divider rule crossed the caption and the next section's label landed a
+      // pixel under it.
+      const int16_t valueH = static_cast<int16_t>(screen.target().lineHeight(toybox::kDisplayFont) + 10);
       const int16_t stack = static_cast<int16_t>(labelH + valueH + labelH);
       const int16_t textTop = static_cast<int16_t>(row.y + (row.height - stack) / 2);
       screen.target().text(fui::makeRect(row.x, textTop, row.width, labelH), labels[i],
@@ -558,7 +579,13 @@ void buildSetup(toybox::Screen& screen, const SetupModel& model) {
                            values[i], styled(toybox::kDisplayFont, fui::TextAlign::Left));
       screen.target().text(fui::makeRect(row.x, static_cast<int16_t>(textTop + labelH + valueH), row.width, labelH),
                            notes[i], styled(toybox::kTileFont, fui::TextAlign::Left));
-      y = static_cast<int16_t>(y + rowH + toybox::kGutter);
+      // Under the stack that was actually laid out, not at the row's bottom
+      // edge: pinning it to the edge is what put the rule through the caption
+      // every time a cut drew taller than it measured.
+      const int16_t ruleY = static_cast<int16_t>(textTop + stack + 6);
+      screen.target().fill(fui::makeRect(row.x, ruleY, row.width, toybox::kHairline),
+                           fui::Paint::solid(fui::Color::Black));
+      y = static_cast<int16_t>(ruleY + toybox::kHairline + toybox::kGutter);
     }
 
     miniBoard(screen,
