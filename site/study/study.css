@@ -557,8 +557,19 @@
   overflow-wrap: anywhere;
 }
 
+/* The panel exists to show the mapping; five of seven menus rendering as
+   "Sentence⌄" defeated the whole point. Label above, menu full width. */
+.wiz-map .study-map-grid {
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+}
+
+.wiz-map .study-map-grid label {
+  display: block;
+}
+
 .wiz-map select {
-  flex: 1;
+  width: 100%;
+  margin-top: 0.15rem;
   min-width: 0;
   font: inherit;
   font-size: 0.82rem;

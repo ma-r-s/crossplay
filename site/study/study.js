@@ -416,7 +416,22 @@
     $("convertLog").textContent =
       result.log + (result.imagesLog ? "\n" + result.imagesLog : "");
     $("checkLog").textContent = result.checkLog;
-    $("next2").disabled = false;
+    // Every card broken is not a warning, it is a failure: a deck of blank
+    // answers would be written to the card and reviewed as nothing. The
+    // cloze path already stops; this makes the photo-answer path stop too.
+    deckIsUnusable =
+      result.cards > 0 &&
+      (result.problems || {})[
+        "a card whose faces do not work as a question and an answer"
+      ] >= result.cards;
+    var brokenAll = deckIsUnusable;
+    $("next2").disabled = brokenAll;
+    if (brokenAll) {
+      verdict.textContent =
+        "Every card in this deck comes out blank, so there is nothing to" +
+        " write.";
+      verdict.className = "study-verdict is-bad";
+    }
     sampleList = result.samples && result.samples.length ? result.samples : [];
     sampleAt = 0;
     flaggedTotal = 0;
@@ -472,10 +487,13 @@
   }
 
   function mappingFromGrid() {
+    // Every slot is sent, cleared ones included: sending only the filled
+    // ones let the converter re-guess the blanks, so "(not shown)" silently
+    // snapped back to whatever it had picked before.
     var mapping = [];
     var selects = $("mapGrid").querySelectorAll("select");
     selects.forEach(function (select) {
-      if (select.value) mapping.push(select.dataset.slot + "=" + select.value);
+      mapping.push(select.dataset.slot + "=" + select.value);
     });
     return mapping.length ? mapping : null;
   }
@@ -484,6 +502,9 @@
   var sampleAt = 0;
   var flaggedTotal = 0;
   var permanentNotes = [];
+  // Set when every card converts to a blank answer: there is nothing to
+  // preview and nothing worth writing, and enableDownstream must not undo it.
+  var deckIsUnusable = false;
 
   function fillSample(sample) {
     if (!sample) {
@@ -624,9 +645,9 @@
       }
       return;
     }
-    $("writeCard").disabled = !canPickFolders;
-    $("writeZip").disabled = false;
-    $("previewBoot").disabled = false;
+    $("writeCard").disabled = deckIsUnusable || !canPickFolders;
+    $("writeZip").disabled = deckIsUnusable;
+    $("previewBoot").disabled = deckIsUnusable;
     if ($("writeStatus").textContent.indexOf("Waiting") === 0)
       setWriteStatus("");
     fonts = result;
@@ -648,6 +669,24 @@
     var all = permanentNotes.concat(fontProblems);
     notice.textContent = all.join(" ");
     notice.hidden = all.length === 0;
+
+    // The per-card flags came from the pass BEFORE the fonts existed. Left
+    // alone they kept saying "needs a font, and none is installed" beside a
+    // headline reading "Every card renders."
+    flaggedTotal = 0;
+    Object.keys(result.problems || {}).forEach(function (k) {
+      flaggedTotal += result.problems[k];
+    });
+    if (!flaggedTotal) {
+      sampleList = sampleList.map(function (card) {
+        return Object.assign({}, card, { flagged: false, reason: "" });
+      });
+      sampleList = sampleList.filter(function (card, i) {
+        return i === 0;
+      });
+      sampleAt = 0;
+      fillSample(sampleList[0]);
+    }
   }
 
   // ---- step 4: the preview ------------------------------------------------
@@ -703,8 +742,12 @@
             location.origin,
             transfers,
           );
+          var cards = (converted && converted.cards) || 0;
           $("previewStatus").textContent =
-            "Booting the firmware… (about ten seconds)";
+            "Booting the firmware…" +
+            (cards > 800
+              ? " a deck this size takes a minute or so to load on the device"
+              : " about ten seconds");
         } else if (event.data.type === "preview-ready") {
           $("previewStatus").textContent = "Booted.";
           window.removeEventListener("message", listener);
@@ -723,6 +766,7 @@
 
   function resetDownstream() {
     epoch++;
+    deckIsUnusable = false;
     converted = null;
     fonts = null;
     var builtin = document.querySelector('input[name="face"][value="builtin"]');
@@ -749,10 +793,15 @@
     // A CJK deck written without its faces is a deck the device cannot draw:
     // hold the write until the build lands (onFonts lifts this).
     var needsFonts = converted.hasCjk && opened && opened.fonts.length > 0;
-    $("writeCard").disabled = needsFonts || !canPickFolders;
-    $("writeZip").disabled = needsFonts;
-    $("previewBoot").disabled = needsFonts;
+    var block = needsFonts || deckIsUnusable;
+    $("writeCard").disabled = block || !canPickFolders;
+    $("writeZip").disabled = block;
+    $("previewBoot").disabled = block;
     if (needsFonts) setWriteStatus("Waiting for the faces to build…");
+    else if (deckIsUnusable)
+      setWriteStatus(
+        "Nothing to write: every card in this deck comes out blank.",
+      );
   }
 
   function onDeckFiles(files) {
@@ -876,17 +925,38 @@
   }
 
   function onZip(buffer) {
+    // The click may be swallowed (throttling, a blocked popup, a full disk)
+    // and the page cannot see the file land. It used to print unpack
+    // instructions unconditionally, so a failed download looked like a
+    // finished one. Offer a real link that stays on the page instead.
+    var name = converted.slug + "-deck.zip";
     var blob = new Blob([buffer], { type: "application/zip" });
+    var url = URL.createObjectURL(blob);
     var a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = converted.slug + "-deck.zip";
+    a.href = url;
+    a.download = name;
     a.click();
-    URL.revokeObjectURL(a.href);
-    setWriteStatus(
-      "Unpack the zip at the ROOT of the SD card, so it creates study/" +
-        converted.slug +
-        "/. Then: Apps > STUDY.",
+
+    var status = $("writeStatus");
+    status.textContent = "";
+    status.appendChild(
+      document.createTextNode(
+        "Look in your Downloads folder for " +
+          name +
+          " (" +
+          Math.max(1, Math.round(buffer.byteLength / 1024)) +
+          " KB). Unpack it at the ROOT of the SD card, so it creates study/" +
+          converted.slug +
+          "/. Then: Apps > STUDY. Nothing there? ",
+      ),
     );
+    var again = document.createElement("a");
+    again.href = url;
+    again.download = name;
+    again.textContent = "Download it again";
+    status.appendChild(again);
+    // The object URL is deliberately not revoked: the fallback link above is
+    // the whole point, and it dies with the page anyway.
   }
 
   // ---- the sync-back flow -------------------------------------------------

@@ -795,11 +795,14 @@ def main():
 
     override = {}
     for pair in args.map or []:
-        key, _, field = pair.partition("=")
-        if key not in FIELD_ORDER or not field:
+        key, sep, field = pair.partition("=")
+        if key not in FIELD_ORDER or not sep:
             sys.exit(
                 f"--map wants <slot>=<Anki field name>; slots: {', '.join(FIELD_ORDER)}"
             )
+        # An empty field is meaningful: "--map sentence=" says leave this slot
+        # blank. Rejecting it left the installer's "(not shown)" unable to
+        # clear anything, so the menu snapped back to the converter's guess.
         override[key] = field
 
     notes, skipped = collect_notes(db, args.deck, args.limit, override or None)

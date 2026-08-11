@@ -118,10 +118,12 @@ def open_apkg():
 
 
 def mapping_dict(mapping):
+    """"slot=Field" strings to a dict. An empty value is a real instruction --
+    "show nothing here" -- not an absent one, so it is kept."""
     out = {}
     for pair in mapping or []:
-        key, _, value = pair.partition("=")
-        if value:
+        key, sep, value = pair.partition("=")
+        if sep:
             out[key] = value
     return out
 
