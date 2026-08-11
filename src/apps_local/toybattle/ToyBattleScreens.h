@@ -25,6 +25,7 @@ enum : fui::ActionId {
   ActionCancel = 3,
   ActionTake = 4,
   ActionSkip = 5,
+  ActionBrief = 6,
 };
 
 enum class MenuRow : int { Play = 0, HowTo, Count };
@@ -63,5 +64,18 @@ int rackAt(const fui::DeviceContext& device, int x, int y);
 
 void buildMenu(toybox::Screen& screen, const MenuModel& model);
 void buildBoard(toybox::Screen& screen, const BoardModel& model);
+
+// What this terrain's special bases do. The only thing that changes between
+// maps, so it is the only thing the briefing has to carry.
+struct BriefModel {
+  const toybattle::Terrain* board = nullptr;
+  bool specialBases = true;
+};
+void buildBrief(toybox::Screen& screen, const BriefModel& model);
+
+// What a troop does, in a few words, and why a tap was refused. Both feed the
+// one line under the title.
+const char* troopBlurb(toybattle::Troop kind);
+const char* refusalBlurb(toybattle::Refusal why);
 
 }  // namespace tbui

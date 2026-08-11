@@ -279,6 +279,127 @@ int rackAt(const fui::DeviceContext& device, const int x, const int y) {
 
 // --- screens ----------------------------------------------------------------
 
+const char* specialBlurb(const tb::Special what) {
+  switch (what) {
+    case tb::Special::Recall:
+      return "CALLS ONE OF YOUR OTHER TROOPS HOME";
+    case tb::Special::Draw:
+      return "DRAWS ONE FROM YOUR RESERVE";
+    case tb::Special::Shove:
+      return "SHOVES A TROOP NEXT TO IT ONE BASE";
+    case tb::Special::Exhume:
+      return "TAKES ONE OF YOURS BACK OFF THE DISCARD";
+    case tb::Special::Suppress:
+      return "PINS A TROOP ON THEIR RACK FOR A TURN";
+    case tb::Special::Gate:
+      return "ONLY THE PRINTED VALUES MAY LAND HERE";
+    case tb::Special::Nullify:
+      return "TROOP EFFECTS DO NOT WORK HERE";
+    case tb::Special::None:
+      return "";
+  }
+  return "";
+}
+
+const char* troopBlurb(const tb::Troop kind) {
+  switch (kind) {
+    case tb::Troop::Kwak:
+      return "JOKER: COVERS ANY, COVERED BY ANY";
+    case tb::Troop::Skully:
+      return "DRAWS TWO FROM YOUR RESERVE";
+    case tb::Troop::Capn:
+      return "LETS YOU PLACE A SECOND TROOP";
+    case tb::Troop::Jumbo:
+      return "REMOVES A TROOP NEXT TO IT";
+    case tb::Troop::Hook:
+      return "LANDS ANYWHERE, PATH OR NOT";
+    case tb::Troop::XB42:
+      return "SHOOTS A TROOP OFF THEIR RACK";
+    case tb::Troop::Star:
+      return "DRAWS ONE FROM YOUR RESERVE";
+    case tb::Troop::Roxy:
+      return "THE STRONGEST. NO EFFECT";
+  }
+  return "";
+}
+
+const char* refusalBlurb(const tb::Refusal why) {
+  switch (why) {
+    case tb::Refusal::None:
+      return "";
+    case tb::Refusal::NotYours:
+      return "YOU ARE NOT HOLDING THAT";
+    case tb::Refusal::Pinned:
+      return "PINNED: IT SITS OUT THIS TURN";
+    case tb::Refusal::NoPath:
+      return "NO PATH TO THERE FROM YOUR H.Q.";
+    case tb::Refusal::TooWeak:
+      return "TOO WEAK TO COVER THAT ONE";
+    case tb::Refusal::OwnHq:
+      return "THAT IS YOUR OWN H.Q.";
+    case tb::Refusal::Gated:
+      return "THIS BASE TAKES OTHER VALUES";
+    case tb::Refusal::Nullified:
+      return "EFFECTS DO NOT WORK ON THAT BASE";
+    case tb::Refusal::NotATarget:
+      return "NOT ONE OF THE CHOICES";
+    case tb::Refusal::NothingAsked:
+      return "";
+  }
+  return "";
+}
+
+// The briefing: every special base on this terrain, drawn with the badge it
+// wears on the board so the mark and the meaning are learned together.
+void buildBrief(toybox::Screen& screen, const BriefModel& model) {
+  fui::HeaderProps header;
+  header.title = model.board ? model.board->name : "TERRAIN";
+  header.borderEdges = fui::EdgesNone;
+  screen.header(header);
+  screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
+  if (!model.board) return;
+
+  fui::TextStyle body;
+  body.font = toybox::kSmallFont;
+  body.align = fui::TextAlign::Left;
+
+  if (!model.specialBases) {
+    screen.target().text(screen.takeTop(60),
+                         "SPECIAL BASES ARE SWITCHED OFF FOR THIS GAME. EVERY BASE IS AN "
+                         "ORDINARY ONE.",
+                         body);
+    return;
+  }
+
+  // One row per kind actually on this board, counted so it says how many.
+  int seen[8] = {};
+  for (int base = 0; base < model.board->baseCount; ++base) {
+    ++seen[static_cast<int>(model.board->specialAt(base))];
+  }
+
+  bool any = false;
+  for (int k = 1; k < 8; ++k) {
+    if (!seen[k]) continue;
+    any = true;
+    const tb::Special what = static_cast<tb::Special>(k);
+    const fui::Rect row = screen.takeTop(64, toybox::kGutter);
+
+    const int16_t badge = 18;
+    const fui::Point at{static_cast<int16_t>(row.x + badge), static_cast<int16_t>(row.y + row.height / 2)};
+    toybox::disc(screen, at.x, at.y, badge, fui::Color::Black);
+    glyph(screen, at, 16, what, true);
+
+    char line[96];
+    std::snprintf(line, sizeof(line), "%d x  %s", seen[k], specialBlurb(what));
+    screen.target().text(fui::makeRect(static_cast<int16_t>(row.x + badge * 2 + toybox::kGutter), row.y,
+                                       static_cast<int16_t>(row.width - badge * 2 - toybox::kGutter), row.height),
+                         line, body);
+  }
+  if (!any) {
+    screen.target().text(screen.takeTop(60), "THIS TERRAIN HAS NO SPECIAL BASES.", body);
+  }
+}
+
 void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   fui::HeaderProps header;
   header.title = "TOY BATTLE";
@@ -361,24 +482,10 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
     if (!n) continue;
     int16_t cx = static_cast<int16_t>(sx / n);
     int16_t cy = static_cast<int16_t>(sy / n);
-    if (n == 2) {
-      // Two bases fence the water between two bridges, and their midpoint is
-      // exactly on the path joining them -- medals there read as a severed
-      // connection. Step sideways off it.
-      int first = -1, second = -1;
-      for (int base = 0; base < b.baseCount; ++base) {
-        if (!(b.regions[r].bases & (uint32_t{1} << base))) continue;
-        (first < 0 ? first : second) = base;
-      }
-      const fui::Point a = slotCenter(device, b, first);
-      const fui::Point z = slotCenter(device, b, second);
-      const int16_t dx = static_cast<int16_t>(z.x - a.x), dy = static_cast<int16_t>(z.y - a.y);
-      const int len = dx * dx + dy * dy > 0 ? static_cast<int>(dx * dx + dy * dy) : 1;
-      int16_t scale = 1;
-      while (scale * scale * 4 < len) ++scale;  // integer hypot, near enough at this size
-      cx = static_cast<int16_t>(cx - dy * 26 / (scale > 0 ? scale * 2 : 1));
-      cy = static_cast<int16_t>(cy + dx * 26 / (scale > 0 ? scale * 2 : 1));
-    }
+    // No nudge for a two-base region. The river bases are not joined to each
+    // other -- there is no path across the water -- so the midpoint sits on
+    // open ground, and putting the medals anywhere else just breaks the line
+    // they share with the bridges.
     const int count = b.regions[r].medals;
     const int16_t pipR = 7;
     const int16_t span = static_cast<int16_t>(count * (pipR * 2 + 3) - 3);
@@ -464,12 +571,22 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
     screen.button(props, fui::makeRect(x, barY, w, toybox::kPillHeight));
   };
 
+  // The briefing sits beside the main action rather than replacing anything:
+  // "what do these bases do" is a question you have while looking at the board,
+  // and it should not cost a trip to a menu.
+  const int16_t briefW = 64;
+  const int16_t mainW = static_cast<int16_t>(full - briefW - toybox::kGutter);
+  const int16_t briefX = static_cast<int16_t>(toybox::kMargin + mainW + toybox::kGutter);
+
   if (!model.yourTurn) {
-    place("THEIR MOVE", ActionSkip, false, toybox::kMargin, full);
+    place("THEIR MOVE", ActionSkip, false, toybox::kMargin, mainW);
+    place("?", ActionBrief, true, briefX, briefW);
   } else if (ask == toybattle::Ask::Troop && !picking) {
-    place("DRAW 2", ActionDraw, model.canDraw, toybox::kMargin, full);
+    place("DRAW 2", ActionDraw, model.canDraw, toybox::kMargin, mainW);
+    place("?", ActionBrief, true, briefX, briefW);
   } else if (ask == toybattle::Ask::Troop || ask == toybattle::Ask::Slot) {
-    place("CANCEL", ActionCancel, true, toybox::kMargin, full);
+    place("CANCEL", ActionCancel, true, toybox::kMargin, mainW);
+    place("?", ActionBrief, true, briefX, briefW);
   } else {
     // Every remaining question is optional, so it always has two answers.
     const bool targeted = ask == toybattle::Ask::JumboVictim || ask == toybattle::Ask::RecallFrom ||

@@ -335,6 +335,46 @@ bool answerTarget(const Game& game, Draft& draft, const int slotOrKind) {
 }
 
 // ---------------------------------------------------------------------------
+// Saying no, and saying why
+// ---------------------------------------------------------------------------
+
+Refusal whyNotTroop(const Game& game, const Draft& draft, const Troop kind) {
+  if (pending(game, draft) != Ask::Troop) return Refusal::NothingAsked;
+  const Game g = projected(game, draft);
+  const int seat = game.turn;
+  if (g.rack[seat][static_cast<int>(kind)] == 0) return Refusal::NotYours;
+  if (g.frozenKind[seat] == static_cast<uint8_t>(kind)) return Refusal::Pinned;
+  if (!(candidateTroops(game, draft) & (1u << static_cast<int>(kind)))) return Refusal::NoPath;
+  return Refusal::None;
+}
+
+Refusal whyNotSlot(const Game& game, const Draft& draft, const int slot) {
+  const Ask ask = pending(game, draft);
+  const Terrain& b = game.board();
+  if (slot < 0 || slot >= b.slotCount()) return Refusal::NotATarget;
+  if (candidateSlots(game, draft) & (uint64_t{1} << slot)) return Refusal::None;
+
+  // Everything past here is a refusal, and the job is to name which one. Only
+  // a placement has interesting reasons; the targeted questions have exactly
+  // one, which is that the tap was not one of the answers.
+  if (ask != Ask::Slot) return ask == Ask::Ready ? Refusal::NothingAsked : Refusal::NotATarget;
+
+  const Game g = projected(game, draft);
+  const int seat = game.turn;
+  const Troop kind = static_cast<Troop>(draft.move.steps[draft.step].kind);
+
+  if (b.isHq(slot) && b.hqOwner(slot) == seat) return Refusal::OwnHq;
+  if (game.specialBases) {
+    const uint8_t admits = b.gate[slot];
+    if (admits != 0 && !(admits & (1u << static_cast<int>(kind)))) return Refusal::Gated;
+  }
+  const int holder = b.isBase(slot) ? g.occupantSeat(slot) : kNoSeat;
+  if (holder != kNoSeat && holder != seat && !covers(kind, g.occupantTroop(slot))) return Refusal::TooWeak;
+  if (game.specialBases && b.specialAt(slot) == Special::Nullify && kind == Troop::Hook) return Refusal::Nullified;
+  return Refusal::NoPath;
+}
+
+// ---------------------------------------------------------------------------
 // What the board lights up
 // ---------------------------------------------------------------------------
 

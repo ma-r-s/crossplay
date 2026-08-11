@@ -18,8 +18,10 @@ namespace toybattle {
 // The shell
 // ---------------------------------------------------------------------------
 
-enum class Screen : uint8_t { Menu = 0, Setup, HowTo, Board, Result };
-constexpr int kScreenCount = 5;
+// Brief is the map briefing: what this terrain's special bases do. It is
+// reachable from the board, because that is where the question occurs to you.
+enum class Screen : uint8_t { Menu = 0, Setup, HowTo, Board, Brief, Result };
+constexpr int kScreenCount = 6;
 
 // Where Back goes from `screen`.
 //
@@ -39,6 +41,9 @@ constexpr Screen back(const Screen screen) {
       // Abandoning a board returns to the menu, not out of the app: the first
       // Back means stop playing, the second means leave.
       return Screen::Menu;
+    case Screen::Brief:
+      // Straight back to the game you were reading it for.
+      return Screen::Board;
     case Screen::Result:
       return Screen::Menu;
   }
@@ -101,6 +106,29 @@ bool answerSlot(const Game& game, Draft& draft, int slot);
 bool answerOffer(const Game& game, Draft& draft, bool take);
 // The base or troop kind a targeted question is waiting for.
 bool answerTarget(const Game& game, Draft& draft, int slotOrKind);
+
+// --- saying no, and saying why ----------------------------------------------
+
+// Why a tap was refused. The board can always explain itself because the rules
+// can name the clause that failed -- the alternative is a screen that ignores
+// you and leaves you to guess which of six rules you broke.
+enum class Refusal : uint8_t {
+  None = 0,      // it was allowed
+  NotYours,      // that troop is not on your rack
+  Pinned,        // Battlefield has it lying facedown this turn
+  NoPath,        // nothing you hold reaches that far
+  TooWeak,       // strictly lower strength is the rule
+  OwnHq,         // you may never place on your own
+  Gated,         // Tropical Pool takes only its printed values
+  Nullified,     // Hook's waiver is an effect, and effects do not work there
+  NotATarget,    // a question was being asked, and that is not one of its answers
+  NothingAsked,  // no question is open, so the tap means nothing
+};
+
+// Why `slot` cannot be answered right now. Refusal::None means it can.
+Refusal whyNotSlot(const Game& game, const Draft& draft, int slot);
+// Why `kind` cannot be picked off the rack.
+Refusal whyNotTroop(const Game& game, const Draft& draft, Troop kind);
 
 // --- what the board should light up -----------------------------------------
 

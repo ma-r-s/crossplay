@@ -33,9 +33,16 @@ class ToyBattleActivity final : public Activity {
   void goTo(toybattle::Screen next);
   const char* promptText() const;
 
+  // The line under the title is the app's one channel for saying anything, so
+  // it carries two things: the question being asked, and -- until the next
+  // action -- what just happened. `notice` is that second one, and it beats the
+  // question while it stands.
+  void say(const char* message);
+
   toybattle::Screen screen = toybattle::Screen::Menu;
   toybattle::Game game{};
   toybattle::Draft draft{};
+  const char* notice = nullptr;
   int menuSelected = -1;
   uint8_t seat = 0;
 

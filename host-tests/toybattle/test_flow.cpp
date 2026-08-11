@@ -36,7 +36,7 @@ static uint32_t rnd() {
 // --- the shell -------------------------------------------------------------
 
 static void testNavigation() {
-  const Screen all[] = {Screen::Menu, Screen::Setup, Screen::HowTo, Screen::Board, Screen::Result};
+  const Screen all[] = {Screen::Menu, Screen::Setup, Screen::HowTo, Screen::Board, Screen::Brief, Screen::Result};
   check(sizeof(all) / sizeof(all[0]) == kScreenCount, "every screen is in the list under test");
 
   int exits = 0;
@@ -51,7 +51,9 @@ static void testNavigation() {
       ++hops;
     }
     check(at == Screen::Menu, "every screen reaches the menu by pressing Back");
-    check(hops <= 1 || s == Screen::Menu, "and does it in one press: the shell is flat on purpose");
+    // The briefing hangs off the board, so it is the one screen two presses
+    // deep. Everything else is one.
+    check(hops <= (s == Screen::Brief ? 2 : 1), "and the shell stays shallow");
   }
   check(exits == 1, "exactly one screen leaves the app");
 
@@ -98,12 +100,12 @@ static const char* askName(Ask a) {
   return "?";
 }
 
-static bool driveToReady(const Game& g, Draft& d, int* asked) {
-  for (int guard = 0; guard < 40; ++guard) {
+// One answer, chosen at random from the ones the board accepts.
+static bool answerOne(const Game& g, Draft& d) {
+  {
     const Ask a = pending(g, d);
     lastAsk = a;
     if (a == Ask::Ready) return true;
-    ++*asked;
 
     // Every answer the question could take, in a shuffled order, and the first
     // one the machine accepts wins. A refused answer is not a stuck machine --
@@ -120,7 +122,7 @@ static bool driveToReady(const Game& g, Draft& d, int* asked) {
         if (offer & (1u << k)) moved = answerTroop(g, d, static_cast<Troop>(k));
       }
       if (!moved) return false;
-      continue;
+      return true;
     }
 
     if (a == Ask::ExhumeKind) {
@@ -131,7 +133,7 @@ static bool driveToReady(const Game& g, Draft& d, int* asked) {
       }
       if (!moved) moved = answerOffer(g, d, false);
       if (!moved) return false;
-      continue;
+      return true;
     }
 
     if (a == Ask::Slot || a == Ask::JumboVictim || a == Ask::RecallFrom || a == Ask::ShoveFrom || a == Ask::ShoveTo) {
@@ -148,12 +150,21 @@ static bool driveToReady(const Game& g, Draft& d, int* asked) {
       }
       if (!moved && a != Ask::Slot) moved = answerOffer(g, d, false);
       if (!moved) return false;
-      continue;
+      return true;
     }
 
     // A plain offer: take it or leave it, and one of the two must work.
     const bool wantIt = (rnd() & 1) != 0;
     if (!answerOffer(g, d, wantIt) && !answerOffer(g, d, !wantIt)) return false;
+  }
+  return true;
+}
+
+static bool driveToReady(const Game& g, Draft& d, int* asked) {
+  for (int guard = 0; guard < 40; ++guard) {
+    if (pending(g, d) == Ask::Ready) return true;
+    ++*asked;
+    if (!answerOne(g, d)) return false;
   }
   return false;
 }
@@ -297,6 +308,44 @@ static void testOnlyTheQuestionBeingAskedIsAnswerable() {
   check((candidateSlots(g, d) & (uint64_t{1} << 7)) == 0, "and 7 is not one of them");
 }
 
+// A refusal has to agree with the thing that refused. If the board can light a
+// slot but not explain it, or explains one it would have accepted, the message
+// under the title is lying.
+static void testEveryRefusalAgreesWithTheRules(int matches) {
+  long lit = 0, refused = 0;
+  for (int m = 0; m < matches; ++m) {
+    Game g;
+    g.newGame(rnd(), static_cast<int>(TerrainId::CastleField), static_cast<int>(rnd() & 1u));
+    int turns = 0;
+    while (g.currentPhase() == Phase::Playing && turns++ < 200) {
+      if (!g.hasAnyLegalMove(g.turn)) break;
+      Draft d;
+      int guard = 0;
+      // One answer at a time, checking every slot at every state along the
+      // way. Driving straight to Ready only ever samples "pick a troop", where
+      // nothing is lit and the check passes without meaning anything.
+      while (pending(g, d) != Ask::Ready && guard++ < 12) {
+        const uint64_t candidates = candidateSlots(g, d);
+        for (int slot = 0; slot < g.board().slotCount(); ++slot) {
+          const bool candidate = (candidates & (uint64_t{1} << slot)) != 0;
+          check(candidate == (whyNotSlot(g, d, slot) == Refusal::None), "a slot is lit exactly when it has no refusal");
+          candidate ? ++lit : ++refused;
+        }
+        const uint8_t offer = candidateTroops(g, d);
+        for (int k = 0; k < kTroopKinds; ++k) {
+          check(((offer & (1u << k)) != 0) == (whyNotTroop(g, d, static_cast<Troop>(k)) == Refusal::None),
+                "a troop is offered exactly when it has no refusal");
+        }
+        if (!answerOne(g, d)) break;
+      }
+      if (pending(g, d) != Ask::Ready) break;
+      check(g.apply(d.move), "the drafted move applies");
+    }
+  }
+  check(lit > 0, "the board lit something along the way");
+  printf("refusals   %ld slots lit, %ld refused, every one agreeing with the rules\n", lit, refused);
+}
+
 int main() {
   testNavigation();
   testQuestionsWithNoAnswerAreNotAsked();
@@ -304,6 +353,7 @@ int main() {
   testOnlyTheQuestionBeingAskedIsAnswerable();
   testTheBoardCannotComposeAnIllegalMove(120, kPG);
   testTheBoardCannotComposeAnIllegalMove(120, static_cast<int>(TerrainId::CastleField));
+  testEveryRefusalAgreesWithTheRules(40);
 
   printf("flow       %d checks, 0 failed\n", checks);
   return 0;

@@ -54,7 +54,16 @@ void ToyBattleActivity::goTo(const tb::Screen next) {
   requestUpdate();
 }
 
+void ToyBattleActivity::say(const char* message) {
+  notice = message;
+  requestUpdate();
+}
+
 const char* ToyBattleActivity::promptText() const {
+  // What just happened outranks what is being asked: a player who tapped
+  // something needs to know why it did not work more than they need reminding
+  // of the question.
+  if (notice != nullptr && *notice != '\0') return notice;
   if (game.currentPhase() != tb::Phase::Playing) return game.winner == seat ? "YOU WIN" : "YOU LOSE";
   if (game.turn != seat) return "THEY ARE THINKING";
   switch (tb::pending(game, draft)) {
@@ -100,6 +109,7 @@ void ToyBattleActivity::loop() {
   }
 
   if (screen == tb::Screen::Board && game.currentPhase() == tb::Phase::Playing && game.turn != seat) {
+    notice = nullptr;
     takeOpponentTurn();
     return;
   }
@@ -116,13 +126,26 @@ void ToyBattleActivity::loop() {
 
     const int kind = tbui::rackAt(device, tapX, tapY);
     if (kind >= 0) {
-      if (tb::answerTroop(game, draft, static_cast<tb::Troop>(kind))) requestUpdate();
+      const tb::Troop troop = static_cast<tb::Troop>(kind);
+      if (tb::answerTroop(game, draft, troop)) {
+        // Picking a card says what the card does, which is the moment the
+        // player wants to know it.
+        say(tbui::troopBlurb(troop));
+      } else {
+        say(tbui::refusalBlurb(tb::whyNotTroop(game, draft, troop)));
+      }
       return;
     }
     const int slot = tbui::slotAt(device, game.board(), tapX, tapY);
     if (slot >= 0) {
+      const tb::Refusal why = tb::whyNotSlot(game, draft, slot);
+      if (why != tb::Refusal::None) {
+        say(tbui::refusalBlurb(why));
+        return;
+      }
       const bool took = ask == tb::Ask::Slot ? tb::answerSlot(game, draft, slot) : tb::answerTarget(game, draft, slot);
       if (took) {
+        notice = nullptr;
         if (tb::pending(game, draft) == tb::Ask::Ready) {
           game.apply(draft.move);
           draft.clear();
@@ -146,18 +169,23 @@ void ToyBattleActivity::loop() {
       // The other half of a turn, and it had no way in before now.
       if (game.apply(tb::Move::draw())) {
         draft.clear();
-        requestUpdate();
+        say("YOU DREW TWO");
       }
+      return;
+    case tbui::ActionBrief:
+      goTo(tb::Screen::Brief);
       return;
     case tbui::ActionCancel:
       // Backing out of a half-built move, which the board also had no way to
       // do: a mis-tapped troop used to be a dead end.
       draft.clear();
+      notice = nullptr;
       requestUpdate();
       return;
     case tbui::ActionSkip:
     case tbui::ActionTake:
       if (tb::answerOffer(game, draft, event.action == tbui::ActionTake)) {
+        notice = nullptr;
         if (tb::pending(game, draft) == tb::Ask::Ready) {
           game.apply(draft.move);
           draft.clear();
@@ -182,6 +210,13 @@ void ToyBattleActivity::render(RenderLock&&) {
   toybox::Screen surface(frame);
 
   switch (screen) {
+    case tb::Screen::Brief: {
+      tbui::BriefModel model;
+      model.board = &game.board();
+      model.specialBases = game.specialBases != 0;
+      tbui::buildBrief(surface, model);
+      break;
+    }
     case tb::Screen::Menu:
     case tb::Screen::Setup:
     case tb::Screen::HowTo:
