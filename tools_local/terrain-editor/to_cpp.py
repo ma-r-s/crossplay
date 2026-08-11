@@ -243,14 +243,19 @@ def check(model):
 
     medals = 0
     for i, r in enumerate(regions):
+        # A region's fence may include an H.Q. It shapes the region and it is
+        # what the medals are centred in, but it can never be part of the mask:
+        # the rulebook says occupy every BASE surrounding a region, and an H.Q.
+        # is not a base. So the two-or-more rule counts bases only.
         members = r.get("bases", [])
-        if len(members) < 2:
-            errs.append(f"region {i} is fenced by {len(members)} base(s); needs 2+")
+        owned = [m for m in members if 0 <= m < nb]
+        if len(owned) < 2:
+            errs.append(f"region {i} is fenced by {len(owned)} base(s); needs 2+")
         for m in members:
-            if not 0 <= m < nb:
-                errs.append(f"region {i} names slot {m}, which is not a base")
+            if not 0 <= m < nb + nh:
+                errs.append(f"region {i} names slot {m}, which is not a slot on this board")
         if len(set(members)) != len(members):
-            errs.append(f"region {i} names the same base twice")
+            errs.append(f"region {i} names the same slot twice")
         if r.get("medals", 0) <= 0:
             errs.append(f"region {i} pays no medals")
         medals += r.get("medals", 0)
@@ -363,20 +368,15 @@ def emit(model):
     w("  };")
     w("  const R regions[] = {")
     for r in model["regions"]:
-        mask = " | ".join(f"(1u << {m})" for m in sorted(r["bases"]))
+        mask = " | ".join(f"(1u << {m})" for m in sorted(m for m in r["bases"] if m < nb))
         # Where the medals sit, worked out here rather than on the device: the
         # roomiest point inside the region, which is what reads as centred.
-        # An H.Q. joined to two of the fence bases is part of the face even
-        # though it can never be part of the mask -- an H.Q. is not a base, so
-        # holding the region does not require it. Left out, the end regions of a
-        # board like City of Clouds compute their anchor from a flat triangle
-        # and land it exactly on the top edge of the centre base.
-        ring = [(xs[m], ys[m]) for m in r["bases"]]
-        for h in range(nb, nb + nh):
-            joined = sum(1 for a, b in model["edges"] if (a == h and b in r["bases"]) or (b == h and a in r["bases"]))
-            if joined >= 2:
-                ring.append((xs[h], ys[h]))
-        ax, ay = medal_anchor(ring)
+        # The whole fence, H.Q. included. An H.Q. really is part of the face of
+        # an end region even though it is never part of the mask, and without it
+        # the anchor is computed from a flat triangle and lands on the top edge
+        # of a base. Which regions those are is now said in the board rather
+        # than guessed from adjacency here.
+        ax, ay = medal_anchor([(xs[m], ys[m]) for m in r["bases"]])
         w(f"      {{{mask}, {r['medals']}, {ax}, {ay}}},")
     w("  };")
     w("  t.regionCount = static_cast<uint8_t>(sizeof(regions) / sizeof(regions[0]));")

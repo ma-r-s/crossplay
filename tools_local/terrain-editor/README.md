@@ -28,6 +28,12 @@ is a starting layout, nothing more.
    them. `5` stamp the special kind chosen on the right. `6` click every base
    that fences a region, set its medals, add it. `7` drag. `8` erase.
 4. Watch the **Checks** panel. Every line must be OK.
+
+**An H.Q. can fence a region.** Click it with the region tool like any other
+slot when the region really does run up to it. It shapes the region and it is
+what the medals get centred in, but it never enters the mask: the rulebook says
+occupy every *base* surrounding a region, and an H.Q. is not a base, so a fence
+of three bases and an H.Q. is taken by holding the three.
 5. **copy JSON** and paste it back into the chat.
 
 ## The checks are the point

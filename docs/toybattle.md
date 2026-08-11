@@ -447,11 +447,20 @@ region: a triangle of two column bases and one centre base puts its centroid a
 third of the way across, hard against the column. `Region` now carries an anchor
 computed at authoring time -- the roomiest point inside the region, the pole of
 inaccessibility -- so the device pays nothing and the dots sit where the eye says
-centre. **An H.Q. joined to two of the fence bases counts as part of the face for
-this purpose even though it can never be part of the mask**, because the region
-really does extend to it; without that, City of Clouds' end regions computed
-their anchor from a flat triangle and landed it exactly on the top edge of a
-base.
+centre. **An H.Q. can be part of a region's fence even though it can never be part of
+the mask**, because the region really does extend to it -- the rulebook says
+occupy every *base* surrounding a region, and an H.Q. is not a base. Without it,
+City of Clouds' end regions computed their anchor from a flat triangle and landed
+it exactly on the top edge of a base.
+
+Which regions those are is **said by the board, not guessed from adjacency**. The
+generator inferred it at first, from any H.Q. joined to two of the fence bases;
+Mario's point was that the person tracing can see it and the tool cannot, and an
+irregular board would eventually make the guess wrong. The region tool now picks
+an H.Q. like any other slot, and a fence entry at or above `baseCount` is an
+H.Q.: it shapes the region and centres its medals, and it never enters the mask.
+Migrating the three traced boards to say it explicitly reproduced all three
+generated sources byte for byte, which is what says the migration was faithful.
 
 **It also found a gap in the pipeline.** Castle Field happened to be traced edge
 to edge and this one did not, so its coordinates spanned 117..872 of 1000 and the

@@ -122,7 +122,7 @@
       <button id="addRegion">add region</button>
       <button id="clearSel">clear</button>
     </div>
-    <div class="hint" id="selInfo">Click bases with the <b>region</b> tool to pick the ones that fence it.</div>
+    <div class="hint" id="selInfo">Click the bases that fence the region, and the H.Q. too if one of them does.</div>
     <div id="regions" style="margin-top:8px; max-height:120px; overflow:auto"></div>
   </div>
 
@@ -240,7 +240,7 @@ function draw() {
   el('json').value = JSON.stringify(exportModel());
   runChecks(); renderRegions(); el('selInfo').textContent =
     selection.length ? 'fencing bases: ' + selection.map(id => slotIndex(byId(id))).join(', ')
-                     : 'Click bases with the region tool to pick the ones that fence it.';
+                     : 'Click the bases that fence the region, and the H.Q. too if one of them does.';
 }
 
 // Bases are numbered first and H.Q. after, which is the firmware's slot order.
@@ -272,7 +272,7 @@ cv.addEventListener('pointerdown', e => {
     hit.special = el('special').value;
     hit.gate = hit.special === 'gate' ? gateValues() : undefined;
   }
-  else if (tool === 'region' && hit && hit.type === 'base') {
+  else if (tool === 'region' && hit) {
     const at = selection.indexOf(hit.id);
     if (at >= 0) selection.splice(at, 1); else selection.push(hit.id);
   }
@@ -302,7 +302,7 @@ document.querySelectorAll('#tools button').forEach(b => b.onclick = () => {
     hq0: 'click to place the near H.Q.', hq1: 'click to place the far H.Q.',
     edge: 'click two bases to join or unjoin them',
     special: 'click bases to stamp the kind chosen on the right',
-    region: 'click every base that fences the region, then "add region"',
+    region: 'click every base that fences the region -- and the H.Q. if one does -- then "add region"',
     move: 'drag a node', erase: 'click a node to remove it and its paths',
   }[tool];
   draw();
@@ -377,7 +377,10 @@ function runChecks() {
   });
 
   const medals = S.regions.reduce((s, r) => s + r.medals, 0);
-  add(S.regions.every(r => r.bases.length >= 2) ? 'ok' : 'bad', `${S.regions.length} regions, each fenced by 2+ bases`);
+  // An H.Q. in the fence shapes the region but is never occupied to take it, so
+  // the two-or-more rule counts bases and nothing else.
+  const fenceBases = r => r.bases.filter(id => { const n = byId(id); return n && n.type === 'base'; }).length;
+  add(S.regions.every(r => fenceBases(r) >= 2) ? 'ok' : 'bad', `${S.regions.length} regions, each fenced by 2+ bases`);
   add(medals >= +el('objective').value ? 'ok' : 'bad', `${medals} medals on the board, objective ${el('objective').value}`);
   if (medals > 16) add('warn', `${medals} medals, but the box only holds 16`);
 
@@ -388,8 +391,10 @@ function runChecks() {
   if (kinds.size > 1 && S.name !== 'LA CROISETTE') {
     add('warn', `${kinds.size} special kinds on one board; every printed terrain but the expansion uses one`);
   }
-  const loose = S.regions.some(r => r.bases.some(id => { const n = byId(id); return !n || n.type !== 'base'; }));
-  if (loose) add('bad', 'a region names an H.Q. or a deleted node: regions are fenced by bases only');
+  const loose = S.regions.some(r => r.bases.some(id => !byId(id)));
+  if (loose) add('bad', 'a region names a node that has been deleted');
+  const hqFenced = S.regions.filter(r => r.bases.some(id => { const n = byId(id); return n && n.type === 'hq'; })).length;
+  if (hqFenced) add('ok', `${hqFenced} region(s) fenced partly by an H.Q. -- it shapes them, it is never occupied`);
 
   el('checks').innerHTML = out.map(o => `<li class="${o.state}">${o.text}</li>`).join('');
 }
