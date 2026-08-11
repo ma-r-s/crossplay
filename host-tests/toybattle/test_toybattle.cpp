@@ -16,6 +16,10 @@
 
 using namespace toybattle;
 
+// These exercise the rules, not a board Repos printed, so they run on the
+// lattice. Terrain 0 is Castle Field.
+static constexpr int kPG = static_cast<int>(TerrainId::ProvingGround);
+
 static int checks = 0;
 
 static void check(bool ok, const char* what) {
@@ -54,7 +58,7 @@ static void give(Game& g, int seat, Troop kind, int n = 1) {
 // depends on.
 static Game bare(int starter = 0) {
   Game g;
-  g.newGame(1u, 0, starter);
+  g.newGame(1u, kPG, starter);
   clearRack(g, 0);
   clearRack(g, 1);
   g.placementCount = 0;
@@ -101,6 +105,115 @@ static void checkInvariants(const Game& g, const char* where) {
   check(g.isWellFormed(), where);
 }
 
+// --- terrains --------------------------------------------------------------
+
+// Run against every terrain in the table, because a board is data and a
+// mistyped index in data compiles perfectly. These are the checks that catch a
+// board nobody could win on, or one with a base no path reaches.
+static void testEveryTerrainIsStructurallySound() {
+  for (int index = 0; index < kTerrainCount; ++index) {
+    const Terrain& b = terrainAt(index);
+    const char* who = b.name;
+
+    check(b.baseCount > 0 && b.baseCount <= kMaxBases, who);
+    check(b.hqCount > 0 && b.hqCount <= kMaxHq, who);
+    check(b.slotCount() <= kMaxSlots, who);
+    check(b.medalsObjective > 0, who);
+
+    // Both seats need somewhere to start and something to attack.
+    int hqPerSeat[kSeats] = {};
+    for (int i = 0; i < b.hqCount; ++i) {
+      check(b.hqSeat[i] < kSeats, who);
+      ++hqPerSeat[b.hqSeat[i]];
+    }
+    check(hqPerSeat[0] > 0 && hqPerSeat[1] > 0, who);
+
+    // Edges name real slots, and adjacency agrees with them in both
+    // directions. A one-way path is a board nobody can debug.
+    for (int e = 0; e < b.edgeCount; ++e) {
+      const int u = b.edges[e].a, v = b.edges[e].b;
+      check(u < b.slotCount() && v < b.slotCount(), who);
+      check(u != v, who);
+      check((b.adj[u] & (uint64_t{1} << v)) != 0, who);
+      check((b.adj[v] & (uint64_t{1} << u)) != 0, who);
+    }
+    for (int u = 0; u < b.slotCount(); ++u) {
+      for (int v = 0; v < b.slotCount(); ++v) {
+        if (!(b.adj[u] & (uint64_t{1} << v))) continue;
+        check((b.adj[v] & (uint64_t{1} << u)) != 0, who);
+      }
+    }
+
+    // Every slot is reachable through the path graph, ignoring occupancy. An
+    // orphan base is one no troop could ever legally stand on.
+    uint64_t seen = 1;  // slot 0
+    for (bool grew = true; grew;) {
+      grew = false;
+      for (int u = 0; u < b.slotCount(); ++u) {
+        if (!(seen & (uint64_t{1} << u))) continue;
+        const uint64_t next = b.adj[u] & ~seen;
+        if (next) {
+          seen |= next;
+          grew = true;
+        }
+      }
+    }
+    for (int u = 0; u < b.slotCount(); ++u) check((seen & (uint64_t{1} << u)) != 0, who);
+
+    // Regions name only real bases, and a region of one base is a base, not a
+    // region.
+    int medalsOnBoard = 0;
+    for (int r = 0; r < b.regionCount; ++r) {
+      const uint32_t mask = b.regions[r].bases;
+      check(mask != 0, who);
+      check((mask >> b.baseCount) == 0, who);
+      int members = 0;
+      for (int i = 0; i < b.baseCount; ++i) {
+        if (mask & (uint32_t{1} << i)) ++members;
+      }
+      check(members >= 2, who);
+      check(b.regions[r].medals > 0, who);
+      medalsOnBoard += b.regions[r].medals;
+    }
+    // A terrain whose medals cannot reach its own objective can only ever be
+    // won by capture, which would make the objective a decoration.
+    check(medalsOnBoard >= b.medalsObjective, who);
+
+    // A gate is meaningful only on a Gate base, and a Gate base without one
+    // admits nothing at all.
+    for (int slot = 0; slot < b.slotCount(); ++slot) {
+      const bool gated = b.specialAt(slot) == Special::Gate;
+      check(gated == (b.gate[slot] != 0), who);
+    }
+    for (int base = 0; base < b.baseCount; ++base) {
+      check(b.special[base] <= static_cast<uint8_t>(Special::Nullify), who);
+    }
+  }
+}
+
+static void testCastleFieldMatchesTheBoard() {
+  const Terrain& b = terrainAt(static_cast<int>(TerrainId::CastleField));
+  check(b.baseCount == 15, "Castle Field has 15 bases");
+  check(b.hqCount == 2, "and one H.Q. each");
+  check(b.regionCount == 8, "and eight regions");
+  check(b.medalsObjective == 7, "and an objective of 7, read off the badge");
+
+  int medals = 0;
+  for (int r = 0; r < b.regionCount; ++r) medals += b.regions[r].medals;
+  check(medals == 14, "14 medals sit on the board");
+
+  int wells = 0;
+  for (int base = 0; base < b.baseCount; ++base) {
+    if (b.specialAt(base) == Special::Recall) ++wells;
+  }
+  check(wells == 4, "four wells, and the retreat is Castle Field's effect");
+
+  // The centre prize plus both river gaps is exactly the objective. That is
+  // the board's arithmetic, and getting a region's medals wrong would break it.
+  check(b.regions[2].medals + b.regions[3].medals + b.regions[4].medals == b.medalsObjective,
+        "the far centre plus both river gaps is exactly 7");
+}
+
 // --- targeted tests --------------------------------------------------------
 
 static void testCovering() {
@@ -115,14 +228,14 @@ static void testCovering() {
 
 static void testSetup() {
   Game g;
-  g.newGame(99u, 0, 0);
+  g.newGame(99u, kPG, 0);
   check(g.rackSize(0) == 3, "the starter racks 3");
   check(g.rackSize(1) == 4, "the second player racks 4");
   check(g.reserveRemaining(0) == kReserveSize - 3, "the starter drew 3 from a 20 reserve");
   check(g.reserveRemaining(1) == kReserveSize - 4, "the opponent drew 4 from a 20 reserve");
 
   Game h;
-  h.newGame(99u, 0, 1);
+  h.newGame(99u, kPG, 1);
   check(h.rackSize(1) == 3, "starting is what costs a troop, not the seat number");
 
   // The four set aside are never dealt, so a whole reserve read out is 20 long.
@@ -355,7 +468,7 @@ static void testSpecialBaseSetting() {
   // devices have to agree on it and the opponent has to see it.
   Game on = bare();
   Game off;
-  off.newGame(7u, 0, 0, /*withSpecialBases=*/false);
+  off.newGame(7u, kPG, 0, /*withSpecialBases=*/false);
   check(on.specialBases == 1, "special bases default on");
   check(off.specialBases == 0, "and can be turned off for the whole game");
 
@@ -509,7 +622,7 @@ static void testSuppression() {
 static void testWireFormat() {
   check(sizeof(Game) <= 192, "Game fits one LinkPlay packet");
   Game a;
-  a.newGame(4242u, 0, 1);
+  a.newGame(4242u, kPG, 1);
   give(a, 0, Troop::Roxy, 1);
   a.turn = 0;
   check(a.apply(Move::place(0, Troop::Roxy)), "play a move");
@@ -528,7 +641,7 @@ static void testWireFormat() {
 // tried to break is a validator that has never been tested.
 static void testValidatorRejectsCorruption() {
   Game good;
-  good.newGame(31337u, 0, 0);
+  good.newGame(31337u, kPG, 0);
   check(good.isWellFormed(), "a dealt game is well formed");
 
   auto mutant = [&](void (*wreck)(Game&), const char* what) {
@@ -667,7 +780,7 @@ static std::vector<Move> legalMoves(const Game& g) {
   return out;
 }
 
-static void soak(int matches, bool specialBases) {
+static void soak(int matches, bool specialBases, int terrain = kPG) {
   int finished = 0;
   int byHq = 0, byMedals = 0, byStuck = 0;
   long moves = 0;
@@ -675,7 +788,7 @@ static void soak(int matches, bool specialBases) {
 
   for (int match = 0; match < matches; ++match) {
     Game g;
-    g.newGame(rnd(), 0, static_cast<int>(rnd() & 1u), specialBases);
+    g.newGame(rnd(), terrain, static_cast<int>(rnd() & 1u), specialBases);
     checkInvariants(g, "soak: after the deal");
 
     int turns = 0;
@@ -725,11 +838,13 @@ static void soak(int matches, bool specialBases) {
   } else {
     check(baseEffects == 0, "soak: and never fire when they are off");
   }
-  printf("soak %-3s  %d matches, %ld moves, %ld base effects  (hq %d, medals %d, stuck %d)\n",
-         specialBases ? "on" : "off", matches, moves, baseEffects, byHq, byMedals, byStuck);
+  printf("soak %-12s %-3s  %d matches, %ld moves, %ld base effects  (hq %d, medals %d, stuck %d)\n",
+         terrainAt(terrain).name, specialBases ? "on" : "off", matches, moves, baseEffects, byHq, byMedals, byStuck);
 }
 
 int main() {
+  testEveryTerrainIsStructurallySound();
+  testCastleFieldMatchesTheBoard();
   testCovering();
   testSetup();
   testConnection();
@@ -749,6 +864,10 @@ int main() {
   testValidatorRejectsCorruption();
   soak(300, /*specialBases=*/true);
   soak(300, /*specialBases=*/false);
+  // The real board, both ways round. Castle Field is the one people will
+  // actually play, so it gets the same treatment the lattice does.
+  soak(300, /*specialBases=*/true, static_cast<int>(TerrainId::CastleField));
+  soak(300, /*specialBases=*/false, static_cast<int>(TerrainId::CastleField));
 
   printf("toybattle  %d checks, 0 failed\n", checks);
   return 0;

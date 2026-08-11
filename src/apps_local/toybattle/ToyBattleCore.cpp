@@ -111,11 +111,91 @@ constexpr Terrain buildProvingGround() {
   return t;
 }
 
+// CASTLE FIELD. Two H.Q. facing each other down a portrait board, a river
+// across the middle with three bridges, and a well at each shoulder.
+//
+// The layout below is not the printed board's geometry. It is the same graph,
+// placed on a clean symmetric grid for a 480x800 panel -- which is the same 3:5
+// the physical board is, so nothing has to be squashed to fit. What is faithful
+// is the topology: 15 bases, 24 paths, 8 regions, 14 medals, an objective of 7.
+constexpr Terrain buildCastleField() {
+  Terrain t{};
+  t.name = "CASTLE FIELD";
+  t.baseCount = 15;
+  t.hqCount = 2;
+  t.hqSeat[0] = 0;  // slot 15, the near H.Q.
+  t.hqSeat[1] = 1;  // slot 16, the far one
+  t.medalsObjective = 7;
+
+  // Bases run top to bottom: the far pair, the far inner pair, the far wells,
+  // the three bridges, then the near half mirrored.
+  const uint16_t xs[17] = {165, 835, 370, 630, 150, 850, 165, 500, 835, 150, 850, 370, 630, 165, 835, 500, 500};
+  const uint16_t ys[17] = {80, 80, 215, 215, 320, 320, 500, 500, 500, 680, 680, 785, 785, 920, 920, 945, 55};
+  for (int i = 0; i < 17; ++i) {
+    t.x[i] = xs[i];
+    t.y[i] = ys[i];
+  }
+
+  const Edge edges[] = {
+      {16, 0},  {16, 1},                      // the far H.Q. sits between the two far bases
+      {15, 13}, {15, 14},                     // and the near one likewise
+      {0, 2},   {0, 4},   {1, 3},   {1, 5},   // outer bases fan inward and down to a well
+      {2, 6},   {2, 7},   {3, 7},   {3, 8},   // inner bases fork to two bridges
+      {4, 6},   {5, 8},                       // wells feed the outer bridges
+      {9, 6},   {10, 8},  {11, 6},  {11, 7},  // the near half, mirrored
+      {12, 7},  {12, 8},  {13, 11}, {13, 9}, {14, 12}, {14, 10},
+  };
+  t.edgeCount = static_cast<uint8_t>(sizeof(edges) / sizeof(edges[0]));
+  for (int i = 0; i < t.edgeCount; ++i) t.edges[i] = edges[i];
+
+  // A region is whatever a closed run of paths fences in. Two of these are
+  // worth reading twice: the centre pair are five-base regions whose top edge
+  // is the road running through an H.Q., and the river pair are two-base
+  // regions -- the water between adjacent bridges, which is the cheapest 2
+  // medals on the board and the reason the objective is reachable at all.
+  struct R {
+    uint32_t bases;
+    uint8_t medals;
+  };
+  const R regions[] = {
+      {(1u << 0) | (1u << 4) | (1u << 6) | (1u << 2), 1},                  // far left shoulder
+      {(1u << 1) | (1u << 5) | (1u << 8) | (1u << 3), 1},                  // far right shoulder
+      {(1u << 0) | (1u << 1) | (1u << 2) | (1u << 3) | (1u << 7), 3},      // far centre
+      {(1u << 6) | (1u << 7), 2},                                          // river, left gap
+      {(1u << 7) | (1u << 8), 2},                                          // river, right gap
+      {(1u << 13) | (1u << 9) | (1u << 6) | (1u << 11), 1},                // near left shoulder
+      {(1u << 14) | (1u << 10) | (1u << 8) | (1u << 12), 1},               // near right shoulder
+      {(1u << 13) | (1u << 14) | (1u << 11) | (1u << 12) | (1u << 7), 3},  // near centre
+  };
+  t.regionCount = static_cast<uint8_t>(sizeof(regions) / sizeof(regions[0]));
+  for (int i = 0; i < t.regionCount; ++i) {
+    t.regions[i].bases = regions[i].bases;
+    t.regions[i].medals = regions[i].medals;
+  }
+
+  // The four wells. Castle Field's special base is the retreat: one of your
+  // other troops, from anywhere, comes home to your rack.
+  t.special[4] = static_cast<uint8_t>(Special::Recall);
+  t.special[5] = static_cast<uint8_t>(Special::Recall);
+  t.special[9] = static_cast<uint8_t>(Special::Recall);
+  t.special[10] = static_cast<uint8_t>(Special::Recall);
+  return t;
+}
+
 }  // namespace
 
+const Terrain kCastleField = withAdjacency(buildCastleField());
 const Terrain kProvingGround = withAdjacency(buildProvingGround());
 
-const Terrain& terrainAt(int) { return kProvingGround; }
+const Terrain& terrainAt(int index) {
+  switch (static_cast<TerrainId>(index)) {
+    case TerrainId::ProvingGround:
+      return kProvingGround;
+    case TerrainId::CastleField:
+      break;
+  }
+  return kCastleField;
+}
 
 // ---------------------------------------------------------------------------
 // Moves

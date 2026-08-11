@@ -18,6 +18,10 @@
 
 using namespace toybattle;
 
+// These exercise the rules, not a board Repos printed, so they run on the
+// lattice. Terrain 0 is Castle Field.
+static constexpr int kPG = static_cast<int>(TerrainId::ProvingGround);
+
 static int checks = 0;
 
 static void check(bool ok, const char* what) {
@@ -63,9 +67,10 @@ static Move moveFor(const Game& g, Player p) {
 
 // Plays one game and returns the winner, checking the brain's promises on every
 // move it makes.
-static int playMatch(Player seat0, Player seat1, uint32_t seed, bool specialBases, bool verifyPromises) {
+static int playMatch(Player seat0, Player seat1, uint32_t seed, bool specialBases, bool verifyPromises,
+                     int terrain = kPG) {
   Game g;
-  g.newGame(seed, 0, static_cast<int>(seed & 1u), specialBases);
+  g.newGame(seed, terrain, static_cast<int>(seed & 1u), specialBases);
 
   int turns = 0;
   while (g.currentPhase() == Phase::Playing) {
@@ -139,7 +144,7 @@ static void put(Game& g, int seat, int base, Troop kind) {
 
 static void testObservationCarriesNoSecret() {
   Game g;
-  g.newGame(12345u, 0, 0);
+  g.newGame(12345u, kPG, 0);
   const Observation obs = observe(g, 0);
 
   check(obs.opponentRackSize == g.rackSize(1), "the enemy rack size is public and carried across");
@@ -169,7 +174,7 @@ static void testTakesTheWinInFrontOfIt() {
   // A line to the enemy H.Q. and a troop in hand: there is a win and it must be
   // taken rather than improved upon.
   Game g;
-  g.newGame(5u, 0, 0);
+  g.newGame(5u, kPG, 0);
   for (int k = 0; k < kTroopKinds; ++k) g.rack[0][k] = 0;
   g.rack[0][static_cast<int>(Troop::Skully)] = 1;
   g.reserveTaken[0] = 1;
@@ -194,7 +199,7 @@ static void testRefusesToHangItsHq() {
   // Seat 0 holds a 7, so covering base 10 breaks the line. Every other move
   // leaves the game lost next turn.
   Game g;
-  g.newGame(9u, 0, 0);
+  g.newGame(9u, kPG, 0);
   for (int k = 0; k < kTroopKinds; ++k) {
     g.rack[0][k] = 0;
     g.rack[1][k] = 0;
@@ -229,7 +234,7 @@ static void testHookCannotBeImaginedOntoAnHq() {
   // a Hook across the map is not a threat to an H.Q., so a position that is
   // safe must not be read as exposed.
   Game g;
-  g.newGame(3u, 0, 0);
+  g.newGame(3u, kPG, 0);
   for (int k = 0; k < kTroopKinds; ++k) g.rack[1][k] = 0;
   g.rack[1][static_cast<int>(Troop::Hook)] = 3;
   g.reserveTaken[1] = 3;
@@ -242,7 +247,7 @@ static void testHookCannotBeImaginedOntoAnHq() {
 
 static void testDeterminism() {
   Game g;
-  g.newGame(777u, 0, 1);
+  g.newGame(777u, kPG, 1);
   const Observation obs = observe(g, g.turn);
   const Move a = chooseMove(obs, Skill::General);
   const Move b = chooseMove(obs, Skill::General);
@@ -257,14 +262,15 @@ struct Record {
   int percent() const { return games ? (wins * 100) / games : 0; }
 };
 
-static Record faceOff(Player challenger, Player defender, int games, bool specialBases, bool verifyPromises) {
+static Record faceOff(Player challenger, Player defender, int games, bool specialBases, bool verifyPromises,
+                      int terrain = kPG) {
   Record r;
   for (int i = 0; i < games; ++i) {
     // Alternate who starts, so the result is not the first-player advantage
     // wearing a costume.
     const uint32_t seed = rnd();
-    const int winner = (i & 1) ? playMatch(challenger, defender, seed, specialBases, verifyPromises)
-                               : playMatch(defender, challenger, seed, specialBases, verifyPromises);
+    const int winner = (i & 1) ? playMatch(challenger, defender, seed, specialBases, verifyPromises, terrain)
+                               : playMatch(defender, challenger, seed, specialBases, verifyPromises, terrain);
     const int challengerSeat = (i & 1) ? 0 : 1;
     if (winner == challengerSeat) ++r.wins;
     ++r.games;
@@ -290,6 +296,11 @@ int main() {
   // that band is a coin toss wearing a percentage -- which is how an earlier
   // version of this file "measured" a difference that did not exist.
   const Record generalVsRecruit = faceOff(Player::General, Player::Recruit, 600, true, false);
+  // And on the board people will actually play, with the promises verified on
+  // every move: a brain proved only on the lattice is a brain proved on a board
+  // nobody owns.
+  const Record castle =
+      faceOff(Player::General, Player::Recruit, 200, true, true, static_cast<int>(TerrainId::CastleField));
 
   // Bands, deliberately well below what was measured (77%, 100%, 100%, 100%),
   // so that a real regression trips them and ordinary variance does not. A
@@ -299,6 +310,7 @@ int main() {
   check(generalVsRandom.percent() >= 90, "and an evaluation on top of them beats it nearly always");
   check(generalNoBases.percent() >= 90, "with special bases switched off as well");
   check(generalVsRecruit.percent() >= 90, "General beats Recruit, which is the evaluation earning its place");
+  check(castle.percent() >= 90, "and the same on Castle Field");
 
   printf("brain      %d checks, 0 failed\n", checks);
   printf("           vs random: recruit %d%% (%d/%d), general %d%% (%d%% with special bases off)\n",
@@ -306,5 +318,6 @@ int main() {
          generalNoBases.percent());
   printf("           general %d%% (%d/%d) vs recruit  <- the one that would catch a regression\n",
          generalVsRecruit.percent(), generalVsRecruit.wins, generalVsRecruit.games);
+  printf("           general %d%% vs recruit on CASTLE FIELD over %d games\n", castle.percent(), castle.games);
   return 0;
 }

@@ -136,16 +136,24 @@ constexpr Terrain withAdjacency(Terrain t) {
   return t;
 }
 
-// PROVING GROUND is ours, not Repos'. The eight real terrains are irregular and
-// only Castle Field has ever been photographed straight on, so authoring them
-// waits on a source (docs/toybattle.md, "Open items"). This one is a 5x3
-// lattice: every rule has something to bite on -- two H.Q. at opposite ends,
-// eight regions, and enough width that connection can actually be cut -- and it
-// is named so that nobody mistakes it for a board Repos printed.
+// CASTLE FIELD, the rulebook's own first terrain. Topology is Repos'; the
+// layout is ours. The printed board's coordinates are not copied -- what
+// matters is which bases exist, what joins them, and which of them fence each
+// region, and all of that survives being redrawn for a 480x800 panel. See
+// docs/toybattle.md for how it was read and which parts were inferred.
+extern const Terrain kCastleField;
+
+// PROVING GROUND is ours and is named so. A 5x3 lattice carrying every special
+// base kind at once, which no printed terrain does; it exists so the rules
+// tests have somewhere to exercise all of them.
 extern const Terrain kProvingGround;
 
+// Index into the table `terrainAt` walks. Stored in `Game::terrain`, so the
+// order is part of the save and wire format: append, never reorder.
+enum class TerrainId : uint8_t { CastleField = 0, ProvingGround };
+constexpr int kTerrainCount = 2;
+
 const Terrain& terrainAt(int index);
-constexpr int kTerrainCount = 1;
 
 // ---------------------------------------------------------------------------
 // Moves
@@ -206,7 +214,7 @@ struct Game {
   // left there -- two identical games would compare unequal and a packet would
   // carry four bytes of noise. The two wide fields lead, the bytes follow, and
   // the static_assert at the bottom is what keeps it that way.
-  uint32_t seed = 0;        // both reserves derive from this; both devices rebuild them
+  uint32_t seed = 0;  // both reserves derive from this; both devices rebuild them
   uint16_t regionsTaken = 0;
 
   uint8_t terrain = 0;
