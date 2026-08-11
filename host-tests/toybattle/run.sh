@@ -17,6 +17,9 @@ c++ $CXXFLAGS $SRC/ToyBattleCore.cpp test_toybattle.cpp -o "$BUILD_DIR/test_toyb
 c++ $CXXFLAGS $SRC/ToyBattleCore.cpp $SRC/ToyBattleBrain.cpp test_brain.cpp -o "$BUILD_DIR/test_brain"
 "$BUILD_DIR/test_brain"
 
+c++ $CXXFLAGS $SRC/ToyBattleCore.cpp $SRC/ToyBattleFlow.cpp test_flow.cpp -o "$BUILD_DIR/test_flow"
+"$BUILD_DIR/test_flow"
+
 # The terrain editor's checker is the only thing between a mistraced board and
 # the firmware, so it is tested here rather than trusted.
 python3 ../../tools_local/terrain-editor/selftest.py
