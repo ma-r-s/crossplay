@@ -10,23 +10,38 @@
 
 #include "../../MappedInputManager.h"
 #include "../../activities/Activity.h"
+#include "../link/LinkActivity.h"
 #include "../ui/ToyboxScreen.h"
 #include "ToyBattleBrain.h"
 #include "ToyBattleCore.h"
 #include "ToyBattleFlow.h"
 #include "ToyBattleMenus.h"
 
-class ToyBattleActivity final : public Activity {
+class ToyBattleActivity final : public linkplay::LinkActivity {
  public:
   ToyBattleActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
-      : Activity("ToyBattle", renderer, mappedInput) {}
+      : linkplay::LinkActivity("ToyBattle", renderer, mappedInput) {}
   ~ToyBattleActivity() override = default;
 
   static std::unique_ptr<Activity> create(GfxRenderer& renderer, MappedInputManager& mappedInput);
 
   void onEnter() override;
-  void loop() override;
-  void render(RenderLock&&) override;
+  void onExit() override;
+
+ protected:
+  // --- what the link layer asks of a game ----------------------------------
+  linkplay::PlayBase& linkState() override { return link; }
+  const linkplay::PlayBase& linkState() const override { return link; }
+  const char* linkGameTitle() const override { return "TOY BATTLE"; }
+  const char* linkHeadline() const override;
+  void onMatchStart(bool goesFirst) override;
+  bool takeOpponentState() override;
+  void onRematch() override;
+  void onLinkEnded() override;
+  bool matchGameOver() const override;
+  void gameLoop() override;
+  void gameRender() override;
+  void drawLinkArt(const Rect& area) override;
 
  private:
   void beginGame();
@@ -72,6 +87,24 @@ class ToyBattleActivity final : public Activity {
   // to photograph them side by side in the meantime.
   static constexpr tbui::Look kLook = tbui::Look::FrontDoor;
 
-  toybox::Interactions interactions;
-  bool interactionsReady = false;
+  // A move is only sent when the rules AND the link both say it is your turn.
+  // Asking whether they agree is not the same question and passes on the
+  // opponent's turn, which is how another game in this fork fired on the wrong
+  // side of the board.
+  bool canAct() const;
+  void commitMove();
+  void requestNewGame();
+  void saveGame();
+  bool loadGame();
+
+  // The shared state is `Game` itself, which is already the wire format: 148
+  // bytes, trivially copyable, with an exact-size assert. Nothing is serialised
+  // and nothing is described twice.
+  linkplay::Play<toybattle::Game> link;
+  // A zeroed Game has no legal move, so a follower that has not been dealt to
+  // yet would read as a finished game -- and the layer latches the rematch
+  // screen the moment it sees one, permanently. This says "nothing has been
+  // dealt", which is a different thing from "the game is over".
+  bool dealt = false;
+  mutable char headline[48] = {};
 };

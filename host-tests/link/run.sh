@@ -47,3 +47,8 @@ c++ -std=c++17 -Wall -Wextra -Werror -O2 $SRC/LinkProtocol.cpp $SRC/LinkSession.
   $SRC/LinkRadio.cpp $SRC/LinkPlay.cpp ../../src/apps_local/battleship/BattleshipCore.cpp \
   test_battleshiplink.cpp -o "$BUILD_DIR/test_battleshiplink"
 "$BUILD_DIR/test_battleshiplink"
+
+c++ $CXXFLAGS $SRC/LinkProtocol.cpp $SRC/LinkSession.cpp $SRC/LinkRadio.cpp $SRC/LinkPlay.cpp \
+  ../../src/apps_local/toybattle/ToyBattleCore.cpp ../../src/apps_local/toybattle/ToyBattleBrain.cpp \
+  test_toybattlelink.cpp -o "$BUILD_DIR/test_toybattlelink"
+"$BUILD_DIR/test_toybattlelink"
