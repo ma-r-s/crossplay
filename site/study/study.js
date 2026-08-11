@@ -12,6 +12,9 @@
     return document.getElementById(id);
   };
 
+  // Left column: the reader's slots. The menus hold the deck's own field
+  // names. The label used to describe the opposite, which read as nonsense
+  // on a deck with no "Part of speech".
   var SLOTS = [
     ["headword", "Word"],
     ["reading", "Reading / pronunciation"],
@@ -110,7 +113,17 @@
     resetDownstream();
     reachedStep = 1;
     goTo(1);
-    setProgress("Reading " + file.name + "…");
+    setProgress(
+      "Reading " +
+        file.name +
+        (file.size > 20 * 1024 * 1024
+          ? " (" +
+            Math.round(file.size / 1024 / 1024) +
+            " MB, this takes a moment)"
+          : "") +
+        "…",
+    );
+    $("dropzone").classList.add("is-busy");
     file.arrayBuffer().then(function (buffer) {
       ensureWorker();
       if (workerReady) {
@@ -177,12 +190,14 @@
 
     $("sourceFile").textContent = sourceName ? "from " + sourceName : "";
     $("openProgress").classList.remove("is-busy");
+    $("dropzone").classList.remove("is-busy");
 
     var warn = $("summaryWarn");
     if (result.cardsWithState === 0 && result.reviews === 0) {
       warn.textContent =
-        "No scheduling information came along, so every card will start new." +
-        " If this deck has history in Anki, re-export it with" +
+        "No review history came along, so every card starts new. That is" +
+        " normal for a deck downloaded from AnkiWeb. If this is your own" +
+        " deck and you wanted its history, export it again from Anki with" +
         ' "Include scheduling information" checked.';
       warn.hidden = false;
     } else {
@@ -218,14 +233,24 @@
       return (
         n +
         (n === 1 ? " card arrives" : " cards arrive") +
-        " broken: nothing to reveal, or the answer already showing in the" +
-        " question. Usually the deck itself has those gaps."
+        " with nothing to reveal, or with the answer already showing in" +
+        " the question."
       );
     },
     "the question and the answer are the same text, deck-wide": function () {
       return (
         "On most cards the question and the answer are the same words, which" +
         " usually means one field is filling both. Check the dropdowns."
+      );
+    },
+    "a reading or meaning the reader cannot draw": function (n) {
+      return (
+        n +
+        (n === 1 ? " card has a reading" : " cards have readings") +
+        " or meanings in a script the reader draws only in its built-in" +
+        " type, which covers Latin letters. Those lines arrive blank. The" +
+        " reader supports English and Chinese decks; other scripts are not" +
+        " supported."
       );
     },
     "a character no installed font can draw at all": function (n) {
@@ -271,13 +296,32 @@
       $("reportBody").hidden = false;
       reachedStep = Math.max(reachedStep, 2);
       goTo(2);
-      $("reportVerdict").textContent = "This deck did not convert.";
+      // The plain-English reason belongs in the headline. The cloze
+      // sentence already existed for the sample deck; a real cloze deck got
+      // "This deck did not convert." with the reason folded inside a
+      // collapsed log written in command-line flags.
+      var why = "";
+      var cloze = /(\d+) cloze card\(s\) skipped/.exec(result.error || "");
+      if (cloze) {
+        why =
+          " All " +
+          cloze[1] +
+          " cards are cloze: the question is a sentence with a hole in it," +
+          " and this card format has nowhere to put a hole. Cloze decks stay" +
+          " in Anki.";
+      }
+      $("reportVerdict").textContent = "This deck did not convert." + why;
       $("reportVerdict").className = "study-verdict is-bad";
-      $("convertLog").textContent = result.error;
+      // The tool's advice is a command line; there is no command line here.
+      $("convertLog").textContent = (result.error || "").replace(
+        /If the generic guess picked the wrong fields[\s\S]*$/,
+        "",
+      );
       $("checkLog").textContent = "";
       $("samplePanel").hidden = true;
       $("skipNotice").hidden = true;
       $("summaryFacts").textContent = "";
+      $("summaryWarn").hidden = true;
       // Nothing was produced, so there is nowhere to go: a live Next button
       // here walked the user onto an empty step with no way back but the tabs.
       $("next2").disabled = true;
@@ -290,6 +334,7 @@
     $("reportPlaceholder").hidden = true;
     $("reportBody").hidden = false;
     reachedStep = Math.max(reachedStep, 4);
+    $("stepCheck").scrollTop = 0;
     if (currentStep < 2) goTo(2);
     else goTo(currentStep);
 
@@ -358,6 +403,12 @@
       notes.push(line);
     });
 
+    // Audio and pictures are gone from the deck whatever happens next, so
+    // these lines must survive a font rebuild. One that erased itself two
+    // seconds later is a warning nobody reads.
+    permanentNotes = notes.filter(function (line) {
+      return line.indexOf("sound(s)") >= 0 || line.indexOf("picture(s)") >= 0;
+    });
     var notice = $("skipNotice");
     notice.textContent = notes.join(" ");
     notice.hidden = notes.length === 0;
@@ -368,6 +419,10 @@
     $("next2").disabled = false;
     sampleList = result.samples && result.samples.length ? result.samples : [];
     sampleAt = 0;
+    flaggedTotal = 0;
+    Object.keys(result.problems || {}).forEach(function (k) {
+      flaggedTotal += result.problems[k];
+    });
     fillSample(sampleList.length ? sampleList[0] : result.sample);
     buildMapGrid(result);
 
@@ -427,6 +482,8 @@
 
   var sampleList = [];
   var sampleAt = 0;
+  var flaggedTotal = 0;
+  var permanentNotes = [];
 
   function fillSample(sample) {
     if (!sample) {
@@ -457,13 +514,14 @@
       var flagged = sampleList.filter(function (c) {
         return c.flagged;
       }).length;
+      var totalFlagged = flaggedTotal || flagged;
       label.appendChild(
         document.createTextNode(
           "Card " +
             (sample.index + 1) +
-            (sample.flagged ? ", one the checker flagged. " : ". ") +
+            (sample.reason ? " -- " + sample.reason + ". " : ". ") +
             (flagged
-              ? flagged + " flagged card(s) to look at. "
+              ? "Showing " + flagged + " of " + totalFlagged + " flagged. "
               : ""),
         ),
       );
@@ -587,8 +645,9 @@
       verdict.className = "study-verdict is-good";
     }
     var notice = $("skipNotice");
-    notice.textContent = fontProblems.join(" ");
-    notice.hidden = fontProblems.length === 0;
+    var all = permanentNotes.concat(fontProblems);
+    notice.textContent = all.join(" ");
+    notice.hidden = all.length === 0;
   }
 
   // ---- step 4: the preview ------------------------------------------------

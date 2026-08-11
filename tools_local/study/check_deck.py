@@ -256,6 +256,7 @@ def main():
         "a card whose faces do not work as a question and an answer": [],
         "the question and the answer are the same text, deck-wide": [],
         "a character no installed font can draw at all": [],
+        "a reading or meaning the reader cannot draw": [],
         "a glyph the headword face cannot draw": [],
         "a Latin glyph the built-in serif cannot draw": [],
         "headword too wide for the screen": [],
@@ -312,6 +313,32 @@ def main():
                     f"note {index}: {''.join(sorted(unreachable))[:12]!r}"
                     " needs a CJK font, and none is installed"
                 )
+
+        # Only the headword and the sentence are drawn in the deck's own face.
+        # Everything else -- reading, meaning, part of speech, the sentence's
+        # gloss -- goes through the built-in serif, which has no CJK at all.
+        # Nothing checked that: the serif check below skips CJK by design and
+        # the face checks above only look at two fields, so a Japanese deck
+        # whose readings were katakana rendered them as boxes on the device
+        # while every line here said "0". Scope is English and Chinese, so
+        # this does not chase a fix; it makes the failure visible.
+        serif_drawn = [
+            fields[FIELD_NAMES.index(name)]
+            for name in (
+                "reading",
+                "meaning",
+                "partOfSpeech",
+                "sentenceReading",
+                "sentenceMeaning",
+            )
+        ]
+        undrawable = {c for text in serif_drawn for c in text if is_cjk(c)}
+        if undrawable:
+            problems["a reading or meaning the reader cannot draw"].append(
+                f"note {index}: {''.join(sorted(undrawable))[:12]!r} sits in a"
+                " field the reader draws in its built-in face, which has no"
+                " such characters"
+            )
 
         if serif is not None:
             for name, text in zip(FIELD_NAMES, fields):

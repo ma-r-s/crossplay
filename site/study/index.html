@@ -76,14 +76,15 @@
         <p class="study-drop-small">
           or click to choose &middot; from Anki: File &rsaquo; Export &rsaquo;
           Anki Deck Package, "Include scheduling information" checked
-          &middot; or any deck downloaded straight from
-          AnkiWeb's shared decks
+          &middot; or any deck downloaded straight from AnkiWeb's shared
+          decks &middot; English and Chinese decks; cloze cards, pictures
+          and audio stay in Anki
         </p>
         <input type="file" id="filepick" accept=".apkg,.colpkg,application/zip" hidden>
       </div>
       <p class="study-alt">
         No deck handy? <button class="linklike" id="sample" type="button">Try
-        the sample deck</button>, thirty SAT words with review history.
+        the sample deck</button>, a few dozen SAT words with review history.
         Everything happens inside this tab; nothing is uploaded anywhere.
       </p>
       <div class="study-status" id="openStatus" hidden>
@@ -137,8 +138,9 @@
         <div class="wiz-map">
           <p class="study-facts" id="sampleWhich"></p>
           <p class="wiz-type-label">
-            What goes where. Your deck's fields, by name; change any of them
-            and the card on the left redraws:
+            What goes where. On the left are the reader's slots; the menus
+            hold your deck's own field names. Change one and the card
+            redraws:
           </p>
           <div class="study-map-grid" id="mapGrid"></div>
           <p class="study-facts" id="mapNote" hidden></p>
@@ -225,9 +227,12 @@
         </div>
         <p class="study-status-line" id="syncStatus">
           The profile folder is the one holding collection.anki2. Mac:
-          Library &rsaquo; Application Support &rsaquo; Anki2 &rsaquo; your
-          profile. Windows: %APPDATA%\Anki2\your profile. Linux:
-          ~/.local/share/Anki2/your profile.
+          ~/Library/Application Support/Anki2/&lt;your profile&gt; (the Library
+          folder is hidden in Finder: press Cmd-Shift-G and paste the path).
+          Windows: %APPDATA%\Anki2\&lt;your profile&gt;. Linux:
+          ~/.local/share/Anki2/&lt;your profile&gt;. The backup is written beside
+          collection.anki2 in that same folder. Needs Chrome or Edge; other
+          browsers cannot open a folder, so use the command-line tool.
         </p>
         <pre class="study-log" id="syncLog" hidden></pre>
       </div>

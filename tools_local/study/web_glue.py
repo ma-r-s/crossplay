@@ -203,10 +203,19 @@ def convert(deck_name, mapping):
     # a dropdown that only affects later cards looks broken.
     samples = []
     flagged = []
+    reasons = {}
     for line in check_log.splitlines():
         hit = re.search(r"note (\d+)", line)
-        if hit and int(hit.group(1)) not in flagged:
-            flagged.append(int(hit.group(1)))
+        if not hit:
+            continue
+        index = int(hit.group(1))
+        if index not in flagged:
+            flagged.append(index)
+        # Why this card was flagged, so the page can say it beside the card
+        # instead of leaving the user to guess at a normal-looking one.
+        if index not in reasons:
+            tail = line.split(":", 1)[-1].strip()
+            reasons[index] = tail[:120] if tail else ""
     wanted = [0] + flagged[:6]
     try:
         for index, note_fields in check_deck_mod.read_deck(out / "deck.dat"):
@@ -214,6 +223,7 @@ def convert(deck_name, mapping):
                 card = dict(zip(check_deck_mod.FIELD_NAMES, note_fields))
                 card["index"] = index
                 card["flagged"] = index in flagged
+                card["reason"] = reasons.get(index, "")
                 samples.append(card)
             if len(samples) >= len(wanted):
                 break

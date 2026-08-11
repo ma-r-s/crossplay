@@ -157,6 +157,13 @@
   background: var(--paper);
 }
 
+/* A drop with no acknowledgement is a drop people repeat. */
+.study-dropzone.is-busy {
+  border-style: solid;
+  border-color: var(--ink);
+  opacity: 0.55;
+}
+
 .study-drop-big {
   font-family: var(--display);
   font-size: clamp(1.5rem, 3.5vw, 2.4rem);
