@@ -72,7 +72,10 @@ const char* skillBlurb(const tb::Skill skill) {
     case tb::Skill::Recruit:
       return "TAKES WHAT IS THERE";
     case tb::Skill::Sergeant:
-      return "PLAYS FOR POSITION";
+      // Was "PLAYS FOR POSITION", which oversold it: it reads as a plan, and
+      // this rung has none. Said plainly next to GENERAL's "READS YOUR REPLY",
+      // the pair now names the actual difference -- depth.
+      return "ONE MOVE AHEAD";
     case tb::Skill::General:
       return "READS YOUR REPLY";
   }

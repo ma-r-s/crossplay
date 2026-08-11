@@ -3274,7 +3274,13 @@ void testToyBattleShell() {
     CHECK(out.target.drew("START"));
     // Against a person there is no difficulty to choose, and the row that would
     // set one must not be on the screen at all.
-    CHECK(out.target.drew("SERGEANT") == (link == 0));
+    //
+    // Asks for whatever rung the model actually holds, not for "SERGEANT".
+    // This said SERGEANT until 2026-08-11 and broke the moment the default
+    // moved to GENERAL -- it was testing the default's NAME while meaning
+    // "the difficulty row is present", so it failed for a change it had no
+    // opinion about.
+    CHECK(out.target.drew(tbui::skillName(model.options.skill)) == (link == 0));
   }
 
   {
