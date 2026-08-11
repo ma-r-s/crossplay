@@ -410,6 +410,28 @@ refuses a terrain index this build does not have, which is the ordinary way a
 good save goes bad -- written after Mario adds a map, opened by a build from
 before it.
 
+## City of Clouds
+
+Traced by Mario 2026-08-11, the second real terrain. Fourteen bases in two
+columns of five with four **Draw** bases down the middle, each of those joined
+to two bases on either side, so every face of the board is a triangle or a quad
+-- thirteen of them, paying sixteen medals against an objective of eight. That
+is the same half-the-board ratio Castle Field uses (7 of 14), which is the only
+corroboration available for an objective nobody has published.
+
+Its two end regions are fenced by three bases and an H.Q. An H.Q. is not a base
+and cannot be in a region mask, so those regions list the three bases and are
+taken by holding those three. That falls out of the rule rather than being a
+decision: the rulebook says occupy every **base** surrounding a region.
+
+**It also found a gap in the pipeline.** Castle Field happened to be traced edge
+to edge and this one did not, so its coordinates spanned 117..872 of 1000 and the
+board drew inside a margin while Castle Field filled the panel. That is a
+property of how the reference picture was loaded, not of the terrain, so
+`to_cpp.py` now normalises every board to fill 0..1000 in both axes. Castle
+Field's generated source is byte-identical after the change, which is what says
+the normalisation is a no-op where it should be.
+
 ## Open items
 
 - **The "Winter board" is not a ninth terrain.** BGG image 9252799, posted by

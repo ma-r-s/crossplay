@@ -148,10 +148,17 @@ extern const Terrain kCastleField;
 // tests have somewhere to exercise all of them.
 extern const Terrain kProvingGround;
 
+// CITY OF CLOUDS, traced by Mario 2026-08-11. Fourteen bases in two columns
+// with four Draw bases down the middle, each joined to two on either side, so
+// every face of the board is a triangle or a quad and there are thirteen of
+// them. Sixteen medals, objective 8 -- the same half-the-board ratio Castle
+// Field uses.
+extern const Terrain kCityOfClouds;
+
 // Index into the table `terrainAt` walks. Stored in `Game::terrain`, so the
 // order is part of the save and wire format: append, never reorder.
-enum class TerrainId : uint8_t { CastleField = 0, ProvingGround };
-constexpr int kTerrainCount = 2;
+enum class TerrainId : uint8_t { CastleField = 0, ProvingGround, CityOfClouds };
+constexpr int kTerrainCount = 3;
 
 const Terrain& terrainAt(int index);
 

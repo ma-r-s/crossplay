@@ -38,6 +38,16 @@ TROOP_NAME = ["Kwak", "Skully", "Capn", "Jumbo", "Hook", "XB42", "Star", "Roxy"]
 MAX_BASES, MAX_HQ, MAX_REGIONS, MAX_EDGES = 32, 4, 16, 72
 
 
+
+def normalise(values):
+    """Spread `values` across 0..1000, preserving their relative spacing."""
+    low, high = min(values), max(values)
+    span = high - low
+    if span <= 0:
+        return [0 for _ in values]
+    return [round((v - low) * 1000 / span) for v in values]
+
+
 def check(model):
     """Every rule the firmware asserts about a terrain. Returns a list of errors."""
     errs = []
@@ -148,8 +158,16 @@ def emit(model):
     w(f"  t.medalsObjective = {model['objective']};")
     w("")
 
-    xs = [b["x"] for b in bases] + [q["x"] for q in hqs]
-    ys = [b["y"] for b in bases] + [q["y"] for q in hqs]
+    # Normalised to fill 0..1000 in both axes, because the tracing zoom is not
+    # part of the board. Castle Field happened to be traced edge to edge and
+    # City of Clouds did not, and the difference showed up as one board using
+    # the whole panel and the other sitting in a margin -- which is a property
+    # of how the picture was loaded, not of the terrain.
+    #
+    # A single row or column normalises to 0, which is correct: there is nothing
+    # to spread.
+    xs = normalise([b["x"] for b in bases] + [q["x"] for q in hqs])
+    ys = normalise([b["y"] for b in bases] + [q["y"] for q in hqs])
     w(f"  const uint16_t xs[{nb + nh}] = {{{', '.join(str(v) for v in xs)}}};")
     w(f"  const uint16_t ys[{nb + nh}] = {{{', '.join(str(v) for v in ys)}}};")
     w(f"  for (int i = 0; i < {nb + nh}; ++i) {{")

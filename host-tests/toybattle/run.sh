@@ -26,5 +26,6 @@ python3 ../../tools_local/terrain-editor/selftest.py
 
 # And the board in the tree must still be the board the fixture describes: if
 # somebody hand-edits the generated terrain, this is where it shows up.
-python3 ../../tools_local/terrain-editor/to_cpp.py --check \
-  ../../tools_local/terrain-editor/boards/castle-field.json
+for board in ../../tools_local/terrain-editor/boards/*.json; do
+  python3 ../../tools_local/terrain-editor/to_cpp.py --check "$board"
+done
