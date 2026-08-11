@@ -318,6 +318,15 @@ const char* specialBlurb(const tb::Special what) {
   return "";
 }
 
+void drawTroopMark(toybox::Screen& screen, const fui::Point at, const int16_t size, const tb::Troop kind) {
+  troopMark(screen, at, size, kind);
+}
+
+void drawSpecialGlyph(toybox::Screen& screen, const fui::Point at, const int16_t size, const tb::Special what,
+                      const bool white) {
+  glyph(screen, at, size, what, white);
+}
+
 const char* troopBlurb(const tb::Troop kind) {
   switch (kind) {
     case tb::Troop::Kwak:
@@ -498,47 +507,6 @@ void buildResult(toybox::Screen& screen, const ResultModel& model) {
   screen.button(again, screen.takeBottom(toybox::kPillHeight, toybox::kGutter));
 }
 
-void buildHowTo(toybox::Screen& screen) {
-  fui::HeaderProps header;
-  header.title = "HOW TO PLAY";
-  header.borderEdges = fui::EdgesNone;
-  screen.header(header);
-  screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
-
-  // Only what the marks and the briefing cannot say for themselves: the turn,
-  // the two rules that govern a placement, and the two ways to win.
-  static const char* const kLines[] = {
-      "EACH TURN: PLACE ONE TROOP, OR DRAW TWO.",
-      "A TROOP GOES ON AN EMPTY BASE, ONE OF YOURS, OR AN ENEMY TROOP WEAKER THAN IT.",
-      "IT MUST TRACE A PATH HOME TO YOUR H.Q. THROUGH BASES YOU HOLD.",
-      "HOLD EVERY BASE AROUND A REGION AND ITS MEDALS ARE YOURS FOR GOOD.",
-      "WIN BY REACHING THE MEDALS, OR BY PLACING A TROOP ON THEIR H.Q.",
-      "THE DUCK COVERS ANYTHING. ANYTHING COVERS THE DUCK.",
-  };
-  fui::TextStyle body;
-  body.font = toybox::kSmallFont;
-  body.align = fui::TextAlign::Left;
-  body.maxLines = 3;
-  for (const char* line : kLines) {
-    screen.target().text(screen.takeTop(62, toybox::kGutter), line, body);
-  }
-}
-
-void buildMenu(toybox::Screen& screen, const MenuModel& model) {
-  fui::HeaderProps header;
-  header.title = "TOY BATTLE";
-  header.borderEdges = fui::EdgesNone;
-  screen.header(header);
-  screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
-
-  static const fui::ListItem kRows[] = {{"PLAY"}, {"HOW TO PLAY"}};
-  fui::ListProps list;
-  list.items = kRows;
-  list.count = static_cast<uint16_t>(MenuRow::Count);
-  list.selectedIndex = static_cast<int16_t>(model.selected);
-  list.action = ActionMenuRow;
-  screen.list(list, static_cast<int16_t>(toybox::kRowHeight * static_cast<int>(MenuRow::Count) + 8));
-}
 
 void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   const tb::Game& game = model.game;

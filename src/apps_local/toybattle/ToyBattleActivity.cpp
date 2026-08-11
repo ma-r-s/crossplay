@@ -1,5 +1,7 @@
 #include "ToyBattleActivity.h"
 
+#include <cstdio>
+
 #include "../Shelf.h"
 #include "../ui/Toybox.h"
 #include "../ui/ToyboxFonts.h"
@@ -16,7 +18,8 @@ void ToyBattleActivity::onEnter() {
   Activity::onEnter();
   toybox::ensureFonts(renderer);
   screen = tb::Screen::Menu;
-  menuSelected = -1;
+  menuSelected = 0;
+  refreshSaveLine();
   requestUpdate();
 }
 
@@ -29,8 +32,7 @@ void ToyBattleActivity::beginGame() {
   // the rack force-fed -- so two layout variants could be photographed from the
   // same board. That was scaffolding for choosing a drawing, and it had no
   // business surviving into a game somebody sits down with.
-  game.newGame(static_cast<uint32_t>(millis()) * 2654435761u + 1u, static_cast<int>(tb::TerrainId::CastleField), 0,
-               /*withSpecialBases=*/true);
+  game.newGame(static_cast<uint32_t>(millis()) * 2654435761u + 1u, options.terrain, 0, options.specialBases);
   draft.clear();
   notice = nullptr;
   seat = 0;
@@ -39,8 +41,58 @@ void ToyBattleActivity::beginGame() {
 
 void ToyBattleActivity::takeOpponentTurn() {
   const tb::Observation obs = tb::observe(game, game.turn);
-  game.apply(tb::chooseMove(obs, tb::Skill::General));
+  game.apply(tb::chooseMove(obs, options.skill));
   requestUpdate();
+}
+
+tbui::MenuModel ToyBattleActivity::menuModel() const {
+  tbui::MenuModel model;
+  model.selected = menuSelected;
+  model.hasSave = hasSave;
+  model.saveDetail = saveDetail;
+  model.played = played;
+  model.won = won;
+  model.options = options;
+  model.preview = &preview;
+  model.look = kLook;
+  return model;
+}
+
+void ToyBattleActivity::openMenu() {
+  menuSelected = 0;
+  goTo(tb::Screen::Menu);
+}
+
+void ToyBattleActivity::cycleSetupRow(const tbui::SetupRow row) {
+  switch (row) {
+    case tbui::SetupRow::Map:
+      mapTop = 0;
+      goTo(tb::Screen::MapPick);
+      return;
+    case tbui::SetupRow::Opponent:
+      options.skill = static_cast<tb::Skill>((static_cast<int>(options.skill) + 1) % tb::kSkillCount);
+      break;
+    case tbui::SetupRow::Bases:
+      options.specialBases = !options.specialBases;
+      break;
+    case tbui::SetupRow::Count:
+      return;
+  }
+  requestUpdate();
+}
+
+void ToyBattleActivity::refreshSaveLine() {
+  // The preview is the board the front door draws. With no save it is the map
+  // you are about to play, empty, so the ornament is never a board from a
+  // different game than the one START would begin.
+  if (!hasSave) {
+    preview = tb::Game{};
+    preview.newGame(1u, options.terrain, 0, options.specialBases);
+    saveDetail[0] = '\0';
+    return;
+  }
+  std::snprintf(saveDetail, sizeof(saveDetail), "%s   %d-%d", tb::terrainAt(preview.terrain).name,
+                preview.medals[seat], preview.medals[seat ^ 1]);
 }
 
 void ToyBattleActivity::goTo(const tb::Screen next) {
@@ -94,7 +146,15 @@ void ToyBattleActivity::loop() {
   namespace fui = freeink::ui;
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    if (screen == tb::Screen::HowTo && howToPage > 0) {
+      // A paginated screen steps a page before it leaves, which is what Back
+      // means to somebody who has been tapping NEXT.
+      --howToPage;
+      requestUpdate();
+      return;
+    }
     if (tb::leavesApp(screen)) {
+      // No app names its own destination; the shelf decides where out is.
       shelf::leave(renderer, mappedInput);
       return;
     }
@@ -163,17 +223,83 @@ void ToyBattleActivity::loop() {
   input.touchY = static_cast<int16_t>(tapY);
   const fui::ActionEvent event = interactions.route(input);
   switch (event.action) {
-    case tbui::ActionMenuRow:
-      switch (static_cast<tbui::MenuRow>(event.value)) {
-        case tbui::MenuRow::Play:
-          beginGame();
+    case tbui::ActionShellRow: {
+      const tbui::ShellRow row = tbui::shellRowAt(menuModel(), event.value);
+      switch (row) {
+        case tbui::ShellRow::Continue:
+          if (hasSave) goTo(tb::Screen::Board);
           return;
-        case tbui::MenuRow::HowTo:
+        case tbui::ShellRow::Play:
+          options.mode = tb::Mode::Solo;
+          setupSelected = 0;
+          goTo(tb::Screen::Setup);
+          return;
+        case tbui::ShellRow::Nearby:
+          options.mode = tb::Mode::Link;
+          setupSelected = 0;
+          goTo(tb::Screen::Setup);
+          return;
+        case tbui::ShellRow::HowTo:
+          howToPage = 0;
           goTo(tb::Screen::HowTo);
           return;
-        case tbui::MenuRow::Count:
+        case tbui::ShellRow::Count:
           return;
       }
+      return;
+    }
+    case tbui::ActionStart:
+      beginGame();
+      return;
+    case tbui::ActionSetupRow: {
+      tbui::SetupModel setup;
+      setup.options = options;
+      setup.forLink = options.mode == tb::Mode::Link;
+      cycleSetupRow(tbui::setupRowAt(setup, event.value));
+      return;
+    }
+    case tbui::ActionOpenMaps:
+      mapTop = 0;
+      goTo(tb::Screen::MapPick);
+      return;
+    case tbui::ActionMapRow:
+      if (event.value >= 0 && event.value < tb::kTerrainCount) {
+        options.terrain = static_cast<uint8_t>(event.value);
+        refreshSaveLine();
+      }
+      goTo(tb::Screen::Setup);
+      return;
+    case tbui::ActionPickSkill:
+      // The picker hands back which rung was tapped; the list hands back the
+      // row and means "next one". Both land here.
+      if (event.value >= 0 && event.value < tb::kSkillCount) {
+        options.skill = static_cast<tb::Skill>(event.value);
+      } else {
+        cycleSetupRow(tbui::SetupRow::Opponent);
+      }
+      requestUpdate();
+      return;
+    case tbui::ActionPickBases:
+      options.specialBases = !options.specialBases;
+      requestUpdate();
+      return;
+    case tbui::ActionPageNext:
+      if (howToPage + 1 >= tbui::howToPages(kLook)) {
+        // The last page returns to the menu rather than dropping you into a
+        // board: you have just been taught, and what you want next is to pick.
+        openMenu();
+        return;
+      }
+      ++howToPage;
+      requestUpdate();
+      return;
+    case tbui::ActionPagePrev:
+      if (howToPage == 0) {
+        openMenu();
+        return;
+      }
+      --howToPage;
+      requestUpdate();
       return;
     case tbui::ActionAgain:
       beginGame();
@@ -240,14 +366,33 @@ void ToyBattleActivity::render(RenderLock&&) {
       tbui::buildResult(surface, model);
       break;
     }
-    case tb::Screen::HowTo:
-      tbui::buildHowTo(surface);
+    case tb::Screen::HowTo: {
+      tbui::HowToModel model;
+      model.page = howToPage;
+      model.look = kLook;
+      tbui::buildHowTo(surface, model);
       break;
-    case tb::Screen::Menu:
+    }
+    case tb::Screen::MapPick: {
+      tbui::MapPickModel model;
+      model.selected = options.terrain;
+      model.topRow = mapTop;
+      model.look = kLook;
+      tbui::buildMapPick(surface, model);
+      break;
+    }
     case tb::Screen::Setup: {
-      tbui::MenuModel model;
-      model.selected = menuSelected;
-      tbui::buildMenu(surface, model);
+      tbui::SetupModel model;
+      model.options = options;
+      model.selected = setupSelected;
+      model.forLink = options.mode == tb::Mode::Link;
+      model.look = kLook;
+      tbui::buildSetup(surface, model);
+      break;
+    }
+    case tb::Screen::Lobby:
+    case tb::Screen::Menu: {
+      tbui::buildMenu(surface, menuModel());
       break;
     }
     case tb::Screen::Board: {

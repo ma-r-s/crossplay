@@ -17,7 +17,6 @@ namespace tbui {
 namespace fui = freeink::ui;
 
 enum : fui::ActionId {
-  ActionMenuRow = 1,
   // A turn is "place a troop" or "draw two", and the second had no way in at
   // all until this existed. The foot of the board is now whichever of these
   // the position actually offers.
@@ -28,12 +27,6 @@ enum : fui::ActionId {
   ActionBrief = 6,
   ActionAgain = 7,
   ActionDone = 8,
-};
-
-enum class MenuRow : int { Play = 0, HowTo, Count };
-
-struct MenuModel {
-  int selected = -1;
 };
 
 struct BoardModel {
@@ -70,7 +63,6 @@ int handKindAt(const toybattle::Game& game, int seat, int position);
 // The troop kind under a tap, or -1.
 int rackAt(const fui::DeviceContext& device, const toybattle::Game& game, int seat, int x, int y);
 
-void buildMenu(toybox::Screen& screen, const MenuModel& model);
 void buildBoard(toybox::Screen& screen, const BoardModel& model);
 
 // What this terrain's special bases do. The only thing that changes between
@@ -87,10 +79,11 @@ struct ResultModel {
 };
 void buildResult(toybox::Screen& screen, const ResultModel& model);
 
-// How the game is played, in one screen. Short on purpose: the marks carry the
-// troops and the briefing carries the terrain, so this only has to cover the
-// two things neither of those can say.
-void buildHowTo(toybox::Screen& screen);
+// The marks, for anything outside this file that has to draw them. The rules
+// screens teach the same symbols the board uses, which is the whole point of
+// having a design language rather than a set of pictures.
+void drawTroopMark(toybox::Screen& screen, fui::Point at, int16_t size, toybattle::Troop kind);
+void drawSpecialGlyph(toybox::Screen& screen, fui::Point at, int16_t size, toybattle::Special what, bool white);
 
 // What a troop does, in a few words, and why a tap was refused. Both feed the
 // one line under the title.

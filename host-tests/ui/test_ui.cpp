@@ -29,6 +29,7 @@
 #include "../../src/apps_local/player/PlayerAvatar.h"
 #include "../../src/apps_local/player/PlayerScreen.h"
 #include "../../src/apps_local/study/StudyScreens.h"
+#include "../../src/apps_local/toybattle/ToyBattleMenus.h"
 #include "../../src/apps_local/toybattle/ToyBattleScreens.h"
 #include "../../src/apps_local/ui/ToyboxIcons.h"
 
@@ -3125,7 +3126,123 @@ void testTheRackTileYouTapIsTheTroopYouGet() {
   }
 }
 
+// --- toy battle: the shell -------------------------------------------------
+
+void buildTbMenu(Rendered& out, const tbui::MenuModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  tbui::buildMenu(screen, model);
+}
+
+void buildTbSetup(Rendered& out, const tbui::SetupModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  tbui::buildSetup(screen, model);
+}
+
+void buildTbMaps(Rendered& out, const tbui::MapPickModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  tbui::buildMapPick(screen, model);
+}
+
+void buildTbHowTo(Rendered& out, const tbui::HowToModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  tbui::buildHowTo(screen, model);
+}
+
+void testToyBattleShell() {
+  // The row set shifts rather than leaving a hole, so no index ever names a row
+  // that is not on the screen.
+  tbui::MenuModel bare;
+  CHECK(tbui::shellRowCount(bare) == static_cast<int>(tbui::ShellRow::Count) - 1);
+  CHECK(tbui::shellRowAt(bare, 0) == tbui::ShellRow::Play);
+  tbui::MenuModel saved;
+  saved.hasSave = true;
+  CHECK(tbui::shellRowAt(saved, 0) == tbui::ShellRow::Continue);
+  for (int i = -2; i < 8; ++i) {
+    CHECK(tbui::shellRowAt(bare, i) != tbui::ShellRow::Count);
+    CHECK(tbui::shellRowAt(saved, i) != tbui::ShellRow::Count);
+  }
+
+  toybattle::Game preview;
+  preview.newGame(7u, 0, 0, true);
+
+  for (int lookIndex = 0; lookIndex < tbui::kLookCount; ++lookIndex) {
+    const tbui::Look look = static_cast<tbui::Look>(lookIndex);
+
+    for (int save = 0; save < 2; ++save) {
+      tbui::MenuModel model;
+      model.look = look;
+      model.hasSave = save != 0;
+      model.saveDetail = "CASTLE FIELD   2-1";
+      model.preview = &preview;
+      model.played = 3;
+      model.won = 2;
+      Rendered out;
+      buildTbMenu(out, model);
+      // The 24-rect ceiling. Past it a control draws and registers nothing,
+      // which looks exactly like a control that works.
+      CHECK(out.interactions.count() <= toybox::kMaxInteractions);
+      CHECK(out.interactions.count() > 0);
+      CHECK(out.target.drew("PLAY NEARBY"));
+      CHECK(out.target.drew("HOW TO PLAY"));
+      // A save that is offered has to say what it is offering.
+      CHECK(out.target.drew("CONTINUE") == (save != 0));
+    }
+
+    for (int link = 0; link < 2; ++link) {
+      tbui::SetupModel model;
+      model.look = look;
+      model.forLink = link != 0;
+      model.selected = 0;
+      Rendered out;
+      buildTbSetup(out, model);
+      CHECK(out.interactions.count() <= toybox::kMaxInteractions);
+      CHECK(out.target.drew("START"));
+      // Against a person there is no difficulty to choose, and the row that
+      // would set one must not be on the screen at all.
+      CHECK(out.target.drew("SERGEANT") == (link == 0));
+    }
+
+    {
+      tbui::MapPickModel model;
+      model.look = look;
+      Rendered out;
+      buildTbMaps(out, model);
+      CHECK(out.interactions.count() <= toybox::kMaxInteractions);
+      CHECK(out.interactions.count() >= toybattle::kTerrainCount);
+      for (int i = 0; i < toybattle::kTerrainCount; ++i) {
+        CHECK(out.target.drew(toybattle::terrainAt(i).name));
+      }
+    }
+
+    for (int page = 0; page < tbui::howToPages(look); ++page) {
+      tbui::HowToModel model;
+      model.look = look;
+      model.page = page;
+      Rendered out;
+      buildTbHowTo(out, model);
+      CHECK(out.interactions.count() <= toybox::kMaxInteractions);
+      // Every page has a way forward. The first version of this in another game
+      // put NEXT after three early-returning branches, so two of three pages
+      // had none.
+      CHECK(out.interactions.count() > 0);
+    }
+  }
+}
+
 int main() {
+  testToyBattleShell();
   testSearchingAsksNothing();
   testMurdleGridResolvesEveryCellItDrew();
   testMurdleGridEdgesAreLive();

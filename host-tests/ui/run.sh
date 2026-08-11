@@ -41,6 +41,7 @@ c++ -std=c++17 -Wall -Wextra -Werror -Wno-comment -Wno-format-truncation \
   ../../src/apps_local/link/LinkScreens.cpp \
   ../../src/apps_local/minesweeper/MinesweeperScreens.cpp \
   ../../src/apps_local/toybattle/ToyBattleScreens.cpp \
+  ../../src/apps_local/toybattle/ToyBattleMenus.cpp \
   ../../src/apps_local/toybattle/ToyBattleCore.cpp \
   ../../src/apps_local/toybattle/ToyBattleFlow.cpp \
   ../../src/apps_local/murdle/MurdleCast.cpp \
