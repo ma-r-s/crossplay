@@ -249,6 +249,13 @@ sample is 600.
 
 ## Open items
 
+- **Boards are traced in `tools_local/terrain-editor`, not by eye.** Reading a
+  board off a photograph is the one part of this game that does not survive
+  being done by inspection: Castle Field is regular and came out fine, La
+  Croisette is irregular and did not. The editor takes the tracing, runs the
+  same structural checks the suite asserts, and its `to_cpp.py` generates the
+  terrain source, so no index is ever copied by hand. Castle Field in the tree
+  **is** that generator's output, which is what proves the path works.
 - **La Croisette is traced but not implemented, and this is the honest gap.**
   Its rules are settled (above) and its objective is 5. Its topology is not:
   unlike Castle Field it is irregular -- diagonal roads, an asymmetric
