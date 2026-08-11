@@ -249,6 +249,13 @@ sample is 600.
 
 ## Open items
 
+- **The "Winter board" is not a ninth terrain.** BGG image 9252799, posted by
+  Repos themselves and captioned "skin on BGA": it is Castle Field reskinned for
+  a seasonal Board Game Arena event. Same 15 bases, same paths, same four wells,
+  same 14 medals in the same regions, same objective of 7. Noted because it is
+  the most distinctive-looking image in the gallery and the obvious thing to
+  trace by mistake. If the winter look is ever wanted it is a theme over an
+  existing terrain, not new data.
 - **Boards are traced in `tools_local/terrain-editor`, not by eye.** Reading a
   board off a photograph is the one part of this game that does not survive
   being done by inspection: Castle Field is regular and came out fine, La
