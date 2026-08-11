@@ -29,8 +29,8 @@
 // through a stub rather than a second HAL so that our own HalDisplay -- with
 // its grayscale preview and X4 Pro geometry -- keeps doing the work.
 
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
 
 extern "C" {
 

@@ -1,0 +1,7 @@
+# The four filled colour marks, ours, generated into
+# src/apps_local/seasalt/SeaSaltMarks.h by tools_local/gen_seasalt_art.sh.
+# The hollow variants are Lucide's own strokes and ride the cards manifest.
+ss_m_circle   = mark-circle
+ss_m_square   = mark-square
+ss_m_triangle = mark-triangle
+ss_m_diamond  = mark-diamond

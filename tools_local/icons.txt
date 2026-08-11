@@ -1,3 +1,10 @@
+# WARNING before regenerating: the committed ToyboxIcons.h holds two icons this
+# manifest cannot rebuild. icon_yahtzee_32 and icon_connectfour_32 match no SVG
+# in the vendored Lucide pin (checked against every icon in it), so their source
+# was never committed and a straight regeneration drops them from the shelf.
+# Until the sources are recovered, regenerate to a scratch file and splice new
+# icons in by hand, the way seasalt's were.
+
 # Icons for the shelf, generated into src/apps_local/ui/ToyboxIcons.h by
 # tools_local/gen_toybox_icons.sh. Format: alias = lucide-name.
 #
@@ -199,3 +206,12 @@ mineflag = flag
 # Rejected: five small dice (illegible at 32px, and still dice), a dice cup (too
 # much detail), a single die with a different pip count (still the neighbour's
 # mark with a typo).
+
+# Sea Salt & Paper. `origami` -- the game is origami sea creatures, and Lucide's
+# origami is the folded crane: an angular bird built from three straight folds.
+# Nothing else on the shelf is made of folds, so it cannot be confused with the
+# gem, the die, the bomb, the card or the disc that surround it in the folder.
+# Rejected: `shell` (it is a card *inside* the game, and a mark should not also
+# be a piece -- the same rule that kept the skull off the dungeon), `waves` (not
+# in this pin), `ship` (battleship owns the hull).
+seasalt     = origami

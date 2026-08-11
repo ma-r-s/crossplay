@@ -28,6 +28,7 @@
 #include "../../src/apps_local/murdle/MurdleText.h"
 #include "../../src/apps_local/player/PlayerAvatar.h"
 #include "../../src/apps_local/player/PlayerScreen.h"
+#include "../../src/apps_local/seasalt/SeaSaltScreens.h"
 #include "../../src/apps_local/study/StudyScreens.h"
 #include "../../src/apps_local/ui/ToyboxIcons.h"
 
@@ -3016,6 +3017,203 @@ void testTheHowToPagesAndEndsOnGotIt() {
   }
 }
 
+// --- sea salt & paper -------------------------------------------------------
+
+template <typename Model>
+fui::Rect buildSs(Rendered& out, fui::Rect (*build)(toybox::Screen&, const Model&), const Model& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  const fui::Rect grid = build(screen, model);
+  CHECK(!out.interactions.overflowed());
+  return grid;
+}
+
+// The card you tap is the card the rules get: every cell the grid draws
+// resolves back to its own index, at the centre and at the awkward corner.
+void testTheSeaSaltCardYouTapIsTheCardTheRulesGet() {
+  for (const int count : {1, 4, 8, 12, 16}) {
+    seasaltui::BoardModel model;
+    model.tileCount = count;
+    for (int i = 0; i < count; ++i) {
+      model.tiles[i].kind = static_cast<uint8_t>(i % 14);
+      model.tiles[i].colour = static_cast<uint8_t>(i % 11);
+    }
+    Rendered out;
+    const fui::Rect grid = buildSs(out, seasaltui::buildBoard, model);
+    for (int i = 0; i < count; ++i) {
+      const fui::Rect cell = seasaltui::cardCellRect(grid, i, count);
+      CHECK(seasaltui::cardIndexAt(grid, count, static_cast<int16_t>(cell.x + cell.width / 2),
+                                   static_cast<int16_t>(cell.y + cell.height / 2)) == i);
+      CHECK(seasaltui::cardIndexAt(grid, count, cell.x, cell.y) == i);
+      CHECK(seasaltui::cardIndexAt(grid, count, static_cast<int16_t>(cell.x + cell.width - 1),
+                                   static_cast<int16_t>(cell.y + cell.height - 1)) == i);
+      // And the whole grid stays inside the rect the builder returned.
+      CHECK(cell.y + cell.height <= grid.y + grid.height);
+    }
+    // The gap between cards belongs to nobody.
+    if (count >= 2) {
+      const fui::Rect first = seasaltui::cardCellRect(grid, 0, count);
+      CHECK(seasaltui::cardIndexAt(grid, count, static_cast<int16_t>(first.x + first.width + 3), first.y) != 0);
+    }
+  }
+}
+
+void testTheSeaSaltChromeIsTappableAndTheCallPillIsEarned() {
+  seasaltui::BoardModel model;
+  model.tab = 0;
+  model.canCall = false;
+  model.primaryLabel = "END TURN";
+  model.primaryEnabled = true;
+  Rendered out;
+  buildSs(out, seasaltui::buildBoard, model);
+
+  // The three tabs, the deck and both piles all resolve to their actions.
+  bool sawTab = false, sawDeck = false, sawPile = false, sawCall = false;
+  for (int16_t y = 0; y < 800; y += 7) {
+    for (int16_t x = 0; x < 480; x += 7) {
+      const fui::ActionId a = out.tap(x, y).action;
+      sawTab |= a == seasaltui::ActionTabYours;
+      sawDeck |= a == seasaltui::ActionDeck;
+      sawPile |= a == seasaltui::ActionPileA;
+      sawCall |= a == seasaltui::ActionCall;
+    }
+  }
+  CHECK(sawTab);
+  CHECK(sawDeck);
+  CHECK(sawPile);
+  CHECK(!sawCall);  // no call pill below 7 points
+
+  // With the call earned, the pill exists and says the points.
+  model.canCall = true;
+  model.callPoints = 10;
+  Rendered earned;
+  buildSs(earned, seasaltui::buildBoard, model);
+  CHECK(earned.target.drew("10 - CALL IT"));
+  bool callNow = false;
+  for (int16_t x = 0; x < 480; x += 5) {
+    callNow |= earned.tap(x, 780).action == seasaltui::ActionCall;
+  }
+  CHECK(callNow);
+}
+
+void testTheSeaSaltCallChoiceSaysWhatEachWordCosts() {
+  seasaltui::CallModel model;
+  model.yourPoints = 11;
+  Rendered out;
+  buildSs(out, seasaltui::buildCallChoice, model);
+  CHECK(out.target.drew("STOP"));
+  CHECK(out.target.drew("LAST CHANCE"));
+  CHECK(out.target.drew("11 PTS"));
+  bool stop = false, bet = false;
+  for (int16_t y = 0; y < 800; y += 7) {
+    const fui::ActionId a = out.tap(240, y).action;
+    stop |= a == seasaltui::ActionStop;
+    bet |= a == seasaltui::ActionLastChance;
+  }
+  CHECK(stop);
+  CHECK(bet);
+}
+
+void testTheSeaSaltRoundOverNamesTheBet() {
+  seasaltui::RoundModel model;
+  model.wasLastChance = true;
+  model.youCalled = true;
+  model.betWon = true;
+  model.yourCards = 12;
+  model.yourBonus = 4;
+  model.yourBanked = 16;
+  model.theirBanked = 2;
+  Rendered out;
+  buildSs(out, seasaltui::buildRoundOver, model);
+  CHECK(out.target.drew("YOUR BET CAME OFF."));
+  CHECK(out.target.drew("NEXT ROUND"));
+
+  seasaltui::RoundModel dry;
+  dry.deckOut = true;
+  Rendered out2;
+  buildSs(out2, seasaltui::buildRoundOver, dry);
+  CHECK(out2.target.drew("THE DECK RAN OUT. NOBODY SCORES."));
+}
+
+// Every hint must fit the hint box: the split lines run ~9.5 device px per
+// character on the small face, and the box's inner width holds 46. This is
+// the check that would have caught "PLAYING THEM BUYS ANOTHER TURN" running
+// off the panel before Mario did.
+
+// The card's bands must stay apart at EVERY height the grid can hand out, not
+// just the 125 the constants were once tuned for. A three-row hand gets 121,
+// and at 121 the old fixed offsets printed the name through the supply mark --
+// which is what Mario caught on the shot that was about to become the site's.
+void testTheSeaSaltCardBandsNeverCollide() {
+  for (const int count : {1, 2, 4, 8, 12, 16}) {
+    seasaltui::BoardModel model;
+    model.tileCount = count;
+    for (int i = 0; i < count; ++i) {
+      model.tiles[i].kind = static_cast<uint8_t>(i % 14);
+      model.tiles[i].colour = static_cast<uint8_t>(i % 11);
+      model.tiles[i].supply = 9;
+    }
+    Rendered out;
+    const fui::Rect grid = buildSs(out, seasaltui::buildBoard, model);
+    const fui::Rect cell = seasaltui::cardCellRect(grid, 0, count);
+
+    // Every text the card drew, top to bottom, must be disjoint and inside it.
+    std::vector<fui::Rect> lines;
+    for (const auto& drawn : out.target.texts) {
+      if (drawn.rect.x < cell.x || drawn.rect.x >= cell.x + cell.width) continue;
+      if (drawn.rect.y < cell.y || drawn.rect.y >= cell.y + cell.height) continue;
+      lines.push_back(drawn.rect);
+    }
+    for (size_t i = 0; i < lines.size(); ++i) {
+      CHECK(lines[i].y + lines[i].height <= cell.y + cell.height);
+      for (size_t j = i + 1; j < lines.size(); ++j) {
+        const bool disjoint = lines[i].y + lines[i].height <= lines[j].y ||
+                              lines[j].y + lines[j].height <= lines[i].y || lines[i].x + lines[i].width <= lines[j].x ||
+                              lines[j].x + lines[j].width <= lines[i].x;
+        CHECK(disjoint);
+      }
+    }
+  }
+}
+
+void testEverySeaSaltHintFitsTheBox() {
+  constexpr int kMaxLine = 46;
+  auto worstLine = [](const char* text) {
+    int worst = 0, run = 0;
+    for (const char* at = text; *at; ++at) {
+      if (*at == '.' && at[1] == ' ') {
+        run += 1;  // the period stays on the line
+        if (run > worst) worst = run;
+        run = 0;
+        ++at;  // skip the space
+        continue;
+      }
+      ++run;
+    }
+    if (run > worst) worst = run;
+    return worst;
+  };
+  for (int k = 0; k < 14; ++k) CHECK(worstLine(seasaltui::kindHint(k)) <= kMaxLine);
+  for (int k = 0; k < 5; ++k) CHECK(worstLine(seasaltui::pairHint(k)) <= kMaxLine);
+}
+
+void testTheSeaSaltTutorialPagesAndEnds() {
+  for (int page = 0; page < seasaltui::tutorialPages(); ++page) {
+    seasaltui::TutorialModel model;
+    model.page = page;
+    Rendered out;
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    seasaltui::buildTutorial(screen, model);
+    CHECK(!out.interactions.overflowed());
+    CHECK(out.tap(240, 400).action == seasaltui::ActionAdvance);
+  }
+}
+
 void testTheMinesweeperMenuLeadsWithTheRecord() {
   // The front door in the band order: record line on top, the last field with
   // its verdict as the ornament, doors anchored to the floor with PLAY first.
@@ -3050,6 +3248,13 @@ void testTheMinesweeperMenuLeadsWithTheRecord() {
 }
 
 int main() {
+  testTheSeaSaltCardYouTapIsTheCardTheRulesGet();
+  testTheSeaSaltChromeIsTappableAndTheCallPillIsEarned();
+  testTheSeaSaltCallChoiceSaysWhatEachWordCosts();
+  testTheSeaSaltRoundOverNamesTheBet();
+  testTheSeaSaltCardBandsNeverCollide();
+  testEverySeaSaltHintFitsTheBox();
+  testTheSeaSaltTutorialPagesAndEnds();
   testSearchingAsksNothing();
   testMurdleGridResolvesEveryCellItDrew();
   testMurdleGridEdgesAreLive();
