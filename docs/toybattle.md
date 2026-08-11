@@ -313,6 +313,102 @@ a noise band of about +/- 6%, and it certified a difference that did not exist.
 The bands in `test_brain.cpp` are now well below what was measured, and the
 sample is 600.
 
+## The shell
+
+Eight screens: Menu, Setup, MapPick, Lobby, HowTo, Board, Brief, Result.
+`back()` is an exhaustive switch over the screen alone, with no default, so a
+new screen without a decided Back fails the build. It is deliberately **not** a
+function of the mode: leaving Setup or the Board in a link game also ends the
+session, but that is the activity carrying out a consequence rather than a
+second destination. A Back that read the mode would be the shell machine reading
+the game machine, which is the coupling the two-machine split exists to prevent.
+
+Two screens hang off another rather than off the menu -- the briefing off the
+board, the map list off setup -- and the flow test asserts nothing is ever three
+presses from the top, that exactly one screen leaves the app, and that no pair
+can Back into each other. It also asserts its own screen list is complete
+against `kScreenCount`, which is what caught both new screens.
+
+**Three treatments were built and photographed rather than described.** FRONT
+DOOR is the documented band order plainly; SLAB carries the board's own material
+up into the menus with every setting value on screen at once; BRIEFING keeps the
+setup visible so starting is one tap. They live behind `tbui::Look`, a
+compile-time constant, and two thirds of `ToyBattleMenus.cpp` gets deleted when
+one is chosen. They are not a setting.
+
+Every picture in the shell is `miniBoard()` drawing the real terrain from its own
+normalised coordinates -- the menu ornament carries the position you would
+resume, the map list draws each board, and the rules teach on Castle Field
+itself. A diagram would be a second thing to learn before you can learn the game.
+
+**Four defects came from looking at the renders, not from reasoning.** The menu
+caption read "14 OF 7 MEDALS" backwards; map names truncated to "CASTLE FIEL" in
+the display cut; the difficulty rungs drew their name through their own blurb;
+and a rules caption struck itself through its own rule. The last two are one
+mistake: a text box sized by guess rather than by `lineHeight()`. **A box shorter
+than the cut does not clip, it overlaps whatever is under it.**
+
+## Three rungs, and they are the tier list
+
+`Recruit` is the two reflexes, `Sergeant` the greedy brain, `General` the reply
+search. `test_brain` asserts the ladder IS a ladder -- General 71% over Sergeant
+across 400 games, Sergeant 100% over Recruit across 300 -- so a change that makes
+two rungs the same opponent fails there rather than being noticed by a player.
+Against a person the row is not on the screen at all, because a difficulty
+setting with nobody to apply it to is worse than no row.
+
+## Two devices
+
+Toy Battle is the eighth game on `src/apps_local/link/`. GameId `0x0901`, and the
+shared state is `Game` itself: 148 bytes of a 192-byte payload, already the save
+format, already carrying an exact-size assert. Nothing about a position is
+described twice anywhere in this app, so there is no second description to drift.
+
+**Everything two devices must agree on lives inside the state**, because the
+layer has no settings channel and its one-byte note vocabulary belongs to the
+layer. `Game` holds the seed, the terrain and the special-bases flag, so the
+dealer's choices ride along with the opening. PLAY NEARBY still lets you pick a
+map; the coin toss decides whose pick is dealt.
+
+**The dealer deals and passes at once.** The first version dealt and kept the
+turn, so the opening did not leave the device until the dealer had chosen a move
+-- and two simulators side by side showed the other player sitting on an empty
+rack and a board with nothing on it for that whole time. Correct by every test,
+obviously wrong the moment you looked. The deal now names the other seat as
+starter and goes out immediately: the coin toss decides who deals, not who moves.
+
+**The follower must not deal, and the shape of that trap here is worse than the
+one the layer documents.** A zeroed `Game` reports Playing, has no legal
+placement, and **believes it can draw** -- a reserve is whatever has not been
+seen yet, and nothing has. An undealt follower is not idle, it is playable, and a
+tap would draw from an imaginary reserve and send that board as a move. The
+`dealt` flag is load-bearing, and `test_toybattlelink.cpp` asserts all three
+facts so it cannot quietly stop being so.
+
+Turn gating asks whether the rules **and** the link both say yes. Asking whether
+they agree is a different question and is also true on the opponent's turn.
+
+The link suite plays a full game across 20% loss, 10% duplication and 60ms
+jitter, soaks twelve more, checks the dealer's map and bases reach the follower,
+and flips every bit of a position to confirm each one is either refused or still
+playable.
+
+## Continuing
+
+`/.crosspoint/toybattle.sav`, loaded in `onEnter` so CONTINUE means something the
+moment the app appears, written in `onExit`. The guard against writing during a
+match lives inside `saveGame()` rather than at each call site, because the call
+that matters is the one sleep makes when the player does nothing.
+
+The format is `Options` plus `Game` plus a seat, with a magic, a version, both
+struct sizes and a rotating checksum. Solo only: a link game cannot be resumed
+with the other device gone, and one that quietly restarted against the brain
+would be worse than no save. The flow test flips all 1272 bits of a valid save
+and requires every one refused, then truncates it at every length. It also
+refuses a terrain index this build does not have, which is the ordinary way a
+good save goes bad -- written after Mario adds a map, opened by a build from
+before it.
+
 ## Open items
 
 - **The "Winter board" is not a ninth terrain.** BGG image 9252799, posted by
