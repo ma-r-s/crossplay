@@ -371,8 +371,13 @@ def emit(model):
         raise SystemExit(
             f"unknown symmetry {sym!r}: none, horizontal, vertical, both or rotational"
         )
+    # Alignment and symmetry are independent, and tying them together was a
+    # mistake: an asymmetric board still has hand jitter, and Caribbean Sea has
+    # no symmetry at all while still wanting its top row level and its left and
+    # right edges plumb. Alignment runs unless a board asks for none of it by
+    # setting the tolerance to 0.
     tol = int(model.get("alignTolerance", 20))
-    if sym != "none":
+    if tol > 0:
         before = (sorted(set(xs)), sorted(set(ys)))
         xs, ys = align(xs, tol), align(ys, tol)
         after = (sorted(set(xs)), sorted(set(ys)))

@@ -532,6 +532,51 @@ Its two H.Q. fence nothing. The triangles they sit in are real faces of the
 board but pay no medals, which is the case that made explicit H.Q. fences
 necessary -- see above.
 
+## Battlefield, and a frozen card
+
+Fifth real terrain, traced 2026-08-11: fourteen bases either side of a central
+spine, four **Suppress** bases, nine regions including two six-base ones fenced
+partly by an H.Q., sixteen medals, objective 8. Symmetric across both midlines.
+
+Suppression needed a look. The rack drew two states -- a light dither for
+playable, plain white for anything else -- so "there is nowhere legal to put
+this" and "Battlefield pointed at it" were indistinguishable. A frozen troop now
+takes the darker of the only two dithers the device has, because it is a state
+done TO you rather than a shape of the board. **It is asserted rather than
+photographed**: an ordinary game does not happen to contain a suppressed troop,
+so the ui fake target records fill paints as well as rects and the test checks
+that no rack tile wears the dark dither until one is frozen and then exactly one
+does. A state expressed only as a ground is otherwise untestable.
+
+**The map list was dropping maps.** Cards were a fixed 104px, five fitted, and
+everything after was silently not drawn -- with no scrollbar, no arrow and
+nothing in the log. Cards size themselves to the terrain count now; nine at 63px
+still fit and nine is the ceiling, so there is nothing to page.
+
+## Caribbean Sea
+
+The lopsided one, traced 2026-08-11: twelve bases, **no special bases at all**,
+and **three H.Q. -- two for seat 0 against one for seat 1**, which is what
+`kMaxHq` was sized for. Six regions, eleven medals, objective 5. Its lone right
+H.Q. hangs off a single path and fences nothing.
+
+It has no symmetry of any kind, and it is the board that showed alignment and
+symmetry were wrongly tied together: the generator only aligned a board that
+declared a symmetry, so an asymmetric one got no jitter removal at all. They are
+independent -- alignment takes out the hand, symmetry mirrors the design -- and
+alignment now runs unless a board sets its tolerance to 0. Regenerating all five
+earlier boards after the change reproduced every one byte for byte.
+
+The tidying it asks for is exactly four groups, named by Mario: top row level,
+bottom row level, left edge plumb, right edge plumb -- where the right edge is
+the H.Q., base 7 and base 3, and explicitly **not** base 2, which sits further
+in. `"alignTolerance": 30` produces precisely those four and leaves base 2 out.
+
+**The tolerance is in normalised units, not traced ones.** The board is spread to
+0..1000 before aligning, so a raw gap is scaled by 1000/extent first: Caribbean
+Sea's top row is 21 apart as traced and 26 once spread, and a tolerance of 25
+missed it by one.
+
 ## Open items
 
 - **The "Winter board" is not a ninth terrain.** BGG image 9252799, posted by

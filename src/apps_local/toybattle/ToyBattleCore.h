@@ -185,10 +185,17 @@ extern const Terrain kCursedCemetery;
 // midlines.
 extern const Terrain kBattlefield;
 
+// CARIBBEAN SEA, traced by Mario 2026-08-11. The lopsided one: twelve bases, no
+// special bases at all, and THREE H.Q. -- two for seat 0, one for seat 1, which
+// is what kMaxHq was sized for. No symmetry of any kind, so the only tidying it
+// gets is its top and bottom rows levelled and its left and right edges made
+// plumb. Six regions, eleven medals, objective 5.
+extern const Terrain kCaribbeanSea;
+
 // Index into the table `terrainAt` walks. Stored in `Game::terrain`, so the
 // order is part of the save and wire format: append, never reorder.
-enum class TerrainId : uint8_t { CastleField = 0, ProvingGround, CityOfClouds, VolcanicJungle, CursedCemetery, Battlefield };
-constexpr int kTerrainCount = 6;
+enum class TerrainId : uint8_t { CastleField = 0, ProvingGround, CityOfClouds, VolcanicJungle, CursedCemetery, Battlefield, CaribbeanSea };
+constexpr int kTerrainCount = 7;
 
 const Terrain& terrainAt(int index);
 
