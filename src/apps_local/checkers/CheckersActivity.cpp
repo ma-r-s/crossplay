@@ -1,6 +1,10 @@
 #include "CheckersActivity.h"
 
+#include <HalStorage.h>
+#include <Logging.h>
 #include <Memory.h>
+
+#include <cstdlib>
 
 #include "../Shelf.h"
 #include "../ui/Toybox.h"
@@ -20,7 +24,91 @@ void CheckersActivity::onEnter() {
   toybox::ensureFonts(renderer);
   screen = ck::Screen::Menu;
   menuSelected = -1;
+  loadHistory();
   requestUpdate();
+}
+
+// Beside the reader's own state and the player's name. A fork-local fact in a
+// fork-local file, the pattern knucklebones.sav set.
+#if defined(ARDUINO_ARCH_ESP32) || defined(SIMULATOR)
+constexpr char kHistoryPath[] = "/.crosspoint/checkers.sav";
+#endif
+
+// wins losses draws outcome yourPieces theirPieces, then the 64 cells of the
+// final position, always from the light perspective so the ornament draws your
+// men nearest you whatever seat the game was played from.
+constexpr int kHistoryValues = 6 + ck::kCells;
+
+void CheckersActivity::loadHistory() {
+#if defined(ARDUINO_ARCH_ESP32) || defined(SIMULATOR)
+  if (!Storage.exists(kHistoryPath)) return;
+  char buffer[256] = {};
+  if (Storage.readFileToBuffer(kHistoryPath, buffer, sizeof(buffer)) == 0) return;
+
+  // Parsed into locals and committed only if the whole line is good, so a
+  // truncated file leaves an empty menu rather than half a board. Losing this
+  // costs an ornament, so it fails quietly.
+  int values[kHistoryValues] = {};
+  char* cursor = buffer;
+  for (int i = 0; i < kHistoryValues; ++i) {
+    char* next = nullptr;
+    const long value = strtol(cursor, &next, 10);
+    if (next == cursor) return;
+    values[i] = static_cast<int>(value);
+    cursor = next;
+  }
+
+  int at = 0;
+  wins = values[at++];
+  losses = values[at++];
+  draws = values[at++];
+  lastOutcome = values[at++];
+  lastYourPieces = values[at++];
+  lastTheirPieces = values[at++];
+  for (int i = 0; i < ck::kCells; ++i) lastCells[i] = static_cast<uint8_t>(values[at++]);
+  hasHistory = true;
+#endif
+}
+
+void CheckersActivity::recordResult() {
+  if (resultRecorded) return;
+  resultRecorded = true;
+
+  const ck::Outcome result = ck::outcome(game);
+  const bool won = (seat == ck::kLight && result == ck::Outcome::LightWins) ||
+                   (seat == ck::kDarkSeat && result == ck::Outcome::DarkWins);
+  lastOutcome = 2;
+  if (result != ck::Outcome::Draw) lastOutcome = won ? 0 : 1;
+  if (result == ck::Outcome::Draw)
+    ++draws;
+  else if (won)
+    ++wins;
+  else
+    ++losses;
+
+  // The final position, rotated to the light perspective when this device
+  // played dark, so the saved board always reads with your men nearest you.
+  for (int i = 0; i < ck::kCells; ++i) {
+    lastCells[i] = game.cell[seat == ck::kLight ? i : ck::kCells - 1 - i];
+  }
+  lastYourPieces = ck::pieceCount(game, seat);
+  lastTheirPieces = ck::pieceCount(game, seat == ck::kLight ? ck::kDarkSeat : ck::kLight);
+  hasHistory = true;
+
+#if defined(ARDUINO_ARCH_ESP32) || defined(SIMULATOR)
+  char line[256];
+  int used = snprintf(line, sizeof(line), "%d %d %d %d %d %d", wins, losses, draws, lastOutcome, lastYourPieces,
+                      lastTheirPieces);
+  for (int i = 0; i < ck::kCells && used > 0 && used < static_cast<int>(sizeof(line)); ++i) {
+    used += snprintf(line + used, sizeof(line) - used, " %d", lastCells[i]);
+  }
+  if (used <= 0 || used >= static_cast<int>(sizeof(line))) {
+    LOG_ERR("CHECK", "History line did not fit %d bytes", static_cast<int>(sizeof(line)));
+    return;
+  }
+  snprintf(line + used, sizeof(line) - used, "\n");
+  Storage.writeFile(kHistoryPath, String(line));
+#endif
 }
 
 void CheckersActivity::goTo(const ck::Screen next) {
@@ -36,6 +124,7 @@ void CheckersActivity::clearPick() {
 void CheckersActivity::beginSoloGame() {
   ck::start(game);
   seat = ck::kLight;
+  resultRecorded = false;
   clearPick();
   goTo(ck::Screen::Board);
 }
@@ -66,6 +155,7 @@ void CheckersActivity::onMatchStart(const bool goesFirst) {
   // does not deal: the whole board travels on every move, so its first delivery
   // is the real one.
   seat = goesFirst ? ck::kLight : ck::kDarkSeat;
+  resultRecorded = false;
   clearPick();
   // BOTH sides deal, unlike Knucklebones where only the first mover does.
   // Checkers has no randomness: the opening position is fixed, so start() is
@@ -136,6 +226,7 @@ void CheckersActivity::gameLoop() {
       takeOpponentTurn();
       return;
     } else if (ck::over(game)) {
+      recordResult();
       goTo(ck::Screen::Result);
       return;
     }
@@ -255,6 +346,14 @@ void CheckersActivity::gameRender() {
     case ck::Screen::Menu: {
       checkui::MenuModel model;
       model.selected = menuSelected;
+      model.hasHistory = hasHistory;
+      model.wins = wins;
+      model.losses = losses;
+      model.draws = draws;
+      model.lastOutcome = lastOutcome;
+      model.lastCells = lastCells;
+      model.lastYourPieces = lastYourPieces;
+      model.lastTheirPieces = lastTheirPieces;
       checkui::buildMenu(surface, model);
       break;
     }

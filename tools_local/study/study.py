@@ -51,12 +51,19 @@ def die(message):
 
 
 def load_config():
+    config = {}
     if CONFIG.exists():
         try:
-            return json.loads(CONFIG.read_text())
+            config = json.loads(CONFIG.read_text())
         except ValueError:
-            return {}
-    return {}
+            config = {}
+    # Configs from before multi-deck carried one deck at top level. Fold it
+    # into the per-deck map so sync and reconvert treat it like any other.
+    if "deck" in config and "decks" not in config:
+        name = config.get("name") or config["deck"].split("::")[-1]
+        config["decks"] = {slug(name): {"deck": config["deck"], "name": name}}
+    config.setdefault("decks", {})
+    return config
 
 
 def save_config(config):
@@ -137,11 +144,17 @@ def list_decks(collection):
 
 
 def slug(name):
-    """A deck name as a directory name: 'Spanish::Food & Drink' -> 'food-drink'."""
+    """A deck path as a directory name: 'Spanish::Food & Drink' -> 'spanish-food-drink'.
+
+    The whole path, not the last component: 'Spanish::Food' and 'Travel::Food'
+    are different decks, and giving them the same directory would silently wire
+    one deck's reviews to the other's cards. Capped at 31 characters because
+    that is the device's name buffer.
+    """
     import re
 
-    last = name.split("::")[-1].lower()
-    return re.sub(r"[^a-z0-9]+", "-", last).strip("-") or "deck"
+    flat = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "deck"
+    return flat[:31].rstrip("-")
 
 
 def find_deck_dir(card):
@@ -155,15 +168,33 @@ def find_deck_dir(card):
     study = card / "study"
     if not study.is_dir():
         return None
-    dirs = sorted(
+    dirs = find_deck_dirs(card)
+    return dirs[0] if dirs else None
+
+
+def find_deck_dirs(card):
+    """Every deck on the card, in the same sorted order the device lists them."""
+    study = card / "study"
+    if not study.is_dir():
+        return []
+    return sorted(
         d
         for d in study.iterdir()
         if d.is_dir() and d.name != "fonts" and (d / "meta.dat").is_file()
     )
-    return dirs[0] if dirs else None
 
 
 CJK_RANGES = ((0x2E80, 0x9FFF), (0xF900, 0xFAFF), (0xFF00, 0xFFEF))
+
+# Serif faces most machines already have, for the "want a big headword?" offer
+# on decks that need no CJK. A student should not need to know what a TTF is
+# to get type that looks right.
+SYSTEM_FONTS = [
+    "/System/Library/Fonts/Supplemental/Georgia.ttf",
+    "/System/Library/Fonts/Supplemental/Times New Roman.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf",
+]
 
 
 def deck_has_cjk(deck_dir):
@@ -179,6 +210,37 @@ def deck_has_cjk(deck_dir):
         if f.is_file():
             text += f.read_text(encoding="utf-8")
     return any(a <= ord(c) <= b for c in text for a, b in [r for r in CJK_RANGES])
+
+
+def deck_entry(config, deck_dir):
+    """The config entry for a deck directory, healing old keys as it goes.
+
+    Entries are keyed by directory name. Configs written before that (or cards
+    whose directory predates path-slugs, like Mario's 'mandarin') miss on the
+    exact key -- but a config entry whose key matches no directory on the card
+    is unclaimed, and when exactly one entry and one directory are unclaimed
+    they can only be each other. The key is rewritten to the directory name so
+    the guess happens once, not forever.
+    """
+    entry = config["decks"].get(deck_dir.name)
+    if entry is not None:
+        return entry
+    # Both sides must be singular: one entry with no directory, one directory
+    # with no entry. One orphan entry against two unclaimed directories could
+    # belong to either, and guessing would hand a reconvert the wrong Anki
+    # deck -- which regenerates the directory with another deck's cards.
+    orphan_entries = [
+        key for key in config["decks"] if not (deck_dir.parent / key).is_dir()
+    ]
+    unclaimed_dirs = [
+        d for d in find_deck_dirs(deck_dir.parent.parent) if d.name not in config["decks"]
+    ]
+    if len(orphan_entries) == 1 and unclaimed_dirs == [deck_dir]:
+        entry = config["decks"].pop(orphan_entries[0])
+        config["decks"][deck_dir.name] = entry
+        save_config(config)
+        return entry
+    return None
 
 
 def anki_is_running():
@@ -250,6 +312,9 @@ def run(script, *args, venv=False):
     # rest are plain Python and run under whatever launched this.
     needs_venv = venv or script in ("make_fonts.py", "make_images.py")
     interpreter = str(ensure_venv()) if needs_venv else sys.executable
+    # Our own prints are block-buffered when piped; the child's are not. Flush,
+    # or every headline appears after the output it was introducing.
+    sys.stdout.flush()
     result = subprocess.run([interpreter, str(HERE / script), *[str(a) for a in args]])
     return result.returncode == 0
 
@@ -309,29 +374,70 @@ def cmd_setup(args):
         die(f"{target} is not a directory.")
 
     name = args.name or deck.split("::")[-1]
-    deck_dir = target / "study" / slug(name)
-    font_dir = target / "study" / "fonts"
-
-    # One deck at a time is the reader's rule, and the tool keeps the card in
-    # that state rather than leaving two behind and hoping. Removal is the one
-    # destructive thing this script can do, so it never happens silently and it
-    # names what would be lost.
-    existing = find_deck_dir(target)
-    if existing is not None and existing != deck_dir:
-        pending = existing / "revlog.dat"
+    deck_dir = target / "study" / slug(deck)
+    # The 31-character cap can fold two long deck paths onto one directory, and
+    # the recorded entry says whose it is. A collision steps aside rather than
+    # silently rewiring one deck's reviews to another's cards.
+    recorded = config["decks"].get(deck_dir.name)
+    if deck_dir.is_dir() and recorded and recorded.get("deck") != deck:
+        base = slug(deck)[:28].rstrip("-")
+        n = 2
+        while (target / "study" / f"{base}-{n}").is_dir():
+            n += 1
+        deck_dir = target / "study" / f"{base}-{n}"
+        print(f"  {slug(deck)} already belongs to {recorded['deck']!r}; using {deck_dir.name}")
+    if deck_dir.is_dir():
+        pending = deck_dir / "revlog.dat"
         reviews = pending.stat().st_size // 32 if pending.is_file() else 0
-        print(f"\nThe card already has a deck at {existing}.")
         if reviews:
             print(
-                f"  It holds {reviews} review(s) that have not been synced back to Anki."
-                f"\n  If they matter, cancel and run 'study.py sync' first."
+                f"\nThis deck is already on the card with {reviews} review(s) not yet"
+                f" synced to Anki.\nReconverting now resets the card states those reviews"
+                f" produced; they return on the next sync.\nCleaner: run 'study.py sync' first."
             )
-        if not args.replace:
-            answer = input("  Replace it? [y/N] ").strip().lower()
-            if answer != "y":
-                die("Cancelled; the card is unchanged.")
-        shutil.rmtree(existing)
-        print(f"  Removed {existing}.")
+    font_dir = deck_dir / "fonts"
+
+    # Cards from before per-deck fonts have one shared /study/fonts. When the
+    # card holds exactly one deck there is no ambiguity about whose fonts they
+    # are; move them in and the card is in the new shape. (The device also
+    # falls back to the shared location, so a card that never re-runs setup
+    # keeps working -- this just tidies the ones that do.)
+    legacy_fonts = target / "study" / "fonts"
+    already = find_deck_dirs(target)
+    if legacy_fonts.is_dir() and len(already) == 1:
+        shutil.move(str(legacy_fonts), str(already[0] / "fonts"))
+        print(f"Moved the shared fonts into {already[0].name}/fonts (fonts are per-deck now).")
+
+    # Other decks may stay: the reader switches between them from its deck
+    # screen. Replacing is the destructive choice, so it is never the default
+    # and it names what would be lost.
+    others = [d for d in find_deck_dirs(target) if d != deck_dir]
+    if others and not args.add:
+        print(f"\nThe card already has: {', '.join(d.name for d in others)}.")
+        if args.replace:
+            answer = "r"
+        else:
+            answer = (
+                input("  [a]dd this deck alongside (default), [r]eplace them, or [c]ancel: ")
+                .strip()
+                .lower()
+                or "a"
+            )
+        if answer.startswith("c"):
+            die("Cancelled; the card is unchanged.")
+        if answer.startswith("r"):
+            for other in others:
+                pending = other / "revlog.dat"
+                reviews = pending.stat().st_size // 32 if pending.is_file() else 0
+                if reviews:
+                    print(
+                        f"  {other.name} holds {reviews} review(s) not yet synced to Anki."
+                    )
+                    confirm = input(f"  Really remove {other.name}? [y/N] ").strip().lower()
+                    if confirm != "y":
+                        die("Cancelled; the card is unchanged.")
+                shutil.rmtree(other)
+                print(f"  Removed {other}.")
 
     extra = []
     for pair in args.map or []:
@@ -347,11 +453,36 @@ def cmd_setup(args):
     # --font skips the whole pipeline: the built-in serif draws it, and the
     # device falls back per card even if stale fonts are lying around.
     needs_cjk = deck_has_cjk(deck_dir)
+    if not needs_cjk and not args.font and not args.no_font:
+        # Offer the big face rather than requiring the user to know it exists.
+        # The built-in serif works, but at 18pt where the fitted face is three
+        # times that -- the difference between "works" and "looks right".
+        found = next((f for f in SYSTEM_FONTS if pathlib.Path(f).is_file()), None)
+        if found:
+            answer = (
+                input(
+                    f"\nBuild a large headword face from {pathlib.Path(found).stem}?"
+                    f" (sized to fit this deck's longest word) [Y/n] "
+                )
+                .strip()
+                .lower()
+            )
+            if answer in ("", "y", "yes"):
+                args.font = found
     if not needs_cjk and not args.font:
         print(
             "\nNo CJK in this deck; the built-in face will draw it."
             " (Pass --font YourFont.ttf for a large custom headword face.)"
         )
+        # Still verified: a deck can carry the odd glyph the built-in face
+        # lacks, and a character that silently does not paint is the kind of
+        # gap nobody notices until an exam. Warn, do not block -- it is a few
+        # characters in a side field, not a blank deck.
+        if not run("check_deck.py", deck_dir):
+            print(
+                "  warning: the glyphs listed above will not appear on the"
+                " device; everything else renders."
+            )
     else:
         need_fonts = args.rebuild_fonts or args.font or not (
             font_dir.is_dir() and any(font_dir.iterdir())
@@ -393,9 +524,16 @@ def cmd_setup(args):
     if not run("make_images.py", "--collection", collection, "--out", deck_dir):
         print("  (none packed -- the cards still work, without pictures)")
 
-    config.update(
-        {"collection": str(collection), "deck": deck, "name": name, "card": str(target)}
-    )
+    config.update({"collection": str(collection), "card": str(target)})
+    entry = {"deck": deck, "name": name}
+    if args.font:
+        # Remembered so a reconvert can rebuild the face when the deck grows
+        # words the current subset lacks.
+        entry["font"] = str(pathlib.Path(args.font).expanduser())
+    config["decks"][deck_dir.name] = entry
+    # The old single-deck keys would shadow the map on the next load.
+    config.pop("deck", None)
+    config.pop("name", None)
     save_config(config)
     print(f"\nReady. On the reader: Apps > STUDY")
     print(f"Settings remembered in {CONFIG}; run 'sync' after each session.")
@@ -409,8 +547,8 @@ def cmd_sync(args):
     if not collection.is_file() or not card.is_dir():
         die("Nothing set up yet -- run 'setup' first, or pass --collection and --card.")
 
-    deck_dir = find_deck_dir(card)
-    if deck_dir is None:
+    deck_dirs = find_deck_dirs(card)
+    if not deck_dirs:
         die(f"No deck under {card / 'study'}. Is the card mounted?")
 
     if anki_is_running() and not args.force:
@@ -419,34 +557,66 @@ def cmd_sync(args):
             "(or pass --force if you are sure)"
         )
 
-    extra = ["--sync"] if args.ankiweb else []
-    if args.dry_run:
-        extra.append("--dry-run")
-    # The AnkiWeb client is Anki's own Python library, which cannot go into the
-    # system Python (macOS marks it externally managed), so it lives in the
-    # tooling venv and is pulled in the first time anyone asks for --ankiweb.
-    if args.ankiweb:
+    # Replay every deck first, then push to AnkiWeb once: each replay is local
+    # and cheap, and one push carries them all.
+    extra = ["--dry-run"] if args.dry_run else []
+    if args.force:
+        extra.append("--force")
+    for deck_dir in deck_dirs:
+        if len(deck_dirs) > 1:
+            print(f"\n== {deck_dir.name} ==")
+        if not run("deck_to_anki.py", deck_dir, collection, *extra):
+            die("Sync failed. Your reviews are still on the card; nothing was lost.")
+
+    if args.ankiweb and not args.dry_run:
+        # The AnkiWeb client is Anki's own Python library, which cannot go into
+        # the system Python (macOS marks it externally managed), so it lives in
+        # the tooling venv and is pulled in the first time anyone asks.
         ensure_venv("anki")
-    if not run("deck_to_anki.py", deck_dir, collection, *extra, venv=args.ankiweb):
-        die("Sync failed. Your reviews are still on the card; nothing was lost.")
+        push = ["--force"] if args.force else []
+        if not run("deck_to_anki.py", "--push-only", collection, *push, venv=True):
+            die("AnkiWeb push failed. Reviews are applied locally; re-run to retry the push.")
 
     if args.reconvert and not args.dry_run:
-        print(
-            f"\nRefreshing the deck from Anki (picks up any re-optimised FSRS parameters)"
-        )
-        run(
-            "anki_to_deck.py",
-            collection,
-            "--deck",
-            config["deck"],
-            "--name",
-            config.get("name", "Study"),
-            "--out",
-            deck_dir,
-        )
-        # The image index is keyed to the deck's own card order, so it has to be
-        # rebuilt whenever the deck is.
-        run("make_images.py", "--collection", collection, "--out", deck_dir)
+        for deck_dir in deck_dirs:
+            entry = deck_entry(config, deck_dir)
+            if entry is None:
+                print(
+                    f"\n{deck_dir.name}: not in {CONFIG.name}, cannot reconvert it"
+                    f" -- run setup once on this machine to register it"
+                )
+                continue
+            print(f"\nRefreshing {deck_dir.name} from Anki")
+            run(
+                "anki_to_deck.py",
+                collection,
+                "--deck",
+                entry["deck"],
+                "--name",
+                entry.get("name", deck_dir.name),
+                "--out",
+                deck_dir,
+            )
+            # The image index is keyed to the deck's own card order, so it has
+            # to be rebuilt whenever the deck is.
+            run("make_images.py", "--collection", collection, "--out", deck_dir)
+            # A reconverted deck can have grown glyphs its fonts lack; the
+            # device would fall back per card, but quietly shrinking type is
+            # worth a rebuild when we know the source.
+            fonts = deck_dir / "fonts"
+            if fonts.is_dir() and any(fonts.iterdir()):
+                if not run("check_deck.py", deck_dir, "--fonts", fonts):
+                    font_args = ["--deck", deck_dir, "--out", fonts]
+                    if entry.get("font"):
+                        font_args += ["--font", entry["font"]]
+                    else:
+                        media = collection.parent / "collection.media"
+                        if not media.is_dir():
+                            print("  fonts no longer cover the deck; re-run setup to rebuild them")
+                            continue
+                        font_args += ["--media", media]
+                    print("  fonts no longer cover the deck; rebuilding")
+                    run("make_fonts.py", *font_args)
     return 0
 
 
@@ -456,18 +626,20 @@ def cmd_status(args):
         print("Nothing set up yet. Run: study.py setup")
         return 0
     print(f"collection  {config.get('collection')}")
-    print(f"deck        {config.get('deck')}")
     print(f"card        {config.get('card')}")
-    deck_dir = find_deck_dir(pathlib.Path(config.get("card", "")))
-    revlog = (deck_dir / "revlog.dat") if deck_dir else pathlib.Path("/nonexistent")
-    if deck_dir is None:
+    deck_dirs = find_deck_dirs(pathlib.Path(config.get("card", "")))
+    if not deck_dirs:
         print("\nThe card is not mounted.")
-    elif revlog.exists():
-        pending = revlog.stat().st_size // 32
+        return 0
+    print()
+    for deck_dir in deck_dirs:
+        revlog = deck_dir / "revlog.dat"
+        pending = revlog.stat().st_size // 32 if revlog.is_file() else 0
+        entry = deck_entry(config, deck_dir) or {}
+        label = entry.get("deck", deck_dir.name)
         print(
-            f"\n{pending} review{'' if pending == 1 else 's'} waiting to sync"
-            if pending
-            else "\nNothing waiting to sync."
+            f"{deck_dir.name:20} {label:40} "
+            + (f"{pending} review(s) waiting" if pending else "nothing waiting")
         )
     return 0
 
@@ -495,6 +667,11 @@ def main():
         help="build the headword/sentence faces from this TTF (any language)",
     )
     s.add_argument(
+        "--no-font",
+        action="store_true",
+        help="use the built-in face without being asked about a bigger one",
+    )
+    s.add_argument(
         "--map",
         action="append",
         metavar="SLOT=FIELD",
@@ -504,7 +681,12 @@ def main():
     s.add_argument(
         "--replace",
         action="store_true",
-        help="replace a different deck already on the card without asking",
+        help="remove the other decks on the card without asking (add is the default)",
+    )
+    s.add_argument(
+        "--add",
+        action="store_true",
+        help="add alongside existing decks without asking",
     )
     s.set_defaults(func=cmd_setup)
 

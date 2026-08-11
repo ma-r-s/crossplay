@@ -15,20 +15,25 @@ constexpr int kFooterHeight = toybox::kPillHeight;
 
 // Header band, rule, and the page margin. Every screen here opens with this.
 //
-// `rightLabel` is drawn in paper, not ink. The band is solid black and
-// Screen::header() resolves the trailing style from the theme's body text,
-// whose colour is Black -- so a label left at the default is painted black on
-// black and simply is not there. That is how the page indicator went missing on
-// the first render of the reader, and it is the same defect the header title
-// had when this fork first adopted FreeInkUI.
-void chrome(toybox::Screen& screen, const char* title, const char* rightLabel) {
+// `rightLabel` is drawn in paper, not ink. The band is solid black and the
+// header component draws rightLabel with `subtitleText`, whose default colour
+// is Black -- so a label left at the default is painted black on black and
+// simply is not there. The first fix styled `trailingText`, which the
+// component only consults for its trailing BUTTON, never for rightLabel; the
+// label stayed invisible through two renders and the suite carried a failing
+// pin (paperOnTheBand) against exactly this until the fix landed. The games'
+// toyboxChrome copies had the right slot all along; jaipur paid for it first.
+void chrome(toybox::Screen& screen, const char* title, const char* rightLabel,
+            const fui::TextStyle* titleText = nullptr) {
   fui::HeaderProps header;
   header.title = title;
   header.rightLabel = rightLabel;
   header.borderEdges = fui::EdgesNone;
+  if (titleText != nullptr) header.titleText = *titleText;
   if (rightLabel != nullptr) {
-    header.trailingText = screen.theme().smallText;
-    header.trailingText.color = fui::Color::White;
+    header.subtitleText = screen.theme().smallText;
+    header.subtitleText.color = fui::Color::White;
+    header.subtitleText.align = fui::TextAlign::Right;
   }
   screen.header(header);
 
@@ -188,7 +193,24 @@ fui::Rect readerBody(const fui::DeviceContext& device) {
 }
 
 void buildReader(toybox::Screen& screen, const ReaderModel& model) {
-  chrome(screen, model.title, model.pageLabel);
+  // The band carries the story's own headline. Within this app chrome is
+  // Jersey and content is the reading face, and a title is content --
+  // somebody's sentence, in its own case -- so the band borrows the reading
+  // cut in paper, the way a book's running header borrows the text's. Fitted
+  // to the room the page label leaves; fitLines marks the cut when a headline
+  // will not go.
+  fui::TextStyle bandTitle = screen.theme().bodyText;
+  bandTitle.color = fui::Color::White;
+  bandTitle.maxLines = 1;
+  const fui::TextStyle& labelStyle = screen.theme().smallText;
+  const int16_t labelWidth =
+      model.pageLabel != nullptr && model.pageLabel[0] != '\0'
+          ? static_cast<int16_t>(screen.target().measureText(labelStyle.font, model.pageLabel, labelStyle).width +
+                                 toybox::kGutter)
+          : 0;
+  const int16_t room = static_cast<int16_t>(screen.device().width - 2 * toybox::kMargin - labelWidth);
+  const std::string headline = fitLines(screen.target(), model.title, room, 1, bandTitle);
+  chrome(screen, headline.c_str(), model.pageLabel, &bandTitle);
 
   const fui::DeviceContext& device = screen.device();
 

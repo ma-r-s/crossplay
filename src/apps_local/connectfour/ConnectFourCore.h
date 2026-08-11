@@ -99,8 +99,8 @@ inline bool canDrop(const Game& game, const int column) {
 // at 8,132,315 scribbles over 4,265,889 positions of random play, 95.3% of the
 // calls that returned false. Harmless today only because the one caller checks
 // the outcome first, which is not a property of this function.
-inline bool lineFrom(const Game& game, const int column, const int row, const int dc, const int dr,
-                     const uint8_t side, int* out) {
+inline bool lineFrom(const Game& game, const int column, const int row, const int dc, const int dr, const uint8_t side,
+                     int* out) {
   int found[kLine];
   for (int step = 0; step < kLine; ++step) {
     const int c = column + dc * step;
@@ -197,7 +197,10 @@ inline bool plausible(const Game& game) {
       if (cell != kLight && cell != kDark) return false;
       // Nothing may sit above a gap.
       if (sawEmpty) return false;
-      if (cell == kLight) ++light; else ++dark;
+      if (cell == kLight)
+        ++light;
+      else
+        ++dark;
     }
   }
   // Light opens, so it is level or exactly one ahead.

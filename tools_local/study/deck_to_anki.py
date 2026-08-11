@@ -165,24 +165,33 @@ def apply(db, reviews, cards, dry_run):
     existing = {row[0] for row in cur.execute("select id from revlog")}
     applied = skipped = missing = 0
     touched = set()
+    # Rows this run inserted, and pre-existing rows already recognised as one
+    # of this card's reviews. Without these two sets, the second of two
+    # same-second reviews would be mistaken for a duplicate of the first --
+    # on first import by the row just inserted, on re-import by the row the
+    # first one matched.
+    inserted_now = set()
+    claimed = set()
 
     for r in sorted(reviews, key=lambda x: x["atMs"]):
         # Anki's revlog primary key is the answer time in milliseconds. Nudge
         # forward on collision so two reviews in the same millisecond both land
-        # rather than one silently replacing the other.
+        # rather than one silently replacing the other -- and check every slot
+        # walked over, because a re-imported review sits wherever the first
+        # import nudged it to, not necessarily at its own timestamp.
         rid = r["atMs"]
+        duplicate = False
         while rid in existing:
-            if any(e == rid for e in existing) and rid == r["atMs"]:
-                # A row already at this exact instant for this card is the same
-                # review re-imported; skip it rather than duplicating.
+            if rid not in inserted_now and rid not in claimed:
                 row = cur.execute(
                     "select cid from revlog where id = ?", (rid,)
                 ).fetchone()
                 if row and row[0] == r["cardId"]:
-                    rid = None
+                    claimed.add(rid)
+                    duplicate = True
                     break
             rid += 1
-        if rid is None:
+        if duplicate:
             skipped += 1
             continue
 
@@ -212,6 +221,7 @@ def apply(db, reviews, cards, dry_run):
                 ),
             )
         existing.add(rid)
+        inserted_now.add(rid)
         touched.add(r["cardId"])
         applied += 1
 
@@ -219,6 +229,7 @@ def apply(db, reviews, cards, dry_run):
     # replaying: the device already computed it with the same FSRS parameters.
     updated = 0
     now = int(time.time())
+    crt = cur.execute("select crt from col").fetchone()[0]
     for card_id in sorted(touched):
         state = cards.get(card_id)
         if state is None:
@@ -239,19 +250,26 @@ def apply(db, reviews, cards, dry_run):
             STATE_REVIEW: 2,
             STATE_RELEARNING: 3,
         }[state["state"]]
-        # A card inside a step list is due at a wall-clock second in Anki, not
-        # on a day number; everything else is a day.
         interval_days = (
             max(1, state["due"] - state["last"]) if state["last"] >= 0 else 1
         )
+        # A card inside a step list is due at a wall-clock second in Anki
+        # (queue 1 reads `due` as a unix timestamp), not on a day number.
+        # Writing the day number there made every mid-step card "due 1970",
+        # which Anki shows as due immediately.
+        due = state["due"]
+        queue = anki_type if anki_type != STATE_NEW else 0
+        if anki_type in (STATE_LEARNING, STATE_RELEARNING):
+            queue = QUEUE_LEARNING_INTRADAY
+            due = crt + state["due"] * 86400 + state.get("dueMinute", 0) * 60
         if not dry_run:
             cur.execute(
                 "update cards set type = ?, queue = ?, due = ?, ivl = ?, reps = ?, lapses = ?,"
                 " data = ?, mod = ?, usn = -1 where id = ?",
                 (
                     anki_type,
-                    anki_type if anki_type != STATE_NEW else 0,
-                    state["due"],
+                    queue,
+                    due,
                     interval_days,
                     state["reps"],
                     state["lapses"],
@@ -338,8 +356,16 @@ def main():
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    ap.add_argument("deck", type=pathlib.Path, help="deck directory on the SD card")
+    ap.add_argument(
+        "deck", type=pathlib.Path, nargs="?", help="deck directory on the SD card"
+    )
     ap.add_argument("collection", type=pathlib.Path, help="collection.anki2")
+    ap.add_argument(
+        "--push-only",
+        action="store_true",
+        help="skip the replay and just push the collection to AnkiWeb; how the"
+        " multi-deck sync pushes once after replaying every deck",
+    )
     ap.add_argument(
         "--sync",
         action="store_true",
@@ -354,6 +380,16 @@ def main():
         "--force", action="store_true", help="skip the Anki-is-running check"
     )
     args = ap.parse_args()
+
+    if args.push_only:
+        if not args.collection.exists():
+            sys.exit(f"missing {args.collection}")
+        if not args.force and anki_is_running():
+            sys.exit("Anki appears to be running. Close it first.")
+        sync_to_ankiweb(args.collection, args.username, None, args.sync_media)
+        return
+    if args.deck is None:
+        sys.exit("a deck directory is required (or pass --push-only)")
 
     revlog = args.deck / "revlog.dat"
     cards_path = args.deck / "cards.dat"

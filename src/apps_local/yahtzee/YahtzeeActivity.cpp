@@ -1,6 +1,10 @@
 #include "YahtzeeActivity.h"
 
+#include <HalStorage.h>
+#include <Logging.h>
 #include <Memory.h>
+
+#include <cstdlib>
 
 #include "../Shelf.h"
 #include "../ui/Toybox.h"
@@ -21,7 +25,68 @@ void YahtzeeActivity::onEnter() {
   toybox::ensureFonts(renderer);
   screen = yz::Screen::Menu;
   menuSelected = -1;
+  loadHistory();
   requestUpdate();
+}
+
+// Beside the reader's own state and the player's name. A fork-local fact in a
+// fork-local file, the pattern knucklebones.sav set.
+#if defined(ARDUINO_ARCH_ESP32) || defined(SIMULATOR)
+constexpr char kHistoryPath[] = "/.crosspoint/yahtzee.sav";
+#endif
+
+// played won best yahtzees yahtzeeFace.
+constexpr int kHistoryValues = 5;
+
+void YahtzeeActivity::loadHistory() {
+#if defined(ARDUINO_ARCH_ESP32) || defined(SIMULATOR)
+  if (!Storage.exists(kHistoryPath)) return;
+  char buffer[64] = {};
+  if (Storage.readFileToBuffer(kHistoryPath, buffer, sizeof(buffer)) == 0) return;
+
+  // Parsed into locals and committed only if the whole line is good. Losing
+  // this costs an ornament, so it fails quietly.
+  int values[kHistoryValues] = {};
+  char* cursor = buffer;
+  for (int i = 0; i < kHistoryValues; ++i) {
+    char* next = nullptr;
+    const long value = strtol(cursor, &next, 10);
+    if (next == cursor) return;
+    values[i] = static_cast<int>(value);
+    cursor = next;
+  }
+
+  played = values[0];
+  won = values[1];
+  best = values[2];
+  yahtzees = values[3];
+  yahtzeeFace = values[4];
+#endif
+}
+
+void YahtzeeActivity::recordResult() {
+  if (resultRecorded) return;
+  resultRecorded = true;
+
+  const yz::Card& yours = game.card[seat];
+  const yz::Card& theirs = game.card[1 - seat];
+  const int mine = yz::total(yours);
+  ++played;
+  if (mine > yz::total(theirs)) ++won;
+  if (mine > best) best = mine;
+  // Every Yahtzee this game: the box itself when it scored, plus each bonus.
+  if (yours.box[static_cast<int>(yz::Category::Yahtzee)] == 50) ++yahtzees;
+  yahtzees += yours.yahtzeeBonuses;
+
+#if defined(ARDUINO_ARCH_ESP32) || defined(SIMULATOR)
+  char line[64];
+  const int used = snprintf(line, sizeof(line), "%d %d %d %d %d\n", played, won, best, yahtzees, yahtzeeFace);
+  if (used <= 0 || used >= static_cast<int>(sizeof(line))) {
+    LOG_ERR("YAHT", "History line did not fit %d bytes", static_cast<int>(sizeof(line)));
+    return;
+  }
+  Storage.writeFile(kHistoryPath, String(line));
+#endif
 }
 
 void YahtzeeActivity::goTo(const yz::Screen next) {
@@ -32,6 +97,7 @@ void YahtzeeActivity::goTo(const yz::Screen next) {
 void YahtzeeActivity::beginSoloGame() {
   yz::start(game, toybox::seed());
   seat = 0;
+  resultRecorded = false;
   goTo(yz::Screen::Card);
 }
 
@@ -65,6 +131,7 @@ const char* YahtzeeActivity::linkHeadline() const {
 
 void YahtzeeActivity::onMatchStart(const bool goesFirst) {
   seat = goesFirst ? 0 : 1;
+  resultRecorded = false;
   // Only the LEADER deals. Unlike Checkers and Connect Four, Yahtzee has
   // randomness -- the dice -- so the two devices cannot both start and agree.
   // The follower waits for the leader's first state to arrive, which it will,
@@ -126,6 +193,7 @@ void YahtzeeActivity::gameLoop() {
       takeOpponentTurn();
       return;
     } else if (yz::over(game)) {
+      recordResult();
       goTo(yz::Screen::Result);
       return;
     }
@@ -160,7 +228,12 @@ void YahtzeeActivity::gameLoop() {
     const int category = yzui::categoryAt(device, tapX, tapY);
     if (category >= 0) {
       if (!mine) return;
+      // Remember the hand before it is spent: five equal dice scored into any
+      // box are a rolled Yahtzee, and the face is what the ornament draws.
+      const bool fiveEqual = game.die[0] == game.die[1] && game.die[1] == game.die[2] && game.die[2] == game.die[3] &&
+                             game.die[3] == game.die[4];
       if (!yz::take(game, static_cast<yz::Category>(category))) return;
+      if (fiveEqual) yahtzeeFace = game.die[0];
       if (inMatch()) play.play(game);
       requestUpdate();
       return;
@@ -235,6 +308,11 @@ void YahtzeeActivity::gameRender() {
     case yz::Screen::Menu: {
       yzui::MenuModel model;
       model.selected = menuSelected;
+      model.played = played;
+      model.won = won;
+      model.best = best;
+      model.yahtzees = yahtzees;
+      model.yahtzeeFace = yahtzeeFace;
       yzui::buildMenu(surface, model);
       break;
     }

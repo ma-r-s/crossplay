@@ -53,16 +53,6 @@ constexpr size_t kMaxArticleBytes = 96u * 1024u;
 
 constexpr int kMaxStories = 30;
 
-// Toybox chrome shouts. Story titles do not: they are somebody's sentence, and
-// a shouted headline is unreadable at 30 rows.
-void shout(char* out, const size_t size, const char* in) {
-  size_t n = 0;
-  for (const char* c = in; *c != '\0' && n + 1 < size; ++c, ++n) {
-    out[n] = *c >= 'a' && *c <= 'z' ? static_cast<char>(*c - 'a' + 'A') : *c;
-  }
-  out[n] = '\0';
-}
-
 }  // namespace
 
 std::unique_ptr<Activity> HackerNewsActivity::create(GfxRenderer& renderer, MappedInputManager& mappedInput) {
@@ -579,11 +569,11 @@ void HackerNewsActivity::render(RenderLock&&) {
       std::snprintf(pageLabel_, sizeof(pageLabel_), "%lu/%lu", static_cast<unsigned long>(page),
                     static_cast<unsigned long>(pages < 1 ? 1 : pages));
 
-      char title[40];
-      shout(title, sizeof(title), readingComments_ ? "COMMENTS" : "ARTICLE");
-
       hnui::ReaderModel model;
-      model.title = title;
+      // The story's own title, not COMMENTS/ARTICLE: which piece you are in
+      // is the useful fact, and the footer's swap button already names the
+      // mode. The builder fits it to the band.
+      model.title = readerTitle_.c_str();
       model.text = document_.c_str();
       model.topLine = topLine_;
       model.pageLabel = pageLabel_;

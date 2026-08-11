@@ -5,12 +5,19 @@ converted from your own Anki collection, schedules reviews with the same FSRS
 algorithm and the same parameters Anki uses, and syncs every review back so
 Anki (and AnkiWeb) treat them exactly as if you had done them on your phone.
 
-One deck at a time, no editing, no audio. Everything else -- adding cards,
-retraining FSRS, browsing -- happens in Anki, where those things are good.
+No editing, no audio. Everything else -- adding cards, retraining FSRS,
+browsing -- happens in Anki, where those things are good. The card can hold
+several decks; the deck screen switches between them.
 
 ## What you need
 
-- Anki installed on this computer, with the deck you want to study.
+- **The tools.** They live in this repository, not in the firmware: clone it
+  (or download it as a zip from the same place you got the firmware) and run
+  everything below from the repository root. Nothing needs to be installed
+  from it -- the scripts run in place.
+- Anki installed on this computer, with the deck you want to study. A deck
+  downloaded from AnkiWeb's shared decks counts: import it into Anki first,
+  and it converts like any other.
 - The reader's SD card, mounted (or any directory, for a look around).
 - Python 3. Everything else installs itself into a private environment
   (`.venv-study/`) the first time it is needed; nothing touches your system
@@ -29,8 +36,13 @@ remembered in `~/.config/crosspoint-study.json`, so the next run asks nothing.
 
 Put the card in the reader: **Apps > STUDY**.
 
-Every prompt has a flag (`--collection`, `--deck`, `--to`, `--name`), so the
-command is scriptable once you know your answers.
+Run setup again to put another deck on the card -- adding alongside is the
+default, replacing is offered. On the reader, the `DECK 1/2` row on the deck
+screen cycles between them, and the reader remembers which one you had open.
+Each deck keeps its own scheduling state, review log, stats and fonts.
+
+Every prompt has a flag (`--collection`, `--deck`, `--to`, `--name`, `--add`,
+`--replace`), so the command is scriptable once you know your answers.
 
 ### Which decks convert
 
@@ -55,24 +67,36 @@ them:
   hole in it, and this card format has nowhere to put a hole. Cloze stays in
   Anki.
 
+The supported scripts are English (anything the built-in Latin face covers)
+and Chinese. Other scripts -- Korean, Arabic, Cyrillic and the rest -- are out
+of scope: nothing stops the converter, but nobody has made the fonts or the
+text layout right for them, and setup will warn about every character the
+built-in face cannot draw rather than pretend.
+
 Scheduling state comes along: a card due in 21 days in Anki is due in 21 days
 on the reader, with the same stability and difficulty. New decks start fresh,
 exactly as they would in Anki.
 
 ### Fonts
 
-- **A CJK deck** (Chinese, Japanese) needs real CJK faces. The converter builds
+- **A Chinese deck** needs real CJK faces. The converter builds
   them from the TTFs in your Anki media folder -- `_simsun.ttf`, `_simhei.ttf`,
   `_msyahei.ttf`, `_kaiti.ttf`, `_fangsong.ttf` -- and the reader randomises
   the typeface per card, which stops you learning the shape of one font instead
   of the character. Ship whichever of the five you have; the reader uses what
   it finds.
-- **Any other deck** needs nothing: the built-in serif draws it. For a large
-  custom headword face, hand setup any TTF:
+- **Any other deck** needs nothing: the built-in serif draws it. Setup offers
+  to build a large headword face from a font your system already has (Georgia
+  on a Mac); accept and the type looks right with no further thought. To pick
+  your own face, hand it any TTF -- and `--no-font` skips the question:
 
   ```bash
   ./tools_local/study/study.py setup --font ~/Fonts/Georgia.ttf
   ```
+
+  The size is fitted to the deck: the face is built as large as the longest
+  word allows, so an English deck's `incontrovertible` fits where a Chinese
+  deck's four characters would.
 
 - A card whose text the installed fonts cannot draw falls back to the built-in
   face on its own, per card. A wrong font install can look plain; it cannot
@@ -85,10 +109,12 @@ exactly as they would in Anki.
 ```
 
 Quit Anki first (two writers is how a collection gets corrupted; the tool
-checks and refuses). Every review you did on the reader is replayed into your
-collection: same grades, same timestamps, same revlog entries Anki itself would
-have written. A backup of the collection is made first. Reviews you undid on
-the reader are skipped -- as far as Anki learns, they never happened.
+checks and refuses). Every review you did on the reader -- across every deck on
+the card -- is replayed into your collection: same grades, same timestamps,
+same revlog entries Anki itself would have written. A backup of the collection
+is made first. Reviews you undid on the reader are skipped -- as far as Anki
+learns, they never happened. With `--ankiweb` the push happens once, after all
+decks have replayed.
 
 Add flags for the two common extras:
 
@@ -101,8 +127,9 @@ Add flags for the two common extras:
   `$ANKI_PASSWORD` or a prompt; they are used for the login call and never
   stored or logged. The sync library installs itself into the tooling venv on
   first use.
-- `--reconvert` refreshes the deck on the card afterwards, so new cards you
+- `--reconvert` refreshes every deck on the card afterwards, so new cards you
   added in Anki, edits, and re-optimised FSRS parameters all reach the reader.
+  Fonts that no longer cover a grown deck are rebuilt on the spot.
 - `--dry-run` reports what would change and writes nothing.
 
 `./tools_local/study/study.py status` shows what is configured and how many
@@ -148,9 +175,6 @@ export.
 
 - **Editing, adding, custom study, browsing** -- Anki does these better on a
   screen with a keyboard.
-- **A second deck** -- one deck, studied properly, is the design. Swapping
-  decks is `setup` again (it offers to replace, and warns if unsynced reviews
-  would be lost).
 - **Audio** -- the device has no speaker.
 - **A second level of undo** -- the state before the previous review is not
   kept.

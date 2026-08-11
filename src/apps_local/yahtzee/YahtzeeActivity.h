@@ -39,11 +39,26 @@ class YahtzeeActivity final : public linkplay::LinkActivity {
   void beginSoloGame();
   void takeOpponentTurn();
   void goTo(yahtzee::Screen next);
+  // The running record, for the menu's ornament. Written when a game ends,
+  // read once on entry -- knucklebones' pattern.
+  void recordResult();
+  void loadHistory();
 
   yahtzee::Screen screen = yahtzee::Screen::Menu;
   yahtzee::Game game{};
   int howToPage = 0;
   int menuSelected = -1;
+
+  // What the menu draws instead of being three rows and white space. Kept here
+  // rather than in the core: the rules do not have a history, a device does.
+  int played = 0;
+  int won = 0;
+  int best = 0;
+  int yahtzees = 0;
+  // The face of the most recent five-of-a-kind this device scored with, so the
+  // ornament can draw the hand rather than claim it. 0 until the first one.
+  int yahtzeeFace = 0;
+  bool resultRecorded = false;
   // Which card this device owns, 0 or 1. Zero in a solo game; the coin toss
   // decides it in a match, and nothing else in the app has to learn seats exist.
   uint8_t seat = 0;

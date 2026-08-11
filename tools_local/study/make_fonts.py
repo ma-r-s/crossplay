@@ -87,6 +87,52 @@ INTERVAL_STRUCT_SIZE = 12
 INTERVALS = "latin-ext,cjk,punctuation"
 
 
+def deck_headwords(deck_dir):
+    """Every headword in the converted deck, straight out of deck.dat."""
+    data = (deck_dir / "deck.dat").read_bytes()
+    _version, fields, _flags, count = struct.unpack_from("<HBBI", data, 8)
+    index = struct.unpack_from("<%dI" % (count + 1), data, 16)
+    out = []
+    for i in range(count):
+        offset = index[i]
+        (length,) = struct.unpack_from("<H", data, offset)
+        out.append(data[offset + 2 : offset + 2 + length].decode("utf-8"))
+    return out
+
+
+def fit_headword_size(font_path, deck_dir, wanted, max_width):
+    """The largest size (capped at `wanted`) where every word fits the screen.
+
+    Measured from the font's own advance table in em units, so no rasterising
+    happens: px = ems * size * 2.38 at the converter's 150dpi. Hinting moves
+    real widths by a pixel or two, so 5% is held back; the device's per-card
+    fallback catches anything that still escapes.
+    """
+    from fontTools.ttLib import TTFont
+
+    font = TTFont(str(font_path))
+    upem = font["head"].unitsPerEm
+    cmap = font.getBestCmap()
+    hmtx = font["hmtx"]
+
+    def word_ems(word):
+        total = 0
+        for ch in word:
+            glyph = cmap.get(ord(ch))
+            total += hmtx[glyph][0] if glyph else upem
+        return total / upem
+
+    widest = 0.0
+    for headword in deck_headwords(deck_dir):
+        for word in headword.split(" "):
+            widest = max(widest, word_ems(word))
+    font.close()
+    if widest <= 0:
+        return wanted
+    fits = int(max_width * 0.95 / (widest * 2.38))
+    return max(12, min(wanted, fits))
+
+
 def subset(src, codepoints, dest):
     """Cut a font down to the codepoints the deck uses."""
     from fontTools import subset as ftsubset
@@ -168,7 +214,7 @@ def threshold_bitmaps(path):
     return changed, total
 
 
-def convert(script, font, name, size, out_dir, mono):
+def convert(script, font, name, size, out_dir, mono, name_size=None):
     """Build one face at one size.
 
     `mono` rasterises through FreeType's 1-bit hinting (mono_cpfont.py), which
@@ -176,7 +222,7 @@ def convert(script, font, name, size, out_dir, mono):
     kept only so the two can be compared, because that comparison is how the
     thresholding mistake was found in the first place.
     """
-    output = out_dir / f"{name}_{size}.cpfont"
+    output = out_dir / f"{name}_{name_size if name_size is not None else size}.cpfont"
     if mono:
         repo_root = script.parents[3]
         intervals = mono_cpfont.resolve_intervals(repo_root, INTERVALS)
@@ -278,6 +324,19 @@ def main():
         if not args.font.is_file():
             sys.exit(f"no font at {args.font}")
         faces = [(args.font, "Custom")]
+        # Fit the headword size to the deck rather than trusting the CJK
+        # default. 50 is right for hanzi, which are one em wide and four of
+        # them make a long headword; "incontrovertible" at the same size hangs
+        # off both edges of the screen -- 927 of the GRE deck's headwords did.
+        # The size is chosen so the widest single word fits, so overflow is
+        # impossible by construction instead of caught later. The file is still
+        # named _<headword-size>.cpfont: the name is the device's lookup key,
+        # not a measurement.
+        fitted = fit_headword_size(
+            args.font, args.deck, args.headword_size, max_width=448
+        )
+        if fitted != args.headword_size:
+            print(f"  headword size {args.headword_size} -> {fitted} so the longest word fits")
     elif args.media:
         faces = [(args.media / filename, name) for filename, name in FACES]
     else:
@@ -296,13 +355,15 @@ def main():
 
         with tempfile.TemporaryDirectory() as tmp:
             tmp = pathlib.Path(tmp)
+            headword_size = fitted if args.font else args.headword_size
             for label, chars, size in (
-                ("headword", headword, args.headword_size),
+                ("headword", headword, headword_size),
                 ("sentence", sentence, args.sentence_size),
             ):
                 cut = tmp / f"{family}-{label}.ttf"
                 subset(src, chars, cut)
-                produced = convert(script, cut, family, size, out_dir, mono=not args.antialiased)
+                produced = convert(script, cut, family, size, out_dir, mono=not args.antialiased,
+                                   name_size=args.headword_size if label == "headword" else None)
                 note = ""
                 if args.threshold:
                     changed, samples = threshold_bitmaps(produced)

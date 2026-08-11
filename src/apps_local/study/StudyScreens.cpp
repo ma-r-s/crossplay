@@ -204,6 +204,17 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   small.align = fui::TextAlign::Left;
   screen.target().text(fui::makeRect(body.x, body.y + 122, body.width, 24), record, small);
 
+  // The deck row. One deck: a quiet label naming what is open. More than one:
+  // the switcher, and the count says there is somewhere to go -- the arrow
+  // alone would say "this goes somewhere" without saying how many somewheres.
+  if (model.deckCount > 1) {
+    char deckRow[64];
+    std::snprintf(deckRow, sizeof(deckRow), "DECK %d/%d   %s   >", model.deckIndex + 1, model.deckCount, model.name);
+    const fui::Rect deckRect = fui::makeRect(body.x, body.y + 152, body.width, 26);
+    screen.target().text(deckRect, deckRow, small);
+    screen.frame().hit(deckRect, ActionSwitchDeck, 0);
+  }
+
   // The ornament, bracketed the way the board is.
   const int panelTop = body.y + 210;
   const int panelHeight = 190;

@@ -4,9 +4,9 @@
 //
 // Eight by ten with ten mines, which is 12.5% density -- between the classic
 // beginner board's 12.3% and its intermediate 15.6%. The shape is set by the
-// panel rather than by tradition: 448px of usable width over eight columns is a
-// 56px cell, which is a thumb, and ten rows is what fits under the header with
-// the status capsule still on screen.
+// panel rather than by tradition: the full 480px over eight columns is a 60px
+// cell drawn edge to edge, which is a thumb and a half, and ten rows is what
+// fits under the header with the counter strip still on screen.
 //
 // Two properties are built in rather than checked for, which is this project's
 // rule about promised properties:

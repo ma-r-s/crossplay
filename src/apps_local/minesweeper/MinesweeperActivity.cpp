@@ -126,13 +126,12 @@ void MinesweeperActivity::loop() {
     return;
   }
 
-  // The board settles itself: the rules decide when it is over, and the flow
-  // says which screen that implies. Neither is decided twice.
-  if (screen == ms::Screen::Board && ms::over(game)) {
-    recordResult();
-    goTo(ms::Screen::Result);
-    return;
-  }
+  // The rules decide when it is over; the record is written the moment they
+  // do (latched by resultRecorded). The screen does NOT change: the settled
+  // board stays, mines bared, wearing the verdict as its capsule. Navigating
+  // away here was what made every ending anticlimactic -- the finished
+  // minefield flashed for under a repaint and was gone.
+  if (screen == ms::Screen::Board && ms::over(game)) recordResult();
 
   // Hold to flag, tap to dig.
   //
@@ -237,6 +236,10 @@ void MinesweeperActivity::loop() {
     case mineui::ActionToggleMode:
       flagMode = !flagMode;
       requestUpdate();
+      return;
+
+    case mineui::ActionSeeResult:
+      goTo(ms::Screen::Result);
       return;
 
     default:

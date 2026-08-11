@@ -12,14 +12,17 @@ namespace {
 
 namespace ms = minesweeper;
 
-// 56px, which is a thumb, and eight of them are exactly the 448px between the
-// margins. No gap between cells: a minefield is a continuous surface, and gaps
-// would make eighty separate objects out of one.
-constexpr int16_t kCell = 56;
+// 60px, and eight of them are exactly the panel's 480: the minefield is the
+// fork's one full-bleed play surface, the terrain rather than a widget on it.
+// Mario picked this over two candidates that bought bigger cells by shrinking
+// the game -- the field grows, the game does not. No gap between cells: a
+// minefield is a continuous surface, and gaps would make eighty separate
+// objects out of one.
+constexpr int16_t kCell = 60;
 constexpr int16_t kBoardWidth = kCell * ms::kColumns;
 constexpr int16_t kBoardHeight = kCell * ms::kRows;
 
-int16_t boardTop() { return static_cast<int16_t>(toybox::kHeaderHeight + toybox::kGutter * 2); }
+int16_t boardTop() { return static_cast<int16_t>(toybox::kHeaderHeight + 8); }
 
 // The mark on a flagged cell and beside the counter.
 //
@@ -60,6 +63,203 @@ void drawMine(toybox::Screen& screen, const fui::Rect& where, const bool paper) 
   screen.target().fill(fui::makeRect(static_cast<int16_t>(cx + 11), static_cast<int16_t>(cy - 1), 6, 3), ink);
 }
 
+// The header band with the offset rule under it, as jaipur and the dungeon
+// wear it. A local copy rather than a shared helper, for the reason
+// LinkScreens gives: a copy is cheaper than a header dependency between apps.
+void toyboxChrome(toybox::Screen& screen, const char* title, const char* rightLabel = nullptr) {
+  fui::HeaderProps header;
+  header.title = title;
+  header.rightLabel = rightLabel;
+  // rightLabel is drawn with subtitleText, and the theme's default is black on
+  // the black band. Jaipur paid for this discovery; see its toyboxChrome.
+  header.subtitleText = fui::TextStyle{};
+  header.subtitleText.font = toybox::kUiFont;
+  header.subtitleText.color = fui::Color::White;
+  header.subtitleText.align = fui::TextAlign::Right;
+  header.borderEdges = fui::EdgesNone;
+  screen.header(header);
+  const fui::Rect band = screen.device().screen();
+  screen.target().fill(fui::makeRect(0, toybox::kHeaderHeight + 4, band.width, toybox::kRule),
+                       fui::Paint::solid(fui::Color::Black));
+  screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
+}
+
+// A fragment of minefield from a picture-string: '.' covered, 'o' open,
+// '*' a covered mine, 'F' a flag on a mine, 'M' a mine laid bare for teaching.
+// The numbers are computed from the fragment's own mines, so a diagram cannot
+// disagree with the rule it illustrates -- the previous page one showed a 3
+// with no mines in its picture at all.
+void lessonField(toybox::Screen& screen, const int16_t left, const int16_t top, const int16_t cell,
+                 const char* const* rows, const int columns, const int rowCount) {
+  const auto mineAt = [&](const int c, const int r) {
+    if (c < 0 || c >= columns || r < 0 || r >= rowCount) return false;
+    const char mark = rows[r][c];
+    return mark == '*' || mark == 'F' || mark == 'M';
+  };
+  for (int r = 0; r < rowCount; ++r) {
+    for (int c = 0; c < columns; ++c) {
+      const fui::Rect box = fui::makeRect(static_cast<int16_t>(left + c * cell),
+                                          static_cast<int16_t>(top + r * cell), cell, cell);
+      const char mark = rows[r][c];
+      if (mark != 'o' && mark != 'M') screen.target().fill(box, fui::Paint::dither(fui::Color::LightGray));
+      screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), 2);
+      if (mark == 'F') {
+        drawFlag(screen, box, false);
+      } else if (mark == 'M') {
+        screen.target().fill(box, fui::Paint::solid(fui::Color::Black));
+        drawMine(screen, box, true);
+      } else if (mark == 'o') {
+        int touching = 0;
+        for (int dc = -1; dc <= 1; ++dc) {
+          for (int dr = -1; dr <= 1; ++dr) {
+            if ((dc != 0 || dr != 0) && mineAt(c + dc, r + dr)) ++touching;
+          }
+        }
+        if (touching > 0) {
+          char digit[2] = {static_cast<char>('0' + touching), '\0'};
+          fui::TextStyle number;
+          number.font = toybox::kDisplayFont;
+          number.align = fui::TextAlign::Center;
+          screen.target().text(box, digit, number);
+        }
+      }
+    }
+  }
+}
+
+// The front door in the documented band order: record line, rule, ornament,
+// doors bottom-anchored with PLAY loudest. Returns the room left for the
+// ornament between the rule and the doors.
+fui::Rect menuFrontDoor(toybox::Screen& screen, const MenuModel& model) {
+  toyboxChrome(screen, "MINESWEEPER");
+
+  char record[48];
+  std::snprintf(record, sizeof(record), "%d PLAYED   %d CLEARED", model.wins + model.losses, model.wins);
+  const fui::Rect line = screen.takeTop(26);
+  fui::TextStyle small;
+  small.font = toybox::kTileFont;
+  small.align = fui::TextAlign::Left;
+  screen.target().text(line, record, small);
+  screen.target().fill(fui::makeRect(line.x, static_cast<int16_t>(line.bottom() + 6), line.width, toybox::kRule),
+                       fui::Paint::solid(fui::Color::Black));
+
+  fui::ListItem rows[static_cast<int>(MenuRow::Count)] = {};
+  rows[static_cast<int>(MenuRow::Play)].label = "PLAY";
+  rows[static_cast<int>(MenuRow::Play)].actionValue = static_cast<int16_t>(MenuRow::Play);
+  rows[static_cast<int>(MenuRow::HowTo)].label = "HOW TO PLAY";
+  rows[static_cast<int>(MenuRow::HowTo)].actionValue = static_cast<int16_t>(MenuRow::HowTo);
+
+  // Row 0 reads selected by default, jaipur's own trick: the most likely tap
+  // is also the loudest thing below the rule.
+  const int selected = model.selected < 0 ? 0 : model.selected;
+  fui::ListProps list;
+  list.items = rows;
+  list.count = static_cast<uint16_t>(MenuRow::Count);
+  list.selectedIndex = static_cast<int16_t>(selected);
+  list.action = ActionMenuRow;
+  const int count = static_cast<int>(MenuRow::Count);
+  const int16_t listHeight =
+      static_cast<int16_t>(count * toybox::kRowHeight + (count - 1) * toybox::kGutter / 2 + toybox::kGutter);
+  const fui::Rect content = screen.contentRect();
+  const fui::Rect listBand =
+      fui::makeRect(content.x, static_cast<int16_t>(content.bottom() - listHeight), content.width, listHeight);
+  screen.list(list, listHeight, fui::LayoutAnchor::Bottom);
+
+  const int16_t areaTop = static_cast<int16_t>(line.bottom() + 6 + toybox::kRule);
+  return fui::makeRect(content.x, areaTop, content.width, static_cast<int16_t>(listBand.y - areaTop));
+}
+
+// Whether the remembered board ended in a dig on a mine.
+bool lastGameLost(const ms::Game& board) {
+  for (int column = 0; column < ms::kColumns; ++column) {
+    for (int row = 0; row < ms::kRows; ++row) {
+      const uint8_t cell = board.cell[column][row];
+      if ((cell & ms::kMine) != 0 && (cell & ms::kRevealed) != 0) return true;
+    }
+  }
+  return false;
+}
+
+// The four lessons. The fourth is the win condition, and that flags are notes
+// rather than homework -- which nothing on the device said before.
+const char* const kLessonLines[] = {
+    "A NUMBER COUNTS THE MINES TOUCHING IT, CORNERS INCLUDED.",
+    "TAP TO DIG. HOLD TO PLANT A FLAG. THE BUTTON UNDER THE BOARD SWITCHES WHAT A TAP DOES.",
+    "YOUR FIRST DIG IS ALWAYS SAFE, AND ALWAYS OPENS A SPACE.",
+    "OPEN EVERY SAFE CELL AND THE FIELD IS CLEARED. FLAGS ARE NOTES: NONE ARE NEEDED TO WIN.",
+};
+
+// One diagram per lesson, centred in the vertical band it is given.
+void lessonDiagram(toybox::Screen& screen, const int page, const int16_t bandTop, const int16_t bandBottom,
+                   const int16_t bigCell, const int16_t smallCell) {
+  const fui::DeviceContext device = screen.device();
+  static const char* const kCount[] = {"M..", ".oM", "..M"};
+  static const char* const kTools[] = {"oF."};
+  static const char* const kFlood[] = {"oo...", "oo**.", "ooo..", "ooo*."};
+  static const char* const kWon[] = {"ooooo", "ooo*o", "ooooo", "ooFoo"};
+
+  const char* const* rows = kCount;
+  int columns = 3;
+  int rowCount = 3;
+  int16_t cell = bigCell;
+  if (page == 1) {
+    rows = kTools;
+    columns = 3;
+    rowCount = 1;
+  } else if (page == 2) {
+    rows = kFlood;
+    columns = 5;
+    rowCount = 4;
+    cell = smallCell;
+  } else if (page == 3) {
+    rows = kWon;
+    columns = 5;
+    rowCount = 4;
+    cell = smallCell;
+  }
+  const int16_t width = static_cast<int16_t>(cell * columns);
+  const int16_t height = static_cast<int16_t>(cell * rowCount);
+  const int16_t left = static_cast<int16_t>((device.width - width) / 2);
+  const int16_t room = static_cast<int16_t>(bandBottom - bandTop);
+  const int16_t top = static_cast<int16_t>(bandTop + (room > height ? (room - height) / 2 : 0));
+  lessonField(screen, left, top, cell, rows, columns, rowCount);
+}
+
+// The bottom strip: what is left to find on the left, what a tap will do on
+// the right.
+//
+// The counter is labelled. A bare numeral and a mark could not say what it
+// counted, and with no total on screen the player could not recover the
+// denominator -- so it names both, and the flag beside it says which unit.
+//
+// The mode is a control rather than a caption: rowStyles() so it is outlined
+// while it is DIG and inverted once it is FLAG. The button default paints
+// solid in every state, so the two modes came out identical black pills
+// differing by one word, which is not a difference a glance carries on a
+// one-bit panel.
+void boardStrip(toybox::Screen& screen, const BoardModel& model) {
+  const fui::Rect strip = screen.takeBottom(toybox::kPillHeight, toybox::kGutter);
+
+  fui::ButtonProps mode;
+  mode.label = model.flagMode ? "FLAG" : "DIG";
+  mode.action = ActionToggleMode;
+  mode.styles = toybox::rowStyles();
+  mode.state = model.flagMode ? fui::StateSelected : fui::StateNormal;
+  const int16_t modeWidth = static_cast<int16_t>(strip.width / 3);
+  screen.button(mode,
+                fui::makeRect(static_cast<int16_t>(strip.right() - modeWidth), strip.y, modeWidth, strip.height));
+
+  char line[24];
+  std::snprintf(line, sizeof(line), "%d OF %d", ms::minesRemaining(model.game), ms::kMines);
+  fui::TextStyle count;
+  count.font = toybox::kDisplayFont;
+  count.align = fui::TextAlign::Center;
+  const int16_t markSide = static_cast<int16_t>(strip.height);
+  const int16_t countWidth = static_cast<int16_t>(strip.width - modeWidth - markSide - toybox::kGutter);
+  screen.target().text(fui::makeRect(strip.x, strip.y, countWidth, strip.height), line, count);
+  drawFlag(screen, fui::makeRect(static_cast<int16_t>(strip.x + countWidth), strip.y, markSide, markSide), false);
+}
+
 }  // namespace
 
 fui::Rect cellRect(const fui::DeviceContext& device, const int column, const int row) {
@@ -78,127 +278,86 @@ bool cellAt(const fui::DeviceContext& device, const int x, const int y, int& col
   return true;
 }
 
-int howToPages() { return 3; }
+int howToPages() { return 4; }
 
 void buildMenu(toybox::Screen& screen, const MenuModel& model) {
-  fui::HeaderProps header;
-  header.title = "MINESWEEPER";
-  header.borderEdges = fui::EdgesNone;
-  screen.header(header);
-  screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
-
-  fui::ListItem rows[static_cast<int>(MenuRow::Count)] = {};
-  rows[static_cast<int>(MenuRow::Play)].label = "PLAY";
-  rows[static_cast<int>(MenuRow::Play)].actionValue = static_cast<int16_t>(MenuRow::Play);
-  rows[static_cast<int>(MenuRow::HowTo)].label = "HOW TO PLAY";
-  rows[static_cast<int>(MenuRow::HowTo)].actionValue = static_cast<int16_t>(MenuRow::HowTo);
-
-  fui::ListProps list;
-  list.items = rows;
-  list.count = static_cast<uint16_t>(MenuRow::Count);
-  list.selectedIndex = static_cast<int16_t>(model.selected);
-  list.action = ActionMenuRow;
-  const fui::Rect band = screen.body();
-  screen.list(list);
-
+  const fui::Rect room = menuFrontDoor(screen, model);
   if (!model.hasHistory) return;
 
-  // The last minefield, opened, as the front door's ornament: made of the app's
-  // own material and carrying the app's own data, which is the only kind of
-  // decoration this fork allows. Two devices show different pictures here.
+  // The last field is the centrepiece, at a size that carries its own numbers:
+  // a replica of the settled board, not a thumbnail of it. Ornament made of
+  // the app's own material and the app's own data, the only kind this fork
+  // allows.
   const fui::DeviceContext device = screen.device();
-  constexpr int16_t kMini = 22;
+  constexpr int16_t kMini = 34;
   const int16_t width = kMini * ms::kColumns;
+  const int16_t height = kMini * ms::kRows;
+  const int16_t stackH = static_cast<int16_t>(height + 10 + 24);
+  const int16_t top = static_cast<int16_t>(room.y + (room.height > stackH ? (room.height - stackH) / 2 : 0));
   const int16_t left = static_cast<int16_t>((device.width - width) / 2);
-  const int16_t top =
-      static_cast<int16_t>(band.y + (toybox::kRowHeight + toybox::kGutter) * static_cast<int>(MenuRow::Count) + 36);
 
   for (int column = 0; column < ms::kColumns; ++column) {
     for (int row = 0; row < ms::kRows; ++row) {
       const fui::Rect box = fui::makeRect(static_cast<int16_t>(left + column * kMini),
                                           static_cast<int16_t>(top + row * kMini), kMini, kMini);
       const uint8_t cell = model.lastBoard.cell[column][row];
-      // Mines solid, cleared cells empty, unopened cells dithered. At 22px a
-      // number would not read, and the shape of the field is the memory worth
-      // keeping anyway.
       if (cell & ms::kMine) {
+        // Every mine laid bare, flagged or found or missed: the game is over
+        // and where they were is the memory worth keeping.
         screen.target().fill(box, fui::Paint::solid(fui::Color::Black));
       } else if ((cell & ms::kRevealed) == 0) {
         screen.target().fill(box, fui::Paint::dither(fui::Color::LightGray));
+        screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), 1);
+        if (cell & ms::kFlagged) drawFlag(screen, box, false);
+      } else {
+        screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), 1);
+        const int touching = ms::neighbouringMines(model.lastBoard, column, row);
+        if (touching > 0) {
+          char digit[2] = {static_cast<char>('0' + touching), '\0'};
+          fui::TextStyle number;
+          number.font = toybox::kSmallFont;
+          number.align = fui::TextAlign::Center;
+          screen.target().text(box, digit, number);
+        }
       }
-      screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), 1);
     }
   }
+  screen.target().stroke(fui::makeRect(static_cast<int16_t>(left - 2), static_cast<int16_t>(top - 2),
+                                       static_cast<int16_t>(width + 4), static_cast<int16_t>(height + 4)),
+                         fui::Paint::solid(fui::Color::Black), 2);
 
-  char record[32];
-  std::snprintf(record, sizeof(record), "%d CLEARED  %d LOST", model.wins, model.losses);
-  fui::TextStyle tally;
-  tally.font = toybox::kSmallFont;
-  tally.align = fui::TextAlign::Center;
-  screen.target().text(fui::makeRect(band.x, static_cast<int16_t>(top + kMini * ms::kRows + 12), band.width, 24),
-                       record, tally);
+  fui::TextStyle caption;
+  caption.font = toybox::kTileFont;
+  caption.align = fui::TextAlign::Center;
+  screen.target().text(fui::makeRect(room.x, static_cast<int16_t>(top + height + 10), room.width, 24),
+                       lastGameLost(model.lastBoard) ? "LAST GAME: BOOM" : "LAST GAME: CLEARED", caption);
 }
 
 void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
-  const int page = model.page < 0 ? 0 : (model.page >= howToPages() ? howToPages() - 1 : model.page);
+  const int pages = howToPages();
+  const int page = model.page < 0 ? 0 : (model.page >= pages ? pages - 1 : model.page);
 
-  fui::HeaderProps header;
-  header.title = "HOW TO PLAY";
-  header.borderEdges = fui::EdgesNone;
-  screen.header(header);
-  screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
+  // The page counter lives in the black band, jaipur's way, so it costs no
+  // body space.
+  char progress[16];
+  std::snprintf(progress, sizeof(progress), "%d OF %d", page + 1, pages);
+  toyboxChrome(screen, "HOW TO PLAY", progress);
 
-  // Taken before the page's own drawing, so no branch can skip the way forward.
+  // Taken before the page's own drawing, so no branch can skip the way
+  // forward.
   fui::ButtonProps next;
-  next.label = page + 1 < howToPages() ? "NEXT" : "GOT IT";
+  next.label = page + 1 < pages ? "NEXT" : "GOT IT";
   next.action = ActionHowToNext;
   screen.button(next, screen.takeBottom(toybox::kPillHeight, toybox::kGutter));
 
   const fui::Rect area = screen.body();
-
-  // Drawn in the body, not as the header's rightLabel: that renders in ink on
-  // the black band and is invisible, and a host test asserting it was drawn
-  // passes anyway.
-  char progress[8];
-  std::snprintf(progress, sizeof(progress), "%d/%d", page + 1, howToPages());
-  fui::TextStyle counter;
-  counter.font = toybox::kSmallFont;
-  counter.align = fui::TextAlign::Right;
-  screen.target().text(fui::makeRect(area.x, area.y, area.width, 20), progress, counter);
-
-  static const char* const kLines[] = {
-      "A NUMBER COUNTS THE MINES TOUCHING IT. THREE MEANS THREE OF ITS EIGHT NEIGHBOURS.",
-      ("TAP A CELL TO DIG IT. SWITCH THE BUTTON UNDER THE BOARD TO FLAG, AND A TAP PLANTS A FLAG INSTEAD. HOLDING A "
-       "CELL ALWAYS FLAGS IT."),
-      "YOUR FIRST DIG IS ALWAYS SAFE, AND ALWAYS OPENS A SPACE.",
-  };
   fui::TextStyle body;
   body.font = toybox::kBodyFont;
   body.align = fui::TextAlign::Center;
   body.maxLines = 4;
-  screen.target().text(fui::makeRect(area.x, static_cast<int16_t>(area.y + 24), area.width, 150), kLines[page], body);
+  screen.target().text(fui::makeRect(area.x, area.y, area.width, 150), kLessonLines[page], body);
 
-  // A picture of the real thing on every page, at the real cell size.
-  const fui::DeviceContext device = screen.device();
-  const int16_t top = static_cast<int16_t>(area.y + 200);
-  const int16_t left = static_cast<int16_t>((device.width - kCell * 3) / 2);
-  for (int column = 0; column < 3; ++column) {
-    for (int row = 0; row < 2; ++row) {
-      const fui::Rect box = fui::makeRect(static_cast<int16_t>(left + column * kCell),
-                                          static_cast<int16_t>(top + row * kCell), kCell, kCell);
-      const bool opened = page == 0 ? (row == 0) : (page == 2 && row == 0 && column == 1);
-      if (!opened) screen.target().fill(box, fui::Paint::dither(fui::Color::LightGray));
-      screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), 2);
-
-      if (page == 0 && row == 0 && column == 1) {
-        fui::TextStyle number;
-        number.font = toybox::kDisplayFont;
-        number.align = fui::TextAlign::Center;
-        screen.target().text(box, "3", number);
-      }
-      if (page == 1 && row == 0 && column == 1) drawFlag(screen, box, false);
-    }
-  }
+  lessonDiagram(screen, page, static_cast<int16_t>(area.y + 160), area.bottom(), 88, 64);
 }
 
 void buildBoard(toybox::Screen& screen, const BoardModel& model) {
@@ -206,23 +365,23 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   header.title = "MINESWEEPER";
   header.borderEdges = fui::EdgesNone;
   screen.header(header);
-  // The board screen was the only one that skipped this, so its bottom control
-  // bled into the left, right and bottom bezels. Only full-bleed chrome -- the
-  // header band -- touches an edge.
-  screen.insetContent(fui::Insets{toybox::kGutter * 2, toybox::kMargin, toybox::kMargin, toybox::kMargin});
+  // The board itself is full bleed; only the strip below it keeps the margins.
+  screen.insetContent(fui::Insets{0, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 
   const fui::DeviceContext device = screen.device();
   const fui::Rect first = cellRect(device, 0, 0);
 
-  // A frame, so the minefield is one object rather than eighty rectangles that
-  // happen to be adjacent. Without it the board's outer boundary was the same
-  // hairline as its interior grid, and late in a game -- when most cells are
-  // paper -- the board dissolved into the page around it.
-  const fui::Rect frame = fui::makeRect(static_cast<int16_t>(first.x - toybox::kBoardFrame),
-                                        static_cast<int16_t>(first.y - toybox::kBoardFrame),
-                                        static_cast<int16_t>(kBoardWidth + toybox::kBoardFrame * 2),
-                                        static_cast<int16_t>(kBoardHeight + toybox::kBoardFrame * 2));
-  screen.target().stroke(frame, fui::Paint::solid(fui::Color::Black), 3);
+  // A frame, so the minefield is one object rather than eighty rectangles
+  // that happen to be adjacent. Two full-width bars TIGHT against the first
+  // and last rows, not the floating kBoardFrame rule the inset board wore:
+  // that outset is 9px, which on a full-bleed surface put the top bar flush
+  // under the header band (where it vanished into it) and the bottom bar
+  // adrift below the field, with the side bars under the cells. Full bleed
+  // means the bezel is the side frame; the bars bound the terrain.
+  screen.target().fill(fui::makeRect(0, static_cast<int16_t>(first.y - toybox::kRule), device.width, toybox::kRule),
+                       fui::Paint::solid(fui::Color::Black));
+  screen.target().fill(fui::makeRect(0, static_cast<int16_t>(first.y + kBoardHeight), device.width, toybox::kRule),
+                       fui::Paint::solid(fui::Color::Black));
 
   for (int column = 0; column < ms::kColumns; ++column) {
     for (int row = 0; row < ms::kRows; ++row) {
@@ -260,41 +419,19 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
     screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), 4);
   }
 
-  // The bottom strip carries two different things, so it is split rather than
-  // shared: on the left what is left to find, on the right what a tap will do.
-  //
-  // The counter is labelled. A bare numeral and a mark could not say what it
-  // counted, and with no total on screen the player could not recover the
-  // denominator -- so it names both, and the flag beside it says which unit.
-  const fui::Rect strip = screen.takeBottom(toybox::kPillHeight, toybox::kGutter);
+  // A settled board stays on screen, mines bared, and wears its verdict where
+  // the tools were: the counter and the mode are questions, and the game has
+  // just answered both. The capsule is the door to the stats -- the board is
+  // not yanked away the tick it becomes worth looking at.
+  if (ms::over(model.game)) {
+    fui::ButtonProps verdict;
+    verdict.label = model.game.status == ms::Status::Won ? "CLEARED" : "BOOM";
+    verdict.action = ActionSeeResult;
+    screen.button(verdict, screen.takeBottom(toybox::kPillHeight, toybox::kGutter));
+    return;
+  }
 
-  // The mode, as a control rather than a caption: outlined while it is DIG,
-  // inverted once it is FLAG.
-  //
-  // rowStyles() rather than the button default, and that is the whole point.
-  // The default paints solid in every state, so the two modes came out
-  // identical black pills differing by one word -- three letters against four,
-  // which is not a difference a glance carries on a one-bit panel, and it made
-  // DIG look like the emphasised action when it is only the resting one.
-  // rowStyles is what settings rows already use for exactly this shape of
-  // thing, so the fork's own two-state vocabulary is doing the work.
-  fui::ButtonProps mode;
-  mode.label = model.flagMode ? "FLAG" : "DIG";
-  mode.action = ActionToggleMode;
-  mode.styles = toybox::rowStyles();
-  mode.state = model.flagMode ? fui::StateSelected : fui::StateNormal;
-  const int16_t modeWidth = static_cast<int16_t>(strip.width / 3);
-  screen.button(mode, fui::makeRect(static_cast<int16_t>(strip.right() - modeWidth), strip.y, modeWidth, strip.height));
-
-  char line[24];
-  std::snprintf(line, sizeof(line), "%d OF %d", ms::minesRemaining(model.game), ms::kMines);
-  fui::TextStyle count;
-  count.font = toybox::kDisplayFont;
-  count.align = fui::TextAlign::Center;
-  const int16_t markSide = static_cast<int16_t>(strip.height);
-  const int16_t countWidth = static_cast<int16_t>(strip.width - modeWidth - markSide - toybox::kGutter);
-  screen.target().text(fui::makeRect(strip.x, strip.y, countWidth, strip.height), line, count);
-  drawFlag(screen, fui::makeRect(static_cast<int16_t>(strip.x + countWidth), strip.y, markSide, markSide), false);
+  boardStrip(screen, model);
 }
 
 void buildResult(toybox::Screen& screen, const ResultModel& model) {
@@ -315,17 +452,23 @@ void buildResult(toybox::Screen& screen, const ResultModel& model) {
   screen.button(again, screen.takeBottom(toybox::kPillHeight, toybox::kGutter));
 
   const fui::Rect area = screen.body();
-  char line[48];
-  std::snprintf(line, sizeof(line), "%d OF %d CELLS OPENED", model.revealed, ms::kCells - ms::kMines);
+
+  // The verdict as a sentence, before the stats: BOOM in the band names the
+  // event, this names what it means for you.
   fui::TextStyle body;
   body.font = toybox::kBodyFont;
   body.align = fui::TextAlign::Center;
   body.maxLines = 2;
-  screen.target().text(fui::makeRect(area.x, static_cast<int16_t>(area.y + 40), area.width, 60), line, body);
+  screen.target().text(fui::makeRect(area.x, static_cast<int16_t>(area.y + 30), area.width, 60),
+                       model.won ? "YOU CLEARED THE FIELD" : "YOU HIT A MINE", body);
+
+  char line[48];
+  std::snprintf(line, sizeof(line), "%d OF %d CELLS OPENED", model.revealed, ms::kCells - ms::kMines);
+  screen.target().text(fui::makeRect(area.x, static_cast<int16_t>(area.y + 110), area.width, 60), line, body);
 
   char flags[48];
   std::snprintf(flags, sizeof(flags), "%d OF %d MINES FLAGGED", model.flagsRight, ms::kMines);
-  screen.target().text(fui::makeRect(area.x, static_cast<int16_t>(area.y + 110), area.width, 60), flags, body);
+  screen.target().text(fui::makeRect(area.x, static_cast<int16_t>(area.y + 180), area.width, 60), flags, body);
 }
 
 }  // namespace mineui

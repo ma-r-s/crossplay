@@ -155,7 +155,11 @@ def main():
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     ap.add_argument("deck", type=pathlib.Path)
-    ap.add_argument("--fonts", type=pathlib.Path, required=True)
+    ap.add_argument(
+        "--fonts",
+        type=pathlib.Path,
+        help="the deck's font directory; omit for a deck that uses only the built-in face",
+    )
     ap.add_argument("--headword-size", type=int, default=50)
     ap.add_argument("--sentence-size", type=int, default=17)
     ap.add_argument(
@@ -164,8 +168,10 @@ def main():
     args = ap.parse_args()
 
     repo_root = pathlib.Path(__file__).resolve().parents[2]
-    families = sorted(p.name for p in args.fonts.iterdir() if p.is_dir())
-    if not families:
+    families = []
+    if args.fonts and args.fonts.is_dir():
+        families = sorted(p.name for p in args.fonts.iterdir() if p.is_dir())
+    if args.fonts and not families:
         sys.exit(f"no font families under {args.fonts}")
 
     headword_fonts, sentence_fonts = {}, {}
@@ -179,7 +185,7 @@ def main():
 
     serif = builtin_serif_coverage(repo_root)
     print(f"deck   {args.deck}")
-    print(f"faces  {', '.join(families)}")
+    print(f"faces  {', '.join(families) if families else 'built-in serif only'}")
     print()
 
     problems = {
@@ -218,7 +224,7 @@ def main():
 
         if serif is not None:
             for name, text in zip(FIELD_NAMES, fields):
-                if name in ("headword", "sentence"):
+                if families and name in ("headword", "sentence"):
                     continue
                 bad = {c for c in text if not is_cjk(c) and ord(c) not in serif}
                 if bad:

@@ -1478,7 +1478,7 @@ void buildHnNotice(Rendered& out, const hnui::NoticeModel& model) {
 
 hnui::ReaderModel articleModel() {
   hnui::ReaderModel model;
-  model.title = "ARTICLE";
+  model.title = "A tiny e-ink game console";
   model.text = "Some words that go on for a while and wrap onto more than one line of the panel.";
   model.pageLabel = "1/3";
   model.showingComments = false;
@@ -1638,6 +1638,16 @@ void testHnReaderShowsWhereYouAre() {
     if (run.text == "3/12" && run.color == fui::Color::White) paperOnTheBand = true;
   }
   CHECK(paperOnTheBand);
+
+  // The band carries the story's own headline, in paper for the same reason,
+  // and in its own case: a title is content, not chrome. The mode word the
+  // band used to shout belongs to the footer's swap button alone.
+  bool headlineOnTheBand = false;
+  for (const auto& run : out.target.texts) {
+    if (run.text == "A tiny e-ink game console" && run.color == fui::Color::White) headlineOnTheBand = true;
+  }
+  CHECK(headlineOnTheBand);
+  CHECK(!drewText(out, "ARTICLE"));
 }
 
 void testHnFitLines() {
@@ -1792,6 +1802,36 @@ void testStudyHeadlineIsTheHitTarget() {
   if (door != nullptr) {
     const fui::ActionEvent onDoor = out.tap(door->rect.x + 20, door->rect.y + 10);
     CHECK(onDoor.action == studyui::ActionStudy);
+  }
+}
+
+void testStudyDeckRowSwitchesOnlyWhenThereIsSomewhereToGo() {
+  int forecast[studyui::kForecastDays] = {};
+  forecast[0] = 5;
+
+  // One deck: no switcher. A control that cycles through one thing is a
+  // control that does nothing, and drawing it would advertise a feature the
+  // card does not have.
+  {
+    Rendered out;
+    buildStudyDeck(out, deckWithWork(forecast));
+    CHECK(!out.target.drew("DECK 1/1"));
+  }
+
+  // Two decks: the row names the open one, says how many there are, and
+  // tapping it is the switch.
+  {
+    Rendered out;
+    studyui::DeckModel model = deckWithWork(forecast);
+    model.deckIndex = 0;
+    model.deckCount = 2;
+    buildStudyDeck(out, model);
+    const auto* row = out.target.find("DECK 1/2   Mandarin: Vocabulary   >");
+    CHECK(row != nullptr);
+    if (row != nullptr) {
+      const fui::ActionEvent onRow = out.tap(row->rect.x + 20, row->rect.y + 10);
+      CHECK(onRow.action == studyui::ActionSwitchDeck);
+    }
   }
 }
 
@@ -2634,15 +2674,18 @@ void testTheResultNamesTheOutcomeFromYourSeat() {
 }
 
 void testTheCheckersHowToPagesAndEnds() {
+  // The tutorial shape: the whole page is the button, the tap line says
+  // whether another page follows, and the counter lives in the band.
   for (int page = 0; page < checkui::howToPages(); ++page) {
     checkui::HowToModel model;
     model.page = page;
     Rendered out;
     buildCk<checkui::HowToModel, checkui::buildHowTo>(out, model);
-    CHECK(out.target.drew(page + 1 < checkui::howToPages() ? "NEXT" : "GOT IT"));
-    char progress[8];
-    std::snprintf(progress, sizeof(progress), "%d/%d", page + 1, checkui::howToPages());
+    CHECK(out.target.drew(page + 1 < checkui::howToPages() ? "TAP TO CONTINUE" : "TAP TO FINISH"));
+    char progress[16];
+    std::snprintf(progress, sizeof(progress), "%d OF %d", page + 1, checkui::howToPages());
     CHECK(out.target.drew(progress));
+    CHECK(out.tap(240, 300).action == checkui::ActionHowToNext);
   }
 }
 
@@ -2667,7 +2710,11 @@ void testKnucklebonesMenuOffersItsThreeRows() {
   CHECK(menu.target.drew("HOW TO PLAY"));
   CHECK(!menu.interactions.overflowed());
 
-  const int firstRowY = toybox::kHeaderHeight + toybox::kGutter * 3 + toybox::kRowHeight / 2;
+  // The doors anchor to the bottom now, so the first row is found from the
+  // content's floor rather than the header -- the same arithmetic the builder
+  // uses, exercised from the other end.
+  const int listHeight = 3 * toybox::kRowHeight + 2 * (toybox::kGutter / 2) + toybox::kGutter;
+  const int firstRowY = 800 - toybox::kMargin - listHeight + toybox::kRowHeight / 2;
   const fui::ActionEvent first = menu.tap(240, firstRowY);
   CHECK(first.action == knuckleui::ActionMenuRow);
   CHECK(first.value == static_cast<int>(knuckleui::MenuRow::Play));
@@ -2886,10 +2933,15 @@ void testTheCounterSaysWhatItCounts() {
   buildMs<mineui::BoardModel, mineui::buildBoard>(flagged, model);
   CHECK(flagged.target.drew("8 OF 10"));
 
-  // There is no tool switch any more: dig is a tap and flag is a hold, so
-  // neither word should appear as a control.
-  CHECK(!out.target.drew("DIG"));
+  // The tool switch says what a tap will do: the resting mode reads DIG, and
+  // only flag mode wears the other word.
+  CHECK(out.target.drew("DIG"));
   CHECK(!out.target.drew("FLAG"));
+  mineui::BoardModel flagging = model;
+  flagging.flagMode = true;
+  Rendered mode;
+  buildMs<mineui::BoardModel, mineui::buildBoard>(mode, flagging);
+  CHECK(mode.target.drew("FLAG"));
 }
 
 void testTheBoardStaysWithinItsOwnArea() {
@@ -2910,14 +2962,47 @@ void testTheMinesweeperResultNamesTheOutcome() {
   Rendered a;
   buildMs<mineui::ResultModel, mineui::buildResult>(a, won);
   CHECK(a.target.drew("CLEARED"));
+  // The verdict as a sentence, not just a band word: Mario read the old
+  // result screen and could not tell whether he had won.
+  CHECK(a.target.drew("YOU CLEARED THE FIELD"));
 
   mineui::ResultModel lost;
   Rendered b;
   buildMs<mineui::ResultModel, mineui::buildResult>(b, lost);
   CHECK(b.target.drew("BOOM"));
+  CHECK(b.target.drew("YOU HIT A MINE"));
+}
+
+void testTheSettledBoardStaysAndWearsItsVerdict() {
+  // The ending is the board: a settled game keeps the minefield on screen and
+  // swaps the tool strip for a verdict capsule that doors to the stats. The
+  // first version navigated away the tick the game settled, so the finished
+  // field -- mines bared -- flashed for under a repaint.
+  mineui::BoardModel model;
+  minesweeper::start(model.game, 5u);
+  model.game.status = minesweeper::Status::Won;
+  model.showMines = true;
+
+  Rendered won;
+  buildMs<mineui::BoardModel, mineui::buildBoard>(won, model);
+  CHECK(won.target.drew("CLEARED"));
+  CHECK(!won.target.drew("DIG"));
+  CHECK(!won.target.drew("OF 10"));
+
+  // The capsule sits where the strip was, and is the door to the stats.
+  const fui::ActionEvent door = won.tap(240, 800 - toybox::kMargin - toybox::kPillHeight / 2);
+  CHECK(door.action == mineui::ActionSeeResult);
+
+  model.game.status = minesweeper::Status::Lost;
+  Rendered lost;
+  buildMs<mineui::BoardModel, mineui::buildBoard>(lost, model);
+  CHECK(lost.target.drew("BOOM"));
 }
 
 void testTheHowToPagesAndEndsOnGotIt() {
+  // Four pages now: the win condition (flags are notes, none are needed) got
+  // a page of its own in the art pass.
+  CHECK(mineui::howToPages() == 4);
   for (int page = 0; page < mineui::howToPages(); ++page) {
     mineui::HowToModel model;
     model.page = page;
@@ -2925,8 +3010,9 @@ void testTheHowToPagesAndEndsOnGotIt() {
     buildMs<mineui::HowToModel, mineui::buildHowTo>(out, model);
     CHECK(out.target.drew("HOW TO PLAY"));
     CHECK(out.target.drew(page + 1 < mineui::howToPages() ? "NEXT" : "GOT IT"));
-    char progress[8];
-    std::snprintf(progress, sizeof(progress), "%d/%d", page + 1, mineui::howToPages());
+    // The counter lives in the black band, jaipur's way.
+    char progress[16];
+    std::snprintf(progress, sizeof(progress), "%d OF %d", page + 1, mineui::howToPages());
     CHECK(out.target.drew(progress));
   }
 }
@@ -3128,6 +3214,39 @@ void testTheSeaSaltTutorialPagesAndEnds() {
   }
 }
 
+void testTheMinesweeperMenuLeadsWithTheRecord() {
+  // The front door in the band order: record line on top, the last field with
+  // its verdict as the ornament, doors anchored to the floor with PLAY first.
+  mineui::MenuModel model;
+  model.hasHistory = true;
+  model.wins = 12;
+  model.losses = 5;
+  minesweeper::start(model.lastBoard, 9u);
+  model.lastBoard.cell[3][4] |= minesweeper::kMine | minesweeper::kRevealed;
+
+  Rendered out;
+  buildMs<mineui::MenuModel, mineui::buildMenu>(out, model);
+  CHECK(out.target.drew("17 PLAYED   12 CLEARED"));
+  CHECK(out.target.drew("LAST GAME: BOOM"));
+  CHECK(out.target.drew("HOW TO PLAY"));
+  CHECK(!out.interactions.overflowed());
+
+  // The same floor arithmetic the builder uses, exercised from the other end.
+  const int listHeight = 2 * toybox::kRowHeight + toybox::kGutter / 2 + toybox::kGutter;
+  const int firstRowY = 800 - toybox::kMargin - listHeight + toybox::kRowHeight / 2;
+  const fui::ActionEvent first = out.tap(240, firstRowY);
+  CHECK(first.action == mineui::ActionMenuRow);
+  CHECK(first.value == static_cast<int>(mineui::MenuRow::Play));
+
+  // A mine that was never dug reads CLEARED instead.
+  mineui::MenuModel won = model;
+  minesweeper::start(won.lastBoard, 9u);
+  won.lastBoard.cell[3][4] |= minesweeper::kMine;
+  Rendered cleared;
+  buildMs<mineui::MenuModel, mineui::buildMenu>(cleared, won);
+  CHECK(cleared.target.drew("LAST GAME: CLEARED"));
+}
+
 int main() {
   testTheSeaSaltCardYouTapIsTheCardTheRulesGet();
   testTheSeaSaltChromeIsTappableAndTheCallPillIsEarned();
@@ -3191,6 +3310,7 @@ int main() {
   testBothSeatsWearTheirOwnFace();
   testStudyDeckLeadsWithTheCount();
   testStudyHeadlineIsTheHitTarget();
+  testStudyDeckRowSwitchesOnlyWhenThereIsSomewhereToGo();
   testStudyOffersNothingWhenNothingIsDue();
   testStudyForecastBarsStayInsideTheirPanel();
   testStudyRecordShowsTheStreak();
@@ -3209,6 +3329,12 @@ int main() {
   testTappingAColumnReportsThatColumn();
   testTheBoardOnlyAcceptsAColumnOnYourOwnTurn();
   testTheMinesweeperBoardFitsThePanel();
+  testTheCounterSaysWhatItCounts();
+  testTheBoardStaysWithinItsOwnArea();
+  testTheMinesweeperResultNamesTheOutcome();
+  testTheSettledBoardStaysAndWearsItsVerdict();
+  testTheHowToPagesAndEndsOnGotIt();
+  testTheMinesweeperMenuLeadsWithTheRecord();
   testTheTwoGridsDoNotOverlap();
 
   testMurdleGridResolvesEveryCellItDrew();

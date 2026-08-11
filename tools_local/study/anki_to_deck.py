@@ -141,6 +141,7 @@ LOOKALIKES = {
     0x0320: None,  # COMBINING MINUS SIGN BELOW: a phonetic mark, not pinyin
 }
 
+CLOZE_RE = re.compile(r"\{\{c\d+::")
 BOLD_RE = re.compile(r"<b>(.*?)</b>", re.IGNORECASE | re.DOTALL)
 TAG_RE = re.compile(r"<[^>]+>")
 SOUND_RE = re.compile(r"\[sound:[^\]]*\]")
@@ -338,7 +339,11 @@ def collect_notes(db, deck_name, limit=None, override=None):
     ) in rows:
         profile = PROFILES.get(nt_name)
         if not profile:
-            if "cloze" in nt_name.lower():
+            # By name, and by content: a renamed cloze type would otherwise fall
+            # through to the generic profile and put the raw markup -- answer
+            # included -- on the question face. Leaking the answer is the worst
+            # thing a flashcard converter can do.
+            if "cloze" in nt_name.lower() or CLOZE_RE.search(flds):
                 cloze_skipped += 1
                 continue
             in_order = (
@@ -622,7 +627,8 @@ def main():
         action="append",
         metavar="SLOT=FIELD",
         help="for note types without a profile: which Anki field fills which slot"
-        " (e.g. --map headword=Word --map reading=Pronunciation); repeatable",
+        " (e.g. --map headword=Word --map reading=Pronunciation); repeatable."
+        " Overrides apply to every card, so reversed-card templates stop swapping",
     )
     args = ap.parse_args()
 
