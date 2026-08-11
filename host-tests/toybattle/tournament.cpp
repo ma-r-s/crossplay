@@ -76,10 +76,18 @@ struct Condition {
   const char* name;
 };
 const Condition kConditions[] = {
+    // Boards people actually play, chosen for spread rather than convenience:
+    // Castle Field is the default and a regular lattice, Station Metal-X is the
+    // only web (two hubs of degree seven, so the widest replies), and La
+    // Croisette is the only real board carrying all four special kinds at once.
+    // PROVING GROUND was half of this list until 2026-08-11; it is ours, it is
+    // hidden from the picker, and a tier list measured on it was partly a tier
+    // list for a board nobody can select.
     {static_cast<int>(TerrainId::CastleField), true, "castle+bases"},
     {static_cast<int>(TerrainId::CastleField), false, "castle"},
-    {static_cast<int>(TerrainId::ProvingGround), true, "proving+bases"},
-    {static_cast<int>(TerrainId::ProvingGround), false, "proving"},
+    {static_cast<int>(TerrainId::StationMetalX), true, "metalx+bases"},
+    {static_cast<int>(TerrainId::LaCroisette), true, "croisette+bases"},
+    {static_cast<int>(TerrainId::LaCroisette), false, "croisette"},
 };
 constexpr int kConditionCount = static_cast<int>(sizeof(kConditions) / sizeof(kConditions[0]));
 

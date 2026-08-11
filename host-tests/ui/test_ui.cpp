@@ -3282,8 +3282,8 @@ void testToyBattleShell() {
     // drawn: the list held five at a fixed card height and silently dropped the
     // sixth. Walk the pages and require the whole table to turn up across them.
     CHECK(tbui::mapsPerPage() >= 1);
-    CHECK(tbui::mapPages() * tbui::mapsPerPage() >= toybattle::kTerrainCount);
-    for (int i = 0; i < toybattle::kTerrainCount; ++i) {
+    CHECK(tbui::mapPages() * tbui::mapsPerPage() >= toybattle::kPlayableTerrainCount);
+    for (int i = toybattle::kFirstPlayableTerrain; i < toybattle::kTerrainCount; ++i) {
       bool found = false;
       for (int page = 0; page < tbui::mapPages() && !found; ++page) {
         tbui::MapPickModel model;
@@ -3294,6 +3294,17 @@ void testToyBattleShell() {
         found = out.target.drew(toybattle::terrainAt(i).name);
       }
       CHECK(found);
+    }
+    // The other direction, and the one that rots silently: PROVING GROUND is
+    // ours and must never appear beside nine real boards. Without this, any
+    // future off-by-one in the offset puts it back and every check above still
+    // passes, because they only ever ask whether the real maps are present.
+    for (int page = 0; page < tbui::mapPages(); ++page) {
+      tbui::MapPickModel model;
+      model.page = page;
+      Rendered out;
+      buildTbMaps(out, model);
+      CHECK(!out.target.drew(toybattle::terrainAt(0).name));
     }
     // And nothing on the page is inverted, because a picker has no cursor.
     tbui::MapPickModel first;

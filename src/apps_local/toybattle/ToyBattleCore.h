@@ -221,6 +221,16 @@ extern const Terrain kLaCroisette;
 enum class TerrainId : uint8_t { CastleField = 0, ProvingGround, CityOfClouds, VolcanicJungle, CursedCemetery, Battlefield, CaribbeanSea, TropicalPool, StationMetalX, LaCroisette };
 constexpr int kTerrainCount = 10;
 
+// PROVING GROUND is ours, not a board Repos printed, and it exists so the rules
+// suite has somewhere to run that carries every special kind at once and never
+// changes underneath it. Players must never see it in the map list beside nine
+// real boards. It stays terrain 0 rather than being renumbered out of the way,
+// because the index is in every save file and every link packet. The picker
+// lists from kFirstPlayableTerrain up; the engine still plays index 0 happily,
+// which is what keeps the tests working.
+constexpr int kFirstPlayableTerrain = 1;
+constexpr int kPlayableTerrainCount = kTerrainCount - kFirstPlayableTerrain;
+
 const Terrain& terrainAt(int index);
 
 // ---------------------------------------------------------------------------

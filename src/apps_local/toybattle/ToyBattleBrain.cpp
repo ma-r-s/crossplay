@@ -46,8 +46,18 @@ constexpr int kHangsHq = -500000;
 // also makes it prefer losing later over losing now.
 constexpr int kPlyPenalty = 4;
 
-// Measured: the busiest position over 400 games produced 363 candidate moves.
-constexpr int kMaxCandidates = 384;
+// Empirical, and re-measured 2026-08-11 by host-tests/toybattle/branching.sh
+// across all ten boards with special bases on and off. 80 games a condition put
+// the worst real board (Battlefield, bases on) at 337 and PROVING GROUND -- which
+// carries all seven special kinds at once and is therefore an artificial worst
+// case -- at 417, over the 384 this used to be. It had been sized from 400 games
+// on two boards, and the tail kept growing with the sample, which is the tell
+// that the number was never a bound.
+//
+// 512 clears the widest observed position by 23% and the widest REAL one by
+// 52%, at 4.4KB more static. It is still not a proof, so `cost.ceilingHits`
+// counts every time the buffer fills and branching.sh fails on any.
+constexpr int kMaxCandidates = 512;
 constexpr int kMaxPlacementsOffered = 96;
 // The beam is tiny by design: move ordering means the answer is almost always
 // inside the first few, and every extra one costs a whole board of replies.
@@ -191,6 +201,16 @@ int candidates(const Observation& obs, Move* out, int max) {
   const auto add = [&](const Move& m) {
     if (n < max && v.isLegal(m)) out[n++] = m;
   };
+  // Every early exit below tests `n < max`, so filling the buffer is the one
+  // condition under which a real move can have been dropped. Counted rather
+  // than asserted: the brain must keep playing on a device, just not silently.
+  struct Ceiling {
+    int& n;
+    const int max;
+    ~Ceiling() {
+      if (n >= max) ++cost.ceilingHits;
+    }
+  } ceiling{n, max};
 
   if (v.isLegal(Move::draw())) add(Move::draw());
 
@@ -298,6 +318,9 @@ int candidates(const Observation& obs, Move* out, int max) {
 namespace detail {
 Cost cost;
 void resetCost() { cost = Cost{}; }
+
+const int kMaxCandidatesShipped = kMaxCandidates;
+const int kMaxPlacementsOfferedShipped = kMaxPlacementsOffered;
 }  // namespace detail
 
 Policy policyFor(Skill skill) {

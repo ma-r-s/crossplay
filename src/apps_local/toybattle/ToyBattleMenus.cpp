@@ -400,7 +400,7 @@ int mapsPerPage() {
   return fits < 1 ? 1 : fits;
 }
 
-int mapPages() { return (tb::kTerrainCount + mapsPerPage() - 1) / mapsPerPage(); }
+int mapPages() { return (tb::kPlayableTerrainCount + mapsPerPage() - 1) / mapsPerPage(); }
 
 void buildMapPick(toybox::Screen& screen, const MapPickModel& model) {
   const int perPage = mapsPerPage();
@@ -410,8 +410,8 @@ void buildMapPick(toybox::Screen& screen, const MapPickModel& model) {
   if (page >= pages) page = pages - 1;
 
   char counter[16];
-  std::snprintf(counter, sizeof(counter), pages > 1 ? "%d/%d" : "%d MAPS", pages > 1 ? page + 1 : tb::kTerrainCount,
-                pages);
+  std::snprintf(counter, sizeof(counter), pages > 1 ? "%d/%d" : "%d MAPS",
+                pages > 1 ? page + 1 : tb::kPlayableTerrainCount, pages);
   chrome(screen, "MAPS", counter);
 
   const fui::Rect content = screen.contentRect();
@@ -420,8 +420,10 @@ void buildMapPick(toybox::Screen& screen, const MapPickModel& model) {
   pageDots(screen, dots, page, pages);
 
   const int first = page * perPage;
-  for (int i = 0; i < perPage && first + i < tb::kTerrainCount; ++i) {
-    const int index = first + i;
+  for (int i = 0; i < perPage && first + i < tb::kPlayableTerrainCount; ++i) {
+    // The card's value is the ENGINE's index, so the offset is applied once,
+    // here, and every screen downstream keeps speaking in real terrain ids.
+    const int index = tb::kFirstPlayableTerrain + first + i;
     const tb::Terrain& terrain = tb::terrainAt(index);
     const fui::Rect card = fui::makeRect(content.x, static_cast<int16_t>(content.y + i * (kMapCard + toybox::kGutter)),
                                          content.width, kMapCard);

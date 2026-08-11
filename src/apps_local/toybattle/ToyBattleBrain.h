@@ -120,6 +120,14 @@ int evaluate(const Game& v, int seat, const uint8_t* unseen, int opponentRackSiz
 struct Cost {
   uint32_t positions = 0;
   uint32_t worstPerMove = 0;
+  // Times candidates() filled its buffer and stopped. The structural ceiling on
+  // this function is around four thousand moves -- 96 placements times a Cap'n
+  // chain on a Recall base -- which at 34 bytes a Move is 133KB and cannot be
+  // allocated on this device. So the shipped bound is empirical, and an
+  // empirical bound with no detector is a guess wearing a number: when it is
+  // exceeded the brain simply searches a subset and plays on, and every test
+  // stays green. This counter is what makes that failure visible.
+  uint32_t ceilingHits = 0;
 };
 extern Cost cost;
 void resetCost();
@@ -127,6 +135,13 @@ void resetCost();
 // Every move worth considering from here, effect and base-effect choices
 // included. Bounded: see the .cpp for what is dropped and why.
 int candidates(const Observation& obs, Move* out, int max);
+
+// The shipped buffer sizes, here rather than in the .cpp so branching.cpp can
+// measure against the real number instead of a copy that drifts away from it.
+// Overflowing either is silent -- candidates() fills to `max` and stops -- so
+// the only defence is measuring the true width on every board.
+extern const int kMaxCandidatesShipped;
+extern const int kMaxPlacementsOfferedShipped;
 
 }  // namespace detail
 

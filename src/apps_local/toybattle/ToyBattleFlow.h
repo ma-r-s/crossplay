@@ -29,7 +29,8 @@ enum class Mode : uint8_t { Solo = 0, Link };
 // exactly -- a setting either side got to decide for itself is a desync waiting
 // for the first special base.
 struct Options {
-  uint8_t terrain = 0;
+  // Castle Field, not terrain 0 -- see kFirstPlayableTerrain.
+  uint8_t terrain = kFirstPlayableTerrain;
   Skill skill = Skill::Sergeant;
   bool specialBases = true;
   Mode mode = Mode::Solo;
