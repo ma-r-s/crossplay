@@ -430,7 +430,16 @@ left half and the right half in visibly different places. `to_cpp.py` now snaps
 near-equal coordinates onto shared levels and, for a board that declares
 `"symmetry"`, mirrors those levels about the midline. It is opt-in per board
 because not every terrain is symmetric -- Caribbean Sea is deliberately lopsided,
-2 H.Q. against 1 -- and City of Clouds declares `"both"`.
+2 H.Q. against 1. Both traced boards declare `"both"`.
+
+**The tolerance is 2% and was 4%, and the difference is a board's shape.** 4% is
+wider than hand jitter but not narrower than every real distinction: Castle
+Field's wells sit 35 units inside its corner bases on purpose, and 4% pulled them
+onto the same column and quietly reshaped the board. 2% closes every gap either
+traced board actually has -- the widest was 16 -- and leaves the wells alone. It
+is also what puts Castle Field's H.Q. on the same row as the two bases beside it,
+which they missed by 10 units: about five pixels, and a visible kink in the path
+that runs straight through all three.
 
 **Medals are anchored, not averaged.** The centre of a region's fence bases is
 the obvious place to draw its medals and it is wrong the same way for every thin
