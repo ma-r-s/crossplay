@@ -106,14 +106,14 @@ jobs:
           generate_release_notes: false
           body: |
             Games and small tools for the **Xteink X4 Pro**, on top of
-            [CrossPoint](https://crosspointreader.com/). Thirteen games --
+            [CrossPoint](https://crosspointreader.com/). Fourteen games --
             Chess, Checkers, Connect Four, Yahtzee, Knucklebones, Minesweeper,
-            Battleship, Connections, Solitaire, D&Diagrams, Insider, Jaipur and
-            Murdle -- plus spaced-repetition flashcards, Hacker News and the
-            xkcd archive. Seven of them play over **PLAY NEARBY**: Chess,
-            Checkers, Connect Four, Yahtzee, Knucklebones, Battleship and
-            Jaipur. Two devices next to each other find one another with
-            nothing to type.
+            Battleship, Connections, Solitaire, D&Diagrams, Insider, Jaipur,
+            Murdle and Sea Salt & Paper -- plus spaced-repetition flashcards,
+            Hacker News and the xkcd archive. Eight of them play over **PLAY
+            NEARBY**: Chess, Checkers, Connect Four, Yahtzee, Knucklebones,
+            Battleship, Jaipur and Sea Salt. Two devices next to each other
+            find one another with nothing to type.
 
             ### Which file to download
 
