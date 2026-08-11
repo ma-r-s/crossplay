@@ -655,6 +655,36 @@ fought a six-pixel border. Under it, the whole slot stays free for the troop and
 a knocked-out white plate keeps the values legible where a path runs beneath --
 the same trick the medals already use.
 
+## Station Metal-X
+
+The eighth printed terrain and the last one, traced 2026-08-11. Thirteen bases,
+two H.Q., 28 paths, fourteen medals, objective 7. Point-symmetric under a half
+turn, which the tracing confirmed rather than assumed: a half turn pairs every
+slot with a miss of at most 11 units, while the two mirrors miss by 122 and 116.
+
+It is the only board so far that is a **web rather than a lattice**. Bases 3 and
+8 are hubs of degree seven, and that single fact explains its shape: almost every
+region is a triangle hanging off one of the two hubs, which is why fourteen
+regions fit on thirteen bases. It is also why no alignment tolerance changes
+anything here. Every value from 20 to 45 produces the same 7 columns and 9 rows,
+because the slots genuinely do not line up. On this board the tolerance is not a
+judgement call, and that is worth knowing: it is the only one where the knob is
+inert.
+
+Three bases across the middle -- 5, 6 and 7 -- carry `Nullify`. That makes it the
+second board with a placement-restricting special, and the first where the
+restriction is the middle of the map rather than an edge of it.
+
+Two of its regions are fenced by an H.Q. (`[0,3,1,14]` and `[12,8,11,13]`), so it
+leans on the same H.Q.-fences-a-region rule Cursed Cemetery forced.
+
+The medals crowd more than on any other board: the four regions meeting at base 6
+put their anchors 87 units from it, which at board scale is a dot close enough to
+the centre slot to look like part of it. It was measured rather than eyeballed --
+every anchor on the board clears the nearest node by at least 87 units against a
+node roughly 55 wide -- so it is tight by construction and not a layout bug. The
+four triangles really are that thin.
+
 ## Open items
 
 - **The "Winter board" is not a ninth terrain.** BGG image 9252799, posted by
@@ -664,6 +694,14 @@ the same trick the medals already use.
   the most distinctive-looking image in the gallery and the obvious thing to
   trace by mistake. If the winter look is ever wanted it is a theme over an
   existing terrain, not new data.
+- **Hook on a Nullify base is now a live question, not a hypothetical.** The
+  rule in the tree is that Hook cannot land there: Hook's effect *is* the
+  connection waiver, a Nullify base is where troop effects do not apply, so the
+  placement has nothing to stand on and is refused with `Refusal::Nullified`.
+  Until now the only Nullify base was one corner of Caribbean Sea and the case
+  almost never came up. Station Metal-X has three of them across the middle of
+  the map, so this fires constantly. It is one line and one test
+  (`testGateAndNullify`); it needs a look at the printed sheet, not an argument.
 ## Castle Field, and why it was traced twice
 
 The board in the tree is the merge of two independent readings of the same

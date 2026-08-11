@@ -200,10 +200,17 @@ extern const Terrain kCaribbeanSea;
 // under a half turn, gates and all.
 extern const Terrain kTropicalPool;
 
+// STATION METAL-X, traced by Mario 2026-08-11, and the eighth printed terrain --
+// the last one. Three Nullify bases across the middle, and the only board that
+// is a web rather than a lattice: bases 3 and 8 are hubs of degree seven, and
+// its fourteen regions are almost all triangles because of it. Fourteen medals,
+// objective 7. Point-symmetric under a half turn.
+extern const Terrain kStationMetalX;
+
 // Index into the table `terrainAt` walks. Stored in `Game::terrain`, so the
 // order is part of the save and wire format: append, never reorder.
-enum class TerrainId : uint8_t { CastleField = 0, ProvingGround, CityOfClouds, VolcanicJungle, CursedCemetery, Battlefield, CaribbeanSea, TropicalPool };
-constexpr int kTerrainCount = 8;
+enum class TerrainId : uint8_t { CastleField = 0, ProvingGround, CityOfClouds, VolcanicJungle, CursedCemetery, Battlefield, CaribbeanSea, TropicalPool, StationMetalX };
+constexpr int kTerrainCount = 9;
 
 const Terrain& terrainAt(int index);
 
