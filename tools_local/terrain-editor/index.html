@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Toy Battle terrain editor</title>
+<!--
+  Trace a Toy Battle board into the topology the firmware needs: bases, the
+  paths between them, the H.Q., which bases are special, and which bases fence
+  each region.
+
+  Positions are a hint, not the deliverable. The board gets redrawn for a
+  480x800 panel, so what has to be right is the graph -- what exists and what
+  joins what -- not where anything sits.
+
+  The checks down the right-hand side are the same ones
+  host-tests/toybattle/test_toybattle.cpp runs against every terrain in the
+  firmware. If this says OK, the board will load; if it does not, it would have
+  failed the suite. Keep the two in step.
+-->
+<style>
+  :root {
+    --bg: #14161a; --panel: #1c1f26; --line: #2b303a; --ink: #e8eaee;
+    --dim: #9aa3b2; --ok: #3fb950; --bad: #f85149; --warn: #d29922;
+    --base: #4c8dff; --hq0: #3fb950; --hq1: #f85149; --special: #d29922; --sel: #ffffff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; display: flex; height: 100vh; }
+  #left { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #bar { padding: 8px 10px; background: var(--panel); border-bottom: 1px solid var(--line);
+         display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  #tools { padding: 6px 10px; background: var(--panel); border-bottom: 1px solid var(--line);
+           display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  #stage { flex: 1; overflow: auto; position: relative; background: #0e1013; }
+  #wrap { position: relative; display: inline-block; }
+  #ref { display: block; max-width: none; opacity: .85; }
+  #cv { position: absolute; left: 0; top: 0; }
+  #right { width: 400px; background: var(--panel); border-left: 1px solid var(--line);
+           display: flex; flex-direction: column; overflow-y: auto; }
+  .sec { padding: 10px; border-bottom: 1px solid var(--line); flex: none; }
+  /* The checks are the whole point of the panel, so they are pinned to the
+     bottom and never squeezed out by a long region list. */
+  #checksSec { position: sticky; bottom: 0; background: var(--panel); border-top: 1px solid var(--line);
+               order: 99; }
+  h2 { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--dim);
+       margin: 0 0 8px; font-weight: 600; }
+  button { background: #262b34; color: var(--ink); border: 1px solid var(--line);
+           border-radius: 5px; padding: 5px 9px; cursor: pointer; font: inherit; }
+  button:hover { background: #2f3540; }
+  button.on { background: var(--base); border-color: var(--base); color: #fff; }
+  button.danger { border-color: #5a2b2b; }
+  input, select { background: #0e1013; color: var(--ink); border: 1px solid var(--line);
+                  border-radius: 5px; padding: 4px 6px; font: inherit; }
+  input[type=number] { width: 62px; }
+  label { color: var(--dim); }
+  textarea { width: 100%; height: 150px; background: #0e1013; color: var(--ink);
+             border: 1px solid var(--line); border-radius: 5px; padding: 8px;
+             font: 11px/1.4 ui-monospace, monospace; resize: vertical; }
+  .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .chk { list-style: none; margin: 0; padding: 0; }
+  .chk li { padding: 3px 0 3px 18px; position: relative; color: var(--dim); }
+  .chk li::before { position: absolute; left: 0; }
+  .chk li.ok::before { content: "OK"; color: var(--ok); font-size: 10px; }
+  .chk li.bad { color: var(--bad); } .chk li.bad::before { content: "X"; color: var(--bad); }
+  .chk li.warn { color: var(--warn); } .chk li.warn::before { content: "!"; color: var(--warn); }
+  .hint { color: var(--dim); font-size: 11px; margin-top: 6px; }
+  #regions { max-height: 150px; overflow: auto; }
+  .rg { display: flex; gap: 6px; align-items: center; padding: 2px 0; }
+  .rg span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #scroller { padding: 12px; }
+</style>
+
+<div id="left">
+  <div id="bar">
+    <label>terrain</label>
+    <select id="preset"></select>
+    <input id="name" size="16" placeholder="NAME">
+    <label>objective</label><input id="objective" type="number" min="1" max="99" value="7">
+    <label>ref</label><input id="file" type="file" accept="image/*">
+    <label>zoom</label><input id="zoom" type="range" min="30" max="200" value="100" style="width:90px">
+  </div>
+  <div id="tools">
+    <button data-tool="base" class="on">1 base</button>
+    <button data-tool="hq0">2 H.Q. near</button>
+    <button data-tool="hq1">3 H.Q. far</button>
+    <button data-tool="edge">4 path</button>
+    <button data-tool="special">5 special</button>
+    <button data-tool="region">6 region</button>
+    <button data-tool="move">7 move</button>
+    <button data-tool="erase" class="danger">8 erase</button>
+    <span style="flex:1"></span>
+    <span id="tip" class="hint"></span>
+  </div>
+  <div id="stage"><div id="scroller"><div id="wrap"><img id="ref" hidden><canvas id="cv"></canvas></div></div></div>
+</div>
+
+<div id="right">
+  <div class="sec">
+    <h2>Special base</h2>
+    <div class="row">
+      <select id="special">
+        <option value="none">none</option>
+        <option value="recall">recall (Castle Field)</option>
+        <option value="draw">draw (City of Clouds, ice cream)</option>
+        <option value="shove">shove (Volcanic Jungle)</option>
+        <option value="exhume">exhume (Cursed Cemetery)</option>
+        <option value="suppress">suppress (Battlefield, police)</option>
+        <option value="gate">gate (Tropical Pool, pier)</option>
+        <option value="nullify">nullify (Station Metal-X)</option>
+      </select>
+    </div>
+    <div class="row" id="gateRow" style="margin-top:6px" hidden>
+      <label>admits</label>
+      <span id="gateBoxes"></span>
+    </div>
+    <div class="hint">Pick a kind, then click bases with the <b>special</b> tool to stamp it.</div>
+  </div>
+
+  <div class="sec">
+    <h2>Region being built</h2>
+    <div class="row">
+      <label>medals</label><input id="medals" type="number" min="1" max="9" value="1">
+      <button id="addRegion">add region</button>
+      <button id="clearSel">clear</button>
+    </div>
+    <div class="hint" id="selInfo">Click the bases that fence the region, and the H.Q. too if one of them does.</div>
+    <div id="regions" style="margin-top:8px; max-height:120px; overflow:auto"></div>
+  </div>
+
+  <div class="sec" id="checksSec">
+    <h2>Checks</h2>
+    <ul class="chk" id="checks"></ul>
+  </div>
+
+  <div class="sec">
+    <h2>Hand over</h2>
+    <div class="row">
+      <button id="copy">copy JSON</button>
+      <button id="download">download</button>
+      <button id="load">load pasted</button>
+      <button id="reset" class="danger">reset</button>
+    </div>
+    <textarea id="json" spellcheck="false" style="margin-top:8px"></textarea>
+    <div class="hint">Paste this back into the chat. Positions are only a hint; the graph is the deliverable.</div>
+  </div>
+</div>
+
+<script>
+// --- what we know already ---------------------------------------------------
+// The eight printed terrains plus the expansion, each with the special base it
+// uses. Taken from the official player aid and the La Croisette sheet, so the
+// palette is prefilled and only the graph has to be traced.
+const PRESETS = {
+  'CASTLE FIELD':    { special: 'recall',   objective: 7,    note: 'wells' },
+  'TROPICAL POOL':   { special: 'gate',     objective: null, note: 'buoys, printed values only' },
+  'CITY OF CLOUDS':  { special: 'draw',     objective: null, note: '' },
+  'VOLCANIC JUNGLE': { special: 'shove',    objective: null, note: '' },
+  'CURSED CEMETERY': { special: 'exhume',   objective: null, note: '' },
+  'CARIBBEAN SEA':   { special: 'none',     objective: null, note: 'no special bases; 2 H.Q. one side, 1 the other' },
+  'STATION METAL-X': { special: 'nullify',  objective: null, note: '' },
+  'BATTLEFIELD':     { special: 'suppress', objective: null, note: '' },
+  'LA CROISETTE':    { special: 'draw',     objective: 5,    note: 'expansion: draw, suppress, gate (4-7 + joker), nullify' },
+};
+const TROOPS = ['joker', '1', '2', '3', '4', '5', '6', '7'];
+
+// --- state ------------------------------------------------------------------
+let S = null;
+const blank = () => ({ name: 'CASTLE FIELD', objective: 7, nodes: [], edges: [], regions: [] });
+
+let tool = 'base', nextId = 1, pendingEdge = null, selection = [], dragging = null;
+const el = id => document.getElementById(id);
+const cv = el('cv'), ctx = cv.getContext('2d'), ref = el('ref'), wrap = el('wrap');
+let W = 900, H = 1200, zoom = 1;
+
+function reset(keepName) {
+  const name = keepName && S ? S.name : 'CASTLE FIELD';
+  S = blank(); S.name = name; nextId = 1; pendingEdge = null; selection = [];
+  syncInputs(); draw();
+}
+
+// --- geometry ---------------------------------------------------------------
+// Stored normalised 0..1000 on both axes so the firmware reads one convention.
+const toNorm = (px, py) => ({ x: Math.round(px / (W * zoom) * 1000), y: Math.round(py / (H * zoom) * 1000) });
+const toPx = n => ({ x: n.x / 1000 * W * zoom, y: n.y / 1000 * H * zoom });
+const nodeAt = (px, py) => {
+  for (let i = S.nodes.length - 1; i >= 0; --i) {
+    const p = toPx(S.nodes[i]);
+    if (Math.hypot(p.x - px, p.y - py) < 17) return S.nodes[i];
+  }
+  return null;
+};
+const byId = id => S.nodes.find(n => n.id === id);
+
+// --- drawing ----------------------------------------------------------------
+function draw() {
+  cv.width = W * zoom; cv.height = H * zoom;
+  wrap.style.width = cv.width + 'px'; wrap.style.height = cv.height + 'px';
+  if (!ref.hidden) { ref.style.width = cv.width + 'px'; ref.style.height = cv.height + 'px'; }
+  ctx.clearRect(0, 0, cv.width, cv.height);
+
+  ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(255,255,255,.72)';
+  for (const [a, b] of S.edges) {
+    const na = byId(a), nb = byId(b); if (!na || !nb) continue;
+    const pa = toPx(na), pb = toPx(nb);
+    ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y); ctx.stroke();
+  }
+
+  // Regions are drawn as a ring through their bases: enough to see at a glance
+  // which one you meant, without pretending to be the printed artwork.
+  S.regions.forEach((rg, i) => {
+    const pts = rg.bases.map(byId).filter(Boolean).map(toPx);
+    if (pts.length < 2) return;
+    ctx.strokeStyle = 'rgba(210,153,34,.85)'; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
+    ctx.beginPath(); pts.forEach((p, j) => j ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+    ctx.closePath(); ctx.stroke(); ctx.setLineDash([]);
+    const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
+    const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+    ctx.fillStyle = 'rgba(210,153,34,.95)'; ctx.beginPath(); ctx.arc(cx, cy, 13, 0, 7); ctx.fill();
+    ctx.fillStyle = '#14161a'; ctx.font = 'bold 13px monospace'; ctx.textAlign = 'center';
+    ctx.fillText(rg.medals, cx, cy + 5);
+  });
+
+  for (const n of S.nodes) {
+    const p = toPx(n);
+    const isHq = n.type === 'hq';
+    ctx.beginPath();
+    if (isHq) { ctx.arc(p.x, p.y, 15, 0, 7); ctx.fillStyle = n.seat === 0 ? '#3fb950' : '#f85149'; }
+    else { ctx.roundRect(p.x - 14, p.y - 14, 28, 28, 6);
+           ctx.fillStyle = n.special && n.special !== 'none' ? '#d29922' : '#4c8dff'; }
+    ctx.fill();
+    if (selection.includes(n.id) || pendingEdge === n.id) {
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.stroke();
+    }
+    ctx.fillStyle = '#0e1013'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center';
+    ctx.fillText(isHq ? (n.seat === 0 ? 'N' : 'F') : slotIndex(n), p.x, p.y + 4);
+    if (!isHq && n.special && n.special !== 'none') {
+      ctx.fillStyle = '#d29922'; ctx.font = '10px monospace';
+      ctx.fillText(n.special === 'gate' ? 'gate ' + (n.gate || []).join('') : n.special, p.x, p.y + 27);
+    }
+  }
+  el('json').value = JSON.stringify(exportModel());
+  runChecks(); renderRegions(); el('selInfo').textContent =
+    selection.length ? 'fencing bases: ' + selection.map(id => slotIndex(byId(id))).join(', ')
+                     : 'Click the bases that fence the region, and the H.Q. too if one of them does.';
+}
+
+// Bases are numbered first and H.Q. after, which is the firmware's slot order.
+const bases = () => S.nodes.filter(n => n.type === 'base');
+const hqs = () => S.nodes.filter(n => n.type === 'hq');
+const slotIndex = n => n.type === 'base' ? bases().indexOf(n) : bases().length + hqs().indexOf(n);
+
+// --- interaction ------------------------------------------------------------
+cv.addEventListener('pointerdown', e => {
+  const r = cv.getBoundingClientRect();
+  const px = e.clientX - r.left, py = e.clientY - r.top;
+  const hit = nodeAt(px, py);
+
+  if (tool === 'base' && !hit) { S.nodes.push({ id: nextId++, type: 'base', ...toNorm(px, py), special: 'none' }); }
+  else if ((tool === 'hq0' || tool === 'hq1') && !hit) {
+    S.nodes.push({ id: nextId++, type: 'hq', seat: tool === 'hq0' ? 0 : 1, ...toNorm(px, py) });
+  }
+  else if (tool === 'edge' && hit) {
+    if (pendingEdge === null) pendingEdge = hit.id;
+    else if (pendingEdge === hit.id) pendingEdge = null;
+    else {
+      const a = pendingEdge, b = hit.id;
+      const at = S.edges.findIndex(([u, v]) => (u === a && v === b) || (u === b && v === a));
+      if (at >= 0) S.edges.splice(at, 1); else S.edges.push([a, b]);
+      pendingEdge = null;
+    }
+  }
+  else if (tool === 'special' && hit) {
+    const kind = el('special').value;
+    if (hit.type === 'hq' && kind !== 'gate' && kind !== 'none') {
+      alert('An H.Q. can only carry a gate. Every other special is an effect that fires after a troop lands on a BASE.');
+    } else {
+      hit.special = kind;
+      hit.gate = kind === 'gate' ? gateValues() : undefined;
+    }
+  }
+  else if (tool === 'region' && hit) {
+    const at = selection.indexOf(hit.id);
+    if (at >= 0) selection.splice(at, 1); else selection.push(hit.id);
+  }
+  else if (tool === 'move' && hit) { dragging = hit; }
+  else if (tool === 'erase' && hit) {
+    S.nodes = S.nodes.filter(n => n !== hit);
+    S.edges = S.edges.filter(([u, v]) => u !== hit.id && v !== hit.id);
+    S.regions.forEach(rg => rg.bases = rg.bases.filter(id => id !== hit.id));
+    S.regions = S.regions.filter(rg => rg.bases.length >= 2);
+    selection = selection.filter(id => id !== hit.id);
+  }
+  draw();
+});
+cv.addEventListener('pointermove', e => {
+  if (!dragging) return;
+  const r = cv.getBoundingClientRect();
+  Object.assign(dragging, toNorm(e.clientX - r.left, e.clientY - r.top));
+  draw();
+});
+addEventListener('pointerup', () => { dragging = null; });
+
+document.querySelectorAll('#tools button').forEach(b => b.onclick = () => {
+  tool = b.dataset.tool; pendingEdge = null;
+  document.querySelectorAll('#tools button').forEach(x => x.classList.toggle('on', x === b));
+  el('tip').textContent = {
+    base: 'click empty space to drop a base',
+    hq0: 'click to place the near H.Q.', hq1: 'click to place the far H.Q.',
+    edge: 'click two bases to join or unjoin them',
+    special: 'click bases to stamp the kind chosen on the right',
+    region: 'click every base that fences the region -- and the H.Q. if one does -- then "add region"',
+    move: 'drag a node', erase: 'click a node to remove it and its paths',
+  }[tool];
+  draw();
+});
+addEventListener('keydown', e => {
+  const map = { 1: 'base', 2: 'hq0', 3: 'hq1', 4: 'edge', 5: 'special', 6: 'region', 7: 'move', 8: 'erase' };
+  if (map[e.key] && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+    document.querySelector(`#tools button[data-tool="${map[e.key]}"]`).click();
+  }
+});
+
+// --- special / gate ---------------------------------------------------------
+el('special').onchange = () => {
+  el('gateRow').hidden = el('special').value !== 'gate';
+  draw();
+};
+el('gateBoxes').innerHTML = TROOPS.map(t =>
+  `<label style="margin-right:6px"><input type="checkbox" class="gv" value="${t}" ${'4567'.includes(t) ? 'checked' : ''}>${t}</label>`).join('');
+const gateValues = () => [...document.querySelectorAll('.gv')].filter(c => c.checked).map(c => c.value);
+
+// --- regions ----------------------------------------------------------------
+el('addRegion').onclick = () => {
+  if (selection.length < 2) { alert('A region is fenced by at least two bases.'); return; }
+  S.regions.push({ bases: [...selection], medals: +el('medals').value });
+  selection = []; draw();
+};
+el('clearSel').onclick = () => { selection = []; draw(); };
+function renderRegions() {
+  el('regions').innerHTML = '';
+  S.regions.forEach((rg, i) => {
+    const d = document.createElement('div'); d.className = 'rg';
+    d.innerHTML = `<span>#${i} [${rg.bases.map(id => { const n = byId(id); return n ? slotIndex(n) : '?'; }).join(',')}]</span>`;
+    const m = document.createElement('input');
+    m.type = 'number'; m.min = 1; m.max = 9; m.value = rg.medals; m.style.width = '52px';
+    m.onchange = () => { rg.medals = +m.value; draw(); };
+    const x = document.createElement('button'); x.textContent = 'x'; x.className = 'danger';
+    x.onclick = () => { S.regions.splice(i, 1); draw(); };
+    d.append(m, x); el('regions').append(d);
+  });
+}
+
+// --- checks -----------------------------------------------------------------
+// Deliberately the same list as test_toybattle.cpp's
+// testEveryTerrainIsStructurallySound. A board that passes here loads there.
+function runChecks() {
+  const B = bases(), Q = hqs(), out = [];
+  const add = (state, text) => out.push({ state, text });
+
+  add(B.length >= 2 ? 'ok' : 'bad', `${B.length} bases (max 32)`);
+  if (B.length > 32) add('bad', 'more than 32 bases: the firmware indexes regions with a uint32');
+  const s0 = Q.filter(q => q.seat === 0).length, s1 = Q.filter(q => q.seat === 1).length;
+  add(s0 > 0 && s1 > 0 ? 'ok' : 'bad', `H.Q.: ${s0} near, ${s1} far (both sides need one)`);
+  add(+el('objective').value > 0 ? 'ok' : 'bad', `objective ${el('objective').value}`);
+
+  const dup = S.edges.some(([u, v], i) => S.edges.findIndex(([a, b]) => (a === u && b === v) || (a === v && b === u)) !== i);
+  add(!dup && !S.edges.some(([u, v]) => u === v) ? 'ok' : 'bad', `${S.edges.length} paths, no duplicates or self-loops`);
+
+  // Nothing may be stranded: a base no path reaches is a base no troop can
+  // ever stand on.
+  if (S.nodes.length) {
+    const adj = new Map(S.nodes.map(n => [n.id, []]));
+    S.edges.forEach(([u, v]) => { adj.get(u)?.push(v); adj.get(v)?.push(u); });
+    const seen = new Set([S.nodes[0].id]), stack = [S.nodes[0].id];
+    while (stack.length) for (const nb of adj.get(stack.pop()) || []) if (!seen.has(nb)) { seen.add(nb); stack.push(nb); }
+    const stranded = S.nodes.filter(n => !seen.has(n.id));
+    add(stranded.length === 0 ? 'ok' : 'bad',
+        stranded.length ? `${stranded.length} node(s) no path reaches` : 'every node is reachable');
+  }
+  Q.forEach(q => {
+    const deg = S.edges.filter(([u, v]) => u === q.id || v === q.id).length;
+    if (deg === 0) add('bad', `an H.Q. joins nothing`);
+  });
+
+  const medals = S.regions.reduce((s, r) => s + r.medals, 0);
+  // An H.Q. in the fence shapes the region but is never occupied to take it, so
+  // the two-or-more rule counts bases and nothing else.
+  const fenceBases = r => r.bases.filter(id => { const n = byId(id); return n && n.type === 'base'; }).length;
+  add(S.regions.every(r => fenceBases(r) >= 2) ? 'ok' : 'bad', `${S.regions.length} regions, each fenced by 2+ bases`);
+  add(medals >= +el('objective').value ? 'ok' : 'bad', `${medals} medals on the board, objective ${el('objective').value}`);
+  if (medals > 16) add('warn', `${medals} medals, but the box only holds 16`);
+
+  const gated = B.filter(b => b.special === 'gate');
+  add(gated.every(b => (b.gate || []).length > 0) ? 'ok' : 'bad', `${gated.length} gated base(s) all admit something`);
+
+  const kinds = new Set(B.map(b => b.special).filter(s => s && s !== 'none'));
+  if (kinds.size > 1 && S.name !== 'LA CROISETTE') {
+    add('warn', `${kinds.size} special kinds on one board; every printed terrain but the expansion uses one`);
+  }
+  const gatedHq = S.nodes.filter(n => n.type === 'hq' && n.special === 'gate');
+  if (gatedHq.length) {
+    add(gatedHq.every(n => (n.gate || []).length) ? 'ok' : 'bad',
+        `${gatedHq.length} gated H.Q. -- a gate on an H.Q. restricts what may capture it`);
+  }
+  const badHqSpecial = S.nodes.some(n => n.type === 'hq' && n.special && n.special !== 'none' && n.special !== 'gate');
+  if (badHqSpecial) add('bad', 'an H.Q. carries a special other than a gate');
+  const loose = S.regions.some(r => r.bases.some(id => !byId(id)));
+  if (loose) add('bad', 'a region names a node that has been deleted');
+  const hqFenced = S.regions.filter(r => r.bases.some(id => { const n = byId(id); return n && n.type === 'hq'; })).length;
+  if (hqFenced) add('ok', `${hqFenced} region(s) fenced partly by an H.Q. -- it shapes them, it is never occupied`);
+
+  el('checks').innerHTML = out.map(o => `<li class="${o.state}">${o.text}</li>`).join('');
+}
+
+// --- import / export --------------------------------------------------------
+// Renumbered on the way out: bases first, then H.Q., which is the firmware's
+// slot order, so nothing has to be re-indexed by hand at the other end.
+function exportModel() {
+  const B = bases(), Q = hqs();
+  const slot = new Map([...B, ...Q].map((n, i) => [n.id, i]));
+  return {
+    name: S.name, objective: +el('objective').value,
+    baseCount: B.length,
+    bases: B.map(b => ({ x: b.x, y: b.y, special: b.special || 'none', ...(b.special === 'gate' ? { gate: b.gate || [] } : {}) })),
+    hqs: Q.map(q => ({ x: q.x, y: q.y, seat: q.seat, ...(q.special === 'gate' ? { gate: q.gate || [] } : {}) })),
+    edges: S.edges.map(([u, v]) => [slot.get(u), slot.get(v)]).filter(([a, b]) => a != null && b != null),
+    regions: S.regions.map(r => ({ bases: r.bases.map(id => slot.get(id)).filter(i => i != null), medals: r.medals })),
+  };
+}
+function importModel(m) {
+  S = blank(); S.name = m.name || 'BOARD'; nextId = 1;
+  const ids = [];
+  (m.bases || []).forEach(b => { const n = { id: nextId++, type: 'base', x: b.x, y: b.y, special: b.special || 'none', gate: b.gate }; S.nodes.push(n); ids.push(n.id); });
+  (m.hqs || []).forEach(q => {
+    const n = { id: nextId++, type: 'hq', x: q.x, y: q.y, seat: q.seat };
+    if (q.gate && q.gate.length) { n.special = 'gate'; n.gate = q.gate; }
+    S.nodes.push(n); ids.push(n.id);
+  });
+  S.edges = (m.edges || []).map(([a, b]) => [ids[a], ids[b]]).filter(([a, b]) => a && b);
+  S.regions = (m.regions || []).map(r => ({ bases: r.bases.map(i => ids[i]).filter(Boolean), medals: r.medals }));
+  el('objective').value = m.objective || 7;
+  el('name').value = S.name;
+  selection = []; draw();
+}
+el('copy').onclick = () => { el('json').select(); document.execCommand('copy'); el('copy').textContent = 'copied'; setTimeout(() => el('copy').textContent = 'copy JSON', 1200); };
+el('download').onclick = () => {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([el('json').value], { type: 'application/json' }));
+  a.download = S.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '.json'; a.click();
+};
+el('load').onclick = () => { try { importModel(JSON.parse(el('json').value)); } catch (e) { alert('Not JSON: ' + e.message); } };
+el('reset').onclick = () => { if (confirm('Throw away this board?')) reset(true); };
+
+// --- chrome -----------------------------------------------------------------
+el('preset').innerHTML = Object.keys(PRESETS).map(k => `<option>${k}</option>`).join('');
+el('preset').onchange = () => {
+  const p = PRESETS[el('preset').value];
+  S.name = el('preset').value; el('name').value = S.name;
+  if (p.objective) el('objective').value = p.objective;
+  el('special').value = p.special;
+  el('gateRow').hidden = p.special !== 'gate';
+  el('tip').textContent = p.note;
+  draw();
+};
+el('name').oninput = () => { S.name = el('name').value.toUpperCase(); draw(); };
+el('objective').oninput = draw;
+el('zoom').oninput = () => { zoom = +el('zoom').value / 100; draw(); };
+el('file').onchange = e => {
+  const f = e.target.files[0]; if (!f) return;
+  ref.onload = () => { W = ref.naturalWidth; H = ref.naturalHeight; ref.hidden = false; draw(); };
+  ref.src = URL.createObjectURL(f);
+};
+function syncInputs() { el('name').value = S.name; }
+
+reset(); document.querySelector('#tools button').click();
+</script>
+</html>

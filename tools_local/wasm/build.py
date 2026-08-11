@@ -7,7 +7,7 @@ Emscripten supports all three of those, so the port is mostly a translation
 rather than a rewrite -- take the exact compile lines PlatformIO already
 produces and run them through em++ instead of g++.
 
-    pio run -e simulator_x4_pro          # once, to refresh compile_commands.json
+    pio run -e simulator_x4_pro -t compiledb   # once, to write compile_commands.json
     source ../.emsdk/emsdk_env.sh
     python tools_local/wasm/build.py
 
@@ -108,7 +108,8 @@ EXTRA_SOURCES = [
 def load_entries():
     cc = REPO / "compile_commands.json"
     if not cc.exists():
-        sys.exit("compile_commands.json missing -- run: pio run -e simulator_x4_pro")
+        sys.exit("compile_commands.json missing -- run: pio run -e simulator_x4_pro -t compiledb\n"
+                 "(plain `pio run` builds but does NOT write the database)")
     entries = json.loads(cc.read_text())
     out = []
     for e in entries:
@@ -186,18 +187,57 @@ def translate(args, obj_path, is_c):
     return out
 
 
+def deps_unchanged(dep, obj_mtime):
+    """True if every header in the .d file is older than the object.
+
+    A missing .d means this object predates dependency tracking, so it cannot
+    be trusted and is rebuilt. Same for a header that has since been deleted --
+    unreadable is treated as changed, never as fine.
+    """
+    if not dep.exists():
+        return False
+    try:
+        text = dep.read_text()
+    except OSError:
+        return False
+    # "obj: src a.h b.h \" across continuation lines. Drop the target and the
+    # line continuations; everything left is a real path.
+    words = text.replace("\\\n", " ").split()
+    for w in words[1:] if words and words[0].endswith(":") else words:
+        if w.endswith(":"):
+            continue
+        try:
+            if os.stat(w).st_mtime > obj_mtime:
+                return False
+        except OSError:
+            return False
+    return True
+
+
 def compile_one(job):
     src, args = job
     rel = src.relative_to(REPO) if src.is_relative_to(REPO) else pathlib.Path(src.name)
     obj = OBJ / (str(rel).replace("/", "_") + ".o")
     obj.parent.mkdir(parents=True, exist_ok=True)
-    cmd = translate(args, obj, src.suffix == ".c") + [str(src)]
+    dep = obj.with_suffix(obj.suffix + ".d")
+    cmd = translate(args, obj, src.suffix == ".c") + ["-MMD", "-MF", str(dep), str(src)]
     # Skip work the object is already newer than -- but only if it was built by
-    # this exact command line. Timestamps alone are not enough: adding a flag to
+    # this exact command line AND no header it includes has changed since.
+    #
+    # Timestamps on the .cpp alone are not enough, twice over. Adding a flag to
     # translate() leaves every object untouched and newer than its source, so
-    # the next run silently relinks the old ones. That is not hypothetical. It
-    # is how -fno-signed-char was added, "tested", and written off as not the
-    # fix, when in fact no object had ever seen it.
+    # the next run silently relinks the old ones; that is how -fno-signed-char
+    # was added, "tested", and written off as not the fix, when no object had
+    # ever seen it. The command-line stamp fixed that half.
+    #
+    # The other half went unnoticed until 2026-08-11: editing only a HEADER also
+    # left every object "fresh", because nothing compared against headers at
+    # all. A change to a struct's default member value in a .h shipped a browser
+    # build where one .cpp had been recompiled and its neighbour had not -- the
+    # map picker took the fix and the screen reading the same struct did not.
+    # That is worse than not rebuilding, because the artifact looks rebuilt and
+    # only disagrees with itself. -MMD now records every header actually opened,
+    # and all of them are checked.
     stamp = obj.with_suffix(obj.suffix + ".cmd")
     want = " ".join(cmd)
     fresh = (
@@ -205,6 +245,7 @@ def compile_one(job):
         and obj.stat().st_mtime > src.stat().st_mtime
         and stamp.exists()
         and stamp.read_text() == want
+        and deps_unchanged(dep, obj.stat().st_mtime)
     )
     if fresh:
         return (src, obj, 0, "")

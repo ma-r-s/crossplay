@@ -1,0 +1,27 @@
+# How site/assets/shots/toybattle.png was captured. Run from wt/toybattle.
+#
+# Saved because every other shot on this site was captured by hand and its
+# recipe discarded, so not one of them can be reproduced. One line per game
+# stops that pile growing.
+#
+# ./scripts_local/sim-shot.sh \
+#   '2000:TAP:120,635;3500:TAP:262,687;5000:TAP:240,472;6500:TAP:240,537;12000:QUIT' \
+#   '10000:./qa-artifacts/tb-site.bmp'
+# then downsample qa-artifacts/tb-site.png from 960x1600 to 480x800:
+#   sips --resampleHeightWidth 800 480 qa-artifacts/tb-site.png \
+#        --out site/assets/shots/toybattle.png
+#
+# The taps are Apps hub, Games folder, TOY BATTLE, CONTINUE. Note the app opens
+# on the THIRD tap: 240,472 is the shelf row, not a menu row. The Games folder
+# also remembers its page between runs, so if TOY BATTLE is not on the page the
+# shelf opens at, add a DOWN before the third tap.
+#
+# HONEST GAP: this is the board at the START of a game, where every other card
+# on the site shows a game in progress. A mid-game capture was attempted and
+# abandoned. Slot centres ARE computable -- ToyBattleScreens.cpp boardPoint()
+# gives x = 46 + nx*0.388, y = 142 + ny*0.458 for the 480x800 panel, and the
+# terrain's own nx/ny are in the generated table -- but selecting a troop that
+# carries an effect opens a SKIP/TAKE question before the slot tap, and a tap
+# that skips it is refused with "NOT ONE OF THE CHOICES". Driving that from a
+# timed script was not worth the session. Anyone wanting a better card starts
+# there rather than rediscovering it.

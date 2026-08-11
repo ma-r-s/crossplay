@@ -711,8 +711,28 @@ void GfxRenderer::drawLine(int x1, int y1, int x2, int y2, const bool state) con
 }
 
 void GfxRenderer::drawLine(int x1, int y1, int x2, int y2, const int lineWidth, const bool state) const {
+  if (lineWidth <= 1) {
+    drawLine(x1, y1, x2, y2, state);
+    return;
+  }
+  // Thicken across the line, not always downwards. Offsetting every copy in y
+  // is right for a horizontal line and does nothing at all for a vertical one:
+  // all `lineWidth` copies land on the same column and the result is one pixel
+  // wide, just longer. On a board of paths that showed up as horizontals five
+  // pixels thick beside verticals of one.
+  //
+  // The offset also starts at -(lineWidth / 2) rather than 0, so a line is
+  // centred on the points it was asked to join instead of hanging below them.
+  const int dx = x2 > x1 ? x2 - x1 : x1 - x2;
+  const int dy = y2 > y1 ? y2 - y1 : y1 - y2;
+  const int first = -(lineWidth / 2);
   for (int i = 0; i < lineWidth; i++) {
-    drawLine(x1, y1 + i, x2, y2 + i, state);
+    const int offset = first + i;
+    if (dx >= dy) {
+      drawLine(x1, y1 + offset, x2, y2 + offset, state);  // shallow: spread vertically
+    } else {
+      drawLine(x1 + offset, y1, x2 + offset, y2, state);  // steep: spread horizontally
+    }
   }
 }
 

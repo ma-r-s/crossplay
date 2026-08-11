@@ -68,6 +68,12 @@ enum class GameId : uint16_t {
   Yahtzee = 0x0801,
   Knucklebones = 0x0501,
   SeaSalt = 0x0901,
+  // 0x0901 was Toy Battle's on its own branch and Sea Salt's here; both landed
+  // while the other was unmerged, and each was correct alone. Toy Battle moves
+  // because Sea Salt reached xteink first and this id is a wire protocol: an id
+  // that has been on the deploy branch has to be assumed to be on a device.
+  // Nothing had shipped with 0x0902, so this costs nobody a match.
+  ToyBattle = 0x0902,
   // Reserved for host tests, which need an id no real game will ever use.
   Test = 0xFF01,
 };

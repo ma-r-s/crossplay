@@ -126,7 +126,7 @@ after any change to `src/` or `lib/` that the page should show, or it quietly
 demonstrates an old version:
 
 ```bash
-pio run -e simulator_x4_pro && source ../.emsdk/emsdk_env.sh && python3 tools_local/wasm/build.py
+pio run -e simulator_x4_pro -t compiledb && source ../.emsdk/emsdk_env.sh && python3 tools_local/wasm/build.py
 ```
 
 It is checked in because Vercel does not have Emscripten.

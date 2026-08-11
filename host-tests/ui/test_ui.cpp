@@ -30,6 +30,8 @@
 #include "../../src/apps_local/player/PlayerScreen.h"
 #include "../../src/apps_local/seasalt/SeaSaltScreens.h"
 #include "../../src/apps_local/study/StudyScreens.h"
+#include "../../src/apps_local/toybattle/ToyBattleMenus.h"
+#include "../../src/apps_local/toybattle/ToyBattleScreens.h"
 #include "../../src/apps_local/ui/ToyboxIcons.h"
 
 namespace fui = freeink::ui;
@@ -71,6 +73,10 @@ class FakeTarget final : public fui::DrawTarget {
 
   std::vector<TextRun> texts;
   std::vector<fui::Rect> fills;
+  // The paint too, not just the rect. A state expressed only as a different
+  // ground -- Battlefield freezing a card -- is otherwise untestable, and it is
+  // exactly the kind of state a screenshot will not happen to contain.
+  std::vector<fui::Paint> fillPaints;
   std::vector<Blit> blits;
 
   fui::Size measureText(const fui::FontId, const char* text, const fui::TextStyle) const override {
@@ -81,7 +87,10 @@ class FakeTarget final : public fui::DrawTarget {
   int16_t lineHeight(const fui::FontId) const override { return 20; }
 
   void fill(const fui::Rect rect, const fui::Paint paint, const uint8_t = 0, const uint8_t = 0xFF) override {
-    if (paint.kind != fui::PaintKind::None) fills.push_back(rect);
+    if (paint.kind != fui::PaintKind::None) {
+      fills.push_back(rect);
+      fillPaints.push_back(paint);
+    }
   }
   void stroke(const fui::Rect, const fui::Paint, const uint8_t, const uint8_t = 0, const uint8_t = 0xFF) override {}
   void line(const fui::Point, const fui::Point, const uint8_t, const fui::Paint) override {}
@@ -3247,6 +3256,278 @@ void testTheMinesweeperMenuLeadsWithTheRecord() {
   CHECK(cleared.target.drew("LAST GAME: CLEARED"));
 }
 
+// --- toy battle -------------------------------------------------------------
+
+// The rack holds eight TROOPS, not eight kinds. Drawing two used to add one
+// tile whenever one of the two was a duplicate, and the second lived as a 4px
+// pip nobody could see -- which is how Mario found it: "I drew two and only got
+// one."
+void testTheRackShowsEveryTroopYouHold() {
+  toybattle::Game game;
+  game.newGame(4242u, static_cast<int>(toybattle::TerrainId::CastleField), 0);
+
+  // Force the case that broke: two of the same kind, plus one other.
+  for (int k = 0; k < toybattle::kTroopKinds; ++k) game.rack[0][k] = 0;
+  game.rack[0][static_cast<int>(toybattle::Troop::Skully)] = 2;
+  game.rack[0][static_cast<int>(toybattle::Troop::Roxy)] = 1;
+
+  int filled = 0;
+  int seen[toybattle::kTroopKinds] = {};
+  for (int position = 0; position < toybattle::kTroopKinds; ++position) {
+    const int kind = tbui::handKindAt(game, 0, position);
+    if (kind < 0) continue;
+    ++filled;
+    ++seen[kind];
+  }
+  CHECK(filled == 3);
+  CHECK(seen[static_cast<int>(toybattle::Troop::Skully)] == 2);
+  CHECK(seen[static_cast<int>(toybattle::Troop::Roxy)] == 1);
+
+  // And the count of occupied slots tracks the rack exactly, at every size a
+  // hand can be, so a draw always shows up.
+  for (int k = 0; k < toybattle::kTroopKinds; ++k) game.rack[0][k] = 0;
+  for (int total = 0; total <= toybattle::kRackLimit; ++total) {
+    for (int k = 0; k < toybattle::kTroopKinds; ++k) game.rack[0][k] = 0;
+    int left = total;
+    for (int k = 0; k < toybattle::kTroopKinds && left > 0; ++k) {
+      const int take = left > toybattle::kCopiesEach ? toybattle::kCopiesEach : left;
+      game.rack[0][k] = static_cast<uint8_t>(take);
+      left -= take;
+    }
+    int occupied = 0;
+    for (int position = 0; position < toybattle::kTroopKinds; ++position) {
+      if (tbui::handKindAt(game, 0, position) >= 0) ++occupied;
+    }
+    CHECK(occupied == game.rackSize(0));
+  }
+}
+
+// A tap has to land on the troop that was drawn there, duplicates included.
+void testTheRackTileYouTapIsTheTroopYouGet() {
+  toybattle::Game game;
+  game.newGame(7u, static_cast<int>(toybattle::TerrainId::CastleField), 0);
+  for (int k = 0; k < toybattle::kTroopKinds; ++k) game.rack[0][k] = 0;
+  game.rack[0][static_cast<int>(toybattle::Troop::Capn)] = 3;
+  game.rack[0][static_cast<int>(toybattle::Troop::Star)] = 1;
+
+  for (int position = 0; position < toybattle::kTroopKinds; ++position) {
+    const fui::Rect tile = tbui::rackTile(device(), position);
+    const int expected = tbui::handKindAt(game, 0, position);
+    const int probes[4][2] = {
+        {tile.x + 4, tile.y + 4},
+        {tile.x + tile.width - 5, tile.y + 4},
+        {tile.x + 4, tile.y + tile.height - 5},
+        {tile.x + tile.width / 2, tile.y + tile.height / 2},
+    };
+    for (const auto& probe : probes) {
+      CHECK(tbui::rackAt(device(), game, 0, probe[0], probe[1]) == expected);
+    }
+  }
+  // Neighbouring tiles never share a pixel.
+  for (int position = 0; position + 1 < toybattle::kTroopKinds; ++position) {
+    const fui::Rect a = tbui::rackTile(device(), position);
+    const fui::Rect b = tbui::rackTile(device(), position + 1);
+    CHECK(a.x + a.width == b.x);
+  }
+}
+
+// --- toy battle: the shell -------------------------------------------------
+
+void buildTbMenu(Rendered& out, const tbui::MenuModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  tbui::buildMenu(screen, model);
+}
+
+void buildTbSetup(Rendered& out, const tbui::SetupModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  tbui::buildSetup(screen, model);
+}
+
+void buildTbMaps(Rendered& out, const tbui::MapPickModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  tbui::buildMapPick(screen, model);
+}
+
+void buildTbHowTo(Rendered& out, const tbui::HowToModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  tbui::buildHowTo(screen, model);
+}
+
+void buildTbBoard(Rendered& out, const tbui::BoardModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  tbui::buildBoard(screen, model);
+}
+
+// Counts rack tiles filled with a given dither level, by matching the fill rect
+// against the geometry the rack itself computes.
+int rackTilesPainted(const Rendered& out, const fui::Color shade) {
+  int found = 0;
+  for (size_t i = 0; i < out.target.fills.size(); ++i) {
+    const fui::Paint& paint = out.target.fillPaints[i];
+    if (paint.kind != fui::PaintKind::Dither || paint.color != shade) continue;
+    for (int position = 0; position < 8; ++position) {
+      const fui::Rect tile = tbui::rackTile(device(), position);
+      const fui::Rect& r = out.target.fills[i];
+      if (r.x > tile.x - 6 && r.x < tile.x + 6 && r.y > tile.y - 6 && r.y < tile.y + 6) ++found;
+    }
+  }
+  return found;
+}
+
+void testAFrozenCardLooksDifferent() {
+  // Battlefield points at a troop on your rack without looking, and it sits out
+  // your turn. That is a state done TO you, so it cannot look the same as "there
+  // is nowhere legal to put this" -- and it is not something a screenshot of an
+  // ordinary game will contain, so it is asserted here instead.
+  toybattle::Game game;
+  game.newGame(31u, static_cast<int>(toybattle::TerrainId::Battlefield), 0, true);
+
+  int held = -1;
+  for (int position = 0; position < 8 && held < 0; ++position) held = tbui::handKindAt(game, 0, position);
+  CHECK(held >= 0);
+
+  tbui::BoardModel model;
+  model.game = game;
+  model.seat = 0;
+  model.yourTurn = true;
+  model.prompt = "";
+  model.canDraw = true;
+
+  Rendered plain;
+  buildTbBoard(plain, model);
+  const int darkBefore = rackTilesPainted(plain, fui::Color::DarkGray);
+
+  model.game.frozenKind[0] = static_cast<uint8_t>(held);
+  Rendered frozen;
+  buildTbBoard(frozen, model);
+  const int darkAfter = rackTilesPainted(frozen, fui::Color::DarkGray);
+
+  // Nothing on the rack wears the dark dither until a troop is frozen, and then
+  // exactly one does.
+  CHECK(darkBefore == 0);
+  CHECK(darkAfter == 1);
+  // And it is still a troop you are holding: freezing must not remove it.
+  CHECK(toybattle::whyNotTroop(model.game, tbui::BoardModel{}.draft, static_cast<toybattle::Troop>(held)) ==
+        toybattle::Refusal::Pinned);
+}
+
+void testToyBattleShell() {
+  // The row set shifts rather than leaving a hole, so no index ever names a row
+  // that is not on the screen.
+  tbui::MenuModel bare;
+  CHECK(tbui::shellRowCount(bare) == static_cast<int>(tbui::ShellRow::Count) - 1);
+  CHECK(tbui::shellRowAt(bare, 0) == tbui::ShellRow::Play);
+  tbui::MenuModel saved;
+  saved.hasSave = true;
+  CHECK(tbui::shellRowAt(saved, 0) == tbui::ShellRow::Continue);
+  for (int i = -2; i < 8; ++i) {
+    CHECK(tbui::shellRowAt(bare, i) != tbui::ShellRow::Count);
+    CHECK(tbui::shellRowAt(saved, i) != tbui::ShellRow::Count);
+  }
+
+  toybattle::Game preview;
+  preview.newGame(7u, 0, 0, true);
+
+  for (int save = 0; save < 2; ++save) {
+    tbui::MenuModel model;
+    model.hasSave = save != 0;
+    model.saveDetail = "2-1";
+    model.preview = &preview;
+    model.played = 3;
+    model.won = 2;
+    Rendered out;
+    buildTbMenu(out, model);
+    // The 24-rect ceiling. Past it a control draws and registers nothing, which
+    // looks exactly like a control that works.
+    CHECK(out.interactions.count() <= toybox::kMaxInteractions);
+    CHECK(out.interactions.count() > 0);
+    CHECK(out.target.drew("PLAY NEARBY"));
+    CHECK(out.target.drew("HOW TO PLAY"));
+    // A save that is offered has to say what it is offering.
+    CHECK(out.target.drew("CONTINUE") == (save != 0));
+  }
+
+  for (int link = 0; link < 2; ++link) {
+    tbui::SetupModel model;
+    model.forLink = link != 0;
+    model.selected = 0;
+    Rendered out;
+    buildTbSetup(out, model);
+    CHECK(out.interactions.count() <= toybox::kMaxInteractions);
+    CHECK(out.target.drew("START"));
+    // Against a person there is no difficulty to choose, and the row that would
+    // set one must not be on the screen at all.
+    CHECK(out.target.drew("SERGEANT") == (link == 0));
+  }
+
+  {
+    // Every map has to be REACHABLE, which is not the same as every map being
+    // drawn: the list held five at a fixed card height and silently dropped the
+    // sixth. Walk the pages and require the whole table to turn up across them.
+    CHECK(tbui::mapsPerPage() >= 1);
+    CHECK(tbui::mapPages() * tbui::mapsPerPage() >= toybattle::kPlayableTerrainCount);
+    for (int n = 0; n < toybattle::kPlayableTerrainCount; ++n) {
+      const int i = toybattle::playableTerrainAt(n);
+      bool found = false;
+      for (int page = 0; page < tbui::mapPages() && !found; ++page) {
+        tbui::MapPickModel model;
+        model.page = page;
+        Rendered out;
+        buildTbMaps(out, model);
+        CHECK(out.interactions.count() <= toybox::kMaxInteractions);
+        found = out.target.drew(toybattle::terrainAt(i).name);
+      }
+      CHECK(found);
+    }
+    // The other direction, and the one that rots silently: PROVING GROUND is
+    // ours and must never appear beside nine real boards. Without this, any
+    // future off-by-one in the offset puts it back and every check above still
+    // passes, because they only ever ask whether the real maps are present.
+    for (int page = 0; page < tbui::mapPages(); ++page) {
+      tbui::MapPickModel model;
+      model.page = page;
+      Rendered out;
+      buildTbMaps(out, model);
+      // BY NAME. This said terrainAt(0) and passed while the picker was
+      // hiding the wrong board, because terrainAt(0) is Castle Field.
+      CHECK(!out.target.drew("PROVING GROUND"));
+    }
+    // And nothing on the page is inverted, because a picker has no cursor.
+    tbui::MapPickModel first;
+    Rendered out;
+    buildTbMaps(out, first);
+    CHECK(rackTilesPainted(out, fui::Color::DarkGray) == 0);
+  }
+
+  for (int page = 0; page < tbui::howToPages(); ++page) {
+    tbui::HowToModel model;
+    model.page = page;
+    Rendered out;
+    buildTbHowTo(out, model);
+    CHECK(out.interactions.count() <= toybox::kMaxInteractions);
+    // Every page has a way forward. The first version of this in another game
+    // put NEXT after three early-returning branches, so two of three pages had
+    // none.
+    CHECK(out.interactions.count() > 0);
+    CHECK(out.target.drew(page + 1 == tbui::howToPages() ? "PLAY" : "NEXT"));
+  }
+}
+
 int main() {
   testTheSeaSaltCardYouTapIsTheCardTheRulesGet();
   testTheSeaSaltChromeIsTappableAndTheCallPillIsEarned();
@@ -3255,6 +3536,8 @@ int main() {
   testTheSeaSaltCardBandsNeverCollide();
   testEverySeaSaltHintFitsTheBox();
   testTheSeaSaltTutorialPagesAndEnds();
+  testToyBattleShell();
+  testAFrozenCardLooksDifferent();
   testSearchingAsksNothing();
   testMurdleGridResolvesEveryCellItDrew();
   testMurdleGridEdgesAreLive();
@@ -3289,6 +3572,8 @@ int main() {
   testTheConnectFourGridKeepsOffTheChrome();
   testTheBoardSaysWhoseDrop();
   testTheConnectFourResultNamesTheOutcomeFromYourSeat();
+  testTheRackShowsEveryTroopYouHold();
+  testTheRackTileYouTapIsTheTroopYouGet();
   testAFullBoardDoesNotOverflowTheInteractionBuffer();
   testTheSquareYouTapIsTheSquareTheRulesGet();
   testTheBoardKeepsOffTheChrome();

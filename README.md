@@ -50,12 +50,13 @@ restyled to match the design language the apps use.
 | **Knucklebones** | Cult of the Lamb's dice game. Matching dice multiply; yours destroy theirs. |
 | **Minesweeper**  | Tap to dig, hold to flag. The first dig is always safe.                     |
 | **Sea Salt**     | Sea Salt & Paper: collect duos, bet on STOP or LAST CHANCE.                 |
+| **Toy Battle**   | Nine boards of bases and paths. Hold regions, take medals, solo or nearby.  |
 | **Study**        | Anki decks with the FSRS scheduler, offline.                                |
 | **Hacker News**  | The front page in a reading serif, articles kept on the card.               |
 | **xkcd**         | The archive, packed for the card and drawn one to one.                      |
 
 Chess, Battleship, Jaipur, Knucklebones, Checkers, Connect Four, Yahtzee and
-Sea Salt play
+Sea Salt and Toy Battle play
 over **PLAY NEARBY**: put two devices next to
 each other and they find one another. No pairing screen, no room code, no
 account, no router, no internet.
@@ -68,7 +69,8 @@ Each game's rules, its state machines and the decisions behind them:
 [Minesweeper](docs/minesweeper.md) &middot;
 [Jaipur](docs/jaipur.md) &middot;
 [Sea Salt](docs/seasalt.md) &middot;
-[Murdle](docs/murdle.md).
+[Murdle](docs/murdle.md) &middot;
+[Toy Battle](docs/toybattle.md).
 How the two physical buttons are used, and why there are only two:
 [buttons](docs/buttons.md).
 
@@ -175,9 +177,12 @@ fetched by the device from [xkcd.com](https://xkcd.com). Connections puzzles are
 the New York Times'; CrossPlay ships none of them and downloads only what you
 ask for. Type is Jersey 25 and Instrument Serif, both SIL OFL.
 
-Jaipur, Insider, Murdle, Battleship, Connections, Knucklebones and Sea Salt &
-Paper are trademarks of their respective owners. Sea Salt & Paper was designed
-by Bruno Cathala and Theo Riviere and is published by Bombyx. CrossPlay implements the games; it is not affiliated with, endorsed by or sponsored by any of them.
+Jaipur, Insider, Murdle, Battleship, Connections, Knucklebones, Sea Salt &
+Paper and Toy Battle are trademarks of their respective owners. Sea Salt & Paper
+was designed by Bruno Cathala and Theo Riviere and is published by Bombyx. Toy
+Battle was designed by Paolo Mori and Alessandro Zucchini and is published by
+Repos Production. CrossPlay implements the games; it is not affiliated with,
+endorsed by or sponsored by any of them.
 
 Reading positions sync to CrossPoint's own server by default. That is
 upstream's infrastructure rather than this fork's, inherited so that flashing
