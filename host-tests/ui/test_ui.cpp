@@ -3283,7 +3283,8 @@ void testToyBattleShell() {
     // sixth. Walk the pages and require the whole table to turn up across them.
     CHECK(tbui::mapsPerPage() >= 1);
     CHECK(tbui::mapPages() * tbui::mapsPerPage() >= toybattle::kPlayableTerrainCount);
-    for (int i = toybattle::kFirstPlayableTerrain; i < toybattle::kTerrainCount; ++i) {
+    for (int n = 0; n < toybattle::kPlayableTerrainCount; ++n) {
+      const int i = toybattle::playableTerrainAt(n);
       bool found = false;
       for (int page = 0; page < tbui::mapPages() && !found; ++page) {
         tbui::MapPickModel model;
@@ -3304,7 +3305,9 @@ void testToyBattleShell() {
       model.page = page;
       Rendered out;
       buildTbMaps(out, model);
-      CHECK(!out.target.drew(toybattle::terrainAt(0).name));
+      // BY NAME. This said terrainAt(0) and passed while the picker was
+      // hiding the wrong board, because terrainAt(0) is Castle Field.
+      CHECK(!out.target.drew("PROVING GROUND"));
     }
     // And nothing on the page is inverted, because a picker has no cursor.
     tbui::MapPickModel first;

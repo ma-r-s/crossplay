@@ -224,12 +224,24 @@ constexpr int kTerrainCount = 10;
 // PROVING GROUND is ours, not a board Repos printed, and it exists so the rules
 // suite has somewhere to run that carries every special kind at once and never
 // changes underneath it. Players must never see it in the map list beside nine
-// real boards. It stays terrain 0 rather than being renumbered out of the way,
-// because the index is in every save file and every link packet. The picker
-// lists from kFirstPlayableTerrain up; the engine still plays index 0 happily,
-// which is what keeps the tests working.
-constexpr int kFirstPlayableTerrain = 1;
-constexpr int kPlayableTerrainCount = kTerrainCount - kFirstPlayableTerrain;
+// real boards. It stays where it is rather than being renumbered out of the
+// way, because the index is in every save file and every link packet.
+//
+// Note WHERE it is: terrain 1, with Castle Field at 0. It is in the MIDDLE of
+// the range, not at the start, so hiding it is a skip and not an offset. The
+// first version of this was written as `kFirstPlayableTerrain = 1` on the
+// assumption that Proving Ground was terrain 0; that hid CASTLE FIELD, left
+// Proving Ground at the top of the picker, and defaulted new games to it. Both
+// UI assertions passed, because they were written from the same wrong
+// assumption and checked `terrainAt(0)` -- which is Castle Field. It was caught
+// by looking at the emulator, and nothing else would have caught it.
+constexpr TerrainId kHiddenTerrain = TerrainId::ProvingGround;
+constexpr int kPlayableTerrainCount = kTerrainCount - 1;
+
+// The nth board a player can choose, in picker order, skipping the hidden one.
+constexpr int playableTerrainAt(const int nth) {
+  return nth < static_cast<int>(kHiddenTerrain) ? nth : nth + 1;
+}
 
 const Terrain& terrainAt(int index);
 

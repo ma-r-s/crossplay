@@ -7,7 +7,7 @@ Emscripten supports all three of those, so the port is mostly a translation
 rather than a rewrite -- take the exact compile lines PlatformIO already
 produces and run them through em++ instead of g++.
 
-    pio run -e simulator_x4_pro          # once, to refresh compile_commands.json
+    pio run -e simulator_x4_pro -t compiledb   # once, to write compile_commands.json
     source ../.emsdk/emsdk_env.sh
     python tools_local/wasm/build.py
 
@@ -108,7 +108,8 @@ EXTRA_SOURCES = [
 def load_entries():
     cc = REPO / "compile_commands.json"
     if not cc.exists():
-        sys.exit("compile_commands.json missing -- run: pio run -e simulator_x4_pro")
+        sys.exit("compile_commands.json missing -- run: pio run -e simulator_x4_pro -t compiledb\n"
+                 "(plain `pio run` builds but does NOT write the database)")
     entries = json.loads(cc.read_text())
     out = []
     for e in entries:

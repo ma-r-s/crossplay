@@ -421,9 +421,9 @@ void buildMapPick(toybox::Screen& screen, const MapPickModel& model) {
 
   const int first = page * perPage;
   for (int i = 0; i < perPage && first + i < tb::kPlayableTerrainCount; ++i) {
-    // The card's value is the ENGINE's index, so the offset is applied once,
+    // The card's value is the ENGINE's index, so the skip is applied once,
     // here, and every screen downstream keeps speaking in real terrain ids.
-    const int index = tb::kFirstPlayableTerrain + first + i;
+    const int index = tb::playableTerrainAt(first + i);
     const tb::Terrain& terrain = tb::terrainAt(index);
     const fui::Rect card = fui::makeRect(content.x, static_cast<int16_t>(content.y + i * (kMapCard + toybox::kGutter)),
                                          content.width, kMapCard);
