@@ -125,7 +125,7 @@ void ToyBattleActivity::loop() {
     const fui::DeviceContext device = toybox::makeTarget(renderer).deviceContext();
     const tb::Ask ask = tb::pending(game, draft);
 
-    const int kind = tbui::rackAt(device, tapX, tapY);
+    const int kind = tbui::rackAt(device, game, seat, tapX, tapY);
     if (kind >= 0) {
       const tb::Troop troop = static_cast<tb::Troop>(kind);
       if (tb::answerTroop(game, draft, troop)) {

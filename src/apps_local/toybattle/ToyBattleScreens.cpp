@@ -263,16 +263,29 @@ int slotAt(const fui::DeviceContext& device, const tb::Terrain& board, const int
   return -1;
 }
 
-fui::Rect rackTile(const fui::DeviceContext& device, const int kind) {
+fui::Rect rackTile(const fui::DeviceContext& device, const int position) {
   const int16_t span = static_cast<int16_t>(tb::kTroopKinds * kRackTile);
   const int16_t left = static_cast<int16_t>((device.width - span) / 2);
-  return fui::makeRect(static_cast<int16_t>(left + kind * kRackTile), kRackTop, kRackTile, kRackTall);
+  return fui::makeRect(static_cast<int16_t>(left + position * kRackTile), kRackTop, kRackTile, kRackTall);
 }
 
-int rackAt(const fui::DeviceContext& device, const int x, const int y) {
+int handKindAt(const tb::Game& game, const int seat, const int position) {
+  // The hand laid out low to high, one slot per troop. Stable ordering, so a
+  // tile does not jump under the thumb when an unrelated troop is drawn.
+  int at = 0;
   for (int kind = 0; kind < tb::kTroopKinds; ++kind) {
-    const fui::Rect r = rackTile(device, kind);
-    if (x >= r.x && x < r.right() && y >= r.y && y < r.bottom()) return kind;
+    for (int held = 0; held < game.rack[seat][kind]; ++held) {
+      if (at == position) return kind;
+      ++at;
+    }
+  }
+  return -1;
+}
+
+int rackAt(const fui::DeviceContext& device, const tb::Game& game, const int seat, const int x, const int y) {
+  for (int position = 0; position < tb::kTroopKinds; ++position) {
+    const fui::Rect r = rackTile(device, position);
+    if (x >= r.x && x < r.right() && y >= r.y && y < r.bottom()) return handKindAt(game, seat, position);
   }
   return -1;
 }
@@ -606,48 +619,42 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   const uint8_t offer = toybattle::candidateTroops(game, model.draft);
   const tb::Draft& draft = model.draft;
   const bool chosenPending = toybattle::pending(game, draft) != toybattle::Ask::Troop;
-  for (int kind = 0; kind < tb::kTroopKinds; ++kind) {
-    const fui::Rect tile = rackTile(device, kind);
+  for (int position = 0; position < tb::kTroopKinds; ++position) {
+    const fui::Rect tile = rackTile(device, position);
     const fui::Rect inner = fui::makeRect(static_cast<int16_t>(tile.x + 3), static_cast<int16_t>(tile.y + 3),
                                           static_cast<int16_t>(tile.width - 6), static_cast<int16_t>(tile.height - 6));
-    const int held = game.rack[model.seat][kind];
-    const bool live = (offer & (1u << kind)) != 0;
-    const bool chosen = chosenPending && draft.move.stepCount > draft.step && draft.move.steps[draft.step].kind == kind;
+    const int kind = handKindAt(game, model.seat, position);
 
-    if (held == 0) {
+    // An empty slot is drawn, not skipped: the rack is eight places and seeing
+    // how many are free is how you know whether you can draw.
+    if (kind < 0) {
       screen.target().stroke(inner, fui::Paint::dither(fui::Color::LightGray), 2, 8);
       continue;
     }
+
+    const tb::Troop troop = static_cast<tb::Troop>(kind);
+    const bool live = (offer & (1u << kind)) != 0;
+    const bool chosen = chosenPending && draft.move.stepCount > draft.step && draft.move.steps[draft.step].kind == kind;
+
     screen.target().fill(inner, live ? fui::Paint::dither(fui::Color::LightGray) : fui::Paint::solid(fui::Color::White),
                          8);
     screen.target().stroke(inner, fui::Paint::solid(fui::Color::Black), chosen ? 5 : 2, 8);
+
     // Number on top, what it does underneath. Eight troops is more than anyone
     // holds in their head, and the mark here is the same one the board wears,
     // so learning it once covers both.
     //
     // Kwak and Roxy do nothing, so there is no mark to sit under and their
-    // numeral takes the whole tile. A number pushed up to make room for a mark
-    // that is not coming just reads as misaligned.
-    const tb::Troop troop = static_cast<tb::Troop>(kind);
+    // numeral takes the whole tile.
     const bool marked = troop != tb::Troop::Kwak && troop != tb::Troop::Roxy;
     if (!marked) {
       centred(screen, inner, pip(troop), toybox::kUiFont, false);
     } else {
-      // Far enough down that the 5px border a picked card wears still leaves
-      // air above the numeral.
       centred(screen, fui::makeRect(inner.x, static_cast<int16_t>(inner.y + 9), inner.width, 26), pip(troop),
               toybox::kUiFont, false);
       troopMark(screen,
                 fui::Point{static_cast<int16_t>(inner.x + inner.width / 2), static_cast<int16_t>(inner.bottom() - 17)},
                 12, troop);
-    }
-
-    // How many you hold, as pips down the left edge. "x2" as text sat on top of
-    // the numeral: there is no room for two pieces of type on a 48px tile.
-    for (int i = 1; i < held && i < 3; ++i) {
-      screen.target().fill(
-          fui::makeRect(static_cast<int16_t>(inner.x + 3), static_cast<int16_t>(inner.y + 4 + (i - 1) * 7), 4, 4),
-          fui::Paint::solid(fui::Color::Black), 2);
     }
   }
 

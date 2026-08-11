@@ -29,6 +29,7 @@
 #include "../../src/apps_local/player/PlayerAvatar.h"
 #include "../../src/apps_local/player/PlayerScreen.h"
 #include "../../src/apps_local/study/StudyScreens.h"
+#include "../../src/apps_local/toybattle/ToyBattleScreens.h"
 #include "../../src/apps_local/ui/ToyboxIcons.h"
 
 namespace fui = freeink::ui;
@@ -3049,6 +3050,81 @@ void testTheMinesweeperMenuLeadsWithTheRecord() {
   CHECK(cleared.target.drew("LAST GAME: CLEARED"));
 }
 
+// --- toy battle -------------------------------------------------------------
+
+// The rack holds eight TROOPS, not eight kinds. Drawing two used to add one
+// tile whenever one of the two was a duplicate, and the second lived as a 4px
+// pip nobody could see -- which is how Mario found it: "I drew two and only got
+// one."
+void testTheRackShowsEveryTroopYouHold() {
+  toybattle::Game game;
+  game.newGame(4242u, static_cast<int>(toybattle::TerrainId::CastleField), 0);
+
+  // Force the case that broke: two of the same kind, plus one other.
+  for (int k = 0; k < toybattle::kTroopKinds; ++k) game.rack[0][k] = 0;
+  game.rack[0][static_cast<int>(toybattle::Troop::Skully)] = 2;
+  game.rack[0][static_cast<int>(toybattle::Troop::Roxy)] = 1;
+
+  int filled = 0;
+  int seen[toybattle::kTroopKinds] = {};
+  for (int position = 0; position < toybattle::kTroopKinds; ++position) {
+    const int kind = tbui::handKindAt(game, 0, position);
+    if (kind < 0) continue;
+    ++filled;
+    ++seen[kind];
+  }
+  CHECK(filled == 3);
+  CHECK(seen[static_cast<int>(toybattle::Troop::Skully)] == 2);
+  CHECK(seen[static_cast<int>(toybattle::Troop::Roxy)] == 1);
+
+  // And the count of occupied slots tracks the rack exactly, at every size a
+  // hand can be, so a draw always shows up.
+  for (int k = 0; k < toybattle::kTroopKinds; ++k) game.rack[0][k] = 0;
+  for (int total = 0; total <= toybattle::kRackLimit; ++total) {
+    for (int k = 0; k < toybattle::kTroopKinds; ++k) game.rack[0][k] = 0;
+    int left = total;
+    for (int k = 0; k < toybattle::kTroopKinds && left > 0; ++k) {
+      const int take = left > toybattle::kCopiesEach ? toybattle::kCopiesEach : left;
+      game.rack[0][k] = static_cast<uint8_t>(take);
+      left -= take;
+    }
+    int occupied = 0;
+    for (int position = 0; position < toybattle::kTroopKinds; ++position) {
+      if (tbui::handKindAt(game, 0, position) >= 0) ++occupied;
+    }
+    CHECK(occupied == game.rackSize(0));
+  }
+}
+
+// A tap has to land on the troop that was drawn there, duplicates included.
+void testTheRackTileYouTapIsTheTroopYouGet() {
+  toybattle::Game game;
+  game.newGame(7u, static_cast<int>(toybattle::TerrainId::CastleField), 0);
+  for (int k = 0; k < toybattle::kTroopKinds; ++k) game.rack[0][k] = 0;
+  game.rack[0][static_cast<int>(toybattle::Troop::Capn)] = 3;
+  game.rack[0][static_cast<int>(toybattle::Troop::Star)] = 1;
+
+  for (int position = 0; position < toybattle::kTroopKinds; ++position) {
+    const fui::Rect tile = tbui::rackTile(device(), position);
+    const int expected = tbui::handKindAt(game, 0, position);
+    const int probes[4][2] = {
+        {tile.x + 4, tile.y + 4},
+        {tile.x + tile.width - 5, tile.y + 4},
+        {tile.x + 4, tile.y + tile.height - 5},
+        {tile.x + tile.width / 2, tile.y + tile.height / 2},
+    };
+    for (const auto& probe : probes) {
+      CHECK(tbui::rackAt(device(), game, 0, probe[0], probe[1]) == expected);
+    }
+  }
+  // Neighbouring tiles never share a pixel.
+  for (int position = 0; position + 1 < toybattle::kTroopKinds; ++position) {
+    const fui::Rect a = tbui::rackTile(device(), position);
+    const fui::Rect b = tbui::rackTile(device(), position + 1);
+    CHECK(a.x + a.width == b.x);
+  }
+}
+
 int main() {
   testSearchingAsksNothing();
   testMurdleGridResolvesEveryCellItDrew();
@@ -3084,6 +3160,8 @@ int main() {
   testTheConnectFourGridKeepsOffTheChrome();
   testTheBoardSaysWhoseDrop();
   testTheConnectFourResultNamesTheOutcomeFromYourSeat();
+  testTheRackShowsEveryTroopYouHold();
+  testTheRackTileYouTapIsTheTroopYouGet();
   testAFullBoardDoesNotOverflowTheInteractionBuffer();
   testTheSquareYouTapIsTheSquareTheRulesGet();
   testTheBoardKeepsOffTheChrome();

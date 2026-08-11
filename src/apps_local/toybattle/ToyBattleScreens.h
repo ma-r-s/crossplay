@@ -60,9 +60,15 @@ int16_t slotRadius();
 // rather than a grid and there is no cell to divide into.
 int slotAt(const fui::DeviceContext& device, const toybattle::Terrain& board, int x, int y);
 
-// The rack tile for troop `kind`, and the kind under a tap (-1 for none).
-fui::Rect rackTile(const fui::DeviceContext& device, int kind);
-int rackAt(const fui::DeviceContext& device, int x, int y);
+// The rack is one tile per TROOP, not one per kind: the limit is eight troops
+// and there are eight slots, so a hand of two Skullys is two tiles. Drawing one
+// tile per kind and counting duplicates in a corner pip meant drawing two
+// troops could add one tile, which is exactly what it looked like -- a bug.
+fui::Rect rackTile(const fui::DeviceContext& device, int position);
+// The troop in rack position 0..7, or -1 if that slot is empty.
+int handKindAt(const toybattle::Game& game, int seat, int position);
+// The troop kind under a tap, or -1.
+int rackAt(const fui::DeviceContext& device, const toybattle::Game& game, int seat, int x, int y);
 
 void buildMenu(toybox::Screen& screen, const MenuModel& model);
 void buildBoard(toybox::Screen& screen, const BoardModel& model);
