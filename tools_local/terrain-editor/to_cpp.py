@@ -286,6 +286,17 @@ def check(model):
             errs.append(f"{slots - len(seen)} slot(s) no path reaches")
 
     medals = 0
+    for i, q in enumerate(hqs):
+        # A gate is a per-SLOT property in the firmware, not a per-base one, and
+        # it always has been -- Tropical Pool restricts one H.Q. per side. An
+        # H.Q. may carry a gate and nothing else: every other special is an
+        # effect that fires after a troop lands on a base.
+        for v in q.get("gate", []):
+            if v not in TROOP_BIT:
+                errs.append(f"H.Q. {i} gate names {v!r}, which is not a troop")
+        if "gate" in q and not q["gate"]:
+            errs.append(f"H.Q. {i} is a gate that admits nothing")
+
     for i, r in enumerate(regions):
         # A region's fence may include an H.Q. It shapes the region and it is
         # what the medals are centred in, but it can never be part of the mask:
@@ -432,6 +443,12 @@ def emit(model):
         ax, ay = medal_anchor([(xs[m], ys[m]) for m in r["bases"]])
         w(f"      {{{mask}, {r['medals']}, {ax}, {ay}}},")
     w("  };")
+    for i, q in enumerate(hqs):
+        if q.get("gate"):
+            bits = sorted(TROOP_BIT[v] for v in q["gate"])
+            expr = " | ".join(f"(1u << static_cast<int>(Troop::{TROOP_NAME[b]}))" for b in bits)
+            w(f"  t.gate[{nb + i}] = static_cast<uint8_t>({expr});  // H.Q. {i}")
+
     w("  t.regionCount = static_cast<uint8_t>(sizeof(regions) / sizeof(regions[0]));")
     w("  for (int i = 0; i < t.regionCount; ++i) {")
     w("    t.regions[i].bases = regions[i].bases;")

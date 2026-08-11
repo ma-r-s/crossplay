@@ -268,9 +268,14 @@ cv.addEventListener('pointerdown', e => {
       pendingEdge = null;
     }
   }
-  else if (tool === 'special' && hit && hit.type === 'base') {
-    hit.special = el('special').value;
-    hit.gate = hit.special === 'gate' ? gateValues() : undefined;
+  else if (tool === 'special' && hit) {
+    const kind = el('special').value;
+    if (hit.type === 'hq' && kind !== 'gate' && kind !== 'none') {
+      alert('An H.Q. can only carry a gate. Every other special is an effect that fires after a troop lands on a BASE.');
+    } else {
+      hit.special = kind;
+      hit.gate = kind === 'gate' ? gateValues() : undefined;
+    }
   }
   else if (tool === 'region' && hit) {
     const at = selection.indexOf(hit.id);
@@ -391,6 +396,13 @@ function runChecks() {
   if (kinds.size > 1 && S.name !== 'LA CROISETTE') {
     add('warn', `${kinds.size} special kinds on one board; every printed terrain but the expansion uses one`);
   }
+  const gatedHq = S.nodes.filter(n => n.type === 'hq' && n.special === 'gate');
+  if (gatedHq.length) {
+    add(gatedHq.every(n => (n.gate || []).length) ? 'ok' : 'bad',
+        `${gatedHq.length} gated H.Q. -- a gate on an H.Q. restricts what may capture it`);
+  }
+  const badHqSpecial = S.nodes.some(n => n.type === 'hq' && n.special && n.special !== 'none' && n.special !== 'gate');
+  if (badHqSpecial) add('bad', 'an H.Q. carries a special other than a gate');
   const loose = S.regions.some(r => r.bases.some(id => !byId(id)));
   if (loose) add('bad', 'a region names a node that has been deleted');
   const hqFenced = S.regions.filter(r => r.bases.some(id => { const n = byId(id); return n && n.type === 'hq'; })).length;
@@ -409,7 +421,7 @@ function exportModel() {
     name: S.name, objective: +el('objective').value,
     baseCount: B.length,
     bases: B.map(b => ({ x: b.x, y: b.y, special: b.special || 'none', ...(b.special === 'gate' ? { gate: b.gate || [] } : {}) })),
-    hqs: Q.map(q => ({ x: q.x, y: q.y, seat: q.seat })),
+    hqs: Q.map(q => ({ x: q.x, y: q.y, seat: q.seat, ...(q.special === 'gate' ? { gate: q.gate || [] } : {}) })),
     edges: S.edges.map(([u, v]) => [slot.get(u), slot.get(v)]).filter(([a, b]) => a != null && b != null),
     regions: S.regions.map(r => ({ bases: r.bases.map(id => slot.get(id)).filter(i => i != null), medals: r.medals })),
   };
@@ -418,7 +430,11 @@ function importModel(m) {
   S = blank(); S.name = m.name || 'BOARD'; nextId = 1;
   const ids = [];
   (m.bases || []).forEach(b => { const n = { id: nextId++, type: 'base', x: b.x, y: b.y, special: b.special || 'none', gate: b.gate }; S.nodes.push(n); ids.push(n.id); });
-  (m.hqs || []).forEach(q => { const n = { id: nextId++, type: 'hq', x: q.x, y: q.y, seat: q.seat }; S.nodes.push(n); ids.push(n.id); });
+  (m.hqs || []).forEach(q => {
+    const n = { id: nextId++, type: 'hq', x: q.x, y: q.y, seat: q.seat };
+    if (q.gate && q.gate.length) { n.special = 'gate'; n.gate = q.gate; }
+    S.nodes.push(n); ids.push(n.id);
+  });
   S.edges = (m.edges || []).map(([a, b]) => [ids[a], ids[b]]).filter(([a, b]) => a && b);
   S.regions = (m.regions || []).map(r => ({ bases: r.bases.map(i => ids[i]).filter(Boolean), medals: r.medals }));
   el('objective').value = m.objective || 7;
