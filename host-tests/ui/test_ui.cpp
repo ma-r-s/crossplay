@@ -3051,11 +3051,47 @@ void testTheSeaSaltRoundOverNamesTheBet() {
   CHECK(out2.target.drew("THE DECK RAN OUT. NOBODY SCORES."));
 }
 
-
 // Every hint must fit the hint box: the split lines run ~9.5 device px per
 // character on the small face, and the box's inner width holds 46. This is
 // the check that would have caught "PLAYING THEM BUYS ANOTHER TURN" running
 // off the panel before Mario did.
+
+// The card's bands must stay apart at EVERY height the grid can hand out, not
+// just the 125 the constants were once tuned for. A three-row hand gets 121,
+// and at 121 the old fixed offsets printed the name through the supply mark --
+// which is what Mario caught on the shot that was about to become the site's.
+void testTheSeaSaltCardBandsNeverCollide() {
+  for (const int count : {1, 2, 4, 8, 12, 16}) {
+    seasaltui::BoardModel model;
+    model.tileCount = count;
+    for (int i = 0; i < count; ++i) {
+      model.tiles[i].kind = static_cast<uint8_t>(i % 14);
+      model.tiles[i].colour = static_cast<uint8_t>(i % 11);
+      model.tiles[i].supply = 9;
+    }
+    Rendered out;
+    const fui::Rect grid = buildSs(out, seasaltui::buildBoard, model);
+    const fui::Rect cell = seasaltui::cardCellRect(grid, 0, count);
+
+    // Every text the card drew, top to bottom, must be disjoint and inside it.
+    std::vector<fui::Rect> lines;
+    for (const auto& drawn : out.target.texts) {
+      if (drawn.rect.x < cell.x || drawn.rect.x >= cell.x + cell.width) continue;
+      if (drawn.rect.y < cell.y || drawn.rect.y >= cell.y + cell.height) continue;
+      lines.push_back(drawn.rect);
+    }
+    for (size_t i = 0; i < lines.size(); ++i) {
+      CHECK(lines[i].y + lines[i].height <= cell.y + cell.height);
+      for (size_t j = i + 1; j < lines.size(); ++j) {
+        const bool disjoint = lines[i].y + lines[i].height <= lines[j].y ||
+                              lines[j].y + lines[j].height <= lines[i].y || lines[i].x + lines[i].width <= lines[j].x ||
+                              lines[j].x + lines[j].width <= lines[i].x;
+        CHECK(disjoint);
+      }
+    }
+  }
+}
+
 void testEverySeaSaltHintFitsTheBox() {
   constexpr int kMaxLine = 46;
   auto worstLine = [](const char* text) {
@@ -3097,6 +3133,7 @@ int main() {
   testTheSeaSaltChromeIsTappableAndTheCallPillIsEarned();
   testTheSeaSaltCallChoiceSaysWhatEachWordCosts();
   testTheSeaSaltRoundOverNamesTheBet();
+  testTheSeaSaltCardBandsNeverCollide();
   testEverySeaSaltHintFitsTheBox();
   testTheSeaSaltTutorialPagesAndEnds();
   testSearchingAsksNothing();

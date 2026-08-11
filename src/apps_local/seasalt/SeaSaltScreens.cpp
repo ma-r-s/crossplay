@@ -110,10 +110,18 @@ void drawCardTile(toybox::Screen& screen, const fui::Rect& cell, const CardTile&
                   fui::Paint::solid(fui::Color::Black), 2);
   }
 
-  const bool tall = cell.height >= 110;
+  // The card's vertical budget, laid out from the bottom so the bands cannot
+  // close up on each other. The grid does NOT always give 125: a three-row
+  // hand gets 121, and the old fixed offsets -- tuned for 125 -- pushed the
+  // name into the supply mark at any smaller height. Every band below is
+  // derived from cell.height, so they stay apart at any size.
+  constexpr int16_t kBottomMargin = 6;  // clear of the 2px frame
+  constexpr int16_t kLineBand = 15;     // one small-font line, ink ~13
+  constexpr int16_t kLineGap = 4;
+  constexpr int16_t kCornerBand = 28;  // the colour mark and the points
+
   const int16_t markSize = 20;
-  const fui::Rect mark = fui::makeRect(cell.x + 7, cell.y + 7, markSize, markSize);
-  blitIcon(screen, mark, *kColourMarks[tile.colour]);
+  blitIcon(screen, fui::makeRect(cell.x + 7, cell.y + 7, markSize, markSize), *kColourMarks[tile.colour]);
 
   if (tile.groupPoints >= 0) {
     char points[8];
@@ -122,30 +130,29 @@ void drawCardTile(toybox::Screen& screen, const fui::Rect& cell, const CardTile&
                 styled(toybox::kUiFont, fui::TextAlign::Right));
   }
 
-  const freeink::Icon& face = tall ? *kIcon48[tile.kind] : *kIcon40[tile.kind];
-  const int16_t faceSize = tall ? 48 : 40;
-  // The face and the name travel as one group, centred between the corner
-  // band and the census. Pinning the face near the top opened a void at the
-  // bottom of any cell taller than the board's.
-  const int16_t bandBottom = static_cast<int16_t>(cell.y + 28);
-  const int16_t groupSpace = static_cast<int16_t>(cell.y + cell.height - 23 - bandBottom);
-  const int16_t groupH = static_cast<int16_t>(faceSize + (tall ? 18 : 0));
-  const int16_t faceTop =
-      static_cast<int16_t>(bandBottom + (groupSpace > groupH ? (groupSpace - groupH) / 2 : (tall ? 0 : -8)));
-  blitIcon(screen, fui::makeRect(cell.x + (cell.width - faceSize) / 2, faceTop, faceSize, faceSize), face);
+  const int16_t censusTop = static_cast<int16_t>(cell.y + cell.height - kBottomMargin - kLineBand);
+  // The name only earns a line when one fits above the census with the icon
+  // still able to be itself.
+  const int16_t nameTop = static_cast<int16_t>(censusTop - kLineGap - kLineBand);
+  const int16_t iconRoom = static_cast<int16_t>(nameTop - (cell.y + kCornerBand));
+  const bool named = iconRoom >= 40;
 
-  const int16_t censusTop = static_cast<int16_t>(cell.y + cell.height - 23);
-  if (tall) {
-    // The small font, as the design had it, centred in the whole band between
-    // the face and the census rather than at a guessed offset.
-    const int16_t nameTop = static_cast<int16_t>(faceTop + faceSize);
-    target.text(fui::makeRect(cell.x, nameTop, cell.width, censusTop - nameTop), kKindNames[tile.kind],
+  const int16_t faceTop = named ? static_cast<int16_t>(cell.y + kCornerBand) : static_cast<int16_t>(cell.y + 20);
+  const int16_t faceRoom = named ? iconRoom : static_cast<int16_t>(censusTop - faceTop);
+  const int16_t faceSize = faceRoom >= 48 ? 48 : 40;
+  blitIcon(screen,
+           fui::makeRect(static_cast<int16_t>(cell.x + (cell.width - faceSize) / 2),
+                         static_cast<int16_t>(faceTop + (faceRoom - faceSize) / 2), faceSize, faceSize),
+           faceSize == 48 ? *kIcon48[tile.kind] : *kIcon40[tile.kind]);
+
+  if (named) {
+    target.text(fui::makeRect(cell.x, nameTop, cell.width, kLineBand), kKindNames[tile.kind],
                 styled(toybox::kSmallFont, fui::TextAlign::Center));
   }
 
   char census[12];
   std::snprintf(census, sizeof(census), "X%d", tile.supply);
-  target.text(fui::makeRect(cell.x, censusTop, cell.width, 16), census,
+  target.text(fui::makeRect(cell.x, censusTop, cell.width, kLineBand), census,
               styled(toybox::kSmallFont, fui::TextAlign::Center));
 }
 
