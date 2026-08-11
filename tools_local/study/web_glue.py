@@ -197,12 +197,30 @@ def convert(deck_name, mapping):
         guess = dict(used_profiles.get(type_rows[0][0]) or {})
     db.close()
 
-    sample = None
+    # Cards for the page to show: the first, then the ones the checker
+    # complained about. A deck is judged on the screen that shows a card, and
+    # judging 5742 of them by card #1 is how a wrong mapping ships -- and how
+    # a dropdown that only affects later cards looks broken.
+    samples = []
+    flagged = []
+    for line in check_log.splitlines():
+        hit = re.search(r"note (\d+)", line)
+        if hit and int(hit.group(1)) not in flagged:
+            flagged.append(int(hit.group(1)))
+    wanted = [0] + flagged[:6]
     try:
-        _, first = next(check_deck_mod.read_deck(out / "deck.dat"))
-        sample = dict(zip(check_deck_mod.FIELD_NAMES, first))
-    except (StopIteration, OSError, SystemExit):
+        for index, note_fields in check_deck_mod.read_deck(out / "deck.dat"):
+            if index in wanted:
+                card = dict(zip(check_deck_mod.FIELD_NAMES, note_fields))
+                card["index"] = index
+                card["flagged"] = index in flagged
+                samples.append(card)
+            if len(samples) >= len(wanted):
+                break
+    except (OSError, SystemExit):
         pass
+    samples.sort(key=lambda c: wanted.index(c["index"]))
+    sample = samples[0] if samples else None
 
     problems = {}
     for line in check_log.splitlines():
@@ -214,6 +232,19 @@ def convert(deck_name, mapping):
         r"deck '.*': (\d+) cards \((\d+) with scheduling state, (\d+) skipped\)",
         log,
     )
+    # The deck's own Anki limit, read back from meta.dat, so the page can say
+    # why a 1467-card deck offers twenty a day. Anki's setting, not ours.
+    # magic(8) + version/flags(4) + params(19*4) + retention(4) + maxInterval(4)
+    per_day = None
+    try:
+        import struct as _struct
+
+        meta = (out / "meta.dat").read_bytes()
+        (value,) = _struct.unpack_from("<i", meta, 8 + 4 + 19 * 4 + 4 + 4)
+        if 0 < value < 100000:
+            per_day = value
+    except Exception:
+        per_day = None
     images_packed = re.search(r"images: (\d+) packed", images_log)
     cloze_line = re.search(r"(\d+) cloze card\(s\) skipped", log)
 
@@ -232,10 +263,12 @@ def convert(deck_name, mapping):
             "clozeSkipped": int(cloze_line.group(1)) if cloze_line else 0,
             "imagesPacked": int(images_packed.group(1)) if images_packed else 0,
             "sample": sample,
+            "samples": samples,
             "fields": fields,
             "guess": {k: v for k, v in guess.items() if v},
             "noteTypes": len(type_rows),
             "problems": problems,
+            "newPerDay": per_day,
         }
     )
 

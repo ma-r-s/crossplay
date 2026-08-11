@@ -109,18 +109,26 @@ def check_faces(fields, on_question):
         answer.append(sentence)
 
     problems = []
+    identical = False
     if not headword.strip():
         problems.append("nothing on the question face")
     if not any(part.strip() for part in answer):
         problems.append("nothing on the answer face that was not already on the question")
-    # The answer, given away by the question. Substring rather than equality:
-    # a definition repeated inside the prompt is the same failure whether or
-    # not the prompt has anything else in it. Short meanings are skipped: a
-    # two-letter "meaning" inside a sentence is a coincidence, not a leak.
-    lowered_question = " ".join(question).lower()
-    if len(meaning.strip()) >= 4 and meaning.strip().lower() in lowered_question:
+
+    # The answer, given away by the question -- but only when the question is
+    # genuinely bigger than the answer it contains. A card whose word and
+    # meaning are simply the same string is a cognate ("Moment" / "moment"),
+    # and a German deck has hundreds: calling those broken cried wolf on 320
+    # perfectly good cards. What that pattern is really for is one field
+    # mapped to two slots, and THAT shows up as most of the deck at once, so
+    # it is counted here and judged deck-wide by the caller.
+    lowered_question = " ".join(question).lower().strip()
+    lowered_meaning = meaning.lower().strip()
+    if lowered_meaning and lowered_meaning == lowered_question:
+        identical = True
+    elif len(lowered_meaning) >= 4 and lowered_meaning in lowered_question:
         problems.append("the answer is already visible on the question face")
-    return question, answer, problems
+    return question, answer, problems, identical
 
 
 def read_cpfont(path):
@@ -246,6 +254,7 @@ def main():
 
     problems = {
         "a card whose faces do not work as a question and an answer": [],
+        "the question and the answer are the same text, deck-wide": [],
         "a character no installed font can draw at all": [],
         "a glyph the headword face cannot draw": [],
         "a Latin glyph the built-in serif cannot draw": [],
@@ -254,12 +263,15 @@ def main():
         f"an unbreakable run longer than the {LINE_BYTES}-byte line buffer": [],
     }
     notes = 0
+    identical_faces = 0
     first_faces = None
     for index, fields in read_deck(args.deck / "deck.dat"):
         notes += 1
         headword, sentence = fields[0], fields[4]
 
-        question, answer, face_problems = check_faces(fields, on_question)
+        question, answer, face_problems, identical = check_faces(fields, on_question)
+        if identical:
+            identical_faces += 1
         if first_faces is None:
             first_faces = (question, answer)
         for problem in face_problems:
@@ -341,6 +353,14 @@ def main():
         print(f"checked {notes} notes across {len(families)} {noun}\n")
     else:
         print(f"checked {notes} notes against the built-in serif\n")
+    if notes >= 10 and identical_faces > notes * 0.3:
+        problems[
+            "the question and the answer are the same text, deck-wide"
+        ].append(
+            f"{identical_faces} of {notes} cards -- one field is probably"
+            f" filling both the word and the meaning"
+        )
+
     failed = 0
     for what, found in problems.items():
         mark = "ok  " if not found else "FAIL"

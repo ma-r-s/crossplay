@@ -222,6 +222,12 @@
         " question. Usually the deck itself has those gaps."
       );
     },
+    "the question and the answer are the same text, deck-wide": function () {
+      return (
+        "On most cards the question and the answer are the same words, which" +
+        " usually means one field is filling both. Check the dropdowns."
+      );
+    },
     "a character no installed font can draw at all": function (n) {
       return (
         n +
@@ -303,6 +309,13 @@
     if (result.withState > 0) {
       facts.push(result.withState + " arrive with their review history");
     }
+    if (result.newPerDay) {
+      facts.push(
+        result.newPerDay +
+          " new cards a day, this deck's own Anki setting (change it in Anki's" +
+          " deck options and convert again)",
+      );
+    }
     if (result.imagesPacked > 0) {
       facts.push(
         result.imagesPacked +
@@ -353,7 +366,9 @@
       result.log + (result.imagesLog ? "\n" + result.imagesLog : "");
     $("checkLog").textContent = result.checkLog;
     $("next2").disabled = false;
-    fillSample(result.sample);
+    sampleList = result.samples && result.samples.length ? result.samples : [];
+    sampleAt = 0;
+    fillSample(sampleList.length ? sampleList[0] : result.sample);
     buildMapGrid(result);
 
     enableDownstream();
@@ -410,6 +425,9 @@
     return mapping.length ? mapping : null;
   }
 
+  var sampleList = [];
+  var sampleAt = 0;
+
   function fillSample(sample) {
     if (!sample) {
       $("samplePanel").hidden = true;
@@ -429,6 +447,36 @@
       el.textContent = pair[1] || "";
       el.hidden = !pair[1];
     });
+
+    // Which card this is, and a way to see another. One card is a sample, not
+    // a proof; the ones the checker flagged are shown first because those are
+    // where a wrong mapping actually shows up.
+    var label = $("sampleWhich");
+    label.innerHTML = "";
+    if (sampleList.length > 1) {
+      var flagged = sampleList.filter(function (c) {
+        return c.flagged;
+      }).length;
+      label.appendChild(
+        document.createTextNode(
+          "Card " +
+            (sample.index + 1) +
+            (sample.flagged ? ", one the checker flagged. " : ". ") +
+            (flagged
+              ? flagged + " flagged card(s) to look at. "
+              : ""),
+        ),
+      );
+      var next = document.createElement("button");
+      next.type = "button";
+      next.className = "linklike";
+      next.textContent = "Show me another card";
+      next.addEventListener("click", function () {
+        sampleAt = (sampleAt + 1) % sampleList.length;
+        fillSample(sampleList[sampleAt]);
+      });
+      label.appendChild(next);
+    }
   }
 
   // ---- step 3: the type ---------------------------------------------------
