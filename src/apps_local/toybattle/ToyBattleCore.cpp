@@ -125,16 +125,16 @@ constexpr Terrain buildCastleField() {
   t.hqSeat[1] = 1;
   t.medalsObjective = 7;
 
-  const uint16_t xs[17] = {165, 835, 370, 630, 150, 850, 165, 500, 835, 150, 850, 370, 630, 165, 835, 500, 500};
-  const uint16_t ys[17] = {80, 80, 215, 215, 320, 320, 500, 500, 500, 680, 680, 785, 785, 920, 920, 945, 55};
+  const uint16_t xs[17] = {171, 837, 613, 364, 208, 515, 772, 610, 371, 176, 824, 137, 161, 849, 861, 497, 505};
+  const uint16_t ys[17] = {92, 102, 236, 241, 522, 516, 513, 763, 767, 904, 910, 318, 708, 702, 329, 917, 90};
   for (int i = 0; i < 17; ++i) {
     t.x[i] = xs[i];
     t.y[i] = ys[i];
   }
 
   const Edge edges[] = {
-      {0, 2}, {0, 4},  {0, 16}, {1, 3},  {1, 5},  {1, 16}, {2, 6},  {2, 7},   {3, 7},   {3, 8},   {4, 6},   {5, 8},
-      {6, 9}, {6, 11}, {7, 11}, {7, 12}, {8, 10}, {8, 12}, {9, 13}, {10, 14}, {11, 13}, {12, 14}, {13, 15}, {14, 15},
+      {0, 3},  {0, 16}, {1, 2}, {1, 16}, {2, 5},  {2, 6},  {2, 14}, {3, 4},  {3, 5}, {3, 11}, {4, 8},  {4, 11},
+      {4, 12}, {5, 7},  {5, 8}, {6, 7},  {6, 13}, {6, 14}, {7, 10}, {7, 13}, {8, 9}, {8, 12}, {9, 15}, {10, 15},
   };
   t.edgeCount = static_cast<uint8_t>(sizeof(edges) / sizeof(edges[0]));
   for (int i = 0; i < t.edgeCount; ++i) t.edges[i] = edges[i];
@@ -144,14 +144,14 @@ constexpr Terrain buildCastleField() {
     uint8_t medals;
   };
   const R regions[] = {
-      {(1u << 0) | (1u << 2) | (1u << 4) | (1u << 6), 1},
-      {(1u << 1) | (1u << 3) | (1u << 5) | (1u << 8), 1},
-      {(1u << 0) | (1u << 1) | (1u << 2) | (1u << 3) | (1u << 7), 3},
-      {(1u << 6) | (1u << 7), 2},
-      {(1u << 7) | (1u << 8), 2},
-      {(1u << 6) | (1u << 9) | (1u << 11) | (1u << 13), 1},
-      {(1u << 8) | (1u << 10) | (1u << 12) | (1u << 14), 1},
-      {(1u << 7) | (1u << 11) | (1u << 12) | (1u << 13) | (1u << 14), 3},
+      {(1u << 6) | (1u << 7) | (1u << 13), 1},
+      {(1u << 4) | (1u << 8) | (1u << 12), 1},
+      {(1u << 5) | (1u << 7) | (1u << 8) | (1u << 9) | (1u << 10), 3},
+      {(1u << 0) | (1u << 1) | (1u << 2) | (1u << 3) | (1u << 5), 3},
+      {(1u << 3) | (1u << 4) | (1u << 11), 1},
+      {(1u << 2) | (1u << 6) | (1u << 14), 1},
+      {(1u << 4) | (1u << 5), 2},
+      {(1u << 5) | (1u << 6), 2},
   };
   t.regionCount = static_cast<uint8_t>(sizeof(regions) / sizeof(regions[0]));
   for (int i = 0; i < t.regionCount; ++i) {
@@ -159,10 +159,10 @@ constexpr Terrain buildCastleField() {
     t.regions[i].medals = regions[i].medals;
   }
 
-  t.special[4] = static_cast<uint8_t>(Special::Recall);
-  t.special[5] = static_cast<uint8_t>(Special::Recall);
-  t.special[9] = static_cast<uint8_t>(Special::Recall);
-  t.special[10] = static_cast<uint8_t>(Special::Recall);
+  t.special[11] = static_cast<uint8_t>(Special::Recall);
+  t.special[12] = static_cast<uint8_t>(Special::Recall);
+  t.special[13] = static_cast<uint8_t>(Special::Recall);
+  t.special[14] = static_cast<uint8_t>(Special::Recall);
   return t;
 }
 

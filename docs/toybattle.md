@@ -256,6 +256,37 @@ sample is 600.
   the most distinctive-looking image in the gallery and the obvious thing to
   trace by mistake. If the winter look is ever wanted it is a theme over an
   existing terrain, not new data.
+## Castle Field, and why it was traced twice
+
+The board in the tree is the merge of two independent readings of the same
+board, and each caught an error in the other. That is the whole argument for the
+editor in one paragraph.
+
+**Mario's trace corrected mine on the wells.** I had each well joining the
+*outer* base of its shoulder; it joins the *inner* one. The outer bases have
+exactly two paths, to their H.Q. and to their inner neighbour, and nothing runs
+down the outside of the board at all. That one edge, mirrored four times,
+changes the shoulder regions from four-base quadrilaterals into three-base
+triangles -- so it is a third cheaper to take a shoulder than I had it, and the
+connectivity through the middle of the board is different.
+
+**My reading corrected his on the river.** His trace has no region for the four
+medals sitting in the water: two between the left and centre bridges, two
+between the centre and the right. That water is a closed zone fenced by exactly
+those two bridges, with the bridge parapets closing each end, so it is a region
+of two bases -- the cheapest medals on the board, and what makes the objective
+reachable in three region captures rather than four.
+
+Both readings agreed on everything else, including the part I was least sure of:
+the centre regions really are fenced by five bases, because their far edge is
+the road that runs through an H.Q., and an H.Q. is part of a boundary without
+being part of the price.
+
+The arithmetic that falls out: 4 shoulders at 1, 2 river gaps at 2, 2 centres at
+3, so 14 medals against an objective of 7. `testCastleFieldMatchesTheBoard`
+asserts that shape rather than three region indices, precisely because the board
+has now been retraced once and could be again.
+
 - **Boards are traced in `tools_local/terrain-editor`, not by eye.** Reading a
   board off a photograph is the one part of this game that does not survive
   being done by inspection: Castle Field is regular and came out fine, La

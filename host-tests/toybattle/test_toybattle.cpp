@@ -208,10 +208,18 @@ static void testCastleFieldMatchesTheBoard() {
   }
   check(wells == 4, "four wells, and the retreat is Castle Field's effect");
 
-  // The centre prize plus both river gaps is exactly the objective. That is
-  // the board's arithmetic, and getting a region's medals wrong would break it.
-  check(b.regions[2].medals + b.regions[3].medals + b.regions[4].medals == b.medalsObjective,
-        "the far centre plus both river gaps is exactly 7");
+  // Stated as the whole shape of the board rather than as three indices, so
+  // that retracing it -- which has already happened once, and corrected the
+  // wells -- cannot quietly reorder its way past this.
+  int shape[10] = {}, kinds = 0;
+  for (int r = 0; r < b.regionCount; ++r) ++shape[b.regions[r].medals];
+  check(shape[1] == 4, "four shoulder regions paying 1: the wells sit on the inner bases");
+  check(shape[2] == 2, "two river gaps paying 2: the water between adjacent bridges");
+  check(shape[3] == 2, "two centre regions paying 3");
+  for (int m = 1; m < 10; ++m) kinds += shape[m] > 0 ? 1 : 0;
+  check(kinds == 3, "and nothing else");
+  // A centre prize plus both river gaps is exactly the objective.
+  check(3 + 2 + 2 == b.medalsObjective, "centre plus both gaps is exactly 7");
 }
 
 // --- targeted tests --------------------------------------------------------
