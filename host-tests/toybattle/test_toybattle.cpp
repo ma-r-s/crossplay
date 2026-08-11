@@ -179,11 +179,25 @@ static void testEveryTerrainIsStructurallySound() {
     // won by capture, which would make the objective a decoration.
     check(medalsOnBoard >= b.medalsObjective, who);
 
-    // A gate is meaningful only on a Gate base, and a Gate base without one
-    // admits nothing at all.
+    // A gate is the one special that can sit on an H.Q. as well as a base: it
+    // restricts what may be PLACED, and an H.Q. is a thing you place on to win.
+    // Tropical Pool gates one H.Q. per side.
+    //
+    // This check used to read `specialAt(slot) == Gate` for every slot, which
+    // is false for an H.Q. by construction -- `specialAt` returns None for
+    // anything that is not a base -- so it asserted that no H.Q. could ever be
+    // gated. It passed for years because no board had one, and the very field
+    // it was testing says otherwise: `gate` is indexed by slot precisely
+    // "because the gate covers the H.Q. too".
     for (int slot = 0; slot < b.slotCount(); ++slot) {
-      const bool gated = b.specialAt(slot) == Special::Gate;
-      check(gated == (b.gate[slot] != 0), who);
+      if (b.isBase(slot)) {
+        check((b.specialAt(slot) == Special::Gate) == (b.gate[slot] != 0), who);
+      } else {
+        // An H.Q. carries no special at all; its gate, if any, stands alone.
+        check(b.specialAt(slot) == Special::None, who);
+      }
+      // Whatever is gated admits something, and nothing outside the eight kinds.
+      if (b.gate[slot] != 0) check((b.gate[slot] >> kTroopKinds) == 0, who);
     }
     for (int base = 0; base < b.baseCount; ++base) {
       check(b.special[base] <= static_cast<uint8_t>(Special::Nullify), who);

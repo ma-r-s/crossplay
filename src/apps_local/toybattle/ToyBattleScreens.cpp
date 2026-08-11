@@ -186,9 +186,15 @@ void drawSlot(toybox::Screen& screen, const fui::Point at, const tb::Game& game,
   const bool isHq = b.isHq(slot);
   const int holder = b.isBase(slot) ? game.occupantSeat(slot) : tb::kNoSeat;
   const tb::Special special = game.specialBases ? b.specialAt(slot) : tb::Special::None;
-  // Square corners mean this base has a rule about what may be placed on it.
+  // Square corners mean this SLOT has a rule about what may be placed on it.
   // A silhouette says it even with a troop standing on top; a mark would not.
-  const bool restricts = special == tb::Special::Gate || special == tb::Special::Nullify;
+  //
+  // Asking `specialAt` alone was not enough: it returns None for an H.Q. by
+  // construction, so Tropical Pool's two gated H.Q. drew round -- the one thing
+  // on the board you must bring a 6 or a 7 to, looking like the two you can
+  // take with anything. A gate is per SLOT, so the silhouette is too.
+  const bool gated = game.specialBases && b.gate[slot] != 0;
+  const bool restricts = gated || special == tb::Special::Gate || special == tb::Special::Nullify;
   const uint8_t corner = restricts ? 0 : 8;
 
   // A dithered ground with a black edge. The dither is in the fill because

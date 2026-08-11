@@ -592,6 +592,43 @@ in. `"alignTolerance": 30` produces precisely those four and leaves base 2 out.
 Sea's top row is 21 apart as traced and 26 once spread, and a tolerance of 25
 missed it by one.
 
+## Tropical Pool
+
+Traced 2026-08-11, the sixth real terrain and the only one where a special
+**restricts what may be placed** rather than firing after a troop lands.
+Thirteen bases, five gated, and **four H.Q. -- two per player, one of each pair
+gated to 6 and 7**, which is exactly what `kMaxHq` allows and what `gate` being
+indexed by slot was always for. Eight regions, twelve medals, objective 6.
+Point-symmetric under a half turn, gate values and all.
+
+**"Symmetrical over the diagonal" has meant rotational every time.** Volcanic
+Jungle was the same. Tested here against all five candidates: only the half turn
+is an involution with matching kinds and swapped seats (worst miss 18 units);
+neither diagonal is even an involution (119 and 128). Detect it, do not read it.
+
+**The trace was missing one path, and the board's own symmetry named it.** Two
+regions failed to close, both at bases 1 and 4, and the edge list was
+rotationally symmetric in every place but one: `(4,10)` existed and its half-turn
+partner `(1,4)` did not. Base 1's partner is base 10 and base 4 maps to itself,
+so `1-4` was determined rather than chosen. Added, and every region closes.
+
+**It broke two things that had encoded "only a base can be gated".**
+
+The structural test read `specialAt(slot) == Gate` for every slot, and
+`specialAt` returns None for anything that is not a base -- so it asserted that
+no H.Q. could ever be gated, and passed for as long as no board had one. It now
+states the base case and the H.Q. case separately, and additionally requires any
+gate bitmask to stay inside the eight troop kinds.
+
+The board drew the silhouette from `specialAt` too, so Tropical Pool's two gated
+H.Q. came out round: the one thing you must bring a 6 or a 7 to looked like the
+two you can take with anything. **A gate is per slot, so the silhouette is too.**
+
+**The joker cannot pass any of its gates**, because none of them list it. That is
+what the trace says and it is a real consequence -- Kwak can never enter a gated
+base nor take a gated H.Q. -- but La Croisette's gate *does* list the joker
+alongside 4-7, so the two boards disagree. Flagged rather than reconciled.
+
 ## Open items
 
 - **The "Winter board" is not a ninth terrain.** BGG image 9252799, posted by

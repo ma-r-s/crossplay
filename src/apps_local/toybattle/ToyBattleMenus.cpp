@@ -132,7 +132,7 @@ void miniBoard(toybox::Screen& screen, const fui::Rect& box, const tb::Terrain& 
     // silhouette rule the full board uses -- but only while it is big enough to
     // read as a decision. Below that it is one node that does not match the
     // others, which reads as a stray mark rather than as a rule.
-    const int16_t radius = (node >= 14 && terrain.isBase(slot) && terrain.gate[slot] != 0) ? 0 : 4;
+    const int16_t radius = (node >= 14 && terrain.gate[slot] != 0) ? 0 : 4;
 
     if (held == 0) {
       screen.target().fill(cell, ink, radius);

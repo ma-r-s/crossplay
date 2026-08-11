@@ -192,10 +192,18 @@ extern const Terrain kBattlefield;
 // plumb. Six regions, eleven medals, objective 5.
 extern const Terrain kCaribbeanSea;
 
+// TROPICAL POOL, traced by Mario 2026-08-11. The gated one, and the only board
+// where a special restricts what may be PLACED rather than firing after a troop
+// lands. Five gated bases and FOUR H.Q. -- two per player, one of each pair
+// gated to 6 and 7 -- which is what `gate` being indexed by slot was always for.
+// Thirteen bases, eight regions, twelve medals, objective 6. Point-symmetric
+// under a half turn, gates and all.
+extern const Terrain kTropicalPool;
+
 // Index into the table `terrainAt` walks. Stored in `Game::terrain`, so the
 // order is part of the save and wire format: append, never reorder.
-enum class TerrainId : uint8_t { CastleField = 0, ProvingGround, CityOfClouds, VolcanicJungle, CursedCemetery, Battlefield, CaribbeanSea };
-constexpr int kTerrainCount = 7;
+enum class TerrainId : uint8_t { CastleField = 0, ProvingGround, CityOfClouds, VolcanicJungle, CursedCemetery, Battlefield, CaribbeanSea, TropicalPool };
+constexpr int kTerrainCount = 8;
 
 const Terrain& terrainAt(int index);
 
