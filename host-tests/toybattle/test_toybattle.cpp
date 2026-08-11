@@ -688,7 +688,10 @@ static void testValidatorRejectsCorruption() {
   };
 
   mutant([](Game& m) { m.turn = 200; }, "a turn that would index past the seats is rejected");
-  mutant([](Game& m) { m.terrain = 9; }, "a terrain index with no terrain behind it is rejected");
+  // Derived, not written out: this said 9 until La Croisette became terrain 9,
+  // at which point the mutant stopped being a mutant and the suite caught it.
+  mutant([](Game& m) { m.terrain = static_cast<uint8_t>(kTerrainCount); },
+         "a terrain index with no terrain behind it is rejected");
   mutant([](Game& m) { m.phase = 7; }, "a phase outside the enum is rejected");
   mutant([](Game& m) { m.ending = 9; }, "an ending outside the enum is rejected");
   mutant([](Game& m) { m.winner = 5; }, "a winner who is not a seat is rejected");

@@ -207,10 +207,19 @@ extern const Terrain kTropicalPool;
 // objective 7. Point-symmetric under a half turn.
 extern const Terrain kStationMetalX;
 
+// LA CROISETTE, traced by Mario 2026-08-11 -- the 2026 expansion, and the only
+// board here that is not from the base game. A beach down the left side and a
+// town down the right: three piers (two gated 4-7-or-joker, one that nullifies),
+// two ice cream vans that draw, two police boxes that suppress. All four special
+// kinds on one board, which no printed base-game terrain does. Eleven medals,
+// objective 5 -- the floor of half, as on Caribbean Sea. Mirror-symmetric about
+// the horizontal midline, which is "vertical" here because that mirrors y.
+extern const Terrain kLaCroisette;
+
 // Index into the table `terrainAt` walks. Stored in `Game::terrain`, so the
 // order is part of the save and wire format: append, never reorder.
-enum class TerrainId : uint8_t { CastleField = 0, ProvingGround, CityOfClouds, VolcanicJungle, CursedCemetery, Battlefield, CaribbeanSea, TropicalPool, StationMetalX };
-constexpr int kTerrainCount = 9;
+enum class TerrainId : uint8_t { CastleField = 0, ProvingGround, CityOfClouds, VolcanicJungle, CursedCemetery, Battlefield, CaribbeanSea, TropicalPool, StationMetalX, LaCroisette };
+constexpr int kTerrainCount = 10;
 
 const Terrain& terrainAt(int index);
 
