@@ -829,9 +829,11 @@ bool Game::placeableWith(int seat, int slot, Troop kind, bool hookWaiver, uint64
   if (holder != kNoSeat && holder != seat && !covers(kind, occupantTroop(slot))) return false;
 
   if (connected) return true;
-  // Hook's waiver is a troop effect, and a Nullify base is where troop effects
-  // do not happen -- so Hook cannot use it to land on one. See docs/toybattle.md
-  // for why this reading was chosen over the loose one.
+  // Hook is not barred from a base that nullifies effects -- its waiver just
+  // does not work there, so it has to trace back to the H.Q. like anything
+  // else. That is why this sits BELOW the connected check and not above it:
+  // above, it would refuse the placement outright, which is the strict reading
+  // Mario ruled against on 2026-08-11. `testGateAndNullify` pins both halves.
   if (specialBases && b.specialAt(slot) == Special::Nullify) return false;
   return hookWaiver && kind == Troop::Hook;
 }

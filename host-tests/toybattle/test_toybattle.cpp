@@ -538,6 +538,21 @@ static void testGateAndNullify() {
   give(h, 0, Troop::Hook, 1);
   check(!h.canPlaceHere(0, 4, Troop::Hook, true), "Hook cannot jump onto a base that nullifies effects");
   check(h.canPlaceHere(0, 7, Troop::Hook, true), "though it still reaches an ordinary far base");
+
+  // Mario settled this on 2026-08-11, and it is the half the assertions above
+  // do not cover: Hook is NOT barred from a nullifying base. Its waiver simply
+  // does not work there, so it has to trace back to the H.Q. like anything
+  // else. The strict reading -- refuse the placement outright -- passes every
+  // check above and fails all three of these, which is why they are here.
+  Game hc = bare();
+  give(hc, 0, Troop::Hook, 1);
+  put(hc, 0, 0, Troop::Roxy);
+  put(hc, 0, 1, Troop::Roxy);
+  put(hc, 0, 2, Troop::Roxy);
+  put(hc, 0, 3, Troop::Roxy);
+  check(hc.canPlaceHere(0, 4, Troop::Hook, true), "a connected Hook does land on a nullifying base");
+  check(hc.isLegal(Move::place(4, Troop::Hook, false)), "and the move stands with the waiver declined");
+  check(!hc.isLegal(Move::place(4, Troop::Hook, true)), "but claiming the waiver there is still no move");
 }
 
 static void testBaseEffects() {

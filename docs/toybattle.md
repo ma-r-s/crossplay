@@ -130,16 +130,21 @@ Two global rules govern them when they land:
 The last two are restrictions that apply _before_ placing, not effects that fire
 after.
 
-**One reading had to be chosen, and it is worth Mario's eye.** Station Metal-X
-says troop effects are not applied on its bases. Hook's effect _is_ the
-connection waiver, so the strict reading is that Hook cannot use it to land on a
-Metal-X base, and a Cap'n placed on one grants no extra placement. The loose
-reading would treat the waiver as spent before the base is reached. The engine
-implements the strict one, because the alternative lets a troop use an effect on
-a base defined as the place effects do not happen, and because a rule that
-sometimes applies is worse than either rule. Both are defensible; if the printed
-board contradicts this, it is a one-line change and the test that pins it is
-`testGateAndNullify`.
+**Mario settled this on 2026-08-11, and it is not the strict reading.** Station
+Metal-X says troop effects are not applied on its bases. Hook's effect _is_ the
+connection waiver, which raised the question of whether Hook may go there at
+all. The answer is **yes: Hook can be placed on a nullifying base, it just
+cannot use its effect to get there.** It has to trace back to the H.Q. like any
+other troop. The same goes for a Cap'n placed on one, which grants no extra
+placement.
+
+The distinction is easy to lose because both readings agree on every case where
+Hook is out of reach, and they differ only when Hook is legally connected
+anyway. In the code that difference is one line's *position*: the Nullify check
+sits below the connection test in `canPlaceHere`, not above it. Above it would
+be the strict reading. `testGateAndNullify` pins both halves, and the strict
+version was planted as a mutant to confirm the assertions actually discriminate
+-- they do, and only the connected case catches it.
 
 The ordering matters and is the aid's, not ours: **all troop effects of the turn
 first, then the base effects, in the order the bases were occupied.** A Cap'n
@@ -694,14 +699,6 @@ four triangles really are that thin.
   the most distinctive-looking image in the gallery and the obvious thing to
   trace by mistake. If the winter look is ever wanted it is a theme over an
   existing terrain, not new data.
-- **Hook on a Nullify base is now a live question, not a hypothetical.** The
-  rule in the tree is that Hook cannot land there: Hook's effect *is* the
-  connection waiver, a Nullify base is where troop effects do not apply, so the
-  placement has nothing to stand on and is refused with `Refusal::Nullified`.
-  Until now the only Nullify base was one corner of Caribbean Sea and the case
-  almost never came up. Station Metal-X has three of them across the middle of
-  the map, so this fires constantly. It is one line and one test
-  (`testGateAndNullify`); it needs a look at the printed sheet, not an argument.
 ## Castle Field, and why it was traced twice
 
 The board in the tree is the merge of two independent readings of the same
