@@ -470,7 +470,11 @@ fui::Rect buildBoard(toybox::Screen& screen, const BoardModel& model) {
     const int16_t callW = 150;
     fui::ButtonProps primary;
     primary.label = model.primaryLabel;
-    primary.action = model.primaryEnabled ? ActionPrimary : fui::NO_ACTION;
+    // The cast is not decoration: ActionPrimary comes from this file's
+    // anonymous enum and NO_ACTION is a plain fui::ActionId, and GCC rejects
+    // that mix under -Werror while clang says nothing. It built here and
+    // broke every CI run on xteink. Battleship and Chess spell it this way.
+    primary.action = model.primaryEnabled ? static_cast<fui::ActionId>(ActionPrimary) : fui::NO_ACTION;
     if (!model.primaryEnabled) primary.styles = toybox::disabledButtonStyles();
     primary.borderEdges = fui::EdgesNone;
     screen.button(primary, fui::makeRect(pillRow.x, pillRow.y, static_cast<int16_t>(pillRow.width - callW - kCardGap),
