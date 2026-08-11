@@ -461,6 +461,41 @@ property of how the reference picture was loaded, not of the terrain, so
 Field's generated source is byte-identical after the change, which is what says
 the normalisation is a no-op where it should be.
 
+## Volcanic Jungle
+
+Traced by Mario 2026-08-11, the third real terrain and the first that is not
+mirror-symmetric. It is a **complete 3x5 lattice** -- thirteen bases and both
+H.Q. filling every cell -- with 180-degree ROTATIONAL symmetry: every slot has a
+partner under a half turn, including the two H.Q. (seat 0 bottom-left, seat 1
+top-right), the two Shove bases, and the two diagonal paths, which are each
+other's partner. Six regions, two of them pentagons that close across a
+diagonal. Fourteen medals, objective 8.
+
+Point symmetry needs no new machinery: on a complete grid, making the x levels
+and the y levels each symmetric about the midline is exactly what a half turn
+requires, so `"symmetry": "both"` is right for it.
+
+**Its objective is the one number that does not follow the pattern.** Castle
+Field is 7 of 14 and City of Clouds 8 of 16, both exactly half; this is 8 of 14,
+above half. Flagged rather than corrected -- it is Mario's reading of the printed
+board and there is no published source to check it against.
+
+**No single alignment tolerance can work, and this board is why.** Castle Field's
+wells sit 35 units inside its corner bases and must stay there; Volcanic Jungle's
+centre column is 40 units wide and is all one column. The real distinction on one
+board is smaller than the hand jitter on another, so the ranges overlap and any
+global number is wrong for somebody. Boards declare `"alignTolerance"` (default
+20, this one 30), and `to_cpp.py` prints how many levels it merged on each axis
+so a snap that folds two real columns into one cannot pass unseen.
+
+**A rectangular region has a line of equally roomy points, not one.** The medal
+anchor search kept the first maximum it met, and on a point-symmetric board the
+two halves get scanned in different orders -- so partner regions disagreed by
+eleven units, five pixels, visible. Ties within half a unit of clearance now go
+to the point nearest the region's centre, which is both symmetric and where the
+eye expects it. The search also refines four times rather than twice, because
+landing in the right region is not the same as converging tighter than the eye.
+
 ## Open items
 
 - **The "Winter board" is not a ninth terrain.** BGG image 9252799, posted by
