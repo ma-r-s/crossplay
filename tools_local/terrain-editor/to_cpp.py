@@ -47,12 +47,13 @@ def align(values, tol=20):
     Anything within `tol` of a running cluster joins it and the whole cluster
     takes its mean, so rows line up and columns line up.
 
-    The tolerance is in normalised units, and 20 is 2% of the board. It was 4%
-    first, which is wider than hand jitter but NOT narrower than every real
-    distinction: Castle Field's wells sit 35 units inside its corner bases on
-    purpose, and 4% pulled them onto the same column and quietly reshaped the
-    board. 2% still closes every gap either traced board actually has -- the
-    widest was 16 -- and leaves the wells where the printed board puts them.
+    The tolerance is in normalised units and belongs to the BOARD, not to this
+    function, because no global number can work. Castle Field's wells sit 35
+    units inside its corner bases and must stay there; Volcanic Jungle's centre
+    column is 40 units wide and is all one column. The real distinction on one
+    board is smaller than the hand jitter on another, so the two ranges overlap
+    and any single tolerance is wrong for somebody. Boards declare
+    "alignTolerance"; 20 is the default because it is right for most.
     """
     order = sorted(range(len(values)), key=lambda i: values[i])
     out = list(values)
@@ -141,14 +142,21 @@ def medal_anchor(points):
 
     xs = [p[0] for p in ring]
     ys = [p[1] for p in ring]
-    bx0, bx1, by0, by1 = min(xs), max(xs), min(ys), max(ys)
+    # A rectangular region has a whole LINE of equally roomy points, not one, so
+    # "the roomiest" does not pick a spot by itself -- the scan just keeps the
+    # first it meets, and on a point-symmetric board the two halves are scanned
+    # in different orders and disagree. Ties go to the point nearest the middle,
+    # which is both symmetric and where the eye expects it.
+    mx = sum(xs) / n
+    my = sum(ys) / n
+    x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
     best = None
-    # Coarse then fine, which is plenty for polygons of three to six vertices.
-    for steps, (x0, x1, y0, y1) in ((24, (bx0, bx1, by0, by1)), (24, (0, 0, 0, 0))):
-        if best is not None:
-            span = max(bx1 - bx0, by1 - by0) / 12.0
-            x0, x1 = best[0] - span, best[0] + span
-            y0, y1 = best[1] - span, best[1] + span
+    # Coarse, then three refinements each a quarter of the last window. Two
+    # passes left the two halves of a point-symmetric board eleven units apart,
+    # which is five pixels on the panel and visible -- the search has to
+    # converge tighter than the eye, not merely land in the right region.
+    for _ in range(4):
+        steps = 24
         for i in range(steps + 1):
             for j in range(steps + 1):
                 x = x0 + (x1 - x0) * i / steps
@@ -156,8 +164,19 @@ def medal_anchor(points):
                 if not inside(x, y):
                     continue
                 c = clearance(x, y)
-                if best is None or c > best[2]:
-                    best = (x, y, c)
+                if c <= 0:
+                    continue
+                pull = -math.hypot(x - mx, y - my)
+                # Half a unit of clearance is well under a pixel on the panel,
+                # so anything inside that counts as a tie.
+                if best is None or c > best[2] + 0.5 or (c > best[2] - 0.5 and pull > best[3]):
+                    best = (x, y, c, pull)
+        if best is None:
+            break
+        wx, wy = (x1 - x0) / 4.0, (y1 - y0) / 4.0
+        x0, x1 = best[0] - wx, best[0] + wx
+        y0, y1 = best[1] - wy, best[1] + wy
+
     if best is None:
         return (round(sum(xs) / n), round(sum(ys) / n))
     return (round(best[0]), round(best[1]))
@@ -301,8 +320,19 @@ def emit(model):
     sym = model.get("symmetry", "none")
     if sym not in ("none", "horizontal", "vertical", "both"):
         raise SystemExit(f"unknown symmetry {sym!r}: none, horizontal, vertical or both")
+    tol = int(model.get("alignTolerance", 20))
     if sym != "none":
-        xs, ys = align(xs), align(ys)
+        before = (sorted(set(xs)), sorted(set(ys)))
+        xs, ys = align(xs, tol), align(ys, tol)
+        after = (sorted(set(xs)), sorted(set(ys)))
+        # Say what was merged. A snap that silently folds two real columns into
+        # one is the failure mode here, and it is invisible unless it is
+        # printed.
+        print(
+            f"  align(tol={tol}): x {len(before[0])}->{len(after[0])} levels, "
+            f"y {len(before[1])}->{len(after[1])} levels",
+            file=sys.stderr,
+        )
     if sym in ("horizontal", "both"):
         xs = symmetrise(xs)
     if sym in ("vertical", "both"):

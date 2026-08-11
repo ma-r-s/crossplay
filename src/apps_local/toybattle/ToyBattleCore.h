@@ -163,10 +163,18 @@ extern const Terrain kProvingGround;
 // Field uses.
 extern const Terrain kCityOfClouds;
 
+// VOLCANIC JUNGLE, traced by Mario 2026-08-11. A complete 3x5 lattice with two
+// Shove bases and two diagonal paths, and the first board with 180-degree
+// rotational symmetry rather than mirror symmetry: every slot has a partner
+// under a half turn, including the two H.Q. and the two Shove bases, and both
+// diagonals are each other's partner. Six regions, two of them pentagons that
+// close across a diagonal. Fourteen medals, objective 8.
+extern const Terrain kVolcanicJungle;
+
 // Index into the table `terrainAt` walks. Stored in `Game::terrain`, so the
 // order is part of the save and wire format: append, never reorder.
-enum class TerrainId : uint8_t { CastleField = 0, ProvingGround, CityOfClouds };
-constexpr int kTerrainCount = 3;
+enum class TerrainId : uint8_t { CastleField = 0, ProvingGround, CityOfClouds, VolcanicJungle };
+constexpr int kTerrainCount = 4;
 
 const Terrain& terrainAt(int index);
 
