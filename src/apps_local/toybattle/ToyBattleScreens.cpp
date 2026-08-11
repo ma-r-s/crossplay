@@ -2,14 +2,12 @@
 
 #include <cstdio>
 
-// Three board treatments, built together so they can be photographed side by
-// side and one chosen. Options described in prose get judged wrong; options
-// rendered at native size get judged.
+// Two board treatments, built together so they can be photographed side by side
+// and one chosen. Options described in prose get judged wrong; options rendered
+// at native size get judged.
 //
-//   1 SLABS  bases as chunky dithered slabs, thick paths, rack in one row.
-//   2 DISCS  bases as light rings, thin paths, rack in one row.
-//   3 TALL   slabs again, but the board takes the height back off the rack,
-//            which becomes two rows of larger tiles.
+//   1 SLABS  bases as chunky dithered slabs, thick paths
+//   2 DISCS  bases as light rings, thin paths
 //
 // Build with: PLATFORMIO_BUILD_FLAGS="-DTOYBATTLE_BOARD=2" ./scripts_local/sim-shot.sh ...
 #ifndef TOYBATTLE_BOARD
@@ -22,16 +20,8 @@ namespace {
 namespace tb = toybattle;
 
 constexpr int16_t kBoardTop = toybox::kHeaderHeight + toybox::kGutter * 2;  // 100
-
-#if TOYBATTLE_BOARD == 3
-constexpr int16_t kRackRows = 2;
-constexpr int16_t kRackTile = 92;
-#else
-constexpr int16_t kRackRows = 1;
 constexpr int16_t kRackTile = 54;
-#endif
-
-constexpr int16_t kRackHeight = kRackTile * kRackRows + 8;
+constexpr int16_t kRackHeight = kRackTile + 8;
 constexpr int16_t kCapsuleTop = 800 - toybox::kMargin - toybox::kPillHeight;
 constexpr int16_t kRackTop = kCapsuleTop - toybox::kGutter - kRackHeight;
 
@@ -63,6 +53,129 @@ void centred(toybox::Screen& screen, const fui::Rect box, const char* text, cons
                        style);
 }
 
+// --- the marks -------------------------------------------------------------
+//
+// A design language, because eight troops and seven kinds of special base is
+// more than anyone holds in their head, and a player who has to remember what
+// a 5 does is playing the manual rather than the game.
+//
+// Two rules carry it:
+//
+//   The SILHOUETTE says whether a base restricts what may be placed there. A
+//   base with square corners has a rule about its contents; every other base is
+//   rounded. Silhouette rather than a mark, because it survives having a troop
+//   standing on top of it.
+//
+//   A BADGE says what a base does after a troop lands. Filled disc, glyph
+//   knocked out white, pinned to the top-right so it never sits where the
+//   troop's number goes.
+//
+// The same glyphs appear under the numbers on the rack, so the mark a player
+// learns on their own cards is the mark they read on the board.
+
+void glyph(toybox::Screen& screen, const fui::Point at, const int16_t size, const tb::Special what, const bool white) {
+  const fui::Paint ink = fui::Paint::solid(white ? fui::Color::White : fui::Color::Black);
+  const int16_t h = size / 2;
+  const auto tri = [&](const int dx, const int dy) {
+    // A triangle pointing along (dx, dy): home, away, or sideways.
+    if (dy < 0) {
+      screen.target().triangle(fui::Point{static_cast<int16_t>(at.x), static_cast<int16_t>(at.y - h)},
+                               fui::Point{static_cast<int16_t>(at.x - h), static_cast<int16_t>(at.y + h)},
+                               fui::Point{static_cast<int16_t>(at.x + h), static_cast<int16_t>(at.y + h)}, ink);
+    } else if (dy > 0) {
+      screen.target().triangle(fui::Point{static_cast<int16_t>(at.x), static_cast<int16_t>(at.y + h)},
+                               fui::Point{static_cast<int16_t>(at.x - h), static_cast<int16_t>(at.y - h)},
+                               fui::Point{static_cast<int16_t>(at.x + h), static_cast<int16_t>(at.y - h)}, ink);
+    } else {
+      screen.target().triangle(fui::Point{static_cast<int16_t>(at.x + h), static_cast<int16_t>(at.y)},
+                               fui::Point{static_cast<int16_t>(at.x - h), static_cast<int16_t>(at.y - h)},
+                               fui::Point{static_cast<int16_t>(at.x - h), static_cast<int16_t>(at.y + h)}, ink);
+    }
+    (void)dx;
+  };
+  const auto bar = [&](const int16_t y, const int16_t w, const int16_t t) {
+    screen.target().fill(fui::makeRect(static_cast<int16_t>(at.x - w / 2), y, w, t), ink);
+  };
+
+  switch (what) {
+    case tb::Special::Recall:  // comes home to your rack
+      tri(0, -1);
+      break;
+    case tb::Special::Draw:  // arrives from the reserve
+      tri(0, 1);
+      break;
+    case tb::Special::Exhume:  // up, but out of the ground
+      tri(0, -1);
+      bar(static_cast<int16_t>(at.y + h), size, 2);
+      break;
+    case tb::Special::Shove:  // pushed sideways
+      tri(1, 0);
+      break;
+    case tb::Special::Suppress:  // held down, so a solid block
+      screen.target().fill(fui::makeRect(static_cast<int16_t>(at.x - h), static_cast<int16_t>(at.y - h + 1), size,
+                                         static_cast<int16_t>(size - 2)),
+                           ink, 2);
+      break;
+    case tb::Special::Gate:  // only some values, so a narrowed way through
+      bar(static_cast<int16_t>(at.y - h), size, 2);
+      bar(static_cast<int16_t>(at.y + h - 2), size, 2);
+      break;
+    case tb::Special::Nullify:  // effects struck out
+      screen.target().line(fui::Point{static_cast<int16_t>(at.x - h), static_cast<int16_t>(at.y - h)},
+                           fui::Point{static_cast<int16_t>(at.x + h), static_cast<int16_t>(at.y + h)}, 3, ink);
+      screen.target().line(fui::Point{static_cast<int16_t>(at.x + h), static_cast<int16_t>(at.y - h)},
+                           fui::Point{static_cast<int16_t>(at.x - h), static_cast<int16_t>(at.y + h)}, 3, ink);
+      break;
+    case tb::Special::None:
+      break;
+  }
+}
+
+// What a troop does, in the same alphabet. Blank for the two that do nothing,
+// because a mark meaning "no mark" is worse than the space.
+void troopMark(toybox::Screen& screen, const fui::Point at, const int16_t size, const tb::Troop kind) {
+  const fui::Paint ink = fui::Paint::solid(fui::Color::Black);
+  const int16_t h = size / 2;
+  switch (kind) {
+    case tb::Troop::Skully:  // two arrive
+      glyph(screen, fui::Point{static_cast<int16_t>(at.x - h + 1), at.y}, size, tb::Special::Draw, false);
+      glyph(screen, fui::Point{static_cast<int16_t>(at.x + h - 1), at.y}, size, tb::Special::Draw, false);
+      break;
+    case tb::Troop::Star:  // one arrives
+      glyph(screen, at, size, tb::Special::Draw, false);
+      break;
+    case tb::Troop::Capn:  // and another after it
+      screen.target().stroke(
+          fui::makeRect(static_cast<int16_t>(at.x - h - 1), static_cast<int16_t>(at.y - h), size, size), ink, 2, 2);
+      screen.target().fill(fui::makeRect(static_cast<int16_t>(at.x + 1), static_cast<int16_t>(at.y - h + 2),
+                                         static_cast<int16_t>(size - 4), static_cast<int16_t>(size - 4)),
+                           ink, 2);
+      break;
+    case tb::Troop::Jumbo:  // one leaves, struck out
+      glyph(screen, at, size, tb::Special::Nullify, false);
+      break;
+    case tb::Troop::Hook:  // goes anywhere, so sideways past everything
+      glyph(screen, at, size, tb::Special::Shove, false);
+      break;
+    case tb::Troop::XB42:  // reaches into their rack
+      toybox::ring(screen, at.x, at.y, h, 2, fui::Color::Black, fui::Color::White);
+      toybox::disc(screen, at.x, at.y, 2, fui::Color::Black);
+      break;
+    case tb::Troop::Kwak:
+    case tb::Troop::Roxy:
+      break;
+  }
+}
+
+// The badge a special base wears. Pinned top-right, clear of the numeral.
+void baseBadge(toybox::Screen& screen, const fui::Rect box, const tb::Special what) {
+  if (what == tb::Special::None || what == tb::Special::Gate || what == tb::Special::Nullify) return;
+  const int16_t r = 9;
+  const fui::Point at{static_cast<int16_t>(box.right() - 2), static_cast<int16_t>(box.y + 2)};
+  toybox::disc(screen, at.x, at.y, r, fui::Color::Black);
+  glyph(screen, at, 8, what, true);
+}
+
 // One base, drawn where `slotCenter` says it is.
 void drawSlot(toybox::Screen& screen, const fui::Point at, const tb::Game& game, const int slot, const bool candidate) {
   const tb::Terrain& b = game.board();
@@ -71,6 +184,11 @@ void drawSlot(toybox::Screen& screen, const fui::Point at, const tb::Game& game,
       fui::makeRect(static_cast<int16_t>(at.x - half), static_cast<int16_t>(at.y - half), kSlot, kSlot);
   const bool isHq = b.isHq(slot);
   const int holder = b.isBase(slot) ? game.occupantSeat(slot) : tb::kNoSeat;
+  const tb::Special special = game.specialBases ? b.specialAt(slot) : tb::Special::None;
+  // Square corners mean this base has a rule about what may be placed on it.
+  // A silhouette says it even with a troop standing on top; a mark would not.
+  const bool restricts = special == tb::Special::Gate || special == tb::Special::Nullify;
+  const uint8_t corner = restricts ? 0 : 8;
 
 #if TOYBATTLE_BOARD == 2
   // DISCS: a ring, filled only when somebody holds it. Lightest ink of the
@@ -82,8 +200,8 @@ void drawSlot(toybox::Screen& screen, const fui::Point at, const tb::Game& game,
   // SLABS: a dithered ground with a black edge. The dither is in the fill
   // because there is no grey ink on this device.
   screen.target().fill(box, fui::Paint::dither(holder == tb::kNoSeat ? fui::Color::LightGray : fui::Color::DarkGray),
-                       8);
-  screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), isHq ? 5 : 3, 8);
+                       corner);
+  screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), isHq ? 5 : 3, corner);
 #endif
 
   if (isHq) {
@@ -112,6 +230,8 @@ void drawSlot(toybox::Screen& screen, const fui::Point at, const tb::Game& game,
     }
   }
 
+  baseBadge(screen, box, special);
+
   if (candidate) {
     // Mark the base, not the troop standing on it.
     toybox::bracket(screen,
@@ -128,8 +248,9 @@ void drawSlot(toybox::Screen& screen, const fui::Point at, const tb::Game& game,
 int16_t slotRadius() { return kSlot / 2 + 6; }
 
 fui::Point slotCenter(const fui::DeviceContext& device, const tb::Terrain& board, const int slot) {
-  // The terrain stores 0..1000 on both axes; the board rect is what turns that
-  // into pixels, and it is the only place the mapping happens.
+  // Straight from the terrain. The coordinates are already balanced: the
+  // tracing tool derives an even layout from the graph and bakes the result
+  // into the table, so the device never pays for the algorithm.
   const int16_t left = boardLeft(device);
   const int16_t inset = kSlot / 2 + 4;
   const int16_t usableW = static_cast<int16_t>(448 - inset * 2);
@@ -149,13 +270,9 @@ int slotAt(const fui::DeviceContext& device, const tb::Terrain& board, const int
 }
 
 fui::Rect rackTile(const fui::DeviceContext& device, const int kind) {
-  const int16_t perRow = static_cast<int16_t>(tb::kTroopKinds / kRackRows);
-  const int16_t row = static_cast<int16_t>(kind / perRow);
-  const int16_t col = static_cast<int16_t>(kind % perRow);
-  const int16_t span = static_cast<int16_t>(perRow * kRackTile);
+  const int16_t span = static_cast<int16_t>(tb::kTroopKinds * kRackTile);
   const int16_t left = static_cast<int16_t>((device.width - span) / 2);
-  return fui::makeRect(static_cast<int16_t>(left + col * kRackTile), static_cast<int16_t>(kRackTop + row * kRackTile),
-                       kRackTile, kRackTile);
+  return fui::makeRect(static_cast<int16_t>(left + kind * kRackTile), kRackTop, kRackTile, kRackTile);
 }
 
 int rackAt(const fui::DeviceContext& device, const int x, const int y) {
@@ -218,6 +335,55 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
     screen.target().line(a, z, kPathWeight, fui::Paint::solid(fui::Color::Black));
   }
 
+  // Medals, sitting in the region they belong to. Without these the board is a
+  // graph rather than a game: the whole second victory condition is invisible.
+  //
+  // A region's medals go at the centre of the bases that fence it. On a
+  // two-base region that centre lands on the path between them, so each
+  // cluster knocks a white plate out from under itself first.
+  for (int r = 0; r < b.regionCount; ++r) {
+    if (game.regionsTaken & (1u << r)) continue;  // banked, and gone from the board
+    int32_t sx = 0, sy = 0, n = 0;
+    for (int base = 0; base < b.baseCount; ++base) {
+      if (!(b.regions[r].bases & (uint32_t{1} << base))) continue;
+      const fui::Point p = slotCenter(device, b, base);
+      sx += p.x;
+      sy += p.y;
+      ++n;
+    }
+    if (!n) continue;
+    int16_t cx = static_cast<int16_t>(sx / n);
+    int16_t cy = static_cast<int16_t>(sy / n);
+    if (n == 2) {
+      // Two bases fence the water between two bridges, and their midpoint is
+      // exactly on the path joining them -- medals there read as a severed
+      // connection. Step sideways off it.
+      int first = -1, second = -1;
+      for (int base = 0; base < b.baseCount; ++base) {
+        if (!(b.regions[r].bases & (uint32_t{1} << base))) continue;
+        (first < 0 ? first : second) = base;
+      }
+      const fui::Point a = slotCenter(device, b, first);
+      const fui::Point z = slotCenter(device, b, second);
+      const int16_t dx = static_cast<int16_t>(z.x - a.x), dy = static_cast<int16_t>(z.y - a.y);
+      const int len = dx * dx + dy * dy > 0 ? static_cast<int>(dx * dx + dy * dy) : 1;
+      int16_t scale = 1;
+      while (scale * scale * 4 < len) ++scale;  // integer hypot, near enough at this size
+      cx = static_cast<int16_t>(cx - dy * 26 / (scale > 0 ? scale * 2 : 1));
+      cy = static_cast<int16_t>(cy + dx * 26 / (scale > 0 ? scale * 2 : 1));
+    }
+    const int count = b.regions[r].medals;
+    const int16_t pipR = 7;
+    const int16_t span = static_cast<int16_t>(count * (pipR * 2 + 3) - 3);
+    const fui::Rect plate = fui::makeRect(static_cast<int16_t>(cx - span / 2 - 5), static_cast<int16_t>(cy - pipR - 4),
+                                          static_cast<int16_t>(span + 10), static_cast<int16_t>(pipR * 2 + 8));
+    screen.target().fill(plate, fui::Paint::solid(fui::Color::White), 8);
+    for (int i = 0; i < count; ++i) {
+      toybox::disc(screen, static_cast<int16_t>(cx - span / 2 + pipR + i * (pipR * 2 + 3)), cy, pipR,
+                   fui::Color::Black);
+    }
+  }
+
   const uint64_t candidates = toybattle::candidateSlots(game, model.draft);
   for (int slot = 0; slot < b.slotCount(); ++slot) {
     drawSlot(screen, slotCenter(device, b, slot), game, slot, (candidates & (uint64_t{1} << slot)) != 0);
@@ -242,17 +408,21 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
     screen.target().fill(inner, live ? fui::Paint::dither(fui::Color::LightGray) : fui::Paint::solid(fui::Color::White),
                          8);
     screen.target().stroke(inner, fui::Paint::solid(fui::Color::Black), chosen ? 5 : 2, 8);
-    centred(screen, fui::makeRect(inner.x, inner.y, inner.width, static_cast<int16_t>(inner.height - 12)),
-            pip(static_cast<tb::Troop>(kind)), toybox::kDisplayFont, false);
+    // Number on top, what it does underneath. Eight troops is more than anyone
+    // holds in their head, and the mark here is the same one the board wears,
+    // so learning it once covers both.
+    centred(screen, fui::makeRect(inner.x, static_cast<int16_t>(inner.y - 2), inner.width, 24),
+            pip(static_cast<tb::Troop>(kind)), toybox::kUiFont, false);
+    troopMark(screen,
+              fui::Point{static_cast<int16_t>(inner.x + inner.width / 2), static_cast<int16_t>(inner.bottom() - 11)},
+              12, static_cast<tb::Troop>(kind));
 
-    if (held > 1) {
-      char n[4];
-      std::snprintf(n, sizeof(n), "x%d", held);
-      fui::TextStyle count;
-      count.font = toybox::kSmallFont;
-      count.align = fui::TextAlign::Center;
-      screen.target().text(fui::makeRect(inner.x, static_cast<int16_t>(inner.bottom() - 16), inner.width, 14), n,
-                           count);
+    // How many you hold, as pips down the left edge. "x2" as text sat on top of
+    // the numeral: there is no room for two pieces of type on a 48px tile.
+    for (int i = 1; i < held && i < 3; ++i) {
+      screen.target().fill(
+          fui::makeRect(static_cast<int16_t>(inner.x + 3), static_cast<int16_t>(inner.y + 4 + (i - 1) * 7), 4, 4),
+          fui::Paint::solid(fui::Color::Black), 2);
     }
   }
 
