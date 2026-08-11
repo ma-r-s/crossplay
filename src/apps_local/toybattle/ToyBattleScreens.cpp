@@ -26,13 +26,13 @@ constexpr int16_t kRackTall = 70;
 constexpr int16_t kRackHeight = kRackTall + 8;
 constexpr int16_t kCapsuleTop = 800 - toybox::kMargin - toybox::kPillHeight;
 constexpr int16_t kRackTop = kCapsuleTop - toybox::kGutter - kRackHeight;
-// Two rows of counts sit directly above the rack, because the rack IS the hand
-// row of that table and the three numbers read together.
-constexpr int16_t kCountsRow = 17;
-constexpr int16_t kCountsTop = kRackTop - kCountsRow * 2 - 10;
+// The counts live in the action bar, not in a band of their own: `DRAW 2` was
+// 372px wide for a label needing about 110, and that slack is free where a
+// band above the rack cost the board 38px.
+constexpr int16_t kCountsRow = 16;
 
 // The board owns everything between the header and the rack.
-constexpr int16_t kBoardHeight = kCountsTop - toybox::kGutter - kBoardTop;
+constexpr int16_t kBoardHeight = kRackTop - toybox::kGutter - kBoardTop;
 
 constexpr int16_t kSlot = 52;
 constexpr uint8_t kPathWeight = 5;
@@ -620,38 +620,6 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   }
 
   // The rack. A troop you cannot play dims rather than disappearing.
-  // Everything a player could count for themselves if the game were on a table:
-  // the pile heights are visible, the discard is face up, and their tiles can
-  // be counted even though their faces cannot be read. None of it was on screen.
-  {
-    const int me = model.seat, them = model.seat ^ 1;
-    int gone[2] = {0, 0};
-    for (int seat = 0; seat < tb::kSeats; ++seat) {
-      for (int k = 0; k < tb::kTroopKinds; ++k) gone[seat] += game.discarded[seat][k];
-    }
-    fui::TextStyle cell;
-    cell.font = toybox::kSmallFont;
-    cell.align = fui::TextAlign::Left;
-
-    // Both rows carry the same three columns, aligned, so the comparison is
-    // vertical and needs no arithmetic.
-    const int16_t left = toybox::kMargin;
-    const int16_t col[4] = {left, static_cast<int16_t>(left + 74), static_cast<int16_t>(left + 194),
-                            static_cast<int16_t>(left + 314)};
-    for (int row = 0; row < 2; ++row) {
-      const int seat = row == 0 ? them : me;
-      const int16_t y = static_cast<int16_t>(kCountsTop + row * kCountsRow);
-      char field[20];
-      screen.target().text(fui::makeRect(col[0], y, 72, kCountsRow), row == 0 ? "THEM" : "YOU", cell);
-      std::snprintf(field, sizeof(field), "HAND %d", game.rackSize(seat));
-      screen.target().text(fui::makeRect(col[1], y, 118, kCountsRow), field, cell);
-      std::snprintf(field, sizeof(field), "PILE %d", game.reserveRemaining(seat));
-      screen.target().text(fui::makeRect(col[2], y, 118, kCountsRow), field, cell);
-      std::snprintf(field, sizeof(field), "GONE %d", gone[seat]);
-      screen.target().text(fui::makeRect(col[3], y, 118, kCountsRow), field, cell);
-    }
-  }
-
   const uint8_t offer = toybattle::candidateTroops(game, model.draft);
   const tb::Draft& draft = model.draft;
   const bool chosenPending = toybattle::pending(game, draft) != toybattle::Ask::Troop;
@@ -694,13 +662,17 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
     }
   }
 
-  // The foot of the board is whatever the position actually offers, and every
-  // button says what tapping it does. A turn is "place a troop" or "draw two",
-  // and until this existed the second had no way in at all -- the old capsule
-  // narrated the game without ever being the way to play it.
+  // Three regions, and the left one is always the same width so nothing
+  // reflows under a thumb: one wide button, or two narrow ones.
   const int16_t barY = kCapsuleTop;
   const int16_t full = static_cast<int16_t>(device.width - toybox::kMargin * 2);
-  const int16_t half = static_cast<int16_t>((full - toybox::kGutter) / 2);
+  const int16_t briefW = 52;
+  const int16_t actionW = 146;
+  const int16_t countsX = static_cast<int16_t>(toybox::kMargin + actionW + toybox::kGutter);
+  const int16_t countsW = static_cast<int16_t>(full - actionW - briefW - toybox::kGutter * 2);
+  const int16_t briefX = static_cast<int16_t>(toybox::kMargin + full - briefW);
+  const int16_t halfW = static_cast<int16_t>((actionW - toybox::kGutter) / 2);
+
   const toybattle::Ask ask = toybattle::pending(game, model.draft);
   const bool picking = model.draft.move.stepCount > model.draft.step || model.draft.slotChosen;
 
@@ -709,36 +681,71 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
     fui::ButtonProps props;
     props.label = label;
     props.action = live ? action : fui::NO_ACTION;
-    // A control that cannot act dims rather than disappearing, so the row
-    // never reflows under the thumb.
+    // A control that cannot act dims rather than disappearing.
     if (!live) props.styles = toybox::disabledButtonStyles();
     screen.button(props, fui::makeRect(x, barY, w, toybox::kPillHeight));
   };
 
-  // The briefing sits beside the main action rather than replacing anything:
-  // "what do these bases do" is a question you have while looking at the board,
-  // and it should not cost a trip to a menu.
-  const int16_t briefW = 64;
-  const int16_t mainW = static_cast<int16_t>(full - briefW - toybox::kGutter);
-  const int16_t briefX = static_cast<int16_t>(toybox::kMargin + mainW + toybox::kGutter);
-
   if (!model.yourTurn) {
-    place("THEIR MOVE", ActionSkip, false, toybox::kMargin, mainW);
-    place("?", ActionBrief, true, briefX, briefW);
+    place("WAIT", ActionSkip, false, toybox::kMargin, actionW);
   } else if (ask == toybattle::Ask::Troop && !picking) {
-    place("DRAW 2", ActionDraw, model.canDraw, toybox::kMargin, mainW);
-    place("?", ActionBrief, true, briefX, briefW);
+    place("DRAW 2", ActionDraw, model.canDraw, toybox::kMargin, actionW);
   } else if (ask == toybattle::Ask::Troop || ask == toybattle::Ask::Slot) {
-    place("CANCEL", ActionCancel, true, toybox::kMargin, mainW);
-    place("?", ActionBrief, true, briefX, briefW);
+    place("CANCEL", ActionCancel, true, toybox::kMargin, actionW);
   } else {
-    // Every remaining question is optional, so it always has two answers.
     const bool targeted = ask == toybattle::Ask::JumboVictim || ask == toybattle::Ask::RecallFrom ||
                           ask == toybattle::Ask::ShoveFrom || ask == toybattle::Ask::ShoveTo ||
                           ask == toybattle::Ask::ExhumeKind;
-    place("SKIP", ActionSkip, true, toybox::kMargin, half);
-    place(targeted ? "CANCEL" : "TAKE IT", targeted ? ActionCancel : ActionTake, true,
-          static_cast<int16_t>(toybox::kMargin + half + toybox::kGutter), half);
+    place("SKIP", ActionSkip, true, toybox::kMargin, halfW);
+    place(targeted ? "BACK" : "TAKE", targeted ? ActionCancel : ActionTake, true,
+          static_cast<int16_t>(toybox::kMargin + halfW + toybox::kGutter), halfW);
+  }
+  place("?", ActionBrief, true, briefX, briefW);
+
+  // Everything a player could count for themselves at a table: the piles are
+  // visible as heights, the discard is face up, and their tiles can be counted
+  // even though their faces cannot be read.
+  //
+  // LEFT is still to draw, OUT is discarded and gone for good. Your own hand is
+  // not here because the rack directly above it IS your hand.
+  {
+    const int me = model.seat, them = model.seat ^ 1;
+    int out[2] = {0, 0};
+    for (int seat = 0; seat < tb::kSeats; ++seat) {
+      for (int k = 0; k < tb::kTroopKinds; ++k) out[seat] += game.discarded[seat][k];
+    }
+    fui::TextStyle cell;
+    cell.font = toybox::kSmallFont;
+    cell.align = fui::TextAlign::Center;
+
+    // Four columns: who, then the three numbers. Without the first one the two
+    // rows are unlabelled and you cannot tell your pile from theirs.
+    const int16_t labelW = 46;
+    const int16_t colW = static_cast<int16_t>((countsW - labelW) / 3);
+    const int16_t top = static_cast<int16_t>(barY + (toybox::kPillHeight - kCountsRow * 3) / 2);
+    const char* heads[3] = {"HAND", "LEFT", "OUT"};
+    for (int c = 0; c < 3; ++c) {
+      screen.target().text(fui::makeRect(static_cast<int16_t>(countsX + labelW + c * colW), top, colW, kCountsRow),
+                           heads[c], cell);
+    }
+    for (int row = 0; row < 2; ++row) {
+      const int seat = row == 0 ? them : me;
+      const int16_t y = static_cast<int16_t>(top + (row + 1) * kCountsRow);
+      char field[8];
+      screen.target().text(fui::makeRect(countsX, y, labelW, kCountsRow), row == 0 ? "THEM" : "YOU", cell);
+      // Their hand is a number you could count across a table. Yours is the row
+      // of tiles directly above, so printing it would be saying it twice.
+      if (row == 0) {
+        std::snprintf(field, sizeof(field), "%d", game.rackSize(seat));
+        screen.target().text(fui::makeRect(static_cast<int16_t>(countsX + labelW), y, colW, kCountsRow), field, cell);
+      }
+      std::snprintf(field, sizeof(field), "%d", game.reserveRemaining(seat));
+      screen.target().text(fui::makeRect(static_cast<int16_t>(countsX + labelW + colW), y, colW, kCountsRow), field,
+                           cell);
+      std::snprintf(field, sizeof(field), "%d", out[seat]);
+      screen.target().text(fui::makeRect(static_cast<int16_t>(countsX + labelW + colW * 2), y, colW, kCountsRow), field,
+                           cell);
+    }
   }
 }
 
