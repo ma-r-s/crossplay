@@ -40,14 +40,19 @@ MAX_BASES, MAX_HQ, MAX_REGIONS, MAX_EDGES = 32, 4, 16, 72
 
 
 
-def align(values, tol=40):
+def align(values, tol=20):
     """Snap near-equal coordinates onto one shared level.
 
     A hand trace puts a column at 0, 8, 13, 13, 16 when it means one column.
     Anything within `tol` of a running cluster joins it and the whole cluster
-    takes its mean, so rows line up and columns line up. The tolerance is in
-    normalised units, so 40 is 4% of the board -- wider than hand jitter and far
-    narrower than any real distinction on a traced board.
+    takes its mean, so rows line up and columns line up.
+
+    The tolerance is in normalised units, and 20 is 2% of the board. It was 4%
+    first, which is wider than hand jitter but NOT narrower than every real
+    distinction: Castle Field's wells sit 35 units inside its corner bases on
+    purpose, and 4% pulled them onto the same column and quietly reshaped the
+    board. 2% still closes every gap either traced board actually has -- the
+    widest was 16 -- and leaves the wells where the printed board puts them.
     """
     order = sorted(range(len(values)), key=lambda i: values[i])
     out = list(values)
