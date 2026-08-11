@@ -635,6 +635,20 @@ is a gate you misplay. Written as a range when the values run consecutively --
 `*1-2`, `*3-5`, `*6-7` -- with the star for the joker, which needs no legend
 because `*` is already Kwak's pip on the rack and in the how-to.
 
+**The tab flips above the slot when there is no room below.** The lowest row of
+a board sits within a few pixels of the rack, so a tab hung under it reached six
+pixels into the first card in hand -- which arithmetic says as clearly as the
+screen did: the lowest box bottom is `kRackTop - 16` and the tab adds twenty-two.
+Above is the same distance from the slot and nothing else lives there.
+
+**Tropical Pool needs `"alignTolerance": 35`**, and it is the clearest example of
+why that number is per board and in normalised units. Its left column spans 31
+units as traced and 28 once the board is spread to 0..1000, so the default 20
+split base 7 off on its own -- and because the board is point-symmetric, the
+rotation then dragged base 3, its partner, to a fifth column. One slot out of
+tolerance became two columns out of place. At 35 it is three columns of 6, 5 and
+6, and the rows fall out symmetric with it.
+
 It sits under the slot rather than inside it. Inside was tried first and clipped
 its own digits: the slot is 52px, the small cut is nearly twenty, and the strip
 fought a six-pixel border. Under it, the whole slot stays free for the troop and

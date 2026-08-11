@@ -258,9 +258,15 @@ void drawSlot(toybox::Screen& screen, const fui::Point at, const tb::Game& game,
     values.align = fui::TextAlign::Center;
     const int16_t lineH = screen.target().lineHeight(toybox::kTileFont);
     const int16_t tabW = 46;
-    const fui::Rect tab = fui::makeRect(static_cast<int16_t>(at.x - tabW / 2),
-                                        static_cast<int16_t>(box.bottom() - 2), tabW,
-                                        static_cast<int16_t>(lineH + 4));
+    const int16_t tabH = static_cast<int16_t>(lineH + 4);
+    // Below the slot, unless there is no room below. The lowest row of a board
+    // sits within a few pixels of the rack -- the board's own bottom bound --
+    // and a tab hung under it reached six pixels into the first card in hand.
+    // Above is the same distance from the slot and nothing else lives there.
+    const bool roomBelow = box.bottom() - 2 + tabH <= kBoardTop + kBoardHeight;
+    const fui::Rect tab = fui::makeRect(
+        static_cast<int16_t>(at.x - tabW / 2),
+        roomBelow ? static_cast<int16_t>(box.bottom() - 2) : static_cast<int16_t>(box.y - tabH + 2), tabW, tabH);
     screen.target().fill(tab, fui::Paint::solid(fui::Color::White), 5);
     screen.target().stroke(tab, fui::Paint::solid(fui::Color::Black), 2, 5);
     screen.target().text(fui::makeRect(tab.x, static_cast<int16_t>(tab.y + 2), tab.width, lineH), admits, values);
