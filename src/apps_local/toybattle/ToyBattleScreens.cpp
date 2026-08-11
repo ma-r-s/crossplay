@@ -319,7 +319,12 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   band.font = toybox::kUiFont;
   band.align = fui::TextAlign::Right;
   band.color = fui::Color::White;
-  screen.target().text(fui::makeRect(0, 30, static_cast<int16_t>(device.width - toybox::kMargin), 26), medals, band);
+  // Centred on the band, not on a guessed y: the counter sits beside the title
+  // and has to share its middle.
+  const int16_t bandLine = screen.target().lineHeight(toybox::kUiFont);
+  screen.target().text(fui::makeRect(0, static_cast<int16_t>((toybox::kHeaderHeight - bandLine) / 2),
+                                     static_cast<int16_t>(device.width - toybox::kMargin), bandLine),
+                       medals, band);
 
   // The line the question lives on, now that the foot of the screen is
   // controls rather than commentary.
@@ -413,11 +418,21 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
     // Number on top, what it does underneath. Eight troops is more than anyone
     // holds in their head, and the mark here is the same one the board wears,
     // so learning it once covers both.
-    centred(screen, fui::makeRect(inner.x, static_cast<int16_t>(inner.y - 2), inner.width, 24),
-            pip(static_cast<tb::Troop>(kind)), toybox::kUiFont, false);
-    troopMark(screen,
-              fui::Point{static_cast<int16_t>(inner.x + inner.width / 2), static_cast<int16_t>(inner.bottom() - 11)},
-              12, static_cast<tb::Troop>(kind));
+    //
+    // Kwak and Roxy do nothing, so there is no mark to sit under and their
+    // numeral takes the whole tile. A number pushed up to make room for a mark
+    // that is not coming just reads as misaligned.
+    const tb::Troop troop = static_cast<tb::Troop>(kind);
+    const bool marked = troop != tb::Troop::Kwak && troop != tb::Troop::Roxy;
+    if (!marked) {
+      centred(screen, inner, pip(troop), toybox::kUiFont, false);
+    } else {
+      centred(screen, fui::makeRect(inner.x, static_cast<int16_t>(inner.y + 5), inner.width, 26), pip(troop),
+              toybox::kUiFont, false);
+      troopMark(screen,
+                fui::Point{static_cast<int16_t>(inner.x + inner.width / 2), static_cast<int16_t>(inner.bottom() - 17)},
+                12, troop);
+    }
 
     // How many you hold, as pips down the left edge. "x2" as text sat on top of
     // the numeral: there is no room for two pieces of type on a 48px tile.
