@@ -78,6 +78,33 @@ enum class GameId : uint16_t {
   Test = 0xFF01,
 };
 
+// Every id above must be distinct, and until 2026-08-11 nothing checked it.
+// Sea Salt and Toy Battle were built on separate branches and both took
+// 0x0901. Each branch's full suite passed, because neither branch contained
+// the other game -- the collision existed only in the merge, and the failure
+// it would have shipped is two devices running DIFFERENT games agreeing they
+// are in the same match. That is the one thing this id exists to prevent.
+//
+// ADD NEW IDS HERE TOO. A list you have to remember to update is a weak
+// guard, but it turns a silent protocol bug into a compile error, and the
+// alternative is nothing.
+constexpr GameId kAllGameIds[] = {
+    GameId::Chess,     GameId::ConnectFour, GameId::Battleship, GameId::Jaipur,   GameId::Checkers,
+    GameId::Yahtzee,   GameId::Knucklebones, GameId::SeaSalt,   GameId::ToyBattle, GameId::Test,
+};
+
+constexpr bool gameIdsAreDistinct() {
+  constexpr int n = static_cast<int>(sizeof(kAllGameIds) / sizeof(kAllGameIds[0]));
+  for (int i = 0; i < n; ++i) {
+    for (int j = i + 1; j < n; ++j) {
+      if (kAllGameIds[i] == kAllGameIds[j]) return false;
+    }
+  }
+  return true;
+}
+
+static_assert(gameIdsAreDistinct(), "two games share a GameId: they would match each other over the link");
+
 // A game's shared state travels as raw bytes between two identical builds on
 // identical hardware, so no byte order or padding question arises. That is only
 // true because a match is always X4 Pro to X4 Pro (or simulator to simulator);
