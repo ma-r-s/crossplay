@@ -475,10 +475,13 @@ Point symmetry needs no new machinery: on a complete grid, making the x levels
 and the y levels each symmetric about the midline is exactly what a half turn
 requires, so `"symmetry": "both"` is right for it.
 
-**Its objective is the one number that does not follow the pattern.** Castle
-Field is 7 of 14 and City of Clouds 8 of 16, both exactly half; this is 8 of 14,
-above half. Flagged rather than corrected -- it is Mario's reading of the printed
-board and there is no published source to check it against.
+**Its objective was traced as 8 and is 7.** It came in as the only one of the
+three that did not sit at exactly half the medals on the board, which is what
+made it worth asking about; Mario checked and confirmed 7. Every real terrain so
+far is half: Castle Field 7 of 14, City of Clouds 8 of 16, Volcanic Jungle 7 of
+14. **That is now a usable check on the five still to be traced** -- an objective
+that is not half the medals is not necessarily wrong, but it is worth a second
+look at the printed board before it lands.
 
 **No single alignment tolerance can work, and this board is why.** Castle Field's
 wells sit 35 units inside its corner bases and must stay there; Volcanic Jungle's

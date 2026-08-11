@@ -253,7 +253,7 @@ constexpr Terrain buildVolcanicJungle() {
   t.hqCount = 2;
   t.hqSeat[0] = 0;
   t.hqSeat[1] = 1;
-  t.medalsObjective = 8;
+  t.medalsObjective = 7;
 
   const uint16_t xs[15] = {12, 12, 12, 12, 500, 500, 500, 500, 988, 988, 988, 988, 500, 12, 988};
   const uint16_t ys[15] = {738, 500, 262, 6, 738, 6, 262, 500, 262, 500, 738, 994, 994, 994, 6};
