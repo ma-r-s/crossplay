@@ -225,6 +225,56 @@ limit and a single digit in a two-digit box reads as a detached group.
 
 Built before any pixel, because it is the part that decides whether this is fun.
 
+**It got hard by looking one move further, and by nothing else.** The brain
+that first shipped was greedy: it applied every legal move, scored the position
+each one left, and played the best. Depth one. Against that brain, the same
+evaluation with a shallow reply search wins **71% of 6400 games**, and it wins
+on both boards with special bases on and off.
+
+Everything else tried on this brain has measured as nothing. Four evaluation
+terms across two sittings -- a region race, pressure on the enemy H.Q., a Cap'n
+threat, and later a region race plus a medal-threat penalty -- were each worth
+zero or slightly negative, and the last pair made the searching brain *worse*
+(53.5% against 57.1% for the same search without them). The reason is
+structural. The engine banks a region's medals inside `apply`, so a greedy brain
+already sees closing one; a term telling it "I am close to a region" says what
+the medal count is about to say anyway. What it could not see was the reply --
+nothing stopped it handing over a three-medal region, because the only threat it
+ever computed was its own H.Q. A term buys one threat; the search closes the
+class.
+
+**How the search is shaped, and why those numbers.** Score every move greedily,
+keep the best 8, and for each of those compute the opponent's best reply and
+then your own best answer to it: three plies, on a beam of 8. The greedy pass is
+the move ordering, so a move has to survive being answered rather than merely
+look good before anyone answers. Beam 12 and beam 24 are level with beam 8 head
+to head (51.5% and 50.8%, both inside one and a half standard errors) at two and
+four times the cost, so 8 is where width stops paying. The opponent inside the
+search plays greedily, because a model with a beam of its own squares the cost
+for a reply that is only ever a guess about a rack the brain may not see.
+
+Terminal scores are discounted by the ply they were found at. Without that, a
+win three plies deep scores the same as a win available this turn and the
+tie-break picks between them by hash -- which the suite caught as "with a win on
+the table, the brain takes it" failing the moment depth 3 was switched on.
+
+**It costs 1248 positions in the worst move measured**, against 361 for the
+greedy brain, and adds 3.4KB of DRAM. All the search's working positions are
+static: a `Game` is 148 bytes and an `Observation` 160, and holding six live
+would have put about 900 bytes of locals on a stack this project caps at 256.
+The last time this file allocated on the stack it took 17KB and the simulator
+never noticed.
+
+**The tier list is the evidence, and it is transitive.** The policies are
+competed against each other in `host-tests/toybattle/tournament.sh`, seats
+alternating, every pairing on the same seeds, on both boards with special bases
+on and off. A ranking is only believed if no policy loses head to head to one it
+outranks by more than two standard errors -- a first version of that check
+flagged three "cycles" that were simply ties being force-ranked, which is the
+same mistake as a bound tuned to its observation wearing different clothes.
+
+    recruit 0.1% < greedy 47.6% < d3b4 61.1% < SHIPPED 70.1% ~ d3b12 71.1%
+
 **The threat that matters is exact, not searched.** Sudden death by touching an
 H.Q. looked like it would force a real two-ply search. It does not, and the
 reason is a rule: _any_ troop captures an H.Q., so there is no question of which
@@ -246,7 +296,7 @@ reading order; that is the one leak this design had to be careful about.
 **Two skills, and the split is where it measured rather than where it was
 designed.** Both keep the same reflexes: take the win in front of you, never
 leave your own H.Q. open. Recruit has nothing else and plays freely among the
-safe moves. General weighs medals, territory, reach and tempo.
+safe moves. General weighs medals, territory, reach and tempo, and searches.
 
 The first version put the split somewhere else -- General also raced for
 regions, valued pressure on the enemy H.Q., and looked one turn ahead at the

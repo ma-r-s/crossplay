@@ -40,12 +40,33 @@ constexpr int kLoss = -1000000;
 // but not exactly, so that when every move hangs it the brain still prefers the
 // one that is otherwise best rather than picking the first.
 constexpr int kHangsHq = -500000;
+// A win now and a win in three plies must not score the same, or the tie-break
+// picks between them by hash and the brain walks past a capture it could take
+// this turn. Every terminal score is discounted by how deep it was found, which
+// also makes it prefer losing later over losing now.
+constexpr int kPlyPenalty = 4;
 
 // Measured: the busiest position over 400 games produced 363 candidate moves.
 constexpr int kMaxCandidates = 384;
 constexpr int kMaxPlacementsOffered = 96;
+// The beam is tiny by design: move ordering means the answer is almost always
+// inside the first few, and every extra one costs a whole board of replies.
+constexpr int kMaxBeam = 24;
+
+// A finished game, scored from `seat` and discounted by the ply it was found
+// at. `ply` is 1 for the move being considered, 2 for the reply to it, 3 for
+// the answer to that.
+int terminalScore(const Game& g, int seat, int ply) {
+  if (g.winner == kNoSeat) return 0;
+  return g.winner == static_cast<uint8_t>(seat) ? kWin - ply * kPlyPenalty : kLoss + ply * kPlyPenalty;
+}
 
 }  // namespace
+
+// The policy the search assumes the opponent is playing. Greedy on purpose: a
+// model with a beam of its own would square the cost, for a reply that is only
+// ever a guess about a rack this brain is not allowed to see.
+static const Policy kModel = Policy{};
 
 // ---------------------------------------------------------------------------
 // Observing
@@ -122,7 +143,7 @@ bool hqIsExposed(const Game& v, int seat, const uint8_t* unseen, int opponentRac
   return false;
 }
 
-int evaluate(const Game& v, int seat, const uint8_t* unseen, int opponentRackSize, Skill skill) {
+int evaluate(const Game& v, int seat, const uint8_t* unseen, int opponentRackSize, const Policy& policy) {
   const int foe = other(seat);
 
   if (v.currentPhase() == Phase::GameOver) {
@@ -130,12 +151,12 @@ int evaluate(const Game& v, int seat, const uint8_t* unseen, int opponentRackSiz
     return v.winner == seat ? kWin : kLoss;
   }
 
-  // Both skills keep the two reflexes: take the win in front of you, and do not
-  // leave your H.Q. open. Recruit has nothing else, and that alone is a real
-  // opponent -- it just has no opinion about which of the safe moves is good.
+  // Every policy keeps the two reflexes: take the win in front of you, and do
+  // not leave your H.Q. open. With nothing else that is still a real opponent
+  // -- it just has no opinion about which of the safe moves is good.
   int score = 0;
   if (hqIsExposed(v, seat, unseen, opponentRackSize)) score += kHangsHq;
-  if (skill == Skill::Recruit) return score;
+  if (!policy.material) return score;
 
   // Medals are the only thing that ends a game short of an H.Q., and they are
   // permanent, so they dominate everything positional.
@@ -274,7 +295,29 @@ int candidates(const Observation& obs, Move* out, int max) {
 // Choosing
 // ---------------------------------------------------------------------------
 
-Move chooseMove(const Observation& obs, Skill skill) {
+namespace detail {
+Cost cost;
+void resetCost() { cost = Cost{}; }
+}  // namespace detail
+
+Policy policyFor(Skill skill) {
+  Policy p;
+  if (skill == Skill::Recruit) {
+    p.material = false;  // the two reflexes and nothing else
+    return p;
+  }
+  // Beam 8 at depth 3, which is where the tournament stopped paying: beam 12
+  // and beam 24 are level with it head to head and cost two and four times as
+  // much, and depth 3 beats the greedy brain this replaces 72.8% of 6400 games.
+  Policy general;
+  general.beam = 8;
+  general.depth = 3;
+  return general;
+}
+
+Move chooseMove(const Observation& obs, Skill skill) { return chooseMove(obs, policyFor(skill)); }
+
+Move chooseMove(const Observation& obs, const Policy& policy) {
   // Static, not local. `Move` is 34 bytes and this used to be a 512-entry array
   // on the stack -- 17KB, against a task stack of a few thousand and a house
   // rule of 256 bytes for a local. The simulator never showed it because a
@@ -283,14 +326,25 @@ Move chooseMove(const Observation& obs, Skill skill) {
   // 384 is measured, not guessed: the worst position over 400 games offered
   // 363 candidates. There is one brain and one turn at a time, so a shared
   // buffer is safe here, and the cap logs rather than truncating in silence.
+  // Every position the search holds is static for the same reason `options` is.
+  // A Game is 148 bytes and an Observation 160, and the reply search wants six
+  // of them live at once -- about 900 bytes of locals against this project's
+  // 256-byte rule, on a device whose task stacks are a few thousand. There is
+  // one brain and one turn at a time, so sharing them is safe; the last version
+  // of this file put 17KB on the stack and the simulator never noticed.
+  static Game after, worstReply, reply, counter;
+  static Observation foeObs, back;
   static Move options[kMaxCandidates];
+  const uint32_t startPositions = detail::cost.positions;
   const int n = detail::candidates(obs, options, kMaxCandidates);
   if (n == 0) return Move::draw();  // nothing is legal; the caller is about to end the game
 
   const int seat = obs.seat;
   int bestIndex = 0;
+  Move chosen = options[0];
   int bestScore = kLoss - 1;
   uint32_t bestJitter = 0;
+  static int scores[kMaxCandidates];
 
   // Ties are broken by a hash of the position and the candidate, not by board
   // order. Deterministic, so the same position always produces the same move --
@@ -302,26 +356,129 @@ Move chooseMove(const Observation& obs, Skill skill) {
   }
 
   for (int i = 0; i < n; ++i) {
-    Game after = obs.view;
-    if (!after.apply(options[i])) continue;
+    after = obs.view;
+    if (!after.apply(options[i])) {
+      scores[i] = kLoss - 1;
+      continue;
+    }
+    ++detail::cost.positions;
 
     int score;
     if (after.currentPhase() == Phase::GameOver) {
-      score = after.winner == static_cast<uint8_t>(seat) ? kWin : (after.winner == kNoSeat ? 0 : kLoss);
+      score = terminalScore(after, seat, 1);
     } else {
       // One of their troops is spent answering, so the threat is measured
       // against the rack they will actually hold.
-      score = detail::evaluate(after, seat, obs.unseen, obs.opponentRackSize, skill);
+      score = detail::evaluate(after, seat, obs.unseen, obs.opponentRackSize, policy);
     }
+    scores[i] = score;
 
     const uint32_t jitter = mix32(positionHash ^ (static_cast<uint32_t>(i) * 2654435761u));
     if (score > bestScore || (score == bestScore && jitter > bestJitter)) {
       bestScore = score;
       bestJitter = jitter;
       bestIndex = i;
+      chosen = options[i];
     }
   }
-  return options[bestIndex];
+
+  if (policy.beam > 0 && n > 1) {
+    // Look at the reply. Not for every move -- that is the whole board twice
+    // over -- but for the handful that looked best without one, which is move
+    // ordering doing the job a full width would do at thirty times the cost.
+    //
+    // The greedy score above is the ordering, so a move has to survive being
+    // answered rather than merely look good before anyone answers.
+    const int width = policy.beam < n ? policy.beam : n;
+    static Move beam[kMaxBeam];
+    static int beamOrder[kMaxBeam];
+    int taken = 0;
+    for (int slot = 0; slot < width; ++slot) {
+      int pick = -1;
+      for (int i = 0; i < n; ++i) {
+        bool already = false;
+        for (int j = 0; j < taken && !already; ++j) already = beamOrder[j] == i;
+        if (already) continue;
+        if (pick < 0 || scores[i] > scores[pick]) pick = i;
+      }
+      if (pick < 0) break;
+      beamOrder[taken] = pick;
+      beam[taken] = options[pick];
+      ++taken;
+    }
+
+    bestScore = kLoss - 1;
+    bestJitter = 0;
+    for (int i = 0; i < taken; ++i) {
+      after = obs.view;
+      if (!after.apply(beam[i])) continue;
+
+      int score;
+      if (after.currentPhase() == Phase::GameOver) {
+        score = terminalScore(after, seat, 1);
+      } else {
+        // Their turn, seen the way they would see it: `observe` from their
+        // seat replaces this brain's own rack with the guess a player opposite
+        // would have to make. The reply is therefore not an oracle reading our
+        // hand -- it is the same kind of reasoning, pointed the other way.
+        foeObs = observe(after, other(seat));
+        const int m = detail::candidates(foeObs, options, kMaxCandidates);
+        worstReply = after;
+        int worstForThem = kLoss - 1;
+        for (int j = 0; j < m; ++j) {
+          reply = foeObs.view;
+          if (!reply.apply(options[j])) continue;
+          ++detail::cost.positions;
+          const int theirs = reply.currentPhase() == Phase::GameOver
+                                 ? terminalScore(reply, foeObs.seat, 1)
+                                 : detail::evaluate(reply, foeObs.seat, foeObs.unseen, foeObs.opponentRackSize, kModel);
+          if (theirs > worstForThem) {
+            worstForThem = theirs;
+            worstReply = reply;
+          }
+        }
+        if (worstForThem == kLoss - 1) {
+          // They have no reply at all, so the position stands as our move left it.
+          score = detail::evaluate(after, seat, obs.unseen, obs.opponentRackSize, policy);
+        } else if (worstReply.currentPhase() == Phase::GameOver) {
+          score = terminalScore(worstReply, seat, 2);
+        } else {
+          back = observe(worstReply, seat);
+          score = detail::evaluate(worstReply, seat, back.unseen, back.opponentRackSize, policy);
+          if (policy.depth >= 3) {
+            // My answer to their answer. This is the first depth at which
+            // giving something up can pay, because it is the first one that can
+            // see what it buys. Greedy here rather than another beam: widening
+            // the last ply squares the cost for the ply that matters least.
+            const int mine = detail::candidates(back, options, kMaxCandidates);
+            int bestCounter = kLoss - 1;
+            for (int j = 0; j < mine; ++j) {
+              counter = back.view;
+              if (!counter.apply(options[j])) continue;
+              ++detail::cost.positions;
+              const int v = counter.currentPhase() == Phase::GameOver
+                                ? terminalScore(counter, seat, 3)
+                                : detail::evaluate(counter, seat, back.unseen, back.opponentRackSize, policy);
+              if (v > bestCounter) bestCounter = v;
+            }
+            if (bestCounter > kLoss - 1) score = bestCounter;
+          }
+        }
+      }
+
+      const uint32_t jitter = mix32(positionHash ^ (static_cast<uint32_t>(beamOrder[i]) * 2654435761u));
+      if (score > bestScore || (score == bestScore && jitter > bestJitter)) {
+        bestScore = score;
+        bestJitter = jitter;
+        chosen = beam[i];
+      }
+    }
+  }
+
+  const uint32_t spent = detail::cost.positions - startPositions;
+  if (spent > detail::cost.worstPerMove) detail::cost.worstPerMove = spent;
+  (void)bestIndex;
+  return chosen;
 }
 
 }  // namespace toybattle
