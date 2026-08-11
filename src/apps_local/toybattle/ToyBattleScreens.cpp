@@ -245,16 +245,24 @@ void drawSlot(toybox::Screen& screen, const fui::Point at, const tb::Game& game,
 
 int16_t slotRadius() { return kSlot / 2 + 6; }
 
-fui::Point slotCenter(const fui::DeviceContext& device, const tb::Terrain& board, const int slot) {
-  // Straight from the terrain. The coordinates are already balanced: the
-  // tracing tool derives an even layout from the graph and bakes the result
-  // into the table, so the device never pays for the algorithm.
+fui::Point boardPoint(const fui::DeviceContext& device, const uint16_t nx, const uint16_t ny) {
+  // The one place normalised board coordinates become pixels. Bases, H.Q. and
+  // medal anchors all come through here, so a medal cannot land somewhere the
+  // same arithmetic would not put a base.
   const int16_t left = boardLeft(device);
   const int16_t inset = kSlot / 2 + 4;
   const int16_t usableW = static_cast<int16_t>(448 - inset * 2);
   const int16_t usableH = static_cast<int16_t>(kBoardHeight - inset * 2);
-  return fui::Point{static_cast<int16_t>(left + inset + board.x[slot] * usableW / 1000),
-                    static_cast<int16_t>(kBoardTop + inset + board.y[slot] * usableH / 1000)};
+  return fui::Point{static_cast<int16_t>(left + inset + nx * usableW / 1000),
+                    static_cast<int16_t>(kBoardTop + inset + ny * usableH / 1000)};
+}
+
+fui::Point slotCenter(const fui::DeviceContext& device, const tb::Terrain& board, const int slot) {
+  // Straight from the terrain. The coordinates are already balanced: the
+  // tracing tool aligns the rows and columns, mirrors the board about its own
+  // midline where the terrain is symmetric, and bakes the result into the
+  // table, so the device never pays for the algorithm.
+  return boardPoint(device, board.x[slot], board.y[slot]);
 }
 
 int slotAt(const fui::DeviceContext& device, const tb::Terrain& board, const int x, const int y) {
@@ -558,34 +566,25 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   // Medals, sitting in the region they belong to. Without these the board is a
   // graph rather than a game: the whole second victory condition is invisible.
   //
-  // A region's medals go at the centre of the bases that fence it. On a
-  // two-base region that centre lands on the path between them, so each
-  // cluster knocks a white plate out from under itself first.
+  // The anchor is baked into the terrain rather than averaged here. Averaging
+  // the fence bases is what this used to do, and it put every thin region's
+  // medals hard against the column that fences it -- and on a board whose two
+  // halves were traced by hand, it put the left ones and the right ones in
+  // visibly different places. See Region::x in ToyBattleCore.h.
   for (int r = 0; r < b.regionCount; ++r) {
     if (game.regionsTaken & (1u << r)) continue;  // banked, and gone from the board
-    int32_t sx = 0, sy = 0, n = 0;
-    for (int base = 0; base < b.baseCount; ++base) {
-      if (!(b.regions[r].bases & (uint32_t{1} << base))) continue;
-      const fui::Point p = slotCenter(device, b, base);
-      sx += p.x;
-      sy += p.y;
-      ++n;
-    }
-    if (!n) continue;
-    int16_t cx = static_cast<int16_t>(sx / n);
-    int16_t cy = static_cast<int16_t>(sy / n);
-    // No nudge for a two-base region. The river bases are not joined to each
-    // other -- there is no path across the water -- so the midpoint sits on
-    // open ground, and putting the medals anywhere else just breaks the line
-    // they share with the bridges.
+    const fui::Point at = boardPoint(device, b.regions[r].x, b.regions[r].y);
     const int count = b.regions[r].medals;
     const int16_t pipR = 7;
     const int16_t span = static_cast<int16_t>(count * (pipR * 2 + 3) - 3);
-    const fui::Rect plate = fui::makeRect(static_cast<int16_t>(cx - span / 2 - 5), static_cast<int16_t>(cy - pipR - 4),
-                                          static_cast<int16_t>(span + 10), static_cast<int16_t>(pipR * 2 + 8));
+    // A white plate knocked out from under the cluster, because an anchor can
+    // still land on a path when a region is narrow enough.
+    const fui::Rect plate =
+        fui::makeRect(static_cast<int16_t>(at.x - span / 2 - 5), static_cast<int16_t>(at.y - pipR - 4),
+                      static_cast<int16_t>(span + 10), static_cast<int16_t>(pipR * 2 + 8));
     screen.target().fill(plate, fui::Paint::solid(fui::Color::White), 8);
     for (int i = 0; i < count; ++i) {
-      toybox::disc(screen, static_cast<int16_t>(cx - span / 2 + pipR + i * (pipR * 2 + 3)), cy, pipR,
+      toybox::disc(screen, static_cast<int16_t>(at.x - span / 2 + pipR + i * (pipR * 2 + 3)), at.y, pipR,
                    fui::Color::Black);
     }
   }

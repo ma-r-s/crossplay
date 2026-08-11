@@ -70,6 +70,14 @@ struct Edge {
 struct Region {
   uint32_t bases = 0;
   uint8_t medals = 0;
+  // Where the medals are drawn, normalised 0..1000 like every other coordinate
+  // here. The centre of the fence bases is the obvious answer and it is wrong
+  // the same way for every thin region: a triangle of two column bases and one
+  // centre base puts its centroid a third of the way across, hard against the
+  // column. This is the roomiest point inside the region instead, worked out by
+  // to_cpp.py at authoring time because it never changes once a board exists.
+  uint16_t x = 0;
+  uint16_t y = 0;
 };
 
 // What a special base does, one kind per real terrain. Named for the mechanic

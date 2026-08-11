@@ -424,6 +424,26 @@ and cannot be in a region mask, so those regions list the three bases and are
 taken by holding those three. That falls out of the rule rather than being a
 decision: the rulebook says occupy every **base** surrounding a region.
 
+**Alignment and symmetry are the generator's job, not the tracer's.** A hand
+trace puts a column at 0, 8, 13, 13, 16 when it means one column, and puts the
+left half and the right half in visibly different places. `to_cpp.py` now snaps
+near-equal coordinates onto shared levels and, for a board that declares
+`"symmetry"`, mirrors those levels about the midline. It is opt-in per board
+because not every terrain is symmetric -- Caribbean Sea is deliberately lopsided,
+2 H.Q. against 1 -- and City of Clouds declares `"both"`.
+
+**Medals are anchored, not averaged.** The centre of a region's fence bases is
+the obvious place to draw its medals and it is wrong the same way for every thin
+region: a triangle of two column bases and one centre base puts its centroid a
+third of the way across, hard against the column. `Region` now carries an anchor
+computed at authoring time -- the roomiest point inside the region, the pole of
+inaccessibility -- so the device pays nothing and the dots sit where the eye says
+centre. **An H.Q. joined to two of the fence bases counts as part of the face for
+this purpose even though it can never be part of the mask**, because the region
+really does extend to it; without that, City of Clouds' end regions computed
+their anchor from a flat triangle and landed it exactly on the top edge of a
+base.
+
 **It also found a gap in the pipeline.** Castle Field happened to be traced edge
 to edge and this one did not, so its coordinates spanned 117..872 of 1000 and the
 board drew inside a margin while Castle Field filled the panel. That is a

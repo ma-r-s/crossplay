@@ -39,6 +39,125 @@ MAX_BASES, MAX_HQ, MAX_REGIONS, MAX_EDGES = 32, 4, 16, 72
 
 
 
+
+def align(values, tol=40):
+    """Snap near-equal coordinates onto one shared level.
+
+    A hand trace puts a column at 0, 8, 13, 13, 16 when it means one column.
+    Anything within `tol` of a running cluster joins it and the whole cluster
+    takes its mean, so rows line up and columns line up. The tolerance is in
+    normalised units, so 40 is 4% of the board -- wider than hand jitter and far
+    narrower than any real distinction on a traced board.
+    """
+    order = sorted(range(len(values)), key=lambda i: values[i])
+    out = list(values)
+    cluster = [order[0]]
+    for i in order[1:]:
+        if values[i] - values[cluster[-1]] <= tol:
+            cluster.append(i)
+            continue
+        mean = round(sum(values[j] for j in cluster) / len(cluster))
+        for j in cluster:
+            out[j] = mean
+        cluster = [i]
+    mean = round(sum(values[j] for j in cluster) / len(cluster))
+    for j in cluster:
+        out[j] = mean
+    return out
+
+
+def symmetrise(values):
+    """Mirror the levels about the midline, so the board is actually symmetric.
+
+    Run after align(), on levels rather than on points: each level is paired
+    with the one the same distance from the other end and both take the average
+    of the two. A board with an odd number of levels pins its middle one to 500.
+    """
+    levels = sorted(set(values))
+    n = len(levels)
+    fixed = {}
+    for i in range(n // 2):
+        lo, hi = levels[i], levels[n - 1 - i]
+        mean = (lo + (1000 - hi)) / 2
+        fixed[lo] = round(mean)
+        fixed[hi] = round(1000 - mean)
+    if n % 2:
+        fixed[levels[n // 2]] = 500
+    return [fixed[v] for v in values]
+
+
+def order_ring(points):
+    """The fence bases in order around the region, so they form a polygon."""
+    cx = sum(p[0] for p in points) / len(points)
+    cy = sum(p[1] for p in points) / len(points)
+    import math
+
+    return sorted(points, key=lambda p: math.atan2(p[1] - cy, p[0] - cx))
+
+
+def medal_anchor(points):
+    """Where a region's medals go: the roomiest spot inside it.
+
+    The centre of the fence bases is the obvious answer and it is wrong in the
+    same way for every thin region -- a triangle of two column bases and one
+    centre base puts its centroid a third of the way across, hard against the
+    column, and a flat quad puts it right between the two bases that pinch it.
+    What reads as centred is the point furthest from anything drawn, which is
+    the pole of inaccessibility: maximise the distance to the nearest fence base
+    and to the nearest path between them.
+
+    Baked here rather than computed on the device, because it never changes
+    once the board is authored.
+    """
+    import math
+
+    ring = order_ring(points)
+    n = len(ring)
+
+    def inside(x, y):
+        hit = False
+        for i in range(n):
+            ax, ay = ring[i]
+            bx, by = ring[(i + 1) % n]
+            if (ay > y) != (by > y) and x < (bx - ax) * (y - ay) / (by - ay) + ax:
+                hit = not hit
+        return hit
+
+    def clearance(x, y):
+        best = min(math.hypot(x - px, y - py) for px, py in ring)
+        for i in range(n):
+            ax, ay = ring[i]
+            bx, by = ring[(i + 1) % n]
+            dx, dy = bx - ax, by - ay
+            span = dx * dx + dy * dy
+            t = 0.0 if span == 0 else max(0.0, min(1.0, ((x - ax) * dx + (y - ay) * dy) / span))
+            best = min(best, math.hypot(x - (ax + t * dx), y - (ay + t * dy)))
+        return best
+
+    xs = [p[0] for p in ring]
+    ys = [p[1] for p in ring]
+    bx0, bx1, by0, by1 = min(xs), max(xs), min(ys), max(ys)
+    best = None
+    # Coarse then fine, which is plenty for polygons of three to six vertices.
+    for steps, (x0, x1, y0, y1) in ((24, (bx0, bx1, by0, by1)), (24, (0, 0, 0, 0))):
+        if best is not None:
+            span = max(bx1 - bx0, by1 - by0) / 12.0
+            x0, x1 = best[0] - span, best[0] + span
+            y0, y1 = best[1] - span, best[1] + span
+        for i in range(steps + 1):
+            for j in range(steps + 1):
+                x = x0 + (x1 - x0) * i / steps
+                y = y0 + (y1 - y0) * j / steps
+                if not inside(x, y):
+                    continue
+                c = clearance(x, y)
+                if best is None or c > best[2]:
+                    best = (x, y, c)
+    if best is None:
+        return (round(sum(xs) / n), round(sum(ys) / n))
+    return (round(best[0]), round(best[1]))
+
+
 def normalise(values):
     """Spread `values` across 0..1000, preserving their relative spacing."""
     low, high = min(values), max(values)
@@ -168,6 +287,21 @@ def emit(model):
     # to spread.
     xs = normalise([b["x"] for b in bases] + [q["x"] for q in hqs])
     ys = normalise([b["y"] for b in bases] + [q["y"] for q in hqs])
+
+    # A hand trace does not put a column on one x. `align` snaps near-equal
+    # coordinates onto a shared level so rows and columns line up, and
+    # `symmetrise` mirrors those levels about the midline for a board that is
+    # actually symmetric. Opt-in per board, because not every terrain is:
+    # Caribbean Sea is deliberately lopsided, 2 H.Q. against 1.
+    sym = model.get("symmetry", "none")
+    if sym not in ("none", "horizontal", "vertical", "both"):
+        raise SystemExit(f"unknown symmetry {sym!r}: none, horizontal, vertical or both")
+    if sym != "none":
+        xs, ys = align(xs), align(ys)
+    if sym in ("horizontal", "both"):
+        xs = symmetrise(xs)
+    if sym in ("vertical", "both"):
+        ys = symmetrise(ys)
     w(f"  const uint16_t xs[{nb + nh}] = {{{', '.join(str(v) for v in xs)}}};")
     w(f"  const uint16_t ys[{nb + nh}] = {{{', '.join(str(v) for v in ys)}}};")
     w(f"  for (int i = 0; i < {nb + nh}; ++i) {{")
@@ -189,16 +323,33 @@ def emit(model):
     w("  struct R {")
     w("    uint32_t bases;")
     w("    uint8_t medals;")
+    w("    uint16_t x;")
+    w("    uint16_t y;")
     w("  };")
     w("  const R regions[] = {")
     for r in model["regions"]:
         mask = " | ".join(f"(1u << {m})" for m in sorted(r["bases"]))
-        w(f"      {{{mask}, {r['medals']}}},")
+        # Where the medals sit, worked out here rather than on the device: the
+        # roomiest point inside the region, which is what reads as centred.
+        # An H.Q. joined to two of the fence bases is part of the face even
+        # though it can never be part of the mask -- an H.Q. is not a base, so
+        # holding the region does not require it. Left out, the end regions of a
+        # board like City of Clouds compute their anchor from a flat triangle
+        # and land it exactly on the top edge of the centre base.
+        ring = [(xs[m], ys[m]) for m in r["bases"]]
+        for h in range(nb, nb + nh):
+            joined = sum(1 for a, b in model["edges"] if (a == h and b in r["bases"]) or (b == h and a in r["bases"]))
+            if joined >= 2:
+                ring.append((xs[h], ys[h]))
+        ax, ay = medal_anchor(ring)
+        w(f"      {{{mask}, {r['medals']}, {ax}, {ay}}},")
     w("  };")
     w("  t.regionCount = static_cast<uint8_t>(sizeof(regions) / sizeof(regions[0]));")
     w("  for (int i = 0; i < t.regionCount; ++i) {")
     w("    t.regions[i].bases = regions[i].bases;")
     w("    t.regions[i].medals = regions[i].medals;")
+    w("    t.regions[i].x = regions[i].x;")
+    w("    t.regions[i].y = regions[i].y;")
     w("  }")
 
     specials = [
