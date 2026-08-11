@@ -205,6 +205,22 @@ than it looks: every placement is public and permanent, the discard is face up,
 so the only genuine unknowns are the 4 troops each player set aside unseen and
 the order of the reserve. The belief state is a small multiset and it is exact.
 
+### Everything public is on screen, in 88 pixels
+
+The table version leaks nothing the screen may hide, so the action bar carries
+the numbers a player would read across a table: troops in hand, troops still to
+draw, troops out of the game, for both seats. Two rows of three, top row theirs,
+no headings and no labels -- a solid tile, a down triangle and a cross, the same
+marks the cards and the bases already use.
+
+The labels were the whole cost. Spelled out (`THEM  HAND 4  LEFT 16  OUT 0`) it
+was 194px and still growing per revision; the rows do not need naming because
+the board says which end is which, their H.Q. is at the top and your own rack is
+the row directly beneath the bar. Two marks were tried and rejected at this
+size: an outlined tile is a zero, and two overlapping tiles are a smudge. The
+hand also gets a narrower column than the other two, because eight is the rack
+limit and a single digit in a two-digit box reads as a detached group.
+
 ### The opponent
 
 Built before any pixel, because it is the part that decides whether this is fun.

@@ -416,6 +416,14 @@ void buildBrief(toybox::Screen& screen, const BriefModel& model) {
     screen.target().text(screen.takeTop(52), "THIS TERRAIN HAS NO SPECIAL BASES.", body);
   }
 
+  // The bar's counts, explained where the other marks are explained.
+  {
+    const fui::Rect row = screen.takeTop(30, toybox::kGutter);
+    screen.target().text(row, "IN THE BAR: TILE = TROOPS IN HAND, TRIANGLE = LEFT TO DRAW, CROSS = OUT OF THE "
+                              "GAME. TOP ROW IS THEIRS.",
+                         body);
+  }
+
   // A rule, then the troops. Two alphabets on one screen need telling apart:
   // above it is what the ground does, below it is what your own troops do.
   const fui::Rect gap = screen.takeTop(toybox::kRule + toybox::kGutter * 2, toybox::kGutter);
@@ -667,9 +675,11 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   const int16_t barY = kCapsuleTop;
   const int16_t full = static_cast<int16_t>(device.width - toybox::kMargin * 2);
   const int16_t briefW = 52;
-  const int16_t actionW = 146;
+  // The counts need 100px. Everything else is the action, which is what a
+  // thumb is aiming at.
+  constexpr int16_t kCountsW = 88;
+  const int16_t actionW = static_cast<int16_t>(full - briefW - kCountsW - toybox::kGutter * 2);
   const int16_t countsX = static_cast<int16_t>(toybox::kMargin + actionW + toybox::kGutter);
-  const int16_t countsW = static_cast<int16_t>(full - actionW - briefW - toybox::kGutter * 2);
   const int16_t briefX = static_cast<int16_t>(toybox::kMargin + full - briefW);
   const int16_t halfW = static_cast<int16_t>((actionW - toybox::kGutter) / 2);
 
@@ -706,8 +716,8 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   // visible as heights, the discard is face up, and their tiles can be counted
   // even though their faces cannot be read.
   //
-  // LEFT is still to draw, OUT is discarded and gone for good. Your own hand is
-  // not here because the rack directly above it IS your hand.
+  // Tile is troops in hand, triangle is still to draw, cross is discarded and
+  // gone for good. Both rows carry all three.
   {
     const int me = model.seat, them = model.seat ^ 1;
     int out[2] = {0, 0};
@@ -718,35 +728,54 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
     cell.font = toybox::kSmallFont;
     cell.align = fui::TextAlign::Center;
 
-    // Four columns: who, then the three numbers. Without the first one the two
-    // rows are unlabelled and you cannot tell your pile from theirs.
-    const int16_t labelW = 46;
-    const int16_t colW = static_cast<int16_t>((countsW - labelW) / 3);
-    const int16_t top = static_cast<int16_t>(barY + (toybox::kPillHeight - kCountsRow * 3) / 2);
-    const char* heads[3] = {"HAND", "LEFT", "OUT"};
-    for (int c = 0; c < 3; ++c) {
-      screen.target().text(fui::makeRect(static_cast<int16_t>(countsX + labelW + c * colW), top, colW, kCountsRow),
-                           heads[c], cell);
-    }
+    // No headings, no row labels, no words. The marks already exist -- a down
+    // triangle is "comes from the reserve" on every card that draws, a cross is
+    // "removed" on Jumbo and on a nullified base -- and the rows need no
+    // labelling because the board says which end is which: their H.Q. is at the
+    // top, yours at the bottom, and your own rack is the row directly above.
+    //
+    // 88px against 194 for the spelled-out version, and 232 for the table that
+    // started above the rack.
+    //
+    // The hand gets a narrower column than the other two because it is the one
+    // number that cannot reach double figures -- the rack holds eight. Given
+    // the same pitch, its single digit left fourteen pixels of slack and the
+    // group read as detached from the row rather than as the start of it.
+    constexpr int16_t kHandW = 24;
+    constexpr int16_t kPitch = 34;
+    const int16_t top = static_cast<int16_t>(barY + (toybox::kPillHeight - kCountsRow * 2) / 2);
+
+    const auto count = [&](const int16_t x, const int16_t y, const int value, const tb::Special mark) {
+      const int16_t mid = static_cast<int16_t>(y + kCountsRow / 2);
+      if (mark == tb::Special::None) {
+        // The hand: a solid tile. An outline at this size is a zero, and the
+        // two overlapping tiles that fixed that were a shape nobody reads at
+        // 10px. Filled and rectangular is the only version that is a tile at a
+        // glance -- the count beside it does the counting.
+        screen.target().fill(fui::makeRect(x, static_cast<int16_t>(mid - 5), 7, 11),
+                             fui::Paint::solid(fui::Color::Black));
+      } else {
+        glyph(screen, fui::Point{static_cast<int16_t>(x + 4), mid}, 9, mark, false);
+      }
+      char field[8];
+      std::snprintf(field, sizeof(field), "%d", value);
+      screen.target().text(fui::makeRect(static_cast<int16_t>(x + 10), y, 20, kCountsRow), field, cell);
+    };
+
+    cell.align = fui::TextAlign::Left;
     for (int row = 0; row < 2; ++row) {
       const int seat = row == 0 ? them : me;
-      const int16_t y = static_cast<int16_t>(top + (row + 1) * kCountsRow);
-      char field[8];
-      screen.target().text(fui::makeRect(countsX, y, labelW, kCountsRow), row == 0 ? "THEM" : "YOU", cell);
-      // Their hand is a number you could count across a table. Yours is the row
-      // of tiles directly above, so printing it would be saying it twice.
-      if (row == 0) {
-        std::snprintf(field, sizeof(field), "%d", game.rackSize(seat));
-        screen.target().text(fui::makeRect(static_cast<int16_t>(countsX + labelW), y, colW, kCountsRow), field, cell);
-      }
-      std::snprintf(field, sizeof(field), "%d", game.reserveRemaining(seat));
-      screen.target().text(fui::makeRect(static_cast<int16_t>(countsX + labelW + colW), y, colW, kCountsRow), field,
-                           cell);
-      std::snprintf(field, sizeof(field), "%d", out[seat]);
-      screen.target().text(fui::makeRect(static_cast<int16_t>(countsX + labelW + colW * 2), y, colW, kCountsRow), field,
-                           cell);
+      const int16_t y = static_cast<int16_t>(top + row * kCountsRow);
+      // Yours is on the rack below as well, but a row missing its first column
+      // reads as a bug rather than as an economy.
+      count(countsX, y, game.rackSize(seat), tb::Special::None);
+      count(static_cast<int16_t>(countsX + kHandW), y, game.reserveRemaining(seat), tb::Special::Draw);
+      count(static_cast<int16_t>(countsX + kHandW + kPitch), y, out[seat], tb::Special::Nullify);
     }
   }
+
+
+
 }
 
 }  // namespace tbui
