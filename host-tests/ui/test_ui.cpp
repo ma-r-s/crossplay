@@ -3278,14 +3278,28 @@ void testToyBattleShell() {
   }
 
   {
-    tbui::MapPickModel model;
-    Rendered out;
-    buildTbMaps(out, model);
-    CHECK(out.interactions.count() <= toybox::kMaxInteractions);
-    CHECK(out.interactions.count() >= toybattle::kTerrainCount);
+    // Every map has to be REACHABLE, which is not the same as every map being
+    // drawn: the list held five at a fixed card height and silently dropped the
+    // sixth. Walk the pages and require the whole table to turn up across them.
+    CHECK(tbui::mapsPerPage() >= 1);
+    CHECK(tbui::mapPages() * tbui::mapsPerPage() >= toybattle::kTerrainCount);
     for (int i = 0; i < toybattle::kTerrainCount; ++i) {
-      CHECK(out.target.drew(toybattle::terrainAt(i).name));
+      bool found = false;
+      for (int page = 0; page < tbui::mapPages() && !found; ++page) {
+        tbui::MapPickModel model;
+        model.page = page;
+        Rendered out;
+        buildTbMaps(out, model);
+        CHECK(out.interactions.count() <= toybox::kMaxInteractions);
+        found = out.target.drew(toybattle::terrainAt(i).name);
+      }
+      CHECK(found);
     }
+    // And nothing on the page is inverted, because a picker has no cursor.
+    tbui::MapPickModel first;
+    Rendered out;
+    buildTbMaps(out, first);
+    CHECK(rackTilesPainted(out, fui::Color::DarkGray) == 0);
   }
 
   for (int page = 0; page < tbui::howToPages(); ++page) {

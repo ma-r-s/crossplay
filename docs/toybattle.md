@@ -550,8 +550,23 @@ does. A state expressed only as a ground is otherwise untestable.
 
 **The map list was dropping maps.** Cards were a fixed 104px, five fitted, and
 everything after was silently not drawn -- with no scrollbar, no arrow and
-nothing in the log. Cards size themselves to the terrain count now; nine at 63px
-still fit and nine is the ceiling, so there is nothing to page.
+nothing in the log.
+
+The first fix sized the card to the terrain count so all nine would fit one
+screen, which avoided the problem rather than solving it: nine cards at 63px are
+small enough to be useless. **The card is 104 because that is what makes a map's
+shape readable, and how many fit follows from that.** Seven maps is two pages,
+stepped with the side buttons -- pointing is fingers, stepping is buttons -- with
+dots at the foot showing which page, drawn only when there is more than one. No
+on-screen hint names the buttons, per the design language.
+
+**Nothing on the map list is highlighted.** It used to invert the currently
+configured map, which reads as a cursor, and this device has no cursor: a tap
+picks a map and leaves, so there is nothing for a highlight to mean.
+
+The ui test now walks the pages and requires every terrain to turn up on one of
+them. Asserting that every name is *drawn* was not enough -- that is what passed
+while the sixth map was unreachable.
 
 ## Caribbean Sea
 

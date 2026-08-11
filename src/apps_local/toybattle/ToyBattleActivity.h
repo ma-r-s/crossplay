@@ -70,7 +70,7 @@ class ToyBattleActivity final : public linkplay::LinkActivity {
   int menuSelected = 0;
   int setupSelected = 0;
   int howToPage = 0;
-  int mapTop = 0;
+  int mapPage = 0;
   uint8_t seat = 0;
 
   // What the front door offers to go back to. `preview` is the board the menu

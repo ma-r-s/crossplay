@@ -363,63 +363,96 @@ void buildSetup(toybox::Screen& screen, const SetupModel& model) {
 // The map list
 // ---------------------------------------------------------------------------
 
+// Dots for which page you are on, the same vocabulary the rules pages use.
+// Drawn only when there is more than one, because a single dot says nothing.
+namespace {
+void pageDots(toybox::Screen& screen, const fui::Rect& box, const int page, const int pages) {
+  if (pages < 2) return;
+  const int16_t dot = 12, gap = 10;
+  const int16_t total = static_cast<int16_t>(pages * dot + (pages - 1) * gap);
+  const int16_t left = static_cast<int16_t>(box.x + (box.width - total) / 2);
+  const int16_t cy = static_cast<int16_t>(box.y + box.height / 2);
+  for (int i = 0; i < pages; ++i) {
+    const int16_t cx = static_cast<int16_t>(left + i * (dot + gap) + dot / 2);
+    if (i == page) {
+      toybox::disc(screen, cx, cy, 6, fui::Color::Black);
+    } else {
+      toybox::ring(screen, cx, cy, 6, toybox::kHairline, fui::Color::Black, fui::Color::White);
+    }
+  }
+}
+
+// The card is 104 tall because that is what makes a map's shape readable. How
+// many fit follows from that rather than the other way round: sizing the card
+// to the map count instead made nine of them small enough to be useless, which
+// is solving the wrong problem.
+constexpr int16_t kMapCard = 104;
+constexpr int16_t kDotsBand = 30;
+}  // namespace
+
+int mapsPerPage() {
+  // The band the dots occupy is always reserved, even on a one-page list. It
+  // costs a little white space there and it keeps this function from depending
+  // on its own answer.
+  const int16_t room = static_cast<int16_t>(800 - toybox::kHeaderHeight - 4 - toybox::kRule - toybox::kGutter * 3 -
+                                            toybox::kMargin - kDotsBand);
+  const int fits = (room + toybox::kGutter) / (kMapCard + toybox::kGutter);
+  return fits < 1 ? 1 : fits;
+}
+
+int mapPages() { return (tb::kTerrainCount + mapsPerPage() - 1) / mapsPerPage(); }
+
 void buildMapPick(toybox::Screen& screen, const MapPickModel& model) {
+  const int perPage = mapsPerPage();
+  const int pages = mapPages();
+  int page = model.page;
+  if (page < 0) page = 0;
+  if (page >= pages) page = pages - 1;
+
   char counter[16];
-  std::snprintf(counter, sizeof(counter), "%d MAPS", tb::kTerrainCount);
+  std::snprintf(counter, sizeof(counter), pages > 1 ? "%d/%d" : "%d MAPS", pages > 1 ? page + 1 : tb::kTerrainCount,
+                pages);
   chrome(screen, "MAPS", counter);
 
   const fui::Rect content = screen.contentRect();
-  // A card per map rather than a row, because the thing you are choosing between
-  // is a shape and its name is the least useful thing about it.
-  //
-  // The card is sized to the number of maps, not fixed. At a fixed 104 the list
-  // held five and silently dropped everything after: Battlefield was the sixth
-  // terrain and simply was not on the screen, with no scrollbar, no arrow and
-  // nothing in the log. A map you cannot reach is worse than a small card, and
-  // the eight printed terrains plus PROVING GROUND is the whole ceiling -- nine
-  // at 63px each still fits, so there is nothing to page.
-  const int16_t gap = toybox::kGutter;
-  const int16_t roomy = 104;
-  const int16_t fits =
-      static_cast<int16_t>((content.height - (tb::kTerrainCount - 1) * gap) / tb::kTerrainCount);
-  const int16_t cardH = fits < roomy ? fits : roomy;
+  const fui::Rect dots =
+      fui::makeRect(content.x, static_cast<int16_t>(content.bottom() - kDotsBand), content.width, kDotsBand);
+  pageDots(screen, dots, page, pages);
 
-  for (int index = 0; index < tb::kTerrainCount; ++index) {
-    const int i = index;
+  const int first = page * perPage;
+  for (int i = 0; i < perPage && first + i < tb::kTerrainCount; ++i) {
+    const int index = first + i;
     const tb::Terrain& terrain = tb::terrainAt(index);
-    const bool current = index == model.selected;
-    const fui::Rect card =
-        fui::makeRect(content.x, static_cast<int16_t>(content.y + i * (cardH + gap)), content.width, cardH);
+    const fui::Rect card = fui::makeRect(content.x, static_cast<int16_t>(content.y + i * (kMapCard + toybox::kGutter)),
+                                         content.width, kMapCard);
 
+    // Every card looks the same. Nothing here is "current": a tap picks the map
+    // and leaves, so an inverted card would be a cursor, and the one thing this
+    // screen must not have is a cursor.
     fui::ButtonProps pick;
     pick.label = "";
     pick.action = ActionMapRow;
     pick.value = static_cast<int16_t>(index);
-    pick.styles = current ? toybox::invertedStyles() : toybox::rowStyles();
+    pick.styles = toybox::rowStyles();
     pick.radius = 8;
     screen.button(pick, card);
 
-    const fui::Color ink = current ? fui::Color::White : fui::Color::Black;
     screen.target().text(fui::makeRect(static_cast<int16_t>(card.x + toybox::kGutter),
                                        static_cast<int16_t>(card.y + 22),
                                        static_cast<int16_t>(card.width - 132), 28),
-                         terrain.name, styled(toybox::kUiFont, fui::TextAlign::Left, ink));
+                         terrain.name, styled(toybox::kUiFont, fui::TextAlign::Left));
     char sub[56];
     std::snprintf(sub, sizeof(sub), "%d BASES   WIN AT %d OF %d", terrain.baseCount, terrain.medalsObjective,
                   medalsOn(terrain));
     screen.target().text(fui::makeRect(static_cast<int16_t>(card.x + toybox::kGutter),
                                        static_cast<int16_t>(card.y + 58),
                                        static_cast<int16_t>(card.width - 132), 24),
-                         sub, styled(toybox::kTileFont, fui::TextAlign::Left, ink));
+                         sub, styled(toybox::kTileFont, fui::TextAlign::Left));
 
-    // The board itself, on the right. A selected card inverts, and a mini board
-    // drawn in black on that ground would disappear -- so it gets its own white
-    // panel rather than being drawn straight onto the slab.
-    const fui::Rect panel =
-        fui::makeRect(static_cast<int16_t>(card.right() - 108), static_cast<int16_t>(card.y + 8), 100,
-                      static_cast<int16_t>(cardH - 16));
-    if (current) screen.target().fill(panel, fui::Paint::solid(fui::Color::White), 6);
-    miniBoard(screen, panel, terrain, nullptr, 0);
+    miniBoard(screen,
+              fui::makeRect(static_cast<int16_t>(card.right() - 108), static_cast<int16_t>(card.y + 8), 100,
+                            static_cast<int16_t>(kMapCard - 16)),
+              terrain, nullptr, 0);
   }
 }
 

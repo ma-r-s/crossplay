@@ -78,7 +78,7 @@ void ToyBattleActivity::openMenu() {
 void ToyBattleActivity::cycleSetupRow(const tbui::SetupRow row) {
   switch (row) {
     case tbui::SetupRow::Map:
-      mapTop = 0;
+      mapPage = 0;
       goTo(tb::Screen::MapPick);
       return;
     case tbui::SetupRow::Opponent:
@@ -186,6 +186,18 @@ void ToyBattleActivity::gameLoop() {
     }
     goTo(tb::back(screen));
     return;
+  }
+
+  if (screen == tb::Screen::MapPick && tbui::mapPages() > 1) {
+    const bool down = mappedInput.wasReleased(MappedInputManager::Button::Down);
+    const bool up = mappedInput.wasReleased(MappedInputManager::Button::Up);
+    if (down || up) {
+      mapPage += down ? 1 : -1;
+      if (mapPage < 0) mapPage = tbui::mapPages() - 1;
+      if (mapPage >= tbui::mapPages()) mapPage = 0;
+      requestUpdate();
+      return;
+    }
   }
 
   if (screen == tb::Screen::Board && dealt && game.currentPhase() != tb::Phase::Playing) {
@@ -302,7 +314,7 @@ void ToyBattleActivity::gameLoop() {
       return;
     }
     case tbui::ActionOpenMaps:
-      mapTop = 0;
+      mapPage = 0;
       goTo(tb::Screen::MapPick);
       return;
     case tbui::ActionMapRow:
@@ -415,8 +427,7 @@ void ToyBattleActivity::gameRender() {
     }
     case tb::Screen::MapPick: {
       tbui::MapPickModel model;
-      model.selected = options.terrain;
-      model.topRow = mapTop;
+      model.page = mapPage;
           tbui::buildMapPick(surface, model);
       break;
     }

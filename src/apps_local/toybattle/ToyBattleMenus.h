@@ -75,9 +75,16 @@ void buildSetup(toybox::Screen& screen, const SetupModel& model);
 // --- the map list -----------------------------------------------------------
 
 struct MapPickModel {
-  int selected = 0;
-  int topRow = 0;
+  // Which page, not which row. Nothing on this screen is selected: a tap picks
+  // a map outright, so a highlight would be a cursor -- and this device has no
+  // cursor. Pointing is fingers, stepping is buttons.
+  int page = 0;
 };
+
+// How many maps a page holds, and how many pages that makes. Free functions so
+// the activity can clamp its page without knowing the layout.
+int mapsPerPage();
+int mapPages();
 
 void buildMapPick(toybox::Screen& screen, const MapPickModel& model);
 
