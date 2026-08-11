@@ -1,3 +1,11 @@
+# WARNING, PAID FOR ONCE: this generator rebuilds ToyboxIcons.h from THIS FILE
+# ALONE. Any icon not named here is deleted by a regeneration. Connect Four's
+# and Yahtzee's icons are hand-authored bitmaps that exist only in the generated
+# header, so running gen_toybox_icons.sh wipes both and the build fails on two
+# undeclared identifiers with no hint of why. Check `git diff` on
+# src/apps_local/ui/ToyboxIcons.h after every regeneration, and restore anything
+# it removed.
+#
 # Icons for the shelf, generated into src/apps_local/ui/ToyboxIcons.h by
 # tools_local/gen_toybox_icons.sh. Format: alias = lucide-name.
 #
