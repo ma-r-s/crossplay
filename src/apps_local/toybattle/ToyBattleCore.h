@@ -179,10 +179,16 @@ extern const Terrain kVolcanicJungle;
 // Ten regions, fourteen medals, objective 7.
 extern const Terrain kCursedCemetery;
 
+// BATTLEFIELD, traced by Mario 2026-08-11. Fourteen bases either side of a
+// central spine, four Suppress bases, nine regions including two six-base ones
+// fenced partly by an H.Q. Sixteen medals, objective 8. Symmetric across both
+// midlines.
+extern const Terrain kBattlefield;
+
 // Index into the table `terrainAt` walks. Stored in `Game::terrain`, so the
 // order is part of the save and wire format: append, never reorder.
-enum class TerrainId : uint8_t { CastleField = 0, ProvingGround, CityOfClouds, VolcanicJungle, CursedCemetery };
-constexpr int kTerrainCount = 5;
+enum class TerrainId : uint8_t { CastleField = 0, ProvingGround, CityOfClouds, VolcanicJungle, CursedCemetery, Battlefield };
+constexpr int kTerrainCount = 6;
 
 const Terrain& terrainAt(int index);
 

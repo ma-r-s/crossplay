@@ -369,15 +369,23 @@ void buildMapPick(toybox::Screen& screen, const MapPickModel& model) {
   chrome(screen, "MAPS", counter);
 
   const fui::Rect content = screen.contentRect();
-  // A card per map rather than a row, because the thing you are choosing
-  // between is a shape, and its name is the least useful thing about it.
-  const int16_t cardH = 104;
+  // A card per map rather than a row, because the thing you are choosing between
+  // is a shape and its name is the least useful thing about it.
+  //
+  // The card is sized to the number of maps, not fixed. At a fixed 104 the list
+  // held five and silently dropped everything after: Battlefield was the sixth
+  // terrain and simply was not on the screen, with no scrollbar, no arrow and
+  // nothing in the log. A map you cannot reach is worse than a small card, and
+  // the eight printed terrains plus PROVING GROUND is the whole ceiling -- nine
+  // at 63px each still fits, so there is nothing to page.
   const int16_t gap = toybox::kGutter;
-  const int perScreen = (content.height + gap) / (cardH + gap);
-  const int first = model.topRow;
+  const int16_t roomy = 104;
+  const int16_t fits =
+      static_cast<int16_t>((content.height - (tb::kTerrainCount - 1) * gap) / tb::kTerrainCount);
+  const int16_t cardH = fits < roomy ? fits : roomy;
 
-  for (int i = 0; i < perScreen && first + i < tb::kTerrainCount; ++i) {
-    const int index = first + i;
+  for (int index = 0; index < tb::kTerrainCount; ++index) {
+    const int i = index;
     const tb::Terrain& terrain = tb::terrainAt(index);
     const bool current = index == model.selected;
     const fui::Rect card =

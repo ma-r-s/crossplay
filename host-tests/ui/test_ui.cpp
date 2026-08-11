@@ -72,6 +72,10 @@ class FakeTarget final : public fui::DrawTarget {
 
   std::vector<TextRun> texts;
   std::vector<fui::Rect> fills;
+  // The paint too, not just the rect. A state expressed only as a different
+  // ground -- Battlefield freezing a card -- is otherwise untestable, and it is
+  // exactly the kind of state a screenshot will not happen to contain.
+  std::vector<fui::Paint> fillPaints;
   std::vector<Blit> blits;
 
   fui::Size measureText(const fui::FontId, const char* text, const fui::TextStyle) const override {
@@ -82,7 +86,10 @@ class FakeTarget final : public fui::DrawTarget {
   int16_t lineHeight(const fui::FontId) const override { return 20; }
 
   void fill(const fui::Rect rect, const fui::Paint paint, const uint8_t = 0, const uint8_t = 0xFF) override {
-    if (paint.kind != fui::PaintKind::None) fills.push_back(rect);
+    if (paint.kind != fui::PaintKind::None) {
+      fills.push_back(rect);
+      fillPaints.push_back(paint);
+    }
   }
   void stroke(const fui::Rect, const fui::Paint, const uint8_t, const uint8_t = 0, const uint8_t = 0xFF) override {}
   void line(const fui::Point, const fui::Point, const uint8_t, const fui::Paint) override {}
@@ -3160,6 +3167,67 @@ void buildTbHowTo(Rendered& out, const tbui::HowToModel& model) {
   tbui::buildHowTo(screen, model);
 }
 
+void buildTbBoard(Rendered& out, const tbui::BoardModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  tbui::buildBoard(screen, model);
+}
+
+// Counts rack tiles filled with a given dither level, by matching the fill rect
+// against the geometry the rack itself computes.
+int rackTilesPainted(const Rendered& out, const fui::Color shade) {
+  int found = 0;
+  for (size_t i = 0; i < out.target.fills.size(); ++i) {
+    const fui::Paint& paint = out.target.fillPaints[i];
+    if (paint.kind != fui::PaintKind::Dither || paint.color != shade) continue;
+    for (int position = 0; position < 8; ++position) {
+      const fui::Rect tile = tbui::rackTile(device(), position);
+      const fui::Rect& r = out.target.fills[i];
+      if (r.x > tile.x - 6 && r.x < tile.x + 6 && r.y > tile.y - 6 && r.y < tile.y + 6) ++found;
+    }
+  }
+  return found;
+}
+
+void testAFrozenCardLooksDifferent() {
+  // Battlefield points at a troop on your rack without looking, and it sits out
+  // your turn. That is a state done TO you, so it cannot look the same as "there
+  // is nowhere legal to put this" -- and it is not something a screenshot of an
+  // ordinary game will contain, so it is asserted here instead.
+  toybattle::Game game;
+  game.newGame(31u, static_cast<int>(toybattle::TerrainId::Battlefield), 0, true);
+
+  int held = -1;
+  for (int position = 0; position < 8 && held < 0; ++position) held = tbui::handKindAt(game, 0, position);
+  CHECK(held >= 0);
+
+  tbui::BoardModel model;
+  model.game = game;
+  model.seat = 0;
+  model.yourTurn = true;
+  model.prompt = "";
+  model.canDraw = true;
+
+  Rendered plain;
+  buildTbBoard(plain, model);
+  const int darkBefore = rackTilesPainted(plain, fui::Color::DarkGray);
+
+  model.game.frozenKind[0] = static_cast<uint8_t>(held);
+  Rendered frozen;
+  buildTbBoard(frozen, model);
+  const int darkAfter = rackTilesPainted(frozen, fui::Color::DarkGray);
+
+  // Nothing on the rack wears the dark dither until a troop is frozen, and then
+  // exactly one does.
+  CHECK(darkBefore == 0);
+  CHECK(darkAfter == 1);
+  // And it is still a troop you are holding: freezing must not remove it.
+  CHECK(toybattle::whyNotTroop(model.game, tbui::BoardModel{}.draft, static_cast<toybattle::Troop>(held)) ==
+        toybattle::Refusal::Pinned);
+}
+
 void testToyBattleShell() {
   // The row set shifts rather than leaving a hole, so no index ever names a row
   // that is not on the screen.
@@ -3236,6 +3304,7 @@ void testToyBattleShell() {
 
 int main() {
   testToyBattleShell();
+  testAFrozenCardLooksDifferent();
   testSearchingAsksNothing();
   testMurdleGridResolvesEveryCellItDrew();
   testMurdleGridEdgesAreLive();

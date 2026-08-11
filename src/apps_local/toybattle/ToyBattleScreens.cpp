@@ -615,7 +615,18 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
     const bool live = (offer & (1u << kind)) != 0;
     const bool chosen = chosenPending && draft.move.stepCount > draft.step && draft.move.steps[draft.step].kind == kind;
 
-    screen.target().fill(inner, live ? fui::Paint::dither(fui::Color::LightGray) : fui::Paint::solid(fui::Color::White),
+    // Three grounds, because there are three states and two of them are not the
+    // same kind of "no". A troop with nowhere legal to go is white; a troop
+    // Battlefield pointed at is FROZEN, and that is something done to you rather
+    // than a shape of the board, so it gets the darker of the only two dithers
+    // this device has. Tapping it still says why -- PINNED: IT SITS OUT THIS
+    // TURN -- but a state you have to tap to discover is a state you do not know
+    // you are in when you are planning.
+    const bool frozen = game.frozenKind[model.seat] == static_cast<uint8_t>(kind);
+    screen.target().fill(inner,
+                         frozen ? fui::Paint::dither(fui::Color::DarkGray)
+                                : live ? fui::Paint::dither(fui::Color::LightGray)
+                                       : fui::Paint::solid(fui::Color::White),
                          8);
     screen.target().stroke(inner, fui::Paint::solid(fui::Color::Black), chosen ? 5 : 2, 8);
 
