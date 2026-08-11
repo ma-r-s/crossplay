@@ -18,7 +18,13 @@ namespace fui = freeink::ui;
 
 enum : fui::ActionId {
   ActionMenuRow = 1,
-  ActionCapsule = 2,
+  // A turn is "place a troop" or "draw two", and the second had no way in at
+  // all until this existed. The foot of the board is now whichever of these
+  // the position actually offers.
+  ActionDraw = 2,
+  ActionCancel = 3,
+  ActionTake = 4,
+  ActionSkip = 5,
 };
 
 enum class MenuRow : int { Play = 0, HowTo, Count };
@@ -32,9 +38,11 @@ struct BoardModel {
   toybattle::Draft draft{};
   uint8_t seat = 0;
   bool yourTurn = true;
-  // What the capsule says: the question being asked, or whose turn it is.
-  const char* capsule = "";
-  bool capsuleLive = false;
+  // The question being asked, on its own line under the rule.
+  const char* prompt = "";
+  // Drawing is only offered when it is legal: a full rack or an empty reserve
+  // dims it rather than hiding it.
+  bool canDraw = false;
 };
 
 // --- geometry, shared by the drawing and the hit test -----------------------

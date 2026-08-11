@@ -54,34 +54,35 @@ void ToyBattleActivity::goTo(const tb::Screen next) {
   requestUpdate();
 }
 
-const char* ToyBattleActivity::capsuleText() const {
+const char* ToyBattleActivity::promptText() const {
   if (game.currentPhase() != tb::Phase::Playing) return game.winner == seat ? "YOU WIN" : "YOU LOSE";
-  if (game.turn != seat) return "THEIR MOVE";
+  if (game.turn != seat) return "THEY ARE THINKING";
   switch (tb::pending(game, draft)) {
     case tb::Ask::Troop:
-      return "PICK A TROOP";
+      // The two things a turn can be, said once, where the question is asked.
+      return draft.move.stepCount > draft.step ? "AND ONE MORE" : "TAP A TROOP, OR DRAW TWO";
     case tb::Ask::Slot:
-      return "PICK A BASE";
+      return "TAP A BASE";
     case tb::Ask::JumboVictim:
-      return "REMOVE ONE, OR TAP TO SKIP";
+      return "REMOVE AN ADJACENT TROOP?";
     case tb::Ask::DrawOffer:
-      return "TAKE THE REINFORCEMENTS?";
+      return "REINFORCEMENTS?";
     case tb::Ask::StealOffer:
       return "SHOOT INTO THEIR RACK?";
     case tb::Ask::ChainOffer:
-      return "PLACE ANOTHER?";
+      return "PLACE A SECOND TROOP?";
     case tb::Ask::RecallFrom:
-      return "CALL ONE HOME, OR SKIP";
+      return "CALL ONE OF YOURS HOME?";
     case tb::Ask::ShoveFrom:
-      return "SHOVE WHICH ONE?";
+      return "SHOVE ONE OF THEIRS?";
     case tb::Ask::ShoveTo:
       return "SHOVE IT WHERE?";
     case tb::Ask::ExhumeKind:
-      return "RAISE ONE, OR SKIP";
+      return "RAISE ONE FROM THE DISCARD?";
     case tb::Ask::BaseOffer:
       return "USE THE BASE?";
     case tb::Ask::Ready:
-      return "DONE";
+      return "";
   }
   return "";
 }
@@ -141,12 +142,22 @@ void ToyBattleActivity::loop() {
     case tbui::ActionMenuRow:
       if (static_cast<tbui::MenuRow>(event.value) == tbui::MenuRow::Play) beginGame();
       return;
-    case tbui::ActionCapsule: {
-      // The capsule is how an offer is taken or an optional effect declined.
-      const tb::Ask ask = tb::pending(game, draft);
-      const bool offer = ask == tb::Ask::DrawOffer || ask == tb::Ask::StealOffer || ask == tb::Ask::ChainOffer ||
-                         ask == tb::Ask::BaseOffer;
-      if (tb::answerOffer(game, draft, offer)) {
+    case tbui::ActionDraw:
+      // The other half of a turn, and it had no way in before now.
+      if (game.apply(tb::Move::draw())) {
+        draft.clear();
+        requestUpdate();
+      }
+      return;
+    case tbui::ActionCancel:
+      // Backing out of a half-built move, which the board also had no way to
+      // do: a mis-tapped troop used to be a dead end.
+      draft.clear();
+      requestUpdate();
+      return;
+    case tbui::ActionSkip:
+    case tbui::ActionTake:
+      if (tb::answerOffer(game, draft, event.action == tbui::ActionTake)) {
         if (tb::pending(game, draft) == tb::Ask::Ready) {
           game.apply(draft.move);
           draft.clear();
@@ -154,7 +165,6 @@ void ToyBattleActivity::loop() {
         requestUpdate();
       }
       return;
-    }
     default:
       return;
   }
@@ -187,9 +197,8 @@ void ToyBattleActivity::render(RenderLock&&) {
       model.draft = draft;
       model.seat = seat;
       model.yourTurn = game.turn == seat;
-      model.capsule = capsuleText();
-      const tb::Ask ask = tb::pending(game, draft);
-      model.capsuleLive = ask != tb::Ask::Troop && ask != tb::Ask::Slot && ask != tb::Ask::Ready;
+      model.prompt = promptText();
+      model.canDraw = game.turn == seat && draft.empty() && game.canDraw(seat);
       tbui::buildBoard(surface, model);
       break;
     }

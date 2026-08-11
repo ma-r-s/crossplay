@@ -6,35 +6,32 @@
 // and one chosen. Options described in prose get judged wrong; options rendered
 // at native size get judged.
 //
-//   1 SLABS  bases as chunky dithered slabs, thick paths
-//   2 DISCS  bases as light rings, thin paths
-//
-// Build with: PLATFORMIO_BUILD_FLAGS="-DTOYBATTLE_BOARD=2" ./scripts_local/sim-shot.sh ...
-#ifndef TOYBATTLE_BOARD
-#define TOYBATTLE_BOARD 1
-#endif
+// Slabs, chosen over rings by looking at both at native size. The losing
+// variant is deleted rather than left behind a flag.
 
 namespace tbui {
 namespace {
 
 namespace tb = toybattle;
 
-constexpr int16_t kBoardTop = toybox::kHeaderHeight + toybox::kGutter * 2;  // 100
+// The prompt line sits between the rule and the board, and the board starts
+// below it. They shared a band at first and the question was drawn over the
+// top row of bases.
+constexpr int16_t kPromptTop = toybox::kHeaderHeight + 10;
+constexpr int16_t kBoardTop = kPromptTop + 26;
 constexpr int16_t kRackTile = 54;
-constexpr int16_t kRackHeight = kRackTile + 8;
+// Taller than it is wide: a numeral over a mark needs the height, and the
+// square tile was cropping both.
+constexpr int16_t kRackTall = 70;
+constexpr int16_t kRackHeight = kRackTall + 8;
 constexpr int16_t kCapsuleTop = 800 - toybox::kMargin - toybox::kPillHeight;
 constexpr int16_t kRackTop = kCapsuleTop - toybox::kGutter - kRackHeight;
 
 // The board owns everything between the header and the rack.
 constexpr int16_t kBoardHeight = kRackTop - toybox::kGutter - kBoardTop;
 
-#if TOYBATTLE_BOARD == 2
-constexpr int16_t kSlot = 46;
-constexpr uint8_t kPathWeight = 3;
-#else
 constexpr int16_t kSlot = 52;
 constexpr uint8_t kPathWeight = 5;
-#endif
 
 int16_t boardLeft(const fui::DeviceContext& device) { return static_cast<int16_t>((device.width - 448) / 2); }
 
@@ -190,19 +187,16 @@ void drawSlot(toybox::Screen& screen, const fui::Point at, const tb::Game& game,
   const bool restricts = special == tb::Special::Gate || special == tb::Special::Nullify;
   const uint8_t corner = restricts ? 0 : 8;
 
-#if TOYBATTLE_BOARD == 2
-  // DISCS: a ring, filled only when somebody holds it. Lightest ink of the
-  // three, which matters most on the surface that repaints every move.
-  toybox::ring(screen, at.x, at.y, half, 3, fui::Color::Black,
-               holder == tb::kNoSeat ? fui::Color::White : fui::Color::LightGray);
-  if (isHq) toybox::ring(screen, at.x, at.y, static_cast<int16_t>(half - 7), 3, fui::Color::Black, fui::Color::White);
-#else
-  // SLABS: a dithered ground with a black edge. The dither is in the fill
-  // because there is no grey ink on this device.
+  // A dithered ground with a black edge. The dither is in the fill because
+  // there is no grey ink on this device.
+  //
+  // A special base wears a heavier edge as well as its badge: the badge says
+  // which one, the weight says "this base does something" from across the
+  // board, before you have looked closely enough to read a glyph.
+  const uint8_t edge = isHq ? 5 : (special != tb::Special::None ? 6 : 3);
   screen.target().fill(box, fui::Paint::dither(holder == tb::kNoSeat ? fui::Color::LightGray : fui::Color::DarkGray),
                        corner);
-  screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), isHq ? 5 : 3, corner);
-#endif
+  screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), edge, corner);
 
   if (isHq) {
     centred(screen, box, b.hqOwner(slot) == 0 ? "H" : "E", toybox::kUiFont, false);
@@ -272,7 +266,7 @@ int slotAt(const fui::DeviceContext& device, const tb::Terrain& board, const int
 fui::Rect rackTile(const fui::DeviceContext& device, const int kind) {
   const int16_t span = static_cast<int16_t>(tb::kTroopKinds * kRackTile);
   const int16_t left = static_cast<int16_t>((device.width - span) / 2);
-  return fui::makeRect(static_cast<int16_t>(left + kind * kRackTile), kRackTop, kRackTile, kRackTile);
+  return fui::makeRect(static_cast<int16_t>(left + kind * kRackTile), kRackTop, kRackTile, kRackTall);
 }
 
 int rackAt(const fui::DeviceContext& device, const int x, const int y) {
@@ -315,18 +309,26 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   screen.target().fill(fui::makeRect(0, toybox::kHeaderHeight + 4, device.width, toybox::kRule),
                        fui::Paint::solid(fui::Color::Black));
 
-  // Medals on their own line under the rule. They started in the black band
-  // beside the title and collided with it -- the title is long and the band is
-  // not a place to put anything that grows.
-  char medals[28];
-  std::snprintf(medals, sizeof(medals), "MEDALS %d - %d   TO WIN %d", game.medals[model.seat],
-                game.medals[model.seat ^ 1], b.medalsObjective);
-  fui::TextStyle report;
-  report.font = toybox::kSmallFont;
-  report.align = fui::TextAlign::Center;
-  screen.target().text(fui::makeRect(toybox::kMargin, toybox::kHeaderHeight + 12,
-                                     static_cast<int16_t>(device.width - toybox::kMargin * 2), 20),
-                       medals, report);
+  // Medals ride in the black band beside the title, where the eye already goes
+  // and where they cost no body space. They were on their own line under the
+  // rule and Mario could not find them.
+  char medals[20];
+  std::snprintf(medals, sizeof(medals), "%d-%d OF %d", game.medals[model.seat], game.medals[model.seat ^ 1],
+                b.medalsObjective);
+  fui::TextStyle band;
+  band.font = toybox::kUiFont;
+  band.align = fui::TextAlign::Right;
+  band.color = fui::Color::White;
+  screen.target().text(fui::makeRect(0, 30, static_cast<int16_t>(device.width - toybox::kMargin), 26), medals, band);
+
+  // The line the question lives on, now that the foot of the screen is
+  // controls rather than commentary.
+  fui::TextStyle prompt;
+  prompt.font = toybox::kSmallFont;
+  prompt.align = fui::TextAlign::Center;
+  screen.target().text(
+      fui::makeRect(toybox::kMargin, kPromptTop, static_cast<int16_t>(device.width - toybox::kMargin * 2), 22),
+      model.prompt, prompt);
 
   // Paths first, so the bases sit on top of them.
   for (int e = 0; e < b.edgeCount; ++e) {
@@ -392,14 +394,14 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   // The rack. A troop you cannot play dims rather than disappearing.
   const uint8_t offer = toybattle::candidateTroops(game, model.draft);
   const tb::Draft& draft = model.draft;
-  const bool picking = toybattle::pending(game, draft) != toybattle::Ask::Troop;
+  const bool chosenPending = toybattle::pending(game, draft) != toybattle::Ask::Troop;
   for (int kind = 0; kind < tb::kTroopKinds; ++kind) {
     const fui::Rect tile = rackTile(device, kind);
     const fui::Rect inner = fui::makeRect(static_cast<int16_t>(tile.x + 3), static_cast<int16_t>(tile.y + 3),
                                           static_cast<int16_t>(tile.width - 6), static_cast<int16_t>(tile.height - 6));
     const int held = game.rack[model.seat][kind];
     const bool live = (offer & (1u << kind)) != 0;
-    const bool chosen = picking && draft.move.stepCount > draft.step && draft.move.steps[draft.step].kind == kind;
+    const bool chosen = chosenPending && draft.move.stepCount > draft.step && draft.move.steps[draft.step].kind == kind;
 
     if (held == 0) {
       screen.target().stroke(inner, fui::Paint::dither(fui::Color::LightGray), 2, 8);
@@ -426,12 +428,42 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
     }
   }
 
-  // The capsule names the one thing the board is waiting for.
-  fui::ButtonProps capsule;
-  capsule.label = model.capsule;
-  capsule.action = model.capsuleLive ? ActionCapsule : fui::NO_ACTION;
-  screen.button(capsule, fui::makeRect(toybox::kMargin, kCapsuleTop,
-                                       static_cast<int16_t>(device.width - toybox::kMargin * 2), toybox::kPillHeight));
+  // The foot of the board is whatever the position actually offers, and every
+  // button says what tapping it does. A turn is "place a troop" or "draw two",
+  // and until this existed the second had no way in at all -- the old capsule
+  // narrated the game without ever being the way to play it.
+  const int16_t barY = kCapsuleTop;
+  const int16_t full = static_cast<int16_t>(device.width - toybox::kMargin * 2);
+  const int16_t half = static_cast<int16_t>((full - toybox::kGutter) / 2);
+  const toybattle::Ask ask = toybattle::pending(game, model.draft);
+  const bool picking = model.draft.move.stepCount > model.draft.step || model.draft.slotChosen;
+
+  const auto place = [&](const char* label, const fui::ActionId action, const bool live, const int16_t x,
+                         const int16_t w) {
+    fui::ButtonProps props;
+    props.label = label;
+    props.action = live ? action : fui::NO_ACTION;
+    // A control that cannot act dims rather than disappearing, so the row
+    // never reflows under the thumb.
+    if (!live) props.styles = toybox::disabledButtonStyles();
+    screen.button(props, fui::makeRect(x, barY, w, toybox::kPillHeight));
+  };
+
+  if (!model.yourTurn) {
+    place("THEIR MOVE", ActionSkip, false, toybox::kMargin, full);
+  } else if (ask == toybattle::Ask::Troop && !picking) {
+    place("DRAW 2", ActionDraw, model.canDraw, toybox::kMargin, full);
+  } else if (ask == toybattle::Ask::Troop || ask == toybattle::Ask::Slot) {
+    place("CANCEL", ActionCancel, true, toybox::kMargin, full);
+  } else {
+    // Every remaining question is optional, so it always has two answers.
+    const bool targeted = ask == toybattle::Ask::JumboVictim || ask == toybattle::Ask::RecallFrom ||
+                          ask == toybattle::Ask::ShoveFrom || ask == toybattle::Ask::ShoveTo ||
+                          ask == toybattle::Ask::ExhumeKind;
+    place("SKIP", ActionSkip, true, toybox::kMargin, half);
+    place(targeted ? "CANCEL" : "TAKE IT", targeted ? ActionCancel : ActionTake, true,
+          static_cast<int16_t>(toybox::kMargin + half + toybox::kGutter), half);
+  }
 }
 
 }  // namespace tbui

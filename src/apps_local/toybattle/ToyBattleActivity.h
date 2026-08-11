@@ -31,7 +31,7 @@ class ToyBattleActivity final : public Activity {
   void beginGame();
   void takeOpponentTurn();
   void goTo(toybattle::Screen next);
-  const char* capsuleText() const;
+  const char* promptText() const;
 
   toybattle::Screen screen = toybattle::Screen::Menu;
   toybattle::Game game{};
