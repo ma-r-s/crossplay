@@ -20,6 +20,7 @@
 #include "jaipur/JaipurActivity.h"
 #include "knucklebones/KnucklebonesActivity.h"
 #include "minesweeper/MinesweeperActivity.h"
+#include "toybattle/ToyBattleActivity.h"
 #include "murdle/MurdleActivity.h"
 #include "player/PlayerActivity.h"
 #include "solitaire/SolitaireActivity.h"
@@ -46,6 +47,7 @@ constexpr shelf::Item kGames[] = {
     {"YAHTZEE", &icon_yahtzee_32, &YahtzeeActivity::create},
     {"KNUCKLEBONES", &icon_knucklebones_32, &KnucklebonesActivity::create},
     {"MINESWEEPER", &icon_minesweeper_32, &MinesweeperActivity::create},
+    {"TOY BATTLE", &icon_checkers_32, &ToyBattleActivity::create},
 };
 constexpr shelf::Item kApps[] = {
     {"STUDY", &icon_study_32, &StudyActivity::create},
