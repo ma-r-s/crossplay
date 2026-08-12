@@ -14,7 +14,42 @@ function progress(text) {
   post("progress", { text: text });
 }
 
+// The runtime's biggest file, fetched by us before Pyodide asks for it, so
+// the wait can be counted out loud. Pyodide gives no progress callback, and a
+// static "Starting the Python runtime" over an 80-second cold-cache download
+// is indistinguishable from a hang -- which is exactly how it read the first
+// time someone hit a fresh deploy. Pyodide then takes it from the HTTP cache.
+async function prefetchRuntime() {
+  try {
+    const response = await fetch("/pyodide/pyodide.asm.wasm");
+    if (!response.ok || !response.body) return;
+    const total = Number(response.headers.get("content-length")) || 0;
+    const reader = response.body.getReader();
+    let loaded = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      loaded += value.length;
+      progress(
+        total
+          ? "Downloading the Python runtime, " +
+              Math.round((loaded / total) * 100) +
+              "% of " +
+              Math.round(total / 1024 / 1024) +
+              " MB"
+          : "Downloading the Python runtime, " +
+              Math.round(loaded / 1024 / 1024) +
+              " MB so far",
+      );
+    }
+  } catch (e) {
+    // A failed prefetch costs nothing: loadPyodide fetches it itself.
+  }
+}
+
 async function init() {
+  progress("Starting the Python runtime");
+  await prefetchRuntime();
   progress("Starting the Python runtime");
   pyodide = await loadPyodide({ indexURL: "/pyodide/" });
   progress("Loading sqlite, zstandard, fonttools, pillow");

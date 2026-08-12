@@ -44,8 +44,9 @@
       var msg = event.data;
       if (msg.type === "progress") {
         var note =
-          msg.text.indexOf("Starting the Python runtime") === 0
-            ? " (first visit downloads the converter, ~15 MB; later runs are instant)"
+          msg.text.indexOf("Starting the Python runtime") === 0 ||
+          msg.text.indexOf("Downloading the Python runtime") === 0
+            ? " (first visit only; later runs are instant)"
             : "";
         setProgress(msg.text + "…" + note);
       } else if (msg.type === "ready") {
