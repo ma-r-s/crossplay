@@ -318,11 +318,28 @@ int main() {
   check(generalNoBases.percent() >= 90, "with special bases switched off as well");
   check(generalVsRecruit.percent() >= 90, "General beats Recruit, which is the evaluation earning its place");
   check(castle.percent() >= 90, "and the same on Castle Field");
-  // Measured at 71% and 99%. The search is the biggest single step this brain
-  // has ever taken, and 60 is far enough below 71 to survive variance while
-  // still failing if the search stops working.
-  check(generalVsSergeant.percent() >= 60, "General out-searches Sergeant, so the top rung is a real rung");
-  check(sergeantVsRecruit.percent() >= 90, "and Sergeant out-evaluates Recruit, so the bottom one is too");
+  // The rungs shifted up one on 2026-08-11, so both bands below were re-derived
+  // from the tournament rather than left where they were. GENERAL is now the
+  // fitted evaluation, SERGEANT is the beam-8 depth-3 search that used to be
+  // GENERAL, and RECRUIT is the greedy evaluation that used to be SERGEANT.
+  //
+  // Tournament, 600 games a pairing: fitted beats the search 84.0%. The bands
+  // sit about ten points under what this suite actually measures -- 81% and
+  // 80% -- which is the headroom the old ones had.
+  //
+  // The lower band was first set to 55 from the tournament's 64.7% for search
+  // against greedy, and that was the wrong number to derive from: the
+  // tournament's `greedy` variant is not policyFor(Recruit), and the real
+  // pairing measures 80%. Deriving a bound from a nearby-but-different
+  // measurement is its own way of being wrong, so it is stated here rather
+  // than left looking deliberate.
+  //
+  // The second one USED to be >= 90, and that was right when it compared an
+  // evaluation against no evaluation at all. It now compares search against
+  // greedy, which is a much narrower gap: 90 would have been a bound that
+  // could only be met by the pairing it was written for.
+  check(generalVsSergeant.percent() >= 70, "General out-evaluates Sergeant, so the top rung is a real rung");
+  check(sergeantVsRecruit.percent() >= 65, "and Sergeant out-searches Recruit, so the bottom one is too");
 
   printf("brain      %d checks, 0 failed\n", checks);
   printf("           vs random: recruit %d%% (%d/%d), general %d%% (%d%% with special bases off)\n",

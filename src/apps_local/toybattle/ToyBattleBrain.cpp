@@ -417,30 +417,39 @@ const int kMaxCandidatesShipped = kMaxCandidates;
 const int kMaxPlacementsOfferedShipped = kMaxPlacementsOffered;
 }  // namespace detail
 
+// The three rungs, shifted up one on 2026-08-11 after Mario played the fitted
+// brain and called the difficulty right. Every rung is now what the rung above
+// it used to be:
+//
+//   GENERAL   the fitted evaluation      (new)
+//   SERGEANT  beam 8 at depth 3          (was GENERAL)
+//   RECRUIT   an evaluation, played greedily  (was SERGEANT)
+//
+// The old RECRUIT is gone. It had the two reflexes and no evaluation at all,
+// and the tournament put it at 0.8% against the field -- it lost about
+// ninety-nine games in a hundred to everything, including the greedy brain.
+// A rung nobody can lose to is not a difficulty, it is a placeholder.
 Policy policyFor(Skill skill) {
   Policy p;
-  if (skill == Skill::Recruit) {
-    p.material = false;  // the two reflexes and nothing else
-    return p;
-  }
-  if (skill == Skill::Sergeant) return p;  // an evaluation, played greedily
-  // Beam 8 at depth 3, which is where the tournament stopped paying: beam 12
-  // and beam 24 are level with it head to head and cost two and four times as
-  // much, and depth 3 beats the greedy brain this replaces 72.8% of 6400 games.
-  Policy general;
-  general.beam = 8;
-  general.depth = 3;
-  // The FITTED weights, not the ones I chose by eye. It beats the hand-tuned
-  // General 84% of 600 games and every other variant in the field, on every
-  // board, with and without special bases, for 0.288ms a move against a screen
-  // that takes about a second to refresh.
-  //
-  // Recruit and Sergeant deliberately keep the old evaluation. They are the
-  // rungs for somebody who finds this too hard, and rebuilding them on the
-  // same numbers would have collapsed the ladder into one difficulty played
-  // three depths deep.
-  general.fitted = true;
-  return general;
+  // An evaluation, played greedily: it scores the position its own move leaves
+  // and never asks what happens next.
+  if (skill == Skill::Recruit) return p;
+
+  // Beam 8 at depth 3, which is where added width stopped paying: beam 12 and
+  // beam 24 are level with it head to head and cost two and four times as much.
+  // This is the brain Mario beat three games running, which is exactly what a
+  // middle rung should feel like.
+  Policy searching;
+  searching.beam = 8;
+  searching.depth = 3;
+  if (skill == Skill::Sergeant) return searching;
+
+  // Same search, weights FITTED to self-play outcomes rather than chosen by
+  // eye. Beats the rung below it 84% of 600 games, on every board, for 0.288ms
+  // a move. The rungs below keep the hand-tuned evaluation on purpose: rebuilt
+  // on these numbers they would be one difficulty at three depths.
+  searching.fitted = true;
+  return searching;
 }
 
 Move chooseMove(const Observation& obs, Skill skill) { return chooseMove(obs, policyFor(skill)); }

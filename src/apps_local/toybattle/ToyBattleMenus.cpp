@@ -70,14 +70,14 @@ const char* skillName(const tb::Skill skill) {
 const char* skillBlurb(const tb::Skill skill) {
   switch (skill) {
     case tb::Skill::Recruit:
-      return "TAKES WHAT IS THERE";
-    case tb::Skill::Sergeant:
-      // Was "PLAYS FOR POSITION", which oversold it: it reads as a plan, and
-      // this rung has none. Said plainly next to GENERAL's "READS YOUR REPLY",
-      // the pair now names the actual difference -- depth.
       return "ONE MOVE AHEAD";
-    case tb::Skill::General:
+    case tb::Skill::Sergeant:
       return "READS YOUR REPLY";
+    case tb::Skill::General:
+      // What it does that SERGEANT does not: there are two ways to win this
+      // game and it compares them. A medal one placement away beats charging
+      // an H.Q. across the board, and the reverse when the capture is there.
+      return "WEIGHS BOTH WINS";
   }
   return "";
 }
