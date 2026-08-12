@@ -63,7 +63,34 @@ if [ "${1:-}" = "--committed" ]; then
   trap 'git worktree remove --force "$TRIAL" 2>/dev/null; git worktree prune 2>/dev/null' EXIT INT TERM
   # A fresh worktree does not populate submodules, and the host tests compile
   # FreeInkUI out of freeink-sdk/.
-  git -C "$TRIAL" submodule update --init --recursive --quiet
+  #
+  # alternateLocation=superproject makes this read the objects out of THIS
+  # repository instead of cloning them again from GitHub. Without it every
+  # --committed run re-downloaded freeink-sdk and, nested inside it, the whole
+  # lucide icon repository. That is why this mode felt slow all along, and on
+  # 2026-08-11 one of those fetches died mid-stream and git sat retrying for
+  # twenty-five minutes with nothing compiling:
+  #
+  #   error: RPC failed; curl 92 HTTP/2 stream 5 was not closed cleanly
+  #   Failed to clone 'libs/assets/Icons/lucide'. Retry scheduled
+  #
+  # The objects are already on this disk. Fetching them over the network to
+  # verify a local commit was never necessary.
+  #
+  # NOT --recursive. The only nested submodule is the lucide icon repository,
+  # thousands of SVGs that nothing here compiles: FreeInkUIIcon.h is generated
+  # from them and committed, and the only mention of the path in the whole tree
+  # is the comment saying how to regenerate. Pulling it cost 237s of the 244.
+  # If a nested submodule ever does become load-bearing, this build breaks
+  # loudly rather than silently, which is the right way round.
+  if ! SUBMODULE_LOG=$(git -C "$TRIAL" \
+        -c submodule.alternateLocation=superproject \
+        -c submodule.alternateErrorStrategy=info \
+        submodule update --init --quiet 2>&1); then
+    echo "submodules failed to populate in the trial worktree:"
+    echo "$SUBMODULE_LOG" | tail -5
+    exit 1
+  fi
   # The trial worktree is detached, so `git branch --show-current` is empty
   # inside it, and the browser-artifact gate at the foot of this file -- the
   # only branch-conditional check here -- switched itself off in the one mode
