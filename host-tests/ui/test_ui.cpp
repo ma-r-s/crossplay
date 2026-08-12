@@ -3234,7 +3234,6 @@ void testTheRackTileYouTapIsTheTroopYouGet() {
     // still drew the hand and a tile that only earns a refusal looks tappable.
     int seen[16] = {};
     int deadEnds = 0;
-    int chainExhumeDeadEnds = 0;
     const int boards[] = {
         static_cast<int>(toybattle::TerrainId::CursedCemetery), static_cast<int>(toybattle::TerrainId::CastleField),
         static_cast<int>(toybattle::TerrainId::VolcanicJungle), static_cast<int>(toybattle::TerrainId::Battlefield),
@@ -3272,16 +3271,7 @@ void testTheRackTileYouTapIsTheTroopYouGet() {
                 answerable = true;
               }
             }
-            // KNOWN OPEN BUG, named rather than folded into a threshold: inside
-            // a Cap'n chain the Exhume question offers the right tiles and the
-            // model then refuses the completed two-step move -- takeTarget
-            // accepts the pick, completable() rejects the move it makes. Same
-            // CLASS as the bug this test was written for, different cause.
-            const bool knownChainCase = ask == toybattle::Ask::ExhumeKind && d.move.stepCount > 1;
-            if (!answerable && knownChainCase) ++chainExhumeDeadEnds;
-            if (!answerable && !knownChainCase) {
-              ++deadEnds;
-            }
+            if (!answerable) ++deadEnds;
           }
 
           bool moved = false;
@@ -3325,9 +3315,11 @@ void testTheRackTileYouTapIsTheTroopYouGet() {
     CHECK(seen[static_cast<int>(toybattle::Ask::ExhumeKind)] > 0);
     CHECK(seen[static_cast<int>(toybattle::Ask::RecallFrom)] > 0);
     CHECK(seen[static_cast<int>(toybattle::Ask::ShoveFrom)] > 0);
-    // And the excluded case must still be reached, or its exclusion is an
-    // exclusion of nothing and the day it is fixed nobody notices.
-    CHECK(chainExhumeDeadEnds > 0);
+    // The Cap'n chain used to be excluded here by name, because inside one the
+    // Exhume question offered troops an earlier grave had already taken and
+    // then refused the answer. Fixed by counting what the chain has claimed
+    // (discardLeft), so the exclusion is gone and the general check covers it.
+    CHECK(seen[static_cast<int>(toybattle::Ask::ChainOffer)] > 0);
   }
 
   // Neighbouring tiles never share a pixel.

@@ -211,6 +211,18 @@ enum class Refusal : uint8_t {
   NothingAsked,  // no question is open, so the tap means nothing
 };
 
+// How many of `kind` are still in the mover's discard once the steps already
+// composed in `draft` have taken theirs.
+//
+// A Cap'n chain can land on two graves in one turn, and the discard is not
+// replenished between them. `projected()` deliberately does not replay base
+// effects -- the engine defers them all until after the troop effects, and
+// replaying them early misjudges the placements -- so nothing else in the flow
+// knows that the first grave already claimed a troop. Without this, the second
+// grave offered a troop that was no longer there and then refused the answer,
+// leaving the player stuck mid-chain with no legal way forward.
+int discardLeft(const Game& game, const Draft& draft, int kind);
+
 // Why `slot` cannot be answered right now. Refusal::None means it can.
 Refusal whyNotSlot(const Game& game, const Draft& draft, int slot);
 // Why `kind` cannot be picked off the rack.
