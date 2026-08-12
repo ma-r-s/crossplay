@@ -55,6 +55,17 @@ if [ "${1:-}" = "--committed" ]; then
   git worktree remove --force "$TRIAL" 2>/dev/null || true
   echo "verifying HEAD ($(git rev-parse --short HEAD)) in a throwaway worktree"
   TRIAL_T0=$(date +%s)
+  # The trial path is derived from a hash, so it is the SAME directory every
+  # run. A run killed mid-setup therefore leaves a half-populated worktree
+  # that the next run inherits, and git spends minutes trying to repair it --
+  # 2m25s tonight, with an empty freeink-sdk, after a kill during a submodule
+  # clone. Start from nothing instead: it costs a second and removes a state
+  # nobody can reason about.
+  if [ -e "$TRIAL" ]; then
+    git worktree remove --force "$TRIAL" 2>/dev/null
+    rm -rf "$TRIAL"
+    git worktree prune 2>/dev/null
+  fi
   echo "  your working tree is untouched, and its uncommitted work is not in this build"
   git worktree add --quiet --detach "$TRIAL" HEAD || exit 1
   # Clean up even when this run is interrupted. A killed --committed used to
