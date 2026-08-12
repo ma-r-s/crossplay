@@ -83,3 +83,37 @@ A mock is a second renderer that must be kept honest by hand. The emulator is
 the firmware: same wrap, same fonts, same fallback rules, same pixels. When
 the device gains a feature the preview gains it by rebuilding, not by
 remembering. See `browser-emulator` in project memory and `site/emulator/`.
+
+## Testing the folder pickers without a folder picker
+
+`showDirectoryPicker()` opens a native OS panel, so no browser automation can
+click it and the write and sync flows were written off as hand-test-only. They
+are not. OPFS hands back the *same interface*:
+
+```js
+const opfs = await navigator.storage.getDirectory();  // FileSystemDirectoryHandle
+window.showDirectoryPicker = async () => opfs;
+window.confirm = () => true;                          // or false, to test Cancel
+```
+
+With that stub in the page, every line downstream of the dialog runs for real
+against real files, and you can read back exactly what landed. Verified this
+way on 2026-08-12: the 8 files under `study/<slug>/`, the "already carries N
+review record(s)" guard counting correctly, Cancel leaving the card untouched
+(a sentinel file survived), all three sync-picker branches, the timestamped
+backup, and the replayed row arriving in the collection's `revlog` table.
+
+Two things it cannot cover, and they are the honest remainder: the OS dialog
+itself, and Chrome's permission prompt.
+
+For the replay you need a collection the deck's card ids match. The sample
+deck under `site/study/demo/` is the same fixture the tests use, so
+`apkg.extract()` on it yields a usable `collection.anki2`; serve it from the
+site's own origin (COEP `require-corp` blocks a cross-origin fetch) and pull
+it into OPFS. Forge a device review with the same 32-byte layout
+`test_web_glue.py` packs: `<qqBBhiIB3x`, card id first.
+
+One behaviour to know before reading a result: **Replay disables its own
+button on success**, so pressing it twice is a no-op rather than a second
+replay. The replay's idempotence is asserted in `test_web_glue.py`, not by
+clicking twice.
