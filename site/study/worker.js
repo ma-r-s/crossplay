@@ -38,19 +38,26 @@ async function prefetchRuntime() {
     const total = Number(response.headers.get("content-length")) || 0;
     const reader = response.body.getReader();
     let loaded = 0;
+    // Report at most four times a second. Posting on EVERY chunk turned a
+    // 0.6-second download into three minutes: a brotli stream arrives in
+    // thousands of small pieces, and a message per piece saturates the page's
+    // main thread badly enough to starve this read loop. Measured, not
+    // guessed -- plain fetch+arrayBuffer of the same file is 612ms.
+    let lastPost = 0;
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
       loaded += value.length;
+      const now = Date.now();
+      if (now - lastPost < 250) continue;
+      lastPost = now;
       progress(
         total
           ? "Downloading the Python runtime, " +
               Math.round((loaded / total) * 100) +
-              "% of " +
-              Math.round(total / 1024 / 1024) +
-              " MB"
+              "%"
           : "Downloading the Python runtime, " +
-              Math.round(loaded / 1024 / 1024) +
+              Math.round(loaded / 1048576) +
               " MB so far",
       );
     }
