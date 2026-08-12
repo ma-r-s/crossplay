@@ -52,8 +52,12 @@ async function init() {
   await prefetchRuntime();
   progress("Starting the Python runtime");
   pyodide = await loadPyodide({ indexURL: "/pyodide/" });
-  progress("Loading sqlite, zstandard, fonttools, pillow");
-  await pyodide.loadPackage(["sqlite3", "zstandard", "fonttools", "pillow"], {
+  // Pillow is NOT here: it is a megabyte, it only serves make_images.py, and
+  // the pictures it would pack are not carried to the reader anyway. It is
+  // loaded on demand below for the one deck shape that uses them, so the
+  // common English deck never pays for it on a cold cache.
+  progress("Loading sqlite, zstandard and fonttools");
+  await pyodide.loadPackage(["sqlite3", "zstandard", "fonttools"], {
     messageCallback: function () {},
   });
   progress("Fetching the conversion tools");
@@ -95,7 +99,12 @@ var handlers = {
     post("opened", { result: callGlue("web_glue.open_apkg()") });
   },
 
-  convert: function (msg) {
+  convert: async function (msg) {
+    if (msg.needsImages && !self.pillowLoaded) {
+      progress("Loading the image packer");
+      await pyodide.loadPackage("pillow", { messageCallback: function () {} });
+      self.pillowLoaded = true;
+    }
     pyodide.globals.set("_deck", msg.deck);
     pyodide.globals.set("_mapping", pyodide.toPy(msg.mapping || null));
     post("converted", {

@@ -224,6 +224,8 @@
       epoch: epoch,
       deck: deckName,
       mapping: mapping,
+      // Only a package carrying pictures needs the image packer downloaded.
+      needsImages: !!(opened && opened.pictures > 0),
     });
   }
 
