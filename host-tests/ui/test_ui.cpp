@@ -3628,21 +3628,25 @@ void testNoRulesPageDrawsOverItsOwnButtons() {
     }
   }
 
-  // The ? card is two pages now, and both are subject to the same two rules:
-  // nothing on the buttons, nothing off the panel.
+  // The ? card is one screen carrying two lists, and the one that varies is the
+  // map's. Every playable board, at every metric: nothing off the panel.
   for (const int16_t lineH : heights) {
-    for (int page = 0; page < tbui::briefPages(); ++page) {
+    for (int nth = 0; nth < toybattle::kPlayableTerrainCount; ++nth) {
       tbui::BriefModel model;
-      model.board = &toybattle::terrainAt(static_cast<int>(toybattle::TerrainId::LaCroisette));
-      model.page = page;
+      model.board = &toybattle::terrainAt(toybattle::playableTerrainAt(nth));
       Rendered out;
       out.target.lineH = lineH;
       buildTbBrief(out, model);
       CHECK(out.interactions.count() <= toybox::kMaxInteractions);
       for (const auto& run : out.target.texts) {
-        if (run.text == "BOARD" || run.text == "THIS MAP" || run.text == "TROOPS") continue;
-        CHECK(run.rect.bottom() <= kActionTop);
+        CHECK(run.rect.bottom() <= 800);
         CHECK(run.rect.right() <= 480);
+        CHECK(run.rect.y >= 0);
+      }
+      // And every troop is still on it: a budget that silently drops the tail
+      // of the list looks exactly like a list that fits.
+      for (int k = 0; k < toybattle::kTroopKinds; ++k) {
+        CHECK(out.target.drew(tbui::troopBlurb(static_cast<toybattle::Troop>(k))));
       }
     }
   }

@@ -427,14 +427,20 @@ another size. That is the piece the old deck did not have.
 the WHOLE deck rather than per page -- sized per page, the map rescaled by 23%
 and jumped on every turn, on a panel that full-refreshes.
 
-The card behind `?` is two pages: this map's special bases, bracketed on the map
-so you can find them, and then every troop with its face and what it does. One
-page could not hold both. Crammed under the specials the troop list got a 30px
-box with the mark parked beside it, which is not the card -- the card is the
-numeral OVER the mark -- and on the four-kind maps it reached within a row of
-the bottom edge. `troopReference()` draws that second page and the deck's card
-page both, and `troopCardFace()` draws every card anywhere, the rack included,
-so no screen can drift from the one the player taps.
+The card behind `?` is one screen carrying this map's special bases, the bar's
+counts, and every troop with its own face and what it does. It was two pages for
+an hour, because eight full-width troop rows plus a four-kind map's specials
+come to 721px in a 672px content rect. **The troop grid is what buys the one
+page back**: four rows of two come to 304, and the card gets BIGGER doing it,
+because the height a row may spend is what doubled. The map's list is the part
+that varies -- nought to four kinds -- so it takes the ceiling and the troops
+take everything under the rule; reserving a fixed band for the troops instead
+left a hole in the middle of every one-kind map, which reads as a missing
+element rather than as air.
+
+`troopReference()` draws that grid and the rules deck's card page both, and
+`troopCardFace()` draws every card anywhere, the rack included, so no screen can
+drift from the one the player taps.
 
 **Four defects came from looking at the renders, not from reasoning.** The menu
 caption read "14 OF 7 MEDALS" backwards; map names truncated to "CASTLE FIEL" in

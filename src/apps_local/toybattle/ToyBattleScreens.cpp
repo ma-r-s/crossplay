@@ -547,33 +547,53 @@ fui::TextStyle fittedHeaderTitle(toybox::Screen& screen, const char* title, cons
 //
 // Drawn into whatever box it is handed, so the in-game ? card and the rules
 // deck show the same screen rather than two descriptions of one.
-void troopReference(toybox::Screen& screen, const fui::Rect& box) {
+void troopReference(toybox::Screen& screen, const fui::Rect& box, const int columns) {
   fui::TextStyle body;
   body.font = toybox::kSmallFont;
   body.align = fui::TextAlign::Left;
+  body.maxLines = 3;
 
-  const int16_t rowH = static_cast<int16_t>(box.height / tb::kTroopKinds);
-  // The rack's own proportions: 48 wide to 64 tall. A card at any other ratio
-  // is a different object.
+  const int cols = columns < 1 ? 1 : columns;
+  const int rows = (tb::kTroopKinds + cols - 1) / cols;
+  const int16_t colW = static_cast<int16_t>((box.width - toybox::kGutter * (cols - 1)) / cols);
+  const int16_t rowH = static_cast<int16_t>(box.height / rows);
+
+  // The rack's own proportions: 48 wide to 64 tall. A card at another ratio is
+  // a different object, so the height is what varies and the width follows.
   int16_t cardH = static_cast<int16_t>(rowH - 6);
-  if (cardH > 60) cardH = 60;
+  if (cardH > 64) cardH = 64;  // the rack's own size; bigger is a different object
   const int16_t cardW = static_cast<int16_t>(cardH * 48 / 64);
 
   for (int k = 0; k < tb::kTroopKinds; ++k) {
     const tb::Troop troop = static_cast<tb::Troop>(k);
-    const fui::Rect row = fui::makeRect(box.x, static_cast<int16_t>(box.y + k * rowH), box.width, rowH);
+    const int col = k / rows, row = k % rows;
+    const fui::Rect cell = fui::makeRect(static_cast<int16_t>(box.x + col * (colW + toybox::kGutter)),
+                                         static_cast<int16_t>(box.y + row * rowH), colW, rowH);
     troopCardFace(screen,
-                  fui::makeRect(row.x, static_cast<int16_t>(row.y + (rowH - cardH) / 2), cardW, cardH), troop,
+                  fui::makeRect(cell.x, static_cast<int16_t>(cell.y + (rowH - cardH) / 2), cardW, cardH), troop,
                   fui::Paint::dither(fui::Color::LightGray), 2);
-    const int16_t textX = static_cast<int16_t>(row.x + cardW + toybox::kGutter + 4);
-    screen.target().text(fui::makeRect(textX, row.y, static_cast<int16_t>(row.right() - textX), rowH),
+    const int16_t textX = static_cast<int16_t>(cell.x + cardW + toybox::kGutter);
+    screen.target().text(fui::makeRect(textX, cell.y, static_cast<int16_t>(cell.right() - textX), rowH),
                          troopBlurb(troop), body);
   }
 }
 
-// The briefing: every special base on this terrain, drawn with the badge it
-// wears on the board so the mark and the meaning are learned together.
-void buildBriefMap(toybox::Screen& screen, const BriefModel& model) {
+// The briefing: what this map's special bases do, what the counts in the bar
+// mean, and every troop with its own card face and what it does. One screen.
+//
+// It was two for a day and Mario did not want two. The thing that buys the one
+// page back is the troop grid: eight full-width rows plus a four-kind map's
+// specials come to 721px in a 672px content rect, and four rows of two come to
+// 304. The card gets BIGGER doing it, because the height a row may spend is
+// what doubled.
+void buildBrief(toybox::Screen& screen, const BriefModel& model) {
+  const char* title = model.board ? model.board->name : "TERRAIN";
+  fui::HeaderProps header;
+  header.title = title;
+  header.titleText = fittedHeaderTitle(screen, title);
+  header.borderEdges = fui::EdgesNone;
+  screen.header(header);
+  screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
   if (!model.board) return;
 
   fui::TextStyle body;
@@ -596,17 +616,38 @@ void buildBriefMap(toybox::Screen& screen, const BriefModel& model) {
     ++seen[static_cast<int>(model.board->specialAt(base))];
   }
 
+  // The map's list is the part that varies -- nought to four kinds -- so it is
+  // the part that gets a ceiling, and the troops take everything left under the
+  // rule. Reserving a fixed band for the troops instead left a hole in the
+  // middle of every map that has one special kind, which reads as a missing
+  // element rather than as air.
+  constexpr int16_t kTroopFloor = 300;
+
   bool any = false;
+  int kinds = 0;
+  for (int k = 1; k < 8; ++k) {
+    if (seen[k]) ++kinds;
+  }
+  // Four kinds is the most any printed board carries. The rows share what is
+  // left of the space above the troops rather than claiming a fixed 52 each.
+  const fui::Rect whole = screen.contentRect();
+  const int16_t legendBand = 30, ruleBand = toybox::kRule + toybox::kGutter * 2;
+  const int16_t forList =
+      static_cast<int16_t>(whole.height - kTroopFloor - legendBand - ruleBand - toybox::kGutter * 3);
+  int16_t specialRow = kinds > 0 ? static_cast<int16_t>(forList / kinds) : 0;
+  if (specialRow > 52) specialRow = 52;
+  if (specialRow < 34) specialRow = 34;
+
   for (int k = 1; k < 8; ++k) {
     if (!seen[k]) continue;
     any = true;
     const tb::Special what = static_cast<tb::Special>(k);
-    const fui::Rect row = screen.takeTop(52, toybox::kGutter);
+    const fui::Rect row = screen.takeTop(specialRow, 4);
 
-    const int16_t badge = 17;
+    const int16_t badge = static_cast<int16_t>(specialRow / 3 + 1);
     const fui::Point at{static_cast<int16_t>(row.x + badge), static_cast<int16_t>(row.y + row.height / 2)};
     toybox::disc(screen, at.x, at.y, badge, fui::Color::Black);
-    glyph(screen, at, 15, what, true);
+    glyph(screen, at, static_cast<int16_t>(badge - 2), what, true);
 
     char line[96];
     std::snprintf(line, sizeof(line), "%d x %s", seen[k], specialBlurb(what));
@@ -659,81 +700,13 @@ void buildBriefMap(toybox::Screen& screen, const BriefModel& model) {
     }
   }
 
-  // Where they are, which the list cannot say. "4 x TAKES ONE OF YOURS OFF THE
-  // DISCARD" still leaves you hunting for the four, and moving the troops onto
-  // their own page left exactly the room to answer it.
-  {
-    uint64_t marked = 0;
-    for (int base = 0; base < model.board->baseCount; ++base) {
-      if (model.board->specialAt(base) != tb::Special::None || model.board->gate[base] != 0) {
-        marked |= uint64_t{1} << base;
-      }
-    }
-    const fui::Rect room = screen.contentRect();
-    if (marked != 0 && room.height > 160) {
-      // takeTop consumes its height PLUS its trailing gap, so the two together
-      // have to add up to what is left rather than to what is left plus one.
-      const int16_t noteH = 24;
-      miniBoard(screen,
-                screen.takeTop(static_cast<int16_t>(room.height - noteH - toybox::kGutter), toybox::kGutter),
-                *model.board, nullptr, marked);
-      fui::TextStyle note;
-      note.font = toybox::kTileFont;
-      note.align = fui::TextAlign::Center;
-      screen.target().text(screen.takeTop(noteH), "BRACKETS MARK THEM ON THE MAP", note);
-    }
-  }
-}
+  // A rule, then the troops. Two alphabets on one screen need telling apart:
+  // above it is what the ground does, below it is what your own troops do.
+  const fui::Rect gap = screen.takeTop(ruleBand, toybox::kGutter);
+  screen.target().fill(fui::makeRect(gap.x, static_cast<int16_t>(gap.y + toybox::kGutter), gap.width, toybox::kRule),
+                       fui::Paint::solid(fui::Color::Black));
 
-int briefPages() { return 2; }
-
-void buildBrief(toybox::Screen& screen, const BriefModel& model) {
-  const int page = (model.page < 0 || model.page >= briefPages()) ? 0 : model.page;
-  const char* title = page == 0 ? (model.board ? model.board->name : "TERRAIN") : "THE TROOPS";
-
-  fui::HeaderProps header;
-  header.title = title;
-  header.rightLabel = page == 0 ? "1/2" : "2/2";
-  header.subtitleText = fui::TextStyle{};
-  header.subtitleText.font = toybox::kUiFont;
-  header.subtitleText.color = fui::Color::White;
-  header.subtitleText.align = fui::TextAlign::Right;
-  header.titleText = fittedHeaderTitle(
-      screen, title,
-      static_cast<int16_t>(screen.target().measureText(toybox::kUiFont, header.rightLabel, header.subtitleText).width +
-                           toybox::kGutter));
-  header.borderEdges = fui::EdgesNone;
-  screen.header(header);
-  screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
-
-  // The way out is taken first, so nothing below can grow into it. Two pills,
-  // relabelling rather than disappearing, the same pair the rules deck uses.
-  const fui::Rect actions = screen.takeBottom(toybox::kPillHeight, toybox::kGutter);
-  const int16_t width = static_cast<int16_t>((actions.width - toybox::kGutter) / 2);
-  const char* labels[2] = {page == 0 ? "BOARD" : "THIS MAP", page == 0 ? "TROOPS" : "BOARD"};
-  const fui::ActionId ids[2] = {ActionBriefPrev, ActionBriefNext};
-  for (int i = 0; i < 2; ++i) {
-    fui::ButtonProps props;
-    props.label = labels[i];
-    props.action = ids[i];
-    const bool forward = i == 1;
-    props.text = toybox::buttonText(screen.theme());
-    if (forward) {
-      props.text.font = toybox::kUiFont;
-      props.text.align = fui::TextAlign::Center;
-      props.text.color = fui::Color::White;
-    }
-    props.styles = forward ? toybox::invertedStyles() : toybox::rowStyles();
-    props.radius = toybox::kPillRadius;
-    screen.button(props, fui::makeRect(static_cast<int16_t>(actions.x + i * (width + toybox::kGutter)), actions.y,
-                                       width, actions.height));
-  }
-
-  if (page == 0) {
-    buildBriefMap(screen, model);
-    return;
-  }
-  troopReference(screen, screen.body());
+  troopReference(screen, screen.contentRect(), 2);
 }
 
 void buildResult(toybox::Screen& screen, const ResultModel& model) {

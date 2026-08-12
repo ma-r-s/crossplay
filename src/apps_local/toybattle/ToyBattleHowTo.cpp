@@ -497,7 +497,7 @@ void buildWalkthrough(toybox::Screen& screen, const int page) {
     // The same screen the ? card's second page shows, drawn by the same
     // function. Eight faces in a grid taught the two shapes and not one of the
     // eight meanings, which is the half of the page that matters.
-    troopReference(screen, frame.picture);
+    troopReference(screen, frame.picture, 1);
   } else {
     const Scene scene{content.nodes, 8, content.links, 13, content.medals, content.medalCount};
     // The node is sized from the room, capped so a short picture does not draw

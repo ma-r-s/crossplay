@@ -74,8 +74,6 @@ class ToyBattleActivity final : public linkplay::LinkActivity {
   // side-by-side pick, cycled by the Up button on the HOW TO PLAY screen; it
   // goes with the two variants Mario does not choose.
   int mapPage = 0;
-  // Which half of the ? card is open: this map's special bases, or the troops.
-  int briefPage = 0;
   uint8_t seat = 0;
 
   // What the front door offers to go back to. `preview` is the board the menu
