@@ -61,7 +61,10 @@ fui::Rect rackTile(const fui::DeviceContext& device, int position);
 // The troop in rack position 0..7, or -1 if that slot is empty.
 int handKindAt(const toybattle::Game& game, int seat, int position);
 // The troop kind under a tap, or -1.
-int rackAt(const fui::DeviceContext& device, const toybattle::Game& game, int seat, int x, int y);
+// Takes the draft because the row shows the DISCARD while the Cursed Cemetery
+// question is open, and the hit test has to agree with what was drawn.
+int rackAt(const fui::DeviceContext& device, const toybattle::Game& game, const toybattle::Draft& draft, int seat,
+           int x, int y);
 
 void buildBoard(toybox::Screen& screen, const BoardModel& model);
 

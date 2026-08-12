@@ -364,10 +364,36 @@ int handKindAt(const tb::Game& game, const int seat, const int position) {
   return -1;
 }
 
-int rackAt(const fui::DeviceContext& device, const tb::Game& game, const int seat, const int x, const int y) {
+int discardKindAt(const tb::Game& game, const int seat, const int position) {
+  int at = 0;
+  for (int kind = 0; kind < tb::kTroopKinds; ++kind) {
+    for (int gone = 0; gone < game.discarded[seat][kind]; ++gone) {
+      if (at == position) return kind;
+      ++at;
+    }
+  }
+  return -1;
+}
+
+// What the rack ROW is showing right now. Normally your hand; during the
+// Cursed Cemetery question it is your DISCARD, because that is what the
+// question is about and there is nowhere else on the screen to put it.
+//
+// One function, called by the drawing AND by the hit test, for the same reason
+// slotCenter is: the alternative is two places that agree until they do not.
+// Before this existed the row always drew the hand and the tap always called
+// answerTroop, so the Exhume prompt asked "RAISE ONE FROM THE DISCARD?" while
+// offering nothing that could answer it. Mario found that by playing.
+int rowKindAt(const tb::Game& game, const tb::Draft& draft, const int seat, const int position) {
+  return tb::pending(game, draft) == tb::Ask::ExhumeKind ? discardKindAt(game, seat, position)
+                                                         : handKindAt(game, seat, position);
+}
+
+int rackAt(const fui::DeviceContext& device, const tb::Game& game, const tb::Draft& draft, const int seat,
+           const int x, const int y) {
   for (int position = 0; position < tb::kTroopKinds; ++position) {
     const fui::Rect r = rackTile(device, position);
-    if (x >= r.x && x < r.right() && y >= r.y && y < r.bottom()) return handKindAt(game, seat, position);
+    if (x >= r.x && x < r.right() && y >= r.y && y < r.bottom()) return rowKindAt(game, draft, seat, position);
   }
   return -1;
 }
@@ -672,7 +698,7 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
     const fui::Rect tile = rackTile(device, position);
     const fui::Rect inner = fui::makeRect(static_cast<int16_t>(tile.x + 3), static_cast<int16_t>(tile.y + 3),
                                           static_cast<int16_t>(tile.width - 6), static_cast<int16_t>(tile.height - 6));
-    const int kind = handKindAt(game, model.seat, position);
+    const int kind = rowKindAt(game, model.draft, model.seat, position);
 
     // An empty slot is drawn, not skipped: the rack is eight places and seeing
     // how many are free is how you know whether you can draw.
@@ -682,7 +708,11 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
     }
 
     const tb::Troop troop = static_cast<tb::Troop>(kind);
-    const bool live = (offer & (1u << kind)) != 0;
+    // During the Exhume question every tile on the row is a legal answer, so
+    // they all read live. `offer` is about placing from the hand and says
+    // nothing about raising from the discard.
+    const bool raising = toybattle::pending(game, model.draft) == toybattle::Ask::ExhumeKind;
+    const bool live = raising || (offer & (1u << kind)) != 0;
     const bool chosen = chosenPending && draft.move.stepCount > draft.step && draft.move.steps[draft.step].kind == kind;
 
     // Three grounds, because there are three states and two of them are not the
@@ -692,7 +722,7 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
     // this device has. Tapping it still says why -- PINNED: IT SITS OUT THIS
     // TURN -- but a state you have to tap to discover is a state you do not know
     // you are in when you are planning.
-    const bool frozen = game.frozenKind[model.seat] == static_cast<uint8_t>(kind);
+    const bool frozen = !raising && game.frozenKind[model.seat] == static_cast<uint8_t>(kind);
     screen.target().fill(inner,
                          frozen ? fui::Paint::dither(fui::Color::DarkGray)
                                 : live ? fui::Paint::dither(fui::Color::LightGray)

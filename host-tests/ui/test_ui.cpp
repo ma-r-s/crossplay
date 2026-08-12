@@ -3320,9 +3320,105 @@ void testTheRackTileYouTapIsTheTroopYouGet() {
         {tile.x + tile.width / 2, tile.y + tile.height / 2},
     };
     for (const auto& probe : probes) {
-      CHECK(tbui::rackAt(device(), game, 0, probe[0], probe[1]) == expected);
+      CHECK(tbui::rackAt(device(), game, toybattle::Draft{}, 0, probe[0], probe[1]) == expected);
     }
   }
+  {
+    // EVERY OPEN QUESTION MUST BE ANSWERABLE FROM THE SCREEN.
+    //
+    // Cursed Cemetery asks "RAISE ONE FROM THE DISCARD?" and, until Mario hit
+    // it in a real game on 2026-08-11, offered nothing that could answer it:
+    // candidateTroops returns 0 unless the ask is Troop, candidateSlots does
+    // not handle ExhumeKind, and the rack row drew the HAND. SKIP and BACK
+    // were the only tappable things on the screen.
+    //
+    // The flow fuzzer missed it because it calls answerTarget on the model
+    // directly. The model was always fine. It answered a question the UI never
+    // let a human answer, which is the shape of bug a test driving the model
+    // cannot see, so this one goes through the SCREEN's own hit test.
+    toybattle::Game g;
+    g.newGame(7u, static_cast<int>(toybattle::TerrainId::CursedCemetery), 0, true);
+    const toybattle::Terrain& b = g.board();
+
+    // A reachable grave. No grave on this board touches an H.Q., so walk to
+    // the nearest one and hold every base on the way: the placement is then
+    // legal for the ordinary connection reason and nothing is special-cased.
+    int hq = -1;
+    for (int slot = b.baseCount; slot < b.slotCount(); ++slot) {
+      if (b.hqSeat[slot - b.baseCount] == 0) hq = slot;
+    }
+    CHECK(hq >= 0);
+
+    int parent[toybattle::kMaxSlots];
+    for (int i = 0; i < toybattle::kMaxSlots; ++i) parent[i] = -2;
+    int queue[toybattle::kMaxSlots];
+    int head = 0, tail = 0;
+    queue[tail++] = hq;
+    parent[hq] = -1;
+    int grave = -1;
+    while (head < tail && grave < 0) {
+      const int at = queue[head++];
+      for (int next = 0; next < b.baseCount; ++next) {
+        if (parent[next] != -2) continue;
+        if (!(b.adj[at] & (uint64_t{1} << next))) continue;
+        parent[next] = at;
+        queue[tail++] = next;
+        if (b.specialAt(next) == toybattle::Special::Exhume) { grave = next; break; }
+      }
+    }
+    CHECK(grave >= 0);
+
+    // Hold everything between the H.Q. and the grave, but not the grave.
+    for (int at = parent[grave]; at >= 0 && at < b.baseCount; at = parent[at]) {
+      g.placeSlot[g.placementCount] = static_cast<uint8_t>(at);
+      g.placeTile[g.placementCount] = static_cast<uint8_t>((0 << 3) | static_cast<int>(toybattle::Troop::Roxy));
+      ++g.placementCount;
+    }
+
+    g.discarded[0][static_cast<int>(toybattle::Troop::Jumbo)] = 1;
+    g.discarded[0][static_cast<int>(toybattle::Troop::Star)] = 1;
+    for (int k = 0; k < toybattle::kTroopKinds; ++k) g.rack[0][k] = 0;
+    // Roxy, because it is the one troop with no effect of its own: the base is
+            // then the only thing left to ask about.
+    g.rack[0][static_cast<int>(toybattle::Troop::Skully)] = 1;
+    g.rack[0][static_cast<int>(toybattle::Troop::Roxy)] = 1;
+
+    toybattle::Draft d{};
+    CHECK(toybattle::answerTroop(g, d, toybattle::Troop::Roxy));
+    CHECK(toybattle::answerSlot(g, d, grave));
+    CHECK(toybattle::pending(g, d) == toybattle::Ask::ExhumeKind);
+
+    // The row must now be the DISCARD, and every troop in it must be reachable
+    // by a tap. Two in the discard means two tiles, and they must be the two
+    // kinds that are actually there.
+    bool sawJumbo = false, sawStar = false;
+    int offered = 0;
+    for (int position = 0; position < toybattle::kTroopKinds; ++position) {
+      const fui::Rect tile = tbui::rackTile(device(), position);
+      const int kind = tbui::rackAt(device(), g, d, 0, tile.x + tile.width / 2, tile.y + tile.height / 2);
+      if (kind < 0) continue;
+      ++offered;
+      if (kind == static_cast<int>(toybattle::Troop::Jumbo)) sawJumbo = true;
+      if (kind == static_cast<int>(toybattle::Troop::Star)) sawStar = true;
+      // And the model must accept exactly what the screen offered.
+      toybattle::Draft probe = d;
+      CHECK(toybattle::answerTarget(g, probe, kind));
+    }
+    CHECK(offered == 2);
+    CHECK(sawJumbo);
+    CHECK(sawStar);
+
+    // The hand is NOT what is on the row while the question is open: Skully is
+    // held but is not in the discard, so it must not be tappable here.
+    bool sawSkully = false;
+    for (int position = 0; position < toybattle::kTroopKinds; ++position) {
+      const fui::Rect tile = tbui::rackTile(device(), position);
+      const int kind = tbui::rackAt(device(), g, d, 0, tile.x + tile.width / 2, tile.y + tile.height / 2);
+      if (kind == static_cast<int>(toybattle::Troop::Skully)) sawSkully = true;
+    }
+    CHECK(!sawSkully);
+  }
+
   // Neighbouring tiles never share a pixel.
   for (int position = 0; position + 1 < toybattle::kTroopKinds; ++position) {
     const fui::Rect a = tbui::rackTile(device(), position);
@@ -3472,7 +3568,13 @@ void testToyBattleShell() {
     CHECK(out.target.drew("START"));
     // Against a person there is no difficulty to choose, and the row that would
     // set one must not be on the screen at all.
-    CHECK(out.target.drew("SERGEANT") == (link == 0));
+    //
+    // Asks for whatever rung the model actually holds, not for "SERGEANT".
+    // This said SERGEANT until 2026-08-11 and broke the moment the default
+    // moved to GENERAL -- it was testing the default's NAME while meaning
+    // "the difficulty row is present", so it failed for a change it had no
+    // opinion about.
+    CHECK(out.target.drew(tbui::skillName(model.options.skill)) == (link == 0));
   }
 
   {

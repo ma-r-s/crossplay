@@ -32,7 +32,15 @@ struct Options {
   // Castle Field, which IS terrain 0. Spelled out rather than written as a
   // bare 0 so it cannot silently become whatever ends up first.
   uint8_t terrain = static_cast<uint8_t>(TerrainId::CastleField);
-  Skill skill = Skill::Sergeant;
+  // GENERAL, not the middle rung. Mario played the default on the web player
+  // 2026-08-11, won easily, and reported the opponent as too weak -- correctly,
+  // because Sergeant is greedy by construction and has no model of the reply.
+  // A player who taps PLAY should meet the best opponent this game has; the
+  // lower rungs are for someone who finds that too hard, which is the direction
+  // a difficulty setting should work in. It costs 1.3ms a move against a screen
+  // that takes about a second to refresh, so there was never a reason to
+  // default lower.
+  Skill skill = Skill::General;
   bool specialBases = true;
   Mode mode = Mode::Solo;
 };
