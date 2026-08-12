@@ -533,7 +533,11 @@ void howToLinkAt(const int i, int& a, int& b) {
 int howToOwnerAt(const int page, const int node) {
   const Node& n = kWalkPages[page].nodes == nullptr ? kGoalNodes[node] : kWalkPages[page].nodes[node];
   if (kWalkPages[page].nodes == nullptr) return Nobody;
-  return n.face == ' ' ? Nobody : n.owner;
+  // Both arms spelled as int. `Nobody` is an unnamed-enum constant and
+  // `n.owner` is a uint8_t, and GCC's -Wextra makes mixing the two in a
+  // conditional an error while clang says nothing -- the same gcc/clang gap
+  // that has now cost two CI rounds tonight.
+  return n.face == ' ' ? static_cast<int>(Nobody) : static_cast<int>(n.owner);
 }
 bool howToIsHq(const int node) { return node == 0 || node == 7; }
 int howToHqSeat(const int node) { return node == 7 ? Yours : Theirs; }
