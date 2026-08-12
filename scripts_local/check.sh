@@ -216,6 +216,16 @@ else
   echo "  installer    SKIPPED: no .venv-study -- the page's Python suite did NOT run"
 fi
 
+if [ -n "$STUDY_PY" ] && [ -f tools_local/site/precompress.py ]; then
+  if (cd "$REPO" && $STUDY_PY tools_local/site/precompress.py --check) > "$LOGS/precompress.log" 2>&1; then
+    printf "  %-12s ok\n" "encoding"
+  else
+    printf "  %-12s FAILED\n" "encoding"
+    sed 's/^/      /' "$LOGS/precompress.log"
+    FAILED=1
+  fi
+fi
+
 if [ "${1:-}" != "--tests" ]; then
   # Shared, content-addressed object cache: a tree that has never built before
   # is mostly cache hits rather than a cold compile. Set here as well as in
@@ -314,6 +324,11 @@ if true; then
   fi
 fi
 
+# Files served with Content-Encoding: br must actually BE brotli. They are
+# committed compressed, so anything that regenerates one (the wasm build, the
+# pyodide fetcher) can leave raw bytes behind a header promising otherwise,
+# and the site then serves a wasm the browser cannot decode. Cheap to check:
+# try to decompress each one.
 # The installer page runs the study tools out of a committed zip
 # (site/study/tools.zip); a stale zip is a page converting with last week's
 # converter while the CLI has this week's, the exact drift the Pyodide design

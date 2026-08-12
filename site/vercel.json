@@ -41,15 +41,29 @@
       ]
     },
     {
-      "source": "/_enctest/(.*)",
+      "source": "/emulator/(.*)",
       "headers": [
         {
           "key": "Content-Encoding",
           "value": "br"
-        },
+        }
+      ]
+    },
+    {
+      "source": "/pyodide/(.*)",
+      "headers": [
         {
-          "key": "Content-Type",
-          "value": "application/octet-stream"
+          "key": "Content-Encoding",
+          "value": "br"
+        }
+      ]
+    },
+    {
+      "source": "/study/NotoSansCJK.otf",
+      "headers": [
+        {
+          "key": "Content-Encoding",
+          "value": "br"
         }
       ]
     }

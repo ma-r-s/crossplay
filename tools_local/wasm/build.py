@@ -374,6 +374,18 @@ def main():
     write_provenance()
     print(f"wrote {OUT}")
 
+    # The site serves site/emulator/ with Content-Encoding: br, so what was
+    # just linked has to be compressed before it is committed. Doing it here
+    # rather than as a step to remember is the difference between a build and
+    # a broken page. See tools_local/site/precompress.py for why.
+    precompress = REPO / "tools_local" / "site" / "precompress.py"
+    if precompress.exists():
+        result = subprocess.run([sys.executable, str(precompress)], capture_output=True, text=True)
+        if result.returncode != 0:
+            print(result.stdout + result.stderr)
+            sys.exit("pre-compression failed; do not commit site/emulator as-is")
+        print("pre-compressed for the site")
+
 
 if __name__ == "__main__":
     main()

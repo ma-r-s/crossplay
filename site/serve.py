@@ -19,7 +19,14 @@ PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8899
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
+    # These paths ship already-brotli (tools_local/site/precompress.py), and
+    # production declares it in vercel.json. Local dev must say the same thing
+    # or the browser gets compressed bytes labelled as a wasm.
+    PRECOMPRESSED = ("/emulator/", "/pyodide/", "/study/NotoSansCJK.otf")
+
     def end_headers(self):
+        if any(self.path.split("?")[0].startswith(p) for p in self.PRECOMPRESSED):
+            self.send_header("Content-Encoding", "br")
         self.send_header("Cross-Origin-Opener-Policy", "same-origin")
         self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
         self.send_header("Cache-Control", "no-store")

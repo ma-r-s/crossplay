@@ -89,6 +89,13 @@ def main():
 
     size = sum(f.stat().st_size for f in OUT.iterdir())
     print(f"\n{size / 1024 / 1024:.1f} MB total under site/pyodide/")
+
+    # Served with Content-Encoding: br, so compress before committing.
+    import subprocess
+
+    precompress = OUT.parents[1] / "tools_local" / "site" / "precompress.py"
+    if precompress.exists():
+        subprocess.run([sys.executable, str(precompress)], check=True)
     return 0
 
 
