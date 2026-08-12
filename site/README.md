@@ -92,6 +92,11 @@ what you see is a stuck canvas rather than an error. Serve it with the headers:
 python3 site/serve.py 8099
 ```
 
+**Browse it as `http://127.0.0.1:8099`, not `localhost`.** It binds IPv4 only,
+and Chrome resolves `localhost` to `::1` first, so the localhost spelling gives
+you Chrome's own "site can't be reached" page -- which reads like the server
+failed to start when it is running perfectly.
+
 `serve.py` needs nothing but the standard library -- the `uv run --with
 playwright` this used to say is `pageshot.py`'s dependency, not its own, and
 made a plain static server look like it needed a toolchain. It serves the
