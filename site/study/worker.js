@@ -35,7 +35,15 @@ async function prefetchRuntime() {
   try {
     const response = await fetch("/pyodide/pyodide.asm.wasm");
     if (!response.ok || !response.body) return;
-    const total = Number(response.headers.get("content-length")) || 0;
+    // content-length is what crossed the wire; the reader hands back decoded
+    // bytes. Those are one number only for an unencoded body, and this file
+    // ships pre-compressed (see site/README.md): 2.4MB on the wire, 8.6MB
+    // decoded. Dividing one by the other announced "154%" on its way to 354%.
+    // No header carries the decoded size, so when the body is encoded there is
+    // no honest percentage to show and the megabyte count is the readout.
+    let total = response.headers.get("content-encoding")
+      ? 0
+      : Number(response.headers.get("content-length")) || 0;
     const reader = response.body.getReader();
     let loaded = 0;
     // Report at most four times a second. Posting on EVERY chunk turned a
@@ -43,11 +51,17 @@ async function prefetchRuntime() {
     // thousands of small pieces, and a message per piece saturates the page's
     // main thread badly enough to starve this read loop. Measured, not
     // guessed -- plain fetch+arrayBuffer of the same file is 612ms.
-    let lastPost = 0;
+    // Start the clock now rather than at zero, so the first report is a
+    // quarter-second of real bytes instead of "0.0 MB so far", and a download
+    // that finishes before then says nothing at all -- which is the truth.
+    let lastPost = Date.now();
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
       loaded += value.length;
+      // The same mismatch, caught by arithmetic rather than by a header, in
+      // case a browser ever declines to show us content-encoding.
+      if (total && loaded > total) total = 0;
       const now = Date.now();
       if (now - lastPost < 250) continue;
       lastPost = now;
@@ -57,7 +71,7 @@ async function prefetchRuntime() {
               Math.round((loaded / total) * 100) +
               "%"
           : "Downloading the Python runtime, " +
-              Math.round(loaded / 1048576) +
+              (loaded / 1048576).toFixed(1) +
               " MB so far",
       );
     }
@@ -148,7 +162,10 @@ var handlers = {
   zip: function (msg) {
     pyodide.globals.set("_slug", msg.slug);
     var bytes = pyodide.runPython("web_glue.make_zip(_slug)").toJs();
-    self.postMessage({ type: "zip", epoch: currentEpoch, buffer: bytes.buffer }, [bytes.buffer]);
+    self.postMessage(
+      { type: "zip", epoch: currentEpoch, buffer: bytes.buffer },
+      [bytes.buffer],
+    );
   },
 
   syncfiles: function (msg) {
@@ -196,7 +213,10 @@ var handlers = {
       files[name] = bytes.buffer;
       transfers.push(bytes.buffer);
     }
-    self.postMessage({ type: "deckfiles", epoch: currentEpoch, files: files }, transfers);
+    self.postMessage(
+      { type: "deckfiles", epoch: currentEpoch, files: files },
+      transfers,
+    );
   },
 };
 

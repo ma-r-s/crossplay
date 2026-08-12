@@ -57,6 +57,13 @@ file served as `br` is not. **Adding a big binary to the site means adding it
 to that script and to `vercel.json` together** -- one without the other is
 either a slow site or a broken one.
 
+One second-order catch, already met once: `content-length` on these responses
+is the size of the **compressed** body, while a `getReader()` loop counts the
+bytes the browser has **decoded**. Dividing one by the other made the study
+page's download counter announce "154%" on its way to 354%. Anything measuring
+progress over a pre-compressed file has to notice `content-encoding` and stop
+claiming a percentage; there is no header carrying the decoded size.
+
 **Only `/assets/fonts/` is cached `immutable`, and nothing else may join it
 without a content hash in its filename.** `immutable` is a promise that a URL's
 bytes will never change, and it is enforced by the browser refusing to ask
