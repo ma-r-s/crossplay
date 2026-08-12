@@ -3221,6 +3221,115 @@ void testTheRackTileYouTapIsTheTroopYouGet() {
     CHECK(!sawSkully);
   }
 
+  {
+    // EVERY QUESTION THE GAME ASKS MUST BE ANSWERABLE FROM THE SCREEN.
+    //
+    // The Exhume bug was one instance of a class: the model opens a question
+    // and the screen offers nothing that can answer it. Checking that class by
+    // reading the code is exactly what missed it, so this walks real games and
+    // checks every question it actually meets.
+    //
+    // The check is "something the model ACCEPTS", not "something is tappable".
+    // The weaker version passed with the original bug in place, because the row
+    // still drew the hand and a tile that only earns a refusal looks tappable.
+    int seen[16] = {};
+    int deadEnds = 0;
+    int chainExhumeDeadEnds = 0;
+    const int boards[] = {
+        static_cast<int>(toybattle::TerrainId::CursedCemetery), static_cast<int>(toybattle::TerrainId::CastleField),
+        static_cast<int>(toybattle::TerrainId::VolcanicJungle), static_cast<int>(toybattle::TerrainId::Battlefield),
+        static_cast<int>(toybattle::TerrainId::CityOfClouds),
+    };
+    uint32_t rng = 0x2026u;
+    auto next = [&rng]() { rng = rng * 1664525u + 1013904223u; return rng >> 16; };
+
+    for (int bi = 0; bi < 5; ++bi) {
+      for (int gameNo = 0; gameNo < 120; ++gameNo) {
+        toybattle::Game g;
+        g.newGame(next() | 1u, boards[bi], static_cast<int>(next() & 1u), true);
+        toybattle::Draft d{};
+        for (int step = 0; step < 400 && g.currentPhase() == toybattle::Phase::Playing; ++step) {
+          const toybattle::Ask ask = toybattle::pending(g, d);
+          const int idx = static_cast<int>(ask);
+          if (idx < 16) ++seen[idx];
+          const bool yesNo = ask == toybattle::Ask::DrawOffer || ask == toybattle::Ask::StealOffer ||
+                             ask == toybattle::Ask::ChainOffer || ask == toybattle::Ask::BaseOffer;
+
+          if (ask != toybattle::Ask::Ready && !yesNo) {
+            bool answerable = toybattle::candidateSlots(g, d) != 0;
+            // An empty rack is not a dead end: DRAW 2 is the answer, and the
+            // capsule always draws it.
+            if (ask == toybattle::Ask::Troop && g.canDraw(g.turn)) answerable = true;
+            for (int pos = 0; pos < toybattle::kTroopKinds && !answerable; ++pos) {
+              const fui::Rect tl = tbui::rackTile(device(), pos);
+              const int kind =
+                  tbui::rackAt(device(), g, d, g.turn, tl.x + tl.width / 2, tl.y + tl.height / 2);
+              if (kind < 0) continue;
+              toybattle::Draft probe = d;
+              if (ask == toybattle::Ask::Troop
+                      ? toybattle::answerTroop(g, probe, static_cast<toybattle::Troop>(kind))
+                      : toybattle::answerTarget(g, probe, kind)) {
+                answerable = true;
+              }
+            }
+            // KNOWN OPEN BUG, named rather than folded into a threshold: inside
+            // a Cap'n chain the Exhume question offers the right tiles and the
+            // model then refuses the completed two-step move -- takeTarget
+            // accepts the pick, completable() rejects the move it makes. Same
+            // CLASS as the bug this test was written for, different cause.
+            const bool knownChainCase = ask == toybattle::Ask::ExhumeKind && d.move.stepCount > 1;
+            if (!answerable && knownChainCase) ++chainExhumeDeadEnds;
+            if (!answerable && !knownChainCase) {
+              ++deadEnds;
+            }
+          }
+
+          bool moved = false;
+          if (ask == toybattle::Ask::Ready) {
+            moved = g.apply(d.move);
+            d = toybattle::Draft{};
+          } else if (yesNo) {
+            moved = toybattle::answerOffer(g, d, (next() & 1u) != 0);
+          } else if (ask == toybattle::Ask::Troop) {
+            const int spin = static_cast<int>(next() % toybattle::kTroopKinds);
+            for (int i = 0; i < toybattle::kTroopKinds && !moved; ++i)
+              moved = toybattle::answerTroop(
+                  g, d, static_cast<toybattle::Troop>((spin + i) % toybattle::kTroopKinds));
+          } else if (ask == toybattle::Ask::ExhumeKind) {
+            for (int k = 0; k < toybattle::kTroopKinds && !moved; ++k) moved = toybattle::answerTarget(g, d, k);
+          } else {
+            // From a random offset: always taking the lowest index meant the
+            // walk never landed on Castle Field's wells, so RecallFrom was
+            // never met and the count said nothing about it.
+            const uint64_t mask = toybattle::candidateSlots(g, d);
+            const int spin = static_cast<int>(next() % 64u);
+            for (int i = 0; i < 64 && !moved; ++i) {
+              const int slot = (spin + i) % 64;
+              if (!(mask & (uint64_t{1} << slot))) continue;
+              moved = ask == toybattle::Ask::Slot ? toybattle::answerSlot(g, d, slot)
+                                                 : toybattle::answerTarget(g, d, slot);
+            }
+          }
+          if (!moved) {
+            if (!g.apply(toybattle::Move::draw())) break;
+            d = toybattle::Draft{};
+          }
+        }
+      }
+    }
+
+    CHECK(deadEnds == 0);
+    // The walk has to have MET these, or the zero above is a zero about nothing.
+    CHECK(seen[static_cast<int>(toybattle::Ask::Troop)] > 0);
+    CHECK(seen[static_cast<int>(toybattle::Ask::Slot)] > 0);
+    CHECK(seen[static_cast<int>(toybattle::Ask::ExhumeKind)] > 0);
+    CHECK(seen[static_cast<int>(toybattle::Ask::RecallFrom)] > 0);
+    CHECK(seen[static_cast<int>(toybattle::Ask::ShoveFrom)] > 0);
+    // And the excluded case must still be reached, or its exclusion is an
+    // exclusion of nothing and the day it is fixed nobody notices.
+    CHECK(chainExhumeDeadEnds > 0);
+  }
+
   // Neighbouring tiles never share a pixel.
   for (int position = 0; position + 1 < toybattle::kTroopKinds; ++position) {
     const fui::Rect a = tbui::rackTile(device(), position);
