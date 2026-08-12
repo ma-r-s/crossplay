@@ -37,12 +37,35 @@
 
   // ---- worker lifecycle ---------------------------------------------------
 
+  var lastProgress = "starting the worker";
+  var stallTimer = null;
+
+  function armStallWatchdog() {
+    if (stallTimer) clearTimeout(stallTimer);
+    // Generous: a slow connection on a cold cache is a few seconds, and a
+    // very slow one maybe thirty. A minute with no progress at all is not
+    // slow, it is stuck, and silence is the worst possible answer.
+    stallTimer = setTimeout(function () {
+      if (workerReady) return;
+      setError(
+        "The Python runtime has not started in 60 seconds. It stalled at: " +
+          lastProgress +
+          ". This page needs Chrome or Edge; Safari and Firefox may hang here." +
+          " Try reloading, and if it happens again open the browser console" +
+          " (View > Developer > JavaScript Console) and send what it says.",
+      );
+    }, 60000);
+  }
+
   function ensureWorker() {
     if (worker) return;
+    armStallWatchdog();
     worker = new Worker("/study/worker.js");
     worker.onmessage = function (event) {
       var msg = event.data;
       if (msg.type === "progress") {
+        lastProgress = msg.text;
+        armStallWatchdog();
         var note =
           msg.text.indexOf("Starting the Python runtime") === 0 ||
           msg.text.indexOf("Downloading the Python runtime") === 0
@@ -51,6 +74,7 @@
         setProgress(msg.text + "…" + note);
       } else if (msg.type === "ready") {
         workerReady = true;
+        if (stallTimer) clearTimeout(stallTimer);
         if (pendingBuffer) {
           var buffer = pendingBuffer;
           pendingBuffer = null;
@@ -95,7 +119,13 @@
       }
     };
     worker.onerror = function (event) {
-      setError("The worker failed to start: " + event.message);
+      if (stallTimer) clearTimeout(stallTimer);
+      setError(
+        "The worker failed to start: " +
+          (event.message || "no message") +
+          (event.filename ? " (" + event.filename + ":" + event.lineno + ")" : "") +
+          ". This page needs Chrome or Edge.",
+      );
     };
     worker.postMessage({ type: "init" });
   }

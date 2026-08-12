@@ -6,7 +6,19 @@
  * JSON strings. Nothing here parses Anki formats -- that is the whole point.
  */
 
-importScripts("/pyodide/pyodide.js");
+// Any failure here is fatal and silent by default: importScripts throws
+// synchronously, before onmessage exists, so the page would see nothing at
+// all. Report it through the same channel as everything else.
+try {
+  importScripts("/pyodide/pyodide.js");
+} catch (e) {
+  self.postMessage({
+    type: "error",
+    for: "loading pyodide.js",
+    message: String((e && e.message) || e),
+  });
+  throw e;
+}
 
 var pyodide = null;
 
