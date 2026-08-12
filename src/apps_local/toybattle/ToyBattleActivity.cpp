@@ -236,9 +236,21 @@ void ToyBattleActivity::gameLoop() {
     const fui::DeviceContext device = toybox::makeTarget(renderer).deviceContext();
     const tb::Ask ask = tb::pending(game, draft);
 
-    const int kind = tbui::rackAt(device, game, seat, tapX, tapY);
+    const int kind = tbui::rackAt(device, game, draft, seat, tapX, tapY);
     if (kind >= 0) {
       const tb::Troop troop = static_cast<tb::Troop>(kind);
+      // The row shows the DISCARD while Cursed Cemetery is asking, so a tap on
+      // it answers that question rather than choosing something to place.
+      // Without this the question could be asked and not answered.
+      if (ask == tb::Ask::ExhumeKind) {
+        if (tb::answerTarget(game, draft, kind)) {
+          notice = nullptr;
+          say(tbui::troopBlurb(troop));
+          if (tb::pending(game, draft) == tb::Ask::Ready) commitMove();
+          requestUpdate();
+        }
+        return;
+      }
       if (tb::answerTroop(game, draft, troop)) {
         // Picking a card says what the card does, which is the moment the
         // player wants to know it.
