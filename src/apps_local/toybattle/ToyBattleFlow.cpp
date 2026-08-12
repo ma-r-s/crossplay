@@ -204,7 +204,7 @@ bool takeTarget(const Game& game, Draft& draft, const int slotOrKind) {
       return true;
     case Ask::ExhumeKind:
       if (slotOrKind < 0 || slotOrKind >= kTroopKinds) return false;
-      if (game.discarded[game.turn][slotOrKind] == 0) return false;
+      if (discardLeft(game, draft, slotOrKind) == 0) return false;
       current(draft).useBase = true;
       current(draft).baseKind = static_cast<uint8_t>(slotOrKind);
       draft.baseAnswered = true;
@@ -215,6 +215,23 @@ bool takeTarget(const Game& game, Draft& draft, const int slotOrKind) {
 }
 
 }  // namespace
+
+int discardLeft(const Game& game, const Draft& draft, const int kind) {
+  if (kind < 0 || kind >= kTroopKinds) return 0;
+  const int seat = game.turn;
+  int left = game.discarded[seat][kind];
+  const Terrain& b = game.board();
+  // Only steps BEFORE the one being composed have actually claimed anything;
+  // the current step's own answer is what is being decided.
+  for (int i = 0; i < draft.step && i < draft.move.stepCount; ++i) {
+    const Step& s = draft.move.steps[i];
+    if (!s.useBase) continue;
+    if (!b.isBase(s.slot) || b.specialAt(s.slot) != Special::Exhume) continue;
+    if (s.baseKind == static_cast<uint8_t>(kind)) --left;
+  }
+  return left > 0 ? left : 0;
+}
+
 
 // ---------------------------------------------------------------------------
 // Composing a move
@@ -273,7 +290,9 @@ Ask pending(const Game& game, const Draft& draft) {
       case Special::Exhume:
         if (g.rackSize(seat) < kRackLimit) {
           for (int k = 0; k < kTroopKinds; ++k) {
-            if (g.discarded[seat][k] > 0) return Ask::ExhumeKind;
+            // What is LEFT, not what was there at the start of the turn: an
+            // earlier grave in this same Cap'n chain may already have taken it.
+            if (discardLeft(game, draft, k) > 0) return Ask::ExhumeKind;
           }
         }
         break;

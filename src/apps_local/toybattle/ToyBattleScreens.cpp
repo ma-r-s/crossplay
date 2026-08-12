@@ -364,10 +364,14 @@ int handKindAt(const tb::Game& game, const int seat, const int position) {
   return -1;
 }
 
-int discardKindAt(const tb::Game& game, const int seat, const int position) {
+int discardKindAt(const tb::Game& game, const tb::Draft& draft, const int seat, const int position) {
+  (void)seat;  // the flow answers for whoever's turn it is, which is the mover
   int at = 0;
   for (int kind = 0; kind < tb::kTroopKinds; ++kind) {
-    for (int gone = 0; gone < game.discarded[seat][kind]; ++gone) {
+    // What is LEFT after earlier links of a Cap'n chain took theirs, not what
+    // the discard held when the turn began. Offering a troop that is already
+    // spoken for is how the second grave in a chain became a dead end.
+    for (int gone = 0; gone < tb::discardLeft(game, draft, kind); ++gone) {
       if (at == position) return kind;
       ++at;
     }
@@ -385,7 +389,7 @@ int discardKindAt(const tb::Game& game, const int seat, const int position) {
 // answerTroop, so the Exhume prompt asked "RAISE ONE FROM THE DISCARD?" while
 // offering nothing that could answer it. Mario found that by playing.
 int rowKindAt(const tb::Game& game, const tb::Draft& draft, const int seat, const int position) {
-  return tb::pending(game, draft) == tb::Ask::ExhumeKind ? discardKindAt(game, seat, position)
+  return tb::pending(game, draft) == tb::Ask::ExhumeKind ? discardKindAt(game, draft, seat, position)
                                                          : handKindAt(game, seat, position);
 }
 
