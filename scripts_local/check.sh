@@ -110,6 +110,27 @@ if [ "${1:-}" = "--committed" ]; then
       break
     fi
   done
+  # Carry the shared object cache into the trial run.
+  #
+  # The trial worktree lives in /var/folders, and the cache is found by walking
+  # UP from $REPO looking for the .xteink-workspace marker -- which from there
+  # never reaches the workspace root. So --committed silently did a COLD ESP32
+  # build every time, ignoring a 28GB cache that exists for exactly this, and
+  # that is why verifying before a push cost minutes rather than seconds.
+  #
+  # Exported here, before the trial runs, because the inner check.sh only sets
+  # this when it finds the marker itself: not finding it, it leaves whatever it
+  # inherited, so this wins.
+  WS_OUTER="$REPO"
+  while [ "$WS_OUTER" != "/" ] && [ ! -e "$WS_OUTER/.xteink-workspace" ]; do
+    WS_OUTER="$(dirname "$WS_OUTER")"
+  done
+  if [ -e "$WS_OUTER/.xteink-workspace" ]; then
+    export PLATFORMIO_BUILD_CACHE_DIR="$WS_OUTER/.pio-cache"
+    echo "  sharing the object cache at $WS_OUTER/.pio-cache"
+  else
+    echo "  no workspace marker found; this will be a cold build"
+  fi
   (cd "$TRIAL" && ./scripts_local/check.sh "${2:-}")
   exit $?
 fi
