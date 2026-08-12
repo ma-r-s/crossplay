@@ -6,9 +6,9 @@
 #   host-tests/battleship/run.sh
 set -e
 cd "$(dirname "$0")"
-BUILD_DIR="${TMPDIR:-/tmp}/battleship-tests-$(cd ../.. && pwd | cksum | cut -d" " -f1)"
+BUILD_DIR="${TMPDIR:-/tmp}/$(basename "${CXX:-c++}")-battleship-tests-$(cd ../.. && pwd | cksum | cut -d" " -f1)"
 mkdir -p "$BUILD_DIR"
 SRC=../../src/apps_local/battleship
-c++ -std=c++17 -Wall -Wextra -Werror -O2 $SRC/BattleshipCore.cpp \
+"${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror -O2 $SRC/BattleshipCore.cpp \
   test_battleship.cpp -o "$BUILD_DIR/test_battleship"
 "$BUILD_DIR/test_battleship"

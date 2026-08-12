@@ -5,7 +5,7 @@
 #   host-tests/dungeon/run.sh
 set -e
 cd "$(dirname "$0")"
-BUILD_DIR="${TMPDIR:-/tmp}/dungeon-tests-$(cd ../.. && pwd | cksum | cut -d" " -f1)"
+BUILD_DIR="${TMPDIR:-/tmp}/$(basename "${CXX:-c++}")-dungeon-tests-$(cd ../.. && pwd | cksum | cut -d" " -f1)"
 mkdir -p "$BUILD_DIR"
 SRC=../../src/apps_local/dungeon
 # The screens are linked in too, for one test: the adventurer's guide teaches
@@ -25,7 +25,7 @@ SDK=../../freeink-sdk/libs
 # 480x800 panel, not for INT_MIN, and snprintf truncating is the intended
 # behaviour rather than a bug to prevent. GCC assumes every int spans its full
 # range and cannot see that a page counter is bounded by a constant.
-c++ -std=c++17 -Wall -Wextra -Werror -Wno-comment -Wno-format-truncation \
+"${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror -Wno-comment -Wno-format-truncation \
   -I"$SDK/ui/FreeInkUI/include" -I"$SDK/assets/Icons/include" \
   "$SDK/ui/FreeInkUI/src/FreeInkUI.cpp" \
   $SRC/DungeonCore.cpp $SRC/DungeonScreens.cpp \

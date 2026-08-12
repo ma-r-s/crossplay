@@ -13,10 +13,10 @@ cd "$(dirname "$0")"
 # Keyed to this checkout, not just the suite name. Two worktrees sharing
 # one build dir means one tree can run -- and pass -- a binary the other
 # built, which is a green suite whose source is not even present.
-BUILD_DIR="${TMPDIR:-/tmp}/hackernews-tests-$(cd ../.. && pwd | cksum | cut -d" " -f1)"
+BUILD_DIR="${TMPDIR:-/tmp}/$(basename "${CXX:-c++}")-hackernews-tests-$(cd ../.. && pwd | cksum | cut -d" " -f1)"
 mkdir -p "$BUILD_DIR"
 
-c++ -std=c++17 -O2 -Wall -Wextra -Werror \
+"${CXX:-c++}" -std=c++17 -O2 -Wall -Wextra -Werror \
   ../../src/apps_local/hackernews/HackerNewsCore.cpp \
   test_hackernews.cpp -o "$BUILD_DIR/test_hackernews"
 "$BUILD_DIR/test_hackernews"
@@ -24,7 +24,7 @@ c++ -std=c++17 -O2 -Wall -Wextra -Werror \
 # The saved library. Its own binary because it is the piece that has to keep
 # working when everything around it does not: no network, no service, and a
 # reader should still open the device and find their articles.
-c++ -std=c++17 -O2 -Wall -Wextra -Werror \
+"${CXX:-c++}" -std=c++17 -O2 -Wall -Wextra -Werror \
   ../../src/apps_local/hackernews/HackerNewsSaved.cpp \
   test_saved.cpp -o "$BUILD_DIR/test_saved"
 "$BUILD_DIR/test_saved"

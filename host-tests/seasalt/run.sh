@@ -6,12 +6,12 @@
 #   host-tests/seasalt/run.sh
 set -e
 cd "$(dirname "$0")"
-BUILD_DIR="${TMPDIR:-/tmp}/seasalt-tests-$(cd ../.. && pwd | cksum | cut -d" " -f1)"
+BUILD_DIR="${TMPDIR:-/tmp}/$(basename "${CXX:-c++}")-seasalt-tests-$(cd ../.. && pwd | cksum | cut -d" " -f1)"
 mkdir -p "$BUILD_DIR"
 SRC=../../src/apps_local/seasalt
-c++ -std=c++17 -Wall -Wextra -Werror -O2 -I$SRC $SRC/SeaSaltCore.cpp \
+"${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror -O2 -I$SRC $SRC/SeaSaltCore.cpp \
   test_seasalt.cpp -o "$BUILD_DIR/test_seasalt"
-c++ -std=c++17 -Wall -Wextra -Werror -O2 -I$SRC $SRC/SeaSaltCore.cpp $SRC/SeaSaltBrain.cpp \
+"${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror -O2 -I$SRC $SRC/SeaSaltCore.cpp $SRC/SeaSaltBrain.cpp \
   test_brain.cpp -o "$BUILD_DIR/test_brain"
 "$BUILD_DIR/test_seasalt"
 "$BUILD_DIR/test_brain"

@@ -183,6 +183,41 @@ for suite in host-tests/*/; do
   fi
 done
 
+# What CI's compiler says, which is not what this machine's compiler says.
+#
+# `c++` on macOS is Apple clang. CI builds the same suites with GCC and
+# -Werror, and GCC rejects things clang accepts -- an enum beside a plain
+# integer in a conditional, most often -- and on 2026-08-12 it also fell over
+# outright, aborting in gimplify on a `d = Draft{}` inside a deep nesting. So a
+# fully green check.sh sat next to a red CI for four pushes.
+#
+# The expensive part was not the errors, it was the loop: CI reports only the
+# FIRST one and takes about fifteen minutes to do it, so two errors meant two
+# rounds. One local GCC pass finds them all.
+#
+# The ui suite alone, because it compiles every app's Screens.cpp with -Werror
+# and is where this class has bitten twice. Skipped LOUDLY: a check that did not
+# run must not scroll past looking like one that passed.
+echo "cross-compiler"
+GCC=""
+for candidate in g++-16 g++-15 g++-14 g++-13; do
+  command -v "$candidate" >/dev/null 2>&1 && GCC="$candidate" && break
+done
+if [ -z "$GCC" ]; then
+  printf "  %-12s SKIPPED -- no real GCC on PATH (/usr/bin/g++ is Apple clang).\n" "gcc"
+  printf "  %-12s CI builds with GCC and will catch what this cannot: brew install gcc\n" ""
+else
+  T0=$(date +%s)
+  say_stage "gcc"
+  if CXX="$GCC" host-tests/ui/run.sh > "$LOGS/gcc-ui.log" 2>&1; then
+    printf "  %-12s ok (%s, %s)\n" "gcc" "$GCC" "$(since $T0)"
+  else
+    printf "  %-12s FAILED under %s (%s)\n" "gcc" "$GCC" "$(since $T0)"
+    grep -E "error:|internal compiler" "$LOGS/gcc-ui.log" | head -5 | sed 's/^/      /'
+    FAILED=1
+  fi
+fi
+
 # The installer page's Python boundary. Two runs of the same suite: beside
 # the sources, and again from inside the committed tools.zip -- the second is
 # the code the browser actually gets, and it is how a zip member that a tool

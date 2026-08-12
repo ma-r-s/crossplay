@@ -12,21 +12,21 @@ set -e
 cd "$(dirname "$0")"
 # Keyed to this checkout, not just the suite name -- two worktrees sharing one
 # build dir means one tree can run, and pass, a binary the other built.
-BUILD_DIR="${TMPDIR:-/tmp}/study-tests-$(cd ../.. && pwd | cksum | cut -d" " -f1)"
+BUILD_DIR="${TMPDIR:-/tmp}/$(basename "${CXX:-c++}")-study-tests-$(cd ../.. && pwd | cksum | cut -d" " -f1)"
 mkdir -p "$BUILD_DIR"
 SRC=../../src/apps_local/study
 
-c++ -std=c++17 -O2 -Wall -Wextra -Werror \
+"${CXX:-c++}" -std=c++17 -O2 -Wall -Wextra -Werror \
   "$SRC/StudyFsrs.cpp" test_fsrs.cpp -o "$BUILD_DIR/test_fsrs"
-c++ -std=c++17 -O2 -Wall -Wextra -Werror \
+"${CXX:-c++}" -std=c++17 -O2 -Wall -Wextra -Werror \
   "$SRC/StudyDeck.cpp" "$SRC/StudyFsrs.cpp" test_deck.cpp -o "$BUILD_DIR/test_deck"
-c++ -std=c++17 -O2 -Wall -Wextra -Werror \
+"${CXX:-c++}" -std=c++17 -O2 -Wall -Wextra -Werror \
   "$SRC/StudyScheduler.cpp" "$SRC/StudyDeck.cpp" "$SRC/StudyFsrs.cpp" test_scheduler.cpp \
   -o "$BUILD_DIR/test_scheduler"
-c++ -std=c++17 -O2 -Wall -Wextra -Werror \
+"${CXX:-c++}" -std=c++17 -O2 -Wall -Wextra -Werror \
   "$SRC/StudyStats.cpp" "$SRC/StudyDeck.cpp" "$SRC/StudyFsrs.cpp" test_stats.cpp \
   -o "$BUILD_DIR/test_stats"
-c++ -std=c++17 -O2 -Wall -Wextra -Werror \
+"${CXX:-c++}" -std=c++17 -O2 -Wall -Wextra -Werror \
   "$SRC/StudyImages.cpp" "$SRC/StudyDeck.cpp" "$SRC/StudyFsrs.cpp" test_images.cpp \
   -o "$BUILD_DIR/test_images"
 

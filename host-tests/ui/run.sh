@@ -14,7 +14,7 @@ cd "$(dirname "$0")"
 # Keyed to this checkout, not just the suite name. Two worktrees sharing
 # one build dir means one tree can run -- and pass -- a binary the other
 # built, which is a green suite whose source is not even present.
-BUILD_DIR="${TMPDIR:-/tmp}/toybox-ui-tests-$(cd ../.. && pwd | cksum | cut -d" " -f1)"
+BUILD_DIR="${TMPDIR:-/tmp}/$(basename "${CXX:-c++}")-toybox-ui-tests-$(cd ../.. && pwd | cksum | cut -d" " -f1)"
 SDK=../../freeink-sdk/libs/ui/FreeInkUI
 # Icons is freestanding too (a struct and generated arrays), so the screens
 # can carry real icons and still be tested with no renderer and no device.
@@ -22,7 +22,7 @@ ICONS=../../freeink-sdk/libs/assets/Icons
 mkdir -p "$BUILD_DIR"
 # -Wno-comment and -Wno-format-truncation: see host-tests/dungeon/run.sh for
 # why both are GCC-only noise here rather than bugs worth chasing.
-c++ -std=c++17 -Wall -Wextra -Werror -Wno-comment -Wno-format-truncation \
+"${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror -Wno-comment -Wno-format-truncation \
   -I"$SDK/include" -I"$ICONS/include" \
   "$SDK/src/FreeInkUI.cpp" \
   ../../src/apps_local/battleship/BattleshipScreens.cpp \

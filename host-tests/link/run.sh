@@ -10,10 +10,10 @@ cd "$(dirname "$0")"
 # Keyed to this checkout, not just the suite name. Two worktrees sharing
 # one build dir means one tree can run -- and pass -- a binary the other
 # built, which is a green suite whose source is not even present.
-BUILD_DIR="${TMPDIR:-/tmp}/link-tests-$(cd ../.. && pwd | cksum | cut -d" " -f1)"
+BUILD_DIR="${TMPDIR:-/tmp}/$(basename "${CXX:-c++}")-link-tests-$(cd ../.. && pwd | cksum | cut -d" " -f1)"
 mkdir -p "$BUILD_DIR"
 SRC=../../src/apps_local/link
-c++ -std=c++17 -Wall -Wextra -Werror -O2 $SRC/LinkProtocol.cpp $SRC/LinkSession.cpp \
+"${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror -O2 $SRC/LinkProtocol.cpp $SRC/LinkSession.cpp \
   test_link.cpp -o "$BUILD_DIR/test_link"
 "$BUILD_DIR/test_link"
 
@@ -21,20 +21,20 @@ c++ -std=c++17 -Wall -Wextra -Werror -O2 $SRC/LinkProtocol.cpp $SRC/LinkSession.
 # on localhost and exchange real datagrams, which is the same path two simulator
 # windows take. The device (ESP-NOW) branch is compiled out and stays
 # hardware-gated.
-c++ -std=c++17 -Wall -Wextra -Werror -O2 $SRC/LinkProtocol.cpp $SRC/LinkSession.cpp \
+"${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror -O2 $SRC/LinkProtocol.cpp $SRC/LinkSession.cpp \
   $SRC/LinkRadio.cpp test_radio.cpp -o "$BUILD_DIR/test_radio"
 "$BUILD_DIR/test_radio"
 
 # The flow layer: what a game actually uses. Held to the same hostile link, and
 # deliberately driven through the loop ordering a game author would get wrong.
-c++ -std=c++17 -Wall -Wextra -Werror -O2 $SRC/LinkProtocol.cpp $SRC/LinkSession.cpp \
+"${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror -O2 $SRC/LinkProtocol.cpp $SRC/LinkSession.cpp \
   $SRC/LinkRadio.cpp $SRC/LinkPlay.cpp test_play.cpp -o "$BUILD_DIR/test_play"
 "$BUILD_DIR/test_play"
 
 # A real game of chess between two devices: the actual rules, the actual FEN
 # serialization the activity sends, over the same hostile link. This is what
 # makes "two simulators can play chess" a tested claim.
-c++ -std=c++17 -Wall -Wextra -Werror -O2 $SRC/LinkProtocol.cpp $SRC/LinkSession.cpp \
+"${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror -O2 $SRC/LinkProtocol.cpp $SRC/LinkSession.cpp \
   $SRC/LinkRadio.cpp $SRC/LinkPlay.cpp ../../src/apps_local/chess/ChessCore.cpp \
   test_chesslink.cpp -o "$BUILD_DIR/test_chesslink"
 "$BUILD_DIR/test_chesslink"
@@ -43,21 +43,21 @@ c++ -std=c++17 -Wall -Wextra -Werror -O2 $SRC/LinkProtocol.cpp $SRC/LinkSession.
 # Battleship stresses two things chess never did: a secret each side keeps
 # inside a shared state, and a setup phase the box plays simultaneously that the
 # wire can only alternate.
-c++ -std=c++17 -Wall -Wextra -Werror -O2 $SRC/LinkProtocol.cpp $SRC/LinkSession.cpp \
+"${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror -O2 $SRC/LinkProtocol.cpp $SRC/LinkSession.cpp \
   $SRC/LinkRadio.cpp $SRC/LinkPlay.cpp ../../src/apps_local/battleship/BattleshipCore.cpp \
   test_battleshiplink.cpp -o "$BUILD_DIR/test_battleshiplink"
 
 # Sea Salt stresses the one thing no earlier game did: a game turn that is a
 # SEQUENCE of decisions against a transport that only alternates whole spans,
 # plus a round boundary where the loser deals. See SeaSaltLink.h.
-c++ -std=c++17 -Wall -Wextra -Werror -O2 $SRC/LinkProtocol.cpp $SRC/LinkSession.cpp \
+"${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror -O2 $SRC/LinkProtocol.cpp $SRC/LinkSession.cpp \
   $SRC/LinkRadio.cpp $SRC/LinkPlay.cpp ../../src/apps_local/seasalt/SeaSaltCore.cpp \
   ../../src/apps_local/seasalt/SeaSaltBrain.cpp \
   test_seasaltlink.cpp -o "$BUILD_DIR/test_seasaltlink"
 "$BUILD_DIR/test_seasaltlink"
 "$BUILD_DIR/test_battleshiplink"
 
-c++ $CXXFLAGS $SRC/LinkProtocol.cpp $SRC/LinkSession.cpp $SRC/LinkRadio.cpp $SRC/LinkPlay.cpp \
+"${CXX:-c++}" $CXXFLAGS $SRC/LinkProtocol.cpp $SRC/LinkSession.cpp $SRC/LinkRadio.cpp $SRC/LinkPlay.cpp \
   ../../src/apps_local/toybattle/ToyBattleCore.cpp ../../src/apps_local/toybattle/ToyBattleBrain.cpp \
   test_toybattlelink.cpp -o "$BUILD_DIR/test_toybattlelink"
 "$BUILD_DIR/test_toybattlelink"
