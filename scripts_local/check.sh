@@ -54,6 +54,7 @@ if [ "${1:-}" = "--committed" ]; then
   TRIAL="${TMPDIR:-/tmp}/xteink-committed-$TAG"
   git worktree remove --force "$TRIAL" 2>/dev/null || true
   echo "verifying HEAD ($(git rev-parse --short HEAD)) in a throwaway worktree"
+  TRIAL_T0=$(date +%s)
   echo "  your working tree is untouched, and its uncommitted work is not in this build"
   git worktree add --quiet --detach "$TRIAL" HEAD || exit 1
   # Clean up even when this run is interrupted. A killed --committed used to
@@ -87,10 +88,11 @@ if [ "${1:-}" = "--committed" ]; then
         -c submodule.alternateLocation=superproject \
         -c submodule.alternateErrorStrategy=info \
         submodule update --init --quiet 2>&1); then
-    echo "submodules failed to populate in the trial worktree:"
+    echo "  submodules FAILED after $(( $(date +%s) - TRIAL_T0 ))s"
     echo "$SUBMODULE_LOG" | tail -5
     exit 1
   fi
+  echo "  worktree and submodules ready ($(( $(date +%s) - TRIAL_T0 ))s)"
   # The trial worktree is detached, so `git branch --show-current` is empty
   # inside it, and the browser-artifact gate at the foot of this file -- the
   # only branch-conditional check here -- switched itself off in the one mode
@@ -120,19 +122,32 @@ if [ "$DIRTY" -ne 0 ]; then
   echo
 fi
 
+# Every stage says what it is STARTING and how long the last one took.
+#
+# This used to print only on completion, so a slow suite or a slow build was
+# indistinguishable from a hang: on 2026-08-11 Mario twice had to ask why
+# nothing was happening, once when a submodule clone really had died and once
+# when the suites were running perfectly well. Neither of us could tell from
+# the log, and "I had to ask what it was doing" is a logging bug, not a
+# patience problem.
+say_stage() { printf "  %-12s %s ...\n" "$1" "$(date +%H:%M:%S)"; }
+since() { echo "$(( $(date +%s) - $1 ))s"; }
+
 echo "host tests"
 for suite in host-tests/*/; do
   name=$(basename "$suite")
   [ -x "$suite/run.sh" ] || continue
+  say_stage "$name"
+  T0=$(date +%s)
   "$suite/run.sh" > "$LOGS/$name.log" 2>&1
   code=$?
   passed=$(grep -c "checks, 0 failed" "$LOGS/$name.log" || true)
   if [ "$code" -ne 0 ]; then
-    printf "  %-12s FAILED (exit %d)\n" "$name" "$code"
+    printf "  %-12s FAILED (exit %d, %s)\n" "$name" "$code" "$(since $T0)"
     grep -E "FAIL|error:" "$LOGS/$name.log" | head -5 | sed 's/^/      /'
     FAILED=1
   else
-    printf "  %-12s ok (%s sub-suite(s))\n" "$name" "$passed"
+    printf "  %-12s ok (%s sub-suite(s), %s)\n" "$name" "$passed" "$(since $T0)"
   fi
 done
 
@@ -190,11 +205,12 @@ if [ "${1:-}" != "--tests" ]; then
   FW_LOCK="$WS/.pio-cache/x4pro.lock"
 
   for env in simulator_x4_pro x4pro; do
-    echo "build: $env"
+    printf "build: %-18s %s ...\n" "$env" "$(date +%H:%M:%S)"
+    BUILD_T0=$(date +%s)
     if [ "$env" = "x4pro" ] && [ -d "$(dirname "$FW_LOCK")" ]; then
       waited=0
       while ! mkdir "$FW_LOCK" 2>/dev/null; do
-        [ "$waited" -eq 0 ] && echo "  waiting for another tree's firmware build ..."
+        [ $(( waited % 30 )) -eq 0 ] && echo "  waiting for another tree's firmware build (${waited}s) ..."
         sleep 2
         waited=$((waited + 2))
         if [ "$waited" -gt 900 ]; then
@@ -207,9 +223,10 @@ if [ "${1:-}" != "--tests" ]; then
     if pio run -e "$env" > "$LOGS/$env.log" 2>&1; then
       # The native build reports no RAM/Flash. Say "ok" rather than printing
       # nothing, or a clean build reads like a swallowed failure.
-      grep -E "^(RAM|Flash):" "$LOGS/$env.log" | sed 's/^/  /' || echo "  ok"
+      grep -E "^(RAM|Flash):" "$LOGS/$env.log" | sed 's/^/  /' || true
+      echo "  ok ($(( $(date +%s) - BUILD_T0 ))s)"
     else
-      echo "  FAILED"
+      echo "  FAILED ($(( $(date +%s) - BUILD_T0 ))s)"
       grep -E "error:" "$LOGS/$env.log" | head -5 | sed 's/^/    /'
       FAILED=1
     fi
