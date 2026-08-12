@@ -82,6 +82,16 @@ Note that `curl` cannot catch this class of bug and neither can a fresh
 incognito window: both start with an empty cache and always see the new file.
 The check that would have caught it is loading the page normally, twice.
 
+**Narrowing the rule did not release the browsers already holding a promise.**
+Anyone who loaded the page before 2026-08-09 keeps that copy until 2027, no
+matter what the server now says, and on 2026-08-12 that bit the author: his
+`emulator.js` predated the root-absolute `/emulator/crossplay.js` fix, so the
+study preview died with `Could not load emulator/crossplay.js` while the live
+file was correct. The only reach into a cache that refuses to revalidate is a
+different URL, so both pages load `assets/emulator.js?v=2`. The HTML itself
+revalidates, which is what makes that work. Keep the query on both pages until
+2027, and bump it rather than removing it if this ever recurs.
+
 ## Looking at it
 
 A plain `python3 -m http.server` will serve the page but **not** the emulator:

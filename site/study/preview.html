@@ -17,7 +17,10 @@
      because a wasm module with a live worker cannot be torn down cleanly but
      a document can. The deck files arrive by postMessage before boot. -->
 <div id="stage"></div>
-<script src="/assets/emulator.js"></script>
+<!-- ?v=2 must match index.html's: see the note there. It exists to reach
+     browsers holding a year-long immutable copy of this file from before
+     2026-08-09, whose emulator.js cannot boot the device from this page. -->
+<script src="/assets/emulator.js?v=2"></script>
 <script>
 (function () {
   var booted = false;
