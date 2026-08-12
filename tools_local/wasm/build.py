@@ -400,7 +400,15 @@ def main():
     # a broken page. See tools_local/site/precompress.py for why.
     precompress = REPO / "tools_local" / "site" / "precompress.py"
     if precompress.exists():
-        result = subprocess.run([sys.executable, str(precompress)], capture_output=True, text=True)
+        # The venv, not whatever interpreter happened to run this script.
+        # brotli lives in .venv-study, and sys.executable here is the system
+        # python3, so the build reported "the brotli module is missing" and
+        # told you to install a package that was already installed -- with the
+        # only actionable line being "do not commit site/emulator as-is", which
+        # is exactly the state that ships a 34-second download.
+        venv = REPO / ".venv-study" / "bin" / "python"
+        runner = str(venv) if venv.exists() else sys.executable
+        result = subprocess.run([runner, str(precompress)], capture_output=True, text=True)
         if result.returncode != 0:
             print(result.stdout + result.stderr)
             sys.exit("pre-compression failed; do not commit site/emulator as-is")
