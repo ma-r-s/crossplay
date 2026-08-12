@@ -90,12 +90,26 @@ void buildMapPick(toybox::Screen& screen, const MapPickModel& model);
 
 // --- the rules --------------------------------------------------------------
 
+// One position, advanced a move at a time. Chosen by Mario on 2026-08-12 over
+// two other treatments built and photographed beside it; the renders are in
+// qa-artifacts/ if the question ever comes back. See ToyBattleHowTo.cpp for
+// what the deck it replaces got wrong.
 struct HowToModel {
   int page = 0;
 };
 
 int howToPages();
 void buildHowTo(toybox::Screen& screen, const HowToModel& model);
+
+// The deck's own graph and positions, so host-tests can check that every troop
+// drawn on a page is one that could be standing there. See ToyBattleHowTo.cpp.
+int howToNodeCount();
+int howToLinkCount();
+void howToLinkAt(int i, int& a, int& b);
+int howToOwnerAt(int page, int node);
+bool howToIsHq(int node);
+int howToHqSeat(int node);
+bool howToCutOff(int page, int node);
 
 // --- shared material --------------------------------------------------------
 

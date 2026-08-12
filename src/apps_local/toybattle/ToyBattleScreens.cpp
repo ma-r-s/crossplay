@@ -1,5 +1,7 @@
 #include "ToyBattleScreens.h"
 
+#include "ToyBattleMenus.h"
+
 #include <cstdio>
 
 // Two board treatments, built together so they can be photographed side by side
@@ -345,6 +347,39 @@ int slotAt(const fui::DeviceContext& device, const tb::Terrain& board, const int
   return -1;
 }
 
+// THE CARD FACE. The numeral over the mark, exactly as the rack draws it.
+//
+// One function rather than one per screen, because the rack is the card a
+// player actually holds and taps: any reference drawn a second way is a second
+// object to learn. The rules deck used to draw its own -- a 62x78 tile with the
+// numeral in a 30px box and the mark hard-coded at y+56 -- and every mark on
+// that screen landed on top of its own number.
+//
+// Proportions are the rack's own 48x64 inner tile, scaled, so this is the same
+// card at any size rather than a redrawing of it.
+void troopCardFace(toybox::Screen& screen, const fui::Rect& card, const tb::Troop troop, const fui::Paint ground,
+                   const uint8_t edge) {
+  screen.target().fill(card, ground, 8);
+  screen.target().stroke(card, fui::Paint::solid(fui::Color::Black), edge, 8);
+
+  // Kwak and Roxy do nothing, so there is no mark to sit under and the numeral
+  // takes the whole card. A mark meaning "no mark" is worse than the space.
+  const bool marked = troop != tb::Troop::Kwak && troop != tb::Troop::Roxy;
+  if (!marked) {
+    centred(screen, card, pip(troop), toybox::kUiFont, false);
+    return;
+  }
+  const int16_t h = card.height;
+  centred(screen,
+          fui::makeRect(card.x, static_cast<int16_t>(card.y + h * 9 / 64), card.width,
+                        static_cast<int16_t>(h * 26 / 64)),
+          pip(troop), toybox::kUiFont, false);
+  troopMark(screen,
+            fui::Point{static_cast<int16_t>(card.x + card.width / 2),
+                       static_cast<int16_t>(card.bottom() - h * 17 / 64)},
+            static_cast<int16_t>(card.width * 12 / 48), troop);
+}
+
 fui::Rect rackTile(const fui::DeviceContext& device, const int position) {
   const int16_t span = static_cast<int16_t>(tb::kTroopKinds * kRackTile);
   const int16_t left = static_cast<int16_t>((device.width - span) / 2);
@@ -407,17 +442,17 @@ int rackAt(const fui::DeviceContext& device, const tb::Game& game, const tb::Dra
 const char* specialBlurb(const tb::Special what) {
   switch (what) {
     case tb::Special::Recall:
-      return "CALLS ONE OF YOUR OTHER TROOPS HOME";
+      return "CALLS ANOTHER OF YOURS HOME";
     case tb::Special::Draw:
       return "DRAWS ONE FROM YOUR RESERVE";
     case tb::Special::Shove:
-      return "SHOVES A TROOP NEXT TO IT ONE BASE";
+      return "SHOVES A NEIGHBOUR ONE BASE";
     case tb::Special::Exhume:
-      return "TAKES ONE OF YOURS BACK OFF THE DISCARD";
+      return "TAKES ONE OF YOURS OFF THE DISCARD";
     case tb::Special::Suppress:
-      return "PINS A TROOP ON THEIR RACK FOR A TURN";
+      return "PINS ONE ON THEIR RACK FOR A TURN";
     case tb::Special::Gate:
-      return "ONLY THE PRINTED VALUES MAY LAND HERE";
+      return "ONLY PRINTED VALUES MAY LAND HERE";
     case tb::Special::Nullify:
       return "TROOP EFFECTS DO NOT WORK HERE";
     case tb::Special::None:
@@ -483,14 +518,62 @@ const char* refusalBlurb(const tb::Refusal why) {
   return "";
 }
 
+// The largest cut a header title fits in, walking down rather than truncating.
+// "CURSED CEMETERY" came out of the display cut as "CURSED CEMETER" -- not a
+// wrapped line and not an ellipsis, just a name with its last letter gone, which
+// reads as a misspelling rather than as an overflow. The map names are data and
+// the longest one is fifteen characters today; shrinking is the fix that cannot
+// regress the next time somebody traces a board with a long name.
+fui::TextStyle fittedHeaderTitle(toybox::Screen& screen, const char* title, const int16_t reserved) {
+  fui::TextStyle style;
+  style.color = fui::Color::White;
+  const int16_t room = static_cast<int16_t>(screen.device().width - toybox::kMargin * 2 - reserved);
+  const fui::FontId cuts[] = {toybox::kDisplayFont, toybox::kUiFont, toybox::kSmallFont};
+  for (const fui::FontId cut : cuts) {
+    style.font = cut;
+    if (screen.target().measureText(cut, title, style).width <= room) return style;
+  }
+  return style;
+}
+
+// THE TROOP REFERENCE. Every card, its real face, and what it does.
+//
+// One page rather than a footer under the map's special bases: crammed under
+// them it got a 30px box with the numeral in it and the mark parked off to one
+// side, which is not the card -- the card is the numeral OVER the mark, and
+// that is the object the player is holding. On the four-kind maps the list also
+// reached within one row of the bottom edge, so the reference nobody can read
+// was also the reference that nearly did not fit.
+//
+// Drawn into whatever box it is handed, so the in-game ? card and the rules
+// deck show the same screen rather than two descriptions of one.
+void troopReference(toybox::Screen& screen, const fui::Rect& box) {
+  fui::TextStyle body;
+  body.font = toybox::kSmallFont;
+  body.align = fui::TextAlign::Left;
+
+  const int16_t rowH = static_cast<int16_t>(box.height / tb::kTroopKinds);
+  // The rack's own proportions: 48 wide to 64 tall. A card at any other ratio
+  // is a different object.
+  int16_t cardH = static_cast<int16_t>(rowH - 6);
+  if (cardH > 60) cardH = 60;
+  const int16_t cardW = static_cast<int16_t>(cardH * 48 / 64);
+
+  for (int k = 0; k < tb::kTroopKinds; ++k) {
+    const tb::Troop troop = static_cast<tb::Troop>(k);
+    const fui::Rect row = fui::makeRect(box.x, static_cast<int16_t>(box.y + k * rowH), box.width, rowH);
+    troopCardFace(screen,
+                  fui::makeRect(row.x, static_cast<int16_t>(row.y + (rowH - cardH) / 2), cardW, cardH), troop,
+                  fui::Paint::dither(fui::Color::LightGray), 2);
+    const int16_t textX = static_cast<int16_t>(row.x + cardW + toybox::kGutter + 4);
+    screen.target().text(fui::makeRect(textX, row.y, static_cast<int16_t>(row.right() - textX), rowH),
+                         troopBlurb(troop), body);
+  }
+}
+
 // The briefing: every special base on this terrain, drawn with the badge it
 // wears on the board so the mark and the meaning are learned together.
-void buildBrief(toybox::Screen& screen, const BriefModel& model) {
-  fui::HeaderProps header;
-  header.title = model.board ? model.board->name : "TERRAIN";
-  header.borderEdges = fui::EdgesNone;
-  screen.header(header);
-  screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
+void buildBriefMap(toybox::Screen& screen, const BriefModel& model) {
   if (!model.board) return;
 
   fui::TextStyle body;
@@ -498,10 +581,12 @@ void buildBrief(toybox::Screen& screen, const BriefModel& model) {
   body.align = fui::TextAlign::Left;
 
   if (!model.specialBases) {
-    screen.target().text(screen.takeTop(60),
-                         "SPECIAL BASES ARE SWITCHED OFF FOR THIS GAME. EVERY BASE IS AN "
-                         "ORDINARY ONE.",
-                         body);
+    fui::TextStyle wrapped = body;
+    wrapped.maxLines = 3;
+    const char* off = "SPECIAL BASES ARE SWITCHED OFF FOR THIS GAME. EVERY BASE IS AN ORDINARY ONE.";
+    const fui::Rect room = screen.contentRect();
+    screen.target().text(screen.takeTop(fui::measureWrappedText(screen.target(), off, wrapped, room.width).height),
+                         off, wrapped);
     return;
   }
 
@@ -524,7 +609,7 @@ void buildBrief(toybox::Screen& screen, const BriefModel& model) {
     glyph(screen, at, 15, what, true);
 
     char line[96];
-    std::snprintf(line, sizeof(line), "%d x  %s", seen[k], specialBlurb(what));
+    std::snprintf(line, sizeof(line), "%d x %s", seen[k], specialBlurb(what));
     screen.target().text(fui::makeRect(static_cast<int16_t>(row.x + badge * 2 + toybox::kGutter), row.y,
                                        static_cast<int16_t>(row.width - badge * 2 - toybox::kGutter), row.height),
                          line, body);
@@ -533,37 +618,122 @@ void buildBrief(toybox::Screen& screen, const BriefModel& model) {
     screen.target().text(screen.takeTop(52), "THIS TERRAIN HAS NO SPECIAL BASES.", body);
   }
 
-  // The bar's counts, explained where the other marks are explained.
+  // The bar's counts, explained where the other marks are explained -- and
+  // explained with the marks themselves rather than with words for them.
+  //
+  // It used to be one sentence naming each mark ("TILE = TROOPS IN HAND,
+  // TRIANGLE = LEFT TO DRAW, ..."), which is 110 characters into a 448px row at
+  // maxLines 1: the panel showed "IN THE BAR: TILE = TROOPS IN HAND, TRIANGLE =
+  // LEFT ..." and the two marks it had not reached yet were the two nobody
+  // knows. Wrapping it would have cost two more rows the card does not have
+  // (La Croisette's four kinds already reach within a row of the bottom), so
+  // the sentence is gone instead. Three marks and six words fit on one line
+  // with room to spare, and a legend that draws the mark teaches the mark --
+  // which the sentence never did, since it only ever named it.
   {
     const fui::Rect row = screen.takeTop(30, toybox::kGutter);
-    screen.target().text(row, "IN THE BAR: TILE = TROOPS IN HAND, TRIANGLE = LEFT TO DRAW, CROSS = OUT OF THE "
-                              "GAME. TOP ROW IS THEIRS.",
-                         body);
-  }
-
-  // A rule, then the troops. Two alphabets on one screen need telling apart:
-  // above it is what the ground does, below it is what your own troops do.
-  const fui::Rect gap = screen.takeTop(toybox::kRule + toybox::kGutter * 2, toybox::kGutter);
-  screen.target().fill(fui::makeRect(gap.x, static_cast<int16_t>(gap.y + toybox::kGutter), gap.width, toybox::kRule),
-                       fui::Paint::solid(fui::Color::Black));
-
-  for (int k = 0; k < tb::kTroopKinds; ++k) {
-    const tb::Troop troop = static_cast<tb::Troop>(k);
-    const fui::Rect row = screen.takeTop(40, 2);
     const int16_t mid = static_cast<int16_t>(row.y + row.height / 2);
-
-    // The card's own face, small: the numeral it carries and the mark under it
-    // on the rack, side by side here so the two are learned together.
-    const fui::Rect tile =
-        fui::makeRect(row.x, static_cast<int16_t>(row.y + 2), 30, static_cast<int16_t>(row.height - 4));
-    screen.target().stroke(tile, fui::Paint::solid(fui::Color::Black), 2, 6);
-    centred(screen, tile, pip(troop), toybox::kSmallFont, false);
-    troopMark(screen, fui::Point{static_cast<int16_t>(row.x + 52), mid}, 12, troop);
-
-    screen.target().text(
-        fui::makeRect(static_cast<int16_t>(row.x + 74), row.y, static_cast<int16_t>(row.width - 74), row.height),
-        troopBlurb(troop), body);
+    const int16_t pitch = static_cast<int16_t>(row.width / 3);
+    struct Item {
+      tb::Special mark;  // None means the hand's solid tile
+      const char* label;
+    };
+    static constexpr Item kLegend[] = {
+        {tb::Special::None, "IN HAND"},
+        {tb::Special::Draw, "TO DRAW"},
+        {tb::Special::Nullify, "GONE"},
+    };
+    for (int i = 0; i < 3; ++i) {
+      const int16_t x = static_cast<int16_t>(row.x + i * pitch);
+      // The same two shapes the action bar draws, at the same proportions: a
+      // filled tile for the hand, the glyph alphabet for the other two.
+      if (kLegend[i].mark == tb::Special::None) {
+        screen.target().fill(fui::makeRect(x, static_cast<int16_t>(mid - 6), 8, 13),
+                             fui::Paint::solid(fui::Color::Black));
+      } else {
+        glyph(screen, fui::Point{static_cast<int16_t>(x + 5), mid}, 11, kLegend[i].mark, false);
+      }
+      screen.target().text(fui::makeRect(static_cast<int16_t>(x + 18), row.y,
+                                         static_cast<int16_t>(pitch - 18), row.height),
+                           kLegend[i].label, body);
+    }
   }
+
+  // Where they are, which the list cannot say. "4 x TAKES ONE OF YOURS OFF THE
+  // DISCARD" still leaves you hunting for the four, and moving the troops onto
+  // their own page left exactly the room to answer it.
+  {
+    uint64_t marked = 0;
+    for (int base = 0; base < model.board->baseCount; ++base) {
+      if (model.board->specialAt(base) != tb::Special::None || model.board->gate[base] != 0) {
+        marked |= uint64_t{1} << base;
+      }
+    }
+    const fui::Rect room = screen.contentRect();
+    if (marked != 0 && room.height > 160) {
+      // takeTop consumes its height PLUS its trailing gap, so the two together
+      // have to add up to what is left rather than to what is left plus one.
+      const int16_t noteH = 24;
+      miniBoard(screen,
+                screen.takeTop(static_cast<int16_t>(room.height - noteH - toybox::kGutter), toybox::kGutter),
+                *model.board, nullptr, marked);
+      fui::TextStyle note;
+      note.font = toybox::kTileFont;
+      note.align = fui::TextAlign::Center;
+      screen.target().text(screen.takeTop(noteH), "BRACKETS MARK THEM ON THE MAP", note);
+    }
+  }
+}
+
+int briefPages() { return 2; }
+
+void buildBrief(toybox::Screen& screen, const BriefModel& model) {
+  const int page = (model.page < 0 || model.page >= briefPages()) ? 0 : model.page;
+  const char* title = page == 0 ? (model.board ? model.board->name : "TERRAIN") : "THE TROOPS";
+
+  fui::HeaderProps header;
+  header.title = title;
+  header.rightLabel = page == 0 ? "1/2" : "2/2";
+  header.subtitleText = fui::TextStyle{};
+  header.subtitleText.font = toybox::kUiFont;
+  header.subtitleText.color = fui::Color::White;
+  header.subtitleText.align = fui::TextAlign::Right;
+  header.titleText = fittedHeaderTitle(
+      screen, title,
+      static_cast<int16_t>(screen.target().measureText(toybox::kUiFont, header.rightLabel, header.subtitleText).width +
+                           toybox::kGutter));
+  header.borderEdges = fui::EdgesNone;
+  screen.header(header);
+  screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
+
+  // The way out is taken first, so nothing below can grow into it. Two pills,
+  // relabelling rather than disappearing, the same pair the rules deck uses.
+  const fui::Rect actions = screen.takeBottom(toybox::kPillHeight, toybox::kGutter);
+  const int16_t width = static_cast<int16_t>((actions.width - toybox::kGutter) / 2);
+  const char* labels[2] = {page == 0 ? "BOARD" : "THIS MAP", page == 0 ? "TROOPS" : "BOARD"};
+  const fui::ActionId ids[2] = {ActionBriefPrev, ActionBriefNext};
+  for (int i = 0; i < 2; ++i) {
+    fui::ButtonProps props;
+    props.label = labels[i];
+    props.action = ids[i];
+    const bool forward = i == 1;
+    props.text = toybox::buttonText(screen.theme());
+    if (forward) {
+      props.text.font = toybox::kUiFont;
+      props.text.align = fui::TextAlign::Center;
+      props.text.color = fui::Color::White;
+    }
+    props.styles = forward ? toybox::invertedStyles() : toybox::rowStyles();
+    props.radius = toybox::kPillRadius;
+    screen.button(props, fui::makeRect(static_cast<int16_t>(actions.x + i * (width + toybox::kGutter)), actions.y,
+                                       width, actions.height));
+  }
+
+  if (page == 0) {
+    buildBriefMap(screen, model);
+    return;
+  }
+  troopReference(screen, screen.body());
 }
 
 void buildResult(toybox::Screen& screen, const ResultModel& model) {
@@ -727,29 +897,13 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
     // TURN -- but a state you have to tap to discover is a state you do not know
     // you are in when you are planning.
     const bool frozen = !raising && game.frozenKind[model.seat] == static_cast<uint8_t>(kind);
-    screen.target().fill(inner,
-                         frozen ? fui::Paint::dither(fui::Color::DarkGray)
-                                : live ? fui::Paint::dither(fui::Color::LightGray)
-                                       : fui::Paint::solid(fui::Color::White),
-                         8);
-    screen.target().stroke(inner, fui::Paint::solid(fui::Color::Black), chosen ? 5 : 2, 8);
-
-    // Number on top, what it does underneath. Eight troops is more than anyone
-    // holds in their head, and the mark here is the same one the board wears,
-    // so learning it once covers both.
-    //
-    // Kwak and Roxy do nothing, so there is no mark to sit under and their
-    // numeral takes the whole tile.
-    const bool marked = troop != tb::Troop::Kwak && troop != tb::Troop::Roxy;
-    if (!marked) {
-      centred(screen, inner, pip(troop), toybox::kUiFont, false);
-    } else {
-      centred(screen, fui::makeRect(inner.x, static_cast<int16_t>(inner.y + 9), inner.width, 26), pip(troop),
-              toybox::kUiFont, false);
-      troopMark(screen,
-                fui::Point{static_cast<int16_t>(inner.x + inner.width / 2), static_cast<int16_t>(inner.bottom() - 17)},
-                12, troop);
-    }
+    // Number on top, what it does underneath -- the card face, drawn by the one
+    // function every screen that shows a card calls.
+    troopCardFace(screen, inner, troop,
+                  frozen ? fui::Paint::dither(fui::Color::DarkGray)
+                         : live ? fui::Paint::dither(fui::Color::LightGray)
+                                : fui::Paint::solid(fui::Color::White),
+                  chosen ? 5 : 2);
   }
 
   // Three regions, and the left one is always the same width so nothing

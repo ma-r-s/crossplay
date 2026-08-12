@@ -322,19 +322,41 @@ reserve, which is why `observe` clears the seed and a draw is worth tempo rather
 than a known troop. Carrying the seed would have handed over both reserves in
 reading order; that is the one leak this design had to be careful about.
 
-**Two skills, and the split is where it measured rather than where it was
-designed.** Both keep the same reflexes: take the win in front of you, never
-leave your own H.Q. open. Recruit has nothing else and plays freely among the
-safe moves. General weighs medals, territory, reach and tempo, and searches.
+**Three rungs, and each gap measured rather than designed.** All keep the same
+reflexes: take the win in front of you, never leave your own H.Q. open.
 
-The first version put the split somewhere else -- General also raced for
-regions, valued pressure on the enemy H.Q., and looked one turn ahead at the
-threat a Cap'n's second placement makes. Over 600 games each of those was worth
-**nothing**: 48%, 48% and 50% against the same opponent without them, where 50%
-is a coin toss. They were deleted rather than tuned. The gap that does exist is
-between having an evaluation at all and not having one, and that one is 99%
-(598/600). Reflexes alone still beat a random player 77%, so Recruit is a real
-opponent and not a stooge.
+| rung     | what it is                            | wins vs the rung below |
+| -------- | ------------------------------------- | ---------------------- |
+| RECRUIT  | an evaluation, played greedily        | --                     |
+| SERGEANT | beam 8 at depth 3, hand-tuned weights | 80%                    |
+| GENERAL  | the same search, FITTED weights       | 81%                    |
+
+The ladder shifted up a rung on 2026-08-11, after Mario beat the old top rung
+three games running. The old bottom rung -- two reflexes and no evaluation at
+all -- lost 99 games in 100 to everything and was a placeholder rather than a
+difficulty; it was deleted.
+
+**What made the top rung is the evaluation, not the depth.** `evaluate` was
+seven numbers chosen by eye, and nothing had ever fitted them: the tournament
+could only RANK variants that shared them, so it could rank depth and was
+structurally unable to say the goal was wrong. Fitting is standard chess-engine
+practice -- play a great many games, record every position with how its game
+ended, solve for the weights that best predict the result -- and it is the
+version of "learn without human games" that fits on an ESP32.
+`host-tests/toybattle/tune.cpp` dumps the positions, `tools_local/fit_eval.py`
+does the logistic regression, and the fitted weights beat the hand-tuned ones
+**84%** over 28,823 positions.
+
+The features are DISTANCE TO WINNING, not a description of the board, and that
+was Mario's correction: a flat `hq_pressure` weight says threatening the H.Q. is
+worth three and a half medals ALWAYS, whether you are one placement from the
+medal race or nine. A linear evaluation cannot express "it depends" unless the
+FEATURES carry the situation, so they do -- how far each side is from each of
+the two ways to win. Then closeness is what gets weighed and the two routes are
+compared on one scale.
+
+Two hypotheses were refuted rather than deleted: a region-racer variant went
+0/720, and flat Monte Carlo failed because 69% of random playouts end stuck.
 
 The lesson worth keeping: **the first head-to-head ran 60 games and read 53%,
 and the bound was set to 53%.** That is a bound tuned to its observation, inside
@@ -368,8 +390,51 @@ is the recipe that produced them.
 
 Every picture in the shell is `miniBoard()` drawing the real terrain from its own
 normalised coordinates -- the menu ornament carries the position you would
-resume, the map list draws each board, and the rules teach on Castle Field
-itself. A diagram would be a second thing to learn before you can learn the game.
+resume, the map list draws each board, and the terrain card brackets this map's
+special bases on it. A diagram would be a second thing to learn before you can
+learn the game.
+
+### HOW TO PLAY, and the card the ? opens
+
+Both were rebuilt on 2026-08-12. What the first deck got wrong is worth keeping,
+because none of it was reasoned out and all of it was visible in one screenshot
+per page:
+
+- **Six of its seven pages drew the same empty lattice.** A pixel diff of two of
+  them returns zero differing pixels. Its picture came from `miniBoard()`, which
+  takes a `Terrain` and draws the SHAPE of a map -- so a rule about ownership,
+  covering or reach cannot be drawn by it at all. THE LINE HOME bracketed three
+  unconnected nodes and showed no walk.
+- **The caption box was a fixed 132px against a 45px line.** Any caption needing
+  four lines drew through the PREV and PLAY pills. SPECIAL BASES did, and
+  shipped that way.
+- **THE TROOPS drew each numeral in a 30px box and the mark at y+56.** The
+  display cut is taller than 30, so every mark landed on its own number.
+
+Three treatments were built and photographed side by side; Mario picked the
+walkthrough on 2026-08-12 and the other two -- YES AND NO, two scenes a page
+contrasting what a rule allows with what it refuses, and THE FIELD MANUAL, three
+dense reference pages -- were deleted the same day. The renders are in
+`qa-artifacts/`.
+
+Two things carry the rebuild:
+
+**A `Scene` can hold a position.** A handful of slots, the links between them and
+what stands on each, in a 0..1000 box, drawn in the board's own vocabulary at
+another size. That is the piece the old deck did not have.
+
+**The caption is measured before it is placed**, and the band is measured across
+the WHOLE deck rather than per page -- sized per page, the map rescaled by 23%
+and jumped on every turn, on a panel that full-refreshes.
+
+The card behind `?` is two pages: this map's special bases, bracketed on the map
+so you can find them, and then every troop with its face and what it does. One
+page could not hold both. Crammed under the specials the troop list got a 30px
+box with the mark parked beside it, which is not the card -- the card is the
+numeral OVER the mark -- and on the four-kind maps it reached within a row of
+the bottom edge. `troopReference()` draws that second page and the deck's card
+page both, and `troopCardFace()` draws every card anywhere, the rack included,
+so no screen can drift from the one the player taps.
 
 **Four defects came from looking at the renders, not from reasoning.** The menu
 caption read "14 OF 7 MEDALS" backwards; map names truncated to "CASTLE FIEL" in

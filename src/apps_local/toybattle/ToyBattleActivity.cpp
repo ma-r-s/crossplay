@@ -165,6 +165,12 @@ void ToyBattleActivity::gameLoop() {
   namespace fui = freeink::ui;
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    if (screen == tb::Screen::Brief && briefPage > 0) {
+      // A paginated screen steps a page before it leaves, the same as the deck.
+      --briefPage;
+      requestUpdate();
+      return;
+    }
     if (screen == tb::Screen::HowTo && howToPage > 0) {
       // A paginated screen steps a page before it leaves, which is what Back
       // means to somebody who has been tapping NEXT.
@@ -383,7 +389,26 @@ void ToyBattleActivity::gameLoop() {
       say("YOU DREW TWO");
       return;
     case tbui::ActionBrief:
+      briefPage = 0;
       goTo(tb::Screen::Brief);
+      return;
+    case tbui::ActionBriefNext:
+      // The last page's forward pill goes back to the board: a reference you
+      // opened mid-turn should hand you back the turn, not a dead end.
+      if (briefPage + 1 >= tbui::briefPages()) {
+        goTo(tb::back(tb::Screen::Brief));
+        return;
+      }
+      ++briefPage;
+      requestUpdate();
+      return;
+    case tbui::ActionBriefPrev:
+      if (briefPage == 0) {
+        goTo(tb::back(tb::Screen::Brief));
+        return;
+      }
+      --briefPage;
+      requestUpdate();
       return;
     case tbui::ActionCancel:
       // Backing out of a half-built move, which the board also had no way to
@@ -421,6 +446,7 @@ void ToyBattleActivity::gameRender() {
       tbui::BriefModel model;
       model.board = &game.board();
       model.specialBases = game.specialBases != 0;
+      model.page = briefPage;
       tbui::buildBrief(surface, model);
       break;
     }

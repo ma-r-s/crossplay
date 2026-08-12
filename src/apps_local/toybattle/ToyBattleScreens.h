@@ -25,6 +25,8 @@ enum : fui::ActionId {
   ActionTake = 4,
   ActionSkip = 5,
   ActionBrief = 6,
+  ActionBriefNext = 9,
+  ActionBriefPrev = 10,
   ActionAgain = 7,
   ActionDone = 8,
 };
@@ -73,14 +75,38 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model);
 struct BriefModel {
   const toybattle::Terrain* board = nullptr;
   bool specialBases = true;
+  // Page 0 is this map's special bases, page 1 the troop reference. Two pages
+  // because one could not hold both: the troop list under the specials got a
+  // 30px box with the mark parked beside it rather than the card's own face,
+  // and on the four-kind maps it reached within a row of the bottom edge.
+  int page = 0;
 };
+int briefPages();
 void buildBrief(toybox::Screen& screen, const BriefModel& model);
+
+// Every card, its real face and what it does, drawn into the box it is given.
+// The rules deck shows this same screen: two screens explaining the cards is
+// two things to keep in agreement, and they would not stay in agreement.
+void troopReference(toybox::Screen& screen, const fui::Rect& box);
+
+// The card face itself -- the numeral over the mark, the rack's own geometry
+// scaled. Every screen that draws a card calls this one.
+void troopCardFace(toybox::Screen& screen, const fui::Rect& card, toybattle::Troop troop, fui::Paint ground,
+                   uint8_t edge);
 
 struct ResultModel {
   toybattle::Game game{};
   uint8_t seat = 0;
 };
 void buildResult(toybox::Screen& screen, const ResultModel& model);
+
+// The largest cut a header title fits in, walking the cuts down rather than
+// letting the component truncate. Map names are data and the deck's page titles
+// are prose; both have already overrun the display cut once.
+// `reserved` is whatever else shares the band -- a page counter, a medal
+// tally. Measuring against the full width is how TWO WAYS TO WIN came out
+// as TWO WAYS TO W beside its own 1/6.
+fui::TextStyle fittedHeaderTitle(toybox::Screen& screen, const char* title, int16_t reserved = 0);
 
 // The marks, for anything outside this file that has to draw them. The rules
 // screens teach the same symbols the board uses, which is the whole point of
