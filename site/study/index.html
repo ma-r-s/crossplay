@@ -118,6 +118,14 @@
               <button class="linklike" id="ttfChoose" type="button">choose .ttf</button>
               <span class="study-deck-cards" id="ownName"></span></label>
             <input type="file" id="ttfpick" accept=".ttf,.otf" hidden>
+            <!-- The card beside this is web text: it shows which of your
+                 fields lands where, and it redraws when you change the
+                 mapping. It cannot show the face, because the face is a
+                 bitmap the device draws, and faking it in a browser font
+                 would flatter it. Say where the type actually appears. -->
+            <p class="study-facts">The sample card shows what goes where, not
+              the type. Faces are drawn by the reader, so step 3 is where you
+              see the one you picked.</p>
           </div>
           <p class="study-progress" id="typeProgress" hidden></p>
           <p id="typePlaceholder" hidden></p>
