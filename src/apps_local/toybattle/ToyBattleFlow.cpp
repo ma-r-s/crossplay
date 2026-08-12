@@ -32,10 +32,14 @@ Ask effectAsk(Troop kind) {
   return Ask::Ready;
 }
 
+}  // namespace
+
 // The position a draft has already brought about, so later questions are asked
-// against the board as it will be rather than as it was. Each answered step is
-// replayed with the decisions actually taken; a Cap'n's chain flag is dropped,
-// because here the extra placement is the next step rather than a flag.
+// against the board as it will be rather than as it was -- and so the SCREEN can
+// draw the troop you just placed while the game asks about its effect. Each
+// answered step is replayed with the decisions actually taken; a Cap'n's chain
+// flag is dropped, because here the extra placement is the next step rather
+// than a flag.
 Game projected(const Game& game, const Draft& draft) {
   Game g = game;
   const int seat = game.turn;
@@ -63,6 +67,8 @@ Game projected(const Game& game, const Draft& draft) {
   }
   return g;
 }
+
+namespace {
 
 // The answer functions without the completability gate. The public ones wrap
 // these; `finishSomehow` uses them directly, because it is the thing that
@@ -247,6 +253,13 @@ Ask pending(const Game& game, const Draft& draft) {
   const int seat = game.turn;
   const int slot = current(draft).slot;
   const Game g = projected(game, draft);
+
+  // Landing on their H.Q. IS the win. The engine already knows -- `apply` ends
+  // the game the moment the troop lands and returns before any effect runs --
+  // but the draft went on asking "use the effect?" first, so the player was
+  // offered a choice about a game that was already over, and whatever they
+  // answered was discarded. Nothing is left to ask.
+  if (b.isHq(slot)) return Ask::Ready;
 
   // Station Metal-X is where troop effects do not happen, so there is no effect
   // question to ask on one. Asking anyway offered a steal the engine would

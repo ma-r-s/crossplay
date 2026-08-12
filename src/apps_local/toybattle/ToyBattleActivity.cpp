@@ -42,10 +42,13 @@ void ToyBattleActivity::beginGame() {
   // the rack force-fed -- so two layout variants could be photographed from the
   // same board. That was scaffolding for choosing a drawing, and it had no
   // business surviving into a game somebody sits down with.
+  // Seat 0 always moves first; SIDE says whether that is you. On the two boards
+  // that are not symmetric it also decides which H.Q. is yours, and the screen
+  // turns the board round so you are never playing upside down.
   game.newGame(static_cast<uint32_t>(millis()) * 2654435761u + 1u, options.terrain, 0, options.specialBases);
   draft.clear();
   notice = nullptr;
-  seat = 0;
+  seat = options.side;
   dealt = true;
   hasSave = true;
   recorded = false;
@@ -83,6 +86,9 @@ void ToyBattleActivity::cycleSetupRow(const tbui::SetupRow row) {
       return;
     case tbui::SetupRow::Opponent:
       options.skill = static_cast<tb::Skill>((static_cast<int>(options.skill) + 1) % tb::kSkillCount);
+      break;
+    case tbui::SetupRow::Side:
+      options.side ^= 1;
       break;
     case tbui::SetupRow::Bases:
       options.specialBases = !options.specialBases;
@@ -129,7 +135,25 @@ const char* ToyBattleActivity::promptText() const {
   // of the question.
   if (notice != nullptr && *notice != '\0') return notice;
   if (!dealt) return "WAITING FOR THE DEAL";
-  if (game.currentPhase() != tb::Phase::Playing) return game.winner == seat ? "YOU WIN" : "YOU LOSE";
+  if (game.currentPhase() != tb::Phase::Playing) {
+    // The verdict AND how it happened, because the three endings are genuinely
+    // different games and "YOU LOSE" alone does not say which one you played.
+    // This line is the ending now: the board stays up behind it rather than
+    // being swept away for a screen that says the same thing.
+    const bool mine = game.winner == seat;
+    if (game.winner == tb::kNoSeat) return "A DRAW: NOBODY COULD MOVE";
+    switch (game.endedBy()) {
+      case tb::Ending::HqCaptured:
+        return mine ? "YOU WIN: THEIR H.Q. IS TAKEN" : "YOU LOSE: YOUR H.Q. IS TAKEN";
+      case tb::Ending::MedalsObjective:
+        return mine ? "YOU WIN ON MEDALS" : "THEY WIN ON MEDALS";
+      case tb::Ending::Stuck:
+        return mine ? "YOU WIN: NOBODY COULD MOVE" : "YOU LOSE: NOBODY COULD MOVE";
+      case tb::Ending::None:
+        break;
+    }
+    return mine ? "YOU WIN" : "YOU LOSE";
+  }
   if (game.turn != seat) return "THEY ARE THINKING";
   switch (tb::pending(game, draft)) {
     case tb::Ask::Troop:
@@ -201,19 +225,25 @@ void ToyBattleActivity::gameLoop() {
   }
 
   if (screen == tb::Screen::Board && dealt && game.currentPhase() != tb::Phase::Playing) {
-    // A finished game is a different screen. Leaving it on the board with the
-    // outcome in the prompt line left nowhere to go but Back.
+    // The board STAYS. Mario, 2026-08-12: winning used to sweep the whole
+    // position away and replace it with a sentence, and what you want at that
+    // moment is to look at the board -- to see the troop standing on their
+    // H.Q., or the medal that finished it.
     //
-    // This is also the one place a result is recorded, and the one place the
-    // save is cleared: a finished game must not be offered as one to continue.
+    // This was tried once before and reverted because it "left nowhere to go
+    // but Back". That was the real objection and it is answered by giving the
+    // action bar a way on rather than by taking the board away.
+    //
+    // Still the one place a result is recorded and the save is cleared: a
+    // finished game must not be offered as one to continue.
     if (!recorded) {
       recorded = true;
       ++played;
       if (game.winner == seat) ++won;
       hasSave = false;
       if (Storage.exists(kSavePath)) Storage.remove(kSavePath);
+      requestUpdate();
     }
-    goTo(tb::Screen::Result);
     return;
   }
 
@@ -260,7 +290,7 @@ void ToyBattleActivity::gameLoop() {
       }
       return;
     }
-    const int slot = tbui::slotAt(device, game.board(), tapX, tapY);
+    const int slot = tbui::slotAt(device, game.board(), tapX, tapY, seat);
     if (slot >= 0) {
       const tb::Refusal why = tb::whyNotSlot(game, draft, slot);
       if (why != tb::Refusal::None) {
@@ -384,6 +414,9 @@ void ToyBattleActivity::gameLoop() {
       return;
     case tbui::ActionBrief:
       goTo(tb::Screen::Brief);
+      return;
+    case tbui::ActionResult:
+      goTo(tb::Screen::Result);
       return;
     case tbui::ActionCancel:
       // Backing out of a half-built move, which the board also had no way to

@@ -29,6 +29,7 @@ enum : fui::ActionId {
   ActionOpenMaps = 106,
   ActionPickSkill = 107,
   ActionPickBases = 108,
+  ActionPickSide = 109,
 };
 
 // --- the front door ---------------------------------------------------------
@@ -59,7 +60,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model);
 
 // --- setup ------------------------------------------------------------------
 
-enum class SetupRow : uint8_t { Map = 0, Opponent, Bases, Count };
+enum class SetupRow : uint8_t { Map = 0, Opponent, Side, Bases, Count };
 
 struct SetupModel {
   toybattle::Options options{};

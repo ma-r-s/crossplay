@@ -27,6 +27,7 @@ enum : fui::ActionId {
   ActionBrief = 6,
   ActionAgain = 7,
   ActionDone = 8,
+  ActionResult = 11,
 };
 
 struct BoardModel {
@@ -46,12 +47,14 @@ struct BoardModel {
 // Where slot `slot` sits, in device pixels. Pure on purpose: the drawing, the
 // markers and the tap all call this, so a tap lands on the base the player is
 // looking at by construction rather than by two sums happening to agree.
-fui::Point slotCenter(const fui::DeviceContext& device, const toybattle::Terrain& board, int slot);
+// `seat` turns the board round: seat 1 sees its own H.Q. at the bottom, the
+// same way seat 0 does. Every caller passes the seat whose screen this is.
+fui::Point slotCenter(const fui::DeviceContext& device, const toybattle::Terrain& board, int slot, int seat);
 int16_t slotRadius();
 
 // The slot under a tap, or -1. Radius-based, because the board is a graph
 // rather than a grid and there is no cell to divide into.
-int slotAt(const fui::DeviceContext& device, const toybattle::Terrain& board, int x, int y);
+int slotAt(const fui::DeviceContext& device, const toybattle::Terrain& board, int x, int y, int seat);
 
 // The rack is one tile per TROOP, not one per kind: the limit is eight troops
 // and there are eight slots, so a hand of two Skullys is two tiles. Drawing one

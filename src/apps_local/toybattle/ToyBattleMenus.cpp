@@ -283,7 +283,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
 int setupRowCount(const SetupModel& model) {
   // Against a person there is no opponent to choose. A row that is there and
   // means nothing is worse than a row that is not there.
-  return model.forLink ? static_cast<int>(SetupRow::Count) - 1 : static_cast<int>(SetupRow::Count);
+  return model.forLink ? 2 : static_cast<int>(SetupRow::Count);
 }
 
 SetupRow setupRowAt(const SetupModel& model, const int visibleIndex) {
@@ -292,7 +292,10 @@ SetupRow setupRowAt(const SetupModel& model, const int visibleIndex) {
   if (clamped < 0) clamped = 0;
   if (clamped >= count) clamped = count - 1;
   if (!model.forLink) return static_cast<SetupRow>(clamped);
-  return clamped == 0 ? SetupRow::Map : SetupRow::Bases;
+  // In a match the seats are dealt by the link layer, so SIDE is not yours to
+  // choose either -- the same reason OPPONENT is not there.
+  static constexpr SetupRow kLinkRows[] = {SetupRow::Map, SetupRow::Bases};
+  return kLinkRows[clamped];
 }
 
 void buildSetup(toybox::Screen& screen, const SetupModel& model) {
@@ -330,6 +333,12 @@ void buildSetup(toybox::Screen& screen, const SetupModel& model) {
       case SetupRow::Opponent:
         rows[i].label = "OPPONENT";
         rows[i].value = skillName(model.options.skill);
+        break;
+      case SetupRow::Side:
+        // Turn order is what differs on the eight symmetric boards, and on the
+        // two that are not symmetric it also picks WHICH H.Q. is yours.
+        rows[i].label = "YOU MOVE";
+        rows[i].value = model.options.side == 0 ? "FIRST" : "SECOND";
         break;
       case SetupRow::Bases:
         rows[i].label = "SPECIAL BASES";

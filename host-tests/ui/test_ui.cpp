@@ -3704,7 +3704,125 @@ void testEveryRulesPositionCouldExist() {
   }
 }
 
+// The board stays up when the game ends, so it has to carry the ending itself:
+// the verdict is in the hint line, the way on is in the action bar, and the
+// reason is marked where it happened. Mario, 2026-08-12 -- winning used to
+// sweep the position away and replace it with a sentence.
+void testTheFinishedBoardCarriesItsOwnEnding() {
+  for (int mine = 0; mine < 2; ++mine) {
+    toybattle::Game game;
+    game.newGame(11u, static_cast<int>(toybattle::TerrainId::CastleField), 0, true);
+    // Walk a troop onto an H.Q. the short way: hand the winner the slot.
+    const toybattle::Terrain& b = game.board();
+    int hq = -1;
+    for (int s = b.baseCount; s < b.slotCount(); ++s) {
+      if (b.hqOwner(s) == (mine == 1 ? 1 : 0)) hq = s;
+    }
+    CHECK(hq >= 0);
+    game.placeSlot[game.placementCount] = static_cast<uint8_t>(hq);
+    game.placeTile[game.placementCount] = static_cast<uint8_t>(((mine == 1 ? 0 : 1) << 3) |
+                                                               static_cast<int>(toybattle::Troop::Roxy));
+    ++game.placementCount;
+    game.winner = static_cast<uint8_t>(mine == 1 ? 0 : 1);
+    game.ending = static_cast<uint8_t>(toybattle::Ending::HqCaptured);
+    game.phase = static_cast<uint8_t>(toybattle::Phase::GameOver);
+
+    tbui::BoardModel model;
+    model.game = game;
+    model.seat = 0;
+    model.yourTurn = false;
+    model.prompt = mine == 1 ? "YOU WIN: THEIR H.Q. IS TAKEN" : "YOU LOSE: YOUR H.Q. IS TAKEN";
+    Rendered out;
+    buildTbBoard(out, model);
+
+    // The verdict is on screen, and so is the way on -- the objection that sent
+    // this to its own screen the first time was that there was none.
+    CHECK(out.target.drew(model.prompt));
+    CHECK(out.target.drew("HOW IT ENDED"));
+    // And none of the mid-turn controls, which would offer moves in a game that
+    // is over.
+    CHECK(!out.target.drew("DRAW 2"));
+    CHECK(!out.target.drew("SKIP"));
+    CHECK(!out.target.drew("WAIT"));
+  }
+}
+
+// Playing the other side has to be the same game seen from the other chair, not
+// the same picture with the labels swapped. Two boards are not symmetric -- La
+// Croisette's H.Q. are not mirror images, Caribbean Sea gives seat 0 two H.Q.
+// against seat 1's one -- so on those, seat 1 was a game nobody could reach.
+void testEitherSideSeesItsOwnHqAtTheBottom() {
+  const int boards[] = {static_cast<int>(toybattle::TerrainId::LaCroisette),
+                        static_cast<int>(toybattle::TerrainId::CaribbeanSea),
+                        static_cast<int>(toybattle::TerrainId::CastleField)};
+  for (const int which : boards) {
+    for (int seat = 0; seat < 2; ++seat) {
+      toybattle::Game game;
+      game.newGame(5u, which, 0, true);
+      const toybattle::Terrain& b = game.board();
+
+      // Your own H.Q. is drawn below the middle of the board, whichever seat
+      // you took, because the board turns round with you.
+      int mine = -1;
+      for (int s = b.baseCount; s < b.slotCount(); ++s) {
+        if (b.hqOwner(s) == seat) mine = s;
+      }
+      CHECK(mine >= 0);
+      const fui::Point at = tbui::slotCenter(device(), b, mine, seat);
+      CHECK(at.y > 400);
+
+      // And the letter under it says H. It read `hqOwner == 0`, which labelled
+      // seat 1's own H.Q. as the enemy's.
+      tbui::BoardModel model;
+      model.game = game;
+      model.seat = static_cast<uint8_t>(seat);
+      model.yourTurn = game.turn == seat;
+      model.prompt = "";
+      Rendered out;
+      buildTbBoard(out, model);
+      const FakeTarget::TextRun* h = out.target.find("H");
+      CHECK(h != nullptr);
+      if (h != nullptr) CHECK(h->rect.y > 400);
+
+      // The tap that lands on a slot is the slot the player is looking at.
+      for (int s = 0; s < b.slotCount(); ++s) {
+        const fui::Point p = tbui::slotCenter(device(), b, s, seat);
+        CHECK(tbui::slotAt(device(), b, p.x, p.y, seat) == s);
+      }
+
+      // And YOUR troops are the ones knocked out of black, theirs the ones on
+      // the ground -- the inversion is what says whose a troop is, so getting
+      // it backwards swaps the two armies while the board still looks like a
+      // board. Give each seat one troop and read the ink back.
+      toybattle::Game two = game;
+      two.placeSlot[two.placementCount] = 0;
+      two.placeTile[two.placementCount] = static_cast<uint8_t>((seat << 3) | static_cast<int>(toybattle::Troop::Roxy));
+      ++two.placementCount;
+      two.placeSlot[two.placementCount] = 1;
+      two.placeTile[two.placementCount] =
+          static_cast<uint8_t>(((seat ^ 1) << 3) | static_cast<int>(toybattle::Troop::Jumbo));
+      ++two.placementCount;
+
+      tbui::BoardModel pair;
+      pair.game = two;
+      pair.seat = static_cast<uint8_t>(seat);
+      pair.yourTurn = two.turn == seat;
+      pair.prompt = "";
+      Rendered ink;
+      buildTbBoard(ink, pair);
+      const FakeTarget::TextRun* yours = ink.target.find("7");   // Roxy, placed for `seat`
+      const FakeTarget::TextRun* theirs = ink.target.find("3");  // Jumbo, placed for the other
+      CHECK(yours != nullptr);
+      CHECK(theirs != nullptr);
+      if (yours != nullptr) CHECK(yours->color == fui::Color::White);
+      if (theirs != nullptr) CHECK(theirs->color == fui::Color::Black);
+    }
+  }
+}
+
 int main() {
+  testEitherSideSeesItsOwnHqAtTheBottom();
+  testTheFinishedBoardCarriesItsOwnEnding();
   testEveryRulesPositionCouldExist();
   testTheTerrainCardNeverTruncatesWhatItDraws();
   testNoRulesPageDrawsOverItsOwnButtons();

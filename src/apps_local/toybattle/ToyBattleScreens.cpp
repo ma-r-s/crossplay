@@ -147,13 +147,23 @@ void troopMark(toybox::Screen& screen, const fui::Point at, const int16_t size, 
     case tb::Troop::Star:  // one arrives
       glyph(screen, at, size, tb::Special::Draw, false);
       break;
-    case tb::Troop::Capn:  // and another after it
-      screen.target().stroke(
-          fui::makeRect(static_cast<int16_t>(at.x - h - 1), static_cast<int16_t>(at.y - h), size, size), ink, 2, 2);
-      screen.target().fill(fui::makeRect(static_cast<int16_t>(at.x + 1), static_cast<int16_t>(at.y - h + 2),
-                                         static_cast<int16_t>(size - 4), static_cast<int16_t>(size - 4)),
-                           ink, 2);
+    case tb::Troop::Capn: {
+      // Go again: a shaft with a riser at its far end and a head pointing back
+      // the way you came. Drawn from the same triangle the rest of the alphabet
+      // uses, so it is one mark rather than a picture.
+      const int16_t bar = static_cast<int16_t>(at.y + h / 2);
+      screen.target().fill(fui::makeRect(static_cast<int16_t>(at.x - h / 2), bar,
+                                         static_cast<int16_t>(h + h / 2), 2),
+                           ink);
+      screen.target().fill(fui::makeRect(static_cast<int16_t>(at.x + h - 2), static_cast<int16_t>(at.y - h),
+                                         2, static_cast<int16_t>(h + h / 2 + 2)),
+                           ink);
+      screen.target().triangle(fui::Point{static_cast<int16_t>(at.x - h), static_cast<int16_t>(bar + 1)},
+                               fui::Point{static_cast<int16_t>(at.x - h / 3), static_cast<int16_t>(bar - h / 2 + 1)},
+                               fui::Point{static_cast<int16_t>(at.x - h / 3), static_cast<int16_t>(bar + h / 2 + 2)},
+                               ink);
       break;
+    }
     case tb::Troop::Jumbo:  // one leaves, struck out
       glyph(screen, at, size, tb::Special::Nullify, false);
       break;
@@ -171,8 +181,15 @@ void troopMark(toybox::Screen& screen, const fui::Point at, const int16_t size, 
 }
 
 // The badge a special base wears. Pinned top-right, clear of the numeral.
+//
+// Every kind wears one. Gate and Nullify used to be silhouette-only, on the
+// theory that square corners said enough -- but the ? card lists all seven with
+// their badges, so the two rules the board did not mark were the two a player
+// looked up and then could not find. Silhouette and badge answer different
+// questions: the corners say "there is a rule about what may land here", the
+// badge says WHICH rule.
 void baseBadge(toybox::Screen& screen, const fui::Rect box, const tb::Special what) {
-  if (what == tb::Special::None || what == tb::Special::Gate || what == tb::Special::Nullify) return;
+  if (what == tb::Special::None) return;
   const int16_t r = 9;
   const fui::Point at{static_cast<int16_t>(box.right() - 2), static_cast<int16_t>(box.y + 2)};
   toybox::disc(screen, at.x, at.y, r, fui::Color::Black);
@@ -214,7 +231,8 @@ void gateLabel(const uint8_t admits, char* out, const int size) {
 }
 
 // One base, drawn where `slotCenter` says it is.
-void drawSlot(toybox::Screen& screen, const fui::Point at, const tb::Game& game, const int slot, const bool candidate) {
+void drawSlot(toybox::Screen& screen, const fui::Point at, const tb::Game& game, const int slot, const bool candidate,
+              const int viewer) {
   const tb::Terrain& b = game.board();
   const int16_t half = kSlot / 2;
   const fui::Rect box =
@@ -230,7 +248,11 @@ void drawSlot(toybox::Screen& screen, const fui::Point at, const tb::Game& game,
   // on the board you must bring a 6 or a 7 to, looking like the two you can
   // take with anything. A gate is per SLOT, so the silhouette is too.
   const bool gated = game.specialBases && b.gate[slot] != 0;
-  const bool restricts = gated || special == tb::Special::Gate || special == tb::Special::Nullify;
+  // Square corners mean "there is a rule about what may LAND here", which is
+  // true of a gate and false of a nullifier: a nullifier takes any troop and
+  // refuses only its effect. It was drawn square anyway, which told the player
+  // to bring a particular value to a base that takes every value.
+  const bool restricts = gated || special == tb::Special::Gate;
   const uint8_t corner = restricts ? 0 : 8;
 
   // A dithered ground with a black edge. The dither is in the fill because
@@ -275,7 +297,11 @@ void drawSlot(toybox::Screen& screen, const fui::Point at, const tb::Game& game,
   }
 
   if (isHq) {
-    centred(screen, box, b.hqOwner(slot) == 0 ? "H" : "E", toybox::kUiFont, false);
+    // H is YOURS and E is theirs, from the seat looking at the screen. This
+    // read `hqOwner(slot) == 0`, which is only the same thing while you are
+    // always seat 0 -- playing second labelled your own H.Q. as the enemy's,
+    // on the boards where taking the other side is the whole point.
+    centred(screen, box, b.hqOwner(slot) == viewer ? "H" : "E", toybox::kUiFont, false);
     return;
   }
 
@@ -283,12 +309,18 @@ void drawSlot(toybox::Screen& screen, const fui::Point at, const tb::Game& game,
     const tb::Troop kind = game.occupantTroop(slot);
     // The holder is told by inversion rather than by a second shape: yours is
     // knocked out of black, theirs sits on the ground.
-    if (holder == 0) {
+    // Yours knocked out of black, theirs on the ground -- from the VIEWER's
+    // seat. This was `holder == 0`, so playing second drew the enemy's troops
+    // as yours and yours as theirs: the same seat-0 assumption as the H.Q.
+    // letter, in the shape that would have been hardest to notice, because the
+    // board still looks like a board.
+    const bool ours = holder == viewer;
+    if (ours) {
       screen.target().fill(fui::makeRect(static_cast<int16_t>(box.x + 6), static_cast<int16_t>(box.y + 6),
                                          static_cast<int16_t>(box.width - 12), static_cast<int16_t>(box.height - 12)),
                            fui::Paint::solid(fui::Color::Black), 6);
     }
-    centred(screen, box, pip(kind), toybox::kUiFont, holder == 0);
+    centred(screen, box, pip(kind), toybox::kUiFont, ours);
 
     // Stack depth as pips down the right edge: the buried troops are the whole
     // reason this game is not draughts.
@@ -318,6 +350,7 @@ void drawSlot(toybox::Screen& screen, const fui::Point at, const tb::Game& game,
 int16_t slotRadius() { return kSlot / 2 + 6; }
 
 fui::Point boardPoint(const fui::DeviceContext& device, const uint16_t nx, const uint16_t ny) {
+  // (see slotCenter: the seat's half-turn is applied by the caller)
   // The one place normalised board coordinates become pixels. Bases, H.Q. and
   // medal anchors all come through here, so a medal cannot land somewhere the
   // same arithmetic would not put a base.
@@ -329,18 +362,28 @@ fui::Point boardPoint(const fui::DeviceContext& device, const uint16_t nx, const
                     static_cast<int16_t>(kBoardTop + inset + ny * usableH / 1000)};
 }
 
-fui::Point slotCenter(const fui::DeviceContext& device, const tb::Terrain& board, const int slot) {
+fui::Point slotCenter(const fui::DeviceContext& device, const tb::Terrain& board, const int slot, const int seat) {
   // Straight from the terrain. The coordinates are already balanced: the
   // tracing tool aligns the rows and columns, mirrors the board about its own
   // midline where the terrain is symmetric, and bakes the result into the
   // table, so the device never pays for the algorithm.
-  return boardPoint(device, board.x[slot], board.y[slot]);
+  //
+  // The seat's half-turn is applied HERE and nowhere else. Playing seat 1 on a
+  // board whose coordinates put seat 0 at the bottom would otherwise mean
+  // playing upside down -- your own H.Q. at the top, your rack at the far end
+  // of the board from it -- and turning it round is the whole reason a side is
+  // worth offering. Because drawing, hit-testing, path drawing and the medal
+  // anchors all come through this one function, they cannot disagree about
+  // which way up the board is.
+  const uint16_t x = seat == 0 ? board.x[slot] : static_cast<uint16_t>(1000 - board.x[slot]);
+  const uint16_t y = seat == 0 ? board.y[slot] : static_cast<uint16_t>(1000 - board.y[slot]);
+  return boardPoint(device, x, y);
 }
 
-int slotAt(const fui::DeviceContext& device, const tb::Terrain& board, const int x, const int y) {
+int slotAt(const fui::DeviceContext& device, const tb::Terrain& board, const int x, const int y, const int seat) {
   const int16_t r = slotRadius();
   for (int slot = 0; slot < board.slotCount(); ++slot) {
-    const fui::Point p = slotCenter(device, board, slot);
+    const fui::Point p = slotCenter(device, board, slot, seat);
     const int dx = x - p.x, dy = y - p.y;
     if (dx * dx + dy * dy <= r * r) return slot;
   }
@@ -424,8 +467,17 @@ int discardKindAt(const tb::Game& game, const tb::Draft& draft, const int seat, 
 // answerTroop, so the Exhume prompt asked "RAISE ONE FROM THE DISCARD?" while
 // offering nothing that could answer it. Mario found that by playing.
 int rowKindAt(const tb::Game& game, const tb::Draft& draft, const int seat, const int position) {
-  return tb::pending(game, draft) == tb::Ask::ExhumeKind ? discardKindAt(game, draft, seat, position)
-                                                         : handKindAt(game, seat, position);
+  if (tb::pending(game, draft) == tb::Ask::ExhumeKind) return discardKindAt(game, draft, seat, position);
+  // The hand as it stands AFTER the placements already committed in this draft.
+  // A troop you have put on the board must not still be sitting in your rack
+  // while the game asks about its effect: the board and the rack would show the
+  // same card twice, and you are left working out from memory what you did.
+  //
+  // Here rather than at the call sites because this function is what the
+  // drawing AND the hit test both go through; split, they could disagree about
+  // which tile holds what.
+  const tb::Game shown = tb::projected(game, draft);
+  return handKindAt(shown, seat, position);
 }
 
 int rackAt(const fui::DeviceContext& device, const tb::Game& game, const tb::Draft& draft, const int seat,
@@ -761,6 +813,11 @@ void buildResult(toybox::Screen& screen, const ResultModel& model) {
 
 void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   const tb::Game& game = model.game;
+  // What the board LOOKS like mid-move: the troop you have just placed is
+  // standing on it while the game asks what its effect should do. Every
+  // question below still goes through `game` and the draft -- only the drawing
+  // reads this.
+  const tb::Game shown = tb::projected(game, model.draft);
   const tb::Terrain& b = game.board();
 
   fui::HeaderProps header;
@@ -777,8 +834,15 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   // and where they cost no body space. They were on their own line under the
   // rule and Mario could not find them.
   char medals[20];
-  std::snprintf(medals, sizeof(medals), "%d-%d OF %d", game.medals[model.seat], game.medals[model.seat ^ 1],
+  std::snprintf(medals, sizeof(medals), "%d-%d OF %d", shown.medals[model.seat], shown.medals[model.seat ^ 1],
                 b.medalsObjective);
+  // A medals win happened in the tally, not on a base, so that is where it is
+  // marked: the readout inverts to a solid plate. The design language spends
+  // solid black on a surface that repaints once, and this one never repaints
+  // again.
+  const bool medalWin =
+      game.currentPhase() != tb::Phase::Playing && game.endedBy() == tb::Ending::MedalsObjective;
+
   fui::TextStyle band;
   band.font = toybox::kUiFont;
   band.align = fui::TextAlign::Right;
@@ -786,9 +850,18 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   // Centred on the band, not on a guessed y: the counter sits beside the title
   // and has to share its middle.
   const int16_t bandLine = screen.target().lineHeight(toybox::kUiFont);
-  screen.target().text(fui::makeRect(0, static_cast<int16_t>((toybox::kHeaderHeight - bandLine) / 2),
-                                     static_cast<int16_t>(device.width - toybox::kMargin), bandLine),
-                       medals, band);
+  const fui::Rect medalBox = fui::makeRect(0, static_cast<int16_t>((toybox::kHeaderHeight - bandLine) / 2),
+                                           static_cast<int16_t>(device.width - toybox::kMargin), bandLine);
+  if (medalWin) {
+    // Knocked out of the black band: a white plate with the tally in ink.
+    const int16_t w = screen.target().measureText(toybox::kUiFont, medals, band).width;
+    screen.target().fill(fui::makeRect(static_cast<int16_t>(medalBox.right() - w - 10),
+                                       static_cast<int16_t>(medalBox.y - 5), static_cast<int16_t>(w + 20),
+                                       static_cast<int16_t>(bandLine + 10)),
+                         fui::Paint::solid(fui::Color::White), 6);
+    band.color = fui::Color::Black;
+  }
+  screen.target().text(medalBox, medals, band);
 
   // The line the question lives on, now that the foot of the screen is
   // controls rather than commentary.
@@ -801,8 +874,8 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
 
   // Paths first, so the bases sit on top of them.
   for (int e = 0; e < b.edgeCount; ++e) {
-    const fui::Point a = slotCenter(device, b, b.edges[e].a);
-    const fui::Point z = slotCenter(device, b, b.edges[e].b);
+    const fui::Point a = slotCenter(device, b, b.edges[e].a, model.seat);
+    const fui::Point z = slotCenter(device, b, b.edges[e].b, model.seat);
     screen.target().line(a, z, kPathWeight, fui::Paint::solid(fui::Color::Black));
   }
 
@@ -815,8 +888,11 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   // halves were traced by hand, it put the left ones and the right ones in
   // visibly different places. See Region::x in ToyBattleCore.h.
   for (int r = 0; r < b.regionCount; ++r) {
-    if (game.regionsTaken & (1u << r)) continue;  // banked, and gone from the board
-    const fui::Point at = boardPoint(device, b.regions[r].x, b.regions[r].y);
+    if (shown.regionsTaken & (1u << r)) continue;  // banked, and gone from the board
+    const fui::Point at =
+        model.seat == 0 ? boardPoint(device, b.regions[r].x, b.regions[r].y)
+                        : boardPoint(device, static_cast<uint16_t>(1000 - b.regions[r].x),
+                                     static_cast<uint16_t>(1000 - b.regions[r].y));
     const int count = b.regions[r].medals;
     const int16_t pipR = 7;
     const int16_t span = static_cast<int16_t>(count * (pipR * 2 + 3) - 3);
@@ -834,7 +910,25 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
 
   const uint64_t candidates = toybattle::candidateSlots(game, model.draft);
   for (int slot = 0; slot < b.slotCount(); ++slot) {
-    drawSlot(screen, slotCenter(device, b, slot), game, slot, (candidates & (uint64_t{1} << slot)) != 0);
+    drawSlot(screen, slotCenter(device, b, slot, model.seat), shown, slot,
+             (candidates & (uint64_t{1} << slot)) != 0, model.seat);
+  }
+
+  // WHY it ended, on the board rather than only in a sentence.
+  //
+  // An H.Q. capture is a place, so it gets marked in place: the last placement
+  // of the game IS the troop that took it -- `apply` ends the game on the step
+  // that lands there -- so there is no search and no second way of deciding
+  // which slot it was.
+  if (game.currentPhase() != tb::Phase::Playing && game.endedBy() == tb::Ending::HqCaptured &&
+      game.placementCount > 0) {
+    const int taken = game.placeSlot[game.placementCount - 1];
+    const fui::Point at = slotCenter(device, b, taken, model.seat);
+    const int16_t arm = static_cast<int16_t>(kSlot / 2 + 10);
+    toybox::bracket(screen,
+                    fui::makeRect(static_cast<int16_t>(at.x - arm), static_cast<int16_t>(at.y - arm),
+                                  static_cast<int16_t>(arm * 2), static_cast<int16_t>(arm * 2)),
+                    14, 5);
   }
 
   // The rack. A troop you cannot play dims rather than disappearing.
@@ -905,7 +999,20 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
     screen.button(props, fui::makeRect(x, barY, w, toybox::kPillHeight));
   };
 
-  if (!model.yourTurn) {
+  if (game.currentPhase() != tb::Phase::Playing) {
+    // The game is over and the board is still up. One way on, loud, because it
+    // is the only thing left to do -- and the ? stays beside it, since reading
+    // what a base did is a fair thing to want at the end of a game.
+    fui::ButtonProps done;
+    done.label = "HOW IT ENDED";
+    done.action = ActionResult;
+    done.styles = toybox::invertedStyles();
+    done.text.font = toybox::kUiFont;
+    done.text.align = fui::TextAlign::Center;
+    done.text.color = fui::Color::White;
+    done.radius = toybox::kPillRadius;
+    screen.button(done, fui::makeRect(toybox::kMargin, barY, actionW, toybox::kPillHeight));
+  } else if (!model.yourTurn) {
     place("WAIT", ActionSkip, false, toybox::kMargin, actionW);
   } else if (ask == toybattle::Ask::Troop && !picking) {
     place("DRAW 2", ActionDraw, model.canDraw, toybox::kMargin, actionW);
@@ -931,7 +1038,7 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
     const int me = model.seat, them = model.seat ^ 1;
     int out[2] = {0, 0};
     for (int seat = 0; seat < tb::kSeats; ++seat) {
-      for (int k = 0; k < tb::kTroopKinds; ++k) out[seat] += game.discarded[seat][k];
+      for (int k = 0; k < tb::kTroopKinds; ++k) out[seat] += shown.discarded[seat][k];
     }
     fui::TextStyle cell;
     cell.font = toybox::kSmallFont;
@@ -977,8 +1084,8 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
       const int16_t y = static_cast<int16_t>(top + row * kCountsRow);
       // Yours is on the rack below as well, but a row missing its first column
       // reads as a bug rather than as an economy.
-      count(countsX, y, game.rackSize(seat), tb::Special::None);
-      count(static_cast<int16_t>(countsX + kHandW), y, game.reserveRemaining(seat), tb::Special::Draw);
+      count(countsX, y, shown.rackSize(seat), tb::Special::None);
+      count(static_cast<int16_t>(countsX + kHandW), y, shown.reserveRemaining(seat), tb::Special::Draw);
       count(static_cast<int16_t>(countsX + kHandW + kPitch), y, out[seat], tb::Special::Nullify);
     }
   }
