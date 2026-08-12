@@ -36,6 +36,27 @@ loads no third-party fonts, scripts or images, and it must stay that way. Adding
 an analytics snippet or a Google Fonts link will silently fail to load under
 these headers rather than warn.
 
+**The big binaries ship already brotli-compressed, and that is not an
+optimisation you may quietly undo.** Vercel compresses static files at its
+edge on every cache MISS, and on a multi-megabyte binary it streams that
+output at roughly 35 KB/s. Measured on the live site, same file same minute:
+`crossplay.data` took **34.3s** compressed and **1.2s** uncompressed. Sending
+three times the bytes is thirty times faster, so it is compression CPU, not
+bandwidth. Edge caches are per region and every deploy empties all of them,
+which is how a page that "used to load in under a second" starts taking
+minutes for everyone who is not near the region you last tested from.
+
+So `site/emulator/`, `site/pyodide/` and `site/study/NotoSansCJK.otf` are
+committed as brotli, with `Content-Encoding: br` declared for those paths in
+`vercel.json`; Vercel sees an encoded body and passes it through (34.3s ->
+0.99s, decoding byte-identically). `tools_local/site/precompress.py` does the
+compressing, `tools_local/wasm/build.py` and `fetch_pyodide.py` call it so a
+rebuild cannot leave raw bytes behind a header promising brotli, `serve.py`
+sends the same header locally, and `check.sh`'s `encoding` gate fails when a
+file served as `br` is not. **Adding a big binary to the site means adding it
+to that script and to `vercel.json` together** -- one without the other is
+either a slow site or a broken one.
+
 **Only `/assets/fonts/` is cached `immutable`, and nothing else may join it
 without a content hash in its filename.** `immutable` is a promise that a URL's
 bytes will never change, and it is enforced by the browser refusing to ask
