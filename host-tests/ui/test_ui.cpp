@@ -59,6 +59,12 @@ class FakeTarget final : public fui::DrawTarget {
     fui::Rect rect;
     std::string text;
     fui::Color color;
+    // The whole style, not just the ink. A single-line run wider than its rect
+    // is a silent truncation -- the SDK ellipsizes and logs nothing -- and that
+    // is what put "IN THE BAR: TILE = TROOPS IN HAND, TRIANGLE = LEFT ..." on
+    // the terrain card for as long as the card existed. It is only assertable
+    // if the assertion can see maxLines.
+    fui::TextStyle style;
   };
 
   // An avatar is four stacked 1-bpp masks and no text at all, so without
@@ -79,12 +85,18 @@ class FakeTarget final : public fui::DrawTarget {
   std::vector<fui::Paint> fillPaints;
   std::vector<Blit> blits;
 
+  // A fixed cell, but not a fixed LINE. A layout that reserves a constant
+  // number of pixels for wrapped text is correct at one metric and wrong at
+  // every other, and 20 happens to be small enough to hide it: the rules
+  // caption was given a flat 132px, which fits four fake lines and not four
+  // real ones (the display cut is 45). Tests that care re-run at a taller
+  // line, where a hardcoded box overflows exactly as it does on the device.
+  int16_t lineH = 20;
+
   fui::Size measureText(const fui::FontId, const char* text, const fui::TextStyle) const override {
-    // A fixed 10x20 cell. Layout maths only needs a monotonic width; nothing
-    // here depends on real glyph metrics.
-    return fui::Size{static_cast<int16_t>(text ? std::strlen(text) * 10 : 0), 20};
+    return fui::Size{static_cast<int16_t>(text ? std::strlen(text) * 10 : 0), lineH};
   }
-  int16_t lineHeight(const fui::FontId) const override { return 20; }
+  int16_t lineHeight(const fui::FontId) const override { return lineH; }
 
   void fill(const fui::Rect rect, const fui::Paint paint, const uint8_t = 0, const uint8_t = 0xFF) override {
     if (paint.kind != fui::PaintKind::None) {
@@ -96,7 +108,7 @@ class FakeTarget final : public fui::DrawTarget {
   void line(const fui::Point, const fui::Point, const uint8_t, const fui::Paint) override {}
   void triangle(const fui::Point, const fui::Point, const fui::Point, const fui::Paint) override {}
   void text(const fui::Rect rect, const char* text, const fui::TextStyle style) override {
-    if (text != nullptr) texts.push_back(TextRun{rect, text, style.color});
+    if (text != nullptr) texts.push_back(TextRun{rect, text, style.color, style});
   }
   void bitmap(const fui::Rect rect, const fui::BitmapRef bitmap, const fui::BitmapMode, const fui::Paint paint = {},
               const fui::Rotation = fui::Rotation::None) override {
@@ -3554,6 +3566,14 @@ void buildTbMaps(Rendered& out, const tbui::MapPickModel& model) {
   tbui::buildMapPick(screen, model);
 }
 
+void buildTbBrief(Rendered& out, const tbui::BriefModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  tbui::buildBrief(screen, model);
+}
+
 void buildTbHowTo(Rendered& out, const tbui::HowToModel& model) {
   const fui::DeviceContext ctx = device();
   const fui::InputSnapshot noInput{};
@@ -3731,6 +3751,273 @@ void testToyBattleShell() {
   }
 }
 
+// A single-line run wider than the rect it was given is a silent truncation:
+// the SDK ellipsizes, draws, and logs nothing, so it looks exactly like text
+// that fits. That is what the terrain card did to "IN THE BAR: TILE = TROOPS IN
+// HAND, TRIANGLE = LEFT TO DRAW, CROSS = OUT OF THE GAME. TOP ROW IS THEIRS."
+// for as long as the card existed -- 110 characters into a 448px row -- and
+// what the header did to CURSED CEMETERY, which came out as CURSED CEMETER.
+//
+// Checked over every playable terrain, because the card is per-map and only the
+// two maps with the longest names and the most special kinds ever showed it.
+void testTheTerrainCardNeverTruncatesWhatItDraws() {
+  for (int nth = 0; nth < toybattle::kPlayableTerrainCount; ++nth) {
+    const int index = toybattle::playableTerrainAt(nth);
+    const toybattle::Terrain& terrain = toybattle::terrainAt(index);
+    for (int special = 0; special < 2; ++special) {
+      tbui::BriefModel model;
+      model.board = &terrain;
+      model.specialBases = special != 0;
+      Rendered out;
+      buildTbBrief(out, model);
+      for (const auto& run : out.target.texts) {
+        if (run.style.maxLines != 1) continue;
+        const fui::Size size = out.target.measureText(run.style.font, run.text.c_str(), run.style);
+        CHECK(size.width <= run.rect.width);
+      }
+      // And the card itself fits the panel: the special-base list grows with
+      // the map, and the troop list under it was already within one row of the
+      // bottom edge on the four-kind maps.
+      for (const auto& run : out.target.texts) {
+        CHECK(run.rect.y >= 0);
+        CHECK(run.rect.bottom() <= 800);
+      }
+    }
+  }
+}
+
+// Nothing any rules page draws may land on the buttons, at any line height.
+//
+// The line height is the point. The old deck reserved a flat 132px for its
+// caption, which holds four lines of the 20px cell this fake target used to
+// have and three of the 45px cell the device actually renders -- so the suite
+// was green while SPECIAL BASES drew its fourth line straight through PREV and
+// PLAY. A layout that survives 20, 45 and 60 is one that measured rather than
+// guessed.
+void testNoRulesPageDrawsOverItsOwnButtons() {
+  constexpr int16_t kActionTop = 800 - toybox::kMargin - toybox::kPillHeight;
+  const int16_t heights[] = {20, 45, 60};
+  for (const int16_t lineH : heights) {
+    for (int page = 0; page < tbui::howToPages(); ++page) {
+      tbui::HowToModel model;
+      model.page = page;
+      Rendered out;
+      out.target.lineH = lineH;
+      buildTbHowTo(out, model);
+      CHECK(out.interactions.count() <= toybox::kMaxInteractions);
+      // Every page still has a way forward, whatever the metric.
+      CHECK(out.target.drew(page + 1 == tbui::howToPages() ? "PLAY" : "NEXT"));
+      for (const auto& run : out.target.texts) {
+        // The pill labels live in the action band by definition.
+        if (run.text == "BACK" || run.text == "PREV" || run.text == "NEXT" || run.text == "PLAY") continue;
+        CHECK(run.rect.bottom() <= kActionTop);
+        CHECK(run.rect.y >= 0);
+        CHECK(run.rect.x >= 0);
+        CHECK(run.rect.right() <= 480);
+      }
+      // Pictures too: a spotlight bracket or a verdict mark hangs outside the
+      // node it belongs to, and the inset has to cover the widest of them.
+      for (const auto& rect : out.target.fills) {
+        CHECK(rect.x >= 0);
+        CHECK(rect.y >= 0);
+        CHECK(rect.right() <= 480);
+        CHECK(rect.bottom() <= 800);
+      }
+    }
+  }
+
+  // The ? card is one screen carrying two lists, and the one that varies is the
+  // map's. Every playable board, at every metric: nothing off the panel.
+  for (const int16_t lineH : heights) {
+    for (int nth = 0; nth < toybattle::kPlayableTerrainCount; ++nth) {
+      tbui::BriefModel model;
+      model.board = &toybattle::terrainAt(toybattle::playableTerrainAt(nth));
+      Rendered out;
+      out.target.lineH = lineH;
+      buildTbBrief(out, model);
+      CHECK(out.interactions.count() <= toybox::kMaxInteractions);
+      for (const auto& run : out.target.texts) {
+        CHECK(run.rect.bottom() <= 800);
+        CHECK(run.rect.right() <= 480);
+        CHECK(run.rect.y >= 0);
+      }
+      // And every troop is still on it: a budget that silently drops the tail
+      // of the list looks exactly like a list that fits.
+      for (int k = 0; k < toybattle::kTroopKinds; ++k) {
+        CHECK(out.target.drew(tbui::troopBlurb(static_cast<toybattle::Troop>(k))));
+      }
+    }
+  }
+}
+
+// Every troop the rules deck draws has to be one that could be standing there.
+//
+// The pages are hand-authored, so nothing in the drawing enforces it, and they
+// did not hold: COVERING put two enemy troops on bases with no walk back to
+// their own H.Q. -- the exact rule the page after it teaches. A deck that
+// breaks the game's rules in its own illustrations teaches them wrong.
+//
+// The walk is Game::reachable's: start from your H.Q., grow only through bases
+// you hold. An H.Q. is the starting point and never a stepping stone. The one
+// page about a base that has LOST its walk home marks that base with a cross,
+// and those are the only exceptions allowed.
+void testEveryRulesPositionCouldExist() {
+  const int nodes = tbui::howToNodeCount();
+  for (int page = 0; page < tbui::howToPages(); ++page) {
+    for (int seat = 0; seat < 2; ++seat) {
+      bool reached[16] = {};
+      // Seed from this seat's H.Q.
+      for (int n = 0; n < nodes; ++n) {
+        if (!tbui::howToIsHq(n) || tbui::howToHqSeat(n) != seat) continue;
+        for (int e = 0; e < tbui::howToLinkCount(); ++e) {
+          int a = 0, b = 0;
+          tbui::howToLinkAt(e, a, b);
+          if (a == n) reached[b] = true;
+          if (b == n) reached[a] = true;
+        }
+      }
+      for (bool grew = true; grew;) {
+        grew = false;
+        for (int n = 0; n < nodes; ++n) {
+          if (!reached[n] || tbui::howToIsHq(n)) continue;
+          if (tbui::howToOwnerAt(page, n) != seat) continue;
+          for (int e = 0; e < tbui::howToLinkCount(); ++e) {
+            int a = 0, b = 0;
+            tbui::howToLinkAt(e, a, b);
+            const int other = a == n ? b : (b == n ? a : -1);
+            if (other >= 0 && !reached[other]) {
+              reached[other] = true;
+              grew = true;
+            }
+          }
+        }
+      }
+      for (int n = 0; n < nodes; ++n) {
+        if (tbui::howToIsHq(n)) continue;
+        if (tbui::howToOwnerAt(page, n) != seat) continue;
+        if (tbui::howToCutOff(page, n)) continue;  // the page about losing the walk
+        CHECK(reached[n]);
+      }
+    }
+  }
+}
+
+// The board stays up when the game ends, so it has to carry the ending itself:
+// the verdict is in the hint line, the way on is in the action bar, and the
+// reason is marked where it happened. Mario, 2026-08-12 -- winning used to
+// sweep the position away and replace it with a sentence.
+void testTheFinishedBoardCarriesItsOwnEnding() {
+  for (int mine = 0; mine < 2; ++mine) {
+    toybattle::Game game;
+    game.newGame(11u, static_cast<int>(toybattle::TerrainId::CastleField), 0, true);
+    // Walk a troop onto an H.Q. the short way: hand the winner the slot.
+    const toybattle::Terrain& b = game.board();
+    int hq = -1;
+    for (int s = b.baseCount; s < b.slotCount(); ++s) {
+      if (b.hqOwner(s) == (mine == 1 ? 1 : 0)) hq = s;
+    }
+    CHECK(hq >= 0);
+    game.placeSlot[game.placementCount] = static_cast<uint8_t>(hq);
+    game.placeTile[game.placementCount] = static_cast<uint8_t>(((mine == 1 ? 0 : 1) << 3) |
+                                                               static_cast<int>(toybattle::Troop::Roxy));
+    ++game.placementCount;
+    game.winner = static_cast<uint8_t>(mine == 1 ? 0 : 1);
+    game.ending = static_cast<uint8_t>(toybattle::Ending::HqCaptured);
+    game.phase = static_cast<uint8_t>(toybattle::Phase::GameOver);
+
+    tbui::BoardModel model;
+    model.game = game;
+    model.seat = 0;
+    model.yourTurn = false;
+    model.prompt = mine == 1 ? "YOU WIN: THEIR H.Q. IS TAKEN" : "YOU LOSE: YOUR H.Q. IS TAKEN";
+    Rendered out;
+    buildTbBoard(out, model);
+
+    // The verdict is on screen, and so is the way on -- the objection that sent
+    // this to its own screen the first time was that there was none.
+    CHECK(out.target.drew(model.prompt));
+    CHECK(out.target.drew("HOW IT ENDED"));
+    // And none of the mid-turn controls, which would offer moves in a game that
+    // is over.
+    CHECK(!out.target.drew("DRAW 2"));
+    CHECK(!out.target.drew("SKIP"));
+    CHECK(!out.target.drew("WAIT"));
+  }
+}
+
+// Playing the other side has to be the same game seen from the other chair, not
+// the same picture with the labels swapped. Two boards are not symmetric -- La
+// Croisette's H.Q. are not mirror images, Caribbean Sea gives seat 0 two H.Q.
+// against seat 1's one -- so on those, seat 1 was a game nobody could reach.
+void testEitherSideSeesItsOwnHqAtTheBottom() {
+  const int boards[] = {static_cast<int>(toybattle::TerrainId::LaCroisette),
+                        static_cast<int>(toybattle::TerrainId::CaribbeanSea),
+                        static_cast<int>(toybattle::TerrainId::CastleField)};
+  for (const int which : boards) {
+    for (int seat = 0; seat < 2; ++seat) {
+      toybattle::Game game;
+      game.newGame(5u, which, 0, true);
+      const toybattle::Terrain& b = game.board();
+
+      // Your own H.Q. is drawn below the middle of the board, whichever seat
+      // you took, because the board turns round with you.
+      int mine = -1;
+      for (int s = b.baseCount; s < b.slotCount(); ++s) {
+        if (b.hqOwner(s) == seat) mine = s;
+      }
+      CHECK(mine >= 0);
+      const fui::Point at = tbui::slotCenter(device(), b, mine, seat);
+      CHECK(at.y > 400);
+
+      // And the letter under it says H. It read `hqOwner == 0`, which labelled
+      // seat 1's own H.Q. as the enemy's.
+      tbui::BoardModel model;
+      model.game = game;
+      model.seat = static_cast<uint8_t>(seat);
+      model.yourTurn = game.turn == seat;
+      model.prompt = "";
+      Rendered out;
+      buildTbBoard(out, model);
+      const FakeTarget::TextRun* h = out.target.find("H");
+      CHECK(h != nullptr);
+      if (h != nullptr) CHECK(h->rect.y > 400);
+
+      // The tap that lands on a slot is the slot the player is looking at.
+      for (int s = 0; s < b.slotCount(); ++s) {
+        const fui::Point p = tbui::slotCenter(device(), b, s, seat);
+        CHECK(tbui::slotAt(device(), b, p.x, p.y, seat) == s);
+      }
+
+      // And YOUR troops are the ones knocked out of black, theirs the ones on
+      // the ground -- the inversion is what says whose a troop is, so getting
+      // it backwards swaps the two armies while the board still looks like a
+      // board. Give each seat one troop and read the ink back.
+      toybattle::Game two = game;
+      two.placeSlot[two.placementCount] = 0;
+      two.placeTile[two.placementCount] = static_cast<uint8_t>((seat << 3) | static_cast<int>(toybattle::Troop::Roxy));
+      ++two.placementCount;
+      two.placeSlot[two.placementCount] = 1;
+      two.placeTile[two.placementCount] =
+          static_cast<uint8_t>(((seat ^ 1) << 3) | static_cast<int>(toybattle::Troop::Jumbo));
+      ++two.placementCount;
+
+      tbui::BoardModel pair;
+      pair.game = two;
+      pair.seat = static_cast<uint8_t>(seat);
+      pair.yourTurn = two.turn == seat;
+      pair.prompt = "";
+      Rendered ink;
+      buildTbBoard(ink, pair);
+      const FakeTarget::TextRun* yours = ink.target.find("7");   // Roxy, placed for `seat`
+      const FakeTarget::TextRun* theirs = ink.target.find("3");  // Jumbo, placed for the other
+      CHECK(yours != nullptr);
+      CHECK(theirs != nullptr);
+      if (yours != nullptr) CHECK(yours->color == fui::Color::White);
+      if (theirs != nullptr) CHECK(theirs->color == fui::Color::Black);
+    }
+  }
+}
+
 int main() {
   testTheSeaSaltCardYouTapIsTheCardTheRulesGet();
   testTheSeaSaltChromeIsTappableAndTheCallPillIsEarned();
@@ -3739,6 +4026,11 @@ int main() {
   testTheSeaSaltCardBandsNeverCollide();
   testEverySeaSaltHintFitsTheBox();
   testTheSeaSaltTutorialPagesAndEnds();
+  testEitherSideSeesItsOwnHqAtTheBottom();
+  testTheFinishedBoardCarriesItsOwnEnding();
+  testEveryRulesPositionCouldExist();
+  testTheTerrainCardNeverTruncatesWhatItDraws();
+  testNoRulesPageDrawsOverItsOwnButtons();
   testToyBattleShell();
   testAFrozenCardLooksDifferent();
   testSearchingAsksNothing();

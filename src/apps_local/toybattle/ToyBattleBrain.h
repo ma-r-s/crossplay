@@ -78,6 +78,11 @@ struct Policy {
   uint8_t depth = 2;
   // Medals banked, territory, reach, tempo. The evaluation as it stands.
   bool material = true;
+  // Use the FITTED weights rather than the ones I chose by eye. Behind a flag
+  // until it has beaten the shipped brain head to head: a fit is a hypothesis
+  // about what predicts a win, and the features it likes best may simply be
+  // what winning positions look like rather than what causes one.
+  bool fitted = false;
 };
 
 Policy policyFor(Skill skill);

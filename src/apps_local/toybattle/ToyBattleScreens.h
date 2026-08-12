@@ -27,6 +27,7 @@ enum : fui::ActionId {
   ActionBrief = 6,
   ActionAgain = 7,
   ActionDone = 8,
+  ActionResult = 11,
 };
 
 struct BoardModel {
@@ -46,12 +47,14 @@ struct BoardModel {
 // Where slot `slot` sits, in device pixels. Pure on purpose: the drawing, the
 // markers and the tap all call this, so a tap lands on the base the player is
 // looking at by construction rather than by two sums happening to agree.
-fui::Point slotCenter(const fui::DeviceContext& device, const toybattle::Terrain& board, int slot);
+// `seat` turns the board round: seat 1 sees its own H.Q. at the bottom, the
+// same way seat 0 does. Every caller passes the seat whose screen this is.
+fui::Point slotCenter(const fui::DeviceContext& device, const toybattle::Terrain& board, int slot, int seat);
 int16_t slotRadius();
 
 // The slot under a tap, or -1. Radius-based, because the board is a graph
 // rather than a grid and there is no cell to divide into.
-int slotAt(const fui::DeviceContext& device, const toybattle::Terrain& board, int x, int y);
+int slotAt(const fui::DeviceContext& device, const toybattle::Terrain& board, int x, int y, int seat);
 
 // The rack is one tile per TROOP, not one per kind: the limit is eight troops
 // and there are eight slots, so a hand of two Skullys is two tiles. Drawing one
@@ -76,11 +79,33 @@ struct BriefModel {
 };
 void buildBrief(toybox::Screen& screen, const BriefModel& model);
 
+// Every card, its real face and what it does, drawn into the box it is given.
+// The rules deck shows this same screen: two screens explaining the cards is
+// two things to keep in agreement, and they would not stay in agreement.
+//
+// `columns` is how the one page is bought. Eight full-width rows and a map's
+// special bases do not both fit; four rows of two do, and the card gets BIGGER
+// rather than smaller because the height it may take is what doubled.
+void troopReference(toybox::Screen& screen, const fui::Rect& box, int columns);
+
+// The card face itself -- the numeral over the mark, the rack's own geometry
+// scaled. Every screen that draws a card calls this one.
+void troopCardFace(toybox::Screen& screen, const fui::Rect& card, toybattle::Troop troop, fui::Paint ground,
+                   uint8_t edge);
+
 struct ResultModel {
   toybattle::Game game{};
   uint8_t seat = 0;
 };
 void buildResult(toybox::Screen& screen, const ResultModel& model);
+
+// The largest cut a header title fits in, walking the cuts down rather than
+// letting the component truncate. Map names are data and the deck's page titles
+// are prose; both have already overrun the display cut once.
+// `reserved` is whatever else shares the band -- a page counter, a medal
+// tally. Measuring against the full width is how TWO WAYS TO WIN came out
+// as TWO WAYS TO W beside its own 1/6.
+fui::TextStyle fittedHeaderTitle(toybox::Screen& screen, const char* title, int16_t reserved = 0);
 
 // The marks, for anything outside this file that has to draw them. The rules
 // screens teach the same symbols the board uses, which is the whole point of

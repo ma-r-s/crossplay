@@ -1,5 +1,7 @@
 #include "ToyBattleScreens.h"
 
+#include "ToyBattleMenus.h"
+
 #include <cstdio>
 
 // Two board treatments, built together so they can be photographed side by side
@@ -145,13 +147,23 @@ void troopMark(toybox::Screen& screen, const fui::Point at, const int16_t size, 
     case tb::Troop::Star:  // one arrives
       glyph(screen, at, size, tb::Special::Draw, false);
       break;
-    case tb::Troop::Capn:  // and another after it
-      screen.target().stroke(
-          fui::makeRect(static_cast<int16_t>(at.x - h - 1), static_cast<int16_t>(at.y - h), size, size), ink, 2, 2);
-      screen.target().fill(fui::makeRect(static_cast<int16_t>(at.x + 1), static_cast<int16_t>(at.y - h + 2),
-                                         static_cast<int16_t>(size - 4), static_cast<int16_t>(size - 4)),
-                           ink, 2);
+    case tb::Troop::Capn: {
+      // Go again: a shaft with a riser at its far end and a head pointing back
+      // the way you came. Drawn from the same triangle the rest of the alphabet
+      // uses, so it is one mark rather than a picture.
+      const int16_t bar = static_cast<int16_t>(at.y + h / 2);
+      screen.target().fill(fui::makeRect(static_cast<int16_t>(at.x - h / 2), bar,
+                                         static_cast<int16_t>(h + h / 2), 2),
+                           ink);
+      screen.target().fill(fui::makeRect(static_cast<int16_t>(at.x + h - 2), static_cast<int16_t>(at.y - h),
+                                         2, static_cast<int16_t>(h + h / 2 + 2)),
+                           ink);
+      screen.target().triangle(fui::Point{static_cast<int16_t>(at.x - h), static_cast<int16_t>(bar + 1)},
+                               fui::Point{static_cast<int16_t>(at.x - h / 3), static_cast<int16_t>(bar - h / 2 + 1)},
+                               fui::Point{static_cast<int16_t>(at.x - h / 3), static_cast<int16_t>(bar + h / 2 + 2)},
+                               ink);
       break;
+    }
     case tb::Troop::Jumbo:  // one leaves, struck out
       glyph(screen, at, size, tb::Special::Nullify, false);
       break;
@@ -169,8 +181,15 @@ void troopMark(toybox::Screen& screen, const fui::Point at, const int16_t size, 
 }
 
 // The badge a special base wears. Pinned top-right, clear of the numeral.
+//
+// Every kind wears one. Gate and Nullify used to be silhouette-only, on the
+// theory that square corners said enough -- but the ? card lists all seven with
+// their badges, so the two rules the board did not mark were the two a player
+// looked up and then could not find. Silhouette and badge answer different
+// questions: the corners say "there is a rule about what may land here", the
+// badge says WHICH rule.
 void baseBadge(toybox::Screen& screen, const fui::Rect box, const tb::Special what) {
-  if (what == tb::Special::None || what == tb::Special::Gate || what == tb::Special::Nullify) return;
+  if (what == tb::Special::None) return;
   const int16_t r = 9;
   const fui::Point at{static_cast<int16_t>(box.right() - 2), static_cast<int16_t>(box.y + 2)};
   toybox::disc(screen, at.x, at.y, r, fui::Color::Black);
@@ -212,7 +231,8 @@ void gateLabel(const uint8_t admits, char* out, const int size) {
 }
 
 // One base, drawn where `slotCenter` says it is.
-void drawSlot(toybox::Screen& screen, const fui::Point at, const tb::Game& game, const int slot, const bool candidate) {
+void drawSlot(toybox::Screen& screen, const fui::Point at, const tb::Game& game, const int slot, const bool candidate,
+              const int viewer) {
   const tb::Terrain& b = game.board();
   const int16_t half = kSlot / 2;
   const fui::Rect box =
@@ -228,7 +248,11 @@ void drawSlot(toybox::Screen& screen, const fui::Point at, const tb::Game& game,
   // on the board you must bring a 6 or a 7 to, looking like the two you can
   // take with anything. A gate is per SLOT, so the silhouette is too.
   const bool gated = game.specialBases && b.gate[slot] != 0;
-  const bool restricts = gated || special == tb::Special::Gate || special == tb::Special::Nullify;
+  // Square corners mean "there is a rule about what may LAND here", which is
+  // true of a gate and false of a nullifier: a nullifier takes any troop and
+  // refuses only its effect. It was drawn square anyway, which told the player
+  // to bring a particular value to a base that takes every value.
+  const bool restricts = gated || special == tb::Special::Gate;
   const uint8_t corner = restricts ? 0 : 8;
 
   // A dithered ground with a black edge. The dither is in the fill because
@@ -273,7 +297,11 @@ void drawSlot(toybox::Screen& screen, const fui::Point at, const tb::Game& game,
   }
 
   if (isHq) {
-    centred(screen, box, b.hqOwner(slot) == 0 ? "H" : "E", toybox::kUiFont, false);
+    // H is YOURS and E is theirs, from the seat looking at the screen. This
+    // read `hqOwner(slot) == 0`, which is only the same thing while you are
+    // always seat 0 -- playing second labelled your own H.Q. as the enemy's,
+    // on the boards where taking the other side is the whole point.
+    centred(screen, box, b.hqOwner(slot) == viewer ? "H" : "E", toybox::kUiFont, false);
     return;
   }
 
@@ -281,12 +309,18 @@ void drawSlot(toybox::Screen& screen, const fui::Point at, const tb::Game& game,
     const tb::Troop kind = game.occupantTroop(slot);
     // The holder is told by inversion rather than by a second shape: yours is
     // knocked out of black, theirs sits on the ground.
-    if (holder == 0) {
+    // Yours knocked out of black, theirs on the ground -- from the VIEWER's
+    // seat. This was `holder == 0`, so playing second drew the enemy's troops
+    // as yours and yours as theirs: the same seat-0 assumption as the H.Q.
+    // letter, in the shape that would have been hardest to notice, because the
+    // board still looks like a board.
+    const bool ours = holder == viewer;
+    if (ours) {
       screen.target().fill(fui::makeRect(static_cast<int16_t>(box.x + 6), static_cast<int16_t>(box.y + 6),
                                          static_cast<int16_t>(box.width - 12), static_cast<int16_t>(box.height - 12)),
                            fui::Paint::solid(fui::Color::Black), 6);
     }
-    centred(screen, box, pip(kind), toybox::kUiFont, holder == 0);
+    centred(screen, box, pip(kind), toybox::kUiFont, ours);
 
     // Stack depth as pips down the right edge: the buried troops are the whole
     // reason this game is not draughts.
@@ -316,6 +350,7 @@ void drawSlot(toybox::Screen& screen, const fui::Point at, const tb::Game& game,
 int16_t slotRadius() { return kSlot / 2 + 6; }
 
 fui::Point boardPoint(const fui::DeviceContext& device, const uint16_t nx, const uint16_t ny) {
+  // (see slotCenter: the seat's half-turn is applied by the caller)
   // The one place normalised board coordinates become pixels. Bases, H.Q. and
   // medal anchors all come through here, so a medal cannot land somewhere the
   // same arithmetic would not put a base.
@@ -327,22 +362,65 @@ fui::Point boardPoint(const fui::DeviceContext& device, const uint16_t nx, const
                     static_cast<int16_t>(kBoardTop + inset + ny * usableH / 1000)};
 }
 
-fui::Point slotCenter(const fui::DeviceContext& device, const tb::Terrain& board, const int slot) {
+fui::Point slotCenter(const fui::DeviceContext& device, const tb::Terrain& board, const int slot, const int seat) {
   // Straight from the terrain. The coordinates are already balanced: the
   // tracing tool aligns the rows and columns, mirrors the board about its own
   // midline where the terrain is symmetric, and bakes the result into the
   // table, so the device never pays for the algorithm.
-  return boardPoint(device, board.x[slot], board.y[slot]);
+  //
+  // The seat's half-turn is applied HERE and nowhere else. Playing seat 1 on a
+  // board whose coordinates put seat 0 at the bottom would otherwise mean
+  // playing upside down -- your own H.Q. at the top, your rack at the far end
+  // of the board from it -- and turning it round is the whole reason a side is
+  // worth offering. Because drawing, hit-testing, path drawing and the medal
+  // anchors all come through this one function, they cannot disagree about
+  // which way up the board is.
+  const uint16_t x = seat == 0 ? board.x[slot] : static_cast<uint16_t>(1000 - board.x[slot]);
+  const uint16_t y = seat == 0 ? board.y[slot] : static_cast<uint16_t>(1000 - board.y[slot]);
+  return boardPoint(device, x, y);
 }
 
-int slotAt(const fui::DeviceContext& device, const tb::Terrain& board, const int x, const int y) {
+int slotAt(const fui::DeviceContext& device, const tb::Terrain& board, const int x, const int y, const int seat) {
   const int16_t r = slotRadius();
   for (int slot = 0; slot < board.slotCount(); ++slot) {
-    const fui::Point p = slotCenter(device, board, slot);
+    const fui::Point p = slotCenter(device, board, slot, seat);
     const int dx = x - p.x, dy = y - p.y;
     if (dx * dx + dy * dy <= r * r) return slot;
   }
   return -1;
+}
+
+// THE CARD FACE. The numeral over the mark, exactly as the rack draws it.
+//
+// One function rather than one per screen, because the rack is the card a
+// player actually holds and taps: any reference drawn a second way is a second
+// object to learn. The rules deck used to draw its own -- a 62x78 tile with the
+// numeral in a 30px box and the mark hard-coded at y+56 -- and every mark on
+// that screen landed on top of its own number.
+//
+// Proportions are the rack's own 48x64 inner tile, scaled, so this is the same
+// card at any size rather than a redrawing of it.
+void troopCardFace(toybox::Screen& screen, const fui::Rect& card, const tb::Troop troop, const fui::Paint ground,
+                   const uint8_t edge) {
+  screen.target().fill(card, ground, 8);
+  screen.target().stroke(card, fui::Paint::solid(fui::Color::Black), edge, 8);
+
+  // Kwak and Roxy do nothing, so there is no mark to sit under and the numeral
+  // takes the whole card. A mark meaning "no mark" is worse than the space.
+  const bool marked = troop != tb::Troop::Kwak && troop != tb::Troop::Roxy;
+  if (!marked) {
+    centred(screen, card, pip(troop), toybox::kUiFont, false);
+    return;
+  }
+  const int16_t h = card.height;
+  centred(screen,
+          fui::makeRect(card.x, static_cast<int16_t>(card.y + h * 9 / 64), card.width,
+                        static_cast<int16_t>(h * 26 / 64)),
+          pip(troop), toybox::kUiFont, false);
+  troopMark(screen,
+            fui::Point{static_cast<int16_t>(card.x + card.width / 2),
+                       static_cast<int16_t>(card.bottom() - h * 17 / 64)},
+            static_cast<int16_t>(card.width * 12 / 48), troop);
 }
 
 fui::Rect rackTile(const fui::DeviceContext& device, const int position) {
@@ -389,8 +467,17 @@ int discardKindAt(const tb::Game& game, const tb::Draft& draft, const int seat, 
 // answerTroop, so the Exhume prompt asked "RAISE ONE FROM THE DISCARD?" while
 // offering nothing that could answer it. Mario found that by playing.
 int rowKindAt(const tb::Game& game, const tb::Draft& draft, const int seat, const int position) {
-  return tb::pending(game, draft) == tb::Ask::ExhumeKind ? discardKindAt(game, draft, seat, position)
-                                                         : handKindAt(game, seat, position);
+  if (tb::pending(game, draft) == tb::Ask::ExhumeKind) return discardKindAt(game, draft, seat, position);
+  // The hand as it stands AFTER the placements already committed in this draft.
+  // A troop you have put on the board must not still be sitting in your rack
+  // while the game asks about its effect: the board and the rack would show the
+  // same card twice, and you are left working out from memory what you did.
+  //
+  // Here rather than at the call sites because this function is what the
+  // drawing AND the hit test both go through; split, they could disagree about
+  // which tile holds what.
+  const tb::Game shown = tb::projected(game, draft);
+  return handKindAt(shown, seat, position);
 }
 
 int rackAt(const fui::DeviceContext& device, const tb::Game& game, const tb::Draft& draft, const int seat,
@@ -407,17 +494,17 @@ int rackAt(const fui::DeviceContext& device, const tb::Game& game, const tb::Dra
 const char* specialBlurb(const tb::Special what) {
   switch (what) {
     case tb::Special::Recall:
-      return "CALLS ONE OF YOUR OTHER TROOPS HOME";
+      return "CALLS ANOTHER OF YOURS HOME";
     case tb::Special::Draw:
       return "DRAWS ONE FROM YOUR RESERVE";
     case tb::Special::Shove:
-      return "SHOVES A TROOP NEXT TO IT ONE BASE";
+      return "SHOVES A NEIGHBOUR ONE BASE";
     case tb::Special::Exhume:
-      return "TAKES ONE OF YOURS BACK OFF THE DISCARD";
+      return "TAKES ONE OF YOURS OFF THE DISCARD";
     case tb::Special::Suppress:
-      return "PINS A TROOP ON THEIR RACK FOR A TURN";
+      return "PINS ONE ON THEIR RACK FOR A TURN";
     case tb::Special::Gate:
-      return "ONLY THE PRINTED VALUES MAY LAND HERE";
+      return "ONLY PRINTED VALUES MAY LAND HERE";
     case tb::Special::Nullify:
       return "TROOP EFFECTS DO NOT WORK HERE";
     case tb::Special::None:
@@ -483,11 +570,79 @@ const char* refusalBlurb(const tb::Refusal why) {
   return "";
 }
 
-// The briefing: every special base on this terrain, drawn with the badge it
-// wears on the board so the mark and the meaning are learned together.
+// The largest cut a header title fits in, walking down rather than truncating.
+// "CURSED CEMETERY" came out of the display cut as "CURSED CEMETER" -- not a
+// wrapped line and not an ellipsis, just a name with its last letter gone, which
+// reads as a misspelling rather than as an overflow. The map names are data and
+// the longest one is fifteen characters today; shrinking is the fix that cannot
+// regress the next time somebody traces a board with a long name.
+fui::TextStyle fittedHeaderTitle(toybox::Screen& screen, const char* title, const int16_t reserved) {
+  fui::TextStyle style;
+  style.color = fui::Color::White;
+  const int16_t room = static_cast<int16_t>(screen.device().width - toybox::kMargin * 2 - reserved);
+  const fui::FontId cuts[] = {toybox::kDisplayFont, toybox::kUiFont, toybox::kSmallFont};
+  for (const fui::FontId cut : cuts) {
+    style.font = cut;
+    if (screen.target().measureText(cut, title, style).width <= room) return style;
+  }
+  return style;
+}
+
+// THE TROOP REFERENCE. Every card, its real face, and what it does.
+//
+// One page rather than a footer under the map's special bases: crammed under
+// them it got a 30px box with the numeral in it and the mark parked off to one
+// side, which is not the card -- the card is the numeral OVER the mark, and
+// that is the object the player is holding. On the four-kind maps the list also
+// reached within one row of the bottom edge, so the reference nobody can read
+// was also the reference that nearly did not fit.
+//
+// Drawn into whatever box it is handed, so the in-game ? card and the rules
+// deck show the same screen rather than two descriptions of one.
+void troopReference(toybox::Screen& screen, const fui::Rect& box, const int columns) {
+  fui::TextStyle body;
+  body.font = toybox::kSmallFont;
+  body.align = fui::TextAlign::Left;
+  body.maxLines = 3;
+
+  const int cols = columns < 1 ? 1 : columns;
+  const int rows = (tb::kTroopKinds + cols - 1) / cols;
+  const int16_t colW = static_cast<int16_t>((box.width - toybox::kGutter * (cols - 1)) / cols);
+  const int16_t rowH = static_cast<int16_t>(box.height / rows);
+
+  // The rack's own proportions: 48 wide to 64 tall. A card at another ratio is
+  // a different object, so the height is what varies and the width follows.
+  int16_t cardH = static_cast<int16_t>(rowH - 6);
+  if (cardH > 64) cardH = 64;  // the rack's own size; bigger is a different object
+  const int16_t cardW = static_cast<int16_t>(cardH * 48 / 64);
+
+  for (int k = 0; k < tb::kTroopKinds; ++k) {
+    const tb::Troop troop = static_cast<tb::Troop>(k);
+    const int col = k / rows, row = k % rows;
+    const fui::Rect cell = fui::makeRect(static_cast<int16_t>(box.x + col * (colW + toybox::kGutter)),
+                                         static_cast<int16_t>(box.y + row * rowH), colW, rowH);
+    troopCardFace(screen,
+                  fui::makeRect(cell.x, static_cast<int16_t>(cell.y + (rowH - cardH) / 2), cardW, cardH), troop,
+                  fui::Paint::dither(fui::Color::LightGray), 2);
+    const int16_t textX = static_cast<int16_t>(cell.x + cardW + toybox::kGutter);
+    screen.target().text(fui::makeRect(textX, cell.y, static_cast<int16_t>(cell.right() - textX), rowH),
+                         troopBlurb(troop), body);
+  }
+}
+
+// The briefing: what this map's special bases do, what the counts in the bar
+// mean, and every troop with its own card face and what it does. One screen.
+//
+// It was two for a day and Mario did not want two. The thing that buys the one
+// page back is the troop grid: eight full-width rows plus a four-kind map's
+// specials come to 721px in a 672px content rect, and four rows of two come to
+// 304. The card gets BIGGER doing it, because the height a row may spend is
+// what doubled.
 void buildBrief(toybox::Screen& screen, const BriefModel& model) {
+  const char* title = model.board ? model.board->name : "TERRAIN";
   fui::HeaderProps header;
-  header.title = model.board ? model.board->name : "TERRAIN";
+  header.title = title;
+  header.titleText = fittedHeaderTitle(screen, title);
   header.borderEdges = fui::EdgesNone;
   screen.header(header);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
@@ -498,10 +653,12 @@ void buildBrief(toybox::Screen& screen, const BriefModel& model) {
   body.align = fui::TextAlign::Left;
 
   if (!model.specialBases) {
-    screen.target().text(screen.takeTop(60),
-                         "SPECIAL BASES ARE SWITCHED OFF FOR THIS GAME. EVERY BASE IS AN "
-                         "ORDINARY ONE.",
-                         body);
+    fui::TextStyle wrapped = body;
+    wrapped.maxLines = 3;
+    const char* off = "SPECIAL BASES ARE SWITCHED OFF FOR THIS GAME. EVERY BASE IS AN ORDINARY ONE.";
+    const fui::Rect room = screen.contentRect();
+    screen.target().text(screen.takeTop(fui::measureWrappedText(screen.target(), off, wrapped, room.width).height),
+                         off, wrapped);
     return;
   }
 
@@ -511,20 +668,41 @@ void buildBrief(toybox::Screen& screen, const BriefModel& model) {
     ++seen[static_cast<int>(model.board->specialAt(base))];
   }
 
+  // The map's list is the part that varies -- nought to four kinds -- so it is
+  // the part that gets a ceiling, and the troops take everything left under the
+  // rule. Reserving a fixed band for the troops instead left a hole in the
+  // middle of every map that has one special kind, which reads as a missing
+  // element rather than as air.
+  constexpr int16_t kTroopFloor = 300;
+
   bool any = false;
+  int kinds = 0;
+  for (int k = 1; k < 8; ++k) {
+    if (seen[k]) ++kinds;
+  }
+  // Four kinds is the most any printed board carries. The rows share what is
+  // left of the space above the troops rather than claiming a fixed 52 each.
+  const fui::Rect whole = screen.contentRect();
+  const int16_t legendBand = 30, ruleBand = toybox::kRule + toybox::kGutter * 2;
+  const int16_t forList =
+      static_cast<int16_t>(whole.height - kTroopFloor - legendBand - ruleBand - toybox::kGutter * 3);
+  int16_t specialRow = kinds > 0 ? static_cast<int16_t>(forList / kinds) : 0;
+  if (specialRow > 52) specialRow = 52;
+  if (specialRow < 34) specialRow = 34;
+
   for (int k = 1; k < 8; ++k) {
     if (!seen[k]) continue;
     any = true;
     const tb::Special what = static_cast<tb::Special>(k);
-    const fui::Rect row = screen.takeTop(52, toybox::kGutter);
+    const fui::Rect row = screen.takeTop(specialRow, 4);
 
-    const int16_t badge = 17;
+    const int16_t badge = static_cast<int16_t>(specialRow / 3 + 1);
     const fui::Point at{static_cast<int16_t>(row.x + badge), static_cast<int16_t>(row.y + row.height / 2)};
     toybox::disc(screen, at.x, at.y, badge, fui::Color::Black);
-    glyph(screen, at, 15, what, true);
+    glyph(screen, at, static_cast<int16_t>(badge - 2), what, true);
 
     char line[96];
-    std::snprintf(line, sizeof(line), "%d x  %s", seen[k], specialBlurb(what));
+    std::snprintf(line, sizeof(line), "%d x %s", seen[k], specialBlurb(what));
     screen.target().text(fui::makeRect(static_cast<int16_t>(row.x + badge * 2 + toybox::kGutter), row.y,
                                        static_cast<int16_t>(row.width - badge * 2 - toybox::kGutter), row.height),
                          line, body);
@@ -533,37 +711,54 @@ void buildBrief(toybox::Screen& screen, const BriefModel& model) {
     screen.target().text(screen.takeTop(52), "THIS TERRAIN HAS NO SPECIAL BASES.", body);
   }
 
-  // The bar's counts, explained where the other marks are explained.
+  // The bar's counts, explained where the other marks are explained -- and
+  // explained with the marks themselves rather than with words for them.
+  //
+  // It used to be one sentence naming each mark ("TILE = TROOPS IN HAND,
+  // TRIANGLE = LEFT TO DRAW, ..."), which is 110 characters into a 448px row at
+  // maxLines 1: the panel showed "IN THE BAR: TILE = TROOPS IN HAND, TRIANGLE =
+  // LEFT ..." and the two marks it had not reached yet were the two nobody
+  // knows. Wrapping it would have cost two more rows the card does not have
+  // (La Croisette's four kinds already reach within a row of the bottom), so
+  // the sentence is gone instead. Three marks and six words fit on one line
+  // with room to spare, and a legend that draws the mark teaches the mark --
+  // which the sentence never did, since it only ever named it.
   {
     const fui::Rect row = screen.takeTop(30, toybox::kGutter);
-    screen.target().text(row, "IN THE BAR: TILE = TROOPS IN HAND, TRIANGLE = LEFT TO DRAW, CROSS = OUT OF THE "
-                              "GAME. TOP ROW IS THEIRS.",
-                         body);
+    const int16_t mid = static_cast<int16_t>(row.y + row.height / 2);
+    const int16_t pitch = static_cast<int16_t>(row.width / 3);
+    struct Item {
+      tb::Special mark;  // None means the hand's solid tile
+      const char* label;
+    };
+    static constexpr Item kLegend[] = {
+        {tb::Special::None, "IN HAND"},
+        {tb::Special::Draw, "TO DRAW"},
+        {tb::Special::Nullify, "GONE"},
+    };
+    for (int i = 0; i < 3; ++i) {
+      const int16_t x = static_cast<int16_t>(row.x + i * pitch);
+      // The same two shapes the action bar draws, at the same proportions: a
+      // filled tile for the hand, the glyph alphabet for the other two.
+      if (kLegend[i].mark == tb::Special::None) {
+        screen.target().fill(fui::makeRect(x, static_cast<int16_t>(mid - 6), 8, 13),
+                             fui::Paint::solid(fui::Color::Black));
+      } else {
+        glyph(screen, fui::Point{static_cast<int16_t>(x + 5), mid}, 11, kLegend[i].mark, false);
+      }
+      screen.target().text(fui::makeRect(static_cast<int16_t>(x + 18), row.y,
+                                         static_cast<int16_t>(pitch - 18), row.height),
+                           kLegend[i].label, body);
+    }
   }
 
   // A rule, then the troops. Two alphabets on one screen need telling apart:
   // above it is what the ground does, below it is what your own troops do.
-  const fui::Rect gap = screen.takeTop(toybox::kRule + toybox::kGutter * 2, toybox::kGutter);
+  const fui::Rect gap = screen.takeTop(ruleBand, toybox::kGutter);
   screen.target().fill(fui::makeRect(gap.x, static_cast<int16_t>(gap.y + toybox::kGutter), gap.width, toybox::kRule),
                        fui::Paint::solid(fui::Color::Black));
 
-  for (int k = 0; k < tb::kTroopKinds; ++k) {
-    const tb::Troop troop = static_cast<tb::Troop>(k);
-    const fui::Rect row = screen.takeTop(40, 2);
-    const int16_t mid = static_cast<int16_t>(row.y + row.height / 2);
-
-    // The card's own face, small: the numeral it carries and the mark under it
-    // on the rack, side by side here so the two are learned together.
-    const fui::Rect tile =
-        fui::makeRect(row.x, static_cast<int16_t>(row.y + 2), 30, static_cast<int16_t>(row.height - 4));
-    screen.target().stroke(tile, fui::Paint::solid(fui::Color::Black), 2, 6);
-    centred(screen, tile, pip(troop), toybox::kSmallFont, false);
-    troopMark(screen, fui::Point{static_cast<int16_t>(row.x + 52), mid}, 12, troop);
-
-    screen.target().text(
-        fui::makeRect(static_cast<int16_t>(row.x + 74), row.y, static_cast<int16_t>(row.width - 74), row.height),
-        troopBlurb(troop), body);
-  }
+  troopReference(screen, screen.contentRect(), 2);
 }
 
 void buildResult(toybox::Screen& screen, const ResultModel& model) {
@@ -618,6 +813,11 @@ void buildResult(toybox::Screen& screen, const ResultModel& model) {
 
 void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   const tb::Game& game = model.game;
+  // What the board LOOKS like mid-move: the troop you have just placed is
+  // standing on it while the game asks what its effect should do. Every
+  // question below still goes through `game` and the draft -- only the drawing
+  // reads this.
+  const tb::Game shown = tb::projected(game, model.draft);
   const tb::Terrain& b = game.board();
 
   fui::HeaderProps header;
@@ -634,8 +834,15 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   // and where they cost no body space. They were on their own line under the
   // rule and Mario could not find them.
   char medals[20];
-  std::snprintf(medals, sizeof(medals), "%d-%d OF %d", game.medals[model.seat], game.medals[model.seat ^ 1],
+  std::snprintf(medals, sizeof(medals), "%d-%d OF %d", shown.medals[model.seat], shown.medals[model.seat ^ 1],
                 b.medalsObjective);
+  // A medals win happened in the tally, not on a base, so that is where it is
+  // marked: the readout inverts to a solid plate. The design language spends
+  // solid black on a surface that repaints once, and this one never repaints
+  // again.
+  const bool medalWin =
+      game.currentPhase() != tb::Phase::Playing && game.endedBy() == tb::Ending::MedalsObjective;
+
   fui::TextStyle band;
   band.font = toybox::kUiFont;
   band.align = fui::TextAlign::Right;
@@ -643,9 +850,18 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   // Centred on the band, not on a guessed y: the counter sits beside the title
   // and has to share its middle.
   const int16_t bandLine = screen.target().lineHeight(toybox::kUiFont);
-  screen.target().text(fui::makeRect(0, static_cast<int16_t>((toybox::kHeaderHeight - bandLine) / 2),
-                                     static_cast<int16_t>(device.width - toybox::kMargin), bandLine),
-                       medals, band);
+  const fui::Rect medalBox = fui::makeRect(0, static_cast<int16_t>((toybox::kHeaderHeight - bandLine) / 2),
+                                           static_cast<int16_t>(device.width - toybox::kMargin), bandLine);
+  if (medalWin) {
+    // Knocked out of the black band: a white plate with the tally in ink.
+    const int16_t w = screen.target().measureText(toybox::kUiFont, medals, band).width;
+    screen.target().fill(fui::makeRect(static_cast<int16_t>(medalBox.right() - w - 10),
+                                       static_cast<int16_t>(medalBox.y - 5), static_cast<int16_t>(w + 20),
+                                       static_cast<int16_t>(bandLine + 10)),
+                         fui::Paint::solid(fui::Color::White), 6);
+    band.color = fui::Color::Black;
+  }
+  screen.target().text(medalBox, medals, band);
 
   // The line the question lives on, now that the foot of the screen is
   // controls rather than commentary.
@@ -658,8 +874,8 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
 
   // Paths first, so the bases sit on top of them.
   for (int e = 0; e < b.edgeCount; ++e) {
-    const fui::Point a = slotCenter(device, b, b.edges[e].a);
-    const fui::Point z = slotCenter(device, b, b.edges[e].b);
+    const fui::Point a = slotCenter(device, b, b.edges[e].a, model.seat);
+    const fui::Point z = slotCenter(device, b, b.edges[e].b, model.seat);
     screen.target().line(a, z, kPathWeight, fui::Paint::solid(fui::Color::Black));
   }
 
@@ -672,8 +888,11 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   // halves were traced by hand, it put the left ones and the right ones in
   // visibly different places. See Region::x in ToyBattleCore.h.
   for (int r = 0; r < b.regionCount; ++r) {
-    if (game.regionsTaken & (1u << r)) continue;  // banked, and gone from the board
-    const fui::Point at = boardPoint(device, b.regions[r].x, b.regions[r].y);
+    if (shown.regionsTaken & (1u << r)) continue;  // banked, and gone from the board
+    const fui::Point at =
+        model.seat == 0 ? boardPoint(device, b.regions[r].x, b.regions[r].y)
+                        : boardPoint(device, static_cast<uint16_t>(1000 - b.regions[r].x),
+                                     static_cast<uint16_t>(1000 - b.regions[r].y));
     const int count = b.regions[r].medals;
     const int16_t pipR = 7;
     const int16_t span = static_cast<int16_t>(count * (pipR * 2 + 3) - 3);
@@ -691,7 +910,25 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
 
   const uint64_t candidates = toybattle::candidateSlots(game, model.draft);
   for (int slot = 0; slot < b.slotCount(); ++slot) {
-    drawSlot(screen, slotCenter(device, b, slot), game, slot, (candidates & (uint64_t{1} << slot)) != 0);
+    drawSlot(screen, slotCenter(device, b, slot, model.seat), shown, slot,
+             (candidates & (uint64_t{1} << slot)) != 0, model.seat);
+  }
+
+  // WHY it ended, on the board rather than only in a sentence.
+  //
+  // An H.Q. capture is a place, so it gets marked in place: the last placement
+  // of the game IS the troop that took it -- `apply` ends the game on the step
+  // that lands there -- so there is no search and no second way of deciding
+  // which slot it was.
+  if (game.currentPhase() != tb::Phase::Playing && game.endedBy() == tb::Ending::HqCaptured &&
+      game.placementCount > 0) {
+    const int taken = game.placeSlot[game.placementCount - 1];
+    const fui::Point at = slotCenter(device, b, taken, model.seat);
+    const int16_t arm = static_cast<int16_t>(kSlot / 2 + 10);
+    toybox::bracket(screen,
+                    fui::makeRect(static_cast<int16_t>(at.x - arm), static_cast<int16_t>(at.y - arm),
+                                  static_cast<int16_t>(arm * 2), static_cast<int16_t>(arm * 2)),
+                    14, 5);
   }
 
   // The rack. A troop you cannot play dims rather than disappearing.
@@ -727,29 +964,13 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
     // TURN -- but a state you have to tap to discover is a state you do not know
     // you are in when you are planning.
     const bool frozen = !raising && game.frozenKind[model.seat] == static_cast<uint8_t>(kind);
-    screen.target().fill(inner,
-                         frozen ? fui::Paint::dither(fui::Color::DarkGray)
-                                : live ? fui::Paint::dither(fui::Color::LightGray)
-                                       : fui::Paint::solid(fui::Color::White),
-                         8);
-    screen.target().stroke(inner, fui::Paint::solid(fui::Color::Black), chosen ? 5 : 2, 8);
-
-    // Number on top, what it does underneath. Eight troops is more than anyone
-    // holds in their head, and the mark here is the same one the board wears,
-    // so learning it once covers both.
-    //
-    // Kwak and Roxy do nothing, so there is no mark to sit under and their
-    // numeral takes the whole tile.
-    const bool marked = troop != tb::Troop::Kwak && troop != tb::Troop::Roxy;
-    if (!marked) {
-      centred(screen, inner, pip(troop), toybox::kUiFont, false);
-    } else {
-      centred(screen, fui::makeRect(inner.x, static_cast<int16_t>(inner.y + 9), inner.width, 26), pip(troop),
-              toybox::kUiFont, false);
-      troopMark(screen,
-                fui::Point{static_cast<int16_t>(inner.x + inner.width / 2), static_cast<int16_t>(inner.bottom() - 17)},
-                12, troop);
-    }
+    // Number on top, what it does underneath -- the card face, drawn by the one
+    // function every screen that shows a card calls.
+    troopCardFace(screen, inner, troop,
+                  frozen ? fui::Paint::dither(fui::Color::DarkGray)
+                         : live ? fui::Paint::dither(fui::Color::LightGray)
+                                : fui::Paint::solid(fui::Color::White),
+                  chosen ? 5 : 2);
   }
 
   // Three regions, and the left one is always the same width so nothing
@@ -778,7 +999,20 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
     screen.button(props, fui::makeRect(x, barY, w, toybox::kPillHeight));
   };
 
-  if (!model.yourTurn) {
+  if (game.currentPhase() != tb::Phase::Playing) {
+    // The game is over and the board is still up. One way on, loud, because it
+    // is the only thing left to do -- and the ? stays beside it, since reading
+    // what a base did is a fair thing to want at the end of a game.
+    fui::ButtonProps done;
+    done.label = "HOW IT ENDED";
+    done.action = ActionResult;
+    done.styles = toybox::invertedStyles();
+    done.text.font = toybox::kUiFont;
+    done.text.align = fui::TextAlign::Center;
+    done.text.color = fui::Color::White;
+    done.radius = toybox::kPillRadius;
+    screen.button(done, fui::makeRect(toybox::kMargin, barY, actionW, toybox::kPillHeight));
+  } else if (!model.yourTurn) {
     place("WAIT", ActionSkip, false, toybox::kMargin, actionW);
   } else if (ask == toybattle::Ask::Troop && !picking) {
     place("DRAW 2", ActionDraw, model.canDraw, toybox::kMargin, actionW);
@@ -804,7 +1038,7 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
     const int me = model.seat, them = model.seat ^ 1;
     int out[2] = {0, 0};
     for (int seat = 0; seat < tb::kSeats; ++seat) {
-      for (int k = 0; k < tb::kTroopKinds; ++k) out[seat] += game.discarded[seat][k];
+      for (int k = 0; k < tb::kTroopKinds; ++k) out[seat] += shown.discarded[seat][k];
     }
     fui::TextStyle cell;
     cell.font = toybox::kSmallFont;
@@ -850,8 +1084,8 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
       const int16_t y = static_cast<int16_t>(top + row * kCountsRow);
       // Yours is on the rack below as well, but a row missing its first column
       // reads as a bug rather than as an economy.
-      count(countsX, y, game.rackSize(seat), tb::Special::None);
-      count(static_cast<int16_t>(countsX + kHandW), y, game.reserveRemaining(seat), tb::Special::Draw);
+      count(countsX, y, shown.rackSize(seat), tb::Special::None);
+      count(static_cast<int16_t>(countsX + kHandW), y, shown.reserveRemaining(seat), tb::Special::Draw);
       count(static_cast<int16_t>(countsX + kHandW + kPitch), y, out[seat], tb::Special::Nullify);
     }
   }

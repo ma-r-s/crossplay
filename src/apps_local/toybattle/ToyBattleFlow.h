@@ -43,6 +43,16 @@ struct Options {
   Skill skill = Skill::General;
   bool specialBases = true;
   Mode mode = Mode::Solo;
+  // Which seat you take. Seat 0 moves first and racks three; seat 1 moves
+  // second and racks four, which is the rules' own compensation.
+  //
+  // It exists because two boards are not symmetric -- La Croisette's H.Q. are
+  // not mirror images and Caribbean Sea gives seat 0 two H.Q. against seat 1's
+  // one -- so on those the two seats are genuinely different games, and the
+  // player could only ever see one of them. On the eight symmetric boards it
+  // is turn order and nothing else. The board is turned round for seat 1, so
+  // you are never playing upside down.
+  uint8_t side = 0;
 };
 
 // The shell.
@@ -222,6 +232,13 @@ enum class Refusal : uint8_t {
 // grave offered a troop that was no longer there and then refused the answer,
 // leaving the player stuck mid-chain with no legal way forward.
 int discardLeft(const Game& game, const Draft& draft, int kind);
+
+// The position with the draft's committed steps already applied: what the board
+// LOOKS like mid-move, as opposed to what the rules are still deciding about.
+// Screens draw from this so a troop you have placed is on the board while the
+// game asks about its effect; every question still goes through the real game
+// and the draft. Base effects are deliberately not replayed -- see above.
+Game projected(const Game& game, const Draft& draft);
 
 // Why `slot` cannot be answered right now. Refusal::None means it can.
 Refusal whyNotSlot(const Game& game, const Draft& draft, int slot);

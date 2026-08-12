@@ -70,6 +70,9 @@ class ToyBattleActivity final : public linkplay::LinkActivity {
   int menuSelected = 0;
   int setupSelected = 0;
   int howToPage = 0;
+  // Which of the three rules treatments is on screen. Scaffolding for the
+  // side-by-side pick, cycled by the Up button on the HOW TO PLAY screen; it
+  // goes with the two variants Mario does not choose.
   int mapPage = 0;
   uint8_t seat = 0;
 

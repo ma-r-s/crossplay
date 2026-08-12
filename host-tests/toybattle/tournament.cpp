@@ -59,6 +59,12 @@ Policy deep(uint8_t beam) {
   return p;
 }
 
+Policy fittedPolicy() {
+  Policy p = policyFor(Skill::General);
+  p.fitted = true;
+  return p;
+}
+
 const Variant kVariants[] = {
     // What ships, measured as what ships: `policyFor` rather than a copy of it,
     // so this cannot quietly drift from the brain the game actually uses.
@@ -67,6 +73,10 @@ const Variant kVariants[] = {
     {"greedy", make(0)},  // what shipped before the search, kept as the yardstick
     {"d3b4", deep(4)},
     {"d3b12", deep(12)},
+    // The same search, with weights FITTED to self-play outcomes instead of
+    // chosen by eye. If the numbers I picked were good this loses; if the fit
+    // found something, this is where it shows.
+    {"fitted", fittedPolicy()},
 };
 constexpr int kVariantCount = static_cast<int>(sizeof(kVariants) / sizeof(kVariants[0]));
 

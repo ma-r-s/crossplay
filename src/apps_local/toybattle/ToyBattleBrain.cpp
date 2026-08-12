@@ -153,6 +153,98 @@ bool hqIsExposed(const Game& v, int seat, const uint8_t* unseen, int opponentRac
   return false;
 }
 
+// Fitted by tools_local/fit_eval.py over 28,823 self-play positions, logistic
+// regression on win/loss, scaled so a medal stays at 400. Only the RATIOS are
+// what the data decided.
+//
+// The features are DISTANCES TO WINNING rather than a description of the board,
+// which is Mario's correction and the whole point. The first fit had a flat
+// "their H.Q. is reachable" term worth three and a half medals, so the brain
+// charged the H.Q. whatever else was on offer -- it won 84% but took 73% of
+// those wins by decapitation, while BEHIND on medals. A constant cannot say
+// "it depends".
+//
+// Splitting that one term in two is what fixed it:
+//
+//   hq_takeable_now  2161   a capture is available THIS turn
+//   hq_reach          477   merely connected to it
+//
+// Five medals against one. So an actual chance gets taken and a distant one
+// does not derail the medal race, which is the behaviour asked for.
+constexpr int kFitMedalsToGo = 400;       // how close I am to the objective
+constexpr int kFitTheirMedalsToGo = 378;  // and how far they still are
+constexpr int kFitRegionsReady = 164;     // regions one placement from mine
+constexpr int kFitTheirRegionsReady = 109;
+constexpr int kFitHqTakeable = 2161;
+constexpr int kFitMyHqTakeable = 536;
+constexpr int kFitHqReach = 477;
+constexpr int kFitBases = 300;
+constexpr int kFitReach = 32;
+constexpr int kFitRack = 347;
+
+// Can `seat` capture an enemy H.Q. right now? Exact and cheap, the same shape
+// as hqIsExposed: any troop takes an H.Q., so being connected is enough unless
+// a gate stands in the way, and then it must be a kind actually in hand. Hook's
+// waiver does not help here -- the aid is explicit that an H.Q. is not a base.
+//
+// Deliberately NOT legalPlacements(), which is what the offline feature used:
+// this runs at every leaf of the search, and generating every move to answer
+// one question would have cost more than the whole evaluation.
+bool hqIsTakeable(const Game& v, int seat) {
+  if (v.currentPhase() != Phase::Playing) return false;
+  const Terrain& b = v.board();
+  const uint64_t reach = v.reachable(seat);
+  for (int i = 0; i < b.hqCount; ++i) {
+    if (b.hqSeat[i] == seat) continue;
+    const int slot = b.baseCount + i;
+    if (!(reach & (uint64_t{1} << slot))) continue;
+    const uint8_t admits = v.specialBases ? b.gate[slot] : 0;
+    if (admits == 0) return v.rackSize(seat) > 0;
+    for (int k = 0; k < kTroopKinds; ++k) {
+      if ((admits & (1u << k)) && v.rack[seat][k] > 0) return true;
+    }
+  }
+  return false;
+}
+
+int fittedScore(const Game& v, int seat, int opponentRackSize) {
+  const Terrain& b = v.board();
+  const int foe = other(seat);
+  const uint32_t mine = v.occupiedBy(seat), theirs = v.occupiedBy(foe);
+  const uint64_t myReach = v.reachable(seat), theirReach = v.reachable(foe);
+
+  int score = -(b.medalsObjective - v.medals[seat]) * kFitMedalsToGo;
+  score += (b.medalsObjective - v.medals[foe]) * kFitTheirMedalsToGo;
+
+  int ready = 0, theirReady = 0;
+  for (int r = 0; r < b.regionCount; ++r) {
+    if (v.regionsTaken & (1u << r)) continue;
+    const uint32_t need = b.regions[r].bases;
+    if (popcount32(need & ~mine) == 1) ready += b.regions[r].medals;
+    if (popcount32(need & ~theirs) == 1) theirReady += b.regions[r].medals;
+  }
+  score += ready * kFitRegionsReady;
+  score -= theirReady * kFitTheirRegionsReady;
+
+  if (hqIsTakeable(v, seat)) {
+    score += kFitHqTakeable;
+  } else {
+    for (int i = 0; i < b.hqCount; ++i) {
+      if (b.hqSeat[i] == seat) continue;
+      if (myReach & (uint64_t{1} << (b.baseCount + i))) { score += kFitHqReach; break; }
+    }
+  }
+  for (int i = 0; i < b.hqCount; ++i) {
+    if (b.hqSeat[i] != seat) continue;
+    if (theirReach & (uint64_t{1} << (b.baseCount + i))) { score -= kFitMyHqTakeable; break; }
+  }
+
+  score += (popcount32(mine) - popcount32(theirs)) * kFitBases;
+  score += (popcount64(myReach) - popcount64(theirReach)) * kFitReach;
+  score += (v.rackSize(seat) - opponentRackSize) * kFitRack;
+  return score;
+}
+
 int evaluate(const Game& v, int seat, const uint8_t* unseen, int opponentRackSize, const Policy& policy) {
   const int foe = other(seat);
 
@@ -167,6 +259,8 @@ int evaluate(const Game& v, int seat, const uint8_t* unseen, int opponentRackSiz
   int score = 0;
   if (hqIsExposed(v, seat, unseen, opponentRackSize)) score += kHangsHq;
   if (!policy.material) return score;
+
+  if (policy.fitted) return score + fittedScore(v, seat, opponentRackSize);
 
   // Medals are the only thing that ends a game short of an H.Q., and they are
   // permanent, so they dominate everything positional.
@@ -323,20 +417,39 @@ const int kMaxCandidatesShipped = kMaxCandidates;
 const int kMaxPlacementsOfferedShipped = kMaxPlacementsOffered;
 }  // namespace detail
 
+// The three rungs, shifted up one on 2026-08-11 after Mario played the fitted
+// brain and called the difficulty right. Every rung is now what the rung above
+// it used to be:
+//
+//   GENERAL   the fitted evaluation      (new)
+//   SERGEANT  beam 8 at depth 3          (was GENERAL)
+//   RECRUIT   an evaluation, played greedily  (was SERGEANT)
+//
+// The old RECRUIT is gone. It had the two reflexes and no evaluation at all,
+// and the tournament put it at 0.8% against the field -- it lost about
+// ninety-nine games in a hundred to everything, including the greedy brain.
+// A rung nobody can lose to is not a difficulty, it is a placeholder.
 Policy policyFor(Skill skill) {
   Policy p;
-  if (skill == Skill::Recruit) {
-    p.material = false;  // the two reflexes and nothing else
-    return p;
-  }
-  if (skill == Skill::Sergeant) return p;  // an evaluation, played greedily
-  // Beam 8 at depth 3, which is where the tournament stopped paying: beam 12
-  // and beam 24 are level with it head to head and cost two and four times as
-  // much, and depth 3 beats the greedy brain this replaces 72.8% of 6400 games.
-  Policy general;
-  general.beam = 8;
-  general.depth = 3;
-  return general;
+  // An evaluation, played greedily: it scores the position its own move leaves
+  // and never asks what happens next.
+  if (skill == Skill::Recruit) return p;
+
+  // Beam 8 at depth 3, which is where added width stopped paying: beam 12 and
+  // beam 24 are level with it head to head and cost two and four times as much.
+  // This is the brain Mario beat three games running, which is exactly what a
+  // middle rung should feel like.
+  Policy searching;
+  searching.beam = 8;
+  searching.depth = 3;
+  if (skill == Skill::Sergeant) return searching;
+
+  // Same search, weights FITTED to self-play outcomes rather than chosen by
+  // eye. Beats the rung below it 84% of 600 games, on every board, for 0.288ms
+  // a move. The rungs below keep the hand-tuned evaluation on purpose: rebuilt
+  // on these numbers they would be one difficulty at three depths.
+  searching.fitted = true;
+  return searching;
 }
 
 Move chooseMove(const Observation& obs, Skill skill) { return chooseMove(obs, policyFor(skill)); }
