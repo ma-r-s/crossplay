@@ -91,7 +91,12 @@ int main(int argc, char** argv) {
   int worstOverall = 0;
   uint32_t hits = 0;
   const char* worstBoard = "";
-  for (int t = kFirstPlayableTerrain; t < kTerrainCount; ++t) {
+  // playableTerrainAt, not a bare offset: the hidden board is terrain 1,
+  // with Castle Field at 0. This said kFirstPlayableTerrain and stopped
+  // compiling when that was removed, which nothing noticed because these
+  // measurements are deliberately outside check.sh.
+  for (int nth = 0; nth < kPlayableTerrainCount; ++nth) {
+    const int t = playableTerrainAt(nth);
     for (int s = 0; s < 2; ++s) {
       Result r;
       r.board = terrainAt(t).name;
