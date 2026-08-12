@@ -110,6 +110,26 @@ def load_entries():
     if not cc.exists():
         sys.exit("compile_commands.json missing -- run: pio run -e simulator_x4_pro -t compiledb\n"
                  "(plain `pio run` builds but does NOT write the database)")
+
+    # The database IS the source list -- this build does not glob src/ -- so a
+    # file added since it was written is simply not in the build. Adding
+    # ToyBattleHowTo.cpp cost a link error, which is the lucky version: a new
+    # translation unit nothing references yet would have been quietly absent,
+    # and the page would have run the old code with no sign of it. Same family
+    # as the header-dependency bug this file already carries a fix for.
+    stale = [
+        p
+        for p in (REPO / "src").rglob("*.cpp")
+        if p.stat().st_mtime > cc.stat().st_mtime
+    ]
+    if stale:
+        names = ", ".join(sorted(p.name for p in stale)[:4])
+        sys.exit(
+            f"compile_commands.json is older than {len(stale)} source(s) ({names})\n"
+            "It is the source list for this build, so anything newer is not in it.\n"
+            "Run: pio run -e simulator_x4_pro -t compiledb"
+        )
+
     entries = json.loads(cc.read_text())
     out = []
     for e in entries:
