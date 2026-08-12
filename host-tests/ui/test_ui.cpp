@@ -182,6 +182,14 @@ fui::DeviceContext device() {
   return ctx;
 }
 
+// A default Draft as an lvalue. GCC 14 ICEs gimplifying `d = toybattle::Draft{}`
+// inside the answerability walk (gimple_add_tmp_var, gimplify.cc:774) while
+// Apple clang compiles it happily -- so the ui suite was green here and red on
+// CI for two pushes. There is no temporary to gimplify when the right-hand side
+// has a name. See the ci-gcc-clang-gap note: a green local suite is not a green
+// CI, and this is the second time that gap has been a compiler and not a test.
+const toybattle::Draft kFreshDraft{};
+
 // One rendered screen, with everything the assertions need to inspect.
 struct Rendered {
   FakeTarget target;
@@ -3332,7 +3340,7 @@ void testTheRackTileYouTapIsTheTroopYouGet() {
         {tile.x + tile.width / 2, tile.y + tile.height / 2},
     };
     for (const auto& probe : probes) {
-      CHECK(tbui::rackAt(device(), game, toybattle::Draft{}, 0, probe[0], probe[1]) == expected);
+      CHECK(tbui::rackAt(device(), game, kFreshDraft, 0, probe[0], probe[1]) == expected);
     }
   }
   {
@@ -3487,7 +3495,7 @@ void testTheRackTileYouTapIsTheTroopYouGet() {
           bool moved = false;
           if (ask == toybattle::Ask::Ready) {
             moved = g.apply(d.move);
-            d = toybattle::Draft{};
+            d = kFreshDraft;
           } else if (yesNo) {
             moved = toybattle::answerOffer(g, d, (next() & 1u) != 0);
           } else if (ask == toybattle::Ask::Troop) {
@@ -3512,7 +3520,7 @@ void testTheRackTileYouTapIsTheTroopYouGet() {
           }
           if (!moved) {
             if (!g.apply(toybattle::Move::draw())) break;
-            d = toybattle::Draft{};
+            d = kFreshDraft;
           }
         }
       }
