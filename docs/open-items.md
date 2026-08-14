@@ -84,8 +84,7 @@ and instead reduce how many taps a game needs.
 
 Nothing is broken and no single change caused it, which is exactly why it is
 worth writing down: the failure mode is a build that does not fit, arriving
-without warning, on whichever app happens to be next. Battleship and d&diagrams
-both want a how-to of their own, at roughly the same price each.
+without warning, on whichever app happens to be next.
 
 **Done looks like:** a measurement of what actually occupies the binary (fonts
 are the first suspect -- 80+ global `EpdFont` objects, though those are flash
