@@ -38,6 +38,36 @@ Two consequences worth knowing:
   `PLATFORMIO_BUILD_CACHE_DIR`. It is 7.6GB and content-addressed, so a brand
   new worktree's first build is mostly cache hits instead of a cold compile.
 
+### What "integration" actually means
+
+`firmware-next/` is for the merge and what the merge forces, and nothing else:
+
+- `git merge app/<name>` and resolving its conflicts;
+- rebuilding `site/emulator/` from the merged tree, because both sides' binaries
+  conflict and neither of them is right;
+- the version bump and the release tag.
+
+Everything else is work and wants its own tree, **including the things that feel
+like plumbing**: a new script, a new `check.sh` stage, a build fix, a rewritten
+doc. If you are AUTHORING rather than reconciling, you are in the wrong tree.
+
+This needs saying because "it is only integration" is an easy thing to tell
+yourself. On 2026-08-14 it produced eight direct commits on `xteink` -- a
+screenshot recipe, a `check.sh` stage, two build fixes -- none of which were the
+merge or forced by it.
+
+**Two sessions in this tree at once is the normal case, not the exception.**
+Before touching it:
+
+```bash
+git status --short                            # dirty means someone is mid-merge
+git log --first-parent origin/xteink..HEAD    # unpushed means the same
+```
+
+Either one means leave it alone. The cost is not hypothetical: that same day two
+windows independently diagnosed the same simulator build failure, because both
+were working in the shared tree and neither could see the other coming.
+
 Each simulator instance gets its own SD card via `CROSSPOINT_SIM_SD`: each
 tree's own `fs_agent/` for scripted runs, and `../fs_mario/` at the workspace
 root for Mario's, which sits outside every tree so his saves and settings follow
