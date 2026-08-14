@@ -499,7 +499,24 @@ void drawDayMark(toybox::Screen& screen, const fui::Rect& box, const CalendarDay
 
 }  // namespace
 
-void buildCalendar(toybox::Screen& screen, const CalendarModel& model) {
+bool dayCellAt(const CalendarLayout& layout, const int x, const int y, int& cell) {
+  if (!layout.valid || layout.cell <= 0) return false;
+  const int step = layout.cell + layout.gap;
+  const int dx = x - layout.originX;
+  const int dy = y - layout.originY;
+  if (dx < 0 || dy < 0) return false;
+  const int col = dx / step;
+  const int row = dy / step;
+  if (col >= layout.cols || row >= layout.rows) return false;
+  // The gaps between cells belong to nobody. Rounding them into the cell on
+  // their left would make a 3px seam act as a date, which on a grid of numbers
+  // is a tap that opens the wrong day.
+  if (dx % step >= layout.cell || dy % step >= layout.cell) return false;
+  cell = row * layout.cols + col;
+  return true;
+}
+
+CalendarLayout buildCalendar(toybox::Screen& screen, const CalendarModel& model) {
   static const char* kMonthNames[12] = {"JANUARY", "FEBRUARY", "MARCH",     "APRIL",   "MAY",      "JUNE",
                                         "JULY",    "AUGUST",   "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"};
   const int m = model.month >= 1 && model.month <= 12 ? model.month : 1;
@@ -592,6 +609,22 @@ void buildCalendar(toybox::Screen& screen, const CalendarModel& model) {
   }
 
   const int gridTop = body.y + 28;
+
+  // One region for the month, resolved by dayCellAt against these very numbers.
+  // A slot per date overflowed the 24-slot buffer and killed every day from the
+  // 20th on; see CalendarLayout in the header.
+  CalendarLayout layout;
+  layout.valid = true;
+  layout.originX = static_cast<int16_t>(body.x);
+  layout.originY = static_cast<int16_t>(gridTop);
+  layout.cell = static_cast<int16_t>(cell);
+  layout.gap = static_cast<int16_t>(gap);
+  layout.cols = static_cast<int8_t>(cols);
+  layout.rows = static_cast<int8_t>(rows);
+  screen.frame().hit(fui::makeRect(body.x, gridTop, static_cast<int16_t>(cols * cell + (cols - 1) * gap),
+                                   static_cast<int16_t>(rows * cell + (rows - 1) * gap)),
+                     ActionCalendarDay, 0);
+
   for (int i = 0; i < 42; ++i) {
     const CalendarDay& day = model.cells[i];
     if (day.day == 0) continue;
@@ -599,7 +632,6 @@ void buildCalendar(toybox::Screen& screen, const CalendarModel& model) {
         fui::makeRect(body.x + (i % cols) * (cell + gap), gridTop + (i / cols) * (cell + gap), cell, cell);
 
     if (day.inArchive) {
-      screen.frame().hit(box, ActionCalendarDay, static_cast<int16_t>(i));
       screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), toybox::kHairline);
     }
     const fui::Color ink = fui::Color::Black;
@@ -627,6 +659,7 @@ void buildCalendar(toybox::Screen& screen, const CalendarModel& model) {
                   day, ink);
     }
   }
+  return layout;
 }
 
 namespace {

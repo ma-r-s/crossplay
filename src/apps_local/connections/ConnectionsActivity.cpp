@@ -648,7 +648,16 @@ void ConnectionsActivity::loop() {
   // everything else is a tap -- which is one cursor, one focus model and one
   // whole class of bug that simply is not present.
   if (!input.touchReleased || !interactionsReady) return;
-  routeAction(interactions.route(input));
+  fui::ActionEvent hit = interactions.route(input);
+  // The month is one hit region, so the event says "somewhere in the calendar"
+  // and the cell comes from the layout that drew it. A tap on a seam between
+  // cells resolves to nothing and is dropped rather than rounded to a neighbour.
+  if (hit.action == ui::ActionCalendarDay) {
+    int cell = -1;
+    if (!ui::dayCellAt(calLayout, tapX, tapY, cell)) return;
+    hit.value = static_cast<int16_t>(cell);
+  }
+  routeAction(hit);
 }
 
 void ConnectionsActivity::render(RenderLock&&) {
@@ -662,6 +671,9 @@ void ConnectionsActivity::render(RenderLock&&) {
   interactionsReady = false;
   toybox::Frame frame(target, target.deviceContext(), noInput, interactions);
   toybox::Screen screen(frame);
+  // Cleared every paint, so a layout can only ever describe the screen that is
+  // actually up. Only the archive view fills it in.
+  calLayout = connectionsui::CalendarLayout{};
 
   switch (view) {
     case View::Board: {
@@ -695,7 +707,7 @@ void ConnectionsActivity::render(RenderLock&&) {
                                                 static_cast<uint32_t>(calMonth) * 100u + 1u);
         if (lead >= 0) cal.todayCell = lead + static_cast<int>(now % 100) - 1;
       }
-      ui::buildCalendar(screen, cal);
+      calLayout = ui::buildCalendar(screen, cal);
       break;
     }
     case View::Menu:

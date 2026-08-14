@@ -100,29 +100,62 @@ void drawPip(toybox::Screen& screen, const fui::Rect& box, const uint8_t card) {
 
 // `visible` is how much of the card's height is not covered by the card above.
 // A fanned card draws its whole body -- the one on top will paint over it --
-// but only puts its index in the strip that will still be showing.
-// `visible` is how much of the card's height is not covered by the card above.
-// A fanned card draws its whole body -- the one on top will paint over it --
 // but only what fits in the visible strip is worth reading.
-void drawCardFace(toybox::Screen& screen, const fui::Rect& rect, const uint8_t card, const int visible) {
+//
+// THE INDEX IS ONE LINE, RANK THEN PIP, AND THAT IS THE WHOLE POINT.
+//
+// It used to be stacked: rank at row 2, pip at row 42. A covered card only
+// shows its top `fan.up` pixels, and fan.up is 30 at its most generous,
+// compressing to 16 and to single digits in a deep column (fanFor, below). 42
+// is past 30 in every pile shape that can occur, so no overlapped face-up card
+// had EVER shown its suit -- only the top card of each pile, which draws at
+// full height. A tester reported it as "can't see suit colour when piles form,
+// so it's hard to tell when one pile can stack on another".
+//
+// Klondike's one rule is that a tableau run alternates colour, so the suit is
+// not decoration on a covered card, it is the only thing you need from it. Side
+// by side, both inside the strip that survives, the index reads at the fan
+// widths the game actually produces. There is room: the card is 92 wide and the
+// rank never needs more than 40 of it.
+// The two fans cover a card from different directions, so the index has to go
+// somewhere different in each. `sideways` says which: the waste fans left to
+// right and leaves a tall narrow sliver (kWasteFan px wide, full height), the
+// tableau fans downward and leaves a short wide strip (fan.up px tall, full
+// width). Rank-then-pip fits the strip and falls off the sliver; rank-over-pip
+// fits the sliver and falls off the strip. There is no single placement that
+// survives both -- 36px wide and 16px tall do not overlap in any useful way --
+// and pretending otherwise is what a first pass at this did, moving the pip
+// beside the rank and silently stripping the suit off every covered waste card
+// to buy it back on the tableau.
+void drawCardFace(toybox::Screen& screen, const fui::Rect& rect, const uint8_t card, const int visible,
+                  const bool sideways = false) {
   auto& target = screen.target();
   const fui::Paint ink = fui::Paint::solid(fui::Color::Black);
   target.fill(rect, fui::Paint::solid(fui::Color::White), kRadius);
   target.stroke(rect, ink, kEdge, kRadius);
 
-  // The rank and its pip sit together in one tight block in the top-left
-  // corner, the way a real card's index does. They used to be 20px apart with
-  // the pip pushed to the right edge, which made the top of the card read as a
-  // banner and meant a fanned card showed a slice through the middle of its
-  // own rank rather than a whole index.
   fui::TextStyle rankStyle;
   rankStyle.font = toybox::kUiFont;
   rankStyle.align = fui::TextAlign::Left;
-  target.text(fui::makeRect(rect.x + 9, rect.y + 2, 40, 30), rankLabel(rankOf(card)), rankStyle);
-  // 36, not 28. At 28 the pip sat inside the digit's own box and the two
-  // printed on top of each other, which is only visible once a real rank is in
-  // there rather than a placeholder.
-  drawPip(screen, fui::makeRect(rect.x + 10, rect.y + 42, 16, 18), card);
+  target.text(fui::makeRect(rect.x + 9, rect.y + 2, 40, 28), rankLabel(rankOf(card)), rankStyle);
+  if (sideways) {
+    // Under the rank, both inside the left sliver. This is where the pip always
+    // was, and for the waste it was always right.
+    drawPip(screen, fui::makeRect(rect.x + 10, rect.y + 42, 16, 18), card);
+  } else {
+    // The opposite corner from the rank, and an equal inset from both edges it
+    // touches. Sitting it just to the right of the rank put it a long way from
+    // the side and a short way from the top, which reads as a thing that landed
+    // there rather than a thing that belongs there -- a corner mark has to be
+    // square to its corner. kIndexInset matches kRadius so the pip starts
+    // exactly where the rounded corner stops curving.
+    constexpr int16_t kIndexInset = kRadius;
+    constexpr int16_t kPip = 18;
+    drawPip(screen,
+            fui::makeRect(static_cast<int16_t>(rect.x + rect.width - kIndexInset - kPip),
+                          static_cast<int16_t>(rect.y + kIndexInset), kPip, kPip),
+            card);
+  }
 
   // The big centre pip only exists on a card you can see all of.
   if (visible < rect.height) return;
@@ -350,7 +383,9 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model, Layout& layout)
     const int shown = waste.count >= 3 ? 3 : waste.count;
     for (int i = shown - 1; i >= 0; --i) {
       const fui::Rect card = fui::makeRect(wasteRect.x + (shown - 1 - i) * kWasteFan, wasteRect.y, kCardW, kCardH);
-      drawCardFace(screen, card, waste.cards[waste.count - 1 - i], i == 0 ? kCardH : kWasteFan);
+      // sideways: the card behind is covered from the right, not from below, so
+      // its index has to stack down the sliver rather than run across the top.
+      drawCardFace(screen, card, waste.cards[waste.count - 1 - i], i == 0 ? kCardH : kWasteFan, i != 0);
       if (i == 0 && model.selectedPile == kWastePile) {
         layout.selection = card;
         layout.hasSelection = true;

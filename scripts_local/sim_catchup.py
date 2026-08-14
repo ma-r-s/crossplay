@@ -176,3 +176,22 @@ patch(
     "};",
     "ESPMock reports the device's heap budget, not a constant megabyte",
 )
+
+# main.cpp:788 gates the idle downclock on HalPowerManager::IDLE_POWER_SAVING_MS,
+# which is this fork's own constant (lib/hal/HalPowerManager.h). The simulator
+# ships its own HalPowerManager and `lib_ignore = hal` means its copy is the one
+# that compiles, so the constant has to exist there too. Upstream has since
+# split the idea into IDLE_DOWNCLOCK_MS and IDLE_LIGHT_SLEEP_MS and dropped the
+# name we still use, which broke the simulator build in every freshly created
+# worktree while trees with an older cached libdeps kept working.
+#
+# Same value as lib/hal's, so the simulator idles on the same schedule the
+# device does rather than on a number picked to make it compile.
+patch(
+    src / "HalPowerManager.h",
+    "  static constexpr unsigned long IDLE_DOWNCLOCK_MS = 500;",
+    "  static constexpr unsigned long IDLE_POWER_SAVING_MS = 3000;\n"
+    "  static constexpr unsigned long IDLE_DOWNCLOCK_MS = 500;",
+    "HalPowerManager::IDLE_POWER_SAVING_MS (mirrors lib/hal)",
+    marker="IDLE_POWER_SAVING_MS",
+)

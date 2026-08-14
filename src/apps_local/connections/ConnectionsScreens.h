@@ -134,7 +134,35 @@ struct CalendarModel {
   bool canNextMonth = true;
 };
 
-void buildCalendar(toybox::Screen& screen, const CalendarModel& model);
+// Where the month's 7x6 lattice landed, handed back so a tap can be resolved
+// against the arithmetic that drew it.
+//
+// The calendar registers ONE hit region for the whole block, not one per day.
+// It used to take a slot per playable date: 31 days plus TODAY plus four
+// steppers is 36 against a 24-slot buffer, so the buffer filled partway through
+// the month and every date from the 20th on was silently unreachable. The
+// device logged the overflow on every repaint and nobody reads the log.
+//
+// Same shape as murdleui::GridLayout / cellAt, and for the same reason: a
+// tappable region must be derived from the values that placed the pixels.
+struct CalendarLayout {
+  bool valid = false;
+  int16_t originX = 0;  // left edge of the first column
+  int16_t originY = 0;  // top edge of the first week row
+  int16_t cell = 0;     // square side
+  int16_t gap = 0;      // space between cells
+  int8_t cols = 0;
+  int8_t rows = 0;
+};
+
+// Which of the 42 cells a tap at logical (x, y) lands on, or false for the gaps
+// between cells and anything outside the block. Whether that cell holds a
+// playable date is the caller's business -- dateForCell already refuses a blank
+// or out-of-archive day, so the block can be one region without the geometry
+// needing to know which dates exist.
+bool dayCellAt(const CalendarLayout& layout, int x, int y, int& cell);
+
+CalendarLayout buildCalendar(toybox::Screen& screen, const CalendarModel& model);
 
 // What one cell of the sixteen-day grid says.
 enum class DayResult : uint8_t {

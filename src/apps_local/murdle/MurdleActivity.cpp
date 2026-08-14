@@ -226,9 +226,21 @@ void MurdleActivity::openCase() {
 
 // ---------------------------------------------------------------------------
 
+// No mappedInput.update() here, and that omission is the whole of a bug that
+// made this game feel frozen on the device.
+//
+// main.cpp:637 already calls gpio.update() once per frame, before any activity
+// runs. InputManager::update() opens by clearing the one-shot touch edges
+// (InputManager.cpp:388-392), and both wasTouchTap() and wasSwipe() gate on
+// touchReleasedEvent. So a second update() here wiped the tap -- and the
+// left-edge Back swipe, which is the only Back this board has -- microseconds
+// after main.cpp latched it and microseconds before this function read it. A
+// tap only survived if the 120ms release deadline happened to expire in the gap
+// between the two calls, so most of them vanished with no feedback at all.
+//
+// Murdle was the only app in apps_local/ doing this; every other game reads the
+// edges main.cpp sampled, which is why only this one was deaf.
 void MurdleActivity::loop() {
-  mappedInput.update();
-
   if (generatePending) {
     // One pass later than the tap, so the frame saying so is already on the
     // panel before the work starts.

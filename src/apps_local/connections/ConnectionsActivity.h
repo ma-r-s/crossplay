@@ -79,6 +79,9 @@ class ConnectionsActivity final : public Activity {
   const char* toast = nullptr;
 
   connectionsui::CalendarDay calCells[42] = {};
+  // Filled by the render that drew the month; a tap on the calendar block is
+  // resolved against it rather than against a second copy of the arithmetic.
+  connectionsui::CalendarLayout calLayout;
   int calYear = 2026;
   int calMonth = 8;
   int calPlayed = 0;
