@@ -28,7 +28,7 @@ class ConnectionsActivity final : public Activity {
   void render(RenderLock&&) override;
 
  private:
-  enum class View : uint8_t { Menu, Archive, Board, Importing };
+  enum class View : uint8_t { Menu, Archive, Board, Importing, HowTo };
   // Split so the "connecting" and "downloading" screens paint BEFORE the work
   // that follows them starts; both block for seconds with no repaint.
   enum class ImportStep : uint8_t { Connecting, Ready, Downloading, Done, Failed };

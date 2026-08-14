@@ -584,9 +584,17 @@ void ConnectionsActivity::routeAction(const fui::ActionEvent& event) {
         view = View::Archive;
         showMonthOf(lastDate != 0 && today() > lastDate ? lastDate : today());
         requestUpdate();
+      } else if (event.value == 3) {
+        view = View::HowTo;
+        requestUpdate();
       } else if (!(packOpen && pack.count() > 0 && newestPackDate() >= today())) {
         beginImport();
       }
+      break;
+    case ui::ActionHowTo:
+      // Tap anywhere on the page to leave it.
+      view = View::Menu;
+      requestUpdate();
       break;
     default:
       break;
@@ -710,6 +718,9 @@ void ConnectionsActivity::render(RenderLock&&) {
       calLayout = ui::buildCalendar(screen, cal);
       break;
     }
+    case View::HowTo:
+      ui::buildHowTo(screen);
+      break;
     case View::Menu:
     default: {
       ui::MenuModel model;
