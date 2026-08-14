@@ -1,18 +1,16 @@
 #!/bin/bash
 # The CI workflow's own test.
 #
-# The "Host tests" step in .github/workflows/crossplay-ci.yml has to forgive
-# exactly one thing -- ui:paperOnTheBand -- and nothing else. It used to say
-# that as `bash "$suite" || echo "::warning::"`, which forgives the whole ui
-# suite for failing instead. The two differ precisely when it matters: a
-# test_ui.cpp that does not compile exits non-zero with no FAIL lines, and the
-# old form waved it through as the expected baseline. So did a real regression
-# sitting next to the baseline.
+# The "Host tests" step in .github/workflows/crossplay-ci.yml forgives nothing:
+# every suite must exit zero. It used to forgive exactly one thing --
+# ui:paperOnTheBand, a real baseline failure until 2026-08-10 -- and the
+# exemption outlived the failure by four days. In that window a regression in
+# exactly that test passed CI with a warning while a local check.sh went red.
 #
 # Shell in a yaml file is the one part of this repo nothing else executes, so
 # it is the one part that can quietly stop meaning what it says. This runs the
-# step's actual text -- extracted from the yaml, not copied -- against the four
-# shapes a ui run can have, plus a non-ui suite failing.
+# step's actual text -- extracted from the yaml, not copied -- against the
+# shapes that once got special treatment, and asserts none of them do now.
 #
 #   host-tests/ci/run.sh
 set -uo pipefail
@@ -72,20 +70,16 @@ expect() {  # label, pass|fail
   fi
 }
 
-rm -rf "$WORK/host-tests"; fake ui 0 '2284 checks, 0 failed'
-expect "a green ui suite passes" pass
+rm -rf "$WORK/host-tests"; fake ui 0 '2284 checks, 0 failed'; fake chess 0 'ok'
+expect "green suites pass" pass
 
+# The shape that used to be forgiven. It must not be anymore.
 rm -rf "$WORK/host-tests"; fake ui 1 'FAIL test_ui.cpp:1411  paperOnTheBand
 2284 checks, 1 failed'
-expect "the paperOnTheBand baseline alone is forgiven" pass
+expect "a paperOnTheBand failure fails the build" fail
 
 rm -rf "$WORK/host-tests"; fake ui 1 'test_ui.cpp:1993:19: error: incompatible pointer types'
 expect "a ui suite that never compiled fails the build" fail
-
-rm -rf "$WORK/host-tests"; fake ui 1 'FAIL test_ui.cpp:1411  paperOnTheBand
-FAIL test_ui.cpp:2100  someRealRegression
-2284 checks, 2 failed'
-expect "a regression beside the baseline fails the build" fail
 
 rm -rf "$WORK/host-tests"; fake ui 0 '2284 checks, 0 failed'; fake chess 1 'FAIL boom'
 expect "a non-ui suite failing still fails the build" fail
