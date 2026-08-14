@@ -8,7 +8,7 @@
 >
 > **CrossPlay builds one env, `x4pro`, and the X4 Pro is an ESP32-S3**: dual
 > core Xtensa, 16MB flash, 8MB PSRAM (`platformio.ini`, `board_build.mcu =
-> esp32s3`, `-DBOARD_HAS_PSRAM`). The RISC-V alignment section does not apply.
+esp32s3`, `-DBOARD_HAS_PSRAM`). The RISC-V alignment section does not apply.
 > The single-framebuffer and heap rules still do, because the display path and
 > the allocation habits are shared and the reader is still the memory-hungry
 > part, but treat every specific number below as upstream's rather than ours.
@@ -40,6 +40,16 @@ Mission: Provide a lightweight, high-performance reading experience focused on E
 > those resolve back to `firmware-next` from any directory and would build and
 > photograph the wrong code. See [scripts_local/README.md](scripts_local/README.md)
 > and the workspace-root `CLAUDE.md`.
+>
+> **Every command carries its own `cd`.** The working directory does not persist
+> between commands, so a bare `./scripts_local/check.sh` runs wherever the shell
+> happens to be, which is `firmware-next` often enough to matter. Write
+> `cd /full/path/to/wt/<name> && ./scripts_local/check.sh` every time, even when
+> the command before it already cd'd there. The scripts refuse to build the
+> wrong tree and say so; a `python3` heredoc, a `sed -i` or an editor write is
+> silent, and a suite run against the wrong tree reports green for code you did
+> not touch. Both happened on 2026-08-14 in one session, one of them while a
+> push verification held the build lock.
 
 ## AI Agent Identity and Cognitive Rules
 
@@ -421,6 +431,28 @@ sdkApiThatTakesOwnership(obj);  // SDK calls delete
 ---
 
 ## UI and Orientation Guidelines
+
+### Three variants, rendered, before any new screen
+
+A new screen or a menu rework gets three arrangements built behind a
+`-D<APP>_VARIANT` macro, rendered with `sim-shot.sh`, and composed side by side
+with `tools_local/compose_shots.py`. Show those three, then build the winner and
+delete the macro in the same commit -- a variant macro that survives is a second
+design nobody maintains.
+
+Seed the SD card first. A layout judged against an empty save file is a layout
+nobody will ever see: the Connections menu draws sixteen days of your record,
+and on a fresh card all sixteen cells are blank and the three arrangements are
+nearly indistinguishable.
+
+This is not optional polish. The version that wins usually wins on one specific
+element, and which element that is stays invisible until the three sit next to
+each other. Two things it catches that discussion never does: the option that
+reads best on paper is routinely the weakest on screen, and a layout bug (a
+group name printing straight through its own tiles) shows up in a render and in
+nothing else.
+
+See [docs/building-apps.md](docs/building-apps.md).
 
 ### Orientation-Aware Logic
 
