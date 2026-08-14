@@ -155,11 +155,13 @@ app is put together.
 
 ## The website
 
-`site/` is static: one HTML file, one stylesheet, two scripts (the emulator's
-front end and the avatar word lists), the assets they name, and the browser
-build under `site/emulator/`. See [site/README.md](site/README.md) for
-how to serve it (a plain `http.server` will not do, the threads need COOP/COEP)
-and what has to be true before it deploys.
+`site/` is static: the landing page, the [Study deck
+installer](https://crossplay.ma-r-s.com/study/) (Pyodide converting Anki decks
+in the browser, previewed on the real firmware), their stylesheet and scripts,
+the assets they name, and the browser build under `site/emulator/`. See
+[site/README.md](site/README.md) for how to serve it (a plain `http.server`
+will not do, the threads need COOP/COEP) and what has to be true before it
+deploys.
 
 ## Credit and licence
 

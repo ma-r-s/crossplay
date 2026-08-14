@@ -5,7 +5,7 @@
 # captured by hand once and its recipe thrown away, and not one of them can be
 # reproduced today.
 #
-#   scripts_local/shoot-looks.sh shell '240,609' '240,749'
+#   scripts_local/shoot-shell.sh shell '240,609' '240,749'
 #     $1 name for the files   $2 tap for PLAY   $3 tap for HOW TO PLAY
 set -euo pipefail
 cd "$(dirname "$0")/.."

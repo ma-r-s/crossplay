@@ -1,5 +1,10 @@
 # Reworking how xkcd comics are shown
 
+**Shipped.** This is the decision record behind the viewer that is on the
+shelf today; [xkcd-pack-format.md](xkcd-pack-format.md) describes the format
+it reads. Kept because the diagnosis and the measurements explain the
+nine-case rule better than the code can.
+
 The reader's handling of large comics is broken. This is the diagnosis, the
 measurements behind it, and what replaces it.
 
@@ -219,13 +224,13 @@ that long wants anyway.
 
 ### Controls, in full
 
-|                      |                               |
-| -------------------- | ----------------------------- |
-| artwork, top half    | back one view                 |
-| artwork, bottom half | forward one view              |
-| Confirm button       | whole comic <-> closer view   |
-| the bar              | the alt text                  |
-| side buttons         | previous / next comic         |
+|                      |                             |
+| -------------------- | --------------------------- |
+| artwork, top half    | back one view               |
+| artwork, bottom half | forward one view            |
+| Confirm button       | whole comic <-> closer view |
+| the bar              | the alt text                |
+| side buttons         | previous / next comic       |
 
 One gesture moves you through a comic and it means the same thing in both
 views; only the definition of "a view" changes.
@@ -264,7 +269,6 @@ produced (two passes at different target widths); the rotation cannot, without
 a 1-bit transpose the firmware does not have today. That path has never met a
 real network either, so it is noted rather than claimed.
 
-
 ## Amendment, same day: which view a comic opens in
 
 Shipped with the whole-comic view as the default and the closer view opt-in.
@@ -273,8 +277,8 @@ really zoomed out, not good enough to read."
 
 He was right, and the mistake is worth keeping. The argument above -- that no
 automatic rule may decide how the reader works -- is sound, but it was applied
-one step too far. It says the *interaction model* must not be chosen by
-measuring the artwork. It does not say the *starting position* must not be:
+one step too far. It says the _interaction model_ must not be chosen by
+measuring the artwork. It does not say the _starting position_ must not be:
 
 - both views use exactly the same controls, so nothing has to be relearned;
 - one button press undoes the choice, immediately and visibly.

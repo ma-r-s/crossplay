@@ -17,6 +17,7 @@ build
 /.cache
 .history/
 /.venv
+/.venv-study
 *.local*
 *.cpfont
 # ...except the browser demo's card, which is a shipped asset rather than a
