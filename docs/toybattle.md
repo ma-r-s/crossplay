@@ -380,6 +380,53 @@ presses from the top, that exactly one screen leaves the app, and that no pair
 can Back into each other. It also asserts its own screen list is complete
 against `kScreenCount`, which is what caught both new screens.
 
+### Either side, and the endings
+
+**`YOU MOVE: FIRST / SECOND` picks your seat** (2026-08-12). Seat 0 always moves
+first and racks three; seat 1 moves second and racks four, which is the rules'
+own compensation. On the eight symmetric boards that is turn order and nothing
+else. On the two that are NOT symmetric it also decides which H.Q. is yours --
+La Croisette's are not mirror images, and Caribbean Sea has three H.Q., two of
+them seat 0's -- so half of those boards was unreachable before it existed.
+
+The board turns round for seat 1, and that is **one substitution in
+`slotCenter`**: drawing, the hit test, the paths and the medal anchors all come
+through it, so they cannot disagree about which way up the board is.
+
+**Allowing the other side is what turns every "seat 0" assumption in the drawing
+into a bug**, and there were three: the flip itself, the H.Q. letter
+(`hqOwner(slot) == 0`, so seat 1's own H.Q. was labelled E), and the troop
+inversion (`holder == 0`, so seat 1 saw THEIR troops drawn as yours). The third
+is the one to remember -- the board still looks like a board -- and the first
+version of its test passed with the bug present, which meant the test was weak
+rather than the code right. It reads the ink colour now.
+
+**The board stays up when the game ends.** The verdict and how it happened are
+in the hint line, the captured H.Q. wears brackets, a medals win inverts the
+tally in the header band, and the action bar becomes one button to the result
+screen. This was tried once before and reverted because it "left nowhere to go
+but Back" -- the answer was to give the bar a way on, not to take the board
+away.
+
+Two sequencing fixes belong with it, both in the DRAFT layer while the engine
+was already right:
+
+- **Landing on their H.Q. ends the game there.** `apply()` ends it on the step
+  that lands and returns before any effect runs, but `pending()` went on asking
+  "use the effect?", so the player answered a question about a game that was
+  over and the answer was discarded.
+- **A placed troop appears before its effect resolves.** The board and the rack
+  both draw `projected()`. Done inside `rowKindAt` because that function is what
+  the drawing AND the hit test go through; split, they could disagree about
+  which tile holds what.
+
+**Every special kind wears its badge on the board.** Gate and Nullify used to be
+silhouette-only, on the theory that square corners said enough -- but the ? card
+lists all seven with badges, so the two rules the board did not mark were the
+two a player looks up and cannot find. Nullify is round again too: square
+corners mean "there is a rule about what may LAND here", which is a gate, not a
+nullifier.
+
 **Three treatments were built and photographed rather than described**, and
 Mario picked the front door on 2026-08-11: the documented band order, plainly.
 The other two -- SLAB, which carried the board's own material up into the menus,
