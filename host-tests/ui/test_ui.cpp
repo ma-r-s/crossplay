@@ -626,6 +626,78 @@ void testConnectionsWonBoard() {
   CHECK(!screen.target.drew("HAIL"));
 }
 
+// Every date in the fullest possible month has to be reachable.
+//
+// This is the test that was missing. The calendar took an interaction slot per
+// playable date -- 31 of them, plus TODAY and four steppers, against a 24-slot
+// buffer -- so the buffer filled partway through the month and every date from
+// the 20th on was dead. It shipped in v1.2.1 and a tester found it. The board
+// was covered here from the start; the calendar never was.
+//
+// A 31-day month starting on a Saturday is the worst case: six week rows and
+// the most days that can be live at once.
+void testConnectionsCalendarEveryDayIsReachable() {
+  connectionsui::CalendarDay cells[42] = {};
+  constexpr int kLead = 6;   // 1st falls on a Saturday
+  constexpr int kDays = 31;  // the longest month
+  for (int d = 1; d <= kDays; ++d) {
+    cells[kLead + d - 1].day = static_cast<uint8_t>(d);
+    cells[kLead + d - 1].inArchive = true;
+  }
+  connectionsui::CalendarModel model;
+  model.cells = cells;
+  model.todayCell = kLead + kDays - 1;
+
+  Rendered out;
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  const connectionsui::CalendarLayout layout = connectionsui::buildCalendar(screen, model);
+
+  // The whole month in one region, so a fuller month cannot push anything out.
+  CHECK(!out.interactions.overflowed());
+  CHECK(out.interactions.count() <= toybox::kMaxInteractions);
+  CHECK(layout.valid);
+
+  // Tap the centre of every live date and confirm it routes to that date and no
+  // other. Routing, not just registration: the failure this replaces was a cell
+  // that existed on screen and had no entry in the table behind it.
+  const int step = layout.cell + layout.gap;
+  for (int i = 0; i < 42; ++i) {
+    if (cells[i].day == 0) continue;
+    const int x = layout.originX + (i % layout.cols) * step + layout.cell / 2;
+    const int y = layout.originY + (i / layout.cols) * step + layout.cell / 2;
+    const fui::ActionEvent hit = out.tap(x, y);
+    CHECK(hit.action == connectionsui::ActionCalendarDay);
+    int cell = -1;
+    CHECK(connectionsui::dayCellAt(layout, x, y, cell));
+    CHECK(cell == i);
+  }
+
+  // Outside the block is not a date. The steppers and TODAY sit above and below
+  // it, and swallowing their taps would trade one dead control for three.
+  int spill = -1;
+  CHECK(!connectionsui::dayCellAt(layout, layout.originX - 4, layout.originY + 4, spill));
+  CHECK(!connectionsui::dayCellAt(layout, layout.originX + 4, layout.originY - 4, spill));
+  CHECK(!connectionsui::dayCellAt(layout, layout.originX + layout.cols * step + 4, layout.originY + 4, spill));
+
+  // TODAY and both steppers still answer, which is the whole risk of collapsing
+  // the month into one region that sits between them.
+  bool sawToday = false;
+  bool sawYear = false;
+  bool sawMonth = false;
+  for (size_t s = 0; s < out.interactions.count(); ++s) {
+    const fui::ActionId action = out.interactions.data()[s].action;
+    if (action == connectionsui::ActionCalendarToday) sawToday = true;
+    if (action == connectionsui::ActionCalendarYear) sawYear = true;
+    if (action == connectionsui::ActionCalendarMonth) sawMonth = true;
+  }
+  CHECK(sawToday);
+  CHECK(sawYear);
+  CHECK(sawMonth);
+}
+
 // --- battleship -------------------------------------------------------------
 
 void buildBattleshipStart(Rendered& out, const bshipui::StartModel& model) {
@@ -4059,6 +4131,7 @@ int main() {
   testBoardChrome();
   testConnectionsLostBoard();
   testConnectionsWonBoard();
+  testConnectionsCalendarEveryDayIsReachable();
   testBattleshipStartMenu();
   testBattleshipCapsuleIsOnlyATriggerWhenItSaysSo();
   testBattleshipPlacementControls();
