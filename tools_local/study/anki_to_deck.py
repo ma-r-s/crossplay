@@ -6,7 +6,7 @@
         --deck 'Mandarin: Vocabulary::Current' \
         --out /Volumes/SDCARD/study/mandarin
 
-The format, and the reasoning behind it, is docs/study-deck-format.md. This
+The format, and the reasoning behind it, is docs/apps/study-deck-format.md. This
 script only writes; nothing here reads back from the device. Sync in the other
 direction is deck_to_anki.py.
 

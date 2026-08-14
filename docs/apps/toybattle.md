@@ -343,7 +343,7 @@ structurally unable to say the goal was wrong. Fitting is standard chess-engine
 practice -- play a great many games, record every position with how its game
 ended, solve for the weights that best predict the result -- and it is the
 version of "learn without human games" that fits on an ESP32.
-`host-tests/toybattle/tune.cpp` dumps the positions, `tools_local/fit_eval.py`
+`host-tests/toybattle/tune.cpp` dumps the positions, `tools_local/toybattle/fit_eval.py`
 does the logistic regression, and the fitted weights beat the hand-tuned ones
 **84%** over 28,823 positions.
 

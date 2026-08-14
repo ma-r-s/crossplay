@@ -23,7 +23,7 @@ namespace fui = freeink::ui;
 // mismatch is to lie in the manifest (`hair_SPIKY = hair_curly`), which is a
 // data error in the asset pipeline rather than something C++ can prevent.
 //
-// This is why tools_local/avatar.txt shouts its aliases.
+// This is why tools_local/avatar/avatar.txt shouts its aliases.
 #define PART(GROUP, WORD) {#WORD, &icon_##GROUP##_##WORD##_48, &icon_##GROUP##_##WORD##_120}
 
 struct Part {

@@ -76,7 +76,7 @@ inline void cornerMarks(const GfxRenderer& renderer, const Rect& box, const int 
 }
 
 // Blits a 1bpp bitmap, MSB first, row-major, bit set = ink. Our own asset
-// format (see tools_local/gen_chess_pieces.py). Deliberately not
+// format (see tools_local/chess/gen_chess_pieces.py). Deliberately not
 // GfxRenderer::drawIcon, which bakes in a portrait rotation meant for the
 // reader's themed lists and would turn a chess board on its side.
 // `turned` draws the sprite rotated 180 degrees, for artwork that has to read

@@ -97,7 +97,7 @@ void XkcdActivity::onEnter() {
   // the same place. An earlier version called setOrientation per comic, which
   // moved the whole UI around underneath the reader and was rightly rejected:
   // it is the comic that is sideways, not the app. See
-  // docs/xkcd-pack-format.md.
+  // docs/apps/xkcd-pack-format.md.
   toybox::ensureFonts(renderer);
 
   archiveOpen_ = openArchive();

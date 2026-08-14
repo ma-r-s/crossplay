@@ -6,7 +6,7 @@
 # icons in by hand, the way seasalt's were.
 
 # Icons for the shelf, generated into src/apps_local/ui/ToyboxIcons.h by
-# tools_local/gen_toybox_icons.sh. Format: alias = lucide-name.
+# tools_local/toybox/gen_toybox_icons.sh. Format: alias = lucide-name.
 #
 # The label already says what the app is, so the icon's job is to be
 # recognisable and distinct at a glance in a 62px row -- not to be literal.

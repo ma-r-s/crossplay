@@ -1,7 +1,7 @@
 #!/bin/bash
 # Regenerate the generated font cuts in src/apps_local/ui/fonts/.
 #
-#   ./tools_local/gen_toybox_fonts.sh [size ...]     # default: the cuts we ship
+#   ./tools_local/toybox/gen_toybox_fonts.sh [size ...]     # default: the cuts we ship
 #
 # The output is committed, because regenerating needs the TTF and two Python
 # packages, and a checkout should build without either. Edit the size list, run
@@ -21,7 +21,7 @@
 #     above zero, so an antialiased cut floods to solid black and turns to mush.
 #     See docs/design-language.md.
 set -euo pipefail
-REPO="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+REPO="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../.." && pwd)"
 cd "$REPO"
 
 SIZES=("$@")
@@ -51,7 +51,7 @@ if [ ${#SIZES[@]} -eq 3 ]; then
   uv run --quiet --with freetype-py --with fonttools \
     python lib/EpdFont/scripts/fontconvert.py reading_serif_14 14 "$WORK/notoserif-subset.ttf" \
     --force-autohint 2>/dev/null | grep -v "extracted$" > "$out"
-  sed -i '' -e "s| \* Command used: .*| * Command used: tools_local/gen_toybox_fonts.sh (fontconvert.py reading_serif_14 14 NotoSerif-Regular subset, --force-autohint)|" "$out"
+  sed -i '' -e "s| \* Command used: .*| * Command used: tools_local/toybox/gen_toybox_fonts.sh (fontconvert.py reading_serif_14 14 NotoSerif-Regular subset, --force-autohint)|" "$out"
   echo "wrote $out"
 fi
 
@@ -61,6 +61,6 @@ for size in "${SIZES[@]}"; do
     python lib/EpdFont/scripts/fontconvert.py "toybox_${size}" "${size}" "$WORK/jersey25-ascii.ttf" \
     2>/dev/null | grep -v "extracted$" > "$out"
   # fontconvert records the absolute path it was handed; keep it reproducible.
-  sed -i '' -e "s| \* Command used: .*| * Command used: tools_local/gen_toybox_fonts.sh (fontconvert.py toybox_${size} ${size} jersey25-ascii.ttf)|" "$out"
+  sed -i '' -e "s| \* Command used: .*| * Command used: tools_local/toybox/gen_toybox_fonts.sh (fontconvert.py toybox_${size} ${size} jersey25-ascii.ttf)|" "$out"
   echo "wrote $out"
 done

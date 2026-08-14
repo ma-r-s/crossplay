@@ -75,7 +75,7 @@ inline Screen screenFor(const Game& game) { return over(game) ? Screen::Result :
 // that accepts a tap then would write a number the player never rolled. Under
 // the Joker rule it collapses to a single box, which is the one case where a
 // player taps a free row and is refused -- so the card has to show it. See
-// docs/yahtzee.md.
+// docs/apps/yahtzee.md.
 // `seat` is the card being LOOKED at, not the side to move, and those differ for
 // the whole of the opponent's turn. The first version took only the game and
 // read `card[game.turn]`, so during their turn the screen was handed the boxes

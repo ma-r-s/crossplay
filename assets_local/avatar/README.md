@@ -6,7 +6,7 @@ own only where no good licensed option exists (see
 [design-language.md](../../docs/design-language.md)).
 
 Generated into `src/apps_local/player/PlayerAvatarArt.h` by
-[`tools_local/gen_avatar.sh`](../../tools_local/gen_avatar.sh), which is the
+[`tools_local/avatar/gen_avatar.sh`](../../tools_local/avatar/gen_avatar.sh), which is the
 SDK's own `gen_icons.py` pointed at this directory instead of Lucide's.
 
 ## The rules these files follow
@@ -52,7 +52,7 @@ lists comes out as a plain head.
 
 ## Adding a part
 
-The alias in [`tools_local/avatar.txt`](../../tools_local/avatar.txt) is
+The alias in [`tools_local/avatar/avatar.txt`](../../tools_local/avatar/avatar.txt) is
 SHOUTED, because `PlayerAvatar.cpp` spells the word and both bitmap names from
 that one token. Add the SVG, add the manifest line, add the word to the matching
 list in `PlayerName.cpp`, run the generator, and run `./scripts/check.sh` -- a

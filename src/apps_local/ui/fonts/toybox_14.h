@@ -3,7 +3,7 @@
  * name: toybox_14
  * size: 14
  * mode: 1-bit
- * Command used: tools_local/gen_toybox_fonts.sh (fontconvert.py toybox_14 14 jersey25-ascii.ttf)
+ * Command used: tools_local/toybox/gen_toybox_fonts.sh (fontconvert.py toybox_14 14 jersey25-ascii.ttf)
  */
 #pragma once
 #include "EpdFontData.h"

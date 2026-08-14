@@ -6,7 +6,7 @@
 // Retraining turned out not to need building: reviews sync back into Anki, so
 // Anki's own "Optimize FSRS parameters" is the optimiser, and re-running
 // anki_to_deck.py carries the new weights back to the device. See
-// docs/study-deck-format.md.
+// docs/apps/study-deck-format.md.
 //
 // Stats do need building, and revlog.dat is the whole input. Freestanding C++17
 // over the same ByteSource as StudyDeck, so host-tests/study can drive it with

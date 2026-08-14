@@ -1,5 +1,5 @@
 # Artwork for Insider, generated into src/apps_local/insider/InsiderArt.h by
-# tools_local/gen_insider_art.sh. Format: alias = lucide-name.
+# tools_local/insider/gen_insider_art.sh. Format: alias = lucide-name.
 #
 # Cut at 96px, not the shelf's 32: these are the whole content of the reveal
 # card, held up to one person's face and then passed on. A role has to be

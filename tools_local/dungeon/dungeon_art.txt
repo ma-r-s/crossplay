@@ -1,5 +1,5 @@
 # Artwork for the dungeon, generated into src/apps_local/dungeon/DungeonArt.h by
-# tools_local/gen_dungeon_art.sh. Format: alias = lucide-name.
+# tools_local/dungeon/gen_dungeon_art.sh. Format: alias = lucide-name.
 #
 # A board cell is 50px, so these are cut at 36: big enough to read across a
 # table, with room left for the cell's own outline. Nothing is scaled at

@@ -4,7 +4,7 @@
 //
 // Freestanding C++17 -- no renderer, no storage, no clock, no Arduino -- so
 // host-tests/murdle/ can generate tens of thousands of cases on a laptop and
-// assert that every single one of them is a fair puzzle. See docs/murdle.md for
+// assert that every single one of them is a fair puzzle. See docs/apps/murdle.md for
 // the design and docs/shelf.md for the three-way split.
 //
 // THE GAME. Every suspect has a weapon and a location, and at the top tiers a

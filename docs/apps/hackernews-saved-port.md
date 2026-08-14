@@ -72,8 +72,8 @@ just the Activity -- and add only the saved parts to them:
    `buildSavedRows`. Against xteink's `document_` these are short -- save is
    `library_.save(readerUrl_, readerTitle_, document_)` and open is
    `library_.readArticle(a, document_)` then `showDocument(...)`.
-3. `tools_local/icons.txt` gains `saved = bookmark`. Both sides only append, so
-   keep both and run `./tools_local/gen_toybox_icons.sh`. Never hand-merge
+3. `tools_local/toybox/icons.txt` gains `saved = bookmark`. Both sides only append, so
+   keep both and run `./tools_local/toybox/gen_toybox_icons.sh`. Never hand-merge
    `ToyboxIcons.h`; it is generated. Correct output is 24 icons x 2 sizes.
 
 Two behaviours worth keeping from the original, both easy to miss:

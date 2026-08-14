@@ -1,5 +1,5 @@
 # The avatar parts, generated into src/apps_local/player/PlayerAvatarArt.h by
-# tools_local/gen_avatar.sh. Format: alias = svg basename, resolved against
+# tools_local/avatar/gen_avatar.sh. Format: alias = svg basename, resolved against
 # assets_local/avatar/.
 #
 # Unlike icons.txt these are ours rather than Lucide's, because no icon set

@@ -2,7 +2,7 @@
 
 // Toy Battle, the rules. Freestanding: no renderer, no Activity, no storage.
 //
-// See docs/toybattle.md for the rulebook this implements, taken from Repos'
+// See docs/apps/toybattle.md for the rulebook this implements, taken from Repos'
 // own English rulebook and player aid rather than from summaries. The shape:
 //
 //   * `Game` is the whole shared state AND the LinkPlay wire format. One
@@ -148,7 +148,7 @@ constexpr Terrain withAdjacency(Terrain t) {
 // layout is ours. The printed board's coordinates are not copied -- what
 // matters is which bases exist, what joins them, and which of them fence each
 // region, and all of that survives being redrawn for a 480x800 panel. See
-// docs/toybattle.md for how it was read and which parts were inferred.
+// docs/apps/toybattle.md for how it was read and which parts were inferred.
 extern const Terrain kCastleField;
 
 // PROVING GROUND is ours and is named so. A 5x3 lattice carrying every special

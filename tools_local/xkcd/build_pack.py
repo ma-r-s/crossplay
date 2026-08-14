@@ -18,7 +18,7 @@ Posture and zoom are chosen together to make that true, and it comes out true
 for 97% of the archive. Each of the comic's two dimensions lands in one of
 three bands against the device's SHORT (480) and LONG (756) sides, so there are
 nine cases and no others; `layout()` is that matrix, and the matrix itself is
-drawn in docs/xkcd-pack-format.md.
+drawn in docs/apps/xkcd-pack-format.md.
 
 The scale may fall from the target cap height to the floor -- about a sixth --
 when that is what removes a panning axis. That single allowance takes the
@@ -366,7 +366,7 @@ def _taps(W, H, s, across, down):
 def layout(W, H, cap, args):
     """Which way round, and how big. Returns (posture, scale, which pans).
 
-    The nine cases of docs/xkcd-pack-format.md, computed rather than tabulated.
+    The nine cases of docs/apps/xkcd-pack-format.md, computed rather than tabulated.
     A comic with too little lettering to measure has no readable scale to aim
     at, so it simply fits whole in whichever posture shows it larger.
     """
@@ -639,7 +639,7 @@ def main() -> int:
             #
             # Each of the comic's two dimensions lands in one of three bands
             # against the device's SHORT (480) and LONG (756) sides, so there
-            # are nine cases and no others. See docs/xkcd-pack-format.md for
+            # are nine cases and no others. See docs/apps/xkcd-pack-format.md for
             # the matrix; `layout()` below is that matrix, computed.
             #
             # The scale is allowed to fall from the target cap height to the

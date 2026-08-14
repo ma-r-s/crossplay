@@ -153,7 +153,7 @@ bool hqIsExposed(const Game& v, int seat, const uint8_t* unseen, int opponentRac
   return false;
 }
 
-// Fitted by tools_local/fit_eval.py over 28,823 self-play positions, logistic
+// Fitted by tools_local/toybattle/fit_eval.py over 28,823 self-play positions, logistic
 // regression on win/loss, scaled so a medal stays at 400. Only the RATIOS are
 // what the data decided.
 //

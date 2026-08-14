@@ -1,8 +1,8 @@
 # Sea Salt & Paper's card marks, generated into
-# src/apps_local/seasalt/SeaSaltArt.h by tools_local/gen_seasalt_art.sh.
+# src/apps_local/seasalt/SeaSaltArt.h by tools_local/seasalt/gen_seasalt_art.sh.
 # Format: alias = lucide-name.
 #
-# Separate from tools_local/icons.txt for the same reason Jaipur's goods are:
+# Separate from tools_local/toybox/icons.txt for the same reason Jaipur's goods are:
 # these need cuts the shelf never uses (48 for a hand card, 40 for the small
 # hand and the pile tops).
 #

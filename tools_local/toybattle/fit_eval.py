@@ -16,8 +16,8 @@ Logistic regression on win/loss, plain gradient descent, no dependencies: this
 has to run anywhere and the problem is eight features wide.
 
     host-tests/toybattle/tune.sh 200 > /tmp/pos.tsv
-    tools_local/fit_eval.py /tmp/pos.tsv            # all boards pooled
-    tools_local/fit_eval.py /tmp/pos.tsv --per-board
+    tools_local/toybattle/fit_eval.py /tmp/pos.tsv            # all boards pooled
+    tools_local/toybattle/fit_eval.py /tmp/pos.tsv --per-board
 """
 
 import math

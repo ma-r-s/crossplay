@@ -62,15 +62,15 @@ each other and they find one another. No pairing screen, no room code, no
 account, no router, no internet.
 
 Each game's rules, its state machines and the decisions behind them:
-[Checkers](docs/checkers.md) &middot;
-[Connect Four](docs/connect-four.md) &middot;
-[Yahtzee](docs/yahtzee.md) &middot;
-[Knucklebones](docs/knucklebones.md) &middot;
-[Minesweeper](docs/minesweeper.md) &middot;
-[Jaipur](docs/jaipur.md) &middot;
-[Sea Salt](docs/seasalt.md) &middot;
-[Murdle](docs/murdle.md) &middot;
-[Toy Battle](docs/toybattle.md).
+[Checkers](docs/apps/checkers.md) &middot;
+[Connect Four](docs/apps/connectfour.md) &middot;
+[Yahtzee](docs/apps/yahtzee.md) &middot;
+[Knucklebones](docs/apps/knucklebones.md) &middot;
+[Minesweeper](docs/apps/minesweeper.md) &middot;
+[Jaipur](docs/apps/jaipur.md) &middot;
+[Sea Salt](docs/apps/seasalt.md) &middot;
+[Murdle](docs/apps/murdle.md) &middot;
+[Toy Battle](docs/apps/toybattle.md).
 How the two physical buttons are used, and why there are only two:
 [buttons](docs/buttons.md).
 

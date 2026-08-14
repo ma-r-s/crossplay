@@ -125,7 +125,7 @@ void addButton(toybox::Screen& screen, fui::ButtonProps props, const fui::Rect& 
 //
 // Worth knowing beyond this app: *every* component truncation in the fork has
 // this defect, because the ellipsis is not in the font. Adding U+2026 to
-// tools_local/gen_toybox_fonts.sh would fix the class, at the cost of
+// tools_local/toybox/gen_toybox_fonts.sh would fix the class, at the cost of
 // regenerating shared font headers.
 void fitLabel(const fui::DrawTarget& target, const char* text, int16_t width, const fui::TextStyle& style, char* out,
               int cap) {

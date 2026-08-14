@@ -513,7 +513,7 @@ bool StudyActivity::persist(const int index, const study::CardState& card, const
 
   // revlog.dat is append-only and never rewritten: it is what deck_to_anki.py
   // replays back into the collection, and what FSRS optimisation would retrain
-  // from. See docs/study-deck-format.md.
+  // from. See docs/apps/study-deck-format.md.
   if (revlogFile_.isOpen()) {
     uint8_t record[32] = {};
     const int64_t nowMs = static_cast<int64_t>(time(nullptr)) * 1000;
@@ -1156,7 +1156,7 @@ void StudyActivity::render(RenderLock&&) {
   } else {
     UITheme::drawCenteredWrappedText(renderer, Rect{0, bodyTop + 40, width, height - bodyTop - 120}, kMeaningFontId,
                                      "No deck on the card yet. On your computer, run: study.py setup. "
-                                     "It finds your Anki collection and puts a deck here. See docs/study.md.",
+                                     "It finds your Anki collection and puts a deck here. See docs/apps/study.md.",
                                      4);
   }
 

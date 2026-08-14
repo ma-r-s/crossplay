@@ -58,7 +58,7 @@ different puzzle, no generator. Only the campaign set is shipped here.
 Two implementations of the rules, in different languages, agreeing on all 65
 puzzles.
 
-**In Python, at generation time.** `tools_local/gen_dungeons.py` reads
+**In Python, at generation time.** `tools_local/dungeon/gen_dungeons.py` reads
 `assets_local/dungeons/dungeons.txt`, solves every puzzle by exhaustive search,
 and refuses to write the header unless each has **exactly one** solution. The
 answer in `DungeonPuzzles.h` is therefore derived, never transcribed, so the
@@ -69,7 +69,7 @@ way no test of the app could catch: the player finds a legal arrangement of
 walls, the game says no, and nothing anywhere is wrong except the data.
 
 ```bash
-python3 tools_local/gen_dungeons.py     # about a minute; prints one line per dungeon
+python3 tools_local/dungeon/gen_dungeons.py     # about a minute; prints one line per dungeon
 ```
 
 **In C++, against the header that ships.** `host-tests/dungeon/` carries a second,

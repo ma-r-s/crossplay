@@ -1,16 +1,16 @@
 #!/bin/bash
-# Regenerate src/apps_local/ui/ToyboxIcons.h from tools_local/icons.txt.
+# Regenerate src/apps_local/ui/ToyboxIcons.h from tools_local/toybox/icons.txt.
 #
 #   brew install librsvg          # rsvg-convert, the only external dependency
-#   ./tools_local/gen_toybox_icons.sh
+#   ./tools_local/toybox/gen_toybox_icons.sh
 #
 # The output is committed, because regenerating needs librsvg and a checkout
 # should build without it. Edit icons.txt, run this, commit both.
 set -euo pipefail
-REPO="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+REPO="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../.." && pwd)"
 cd "$REPO"
 uv run --quiet --with pillow python freeink-sdk/libs/assets/Icons/tools/gen_icons.py \
-  --manifest tools_local/icons.txt \
+  --manifest tools_local/toybox/icons.txt \
   --svgdir freeink-sdk/libs/assets/Icons/lucide/icons \
   --sizes 24,32 \
   --out src/apps_local/ui/ToyboxIcons.h
@@ -25,6 +25,6 @@ echo "wrote src/apps_local/ui/ToyboxIcons.h"
 # by -90 -- so every bitmap in src/components/icons/ is stored rotated +90 to
 # come out upright. Feeding it an upright icon lands it on its side, which is
 # how the joystick first shipped lying down.
-uv run --quiet --with pillow python tools_local/rotate_icons.py \
+uv run --quiet --with pillow python tools_local/toybox/rotate_icons.py \
   src/apps_local/ui/ToyboxIcons.h src/components/icons/shelfIcons.h games apps
 echo "wrote src/components/icons/shelfIcons.h"

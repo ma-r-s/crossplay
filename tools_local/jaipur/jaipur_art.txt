@@ -1,8 +1,8 @@
 # Jaipur's own artwork, generated into src/apps_local/jaipur/JaipurArt.h by
-# tools_local/gen_jaipur_art.sh. Format: alias = svg basename, resolved against
+# tools_local/jaipur/gen_jaipur_art.sh. Format: alias = svg basename, resolved against
 # assets_local/jaipur/.
 #
-# Only the camel is here. The six goods are Lucide, in tools_local/icons.txt,
+# Only the camel is here. The six goods are Lucide, in tools_local/toybox/icons.txt,
 # because the design language's rule is to draw our own only where no good
 # licensed option exists -- and Lucide has no camel, no dromedary and nothing
 # that reads as one. `caravan` is a touring trailer.

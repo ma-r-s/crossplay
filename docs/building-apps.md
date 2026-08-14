@@ -544,7 +544,7 @@ one place to change it and no game can drift to a different glyph. The glyph is
 `radio`: symmetric arcs from a point, a thing here signalling both ways. `wifi`
 was rejected for reading as the internet, `radio-tower` as one-to-many
 broadcast, and `share-2`/`waypoints`/`network` as topology diagrams rather than
-marks. See `tools_local/icons.txt`.
+marks. See `tools_local/toybox/icons.txt`.
 
 **Check what is behind it.** The mark is a 1-bpp mask painted in one colour, so
 it is invisible on a background of that colour and nothing warns you. Drawing it
@@ -791,7 +791,7 @@ can fail".
 | Screen builders               | `<app>/…Screens.cpp`, freestanding                  |
 | The SDK's own UI docs         | `freeink-sdk/docs/freeink-ui.md`                    |
 | Who this device is            | `src/apps_local/player/`, freestanding              |
-| Avatar artwork + generator    | `assets_local/avatar/`, `tools_local/gen_avatar.sh` |
+| Avatar artwork + generator    | `assets_local/avatar/`, `tools_local/avatar/gen_avatar.sh` |
 | Local multiplayer             | `src/apps_local/link/`, freestanding                |
 | Multiplayer, the game's half  | inherit `link/LinkActivity.h` (not freestanding)    |
 | Host tests: rules             | `host-tests/chess/run.sh`                           |

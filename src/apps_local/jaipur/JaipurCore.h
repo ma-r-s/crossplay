@@ -2,7 +2,7 @@
 
 // Jaipur, the rules. Freestanding: no renderer, no Activity, no storage.
 //
-// See docs/jaipur.md for the rulebook this implements and for the two state
+// See docs/apps/jaipur.md for the rulebook this implements and for the two state
 // machines. The short version of the shape:
 //
 //   * `Game` is the whole shared state AND the wire format, 64 bytes. There is
@@ -218,7 +218,7 @@ static_assert(sizeof(Game) == 64, "Game must have no padding: see the comment ab
 
 // What a player is allowed to know. The opponent's hand composition is not a
 // field here, so an AI built on this cannot cheat by construction rather than
-// by discipline. See docs/jaipur.md.
+// by discipline. See docs/apps/jaipur.md.
 struct Observation {
   uint8_t seat = 0;
   uint8_t market[kMarketSlots] = {};

@@ -19,7 +19,7 @@ from reportlab.platypus import (
 # from a worktree wrote into a tree it was not working in.
 from pathlib import Path
 
-OUT = str(Path(__file__).resolve().parents[2] / "docs" / "study-quick-reference.pdf")
+OUT = str(Path(__file__).resolve().parents[2] / "docs" / "apps" / "study-quick-reference.pdf")
 
 styles = getSampleStyleSheet()
 H1 = ParagraphStyle(
@@ -152,7 +152,7 @@ s.append(
         "cannot). Non-CJK decks need no fonts; setup offers a big "
         "headword face from a system font, or bring one with "
         "<font face='Courier'>--font YourFont.ttf</font>. The long version of everything "
-        "on this page is docs/study.md.",
+        "on this page is docs/apps/study.md.",
         NOTE,
     )
 )
@@ -334,7 +334,7 @@ s.append(gaps)
 s.append(Spacer(1, 5))
 s.append(
     Paragraph(
-        "Full detail: docs/study-deck-format.md &nbsp;&middot;&nbsp; "
+        "Full detail: docs/apps/study-deck-format.md &nbsp;&middot;&nbsp; "
         "scheduler notes in src/apps_local/study/StudyFsrs.h",
         NOTE,
     )

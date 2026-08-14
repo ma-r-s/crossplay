@@ -1,5 +1,5 @@
 # The Insider word deck, generated into src/apps_local/insider/InsiderWords.h
-# by tools_local/gen_insider_words.py. One word per line, uppercase, sorted.
+# by tools_local/insider/gen_insider_words.py. One word per line, uppercase, sorted.
 #
 # Carried over from the Pint & Play prototype (565 entries, 5 of them duplicates).
 # They are concrete everyday nouns, which is exactly what a twenty-questions

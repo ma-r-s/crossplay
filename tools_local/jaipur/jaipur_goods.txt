@@ -1,8 +1,8 @@
 # Jaipur's six goods and its bonus mark, generated into
-# src/apps_local/jaipur/JaipurGoods.h by tools_local/gen_jaipur_art.sh.
+# src/apps_local/jaipur/JaipurGoods.h by tools_local/jaipur/gen_jaipur_art.sh.
 # Format: alias = lucide-name.
 #
-# Separate from tools_local/icons.txt because these are the only icons in the
+# Separate from tools_local/toybox/icons.txt because these are the only icons in the
 # fork that need a 44px cut, for the market cards, and asking the shared
 # generator for it produced a 44px copy of all 42 shelf icons.
 #
