@@ -14,8 +14,8 @@ upstream's to own. We do not fork it, improve it, or diverge from it. Anything
 that makes reading better belongs upstream, so send it there.
 
 What we add is **games and small tools that make the device worth carrying
-instead of a phone**. Four games are here now; a spaced-repetition trainer and a
-Hacker News reader are next.
+instead of a phone**. Eighteen apps are here now: fifteen games, a
+spaced-repetition trainer, a Hacker News reader and an xkcd viewer.
 
 ## The one rule that keeps this sustainable
 
@@ -25,33 +25,48 @@ how much upstream-owned code it touches.
 - **Everything we add lives in new files**: `src/apps_local/`, `host-tests/`,
   `scripts_local/`, `tools_local/`, and our own `docs/`. New files never
   conflict.
-- **Seven upstream files know we exist**, most of them pointers or one-liners.
-  The list is below, and none of them grows when we add an app.
+- **Twenty-eight upstream files know we exist.** Half are the fork's identity
+  (README, LICENSE, templates, workflows); the code seams are in the table
+  below, and none of them grows when we add an app. `sync.sh` no longer keeps
+  a copy of this list: it computes the conflict set from git, so it cannot go
+  stale the way the hand-kept list did (it sat at seven entries while the
+  truth grew past twenty).
 - **Before editing any other upstream file, stop and ask whether it can be done
   in `src/apps_local/` instead.** If it genuinely cannot, keep the edit as small
-  and as structurally stable as possible, and add it to the table below and to
-  the `OWNED` list in `scripts_local/sync.sh`.
+  and as structurally stable as possible, and add it to the table below.
 
 `git diff base..xteink` is the whole fork. Keep reading that number.
 
 ### The upstream files we own
 
-| File                                       | Why                                                                                                   | Size                 |
-| ------------------------------------------ | ----------------------------------------------------------------------------------------------------- | -------------------- |
-| `src/activities/home/HomeActivity.cpp`     | The shelf seam: Games and Apps as rows on Home                                                        | 4 hooks, fixed       |
-| `src/components/themes/BaseTheme.h`        | Two values appended to the `UIIcon` palette: Games, Apps                                              | 1 block, appended    |
-| `src/components/themes/lyra/LyraTheme.cpp` | Two cases mapping them to bitmaps                                                                     | 4 lines              |
-| `.skills/SKILL.md` (= `CLAUDE.md`)         | Four-line pointer here, so agents find the fork rules                                                 | 4 lines              |
-| `.gitignore`                               | Ignore `qa-artifacts/` and the simulator's SD cards                                                   | 3 lines, append-only |
-| `platformio.ini`                           | One `extra_configs` line pulling in `platformio.sim.ini`                                              | 1 line               |
-| `lib/hal/HalStorage.{h,cpp}`               | `openFileForAppend()`: `openFileForWrite` carries `O_TRUNC`, so nothing could add to an existing file | 1 method             |
-| `SCOPE.md`                                 | One-line pointer here; it is the file that says "no games"                                            | 2 lines              |
+The code seams, each a deliberate, commented edit:
 
-None of them grows when an app is added -- the two theme edits are per _folder_,
-and there are two folders. Both are appends: values at the end of an enum keep
-every number above them, and a case in a switch merges as an addition.
-`HomeActivity.cpp`'s hooks likewise append after upstream's rows, so their
-indices never shift.
+| File                                           | Why                                                                                                                  | Size                 |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | -------------------- |
+| `src/activities/home/HomeActivity.{cpp,h}`     | The shelf seam: Games and Apps as rows on Home, plus the `upstreamMenuRows()` count                                  | 4 hooks + 1 method   |
+| `src/components/themes/BaseTheme.h`            | Two values appended to the `UIIcon` palette: Games, Apps                                                             | 1 block, appended    |
+| `src/components/themes/lyra/LyraTheme.cpp`     | Two cases mapping them to bitmaps                                                                                    | 4 lines              |
+| `src/activities/ActivityManager.cpp`           | Task stack default made overridable: FreeInkUI's deepest path needs 9440 bytes, the number lives in `platformio.ini` | 1 `#ifndef`          |
+| `src/network/OtaUpdater.cpp`                   | Release URL repointed at `ma-r-s/crossplay`: pointing at upstream would flash a C3 build onto an S3                  | 1 URL + comment      |
+| `lib/hal/HalStorage.{h,cpp}`                   | `openFileForAppend()`: `openFileForWrite` carries `O_TRUNC`, so nothing could add to an existing file                | 1 method             |
+| `lib/GfxRenderer/GfxRenderer.cpp`              | Thick lines thicken across their direction, not always downward: vertical paths drew 1px                             | 1 fix                |
+| `lib/PngToBmpConverter/PngToBmpConverter.*`    | `...FitWithin()`: contain, not cover, for bounding downloaded images                                                 | 1 method             |
+| `lib/KOReaderSync/KOReaderCredentialStore.cpp` | A comment saying out loud that sync stays on upstream's server, and why                                              | comment only         |
+| `.gitignore`                                   | Ignore `qa-artifacts/` and the simulator's SD cards                                                                  | 3 lines, append-only |
+| `platformio.ini`                               | One `extra_configs` line pulling in `platformio.sim.ini`                                                             | 1 line               |
+| `.skills/SKILL.md` (= `CLAUDE.md`)             | The read-this-first banner pointing here, so agents find the fork rules                                              | ~20 lines            |
+| `SCOPE.md`                                     | One-line pointer here; it is the file that says "no games"                                                           | 2 lines              |
+
+The rest of the twenty-eight are identity, not seams: `README.md`, `LICENSE`,
+`GOVERNANCE.md`, `ROADMAP.md`, `.github/` templates, funding and workflows,
+`.claude/skills/README.md`. They are this fork's front matter and merge
+trivially or not at all.
+
+None of the seams grows when an app is added -- the two theme edits are per
+_folder_, and there are two folders. Both are appends: values at the end of an
+enum keep every number above them, and a case in a switch merges as an
+addition. `HomeActivity.cpp`'s hooks likewise append after upstream's rows, so
+their indices never shift.
 
 Three deliberate near-misses, worth knowing so nobody "fixes" them:
 
@@ -105,9 +120,12 @@ no heap) is what makes that split possible, and it is the only way to get real
 coverage without a device.
 
 ```bash
-./scripts/check.sh          # every suite, both builds
-./scripts/check.sh --tests  # suites only, fast
+./scripts_local/check.sh          # every suite, both builds
+./scripts_local/check.sh --tests  # suites only, fast
 ```
+
+(Inside a worktree always call `./scripts_local/`; the workspace-root
+`./scripts/` symlinks resolve back to the integration tree.)
 
 Each suite builds into a directory keyed to **this checkout**, not just the
 suite name. Two worktrees once shared one build dir, and a suite whose source
@@ -133,17 +151,28 @@ this bug mine or theirs".
 ./scripts/sync.sh --apply   # merge and verify in a trial worktree, then land
 ```
 
-### The base is an unmerged upstream branch, on purpose
+### The base branch died, and this fork inherited it
 
-`base` tracks **`crosspoint/feat-touch-ui`**, not `develop`. X4 Pro support is
-not in `develop`; `feat-touch-ui` is where it lives and where CrossPoint's public
-X4 Pro betas are built from. It merges `develop` into itself every few days, so
-it does not drift.
+Until 2026-08-14 `base` tracked **`crosspoint/feat-touch-ui`**: the X4 Pro
+beta branch, the only place X4 Pro and touch support lived. Upstream deleted
+that branch without merging it. Its content is not in `develop`, not in
+`master`, not anywhere upstream -- `xteink` is its only living continuation,
+and our pushed copy survives as `origin/feat-touch-ui`. The touch layer this
+fork's eighteen apps sit on is therefore ours to carry now, not a passthrough.
 
-The one failure mode is that it could be squash-merged and deleted. `sync.sh`
-checks for exactly that on every run and tells you to re-point `base` at
-`develop`. If you see that message, do it there and here, and confirm `develop`
-still builds `-e x4pro` before syncing.
+`base` now tracks **`crosspoint/develop`**, the durable trunk, re-founded at
+`v1.5.0` (`e00f5958`): the last develop commit fully contained in `xteink`.
+That keeps both invariants true -- `base` is always an ancestor of `xteink`,
+and `sync.sh`'s behind-count is the truth.
+
+Upstream is meanwhile **reimplementing** X4 Pro + touch support on
+`crosspoint/feat-x4-papermono-support` (based on develop, not on
+feat-touch-ui). One day that lands in develop and a sync will offer this fork
+a second, competing touch implementation: 80 conflicting files at last
+measure, most of them the reader activities and the input layer. That merge is
+a sit-down decision about which implementation survives where, not a routine
+sync. `sync.sh` reports that branch's movement on every run so it cannot creep
+up on anyone.
 
 ## Why this base at all
 

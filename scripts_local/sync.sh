@@ -34,23 +34,16 @@ cd "$REPO"
 
 WORK_BRANCH="xteink"
 MIRROR="base"
-# The branch CrossPoint ships X4 Pro betas from. Not develop: X4 Pro support is
-# not merged there. See the lifecycle warning below.
-TRACKED="crosspoint/feat-touch-ui"
+# The durable upstream trunk. This fork was based on crosspoint/feat-touch-ui,
+# the X4 Pro beta branch, until upstream deleted it unmerged (found
+# 2026-08-14): xteink is that branch's only continuation, and our pushed copy
+# survives as origin/feat-touch-ui. Upstream is reimplementing X4 Pro + touch
+# support on crosspoint/feat-x4-papermono-support, based on develop, and it
+# should land in develop for a future release. So track develop -- feature
+# branches get deleted, trunks do not -- and treat papermono as the thing to
+# watch below, not the thing to mirror. See LOCAL_SCOPE.md, "Branches".
+TRACKED="crosspoint/develop"
 TRIAL="${TMPDIR:-/tmp}/xteink-sync-trial"
-
-# The upstream-owned files this fork modifies. Kept in sync with LOCAL_SCOPE.md.
-# Everything else we own is new files under src/apps_local/, host-tests/,
-# scripts_local/ or docs/, which cannot conflict.
-OWNED=(
-  "src/activities/home/HomeActivity.cpp"
-  "src/components/themes/BaseTheme.h"
-  "src/components/themes/lyra/LyraTheme.cpp"
-  ".skills/SKILL.md"
-  ".gitignore"
-  "platformio.ini"
-  "SCOPE.md"
-)
 
 # --ignore-submodules=untracked: the icon tools drop a __pycache__/ inside
 # freeink-sdk, which is untracked content in a submodule. Without this the tree
@@ -60,25 +53,32 @@ dirty_files() {
   git status --porcelain --ignore-submodules=untracked | sed 's/^...//'
 }
 
-git fetch --quiet crosspoint
+# --prune matters: without it a branch deleted upstream lingers as a local
+# remote-tracking ref forever. feat-touch-ui was deleted upstream and this
+# script kept reporting against the corpse for a week before anyone noticed.
+git fetch --quiet --prune crosspoint
 
-# --- the feature-branch lifecycle -------------------------------------------
-# This fork is based on an unmerged upstream branch, which is a deliberate
-# choice (it is the only place X4 Pro support lives, and it is where the public
-# betas come from) with one failure mode: the branch can be squash-merged and
-# deleted. Check for that before anything else, because the fix is to re-point
-# the mirror at develop, not to debug a sync.
+# --- the branch lifecycle ---------------------------------------------------
 if ! git rev-parse --quiet --verify "$TRACKED" >/dev/null; then
   echo "!! $TRACKED is gone from the remote."
-  echo "   It has most likely landed in develop. Re-point MIRROR at"
-  echo "   crosspoint/develop here and in LOCAL_SCOPE.md, confirm develop still"
-  echo "   builds -e x4pro, then sync."
+  echo "   That should not happen to a trunk. Look at the remote's branches"
+  echo "   before anything else; re-point TRACKED and LOCAL_SCOPE.md at"
+  echo "   whatever succeeded it, and confirm it still builds -e x4pro."
   exit 1
 fi
-if git merge-base --is-ancestor "$TRACKED" crosspoint/develop 2>/dev/null; then
-  echo "note: $TRACKED is now contained in crosspoint/develop."
-  echo "      Consider re-pointing this script and LOCAL_SCOPE.md at develop;"
-  echo "      tracking a merged branch means missing everything after it."
+# The X4 Pro work upstream is rebuilding (after deleting the line this fork is
+# based on) rides this branch. Merging it is a sit-down event -- it is a second
+# touch implementation competing with the one xteink inherited, 80 conflicting
+# files at last measure -- so surface its movement here, where a sync starts.
+PM="crosspoint/feat-x4-papermono-support"
+if git rev-parse --quiet --verify "$PM" >/dev/null; then
+  echo "watching: $PM is $(git rev-list --count "$TRACKED..$PM") commit(s) ahead of $TRACKED"
+  echo "          (upstream's X4 Pro line; see LOCAL_SCOPE.md before merging it)"
+  echo
+else
+  echo "note: $PM is gone from the remote. Upstream's X4 Pro work has"
+  echo "      presumably landed in $TRACKED; the next sync carries it."
+  echo "      Read LOCAL_SCOPE.md's branch section before running --apply."
   echo
 fi
 
@@ -98,15 +98,22 @@ echo
 git log --oneline --no-decorate "$MIRROR..$TRACKED" | sed 's/^/  /'
 
 echo
-echo "upstream changes touching files this fork also modifies:"
+echo "upstream changes touching files this side also changed:"
+# Computed, never listed. A hand-kept OWNED list stood at seven entries while
+# the true overlap had grown past twenty; a warning that misses the likeliest
+# collision sites is worse than none. A file can conflict exactly when both
+# sides changed it since the fork point, so ask git for that set.
+FORK_POINT=$(git merge-base "$WORK_BRANCH" "$TRACKED")
 HIT=0
-for f in "${OWNED[@]}"; do
+while IFS= read -r f; do
   n=$(git rev-list --count "$MIRROR..$TRACKED" -- "$f")
   if [ "$n" -gt 0 ]; then
     echo "  !! $f ($n commit(s)) -- expect a conflict"
     HIT=1
   fi
-done
+done < <(comm -12 \
+  <(git diff --name-only "$FORK_POINT..$TRACKED" | sort) \
+  <(git diff --name-only "$FORK_POINT..$WORK_BRANCH" | sort))
 [ "$HIT" -eq 0 ] && echo "  none -- this sync should merge cleanly"
 
 # A dirty tree is fine as long as upstream did not touch the same files. If it
