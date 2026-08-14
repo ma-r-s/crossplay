@@ -5,3 +5,6 @@
 # Keep this in step with site/README.md: every script it documents belongs here.
 *.py
 README.md
+# sim-shot capture recipes: replay scripts for regenerating the screenshots,
+# consumed by scripts_local on a laptop, loaded by no page.
+recipes/

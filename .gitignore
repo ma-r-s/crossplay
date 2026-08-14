@@ -54,3 +54,4 @@ qa-artifacts/
 # Tool cache. It holds an account id and an email address and has no business
 # in a public repo.
 .cloudflare/
+.ruff_cache/
