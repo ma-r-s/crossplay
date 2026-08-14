@@ -698,6 +698,94 @@ void testConnectionsCalendarEveryDayIsReachable() {
   CHECK(sawMonth);
 }
 
+// The ornament is a control, and the how-to exists.
+//
+// The bracketed 4x4 in the middle of the menu is the largest object on the
+// screen and wears the chess board's corner brackets; it drew for a year and
+// answered nothing, and a tester tapped it and reported the app as broken.
+// It routes to the archive now, which is what a picture of your last sixteen
+// days should open.
+void testConnectionsMenuOrnamentOpensArchive() {
+  connectionsui::MenuModel model;
+  model.hasPuzzles = true;
+  model.newestDate = 20260812;
+  model.puzzleCount = 1150;
+  model.played = 12;
+  model.perfect = 4;
+  model.streak = 3;
+
+  Rendered out;
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  connectionsui::buildMenu(screen, model);
+
+  CHECK(!out.interactions.overflowed());
+  CHECK(out.target.drew("HOW TO PLAY"));
+  CHECK(out.target.drew("LAST 16 DAYS"));
+
+  // Dead centre of the block. Its geometry is body-relative, so this asserts
+  // through the caption rather than against a hardcoded rect: whatever the
+  // block's own bounds are, the middle of the screen between the stats rule and
+  // the doors belongs to it.
+  const FakeTarget::TextRun* caption = out.target.find("LAST 16 DAYS");
+  CHECK(caption != nullptr);
+  if (caption != nullptr) {
+    const fui::ActionEvent hit = out.tap(ctx.width / 2, caption->rect.y - 60);
+    CHECK(hit.action == connectionsui::ActionNewest);
+    CHECK(hit.value == 1);  // 1 = archive, the same value the ARCHIVE row sends
+  }
+
+  // All three doors still answer. The third row was bought by shrinking the
+  // ornament, so this is the assertion that catches it being bought by pushing
+  // a door off the bottom instead.
+  int archive = 0;
+  int puzzles = 0;
+  int howTo = 0;
+  for (size_t i = 0; i < out.interactions.count(); ++i) {
+    const fui::Interaction& it = out.interactions.data()[i];
+    if (it.action != connectionsui::ActionNewest) continue;
+    if (it.value == 1) ++archive;
+    if (it.value == 2) ++puzzles;
+    if (it.value == 3) ++howTo;
+  }
+  CHECK(archive == 2);  // the ARCHIVE row and the ornament
+  CHECK(puzzles == 1);
+  CHECK(howTo == 1);
+}
+
+void testConnectionsHowToFitsOnePage() {
+  Rendered out;
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  connectionsui::buildHowTo(screen);
+
+  CHECK(!out.interactions.overflowed());
+  CHECK(out.target.drew("SIXTEEN WORDS, FOUR GROUPS"));
+  // The board is the page. All sixteen words, and the taken group's name.
+  CHECK(out.target.drew("WET WEATHER"));
+  CHECK(out.target.drew("HAIL"));
+  CHECK(out.target.drew("CERES"));
+  // The two facts the picture cannot say, which the chosen variant was missing
+  // until they were added: what the pips mean and what SHUFFLE does.
+  CHECK(out.target.drew("wrong guesses left"));
+  CHECK(out.target.drew("SHUFFLE only moves the tiles. It never changes the answer."));
+
+  // One page means one page: nothing may be drawn below the fold. A how-to that
+  // runs off the bottom is worse than none, because the part that falls off is
+  // the part the reader has not read yet and there is no scrollbar to say so.
+  for (const auto& run : out.target.texts) {
+    CHECK(run.rect.y + run.rect.height <= ctx.height);
+  }
+
+  // Tap anywhere leaves.
+  const fui::ActionEvent hit = out.tap(ctx.width / 2, ctx.height / 2);
+  CHECK(hit.action == connectionsui::ActionHowTo);
+}
+
 // --- battleship -------------------------------------------------------------
 
 void buildBattleshipStart(Rendered& out, const bshipui::StartModel& model) {
@@ -4132,6 +4220,8 @@ int main() {
   testConnectionsLostBoard();
   testConnectionsWonBoard();
   testConnectionsCalendarEveryDayIsReachable();
+  testConnectionsMenuOrnamentOpensArchive();
+  testConnectionsHowToFitsOnePage();
   testBattleshipStartMenu();
   testBattleshipCapsuleIsOnlyATriggerWhenItSaysSo();
   testBattleshipPlacementControls();

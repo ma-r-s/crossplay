@@ -11,7 +11,10 @@ namespace {
 // is what makes the block height conserved. Row height is derived now.
 constexpr int kStatusHeight = 34;
 
-void toyboxChrome(toybox::Screen& screen, const char* title, const char* rightLabel) {
+// `doorAction` makes the header's right side a control, the way Murdle's does.
+// Left at NO_ACTION the header is inert, which is every other caller.
+void toyboxChrome(toybox::Screen& screen, const char* title, const char* rightLabel,
+                  const fui::ActionId doorAction = fui::NO_ACTION) {
   fui::HeaderProps header;
   header.title = title;
   header.rightLabel = rightLabel;
@@ -28,6 +31,13 @@ void toyboxChrome(toybox::Screen& screen, const char* title, const char* rightLa
   const fui::Rect band = screen.device().screen();
   screen.target().fill(fui::makeRect(0, toybox::kHeaderHeight + 4, band.width, toybox::kRule),
                        fui::Paint::solid(fui::Color::Black));
+  if (doorAction != fui::NO_ACTION) {
+    // Registered after the header drew, so the hit rect and the label come from
+    // the same band and cannot drift apart.
+    screen.frame().hit(fui::makeRect(static_cast<int16_t>(band.width * 3 / 5), 0,
+                                     static_cast<int16_t>(band.width * 2 / 5), toybox::kHeaderHeight),
+                       doorAction, 0);
+  }
 }
 
 // Lays a tile's word out over up to three centred lines, breaking inside a word
@@ -762,33 +772,162 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   statsStyle.align = fui::TextAlign::Left;
   screen.target().text(fui::makeRect(body.x, body.y + 122, body.width, 24), stats, statsStyle);
 
-  const int grid = 216;
-  const fui::Rect gridBox = fui::makeRect(body.x + (body.width - grid) / 2, body.y + 228, grid, grid);
+  // 196 and 200, not 216 and 228. The third door below costs a row, and it is
+  // paid for out of the ornament rather than out of the masthead or the stats,
+  // both of which are text that would have to shrink to give it up. Chosen
+  // against two alternatives rendered side by side: one where the ornament kept
+  // its size and swallowed the ARCHIVE row, and one where the how-to moved into
+  // the header. Both of the tester's complaints here were discoverability, and
+  // this is the only arrangement that answers each with a label rather than
+  // with an inference.
+  const int grid = 196;
+  const fui::Rect gridBox = fui::makeRect(body.x + (body.width - grid) / 2, body.y + 200, grid, grid);
   drawBrackets(screen, fui::makeRect(gridBox.x - 22, gridBox.y - 22, grid + 38, grid + 38), 34);
   drawRecentGrid(screen, gridBox, model);
+
+  // The bracketed block is a control now, and it always looked like one.
+  //
+  // It is the largest object on the screen and it wears the same corner
+  // brackets as the chess board, so a tester tapped it and got nothing: "not
+  // sure what this is? ... touching the middle squares ... don't do anything".
+  // Sixteen days of your own record is a picture of the archive, so the archive
+  // is where it goes. No new control, no change to what is drawn -- the thing
+  // that looked tappable now is.
+  screen.frame().hit(gridBox, ActionNewest, 1);
 
   fui::TextStyle caption;
   caption.font = toybox::kTileFont;
   caption.align = fui::TextAlign::Center;
-  screen.target().text(fui::makeRect(body.x, gridBox.bottom() + 30, body.width, 24), "LAST 16 DAYS", caption);
+  screen.target().text(fui::makeRect(body.x, gridBox.bottom() + 26, body.width, 24), "LAST 16 DAYS", caption);
 
-  fui::ListItem rows[2];
+  fui::ListItem rows[3];
   for (auto& r : rows) r = fui::ListItem{};
   char total[16] = "";
   std::snprintf(total, sizeof(total), "%d", model.puzzleCount);
-  rows[0].label = "ARCHIVE";
-  rows[0].value = total;
-  rows[0].actionValue = 1;
-  rows[1].label = model.upToDate ? "ALL CAUGHT UP" : "GET PUZZLES";
-  rows[1].value = model.upToDate ? "" : "WI-FI";
-  rows[1].enabled = !model.upToDate;
-  rows[1].actionValue = 2;
+  rows[0].label = "HOW TO PLAY";
+  rows[0].actionValue = 3;
+  rows[1].label = "ARCHIVE";
+  rows[1].value = total;
+  rows[1].actionValue = 1;
+  rows[2].label = model.upToDate ? "ALL CAUGHT UP" : "GET PUZZLES";
+  rows[2].value = model.upToDate ? "" : "WI-FI";
+  rows[2].enabled = !model.upToDate;
+  rows[2].actionValue = 2;
   fui::ListProps list;
   list.items = rows;
-  list.count = 2;
+  list.count = 3;
   list.selectedIndex = -1;
   list.action = ActionNewest;
-  screen.list(list, 2 * (toybox::kRowHeight + 4), fui::LayoutAnchor::Bottom);
+  screen.list(list, 3 * (toybox::kRowHeight + 4), fui::LayoutAnchor::Bottom);
+}
+
+// One page, and it is mostly a board.
+//
+// Chosen against a page of prose and a numbered rules card, rendered side by
+// side. The problem this screen exists to solve is recognition -- a tester who
+// plays this shelf's other games could not tell what Connections was ("not sure
+// what this is?") -- and a picture of a real board with one group already taken
+// answers that faster than any paragraph. The prose that remains is only the
+// things the picture cannot say.
+void buildHowTo(toybox::Screen& screen) {
+  toyboxChrome(screen, "HOW TO PLAY", nullptr);
+  screen.insetContent(fui::Insets{toybox::kGutter, toybox::kMargin, toybox::kMargin, toybox::kMargin});
+  auto& target = screen.target();
+  const fui::Rect body = screen.body();
+  const fui::Paint ink = fui::Paint::solid(fui::Color::Black);
+
+  fui::TextStyle heading;
+  heading.font = toybox::kUiFont;
+  heading.align = fui::TextAlign::Left;
+  const int16_t headH = target.lineHeight(toybox::kUiFont);
+  const int16_t proseH = target.lineHeight(toybox::kTileFont);
+  const int16_t demoW = static_cast<int16_t>((body.width - 3 * kTileGap) / 4);
+
+  fui::TextStyle lead;
+  lead.font = toybox::kTileFont;
+  lead.align = fui::TextAlign::Left;
+  lead.maxLines = 2;
+
+  int16_t y = body.y;
+  target.text(fui::makeRect(body.x, y, body.width, headH), "SIXTEEN WORDS, FOUR GROUPS", heading);
+  y = static_cast<int16_t>(y + headH + 6);
+  target.text(fui::makeRect(body.x, y, body.width, static_cast<int16_t>(proseH * 2)),
+              "Tap four that share something, then SUBMIT. Four wrong guesses and it is over.", lead);
+  y = static_cast<int16_t>(y + proseH * 2 + 20);
+
+  const int16_t tileH = 54;
+  // The solved row carries a group name AND its four words, so it needs the
+  // height of both. At the plain tile height the name printed straight through
+  // the words -- which is exactly what the real board reserves a taller row for.
+  const int16_t solvedH = static_cast<int16_t>(proseH * 2 + 20);
+  static const char* kBoard[4][4] = {
+      {"HAIL", "SLEET", "RAIN", "SNOW"},
+      {"BOB", "OTTO", "ANNA", "EWE"},
+      {"REED", "PIPE", "DRUM", "HORN"},
+      {"MARS", "VENUS", "PLUTO", "CERES"},
+  };
+  fui::TextStyle tileText;
+  tileText.font = toybox::kTileFont;
+  tileText.align = fui::TextAlign::Center;
+  fui::TextStyle solvedText = tileText;
+  solvedText.color = fui::Color::White;
+  for (int r = 0; r < 4; ++r) {
+    const int16_t rowY = static_cast<int16_t>(r == 0 ? y : y + solvedH + kTileGap + (r - 1) * (tileH + kTileGap));
+    if (r == 0) {
+      // The taken group: one filled row, the way the board does it -- name over
+      // members, both knocked out white.
+      target.fill(fui::makeRect(body.x, rowY, body.width, solvedH), ink);
+      target.text(fui::makeRect(body.x, static_cast<int16_t>(rowY + 6), body.width, proseH), "WET WEATHER",
+                  solvedText);
+      for (int c = 0; c < 4; ++c) {
+        target.text(fui::makeRect(static_cast<int16_t>(body.x + c * (demoW + kTileGap)),
+                                  static_cast<int16_t>(rowY + proseH + 12), demoW, proseH),
+                    kBoard[r][c], solvedText);
+      }
+      continue;
+    }
+    for (int c = 0; c < 4; ++c) {
+      const fui::Rect tile =
+          fui::makeRect(static_cast<int16_t>(body.x + c * (demoW + kTileGap)), rowY, demoW, tileH);
+      target.stroke(tile, ink, toybox::kHairline);
+      target.text(fui::makeRect(tile.x, static_cast<int16_t>(rowY + (tileH - proseH) / 2), demoW, proseH),
+                  kBoard[r][c], tileText);
+    }
+  }
+  y = static_cast<int16_t>(y + solvedH + 4 * kTileGap + 3 * tileH + 16);
+
+  fui::TextStyle note;
+  note.font = toybox::kTileFont;
+  note.align = fui::TextAlign::Left;
+  note.maxLines = 2;
+  target.text(fui::makeRect(body.x, y, body.width, static_cast<int16_t>(proseH * 2)),
+              "WET WEATHER is solved and has closed up. ONE AWAY means three of your four were right.", note);
+  y = static_cast<int16_t>(y + proseH * 2 + 14);
+
+  // The pips are drawn, not described, for the same reason the board above is:
+  // this is the variant that shows things. Four filled dots is what a fresh
+  // puzzle's mistake budget actually looks like at the foot of the board, so
+  // the reader recognises it there rather than having to decode a sentence.
+  const int16_t pip = 16;
+  for (int i = 0; i < connections::kMaxMistakes; ++i) {
+    target.fill(fui::makeRect(static_cast<int16_t>(body.x + i * (pip + 8)), y, pip, pip), ink,
+                static_cast<uint8_t>(pip / 2));
+  }
+  fui::TextStyle pipLabel;
+  pipLabel.font = toybox::kTileFont;
+  pipLabel.align = fui::TextAlign::Left;
+  const int16_t pipBand = static_cast<int16_t>(connections::kMaxMistakes * (pip + 8) + 8);
+  target.text(fui::makeRect(static_cast<int16_t>(body.x + pipBand), static_cast<int16_t>(y - 4),
+                            static_cast<int16_t>(body.width - pipBand), proseH),
+              "wrong guesses left", pipLabel);
+  y = static_cast<int16_t>(y + pip + 16);
+
+  target.text(fui::makeRect(body.x, y, body.width, static_cast<int16_t>(proseH * 2)),
+              "SHUFFLE only moves the tiles. It never changes the answer.", note);
+
+  // Tap anywhere to leave, the same contract Murdle's how-to uses. Registered
+  // last so it sits under everything above rather than over it.
+  screen.frame().hit(screen.device().screen(), ActionHowTo, 0);
 }
 
 }  // namespace connectionsui

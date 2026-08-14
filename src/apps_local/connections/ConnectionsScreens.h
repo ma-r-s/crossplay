@@ -27,7 +27,9 @@ enum : fui::ActionId {
   ActionCalendarToday = 10,
   ActionCalendarYear = 11,   // value = -1 or +1
   ActionCalendarMonth = 12,  // value = -1 or +1
+  ActionHowTo = 13,
 };
+
 
 // Grid geometry. Tighter margins than the rest of Toybox on purpose: a tile's
 // content is a word that cannot be abbreviated, so every pixel of width buys
@@ -194,6 +196,16 @@ struct MenuModel {
 };
 
 void buildMenu(toybox::Screen& screen, const MenuModel& model);
+
+// One page, because the game is one sentence plus the things that sentence does
+// not tell you. A tester who plays this shelf's other games could not tell what
+// Connections was ("not sure what this is?"), and it is one of the few here
+// without a how-to at all -- nine of the games have one, and every game that
+// tester called good has one except two.
+//
+// No model: nothing on this page depends on the player's state. It takes a
+// Screen and draws.
+void buildHowTo(toybox::Screen& screen);
 
 // "20260802" -> "2 AUG 2026". Written into `out` (at least 16 bytes).
 void formatDate(uint32_t date, char* out, int cap);
