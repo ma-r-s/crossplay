@@ -1,6 +1,8 @@
 # Open items
 
-Things known to be unfinished, as of 2026-08-07, the day v1.0.0 was published.
+Things known to be unfinished. Written 2026-08-07, the day v1.0.0 was published;
+the first three items revised 2026-08-14 after the first tester session on real
+hardware.
 
 This is not a roadmap and not a wishlist. Everything here is either a promise
 the project has not kept yet or a known way it can mislead someone. Anything
@@ -9,19 +11,86 @@ to age.
 
 Ordered by what would embarrass the project soonest, not by effort.
 
-## No one has run this on a physical device
+## Someone has now run this on a physical device, once
 
-The whole thing is developed against a desktop simulator and a browser build of
-the same sources. Both are the real firmware, but neither is a panel, and
-nothing here has met an e-ink refresh, a real SD card, a battery, or the
-frontlight.
+Updated 2026-08-14. A tester flashed v1.2.1 to an X4 Pro and played most of the
+shelf. That closes the "nobody has ever booted it" version of this item; what
+follows replaces it.
 
-The v1.0.0 release notes say this in the first paragraph under "Before you flash
-this", and the site says it too. The item stays open until someone flashes an
-X4 Pro and reports back.
+**What one session on real hardware found**, none of which any test caught:
 
-**Done looks like:** one confirmed boot on real hardware, and either a green
-report in the README or a list of what broke.
+- Murdle threw away most of its taps and its Back swipe, because it pumped the
+  input manager a second time each frame and wiped the edges main.cpp had just
+  latched. It was effectively unplayable.
+- The Connections archive was dead from the 20th of any month onward: one
+  interaction slot per date overflowed the 24-slot buffer.
+- No covered card in Solitaire had ever shown its suit, in a game whose only
+  rule is that runs alternate colour.
+
+All three are fixed. The lesson is the ratio: three real defects in one sitting,
+against a suite that runs 22,000+ assertions and was green throughout. **One
+tester-hour is worth more than any number of host assertions for anything the
+eye or the finger judges.**
+
+Still true, and still the biggest gap: **Mario does not own the device**, so
+every session after this one is back to the simulator, which fakes buttons the
+hardware does not have and refreshes instantly where the panel takes hundreds of
+milliseconds.
+
+**Done looks like:** a second tester pass on a build that contains these fixes,
+and a green report in the README naming the version that was actually flashed.
+
+## Nothing knows what a refresh costs, so nothing can be tuned for feel
+
+The tester's first sentence about Murdle was two complaints, not one: taps did
+nothing (fixed), **and** it was hard to tell when a tap was acknowledged (not
+fixed, and not fixable from here).
+
+On this device a tap produces no feedback whatsoever until the result is drawn.
+No app on the shelf arms `InteractionBuffer::setFlash`, the SDK's own
+tap-acknowledgment, and nothing exposes a way to repaint the touched element
+before the action lands.
+
+The obvious fix is worse than the disease: acknowledging a tap with a full-screen
+repaint costs a whole refresh, so the user waits once to be told they are
+waiting, then again for the answer. Every real e-reader avoids this by repainting
+a _region_ rather than the panel -- partial updates run roughly 200-600ms against
+1500-3000ms for a full one, and the fast black-and-white modes (A2/DU) are
+cheaper still and exactly good enough for a pressed button.
+
+We have the primitive and cannot reach it: `FreeInkDisplay::displayWindow(x, y,
+w, h)` exists, is marked EXPERIMENTAL, and `HalDisplay` exposes only three
+whole-screen modes. There is even a `syncWriteBufferFromActive()` whose comment
+describes "patching a few regions and re-displaying instead of fully
+re-rendering".
+
+**The blocker is a measurement, not a design.** Nobody knows what a FAST_REFRESH
+costs on an X4 Pro; the SDK's own comment says refreshes are "~0.3-2 s" and that
+is the whole of our knowledge. Every argument about whether tap feedback is worth
+it rests on a number nobody has taken. Same shape as the Murdle generator, where
+the fix was making the device report its own elapsed milliseconds instead of
+estimating them.
+
+**Done looks like:** two numbers off real hardware -- a full FAST_REFRESH, and a
+`displayWindow` of a button-sized rect -- and then a decision. If a region update
+is fast, wire it through the HAL and acknowledge taps the way every e-reader
+does. If `displayWindow` is experimental because it does not work, say so here
+and instead reduce how many taps a game needs.
+
+## Flash is at 95.9% and every new screen costs some
+
+6,283,218 bytes of 6,553,600 after the Connections how-to, which itself cost
+1,704. About 270KB left.
+
+Nothing is broken and no single change caused it, which is exactly why it is
+worth writing down: the failure mode is a build that does not fit, arriving
+without warning, on whichever app happens to be next. Battleship and d&diagrams
+both want a how-to of their own, at roughly the same price each.
+
+**Done looks like:** a measurement of what actually occupies the binary (fonts
+are the first suspect -- 80+ global `EpdFont` objects, though those are flash
+constants by design), and either headroom recovered or a written ceiling on how
+many more apps fit.
 
 ## Licensing
 
