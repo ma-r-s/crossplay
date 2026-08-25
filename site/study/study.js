@@ -50,9 +50,12 @@
       setError(
         "The Python runtime has not started in 60 seconds. It stalled at: " +
           lastProgress +
-          ". This page needs Chrome or Edge; Safari and Firefox may hang here." +
-          " Try reloading, and if it happens again open the browser console" +
-          " (View > Developer > JavaScript Console) and send what it says.",
+          ". Two usual causes: a firewall or the host's bot protection" +
+          " challenging this tab (reloading clears it; if not, wait a few" +
+          " minutes and reload again), or the browser -- this page needs" +
+          " Chrome or Edge; Safari and Firefox may hang here. If neither" +
+          " fits, open the browser console (View > Developer > JavaScript" +
+          " Console) and send what it says.",
       );
     }, 60000);
   }
@@ -61,7 +64,7 @@
     if (worker) return;
     armStallWatchdog();
     worker = new Worker("/study/worker.js");
-    worker.onmessage = function (event) {
+worker.onmessage = function (event) {
       var msg = event.data;
       if (msg.type === "progress") {
         lastProgress = msg.text;
@@ -123,8 +126,13 @@
       setError(
         "The worker failed to start: " +
           (event.message || "no message") +
-          (event.filename ? " (" + event.filename + ":" + event.lineno + ")" : "") +
-          ". This page needs Chrome or Edge.",
+          (event.filename
+            ? " (" + event.filename + ":" + event.lineno + ")"
+            : "") +
+          ". A firewall or the host's bot protection can block it -- reload" +
+          " the page to retry, and wait a few minutes if it repeats. If the" +
+          " message names a script error instead, this page needs Chrome or" +
+          " Edge.",
       );
     };
     worker.postMessage({ type: "init" });
@@ -372,7 +380,10 @@
     else goTo(currentStep);
 
     var verdict = $("reportVerdict");
-    if (result.checkFailed || (result.problems && Object.keys(result.problems).length)) {
+    if (
+      result.checkFailed ||
+      (result.problems && Object.keys(result.problems).length)
+    ) {
       verdict.textContent = "Converted, but read this first:";
       verdict.className = "study-verdict is-bad";
     } else {
@@ -404,13 +415,16 @@
     if (opened && opened.fonts.length) {
       facts.push("fonts found in the package: " + opened.fonts.join(", "));
     }
-    $("summaryFacts").textContent = facts.join(" · ") + (facts.length ? "." : "");
+    $("summaryFacts").textContent =
+      facts.join(" · ") + (facts.length ? "." : "");
 
     var notes = [];
     if (result.skipped > 0) {
       notes.push(
         result.skipped +
-          (result.skipped === 1 ? " card stays behind: " : " cards stay behind: ") +
+          (result.skipped === 1
+            ? " card stays behind: "
+            : " cards stay behind: ") +
           (result.clozeSkipped > 0
             ? "cloze cards have a hole in the question, and this card format" +
               " has nowhere to put a hole. They stay in Anki."
@@ -428,8 +442,7 @@
     }
     if (opened && opened.audio > 0) {
       notes.push(
-        opened.audio +
-          " sound(s) are dropped: the reader has no speaker.",
+        opened.audio + " sound(s) are dropped: the reader has no speaker.",
       );
     }
     describeProblems(result.problems).forEach(function (line) {
