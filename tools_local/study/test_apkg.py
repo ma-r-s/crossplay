@@ -10,6 +10,7 @@ what came out. Every assertion is counted, and the count is printed, because
 """
 
 import pathlib
+import sqlite3
 import struct
 import subprocess
 import sys
@@ -67,7 +68,10 @@ def main():
             f"deck list missing SAT Vocabulary: {names}",
         )
         sat_cards = next(c for n, c in decks if "SAT Vocabulary" in n)
-        ok(sat_cards == 34, f"expected 34 cards (30 basic + 3 vocab + 1 cloze), got {sat_cards}")
+        ok(
+            sat_cards == 34,
+            f"expected 34 cards (30 basic + 3 vocab + 1 cloze), got {sat_cards}",
+        )
 
         summary = apkg.scheduling_summary(info["collection"])
         ok(
@@ -116,9 +120,15 @@ def main():
         # The Barron's-shaped note type: field NAMES must win over position,
         # or every answer face reads "V." instead of the definition.
         abase = next(f for f in notes.values() if f[0] == "abase")
-        ok(abase[2] == "lower; humiliate", f"meaning took the wrong field: {abase[2]!r}")
+        ok(
+            abase[2] == "lower; humiliate",
+            f"meaning took the wrong field: {abase[2]!r}",
+        )
         ok(abase[3] == "V.", f"part of speech took the wrong field: {abase[3]!r}")
-        ok(abase[4].startswith("He refused"), f"sentence took the wrong field: {abase[4]!r}")
+        ok(
+            abase[4].startswith("He refused"),
+            f"sentence took the wrong field: {abase[4]!r}",
+        )
         ok(
             all("<img" not in f for fields in notes.values() for f in fields),
             "markup leaked into a converted field",
@@ -173,7 +183,8 @@ def main():
             ["Word", "Part of Speech", "Definition", "Sentence"]
         )
         ok(
-            named["meaning"] == "Definition" and named["partOfSpeech"] == "Part of Speech",
+            named["meaning"] == "Definition"
+            and named["partOfSpeech"] == "Part of Speech",
             f"named fields mapped wrong: {named}",
         )
 
@@ -241,6 +252,32 @@ def main():
             ok(False, "non-zip was not refused")
         except apkg.ApkgError:
             ok(True, "non-zip refused")
+
+        # --- split decks roll up to a pickable parent ---------------------
+        # A real user's export held two subdecks under a parent with no cards
+        # of its own; the old per-deck counts hid the parent, so the one
+        # choice that takes the split whole could not be made. list_decks
+        # touches only decks(id, name) and cards(id, did), so a minimal
+        # schema exercises the rollup without disturbing the shared fixture.
+        split = tmp / "split.sqlite"
+        db = sqlite3.connect(split)
+        db.execute("create table decks (id integer primary key, name text)")
+        db.execute("create table cards (id integer primary key, did integer)")
+        db.executemany(
+            "insert into decks values (?, ?)",
+            [(1, "Parent"), (2, "Parent\x1fA"), (3, "Parent\x1fB"), (4, "Empty")],
+        )
+        db.executemany(
+            "insert into cards values (?, ?)",
+            [(i, 2) for i in range(2)] + [(10 + i, 3) for i in range(3)],
+        )
+        db.commit()
+        db.close()
+        rolled = apkg.list_decks(split)
+        ok(
+            rolled == [("Parent", 5), ("Parent::A", 2), ("Parent::B", 3)],
+            f"rollup wrong: {rolled}",
+        )
 
     print(f"PASS ({CHECKS} checks)")
     return 0

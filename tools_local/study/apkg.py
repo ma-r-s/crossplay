@@ -378,11 +378,14 @@ def extract(apkg_path, out_dir):
 
 
 def list_decks(collection_path):
-    """Every non-empty deck in the collection, with its card count.
+    """Every deck whose subtree has cards, with the subtree's card count.
 
     Returns [(name, cards)] sorted by name, '::' separated like Anki shows
-    them. Counts are per-deck, not rolled up: the page shows the tree and the
-    converter's own subtree query does the rolling up.
+    them. Counts are ROLLED UP: choosing a deck converts its whole subtree
+    (collect_notes matches subdecks by name prefix), so the count shown is
+    the count that choice delivers. A parent with no cards of its own used
+    to be hidden here, which made the one pick that takes a split deck
+    whole -- the parent -- impossible to make.
     """
     db = _connect(collection_path)
     try:
@@ -394,10 +397,14 @@ def list_decks(collection_path):
     finally:
         db.close()
     out = []
-    for name, cards in rows:
-        pretty = name.replace("\x1f", "::")
-        if cards:
-            out.append((pretty, cards))
+    for name, _ in rows:
+        rolled = sum(
+            cards
+            for other, cards in rows
+            if other == name or other.startswith(name + "\x1f")
+        )
+        if rolled:
+            out.append((name.replace("\x1f", "::"), rolled))
     return out
 
 
