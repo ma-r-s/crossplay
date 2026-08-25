@@ -7,25 +7,15 @@
 
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
-#include "components/UIThemeTokens.h"
-#include "components/UiAppHelpers.h"
 #include "fontIds.h"
 
 namespace fui = freeink::ui;
-
-namespace {
-constexpr fui::ActionId ACTION_ROW = 1;
-}  // namespace
 
 XtcReaderChapterSelectionActivity::XtcReaderChapterSelectionActivity(GfxRenderer& renderer,
                                                                      MappedInputManager& mappedInput,
                                                                      const std::shared_ptr<Xtc>& xtc,
                                                                      const uint32_t currentPage)
-    : Activity("XtcReaderChapterSelection", renderer, mappedInput),
-      xtc(xtc),
-      currentPage(currentPage),
-      uiTarget(makeUiTarget(renderer)),
-      app(uiTarget, uiTarget.deviceContext()) {}
+    : UiListActivity("XtcReaderChapterSelection", renderer, mappedInput), xtc(xtc), currentPage(currentPage) {}
 
 int XtcReaderChapterSelectionActivity::findChapterIndexForPage(const uint32_t page) const {
   if (!xtc) {
@@ -42,117 +32,70 @@ int XtcReaderChapterSelectionActivity::findChapterIndexForPage(const uint32_t pa
 }
 
 void XtcReaderChapterSelectionActivity::onEnter() {
-  Activity::onEnter();
-
-  uiReady = false;
-  visibleRows = 1;
-  app.setTheme(uiThemeTokens(uiTarget));
-  app.on(ACTION_ROW, &XtcReaderChapterSelectionActivity::onRowEvent, this);
-  app.setScreen(&XtcReaderChapterSelectionActivity::chapterScreen, this);
+  UiListActivity::onEnter();
 
   if (!xtc) {
     return;
   }
 
-  selectorIndex = findChapterIndexForPage(currentPage);
-  // Start with the current chapter at the top of the viewport (visibleRows is
-  // unknown until the first screen build; the builder clamps into range).
-  topIndex = followListSelection(selectorIndex, 0, visibleRows, static_cast<int>(xtc->getChapters().size()));
+  buildRowItems();
 
-  requestUpdate();
+  // Open on the current chapter, which may sit past the first page; the first
+  // screen build pulls the viewport to it (ListNav follow-on-build).
+  nav.selected = findChapterIndexForPage(currentPage);
 }
 
-void XtcReaderChapterSelectionActivity::onExit() { Activity::onExit(); }
-
-void XtcReaderChapterSelectionActivity::activateSelected() {
+// Derives rowItems from the xtc's chapters. Called once from onEnter() since
+// chapters are static for this screen's lifetime.
+void XtcReaderChapterSelectionActivity::buildRowItems() {
   const auto& chapters = xtc->getChapters();
-  if (!chapters.empty() && selectorIndex >= 0 && selectorIndex < static_cast<int>(chapters.size())) {
-    setResult(PageResult{chapters[selectorIndex].startPage});
+  rowItems.clear();
+  rowItems.reserve(chapters.size());
+  for (const auto& chapter : chapters) {
+    fui::ListItem item;
+    item.label = chapter.name.empty() ? tr(STR_UNNAMED) : chapter.name.c_str();
+    item.actionValue = static_cast<int16_t>(rowItems.size());
+    rowItems.push_back(item);
+  }
+}
+
+void XtcReaderChapterSelectionActivity::activateIndex(const int index) {
+  // The activated row leaves this screen (finish); a lingering flash would
+  // gray an unrelated element on the next render.
+  app.clearTapFlash();
+  const auto& chapters = xtc->getChapters();
+  if (!chapters.empty() && index >= 0 && index < static_cast<int>(chapters.size())) {
+    nav.selected = index;
+    setResult(PageResult{chapters[index].startPage});
     finish();
   }
 }
 
-void XtcReaderChapterSelectionActivity::onRowEvent(const fui::ActionEvent& event, void* user) {
-  auto* self = static_cast<XtcReaderChapterSelectionActivity*>(user);
-  if (event.value < 0 || event.value >= static_cast<int16_t>(self->xtc->getChapters().size())) return;
-  self->selectorIndex = event.value;
-  // The tapped row leaves this screen (finish); a lingering flash would gray
-  // an unrelated element on the next render.
-  self->app.clearTapFlash();
-  self->activateSelected();
-}
-
-void XtcReaderChapterSelectionActivity::loop() {
+bool XtcReaderChapterSelectionActivity::handleButtons() {
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     ActivityResult result;
     result.isCancelled = true;
     setResult(std::move(result));
     finish();
-    return;
+    return true;
   }
 
   if (!xtc) {
-    return;
+    return true;  // no book: nothing else to route this pass
   }
-  const int totalItems = static_cast<int>(xtc->getChapters().size());
-
-  // Touch goes through the FreeInkApp: render() registered the row hit rects;
-  // route the snapshot and let onRowEvent dispatch.
-  if (uiReady) {
-    const fui::InputSnapshot snap = touchSnapshotFrom(mappedInput);
-    if (snap.touchPressed || snap.touchReleased) {
-      const auto event = app.route(snap);
-      if (app.invalidated()) requestUpdate();
-      if (event) return;  // dispatched to onRowEvent
-    }
-  }
-
-  // Swipes scroll the viewport; the selection stays put (it may scroll
-  // off-screen) and button navigation pulls the view back to it.
-  const auto swipe = mappedInput.wasSwipe();
-  if (swipe == MappedInputManager::SwipeDir::Up || swipe == MappedInputManager::SwipeDir::Down) {
-    const int delta = swipe == MappedInputManager::SwipeDir::Up ? visibleRows : -visibleRows;
-    const int next = scrollListBy(topIndex, delta, visibleRows, totalItems);
-    if (next != topIndex) {
-      topIndex = next;
-      requestUpdate();
-    }
-    return;
-  }
-
-  const auto moveSelection = [this, totalItems](const int index) {
-    selectorIndex = index;
-    topIndex = followListSelection(selectorIndex, topIndex, visibleRows, totalItems);
-    requestUpdate();
-  };
-
-  buttonNavigator.onNextRelease(
-      [this, totalItems, &moveSelection] { moveSelection(ButtonNavigator::nextIndex(selectorIndex, totalItems)); });
-
-  buttonNavigator.onPreviousRelease(
-      [this, totalItems, &moveSelection] { moveSelection(ButtonNavigator::previousIndex(selectorIndex, totalItems)); });
-
-  buttonNavigator.onNextContinuous([this, totalItems, &moveSelection] {
-    moveSelection(ButtonNavigator::nextPageIndex(selectorIndex, totalItems, visibleRows));
-  });
-
-  buttonNavigator.onPreviousContinuous([this, totalItems, &moveSelection] {
-    moveSelection(ButtonNavigator::previousPageIndex(selectorIndex, totalItems, visibleRows));
-  });
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-    activateSelected();
+    activateIndex(nav.selected);
+    return true;
   }
+
+  return false;
 }
 
-void XtcReaderChapterSelectionActivity::chapterScreen(UiApp::ScreenType& screen, void* user) {
-  static_cast<XtcReaderChapterSelectionActivity*>(user)->buildChapterScreen(screen);
-}
-
-void XtcReaderChapterSelectionActivity::buildChapterScreen(UiApp::ScreenType& screen) {
+void XtcReaderChapterSelectionActivity::buildScreen(UiScreen& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  // Content: the safe area minus the header band render() paints the title in.
+  // Content: the safe area minus the header band drawChrome paints the title in.
   screen.setContentMargin(fui::Insets{static_cast<int16_t>(safe.y + metrics.topPadding + metrics.headerHeight),
                                       static_cast<int16_t>(renderer.getScreenWidth() - (safe.x + safe.width)),
                                       static_cast<int16_t>(renderer.getScreenHeight() - (safe.y + safe.height)),
@@ -162,39 +105,23 @@ void XtcReaderChapterSelectionActivity::buildChapterScreen(UiApp::ScreenType& sc
   if (!xtc) {
     return;
   }
-  const auto& chapters = xtc->getChapters();
-  if (chapters.empty()) {
+  if (rowItems.empty()) {
     screen.centeredText(tr(STR_NO_CHAPTERS), screen.theme().bodyText);
     return;
   }
 
-  // Transient per-render: labels point at the chapter names owned by `xtc`
-  // (alive for the activity's lifetime) or the static i18n fallback.
-  std::vector<fui::ListItem> items;
-  items.reserve(chapters.size());
-  for (const auto& chapter : chapters) {
-    fui::ListItem item;
-    item.label = chapter.name.empty() ? tr(STR_UNNAMED) : chapter.name.c_str();
-    item.actionValue = static_cast<int16_t>(items.size());
-    items.push_back(item);
-  }
-
+  // rowItems is built once in onEnter() (see buildRowItems()) and reused
+  // here on every repaint.
   fui::ListProps props;
-  props.items = items.data();
-  props.count = static_cast<uint16_t>(items.size());
-  props.selectedIndex = static_cast<int16_t>(selectorIndex);
+  props.items = rowItems.data();
+  props.count = static_cast<uint16_t>(rowItems.size());
   props.action = ACTION_ROW;
   props.inputMask = fui::InputTouch;  // physical buttons stay in loop()
-  const auto rows = fui::listVisibleRows(screen.body(), screen.theme().rowHeight, screen.theme().listRowGap);
-  visibleRows = rows > 0 ? rows : 1;
-  topIndex = scrollListBy(topIndex, 0, visibleRows, static_cast<int>(chapters.size()));  // clamp to range
-  props.topIndex = static_cast<uint16_t>(topIndex);
+  syncListViewport(screen, props);
   screen.list(props);
 }
 
-void XtcReaderChapterSelectionActivity::render(RenderLock&&) {
-  renderer.clearScreen();
-
+void XtcReaderChapterSelectionActivity::drawChrome() {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
 
@@ -203,13 +130,4 @@ void XtcReaderChapterSelectionActivity::render(RenderLock&&) {
   const int titleX = safe.x + (safe.width - titleWidth) / 2;
   const int titleY = safe.y + metrics.topPadding + (metrics.headerHeight - renderer.getLineHeight(UI_12_FONT_ID)) / 2;
   renderer.drawText(UI_12_FONT_ID, titleX, titleY, tr(STR_SELECT_CHAPTER), true, EpdFontFamily::BOLD);
-
-  uiReady = false;
-  app.render();
-  uiReady = true;
-
-  const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
-  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-
-  renderer.displayBuffer();
 }

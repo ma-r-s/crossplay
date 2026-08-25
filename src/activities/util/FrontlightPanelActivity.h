@@ -1,63 +1,44 @@
 #pragma once
 
-#include <FreeInkApp.h>
-#include <FreeInkUIGfxRenderer.h>
-
-#include <atomic>
-
 #include "activities/Activity.h"
+#include "components/UiAppHost.h"
 #include "util/ButtonNavigator.h"
 
-// Frontlight quick panel (boards with a frontlight + home key, e.g. X4 Pro).
-// Opened globally by the top-edge down-swipe: a top-anchored drop-down (only the
-// upper third of the screen) with brightness and warmth sliders driving the
-// light live, plus an on/off toggle with a sun icon. It renders as an overlay —
-// the content underneath stays on screen below the panel, and a tap there
-// dismisses it. State is persisted once on exit (SPIFFS write throttling).
-class FrontlightPanelActivity final : public Activity {
-  // 10 interactions: invert, sun toggle, 2 sliders, and a -/+ tap pair per
-  // slider (plus headroom); 6 handlers: the four controls + one step handler
-  // per slider.
-  using UiApp = freeink::ui::FreeInkApp<12, 6>;
-
+// Top-anchored frontlight overlay opened by a top-edge down-swipe. It drives
+// brightness and warmth live, and includes only a sun on/off control; Night
+// Mode deliberately lives in the reader menu instead.
+class FrontlightPanelActivity final : public Activity, private UiAppHost {
   ButtonNavigator buttonNavigator;
-
-  freeink::ui::GfxRendererTarget uiTarget;  // must precede `app`: the app holds a reference to it
-  UiApp app;
-  std::atomic<bool> uiReady{false};
 
   uint8_t brightness = 60;
   uint8_t warmth = 50;
   bool lightOn = false;
-  bool inverted = false;
-  // Swallow the swipe/tap fallout of a slider drag so its release can't
-  // trigger the back gesture and close the panel mid-adjustment.
+  // lightOn is seeded from the live hardware state (Frontlight.isOn()), which
+  // legitimately diverges from the saved SETTINGS.frontlightOn preference —
+  // e.g. after a wake with frontlightRestoreOnWake off, the light stays off
+  // live while the saved "was on" preference is deliberately kept (see
+  // main.cpp's restoreLightOn). brightness/warmth have no such divergence
+  // (always restored unconditionally on boot), so only lightOn needs a
+  // touched-by-the-user flag: onExit() must not persist a mirror that never
+  // reflected user intent in the first place.
+  bool lightOnChanged = false;
   bool draggingSlider = false;
-  // Bottom edge of the drop-down (px). Content lays out above it; a tap at or
-  // below it dismisses the panel. Set by render() before the app lays out.
   int panelBottom = 0;
 
-  static void panelScreen(UiApp::ScreenType& screen, void* user);
+  static void panelScreen(UiScreen& screen, void* user);
   static void onBrightnessEvent(const freeink::ui::ActionEvent& event, void* user);
   static void onWarmthEvent(const freeink::ui::ActionEvent& event, void* user);
   static void onToggleEvent(const freeink::ui::ActionEvent& event, void* user);
-  static void onInvertEvent(const freeink::ui::ActionEvent& event, void* user);
-  // -/+ tap zones flanking the sliders; event.value carries the ±1 step.
   static void onBrightnessStepEvent(const freeink::ui::ActionEvent& event, void* user);
   static void onWarmthStepEvent(const freeink::ui::ActionEvent& event, void* user);
-  void buildPanelScreen(UiApp::ScreenType& screen);
-  // Lays out one slider row: -/+ tap zones at the ends (1% fine steps) with
-  // the drag slider between them.
-  void addStepSlider(UiApp::ScreenType& screen, const freeink::ui::Rect& row, uint8_t value,
-                     freeink::ui::ActionId sliderAction, freeink::ui::ActionId stepAction);
-  // Height of the drop-down, derived from the content it holds (header +
-  // sliders + toggle). Same layout math as buildPanelScreen so the frame,
-  // content margin, and dismiss threshold all agree.
+
+  void buildPanelScreen(UiScreen& screen);
+  void addStepSlider(UiScreen& screen, const freeink::ui::Rect& row, uint8_t value, freeink::ui::ActionId sliderAction,
+                     freeink::ui::ActionId stepAction);
   int computePanelBottom() const;
   void adjustBrightness(int delta);
   void adjustWarmth(int delta);
   void toggleLight();
-  void toggleInversion();
   void close();
 
  public:
@@ -66,6 +47,5 @@ class FrontlightPanelActivity final : public Activity {
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
-  // The home key closes the panel back to whatever was underneath.
   bool handleHomeGesture() override;
 };

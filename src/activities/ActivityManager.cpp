@@ -1,11 +1,15 @@
 #include "ActivityManager.h"
 
 #include <FontCacheManager.h>
+#include <FsHelpers.h>
+#include <HalDisplay.h>
 #include <HalFrontlight.h>
 #include <HalPowerManager.h>
+#include <Memory.h>
 
 #include <algorithm>
 
+#include "CrossPointSettings.h"
 #include "OpdsServerStore.h"
 #include "boot_sleep/BootActivity.h"
 #include "boot_sleep/SleepActivity.h"
@@ -18,22 +22,9 @@
 #include "reader/ReaderActivity.h"
 #include "settings/OpdsServerListActivity.h"
 #include "settings/SettingsActivity.h"
+#include "util/BmpViewerActivity.h"
 #include "util/FrontlightPanelActivity.h"
 #include "util/FullScreenMessageActivity.h"
-
-// Upstream's 8192 is sized for the X4 and X3: an ESP32-C3 with ~380KB and no
-// PSRAM, where every kilobyte of a task stack is one the reader cannot have.
-// The X4 Pro is an S3 with 8MB of PSRAM, so this fork can afford the headroom
-// and needs it: its own screens draw through FreeInkUI, whose deepest path
-// wanted 9440 bytes and crashed v1.0.0 on the first device that ran it.
-//
-// Left as an overridable default rather than a changed literal so the number
-// this fork uses lives in this fork's platformio.ini, and merges from upstream
-// touching this line stay trivial. scripts_local/stack_budget.py checks the
-// value against the real worst path on every CI run.
-#ifndef CROSSPOINT_RENDER_TASK_STACK
-#define CROSSPOINT_RENDER_TASK_STACK 8192
-#endif
 
 static portMUX_TYPE activityManagerSpinlock = portMUX_INITIALIZER_UNLOCKED;
 
@@ -44,7 +35,7 @@ void ActivityManager::begin() {
   constexpr BaseType_t renderTaskCore = 0;
 #endif
   xTaskCreatePinnedToCore(&renderTaskTrampoline, "ActivityManagerRender",
-                          CROSSPOINT_RENDER_TASK_STACK,  // Stack size
+                          8192,               // Stack size
                           this,               // Parameters
                           1,                  // Priority
                           &renderTaskHandle,  // Task handle
@@ -66,6 +57,10 @@ void ActivityManager::renderTaskLoop() {
     RenderLock lock;
     if (currentActivity) {
       HalPowerManager::Lock powerLock;  // Ensure we don't go into low-power mode while rendering
+      // Night mode inverts only the reading surfaces (appliesNightMode):
+      // resolving the output polarity here, per render, means menus, popups,
+      // and every other activity revert to normal automatically.
+      display.setInverted(SETTINGS.screenInverted != 0 && currentActivity->appliesNightMode());
       currentActivity->render(std::move(lock));
     }
     // Notify any task blocked in requestUpdateAndWait() that the render is done.
@@ -91,8 +86,9 @@ void ActivityManager::loop() {
     }
 
     // Frontlight quick panel: global top-edge down-swipe on boards where the
-    // home key freed that edge (X4 Pro). Pushed, so it returns to whatever
-    // was underneath — including mid-book.
+    // home key freed that edge (X4 Pro). Guarded on present() so a board
+    // without a frontlight never opens a panel for one. Pushed, so it returns
+    // to whatever was underneath -- including mid-book.
     if (Frontlight.present() && currentActivity->name != "FrontlightPanel" && mappedInput.wasLightPanelGesture()) {
       pushActivity(std::make_unique<FrontlightPanelActivity>(renderer, mappedInput));
       return;
@@ -233,7 +229,25 @@ void ActivityManager::goToBrowser() {
 }
 
 void ActivityManager::goToReader(std::string path, const bool allowFastInitialRefresh) {
-  replaceActivity(std::make_unique<ReaderActivity>(renderer, mappedInput, std::move(path), allowFastInitialRefresh));
+  if (path.empty()) {
+    goToFileBrowser("/");
+    return;
+  }
+
+  if (FsHelpers::hasBmpExtension(path) || FsHelpers::hasPngExtension(path)) {
+    auto activity = makeUniqueNoThrow<BmpViewerActivity>(renderer, mappedInput, std::move(path));
+    if (!activity) {
+      LOG_ERR("ACT", "OOM: bitmap viewer activity");
+      return;
+    }
+    replaceActivity(std::move(activity));
+    return;
+  }
+
+  auto activity = ReaderActivity::create(renderer, mappedInput, std::move(path), allowFastInitialRefresh);
+  if (activity) {
+    replaceActivity(std::move(activity));
+  }
 }
 
 void ActivityManager::goToSleep(bool fromTimeout) {

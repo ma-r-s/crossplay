@@ -91,27 +91,19 @@ are the first suspect -- 80+ global `EpdFont` objects, though those are flash
 constants by design), and either headroom recovered or a written ceiling on how
 many more apps fit.
 
-## Upstream deleted the branch this fork stands on
+## The 1.6.0rc merge moved the reader's controls under a real user's hands
 
-Found 2026-08-14. `crosspoint/feat-touch-ui` -- the X4 Pro beta branch, the
-fork's base -- is gone from the remote, unmerged. `xteink` is its only living
-continuation (our pushed copy: `origin/feat-touch-ui`), so the touch layer
-under all eighteen apps is ours to carry now. Upstream is reimplementing X4
-Pro + touch support on `feat-x4-papermono-support`, atop `develop`: frontlight
-control, capacitive Home key, recovery mode, light-sleep power work.
+The foreseen sit-down merge (upstream deleted our base branch, reimplemented
+X4 Pro support, released it as `1.6.0rc`) happened 2026-08-25; the story
+lives in LOCAL_SCOPE.md's branch section now. What remains open is the human
+side: upstream's control scheme won, so on the X4 Pro the reader menu is now
+a middle tap (was: bottom-edge up-swipe), the top edge belongs to the
+frontlight panel, and power-button behavior gained upstream's double-click
+window. Our one tester learned the old controls. The release notes say so,
+but nobody has confirmed the new scheme feels right on the physical device.
 
-We are on the latest CrossPoint **release** (v1.5.0 is an ancestor of
-`xteink`), so nothing is owed today. What is coming is the merge when that
-branch lands in a release: measured 2026-08-14 at **80 conflicting files**
-against papermono and 72 against develop alone, most of them the reader
-activities and the input layer -- two competing touch implementations, one
-merge. `sync.sh` watches the branch and says all of this at every run;
-LOCAL_SCOPE.md's branch section has the full story.
-
-**Done looks like:** upstream tags a release containing their X4 Pro work,
-and a sit-down session decides, file by file across those ~80, which touch
-implementation survives where. Not routine, not automatable, and much
-cheaper taken deliberately than discovered mid-sync.
+**Done looks like:** the tester (or Mario with a device) plays a session on
+v1.3.0 and either blesses the upstream controls or names what regressed.
 
 ## Licensing
 

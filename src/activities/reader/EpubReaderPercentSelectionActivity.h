@@ -1,15 +1,11 @@
 #pragma once
 
-#include <FreeInkApp.h>
-#include <FreeInkUIGfxRenderer.h>
-
-#include <atomic>
-
 #include "MappedInputManager.h"
 #include "activities/Activity.h"
+#include "components/UiAppHost.h"
 #include "util/ButtonNavigator.h"
 
-class EpubReaderPercentSelectionActivity final : public Activity {
+class EpubReaderPercentSelectionActivity final : public Activity, private UiAppHost {
  public:
   // Slider-style percent selector for jumping within a book.
   explicit EpubReaderPercentSelectionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
@@ -21,17 +17,14 @@ class EpubReaderPercentSelectionActivity final : public Activity {
   void render(RenderLock&&) override;
 
  private:
-  // FreeInkApp hosts the slider row (drag/tap positioning), its -/+ fine-step
-  // zones, and the touch Cancel/OK pair; the header stays on GUI.drawHeader.
-  // 5 interactions (slider, two step zones, two buttons) with headroom.
-  using UiApp = freeink::ui::FreeInkApp<8, 4>;
-
-  static void percentScreen(UiApp::ScreenType& screen, void* user);
+  // The UiAppHost app hosts the shared slider dialog (drag slider, -/+ zones,
+  // touch Cancel/OK); the header stays on GUI.drawHeader.
+  static void percentScreen(UiScreen& screen, void* user);
   static void onSliderEvent(const freeink::ui::ActionEvent& event, void* user);
   static void onStepEvent(const freeink::ui::ActionEvent& event, void* user);
   static void onCancelEvent(const freeink::ui::ActionEvent& event, void* user);
   static void onOkEvent(const freeink::ui::ActionEvent& event, void* user);
-  void buildPercentScreen(UiApp::ScreenType& screen);
+  void buildPercentScreen(UiScreen& screen);
   void cancel();
   void confirm();
 
@@ -40,11 +33,6 @@ class EpubReaderPercentSelectionActivity final : public Activity {
 
   ButtonNavigator buttonNavigator;
 
-  freeink::ui::GfxRendererTarget uiTarget;  // must precede `app`: the app holds a reference to it
-  UiApp app;
-  // render() rebuilds the app's interaction table; loop() only routes touch
-  // snapshots against it while this is true (the two run on different tasks).
-  std::atomic<bool> uiReady{false};
   // Swallow the swipe/tap fallout of a slider drag so its release can't trigger
   // the back gesture and cancel the dialog, or step the percent as a swipe.
   bool draggingSlider = false;

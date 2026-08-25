@@ -2,6 +2,7 @@
 
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
+#include <HalGPIO.h>
 #include <I18n.h>
 
 #include "CrossPointSettings.h"
@@ -11,8 +12,6 @@
 // definition must be visible here.
 #include "activities/Activity.h"
 #include "components/UITheme.h"
-#include "components/UIThemeTokens.h"
-#include "components/UiAppHelpers.h"
 #include "fontIds.h"
 #include "util/ButtonNavigator.h"
 #include "util/NextBookFinder.h"
@@ -29,8 +28,7 @@ std::string displayName(const std::string& filename) {
 }
 }  // namespace
 
-EndOfBookOptions::EndOfBookOptions(GfxRenderer& renderer)
-    : renderer(renderer), uiTarget(makeUiTarget(renderer)), app(uiTarget, uiTarget.deviceContext()) {}
+EndOfBookOptions::EndOfBookOptions(GfxRenderer& renderer) : UiAppHost(renderer), renderer(renderer) {}
 
 void EndOfBookOptions::loadOnce(const std::string& currentBookPath) {
   if (isLoaded.load(std::memory_order_acquire)) {
@@ -41,13 +39,37 @@ void EndOfBookOptions::loadOnce(const std::string& currentBookPath) {
   selector = 0;
   if (!names.empty()) {
     // One-time app setup on the render task, before the first render/route.
-    app.setTheme(uiThemeTokens(uiTarget));
+    resetUi();
     app.on(ACTION_ROW, &EndOfBookOptions::onRowEvent, this);
     app.setScreen(&EndOfBookOptions::listScreen, this);
+    buildRowItems();
   }
   // Release-publish so the main task, which gates all access on isLoaded, never
-  // observes a partially built list
+  // observes a partially built list (rowItems/rowLabels included)
   isLoaded.store(true, std::memory_order_release);
+}
+
+// Populates rowLabels/rowItems from names + the trailing "Home" row. Called
+// once here since names never changes after loadOnce() completes.
+void EndOfBookOptions::buildRowItems() {
+  rowCount = 0;
+  for (const auto& name : names) {
+    if (rowCount >= MAX_ROWS) break;
+    rowLabels[rowCount] = displayName(name);
+    fui::ListItem item;
+    item.label = rowLabels[rowCount].c_str();
+    item.actionValue = static_cast<int16_t>(rowCount);
+    rowItems[rowCount] = item;
+    rowCount++;
+  }
+  if (rowCount < MAX_ROWS) {
+    rowLabels[rowCount] = tr(STR_EOB_HOME);
+    fui::ListItem item;
+    item.label = rowLabels[rowCount].c_str();
+    item.actionValue = static_cast<int16_t>(rowCount);
+    rowItems[rowCount] = item;
+    rowCount++;
+  }
 }
 
 bool EndOfBookOptions::menuActive() const { return isLoaded.load(std::memory_order_acquire) && !names.empty(); }
@@ -72,24 +94,22 @@ void EndOfBookOptions::onRowEvent(const fui::ActionEvent& event, void* user) {
 EndOfBookOptions::Action EndOfBookOptions::handleMenuInput(const MappedInputManager& input, std::string* openPath) {
   // Touch goes through the FreeInkApp: render() registered the row hit rects;
   // route the snapshot and let onRowEvent record the tapped row.
-  if (uiReady.load(std::memory_order_acquire)) {
-    const fui::InputSnapshot snap = touchSnapshotFrom(input);
-    if (snap.touchPressed || snap.touchReleased) {
-      tappedRow = -1;
-      const auto event = app.route(snap);
-      if (event && tappedRow >= 0) {
-        if (tappedRow < static_cast<int>(names.size())) {
-          if (openPath) {
-            *openPath = fullPath(tappedRow);
-          }
-          return Action::OpenBook;
-        }
-        return Action::GoHome;  // "Home" row tapped
+  tappedRow = -1;
+  const auto route = routeTouch(input);
+  // cppcheck can't see that route() dispatches into onRowEvent (registered via
+  // app.on(ACTION_ROW, ...)), which sets tappedRow, so it flags this as always false.
+  // cppcheck-suppress knownConditionTrueFalse
+  if (route && tappedRow >= 0) {
+    if (tappedRow < static_cast<int>(names.size())) {
+      if (openPath) {
+        *openPath = fullPath(tappedRow);
       }
-      if (app.invalidated()) {
-        return Action::Redraw;
-      }
+      return Action::OpenBook;
     }
+    return Action::GoHome;  // "Home" row tapped
+  }
+  if (route.routed && app.invalidated()) {
+    return Action::Redraw;
   }
 
   if (input.wasReleased(MappedInputManager::Button::Confirm)) {
@@ -130,11 +150,11 @@ EndOfBookOptions::Action EndOfBookOptions::handleMenuInput(const MappedInputMana
   return Action::None;
 }
 
-void EndOfBookOptions::listScreen(UiApp::ScreenType& screen, void* user) {
+void EndOfBookOptions::listScreen(UiScreen& screen, void* user) {
   static_cast<EndOfBookOptions*>(user)->buildListScreen(screen);
 }
 
-void EndOfBookOptions::buildListScreen(UiApp::ScreenType& screen) {
+void EndOfBookOptions::buildListScreen(UiScreen& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   // Same layout math as render(): the list band starts under the title/subtitle it
   // draws, and stops above the button hints (the safe-area bottom edge).
@@ -147,30 +167,22 @@ void EndOfBookOptions::buildListScreen(UiApp::ScreenType& screen) {
       static_cast<int16_t>(renderer.getScreenHeight() - (safe.y + safe.height) + metrics.verticalSpacing),
       static_cast<int16_t>(safe.x)});
 
-  // Transient per-render row labels: ListItem only points at them, and the list is
-  // drawn before this scope exits.
-  std::vector<std::string> labels;
-  labels.reserve(names.size() + 1);
-  for (const auto& name : names) {
-    labels.push_back(displayName(name));
-  }
-  labels.push_back(std::string(tr(STR_EOB_HOME)));
-
-  std::vector<fui::ListItem> items;
-  items.reserve(labels.size());
-  for (const auto& label : labels) {
-    fui::ListItem item;
-    item.label = label.c_str();
-    item.actionValue = static_cast<int16_t>(items.size());
-    items.push_back(item);
-  }
-
+  // rowLabels/rowItems were built once in loadOnce() (see buildRowItems())
+  // and reused here on every repaint.
   fui::ListProps props;
-  props.items = items.data();
-  props.count = static_cast<uint16_t>(items.size());
+  props.items = rowItems;
+  props.count = static_cast<uint16_t>(rowCount);
   props.selectedIndex = static_cast<int16_t>(selector);
   props.action = ACTION_ROW;
   props.inputMask = fui::InputTouch;  // physical buttons stay in handleMenuInput()
+  if (!gpio.hasTouch()) {
+    // Non-touch hardware (X3/X4) keeps the original, denser row height
+    // instead of FreeInkUI's touch-target-sized default. This short, fixed
+    // menu never scrolls, so there's no viewport to resync here. No
+    // MappedInputManager reference here (this class isn't an Activity), so
+    // this reads the capability directly like BaseTheme's draw code does.
+    props.rowHeight = static_cast<int16_t>(metrics.listRowHeight);
+  }
   screen.list(props);
 }
 
@@ -197,13 +209,10 @@ void EndOfBookOptions::render(GfxRenderer& renderer, const MappedInputManager& i
   UITheme::drawCenteredText(renderer, safe, UI_12_FONT_ID, titleY, tr(STR_END_OF_BOOK), true, EpdFontFamily::BOLD);
   UITheme::drawCenteredText(renderer, safe, UI_10_FONT_ID, subtitleY, tr(STR_EOB_CONTINUE_WITH));
 
-  // The list renders through the FreeInkApp so its rows register touch hit rects. The
-  // orientation can have changed since construction (reader menu rotate), so re-derive
-  // the device context before laying out.
-  uiReady.store(false, std::memory_order_release);
-  app.setDevice(uiTarget.deviceContext());
-  app.render();
-  uiReady.store(true, std::memory_order_release);
+  // The list renders through the FreeInkApp so its rows register touch hit
+  // rects; renderUi re-derives the device context, picking up any rotation
+  // since construction (reader menu rotate).
+  renderUi();
 
   const auto labels = input.mapLabels(tr(STR_BACK), tr(STR_OPEN), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);

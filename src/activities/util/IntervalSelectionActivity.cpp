@@ -9,8 +9,7 @@
 #include <utility>
 
 #include "components/UITheme.h"
-#include "components/UIThemeTokens.h"
-#include "components/UiAppHelpers.h"
+#include "components/UiSliderDialog.h"
 #include "fontIds.h"
 
 namespace fui = freeink::ui;
@@ -27,9 +26,9 @@ IntervalSelectionActivity::IntervalSelectionActivity(GfxRenderer& renderer, Mapp
                                                      const int initialValue, const int minValue, const int maxValue,
                                                      const int smallStep, const int largeStep,
                                                      const StrId valueFormatId, const bool readerActivity,
-                                                     const bool ignoreInitialConfirmRelease,
                                                      const StrId maxBoundaryLabelId)
     : Activity(activityName, renderer, mappedInput),
+      UiAppHost(renderer),
       titleId(titleId),
       valueFormatId(valueFormatId),
       maxBoundaryLabelId(maxBoundaryLabelId),
@@ -38,10 +37,7 @@ IntervalSelectionActivity::IntervalSelectionActivity(GfxRenderer& renderer, Mapp
       maxValue(maxValue),
       smallStep(smallStep),
       largeStep(largeStep),
-      readerActivity(readerActivity),
-      ignoreConfirmRelease(ignoreInitialConfirmRelease),
-      uiTarget(makeUiTarget(renderer)),
-      app(uiTarget, uiTarget.deviceContext()) {}
+      readerActivity(readerActivity) {}
 
 int IntervalSelectionActivity::clampedValue(const int candidate) const {
   return std::clamp(candidate, minValue, maxValue);
@@ -50,8 +46,7 @@ int IntervalSelectionActivity::clampedValue(const int candidate) const {
 void IntervalSelectionActivity::onEnter() {
   Activity::onEnter();
   value = clampedValue(value);
-  uiReady = false;
-  app.setTheme(uiThemeTokens(uiTarget));
+  resetUi();
   app.on(ACTION_SLIDER, &IntervalSelectionActivity::onSliderEvent, this);
   app.on(ACTION_STEP, &IntervalSelectionActivity::onStepEvent, this);
   app.on(ACTION_CANCEL, &IntervalSelectionActivity::onCancelEvent, this);
@@ -109,37 +104,21 @@ void IntervalSelectionActivity::onOkEvent(const fui::ActionEvent&, void* user) {
 }
 
 void IntervalSelectionActivity::loop() {
-  if (ignoreConfirmRelease) {
-    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-      ignoreConfirmRelease = false;
-      return;
-    }
-    if (!mappedInput.isPressed(MappedInputManager::Button::Confirm)) {
-      ignoreConfirmRelease = false;
-    }
-  }
-
   // Touch goes through the FreeInkApp: render() registered the slider, -/+ zones,
   // and Cancel/OK hit rects; the slider follows the finger via InputDrag. Runs
   // before the Back handler because the release of a drag can also register as a
   // swipe (e.g. the left-edge rightward back gesture) — the drag must consume it
   // so it can't cancel the dialog.
-  fui::InputSnapshot snap{};
-  if (uiReady) {
-    snap = touchSnapshotFrom(mappedInput);
-    if (snap.touchPressed || snap.touchHeld || snap.touchReleased) {
-      const auto event = app.route(snap);
-      if (app.invalidated()) requestUpdate();
-      if (event) {
-        if (event.dragPermille >= 0) draggingSlider = true;
-        return;
-      }
-    }
-    if (draggingSlider) {
-      // Drag ended (possibly off the slider): swallow the tap/swipe events it produced.
-      if (!snap.touchHeld) draggingSlider = false;
-      return;
-    }
+  const auto route = routeTouch(mappedInput, false, /*routeHeld=*/true);
+  if (route.routed && app.invalidated()) requestUpdate();
+  if (route) {
+    if (route.event.dragPermille >= 0) draggingSlider = true;
+    return;
+  }
+  if (routingReady() && draggingSlider) {
+    // Drag ended (possibly off the slider): swallow the tap/swipe events it produced.
+    if (!route.snap.touchHeld) draggingSlider = false;
+    return;
   }
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
@@ -175,70 +154,20 @@ void IntervalSelectionActivity::formatValue(char* buffer, const size_t size, con
   }
 }
 
-void IntervalSelectionActivity::intervalScreen(UiApp::ScreenType& screen, void* user) {
+void IntervalSelectionActivity::intervalScreen(UiScreen& screen, void* user) {
   static_cast<IntervalSelectionActivity*>(user)->buildIntervalScreen(screen);
 }
 
-void IntervalSelectionActivity::buildIntervalScreen(UiApp::ScreenType& screen) {
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  const auto& theme = screen.theme();
-  const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  // Content: the safe area minus the title band render() paints, mirroring the
-  // percent-selection dialog's layout.
-  screen.setContentMargin(fui::Insets{
-      static_cast<int16_t>(safe.y + metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing * 4),
-      static_cast<int16_t>(renderer.getScreenWidth() - (safe.x + safe.width)),
-      static_cast<int16_t>(renderer.getScreenHeight() - (safe.y + safe.height)), static_cast<int16_t>(safe.x)});
+void IntervalSelectionActivity::buildIntervalScreen(UiScreen& screen) {
+  char readout[64];
+  formatValue(readout, sizeof(readout), value);
 
-  char line[64];
-
-  // Value readout, centered above the slider.
-  fui::TextStyle readout = theme.titleText;
-  readout.align = fui::TextAlign::Center;
-  const int16_t readoutLh = screen.target().lineHeight(readout.font);
-  formatValue(line, sizeof(line), value);
-  screen.target().text(screen.takeTop(readoutLh, theme.spaceLg), line, readout);
-
-  // Slider row: -/+ tap zones at the row ends for fine steps (a full-row-height
-  // square each, comfortable touch targets), with the drag slider between them.
-  const fui::Insets sideInset{0, static_cast<int16_t>(theme.spaceLg * 2), 0, static_cast<int16_t>(theme.spaceLg * 2)};
-  const fui::Rect row = screen.takeTop(theme.rowHeight, theme.spaceLg).inset(sideInset);
-  const int16_t stepW = row.height;
-  const fui::Rect minusHit{row.x, row.y, stepW, row.height};
-  const fui::Rect plusHit{static_cast<int16_t>(row.right() - stepW), row.y, stepW, row.height};
-
-  fui::TextStyle glyph = theme.bodyText;
-  glyph.align = fui::TextAlign::Center;
-  const int16_t glyphLh = screen.target().lineHeight(glyph.font);
-  const int16_t glyphY = static_cast<int16_t>(row.y + (row.height - glyphLh) / 2);
-  screen.target().text(fui::Rect{minusHit.x, glyphY, stepW, glyphLh}, "-", glyph);
-  screen.target().text(fui::Rect{plusHit.x, glyphY, stepW, glyphLh}, "+", glyph);
-  screen.frame().hit(minusHit, ACTION_STEP, -1, fui::InputTouch);
-  screen.frame().hit(plusHit, ACTION_STEP, +1, fui::InputTouch);
-
-  const int range = std::max(1, maxValue - minValue);
-  fui::SliderProps props;
-  props.value = value - minValue;
-  props.max = range;
-  props.action = ACTION_SLIDER;
-  props.inputMask = fui::InputTouch | fui::InputDrag;
-  const int16_t sideGap = static_cast<int16_t>(stepW + theme.spaceSm);
-  fui::slider(screen.frame(), row.inset(fui::Insets{0, sideGap, 0, sideGap}), props);
-
-  if (mappedInput.hasTouch()) {
-    // Touch devices drive the slider directly and confirm/cancel on screen; the
-    // physical-button step hints are hidden there — same rule as GUI.drawButtonHints.
-    addDialogCancelOk(screen, ACTION_CANCEL, ACTION_OK);
-    return;
-  }
-
-  // Two-line step hint: front buttons do the small step, side buttons the large step. Built from
+  // Step hints: front buttons do the small step, side buttons the large step. Built from
   // separate label + value strings (rather than splitting one localized sentence) so the layout
   // doesn't depend on translators preserving a hidden separator.
-  fui::TextStyle hint = theme.smallText;
-  hint.align = fui::TextAlign::Center;
-  const int16_t hintLh = screen.target().lineHeight(hint.font);
+  char hints[2][64];
   char stepText[24];
+  int hintIndex = 0;
   for (const auto& [labelId, step] :
        {std::pair{StrId::STR_STEP_HINT_FRONT, smallStep}, std::pair{StrId::STR_STEP_HINT_SIDE, largeStep}}) {
     if (valueFormatId != StrId::STR_NONE_OPT) {
@@ -246,9 +175,21 @@ void IntervalSelectionActivity::buildIntervalScreen(UiApp::ScreenType& screen) {
     } else {
       snprintf(stepText, sizeof(stepText), "%d", step);
     }
-    snprintf(line, sizeof(line), "%s %s", I18N.get(labelId), stepText);
-    screen.target().text(screen.takeTop(hintLh, theme.spaceSm), line, hint);
+    snprintf(hints[hintIndex], sizeof(hints[hintIndex]), "%s %s", I18N.get(labelId), stepText);
+    hintIndex++;
   }
+
+  UiSliderDialogSpec spec;
+  spec.readout = readout;
+  spec.value = value - minValue;
+  spec.max = std::max(1, maxValue - minValue);
+  spec.sliderAction = ACTION_SLIDER;
+  spec.stepAction = ACTION_STEP;
+  spec.cancelAction = ACTION_CANCEL;
+  spec.okAction = ACTION_OK;
+  spec.hintLine1 = hints[0];
+  spec.hintLine2 = hints[1];
+  buildSliderDialogScreen(screen, renderer, mappedInput, spec);
 }
 
 void IntervalSelectionActivity::render(RenderLock&&) {
@@ -258,9 +199,7 @@ void IntervalSelectionActivity::render(RenderLock&&) {
 
   // Value readout, slider, hints, and the touch Cancel/OK pair render through the
   // app so the interactive elements register touch hit rects.
-  uiReady = false;
-  app.render();
-  uiReady = true;
+  renderUi();
 
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), "-", "+");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);

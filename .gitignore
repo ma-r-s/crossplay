@@ -55,3 +55,6 @@ qa-artifacts/
 # in a public repo.
 .cloudflare/
 .ruff_cache/
+
+# upstream (1.6.0rc): nix flake outputs
+flake.*

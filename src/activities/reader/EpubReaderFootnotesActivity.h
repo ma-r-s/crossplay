@@ -1,44 +1,31 @@
 #pragma once
 
 #include <Epub/FootnoteEntry.h>
-#include <FreeInkApp.h>
-#include <FreeInkUIGfxRenderer.h>
 
-#include <atomic>
 #include <vector>
 
-#include "activities/Activity.h"
-#include "util/ButtonNavigator.h"
+#include "activities/UiListActivity.h"
 
-class EpubReaderFootnotesActivity final : public Activity {
+class EpubReaderFootnotesActivity final : public UiListActivity {
  public:
   explicit EpubReaderFootnotesActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                        const std::vector<FootnoteEntry>& footnotes);
 
-  void onEnter() override;
-  void onExit() override;
-  void loop() override;
-  void render(RenderLock&&) override;
-
  private:
-  // FreeInkApp hosts the footnote list (themed rows, touch routing); the
-  // header stays on GUI.drawHeader.
-  using UiApp = freeink::ui::FreeInkApp<20, 2>;
-
-  static void listScreen(UiApp::ScreenType& screen, void* user);
-  static void onRowEvent(const freeink::ui::ActionEvent& event, void* user);
-  void buildListScreen(UiApp::ScreenType& screen);
-  void activate(int index);
+  int listCount() const override { return static_cast<int>(footnotes.size()); }
+  void buildScreen(UiScreen& screen) override;
+  void activateIndex(int index) override;
+  // Back cancels with a result, and Confirm (or Power) activates on RELEASE here.
+  bool handleButtons() override;
+  // Header is drawn inside the safe area (not full-width like the base).
+  void drawChrome() override;
+  // Hints show Back only (empty list) or Back/Select; no Up/Down labels.
+  void drawFooter() override;
 
   const std::vector<FootnoteEntry>& footnotes;
-  int selectedIndex = 0;
-  ButtonNavigator buttonNavigator;
-
-  freeink::ui::GfxRendererTarget uiTarget;  // must precede `app`: the app holds a reference to it
-  UiApp app;
-  // render() rebuilds the app's interaction table; loop() only routes touch
-  // snapshots against it while this is true (the two run on different tasks).
-  std::atomic<bool> uiReady{false};
-  int visibleRows = 1;  // rows per page at the current scale; set by the screen builder
-  int topIndex = 0;     // viewport scroll position, decoupled from the selection
+  // Built once in the constructor (footnotes is fixed for this activity's
+  // lifetime, no reload path) and reused by buildScreen() on every repaint
+  // instead of rebuilding a ListItem vector per render.
+  std::vector<freeink::ui::ListItem> rowItems;
+  void buildRowItems();
 };

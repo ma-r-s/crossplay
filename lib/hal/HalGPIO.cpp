@@ -1,24 +1,45 @@
-#include <BatteryMonitor.h>
 #include <HalGPIO.h>
 #include <Logging.h>
 #include <PowerManager.h>
 #include <Preferences.h>
 #include <SPI.h>
+#include <Wire.h>
 #include <XteinkDetect.h>
 #include <esp_sleep.h>
-
-#if FREEINK_MCU_S3
-#include <soc/usb_serial_jtag_reg.h>
-#endif
 
 // Global HalGPIO instance
 HalGPIO gpio;
 
-// The X3-vs-X4 fingerprint (freeink::detectXteinkVerdict) only makes sense on
-// Xteink hardware; other boards (Sticky, de-link, Murphy, LilyGo, M5Paper,
-// PaperColor) keep the compile-time BoardConfig default profile. The NVS
-// override/cache layer here is app policy on top of the SDK probe.
-#if FREEINK_DEVICE_X4 || FREEINK_DEVICE_X3
+namespace X3GPIO {
+
+bool readI2CReg16LE(uint8_t addr, uint8_t reg, uint16_t* outValue) {
+  Wire.beginTransmission(addr);
+  Wire.write(reg);
+  if (Wire.endTransmission(false) != 0) {
+    return false;
+  }
+  if (Wire.requestFrom(addr, static_cast<uint8_t>(2), static_cast<uint8_t>(true)) < 2) {
+    while (Wire.available()) {
+      Wire.read();
+    }
+    return false;
+  }
+  const uint8_t lo = Wire.read();
+  const uint8_t hi = Wire.read();
+  *outValue = (static_cast<uint16_t>(hi) << 8) | lo;
+  return true;
+}
+
+bool readBQ27220CurrentMA(int16_t* outCurrent) {
+  uint16_t raw = 0;
+  if (!readI2CReg16LE(I2C_ADDR_BQ27220, BQ27220_CUR_REG, &raw)) {
+    return false;
+  }
+  *outCurrent = static_cast<int16_t>(raw);
+  return true;
+}
+
+}  // namespace X3GPIO
 
 namespace {
 constexpr char HW_NAMESPACE[] = "cphw";
@@ -68,34 +89,31 @@ HalGPIO::DeviceType detectDeviceTypeWithFingerprint() {
     return nvsToDeviceType(cachedValue);
   }
 
-  // No cache yet: run the SDK's X3 fingerprint probe and persist the result.
+  // No cache yet: use FreeInk's canonical two-pass X3 fingerprint and persist
+  // only confirmed results. Inconclusive probes deliberately remain uncached.
   uint8_t score1 = 0;
   uint8_t score2 = 0;
   const freeink::XteinkVerdict verdict = freeink::detectXteinkVerdict(&score1, &score2);
-  LOG_INF("HW", "X3 probe scores: pass1=%u pass2=%u", score1, score2);
+  LOG_INF("HW", "Xteink probe scores: pass1=%u pass2=%u verdict=%u", score1, score2, static_cast<unsigned>(verdict));
 
-  switch (verdict) {
-    case freeink::XteinkVerdict::X3Confirmed:
-      writeNvsDeviceValue(NVS_KEY_DEV_CACHED, NvsDeviceValue::X3);
-      return HalGPIO::DeviceType::X3;
-    case freeink::XteinkVerdict::X4Confirmed:
-      writeNvsDeviceValue(NVS_KEY_DEV_CACHED, NvsDeviceValue::X4);
-      return HalGPIO::DeviceType::X4;
-    case freeink::XteinkVerdict::Inconclusive:
-      break;
+  if (verdict == freeink::XteinkVerdict::X3Confirmed) {
+    writeNvsDeviceValue(NVS_KEY_DEV_CACHED, NvsDeviceValue::X3);
+    return HalGPIO::DeviceType::X3;
   }
 
-  // Conservative fallback for first boot with inconclusive probes; not cached,
-  // so the next boot re-probes.
+  if (verdict == freeink::XteinkVerdict::X4Confirmed) {
+    writeNvsDeviceValue(NVS_KEY_DEV_CACHED, NvsDeviceValue::X4);
+    return HalGPIO::DeviceType::X4;
+  }
+
+  // Conservative fallback for first boot with inconclusive probes.
   return HalGPIO::DeviceType::X4;
 }
 
 }  // namespace
 
-#endif  // FREEINK_DEVICE_X4 || FREEINK_DEVICE_X3
-
 void HalGPIO::begin() {
-#if FREEINK_DEVICE_X4 || FREEINK_DEVICE_X3
+#if FREEINK_MCU_C3
   _deviceType = detectDeviceTypeWithFingerprint();
   BoardConfig::selectDevice(deviceIsX3() ? BoardConfig::Board::XteinkX3 : BoardConfig::Board::XteinkX4);
 
@@ -114,6 +132,8 @@ void HalGPIO::begin() {
     pinMode(BAT_GPIO0, INPUT);
     pinMode(UART0_RXD, INPUT);
   }
+#else
+  _deviceType = DeviceType::X4;
 #endif
   inputMgr.begin();
 }
@@ -145,8 +165,6 @@ bool HalGPIO::hasTouch() const { return inputMgr.hasTouch(); }
 
 bool HalGPIO::hasHomeKey() const { return BoardConfig::hasHomeKey(); }
 
-bool HalGPIO::wasHomeKeyPressed() const { return inputMgr.wasHomeKeyPressed(); }
-
 bool HalGPIO::wasHomeKeyTapped() const { return inputMgr.wasHomeKeyTapped(); }
 
 bool HalGPIO::wasHomeKeyLongPressed() const { return inputMgr.wasHomeKeyLongPressed(); }
@@ -163,6 +181,10 @@ bool HalGPIO::isTouchTapCandidate(float& nx, float& ny, unsigned long& heldMs) c
 
 bool HalGPIO::isTouchHeldAt(float& nx, float& ny) const { return inputMgr.isTouchHeldAt(nx, ny); }
 
+bool HalGPIO::wasTouchLongPress(float& nx, float& ny) const { return inputMgr.wasTouchLongPress(nx, ny); }
+
+void HalGPIO::suppressTouchContact() { inputMgr.suppressTouchContact(); }
+
 unsigned long HalGPIO::lastTouchHeldMs() const { return inputMgr.lastTouchHeldMs(); }
 
 bool HalGPIO::wasSwipe(float& nxStart, float& nyStart, float& nxEnd, float& nyEnd) const {
@@ -175,21 +197,22 @@ void HalGPIO::setSharedConfirmPowerShortPressEmitsPower(const bool enabled) {
   InputManager::setSharedConfirmPowerShortPressEmitsPower(enabled);
 }
 
+bool HalGPIO::hasEdgeSideButtons() const {
+  return BoardConfig::ACTIVE.board == BoardConfig::Board::XteinkX3 ||
+         BoardConfig::ACTIVE.board == BoardConfig::Board::XteinkX3Uc8279 ||
+         BoardConfig::ACTIVE.board == BoardConfig::Board::XteinkX4Pro;
+}
+
 bool HalGPIO::isXteinkDevice() const {
   return BoardConfig::ACTIVE.board == BoardConfig::Board::XteinkX3 ||
          BoardConfig::ACTIVE.board == BoardConfig::Board::XteinkX3Uc8279 ||
          BoardConfig::ACTIVE.board == BoardConfig::Board::XteinkX4;
 }
 
-bool HalGPIO::hasEdgeSideButtons() const {
-  return BoardConfig::ACTIVE.board == BoardConfig::Board::XteinkX3 ||
-         BoardConfig::ACTIVE.board == BoardConfig::Board::XteinkX4Pro;
-}
-
 bool HalGPIO::verifyPowerButtonWakeup(uint16_t requiredDurationMs, bool shortPressAllowed) {
-  // Boards without a power button (or M5Paper's latch circuit) cannot verify a
-  // hold; treat the wake as valid.
-  if (BoardConfig::ACTIVE.input.power < 0) {
+  // X4 Pro wakes on any power-button press; other boards retain the configured
+  // hold-duration verification below.
+  if (BoardConfig::isX4Pro() || BoardConfig::ACTIVE.input.power < 0) {
     return true;
   }
 #if defined(FREEINK_DEVICE_M5PAPER) && FREEINK_DEVICE_M5PAPER
@@ -227,56 +250,23 @@ bool HalGPIO::verifyPowerButtonWakeup(uint16_t requiredDurationMs, bool shortPre
   return true;
 }
 
-#if FREEINK_MCU_S3
-// USB host presence via the USB-Serial-JTAG peripheral's SOF frame counter: a
-// connected host clocks 1 kHz start-of-frame packets, so the counter advancing
-// between polls means a data-capable host is attached. Held for a short window
-// so multiple callers within one loop tick (update() plus header renders) all
-// see the same answer. Limitation: a data-less wall charger sends no SOFs and
-// stays invisible — on boards with no VBUS line (X4 Pro, see
-// xteink-x4pro-support.md) this is the only observable USB signal.
-static bool usbHostSofActive() {
-  static uint32_t lastFrame = 0;
-  static unsigned long lastAdvanceMs = 0;
-  static bool seeded = false;
-  if (!seeded) {
-    // First probe must not fabricate a connection: getWakeupReason() calls this
-    // at boot, and a false positive turns a power-button wake (POWERON reset)
-    // into AfterUSBPower, which goes straight back to deep sleep — the device
-    // never wakes. Seed the counter and wait one SOF period out; a real host
-    // clocks SOFs at 1 kHz, so 3 ms guarantees advancement when attached.
-    seeded = true;
-    lastFrame = REG_READ(USB_SERIAL_JTAG_FRAM_NUM_REG);
-    delay(3);
-  }
-  const uint32_t frame = REG_READ(USB_SERIAL_JTAG_FRAM_NUM_REG);
-  if (frame != lastFrame) {
-    lastFrame = frame;
-    lastAdvanceMs = millis();
-    return true;
-  }
-  return lastAdvanceMs != 0 && millis() - lastAdvanceMs < 1500;
-}
-#endif
-
 bool HalGPIO::isUsbConnected() const {
-#if FREEINK_DEVICE_X3
   if (deviceIsX3()) {
-    // X3 has no USB-detect pin; infer external power from the gauge's charge
-    // current via the SDK's BatteryMonitor (BQ27220 Current() > 0 = charging).
-    static const BatteryMonitor battery;
-    return battery.isCharging();
+    // X3: infer USB/charging via BQ27220 Current() register (0x0C, signed mA).
+    // Positive current means charging.
+    for (uint8_t attempt = 0; attempt < 2; ++attempt) {
+      int16_t currentMa = 0;
+      if (X3GPIO::readBQ27220CurrentMA(&currentMa)) {
+        return currentMa > 0;
+      }
+      delay(2);
+    }
+    return false;
   }
-#endif
-  if (BoardConfig::ACTIVE.usbDetect >= 0) {
-    return digitalRead(BoardConfig::ACTIVE.usbDetect) == HIGH;
+  if (BoardConfig::ACTIVE.usbDetect < 0) {
+    return false;
   }
-#if FREEINK_MCU_S3
-  // No VBUS line on this board (X4 Pro): fall back to native-USB host detection.
-  return usbHostSofActive();
-#else
-  return false;
-#endif
+  return digitalRead(BoardConfig::ACTIVE.usbDetect) == HIGH;
 }
 
 HalGPIO::WakeupReason HalGPIO::getWakeupReason() const {

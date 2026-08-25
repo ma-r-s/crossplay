@@ -3,6 +3,11 @@
 #include <HalGPIO.h>
 
 class GfxRenderer;
+namespace freeink {
+namespace ui {
+enum class ScreenEdge : uint8_t;
+}
+}  // namespace freeink
 
 class MappedInputManager {
  public:
@@ -35,28 +40,29 @@ class MappedInputManager {
   MappedInputManager(HalGPIO& gpio, const GfxRenderer& renderer) : gpio(gpio), renderer(renderer) {}
 
   void update() const { gpio.update(); }
-  // Advances the swallowCurrentTouch() latch. Call once per frame from the main
-  // loop (where gpio.update() is guaranteed); it holds through the swallowed
-  // contact's release-edge frame, then clears on the following idle frame so a
-  // fresh touch is delivered normally. Not folded into update() because some
-  // activities never call update() yet still read touch (ConfirmationActivity).
-  void advanceTouchSwallow() const;
+#if FREEINK_CAP_TOUCH
+  // X4 Pro delays a single power click until its frontlight double-click window
+  // expires. The main loop supplies that one-frame event here.
+  void setPowerConfirmClickFrame(const bool clicked) { powerConfirmClickFrame = clicked; }
+#endif
   bool wasPressed(Button button) const;
   bool wasReleased(Button button) const;
   bool isPressed(Button button) const;
   bool hasTouch() const;
-  // True on boards with a capacitive home key (X4 Pro), where the bottom-edge
-  // up-swipe is the reader-menu gesture rather than the exit-to-home gesture.
-  bool hasHomeKey() const { return gpio.hasHomeKey(); }
   bool wasScreenTapped(int& x, int& y) const;
   bool wasScreenTouchDown(int& x, int& y) const;
-  // Overload reporting the contact's current held duration (finger still down),
-  // so a hold can be detected and fired WHILE pressed rather than on release.
-  bool wasScreenTouchDown(int& x, int& y, unsigned long& heldMs) const;
-  // Ignore the remainder of the in-progress touch contact — its continued hold
-  // and its release edge. Used after a long-press fires while the finger is
-  // still down, so the ensuing finger lift can't also tap-dismiss the popup the
-  // long-press opened. Auto-clears once the contact ends and a new one begins.
+  // One-shot long-press from the SDK touch classifier, fired WHILE the finger
+  // is still down (stationary contact held past the SDK threshold). Consuming
+  // it suppresses the remainder of the contact — its continued hold and its
+  // release edge — so the ensuing finger lift can't also tap-dismiss the popup
+  // the long-press opened. The SDK owns that latch and self-clears it once the
+  // contact ends.
+  bool wasScreenLongPress(int& x, int& y) const;
+  // fork-local: ignore the remainder of the in-progress contact -- its hold
+  // and its release edge -- via the SDK's suppression latch. For apps that do
+  // their own hold timing against geometry outside the interaction buffer
+  // (Minesweeper's flag hold): after the hold fires, the finger lift must not
+  // also arrive as a tap. The SDK self-clears once the contact ends.
   void swallowCurrentTouch() const;
   bool isScreenTouchHeld(int& x, int& y) const;
   // Raw release edge, also true when the contact ended in a swipe or drag-off
@@ -64,10 +70,6 @@ class MappedInputManager {
   // off-target so FreeInkUI routing clears its pressed-element state.
   bool wasScreenTouchReleased() const;
   bool wasTapInRect(int x, int y, int width, int height) const;
-  bool wasListItemTapped(int& index, int itemCount, int selectedIndex, int listTop, int listHeight,
-                         bool hasSubtitle) const;
-  bool wasListItemTouchedDown(int& index, int itemCount, int selectedIndex, int listTop, int listHeight,
-                              bool hasSubtitle) const;
 
   // Combined touch interaction for a band of equal rows with caller-supplied
   // geometry — the shared hit-test for lists the theme helpers above do not
@@ -85,20 +87,16 @@ class MappedInputManager {
   // Back = left-to-right swipe anchored at the left edge. Public so swipe-mode
   // page turns (reader) can exclude it from a plain SwipeDir::Right.
   bool wasBackGesture() const;
-  // Exit-to-home intent. Boards with a capacitive home key (X4 Pro) use the
-  // key's press edge; everywhere else it's the bottom-edge up-swipe.
+  // Home-key boards use a short Home-key tap to exit; their bottom-edge swipe
+  // is intentionally unused. Other boards retain the bottom-edge Home gesture.
+  // The reader menu remains on its existing top-edge gesture and middle tap.
   bool wasHomeGesture() const;
-  // Contextual menu intent (the reader menu). Home-key boards move this to the
-  // bottom-edge up-swipe (freed by the home key); others keep the top-edge
-  // down-swipe.
-  bool wasMenuGesture() const;
-  // Frontlight quick panel: top-edge down-swipe, only on home-key boards where
-  // that edge is no longer the menu gesture.
-  bool wasLightPanelGesture() const;
-  // Long press of the capacitive home key (home-key boards only). A short tap
-  // goes home; the hold runs the user-selected long-press function
-  // (SETTINGS.longPressMenuFunction) in the reader.
+  // A Home-key hold runs the configured long-press action in the reader.
   bool wasHomeKeyHold() const;
+  bool wasMenuGesture() const;
+  // Top-edge down-swipe opens the light panel when the active board actually
+  // has a frontlight. ActivityManager consumes it before activity input.
+  bool wasLightPanelGesture() const;
   bool wasAnyPressed() const;
   bool wasAnyReleased() const;
   unsigned long getHeldTime() const;
@@ -129,20 +127,22 @@ class MappedInputManager {
   Button mapScreenDirection(Button button) const;
   Labels mapFrontLabels(const char* back, const char* confirm, const char* left, const char* right) const;
   bool mapButton(Button button, bool (HalGPIO::*fn)(uint8_t) const) const;
+  // SDK edge classification (fui::edgeSwipe) + the shared decode/held-time
+  // bookkeeping; the wrappers below give each edge its board meaning.
+  bool wasEdgeSwipe(freeink::ui::ScreenEdge edge) const;
   bool wasTopEdgeDownSwipe() const;
   bool wasBottomEdgeUpSwipe() const;
   // Fetch the pending swipe (if any) and map both endpoints to logical screen coords
   bool decodeSwipe(int& sx, int& sy, int& ex, int& ey) const;
-  bool listItemFromPoint(int x, int y, int& index, int itemCount, int selectedIndex, int listTop, int listHeight,
-                         bool hasSubtitle) const;
+#if FREEINK_CAP_TOUCH
+  bool wasPowerConfirmClick() const;
+#endif
   void rememberTouchHeldTime() const;
 
   mutable bool touchHeldOverrideValid = false;
   mutable unsigned long touchHeldOverrideMs = 0;
   mutable unsigned long touchHeldOverrideAt = 0;
-  // swallowCurrentTouch() state: while active, all touch-edge readers report
-  // nothing; touchSwallowWasDown tracks the prior frame's contact so the latch
-  // clears only after the release-edge frame has passed.
-  mutable bool touchSwallowActive = false;
-  mutable bool touchSwallowWasDown = false;
+#if FREEINK_CAP_TOUCH
+  bool powerConfirmClickFrame = false;
+#endif
 };

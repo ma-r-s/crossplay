@@ -15,6 +15,7 @@
 #include <cstring>
 #include <string>
 
+#include "FirmwareBoardTag.h"
 #include "FirmwareFlasher.h"
 
 namespace {
@@ -36,6 +37,14 @@ OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
   // OOM there aborts. fetchUrl handles the verified-https GET, redirects, and
   // User-Agent (see HttpDownloader).
   ReleaseJsonParser releaseParser;
+  // FORK CHANGE: upstream suffixes the asset per board (firmware-x4pro.bin)
+  // because one release feeds many devices. This fork releases for exactly one
+  // device, and every unit in the field since v1.0.0 asks for the literal
+  // "firmware.bin" -- adopting the suffix would strand them: their updater
+  // would keep finding firmware.bin (and flash it), while THIS build would
+  // stop finding anything the moment a release dropped the plain name. One
+  // device, one name, forever. host-tests/release pins the workflow to it.
+  releaseParser.setFirmwareAssetName("firmware.bin");
   const bool ok = HttpDownloader::fetchUrl(latestReleaseUrl, [&releaseParser](const uint8_t* data, size_t len) {
     releaseParser.feed(reinterpret_cast<const char*>(data), len);
     return true;
@@ -54,7 +63,7 @@ OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
   }
 
   if (!releaseParser.foundFirmware()) {
-    LOG_ERR("OTA", "No firmware.bin asset found");
+    LOG_INF("OTA", "No firmware.bin asset in latest release");
     return NO_UPDATE;
   }
 
@@ -149,6 +158,12 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback onProgres
   uint8_t hdr[14];
   size_t hdrLen = 0;
   bool wrongChip = false;
+  // All S3 boards share a chip_id, so also scan the stream for the embedded
+  // board tag (FirmwareBoardTag.h). An untagged image passes; a tag naming a
+  // different board aborts the download. The wrong image may partially land in
+  // the inactive OTA slot, but esp_ota_abort() below means it never becomes
+  // the boot target.
+  board_tag::Scanner tagScanner;
   const bool fetchOk = HttpDownloader::fetchUrl(otaUrl, [&](const uint8_t* data, size_t len) {
     if (hdrLen < sizeof(hdr)) {
       const size_t take = std::min(len, sizeof(hdr) - hdrLen);
@@ -164,6 +179,12 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback onProgres
           return false;  // abort the transfer
         }
       }
+    }
+    tagScanner.feed(data, len);
+    if (tagScanner.mismatch()) {
+      LOG_ERR("OTA", "wrong board: image=%s device=%.*s", tagScanner.foundName(),
+              static_cast<int>(board_tag::boardNameLen()), board_tag::boardName());
+      return false;  // abort the transfer
     }
     if (esp_ota_write(otaHandle, data, len) != ESP_OK) {
       flashOk = false;
@@ -186,7 +207,7 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback onProgres
   /* Return back to default power saving for WiFi in case of failing */
   esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
 
-  if (wrongChip) {
+  if (wrongChip || tagScanner.mismatch()) {
     LOG_ERR("OTA", "Firmware install aborted: wrong device");
     esp_ota_abort(otaHandle);
     return WRONG_DEVICE_ERROR;

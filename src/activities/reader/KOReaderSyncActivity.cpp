@@ -22,8 +22,7 @@
 #include "activities/ActivityManager.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
-#include "components/UIThemeTokens.h"
-#include "components/UiAppHelpers.h"
+#include "components/UiAppHelpers.h"  // list icons for the compare rows
 #include "fontIds.h"
 
 namespace fui = freeink::ui;
@@ -79,6 +78,7 @@ KOReaderSyncActivity::KOReaderSyncActivity(GfxRenderer& renderer, MappedInputMan
                                            int totalPagesInSpine, SavedProgressPosition localKoPos,
                                            std::string localChapterName, std::optional<uint16_t> currentParagraphIndex)
     : Activity("KOReaderSync", renderer, mappedInput),
+      UiAppHost(renderer),
       epubPath(epubPath),
       localChapterName(std::move(localChapterName)),
       currentSpineIndex(currentSpineIndex),
@@ -87,9 +87,7 @@ KOReaderSyncActivity::KOReaderSyncActivity(GfxRenderer& renderer, MappedInputMan
       currentParagraphIndex(currentParagraphIndex),
       remoteProgress{},
       remotePosition{},
-      localProgress(std::move(localKoPos)),
-      uiTarget(makeUiTarget(renderer)),
-      app(uiTarget, uiTarget.deviceContext()) {}
+      localProgress(std::move(localKoPos)) {}
 
 void KOReaderSyncActivity::ensureEpubLoaded() {
   if (!epub) {
@@ -394,8 +392,7 @@ void KOReaderSyncActivity::onEnter() {
   Activity::onEnter();
   ReaderUtils::applyOrientation(renderer, SETTINGS.orientation);
 
-  uiReady = false;
-  app.setTheme(uiThemeTokens(uiTarget));
+  resetUi();
   app.on(ACTION_ROW, &KOReaderSyncActivity::onResultRow, this);
   app.setScreen(&KOReaderSyncActivity::resultScreen, this);
 
@@ -463,11 +460,11 @@ void KOReaderSyncActivity::onResultRow(const fui::ActionEvent& event, void* user
   }
 }
 
-void KOReaderSyncActivity::resultScreen(UiApp::ScreenType& screen, void* user) {
+void KOReaderSyncActivity::resultScreen(UiScreen& screen, void* user) {
   static_cast<KOReaderSyncActivity*>(user)->buildResultScreen(screen);
 }
 
-void KOReaderSyncActivity::buildResultScreen(UiApp::ScreenType& screen) {
+void KOReaderSyncActivity::buildResultScreen(UiScreen& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   // Side padding is 0 here (like the other FreeInkApp screens): the action list
   // supplies its own theme side padding, and the raw comparison text is indented
@@ -553,11 +550,20 @@ void KOReaderSyncActivity::buildResultScreen(UiApp::ScreenType& screen) {
     actionProps.action = ACTION_ROW;
     actionProps.inputMask = fui::InputTouch;  // physical buttons stay in loop()
     actionProps.scrollIndicator = false;      // never scrolls; no indicator needed
+    // Non-touch hardware (X3/X4) keeps the original, denser row height instead
+    // of FreeInkUI's touch-target-sized default (see
+    // UiListActivity::syncListViewport); actionsBand must use the same value
+    // or the band and the rows it contains fall out of sync.
+    int16_t actionRowHeight = screen.theme().rowHeight;
+    if (!mappedInput.hasTouch()) {
+      actionRowHeight = static_cast<int16_t>(UITheme::getInstance().getMetrics().listRowHeight);
+      actionProps.rowHeight = actionRowHeight;
+    }
     // Keep the theme's row inset + side padding so the selected-row highlight has
     // the same padding around its icon/label as every other list in the UI; the
     // labels above are indented to match this content-left.
     const auto actionsBand =
-        static_cast<int16_t>(screen.theme().rowHeight * 2 + screen.theme().listRowGap + screen.theme().spaceSm);
+        static_cast<int16_t>(actionRowHeight * 2 + screen.theme().listRowGap + screen.theme().spaceSm);
     screen.list(actionProps, actionsBand);
     return;
   }
@@ -583,7 +589,14 @@ void KOReaderSyncActivity::buildResultScreen(UiApp::ScreenType& screen) {
     actionProps.action = ACTION_ROW;
     actionProps.inputMask = fui::InputTouch;
     actionProps.scrollIndicator = false;
-    const auto actionsBand = static_cast<int16_t>(screen.theme().rowHeight + screen.theme().spaceMd);
+    // See the equivalent override above; keeps actionsBand in sync with the
+    // row height actually used on non-touch hardware (X3/X4).
+    int16_t actionRowHeight = screen.theme().rowHeight;
+    if (!mappedInput.hasTouch()) {
+      actionRowHeight = static_cast<int16_t>(UITheme::getInstance().getMetrics().listRowHeight);
+      actionProps.rowHeight = actionRowHeight;
+    }
+    const auto actionsBand = static_cast<int16_t>(actionRowHeight + screen.theme().spaceMd);
     screen.list(actionProps, actionsBand, fui::LayoutAnchor::Bottom);
   }
 }
@@ -619,9 +632,7 @@ void KOReaderSyncActivity::render(RenderLock&&) {
   if (state == SHOWING_RESULT) {
     // Comparison rows + option selection render through the FreeInkApp
     // (themed rows, tap-flash); the header above shows "Progress Found".
-    uiReady = false;
-    app.render();
-    uiReady = true;
+    renderUi();
 
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
@@ -631,9 +642,7 @@ void KOReaderSyncActivity::render(RenderLock&&) {
 
   if (state == NO_REMOTE_PROGRESS) {
     // Prompt text + upload button render through the FreeInkApp.
-    uiReady = false;
-    app.render();
-    uiReady = true;
+    renderUi();
 
     const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_UPLOAD), "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
@@ -679,14 +688,9 @@ void KOReaderSyncActivity::loop() {
   if (state == SHOWING_RESULT) {
     // Touch goes through the FreeInkApp: render() registered the compare rows;
     // route the snapshot and let onResultRow apply/upload on tap.
-    if (uiReady) {
-      const fui::InputSnapshot snap = touchSnapshotFrom(mappedInput);
-      if (snap.touchPressed || snap.touchReleased) {
-        const auto event = app.route(snap);
-        if (app.invalidated()) requestUpdate();
-        if (event) return;  // dispatched to onResultRow
-      }
-    }
+    const auto route = routeTouch(mappedInput);
+    if (route.routed && app.invalidated()) requestUpdate();
+    if (route) return;  // dispatched to onResultRow
 
     // Navigate the two options with physical buttons.
     if (mappedInput.wasReleased(MappedInputManager::Button::Up) ||
@@ -709,14 +713,9 @@ void KOReaderSyncActivity::loop() {
 
   if (state == NO_REMOTE_PROGRESS) {
     // Touch goes through the FreeInkApp: render() registered the upload button.
-    if (uiReady) {
-      const fui::InputSnapshot snap = touchSnapshotFrom(mappedInput);
-      if (snap.touchPressed || snap.touchReleased) {
-        const auto event = app.route(snap);
-        if (app.invalidated()) requestUpdate();
-        if (event) return;  // dispatched to onResultRow -> startUpload
-      }
-    }
+    const auto route = routeTouch(mappedInput);
+    if (route.routed && app.invalidated()) requestUpdate();
+    if (route) return;  // dispatched to onResultRow -> startUpload
 
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
       startUpload();

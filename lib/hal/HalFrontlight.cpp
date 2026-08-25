@@ -5,9 +5,8 @@
 HalFrontlight HalFrontlight::instance;
 
 void HalFrontlight::begin(const uint8_t brightness, const uint8_t warmth, const bool on) {
-  if (!manager.present()) {
-    return;
-  }
+  if (!manager.present()) return;
+
   manager.begin();
   lastBrightness = brightness > 100 ? 100 : brightness;
   manager.setColorTemperature(warmth > 100 ? 100 : warmth);
@@ -18,9 +17,7 @@ void HalFrontlight::begin(const uint8_t brightness, const uint8_t warmth, const 
 
 void HalFrontlight::setBrightness(const uint8_t percent) {
   lastBrightness = percent > 100 ? 100 : percent;
-  if (lit) {
-    manager.setBrightness(lastBrightness);
-  }
+  if (lit) manager.setBrightness(lastBrightness);
 }
 
 void HalFrontlight::setWarmth(const uint8_t warmPercent) {
@@ -28,9 +25,7 @@ void HalFrontlight::setWarmth(const uint8_t warmPercent) {
 }
 
 void HalFrontlight::setOn(const bool on) {
-  if (on == lit) {
-    return;
-  }
+  if (on == lit) return;
   lit = on;
   manager.setBrightness(lit ? lastBrightness : 0);
 }

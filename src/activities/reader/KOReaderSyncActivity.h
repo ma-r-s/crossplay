@@ -1,9 +1,6 @@
 #pragma once
 #include <Epub.h>
-#include <FreeInkApp.h>
-#include <FreeInkUIGfxRenderer.h>
 
-#include <atomic>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -11,6 +8,7 @@
 #include "KOReaderSyncClient.h"
 #include "ProgressMapper.h"
 #include "activities/Activity.h"
+#include "components/UiAppHost.h"
 
 /**
  * Activity for syncing reading progress with KOReader sync server.
@@ -22,7 +20,7 @@
  * 4. Show comparison and options (Apply/Upload)
  * 5. Apply or upload progress
  */
-class KOReaderSyncActivity final : public Activity {
+class KOReaderSyncActivity final : public Activity, private UiAppHost {
  public:
   explicit KOReaderSyncActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& epubPath,
                                 int currentSpineIndex, int currentPage, int totalPagesInSpine,
@@ -92,21 +90,14 @@ class KOReaderSyncActivity final : public Activity {
   void saveProgressAndReturn(int spineIndex, int page);
   void returnToReader();
 
-  // FreeInkApp hosts the interactive states (SHOWING_RESULT compare rows and
-  // the NO_REMOTE_PROGRESS upload prompt) so they get themed rows/buttons and
-  // tap-flash; the header stays on GUI.drawHeader for the battery indicator and
-  // the purely-informational states keep their raw centered text.
-  using UiApp = freeink::ui::FreeInkApp<12, 4>;
-
-  freeink::ui::GfxRendererTarget uiTarget;  // must precede `app`: the app holds a reference to it
-  UiApp app;
-  // render() rebuilds the app's interaction table; loop() only routes touch
-  // snapshots against it while this is true (the two run on different tasks).
-  std::atomic<bool> uiReady{false};
-
-  static void resultScreen(UiApp::ScreenType& screen, void* user);
+  // The UiAppHost app hosts the interactive states (SHOWING_RESULT compare
+  // rows and the NO_REMOTE_PROGRESS upload prompt) so they get themed
+  // rows/buttons and tap-flash; the header stays on GUI.drawHeader for the
+  // battery indicator and the purely-informational states keep their raw
+  // centered text.
+  static void resultScreen(UiScreen& screen, void* user);
   static void onResultRow(const freeink::ui::ActionEvent& event, void* user);
-  void buildResultScreen(UiApp::ScreenType& screen);
+  void buildResultScreen(UiScreen& screen);
   void chooseResultOption();
   void startUpload();
 };
