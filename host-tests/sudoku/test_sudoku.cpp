@@ -15,6 +15,7 @@
 #include <cstring>
 
 #include "SudokuCore.h"
+#include "SudokuGame.h"
 
 namespace {
 
@@ -338,6 +339,246 @@ void testAHintOnAFinishedBoardIsHonestlyEmpty() {
   check(!hint.found, "a solved board offers no hint");
 }
 
+// ---------------------------------------------------------------------------
+// The game the player touches.
+// ---------------------------------------------------------------------------
+
+sudoku::Puzzle aPuzzle(const sudoku::Level level, uint32_t& rng, sudoku::Workspace& work) {
+  sudoku::Puzzle puzzle;
+  check(sudoku::generate(puzzle, level, work, rng, kAttempts), "generated a puzzle for the game tests");
+  return puzzle;
+}
+
+// The promise is that no tap on any cell is ever a no-op, because on a panel
+// with no press feedback a dead tap and a missed tap look identical. Asserted
+// over every cell of a real puzzle, in both the empty and the occupied case,
+// rather than on a couple of examples.
+void testNoTapOnAnyCellIsEverDead() {
+  sudoku::Workspace work;
+  uint32_t rng = 0x11223344u;
+  const sudoku::Puzzle puzzle = aPuzzle(sudoku::Level::Medium, rng, work);
+
+  for (int cell = 0; cell < sudoku::kCells; ++cell) {
+    for (int armed = 1; armed <= sudoku::kSize; ++armed) {
+      sudoku::Game game;
+      sudoku::startGame(game, puzzle);
+      game.armed = static_cast<uint8_t>(armed);
+
+      // Empty (or clued) cell.
+      const uint8_t beforeArmed = game.armed;
+      const uint8_t beforeEntry = game.entry[cell];
+      sudoku::tapCell(game, cell);
+      if (sudoku::isGiven(game, cell)) {
+        checkEq(game.armed, puzzle.given[cell], "tapping a clue picks its digit up");
+        checkEq(game.entry[cell], 0, "tapping a clue writes nothing");
+      } else {
+        check(game.entry[cell] != beforeEntry, "tapping an empty cell writes the armed digit");
+        checkEq(game.entry[cell], beforeArmed, "and writes the armed digit specifically");
+      }
+
+      // The same cell again, now occupied.
+      if (sudoku::isGiven(game, cell)) continue;
+      sudoku::tapCell(game, cell);
+      checkEq(game.entry[cell], 0, "tapping your own digit again clears it");
+
+      // Occupied by something else.
+      game.entry[cell] = static_cast<uint8_t>(armed == 9 ? 1 : armed + 1);
+      sudoku::tapCell(game, cell);
+      checkEq(game.entry[cell], beforeArmed, "tapping a different digit overwrites it");
+    }
+  }
+}
+
+void testHoldPencilsAndRubsOut() {
+  sudoku::Workspace work;
+  uint32_t rng = 0x55667788u;
+  const sudoku::Puzzle puzzle = aPuzzle(sudoku::Level::Easy, rng, work);
+  sudoku::Game game;
+  sudoku::startGame(game, puzzle);
+
+  int open = -1;
+  for (int cell = 0; cell < sudoku::kCells; ++cell) {
+    if (!sudoku::isGiven(game, cell)) {
+      open = cell;
+      break;
+    }
+  }
+  check(open >= 0, "a puzzle has an empty cell");
+
+  game.armed = 4;
+  sudoku::holdCell(game, open);
+  check((game.note[open] & sudoku::bitFor(4)) != 0, "a hold pencils the armed digit");
+  sudoku::holdCell(game, open);
+  checkEq(game.note[open], 0, "holding again rubs it out");
+
+  // A hold on a cell you had filled clears the digit and pencils instead.
+  sudoku::tapCell(game, open);
+  check(game.entry[open] != 0, "the cell has a digit to displace");
+  game.armed = 7;
+  sudoku::holdCell(game, open);
+  checkEq(game.entry[open], 0, "a hold clears the digit it replaces");
+  check((game.note[open] & sudoku::bitFor(7)) != 0, "and leaves the mark");
+
+  // A clue never changes, however it is touched.
+  int clue = -1;
+  for (int cell = 0; cell < sudoku::kCells; ++cell) {
+    if (sudoku::isGiven(game, cell)) {
+      clue = cell;
+      break;
+    }
+  }
+  check(clue >= 0, "a puzzle has a clue");
+  const uint8_t was = puzzle.given[clue];
+  sudoku::tapCell(game, clue);
+  sudoku::holdCell(game, clue);
+  checkEq(game.puzzle.given[clue], was, "a clue survives being tapped and held");
+  checkEq(game.entry[clue], 0, "and nothing is written over it");
+  checkEq(game.note[clue], 0, "and nothing is pencilled on it");
+}
+
+// Undo has to restore the board EXACTLY, marks included, or it is a second way
+// to lose work rather than a way to recover it. Driven with a long random walk
+// and compared against snapshots rather than spot-checked.
+void testUndoWalksTheBoardBackExactly() {
+  sudoku::Workspace work;
+  uint32_t rng = 0x0BADF00Du;
+  const sudoku::Puzzle puzzle = aPuzzle(sudoku::Level::Hard, rng, work);
+  sudoku::Game game;
+  sudoku::startGame(game, puzzle);
+
+  constexpr int kSteps = sudoku::kUndoDepth;
+  uint8_t entrySnapshot[kSteps][sudoku::kCells];
+  sudoku::Mask noteSnapshot[kSteps][sudoku::kCells];
+
+  for (int step = 0; step < kSteps; ++step) {
+    std::memcpy(entrySnapshot[step], game.entry, sizeof(game.entry));
+    std::memcpy(noteSnapshot[step], game.note, sizeof(game.note));
+    const int cell = static_cast<int>(sudoku::nextRandom(rng) % sudoku::kCells);
+    game.armed = static_cast<uint8_t>(1 + sudoku::nextRandom(rng) % sudoku::kSize);
+    if (sudoku::isGiven(game, cell)) {
+      // A clue changes nothing, so it pushes no undo either: re-snapshot.
+      --step;
+      continue;
+    }
+    if (sudoku::nextRandom(rng) % 2 == 0) {
+      sudoku::tapCell(game, cell);
+    } else {
+      sudoku::holdCell(game, cell);
+    }
+  }
+
+  for (int step = kSteps - 1; step >= 0; --step) {
+    check(sudoku::undoOnce(game), "undo has something to give back");
+    checkEq(std::memcmp(game.entry, entrySnapshot[step], sizeof(game.entry)), 0, "undo restores every digit");
+    checkEq(std::memcmp(game.note, noteSnapshot[step], sizeof(game.note)), 0, "undo restores every mark");
+  }
+  check(!sudoku::undoOnce(game), "an exhausted undo says so");
+}
+
+void testVisibleNotesHideWhatAPeerHasTaken() {
+  sudoku::Workspace work;
+  uint32_t rng = 0x2A2A2A2Au;
+  const sudoku::Puzzle puzzle = aPuzzle(sudoku::Level::Medium, rng, work);
+  sudoku::Game game;
+  sudoku::startGame(game, puzzle);
+
+  // Pencil every digit into every empty cell, which is the worst case.
+  for (int cell = 0; cell < sudoku::kCells; ++cell) {
+    if (!sudoku::isGiven(game, cell)) game.note[cell] = sudoku::kAllDigits;
+  }
+  for (int cell = 0; cell < sudoku::kCells; ++cell) {
+    const sudoku::Mask shown = sudoku::visibleNotes(game, cell);
+    if (sudoku::valueAt(game, cell) != 0) {
+      checkEq(shown, 0, "a filled cell shows no marks");
+      continue;
+    }
+    for (int digit = 1; digit <= sudoku::kSize; ++digit) {
+      if (!(shown & sudoku::bitFor(digit))) continue;
+      for (int other = 0; other < sudoku::kCells; ++other) {
+        if (!sudoku::arePeers(cell, other)) continue;
+        check(sudoku::valueAt(game, other) != digit, "a shown mark is not already taken by a peer");
+      }
+    }
+  }
+
+  // And the stored marks were never touched, which is what keeps undo one cell
+  // wide. A version that struck peers' notes on placement would fail here.
+  for (int cell = 0; cell < sudoku::kCells; ++cell) {
+    if (sudoku::isGiven(game, cell)) continue;
+    checkEq(game.note[cell], sudoku::kAllDigits, "the pencil marks are exactly as pencilled");
+  }
+}
+
+void testClashesAreFoundAndSolvingIsRecognised() {
+  sudoku::Workspace work;
+  uint32_t rng = 0x9E3779B9u;
+  const sudoku::Puzzle puzzle = aPuzzle(sudoku::Level::Easy, rng, work);
+  sudoku::Game game;
+  sudoku::startGame(game, puzzle);
+
+  for (int cell = 0; cell < sudoku::kCells; ++cell) {
+    check(!sudoku::isClashing(game, cell), "a fresh puzzle has no clash");
+  }
+  checkEq(sudoku::emptyCount(game), sudoku::kCells - puzzle.clues, "the empty count matches the clue count");
+  check(!sudoku::isSolved(game), "a fresh puzzle is not solved");
+
+  // Fill it correctly and it should settle, with the digit counts landing at
+  // nine apiece.
+  for (int cell = 0; cell < sudoku::kCells; ++cell) {
+    if (sudoku::isGiven(game, cell)) continue;
+    game.armed = puzzle.solution[cell];
+    sudoku::tapCell(game, cell);
+  }
+  check(sudoku::isSolved(game), "filling in the answer solves it");
+  checkEq(game.solvedFlag, 1, "and the game says so");
+  checkEq(sudoku::emptyCount(game), 0, "with nothing left empty");
+  for (int digit = 1; digit <= sudoku::kSize; ++digit) {
+    checkEq(sudoku::placedCount(game, digit), 9, "every digit is placed nine times");
+  }
+  checkEq(sudoku::firstWrong(game), sudoku::kNoCell, "and nothing is wrong");
+
+  // Now break it: two of a digit in one row must both read as clashing.
+  int a = -1;
+  int b = -1;
+  for (int cell = 0; cell < sudoku::kCells; ++cell) {
+    if (sudoku::isGiven(game, cell)) continue;
+    for (int other = cell + 1; other < sudoku::kCells; ++other) {
+      if (sudoku::isGiven(game, other) || !sudoku::arePeers(cell, other)) continue;
+      a = cell;
+      b = other;
+      break;
+    }
+    if (a >= 0) break;
+  }
+  check(a >= 0 && b >= 0, "found two of the player's own cells that are peers");
+  game.armed = game.entry[a];
+  sudoku::tapCell(game, b);
+  check(sudoku::isClashing(game, a), "the first of a clashing pair is marked");
+  check(sudoku::isClashing(game, b), "and so is the second");
+  check(!sudoku::isSolved(game), "a clashing board is not solved");
+  check(sudoku::firstWrong(game) != sudoku::kNoCell, "and a wrong digit is findable");
+}
+
+void testTheRecordOnlyTimesUnhintedSolves() {
+  sudoku::Record record;
+  checkEq(sudoku::totalSolved(record), 0, "a fresh record is empty");
+
+  sudoku::recordSolve(record, sudoku::Level::Hard, 600000, 0);
+  checkEq(record.solved[static_cast<int>(sudoku::Level::Hard)], 1, "a solve is counted");
+  checkEq(static_cast<long>(record.bestMs[static_cast<int>(sudoku::Level::Hard)]), 600000, "and timed");
+
+  sudoku::recordSolve(record, sudoku::Level::Hard, 300000, 2);
+  checkEq(record.solved[static_cast<int>(sudoku::Level::Hard)], 2, "a hinted solve is still counted");
+  checkEq(static_cast<long>(record.bestMs[static_cast<int>(sudoku::Level::Hard)]), 600000,
+          "but a hinted run cannot set a best time");
+  checkEq(record.hintsTaken, 2, "hints are tallied");
+
+  sudoku::recordSolve(record, sudoku::Level::Hard, 300000, 0);
+  checkEq(static_cast<long>(record.bestMs[static_cast<int>(sudoku::Level::Hard)]), 300000,
+          "an unhinted run does set one");
+  checkEq(sudoku::totalSolved(record), 3, "the total counts every level");
+}
+
 void reportGenerationCost() {
   // Not an assertion: a measurement, printed so the number that decides whether
   // generation can block the render path is written down rather than guessed.
@@ -378,6 +619,13 @@ int main() {
   testTheLabelIsNeverWrong();
   testHintsAlwaysNameTheTruth();
   testAHintOnAFinishedBoardIsHonestlyEmpty();
+  std::printf("Sudoku game\n");
+  testNoTapOnAnyCellIsEverDead();
+  testHoldPencilsAndRubsOut();
+  testUndoWalksTheBoardBackExactly();
+  testVisibleNotesHideWhatAPeerHasTaken();
+  testClashesAreFoundAndSolvingIsRecognised();
+  testTheRecordOnlyTimesUnhintedSolves();
   std::printf("Generation cost\n");
   reportGenerationCost();
 

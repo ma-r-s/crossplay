@@ -229,3 +229,12 @@ toybattle = share-2
 # (not vendored), `network` (its box reads as a device, not a board),
 # `git-fork` (a branch, and branches are exactly what this board is not --
 # its paths rejoin).
+
+# Sudoku. `hash` -- four open strokes, which is the frame everyone already draws
+# a Sudoku inside, and the only mark here made of LINES rather than of a shape.
+# That is the whole reason for it: `grid-3x3` is the literal choice and it is
+# indistinguishable from connections' `grid-2x2` at 32px in one bit, which is
+# exactly the confusion this file exists to avoid. Rejected alongside it:
+# `table` and `table-2` (same boxed-grid silhouette), `pencil` (a tool, not a
+# game, and every game here is played with one), `brain` (mush at 32px).
+sudoku      = hash

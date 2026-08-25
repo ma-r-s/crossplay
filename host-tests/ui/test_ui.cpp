@@ -30,6 +30,7 @@
 #include "../../src/apps_local/player/PlayerScreen.h"
 #include "../../src/apps_local/seasalt/SeaSaltScreens.h"
 #include "../../src/apps_local/study/StudyScreens.h"
+#include "../../src/apps_local/sudoku/SudokuScreens.h"
 #include "../../src/apps_local/toybattle/ToyBattleMenus.h"
 #include "../../src/apps_local/toybattle/ToyBattleScreens.h"
 #include "../../src/apps_local/ui/ToyboxIcons.h"
@@ -3544,7 +3545,10 @@ void testTheRackTileYouTapIsTheTroopYouGet() {
         if (!(b.adj[at] & (uint64_t{1} << next))) continue;
         parent[next] = at;
         queue[tail++] = next;
-        if (b.specialAt(next) == toybattle::Special::Exhume) { grave = next; break; }
+        if (b.specialAt(next) == toybattle::Special::Exhume) {
+          grave = next;
+          break;
+        }
       }
     }
     CHECK(grave >= 0);
@@ -3560,7 +3564,7 @@ void testTheRackTileYouTapIsTheTroopYouGet() {
     g.discarded[0][static_cast<int>(toybattle::Troop::Star)] = 1;
     for (int k = 0; k < toybattle::kTroopKinds; ++k) g.rack[0][k] = 0;
     // Roxy, because it is the one troop with no effect of its own: the base is
-            // then the only thing left to ask about.
+    // then the only thing left to ask about.
     g.rack[0][static_cast<int>(toybattle::Troop::Skully)] = 1;
     g.rack[0][static_cast<int>(toybattle::Troop::Roxy)] = 1;
 
@@ -3619,7 +3623,10 @@ void testTheRackTileYouTapIsTheTroopYouGet() {
         static_cast<int>(toybattle::TerrainId::CityOfClouds),
     };
     uint32_t rng = 0x2026u;
-    auto next = [&rng]() { rng = rng * 1664525u + 1013904223u; return rng >> 16; };
+    auto next = [&rng]() {
+      rng = rng * 1664525u + 1013904223u;
+      return rng >> 16;
+    };
 
     for (int bi = 0; bi < 5; ++bi) {
       for (int gameNo = 0; gameNo < 120; ++gameNo) {
@@ -3640,13 +3647,11 @@ void testTheRackTileYouTapIsTheTroopYouGet() {
             if (ask == toybattle::Ask::Troop && g.canDraw(g.turn)) answerable = true;
             for (int pos = 0; pos < toybattle::kTroopKinds && !answerable; ++pos) {
               const fui::Rect tl = tbui::rackTile(device(), pos);
-              const int kind =
-                  tbui::rackAt(device(), g, d, g.turn, tl.x + tl.width / 2, tl.y + tl.height / 2);
+              const int kind = tbui::rackAt(device(), g, d, g.turn, tl.x + tl.width / 2, tl.y + tl.height / 2);
               if (kind < 0) continue;
               toybattle::Draft probe = d;
-              if (ask == toybattle::Ask::Troop
-                      ? toybattle::answerTroop(g, probe, static_cast<toybattle::Troop>(kind))
-                      : toybattle::answerTarget(g, probe, kind)) {
+              if (ask == toybattle::Ask::Troop ? toybattle::answerTroop(g, probe, static_cast<toybattle::Troop>(kind))
+                                               : toybattle::answerTarget(g, probe, kind)) {
                 answerable = true;
               }
             }
@@ -3662,8 +3667,7 @@ void testTheRackTileYouTapIsTheTroopYouGet() {
           } else if (ask == toybattle::Ask::Troop) {
             const int spin = static_cast<int>(next() % toybattle::kTroopKinds);
             for (int i = 0; i < toybattle::kTroopKinds && !moved; ++i)
-              moved = toybattle::answerTroop(
-                  g, d, static_cast<toybattle::Troop>((spin + i) % toybattle::kTroopKinds));
+              moved = toybattle::answerTroop(g, d, static_cast<toybattle::Troop>((spin + i) % toybattle::kTroopKinds));
           } else if (ask == toybattle::Ask::ExhumeKind) {
             for (int k = 0; k < toybattle::kTroopKinds && !moved; ++k) moved = toybattle::answerTarget(g, d, k);
           } else {
@@ -3675,8 +3679,8 @@ void testTheRackTileYouTapIsTheTroopYouGet() {
             for (int i = 0; i < 64 && !moved; ++i) {
               const int slot = (spin + i) % 64;
               if (!(mask & (uint64_t{1} << slot))) continue;
-              moved = ask == toybattle::Ask::Slot ? toybattle::answerSlot(g, d, slot)
-                                                 : toybattle::answerTarget(g, d, slot);
+              moved =
+                  ask == toybattle::Ask::Slot ? toybattle::answerSlot(g, d, slot) : toybattle::answerTarget(g, d, slot);
             }
           }
           if (!moved) {
@@ -4087,8 +4091,8 @@ void testTheFinishedBoardCarriesItsOwnEnding() {
     }
     CHECK(hq >= 0);
     game.placeSlot[game.placementCount] = static_cast<uint8_t>(hq);
-    game.placeTile[game.placementCount] = static_cast<uint8_t>(((mine == 1 ? 0 : 1) << 3) |
-                                                               static_cast<int>(toybattle::Troop::Roxy));
+    game.placeTile[game.placementCount] =
+        static_cast<uint8_t>(((mine == 1 ? 0 : 1) << 3) | static_cast<int>(toybattle::Troop::Roxy));
     ++game.placementCount;
     game.winner = static_cast<uint8_t>(mine == 1 ? 0 : 1);
     game.ending = static_cast<uint8_t>(toybattle::Ending::HqCaptured);
@@ -4187,6 +4191,321 @@ void testEitherSideSeesItsOwnHqAtTheBottom() {
   }
 }
 
+// --- sudoku ------------------------------------------------------------------
+
+sudoku::Workspace& sudokuWorkspace() {
+  // 1.1KB. Static rather than a local so the stack frames here stay small.
+  static sudoku::Workspace work;
+  return work;
+}
+
+sudoku::Game aSudokuGame(const sudoku::Level level) {
+  uint32_t rng = 0x51DA0000u + static_cast<uint32_t>(level) * 7919u;
+  sudoku::Puzzle puzzle;
+  const bool made = sudoku::generate(puzzle, level, sudokuWorkspace(), rng, 400);
+  CHECK(made);
+  sudoku::Game game;
+  sudoku::startGame(game, puzzle);
+  return game;
+}
+
+void buildSudokuBoard(Rendered& out, const sudokuui::BoardModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  sudokuui::buildBoard(screen, model);
+}
+
+// Every action a tap can reach anywhere on the panel. The grid and the pad are
+// deliberately NOT in the interaction table -- ninety regions against a
+// twenty-four slot buffer -- so this is the direct assertion that they are not,
+// and it needs no access to the private geometry to make it.
+std::vector<int> sudokuReachableActions(Rendered& out) {
+  // A 7px lattice. The smallest control on any of these screens is a 50px grid
+  // cell, so nothing tappable can hide between the samples, and a prime step
+  // cannot line up with the 50px and 69px pitches and miss a whole column.
+  std::vector<int> found;
+  for (int y = 2; y < 800; y += 7) {
+    for (int x = 2; x < 480; x += 7) {
+      const fui::ActionEvent event = out.tap(x, y);
+      if (event.action == fui::NO_ACTION) continue;
+      bool seen = false;
+      for (const int action : found) {
+        if (action == static_cast<int>(event.action)) seen = true;
+      }
+      if (!seen) found.push_back(static_cast<int>(event.action));
+    }
+  }
+  return found;
+}
+
+bool contains(const std::vector<int>& actions, const int action) {
+  for (const int found : actions) {
+    if (found == action) return true;
+  }
+  return false;
+}
+
+// The pair has to be an exact inverse, not merely agree at the centres. Both
+// halves matter: a rect the hit test does not cover is a dead region, and a
+// point the hit test claims for a cell outside that cell's rect is a tap that
+// lands somewhere the player did not touch.
+void testTheSudokuGridAndItsHitTestAreExactInverses() {
+  const fui::DeviceContext ctx = device();
+  bool everyPixelMapsHome = true;
+  bool everyClaimIsInsideItsRect = true;
+  for (int cell = 0; cell < sudoku::kCells; ++cell) {
+    const fui::Rect box = sudokuui::cellRect(ctx, cell);
+    for (int y = box.y; y < box.bottom(); ++y) {
+      for (int x = box.x; x < box.right(); ++x) {
+        int got = -1;
+        if (!sudokuui::cellAt(ctx, x, y, got) || got != cell) everyPixelMapsHome = false;
+      }
+    }
+  }
+  for (int y = 0; y < 800; ++y) {
+    for (int x = 0; x < 480; ++x) {
+      int got = -1;
+      if (!sudokuui::cellAt(ctx, x, y, got)) continue;
+      const fui::Rect box = sudokuui::cellRect(ctx, got);
+      if (x < box.x || x >= box.right() || y < box.y || y >= box.bottom()) everyClaimIsInsideItsRect = false;
+    }
+  }
+  CHECK(everyPixelMapsHome);
+  CHECK(everyClaimIsInsideItsRect);
+
+  // And the grid claims nothing in the header band or below the board.
+  int stray = -1;
+  CHECK(!sudokuui::cellAt(ctx, 240, 40, stray));
+  CHECK(!sudokuui::cellAt(ctx, 240, 700, stray));
+  CHECK(!sudokuui::cellAt(ctx, 2, 300, stray));
+}
+
+void testTheSudokuPadAndItsHitTestAreExactInverses() {
+  const fui::DeviceContext ctx = device();
+  bool everyPixelMapsHome = true;
+  bool everyClaimIsInsideItsRect = true;
+  for (int digit = 1; digit <= sudoku::kSize; ++digit) {
+    const fui::Rect key = sudokuui::padKeyRect(ctx, digit);
+    for (int y = key.y; y < key.bottom(); ++y) {
+      for (int x = key.x; x < key.right(); ++x) {
+        int got = -1;
+        if (!sudokuui::padKeyAt(ctx, x, y, got) || got != digit) everyPixelMapsHome = false;
+      }
+    }
+  }
+  for (int y = 0; y < 800; ++y) {
+    for (int x = 0; x < 480; ++x) {
+      int got = -1;
+      if (!sudokuui::padKeyAt(ctx, x, y, got)) continue;
+      const fui::Rect key = sudokuui::padKeyRect(ctx, got);
+      if (x < key.x || x >= key.right() || y < key.y || y >= key.bottom()) everyClaimIsInsideItsRect = false;
+    }
+  }
+  CHECK(everyPixelMapsHome);
+  CHECK(everyClaimIsInsideItsRect);
+
+  // The pad sits under the grid and never over it: no point belongs to both.
+  bool disjoint = true;
+  for (int y = 0; y < 800; ++y) {
+    for (int x = 0; x < 480; ++x) {
+      int cell = -1;
+      int digit = -1;
+      if (sudokuui::cellAt(ctx, x, y, cell) && sudokuui::padKeyAt(ctx, x, y, digit)) disjoint = false;
+    }
+  }
+  CHECK(disjoint);
+}
+
+// The board screen spends three interactions, and the ninety regions the player
+// spends most of their time tapping spend none. This is the assertion that the
+// twenty-four slot buffer is respected structurally rather than by luck.
+void testTheSudokuBoardSpendsThreeInteractions() {
+  sudokuui::BoardModel model;
+  model.game = aSudokuGame(sudoku::Level::Easy);
+  Rendered out;
+  buildSudokuBoard(out, model);
+  CHECK(!out.interactions.overflowed());
+
+  const std::vector<int> actions = sudokuReachableActions(out);
+  CHECK(actions.size() == 2);
+  CHECK(contains(actions, sudokuui::ActionUndo));
+  CHECK(contains(actions, sudokuui::ActionHint));
+
+  // Every cell and every key answers nothing here, because both are hit-tested
+  // by the activity against the geometry that drew them.
+  const fui::DeviceContext ctx = device();
+  bool gridIsSilent = true;
+  for (int cell = 0; cell < sudoku::kCells; ++cell) {
+    const fui::Rect box = sudokuui::cellRect(ctx, cell);
+    if (out.tap(box.x + box.width / 2, box.y + box.height / 2).action != fui::NO_ACTION) gridIsSilent = false;
+  }
+  bool padIsSilent = true;
+  for (int digit = 1; digit <= sudoku::kSize; ++digit) {
+    const fui::Rect key = sudokuui::padKeyRect(ctx, digit);
+    if (out.tap(key.x + key.width / 2, key.y + key.height / 2).action != fui::NO_ACTION) padIsSilent = false;
+  }
+  CHECK(gridIsSilent);
+  CHECK(padIsSilent);
+}
+
+// The status capsule is a readout while you solve and a door once you are
+// finished. A readout that answers a tap is a control the player has to learn
+// is not one, which is the bug chess's own capsule test pins.
+void testTheSudokuCapsuleIsInertUntilTheGridIsFinished() {
+  sudokuui::BoardModel playing;
+  playing.game = aSudokuGame(sudoku::Level::Easy);
+  Rendered mid;
+  buildSudokuBoard(mid, playing);
+  CHECK(!contains(sudokuReachableActions(mid), sudokuui::ActionSeeResult));
+
+  sudokuui::BoardModel solved;
+  solved.game = playing.game;
+  for (int cell = 0; cell < sudoku::kCells; ++cell) {
+    if (sudoku::isGiven(solved.game, cell)) continue;
+    solved.game.entry[cell] = solved.game.puzzle.solution[cell];
+  }
+  solved.game.solvedFlag = 1;
+  Rendered done;
+  buildSudokuBoard(done, solved);
+  CHECK(!done.interactions.overflowed());
+  CHECK(contains(sudokuReachableActions(done), sudokuui::ActionSeeResult));
+}
+
+// A control that cannot act dims. It does not disappear, because a button that
+// vanishes takes its space with it and the layout jumps.
+void testTheSudokuUndoDimsRatherThanVanishing() {
+  sudokuui::BoardModel model;
+  model.game = aSudokuGame(sudoku::Level::Easy);
+  CHECK(!sudoku::canUndo(model.game));
+  Rendered fresh;
+  buildSudokuBoard(fresh, model);
+  CHECK(fresh.target.find("UNDO") != nullptr);
+  CHECK(fresh.target.find("HINT") != nullptr);
+
+  sudoku::tapCell(model.game, 0);
+  CHECK(sudoku::canUndo(model.game));
+  Rendered used;
+  buildSudokuBoard(used, model);
+  CHECK(used.target.find("UNDO") != nullptr);
+}
+
+void testEverySudokuScreenStaysOnThePanel() {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  const sudoku::Game game = aSudokuGame(sudoku::Level::Medium);
+
+  {
+    sudokuui::MenuModel model;
+    model.hasGame = true;
+    model.game = game;
+    model.level = sudoku::Level::Medium;
+    model.record.solved[1] = 3;
+    model.record.bestMs[1] = 512000;
+    Rendered out;
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    sudokuui::buildMenu(screen, model);
+    CHECK(!out.interactions.overflowed());
+    const std::vector<int> actions = sudokuReachableActions(out);
+    CHECK(contains(actions, sudokuui::ActionPlay));
+    CHECK(contains(actions, sudokuui::ActionMenuRow));
+    for (const auto& run : out.target.texts) {
+      CHECK(run.rect.y >= 0);
+      CHECK(run.rect.bottom() <= 800);
+      CHECK(run.rect.x >= 0);
+      CHECK(run.rect.right() <= 480);
+    }
+  }
+  {
+    sudokuui::ResultModel model;
+    model.level = sudoku::Level::Expert;
+    model.hardest = sudoku::Technique::XYWing;
+    model.elapsedMs = 3721000;  // past the hour, which is the long clock
+    model.bestMs = 900000;
+    model.hintsUsed = 2;
+    model.clues = 26;
+    model.solvedAtThisLevel = 7;
+    Rendered out;
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    sudokuui::buildResult(screen, model);
+    CHECK(!out.interactions.overflowed());
+    const std::vector<int> actions = sudokuReachableActions(out);
+    CHECK(contains(actions, sudokuui::ActionAgain));
+    CHECK(contains(actions, sudokuui::ActionDone));
+    CHECK(out.target.find("1:02:01") != nullptr);
+    for (const auto& run : out.target.texts) {
+      CHECK(run.rect.y >= 0);
+      CHECK(run.rect.bottom() <= 800);
+    }
+  }
+}
+
+void testEverySudokuLessonPagesAndClearsItsButton() {
+  for (int page = 0; page < sudokuui::howToPages(); ++page) {
+    sudokuui::HowToModel model;
+    model.page = page;
+    Rendered out;
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    sudokuui::buildHowTo(screen, model);
+    CHECK(!out.interactions.overflowed());
+    CHECK(contains(sudokuReachableActions(out), sudokuui::ActionHowToNext));
+
+    // The button is taken from the bottom before the page draws, so nothing the
+    // page draws may reach it. Its own label is the exception.
+    const FakeTarget::TextRun* button = out.target.find(page + 1 < sudokuui::howToPages() ? "NEXT" : "GOT IT");
+    CHECK(button != nullptr);
+    for (const auto& run : out.target.texts) {
+      if (run.rect.y == button->rect.y) continue;
+      CHECK(run.rect.bottom() <= button->rect.y);
+    }
+  }
+}
+
+// The design language's test for anything decorative: would a screenshot of it
+// be identical on everyone's device? The ornament is the player's own grid, so
+// two different puzzles have to produce two different pictures, and progress
+// through one puzzle has to change it.
+void testTheSudokuOrnamentCarriesTheGame() {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  auto drawnRects = [&ctx, &noInput](const sudokuui::MenuModel& model) {
+    Rendered out;
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    sudokuui::buildMenu(screen, model);
+    return out.target.fills.size();
+  };
+
+  sudokuui::MenuModel easy;
+  easy.hasGame = true;
+  easy.game = aSudokuGame(sudoku::Level::Easy);
+  sudokuui::MenuModel expert;
+  expert.hasGame = true;
+  expert.level = sudoku::Level::Expert;
+  expert.game = aSudokuGame(sudoku::Level::Expert);
+
+  sudokuui::MenuModel empty;
+  empty.hasGame = false;
+  CHECK(drawnRects(easy) != drawnRects(empty));
+
+  // And filling cells in adds to it, which is what makes it worth coming back to.
+  sudokuui::MenuModel partway = easy;
+  const size_t before = drawnRects(partway);
+  int filled = 0;
+  for (int cell = 0; cell < sudoku::kCells && filled < 12; ++cell) {
+    if (sudoku::isGiven(partway.game, cell)) continue;
+    partway.game.entry[cell] = partway.game.puzzle.solution[cell];
+    ++filled;
+  }
+  CHECK(drawnRects(partway) > before);
+}
+
 int main() {
   testTheSeaSaltCardYouTapIsTheCardTheRulesGet();
   testTheSeaSaltChromeIsTappableAndTheCallPillIsEarned();
@@ -4203,6 +4522,14 @@ int main() {
   testToyBattleShell();
   testAFrozenCardLooksDifferent();
   testSearchingAsksNothing();
+  testTheSudokuGridAndItsHitTestAreExactInverses();
+  testTheSudokuPadAndItsHitTestAreExactInverses();
+  testTheSudokuBoardSpendsThreeInteractions();
+  testTheSudokuCapsuleIsInertUntilTheGridIsFinished();
+  testTheSudokuUndoDimsRatherThanVanishing();
+  testEverySudokuScreenStaysOnThePanel();
+  testEverySudokuLessonPagesAndClearsItsButton();
+  testTheSudokuOrnamentCarriesTheGame();
   testMurdleGridResolvesEveryCellItDrew();
   testMurdleGridEdgesAreLive();
   testMurdleGridDrawsMarksItIsGiven();

@@ -2,7 +2,9 @@
 
 #include <EpdFont.h>
 #include <EpdFontFamily.h>
+#include <Logging.h>
 
+#include "ToyboxTokens.h"
 #include "fonts/instrument_10.h"
 #include "fonts/instrument_13.h"
 #include "fonts/instrument_24.h"
@@ -105,8 +107,39 @@ int drawCapsCentered(const GfxRenderer& renderer, const int fontId, const int x,
   return x;
 }
 
+// The four cuts, paired with the constants ToyboxTokens.h carries for them.
+// Screens are freestanding and cannot see a font, so those constants are the
+// only thing standing between a regenerated cut and every centred label in the
+// fork drifting at once. Checked here, where the real data is in scope.
+void verifyCutMetrics() {
+  struct Pair {
+    const char* name;
+    const EpdFontData* data;
+    const EpdFontFamily* family;
+    const toybox::CutMetrics* cut;
+  };
+  const Pair pairs[] = {
+      {"toybox_10", &toybox_10, &tileFamily, &toybox::kTileCut},
+      {"toybox_14", &toybox_14, &buttonFamily, &toybox::kButtonCut},
+      {"toybox_20", &toybox_20, &uiFamily, &toybox::kUiCut},
+      {"toybox_30", &toybox_30, &displayFamily, &toybox::kDisplayCut},
+  };
+  for (const Pair& pair : pairs) {
+    const EpdGlyph* glyph = pair.family->getGlyph('H');
+    const int ink = glyph != nullptr ? glyph->height : 0;
+    if (pair.data->advanceY == pair.cut->lineHeight && pair.data->ascender == pair.cut->ascender &&
+        ink == pair.cut->inkHeight) {
+      continue;
+    }
+    LOG_ERR("TOYBOX", "%s moved: advanceY %d/%d ascender %d/%d ink %d/%d -- update CutMetrics in ToyboxTokens.h",
+            pair.name, pair.data->advanceY, pair.cut->lineHeight, pair.data->ascender, pair.cut->ascender, ink,
+            pair.cut->inkHeight);
+  }
+}
+
 void ensureFonts(GfxRenderer& renderer) {
   if (registered) return;
+  verifyCutMetrics();
   // Registered from here rather than main.cpp so the design language costs zero
   // upstream surface. insertFont is idempotent per id, but the guard keeps this
   // free to call from every activity's onEnter().
