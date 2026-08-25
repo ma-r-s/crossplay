@@ -135,7 +135,23 @@ var handlers = {
   convert: async function (msg) {
     if (msg.needsImages && !self.pillowLoaded) {
       progress("Loading the image packer");
-      await pyodide.loadPackage("pillow", { messageCallback: function () {} });
+      // Raced against a deadline: a challenged or firewalled fetch can hang
+      // without erroring, and the page's stall watchdog only guards the
+      // pre-ready boot -- a mid-flow hang here spun forever once, live.
+      await Promise.race([
+        pyodide.loadPackage("pillow", { messageCallback: function () {} }),
+        new Promise(function (ignore, reject) {
+          setTimeout(function () {
+            reject(
+              new Error(
+                "the image packer download did not finish in 45 seconds." +
+                  " A firewall or the host's bot protection may be blocking" +
+                  " this tab; reload the page and retry."
+              )
+            );
+          }, 45000);
+        }),
+      ]);
       self.pillowLoaded = true;
     }
     pyodide.globals.set("_deck", msg.deck);

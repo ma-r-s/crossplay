@@ -68,6 +68,14 @@ OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
   }
 
   latestVersion = releaseParser.getTagName();
+  // Tags carry a v prefix ("v1.3.3"); CROSSPOINT_VERSION does not ("1.3.3").
+  // Comparing them raw meant isUpdateNewer()'s sscanf choked on the 'v' and
+  // compared uninitialized ints -- every install since v1.0.0 rode on that
+  // garbage reading as "newer", and a device already on the latest release
+  // was offered itself as an update. Found on hardware, naturally.
+  if (!latestVersion.empty() && (latestVersion[0] == 'v' || latestVersion[0] == 'V')) {
+    latestVersion.erase(0, 1);
+  }
   otaUrl = releaseParser.getFirmwareUrl();
   otaSize = releaseParser.getFirmwareSize();
   totalSize = otaSize;
@@ -83,13 +91,17 @@ bool OtaUpdater::isUpdateNewer() const {
     return false;
   }
 
-  int currentMajor, currentMinor, currentPatch;
-  int latestMajor, latestMinor, latestPatch;
+  int currentMajor = 0, currentMinor = 0, currentPatch = 0;
+  int latestMajor = 0, latestMinor = 0, latestPatch = 0;
 
   const auto currentVersion = CROSSPOINT_VERSION;
 
-  // semantic version check (only match on 3 segments)
-  sscanf(latestVersion.c_str(), "%d.%d.%d", &latestMajor, &latestMinor, &latestPatch);
+  // semantic version check (only match on 3 segments). A tag that does not
+  // parse as three numbers is not an update this device can reason about, so
+  // it is refused rather than compared as garbage.
+  if (sscanf(latestVersion.c_str(), "%d.%d.%d", &latestMajor, &latestMinor, &latestPatch) != 3) {
+    return false;
+  }
   sscanf(currentVersion, "%d.%d.%d", &currentMajor, &currentMinor, &currentPatch);
 
   /*
