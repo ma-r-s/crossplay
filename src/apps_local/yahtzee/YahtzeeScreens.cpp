@@ -153,8 +153,8 @@ void drawNumber(toybox::Screen& screen, const int16_t right, const int16_t y, co
   fui::TextStyle style;
   style.font = bold ? toybox::kBodyFont : toybox::kSmallFont;
   style.align = fui::TextAlign::Right;
-  screen.target().text(fui::makeRect(static_cast<int16_t>(right - 90), y, static_cast<int16_t>(90 - 8), kLineHeight),
-                       text, style);
+  const fui::Rect box = fui::makeRect(static_cast<int16_t>(right - 90), y, static_cast<int16_t>(90 - 8), kLineHeight);
+  screen.target().text(bold ? toybox::inkCentred(box, toybox::kUiCut) : box, text, style);
 }
 
 // An empty box: the printed card's box, waiting for a number.
@@ -465,9 +465,11 @@ void buildCard(toybox::Screen& screen, const CardModel& model) {
     fui::TextStyle prompt;
     prompt.font = toybox::kBodyFont;
     prompt.align = fui::TextAlign::Center;
-    screen.target().text(fui::makeRect(toybox::kMargin, static_cast<int16_t>(contentTop() + kDiceBandHeight / 2 - 12),
-                                       static_cast<int16_t>(device.width - toybox::kMargin * 2), 26),
-                         model.yourTurn ? "ROLL TO START YOUR TURN" : "THEY ARE ROLLING", prompt);
+    screen.target().text(
+        toybox::inkCentred(fui::makeRect(toybox::kMargin, static_cast<int16_t>(contentTop() + kDiceBandHeight / 2 - 12),
+                                         static_cast<int16_t>(device.width - toybox::kMargin * 2), 26),
+                           toybox::kUiCut),
+        model.yourTurn ? "ROLL TO START YOUR TURN" : "THEY ARE ROLLING", prompt);
   }
 
   // Column headers.
@@ -563,8 +565,10 @@ void buildCard(toybox::Screen& screen, const CardModel& model) {
   fui::TextStyle totalName;
   totalName.font = toybox::kBodyFont;
   totalName.align = fui::TextAlign::Left;
-  screen.target().text(fui::makeRect(toybox::kMargin, static_cast<int16_t>(totalY + 6), 210, kLineHeight), "TOTAL",
-                       totalName);
+  screen.target().text(
+      toybox::inkCentred(fui::makeRect(toybox::kMargin, static_cast<int16_t>(totalY + 6), 210, kLineHeight),
+                         toybox::kUiCut),
+      "TOTAL", totalName);
   drawNumber(screen, kYourRight, static_cast<int16_t>(totalY + 6), yz::total(yours), true);
   drawNumber(screen, kTheirRight, static_cast<int16_t>(totalY + 6), yz::total(theirs), true);
 }

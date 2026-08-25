@@ -451,8 +451,8 @@ void buildPass(toybox::Screen& screen, const PassModel& model) {
                          fui::Paint::solid(fui::Color::Black));
   y = static_cast<int16_t>(y + kArt + 24);
 
-  screen.target().text(fui::makeRect(card.x, y, card.width, 44), roleName(model.role),
-                       styled(toybox::kDisplayFont, fui::TextAlign::Center));
+  screen.target().text(toybox::inkCentred(fui::makeRect(card.x, y, card.width, 44), toybox::kDisplayCut),
+                       roleName(model.role), styled(toybox::kDisplayFont, fui::TextAlign::Center));
   y = static_cast<int16_t>(y + 44);
 
   if (knowsWord) {
@@ -460,7 +460,9 @@ void buildPass(toybox::Screen& screen, const PassModel& model) {
                          styled(toybox::kTileFont, fui::TextAlign::Center));
     fui::TextStyle word = styled(toybox::kDisplayFont, fui::TextAlign::Center);
     word.font = fitted(screen, model.word, static_cast<int16_t>(card.width - 40), word);
-    screen.target().text(fui::makeRect(card.x, static_cast<int16_t>(y + 48), card.width, 46), model.word, word);
+    const fui::Rect wordBox = fui::makeRect(card.x, static_cast<int16_t>(y + 48), card.width, 46);
+    screen.target().text(word.font == toybox::kDisplayFont ? toybox::inkCentred(wordBox, toybox::kDisplayCut) : wordBox,
+                         model.word, word);
     y = static_cast<int16_t>(y + 118);
   } else {
     y = static_cast<int16_t>(y + 20);
@@ -669,8 +671,9 @@ void buildReveal(toybox::Screen& screen, const RevealModel& model) {
   const int16_t wordY = static_cast<int16_t>(body.y + 400);
   screen.target().text(fui::makeRect(body.x, wordY, body.width, 24), "THE WORD WAS",
                        styled(toybox::kTileFont, fui::TextAlign::Center));
-  screen.target().text(fui::makeRect(body.x, static_cast<int16_t>(wordY + 30), body.width, 46), model.word,
-                       styled(toybox::kDisplayFont, fui::TextAlign::Center));
+  screen.target().text(
+      toybox::inkCentred(fui::makeRect(body.x, static_cast<int16_t>(wordY + 30), body.width, 46), toybox::kDisplayCut),
+      model.word, styled(toybox::kDisplayFont, fui::TextAlign::Center));
 
   fui::ButtonProps done;
   done.label = "BACK TO THE MENU";
@@ -796,9 +799,9 @@ void tutorialFooter(toybox::Screen& screen, const fui::Rect& body, const int pag
       screen.target().stroke(at, fui::Paint::dither(fui::Color::DarkGray), toybox::kHairline, 7);
     }
   }
-  screen.target().text(fui::makeRect(body.x, static_cast<int16_t>(y - 34), body.width, 22),
-                       page + 1 == pages ? "TAP TO FINISH" : "TAP TO CONTINUE",
-                       styled(toybox::kTileFont, fui::TextAlign::Center));
+  screen.target().text(
+      toybox::inkCentred(fui::makeRect(body.x, static_cast<int16_t>(y - 34), body.width, 22), toybox::kButtonCut),
+      page + 1 == pages ? "TAP TO FINISH" : "TAP TO CONTINUE", styled(toybox::kTileFont, fui::TextAlign::Center));
 }
 
 void caption(toybox::Screen& screen, const fui::Rect& box, const char* text) {
@@ -811,8 +814,8 @@ void caption(toybox::Screen& screen, const fui::Rect& box, const char* text) {
 constexpr int16_t kTitleBand = 46;
 
 void pageTitle(toybox::Screen& screen, const fui::Rect& body, const char* title) {
-  screen.target().text(fui::makeRect(body.x, body.y, body.width, kTitleBand), title,
-                       styled(toybox::kDisplayFont, fui::TextAlign::Center));
+  screen.target().text(toybox::inkCentred(fui::makeRect(body.x, body.y, body.width, kTitleBand), toybox::kDisplayCut),
+                       title, styled(toybox::kDisplayFont, fui::TextAlign::Center));
 }
 
 // The whole deck is written for five players, and says so, because a diagram
@@ -842,8 +845,10 @@ void buildTutorial(toybox::Screen& screen, const TutorialModel& model) {
       // end was meaningless without it: "one role is thrown away" is thrown
       // away from nothing unless you have been told what the set of roles was.
       pageTitle(screen, body, "THE ROLES");
-      screen.target().text(fui::makeRect(body.x, static_cast<int16_t>(body.y + kTitleBand + 6), body.width, 22),
-                           "IN A GAME OF FIVE", styled(toybox::kTileFont, fui::TextAlign::Center));
+      screen.target().text(
+          toybox::inkCentred(fui::makeRect(body.x, static_cast<int16_t>(body.y + kTitleBand + 6), body.width, 22),
+                             toybox::kButtonCut),
+          "IN A GAME OF FIVE", styled(toybox::kTileFont, fui::TextAlign::Center));
 
       const freeink::Icon* art[3] = {&icon_roleMaster_96, &icon_roleInsider_96, &icon_roleCitizen_96};
       const char* name[3] = {"MASTER", "INSIDER", "CITIZEN"};
@@ -858,10 +863,12 @@ void buildTutorial(toybox::Screen& screen, const TutorialModel& model) {
         screen.target().bitmap(
             fui::makeRect(static_cast<int16_t>(card.x + (kW - 56) / 2), static_cast<int16_t>(card.y + 16), 56, 56),
             fui::bitmapFromIcon(*art[i]), fui::BitmapMode::Contain, fui::Paint::solid(fui::Color::Black));
-        screen.target().text(fui::makeRect(card.x, static_cast<int16_t>(card.y + 82), kW, 24), name[i],
-                             styled(toybox::kTileFont, fui::TextAlign::Center));
-        screen.target().text(fui::makeRect(card.x, static_cast<int16_t>(card.y + 116), kW, 44), howMany[i],
-                             styled(toybox::kDisplayFont, fui::TextAlign::Center));
+        screen.target().text(
+            toybox::inkCentred(fui::makeRect(card.x, static_cast<int16_t>(card.y + 82), kW, 24), toybox::kButtonCut),
+            name[i], styled(toybox::kTileFont, fui::TextAlign::Center));
+        screen.target().text(
+            toybox::inkCentred(fui::makeRect(card.x, static_cast<int16_t>(card.y + 116), kW, 44), toybox::kDisplayCut),
+            howMany[i], styled(toybox::kDisplayFont, fui::TextAlign::Center));
         x = static_cast<int16_t>(x + kW + kGap);
       }
       caption(screen, fui::makeRect(body.x, static_cast<int16_t>(body.y + 300), body.width, 150),
@@ -910,15 +917,18 @@ void buildTutorial(toybox::Screen& screen, const TutorialModel& model) {
       // draws four. Both are right -- the fourth is the one that goes back --
       // but without the label a reader who counts sees a contradiction, and
       // this deck exists to stop exactly that kind of confusion.
-      screen.target().text(fui::makeRect(body.x, static_cast<int16_t>(body.y + kTitleBand + 4), body.width, 22),
-                           "EVERY ROLE BUT THE MASTER", styled(toybox::kTileFont, fui::TextAlign::Center));
+      screen.target().text(
+          toybox::inkCentred(fui::makeRect(body.x, static_cast<int16_t>(body.y + kTitleBand + 4), body.width, 22),
+                             toybox::kButtonCut),
+          "EVERY ROLE BUT THE MASTER", styled(toybox::kTileFont, fui::TextAlign::Center));
       for (int i = 0; i < kExamplePlayers; ++i) {
         miniCard(screen, fui::makeRect(x, static_cast<int16_t>(body.y + kTitleBand + 32), kW, kH),
                  i == 1 ? &icon_roleInsider_96 : &icon_roleCitizen_96);
         x = static_cast<int16_t>(x + kW + kGap);
       }
       arrowDown(screen, static_cast<int16_t>(body.x + body.width / 2), static_cast<int16_t>(body.y + 194), 34);
-      screen.target().text(fui::makeRect(body.x, static_cast<int16_t>(body.y + 236), body.width, 22),
+      screen.target().text(toybox::inkCentred(fui::makeRect(body.x, static_cast<int16_t>(body.y + 236), body.width, 22),
+                                              toybox::kButtonCut),
                            "ONE GOES BACK, FACE DOWN", styled(toybox::kTileFont, fui::TextAlign::Center));
       faceDownCard(screen, fui::makeRect(static_cast<int16_t>(body.x + (body.width - kW) / 2),
                                          static_cast<int16_t>(body.y + 266), kW, kH));

@@ -1,8 +1,8 @@
 #include "ToyBattleScreens.h"
 
-#include "ToyBattleMenus.h"
-
 #include <cstdio>
+
+#include "ToyBattleMenus.h"
 
 // Two board treatments, built together so they can be photographed side by side
 // and one chosen. Options described in prose get judged wrong; options rendered
@@ -152,11 +152,10 @@ void troopMark(toybox::Screen& screen, const fui::Point at, const int16_t size, 
       // the way you came. Drawn from the same triangle the rest of the alphabet
       // uses, so it is one mark rather than a picture.
       const int16_t bar = static_cast<int16_t>(at.y + h / 2);
-      screen.target().fill(fui::makeRect(static_cast<int16_t>(at.x - h / 2), bar,
-                                         static_cast<int16_t>(h + h / 2), 2),
+      screen.target().fill(fui::makeRect(static_cast<int16_t>(at.x - h / 2), bar, static_cast<int16_t>(h + h / 2), 2),
                            ink);
-      screen.target().fill(fui::makeRect(static_cast<int16_t>(at.x + h - 2), static_cast<int16_t>(at.y - h),
-                                         2, static_cast<int16_t>(h + h / 2 + 2)),
+      screen.target().fill(fui::makeRect(static_cast<int16_t>(at.x + h - 2), static_cast<int16_t>(at.y - h), 2,
+                                         static_cast<int16_t>(h + h / 2 + 2)),
                            ink);
       screen.target().triangle(fui::Point{static_cast<int16_t>(at.x - h), static_cast<int16_t>(bar + 1)},
                                fui::Point{static_cast<int16_t>(at.x - h / 3), static_cast<int16_t>(bar - h / 2 + 1)},
@@ -195,7 +194,6 @@ void baseBadge(toybox::Screen& screen, const fui::Rect box, const tb::Special wh
   toybox::disc(screen, at.x, at.y, r, fui::Color::Black);
   glyph(screen, at, 8, what, true);
 }
-
 
 // What a gate admits, in as few characters as fit under a troop. Written as a
 // range when the numbers run consecutively, which every gate on every printed
@@ -413,14 +411,14 @@ void troopCardFace(toybox::Screen& screen, const fui::Rect& card, const tb::Troo
     return;
   }
   const int16_t h = card.height;
-  centred(screen,
-          fui::makeRect(card.x, static_cast<int16_t>(card.y + h * 9 / 64), card.width,
-                        static_cast<int16_t>(h * 26 / 64)),
-          pip(troop), toybox::kUiFont, false);
-  troopMark(screen,
-            fui::Point{static_cast<int16_t>(card.x + card.width / 2),
-                       static_cast<int16_t>(card.bottom() - h * 17 / 64)},
-            static_cast<int16_t>(card.width * 12 / 48), troop);
+  centred(
+      screen,
+      fui::makeRect(card.x, static_cast<int16_t>(card.y + h * 9 / 64), card.width, static_cast<int16_t>(h * 26 / 64)),
+      pip(troop), toybox::kUiFont, false);
+  troopMark(
+      screen,
+      fui::Point{static_cast<int16_t>(card.x + card.width / 2), static_cast<int16_t>(card.bottom() - h * 17 / 64)},
+      static_cast<int16_t>(card.width * 12 / 48), troop);
 }
 
 fui::Rect rackTile(const fui::DeviceContext& device, const int position) {
@@ -480,8 +478,8 @@ int rowKindAt(const tb::Game& game, const tb::Draft& draft, const int seat, cons
   return handKindAt(shown, seat, position);
 }
 
-int rackAt(const fui::DeviceContext& device, const tb::Game& game, const tb::Draft& draft, const int seat,
-           const int x, const int y) {
+int rackAt(const fui::DeviceContext& device, const tb::Game& game, const tb::Draft& draft, const int seat, const int x,
+           const int y) {
   for (int position = 0; position < tb::kTroopKinds; ++position) {
     const fui::Rect r = rackTile(device, position);
     if (x >= r.x && x < r.right() && y >= r.y && y < r.bottom()) return rowKindAt(game, draft, seat, position);
@@ -621,8 +619,7 @@ void troopReference(toybox::Screen& screen, const fui::Rect& box, const int colu
     const int col = k / rows, row = k % rows;
     const fui::Rect cell = fui::makeRect(static_cast<int16_t>(box.x + col * (colW + toybox::kGutter)),
                                          static_cast<int16_t>(box.y + row * rowH), colW, rowH);
-    troopCardFace(screen,
-                  fui::makeRect(cell.x, static_cast<int16_t>(cell.y + (rowH - cardH) / 2), cardW, cardH), troop,
+    troopCardFace(screen, fui::makeRect(cell.x, static_cast<int16_t>(cell.y + (rowH - cardH) / 2), cardW, cardH), troop,
                   fui::Paint::dither(fui::Color::LightGray), 2);
     const int16_t textX = static_cast<int16_t>(cell.x + cardW + toybox::kGutter);
     screen.target().text(fui::makeRect(textX, cell.y, static_cast<int16_t>(cell.right() - textX), rowH),
@@ -657,8 +654,8 @@ void buildBrief(toybox::Screen& screen, const BriefModel& model) {
     wrapped.maxLines = 3;
     const char* off = "SPECIAL BASES ARE SWITCHED OFF FOR THIS GAME. EVERY BASE IS AN ORDINARY ONE.";
     const fui::Rect room = screen.contentRect();
-    screen.target().text(screen.takeTop(fui::measureWrappedText(screen.target(), off, wrapped, room.width).height),
-                         off, wrapped);
+    screen.target().text(screen.takeTop(fui::measureWrappedText(screen.target(), off, wrapped, room.width).height), off,
+                         wrapped);
     return;
   }
 
@@ -746,9 +743,9 @@ void buildBrief(toybox::Screen& screen, const BriefModel& model) {
       } else {
         glyph(screen, fui::Point{static_cast<int16_t>(x + 5), mid}, 11, kLegend[i].mark, false);
       }
-      screen.target().text(fui::makeRect(static_cast<int16_t>(x + 18), row.y,
-                                         static_cast<int16_t>(pitch - 18), row.height),
-                           kLegend[i].label, body);
+      screen.target().text(
+          fui::makeRect(static_cast<int16_t>(x + 18), row.y, static_cast<int16_t>(pitch - 18), row.height),
+          kLegend[i].label, body);
     }
   }
 
@@ -797,7 +794,7 @@ void buildResult(toybox::Screen& screen, const ResultModel& model) {
   fui::TextStyle big;
   big.font = toybox::kDisplayFont;
   big.align = fui::TextAlign::Center;
-  screen.target().text(screen.takeTop(60, toybox::kGutter), tally, big);
+  screen.target().text(toybox::inkCentred(screen.takeTop(60, toybox::kGutter), toybox::kDisplayCut), tally, big);
 
   fui::ButtonProps done;
   done.label = "DONE";
@@ -809,7 +806,6 @@ void buildResult(toybox::Screen& screen, const ResultModel& model) {
   again.action = ActionAgain;
   screen.button(again, screen.takeBottom(toybox::kPillHeight, toybox::kGutter));
 }
-
 
 void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   const tb::Game& game = model.game;
@@ -840,8 +836,7 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   // marked: the readout inverts to a solid plate. The design language spends
   // solid black on a surface that repaints once, and this one never repaints
   // again.
-  const bool medalWin =
-      game.currentPhase() != tb::Phase::Playing && game.endedBy() == tb::Ending::MedalsObjective;
+  const bool medalWin = game.currentPhase() != tb::Phase::Playing && game.endedBy() == tb::Ending::MedalsObjective;
 
   fui::TextStyle band;
   band.font = toybox::kUiFont;
@@ -855,10 +850,10 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   if (medalWin) {
     // Knocked out of the black band: a white plate with the tally in ink.
     const int16_t w = screen.target().measureText(toybox::kUiFont, medals, band).width;
-    screen.target().fill(fui::makeRect(static_cast<int16_t>(medalBox.right() - w - 10),
-                                       static_cast<int16_t>(medalBox.y - 5), static_cast<int16_t>(w + 20),
-                                       static_cast<int16_t>(bandLine + 10)),
-                         fui::Paint::solid(fui::Color::White), 6);
+    screen.target().fill(
+        fui::makeRect(static_cast<int16_t>(medalBox.right() - w - 10), static_cast<int16_t>(medalBox.y - 5),
+                      static_cast<int16_t>(w + 20), static_cast<int16_t>(bandLine + 10)),
+        fui::Paint::solid(fui::Color::White), 6);
     band.color = fui::Color::Black;
   }
   screen.target().text(medalBox, medals, band);
@@ -889,10 +884,9 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   // visibly different places. See Region::x in ToyBattleCore.h.
   for (int r = 0; r < b.regionCount; ++r) {
     if (shown.regionsTaken & (1u << r)) continue;  // banked, and gone from the board
-    const fui::Point at =
-        model.seat == 0 ? boardPoint(device, b.regions[r].x, b.regions[r].y)
-                        : boardPoint(device, static_cast<uint16_t>(1000 - b.regions[r].x),
-                                     static_cast<uint16_t>(1000 - b.regions[r].y));
+    const fui::Point at = model.seat == 0 ? boardPoint(device, b.regions[r].x, b.regions[r].y)
+                                          : boardPoint(device, static_cast<uint16_t>(1000 - b.regions[r].x),
+                                                       static_cast<uint16_t>(1000 - b.regions[r].y));
     const int count = b.regions[r].medals;
     const int16_t pipR = 7;
     const int16_t span = static_cast<int16_t>(count * (pipR * 2 + 3) - 3);
@@ -910,8 +904,8 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
 
   const uint64_t candidates = toybattle::candidateSlots(game, model.draft);
   for (int slot = 0; slot < b.slotCount(); ++slot) {
-    drawSlot(screen, slotCenter(device, b, slot, model.seat), shown, slot,
-             (candidates & (uint64_t{1} << slot)) != 0, model.seat);
+    drawSlot(screen, slotCenter(device, b, slot, model.seat), shown, slot, (candidates & (uint64_t{1} << slot)) != 0,
+             model.seat);
   }
 
   // WHY it ended, on the board rather than only in a sentence.
@@ -968,8 +962,8 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
     // function every screen that shows a card calls.
     troopCardFace(screen, inner, troop,
                   frozen ? fui::Paint::dither(fui::Color::DarkGray)
-                         : live ? fui::Paint::dither(fui::Color::LightGray)
-                                : fui::Paint::solid(fui::Color::White),
+                  : live ? fui::Paint::dither(fui::Color::LightGray)
+                         : fui::Paint::solid(fui::Color::White),
                   chosen ? 5 : 2);
   }
 
@@ -1075,7 +1069,9 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
       }
       char field[8];
       std::snprintf(field, sizeof(field), "%d", value);
-      screen.target().text(fui::makeRect(static_cast<int16_t>(x + 10), y, 20, kCountsRow), field, cell);
+      screen.target().text(
+          toybox::inkCentred(fui::makeRect(static_cast<int16_t>(x + 10), y, 20, kCountsRow), toybox::kTileCut), field,
+          cell);
     };
 
     cell.align = fui::TextAlign::Left;
@@ -1089,9 +1085,6 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
       count(static_cast<int16_t>(countsX + kHandW + kPitch), y, out[seat], tb::Special::Nullify);
     }
   }
-
-
-
 }
 
 }  // namespace tbui

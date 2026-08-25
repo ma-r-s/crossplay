@@ -137,7 +137,10 @@ void drawCardFace(toybox::Screen& screen, const fui::Rect& rect, const uint8_t c
   fui::TextStyle rankStyle;
   rankStyle.font = toybox::kUiFont;
   rankStyle.align = fui::TextAlign::Left;
-  target.text(fui::makeRect(rect.x + 9, rect.y + 2, 40, 28), rankLabel(rankOf(card)), rankStyle);
+  // A 28px corner against the ui cut's 42px line box: without inkCentred the
+  // clamp drops the rank 7px and it collides with the pip below it.
+  target.text(toybox::inkCentred(fui::makeRect(rect.x + 9, rect.y + 2, 40, 28), toybox::kUiCut),
+              rankLabel(rankOf(card)), rankStyle);
   if (sideways) {
     // Under the rank, both inside the left sliver. This is where the pip always
     // was, and for the waste it was always right.
@@ -539,7 +542,7 @@ void buildWin(toybox::Screen& screen, const WinModel& model) {
   fui::TextStyle sub;
   sub.font = toybox::kUiFont;
   sub.align = fui::TextAlign::Center;
-  target.text(fui::makeRect(0, top + 70, band.width, 26), line, sub);
+  target.text(toybox::inkCentred(fui::makeRect(0, top + 70, band.width, 26), toybox::kUiCut), line, sub);
 
   std::snprintf(line, sizeof(line), "%d CLEARED, %d IN A ROW", model.wins, model.streak);
   fui::TextStyle stats;
@@ -586,7 +589,8 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   fui::TextStyle hero;
   hero.font = toybox::kDisplayFont;
   hero.align = fui::TextAlign::Left;
-  target.text(fui::makeRect(left, top, columnWidth, 56), model.hasSave ? "DEAL IN PLAY" : "FRESH DECK", hero);
+  target.text(toybox::inkCentred(fui::makeRect(left, top, columnWidth, 56), toybox::kDisplayCut),
+              model.hasSave ? "DEAL IN PLAY" : "FRESH DECK", hero);
 
   // Copy written by a person rather than by a form. The state line used to read
   // "5 MOVES - DRAW ONE", which is a status field; this says the same thing in
@@ -600,7 +604,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   fui::TextStyle sub;
   sub.font = toybox::kUiFont;
   sub.align = fui::TextAlign::Left;
-  target.text(fui::makeRect(left, top + 60, columnWidth, 26), state, sub);
+  target.text(toybox::inkCentred(fui::makeRect(left, top + 60, columnWidth, 26), toybox::kUiCut), state, sub);
 
   char stats[80];
   if (model.played == 0) {

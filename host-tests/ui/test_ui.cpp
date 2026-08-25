@@ -172,6 +172,35 @@ class FakeTarget final : public fui::DrawTarget {
   }
 };
 
+// Where the ink actually lands, which is not where the rect is.
+//
+// GfxRendererTarget places a single-line run at
+// `rect.y + max(0, (rect.height - lineHeight) / 2)` and draws from there with
+// the y as the top of the ascender box. That rule is restated here rather than
+// assumed, so a change to the target's arithmetic fails these checks instead of
+// being silently agreed with.
+int inkTopIn(const fui::Rect& given, const toybox::CutMetrics& cut) {
+  const int offset = given.height - cut.lineHeight > 0 ? (given.height - cut.lineHeight) / 2 : 0;
+  return given.y + offset + cut.ascender - cut.inkHeight;
+}
+
+// Sea Salt, and every other game on the default faces, binds the three slots to
+// the Jersey cuts. Which cut a recorded run was set in is therefore knowable
+// from its slot, and that is what turns a rect back into the ink inside it.
+const toybox::CutMetrics& cutForSlot(const fui::FontId slot) {
+  if (slot == toybox::kDisplayFont) return toybox::kDisplayCut;
+  if (slot == toybox::kUiFont) return toybox::kUiCut;
+  return toybox::kTileCut;
+}
+
+// The band a recorded run puts ink in. Wrapped runs keep their rect: the target
+// lays those out by the block, and this rule is the single-line one.
+fui::Rect inkBandOf(const FakeTarget::TextRun& run) {
+  if (run.style.maxLines > 1) return run.rect;
+  const toybox::CutMetrics& cut = cutForSlot(run.style.font);
+  return fui::makeRect(run.rect.x, static_cast<int16_t>(inkTopIn(run.rect, cut)), run.rect.width, cut.inkHeight);
+}
+
 // The X4 Pro's logical frame.
 fui::DeviceContext device() {
   fui::DeviceContext ctx;
@@ -3350,11 +3379,16 @@ void testTheSeaSaltCardBandsNeverCollide() {
     const fui::Rect cell = seasaltui::cardCellRect(grid, 0, count);
 
     // Every text the card drew, top to bottom, must be disjoint and inside it.
+    //
+    // Measured as INK, not as the rect handed to the target. Those are the same
+    // thing only while a band is at least a line box tall; the short ones go
+    // through toybox::inkCentred, whose rect is deliberately taller than the
+    // band and would read here as an overlap that no reader can see.
     std::vector<fui::Rect> lines;
     for (const auto& drawn : out.target.texts) {
       if (drawn.rect.x < cell.x || drawn.rect.x >= cell.x + cell.width) continue;
       if (drawn.rect.y < cell.y || drawn.rect.y >= cell.y + cell.height) continue;
-      lines.push_back(drawn.rect);
+      lines.push_back(inkBandOf(drawn));
     }
     for (size_t i = 0; i < lines.size(); ++i) {
       CHECK(lines[i].y + lines[i].height <= cell.y + cell.height);
@@ -3544,7 +3578,10 @@ void testTheRackTileYouTapIsTheTroopYouGet() {
         if (!(b.adj[at] & (uint64_t{1} << next))) continue;
         parent[next] = at;
         queue[tail++] = next;
-        if (b.specialAt(next) == toybattle::Special::Exhume) { grave = next; break; }
+        if (b.specialAt(next) == toybattle::Special::Exhume) {
+          grave = next;
+          break;
+        }
       }
     }
     CHECK(grave >= 0);
@@ -3560,7 +3597,7 @@ void testTheRackTileYouTapIsTheTroopYouGet() {
     g.discarded[0][static_cast<int>(toybattle::Troop::Star)] = 1;
     for (int k = 0; k < toybattle::kTroopKinds; ++k) g.rack[0][k] = 0;
     // Roxy, because it is the one troop with no effect of its own: the base is
-            // then the only thing left to ask about.
+    // then the only thing left to ask about.
     g.rack[0][static_cast<int>(toybattle::Troop::Skully)] = 1;
     g.rack[0][static_cast<int>(toybattle::Troop::Roxy)] = 1;
 
@@ -3619,7 +3656,10 @@ void testTheRackTileYouTapIsTheTroopYouGet() {
         static_cast<int>(toybattle::TerrainId::CityOfClouds),
     };
     uint32_t rng = 0x2026u;
-    auto next = [&rng]() { rng = rng * 1664525u + 1013904223u; return rng >> 16; };
+    auto next = [&rng]() {
+      rng = rng * 1664525u + 1013904223u;
+      return rng >> 16;
+    };
 
     for (int bi = 0; bi < 5; ++bi) {
       for (int gameNo = 0; gameNo < 120; ++gameNo) {
@@ -3640,13 +3680,11 @@ void testTheRackTileYouTapIsTheTroopYouGet() {
             if (ask == toybattle::Ask::Troop && g.canDraw(g.turn)) answerable = true;
             for (int pos = 0; pos < toybattle::kTroopKinds && !answerable; ++pos) {
               const fui::Rect tl = tbui::rackTile(device(), pos);
-              const int kind =
-                  tbui::rackAt(device(), g, d, g.turn, tl.x + tl.width / 2, tl.y + tl.height / 2);
+              const int kind = tbui::rackAt(device(), g, d, g.turn, tl.x + tl.width / 2, tl.y + tl.height / 2);
               if (kind < 0) continue;
               toybattle::Draft probe = d;
-              if (ask == toybattle::Ask::Troop
-                      ? toybattle::answerTroop(g, probe, static_cast<toybattle::Troop>(kind))
-                      : toybattle::answerTarget(g, probe, kind)) {
+              if (ask == toybattle::Ask::Troop ? toybattle::answerTroop(g, probe, static_cast<toybattle::Troop>(kind))
+                                               : toybattle::answerTarget(g, probe, kind)) {
                 answerable = true;
               }
             }
@@ -3662,8 +3700,7 @@ void testTheRackTileYouTapIsTheTroopYouGet() {
           } else if (ask == toybattle::Ask::Troop) {
             const int spin = static_cast<int>(next() % toybattle::kTroopKinds);
             for (int i = 0; i < toybattle::kTroopKinds && !moved; ++i)
-              moved = toybattle::answerTroop(
-                  g, d, static_cast<toybattle::Troop>((spin + i) % toybattle::kTroopKinds));
+              moved = toybattle::answerTroop(g, d, static_cast<toybattle::Troop>((spin + i) % toybattle::kTroopKinds));
           } else if (ask == toybattle::Ask::ExhumeKind) {
             for (int k = 0; k < toybattle::kTroopKinds && !moved; ++k) moved = toybattle::answerTarget(g, d, k);
           } else {
@@ -3675,8 +3712,8 @@ void testTheRackTileYouTapIsTheTroopYouGet() {
             for (int i = 0; i < 64 && !moved; ++i) {
               const int slot = (spin + i) % 64;
               if (!(mask & (uint64_t{1} << slot))) continue;
-              moved = ask == toybattle::Ask::Slot ? toybattle::answerSlot(g, d, slot)
-                                                 : toybattle::answerTarget(g, d, slot);
+              moved =
+                  ask == toybattle::Ask::Slot ? toybattle::answerSlot(g, d, slot) : toybattle::answerTarget(g, d, slot);
             }
           }
           if (!moved) {
@@ -4087,8 +4124,8 @@ void testTheFinishedBoardCarriesItsOwnEnding() {
     }
     CHECK(hq >= 0);
     game.placeSlot[game.placementCount] = static_cast<uint8_t>(hq);
-    game.placeTile[game.placementCount] = static_cast<uint8_t>(((mine == 1 ? 0 : 1) << 3) |
-                                                               static_cast<int>(toybattle::Troop::Roxy));
+    game.placeTile[game.placementCount] =
+        static_cast<uint8_t>(((mine == 1 ? 0 : 1) << 3) | static_cast<int>(toybattle::Troop::Roxy));
     ++game.placementCount;
     game.winner = static_cast<uint8_t>(mine == 1 ? 0 : 1);
     game.ending = static_cast<uint8_t>(toybattle::Ending::HqCaptured);
@@ -4185,6 +4222,116 @@ void testEitherSideSeesItsOwnHqAtTheBottom() {
       if (theirs != nullptr) CHECK(theirs->color == fui::Color::Black);
     }
   }
+}
+
+// --- vertical centring -------------------------------------------------------
+
+// Every cut the fork ships, so a regenerated face is checked here as well as by
+// verifyCutMetrics() on the device.
+const toybox::CutMetrics kEveryCut[] = {
+    toybox::kTileCut,       toybox::kButtonCut,           toybox::kUiCut,         toybox::kDisplayCut,
+    toybox::kSerifSmallCut, toybox::kSerifTileCut,        toybox::kSerifTitleCut, toybox::kReadingSmallCut,
+    toybox::kReadingCut,    toybox::kReadingBoldSmallCut, toybox::kReadingBoldCut};
+
+void testInkCentredPutsTheInkInTheMiddleOfAnyBox() {
+  for (const toybox::CutMetrics& cut : kEveryCut) {
+    // From well under the line box to well over it. Under is where the target's
+    // clamp bites; over is where it already worked, and must keep working.
+    for (int16_t height = cut.inkHeight; height <= 100; ++height) {
+      const fui::Rect box = fui::makeRect(40, 120, 200, height);
+      const fui::Rect given = toybox::inkCentred(box, cut);
+      const int above = inkTopIn(given, cut) - box.y;
+      const int below = box.y + box.height - (inkTopIn(given, cut) + cut.inkHeight);
+      // Centred means the two gaps match, to the pixel a whole-pixel offset can
+      // manage. Stated as a symmetry rather than as a formula, so the check
+      // cannot pass by restating the code it is checking.
+      CHECK(above >= 0 && below >= 0);
+      CHECK(above - below <= 1 && below - above <= 1);
+      // The x axis is the caller's business and must survive untouched.
+      CHECK(given.x == box.x);
+      CHECK(given.width == box.width);
+    }
+  }
+}
+
+// The other half of the same claim: handing the target the box itself is wrong
+// once the box is shorter than the line box, and wrong by more the smaller it
+// gets. Without this the check above could pass against a target that never
+// needed correcting.
+void testAShortBoxIsWhatMakesTheCorrectionNecessary() {
+  const toybox::CutMetrics& cut = toybox::kDisplayCut;
+  // A 50px box under a 63px line box: the clamp pins the offset at zero, so the
+  // ink lands `ascender - inkHeight` down and its foot leaves the box. That is
+  // exactly what a Knucklebones total used to do.
+  const fui::Rect tight = fui::makeRect(0, 0, 100, 50);
+  CHECK(inkTopIn(tight, cut) == cut.ascender - cut.inkHeight);
+  CHECK(inkTopIn(tight, cut) + cut.inkHeight > tight.height);
+  CHECK(inkTopIn(toybox::inkCentred(tight, cut), cut) + cut.inkHeight <= tight.height);
+  // And the error grows as the box shrinks, which is why it reads as an
+  // intermittent font problem rather than as a rule.
+  const fui::Rect tighter = fui::makeRect(0, 0, 100, 44);
+  const int offBy = [&](const fui::Rect& box) { return inkTopIn(box, cut) - (box.height - cut.inkHeight) / 2; }(tight);
+  const int offByMore = [&](const fui::Rect& box) {
+    return inkTopIn(box, cut) - (box.height - cut.inkHeight) / 2;
+  }(tighter);
+  CHECK(offByMore > offBy);
+}
+
+// And the same claim at a call site, so removing a wrapper fails a test rather
+// than only looking slightly wrong in a render.
+void testAMinesweeperDigitIsCentredInItsCell() {
+  mineui::BoardModel model;
+  minesweeper::start(model.game, 5u);
+  // The first dig is what lays the mines, so the board has to be played into
+  // rather than assembled by hand.
+  minesweeper::reveal(model.game, 0, 0);
+  for (int c = 0; c < minesweeper::kColumns; ++c) {
+    for (int r = 0; r < minesweeper::kRows; ++r) {
+      if ((model.game.cell[c][r] & minesweeper::kMine) == 0) model.game.cell[c][r] |= minesweeper::kRevealed;
+    }
+  }
+  model.game.status = minesweeper::Status::Playing;
+  Rendered out;
+  buildMs<mineui::BoardModel, mineui::buildBoard>(out, model);
+
+  int checked = 0;
+  for (int c = 0; c < minesweeper::kColumns && checked == 0; ++c) {
+    for (int r = 0; r < minesweeper::kRows && checked == 0; ++r) {
+      if ((model.game.cell[c][r] & minesweeper::kMine) != 0) continue;
+      if (minesweeper::neighbouringMines(model.game, c, r) <= 0) continue;
+      const fui::Rect cell = mineui::cellRect(device(), c, r);
+      for (const auto& run : out.target.texts) {
+        if (run.style.font != toybox::kDisplayFont) continue;
+        if (run.rect.x != cell.x || run.rect.width != cell.width) continue;
+        // Derived, not literal: the rect handed to the target is one line box
+        // tall wherever it sits, and the ink it produces is centred in the cell.
+        CHECK(run.rect.height == toybox::kDisplayCut.lineHeight);
+        CHECK(inkTopIn(run.rect, toybox::kDisplayCut) == cell.y + (cell.height - toybox::kDisplayCut.inkHeight) / 2);
+        ++checked;
+        break;
+      }
+    }
+  }
+  CHECK(checked == 1);
+}
+
+// Knucklebones' column total is the one Mario saw first: the ui cut in a 28px
+// band, where the clamp drops it six pixels out of the bottom.
+void testAKnucklebonesColumnTotalClearsItsBand() {
+  knuckleui::BoardModel model;
+  // One die in one column, so the total is the die and the label is known.
+  model.yours.cell[0][0] = 5;
+  model.yourTurn = true;
+  model.die = 3;
+  Rendered out;
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, device(), noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  knuckleui::buildBoard(screen, model);
+
+  const FakeTarget::TextRun* total = out.target.find("5");
+  CHECK(total != nullptr);
+  if (total != nullptr) CHECK(total->rect.height == toybox::kUiCut.lineHeight);
 }
 
 int main() {
@@ -4291,6 +4438,11 @@ int main() {
 
   testMurdleGridResolvesEveryCellItDrew();
   testTheCellYouTapIsTheCellTheRulesGet();
+
+  testInkCentredPutsTheInkInTheMiddleOfAnyBox();
+  testAShortBoxIsWhatMakesTheCorrectionNecessary();
+  testAMinesweeperDigitIsCentredInItsCell();
+  testAKnucklebonesColumnTotalClearsItsBand();
 
   std::printf("%d checks, %d failed\n", checksRun, checksFailed);
   return checksFailed == 0 ? 0 : 1;

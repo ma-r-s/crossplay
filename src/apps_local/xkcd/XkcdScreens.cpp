@@ -186,7 +186,8 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   } else {
     snprintf(headline, sizeof(headline), "NO ARCHIVE");
   }
-  screen.target().text(bands.headline, headline, onPaper(screen.theme().titleText, fui::TextAlign::Left));
+  screen.target().text(toybox::inkCentred(bands.headline, toybox::kDisplayCut), headline,
+                       onPaper(screen.theme().titleText, fui::TextAlign::Left));
 
   screen.target().text(bands.title, model.hasArchive ? model.latestTitle : "The archive, one download away",
                        onPaper(screen.theme().bodyText, fui::TextAlign::Left));
@@ -210,7 +211,10 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   } else {
     snprintf(record, sizeof(record), "%d COMICS   %d READ", model.comicCount, model.readCount);
   }
-  screen.target().text(bands.record, record, onPaper(screen.theme().smallText, fui::TextAlign::Left));
+  // The reading cut for an all-caps count line: safe for inkCentred, which the
+  // mixed-case title above it is not.
+  screen.target().text(model.hasArchive ? toybox::inkCentred(bands.record, toybox::kReadingCut) : bands.record, record,
+                       onPaper(screen.theme().smallText, fui::TextAlign::Left));
 
   // The mosaic band is left for the Activity, which draws it from the index.
 

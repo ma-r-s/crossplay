@@ -209,7 +209,9 @@ void buildBoardTiles(toybox::Screen& screen, const BoardModel& model, const Boar
     name.font = toybox::kUiFont;
     name.align = fui::TextAlign::Center;
     name.color = fui::Color::White;
-    screen.target().text(fui::makeRect(row.x, row.y + rowHeight / 2 - 26, row.width, 26), group.name, name);
+    screen.target().text(
+        toybox::inkCentred(fui::makeRect(row.x, row.y + rowHeight / 2 - 26, row.width, 26), toybox::kUiCut), group.name,
+        name);
 
     char words[connections::kMaxWordLen * 4 + 8];
     std::snprintf(words, sizeof(words), "%s, %s, %s, %s", group.members[0], group.members[1], group.members[2],
@@ -402,7 +404,8 @@ void buildImport(toybox::Screen& screen, const ImportModel& model) {
   number.font = toybox::kDisplayFont;
   number.align = fui::TextAlign::Center;
   number.color = ink;
-  screen.target().text(fui::makeRect(panel.x, panel.y + 28, panel.width, 52), model.failed ? "--" : hero, number);
+  screen.target().text(toybox::inkCentred(fui::makeRect(panel.x, panel.y + 28, panel.width, 52), toybox::kDisplayCut),
+                       model.failed ? "--" : hero, number);
 
   // The doubled line, the header band's own motif, so the panel belongs to the
   // same family rather than being a box that happens to be here.
@@ -759,7 +762,10 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   fui::TextStyle sub;
   sub.font = toybox::kUiFont;
   sub.align = fui::TextAlign::Left;
-  screen.target().text(fui::makeRect(body.x, body.y + 62, body.width, 26), todayState(model), sub);
+  // The menu binds the body slot to the 35px serif cut, so this 26px band is
+  // one more box shorter than its own line box.
+  screen.target().text(toybox::inkCentred(fui::makeRect(body.x, body.y + 62, body.width, 26), toybox::kSerifTileCut),
+                       todayState(model), sub);
   screen.frame().hit(fui::makeRect(body.x, body.y, body.width, 96), ActionNewest, 0);
 
   screen.target().fill(fui::makeRect(body.x, body.y + 108, body.width, toybox::kRule),
@@ -877,8 +883,7 @@ void buildHowTo(toybox::Screen& screen) {
       // The taken group: one filled row, the way the board does it -- name over
       // members, both knocked out white.
       target.fill(fui::makeRect(body.x, rowY, body.width, solvedH), ink);
-      target.text(fui::makeRect(body.x, static_cast<int16_t>(rowY + 6), body.width, proseH), "WET WEATHER",
-                  solvedText);
+      target.text(fui::makeRect(body.x, static_cast<int16_t>(rowY + 6), body.width, proseH), "WET WEATHER", solvedText);
       for (int c = 0; c < 4; ++c) {
         target.text(fui::makeRect(static_cast<int16_t>(body.x + c * (demoW + kTileGap)),
                                   static_cast<int16_t>(rowY + proseH + 12), demoW, proseH),
@@ -887,11 +892,10 @@ void buildHowTo(toybox::Screen& screen) {
       continue;
     }
     for (int c = 0; c < 4; ++c) {
-      const fui::Rect tile =
-          fui::makeRect(static_cast<int16_t>(body.x + c * (demoW + kTileGap)), rowY, demoW, tileH);
+      const fui::Rect tile = fui::makeRect(static_cast<int16_t>(body.x + c * (demoW + kTileGap)), rowY, demoW, tileH);
       target.stroke(tile, ink, toybox::kHairline);
-      target.text(fui::makeRect(tile.x, static_cast<int16_t>(rowY + (tileH - proseH) / 2), demoW, proseH),
-                  kBoard[r][c], tileText);
+      target.text(fui::makeRect(tile.x, static_cast<int16_t>(rowY + (tileH - proseH) / 2), demoW, proseH), kBoard[r][c],
+                  tileText);
     }
   }
   y = static_cast<int16_t>(y + solvedH + 4 * kTileGap + 3 * tileH + 16);

@@ -172,6 +172,39 @@ browsers the shelf can be seen but not scrolled without a pointer. No element in
 **Done looks like:** the scroller focusable and arrow-key scrollable in Firefox
 and Safari, checked in those browsers rather than in Chrome.
 
+## Vertical centring, in the two places the app cannot reach it
+
+Added 2026-08-25, after auditing every app in `src/apps_local/` for the clamp in
+`GfxRendererTarget::text` and wrapping 47 call sites in `toybox::inkCentred`.
+Both of these were found by that audit and left alone on purpose.
+
+### A FreeInkUI component lays out its own label, so a pill is 3px low
+
+`screen.button()` and the list rows measure and place their own text, so a call
+site has no rect to wrap. A toybox pill is 58px and the display cut's line box
+is 63, which puts every big button's label 3px below centre: Insider's DEAL and
+its `+`/`-` steppers, Solitaire's UNDO and NEW, and every door drawn that way.
+
+Three pixels is not what Mario complained about and the buttons read fine, but
+it is the same defect and it is the only one left that the fork's own screens
+cannot fix. The right fix is in the SDK's own `text()`, which is the one place
+that knows both the rect and the font.
+
+**Done looks like:** `FreeInkUIGfxRenderer.h` centring on ink rather than on the
+line box when the rect is shorter than the line box, upstreamed rather than
+patched locally, and the call-site wrappers retired as it lands.
+
+### `inkCentred` has no answer for mixed-case prose
+
+It centres the CAP band, so a run with descenders hangs them below the box. That
+is fine for the caps and digits it was written for and wrong for a headline.
+Xkcd's comic title is the live case: the reading cut's line box is 40px in a
+28px band, which puts it 7.5px low with its foot outside -- worse than anything
+that was fixed, and untouched because the correction would be wrong.
+
+**Done looks like:** either a variant that takes the run's own descent into
+account, or those bands grown to a full line box so no correction is needed.
+
 ## The test harness
 
 ### Two warning classes are suppressed suite-wide rather than at their sites

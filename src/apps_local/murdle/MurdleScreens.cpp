@@ -1061,8 +1061,8 @@ void buildVerdict(toybox::Screen& screen, const VerdictModel& model) {
 void buildConfirmNew(toybox::Screen& screen) {
   chrome(screen, "MURDLE", "");
   const fui::Rect body = screen.body();
-  screen.target().text(fui::makeRect(body.x, body.y, body.width, 56), "DROP THIS CASE?",
-                       styled(toybox::kDisplayFont, fui::TextAlign::Left));
+  screen.target().text(toybox::inkCentred(fui::makeRect(body.x, body.y, body.width, 56), toybox::kDisplayCut),
+                       "DROP THIS CASE?", styled(toybox::kDisplayFont, fui::TextAlign::Left));
   paragraph(screen, styled(toybox::kTileFont, fui::TextAlign::Left),
             "The marks you have made will go with it. There is only ever one case open at a time.",
             fui::makeRect(body.x, static_cast<int16_t>(body.y + 70), body.width, 100), true);
