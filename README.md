@@ -79,11 +79,11 @@ How the two physical buttons are used, and why there are only two:
 CrossPlay targets the **Xteink X4 Pro** only. For every other supported device,
 CrossPoint upstream is the right answer and is excellent.
 
-> **This has now run on a real X4 Pro.** One tester flashed v1.2.1 and played
-> most of the shelf; the three problems they hit were fixed in v1.2.2. It is
-> still built against a simulator and a browser build of the same sources, and
-> I still do not have the device, so one tester is the entire hardware record:
-> if you flash it, please
+> **This runs on real hardware.** One tester flashed v1.2.1 and played most
+> of the shelf; the three problems they hit were fixed in v1.2.2. As of
+> v1.3.0 I have an X4 Pro of my own on the desk, so releases are flashed
+> here before they ship. Two devices is still a small record: if you flash
+> it, please
 > [say what happened](https://github.com/ma-r-s/crossplay/issues), either way.
 
 You do not need to have installed CrossPoint first.
