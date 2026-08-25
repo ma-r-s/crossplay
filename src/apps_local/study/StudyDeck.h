@@ -1,6 +1,6 @@
 #pragma once
 
-// Reader for the on-SD deck files. See docs/study-deck-format.md for the
+// Reader for the on-SD deck files. See docs/apps/study-deck-format.md for the
 // layout and the reasoning behind it.
 //
 // Freestanding C++17 -- no Arduino, no HalStorage, no heap. All I/O goes
@@ -89,7 +89,7 @@ struct DeckMeta {
 };
 
 // One card's scheduling state. Mirrors the 32-byte record in cards.dat exactly;
-// see docs/study-deck-format.md.
+// see docs/apps/study-deck-format.md.
 struct CardState {
   int64_t ankiCardId = 0;
   float stability = 0.0f;

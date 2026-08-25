@@ -16,7 +16,7 @@
 //   5. All floor is connected.
 //
 // They are absent here on purpose. Each puzzle in the bank was proved to have
-// exactly one solution by tools_local/gen_dungeons.py, which carries the rules,
+// exactly one solution by tools_local/dungeon/gen_dungeons.py, which carries the rules,
 // so a finished board is checked against that solution with one comparison.
 // Implementing the rules a second time would mean two implementations that have
 // to agree forever, and the device would get nothing for it -- the puzzle is

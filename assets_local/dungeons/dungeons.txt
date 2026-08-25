@@ -6,8 +6,8 @@
 #   <row wall count><row cells>   x N
 #
 # Cells: '.' empty floor, 'M' monster, 'T' treasure chest. Walls are not
-# recorded -- they are the answer, and tools_local/gen_dungeons.py derives them
-# by solving each puzzle exhaustively. See docs/dungeons.md for provenance.
+# recorded -- they are the answer, and tools_local/dungeon/gen_dungeons.py derives them
+# by solving each puzzle exhaustively. See docs/apps/dungeon.md for provenance.
 #
 # Codes are tier.slot: f.1 is the tutorial, 1.1 through 8.8 the campaign in the
 # order the original presents them, easiest first.

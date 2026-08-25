@@ -17,6 +17,7 @@ build
 /.cache
 .history/
 /.venv
+/.venv-study
 *.local*
 *.cpfont
 # ...except the browser demo's card, which is a shipped asset rather than a
@@ -53,3 +54,4 @@ qa-artifacts/
 # Tool cache. It holds an account id and an email address and has no business
 # in a public repo.
 .cloudflare/
+.ruff_cache/

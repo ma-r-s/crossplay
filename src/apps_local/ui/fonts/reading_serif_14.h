@@ -3,7 +3,7 @@
  * name: reading_serif_14
  * size: 14
  * mode: 1-bit
- * Command used: tools_local/gen_toybox_fonts.sh (fontconvert.py reading_serif_14 14 NotoSerif-Regular subset,
+ * Command used: tools_local/toybox/gen_toybox_fonts.sh (fontconvert.py reading_serif_14 14 NotoSerif-Regular subset,
  * --force-autohint)
  */
 #pragma once

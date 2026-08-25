@@ -1,0 +1,96 @@
+# The avatar parts, generated into src/apps_local/player/PlayerAvatarArt.h by
+# tools_local/avatar/gen_avatar.sh. Format: alias = svg basename, resolved against
+# assets_local/avatar/.
+#
+# Unlike icons.txt these are ours rather than Lucide's, because no icon set
+# ships a face that comes apart into layers. Every part is drawn on the same
+# 120x120 viewBox with the part in its final position, so the generator's
+# whole-canvas raster keeps them in register: the composite is three bitmaps
+# stacked on one rect, not three icons that each have to be placed.
+#
+# The words are the artwork's index. A name is three of them and nothing else,
+# which is why an avatar costs no wire bytes: the name already travels, and the
+# other device rebuilds the face from it. See src/apps_local/player/PlayerName.h.
+#
+# THE ORDER HERE IS USER-VISIBLE. Tapping a word steps to the next one, so each
+# list is a walk rather than a bag: hair runs from none to most, eyes from moods
+# to hardware, mouths from expressions into facial hair. Keep base first, and
+# keep PlayerName.cpp's lists in exactly this order -- host-tests/ui checks it.
+#
+# Aliases are SHOUTED, and that is not a style choice. The alias becomes the C
+# identifier, and PlayerAvatar.cpp builds each table row from one token: the
+# word it spells and the bitmaps it names both come out of `hair_SPIKY`. Written
+# as two columns by hand, a row can say "SPIKY" next to the curly artwork and
+# nothing anywhere notices -- that mutation survived a test written specifically
+# to catch it. Lowercase the alias and the word stops matching the vocabulary.
+
+base = base
+
+# Hair, from none to most.
+#
+# ALL OF IT IS SOLID, and that is the single biggest thing learned drawing
+# these. An outlined cap runs a second line parallel to the skull, and two
+# strokes a few pixels apart merge on a 1-bit panel -- every cap-shaped hair
+# read as a headband. The only outlined ones that ever worked (spikes, tufts,
+# a mohawk) worked because they broke the silhouette instead of tracing it.
+# Solid does both, and it survives the 48px row size, which outlines do not.
+#
+# BALD is a deliberately empty drawing, and so is anything this build does not
+# recognise -- a name from a newer word list renders as a plain head.
+#
+# No hairline may come below y=40. That is the top of the brow zone; MOP's
+# fringe once hung to y=60 and simply erased whatever eyes it was paired with.
+hair_BALD    = hair_BALD
+hair_TUFTY   = hair_TUFTY
+hair_SLICK   = hair_SLICK
+hair_WAVY    = hair_WAVY
+hair_CURLY   = hair_CURLY
+hair_SPIKY   = hair_SPIKY
+hair_PUNK    = hair_PUNK
+hair_MOP     = hair_MOP
+hair_BUN     = hair_BUN
+hair_BRAIDS  = hair_BRAIDS
+hair_PONY    = hair_PONY
+hair_BOB     = hair_BOB
+hair_LONG    = hair_LONG
+hair_AFRO    = hair_AFRO
+
+# Eyes -- really the whole eye region, moods first and then the things you wear
+# on it. SPECS and SHADES earn their slots by changing the silhouette rather
+# than the expression.
+eyes_GRIM    = eyes_GRIM
+eyes_SAD     = eyes_SAD
+eyes_SLY     = eyes_SLY
+eyes_SQUINT  = eyes_SQUINT
+eyes_SLEEPY  = eyes_SLEEPY
+eyes_BLINK   = eyes_BLINK
+eyes_GLAD    = eyes_GLAD
+eyes_WINK    = eyes_WINK
+eyes_BEADY   = eyes_BEADY
+eyes_WIDE    = eyes_WIDE
+eyes_CROSS   = eyes_CROSS
+eyes_BUSHY   = eyes_BUSHY
+eyes_SPECS   = eyes_SPECS
+eyes_SHADES  = eyes_SHADES
+
+# Mouth and lower face, expressions first and then facial hair, so tapping
+# walks from clean-shaven into a full beard. BEARD, TASH, GOATEE and MUTTON
+# cover the mouth the way real ones do, which is what makes fourteen of these
+# read as fourteen different people rather than fourteen expressions.
+#
+# Facial hair is solid for the same reason the hair is: outlined, it traces the
+# jaw and disappears into it.
+mouth_GRIN   = mouth_GRIN
+mouth_TEETH  = mouth_TEETH
+mouth_SMIRK  = mouth_SMIRK
+mouth_GLUM   = mouth_GLUM
+mouth_POUT   = mouth_POUT
+mouth_FROWN  = mouth_FROWN
+mouth_GASP   = mouth_GASP
+mouth_TONGUE = mouth_TONGUE
+mouth_FANGS  = mouth_FANGS
+mouth_SCRUFF = mouth_SCRUFF
+mouth_TASH   = mouth_TASH
+mouth_GOATEE = mouth_GOATEE
+mouth_MUTTON = mouth_MUTTON
+mouth_BEARD  = mouth_BEARD

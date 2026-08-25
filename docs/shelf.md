@@ -158,7 +158,7 @@ That is the whole registration. No `ActivityManager` method, no `UIIcon` enum
 variant, no i18n key, no `AppId` bit.
 
 **Icons come from Lucide, not from `UIIcon`.** Add a line to
-`tools_local/icons.txt` and run `./tools_local/gen_toybox_icons.sh`:
+`tools_local/toybox/icons.txt` and run `./tools_local/toybox/gen_toybox_icons.sh`:
 
 ```
 study = graduation-cap
@@ -236,7 +236,7 @@ afternoon otherwise.
 
 So the two Home folder icons exist twice: upright in `ui/ToyboxIcons.h` for the
 folder headers, and pre-rotated in `src/components/icons/shelfIcons.h` for the
-theme. `tools_local/gen_toybox_icons.sh` writes both; never hand-edit either.
+theme. `tools_local/toybox/gen_toybox_icons.sh` writes both; never hand-edit either.
 
 The joystick shipped lying on its side, then upside down, before this was
 understood. The direction was settled by rotating a freshly generated `folder`
@@ -248,7 +248,7 @@ by looking at the shape.
 
 One row in `kFolders`, plus its icon in two places: a `UIIcon` value appended in
 `BaseTheme.h` with a case in `LyraTheme.cpp` (Home draws it and accepts nothing
-else), and a line in `tools_local/icons.txt` for the folder's own header. Those
+else), and a line in `tools_local/toybox/icons.txt` for the folder's own header. Those
 are the only per-folder edits to upstream files this fork makes, which is
 affordable at two folders and would not be at ten.
 

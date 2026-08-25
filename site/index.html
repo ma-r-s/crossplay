@@ -19,6 +19,9 @@
 <meta name="twitter:card" content="summary_large_image">
 <link rel="stylesheet" href="styles.css">
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<!-- iOS ignores SVG manifest icons, and Add to Home Screen is the only real
+     full screen an iPhone gets, so the home-screen icon ships as a PNG. -->
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
 <!-- Add to Home Screen. This is the only route to real full screen on an
      iPhone: Safari gives the Fullscreen API to <video> and nothing else, so
      asking an element for it there is a no-op. It also settles the back
@@ -363,8 +366,8 @@
       person opposite you is <em>Bald</em> rather than a MAC address.
     </p>
     <p>
-      Chess, Jaipur and Battleship use it today. It is a layer rather than a
-      feature, so the next game gets it for free.
+      Nine games use it today, from Chess to Battleship to Toy Battle. It is a
+      layer rather than a feature, so the next game gets it for free.
     </p>
   </div>
 
@@ -402,10 +405,14 @@
         no subscription. It is a binary you flash and source you can read.
       </p>
       <p class="untested">
-      <strong>No one has run this on a physical device.</strong> It is built
-      against a simulator and a browser build of the same sources, and I do not
-      have an X4 Pro. The tests pass and both firmware targets compile, which is
-      not the same as known to boot. If you flash it, you are the first.
+      <strong>One person has run this on a real X4 Pro.</strong> They flashed
+      v1.2.1, played most of the shelf, and found three real problems; the
+      fixes shipped in v1.2.2 within the week. It is still built against a
+      simulator and a browser build of the same sources, and I still do not
+      have the device, so that one session is the entire hardware record. If
+      you flash it, you are the second:
+      <a href="https://github.com/ma-r-s/crossplay/issues">say what you
+      find</a>, either way.
     </p>
     <ol class="steps">
         <li><strong>Check your device.</strong> CrossPlay targets the <strong>Xteink X4 Pro</strong> only. For every other supported device, CrossPoint upstream is the right answer and is excellent.</li>
@@ -421,6 +428,24 @@
         <a class="btn primary" href="https://github.com/ma-r-s/crossplay/releases">Releases</a>
         <a class="btn" href="https://github.com/ma-r-s/crossplay">Read the source</a>
       </div>
+      <p class="release-stamp" id="releaseStamp" hidden></p>
+      <script>
+        // The page never said which version is current; GitHub knows. One
+        // request, and a failed fetch leaves no broken control behind, same
+        // rule as the avatar data.
+        (function () {
+          var el = document.getElementById('releaseStamp');
+          fetch('https://api.github.com/repos/ma-r-s/crossplay/releases/latest')
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (d) {
+              if (d && d.tag_name) {
+                el.textContent = 'Latest release: ' + d.tag_name;
+                el.hidden = false;
+              }
+            })
+            .catch(function () {});
+        })();
+      </script>
     </div>
     <div class="bracket">
       <figure>
@@ -469,7 +494,7 @@
         <p>xkcd comics by Randall Munroe, <a href="https://xkcd.com/license.html">CC BY-NC 2.5</a>, fetched by the device from <a href="https://xkcd.com">xkcd.com</a>. Connections puzzles are the New York Times'; CrossPlay ships none of them and downloads only what you ask for.</p>
         <p>Hacker News comes from the public <a href="https://hn.algolia.com/api">Algolia API</a>, and opening an article sends its URL through <a href="https://r.jina.ai">r.jina.ai</a> to get readable text back, which means that third party learns what you are reading.</p>
         <p>Reading positions sync to CrossPoint's own server by default, which is upstream's infrastructure rather than ours. The address is a setting and can be pointed anywhere that speaks KOSync.</p>
-        <p>Jaipur, Insider, Murdle, Battleship, Connections, Knucklebones and Toy Battle are trademarks of their respective owners. CrossPlay implements the games; it is not affiliated with, endorsed by or sponsored by any of them.</p>
+        <p>Jaipur, Insider, Murdle, Battleship, Connections, Knucklebones, Toy Battle, Yahtzee, Connect Four and Sea Salt &amp; Paper are trademarks of their respective owners, and D&amp;Diagrams owes its puzzle form to Zachtronics' Dungeons &amp; Diagrams. CrossPlay implements the games; it is not affiliated with, endorsed by or sponsored by any of them.</p>
         <p>Type is Jersey 25 and Instrument Serif, both SIL OFL.</p>
       </div>
     </div>
@@ -514,7 +539,8 @@
 
 
   // Click the screenshot and it becomes the device, in place. The module and
-  // its card are 9MB, so nothing is fetched until someone asks for it; the
+  // its card are a 4MB download (9MB decompressed), so nothing is fetched
+  // until someone asks for it; the
   // poster stays until the first real frame paints, so the box never blinks.
   var hero = document.querySelector('.hero');
   var row = document.getElementById('deviceRow');
@@ -654,13 +680,38 @@
       });
   }
 
-  if (!canPair) {
-    // Two devices need two things you can see at once, so the toggle goes.
-    // The one device stays, and the hint says what tapping it will cost --
-    // this is the real firmware, and it is a 9MB download either way.
-    players.hidden = true;
-    row.querySelector('.device-hint').textContent = 'Tap to run it here (9MB)';
+  // Sampled once at load, this gate misfired for good: a background-tab
+  // restore can measure the viewport as 0 wide at script time, and that one
+  // reading gave a desktop window phone behavior for the life of the page.
+  // So the gate re-applies on every change of the media query instead.
+  function applyWidth() {
+    canPair = wide.matches;
+    immersiveByDefault = !wide.matches;
+    // Two devices need two things you can see at once, so below the break
+    // the toggle goes, and a second device that was out is put away.
+    players.hidden = !canPair;
+    if (!canPair) {
+      var second = row.children[1];
+      if (second && !second.hidden) setPlayers(1);
+    }
+    // The hint says what tapping will cost -- this is the real firmware, and
+    // it is a 4MB download -- but only while the device is still a
+    // screenshot; a booting or live device owns its own hint.
+    var first = row.children[0];
+    if (!first.dataset.state && !first.crossplay) {
+      first.querySelector('.device-hint').textContent =
+        canPair ? 'Click the screen to try it' : 'Tap to run it here (4MB)';
+    }
   }
+  applyWidth();
+  wide.addEventListener('change', applyWidth);
+  // Some embedded and automated browsers move the viewport without ever
+  // dispatching a media-query change event, so a plain resize reconciles the
+  // gate whenever the query and the applied state disagree. Cheap: it
+  // re-applies only on an actual crossing.
+  window.addEventListener('resize', function () {
+    if (wide.matches !== canPair) applyWidth();
+  });
 
   row.addEventListener('click', function (e) {
     var screen = e.target.closest('.device-screen');
@@ -715,7 +766,7 @@
   });
 
   // The face-and-name generator. Same word lists and same art the firmware
-  // uses (see tools_local/gen_avatar_web.py), so this is the device's own
+  // uses (see tools_local/avatar/gen_avatar_web.py), so this is the device's own
   // behaviour rather than an illustration of it. Hidden until the data is
   // present, so a failed fetch leaves no broken control behind.
   var A = window.CROSSPLAY_AVATAR;

@@ -18,7 +18,7 @@
 // a measurement of that comic's own lettering. At the scale its lettering
 // needs, each of its two dimensions lands in one of three bands against the
 // device's SHORT (480) and LONG (756) sides, so there are nine cases and no
-// others; the matrix is drawn in docs/xkcd-pack-format.md. The scale may
+// others; the matrix is drawn in docs/apps/xkcd-pack-format.md. The scale may
 // shrink by up to a sixth to buy an axis. 92% of the archive ends up needing
 // no panning at all, and 2.8% needs both.
 //

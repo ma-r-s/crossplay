@@ -1,0 +1,28 @@
+# Artwork for Insider, generated into src/apps_local/insider/InsiderArt.h by
+# tools_local/insider/gen_insider_art.sh. Format: alias = lucide-name.
+#
+# Cut at 96px, not the shelf's 32: these are the whole content of the reveal
+# card, held up to one person's face and then passed on. A role has to be
+# readable in the second and a half somebody looks at it, which is why the card
+# carries a silhouette at all rather than just the word MASTER.
+#
+# The three have to be unmistakable from each other at a glance, so they are
+# built from three different shapes rather than three variations on an eye:
+# a mask has a horizontal double lobe, the scroll is a vertical rectangle with
+# a curl, and the closed eye is a single lidded arc.
+#
+# roleInsider: venetian-mask. It is the only icon on this device that means
+#   "pretending", which is the entire job, and it beats a plain `eye` -- the
+#   Insider's secret is not that they can see, it is that they are hiding it.
+# roleMaster: scroll-text. They hold the word and read from it. Rejected:
+#   `crown` (chess owns it on the shelf), `gavel` (says courtroom, and the
+#   courtroom part of this game is the vote, which the Master sits out),
+#   `user-round` (a person, when the other two are states of knowing).
+# roleCitizen: eye-closed. The negation of seeing, drawn as one lidded arc.
+#   `eye-off` was rejected here even though it is the fork's existing mark for
+#   an unreadable link: at 96px its slash is the loudest thing on the card, and
+#   a Citizen is not an error.
+
+roleInsider = venetian-mask
+roleMaster  = scroll-text
+roleCitizen = eye-closed

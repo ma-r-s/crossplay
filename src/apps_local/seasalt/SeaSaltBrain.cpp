@@ -170,7 +170,7 @@ int estimateTheirPoints(const Observation& obs) {
   }
 
   // Fog cards at what a drafted hand of that size is actually worth, measured
-  // over 400 brain-vs-brain matches (docs/seasalt.md). Averaging the unseen
+  // over 400 brain-vs-brain matches (docs/apps/seasalt.md). Averaging the unseen
   // census overshot by 2 points per card, because a hand is not an average:
   // singles score nothing and a drafter holds few singles.
   static constexpr uint8_t kDraftedWorth[13] = {0, 0, 1, 2, 4, 5, 7, 9, 11, 13, 15, 16, 18};

@@ -12,7 +12,7 @@
 // Display names are not the rulebook's everywhere the rulebook's icon does not
 // exist: Lucide has no octopus and no penguin, so those cards are TURTLE and
 // GULL on this device -- card face, hint, how-to, round report, everywhere.
-// See tools_local/seasalt_cards.txt.
+// See tools_local/seasalt/seasalt_cards.txt.
 
 #include "../ui/ToyboxScreen.h"
 

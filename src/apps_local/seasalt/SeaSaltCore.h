@@ -1,7 +1,7 @@
 #pragma once
 
 // Sea Salt & Paper, the rules. Freestanding: no renderer, no Activity, no
-// storage. See docs/seasalt.md for the rulebook this implements.
+// storage. See docs/apps/seasalt.md for the rulebook this implements.
 //
 // The shape, and why:
 //
@@ -90,7 +90,7 @@ constexpr Place tableOf(const int seat) { return static_cast<Place>(static_cast<
 constexpr Place pileAt(const int pile) { return static_cast<Place>(static_cast<int>(Place::PileA) + pile); }
 
 // Which colour a card is printed in, and how many of each exist. Filled from
-// the physical deck; see docs/seasalt.md. Two rules read this and nothing else
+// the physical deck; see docs/apps/seasalt.md. Two rules read this and nothing else
 // does: the mermaid, and the end-of-round colour bonus.
 enum class Colour : uint8_t;  // defined in SeaSaltCards.h
 
@@ -258,7 +258,7 @@ enum class View : uint8_t {
   TheirHand,  // only once they have revealed it by ending the round
   TheirTable,
   PileA,  // discards were placed face up, so an attentive player knows them.
-  PileB,  // See docs/seasalt.md: this port's AI remembers what it saw.
+  PileB,  // See docs/apps/seasalt.md: this port's AI remembers what it saw.
   MyDrawn,
 };
 

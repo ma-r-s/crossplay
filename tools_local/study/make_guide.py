@@ -14,7 +14,12 @@ from reportlab.platypus import (
     HRFlowable,
 )
 
-OUT = "/Users/mario/Projects/Personal/Code/Xteink/firmware-next/docs/study-quick-reference.pdf"
+# Write into THIS checkout's docs/, wherever this checkout is. An absolute
+# path here once pointed at the integration tree, so running the generator
+# from a worktree wrote into a tree it was not working in.
+from pathlib import Path
+
+OUT = str(Path(__file__).resolve().parents[2] / "docs" / "apps" / "study-quick-reference.pdf")
 
 styles = getSampleStyleSheet()
 H1 = ParagraphStyle(
@@ -104,7 +109,10 @@ loop = Table(
             Paragraph(
                 "Convert from your live Anki collection, copy to the SD card.", NOTE
             ),
-            Paragraph("Apps &gt; STUDY. Tap to reveal, tap a button to grade, UNDO to take one back.", NOTE),
+            Paragraph(
+                "Apps &gt; STUDY. Tap to reveal, tap a button to grade, UNDO to take one back.",
+                NOTE,
+            ),
             Paragraph("One command applies your reviews and pushes to AnkiWeb.", NOTE),
         ],
     ],
@@ -125,32 +133,54 @@ s.append(loop)
 
 # --- commands -------------------------------------------------------------
 s.append(Paragraph("The two commands", H2))
-s.append(Paragraph("Run from <font face='Courier'>firmware-next/</font>. Both work out what they can "
-                   "and ask once for what they cannot, then remember it.", BODY))
+s.append(
+    Paragraph(
+        "Run from <font face='Courier'>firmware-next/</font>. Both work out what they can "
+        "and ask once for what they cannot, then remember it.",
+        BODY,
+    )
+)
 
 s.append(Paragraph("<b>Once</b> -- puts a deck and its fonts on the card", BODY))
 s.append(Paragraph("./tools_local/study/study.py setup", CODE))
-s.append(Paragraph("Finds your Anki profile, lists your decks so you pick one, finds the SD card, "
-                   "converts, and builds the fonts only if they are missing or no longer cover the "
-                   "deck. Run it again to switch deck. Nearly any note type converts (first field = "
-                   "word, second = meaning; <font face='Courier'>--map</font> overrides; cloze "
-                   "cannot). Non-CJK decks need no fonts; setup offers a big "
-                   "headword face from a system font, or bring one with "
-                   "<font face='Courier'>--font YourFont.ttf</font>. The long version of everything "
-                   "on this page is docs/study.md.", NOTE))
+s.append(
+    Paragraph(
+        "Finds your Anki profile, lists your decks so you pick one, finds the SD card, "
+        "converts, and builds the fonts only if they are missing or no longer cover the "
+        "deck. Run it again to switch deck. Nearly any note type converts (first field = "
+        "word, second = meaning; <font face='Courier'>--map</font> overrides; cloze "
+        "cannot). Non-CJK decks need no fonts; setup offers a big "
+        "headword face from a system font, or bring one with "
+        "<font face='Courier'>--font YourFont.ttf</font>. The long version of everything "
+        "on this page is docs/apps/study.md.",
+        NOTE,
+    )
+)
 
-s.append(Paragraph("<b>After every session</b> -- puts your reviews back into Anki", BODY))
+s.append(
+    Paragraph("<b>After every session</b> -- puts your reviews back into Anki", BODY)
+)
 s.append(Paragraph("./tools_local/study/study.py sync --ankiweb", CODE))
-s.append(Paragraph("Refuses to run while Anki is open, backs the collection up first, and is safe to "
-                   "re-run. Drop <font face='Courier'>--ankiweb</font> to apply locally only; add "
-                   "<font face='Courier'>--dry-run</font> to look before you leap, or "
-                   "<font face='Courier'>--reconvert</font> to refresh the card afterwards.", NOTE))
+s.append(
+    Paragraph(
+        "Refuses to run while Anki is open, backs the collection up first, and is safe to "
+        "re-run. Drop <font face='Courier'>--ankiweb</font> to apply locally only; add "
+        "<font face='Courier'>--dry-run</font> to look before you leap, or "
+        "<font face='Courier'>--reconvert</font> to refresh the card afterwards.",
+        NOTE,
+    )
+)
 
 s.append(Paragraph("<b>Any time</b> -- what is set up, and what is waiting", BODY))
 s.append(Paragraph("./tools_local/study/study.py status", CODE))
-s.append(Paragraph("Underneath are four single-purpose tools (anki_to_deck, deck_to_anki, make_fonts, "
-                   "check_deck) that take explicit paths. Reach for them when something goes wrong or "
-                   "you want one step only.", NOTE))
+s.append(
+    Paragraph(
+        "Underneath are four single-purpose tools (anki_to_deck, deck_to_anki, make_fonts, "
+        "check_deck) that take explicit paths. Reach for them when something goes wrong or "
+        "you want one step only.",
+        NOTE,
+    )
+)
 
 # --- two columns ----------------------------------------------------------
 left = []
@@ -262,23 +292,24 @@ gaps = Table(
         ],
         [
             Paragraph("<b>Leech tags</b>", NOTE),
-            Paragraph("Your leech action is Tag Only, so Anki keeps showing them too -- the device "
-                      "already matches. Only the tag itself is not added here; lapses still sync.", NOTE),
+            Paragraph(
+                "Your leech action is Tag Only, so Anki keeps showing them too -- the device "
+                "already matches. Only the tag itself is not added here; lapses still sync.",
+                NOTE,
+            ),
         ],
         [
             Paragraph("<b>Undo</b>", NOTE),
             Paragraph(
                 "UNDO in the footer takes back the last answer: the card comes straight back on its "
                 "answer side, ready to re-grade. One level, and only during a session -- once "
-                "\"Done\" is showing, the last card of the day is settled.",
+                '"Done" is showing, the last card of the day is settled.',
                 NOTE,
             ),
         ],
         [
             Paragraph("<b>No editing</b>", NOTE),
-            Paragraph(
-                "No adding, editing, or custom study. Do those in Anki.", NOTE
-            ),
+            Paragraph("No adding, editing, or custom study. Do those in Anki.", NOTE),
         ],
         [
             Paragraph("<b>No audio</b>", NOTE),
@@ -303,7 +334,7 @@ s.append(gaps)
 s.append(Spacer(1, 5))
 s.append(
     Paragraph(
-        "Full detail: docs/study-deck-format.md &nbsp;&middot;&nbsp; "
+        "Full detail: docs/apps/study-deck-format.md &nbsp;&middot;&nbsp; "
         "scheduler notes in src/apps_local/study/StudyFsrs.h",
         NOTE,
     )

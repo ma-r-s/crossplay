@@ -1,0 +1,47 @@
+# Sea Salt & Paper's card marks, generated into
+# src/apps_local/seasalt/SeaSaltArt.h by tools_local/seasalt/gen_seasalt_art.sh.
+# Format: alias = lucide-name.
+#
+# Separate from tools_local/toybox/icons.txt for the same reason Jaipur's goods are:
+# these need cuts the shelf never uses (48 for a hand card, 40 for the small
+# hand and the pile tops).
+#
+# Mario's two rules from the design round, both binding here:
+#   * No hand-drawn marks. Lucide only, picked for silhouette.
+#   * If the icon is not the animal, rename the card. Lucide has no octopus and
+#     no penguin, so those cards are TURTLE and GULL on this device, everywhere:
+#     the card face, the how-to, the round report. A name the icon contradicts
+#     is worse than a rename.
+#
+# The fourteen faces:
+ss_crab     = shrimp        # Lucide's crab is a face-on cartoon that blobs in
+                            # one bit; the shrimp is a clean profile. The card
+                            # stays CRAB: a shrimp is close enough to read as
+                            # one crustacean, and the pair rule is the card.
+ss_boat     = sailboat
+ss_fish     = fish
+ss_swimmer  = waves-ladder  # a ladder into water: someone getting in
+ss_shark    = skull         # the fin icons all read as fish. What a shark
+                            # means in this game is danger to a swimmer, and a
+                            # skull says danger at any size.
+ss_shell    = shell
+ss_octopus  = turtle        # no octopus in the pin; the card is TURTLE now
+ss_penguin  = bird          # no penguin in the pin; the card is GULL now
+ss_sailor   = anchor
+ss_mermaid  = sparkles      # the one card that is magic rather than sea life
+ss_lighthouse = tower-control  # a tower with a lamp room: the lighthouse
+ss_shoal    = fish-symbol   # the plainer fish glyph, so SHOAL and FISH differ
+ss_nest     = egg           # multiplies GULLs, so the colony is a NEST
+ss_captain  = ship-wheel
+
+# The eleven colour marks, drawn at the card's corner. Four filled/hollow
+# pairs for the four big colour pairs, then five loose glyphs. Filled variants
+# are ours (assets_local/seasalt/); hollow ones are Lucide's own strokes.
+# Assignment to colours lives in SeaSaltArt's kColourMark table.
+ss_m_plus     = plus
+ss_m_x        = x
+ss_m_asterisk = asterisk
+ss_m_circle_o = circle
+ss_m_square_o = square
+ss_m_triangle_o = triangle
+ss_m_diamond_o  = diamond

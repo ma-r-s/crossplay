@@ -31,7 +31,7 @@ using jaipur::kMarketSlots;
 constexpr const char* kGoodNames[kGoodCount] = {"DIAMOND", "GOLD", "SILVER", "CLOTH", "SPICE", "LEATHER"};
 
 // The six goods, as marks. The only thing asked of them is that they read at
-// 32px and are not mistaken for each other; see tools_local/jaipur_goods.txt for
+// 32px and are not mistaken for each other; see tools_local/jaipur/jaipur_goods.txt for
 // what each rejection actually read as -- leather alone went through three
 // before one stuck.
 // One cut per row of the board, because each row leaves the mark a different

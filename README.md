@@ -11,7 +11,7 @@
 <p align="center">
   <a href="https://github.com/ma-r-s/crossplay/releases">Releases</a> &middot;
   <a href="docs/shelf.md">What is on it</a> &middot;
-  <a href="docs/identity.md">Design language</a> &middot;
+  <a href="docs/identity.md">Identity</a> &middot;
   <a href="LOCAL_SCOPE.md">Scope</a>
 </p>
 
@@ -62,15 +62,15 @@ each other and they find one another. No pairing screen, no room code, no
 account, no router, no internet.
 
 Each game's rules, its state machines and the decisions behind them:
-[Checkers](docs/checkers.md) &middot;
-[Connect Four](docs/connect-four.md) &middot;
-[Yahtzee](docs/yahtzee.md) &middot;
-[Knucklebones](docs/knucklebones.md) &middot;
-[Minesweeper](docs/minesweeper.md) &middot;
-[Jaipur](docs/jaipur.md) &middot;
-[Sea Salt](docs/seasalt.md) &middot;
-[Murdle](docs/murdle.md) &middot;
-[Toy Battle](docs/toybattle.md).
+[Checkers](docs/apps/checkers.md) &middot;
+[Connect Four](docs/apps/connectfour.md) &middot;
+[Yahtzee](docs/apps/yahtzee.md) &middot;
+[Knucklebones](docs/apps/knucklebones.md) &middot;
+[Minesweeper](docs/apps/minesweeper.md) &middot;
+[Jaipur](docs/apps/jaipur.md) &middot;
+[Sea Salt](docs/apps/seasalt.md) &middot;
+[Murdle](docs/apps/murdle.md) &middot;
+[Toy Battle](docs/apps/toybattle.md).
 How the two physical buttons are used, and why there are only two:
 [buttons](docs/buttons.md).
 
@@ -79,10 +79,11 @@ How the two physical buttons are used, and why there are only two:
 CrossPlay targets the **Xteink X4 Pro** only. For every other supported device,
 CrossPoint upstream is the right answer and is excellent.
 
-> **No one has run this on a physical device.** It is built against a simulator
-> and a browser build of the same sources, and I do not have an X4 Pro. The host
-> suites pass and both firmware targets compile, but that is not the same as
-> known to boot. If you flash it, you are the first: please
+> **This has now run on a real X4 Pro.** One tester flashed v1.2.1 and played
+> most of the shelf; the three problems they hit were fixed in v1.2.2. It is
+> still built against a simulator and a browser build of the same sources, and
+> I still do not have the device, so one tester is the entire hardware record:
+> if you flash it, please
 > [say what happened](https://github.com/ma-r-s/crossplay/issues), either way.
 
 You do not need to have installed CrossPoint first.
@@ -142,8 +143,7 @@ pio run -e simulator_x4_pro      # a desktop simulator, SDL2 + a FreeRTOS shim
 ./scripts_local/check.sh         # host tests and both builds
 ```
 
-`ui:paperOnTheBand` is a known baseline failure; a tree where it passes is one
-whose work fixes it.
+Every suite green is the only green; nothing is a known failure.
 
 The apps live in `src/apps_local/`, which is what keeps the merge with upstream
 close to conflict-free. It is not the whole diff: the settings screens, the
@@ -155,11 +155,13 @@ app is put together.
 
 ## The website
 
-`site/` is static: one HTML file, one stylesheet, two scripts (the emulator's
-front end and the avatar word lists), the assets they name, and the browser
-build under `site/emulator/`. See [site/README.md](site/README.md) for
-how to serve it (a plain `http.server` will not do, the threads need COOP/COEP)
-and what has to be true before it deploys.
+`site/` is static: the landing page, the [Study deck
+installer](https://crossplay.ma-r-s.com/study/) (Pyodide converting Anki decks
+in the browser, previewed on the real firmware), their stylesheet and scripts,
+the assets they name, and the browser build under `site/emulator/`. See
+[site/README.md](site/README.md) for how to serve it (a plain `http.server`
+will not do, the threads need COOP/COEP) and what has to be true before it
+deploys.
 
 ## Credit and licence
 

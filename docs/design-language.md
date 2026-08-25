@@ -142,7 +142,7 @@ page cannot finish. `toybox_14` is the same face one step down, and it roughly
 halves both. An app binds it by passing `toybox::readingFaces()` to
 `makeTarget`; the header band keeps the display cut, because the top bar is the
 fork's chrome and a shared one is what makes two apps feel like one device.
-2.2KB of flash. Regenerate the cuts with `tools_local/gen_toybox_fonts.sh`,
+2.2KB of flash. Regenerate the cuts with `tools_local/toybox/gen_toybox_fonts.sh`,
 which fetches Jersey 25 rather than relying on a TTF nobody still has.
 
 **There are not three fonts. There are three slots.** `FONT_SLOTS = 3` is

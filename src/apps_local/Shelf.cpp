@@ -33,7 +33,7 @@
 
 namespace {
 
-// Icons come from tools_local/icons.txt via Lucide. Picked for silhouette
+// Icons come from tools_local/toybox/icons.txt via Lucide. Picked for silhouette
 // rather than literalness: a crown, a hull, a grid and a card suit share no
 // shape, so a row is scannable before the label is read.
 constexpr shelf::Item kGames[] = {
@@ -81,7 +81,7 @@ constexpr bool everyItemHasAnIcon() {
   }
   return true;
 }
-static_assert(everyItemHasAnIcon(), "every shelf item needs an icon; see tools_local/icons.txt");
+static_assert(everyItemHasAnIcon(), "every shelf item needs an icon; see tools_local/toybox/icons.txt");
 
 constexpr bool everyFolderHasAMark() {
   for (const auto& folder : kFolders) {
@@ -89,7 +89,7 @@ constexpr bool everyFolderHasAMark() {
   }
   return true;
 }
-static_assert(everyFolderHasAMark(), "every shelf folder needs a mark; see tools_local/icons.txt");
+static_assert(everyFolderHasAMark(), "every shelf folder needs a mark; see tools_local/toybox/icons.txt");
 
 // Beside the reader's own state and the player's name, so clearing
 // `.crosspoint/` clears this too and there is one place to look. Inside the

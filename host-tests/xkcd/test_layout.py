@@ -66,7 +66,7 @@ def axes(w, h):
 
 # --------------------------------------------------------------- the matrix
 #
-# One comic per cell of docs/xkcd-pack-format.md, sized so that at its readable
+# One comic per cell of docs/apps/xkcd-pack-format.md, sized so that at its readable
 # scale it lands in that cell, and asserted against the cell's verdict.
 
 

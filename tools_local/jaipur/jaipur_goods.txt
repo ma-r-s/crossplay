@@ -1,0 +1,52 @@
+# Jaipur's six goods and its bonus mark, generated into
+# src/apps_local/jaipur/JaipurGoods.h by tools_local/jaipur/gen_jaipur_art.sh.
+# Format: alias = lucide-name.
+#
+# Separate from tools_local/toybox/icons.txt because these are the only icons in the
+# fork that need a 44px cut, for the market cards, and asking the shared
+# generator for it produced a 44px copy of all 42 shelf icons.
+#
+# Measured, not assumed: that cost **no flash at all**. The arrays are
+# `static const` in a header, so every translation unit that does not name one
+# drops it, and the firmware came out byte-identical either way. What it did
+# cost was 58KB of generated source in a header every app includes.
+#
+# ---------------------------------------------------------------------------
+# The only rule here is: does it read, and does it read as something else.
+#
+# An earlier version of this file argued about whether a mark was the raw
+# material or the finished article, rejected `backpack` for being a made thing,
+# and kept `shirt` -- which is also a made thing. That was not a principle, it
+# was a justification written after the fact, and Mario threw it out. Six goods
+# only need six marks nobody confuses. Where a rejection is recorded below it is
+# because the icon was hard to see or looked like the wrong thing, never because
+# of what kind of noun it is.
+
+good_diamond = diamond      # a clean rhombus. `gem`'s facet lines are interior
+                            # detail and turn to mush at 32px, the same reason
+                            # gamepad-2 and castle lost on the shelf
+good_gold    = coins
+good_silver  = weight       # rejected: `medal` (a ribbon over a disc over a
+                            # star is three shapes inside 32px), `layers` (reads
+                            # as stacked paper), `anvil` (reads as a goblet at
+                            # this size), `component` (four small rhombi, and it
+                            # collides with the diamond), `badge` `disc`
+                            # `cylinder` (too round, they collide with the gold
+                            # coins), `hexagon` `pentagon` `shield` (legible but
+                            # they read as nothing in particular), `blocks`
+                            # (busy), `amphora` (reads as pottery)
+good_cloth   = shirt
+good_spice   = leaf
+
+good_leather = beef         # a cut of meat. It went through three marks: a
+                            # backpack (says bag), then a hand-drawn cow's head
+                            # (drawn because Lucide has no hide, and rejected on
+                            # sight once it was on the panel). Also rejected:
+                            # `ham` (reads as pork), `armchair` (furniture),
+                            # `wallet` (money, and it collides with the gold
+                            # coins), `drum` (an instrument), and a cow drawn in
+                            # profile, which at 32px is a rectangle with legs and
+                            # reads as nothing at all
+
+# The bonus token, which is not a good and should not look like one.
+bonus_token  = sparkles
