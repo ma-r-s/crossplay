@@ -573,7 +573,7 @@ void buildResult(toybox::Screen& screen, const ResultModel& model) {
   fui::TextStyle body;
   body.font = toybox::kBodyFont;
   body.align = fui::TextAlign::Left;
-  screen.target().text(screen.takeTop(30), under, body);
+  screen.target().text(screen.takeTop(34), under, body);
 
   const fui::Rect rule = screen.takeTop(toybox::kRule + 12);
   screen.target().fill(fui::makeRect(rule.x, static_cast<int16_t>(rule.y + 8), rule.width, toybox::kRule),
@@ -581,14 +581,19 @@ void buildResult(toybox::Screen& screen, const ResultModel& model) {
 
   // What the puzzle actually demanded of you, which is the honest measure of an
   // EXPERT label and the only place the ladder is ever named to a player.
-  char lines[3][56];
-  std::snprintf(lines[0], sizeof(lines[0]), "%d CLUES TO START", model.clues);
-  std::snprintf(lines[1], sizeof(lines[1]), "HARDEST STEP: %s", sk::techniqueName(model.hardest));
-  std::snprintf(lines[2], sizeof(lines[2]), "%d %s SOLVED", model.solvedAtThisLevel, sk::levelName(model.level));
-  fui::TextStyle detail;
-  detail.font = toybox::kBodyFont;
-  detail.align = fui::TextAlign::Left;
-  for (auto& line : lines) screen.target().text(screen.takeTop(38), line, detail);
+  //
+  // One small line, not three body-cut ones. Three lines at the same weight as
+  // the sentence above them flattened the page: the clock, the comparison and
+  // the footnote all shouted equally, and the block was the loudest thing under
+  // the header. This is the front door's record line, in the same cut, doing
+  // the same job.
+  char detail[72];
+  std::snprintf(detail, sizeof(detail), "%d CLUES   HARDEST %s   %d %s SOLVED", model.clues,
+                sk::techniqueName(model.hardest), model.solvedAtThisLevel, sk::levelName(model.level));
+  fui::TextStyle small;
+  small.font = toybox::kTileFont;
+  small.align = fui::TextAlign::Left;
+  screen.target().text(screen.takeTop(26), detail, small);
 
   fui::ButtonProps again;
   again.label = "ANOTHER";
