@@ -59,6 +59,9 @@ enum : fui::ActionId {
   // The closer view. Reached from the Confirm button rather than a tap
   // target; see buildReaderBar.
   ActionToggleOverview = 417,
+
+  // First run: fetch the pre-built pack from the CrossPlay release.
+  ActionDownloadPack = 418,
 };
 
 // --- The front door ------------------------------------------------------

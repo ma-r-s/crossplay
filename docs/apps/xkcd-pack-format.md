@@ -36,6 +36,19 @@ cannot help. It has to be a _second stored image_: the panel is 1-bit, and
 resampling art that is already 1-bit is mush, so the only place a second scale
 can come from is the greyscale original, which lives on the host.
 
+## Where the pack comes from
+
+Nobody copies files to a card. The rolling `xkcd-pack` GitHub release (a
+prerelease, so the OTA's `releases/latest` can never see it) hosts the three
+files, and the app's first run offers to download them itself -- GET THE
+COMICS, one confirm, a few minutes on WiFi. The files land as `.part` names
+and are renamed only when all three are complete, so a torn download leaves
+the card exactly as it was. After that, UPDATE fetches anything newer than
+the pack on-device, so the hosted pack only needs replacing when the gap
+grows large enough to be worth the refresh: build with
+`tools_local/xkcd/build_pack.py`, upload with `gh release upload xkcd-pack
+--clobber`, and never attach `read.bin` (it is a reader's personal state).
+
 ## Three files
 
 ```

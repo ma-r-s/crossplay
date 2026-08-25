@@ -70,6 +70,7 @@ class XkcdActivity final : public Activity {
   void onWifiChosen(bool connected);
   bool fetchOne(uint16_t num, char* whyNot, int whyNotCap);
   void runUpdate();
+  void runPackDownload();
 
   void handleAction(freeink::ui::ActionId action, int16_t value);
 
@@ -130,6 +131,8 @@ class XkcdActivity final : public Activity {
   // The update.
   bool wifiConnected_ = false;
   bool updateQueued_ = false;
+  bool downloadQueued_ = false;
+  bool downloadCancel_ = false;
   int fetched_ = 0;
   int waiting_ = -1;
 

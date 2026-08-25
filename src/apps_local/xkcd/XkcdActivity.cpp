@@ -517,6 +517,12 @@ void XkcdActivity::loop() {
     requestUpdate();
     return;
   }
+  if (downloadQueued_) {
+    downloadQueued_ = false;
+    runPackDownload();
+    requestUpdate();
+    return;
+  }
 
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     // Back has two rules and no exceptions: an app returns to its folder, and
@@ -619,6 +625,13 @@ void XkcdActivity::handleAction(const fui::ActionId action, const int16_t value)
       break;
     case xkcdui::ActionUpdate:
       beginUpdate();
+      break;
+    case xkcdui::ActionDownloadPack:
+      // WiFi is already up: this action only exists on the notice that the
+      // update flow shows after its own WiFi step found no pack.
+      showNotice("DOWNLOADING", "The archive is on its way.");
+      downloadQueued_ = true;
+      requestUpdate();
       break;
     case xkcdui::ActionOpenComic:
       openComicAt(value);
@@ -736,6 +749,109 @@ void XkcdActivity::onWifiChosen(const bool connected) {
   view_ = View::Updating;
   updateQueued_ = true;
   requestUpdate();
+}
+
+// The whole pack, from the rolling `xkcd-pack` release. Three sequential
+// downloads to .part names; the real names appear only when all three are
+// complete, so a torn download can never masquerade as a corrupt pack -- the
+// app just finds no pack, exactly as before the attempt.
+//
+// Synchronous, like runUpdate(): loop() is blocked, but the render task is
+// not, so progress paints through requestUpdateAndWait(). The input pump in
+// the progress callback is the sanctioned exception to the one-pump rule --
+// nothing else pumps while this blocks, and without it Back could not cancel
+// a multi-minute download.
+void XkcdActivity::runPackDownload() {
+  constexpr const char* kPackBase = "https://github.com/ma-r-s/crossplay/releases/download/xkcd-pack/";
+  struct Part {
+    const char* file;   // asset name and final basename
+    const char* label;  // what the progress line calls it
+  };
+  constexpr Part kParts[] = {
+      {"index.dat", "the index"},
+      {"text.dat", "the text"},
+      {"images.dat", "the comics"},
+  };
+
+  if (!Storage.mkdir(kDir)) {
+    showNotice("NO ROOM", "Could not create /xkcd on the card. Is the card in, and writable?");
+    return;
+  }
+
+  downloadCancel_ = false;
+  bool homeAfterCancel = false;
+  for (const Part& part : kParts) {
+    char url[128];
+    char dest[48];
+    snprintf(url, sizeof(url), "%s%s", kPackBase, part.file);
+    snprintf(dest, sizeof(dest), "%s/%s.part", kDir, part.file);
+
+    size_t lastPainted = 0;
+    const auto progress = [this, &part, &lastPainted, &homeAfterCancel](const size_t got, const size_t total) {
+      // Repaint every ~8MB: each paint is an e-ink refresh, and 140MB at
+      // finer steps would spend more time refreshing than downloading.
+      if (got - lastPainted >= 8u * 1024u * 1024u || (total > 0 && got == total)) {
+        lastPainted = got;
+        if (total > 0) {
+          snprintf(noticeBody_, sizeof(noticeBody_), "Fetching %s: %u of %u MB. Back stops it.", part.label,
+                   static_cast<unsigned>(got >> 20), static_cast<unsigned>(total >> 20));
+        } else {
+          snprintf(noticeBody_, sizeof(noticeBody_), "Fetching %s: %u MB so far. Back stops it.", part.label,
+                   static_cast<unsigned>(got >> 20));
+        }
+        requestUpdateAndWait();
+      }
+      mappedInput.update();
+      if (mappedInput.wasReleased(MappedInputManager::Button::Back)) downloadCancel_ = true;
+      // The pump above consumes the one-shot home event before ActivityManager
+      // can see it; treat it as a cancel too rather than dropping the intent.
+      // The user lands on the STOPPED notice and their next Home works.
+      if (mappedInput.wasHomeGesture()) {
+        downloadCancel_ = true;
+        homeAfterCancel = true;
+      }
+    };
+
+    const auto err = HttpDownloader::downloadToFile(url, dest, progress, &downloadCancel_);
+    if (err != HttpDownloader::OK) {
+      for (const Part& p : kParts) {
+        char tmp[48];
+        snprintf(tmp, sizeof(tmp), "%s/%s.part", kDir, p.file);
+        Storage.remove(tmp);
+      }
+      if (err == HttpDownloader::ABORTED) {
+        showNotice("STOPPED", homeAfterCancel ? "Download stopped. Nothing was kept; Home works now."
+                                              : "Download stopped. Nothing was kept.");
+      } else if (err == HttpDownloader::FILE_ERROR) {
+        showNotice("CARD TROUBLE", "The card would not take the file. Nothing was kept.");
+      } else {
+        showNotice("NO ANSWER", "The download did not answer. The card is unchanged; try again later.");
+      }
+      return;
+    }
+  }
+
+  for (const Part& part : kParts) {
+    char tmp[48];
+    char fin[48];
+    snprintf(tmp, sizeof(tmp), "%s/%s.part", kDir, part.file);
+    snprintf(fin, sizeof(fin), "%s/%s", kDir, part.file);
+    Storage.remove(fin);  // a half pack from some earlier era must not block the rename
+    if (!Storage.rename(tmp, fin)) {
+      showNotice("CARD TROUBLE", "Downloaded, but the card refused the final rename. Try again.");
+      return;
+    }
+  }
+
+  if (!openArchive()) {
+    showNotice("BAD PACK", "Downloaded, but the pack did not open. Try again later.");
+    return;
+  }
+  archiveOpen_ = true;
+  char body[96];
+  snprintf(body, sizeof(body), "%d comics, through #%u. UPDATE fetches anything newer.", archive_.count(),
+           static_cast<unsigned>(archive_.maxNum()));
+  showNotice("ALL OF IT", body, "READ", xkcdui::ActionOpenLatest);
 }
 
 // One comic: metadata, artwork, convert, append. Returns false with a reason
@@ -940,9 +1056,13 @@ void XkcdActivity::runUpdate() {
   const uint16_t have = archiveOpen_ ? archive_.maxNum() : 0;
 
   if (!archiveOpen_) {
-    showNotice("NO ARCHIVE",
-               "There is no pack on this card to add to. Build one with "
-               "tools_local/xkcd/build_pack.py and copy it to /xkcd.");
+    // First run. Nobody copies files to a card: the pre-built pack (see
+    // docs/apps/xkcd-pack-format.md for why the bulk cannot be converted
+    // on-device) is a release asset, and the device fetches it itself.
+    showNotice("THE ARCHIVE",
+               "The whole xkcd archive is about 3300 comics, a 140MB download "
+               "onto this card. It takes a few minutes on WiFi, once.",
+               "DOWNLOAD", xkcdui::ActionDownloadPack);
     return;
   }
   if (latest <= have) {

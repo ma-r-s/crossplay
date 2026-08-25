@@ -188,7 +188,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   }
   screen.target().text(bands.headline, headline, onPaper(screen.theme().titleText, fui::TextAlign::Left));
 
-  screen.target().text(bands.title, model.hasArchive ? model.latestTitle : "Build a pack and copy it to /xkcd",
+  screen.target().text(bands.title, model.hasArchive ? model.latestTitle : "The archive, one download away",
                        onPaper(screen.theme().bodyText, fui::TextAlign::Left));
 
   if (model.hasArchive) {
@@ -203,7 +203,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
 
   char record[96];
   if (!model.hasArchive) {
-    snprintf(record, sizeof(record), "Build one with tools_local/xkcd/build_pack.py");
+    snprintf(record, sizeof(record), "GET THE COMICS needs only WiFi");
   } else if (model.waiting > 0) {
     snprintf(record, sizeof(record), "%d COMICS   %d READ   %d WAITING", model.comicCount, model.readCount,
              model.waiting);
@@ -225,7 +225,9 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
       {"BROWSE", ActionBrowse, model.hasArchive},
       {"GO TO NUMBER", ActionGoToNumber, model.hasArchive},
       {"RANDOM", ActionRandom, model.hasArchive},
-      {"UPDATE", ActionUpdate, true},
+      // With no archive this same door is the whole first run, so it says
+      // what it will actually do there: fetch the pack, not update one.
+      {model.hasArchive ? "UPDATE" : "GET THE COMICS", ActionUpdate, true},
   };
 
   for (int i = 0; i < kDoorCount; ++i) {
@@ -555,7 +557,10 @@ void buildAlt(toybox::Screen& screen, const AltModel& model) {
 void buildNotice(toybox::Screen& screen, const NoticeModel& model) {
   chrome(screen, model.title);
 
-  fui::TextStyle head = owned(screen.theme().titleText, fui::TextAlign::Left);
+  // onPaper, not owned: titleText is styled for the black header band and is
+  // therefore White. Every notice headline drew white-on-paper -- invisible --
+  // until the first-run archive offer made someone look for one.
+  fui::TextStyle head = onPaper(screen.theme().titleText, fui::TextAlign::Left);
   screen.target().text(screen.takeTop(44, toybox::kGutter), model.headline, head);
 
   fui::TextAreaProps detail;
