@@ -33,7 +33,7 @@ constexpr ThemeMetrics values = {.batteryWidth = 15,
                                  .headerTitleAlign = 0,  // left
                                  .headerBatterySide = 0,
                                  .headerBatteryDetached = false,
-                                 .menuRowHeight = 42,
+                                 .menuRowHeight = 42,  // not authoritative: getMenuRowHeight() derives the drawn height
                                  .menuSpacing = 6,
                                  .tabSpacing = 10,
                                  .tabBarHeight = 50,

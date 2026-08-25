@@ -1,59 +1,38 @@
 #pragma once
-#include <FreeInkApp.h>
-#include <FreeInkUIGfxRenderer.h>
 #include <I18n.h>
 
-#include <atomic>
-#include <functional>
 #include <string>
 #include <vector>
 
 #include "RecentBooksStore.h"
-#include "activities/Activity.h"
-#include "components/UiAppHelpers.h"
-#include "util/ButtonNavigator.h"
+#include "activities/UiListActivity.h"
 
-class RecentBooksActivity final : public Activity {
+class RecentBooksActivity final : public UiListActivity {
+ public:
+  explicit RecentBooksActivity(GfxRenderer& renderer, MappedInputManager& mappedInput);
+  void onEnter() override;
+  void onExit() override;
+
  private:
-  // FreeInkApp hosts the book list (themed rows, icons, touch routing); the
-  // header stays on GUI.drawHeader for the battery indicator.
-  using UiApp = freeink::ui::FreeInkApp<20, 4>;
+  int listCount() const override { return static_cast<int>(recentBooks.size()); }
+  void buildScreen(UiScreen& screen) override;
+  void activateIndex(int index) override;
+  void onRowLongPress(int index) override;
+  // Confirm activates on RELEASE here (a hold is "remove from list"), and Back
+  // goes home rather than finishing.
+  bool handleButtons() override;
+  const char* headerTitle() const override { return tr(STR_MENU_RECENT_BOOKS); }
+  void drawFooter() override;
 
-  ButtonNavigator buttonNavigator;
-
-  size_t selectorIndex = 0;
-
-  // Set when a long-press has fired; input is swallowed until Confirm is released
-  // again so the release doesn't also open the book.
-  bool longPressFired = false;
-
-  // Recent tab state
   std::vector<RecentBook> recentBooks;
-
-  freeink::ui::GfxRendererTarget uiTarget;  // must precede `app`: the app holds a reference to it
-  UiApp app;
-  // render() rebuilds the app's interaction table; loop() only routes touch
-  // snapshots against it while this is true (the two run on different tasks).
-  std::atomic<bool> uiReady{false};
-  // Detects a hold on a book row and fires "remove" while the finger is down.
-  TouchLongPressRouter longPressTouch;
-  int visibleRows = 1;  // rows per page at the current scale; set by the screen builder
-  int topIndex = 0;     // viewport scroll position, decoupled from the selection
-
-  static void listScreen(UiApp::ScreenType& screen, void* user);
-  static void onRowEvent(const freeink::ui::ActionEvent& event, void* user);
-  void buildListScreen(UiApp::ScreenType& screen);
+  // Row buffer, built in loadRecentBooks() (not buildScreen(), which reuses
+  // it on every repaint instead of rebuilding a ListItem vector per render).
+  std::vector<freeink::ui::ListItem> rowItems;
+  void rebuildRowItems();
 
   // Data loading
   void loadRecentBooks();
 
   // Show an OK/Cancel prompt to remove the given book from the Recent Books list.
   void promptRemoveBook(const std::string& path, const std::string& title);
-
- public:
-  explicit RecentBooksActivity(GfxRenderer& renderer, MappedInputManager& mappedInput);
-  void onEnter() override;
-  void onExit() override;
-  void loop() override;
-  void render(RenderLock&&) override;
 };

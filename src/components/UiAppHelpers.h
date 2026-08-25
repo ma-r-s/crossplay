@@ -4,21 +4,61 @@
 #include <FreeInkUIIcon.h>
 #include <I18n.h>
 
+#include <atomic>
+
 #include "MappedInputManager.h"
 #include "components/UIScale.h"
 #include "components/UITheme.h"
+#include "components/UIThemeTokens.h"
 #include "components/icons/customListIcons.h"
 #include "components/icons/listIcons.h"
 
 // Shared glue for activities hosting a FreeInkApp: the font-bound render
 // target and the touch snapshot FreeInkApp routing consumes.
 
-// Held duration past which a stationary touch contact fires a long-press.
-// Mirrors the physical-button hold-to-act convention but shorter, since a
-// finger hold has no button travel to absorb. Consumed by TouchLongPressRouter,
-// which dispatches WHILE the finger is still down (not on release). Rows must
-// opt in via InputLongPress to receive it.
-inline constexpr unsigned long UI_TOUCH_LONG_PRESS_MS = 500;
+// One app-wide ThemeTokens instance shared by every FreeInkApp via
+// setThemeRef, so per-app copies (~1.5KB each, and one per stacked activity)
+// aren't pure heap waste. Refreshed on every screen entry, so theme or font
+// changes between activities re-derive it; live theme changes (Settings)
+// refresh it and every referencing app repaints in the new look.
+//
+// Backed by a small pool + an atomic cell (FreeInkApp::setThemeRef() takes a
+// pointer to the cell, not to a ThemeTokens instance directly) rather than a
+// single instance overwritten in place: refreshSharedUiThemeTokens() below
+// always builds the new tokens into whichever pool slot the cell does NOT
+// currently reference, then does one atomic store. Every app sharing the
+// cell picks up the change on its next theme() call, and nothing ever
+// dereferences an instance mid-overwrite — unlike a plain
+// `sharedTokens = uiThemeTokens(target);` in-place assignment, which a
+// render task reading theme().rowHeight/etc. field-by-field on another task
+// could observe as a torn mix of old and new fields.
+inline std::atomic<const freeink::ui::ThemeTokens*>& sharedUiThemeCell() {
+  static std::atomic<const freeink::ui::ThemeTokens*> cell{nullptr};
+  return cell;
+}
+
+// Rebuilds the shared tokens for `target` and atomically publishes them via
+// sharedUiThemeCell(). Returns the freshly-published instance for callers
+// that also want to read it back immediately (e.g. BaseTheme::drawHeader(),
+// which derives the same tokens as a render-path scratch value instead of
+// stack-allocating its own copy).
+inline const freeink::ui::ThemeTokens& refreshSharedUiThemeTokens(const freeink::ui::GfxRendererTarget& target) {
+  static freeink::ui::ThemeTokens pool[2];
+  auto& cell = sharedUiThemeCell();
+  const auto* current = cell.load(std::memory_order_relaxed);
+  freeink::ui::ThemeTokens* next = (current == &pool[0]) ? &pool[1] : &pool[0];
+  *next = uiThemeTokens(target);
+  cell.store(next, std::memory_order_release);
+  return *next;
+}
+
+// Refresh the shared tokens from the active UITheme + this target's fonts and
+// point the app at them. Replaces the old per-app `app.setTheme(...)` copies.
+template <typename App>
+inline void applySharedUiTheme(App& app, const freeink::ui::GfxRendererTarget& target) {
+  refreshSharedUiThemeTokens(target);
+  app.setThemeRef(&sharedUiThemeCell());
+}
 
 // Bind the uiScale fonts before FreeInkApp's constructor derives its theme
 // metrics from the body font's line height.
@@ -115,29 +155,28 @@ inline void addDialogCancelOk(Screen& screen, const freeink::ui::ActionId cancel
       freeink::ui::Rect{static_cast<int16_t>(band.x + band.width - buttonWidth), band.y, buttonWidth, band.height}, ok);
 }
 
-// Scroll semantics shared by every FreeInkUI list screen: swipes move the
-// viewport (topIndex) without touching the selection; button navigation moves
-// the selection and pulls the viewport along just enough to keep it visible.
-
-inline int scrollListBy(const int topIndex, const int delta, const int visibleRows, const int count) {
-  int maxTop = count - visibleRows;
-  if (maxTop < 0) maxTop = 0;
-  int next = topIndex + delta;
-  if (next > maxTop) next = maxTop;
-  if (next < 0) next = 0;
-  return next;
-}
-
-inline int followListSelection(const int selectedIndex, const int topIndex, const int visibleRows, const int count) {
-  return static_cast<int>(freeink::ui::listTopIndexFor(
-      static_cast<int16_t>(selectedIndex), static_cast<uint16_t>(topIndex),
-      static_cast<uint16_t>(visibleRows > 0 ? visibleRows : 1), static_cast<uint16_t>(count)));
-}
-
-inline freeink::ui::InputSnapshot touchSnapshotFrom(const MappedInputManager& mappedInput) {
-  freeink::ui::InputSnapshot snap{};
+// withLongPress: the SDK touch classifier fires the long-press WHILE the
+// finger is still down (matching the physical-button hold-to-act feel) and
+// suppresses the remainder of the contact, so the finger lift can't also
+// tap-dismiss the popup the long-press opens. Delivered as a touchReleased +
+// longPress snapshot at the contact point; only rows masked InputLongPress
+// receive it. Mirrors the SDK's long-press-aware fui::snapshotFrom, but maps
+// coordinates through the renderer's LIVE orientation (the reader rotates at
+// runtime), which the DeviceContext-based SDK adapter does not track.
+inline freeink::ui::InputSnapshot touchSnapshotFrom(const MappedInputManager& mappedInput,
+                                                    const bool withLongPress = false) {
   int tx = 0;
   int ty = 0;
+  if (withLongPress && mappedInput.wasScreenLongPress(tx, ty)) {
+    freeink::ui::InputSnapshot snap{};
+    snap.touchReleased = true;
+    snap.longPress = true;
+    snap.touchX = static_cast<int16_t>(tx);
+    snap.touchY = static_cast<int16_t>(ty);
+    return snap;
+  }
+
+  freeink::ui::InputSnapshot snap{};
   // Live contact position: only InputDrag-masked elements (sliders) react, so
   // carrying it in every snapshot is free for ordinary screens.
   if (mappedInput.isScreenTouchHeld(tx, ty)) {
@@ -161,34 +200,3 @@ inline freeink::ui::InputSnapshot touchSnapshotFrom(const MappedInputManager& ma
   }
   return snap;
 }
-
-// Fires a long-press WHILE the finger is still down — once a stationary contact
-// crosses UI_TOUCH_LONG_PRESS_MS — instead of on release, matching the
-// physical-button hold-to-act feel. Feed it each loop in place of
-// touchSnapshotFrom() and route the returned snapshot; only rows masked
-// InputLongPress receive the synthesized event. When it fires it tells the
-// input layer to swallow the rest of the contact (its continued hold and its
-// release edge), so the finger lift can't also tap-dismiss the popup the
-// long-press opens. Non-held frames delegate to touchSnapshotFrom() unchanged.
-class TouchLongPressRouter {
- public:
-  freeink::ui::InputSnapshot snapshot(const MappedInputManager& mappedInput) {
-    int x = 0;
-    int y = 0;
-    unsigned long heldMs = 0;
-    if (mappedInput.wasScreenTouchDown(x, y, heldMs) && heldMs >= UI_TOUCH_LONG_PRESS_MS) {
-      // Threshold crossed while still pressed: dispatch a long-press release at
-      // the contact point now (routing matches it against InputLongPress), and
-      // swallow the remainder of this contact so the lift can't act twice.
-      mappedInput.swallowCurrentTouch();
-      freeink::ui::InputSnapshot snap{};
-      snap.touchReleased = true;
-      snap.longPress = true;
-      snap.touchX = static_cast<int16_t>(x);
-      snap.touchY = static_cast<int16_t>(y);
-      return snap;
-    }
-
-    return touchSnapshotFrom(mappedInput);
-  }
-};

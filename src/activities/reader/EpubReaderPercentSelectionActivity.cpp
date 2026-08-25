@@ -8,8 +8,7 @@
 #include <cstdio>
 
 #include "components/UITheme.h"
-#include "components/UIThemeTokens.h"
-#include "components/UiAppHelpers.h"
+#include "components/UiSliderDialog.h"
 #include "fontIds.h"
 
 namespace fui = freeink::ui;
@@ -27,15 +26,11 @@ constexpr int kLargeStep = 10;
 EpubReaderPercentSelectionActivity::EpubReaderPercentSelectionActivity(GfxRenderer& renderer,
                                                                        MappedInputManager& mappedInput,
                                                                        const int initialPercent)
-    : Activity("EpubReaderPercentSelection", renderer, mappedInput),
-      percent(initialPercent),
-      uiTarget(makeUiTarget(renderer)),
-      app(uiTarget, uiTarget.deviceContext()) {}
+    : Activity("EpubReaderPercentSelection", renderer, mappedInput), UiAppHost(renderer), percent(initialPercent) {}
 
 void EpubReaderPercentSelectionActivity::onEnter() {
   Activity::onEnter();
-  uiReady = false;
-  app.setTheme(uiThemeTokens(uiTarget));
+  resetUi();
   app.on(ACTION_SLIDER, &EpubReaderPercentSelectionActivity::onSliderEvent, this);
   app.on(ACTION_STEP, &EpubReaderPercentSelectionActivity::onStepEvent, this);
   app.on(ACTION_CANCEL, &EpubReaderPercentSelectionActivity::onCancelEvent, this);
@@ -106,22 +101,16 @@ void EpubReaderPercentSelectionActivity::loop() {
   // Runs before the Back handler because the release of a drag can also register as a
   // swipe (e.g. the left-edge rightward back gesture) — the drag must consume it so it
   // can't cancel the dialog or step the percent.
-  fui::InputSnapshot snap{};
-  if (uiReady) {
-    snap = touchSnapshotFrom(mappedInput);
-    if (snap.touchPressed || snap.touchHeld || snap.touchReleased) {
-      const auto event = app.route(snap);
-      if (app.invalidated()) requestUpdate();
-      if (event) {
-        if (event.dragPermille >= 0) draggingSlider = true;
-        return;
-      }
-    }
-    if (draggingSlider) {
-      // Drag ended (possibly off the slider): swallow the tap/swipe events it produced.
-      if (!snap.touchHeld) draggingSlider = false;
-      return;
-    }
+  const auto route = routeTouch(mappedInput, false, /*routeHeld=*/true);
+  if (route.routed && app.invalidated()) requestUpdate();
+  if (route) {
+    if (route.event.dragPermille >= 0) draggingSlider = true;
+    return;
+  }
+  if (routingReady() && draggingSlider) {
+    // Drag ended (possibly off the slider): swallow the tap/swipe events it produced.
+    if (!route.snap.touchHeld) draggingSlider = false;
+    return;
   }
 
   // Back cancels, confirm selects, arrows adjust the percent.
@@ -158,72 +147,29 @@ void EpubReaderPercentSelectionActivity::loop() {
                                        [this, downDelta] { adjustPercent(downDelta); });
 }
 
-void EpubReaderPercentSelectionActivity::percentScreen(UiApp::ScreenType& screen, void* user) {
+void EpubReaderPercentSelectionActivity::percentScreen(UiScreen& screen, void* user) {
   static_cast<EpubReaderPercentSelectionActivity*>(user)->buildPercentScreen(screen);
 }
 
-void EpubReaderPercentSelectionActivity::buildPercentScreen(UiApp::ScreenType& screen) {
-  const auto& metrics = UITheme::getInstance().getMetrics();
-  const auto& theme = screen.theme();
-  const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  // Content: the safe area minus the header band GUI.drawHeader paints, dropped down
-  // to where the old fixed layout placed the percent readout.
-  screen.setContentMargin(fui::Insets{
-      static_cast<int16_t>(safe.y + metrics.topPadding + metrics.headerHeight + metrics.verticalSpacing * 4),
-      static_cast<int16_t>(renderer.getScreenWidth() - (safe.x + safe.width)),
-      static_cast<int16_t>(renderer.getScreenHeight() - (safe.y + safe.height)), static_cast<int16_t>(safe.x)});
+void EpubReaderPercentSelectionActivity::buildPercentScreen(UiScreen& screen) {
+  char readout[16];
+  snprintf(readout, sizeof(readout), "%d%%", percent);
+  char hint1[64];
+  snprintf(hint1, sizeof(hint1), "%s %d%%", I18N.get(StrId::STR_STEP_HINT_FRONT), kSmallStep);
+  char hint2[64];
+  snprintf(hint2, sizeof(hint2), "%s %d%%", I18N.get(StrId::STR_STEP_HINT_SIDE), kLargeStep);
 
-  char line[64];
-
-  // Percent readout, centered above the slider.
-  fui::TextStyle readout = theme.titleText;
-  readout.align = fui::TextAlign::Center;
-  const int16_t readoutLh = screen.target().lineHeight(readout.font);
-  snprintf(line, sizeof(line), "%d%%", percent);
-  screen.target().text(screen.takeTop(readoutLh, theme.spaceLg), line, readout);
-
-  // Slider row: -/+ tap zones at the row ends for 1% fine steps (a full-row-height
-  // square each, comfortable touch targets), with the drag slider between them. A
-  // small gap keeps the slider's (min-touch-expanded) hit rect from overlapping.
-  const fui::Insets sideInset{0, static_cast<int16_t>(theme.spaceLg * 2), 0, static_cast<int16_t>(theme.spaceLg * 2)};
-  const fui::Rect row = screen.takeTop(theme.rowHeight, theme.spaceLg).inset(sideInset);
-  const int16_t stepW = row.height;
-  const fui::Rect minusHit{row.x, row.y, stepW, row.height};
-  const fui::Rect plusHit{static_cast<int16_t>(row.right() - stepW), row.y, stepW, row.height};
-
-  fui::TextStyle glyph = theme.bodyText;
-  glyph.align = fui::TextAlign::Center;
-  const int16_t glyphLh = screen.target().lineHeight(glyph.font);
-  const int16_t glyphY = static_cast<int16_t>(row.y + (row.height - glyphLh) / 2);
-  screen.target().text(fui::Rect{minusHit.x, glyphY, stepW, glyphLh}, "-", glyph);
-  screen.target().text(fui::Rect{plusHit.x, glyphY, stepW, glyphLh}, "+", glyph);
-  screen.frame().hit(minusHit, ACTION_STEP, -1, fui::InputTouch);
-  screen.frame().hit(plusHit, ACTION_STEP, +1, fui::InputTouch);
-
-  fui::SliderProps props;
-  props.value = percent;
-  props.max = 100;
-  props.action = ACTION_SLIDER;
-  props.inputMask = fui::InputTouch | fui::InputDrag;
-  const int16_t sideGap = static_cast<int16_t>(stepW + theme.spaceSm);
-  fui::slider(screen.frame(), row.inset(fui::Insets{0, sideGap, 0, sideGap}), props);
-
-  if (mappedInput.hasTouch()) {
-    // Touch devices drive the slider directly and confirm/cancel on screen; the
-    // physical-button step hints are hidden there — same rule as GUI.drawButtonHints.
-    addDialogCancelOk(screen, ACTION_CANCEL, ACTION_OK);
-    return;
-  }
-
-  // Two-line step hint built from separate label + value strings (front buttons = fine step, side
-  // buttons = coarse step), so the layout doesn't depend on a separator hidden in translated text.
-  fui::TextStyle hint = theme.smallText;
-  hint.align = fui::TextAlign::Center;
-  const int16_t hintLh = screen.target().lineHeight(hint.font);
-  snprintf(line, sizeof(line), "%s %d%%", I18N.get(StrId::STR_STEP_HINT_FRONT), kSmallStep);
-  screen.target().text(screen.takeTop(hintLh, theme.spaceSm), line, hint);
-  snprintf(line, sizeof(line), "%s %d%%", I18N.get(StrId::STR_STEP_HINT_SIDE), kLargeStep);
-  screen.target().text(screen.takeTop(hintLh), line, hint);
+  UiSliderDialogSpec spec;
+  spec.readout = readout;
+  spec.value = percent;
+  spec.max = 100;
+  spec.sliderAction = ACTION_SLIDER;
+  spec.stepAction = ACTION_STEP;
+  spec.cancelAction = ACTION_CANCEL;
+  spec.okAction = ACTION_OK;
+  spec.hintLine1 = hint1;
+  spec.hintLine2 = hint2;
+  buildSliderDialogScreen(screen, renderer, mappedInput, spec);
 }
 
 void EpubReaderPercentSelectionActivity::render(RenderLock&&) {
@@ -238,9 +184,7 @@ void EpubReaderPercentSelectionActivity::render(RenderLock&&) {
 
   // Percent readout, slider, and hints render through the app so the slider and its
   // -/+ zones register touch hit rects.
-  uiReady = false;
-  app.render();
-  uiReady = true;
+  renderUi();
 
   // Button hints follow the current front button layout.
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), "-", "+");

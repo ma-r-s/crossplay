@@ -1,11 +1,10 @@
 #pragma once
 
-#include <FreeInkApp.h>
-#include <FreeInkUIGfxRenderer.h>
-
 #include <atomic>
 #include <string>
 #include <vector>
+
+#include "components/UiAppHost.h"
 
 class GfxRenderer;
 class MappedInputManager;
@@ -14,7 +13,7 @@ class MappedInputManager;
 // MAX_SUGGESTIONS sibling books once per reader session, handles the menu input, and
 // draws the end screen. With no suggestions the end screen keeps its historical
 // plain-title look and behavior.
-class EndOfBookOptions {
+class EndOfBookOptions : private UiAppHost {
  public:
   enum class Action { None, Redraw, OpenBook, GoHome, LastPage };
 
@@ -43,14 +42,11 @@ class EndOfBookOptions {
   void render(GfxRenderer& renderer, const MappedInputManager& input);
 
  private:
-  // FreeInkApp hosts the suggestion list (themed rows, touch routing); the title and
-  // button hints stay on the legacy UITheme calls. 4 rows (3 suggestions + Home) is
-  // the whole interaction surface; 2 handler slots give the row action headroom.
-  using UiApp = freeink::ui::FreeInkApp<6, 2>;
-
-  static void listScreen(UiApp::ScreenType& screen, void* user);
+  // The UiAppHost base hosts the suggestion list (themed rows, touch routing);
+  // the title and button hints stay on the legacy UITheme calls.
+  static void listScreen(UiScreen& screen, void* user);
   static void onRowEvent(const freeink::ui::ActionEvent& event, void* user);
-  void buildListScreen(UiApp::ScreenType& screen);
+  void buildListScreen(UiScreen& screen);
 
   GfxRenderer& renderer;
   std::string folder;
@@ -60,11 +56,17 @@ class EndOfBookOptions {
   int selector = 0;
   std::atomic<bool> isLoaded{false};
 
-  freeink::ui::GfxRendererTarget uiTarget;  // must precede `app`: the app holds a reference to it
-  UiApp app;
-  // render() rebuilds the app's interaction table; handleMenuInput() only routes touch
-  // snapshots against it while this is true (the two run on different tasks).
-  std::atomic<bool> uiReady{false};
+  // Row storage, built once in loadOnce() (same acquire/release publication
+  // point as names — see isLoaded above) rather than per-render in
+  // buildListScreen(): names.size() is capped at MAX_SUGGESTIONS and never
+  // changes afterward, so a fixed-capacity array avoids any heap allocation
+  // for the row list, both at load time and every subsequent repaint.
+  static constexpr size_t MAX_ROWS = MAX_SUGGESTIONS + 1;  // + the trailing "Home" row
+  std::string rowLabels[MAX_ROWS];
+  freeink::ui::ListItem rowItems[MAX_ROWS]{};
+  size_t rowCount = 0;
+  void buildRowItems();
+
   // Row index dispatched by onRowEvent during the current route() call; -1 otherwise.
   int tappedRow = -1;
 

@@ -6,22 +6,17 @@
 
 #include <cstring>
 #include <memory>
-#include <vector>
 
 #include "ClockOffsetActivity.h"
 #include "ClockSyncActivity.h"
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
-#include "components/UIThemeTokens.h"
-#include "components/UiAppHelpers.h"
 #include "fontIds.h"
 
 namespace fui = freeink::ui;
 
 namespace {
-constexpr fui::ActionId ACTION_ROW = 1;
-
 // Menu items in their natural order. Clock entries are appended only when the
 // DS3231 RTC is present so X4 devices don't see them at all.
 enum MenuItem {
@@ -41,6 +36,8 @@ enum MenuItem {
 
 constexpr int BASE_MENU_ITEMS = ITEM_CLOCK;  // Items shown on every device
 constexpr int FULL_MENU_ITEMS = ITEM_COUNT;  // Items shown when RTC is available
+static_assert(FULL_MENU_ITEMS == StatusBarSettingsActivity::MAX_STATUS_BAR_ITEMS,
+              "keep StatusBarSettingsActivity::MAX_STATUS_BAR_ITEMS in sync with ITEM_COUNT");
 
 const StrId menuNames[FULL_MENU_ITEMS] = {
     StrId::STR_CHAPTER_PAGE_COUNT,
@@ -91,26 +88,20 @@ const int verticalPreviewTextPadding = 40;
 }  // namespace
 
 StatusBarSettingsActivity::StatusBarSettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
-    : Activity("StatusBarSettings", renderer, mappedInput),
-      uiTarget(makeUiTarget(renderer)),
-      app(uiTarget, uiTarget.deviceContext()) {}
+    : UiListActivity("StatusBarSettings", renderer, mappedInput) {}
 
 void StatusBarSettingsActivity::onEnter() {
-  Activity::onEnter();
+  UiListActivity::onEnter();
 
-  selectedIndex = 0;
   visibleItemCount = halClock.isAvailable() ? FULL_MENU_ITEMS : BASE_MENU_ITEMS;
-  uiReady = false;
-  visibleRows = 1;
-  topIndex = 0;
 
   // Clamp statusBarProgressBar and statusBarTitle in case of corrupt/migrated data
   if (SETTINGS.statusBarProgressBar >= PROGRESS_BAR_ITEMS) {
     SETTINGS.statusBarProgressBar = CrossPointSettings::STATUS_BAR_PROGRESS_BAR::HIDE_PROGRESS;
   }
 
-  if (SETTINGS.statusBarTitle >= PROGRESS_BAR_THICKNESS_ITEMS) {
-    SETTINGS.statusBarTitle = CrossPointSettings::STATUS_BAR_PROGRESS_BAR_THICKNESS::PROGRESS_BAR_NORMAL;
+  if (SETTINGS.statusBarProgressBarThickness >= PROGRESS_BAR_THICKNESS_ITEMS) {
+    SETTINGS.statusBarProgressBarThickness = CrossPointSettings::STATUS_BAR_PROGRESS_BAR_THICKNESS::PROGRESS_BAR_NORMAL;
   }
 
   if (SETTINGS.statusBarTitle >= TITLE_ITEMS) {
@@ -133,82 +124,30 @@ void StatusBarSettingsActivity::onEnter() {
     SETTINGS.statusBarClock = CrossPointSettings::STATUS_BAR_CLOCK_MODE::STATUS_BAR_CLOCK_HIDE;
   }
 
-  app.setTheme(uiThemeTokens(uiTarget));
-  app.on(ACTION_ROW, &StatusBarSettingsActivity::onRowEvent, this);
-  app.setScreen(&StatusBarSettingsActivity::listScreen, this);
+  // Labels never change (unlike the values, which track live SETTINGS
+  // state), so they're set once here rather than every buildScreen() call.
+  for (int i = 0; i < visibleItemCount; i++) {
+    rowItems_[i].label = I18N.get(menuNames[i]);
+    rowItems_[i].actionValue = static_cast<int16_t>(i);
+  }
+}
 
+bool StatusBarSettingsActivity::handleCustomInput() {
+  return optionPopup.handleInput(mappedInput, [this] { requestUpdate(); });
+}
+
+void StatusBarSettingsActivity::activateIndex(const int index) {
+  if (optionPopup.isActive()) return;
+  nav.selected = index;
+  // Activation opens a popup/sub-activity or repaints a new value; a lingering
+  // flash would gray an unrelated row.
+  app.clearTapFlash();
+  handleSelection();
   requestUpdate();
 }
 
-void StatusBarSettingsActivity::onRowEvent(const fui::ActionEvent& event, void* user) {
-  auto* self = static_cast<StatusBarSettingsActivity*>(user);
-  if (self->optionPopup.isActive()) return;
-  if (event.value < 0 || event.value >= self->visibleItemCount) return;
-  self->selectedIndex = event.value;
-  // Activation opens a popup/sub-activity or repaints a new value; a lingering
-  // flash would gray an unrelated row.
-  self->app.clearTapFlash();
-  self->handleSelection();
-  self->requestUpdate();
-}
-
-void StatusBarSettingsActivity::onExit() { Activity::onExit(); }
-
-void StatusBarSettingsActivity::loop() {
-  if (optionPopup.handleInput(mappedInput, [this] { requestUpdate(); })) return;
-
-  if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
-    finish();
-    return;
-  }
-
-  if (mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
-    handleSelection();
-    requestUpdate();
-    return;
-  }
-
-  // Touch goes through the FreeInkApp: render() registered the row hit rects;
-  // route the snapshot and let onRowEvent dispatch.
-  if (uiReady) {
-    const fui::InputSnapshot snap = touchSnapshotFrom(mappedInput);
-    if (snap.touchPressed || snap.touchReleased) {
-      const auto event = app.route(snap);
-      if (app.invalidated()) requestUpdate();
-      if (event) return;  // dispatched to onRowEvent
-    }
-  }
-
-  // Swipes scroll the viewport; the selection stays put and button navigation
-  // pulls the view back to it.
-  const auto swipe = mappedInput.wasSwipe();
-  if (swipe == MappedInputManager::SwipeDir::Up || swipe == MappedInputManager::SwipeDir::Down) {
-    const int delta = swipe == MappedInputManager::SwipeDir::Up ? visibleRows : -visibleRows;
-    const int next = scrollListBy(topIndex, delta, visibleRows, visibleItemCount);
-    if (next != topIndex) {
-      topIndex = next;
-      requestUpdate();
-    }
-    return;
-  }
-
-  const auto moveSelection = [this](const int index) {
-    selectedIndex = index;
-    topIndex = followListSelection(selectedIndex, topIndex, visibleRows, visibleItemCount);
-    requestUpdate();
-  };
-  buttonNavigator.onNextRelease(
-      [this, &moveSelection] { moveSelection(ButtonNavigator::nextIndex(selectedIndex, visibleItemCount)); });
-  buttonNavigator.onPreviousRelease(
-      [this, &moveSelection] { moveSelection(ButtonNavigator::previousIndex(selectedIndex, visibleItemCount)); });
-  buttonNavigator.onNextContinuous(
-      [this, &moveSelection] { moveSelection(ButtonNavigator::nextIndex(selectedIndex, visibleItemCount)); });
-  buttonNavigator.onPreviousContinuous(
-      [this, &moveSelection] { moveSelection(ButtonNavigator::previousIndex(selectedIndex, visibleItemCount)); });
-}
-
 void StatusBarSettingsActivity::handleSelection() {
-  switch (selectedIndex) {
+  switch (nav.selected) {
     case ITEM_CHAPTER_PAGE_COUNT:
       SETTINGS.statusBarChapterPageCount = (SETTINGS.statusBarChapterPageCount + 1) % 2;
       break;
@@ -295,11 +234,7 @@ std::string StatusBarSettingsActivity::rowValueText(const int index) {
   }
 }
 
-void StatusBarSettingsActivity::listScreen(UiApp::ScreenType& screen, void* user) {
-  static_cast<StatusBarSettingsActivity*>(user)->buildListScreen(screen);
-}
-
-void StatusBarSettingsActivity::buildListScreen(UiApp::ScreenType& screen) {
+void StatusBarSettingsActivity::buildScreen(UiScreen& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   // Reserve the bottom band for the live status-bar preview footer (label +
   // bar) so the list never runs underneath it, plus the button-hints row below.
@@ -312,35 +247,24 @@ void StatusBarSettingsActivity::buildListScreen(UiApp::ScreenType& screen) {
                                       static_cast<int16_t>(metrics.buttonHintsHeight + previewFooter), 0});
   screen.spacer(static_cast<int16_t>(metrics.verticalSpacing));
 
-  // Per-render owned value strings; items point into them for the draw only.
-  std::vector<std::string> values(visibleItemCount);
+  // rowItems_'s labels/actionValue were set once in onEnter(); only the live
+  // value text needs refreshing here, by assigning into the existing
+  // rowValues_ strings (no array growth) rather than building a new
+  // items/values vector on every render.
   for (int i = 0; i < visibleItemCount; i++) {
-    values[i] = rowValueText(i);
-  }
-
-  std::vector<fui::ListItem> items;
-  items.reserve(visibleItemCount);
-  for (int i = 0; i < visibleItemCount; i++) {
-    fui::ListItem item;
-    item.label = I18N.get(menuNames[i]);
-    if (!values[i].empty()) item.value = values[i].c_str();
-    item.actionValue = static_cast<int16_t>(i);
-    items.push_back(item);
+    rowValues_[i] = rowValueText(i);
+    rowItems_[i].value = rowValues_[i].empty() ? nullptr : rowValues_[i].c_str();
   }
 
   fui::ListProps props;
-  props.items = items.data();
-  props.count = static_cast<uint16_t>(items.size());
-  props.selectedIndex = static_cast<int16_t>(selectedIndex);
+  props.items = rowItems_;
+  props.count = static_cast<uint16_t>(visibleItemCount);
   props.action = ACTION_ROW;
   props.inputMask = fui::InputTouch;  // physical buttons stay in loop()
   props.valueInset = 8;               // air between the value and the row edge
   props.labelText = screen.theme().smallText;
-  props.labelText.maxLines = 2;
-  const auto rows = fui::listVisibleRows(screen.body(), screen.theme().rowHeight, screen.theme().listRowGap);
-  visibleRows = rows > 0 ? rows : 1;
-  topIndex = scrollListBy(topIndex, 0, visibleRows, visibleItemCount);  // clamp to range
-  props.topIndex = static_cast<uint16_t>(topIndex);
+  props.labelText.maxLines = 2;  // also the explicitly-set marker, see SettingsActivity
+  syncListViewport(screen, props);
   screen.list(props);
 }
 
@@ -356,9 +280,7 @@ void StatusBarSettingsActivity::render(RenderLock&&) {
   // indicator; the list renders through the app; the preview stays raw.
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_CUSTOMISE_STATUS_BAR));
 
-  uiReady = false;
-  app.render();
-  uiReady = true;
+  renderUi();
 
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_TOGGLE), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);

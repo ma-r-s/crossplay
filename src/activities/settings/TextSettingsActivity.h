@@ -1,26 +1,22 @@
 #pragma once
 
-#include <FreeInkApp.h>
-#include <FreeInkUIGfxRenderer.h>
 #include <SdCardFontRegistry.h>
 
-#include <atomic>
 #include <cstdint>
 #include <string>
 #include <vector>
 
 #include "TextSettingsPreview.h"
-#include "activities/Activity.h"
+#include "activities/UiTabListActivity.h"
 #include "components/OptionPopup.h"
 #include "components/themes/BaseTheme.h"
-#include "util/ButtonNavigator.h"
 
 // Reader text settings with a shared live preview pane: tab bar
 // (Font | Size | Layout | Style) is position 0 of the Up/Down nav ring, same
 // idiom as SettingsActivity. Family/Size rows apply on Confirm; Layout/Style
 // rows toggle or open an OptionPopup picker. (Tab::Family/Style are the enum
 // names for the Font/Style tabs.)
-class TextSettingsActivity final : public Activity {
+class TextSettingsActivity final : public UiTabListActivity {
  public:
   enum class Tab : uint8_t { Family, Size, Layout, Style, Count };
 
@@ -28,8 +24,6 @@ class TextSettingsActivity final : public Activity {
                        Tab initialTab = Tab::Family);
 
   void onEnter() override;
-  void onExit() override;
-  void loop() override;
   void render(RenderLock&&) override;
 
  private:
@@ -38,10 +32,17 @@ class TextSettingsActivity final : public Activity {
   enum class LayoutRow { LineSpacing, ParaSpacing, Alignment, ScreenMargin, Count };
   enum class StyleRow { FocusReading, Hyphenation, EmbeddedStyle, AntiAliasing, Count };
 
-  // FreeInkApp hosts the tab bar + per-tab list (themed, touch-routed); the
-  // header, preview pane and caption stay on direct renderer draws, and
-  // OptionPopup keeps its legacy overlay rendering.
-  using UiApp = freeink::ui::FreeInkApp<24, 4>;
+  // --- UiTabListActivity contract ---
+  int listCount() const override;
+  int tabCount() const override { return static_cast<int>(Tab::Count); }
+  int activeTab() const override { return static_cast<int>(tab_); }
+  const char* tabLabel(int index) const override;
+  void buildScreen(UiScreen& screen) override;
+  void activateIndex(int index) override;
+  void onTabAction(int index) override;
+  void stepTab(int direction) override { switchTab(direction); }
+  bool handleButtons() override;
+  bool handleCustomInput() override;
 
   void applyFamily(int listIndex);
   void applySize(int listIndex);
@@ -53,11 +54,6 @@ class TextSettingsActivity final : public Activity {
   // Applies the row at the given list index for the active tab (Confirm and tap share this).
   void activateRow(int row);
 
-  static void textSettingsScreen(UiApp::ScreenType& screen, void* user);
-  static void onRowEvent(const freeink::ui::ActionEvent& event, void* user);
-  static void onTabEvent(const freeink::ui::ActionEvent& event, void* user);
-  void buildTextSettingsScreen(UiApp::ScreenType& screen);
-
   std::string layoutValueText(int row) const;
   std::string styleValueText(int row) const;
   // Button-hint label for Confirm at the current ring position.
@@ -65,13 +61,16 @@ class TextSettingsActivity final : public Activity {
   // True when the focused list row is a setting the preview cannot reflect.
   bool focusedRowHasNoPreview() const;
   void switchTab(int direction = 1);
-  int currentListSize() const;
-  // Navigation ring position for the active tab: 0 = tab bar, 1..N = list item N-1.
-  int& selectedIndex();
-  int selectedIndex() const;
-  // Viewport scroll position of the active tab's list; per-tab because the row
-  // selections are per-tab too (Family/Size remember their current item).
-  int& topIndex();
+
+  // Row storage for the active tab: rowItems_ (label/actionValue) is
+  // rebuilt only when the tab or its backing data changes (rebuildRowItems(),
+  // called from onEnter()/onTabAction()/switchTab()); rowValues_ holds the
+  // live per-row value text, refreshed every buildScreen() call by assigning
+  // into the existing strings (no vector growth), so steady-state rendering
+  // never allocates/frees row storage.
+  std::vector<std::string> rowValues_;
+  std::vector<freeink::ui::ListItem> rowItems_;
+  void rebuildRowItems();
 
   struct FontEntry {
     std::string name;
@@ -85,18 +84,12 @@ class TextSettingsActivity final : public Activity {
   };
 
   const SdCardFontRegistry* registry_;
-  ButtonNavigator buttonNavigator_;
   OptionPopup optionPopup_;
-  // True while the button press that closed the popup is still held; its release
-  // must not fall through to this screen's own Back/Confirm handlers.
-  bool popupClosing_ = false;
   std::vector<FontEntry> fonts_;
   std::vector<SizeEntry> sizes_;
   textsettings::PreviewLayout previewLayout_;  // cached preview line layout; relaid only on setting/geometry change
 
   Tab tab_;
-  int selectedIndex_[static_cast<int>(Tab::Count)] =
-      {};  // per-Tab nav position (0 = tab bar, 1..N = row); set in onEnter
   int currentFamilyIndex_ = 0;
   int currentSizeIndex_ = 0;
 
@@ -105,15 +98,4 @@ class TextSettingsActivity final : public Activity {
   int bottomReserved = 0;
   int usableHeight = 0;
   int previewHeight = 0;
-
-  freeink::ui::GfxRendererTarget uiTarget;  // must precede `app`: the app holds a reference to it
-  UiApp app;
-  // render() rebuilds the app's interaction table; loop() only routes touch
-  // snapshots against it while this is true (the two run on different tasks).
-  std::atomic<bool> uiReady{false};
-  int visibleRows = 1;                               // rows per page at the current scale; set by the screen builder
-  int topIndex_[static_cast<int>(Tab::Count)] = {};  // per-Tab viewport scroll, decoupled from the selection
-  // One-shot: the next screen build pulls the active tab's viewport to its
-  // remembered selection (screen entry and tab switches; swipes scroll free).
-  bool followPending_ = false;
 };

@@ -1,16 +1,11 @@
 #pragma once
 
-#include <FreeInkApp.h>
-#include <FreeInkUIGfxRenderer.h>
-
-#include <atomic>
 #include <string>
 #include <vector>
 
 #include "FontInstaller.h"
 #include "SdCardFont.h"
-#include "activities/Activity.h"
-#include "util/ButtonNavigator.h"
+#include "activities/UiListActivity.h"
 
 // JSON schema version of the fonts.json manifest. The canonical version for
 // the build tooling lives in lib/EpdFont/scripts/cpfont_version.py. This
@@ -30,13 +25,12 @@
       FONTS_MANIFEST_VERSION) "-b" FONT_MANIFEST_URL_STRINGIFY(CPFONT_VERSION) "/fonts.json"
 #endif
 
-class FontDownloadActivity : public Activity {
+class FontDownloadActivity final : public UiListActivity {
  public:
   explicit FontDownloadActivity(GfxRenderer& renderer, MappedInputManager& mappedInput);
 
   void onEnter() override;
   void onExit() override;
-  void loop() override;
   void render(RenderLock&&) override;
   bool preventAutoSleep() override {
     return state_ == LOADING_MANIFEST || state_ == DOWNLOADING ||
@@ -75,12 +69,10 @@ class FontDownloadActivity : public Activity {
 
   State state_ = WIFI_SELECTION;
   FontInstaller fontInstaller_;
-  ButtonNavigator buttonNavigator_;
 
   // Manifest data
   std::string baseUrl_;
   std::vector<ManifestFamily> families_;
-  int selectedIndex_ = 0;
 
   // Download progress
   size_t currentFileIndex_ = 0;
@@ -94,20 +86,24 @@ class FontDownloadActivity : public Activity {
   // callback's own input pump); exit to home after the abort unwinds.
   bool goHomeRequested_ = false;
 
-  // FreeInkApp hosts the family list (themed rows, touch routing); the other
-  // states keep their legacy centered-text rendering.
-  using UiApp = freeink::ui::FreeInkApp<20, 4>;
-  freeink::ui::GfxRendererTarget uiTarget_;  // must precede `app_`: the app holds a reference to it
-  UiApp app_;
-  // render() rebuilds the app's interaction table; loop() only routes touch
-  // snapshots against it while this is true (the two run on different tasks).
-  std::atomic<bool> uiReady_{false};
-  int visibleRows_ = 1;  // rows per page at the current scale; set by the screen builder
-  int topIndex_ = 0;     // viewport scroll position, decoupled from the selection
+  // Row cache: buildScreen() only runs while state_ == FAMILY_LIST, and
+  // families_ only changes at the handful of state_-transition points back to
+  // FAMILY_LIST (manifest load, download/update/delete completing) — never
+  // mid-stay (cursor move, tap flash). rowsDirty_ marks those transitions so
+  // buildScreen() rebuilds rowItems_ only when it actually needs to, instead
+  // of on every repaint.
+  std::vector<std::string> rowLabels_;
+  std::vector<freeink::ui::ListItem> rowItems_;
+  bool rowsDirty_ = true;
+  void rebuildRowItems();
 
-  static void listScreen(UiApp::ScreenType& screen, void* user);
-  static void onRowEvent(const freeink::ui::ActionEvent& event, void* user);
-  void buildListScreen(UiApp::ScreenType& screen);
+  int listCount() const override { return listItemCount(); }
+  void buildScreen(UiScreen& screen) override;
+  void activateIndex(int index) override;
+  // Non-list states (loading, downloading, complete, error) consume the loop
+  // pass here; only FAMILY_LIST falls through to the base list protocol.
+  bool handleCustomInput() override;
+
   void activateSelected();
 
   void onWifiSelectionComplete(bool success);
