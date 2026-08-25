@@ -51,7 +51,11 @@ int main(int argc, char** argv) {
 
   // Solved by hint order rather than by cell order, so the filled cells are
   // scattered the way a real solve leaves them instead of banding down the top.
-  const int wanted = what == "nearly" ? 46 : (what == "solved" ? 81 : 18);
+  // Counted in PLACEMENTS, not in cells, so it is bounded by how many cells the
+  // carve actually left empty rather than by 81. "almost" leaves exactly one,
+  // which is the only way to script the moment a puzzle settles.
+  const int empties = sudoku::kCells - puzzle.clues;
+  const int wanted = what == "nearly" ? empties / 2 : what == "solved" ? empties : what == "almost" ? empties - 1 : 18;
   uint8_t board[sudoku::kCells];
   std::memcpy(board, puzzle.given, sizeof(board));
   int placed = 0;
@@ -81,6 +85,10 @@ int main(int argc, char** argv) {
   const int solved[4] = {6, 3, 1, 0};
   const uint32_t best[4] = {241000, 512000, 1804000, 0};
   const int solvedFlag = what == "solved" ? 1 : 0;
+  for (int cell = 0; cell < sudoku::kCells; ++cell) {
+    if (board[cell] != 0) continue;
+    std::fprintf(stderr, "LAST CELL %d row %d col %d digit %d\n", cell, cell / 9, cell % 9, puzzle.solution[cell]);
+  }
   emit(puzzle, entry, note, static_cast<int>(level), 754000, 0, 7, sudoku::kCells, solvedFlag, solved, best);
   std::fprintf(stderr, "%s %s puzzle, %d clues, %d filled in, hardest %s\n", what.c_str(), sudoku::levelName(level),
                puzzle.clues, placed, sudoku::techniqueName(puzzle.hardest));

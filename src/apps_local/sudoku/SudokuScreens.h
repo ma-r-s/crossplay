@@ -64,6 +64,10 @@ struct BoardModel {
 };
 
 struct ResultModel {
+  // The grid you just finished, drawn as the ornament: clues as full squares
+  // and your own digits as small ones, so the picture is how much of it was
+  // yours. Different every time, and identical on nobody else's device.
+  sudoku::Game game{};
   sudoku::Level level = sudoku::Level::Easy;
   sudoku::Technique hardest = sudoku::Technique::None;
   uint32_t elapsedMs = 0;

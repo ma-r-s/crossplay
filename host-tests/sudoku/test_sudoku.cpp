@@ -579,6 +579,35 @@ void testTheRecordOnlyTimesUnhintedSolves() {
   checkEq(sudoku::totalSolved(record), 3, "the total counts every level");
 }
 
+// Every string that can land in the board's status capsule, against the width
+// that capsule actually has.
+//
+// This is pinned as a character count rather than measured, and that is honest
+// about its limits: the real constraint is 244px in the display cut, and the
+// number 11 came off a render where 14 characters truncated. What makes it
+// worth having is the FAILURE MODE it guards. The capsule ellipsizes with
+// U+2026, the Toybox face is subset to ASCII, and a glyph the font does not
+// have draws as NOTHING -- so an over-long notice loses a letter and gains no
+// mark at all. "LAST FREE CELL" shipped for one render as "LAST FREE CEL" and
+// looked like a typo rather than a layout bug.
+void testEveryNoticeFitsTheCapsule() {
+  for (int rung = 0; rung < sudoku::kTechniqueCount; ++rung) {
+    const char* name = sudoku::techniqueName(static_cast<sudoku::Technique>(rung));
+    check(static_cast<int>(std::strlen(name)) <= sudoku::kMaxNoticeChars, "a technique name fits the capsule");
+    check(name[0] != '\0', "a technique name is not empty");
+  }
+  // The activity's own notices, which share the capsule.
+  const char* const kNotices[] = {"MAKING ONE", "SOLVED", "WRONG DIGIT", "NOTHING YET"};
+  for (const char* notice : kNotices) {
+    check(static_cast<int>(std::strlen(notice)) <= sudoku::kMaxNoticeChars, "an activity notice fits the capsule");
+  }
+  // And the level names, which ride in the header band beside the title.
+  for (int i = 0; i < sudoku::kLevelCount; ++i) {
+    check(static_cast<int>(std::strlen(sudoku::levelName(static_cast<sudoku::Level>(i)))) <= 6,
+          "a level name is short");
+  }
+}
+
 void reportGenerationCost() {
   // Not an assertion: a measurement, printed so the number that decides whether
   // generation can block the render path is written down rather than guessed.
@@ -619,6 +648,7 @@ int main() {
   testTheLabelIsNeverWrong();
   testHintsAlwaysNameTheTruth();
   testAHintOnAFinishedBoardIsHonestlyEmpty();
+  testEveryNoticeFitsTheCapsule();
   std::printf("Sudoku game\n");
   testNoTapOnAnyCellIsEverDead();
   testHoldPencilsAndRubsOut();

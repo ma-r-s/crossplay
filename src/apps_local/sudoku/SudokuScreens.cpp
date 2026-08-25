@@ -51,9 +51,7 @@ static_assert(kRailGap >= toybox::kGutter, "the pad needs air under the grid");
 static_assert(3 * kRailRow + 2 * kRailRowGap == kPadSide, "the rail is exactly as tall as the pad");
 static_assert(kRailRowGap > 0, "three rail rows have to fit beside the pad");
 
-int16_t boardLeft(const fui::DeviceContext& device) {
-  return static_cast<int16_t>((device.width - kBoardOuter) / 2);
-}
+int16_t boardLeft(const fui::DeviceContext& device) { return static_cast<int16_t>((device.width - kBoardOuter) / 2); }
 
 int16_t gridLeft(const fui::DeviceContext& device) {
   return static_cast<int16_t>(boardLeft(device) + toybox::kBoardFrame);
@@ -143,11 +141,11 @@ void drawNotes(toybox::Screen& screen, const fui::Rect& cell, const sk::Mask not
     const int16_t row = static_cast<int16_t>((digit - 1) / 3);
     char text[2];
     digitText(text, digit);
-    screen.target().text(toybox::inkCentred(fui::makeRect(static_cast<int16_t>(cell.x + inset + column * side),
-                                                         static_cast<int16_t>(cell.y + inset + row * side), side,
-                                                         side),
-                                            toybox::kTileCut),
-                         text, mark);
+    screen.target().text(
+        toybox::inkCentred(fui::makeRect(static_cast<int16_t>(cell.x + inset + column * side),
+                                         static_cast<int16_t>(cell.y + inset + row * side), side, side),
+                           toybox::kTileCut),
+        text, mark);
   }
 }
 
@@ -158,8 +156,7 @@ void drawGrid(toybox::Screen& screen, const BoardModel& model) {
   // The frame is knocked out rather than stroked: fill the whole board solid
   // and paint the playing surface back over it. Four bars would leave the
   // corners to arithmetic, which is where a 1px gap comes from.
-  screen.target().fill(fui::makeRect(left, kBoardTop, kBoardOuter, kBoardOuter),
-                       fui::Paint::solid(fui::Color::Black));
+  screen.target().fill(fui::makeRect(left, kBoardTop, kBoardOuter, kBoardOuter), fui::Paint::solid(fui::Color::Black));
   screen.target().fill(fui::makeRect(gridLeft(device), gridTop(), kGridSide, kGridSide),
                        fui::Paint::solid(fui::Color::White));
 
@@ -298,7 +295,8 @@ void drawRail(toybox::Screen& screen, const BoardModel& model) {
 // picture is the shape of your specific puzzle plus how far into it you are. It
 // is different on every device and different every time you look.
 void drawMiniature(toybox::Screen& screen, const fui::Rect& room, const sk::Game& game, const bool hasGame) {
-  const int16_t side = static_cast<int16_t>((room.width < room.height ? room.width : room.height) - 2 * toybox::kMargin);
+  const int16_t side =
+      static_cast<int16_t>((room.width < room.height ? room.width : room.height) - 2 * toybox::kMargin);
   const int16_t cell = static_cast<int16_t>(side / sk::kSize);
   const int16_t grid = static_cast<int16_t>(cell * sk::kSize);
   const int16_t left = static_cast<int16_t>(room.x + (room.width - grid) / 2);
@@ -313,12 +311,10 @@ void drawMiniature(toybox::Screen& screen, const fui::Rect& room, const sk::Game
 
   for (int index = 0; index <= sk::kSize; index += sk::kBoxSize) {
     const int16_t offset = static_cast<int16_t>(index * cell - (index == sk::kSize ? toybox::kHairline : 0));
-    screen.target().fill(
-        fui::makeRect(static_cast<int16_t>(left + offset), top, toybox::kHairline, grid),
-        fui::Paint::dither(fui::Color::DarkGray));
-    screen.target().fill(
-        fui::makeRect(left, static_cast<int16_t>(top + offset), grid, toybox::kHairline),
-        fui::Paint::dither(fui::Color::DarkGray));
+    screen.target().fill(fui::makeRect(static_cast<int16_t>(left + offset), top, toybox::kHairline, grid),
+                         fui::Paint::dither(fui::Color::DarkGray));
+    screen.target().fill(fui::makeRect(left, static_cast<int16_t>(top + offset), grid, toybox::kHairline),
+                         fui::Paint::dither(fui::Color::DarkGray));
   }
   if (!hasGame) return;
 
@@ -341,10 +337,13 @@ void drawMiniature(toybox::Screen& screen, const fui::Rect& room, const sk::Game
 
 const char* const kLessonLines[] = {
     "FILL EVERY ROW, COLUMN AND BOX WITH ONE TO NINE. NO DIGIT TWICE IN ANY OF THEM.",
-    "PICK A DIGIT ON THE PAD, THEN TAP CELLS. EVERY COPY OF IT ON THE BOARD IS MARKED, SO YOU CAN SEE WHERE IT CANNOT GO.",
+    "PICK A DIGIT ON THE PAD, THEN TAP CELLS. EVERY COPY OF IT ON THE BOARD IS MARKED, SO YOU CAN SEE WHERE IT CANNOT "
+    "GO.",
     "TAP YOUR OWN DIGIT AGAIN TO CLEAR IT. TAP A PRINTED CLUE TO PICK ITS DIGIT UP.",
-    "HOLD A CELL TO PENCIL THE ARMED DIGIT IN. HOLD AGAIN TO RUB IT OUT. MARKS FADE ON THEIR OWN ONCE A NEIGHBOUR TAKES THE DIGIT.",
-    "A DIGIT THAT CLASHES WITH ONE IT CAN SEE TURNS BLACK. HINT NAMES A CELL YOU CAN SOLVE NOW, AND THE RULE THAT PROVES IT.",
+    "HOLD A CELL TO PENCIL THE ARMED DIGIT IN. HOLD AGAIN TO RUB IT OUT. MARKS FADE ON THEIR OWN ONCE A NEIGHBOUR "
+    "TAKES THE DIGIT.",
+    "A DIGIT THAT CLASHES WITH ONE IT CAN SEE TURNS BLACK. HINT NAMES A CELL YOU CAN SOLVE NOW, AND THE RULE THAT "
+    "PROVES IT.",
 };
 constexpr int kLessonCount = static_cast<int>(sizeof(kLessonLines) / sizeof(kLessonLines[0]));
 
@@ -387,9 +386,9 @@ void lessonDiagram(toybox::Screen& screen, const int page, const int16_t top, co
       drawNotes(screen, box, static_cast<sk::Mask>(sk::bitFor(2) | sk::bitFor(6) | sk::bitFor(9)));
     }
   }
-  frame(screen, fui::makeRect(static_cast<int16_t>(left - toybox::kRule), static_cast<int16_t>(y - toybox::kRule),
-                              static_cast<int16_t>(grid + 2 * toybox::kRule),
-                              static_cast<int16_t>(grid + 2 * toybox::kRule)),
+  frame(screen,
+        fui::makeRect(static_cast<int16_t>(left - toybox::kRule), static_cast<int16_t>(y - toybox::kRule),
+                      static_cast<int16_t>(grid + 2 * toybox::kRule), static_cast<int16_t>(grid + 2 * toybox::kRule)),
         toybox::kRule);
 }
 
@@ -514,7 +513,6 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
                 fui::makeRect(content.x, recordBand.bottom(), content.width,
                               static_cast<int16_t>(listBand.y - recordBand.bottom())),
                 model.game, model.hasGame);
-
 }
 
 void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
@@ -602,6 +600,11 @@ void buildResult(toybox::Screen& screen, const ResultModel& model) {
   done.action = ActionDone;
   done.styles = toybox::rowStyles();
   screen.button(done, screen.takeBottom(toybox::kPillHeight, toybox::kGutter));
+
+  // Taken after both buttons, so what is left is exactly the slack between the
+  // last stat and the first control. The first version left that band empty and
+  // it was six hundred pixels of nothing under four lines of text.
+  drawMiniature(screen, screen.body(), model.game, true);
 }
 
 }  // namespace sudokuui

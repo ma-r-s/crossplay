@@ -100,7 +100,7 @@ void SudokuActivity::takeHint() {
   if (wrong != sk::kNoCell) {
     game.hintCell = static_cast<uint8_t>(wrong);
     game.hintDigit = 0;
-    notice = "THIS ONE IS WRONG";
+    notice = "WRONG DIGIT";
     ++game.hintsUsed;
     requestUpdate();
     return;
@@ -110,7 +110,7 @@ void SudokuActivity::takeHint() {
   for (int cell = 0; cell < sk::kCells; ++cell) board[cell] = sk::valueAt(game, cell);
   const sk::Hint hint = sk::nextHint(board, sk::ceilingFor(sk::Level::Expert));
   if (!hint.found) {
-    notice = "NOTHING FORCED YET";
+    notice = "NOTHING YET";
     requestUpdate();
     return;
   }
@@ -237,10 +237,10 @@ void SudokuActivity::saveState() {
     LOG_ERR("SUDOKU", "OOM: %d bytes for the save", kStateBytes);
     return;
   }
-  int used = std::snprintf(buffer.get(), kStateBytes, "%d %d %u %d %d %d %d %d %d", kStateVersion,
-                           static_cast<int>(menuLevel), game.elapsedMs, game.hintsUsed, game.armed,
-                           game.hintCell >= sk::kCells ? -1 : game.hintCell, game.hintDigit, game.solvedFlag,
-                           hasGame ? 1 : 0);
+  int used =
+      std::snprintf(buffer.get(), kStateBytes, "%d %d %u %d %d %d %d %d %d", kStateVersion, static_cast<int>(menuLevel),
+                    game.elapsedMs, game.hintsUsed, game.armed, game.hintCell >= sk::kCells ? -1 : game.hintCell,
+                    game.hintDigit, game.solvedFlag, hasGame ? 1 : 0);
   for (int i = 0; i < sk::kLevelCount && used > 0 && used < kStateBytes; ++i) {
     used += std::snprintf(buffer.get() + used, static_cast<size_t>(kStateBytes - used), " %d", record.solved[i]);
   }
@@ -490,6 +490,7 @@ void SudokuActivity::render(RenderLock&&) {
     }
     case sk::Screen::Result: {
       sudokuui::ResultModel model;
+      model.game = game;
       model.level = game.puzzle.level;
       model.hardest = game.puzzle.hardest;
       model.elapsedMs = game.elapsedMs;

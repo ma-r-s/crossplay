@@ -103,6 +103,10 @@ enum class Technique : uint8_t {
 };
 constexpr int kTechniqueCount = 11;
 
+// Never longer than kMaxNoticeChars: these are drawn into the board's status
+// capsule, which truncates with a glyph this face does not have.
+constexpr int kMaxNoticeChars = 11;
+
 const char* techniqueName(Technique technique);
 
 enum class Level : uint8_t { Easy = 0, Medium, Hard, Expert };

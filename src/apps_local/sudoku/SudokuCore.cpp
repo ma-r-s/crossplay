@@ -438,24 +438,34 @@ bool solvableWith(const uint8_t given[kCells], const Technique ceiling, Grid& pr
 
 }  // namespace
 
+// Short on purpose, and the shortness is a measured constraint rather than a
+// style. These are drawn into the board's status capsule, which is 244px wide
+// in the display cut: at fourteen characters "LAST FREE CELL" came back as
+// "LAST FREE CEL" with an ellipsis the ASCII-subset face has no glyph for, so
+// it truncated INVISIBLY. Eleven is the budget host-tests/sudoku pins.
+//
+// The two singles are deliberately a pair: a naked single is the only digit
+// left for a cell, a hidden single the only cell left for a digit. Naming them
+// after which half is cornered is what a player can act on; naming them "naked"
+// and "hidden" is jargon that has to be learned first.
 const char* techniqueName(const Technique technique) {
   switch (technique) {
     case Technique::None:
       return "NOTHING";
     case Technique::NakedSingle:
-      return "LAST FREE CELL";
+      return "ONLY DIGIT";
     case Technique::HiddenSingle:
-      return "LAST FREE HOME";
+      return "ONLY CELL";
     case Technique::LockedCandidates:
-      return "LOCKED DIGIT";
+      return "LOCKED";
     case Technique::NakedPair:
-      return "PAIR OF CELLS";
+      return "CELL PAIR";
     case Technique::HiddenPair:
-      return "PAIR OF DIGITS";
+      return "DIGIT PAIR";
     case Technique::NakedTriple:
-      return "TRIPLE OF CELLS";
+      return "CELL TRIO";
     case Technique::HiddenTriple:
-      return "TRIPLE OF DIGITS";
+      return "DIGIT TRIO";
     case Technique::XWing:
       return "RECTANGLE";
     case Technique::XYWing:
