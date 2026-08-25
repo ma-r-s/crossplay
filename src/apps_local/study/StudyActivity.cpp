@@ -8,6 +8,7 @@
 #include <ctime>
 
 #include "../../components/UITheme.h"
+#include "../../util/QrUtils.h"
 #include "../Shelf.h"
 #include "../ui/Toybox.h"
 #include "../ui/ToyboxFonts.h"
@@ -1154,10 +1155,22 @@ void StudyActivity::render(RenderLock&&) {
     drawCard(Rect{0, bodyTop, width, footerTop - bodyTop});
     drawFooter(Rect{0, footerTop, width, kFooterHeight});
   } else {
-    UITheme::drawCenteredWrappedText(renderer, Rect{0, bodyTop + 40, width, height - bodyTop - 120}, kMeaningFontId,
-                                     "No deck on the card yet. On your computer, run: study.py setup. "
-                                     "It finds your Anki collection and puts a deck here. See docs/apps/study.md.",
-                                     4);
+    // First run. The deck installer is a web page, so this screen's whole job
+    // is to put that page one phone-camera-scan away. QR-dominant layout,
+    // chosen from three rendered variants (the numbered-steps arrangement
+    // collapsed into overlaps on screen; the prose-first one buried the code).
+    constexpr const char* kInstallerUrl = "https://crossplay.ma-r-s.com/study";
+    UITheme::drawCenteredWrappedText(renderer, Rect{0, bodyTop + 16, width, 56}, kReadingFontId,
+                                     "Bring your Anki decks", 1);
+    const int16_t qrSide = 264;
+    QrUtils::drawQrCode(renderer, Rect{static_cast<int16_t>((width - qrSide) / 2), bodyTop + 92, qrSide, qrSide},
+                        kInstallerUrl);
+    UITheme::drawCenteredWrappedText(renderer, Rect{0, bodyTop + 92 + qrSide + 18, width, 40}, kSmallFontId,
+                                     "crossplay.ma-r-s.com/study", 1);
+    UITheme::drawCenteredWrappedText(renderer, Rect{20, bodyTop + 92 + qrSide + 66, width - 40, 240}, kMeaningFontId,
+                                     "Scan the code, drop your Anki export on the page, and it writes "
+                                     "the deck straight onto this card.",
+                                     5);
   }
 
   const auto labels = mappedInput.mapLabels("Back", "", "", "");
