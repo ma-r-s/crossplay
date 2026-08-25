@@ -77,10 +77,10 @@ is fast, wire it through the HAL and acknowledge taps the way every e-reader
 does. If `displayWindow` is experimental because it does not work, say so here
 and instead reduce how many taps a game needs.
 
-## Flash is at 95.9% and every new screen costs some
+## Flash is at 96.2% and every new screen costs some
 
-6,283,218 bytes of 6,553,600 after the Connections how-to, which itself cost
-1,704. About 270KB left.
+6,305,682 bytes of 6,553,600 after the 1.6.0rc merge, which cost 22KB for
+the whole upstream sync. About 248KB left.
 
 Nothing is broken and no single change caused it, which is exactly why it is
 worth writing down: the failure mode is a build that does not fit, arriving
