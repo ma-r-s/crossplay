@@ -312,12 +312,19 @@ void BattleshipActivity::drawMiniGrid(const Rect& slot) const {
   // every time you play and identical on nobody else's device, which is the
   // test this fork applies to anything decorative.
   const int margin = toybox::kGutter * 4;
+  // The legend under it belongs to the block, so it is reserved before the grid
+  // is sized and centred with it rather than hung off the bottom.
+  const int legend = toybox::kRowHeight / 2;
   const int cell =
-      std::clamp(std::min((slot.width - margin) / bship::kSize, (slot.height - margin) / bship::kSize), 6, 40);
+      std::clamp(std::min((slot.width - margin) / bship::kSize, (slot.height - margin - legend) / bship::kSize), 6, 40);
   const int side = cell * bship::kSize;
   if (side <= 0) return;
   const int originX = slot.x + (slot.width - side) / 2;
-  const int originY = slot.y + toybox::kGutter * 2;
+  // Centred in the slot both ways, and centred whether or not a CONTINUE row is
+  // under it. The block used to hang from the top, so with no game to continue
+  // the slot grew and left a third of a page of nothing beneath the board.
+  const int block = side + toybox::kGutter * 2 + legend;
+  const int originY = slot.y + (slot.height - block) / 2 + toybox::kGutter;
 
   toybox::cornerMarks(renderer,
                       Rect{originX - toybox::kGutter, originY - toybox::kGutter, side + toybox::kGutter * 2,
@@ -342,6 +349,34 @@ void BattleshipActivity::drawMiniGrid(const Rect& slot) const {
     renderer.fillRect(originX, originY + i * cell, side, toybox::kHairline, true);
   }
   renderer.drawRect(originX - 1, originY - 1, side + 2, side + 2, toybox::kHairline, true);
+
+  // How the game stands, in the marks the board itself uses. A ring is a shot
+  // and a solid block is a ship gone down, which is what they mean two inches
+  // above, so the legend needs no key and the row below needs no receipt.
+  char shots[8];
+  char sunk[8];
+  std::snprintf(shots, sizeof(shots), "%d", bship::shotsTaken(theirs));
+  std::snprintf(sunk, sizeof(sunk), "%d", bship::sunkCount(theirs));
+
+  const int mark = 14;
+  const int gap = toybox::kGutter / 2;
+  const int span = toybox::kGutter * 2;
+  const int shotsWidth = renderer.getTextWidth(toybox::kTileFontId, shots);
+  const int sunkWidth = renderer.getTextWidth(toybox::kTileFontId, sunk);
+  const int total = mark + gap + shotsWidth + span + mark + gap + sunkWidth;
+  int x = slot.x + (slot.width - total) / 2;
+  const int y = originY + side + toybox::kGutter * 2;
+
+  renderer.fillRoundedRect(x, y, mark, mark, mark / 2, Black);
+  renderer.fillRoundedRect(x + kMissRing, y + kMissRing, mark - 2 * kMissRing, mark - 2 * kMissRing,
+                           (mark - 2 * kMissRing) / 2, White);
+  x += mark + gap;
+  toybox::drawCapsCentered(renderer, toybox::kTileFontId, x, y, mark, shots, true);
+  x += shotsWidth + span;
+
+  renderer.fillRect(x, y, mark, mark, true);
+  x += mark + gap;
+  toybox::drawCapsCentered(renderer, toybox::kTileFontId, x, y, mark, sunk, true);
 }
 
 // --- models and paints ------------------------------------------------------
@@ -349,7 +384,6 @@ void BattleshipActivity::drawMiniGrid(const Rect& slot) const {
 bshipui::StartModel BattleshipActivity::startModel() const {
   bshipui::StartModel model;
   model.hasSavedGame = hasSavedGame;
-  model.continueDetail = continueDetail;
   model.played = played;
   model.won = won;
   model.streak = streak;
@@ -479,14 +513,7 @@ void BattleshipActivity::gameRender() {
 
 // --- flow -------------------------------------------------------------------
 
-void BattleshipActivity::refreshContinueDetail() {
-  const int shots = bship::shotsTaken(game.side[opponentSide()]);
-  const int down = bship::sunkCount(game.side[opponentSide()]);
-  std::snprintf(continueDetail, sizeof(continueDetail), "%d SHOTS, %d SUNK", shots, down);
-}
-
 void BattleshipActivity::goToMenu() {
-  refreshContinueDetail();
   view = View::Menu;
   startIndex = 0;
   requestUpdate();

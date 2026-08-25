@@ -73,7 +73,8 @@ fui::Rect buildStartMenu(toybox::Screen& screen, const StartModel& model) {
     const StartRow row = startRowAt(model, i);
     rows[i].label = startRowLabel(row);
     // Only CONTINUE carries a value, and it is the game you left.
-    if (row == StartRow::Continue) rows[i].value = model.continueDetail;
+    // No value on CONTINUE. "14 SHOTS, 2 SUNK" beside the word was a label
+    // wearing a receipt; the artwork above says how the game stands, in marks.
     rows[i].actionValue = static_cast<int16_t>(i);
   }
 
