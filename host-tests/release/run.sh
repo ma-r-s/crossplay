@@ -60,9 +60,11 @@ fi
 #
 # Read out of the C++ rather than hardcoded here: if someone changes the literal
 # the updater compares against, this test must follow it, not contradict it.
-asset="$(grep -oE 'strcmp\(currentAssetName, "[^"]+"\)' "$PARSER" | head -1 | sed 's/.*"\(.*\)".*/\1/')"
+# Since 1.6.0rc the parser compares against a runtime member; the literal the
+# X4 Pro actually requests lives at OtaUpdater's setFirmwareAssetName call.
+asset="$(grep -oE 'setFirmwareAssetName\("[^"]+"\)' "$ROOT/src/network/OtaUpdater.cpp" | head -1 | sed 's/.*"\(.*\)".*/\1/')"
 if [ -z "$asset" ]; then
-  bad "cannot find the asset name the OTA updater matches in ReleaseJsonParser.cpp"
+  bad "cannot find the literal asset name OtaUpdater.cpp pins for this fork"
 elif grep -qE "dist/$asset( |\"|$)" "$WF"; then
   ok
 else

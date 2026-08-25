@@ -45,11 +45,6 @@ void HalDisplay::drawImageTransparent(const uint8_t* imageData, uint16_t x, uint
   einkDisplay.drawImageTransparent(imageData, x, y, w, h, fromProgmem);
 }
 
-void HalDisplay::setInverted(const bool inverted) { einkDisplay.setInverted(inverted); }
-
-bool HalDisplay::toggleInverted() { return einkDisplay.toggleInverted(); }
-
-bool HalDisplay::isInverted() const { return einkDisplay.isInverted(); }
 
 EInkDisplay::RefreshMode convertRefreshMode(HalDisplay::RefreshMode mode) {
   switch (mode) {

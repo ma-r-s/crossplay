@@ -4,9 +4,12 @@
 
 #include "./FileBrowserActivity.h"
 #include "activities/Activity.h"
+// Not a forward declaration: the std::vector<RecentBook> member below needs
+// the complete type wherever this header's implicit destructor instantiates,
+// and the host simulator build (libc++) instantiates it in every including TU.
+#include "RecentBooksStore.h"
 #include "util/ButtonNavigator.h"
 
-struct RecentBook;
 struct Rect;
 
 class HomeActivity final : public Activity {
