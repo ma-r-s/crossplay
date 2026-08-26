@@ -85,8 +85,13 @@ def anki_is_running():
         out = subprocess.run(["pgrep", "-x", "anki"], capture_output=True, text=True)
         if out.returncode == 0:
             return True
+        # [A]nki.app, not Anki.app: -f matches whole command lines, and the
+        # plain pattern matches any process that merely CARRIES it as an
+        # argument -- a concurrent copy of this same check, or the shell that
+        # launched it. The bracket keeps the regex from matching its own text
+        # while still matching a real /Applications/Anki.app process.
         out = subprocess.run(
-            ["pgrep", "-f", "Anki.app"], capture_output=True, text=True
+            ["pgrep", "-f", "[A]nki.app"], capture_output=True, text=True
         )
         return out.returncode == 0
     except Exception:
@@ -104,8 +109,8 @@ def read_reviews(path):
     voided = 0
     for i in range(len(data) // REVLOG_RECORD_SIZE):
         chunk = data[i * REVLOG_RECORD_SIZE : (i + 1) * REVLOG_RECORD_SIZE]
-        card_id, at_ms, rating, state, elapsed, interval, took_ms, flags = struct.unpack(
-            REVLOG_RECORD, chunk
+        card_id, at_ms, rating, state, elapsed, interval, took_ms, flags = (
+            struct.unpack(REVLOG_RECORD, chunk)
         )
         if card_id == 0 or not 1 <= rating <= 4:
             continue
@@ -315,7 +320,9 @@ def sync_to_ankiweb(collection_path, username, password, sync_media):
     if not username:
         username = os.environ.get("ANKI_USERNAME") or input("AnkiWeb email: ").strip()
     if not password:
-        password = os.environ.get("ANKI_PASSWORD") or getpass.getpass("AnkiWeb password: ")
+        password = os.environ.get("ANKI_PASSWORD") or getpass.getpass(
+            "AnkiWeb password: "
+        )
 
     col = Collection(str(collection_path))
     try:
@@ -325,14 +332,18 @@ def sync_to_ankiweb(collection_path, username, password, sync_media):
             auth = col.sync_login(username, password, None)
         except SyncError as e:
             print(f"\nAnkiWeb refused the login: {e}")
-            print("Reviews are already applied to the local collection -- nothing was lost.")
+            print(
+                "Reviews are already applied to the local collection -- nothing was lost."
+            )
             return False
 
         try:
             out = col.sync_collection(auth, sync_media)
         except SyncError as e:
             print(f"\nsync failed: {e}")
-            print("Reviews are already applied to the local collection -- nothing was lost.")
+            print(
+                "Reviews are already applied to the local collection -- nothing was lost."
+            )
             return False
 
         # A "full sync required" answer means the two sides have diverged
@@ -371,8 +382,12 @@ def main():
         action="store_true",
         help="after applying, push the collection to AnkiWeb using Anki's own client",
     )
-    ap.add_argument("--username", help="AnkiWeb email (else $ANKI_USERNAME, else prompt)")
-    ap.add_argument("--sync-media", action="store_true", help="sync media as well as the collection")
+    ap.add_argument(
+        "--username", help="AnkiWeb email (else $ANKI_USERNAME, else prompt)"
+    )
+    ap.add_argument(
+        "--sync-media", action="store_true", help="sync media as well as the collection"
+    )
     ap.add_argument(
         "--dry-run", action="store_true", help="report what would change, write nothing"
     )

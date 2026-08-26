@@ -27,17 +27,6 @@ LOGS="${TMPDIR:-/tmp}/xteink-check-$TAG"
 mkdir -p "$LOGS"
 FAILED=0
 
-# The link suite is real UDP on real loopback, and its port range IS its
-# discovery mechanism: every radio in 45700..45707 finds every other one. Two
-# trees checking at once therefore join each other's match, and the suite fails
-# on whichever assertion the stray datagram happened to break -- three
-# concurrent runs failed on three different lines and all three passed alone.
-# One 16-port slice per tree, derived from the same hash as everything else.
-if [ -z "${LINKPLAY_BASE_PORT:-}" ]; then
-  SLICE=$(( 0x${TAG:0:4} % 900 ))
-  export LINKPLAY_BASE_PORT=$(( 46000 + SLICE * 16 ))
-fi
-
 # --ignore-submodules=untracked: the icon tools drop a __pycache__/ inside
 # freeink-sdk, which is untracked content in a submodule and not your work.
 dirty_count() {
@@ -51,16 +40,32 @@ dirty_count() {
 # three commits. --committed is the answer; this banner is so you know to reach
 # for it.
 if [ "${1:-}" = "--committed" ]; then
-  TRIAL="${TMPDIR:-/tmp}/xteink-committed-$TAG"
-  git worktree remove --force "$TRIAL" 2>/dev/null || true
+  # One trial directory PER RUN ($$), never shared. It used to be per tree,
+  # which serialised nothing: sessions never close here, and two of them
+  # verifying the same tree -- the integration tree, at release time, which is
+  # exactly when the result matters -- each began by force-removing "the"
+  # trial path, i.e. the other run's live worktree. On 2026-08-25 two
+  # concurrent runs both died in the submodule step with the directory deleted
+  # under them, and neither failure said anything about the code.
+  TRIAL="${TMPDIR:-/tmp}/xteink-committed-$TAG-$$"
   echo "verifying HEAD ($(git rev-parse --short HEAD)) in a throwaway worktree"
   TRIAL_T0=$(date +%s)
-  # The trial path is derived from a hash, so it is the SAME directory every
-  # run. A run killed mid-setup therefore leaves a half-populated worktree
-  # that the next run inherits, and git spends minutes trying to repair it --
-  # 2m25s tonight, with an empty freeink-sdk, after a kill during a submodule
-  # clone. Start from nothing instead: it costs a second and removes a state
-  # nobody can reason about.
+  # Unique paths mean a run killed hard (kill -9 skips the trap below) leaves
+  # an orphan that no later run would inherit, so sweep siblings whose owning
+  # process is gone: ~600MB each, and a half-populated worktree is a state
+  # nobody can reason about. An old-format dir (no pid suffix) fails the
+  # liveness probe and is swept with them.
+  for stale in "${TMPDIR:-/tmp}/xteink-committed-$TAG"*; do
+    [ -e "$stale" ] || continue
+    [ "$stale" = "$TRIAL" ] && continue
+    if ! kill -0 "${stale##*-}" 2>/dev/null; then
+      git worktree remove --force "$stale" 2>/dev/null
+      rm -rf "$stale"
+    fi
+  done
+  git worktree prune 2>/dev/null
+  # PID reuse can hand this run a dead predecessor's exact path. It cannot be
+  # a live run's (the pid is ours), so clearing it is safe.
   if [ -e "$TRIAL" ]; then
     git worktree remove --force "$TRIAL" 2>/dev/null
     rm -rf "$TRIAL"
@@ -144,6 +149,21 @@ if [ "${1:-}" = "--committed" ]; then
   fi
   (cd "$TRIAL" && ./scripts_local/check.sh "${2:-}")
   exit $?
+fi
+
+# The link suite is real UDP on real loopback, and its port range IS its
+# discovery mechanism: every radio in 45700..45707 finds every other one. Two
+# runs checking at once therefore join each other's match, and the suite fails
+# on whichever assertion the stray datagram happened to break -- three
+# concurrent runs failed on three different lines and all three passed alone.
+# One 16-port slice per tree for direct runs; committed runs get one per RUN,
+# because the inner computes it from the trial path, which embeds the pid.
+# This sits below the --committed block on purpose: a committed outer must not
+# export its slice to the inner run, or two committed runs of the same tree
+# would share one slice and their link suites would join each other's match.
+if [ -z "${LINKPLAY_BASE_PORT:-}" ]; then
+  SLICE=$(( 0x${TAG:0:4} % 900 ))
+  export LINKPLAY_BASE_PORT=$(( 46000 + SLICE * 16 ))
 fi
 
 DIRTY="$(dirty_count)"
@@ -240,11 +260,15 @@ if [ -n "$STUDY_PY" ]; then
               "tools_local/study/test_web_glue.py" \
               "tools_local/study/test_web_glue.py --from-zip" \
               "tools_local/study/test_font_parity.py"; do
-    if (cd "$REPO" && $STUDY_PY $args) > "$LOGS/installer.log" 2>&1; then
-      printf "  %-12s ok (%s)\n" "installer" "$(echo "$args" | sed 's|tools_local/study/||')"
+    step="$(echo "$args" | sed 's|tools_local/study/||')"
+    # One log per step: a failing step's output used to be overwritten by the
+    # next step's, so the tail printed on failure showed a suite that passed.
+    steplog="$LOGS/installer-$(printf '%s' "$step" | tr -c 'A-Za-z0-9._-' '_').log"
+    if (cd "$REPO" && $STUDY_PY $args) > "$steplog" 2>&1; then
+      printf "  %-12s ok (%s)\n" "installer" "$step"
     else
-      printf "  %-12s FAILED (%s)\n" "installer" "$(echo "$args" | sed 's|tools_local/study/||')"
-      tail -5 "$LOGS/installer.log" | sed 's/^/      /'
+      printf "  %-12s FAILED (%s)\n" "installer" "$step"
+      tail -5 "$steplog" | sed 's/^/      /'
       FAILED=1
     fi
   done
@@ -280,7 +304,10 @@ if [ "${1:-}" != "--tests" ]; then
   # no file of ours. Alone, both rebuilt in 30s. The native simulator build
   # touches none of that and succeeded in all three concurrently, so it stays
   # parallel: that is the build the inner loop actually waits on.
-  FW_LOCK="$WS/.pio-cache/x4pro.lock"
+  # Prefer the inherited cache dir: inside a --committed trial worktree the
+  # marker walk dead-ends in TMPDIR, and deriving the lock from the walk there
+  # would mean committed x4pro builds never took the lock at all.
+  FW_LOCK="${PLATFORMIO_BUILD_CACHE_DIR:-$WS/.pio-cache}/x4pro.lock"
 
   for env in simulator_x4_pro x4pro; do
     printf "build: %-18s %s ...\n" "$env" "$(date +%H:%M:%S)"
