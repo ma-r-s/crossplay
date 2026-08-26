@@ -236,6 +236,7 @@ if [ ! -x "$STUDY_PY" ]; then
 fi
 if [ -n "$STUDY_PY" ]; then
   for args in "tools_local/study/test_apkg.py" \
+              "tools_local/study/test_fsrs.py" \
               "tools_local/study/test_web_glue.py" \
               "tools_local/study/test_web_glue.py --from-zip" \
               "tools_local/study/test_font_parity.py"; do

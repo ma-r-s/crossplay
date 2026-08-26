@@ -27,6 +27,7 @@ OUT = REPO / "site" / "study" / "tools.zip"
 MEMBERS = [
     "tools_local/study/apkg.py",
     "tools_local/study/anki_to_deck.py",
+    "tools_local/study/fsrs.py",
     "tools_local/study/check_deck.py",
     # Forgetting this one shipped a page whose sync step was dead: the host
     # test ran beside the real files and could not notice. test_web_glue.py

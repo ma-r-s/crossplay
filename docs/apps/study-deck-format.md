@@ -76,17 +76,26 @@ card _i_ are the same card and no id lookup is needed on the review path.
     ankiCardId    int64     the id in Anki's collection -- the sync key
     stability     float32   FSRS memory state
     difficulty    float32
-    dueDay        int32     day number, in the deck's own day numbering
-    lastReviewDay int32     -1 if never reviewed
-    reps          uint16
-    lapses        uint16
-    state         uint8     0 new, 1 learning, 2 review, 3 relearning
-    stepIndex     uint8     position in the learning / relearning step list
-    dueMinute     uint16    minutes since dueDay began
+
+Where stability/difficulty come from: older Anki cached them in `cards.data`
+as `{"s":..,"d":..}` and the converter uses a stored value when it finds one.
+Current Anki stores `{"pos":..,"dr":..}` instead and recomputes memory state
+from the review log on demand, so the converter does the same -- it replays
+each reviewed card's revlog through `tools_local/study/fsrs.py`, the Python
+mirror of `StudyFsrs.cpp`, held to the same regression vectors by
+`test_fsrs.py`. Without the fallback, every reviewed card in a current-Anki
+collection converts as brand new.
+dueDay int32 day number, in the deck's own day numbering
+lastReviewDay int32 -1 if never reviewed
+reps uint16
+lapses uint16
+state uint8 0 new, 1 learning, 2 review, 3 relearning
+stepIndex uint8 position in the learning / relearning step list
+dueMinute uint16 minutes since dueDay began
 
 `lastReviewDay` is load-bearing and was once left unset. FSRS needs the gap
 since the previous review; without it every card's first review on the device
-looks like a *same-day* review and takes the short-term stability path, which
+looks like a _same-day_ review and takes the short-term stability path, which
 inflates the interval badly. Anki does not store that day on the card, so the
 converter derives it: for a review card it is exactly `due - ivl`.
 
@@ -108,7 +117,7 @@ Mario's card predates that and says `mandarin`) and the device never depends on
 them. With more than one deck, the deck screen grows a `DECK 1/2` row that
 cycles, and `/study/.last` holds the name of the deck to reopen on next entry.
 
-Fonts live *inside* the deck at `/study/<deck>/fonts` -- they are subset to
+Fonts live _inside_ the deck at `/study/<deck>/fonts` -- they are subset to
 that deck's glyphs, so they were never really shareable. A card with the old
 shared `/study/fonts` keeps working: the device falls back to it when a deck
 brings no fonts of its own, and study.py moves the shared fonts into the deck
@@ -185,7 +194,7 @@ last review of a session cannot be taken back once "Done" is showing.
     name          nameLen bytes     display name, UTF-8
 
 The learning steps travel with the deck for the same reason the weights do:
-they are per-preset and Mario changes them. They are what FSRS does *not*
+they are per-preset and Mario changes them. They are what FSRS does _not_
 answer -- FSRS says how many days, and the steps say what happens in the next
 ten minutes. See `StudyScheduler.h`.
 

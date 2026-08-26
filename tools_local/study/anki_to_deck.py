@@ -11,9 +11,17 @@ script only writes; nothing here reads back from the device. Sync in the other
 direction is deck_to_anki.py.
 
 Reading Anki's collection directly (rather than an .apkg export) is deliberate:
-the scheduling state and the deck's FSRS parameters only exist in the live
-collection, and shipping a deck without them would mean the device scheduling
-differently from the phone on the very first review.
+the deck's FSRS parameters only exist in the live collection, and shipping a
+deck without them would mean the device scheduling differently from the phone
+on the very first review.
+
+Scheduling state is taken wherever it survives. Older Anki cached each card's
+FSRS memory state in cards.data ({"s":..,"d":..}) and that is used when
+present; current Anki stores {"pos":..,"dr":..} instead and recomputes state
+from the review log on demand, so this script does the same, replaying each
+card's own reviews through fsrs.py (the mirror of the device scheduler).
+Without that fallback a collection written by current Anki converts every
+reviewed card as brand new -- found 2026-08-25 on a deck with 6300 reviews.
 """
 
 import argparse
@@ -24,6 +32,8 @@ import struct
 import sqlite3
 import sys
 import unicodedata
+
+import fsrs
 
 DECK_MAGIC = b"XSTUDYD\0"
 META_MAGIC = b"XSTUDYM\0"
@@ -602,6 +612,54 @@ def write_deck(notes, path):
     return len(blob)
 
 
+# Revlog `type` 3 is a filtered-deck ("cram") review. Anki does not feed those
+# into FSRS when rebuilding memory state, because rescheduling is off in those
+# decks. Same exclusion as gen_fsrs_vectors.py, and equally load-bearing.
+REVLOG_FILTERED = 3
+
+
+def seed_memory_from_revlog(db, notes, params):
+    """Fill in stability/difficulty for cards whose collection no longer stores it.
+
+    Only touches cards that have been reviewed (reps > 0) but arrived with no
+    stored memory state; a stored state always wins, because Anki's own number
+    beats our replay of the history behind it. Returns how many were seeded.
+    """
+    todo = {
+        n["ankiCardId"]: n for n in notes if n["stability"] <= 0.0 and n["reps"] > 0
+    }
+    if not todo:
+        return 0
+
+    if params is not None and len(params) != NUM_PARAMS:
+        params = None
+
+    crt = db.execute("select crt from col").fetchone()[0]
+
+    # One pass over the whole revlog rather than an IN(...) per-card query:
+    # SQLite's variable cap is 999 in older builds (Pyodide included), and a
+    # linear scan of even a large revlog is cheaper than being clever.
+    steps = {cid: [] for cid in todo}
+    prev_day = {}
+    for cid, ms, ease, kind in db.execute(
+        "select cid, id, ease, type from revlog order by cid, id"
+    ):
+        if cid not in todo or not 1 <= ease <= 4 or kind == REVLOG_FILTERED:
+            continue
+        d = (ms // 1000 - crt) // 86400
+        steps[cid].append((0 if cid not in prev_day else d - prev_day[cid], ease))
+        prev_day[cid] = d
+
+    seeded = 0
+    for cid, note in todo.items():
+        stability, difficulty = fsrs.replay(steps[cid], params)
+        if stability > 0.0:
+            note["stability"] = stability
+            note["difficulty"] = difficulty
+            seeded += 1
+    return seeded
+
+
 def write_cards(notes, path, crt, rollover, learn_steps, relearn_steps):
     """Seed scheduling state from Anki, so the device resumes rather than restarts."""
     day_zero = crt
@@ -814,6 +872,7 @@ def main():
             f" name them: --map headword=Word --map meaning=Definition"
         )
     config = deck_config_for(db, args.deck)
+    replayed = seed_memory_from_revlog(db, notes, config.get("params") or None)
 
     args.out.mkdir(parents=True, exist_ok=True)
     name = args.name or args.deck.split("::")[-1]
@@ -836,8 +895,10 @@ def main():
     glyphs = write_glyphs(notes, args.out)
 
     learned = sum(1 for n in notes if n["stability"] > 0)
+    replay_note = f", {replayed} replayed from the review log" if replayed else ""
     print(
-        f"deck '{name}': {len(notes)} cards ({learned} with scheduling state, {skipped} skipped)"
+        f"deck '{name}': {len(notes)} cards"
+        f" ({learned} with scheduling state{replay_note}, {skipped} skipped)"
     )
     print(f"  content   {blob_size / 1024:.0f} KB")
     print(f"  state     {len(notes) * CARD_RECORD_SIZE / 1024:.0f} KB")
