@@ -264,6 +264,23 @@ void BridgeState::setAck(const char* dir, uint32_t offset) {
   }
 }
 
+const char* BridgeState::buildFor(const char* dir) const {
+  for (int i = 0; i < deckCount; ++i) {
+    if (std::strcmp(deckDirs[i], dir) == 0) return lastBuilds[i];
+  }
+  return "";
+}
+
+void BridgeState::setBuild(const char* dir, const char* buildId) {
+  setAck(dir, ackFor(dir));  // ensures the dir has a slot
+  for (int i = 0; i < deckCount; ++i) {
+    if (std::strcmp(deckDirs[i], dir) == 0) {
+      std::snprintf(lastBuilds[i], sizeof(lastBuilds[0]), "%s", buildId);
+      return;
+    }
+  }
+}
+
 bool loadBridgeState(BridgeState& out) {
   out = BridgeState{};
   HalFile file;
@@ -278,6 +295,9 @@ bool loadBridgeState(BridgeState& out) {
   for (JsonPair kv : doc["acks"].as<JsonObject>()) {
     out.setAck(kv.key().c_str(), kv.value().as<uint32_t>());
   }
+  for (JsonPair kv : doc["builds"].as<JsonObject>()) {
+    out.setBuild(kv.key().c_str(), kv.value().as<const char*>());
+  }
   return out.paired;
 }
 
@@ -286,6 +306,10 @@ bool saveBridgeState(const BridgeState& state) {
   doc["token"] = state.token;
   JsonObject acks = doc["acks"].to<JsonObject>();
   for (int i = 0; i < state.deckCount; ++i) acks[state.deckDirs[i]] = state.ackOffsets[i];
+  JsonObject builds = doc["builds"].to<JsonObject>();
+  for (int i = 0; i < state.deckCount; ++i) {
+    if (state.lastBuilds[i][0] != '\0') builds[state.deckDirs[i]] = state.lastBuilds[i];
+  }
   std::string raw;
   serializeJson(doc, raw);
   HalFile file;

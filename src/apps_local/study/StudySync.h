@@ -35,7 +35,14 @@ struct BridgeState {
   std::string token;
   char deckDirs[kMaxSyncDecks][32] = {};
   uint32_t ackOffsets[kMaxSyncDecks] = {};
+  // The buildId last downloaded per deck dir: the server reuses a build
+  // when nothing changed, and a matching id means every file on the card
+  // is already exactly the build the manifest describes.
+  char lastBuilds[kMaxSyncDecks][20] = {};
   int deckCount = 0;
+
+  const char* buildFor(const char* dir) const;
+  void setBuild(const char* dir, const char* buildId);
 
   uint32_t ackFor(const char* dir) const;
   void setAck(const char* dir, uint32_t offset);

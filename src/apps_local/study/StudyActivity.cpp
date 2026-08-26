@@ -1462,6 +1462,9 @@ int64_t localFileSize(const char* path) {
 
 bool StudyActivity::applyManifests(const std::vector<study::DeckManifest>& manifests, std::string& message) {
   for (const auto& deck : manifests) {
+    // A repeated buildId means the card already holds this exact build;
+    // downloading it again would only heat the room.
+    if (deck.buildId == bridge_.buildFor(deck.slug.c_str())) continue;
     char dir[96];
     std::snprintf(dir, sizeof(dir), "%s/%s", kStudyRoot, deck.slug.c_str());
     if (!Storage.exists(dir)) Storage.mkdir(dir);
@@ -1507,6 +1510,8 @@ bool StudyActivity::applyManifests(const std::vector<study::DeckManifest>& manif
       Storage.remove(r.second.c_str());
       Storage.rename(r.first.c_str(), r.second.c_str());
     }
+    bridge_.setBuild(deck.slug.c_str(), deck.buildId.c_str());
+    study::saveBridgeState(bridge_);
   }
   return true;
 }

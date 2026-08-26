@@ -92,6 +92,29 @@ def build_deck(store, deck_name: str) -> dict:
     return entry
 
 
+def deck_fingerprint(store, deck_name: str) -> str:
+    """Cheap change detector: card count plus newest modification stamp for
+    the deck's cards, read straight from the mirror. Identical fingerprint
+    means the last build is still exactly right, and a no-change sync skips
+    ~90s of converter and font subsetting on the pi."""
+    import sqlite3
+
+    like = deck_name.replace("::", "\x1f")
+    db = sqlite3.connect(f"file:{store.collection_path}?mode=ro", uri=True)
+    try:
+        db.create_collation("unicase", lambda a, b: (a.lower() > b.lower()) - (a.lower() < b.lower()))
+        row = db.execute(
+            """select count(c.id), coalesce(max(c.mod), 0), coalesce(max(n.mod), 0)
+               from cards c join notes n on n.id = c.nid
+               join decks d on d.id = c.did
+               where d.name = ? or d.name like ?""",
+            (like, like + "\x1f%"),
+        ).fetchone()
+    finally:
+        db.close()
+    return f"{row[0]}-{row[1]}-{row[2]}"
+
+
 def latest_build(store, slug: str) -> dict | None:
     deck_dir = store.root / "decks" / slug
     if not deck_dir.is_dir():

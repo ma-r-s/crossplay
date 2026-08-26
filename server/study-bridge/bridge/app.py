@@ -419,8 +419,15 @@ async def start_sync(request: Request, dev=Depends(require_device)):
             journal.close()
         fresh = st.load_state()
         manifests = []
+        prints = fresh.setdefault("deck_fingerprints", {})
         for name in fresh["chosen_decks"]:
+            print_now = decks.deck_fingerprint(st, name)
+            existing = decks.latest_build(st, decks.slugify(name))
+            if existing and prints.get(name) == print_now:
+                manifests.append(existing)
+                continue
             manifests.append(decks.build_deck(st, name))
+            prints[name] = print_now
         fresh["status"] = "ok"
         fresh["last_sync"] = int(time.time())
         st.save_state(fresh)
@@ -436,7 +443,12 @@ async def sync_status(job: str, dev=Depends(require_device)):
     uid, _ = dev
     j = jobs.JOBS.get(job)
     if j is None or j.uid != uid:
-        return JSONResponse({"error": "Unknown job."}, 404)
+        # Jobs live in memory; a deploy or reboot forgets them mid-flight.
+        # The reviews are safe (acked into the journal before the job ran),
+        # so the honest answer is a sentence, not a 404 the device cannot
+        # explain to anyone.
+        return {"status": "error",
+                "message": "The bridge restarted mid-sync. Nothing was lost; press SYNC again."}
     out = {"status": j.status}
     if j.status == "done":
         out["summary"] = j.summary
