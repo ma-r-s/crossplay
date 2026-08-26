@@ -58,20 +58,16 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   header.title = model.title;
   header.borderEdges = fui::EdgesNone;
   toybox::absoluteChrome(screen);
-  screen.header(header);
+  toybox::headerBand(screen, header);
 
   const fui::Rect panel = screen.device().screen();
-  // The band's top edge, for decorations that ride inside it: the header was
-  // just taken from the content top, so the band ends where body() begins.
-  const int16_t bandTop = static_cast<int16_t>(screen.body().y - toybox::kHeaderHeight);
 
   // Paper, because the header is a filled black band. Placed from the right
   // edge, where nothing else in the header goes.
   if (model.mark != nullptr) {
     const fui::Rect markRect =
         fui::makeRect(static_cast<int16_t>(panel.width - toybox::kIconSize - toybox::kMargin),
-                      static_cast<int16_t>(bandTop + (toybox::kHeaderHeight - toybox::kIconSize) / 2),
-                      toybox::kIconSize, toybox::kIconSize);
+                      toybox::bandCenterY(screen, toybox::kIconSize), toybox::kIconSize, toybox::kIconSize);
     screen.target().bitmap(markRect, fui::bitmapFromIcon(*model.mark), fui::BitmapMode::Contain,
                            fui::Paint::solid(fui::Color::White));
   }

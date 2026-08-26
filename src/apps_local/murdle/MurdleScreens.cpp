@@ -79,7 +79,7 @@ void chrome(toybox::Screen& screen, const char* title, const char* rightLabel,
   header.subtitleText.align = fui::TextAlign::Right;
   header.borderEdges = fui::EdgesNone;
   toybox::absoluteChrome(screen);
-  screen.header(header);
+  toybox::headerBand(screen, header);
   const fui::Rect panel = screen.device().screen();
   const int16_t bandTop = static_cast<int16_t>(screen.body().y - toybox::kHeaderHeight);
   toybox::headerRule(screen);
@@ -631,10 +631,9 @@ CaseReport buildCase(toybox::Screen& screen, const CaseModel& model) {
       const fui::Rect box = fui::makeRect(x, bandTop, kDoor, toybox::kHeaderHeight);
       // White on the black band. Inset so the two icons do not touch each other
       // or the screen edge.
-      screen.target().bitmap(fui::makeRect(static_cast<int16_t>(x + (kDoor - 24) / 2),
-                                           static_cast<int16_t>(bandTop + (toybox::kHeaderHeight - 24) / 2), 24, 24),
-                             fui::bitmapFromIcon(*marks[other[i]]), fui::BitmapMode::Contain,
-                             fui::Paint::solid(fui::Color::White));
+      screen.target().bitmap(
+          fui::makeRect(static_cast<int16_t>(x + (kDoor - 24) / 2), toybox::bandCenterY(screen, 24), 24, 24),
+          fui::bitmapFromIcon(*marks[other[i]]), fui::BitmapMode::Contain, fui::Paint::solid(fui::Color::White));
       // Registered after the header drew, so the hit rect and the icon come
       // from the same arithmetic and cannot drift apart.
       screen.frame().hit(box, ActionFace, static_cast<int16_t>(other[i]));

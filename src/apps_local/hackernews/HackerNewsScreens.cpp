@@ -36,7 +36,7 @@ void chrome(toybox::Screen& screen, const char* title, const char* rightLabel,
     header.subtitleText.align = fui::TextAlign::Right;
   }
   toybox::absoluteChrome(screen);
-  screen.header(header);
+  toybox::headerBand(screen, header);
 
   toybox::headerRule(screen);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});

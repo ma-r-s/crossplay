@@ -642,7 +642,7 @@ void buildBrief(toybox::Screen& screen, const BriefModel& model) {
   header.titleText = fittedHeaderTitle(screen, title);
   header.borderEdges = fui::EdgesNone;
   toybox::absoluteChrome(screen);
-  screen.header(header);
+  toybox::headerBand(screen, header);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
   if (!model.board) return;
 
@@ -767,7 +767,7 @@ void buildResult(toybox::Screen& screen, const ResultModel& model) {
   header.title = won ? "YOU WIN" : "YOU LOSE";
   header.borderEdges = fui::EdgesNone;
   toybox::absoluteChrome(screen);
-  screen.header(header);
+  toybox::headerBand(screen, header);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 
   // How it ended, because the three endings are genuinely different games and
@@ -822,14 +822,11 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   header.title = "TOY BATTLE";
   header.borderEdges = fui::EdgesNone;
   toybox::absoluteChrome(screen);
-  screen.header(header);
+  toybox::headerBand(screen, header);
 
   const fui::DeviceContext device = screen.device();
 
   toybox::headerRule(screen);
-  // The band's top edge, for decorations that ride inside it: the header was
-  // just taken from the content top, so the band ends where body() begins.
-  const int16_t bandTop = static_cast<int16_t>(screen.body().y - toybox::kHeaderHeight);
 
   // Medals ride in the black band beside the title, where the eye already goes
   // and where they cost no body space. They were on their own line under the
@@ -850,7 +847,7 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   // Centred on the band, not on a guessed y: the counter sits beside the title
   // and has to share its middle.
   const int16_t bandLine = screen.target().lineHeight(toybox::kUiFont);
-  const fui::Rect medalBox = fui::makeRect(0, static_cast<int16_t>(bandTop + (toybox::kHeaderHeight - bandLine) / 2),
+  const fui::Rect medalBox = fui::makeRect(0, toybox::bandCenterY(screen, bandLine),
                                            static_cast<int16_t>(device.width - toybox::kMargin), bandLine);
   if (medalWin) {
     // Knocked out of the black band: a white plate with the tally in ink.

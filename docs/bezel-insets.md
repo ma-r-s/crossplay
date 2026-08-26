@@ -62,16 +62,20 @@ content rect from `frame.safeRect()` -- so a fui screen lays out clear of
 the glass by default.
 
 **Toybox-chromed apps (the games, the shelf, player, study, hacker news)
-opt back out** via `toybox::absoluteChrome(screen)`, called first in each
-chrome helper: the header band is paint and may bleed under the bezel (its
-title ink sits well below the covered rows), and every layout in those apps
-is tuned against the band at panel row 0. Shifting their chrome down by the
-insets ate the gaps those layouts were tuned for -- boards touched the
-divider rule, folder icons drifted off their rows, Toy Battle's helper text
-crowded the rule -- while buying nothing, because no game ever drew content
-in the covered rows. This was found on the device, not in the sim: the
-first flip shipped shifted game chrome and Mario spotted all of it in one
-look. What keeps the safe area: xkcd (its comic and menus reach the panel
+opt back out** via `toybox::absoluteChrome(screen)` followed by
+`toybox::headerBand(screen, props)`: every layout in those apps is tuned
+against the band's BOTTOM edge at `kHeaderHeight`, so that edge stays put
+and nothing below moves -- but the band's visible TOP is the bezel's safe
+top, and the title (plus any right label, and the decorations positioned
+with `toybox::bandCenterY`) centres in the visible part rather than in
+rows nobody can see. Mario's design, arrived at the hard way: the first
+flip moved the whole chrome down by the insets, which ate the gaps the
+layouts were tuned for (boards touched the divider rule, folder icons
+drifted off their rows, Toy Battle's helper text crowded the rule) while
+protecting nothing, because no game ever drew content in the covered rows.
+Cut the hidden millimetre from the band and recentre; do not push the
+screen down. Found on the device, not in the sim, both times. What keeps
+the full safe-area treatment: xkcd (its comic and menus reach the panel
 edge), the readers, and every screen laid out from
 `UITheme::getScreenSafeArea`.
 

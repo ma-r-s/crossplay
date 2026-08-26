@@ -28,7 +28,7 @@ void toyboxChrome(toybox::Screen& screen, const char* title, const char* rightLa
   header.subtitleText.align = fui::TextAlign::Right;
   header.borderEdges = fui::EdgesNone;
   toybox::absoluteChrome(screen);
-  screen.header(header);
+  toybox::headerBand(screen, header);
 
   toybox::headerRule(screen);
 

@@ -120,6 +120,28 @@ class Screen : public freeink::ui::Screen<kMaxInteractions> {
 // safe rect through its own path and does not use this.
 inline void absoluteChrome(Screen& screen) { screen.setContentMarginAbsolute(freeink::ui::Insets{}); }
 
+// The header band under absolute chrome: its BOTTOM edge stays at the tuned
+// kHeaderHeight so nothing below it moves, but its visible top is the bezel's
+// safe top, and the title (and any right label) centres in that visible part
+// rather than in rows nobody can see. The band's covered rows stay paper --
+// they are under the glass on every board, by the board's own measurement.
+// Call in place of screen.header(props) after absoluteChrome().
+inline void headerBand(Screen& screen, const freeink::ui::HeaderProps& props) {
+  namespace fui = freeink::ui;
+  const int16_t visibleTop = screen.frame().safeRect().y;
+  const fui::Rect band = screen.takeTop(screen.theme().headerHeight);
+  screen.header(props, fui::makeRect(band.x, static_cast<int16_t>(band.y + visibleTop), band.width,
+                                     static_cast<int16_t>(band.height - visibleTop)));
+}
+
+// Vertical top for an element of height h centred in the VISIBLE part of the
+// header band, for the decorations that ride it (folder marks, medal
+// tallies, face doors). Matches headerBand()'s centring.
+inline int16_t bandCenterY(Screen& screen, const int16_t elementH) {
+  const int16_t visibleTop = screen.frame().safeRect().y;
+  return static_cast<int16_t>(visibleTop + (kHeaderHeight - visibleTop - elementH) / 2);
+}
+
 // The rule under the header band. Full-bleed on purpose -- paint may run
 // under the bezel, content may not -- and derived from the screen's content
 // top rather than a constant, so it tracks the band wherever the screen

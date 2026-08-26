@@ -97,7 +97,7 @@ void toyboxChrome(toybox::Screen& screen, const char* title) {
   // Everything else (title style, side padding, band height, minimum touch
   // size) comes from the theme through Screen.
   toybox::absoluteChrome(screen);
-  screen.header(header);
+  toybox::headerBand(screen, header);
 
   // Toybox's doubled line: a thinner rule set off from the band rather than
   // flush against it. Drawn straight to the target because it is one fill, not
