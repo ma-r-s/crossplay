@@ -1051,6 +1051,19 @@ void StudyActivity::refreshStats() {
 }
 
 void StudyActivity::buildDeckModel(studyui::DeckModel& out) const {
+  {
+    study::BridgeState bridge;
+    if (!study::loadBridgeState(bridge)) {
+      std::snprintf(out.syncSubtitle, sizeof(out.syncSubtitle), "NOT PAIRED YET");
+    } else if (bridge.lastSyncAt > 0) {
+      struct tm parts;
+      const time_t at = static_cast<time_t>(bridge.lastSyncAt);
+      localtime_r(&at, &parts);
+      std::snprintf(out.syncSubtitle, sizeof(out.syncSubtitle), "LAST SYNC %02d:%02d", parts.tm_hour, parts.tm_min);
+    } else {
+      std::snprintf(out.syncSubtitle, sizeof(out.syncSubtitle), "PAIRED");
+    }
+  }
   out.name = deck_.meta().name;
   out.due = dueTotal_;
   out.fresh = newTotal_;
@@ -1078,6 +1091,10 @@ void StudyActivity::routeAction(const fui::ActionEvent& event) {
     return;
   }
   if (event.action != studyui::ActionStudy) return;
+  if (event.value == 2) {
+    beginSync();
+    return;
+  }
   // Re-scan rather than resuming a stale queue: a session can end, the user can
   // sit on this screen past the rollover hour, and what was due then is not
   // what is due now.
@@ -1606,6 +1623,8 @@ void StudyActivity::runSyncFlow() {
     endSyncSession("SYNC", message.c_str());
     return;
   }
+  bridge_.lastSyncAt = static_cast<int64_t>(time(nullptr));
+  study::saveBridgeState(bridge_);
   findDeckDirs();  // the bridge may have delivered a deck this card never had
   endSyncSession("SYNCED", "This card and your Anki are up to date.");
 }

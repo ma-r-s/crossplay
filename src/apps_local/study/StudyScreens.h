@@ -61,6 +61,8 @@ struct DeckModel {
   // screen for choosing among three things is a screen too many.
   int deckIndex = 0;
   int deckCount = 1;
+  // The SYNC door's subtitle: LAST SYNC HH:MM, PAIRED, or NOT PAIRED YET.
+  char syncSubtitle[40] = "";
 };
 
 void buildDeck(toybox::Screen& screen, const DeckModel& model);

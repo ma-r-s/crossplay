@@ -21,3 +21,5 @@ moon = moon
 upload = upload
 download = download
 bookmark = bookmark
+refresh-cw = refresh-cw
+play = play

@@ -2,6 +2,8 @@
 
 #include <cstdio>
 
+#include "../../components/icons/listIcons.h"
+
 namespace studyui {
 
 namespace {
@@ -216,7 +218,6 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
     screen.frame().hit(deckRect, ActionSwitchDeck, 0);
   }
 
-
   // The ornament, bracketed the way the board is.
   const int panelTop = body.y + 210;
   const int panelHeight = 190;
@@ -238,80 +239,31 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   caption.align = fui::TextAlign::Center;
   screen.target().text(fui::makeRect(body.x, panel.bottom() + 44, body.width, 24), caption_text, caption);
 
-// The bridge door. Three arrangements behind STUDY_VARIANT, rendered side by
-// side before one ships (docs/building-apps.md); the winner keeps the name
-// and the macro dies.
-#ifndef STUDY_VARIANT
-#define STUDY_VARIANT 1
-#endif
-#if STUDY_VARIANT == 1
-  // A hairline-boxed row in the quiet band, the Apps-hub idiom.
-  {
-    const fui::Rect box = fui::makeRect(body.x, panel.bottom() + 84, body.width, 40);
-    const auto ink = fui::Paint::solid(fui::Color::Black);
-    screen.target().fill(fui::makeRect(box.x, box.y, box.width, toybox::kHairline), ink);
-    screen.target().fill(fui::makeRect(box.x, box.bottom() - toybox::kHairline, box.width, toybox::kHairline), ink);
-    screen.target().fill(fui::makeRect(box.x, box.y, toybox::kHairline, box.height), ink);
-    screen.target().fill(fui::makeRect(box.x + box.width - toybox::kHairline, box.y, toybox::kHairline, box.height), ink);
-    fui::TextStyle rowStyle;
-    rowStyle.font = toybox::kTileFont;
-    rowStyle.align = fui::TextAlign::Left;
-    screen.target().text(toybox::inkCentred(fui::makeRect(box.x + 14, box.y, box.width - 28, box.height), toybox::kUiCut), "SYNC", rowStyle);
-    fui::TextStyle arrow;
-    arrow.font = toybox::kTileFont;
-    arrow.align = fui::TextAlign::Right;
-    screen.target().text(toybox::inkCentred(fui::makeRect(box.x + 14, box.y, box.width - 28, box.height), toybox::kUiCut), ">", arrow);
-    screen.frame().hit(box, ActionSync, 0);
-  }
-#elif STUDY_VARIANT == 2
-  // A compact bracketed label, the ornament's own motif made pressable.
-  {
-    const int w = 180;
-    const fui::Rect box = fui::makeRect(body.x + (body.width - w) / 2, panel.bottom() + 86, w, 36);
-    brackets(screen, box, 18);
-    fui::TextStyle centred;
-    centred.font = toybox::kTileFont;
-    centred.align = fui::TextAlign::Center;
-    screen.target().text(toybox::inkCentred(box, toybox::kUiCut), "SYNC", centred);
-    const fui::Rect hitBox = fui::makeRect(box.x - 20, box.y - 10, box.width + 40, box.height + 20);
-    screen.frame().hit(hitBox, ActionSync, 0);
-  }
-#elif STUDY_VARIANT == 3
-  // No band row at all: SYNC becomes the door's second panel, where thumbs
-  // already live.
-#endif
-
-  // The lesser door, bottom-anchored: that is where a thumb rests, and it keeps
-  // it from competing with the headline.
-#if STUDY_VARIANT == 3
+  // The doors, bottom-anchored where thumbs live: reviewing above, the
+  // bridge below it. The stacked arrangement won from three rendered
+  // variants; the rows wear the same lucide glyphs the rest of the
+  // firmware's lists do, and SYNC carries its own state as a subtitle so
+  // the door says when it last mattered.
   fui::ListItem rows[2];
   rows[0] = fui::ListItem{};
   rows[0].label = waiting > 0 ? "START REVIEWING" : "NOTHING TO REVIEW";
   rows[0].enabled = waiting > 0;
   rows[0].actionValue = 1;
+  rows[0].icon = fui::bitmapFromIcon(icon_play_24);
   rows[1] = fui::ListItem{};
   rows[1].label = "SYNC";
+  // State rides the value slot, right-aligned on the same line: a subtitle
+  // makes the row taller than its box and the whole door clipped away.
+  rows[1].value = model.syncSubtitle[0] != '\0' ? model.syncSubtitle : nullptr;
   rows[1].enabled = true;
   rows[1].actionValue = 2;
+  rows[1].icon = fui::bitmapFromIcon(icon_refresh_cw_24);
   fui::ListProps list;
   list.items = rows;
   list.count = 2;
   list.selectedIndex = -1;
   list.action = ActionStudy;
   screen.list(list, 2 * (toybox::kRowHeight + 4), fui::LayoutAnchor::Bottom);
-#else
-  fui::ListItem rows[1];
-  rows[0] = fui::ListItem{};
-  rows[0].label = waiting > 0 ? "START REVIEWING" : "NOTHING TO REVIEW";
-  rows[0].enabled = waiting > 0;
-  rows[0].actionValue = 1;
-  fui::ListProps list;
-  list.items = rows;
-  list.count = 1;
-  list.selectedIndex = -1;
-  list.action = ActionStudy;
-  screen.list(list, toybox::kRowHeight + 4, fui::LayoutAnchor::Bottom);
-#endif
 
   if (model.writeFailed) {
     // Loud, and above the door rather than inside it: a review the user gave

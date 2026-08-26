@@ -39,6 +39,8 @@ struct BridgeState {
   // when nothing changed, and a matching id means every file on the card
   // is already exactly the build the manifest describes.
   char lastBuilds[kMaxSyncDecks][20] = {};
+  // Seconds since epoch of the last completed sync; drawn under the door.
+  int64_t lastSyncAt = 0;
   int deckCount = 0;
 
   const char* buildFor(const char* dir) const;

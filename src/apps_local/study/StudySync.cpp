@@ -81,8 +81,8 @@ bool insufficientHeap(std::string& message) {
 }
 
 // One request, buffered response. Returns HTTP status, 0 on transport error.
-int request(const char* method, const std::string& path, const std::string& token, const uint8_t* body,
-            size_t bodyLen, std::string& response, std::string& message) {
+int request(const char* method, const std::string& path, const std::string& token, const uint8_t* body, size_t bodyLen,
+            std::string& response, std::string& message) {
   if (insufficientHeap(message)) return 0;
   freeink::SecureHttpClient http;
   http.setCACert(caRoots());
@@ -167,8 +167,8 @@ bool streamToFile(const std::string& path, const std::string& token, const std::
 
 #else  // simulator: curl, because the HTTP stub cannot carry binary bodies.
 
-int request(const char* method, const std::string& path, const std::string& token, const uint8_t* body,
-            size_t bodyLen, std::string& response, std::string& message) {
+int request(const char* method, const std::string& path, const std::string& token, const uint8_t* body, size_t bodyLen,
+            std::string& response, std::string& message) {
   char bodyPath[] = "/tmp/studysync-body-XXXXXX";
   char outPath[] = "/tmp/studysync-out-XXXXXX";
   int fdBody = mkstemp(bodyPath);
@@ -291,6 +291,7 @@ bool loadBridgeState(BridgeState& out) {
   if (file.read(reinterpret_cast<uint8_t*>(raw.data()), raw.size()) != static_cast<int>(raw.size())) return false;
   if (deserializeJson(doc, raw) != DeserializationError::Ok) return false;
   out.token = doc["token"] | "";
+  out.lastSyncAt = doc["lastSyncAt"] | static_cast<int64_t>(0);
   out.paired = !out.token.empty();
   for (JsonPair kv : doc["acks"].as<JsonObject>()) {
     out.setAck(kv.key().c_str(), kv.value().as<uint32_t>());
@@ -304,6 +305,7 @@ bool loadBridgeState(BridgeState& out) {
 bool saveBridgeState(const BridgeState& state) {
   JsonDocument doc;
   doc["token"] = state.token;
+  if (state.lastSyncAt > 0) doc["lastSyncAt"] = state.lastSyncAt;
   JsonObject acks = doc["acks"].to<JsonObject>();
   for (int i = 0; i < state.deckCount; ++i) acks[state.deckDirs[i]] = state.ackOffsets[i];
   JsonObject builds = doc["builds"].to<JsonObject>();
@@ -345,8 +347,7 @@ bool StudySync::pairStart(PairStart& out, std::string& message) {
   return true;
 }
 
-int StudySync::pairPoll(const std::string& pollToken, std::string& username, std::string& token,
-                        std::string& message) {
+int StudySync::pairPoll(const std::string& pollToken, std::string& username, std::string& token, std::string& message) {
   std::string response;
   const int status = request("GET", "/api/pair/poll?pollToken=" + pollToken, "", nullptr, 0, response, message);
   if (status == 0) return -1;
@@ -398,8 +399,8 @@ bool StudySync::syncStart(const BridgeState& state, const std::vector<DeckPayloa
   }
 
   std::string response;
-  const int status = request("POST", "/api/sync", state.token,
-                             reinterpret_cast<const uint8_t*>(body.data()), body.size(), response, message);
+  const int status = request("POST", "/api/sync", state.token, reinterpret_cast<const uint8_t*>(body.data()),
+                             body.size(), response, message);
   if (status == 0) return false;
   if (status == 401) {
     unpaired = true;
