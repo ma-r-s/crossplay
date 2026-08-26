@@ -53,8 +53,9 @@ in main.cpp and was never Sticky-specific. What is still only as strong as
 one desk session:
 
 - **PLAY NEARBY between two Stickys is untested.** One Sticky exists here and
-  two-device play needs two. Sticky-to-X4-Pro is the same radio protocol but a
-  different pairing than any tested before.
+  two-device play needs two. Sticky-to-X4-Pro IS verified (2026-08-26, both
+  desk devices on v1.4.0 dev builds): discovery, pairing, and a chess opening
+  exchanged in both directions, driven over both serial bridges.
 - **Flash headroom is thinner than the X4 Pro's**: the sticky app image
   carries the mic/buzzer/sensor SDK drivers the x4pro build never compiles,
   so it sits closer to the 6.25MB slot ceiling. Watch it at release time.
