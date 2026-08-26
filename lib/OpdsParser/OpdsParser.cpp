@@ -14,6 +14,7 @@ constexpr size_t MAX_TITLE_CHARS = 160;
 constexpr size_t MAX_AUTHOR_CHARS = 120;
 constexpr size_t MAX_ID_CHARS = 128;
 constexpr size_t MAX_LANGUAGE_CHARS = 16;
+constexpr size_t MAX_SUMMARY_CHARS = 400;
 constexpr size_t MAX_HREF_CHARS = 768;
 constexpr size_t MAX_SEARCH_TEMPLATE_CHARS = 768;
 constexpr size_t MAX_PAGE_URL_CHARS = 768;
@@ -99,7 +100,8 @@ void OpdsParser::clear() {
   prevPageUrl.clear();
   currentEntry = OpdsEntry{};
   currentText.clear();
-  inEntry = inTitle = inAuthor = inAuthorName = inId = inLanguage = false;
+  inEntry = inTitle = inAuthor = inAuthorName = inId = inLanguage = inSummary = false;
+  coverIsThumbnail = false;
   collectCurrentEntry = false;
   feedTruncated = false;
 }
@@ -143,6 +145,8 @@ void XMLCALL OpdsParser::startElement(void* userData, const XML_Char* name, cons
     self->currentEntry = OpdsEntry{};
     self->currentText.clear();
     self->inTitle = self->inAuthor = self->inAuthorName = self->inId = self->inLanguage = false;
+    self->inSummary = false;
+    self->coverIsThumbnail = false;
     return;
   }
 
@@ -181,6 +185,14 @@ void XMLCALL OpdsParser::startElement(void* userData, const XML_Char* name, cons
             self->currentEntry.type = OpdsEntryType::BOOK;
             assignBounded(self->currentEntry.href, href, MAX_HREF_CHARS);
           }
+        } else if (rel && strstr(rel, "opds-spec.org/image") != nullptr && type && strncmp(type, "image/", 6) == 0) {
+          // A feed may carry both; the thumbnail wins whichever order they
+          // arrive in, and the full image is only kept when nothing better has.
+          const bool isThumbnail = strstr(rel, "/thumbnail") != nullptr;
+          if (isThumbnail || !self->coverIsThumbnail) {
+            assignBounded(self->currentEntry.coverHref, href, MAX_HREF_CHARS);
+            self->coverIsThumbnail = isThumbnail;
+          }
         } else if (type && strstr(type, "application/atom+xml") != nullptr) {
           if (self->currentEntry.type != OpdsEntryType::BOOK) {
             self->currentEntry.type = OpdsEntryType::NAVIGATION;
@@ -209,6 +221,14 @@ void XMLCALL OpdsParser::startElement(void* userData, const XML_Char* name, cons
     // whichever prefix a feed happens to bind.
     self->inLanguage = true;
     self->currentText.clear();
+  } else if (strcmp(name, "summary") == 0 || strstr(name, ":summary") != nullptr || strcmp(name, "content") == 0 ||
+             strstr(name, ":content") != nullptr) {
+    // Whichever the feed uses; summary wins when both appear because it is the
+    // short form and the box on the detail screen is small.
+    if (self->currentEntry.summary.empty()) {
+      self->inSummary = true;
+      self->currentText.clear();
+    }
   }
 }
 
@@ -236,6 +256,10 @@ void XMLCALL OpdsParser::endElement(void* userData, const XML_Char* name) {
     } else if (strcmp(name, "language") == 0 || strstr(name, ":language") != nullptr) {
       if (self->inLanguage) self->currentEntry.language = primaryLanguageSubtag(self->currentText);
       self->inLanguage = false;
+    } else if (self->inSummary && (strcmp(name, "summary") == 0 || strstr(name, ":summary") != nullptr ||
+                                   strcmp(name, "content") == 0 || strstr(name, ":content") != nullptr)) {
+      self->currentEntry.summary = self->currentText;
+      self->inSummary = false;
     }
   }
 }
@@ -251,5 +275,7 @@ void XMLCALL OpdsParser::characterData(void* userData, const XML_Char* s, const 
     appendBounded(self->currentText, s, len, MAX_ID_CHARS);
   } else if (self->inLanguage) {
     appendBounded(self->currentText, s, len, MAX_LANGUAGE_CHARS);
+  } else if (self->inSummary) {
+    appendBounded(self->currentText, s, len, MAX_SUMMARY_CHARS);
   }
 }
