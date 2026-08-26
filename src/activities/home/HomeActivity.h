@@ -18,7 +18,15 @@ class HomeActivity final : public Activity {
   bool recentsLoading = false;
   bool recentsLoaded = false;
   bool firstRenderDone = false;
-  bool hasOpdsServers = false;
+  // --- fork-local seam ---------------------------------------------------
+  // Upstream hides this row until a catalog is configured, which means a fresh
+  // install shows no entry point at all: the only way in is Settings -> OPDS
+  // Servers, which nobody finds. The row is now always shown and leads to the
+  // server list when empty (ActivityManager::goToBrowser already does that for
+  // a zero-server store), so "Get Books" is discoverable out of the box.
+  // Kept as a member rather than a constant so upstream's index helpers, which
+  // take it as a parameter, stay byte-identical and merge cleanly.
+  bool showOpdsRow = true;
   bool coverRendered = false;      // Track if cover has been rendered once
   bool coverBufferStored = false;  // Track if cover buffer is stored
   uint8_t* coverBuffer = nullptr;  // HomeActivity's own buffer for cover image

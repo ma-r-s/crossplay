@@ -7,10 +7,14 @@
 #include <I18n.h>
 #include <Logging.h>
 #include <OpdsStream.h>
+#include <OpenSearchParser.h>
 #include <WiFi.h>
+
+#include <algorithm>
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
+#include "OpdsLanguages.h"
 #include "SilentRestart.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
@@ -377,6 +381,19 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
   }
 
   searchTemplate = parser.getSearchTemplate();
+  if (searchTemplate.empty()) {
+    // Most real catalogs advertise search by pointing at an OpenSearch
+    // description document rather than inlining {searchTerms}, so resolve it
+    // once per server and carry the result across navigation -- subfeeds
+    // usually omit the link entirely, and losing the icon on the way into a
+    // folder reads as the feature breaking.
+    const std::string& descriptionUrl = parser.getSearchDescriptionUrl();
+    if (!descriptionUrl.empty() && descriptionUrl != resolvedDescriptionUrl) {
+      resolvedDescriptionUrl = descriptionUrl;
+      resolvedSearchTemplate = fetchSearchTemplate(descriptionUrl);
+    }
+    searchTemplate = resolvedSearchTemplate;
+  }
   const auto& nextUrl = parser.getNextPageUrl();
   const auto& prevUrl = parser.getPrevPageUrl();
   const bool feedTruncated = parser.truncated();
@@ -386,6 +403,23 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
   selectorIndex = 0;
   listNav.reset();
   entries = std::move(parser).getEntries();
+
+  // Language filter. Navigation rows are never dropped -- hiding the way into a
+  // folder because the folder itself carries a language tag would strand the
+  // user -- and neither are books the feed did not tag. See opdsLanguageAllowed.
+  const uint32_t languageMask = opdsLanguageMaskFromCodes(SETTINGS.opdsLanguages);
+  if (languageMask != 0 && languageMask != opdsAllLanguagesMask()) {
+    const size_t before = entries.size();
+    entries.erase(std::remove_if(entries.begin(), entries.end(),
+                                 [languageMask](const OpdsEntry& entry) {
+                                   return entry.type == OpdsEntryType::BOOK &&
+                                          !opdsLanguageAllowed(entry.language, languageMask);
+                                 }),
+                  entries.end());
+    if (before != entries.size()) {
+      LOG_DBG("OPDS", "Language filter hid %zu of %zu entries", before - entries.size(), before);
+    }
+  }
 
   entries.reserve(entries.size() + (prevUrl.empty() ? 0 : 1) + (nextUrl.empty() ? 0 : 1));
   if (!prevUrl.empty()) {
@@ -556,6 +590,28 @@ void OpdsBookBrowserActivity::launchSearch() {
   });
 }
 
+std::string OpdsBookBrowserActivity::fetchSearchTemplate(const std::string& descriptionUrl) {
+  const std::string url = UrlUtils::buildUrl(server.url, descriptionUrl);
+  LOG_DBG("OPDS", "Resolving OpenSearch description: %s", url.c_str());
+
+  // These documents are a few hundred bytes, so a string fetch is cheaper than
+  // standing up a streaming adapter for them.
+  std::string document;
+  if (!HttpDownloader::fetchUrl(url, document, server.username, server.password)) {
+    LOG_DBG("OPDS", "OpenSearch description fetch failed");
+    return "";
+  }
+
+  OpenSearchParser openSearch;
+  openSearch.feed(document.data(), document.size());
+  openSearch.finish();
+  if (openSearch.error()) {
+    LOG_DBG("OPDS", "OpenSearch description parse failed");
+    return "";
+  }
+  return openSearch.getSearchTemplate();
+}
+
 void OpdsBookBrowserActivity::performSearch(const std::string& query) {
   if (query.empty() || searchTemplate.empty()) {
     state = BrowserState::BROWSING;
@@ -582,6 +638,24 @@ void OpdsBookBrowserActivity::performSearch(const std::string& query) {
   const std::string placeholder = "{searchTerms}";
   const size_t pos = url.find(placeholder);
   if (pos != std::string::npos) url.replace(pos, placeholder.length(), urlEncode(query));
+
+  // Real templates carry more than the search terms -- Standard Ebooks sends
+  // {count} and {startPage} -- and leaving those braces in the URL sends the
+  // literal text to the server. Fill in the paging ones and drop the rest;
+  // OpenSearch lets a client ignore any parameter it does not implement.
+  const struct {
+    const char* name;
+    const char* value;
+  } SUBSTITUTIONS[] = {{"{count}", "30"}, {"{startPage}", "1"}, {"{startIndex}", "1"}};
+  for (const auto& substitution : SUBSTITUTIONS) {
+    const size_t at = url.find(substitution.name);
+    if (at != std::string::npos) url.replace(at, strlen(substitution.name), substitution.value);
+  }
+  for (size_t open = url.find('{'); open != std::string::npos; open = url.find('{')) {
+    const size_t close = url.find('}', open);
+    if (close == std::string::npos) break;
+    url.erase(open, close - open + 1);
+  }
 
   navigationHistory.push_back(currentPath);
   currentPath = url;

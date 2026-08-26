@@ -7,6 +7,7 @@
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
+#include "OpdsFilterActivity.h"
 #include "OpdsServerStore.h"
 #include "OpdsSettingsActivity.h"
 #include "activities/ActivityManager.h"
@@ -45,11 +46,14 @@ StrId opdsFormatLabel(uint8_t format) {
 
 int OpdsServerListActivity::getItemCount() const {
   int count = static_cast<int>(OPDS_STORE.getCount());
-  // Settings mode appends three virtual items: "Add Server", "Download folder"
-  // and "Filename format".
+  // Settings mode appends "Add Server", "Download folder" and "Filename
+  // format". "Filters" is appended in both modes: this screen is what Home ->
+  // OPDS Browser opens when more than one catalog exists, so it is where a
+  // reader looks for it, and burying it under Settings would hide it.
   if (!pickerMode) {
     count += 3;
   }
+  count += 1;
   return count;
 }
 
@@ -102,6 +106,11 @@ void OpdsServerListActivity::rebuildRowItems() {
     format.actionValue = static_cast<int16_t>(serverCount + 2);
     rowItems_.push_back(format);  // subtitle refreshed per render below
   }
+
+  fui::ListItem filters;
+  filters.label = tr(STR_OPDS_FILTERS);
+  filters.actionValue = static_cast<int16_t>(getItemCount() - 1);
+  rowItems_.push_back(filters);
 }
 
 bool OpdsServerListActivity::handleCustomInput() {
@@ -129,6 +138,14 @@ void OpdsServerListActivity::activateIndex(const int index) {
 
 void OpdsServerListActivity::handleSelection() {
   const auto serverCount = static_cast<int>(OPDS_STORE.getCount());
+
+  // Filters is the last row in both modes, so it is handled before the
+  // picker's early return.
+  if (nav.selected == getItemCount() - 1) {
+    startActivityForResult(std::make_unique<OpdsFilterActivity>(renderer, mappedInput),
+                           [this](const ActivityResult&) { rebuildRowItems(); });
+    return;
+  }
 
   if (pickerMode) {
     // Picker mode: selecting a server navigates to the OPDS browser

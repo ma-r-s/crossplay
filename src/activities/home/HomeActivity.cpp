@@ -36,7 +36,7 @@ int HomeActivity::upstreamMenuRows() const {
   // but it is why this counts the row and that function does not.)
   const auto& metrics = UITheme::getInstance().getMetrics();
   const bool continueRow = metrics.homeContinueReadingInMenu && !recentBooks.empty();
-  return 4 + (hasOpdsServers ? 1 : 0) + (continueRow ? 1 : 0);
+  return 4 + (showOpdsRow ? 1 : 0) + (continueRow ? 1 : 0);
 }
 
 int HomeActivity::getMenuItemCount() const {
@@ -49,7 +49,7 @@ int HomeActivity::getMenuItemCount() const {
   if (!recentBooks.empty()) {
     count += recentBooks.size();
   }
-  if (hasOpdsServers) {
+  if (showOpdsRow) {
     count++;
   }
   return count;
@@ -135,13 +135,14 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
 void HomeActivity::onEnter() {
   Activity::onEnter();
 
-  hasOpdsServers = OPDS_STORE.hasServers();
+  // Always shown; see the seam note on showOpdsRow in the header.
+  showOpdsRow = true;
 
   const auto& metrics = UITheme::getInstance().getMetrics();
   loadRecentBooks(metrics.homeRecentBooksCount);
 
   const auto base = static_cast<int>(recentBooks.size());
-  selectorIndex = initialMenuItem == HomeMenuItem::NONE ? 0 : base + menuItemToIndex(initialMenuItem, hasOpdsServers);
+  selectorIndex = initialMenuItem == HomeMenuItem::NONE ? 0 : base + menuItemToIndex(initialMenuItem, showOpdsRow);
 
   // fork-local seam: goHome() restores the selection by matching the departing
   // activity's name against HomeMenuItem, which cannot know about shelf rows,
@@ -213,7 +214,7 @@ void HomeActivity::loop() {
       return;
     }
     const int menuIndex = selectorIndex - static_cast<int>(recentBooks.size());
-    switch (indexToMenuItem(menuIndex, hasOpdsServers)) {
+    switch (indexToMenuItem(menuIndex, showOpdsRow)) {
       case HomeMenuItem::FILE_BROWSER:
         onFileBrowserOpen();
         break;
@@ -352,7 +353,7 @@ void HomeActivity::render(RenderLock&&) {
                                         tr(STR_SETTINGS_TITLE)};
   std::vector<UIIcon> menuIcons = {Folder, Recent, Transfer, Settings};
 
-  if (hasOpdsServers) {
+  if (showOpdsRow) {
     menuItems.insert(menuItems.begin() + 2, tr(STR_OPDS_BROWSER));
     menuIcons.insert(menuIcons.begin() + 2, Library);
   }

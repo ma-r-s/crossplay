@@ -3,7 +3,9 @@
 #include <Logging.h>
 #include <XmlParserUtils.h>
 
+#include <cctype>
 #include <cstring>
+#include <string>
 
 namespace {
 constexpr size_t ENTRY_STORAGE_CAPACITY = 64;
@@ -11,9 +13,23 @@ constexpr size_t MAX_ENTRIES = ENTRY_STORAGE_CAPACITY - 2;
 constexpr size_t MAX_TITLE_CHARS = 160;
 constexpr size_t MAX_AUTHOR_CHARS = 120;
 constexpr size_t MAX_ID_CHARS = 128;
+constexpr size_t MAX_LANGUAGE_CHARS = 16;
 constexpr size_t MAX_HREF_CHARS = 768;
 constexpr size_t MAX_SEARCH_TEMPLATE_CHARS = 768;
 constexpr size_t MAX_PAGE_URL_CHARS = 768;
+
+// "en-US" -> "en", "EN" -> "en". Feeds are inconsistent about both region
+// subtags and case, and a filter comparing raw values matches almost nothing.
+std::string primaryLanguageSubtag(const std::string& raw) {
+  std::string out;
+  out.reserve(raw.size());
+  for (const char c : raw) {
+    if (c == '-' || c == '_') break;
+    if (c == ' ' || c == '\t' || c == '\n' || c == '\r') continue;
+    out += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  }
+  return out;
+}
 }  // namespace
 
 OpdsParser::OpdsParser() {
@@ -78,11 +94,12 @@ bool OpdsParser::error() const { return errorOccured; }
 void OpdsParser::clear() {
   entries.clear();
   searchTemplate.clear();
+  searchDescriptionUrl.clear();
   nextPageUrl.clear();
   prevPageUrl.clear();
   currentEntry = OpdsEntry{};
   currentText.clear();
-  inEntry = inTitle = inAuthor = inAuthorName = inId = false;
+  inEntry = inTitle = inAuthor = inAuthorName = inId = inLanguage = false;
   collectCurrentEntry = false;
   feedTruncated = false;
 }
@@ -125,7 +142,7 @@ void XMLCALL OpdsParser::startElement(void* userData, const XML_Char* name, cons
     self->feedTruncated = self->feedTruncated || !self->collectCurrentEntry;
     self->currentEntry = OpdsEntry{};
     self->currentText.clear();
-    self->inTitle = self->inAuthor = self->inAuthorName = self->inId = false;
+    self->inTitle = self->inAuthor = self->inAuthorName = self->inId = self->inLanguage = false;
     return;
   }
 
@@ -138,6 +155,12 @@ void XMLCALL OpdsParser::startElement(void* userData, const XML_Char* name, cons
       if (rel && strcmp(rel, "search") == 0) {
         if (strstr(href, "{searchTerms}") != nullptr) {
           assignBounded(self->searchTemplate, href, MAX_SEARCH_TEMPLATE_CHARS);
+        } else {
+          // The spec's usual form points at an OpenSearch description document
+          // rather than inlining the template, which is what Standard Ebooks,
+          // Calibre-Web, Kavita and Komga all emit. Remember it so the caller
+          // can fetch it; the parser itself cannot do I/O.
+          assignBounded(self->searchDescriptionUrl, href, MAX_SEARCH_TEMPLATE_CHARS);
         }
       } else if (rel && strcmp(rel, "next") == 0 && !self->inEntry) {
         assignBounded(self->nextPageUrl, href, MAX_PAGE_URL_CHARS);
@@ -181,6 +204,11 @@ void XMLCALL OpdsParser::startElement(void* userData, const XML_Char* name, cons
   } else if (strcmp(name, "id") == 0 || strstr(name, ":id") != nullptr) {
     self->inId = true;
     self->currentText.clear();
+  } else if (strcmp(name, "language") == 0 || strstr(name, ":language") != nullptr) {
+    // Matches dc:language and dcterms:language alike; the suffix test covers
+    // whichever prefix a feed happens to bind.
+    self->inLanguage = true;
+    self->currentText.clear();
   }
 }
 
@@ -205,6 +233,9 @@ void XMLCALL OpdsParser::endElement(void* userData, const XML_Char* name) {
     } else if (strcmp(name, "id") == 0 || strstr(name, ":id") != nullptr) {
       if (self->inId) self->currentEntry.id = self->currentText;
       self->inId = false;
+    } else if (strcmp(name, "language") == 0 || strstr(name, ":language") != nullptr) {
+      if (self->inLanguage) self->currentEntry.language = primaryLanguageSubtag(self->currentText);
+      self->inLanguage = false;
     }
   }
 }
@@ -218,5 +249,7 @@ void XMLCALL OpdsParser::characterData(void* userData, const XML_Char* s, const 
     appendBounded(self->currentText, s, len, MAX_AUTHOR_CHARS);
   } else if (self->inId) {
     appendBounded(self->currentText, s, len, MAX_ID_CHARS);
+  } else if (self->inLanguage) {
+    appendBounded(self->currentText, s, len, MAX_LANGUAGE_CHARS);
   }
 }

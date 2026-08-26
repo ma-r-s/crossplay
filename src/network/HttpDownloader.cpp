@@ -46,6 +46,28 @@ bool isRedirect(int status) {
 }
 
 #if defined(FREEINK_NET_WOLFSSL)
+// How often the abort poll is allowed to pump input. readLine() calls the abort
+// callback in a tight loop, so pumping on every call would spend the wait
+// redrawing instead of waiting.
+constexpr unsigned long ABORT_PUMP_INTERVAL_MS = 50;
+
+// Polled by SecureHttpClient while it waits for the status line and headers --
+// which is the whole reason Cancel used to be dead until the first body byte.
+// The caller pumps input from its progress callback, so running that here makes
+// the button live during connect and during any server-side work before the
+// response starts (the Get Books catalog optimizes each EPUB on demand, which
+// is seconds).
+bool abortPoll(Sink& sink, unsigned long& lastPumpMs) {
+  const unsigned long now = millis();
+  if (sink.progress && now - lastPumpMs >= ABORT_PUMP_INTERVAL_MS) {
+    lastPumpMs = now;
+    sink.progress(sink.downloaded, sink.total);
+  }
+  return sink.cancelFlag && *sink.cancelFlag;
+}
+#endif
+
+#if defined(FREEINK_NET_WOLFSSL)
 HttpDownloader::DownloadError runGetWolf(const std::string& startUrl, const std::string& username,
                                          const std::string& password, Sink& sink) {
   std::string url = startUrl;
@@ -69,6 +91,7 @@ HttpDownloader::DownloadError runGetWolf(const std::string& startUrl, const std:
     }
 
     LOG_DBG("HTTP", "wolfSSL GET: %s", url.c_str());
+    unsigned long lastPumpMs = 0;
     const int status = http.GET(
         [&http, &sink](const uint8_t* data, size_t len) {
           if (http.getStatus() != 200) return true;
@@ -78,7 +101,7 @@ HttpDownloader::DownloadError runGetWolf(const std::string& startUrl, const std:
           if (sink.progress && sink.total > 0) sink.progress(sink.downloaded, sink.total);
           return true;
         },
-        [&sink]() { return sink.cancelFlag && *sink.cancelFlag; });
+        [&sink, &lastPumpMs]() { return abortPoll(sink, lastPumpMs); });
 
     if (http.aborted()) return HttpDownloader::ABORTED;
     if (status < 0) {
