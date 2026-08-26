@@ -248,3 +248,20 @@ source rather than worked around here.
 **Done looks like:** the comment fixed upstream in freeink-sdk and the flag
 dropped; `-Wno-format-truncation` narrowed to the files that need it, or the
 buffers given bounds GCC can see.
+
+## The games still draw their top rows under the glass
+
+Added 2026-08-26, the day the bezel overlap was measured on the physical X4
+Pro (10 rows hidden at the top; the firmware had assumed 9 and nobody had
+measured). The data and the system screens are fixed; the fui layer that lays
+out every game, the shelf and the app menus still starts at panel row 0, so
+their chrome's top ~10px are invisible on the device and centered layouts sit
+visibly low. Flipping it is one line in the fui adapter plus a sweep of every
+app with known traps; the full plan and trap list is
+[bezel-insets.md](bezel-insets.md). The Sticky's insets are also still the
+inherited guess -- the BEZEL app measures it in two minutes at a desk.
+
+**Done looks like:** `DeviceContext.safeArea` populated by the shared adapter,
+the divider-rule and `setContentMargin` idioms derived from the safe rect, a
+render of every app's main screen eyeballed against current, and a measured
+`ViewableInsets` override in the Sticky profile.

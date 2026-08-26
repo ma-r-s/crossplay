@@ -364,8 +364,14 @@ void buildList(toybox::Screen& screen, const ListModel& model) {
 // --- The reader ----------------------------------------------------------
 
 fui::Rect readerViewport(const fui::DeviceContext& device) {
+  // From the safe rect, not the panel: the bezel covers the top rows and edge
+  // columns, and a comic's own title often lives in its first pixels. The bar
+  // keeps the true bottom edge. The activity fills device.safeArea in
+  // (XkcdActivity::readerDevice); a context without it gets the old full-bleed
+  // viewport, which is what the host tests construct.
+  const fui::Rect safe = device.safeRect();
   const fui::Rect panel = device.screen();
-  return fui::makeRect(0, 0, panel.width, static_cast<int16_t>(panel.height - kBarHeight));
+  return fui::makeRect(safe.x, safe.y, safe.width, static_cast<int16_t>(panel.height - kBarHeight - safe.y));
 }
 
 fui::Rect readerPanUpHalf(const fui::DeviceContext& device) {

@@ -40,6 +40,12 @@ class XkcdActivity final : public Activity {
   bool loadComic(int position);
 
   // --- drawing ------------------------------------------------------------
+  // Device context with the panel's bezel overlap filled into safeArea, so
+  // xkcdui::readerViewport() clears the covered rows. The shared fui adapter
+  // does not populate safeArea yet (flipping it moves every app's chrome at
+  // once); until it does, every reader-geometry call site uses this and only
+  // this, so drawing, panning and the tap halves share one viewport.
+  freeink::ui::DeviceContext readerDevice() const;
   void drawComic();
   void drawMosaic(const freeink::ui::Rect& band);
 

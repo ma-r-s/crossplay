@@ -87,12 +87,16 @@ int UITheme::getNumberOfItemsPerPage(const GfxRenderer& renderer, bool hasHeader
   return UITheme::getInstance().getTheme().getListPageItems(availableHeight, hasSubtitle);
 }
 
-// Screen area excluding the button hints
+// Screen area excluding the bezel-covered edge pixels and the button hints
 Rect UITheme::getScreenSafeArea(const GfxRenderer& renderer, bool hasFrontButtonHints, bool hasSideButtonHints) {
   auto orientation = renderer.getOrientation();
   const int screenWidth = renderer.getScreenWidth();
   const int screenHeight = renderer.getScreenHeight();
-  Rect safeArea = Rect{0, 0, screenWidth, screenHeight};
+  // The bezel physically covers the panel's edge pixels (BoardConfig
+  // viewableInsets, oriented); content laid out from this rect stays visible.
+  int viewTop, viewRight, viewBottom, viewLeft;
+  renderer.getOrientedViewableTRBL(&viewTop, &viewRight, &viewBottom, &viewLeft);
+  Rect safeArea = Rect{viewLeft, viewTop, screenWidth - viewLeft - viewRight, screenHeight - viewTop - viewBottom};
   const ThemeMetrics metrics = getMetrics();
   switch (orientation) {
     case GfxRenderer::Orientation::Portrait:
