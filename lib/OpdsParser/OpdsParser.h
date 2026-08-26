@@ -26,6 +26,10 @@ struct OpdsEntry {
   // "en-US"). Empty when the feed does not say, which must always read as
   // "keep" -- a filter that hides untagged books hides most of a catalog.
   std::string language;
+  // Thumbnail preferred over the full-size image: the detail screen draws into
+  // a small box and a 2000px cover costs seconds to fetch and decode.
+  std::string coverHref;
+  std::string summary;
 };
 
 // Legacy alias for backward compatibility
@@ -117,6 +121,8 @@ class OpdsParser final : public Print {
   bool inAuthorName = false;
   bool inId = false;
   bool inLanguage = false;
+  bool inSummary = false;
+  bool coverIsThumbnail = false;
   bool collectCurrentEntry = false;
 
   bool errorOccured = false;

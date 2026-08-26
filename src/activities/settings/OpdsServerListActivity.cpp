@@ -2,6 +2,7 @@
 
 #include <GfxRenderer.h>
 #include <I18n.h>
+#include <Logging.h>
 
 #include <cstring>
 

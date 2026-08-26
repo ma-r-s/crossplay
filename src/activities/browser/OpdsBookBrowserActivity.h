@@ -36,6 +36,10 @@ class OpdsBookBrowserActivity final : public Activity, private UiAppHost {
   void rebuildRowItems();
   std::vector<std::string> navigationHistory;
   std::string currentPath;
+  // Cleared once consumed; see the tail of fetchFeed().
+  bool openSearchOnArrival = true;
+  // True while the visible feed is a search result set.
+  bool showingSearchResults = false;
   std::string searchTemplate;
   // Resolved once per server from an OpenSearch description document and
   // reused while navigating, since subfeeds rarely repeat the search link.
@@ -81,6 +85,7 @@ class OpdsBookBrowserActivity final : public Activity, private UiAppHost {
   void downloadBook(const OpdsEntry& book);
   void launchSearch();
   std::string fetchSearchTemplate(const std::string& descriptionUrl);
+  void openDetail(const OpdsEntry& entry);
   void performSearch(const std::string& query);
   bool preventAutoSleep() override { return true; }
 };
