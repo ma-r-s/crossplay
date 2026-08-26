@@ -242,8 +242,8 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   // The doors, bottom-anchored where thumbs live: reviewing above, the
   // bridge below it. The stacked arrangement won from three rendered
   // variants; the rows wear the same lucide glyphs the rest of the
-  // firmware's lists do, and SYNC carries its own state as a subtitle so
-  // the door says when it last mattered.
+  // firmware's lists do, and SYNC carries its own state in the value slot
+  // so the door says when it last mattered.
   fui::ListItem rows[2];
   rows[0] = fui::ListItem{};
   rows[0].label = waiting > 0 ? "START REVIEWING" : "NOTHING TO REVIEW";
@@ -263,7 +263,24 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   list.count = 2;
   list.selectedIndex = -1;
   list.action = ActionStudy;
-  screen.list(list, 2 * (toybox::kRowHeight + 4), fui::LayoutAnchor::Bottom);
+  // The state whispers next to the label: the tile cut, not the theme's
+  // smallText, which deliberately stays at UI size for list values in
+  // general. The named alignment is load-bearing: FONT_SLOT_SMALL is 0 and
+  // a style holding only it reads as unset to Screen::list(), which would
+  // swap the theme back in. The list right-aligns values regardless.
+  // valueInset keeps the same air from the right border that the icon box
+  // gets from the left.
+  fui::TextStyle doorValue;
+  doorValue.font = toybox::kTileFont;
+  doorValue.align = fui::TextAlign::Right;
+  list.valueText = doorValue;
+  list.valueInset = 6;
+  // An explicit gap and a band of exactly two rows plus that gap: the
+  // theme's tighter default left the doors touching, and any slack in the
+  // band floats the bottom door off the content margin.
+  constexpr int kDoorGap = 10;
+  list.rowGap = kDoorGap;
+  screen.list(list, 2 * toybox::kRowHeight + kDoorGap, fui::LayoutAnchor::Bottom);
 
   if (model.writeFailed) {
     // Loud, and above the door rather than inside it: a review the user gave
