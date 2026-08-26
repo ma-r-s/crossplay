@@ -74,39 +74,49 @@ bool HalClock::syncFromNTP() {
     return false;
   }
 
-  LOG_INF("CLK", "Starting NTP sync...");
-  configTzTime("UTC0", "pool.ntp.org", "time.nist.gov");
-
-  // Wait for SNTP sync to complete (up to 5 seconds)
-  constexpr int maxAttempts = 50;
-  for (int i = 0; i < maxAttempts; i++) {
-    if (sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED) {
-      time_t now = time(nullptr);
-      struct tm timeinfo;
-      gmtime_r(&now, &timeinfo);
-
-      Rtc::DateTime dt;
-      dt.year = static_cast<uint16_t>(timeinfo.tm_year + 1900);
-      dt.month = static_cast<uint8_t>(timeinfo.tm_mon + 1);
-      dt.day = static_cast<uint8_t>(timeinfo.tm_mday);
-      dt.hour = static_cast<uint8_t>(timeinfo.tm_hour);
-      dt.minute = static_cast<uint8_t>(timeinfo.tm_min);
-      dt.second = static_cast<uint8_t>(timeinfo.tm_sec);
-      dt.weekday = static_cast<uint8_t>(timeinfo.tm_wday);
-      if (_sdkRtc.set(dt)) {
-        _lastPollMs = 0;
-        _cachedHour = dt.hour;
-        _cachedMinute = dt.minute;
-        _hasCachedTime = true;
-        LOG_INF("CLK", "RTC set to %04u-%02u-%02u %02u:%02u:%02u UTC", dt.year, dt.month, dt.day, dt.hour, dt.minute,
-                dt.second);
-        return true;
-      }
-      return false;
+  // Two rounds of 8 seconds rather than one of 5: the sync often runs right
+  // after association, while DHCP and DNS are still settling, and one lost
+  // UDP packet used to surface as a user-facing "Sync failed". Restarting
+  // SNTP between rounds forces a fresh DNS lookup and request instead of
+  // waiting out the stack's own retry interval.
+  constexpr int kRounds = 2;
+  constexpr int kAttemptsPerRound = 80;  // x 100ms = 8s per round
+  for (int round = 0; round < kRounds; ++round) {
+    if (esp_sntp_enabled()) {
+      esp_sntp_stop();
     }
-    delay(100);
+    LOG_INF("CLK", "NTP sync attempt %d/%d", round + 1, kRounds);
+    configTzTime("UTC0", "pool.ntp.org", "time.nist.gov");
+    for (int i = 0; i < kAttemptsPerRound; i++) {
+      if (sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED) {
+        time_t now = time(nullptr);
+        struct tm timeinfo;
+        gmtime_r(&now, &timeinfo);
+
+        Rtc::DateTime dt;
+        dt.year = static_cast<uint16_t>(timeinfo.tm_year + 1900);
+        dt.month = static_cast<uint8_t>(timeinfo.tm_mon + 1);
+        dt.day = static_cast<uint8_t>(timeinfo.tm_mday);
+        dt.hour = static_cast<uint8_t>(timeinfo.tm_hour);
+        dt.minute = static_cast<uint8_t>(timeinfo.tm_min);
+        dt.second = static_cast<uint8_t>(timeinfo.tm_sec);
+        dt.weekday = static_cast<uint8_t>(timeinfo.tm_wday);
+        if (_sdkRtc.set(dt)) {
+          _lastPollMs = 0;
+          _cachedHour = dt.hour;
+          _cachedMinute = dt.minute;
+          _hasCachedTime = true;
+          LOG_INF("CLK", "RTC set to %04u-%02u-%02u %02u:%02u:%02u UTC", dt.year, dt.month, dt.day, dt.hour, dt.minute,
+                  dt.second);
+          return true;
+        }
+        LOG_ERR("CLK", "RTC refused the time write");
+        return false;
+      }
+      delay(100);
+    }
   }
 
-  LOG_ERR("CLK", "NTP sync timed out");
+  LOG_ERR("CLK", "NTP sync timed out %d times; DNS or UDP port 123 may be blocked", kRounds);
   return false;
 }

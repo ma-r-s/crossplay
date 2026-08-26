@@ -8,6 +8,8 @@
 #include <esp_mac.h>
 
 #include <algorithm>
+#include <cstdio>
+#include <ctime>
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
@@ -22,6 +24,17 @@ namespace {
 constexpr fui::ActionId ACTION_ROW = 1;
 constexpr fui::ActionId ACTION_SCAN = 2;
 constexpr fui::ActionId ACTION_PROMPT = 3;
+
+// System time follows the RTC, so a wall clock earlier than the year this
+// firmware was compiled can only be a reset RTC, never a real date.
+bool clockPredatesBuild() {
+  int buildYear = 0;
+  sscanf(__DATE__, "%*s %*d %d", &buildYear);  // "Aug 26 2026"
+  const time_t now = time(nullptr);
+  struct tm t;
+  localtime_r(&now, &t);
+  return t.tm_year + 1900 < buildYear;
+}
 }  // namespace
 
 WifiSelectionActivity::WifiSelectionActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
@@ -518,10 +531,14 @@ void WifiSelectionActivity::checkConnectionStatus() {
             WiFi.RSSI());
 #endif
 
-    // Sync RTC from NTP on the first successful WiFi connection only. The DS3231
-    // drifts ~2 ppm so one sync is enough; users can force a re-sync from
-    // Settings > Customise Status Bar > Sync clock now.
-    if (halClock.isAvailable() && !SETTINGS.clockHasBeenSynced) {
+    // Sync RTC from NTP on the first successful WiFi connection, and again
+    // whenever the clock reads earlier than the year this firmware was built.
+    // The DS3231 drifts ~2 ppm so a synced clock stays right, but it comes up
+    // at 2000-01-01 after full power loss, and the synced-once flag alone
+    // would suppress the correction forever; a pre-build-year date is not a
+    // time, it is a reset. Users can force a re-sync from Settings >
+    // Customise Status Bar > Sync clock now.
+    if (halClock.isAvailable() && (!SETTINGS.clockHasBeenSynced || clockPredatesBuild())) {
       if (halClock.syncFromNTP()) {
         SETTINGS.clockHasBeenSynced = 1;
         SETTINGS.saveToFile();
