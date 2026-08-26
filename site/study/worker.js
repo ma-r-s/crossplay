@@ -6,19 +6,43 @@
  * JSON strings. Nothing here parses Anki formats -- that is the whole point.
  */
 
+// The runtime is loaded from the official CDN first, our own copy second.
+// Vercel's platform-level attack mitigation intermittently answers worker
+// fetches with a JavaScript challenge no worker can pass -- it stranded two
+// real installs on 2026-08-25 alone, and it has no off switch on our plan.
+// jsDelivr never challenges, and it sends the CORS and
+// Cross-Origin-Resource-Policy headers this site's COEP (require-corp,
+// site-wide, for the simulator's SharedArrayBuffer) demands; verified
+// per-file before this was written. The same-origin mirror stays for
+// offline development and as the fallback if the CDN is unreachable.
+// The version here must match fetch_pyodide.py's VERSION -- the two are
+// the same distribution, and test_web_glue.py fails if they drift.
+var PYODIDE_BASES = [
+  "https://cdn.jsdelivr.net/pyodide/v0.29.1/full/",
+  "/pyodide/",
+];
+var pyodideBase = null;
+
 // Any failure here is fatal and silent by default: importScripts throws
 // synchronously, before onmessage exists, so the page would see nothing at
 // all. Report it through the same channel as everything else.
-try {
-  importScripts("/pyodide/pyodide.js");
-} catch (e) {
-  self.postMessage({
-    type: "error",
-    for: "loading pyodide.js",
-    message: String((e && e.message) || e),
-  });
-  throw e;
+for (var b = 0; b < PYODIDE_BASES.length && !pyodideBase; b++) {
+  try {
+    importScripts(PYODIDE_BASES[b] + "pyodide.js");
+    pyodideBase = PYODIDE_BASES[b];
+  } catch (e) {
+    if (b + 1 < PYODIDE_BASES.length) continue;
+    self.postMessage({
+      type: "error",
+      for: "loading pyodide.js",
+      message: String((e && e.message) || e),
+    });
+    throw e;
+  }
 }
+// The one line that answers "which source served the runtime" when a user
+// reports a hang: worker fetches are invisible to most network panels.
+console.log("[study worker] runtime from " + pyodideBase);
 
 var pyodide = null;
 
@@ -33,7 +57,7 @@ function progress(text) {
 // time someone hit a fresh deploy. Pyodide then takes it from the HTTP cache.
 async function prefetchRuntime() {
   try {
-    const response = await fetch("/pyodide/pyodide.asm.wasm");
+    const response = await fetch(pyodideBase + "pyodide.asm.wasm");
     if (!response.ok || !response.body) return;
     // content-length is what crossed the wire; the reader hands back decoded
     // bytes. Those are one number only for an unencoded body, and this file
@@ -84,7 +108,7 @@ async function init() {
   progress("Starting the Python runtime");
   await prefetchRuntime();
   progress("Starting the Python runtime");
-  pyodide = await loadPyodide({ indexURL: "/pyodide/" });
+  pyodide = await loadPyodide({ indexURL: pyodideBase });
   // Pillow is NOT here: it is a megabyte, it only serves make_images.py, and
   // the pictures it would pack are not carried to the reader anyway. It is
   // loaded on demand below for the one deck shape that uses them, so the
@@ -146,8 +170,8 @@ var handlers = {
               new Error(
                 "the image packer download did not finish in 45 seconds." +
                   " A firewall or the host's bot protection may be blocking" +
-                  " this tab; reload the page and retry."
-              )
+                  " this tab; reload the page and retry.",
+              ),
             );
           }, 45000);
         }),
