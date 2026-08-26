@@ -57,6 +57,48 @@ inline fui::StyleSet rowStyles() {
   return styles;
 }
 
+// Why a big label drifts low in a small box, and the one fix for it.
+//
+// `GfxRendererTarget::text` centres the font's LINE BOX (advanceY), not the
+// ink, and it clamps: `rect.y + max(0, (rect.height - lineHeight) / 2)`. Jersey
+// carries a lot of leading -- the display cut is a 63px line box around a 38px
+// digit -- so the moment a box is shorter than the line box, that max() pins
+// the offset at zero and the label stops being centred at all. It lands
+// `ascender - inkHeight` below the top of the box and its foot runs out of the
+// bottom.
+//
+// The error therefore grows as the box gets SMALLER, which is why it looks like
+// an intermittent font problem rather than a rule. Measured on a 50px Sudoku
+// cell: the 20px cut (42px line box, still fits) sits 12 above and 13 below,
+// and the 30px cut (63px line box, does not) sits 13 above and 0 below with the
+// digit crossing the cell border.
+//
+// `inkCentred` hands the component a rect that makes the ink land where you
+// meant: exactly one line box tall, positioned so the clamp is a no-op. Use it
+// for any centre-aligned label in a box shorter than its own line height.
+struct CutMetrics {
+  int16_t lineHeight;  // EpdFontData::advanceY
+  int16_t ascender;    // EpdFontData::ascender
+  int16_t inkHeight;   // the 'H' glyph's height, which is also its `top` here
+};
+
+// The cuts this fork ships, straight out of the generated headers in
+// ui/fonts/. ToyboxFonts.cpp checks these against the real font data at startup
+// and logs an error if a regenerated cut ever moves, so they cannot rot in
+// silence -- which matters because nothing else here can see a font.
+constexpr CutMetrics kTileCut{21, 17, 13};     // toybox_10
+constexpr CutMetrics kButtonCut{29, 24, 18};   // toybox_14
+constexpr CutMetrics kUiCut{42, 34, 25};       // toybox_20
+constexpr CutMetrics kDisplayCut{63, 51, 38};  // toybox_30
+
+// Only sound for glyphs that sit on the baseline with nothing below it, which
+// is every capital and every digit in these cuts (their `top` equals their
+// height). A face with descending figures would need the glyph's own top.
+constexpr fui::Rect inkCentred(const fui::Rect& box, const CutMetrics& cut) {
+  return fui::Rect{box.x, static_cast<int16_t>(box.y + (box.height + cut.inkHeight) / 2 - cut.ascender), box.width,
+                   cut.lineHeight};
+}
+
 // Font slots by name. Screens should not spell the slot numbers.
 constexpr fui::FontId kSmallFont = fui::FONT_SLOT_SMALL;
 constexpr fui::FontId kUiFont = fui::FONT_SLOT_BODY;
@@ -141,48 +183,48 @@ inline const fui::ThemeTokens& themeTokens() {
   static const fui::ThemeTokens instance = [] {
     fui::ThemeTokens tokens = fui::defaultThemeTokens(fui::FONT_SLOT_SMALL, fui::FONT_SLOT_BODY, fui::FONT_SLOT_TITLE);
 
-  tokens.spaceXs = 4;
-  // Screen::takeRow() uses spaceSm as the gap between rows, so it has to be
-  // the row gap, not a generic small space.
-  tokens.spaceSm = 4;
-  tokens.spaceMd = kGutter;
-  tokens.spaceLg = kMargin;
-  tokens.rowHeight = kRowHeight;
-  tokens.headerHeight = kHeaderHeight;
-  tokens.footerHeight = kPillHeight;
-  tokens.minTouchSize = 44;
+    tokens.spaceXs = 4;
+    // Screen::takeRow() uses spaceSm as the gap between rows, so it has to be
+    // the row gap, not a generic small space.
+    tokens.spaceSm = 4;
+    tokens.spaceMd = kGutter;
+    tokens.spaceLg = kMargin;
+    tokens.rowHeight = kRowHeight;
+    tokens.headerHeight = kHeaderHeight;
+    tokens.footerHeight = kPillHeight;
+    tokens.minTouchSize = 44;
 
-  tokens.listRowGap = 4;
-  tokens.listSidePadding = kGutter;
-  // Zero, not kMargin: the screen's content rect already carries the page
-  // margin, and listInset is applied on top of it. Setting both indents the
-  // rows twice.
-  tokens.listInset = 0;
-  tokens.listSelectionStyle = fui::SelectionStyle::InvertFill;
+    tokens.listRowGap = 4;
+    tokens.listSidePadding = kGutter;
+    // Zero, not kMargin: the screen's content rect already carries the page
+    // margin, and listInset is applied on top of it. Setting both indents the
+    // rows twice.
+    tokens.listInset = 0;
+    tokens.listSelectionStyle = fui::SelectionStyle::InvertFill;
 
-  tokens.headerSidePadding = kMargin;
-  // Toybox draws its own rule under the header, offset from the band, so the
-  // component must not draw one flush against it.
-  tokens.headerUnderline = 0;
-  tokens.headerTitleAlign = fui::TextAlign::Left;
+    tokens.headerSidePadding = kMargin;
+    // Toybox draws its own rule under the header, offset from the band, so the
+    // component must not draw one flush against it.
+    tokens.headerUnderline = 0;
+    tokens.headerTitleAlign = fui::TextAlign::Left;
 
-  tokens.titleText.font = fui::FONT_SLOT_TITLE;
-  // The display cut is only ever set on the header band, and that band is
-  // always solid black, so the title colour belongs to the token rather than to
-  // each caller. `header()` uses the title style as given instead of resolving
-  // it against the band's foreground, so leaving this at its Black default
-  // paints the title black on black and it simply disappears.
-  tokens.titleText.color = fui::Color::White;
-  tokens.bodyText.font = fui::FONT_SLOT_BODY;
-  // UI cut, not the small slot: that slot holds the Connections tile face, and
-  // list values would shrink to 13px if this followed it.
-  tokens.smallText.font = kUiFont;
+    tokens.titleText.font = fui::FONT_SLOT_TITLE;
+    // The display cut is only ever set on the header band, and that band is
+    // always solid black, so the title colour belongs to the token rather than to
+    // each caller. `header()` uses the title style as given instead of resolving
+    // it against the band's foreground, so leaving this at its Black default
+    // paints the title black on black and it simply disappears.
+    tokens.titleText.color = fui::Color::White;
+    tokens.bodyText.font = fui::FONT_SLOT_BODY;
+    // UI cut, not the small slot: that slot holds the Connections tile face, and
+    // list values would shrink to 13px if this followed it.
+    tokens.smallText.font = kUiFont;
 
-  tokens.listRow = rowStyles();
-  tokens.button = invertedStyles();
-  // Screen::header() takes the band's StyleSet from the popup slot, which is
-  // the SDK's convention for "chrome surface" rather than an oversight.
-  tokens.popup = invertedStyles();
+    tokens.listRow = rowStyles();
+    tokens.button = invertedStyles();
+    // Screen::header() takes the band's StyleSet from the popup slot, which is
+    // the SDK's convention for "chrome surface" rather than an oversight.
+    tokens.popup = invertedStyles();
     return tokens;
   }();
   return instance;

@@ -49,6 +49,7 @@ restyled to match the design language the apps use.
 | **Yahtzee**      | Thirteen boxes, three rolls a turn, and the Joker rules in full.            |
 | **Knucklebones** | Cult of the Lamb's dice game. Matching dice multiply; yours destroy theirs. |
 | **Minesweeper**  | Tap to dig, hold to flag. The first dig is always safe.                     |
+| **Sudoku**       | Generated on the device and graded by the technique it needs, not the clues. |
 | **Sea Salt**     | Sea Salt & Paper: collect duos, bet on STOP or LAST CHANCE.                 |
 | **Toy Battle**   | Nine boards of bases and paths. Hold regions, take medals, solo or nearby.  |
 | **Study**        | Anki decks with the FSRS scheduler, offline.                                |
@@ -67,6 +68,7 @@ Each game's rules, its state machines and the decisions behind them:
 [Yahtzee](docs/apps/yahtzee.md) &middot;
 [Knucklebones](docs/apps/knucklebones.md) &middot;
 [Minesweeper](docs/apps/minesweeper.md) &middot;
+[Sudoku](docs/apps/sudoku.md) &middot;
 [Jaipur](docs/apps/jaipur.md) &middot;
 [Sea Salt](docs/apps/seasalt.md) &middot;
 [Murdle](docs/apps/murdle.md) &middot;

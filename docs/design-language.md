@@ -174,6 +174,37 @@ fits, it can never regress, it is warmer than the full name, and the full name i
 still on the seat card where you met them. **When a value grows and a layout
 breaks, ask whether that layout wanted the whole value.**
 
+**A label in a box shorter than its own line box is not centred at all.** This
+is the same defect one level up, and it is the one that keeps coming back.
+`GfxRendererTarget::text` places centre-aligned text at
+`rect.y + max(0, (rect.height - lineHeight) / 2)`, so it centres the font's
+**line box** (`advanceY`) rather than its ink -- and it clamps. Jersey carries
+heavy leading, so the moment the box is shorter than the line box that `max()`
+pins the offset at zero and the text lands `ascender - inkHeight` below the top
+with its foot out of the bottom.
+
+| cut | line box | ink | needs a box of |
+| --- | -------- | --- | -------------- |
+| `toybox_10` | 21px | 13px | 21px |
+| `toybox_14` | 29px | 18px | 29px |
+| `toybox_20` | 42px | 25px | 42px |
+| `toybox_30` | 63px | 38px | **63px** |
+
+The display cut therefore needs a 63px-tall rect to centre itself, and almost
+nothing inside a game board is 63px tall. The error grows as the box gets
+_smaller_, which is exactly why it reads as an intermittent font problem instead
+of a rule: a 50px Sudoku cell put the 20px cut at 12 above and 13 below (fine)
+and the 30px cut at 13 above and 0 below, crossing the border.
+
+`toybox::inkCentred(box, cut)` returns a rect one line box tall, positioned so
+the clamp is a no-op and the ink lands centred in `box`. Use it for any
+centre-aligned label in a box shorter than its own line height. It assumes the
+glyph sits on the baseline with nothing below it -- true of every capital and
+digit in these cuts, not of lowercase with descenders. The constants live in
+`ToyboxTokens.h` because screens are freestanding and cannot see a font;
+`ToyboxFonts.cpp` re-derives them from the real font data at startup and logs an
+error if a regenerated cut ever moves them.
+
 **Centre on cap height, never on `getTextHeight()`.** It returns the font's
 **ascender**, and `drawText()` takes `y` as the top of the ascender box. So
 `(box - getTextHeight()) / 2` centres the _box_, not the letters, and capital ink
