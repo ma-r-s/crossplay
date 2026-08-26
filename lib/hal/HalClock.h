@@ -20,6 +20,10 @@ class HalClock {
   // Call after BoardConfig has selected the active device.
   void begin();
 
+  bool available() const { return _available; }
+  // Raw hardware-RTC readout, uncached; diagnostics (the dev bridge's DATE).
+  bool raw(Rtc::DateTime& dt) const { return _available && _sdkRtc.now(dt); }
+
   // True if an RTC is present on this device
   bool isAvailable() const { return _available; }
 

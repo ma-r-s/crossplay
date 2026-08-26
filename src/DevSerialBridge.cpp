@@ -4,6 +4,7 @@
 
 #include <Arduino.h>
 #include <BoardConfig.h>
+#include <HalClock.h>
 #include <HalDisplay.h>
 #include <HalGPIO.h>
 #include <HalStorage.h>
@@ -104,6 +105,25 @@ void handleLine(const char* line) {
     transport().printf("OK HEAP free=%u min=%u maxalloc=%u total=%u psramfree=%u psramtotal=%u\n", ESP.getFreeHeap(),
                        ESP.getMinFreeHeap(), ESP.getMaxAllocHeap(), ESP.getHeapSize(), ESP.getFreePsram(),
                        ESP.getPsramSize());
+    return;
+  }
+
+  if (strcmp(cmd, "DATE") == 0) {
+    // Both clocks side by side: system time (what today()/Study/Connections
+    // consume) and the hardware RTC (what the status bar reads).
+    const time_t now = time(nullptr);
+    struct tm t;
+    gmtime_r(&now, &t);
+    char sys[32];
+    strftime(sys, sizeof(sys), "%Y-%m-%d %H:%M:%S", &t);
+    Rtc::DateTime dt;
+    const bool rtcOk = halClock.available() && halClock.raw(dt);
+    transport().printf("OK DATE system=%sZ rtc=", sys);
+    if (rtcOk) {
+      transport().printf("%04u-%02u-%02u %02u:%02u:%02uZ\n", dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second);
+    } else {
+      transport().printf("unavailable\n");
+    }
     return;
   }
 

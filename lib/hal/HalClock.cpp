@@ -3,6 +3,7 @@
 #include <Logging.h>
 #include <WiFi.h>
 #include <esp_sntp.h>
+#include <sys/time.h>
 #include <time.h>
 
 HalClock halClock;  // Singleton instance
@@ -10,6 +11,35 @@ HalClock halClock;  // Singleton instance
 void HalClock::begin() {
   _available = _sdkRtc.begin();
   LOG_INF("CLK", _available ? "SDK RTC found" : "RTC not found");
+
+  // Load the hardware RTC into system time. Nothing else ever did: time()
+  // started at the 1970 epoch on every hard boot (flash, reset, battery loss)
+  // and stayed there until an NTP sync happened to run in that power cycle.
+  // The status-bar clock hid it by reading the RTC chip directly, while every
+  // consumer of time() -- Connections' today(), Study's due dates, the
+  // clock-predates-build resync check -- saw 1970. Deep-sleep wakes preserve
+  // system time, which is why the X4 Pro rarely showed it and a
+  // frequently-reflashed device always did. The RTC stores UTC (the NTP path
+  // writes it as UTC); a year before 2020 means the chip itself was never
+  // set, and epoch is no worse than garbage, so leave system time alone.
+  Rtc::DateTime dt;
+  if (_available && _sdkRtc.now(dt) && dt.year >= 2020) {
+    struct tm t = {};
+    t.tm_year = dt.year - 1900;
+    t.tm_mon = dt.month - 1;
+    t.tm_mday = dt.day;
+    t.tm_hour = dt.hour;
+    t.tm_min = dt.minute;
+    t.tm_sec = dt.second;
+    const time_t epoch = mktime(&t);  // TZ unset on device: interpreted as UTC
+    if (epoch > 0) {
+      struct timeval tv = {};
+      tv.tv_sec = epoch;
+      settimeofday(&tv, nullptr);
+      LOG_INF("CLK", "System time restored from RTC: %04u-%02u-%02u %02u:%02u:%02u UTC", dt.year, dt.month, dt.day,
+              dt.hour, dt.minute, dt.second);
+    }
+  }
 }
 
 bool HalClock::getTime(uint8_t& hour, uint8_t& minute) const {
