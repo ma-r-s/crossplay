@@ -274,13 +274,17 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   doorValue.font = toybox::kTileFont;
   doorValue.align = fui::TextAlign::Right;
   list.valueText = doorValue;
-  list.valueInset = 6;
-  // An explicit gap and a band of exactly two rows plus that gap: the
-  // theme's tighter default left the doors touching, and any slack in the
-  // band floats the bottom door off the content margin.
-  constexpr int kDoorGap = 10;
-  list.rowGap = kDoorGap;
-  screen.list(list, 2 * toybox::kRowHeight + kDoorGap, fui::LayoutAnchor::Bottom);
+  // One unit inside and out. The block's frame is kMargin on every side,
+  // and every interior distance takes the same unit: door to door, border
+  // to icon, icon to label, value to border. The theme's tighter list
+  // defaults (12/10) inside a 16px frame is what read as cramped. The
+  // band is exactly two rows plus the gap, so no slack floats the bottom
+  // door off the content margin.
+  list.sidePadding = toybox::kMargin;
+  list.textGap = toybox::kMargin;
+  list.rowGap = toybox::kMargin;
+  list.valueInset = 0;
+  screen.list(list, 2 * toybox::kRowHeight + toybox::kMargin, fui::LayoutAnchor::Bottom);
 
   if (model.writeFailed) {
     // Loud, and above the door rather than inside it: a review the user gave
