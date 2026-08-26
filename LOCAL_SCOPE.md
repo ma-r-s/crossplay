@@ -1,7 +1,11 @@
 # Fork Scope
 
 This is a personal fork of [CrossPoint Reader](https://github.com/crosspoint-reader/crosspoint-reader).
-Target device: **Xteink X4 Pro** (ESP32-S3, 480x800 touch panel, frontlight).
+Target devices: the **Xteink X4 Pro** (ESP32-S3, 480x800 touch panel,
+frontlight) and, since 2026-08-25, the **Seeed reTerminal Sticky** (same S3,
+same 800x480 panel and GT911 touch; three buttons, no frontlight). The design
+floor stays the X4 Pro -- two side keys plus touch; see
+[docs/buttons.md](docs/buttons.md).
 
 **This file overrides [SCOPE.md](SCOPE.md) where the two disagree.** SCOPE.md is
 upstream's document and is kept verbatim so it merges cleanly. It says

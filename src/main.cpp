@@ -26,6 +26,7 @@
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "DevSerialBridge.h"
 #include "KOReaderCredentialStore.h"
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
@@ -353,6 +354,12 @@ void setup() {
 #endif
 #endif
 
+#if CROSSPOINT_DEV_SERIAL_BRIDGE
+  // Before any path that can end setup() early (SD failure ends it at the
+  // error screen), so the bridge can drive and photograph even those states.
+  devbridge::begin();
+#endif
+
   HalSystem::begin();
   // checkPanic() clears the watchdog capture marker after a successful SD
   // dump, so retain the boot classification for the later activity route.
@@ -424,6 +431,13 @@ void setup() {
     activityManager.goToFullScreenMessage("SD card error", EpdFontFamily::BOLD);
     return;
   }
+  // A virgin card has no /.crosspoint until the first PersistableStore save
+  // happens to run (that path mkdirs for itself), and every plain HalFile
+  // writer -- the game saves, the player identity -- just opens into it and
+  // fails. On the first card the Sticky ever saw, that meant every game save
+  // silently vanished until a store write happened to run first. Create it at
+  // mount, idempotently, so no writer depends on which save ran first.
+  Storage.mkdir("/.crosspoint");
 
   HalSystem::checkPanic();
 
@@ -452,6 +466,15 @@ void setup() {
 
   switch (wakeupReason) {
     case HalGPIO::WakeupReason::PowerButton:
+#if CROSSPOINT_DEV_SERIAL_BRIDGE
+      // A bridge-driven desk device has no finger to hold the button through
+      // the wake check, and boards without USB detect (Sticky) classify every
+      // cold boot as PowerButton -- so a dev build would deep-sleep on every
+      // reset before the bridge could speak. Dev builds boot straight
+      // through; release builds keep the real gate.
+      LOG_DBG("MAIN", "Dev bridge build: skipping power button verification");
+      break;
+#else
       LOG_DBG("MAIN", "Verifying power button press duration");
       if (!gpio.verifyPowerButtonWakeup(SETTINGS.getPowerButtonDuration(),
                                         SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP)) {
@@ -459,6 +482,7 @@ void setup() {
       }
       wakePowerReleasePending = true;
       break;
+#endif
     case HalGPIO::WakeupReason::AfterUSBPower:
       // If USB power caused a cold boot, go back to sleep
       LOG_DBG("MAIN", "Wakeup reason: After USB Power");
@@ -597,6 +621,12 @@ void loop() {
     lastMemPrint = millis();
   }
 
+#if CROSSPOINT_DEV_SERIAL_BRIDGE
+  // Dev builds route all serial commands (screenshot included) through the
+  // bridge on the board's own transport, so exactly one reader owns the
+  // stream.
+  devbridge::update();
+#else
   // Handle incoming serial commands,
   // nb: we use logSerial from logging to avoid deprecation warnings
   if (logSerial.available() > 0) {
@@ -613,6 +643,7 @@ void loop() {
       }
     }
   }
+#endif
 
   // Check for any user activity (button press or release) or active background work
   static unsigned long lastActivityTime = millis();

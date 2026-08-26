@@ -309,7 +309,9 @@ if [ "${1:-}" != "--tests" ]; then
   # would mean committed x4pro builds never took the lock at all.
   FW_LOCK="${PLATFORMIO_BUILD_CACHE_DIR:-$WS/.pio-cache}/x4pro.lock"
 
-  for env in simulator_x4_pro x4pro; do
+  # Both firmware envs (x4pro, sticky) reach into that same ~/.platformio, so
+  # the lock is taken before the first of them and held until the last is done.
+  for env in simulator_x4_pro x4pro sticky; do
     printf "build: %-18s %s ...\n" "$env" "$(date +%H:%M:%S)"
     BUILD_T0=$(date +%s)
     if [ "$env" = "x4pro" ] && [ -d "$(dirname "$FW_LOCK")" ]; then
@@ -335,9 +337,10 @@ if [ "${1:-}" != "--tests" ]; then
       grep -E "error:" "$LOGS/$env.log" | head -5 | sed 's/^/    /'
       FAILED=1
     fi
-    # Released as soon as the firmware build is done rather than at exit, so a
-    # tree that still has other work to print does not hold every other tree up.
-    if [ "$env" = "x4pro" ]; then
+    # Released as soon as the last firmware build is done rather than at exit,
+    # so a tree that still has other work to print does not hold every other
+    # tree up.
+    if [ "$env" = "sticky" ]; then
       rmdir "$FW_LOCK" 2>/dev/null
       trap - EXIT INT TERM
     fi
