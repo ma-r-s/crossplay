@@ -216,7 +216,7 @@ bool XkcdActivity::loadComic(const int position) {
   // starts you at what you see, holding the device turned, as the bottom of
   // the strip.
   {
-    const fui::Rect view = xkcdui::readerViewport(readerDevice());
+    const fui::Rect view = xkcdui::readerViewport(fui::GfxRendererTarget(renderer).deviceContext());
     at_ = xkcd::startOf(xkcd::renditionFor(comic_, xkcd::Lens::Art), view.width);
     at_.lens = xkcd::Lens::Art;
   }
@@ -374,7 +374,7 @@ void XkcdActivity::showNotice(const char* headline, const char* detail, const ch
 // --- Panning -------------------------------------------------------------
 
 void XkcdActivity::pan(const bool down) {
-  const fui::Rect view = xkcdui::readerViewport(readerDevice());
+  const fui::Rect view = xkcdui::readerViewport(fui::GfxRendererTarget(renderer).deviceContext());
   const int viewportH = view.height;
   const int viewportW = view.width;
 
@@ -423,25 +423,12 @@ void XkcdActivity::pan(const bool down) {
 
 // --- Drawing -------------------------------------------------------------
 
-fui::DeviceContext XkcdActivity::readerDevice() const {
-  fui::DeviceContext device = fui::GfxRendererTarget(renderer).deviceContext();
-  // The shared fui adapter does not fill safeArea yet (flipping it moves
-  // every app's chrome at once; staged separately). The reader fills it in
-  // itself: the viewport must clear the bezel-covered rows, or a comic's top
-  // edge -- often its title -- draws under the glass.
-  int top, right, bottom, left;
-  renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
-  device.safeArea = fui::Insets{static_cast<int16_t>(top), static_cast<int16_t>(right), static_cast<int16_t>(bottom),
-                                static_cast<int16_t>(left)};
-  return device;
-}
-
 void XkcdActivity::drawComic() {
   if (!archiveOpen_ || !comic_.valid()) return;
   const xkcd::Rendition r = xkcd::renditionFor(comic_, at_.lens);
   if (!r.valid() || r.stride > kMaxStride) return;
 
-  const fui::Rect view = xkcdui::readerViewport(readerDevice());
+  const fui::Rect view = xkcdui::readerViewport(fui::GfxRendererTarget(renderer).deviceContext());
   const xkcd::Placement p = xkcd::place(r, view.width, view.height, at_);
 
   // A band at a time: one seek per band rather than one per row, and a fixed
@@ -674,7 +661,7 @@ void XkcdActivity::handleAction(const fui::ActionId action, const int16_t value)
     // It also made the keys do nothing on the 92% of comics that are a single
     // view.
     case xkcdui::ActionPanDown: {
-      const fui::Rect view = xkcdui::readerViewport(readerDevice());
+      const fui::Rect view = xkcdui::readerViewport(fui::GfxRendererTarget(renderer).deviceContext());
       const xkcd::Rendition r = xkcd::renditionFor(comic_, at_.lens);
       if (xkcd::canStepForward(r, view.width, view.height, at_)) {
         pan(true);
@@ -685,7 +672,7 @@ void XkcdActivity::handleAction(const fui::ActionId action, const int16_t value)
       break;
     }
     case xkcdui::ActionPanUp: {
-      const fui::Rect view = xkcdui::readerViewport(readerDevice());
+      const fui::Rect view = xkcdui::readerViewport(fui::GfxRendererTarget(renderer).deviceContext());
       const xkcd::Rendition r = xkcd::renditionFor(comic_, at_.lens);
       if (xkcd::canStepBack(r, view.width, view.height, at_)) {
         pan(false);
@@ -697,7 +684,7 @@ void XkcdActivity::handleAction(const fui::ActionId action, const int16_t value)
     }
     case xkcdui::ActionToggleOverview: {
       if (!comic_.hasOverview()) break;
-      const fui::Rect view = xkcdui::readerViewport(readerDevice());
+      const fui::Rect view = xkcdui::readerViewport(fui::GfxRendererTarget(renderer).deviceContext());
       const xkcd::Lens to = at_.lens == xkcd::Lens::Whole ? xkcd::Lens::Art : xkcd::Lens::Whole;
       // Switching views keeps your place: the two renditions are the same
       // artwork at different scales, so the row under the top of the screen
@@ -724,7 +711,7 @@ void XkcdActivity::handleAction(const fui::ActionId action, const int16_t value)
         // last page of the chapter you just stepped into. Free, because a
         // position is a panel index rather than something to walk to.
         {
-          const fui::Rect view = xkcdui::readerViewport(readerDevice());
+          const fui::Rect view = xkcdui::readerViewport(fui::GfxRendererTarget(renderer).deviceContext());
           const xkcd::Lens lens = at_.lens;
           at_ = xkcd::endOf(xkcd::renditionFor(comic_, lens), view.width, view.height);
           at_.lens = lens;
@@ -1199,7 +1186,7 @@ void XkcdActivity::render(RenderLock&&) {
       xkcdui::ReaderModel model;
       model.num = comic_.num;
       model.title = title_;
-      const fui::Rect view = xkcdui::readerViewport(readerDevice());
+      const fui::Rect view = xkcdui::readerViewport(fui::GfxRendererTarget(renderer).deviceContext());
       const xkcd::Rendition r = xkcd::renditionFor(comic_, at_.lens);
       // The map comes out of the same placement the artwork was drawn from,
       // rather than being recomputed from the comic. Two functions deriving
@@ -1222,8 +1209,8 @@ void XkcdActivity::render(RenderLock&&) {
       // so the bar's own control wins where they overlap.
       // Always registered, not only when the comic pans: forward now always
       // has somewhere to go, so a dead tap half would be the odd case.
-      frame.hit(xkcdui::readerPanUpHalf(readerDevice()), xkcdui::ActionPanUp);
-      frame.hit(xkcdui::readerPanDownHalf(readerDevice()), xkcdui::ActionPanDown);
+      frame.hit(xkcdui::readerPanUpHalf(fui::GfxRendererTarget(renderer).deviceContext()), xkcdui::ActionPanUp);
+      frame.hit(xkcdui::readerPanDownHalf(fui::GfxRendererTarget(renderer).deviceContext()), xkcdui::ActionPanDown);
       break;
     }
     case View::Number: {

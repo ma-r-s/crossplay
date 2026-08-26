@@ -249,19 +249,14 @@ source rather than worked around here.
 dropped; `-Wno-format-truncation` narrowed to the files that need it, or the
 buffers given bounds GCC can see.
 
-## The games still draw their top rows under the glass
+## The Sticky's bezel insets are still the inherited guess
 
-Added 2026-08-26, the day the bezel overlap was measured on the physical X4
-Pro (10 rows hidden at the top; the firmware had assumed 9 and nobody had
-measured). The data and the system screens are fixed; the fui layer that lays
-out every game, the shelf and the app menus still starts at panel row 0, so
-their chrome's top ~10px are invisible on the device and centered layouts sit
-visibly low. Flipping it is one line in the fui adapter plus a sweep of every
-app with known traps; the full plan and trap list is
-[bezel-insets.md](bezel-insets.md). The Sticky's insets are also still the
-inherited guess -- the BEZEL app measures it in two minutes at a desk.
+Added 2026-08-26, revised the same day: the X4 Pro side of this item is done
+(measured insets, safe-area enforcement through both the UITheme and fui
+layers; see [bezel-insets.md](bezel-insets.md)). What remains is the Sticky:
+its profile still carries the default {9,3,3,3} nobody measured, so its
+screens are laid out around a guess. The BEZEL app measures it in two
+minutes at a desk.
 
-**Done looks like:** `DeviceContext.safeArea` populated by the shared adapter,
-the divider-rule and `setContentMargin` idioms derived from the safe rect, a
-render of every app's main screen eyeballed against current, and a measured
-`ViewableInsets` override in the Sticky profile.
+**Done looks like:** a measured `ViewableInsets` override in the STICKY
+profile in BoardConfig.h, read off the BEZEL ruler on the physical unit.

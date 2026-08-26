@@ -47,9 +47,7 @@ void chrome(toybox::Screen& screen, const char* title, const char* rightLabel = 
                            toybox::kGutter));
   header.borderEdges = fui::EdgesNone;
   screen.header(header);
-  const fui::Rect band = screen.device().screen();
-  screen.target().fill(fui::makeRect(0, toybox::kHeaderHeight + 4, band.width, toybox::kRule),
-                       fui::Paint::solid(fui::Color::Black));
+  toybox::headerRule(screen);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 }
 
@@ -176,15 +174,14 @@ void medalCluster(toybox::Screen& screen, const fui::Point at, const int count, 
                     7, 3);
   }
   if (mark & (MarkTick | MarkCross)) {
-    verdictMark(screen, fui::Point{static_cast<int16_t>(plate.right() + pipR), at.y},
-                static_cast<int16_t>(pipR * 3), (mark & MarkTick) != 0);
+    verdictMark(screen, fui::Point{static_cast<int16_t>(plate.right() + pipR), at.y}, static_cast<int16_t>(pipR * 3),
+                (mark & MarkTick) != 0);
   }
 }
 
 void drawNode(toybox::Screen& screen, const fui::Point at, const int16_t size, const Node& node) {
   const int16_t half = static_cast<int16_t>(size / 2);
-  const fui::Rect box =
-      fui::makeRect(static_cast<int16_t>(at.x - half), static_cast<int16_t>(at.y - half), size, size);
+  const fui::Rect box = fui::makeRect(static_cast<int16_t>(at.x - half), static_cast<int16_t>(at.y - half), size, size);
   const bool hq = node.face == 'H' || node.face == 'E';
   // Silhouette says "there is a rule about what may land here", badge says
   // "this base does something after you land" -- the board's split, kept, so a
@@ -346,8 +343,7 @@ PageFrame pageFrame(toybox::Screen& screen, const char* caption, const fui::Text
   // measurement, just taken over every page instead of this one.
   if (captionBand > tall) tall = captionBand;
   frame.caption = fui::makeRect(body.x, static_cast<int16_t>(body.bottom() - tall), body.width, tall);
-  frame.picture =
-      fui::makeRect(body.x, body.y, body.width, static_cast<int16_t>(body.height - tall - toybox::kMargin));
+  frame.picture = fui::makeRect(body.x, body.y, body.width, static_cast<int16_t>(body.height - tall - toybox::kMargin));
   return frame;
 }
 
@@ -415,10 +411,10 @@ constexpr Node kReachNodes[] = {
 };
 
 constexpr Node kCoverNodes[] = {
-    {500, 30, 'E', Theirs, MarkNone, tb::Special::None},  {30, 250, ' ', Nobody, MarkNone, tb::Special::None},
-    {500, 250, '4', Theirs, MarkNone, tb::Special::None}, {970, 250, ' ', Nobody, MarkNone, tb::Special::None},
+    {500, 30, 'E', Theirs, MarkNone, tb::Special::None},   {30, 250, ' ', Nobody, MarkNone, tb::Special::None},
+    {500, 250, '4', Theirs, MarkNone, tb::Special::None},  {970, 250, ' ', Nobody, MarkNone, tb::Special::None},
     {215, 560, '6', Theirs, MarkCross, tb::Special::None}, {785, 560, '3', Theirs, MarkTick, tb::Special::None},
-    {500, 790, '5', Yours, MarkNone, tb::Special::None},  {500, 965, 'H', Yours, MarkNone, tb::Special::None},
+    {500, 790, '5', Yours, MarkNone, tb::Special::None},   {500, 965, 'H', Yours, MarkNone, tb::Special::None},
 };
 
 constexpr Node kChainNodes[] = {
@@ -429,10 +425,10 @@ constexpr Node kChainNodes[] = {
 };
 
 constexpr Node kRegionNodes[] = {
-    {500, 30, 'E', Theirs, MarkNone, tb::Special::None},  {30, 250, ' ', Nobody, MarkNone, tb::Special::None},
-    {500, 250, '6', Yours, MarkNone, tb::Special::None},  {970, 250, ' ', Nobody, MarkNone, tb::Special::None},
-    {215, 560, '5', Yours, MarkNone, tb::Special::None},  {785, 560, '3', Yours, MarkNone, tb::Special::None},
-    {500, 790, '4', Yours, MarkNone, tb::Special::None},  {500, 965, 'H', Yours, MarkNone, tb::Special::None},
+    {500, 30, 'E', Theirs, MarkNone, tb::Special::None}, {30, 250, ' ', Nobody, MarkNone, tb::Special::None},
+    {500, 250, '6', Yours, MarkNone, tb::Special::None}, {970, 250, ' ', Nobody, MarkNone, tb::Special::None},
+    {215, 560, '5', Yours, MarkNone, tb::Special::None}, {785, 560, '3', Yours, MarkNone, tb::Special::None},
+    {500, 790, '4', Yours, MarkNone, tb::Special::None}, {500, 965, 'H', Yours, MarkNone, tb::Special::None},
 };
 constexpr Medals kRegionMedals[] = {{500, 430, 2, MarkRing}};
 
@@ -458,12 +454,12 @@ struct WalkPage {
 constexpr WalkPage kWalkPages[] = {
     {"THE GOAL", false, "TAKE THE MEDALS THIS MAP IS WORTH, OR LAND ONE TROOP ON THEIR H.Q.", kGoalNodes, kWalkLinks,
      kGoalMedals, 1, false},
-    {"YOUR TURN", false, "PLACE ONE TROOP NEXT TO YOUR H.Q., OR DRAW TWO. THAT IS THE WHOLE TURN.", kTurnNodes, kWalkLinks,
-     kPlainMedals, 1, false},
+    {"YOUR TURN", false, "PLACE ONE TROOP NEXT TO YOUR H.Q., OR DRAW TWO. THAT IS THE WHOLE TURN.", kTurnNodes,
+     kWalkLinks, kPlainMedals, 1, false},
     {"YOUR REACH", false, "THE NEXT ONE GOES BESIDE A BASE YOU ALREADY HOLD. NEVER FURTHER.", kReachNodes, kWalkLinks,
      kPlainMedals, 1, false},
-    {"COVERING", false, "YOU MAY LAND ON A SMALLER TROOP OF THEIRS. THE BURIED ONE STAYS BURIED.", kCoverNodes, kWalkLinks,
-     kPlainMedals, 1, false},
+    {"COVERING", false, "YOU MAY LAND ON A SMALLER TROOP OF THEIRS. THE BURIED ONE STAYS BURIED.", kCoverNodes,
+     kWalkLinks, kPlainMedals, 1, false},
     {"THE LINE HOME", true, "CUT THE WALK BACK TO YOUR H.Q. AND THE BASE AT THE FAR END STOPS COUNTING.", kChainNodes,
      kWalkLinksHeld, kPlainMedals, 1, false},
     {"REGIONS", false, "HOLD EVERY BASE AROUND A REGION AND ITS MEDALS ARE YOURS FOR GOOD.", kRegionNodes, kWalkLinks,
@@ -488,8 +484,9 @@ void buildWalkthrough(toybox::Screen& screen, const int page) {
   const fui::Rect whole = screen.contentRect();
   int16_t tallest = 0;
   for (int i = 0; i < kWalkCount; ++i) {
-    const int16_t h = fui::measureWrappedText(screen.target(), kWalkPages[i].caption, caption,
-                                              static_cast<int16_t>(whole.width)).height;
+    const int16_t h =
+        fui::measureWrappedText(screen.target(), kWalkPages[i].caption, caption, static_cast<int16_t>(whole.width))
+            .height;
     if (h > tallest) tallest = h;
   }
   const PageFrame frame = pageFrame(screen, content.caption, caption, page, kWalkCount, tallest);

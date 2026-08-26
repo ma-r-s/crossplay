@@ -29,9 +29,7 @@ void toyboxChrome(toybox::Screen& screen, const char* title, const char* rightLa
   header.subtitleText.align = fui::TextAlign::Right;
   header.borderEdges = fui::EdgesNone;
   screen.header(header);
-  const fui::Rect band = screen.device().screen();
-  screen.target().fill(fui::makeRect(0, toybox::kHeaderHeight + 4, band.width, toybox::kRule),
-                       fui::Paint::solid(fui::Color::Black));
+  toybox::headerRule(screen);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 }
 

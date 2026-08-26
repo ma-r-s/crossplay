@@ -46,12 +46,14 @@ constexpr int kDoorCount = 4;
 constexpr int16_t kDoorGap = 8;
 
 MenuBands menuBands(const fui::DeviceContext& device) {
-  const fui::Rect panel = device.screen();
-  const int16_t left = toybox::kMargin;
-  const int16_t width = static_cast<int16_t>(panel.width - toybox::kMargin * 2);
+  // From the safe rect, so every band clears the bezel-covered edges along
+  // with the chrome above it.
+  const fui::Rect safe = device.safeRect();
+  const int16_t left = static_cast<int16_t>(safe.x + toybox::kMargin);
+  const int16_t width = static_cast<int16_t>(safe.width - toybox::kMargin * 2);
 
   MenuBands b;
-  int16_t y = kBodyTop;
+  int16_t y = static_cast<int16_t>(safe.y + kBodyTop);
   b.headline = fui::makeRect(left, y, width, 44);
   y = static_cast<int16_t>(y + 44 + 2);
   b.title = fui::makeRect(left, y, width, 28);
@@ -62,7 +64,8 @@ MenuBands menuBands(const fui::DeviceContext& device) {
   y = static_cast<int16_t>(y + 24 + toybox::kGutter * 2);
 
   const int16_t doorsHeight = static_cast<int16_t>(kDoorCount * toybox::kPillHeight + (kDoorCount - 1) * kDoorGap);
-  b.doors = fui::makeRect(left, static_cast<int16_t>(panel.height - toybox::kMargin - doorsHeight), width, doorsHeight);
+  b.doors =
+      fui::makeRect(left, static_cast<int16_t>(safe.bottom() - toybox::kMargin - doorsHeight), width, doorsHeight);
   b.mosaic = fui::makeRect(left, y, width, static_cast<int16_t>(b.doors.y - toybox::kGutter - y));
   return b;
 }
@@ -86,9 +89,7 @@ void chrome(toybox::Screen& screen, const char* title, const char* rightLabel = 
   }
   screen.header(header);
 
-  const fui::Rect panel = screen.device().screen();
-  screen.target().fill(fui::makeRect(0, static_cast<int16_t>(kHeaderBand + 4), panel.width, toybox::kRule),
-                       fui::Paint::solid(fui::Color::Black));
+  toybox::headerRule(screen);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 }
 
@@ -254,16 +255,17 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
 void buildNumber(toybox::Screen& screen, const NumberModel& model) {
   chrome(screen, "GO TO NUMBER");
 
-  const fui::Rect panel = screen.device().screen();
-  const int16_t left = toybox::kMargin;
-  const int16_t width = static_cast<int16_t>(panel.width - toybox::kMargin * 2);
+  const fui::Rect safe = screen.frame().safeRect();
+  const int16_t left = static_cast<int16_t>(safe.x + toybox::kMargin);
+  const int16_t width = static_cast<int16_t>(safe.width - toybox::kMargin * 2);
+  const int16_t bodyTop = static_cast<int16_t>(safe.y + kBodyTop);
 
   // What has been typed, big, with the range under it so the bounds are a
   // thing you can read rather than a thing you discover by being refused.
   const bool empty = model.typed == nullptr || model.typed[0] == '\0';
   char shown[16];
   snprintf(shown, sizeof(shown), "#%s", empty ? "" : model.typed);
-  screen.target().text(fui::makeRect(left, kBodyTop, width, 56), shown,
+  screen.target().text(fui::makeRect(left, bodyTop, width, 56), shown,
                        onPaper(screen.theme().titleText, fui::TextAlign::Center));
 
   // The pack's real span, not 1..max. A pack can be built from any slice of
@@ -272,7 +274,7 @@ void buildNumber(toybox::Screen& screen, const NumberModel& model) {
   char range[48];
   snprintf(range, sizeof(range), "%u to %u", static_cast<unsigned>(model.firstNum),
            static_cast<unsigned>(model.maxNum));
-  screen.target().text(fui::makeRect(left, static_cast<int16_t>(kBodyTop + 58), width, 24), range,
+  screen.target().text(fui::makeRect(left, static_cast<int16_t>(bodyTop + 58), width, 24), range,
                        onPaper(screen.theme().smallText, fui::TextAlign::Center));
 
   // Ten digits, three to a row, with back and go on the last. Sized from the
@@ -280,7 +282,7 @@ void buildNumber(toybox::Screen& screen, const NumberModel& model) {
   constexpr int16_t kPadGap = 10;
   const int16_t keyW = static_cast<int16_t>((width - kPadGap * 2) / 3);
   const int16_t keyH = 64;
-  const int16_t padTop = static_cast<int16_t>(kBodyTop + 100);
+  const int16_t padTop = static_cast<int16_t>(bodyTop + 100);
 
   const char* keys[12] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "<", "0", "GO"};
   for (int i = 0; i < 12; ++i) {
@@ -311,11 +313,11 @@ void buildNumber(toybox::Screen& screen, const NumberModel& model) {
 // --- Browsing ------------------------------------------------------------
 
 fui::Rect listBand(const fui::DeviceContext& device) {
-  const fui::Rect panel = device.screen();
-  const int16_t top = kBodyTop;
-  const int16_t bottom = static_cast<int16_t>(panel.height - toybox::kMargin - toybox::kPillHeight - toybox::kGutter);
-  return fui::makeRect(toybox::kMargin, top, static_cast<int16_t>(panel.width - toybox::kMargin * 2),
-                       static_cast<int16_t>(bottom - top));
+  const fui::Rect safe = device.safeRect();
+  const int16_t top = static_cast<int16_t>(safe.y + kBodyTop);
+  const int16_t bottom = static_cast<int16_t>(safe.bottom() - toybox::kMargin - toybox::kPillHeight - toybox::kGutter);
+  return fui::makeRect(static_cast<int16_t>(safe.x + toybox::kMargin), top,
+                       static_cast<int16_t>(safe.width - toybox::kMargin * 2), static_cast<int16_t>(bottom - top));
 }
 
 void buildList(toybox::Screen& screen, const ListModel& model) {
@@ -336,28 +338,31 @@ void buildList(toybox::Screen& screen, const ListModel& model) {
   props.valueText = owned(screen.theme().smallText, fui::TextAlign::Right);
 
   // The content rect already carries the page margin; listInset is applied on
-  // top of it, so leaving it non-zero indents every row twice.
-  screen.setContentMargin(
-      fui::Insets{band.y, toybox::kMargin, static_cast<int16_t>(panel.height - band.bottom()), toybox::kMargin});
+  // top of it, so leaving it non-zero indents every row twice. Margins are the
+  // band expressed as absolute screen-frame insets, so the two cannot drift.
+  screen.setContentMarginAbsolute(fui::Insets{band.y, static_cast<int16_t>(panel.width - band.right()),
+                                              static_cast<int16_t>(panel.height - band.bottom()), band.x});
   screen.list(props, band.height);
 
   // Paging, bottom-anchored beside each other. Older is on the left because
   // the list runs newest-first, so left is back the way you came.
+  const fui::Rect safe = screen.frame().safeRect();
   const int16_t pageWidth = 150;
-  const int16_t pageY = static_cast<int16_t>(panel.height - toybox::kMargin - toybox::kPillHeight);
+  const int16_t pageY = static_cast<int16_t>(safe.bottom() - toybox::kMargin - toybox::kPillHeight);
 
   fui::ButtonProps older;
   older.label = "OLDER";
   older.action = ActionPageOlder;
   older.enabled = model.canPageOlder;
-  addButton(screen, older, fui::makeRect(toybox::kMargin, pageY, pageWidth, toybox::kPillHeight));
+  addButton(screen, older,
+            fui::makeRect(static_cast<int16_t>(safe.x + toybox::kMargin), pageY, pageWidth, toybox::kPillHeight));
 
   fui::ButtonProps newer;
   newer.label = "NEWER";
   newer.action = ActionPageNewer;
   newer.enabled = model.canPageNewer;
   addButton(screen, newer,
-            fui::makeRect(static_cast<int16_t>(panel.width - toybox::kMargin - pageWidth), pageY, pageWidth,
+            fui::makeRect(static_cast<int16_t>(safe.right() - toybox::kMargin - pageWidth), pageY, pageWidth,
                           toybox::kPillHeight));
 }
 
@@ -366,9 +371,9 @@ void buildList(toybox::Screen& screen, const ListModel& model) {
 fui::Rect readerViewport(const fui::DeviceContext& device) {
   // From the safe rect, not the panel: the bezel covers the top rows and edge
   // columns, and a comic's own title often lives in its first pixels. The bar
-  // keeps the true bottom edge. The activity fills device.safeArea in
-  // (XkcdActivity::readerDevice); a context without it gets the old full-bleed
-  // viewport, which is what the host tests construct.
+  // keeps the true bottom edge. The fui adapter fills device.safeArea; a
+  // context without it (what the host tests construct) gets the old
+  // full-bleed viewport.
   const fui::Rect safe = device.safeRect();
   const fui::Rect panel = device.screen();
   return fui::makeRect(safe.x, safe.y, safe.width, static_cast<int16_t>(panel.height - kBarHeight - safe.y));
@@ -553,13 +558,13 @@ void buildAlt(toybox::Screen& screen, const AltModel& model) {
   text.showCaret = false;
   screen.textArea(text, static_cast<int16_t>(screen.body().height - toybox::kPillHeight - toybox::kGutter));
 
-  const fui::Rect panel = screen.device().screen();
+  const fui::Rect safe = screen.frame().safeRect();
   fui::ButtonProps back;
   back.label = "BACK TO THE COMIC";
   back.action = ActionDismiss;
-  screen.button(
-      back, fui::makeRect(toybox::kMargin, static_cast<int16_t>(panel.height - toybox::kMargin - toybox::kPillHeight),
-                          static_cast<int16_t>(panel.width - toybox::kMargin * 2), toybox::kPillHeight));
+  screen.button(back, fui::makeRect(static_cast<int16_t>(safe.x + toybox::kMargin),
+                                    static_cast<int16_t>(safe.bottom() - toybox::kMargin - toybox::kPillHeight),
+                                    static_cast<int16_t>(safe.width - toybox::kMargin * 2), toybox::kPillHeight));
 }
 
 // --- Notices -------------------------------------------------------------
@@ -580,13 +585,13 @@ void buildNotice(toybox::Screen& screen, const NoticeModel& model) {
   screen.textArea(detail, static_cast<int16_t>(screen.body().height - toybox::kPillHeight - toybox::kGutter));
 
   if (model.actionLabel != nullptr) {
-    const fui::Rect panel = screen.device().screen();
+    const fui::Rect safe = screen.frame().safeRect();
     fui::ButtonProps act;
     act.label = model.actionLabel;
     act.action = model.action;
-    screen.button(
-        act, fui::makeRect(toybox::kMargin, static_cast<int16_t>(panel.height - toybox::kMargin - toybox::kPillHeight),
-                           static_cast<int16_t>(panel.width - toybox::kMargin * 2), toybox::kPillHeight));
+    screen.button(act, fui::makeRect(static_cast<int16_t>(safe.x + toybox::kMargin),
+                                     static_cast<int16_t>(safe.bottom() - toybox::kMargin - toybox::kPillHeight),
+                                     static_cast<int16_t>(safe.width - toybox::kMargin * 2), toybox::kPillHeight));
   }
 }
 

@@ -54,43 +54,43 @@ into the current orientation.
 - The scroll indicators: `UIThemeTokens.h` derives `listScrollInset` from the
   side insets, so they moved from 7px to 1px off the edge on the X4 Pro.
 
-## Who does NOT honor it yet (the stage-2 flip)
+## The fui layer honors it too (flipped on app/bezel)
 
-`freeink::ui::DeviceContext.safeArea` is never populated by the shared
-adapter (`FreeInkUIGfxRenderer.h::deviceContext()`), so every toybox/fui
-screen -- all the games, the shelf, hacker news, xkcd's menus -- still lays
-out from the full panel: `freeink::ui::Screen` seeds `content_` from
-`frame.safeRect()`, which today equals `screen()`.
+`FreeInkUIGfxRenderer.h::deviceContext()` fills `DeviceContext.safeArea`
+from `getOrientedViewableTRBL()`, and `freeink::ui::Screen` seeds its
+content rect from `frame.safeRect()` -- so every toybox/fui screen (all the
+games, the shelf, hacker news, xkcd's menus) lays out clear of the glass.
+What made the one-line flip safe, in the order the traps were found:
 
-Flipping it is ONE line in the adapter, but it moves every app's chrome at
-once. Known traps, found while staging this:
+1. **The ~23 absolute-margin `setContentMargin` sites** (reader menus,
+   settings lists, wifi, sliders) build margins in the full screen frame
+   from `getScreenSafeArea()`. They now call `setContentMarginAbsolute()`,
+   which insets from `screen()` rather than `safeRect()` -- same geometry as
+   before the flip, insets applied exactly once. Never hand absolute margins
+   to plain `setContentMargin()`; that applies the safe area twice.
+2. **The divider rule** under header bands is `toybox::headerRule(screen)`
+   (ToyboxScreen.h), derived from `screen.body().y` right after
+   `screen.header(...)`. The old idiom (a fill at absolute
+   `kHeaderHeight + 4`) would sit inside the shifted band and vanish.
+3. **Decorations riding the header band** (the shelf's folder mark, toy
+   battle's medal tally, murdle's face doors, connections' and murdle's
+   header-door hit rects) position from the band's real top
+   (`body().y - kHeaderHeight` right after header(), or `safeRect().y`),
+   never from y=0.
+4. **Deliberate full-bleed stays full-bleed**: band fills and rules span the
+   panel width (paint may run under the bezel; content may not), the XKCD
+   reader bar and its map stay on the true bottom edge, Connections'
+   tap-anywhere hit rect covers the whole panel (the digitizer works over
+   the covered strip), and the BEZEL ruler app draws edge-to-edge because
+   measuring the bezel is its job.
+5. **Solitaire's absolute landscape layout is untouched**: rotated into
+   landscape, the insets put 1px on the logical top/bottom and the 10px
+   strip inside its side margins, all absorbed. Its chrome shifts by 1px.
 
-1. **The 24 `setContentMargin` sites double-inset.** They build ABSOLUTE
-   margins from `getScreenSafeArea()` (which now includes the insets) and
-   apply them via `setContentMargin`, which insets from `frame.safeRect()`.
-   Once `safeArea` is populated, that is the insets twice. Those sites must
-   switch to margins relative to the safe rect in the same change.
-2. **The divider-rule idiom goes stale.** ~20 screens draw a rule at absolute
-   `y = toybox::kHeaderHeight + 4` right after `screen.header(...)`; with the
-   header shifted down the rule lands inside the black band and vanishes.
-   Derive it from `screen.body().y` instead, in the same change.
-3. **Raw `device.screen()` uses need a paint-vs-content call.** ~35 sites
-   (list in `git grep -n "device().screen()\|device.screen()" src/apps_local`).
-   Full-bleed PAINT (band fills, backgrounds, deliberate bleed under the
-   bezel, upstream PR #2138 style) should stay `screen()`; CONTENT bands move
-   to `safeRect()`.
-4. **Tight screens lose 10 vertical px.** Fixed-height stacks that just fit
-   (Connections board + three buttons) can clip at the bottom; each app needs
-   a render after the flip. The ui host-tests will NOT catch any of this:
-   they construct their own `DeviceContext` with `safeArea = {}` and pin
-   exact pixel positions, so they stay green through the flip and through
-   regressions alike.
-5. **`XkcdActivity::readerDevice()` becomes redundant** (it fills the same
-   values) -- harmless, delete it in the flip.
-
-The flip is one worktree's worth of work with a render of every app's main
-screen next to the current one, the art-pass way. Until then, game chrome
-draws its top ~10 rows under the glass, which is what it has always done.
+Verified by rendering every app's entry screen plus the shelf, both folders
+and PLAYER in the simulator (21 screens) -- the ui host-tests cannot catch
+any of this: they construct `DeviceContext` with `safeArea = {}`, which also
+means they pin the same geometry before and after the flip by construction.
 
 ## Measuring a unit
 

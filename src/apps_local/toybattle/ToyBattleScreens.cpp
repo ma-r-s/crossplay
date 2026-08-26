@@ -823,8 +823,10 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
 
   const fui::DeviceContext device = screen.device();
 
-  screen.target().fill(fui::makeRect(0, toybox::kHeaderHeight + 4, device.width, toybox::kRule),
-                       fui::Paint::solid(fui::Color::Black));
+  toybox::headerRule(screen);
+  // The band's top edge, for decorations that ride inside it: the header was
+  // just taken from the content top, so the band ends where body() begins.
+  const int16_t bandTop = static_cast<int16_t>(screen.body().y - toybox::kHeaderHeight);
 
   // Medals ride in the black band beside the title, where the eye already goes
   // and where they cost no body space. They were on their own line under the
@@ -845,7 +847,7 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   // Centred on the band, not on a guessed y: the counter sits beside the title
   // and has to share its middle.
   const int16_t bandLine = screen.target().lineHeight(toybox::kUiFont);
-  const fui::Rect medalBox = fui::makeRect(0, static_cast<int16_t>((toybox::kHeaderHeight - bandLine) / 2),
+  const fui::Rect medalBox = fui::makeRect(0, static_cast<int16_t>(bandTop + (toybox::kHeaderHeight - bandLine) / 2),
                                            static_cast<int16_t>(device.width - toybox::kMargin), bandLine);
   if (medalWin) {
     // Knocked out of the black band: a white plate with the tally in ink.

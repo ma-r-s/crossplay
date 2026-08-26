@@ -37,9 +37,7 @@ void chrome(toybox::Screen& screen, const char* title, const char* rightLabel,
   }
   screen.header(header);
 
-  const fui::Rect panel = screen.device().screen();
-  screen.target().fill(fui::makeRect(0, toybox::kHeaderHeight + 4, panel.width, toybox::kRule),
-                       fui::Paint::solid(fui::Color::Black));
+  toybox::headerRule(screen);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 }
 
