@@ -1,10 +1,20 @@
-# Turn a v* tag into a release the device's own updater can install.
+# Turn a v* tag into a release the devices' own updaters can install.
 #
 # Upstream's release.yml is still in this tree and still fires on every tag, but
 # it builds gh_release, which is -DFREEINK_DEVICE_X4/X3 and therefore ESP32-C3.
-# The X4 Pro is an S3. Two workflows on one tag would publish two binaries and
-# let the updater pick the wrong chip, so upstream's is filtered to tags this
-# fork never creates (see the `if` below) and this one owns v*.
+# This fork's devices (X4 Pro, Sticky) are S3. Two workflows on one tag would
+# publish two binaries and let the updater pick the wrong chip, so upstream's is
+# filtered to tags this fork never creates (see the `if` below) and this one
+# owns v*.
+#
+# One release carries one app image per device. Their names are contracts:
+# the x4pro fleet's updater asks for the literal "firmware.bin" (every unit in
+# the field since v1.0.0), and each later board asks for its per-board suffix
+# (firmware-sticky.bin). CROSSPOINT_RELEASE_ASSET in src/network/
+# FirmwareBoardTag.h encodes both rules; host-tests/release asserts this file
+# publishes what the devices ask for. Cross-flashing is guarded twice: the
+# esp_image chip_id check, and the CROSSPOINT-BOARD-V1 tag embedded in every
+# image (both updaters abort on a tag naming a different board).
 name: CrossPlay release
 
 on:
@@ -38,28 +48,35 @@ jobs:
       - name: Install PlatformIO
         run: pip install --upgrade platformio
 
-      - name: Build
+      - name: Build x4pro
         run: pio run -e gh_release_x4pro
 
-      # Two .bin files, because the two ways of installing this need different
-      # images and shipping only one of them is what went wrong before.
+      - name: Build sticky
+        run: pio run -e gh_release_sticky
+
+      # Two .bin files per device, because the two ways of installing need
+      # different images and shipping only one of them is what went wrong
+      # before.
       #
       #   -full.bin  bootloader + partition table + app, flashed at 0x0 over
       #              USB. This is the one a first install needs. v1.0.0 and
       #              v1.0.1 shipped the app on its own and told people to write
       #              it to 0x0 -- which on an S3 is where the bootloader lives,
       #              so it landed on top of it.
-      #   firmware.bin  the app alone. The over-the-air updater matches this
-      #              name exactly (lib/JsonParser/ReleaseJsonParser.cpp:47) and
-      #              the SD-card updater looks for the same name on the card.
-      #              Named for the device in the release title, not the file:
-      #              renaming it is what silently switched both updaters off.
+      #   firmware.bin / firmware-sticky.bin  the app alone, one per device.
+      #              The over-the-air updater matches its own device's name
+      #              exactly (CROSSPOINT_RELEASE_ASSET); renaming one is what
+      #              silently switched both updaters off in v1.0.x.
+      #
+      # The per-board steps are spelled out rather than looped so
+      # host-tests/release can assert offsets and filenames against literal
+      # text.
       #
       # -fm/-fs/-ff keep: the flash mode, size and frequency already in the
       # bootloader header are the ones this build was configured with. Passing
       # them again by hand is a second copy of a fact that can drift; verified
       # byte-identical to spelling them out.
-      - name: Name the artefacts
+      - name: Name the x4pro artefacts
         run: |
           mkdir -p dist
           pip install --upgrade esptool
@@ -72,27 +89,41 @@ jobs:
           cp .pio/build/gh_release_x4pro/firmware.bin dist/firmware.bin
           cp .pio/build/gh_release_x4pro/firmware.elf \
              "dist/crossplay-${GITHUB_REF_NAME}-x4pro.elf"
+
+      - name: Name the sticky artefacts
+        run: |
+          python -m esptool --chip esp32s3 merge-bin --format raw \
+            -o "dist/crossplay-${GITHUB_REF_NAME}-sticky-full.bin" \
+            -fm keep -fs keep -ff keep \
+            0x0     .pio/build/gh_release_sticky/bootloader.bin \
+            0x8000  .pio/build/gh_release_sticky/partitions.bin \
+            0x10000 .pio/build/gh_release_sticky/firmware.bin
+          cp .pio/build/gh_release_sticky/firmware.bin dist/firmware-sticky.bin
+          cp .pio/build/gh_release_sticky/firmware.elf \
+             "dist/crossplay-${GITHUB_REF_NAME}-sticky.elf"
           ls -la dist
 
       # A merged image that is not actually merged is indistinguishable from
       # the app image it replaces until someone bricks a device with it, so
       # check the three magic numbers rather than trust the exit code.
-      - name: The merged image really is merged
+      - name: The merged images really are merged
         run: |
-          full="dist/crossplay-${GITHUB_REF_NAME}-x4pro-full.bin"
           fail=0
-          check() {  # offset, expected-magic, what
-            got=$(dd if="$full" bs=1 skip=$1 count=2 2>/dev/null | xxd -p)
-            if [ "$got" != "$2" ]; then
-              echo "::error::$full at $(printf '0x%x' $1): expected $2 ($3), got $got"
-              fail=1
-            else
-              echo "  $(printf '0x%-7x' $1) $got  $3"
-            fi
-          }
-          check 0     e903 "bootloader"
-          check 32768 aa50 "partition table"
-          check 65536 e907 "app"
+          for full in "dist/crossplay-${GITHUB_REF_NAME}-x4pro-full.bin" \
+                      "dist/crossplay-${GITHUB_REF_NAME}-sticky-full.bin"; do
+            check() {  # offset, expected-magic, what
+              got=$(dd if="$full" bs=1 skip=$1 count=2 2>/dev/null | xxd -p)
+              if [ "$got" != "$2" ]; then
+                echo "::error::$full at $(printf '0x%x' $1): expected $2 ($3), got $got"
+                fail=1
+              else
+                echo "  $(printf '0x%-7x' $1) $got  $3  ($full)"
+              fi
+            }
+            check 0     e903 "bootloader"
+            check 32768 aa50 "partition table"
+            check 65536 e907 "app"
+          done
           exit $fail
 
       - name: Publish
@@ -105,7 +136,8 @@ jobs:
           # new in CrossPlay". A release note is a thing you write.
           generate_release_notes: false
           body: |
-            Games and small tools for the **Xteink X4 Pro**, on top of
+            Games and small tools for the **Xteink X4 Pro** and the **Seeed
+            reTerminal Sticky**, on top of
             [CrossPoint](https://crosspointreader.com/). Fourteen games --
             Chess, Checkers, Connect Four, Yahtzee, Knucklebones, Minesweeper,
             Battleship, Connections, Solitaire, D&Diagrams, Insider, Jaipur,
@@ -117,36 +149,38 @@ jobs:
 
             ### Which file to download
 
-            **`crossplay-<version>-x4pro-full.bin`** is the one to flash over
-            USB. It is the whole firmware -- bootloader, partition table and
-            application in one image -- so it installs on a device that has
+            Each device has its own pair of images; the board name is in the
+            filename, and the firmware refuses an image built for the other
+            board.
+
+            **`crossplay-<version>-x4pro-full.bin`** /
+            **`crossplay-<version>-sticky-full.bin`** are the ones to flash
+            over USB. Each is the whole firmware -- bootloader, partition table
+            and application in one image -- so it installs on a device that has
             never run CrossPoint.
 
-            **`firmware.bin`** is the application on its own, for a device that
-            is already running this. Settings -> Check for updates fetches it
-            over Wi-Fi, or you can copy it to the SD card and pick it there.
-            Keep that filename: the updater matches it exactly.
+            **`firmware.bin`** (X4 Pro) and **`firmware-sticky.bin`** (Sticky)
+            are the application alone, for a device that is already running
+            this. Settings -> Check for updates fetches the right one over
+            Wi-Fi, or you can copy it to the SD card and pick it there. Keep
+            the filenames: each updater matches its own name exactly.
 
             v1.0.0 and v1.0.1 published only the application image and told you
             to write it to `0x0`, which on an ESP32-S3 is where the bootloader
             lives. Do not follow the install steps from those two releases.
 
-            Try the whole thing in a browser first, without owning one:
+            Try the whole thing in a browser first, without owning either:
             **[crossplay.ma-r-s.com](https://crossplay.ma-r-s.com)** runs this
             same firmware compiled to WebAssembly.
 
             ### Before you flash this
 
-            **No one has run this build on a physical device.** It is developed
-            against a simulator and a browser build of the same sources, and the
-            author does not have an X4 Pro. The host test suites pass and both
-            firmware targets compile, but "compiles and passes tests" is not
-            "known to boot". You are the hardware test. If it does not work,
-            please [open an issue](https://github.com/ma-r-s/crossplay/issues)
-            and say what happened.
+            Releases are flashed and booted on the author's own X4 Pro and
+            Sticky before they ship. PLAY NEARBY between two Stickys is
+            untested -- one Sticky exists here, and two-device play needs two.
 
-            **The X4 Pro only.** The X4 and X3 are ESP32-C3; this is an S3.
-            Flashing it there is a cross-chip flash. Install
+            **The X4 and X3 are ESP32-C3**; these images are S3. Flashing them
+            there is a cross-chip flash. Install
             [CrossPoint](https://crosspointreader.com/) on those instead.
 
             **Flashing replaces the firmware, not the SD card.** Your library,
@@ -159,8 +193,10 @@ jobs:
 
             Full install steps are in the
             [README](https://github.com/ma-r-s/crossplay#install-it). The short
-            version, once `pip install esptool` has run:
+            version, once `pip install esptool` has run -- pick your device's
+            file:
 
             ```
             esptool.py --chip esp32s3 --baud 921600 write_flash 0x0 crossplay-<version>-x4pro-full.bin
+            esptool.py --chip esp32s3 --baud 921600 write_flash 0x0 crossplay-<version>-sticky-full.bin
             ```

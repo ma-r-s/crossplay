@@ -26,6 +26,7 @@
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "DevSerialBridge.h"
 #include "KOReaderCredentialStore.h"
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
@@ -248,7 +249,6 @@ static bool loadSleepFrameBuffer() {
   return true;
 }
 
-
 // Enter deep sleep mode
 void enterDeepSleep(bool fromTimeout = false) {
   HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
@@ -352,6 +352,12 @@ void setup() {
 #if LOG_SERIAL_HAS_TX_TIMEOUT
   logSerial.setTxTimeoutMs(1);  // This is a load-bearing 1. Do not modify.
 #endif
+#endif
+
+#if CROSSPOINT_DEV_SERIAL_BRIDGE
+  // Before any path that can end setup() early (SD failure ends it at the
+  // error screen), so the bridge can drive and photograph even those states.
+  devbridge::begin();
 #endif
 
   HalSystem::begin();
@@ -593,6 +599,12 @@ void loop() {
     lastMemPrint = millis();
   }
 
+#if CROSSPOINT_DEV_SERIAL_BRIDGE
+  // Dev builds route all serial commands (screenshot included) through the
+  // bridge on the board's own transport, so exactly one reader owns the
+  // stream.
+  devbridge::update();
+#else
   // Handle incoming serial commands,
   // nb: we use logSerial from logging to avoid deprecation warnings
   if (logSerial.available() > 0) {
@@ -609,6 +621,7 @@ void loop() {
       }
     }
   }
+#endif
 
   // Check for any user activity (button press or release) or active background work
   static unsigned long lastActivityTime = millis();

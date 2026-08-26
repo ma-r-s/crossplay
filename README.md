@@ -22,10 +22,11 @@
 ![CrossPlay on the Xteink X4 Pro](site/assets/shots/og.png)
 
 CrossPlay is a fork of [CrossPoint](https://crosspointreader.com/) for the
-**Xteink X4 Pro**. CrossPoint turns the device into an excellent e-reader.
-CrossPlay keeps all of that and adds the other things a screen that holds still
-is good at: games you think about rather than react to, spaced-repetition
-flashcards, comics, and two devices that play together with nothing to set up.
+**Xteink X4 Pro** and the **Seeed reTerminal Sticky**. CrossPoint turns the
+device into an excellent e-reader. CrossPlay keeps all of that and adds the
+other things a screen that holds still is good at: games you think about rather
+than react to, spaced-repetition flashcards, comics, and two devices that play
+together with nothing to set up.
 
 It is a personal fork, built in the open. Upstream lands on a `base` branch and
 is merged in continuously. The reading side is CrossPoint's and stays CrossPoint's:
@@ -34,27 +35,27 @@ restyled to match the design language the apps use.
 
 ## What is on it
 
-|                  |                                                                             |
-| ---------------- | --------------------------------------------------------------------------- |
-| **Chess**        | A full engine on the device, or a board between two of them.                |
-| **Battleship**   | Lay out a fleet, then hunt someone else's.                                  |
-| **Connections**  | The daily word grid, with an archive of past boards.                        |
-| **Solitaire**    | Klondike, turned sideways because that is the shape of a tableau.           |
-| **D&Diagrams**   | A nonogram whose clues are a dungeon. 64 of them.                           |
-| **Insider**      | A party game for a table and one device.                                    |
-| **Jaipur**       | The two-player trading game, solo or nearby.                                |
-| **Murdle**       | A logic grid built through the solver, so you never have to guess.          |
-| **Checkers**     | English draughts, where taking is compulsory and the board says so.         |
-| **Connect Four** | Drop a disc, get four in a line. Seven columns, one tap each.               |
-| **Yahtzee**      | Thirteen boxes, three rolls a turn, and the Joker rules in full.            |
-| **Knucklebones** | Cult of the Lamb's dice game. Matching dice multiply; yours destroy theirs. |
-| **Minesweeper**  | Tap to dig, hold to flag. The first dig is always safe.                     |
+|                  |                                                                              |
+| ---------------- | ---------------------------------------------------------------------------- |
+| **Chess**        | A full engine on the device, or a board between two of them.                 |
+| **Battleship**   | Lay out a fleet, then hunt someone else's.                                   |
+| **Connections**  | The daily word grid, with an archive of past boards.                         |
+| **Solitaire**    | Klondike, turned sideways because that is the shape of a tableau.            |
+| **D&Diagrams**   | A nonogram whose clues are a dungeon. 64 of them.                            |
+| **Insider**      | A party game for a table and one device.                                     |
+| **Jaipur**       | The two-player trading game, solo or nearby.                                 |
+| **Murdle**       | A logic grid built through the solver, so you never have to guess.           |
+| **Checkers**     | English draughts, where taking is compulsory and the board says so.          |
+| **Connect Four** | Drop a disc, get four in a line. Seven columns, one tap each.                |
+| **Yahtzee**      | Thirteen boxes, three rolls a turn, and the Joker rules in full.             |
+| **Knucklebones** | Cult of the Lamb's dice game. Matching dice multiply; yours destroy theirs.  |
+| **Minesweeper**  | Tap to dig, hold to flag. The first dig is always safe.                      |
 | **Sudoku**       | Generated on the device and graded by the technique it needs, not the clues. |
-| **Sea Salt**     | Sea Salt & Paper: collect duos, bet on STOP or LAST CHANCE.                 |
-| **Toy Battle**   | Nine boards of bases and paths. Hold regions, take medals, solo or nearby.  |
-| **Study**        | Anki decks with the FSRS scheduler, offline.                                |
-| **Hacker News**  | The front page in a reading serif, articles kept on the card.               |
-| **xkcd**         | The archive, packed for the card and drawn one to one.                      |
+| **Sea Salt**     | Sea Salt & Paper: collect duos, bet on STOP or LAST CHANCE.                  |
+| **Toy Battle**   | Nine boards of bases and paths. Hold regions, take medals, solo or nearby.   |
+| **Study**        | Anki decks with the FSRS scheduler, offline.                                 |
+| **Hacker News**  | The front page in a reading serif, articles kept on the card.                |
+| **xkcd**         | The archive, packed for the card and drawn one to one.                       |
 
 Chess, Battleship, Jaipur, Knucklebones, Checkers, Connect Four, Yahtzee and
 Sea Salt and Toy Battle play
@@ -78,28 +79,37 @@ How the two physical buttons are used, and why there are only two:
 
 ## Install it
 
-CrossPlay targets the **Xteink X4 Pro** only. For every other supported device,
-CrossPoint upstream is the right answer and is excellent.
+CrossPlay targets two devices: the **Xteink X4 Pro** and the **Seeed
+reTerminal Sticky**, both ESP32-S3 with the same 800x480 panel and capacitive
+touch. For every other device CrossPoint supports, CrossPoint upstream is the
+right answer and is excellent.
 
 > **This runs on real hardware.** One tester flashed v1.2.1 and played most
 > of the shelf; the three problems they hit were fixed in v1.2.2. As of
-> v1.3.0 I have an X4 Pro of my own on the desk, so releases are flashed
-> here before they ship. Two devices is still a small record: if you flash
-> it, please
+> v1.3.0 I have an X4 Pro of my own on the desk, and since 2026-08-25 a
+> Sticky next to it, so releases are flashed to both before they ship. That
+> is still a small record: if you flash it, please
 > [say what happened](https://github.com/ma-r-s/crossplay/issues), either way.
 
 You do not need to have installed CrossPoint first.
 
-1. Download `crossplay-<version>-x4pro-full.bin` from the
-   [releases page](https://github.com/ma-r-s/crossplay/releases). That is the
-   whole firmware: second-stage bootloader at `0x0`, partition table at
-   `0x8000`, application at `0x10000`, in one file.
+1. Download your device's full image from the
+   [releases page](https://github.com/ma-r-s/crossplay/releases):
+   `crossplay-<version>-x4pro-full.bin` for the X4 Pro,
+   `crossplay-<version>-sticky-full.bin` for the Sticky. Each is the whole
+   firmware: second-stage bootloader at `0x0`, partition table at `0x8000`,
+   application at `0x10000`, in one file.
 2. Plug the device into a computer over USB.
 3. Install [esptool](https://github.com/espressif/esptool) if you have not
-   (`pip install esptool`, same on Windows, macOS and Linux) and run:
+   (`pip install esptool`, same on Windows, macOS and Linux) and run the line
+   for your device:
 
    ```bash
    esptool.py --chip esp32s3 --baud 921600 write_flash 0x0 crossplay-<version>-x4pro-full.bin
+   ```
+
+   ```bash
+   esptool.py --chip esp32s3 --baud 921600 write_flash 0x0 crossplay-<version>-sticky-full.bin
    ```
 
 ### Updating an install you already have
@@ -116,10 +126,12 @@ application.
 
 Two things worth knowing before you start:
 
-- **`--chip esp32s3`, and only the X4 Pro.** The X4 and X3 are ESP32-C3. This
-  binary is not for them and flashing it there is a cross-chip flash. Install
-  [CrossPoint](https://crosspointreader.com/) on those instead: it is excellent
-  and it is what this is built on.
+- **`--chip esp32s3`, and only these two devices.** The X4 and X3 are
+  ESP32-C3: these binaries are not for them and flashing one there is a
+  cross-chip flash. Install [CrossPoint](https://crosspointreader.com/) on
+  those instead: it is excellent and it is what this is built on. Between the
+  two S3 devices the firmware protects you -- every image carries its board
+  name, and both updaters refuse an image built for the other board.
 - **Flashing replaces the firmware, not the SD card.** Your library, your
   reading positions and your fonts are files on that card and are left alone.
   Installing stock CrossPoint over the top puts the device back where it was,

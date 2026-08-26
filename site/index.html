@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CrossPlay</title>
-<meta name="description" content="A fork of CrossPoint for the Xteink X4 Pro. Games, flashcards and comics built for a screen whose talent is holding still, and two devices that find each other with nothing to configure.">
+<meta name="description" content="A fork of CrossPoint for the Xteink X4 Pro and the Seeed reTerminal Sticky. Games, flashcards and comics built for a screen whose talent is holding still, and two devices that find each other with nothing to configure.">
 <meta property="og:title" content="CrossPlay">
-<meta property="og:description" content="Everything else a still screen is good at. A fork of CrossPoint for the Xteink X4 Pro.">
+<meta property="og:description" content="Everything else a still screen is good at. A fork of CrossPoint for the Xteink X4 Pro and the Seeed reTerminal Sticky.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://crossplay.ma-r-s.com/">
 <!-- Absolute, or no unfurler resolves it. Stamped by site/set-host.py; the
@@ -81,7 +81,7 @@
 <header class="hero wrap" id="top">
   <div class="hero-grid">
     <div class="hero-text">
-      <p class="eyebrow">A fork of CrossPoint <span class="eyebrow-sep">&middot;</span> Xteink X4 Pro</p>
+      <p class="eyebrow">A fork of CrossPoint <span class="eyebrow-sep">&middot;</span> Xteink X4 Pro <span class="eyebrow-sep">&middot;</span> reTerminal Sticky</p>
       <h1>E-ink is good at waiting.</h1>
       <p class="lede">
         So is a chess position, a flashcard, a puzzle you are halfway through.
@@ -407,20 +407,21 @@
       <p class="untested">
       <strong>This runs on real hardware.</strong> A tester flashed v1.2.1,
       played most of the shelf, and found three real problems; the fixes
-      shipped in v1.2.2 within the week. Since v1.3.0 there is also an
-      X4 Pro on my own desk, and releases are flashed here before they
-      ship. Two devices is still a small record:
+      shipped in v1.2.2 within the week. Since v1.3.0 there is an X4 Pro
+      on my own desk, joined on 2026-08-25 by a reTerminal Sticky, and
+      releases are flashed to both before they ship. That is still a
+      small record:
       <a href="https://github.com/ma-r-s/crossplay/issues">say what you
       find</a>, either way.
     </p>
     <ol class="steps">
-        <li><strong>Check your device.</strong> CrossPlay targets the <strong>Xteink X4 Pro</strong> only. For every other supported device, CrossPoint upstream is the right answer and is excellent.</li>
+        <li><strong>Check your device.</strong> CrossPlay targets the <strong>Xteink X4 Pro</strong> and the <strong>Seeed reTerminal Sticky</strong>. For every other supported device, CrossPoint upstream is the right answer and is excellent.</li>
         <li><strong>Keep your books.</strong> Flashing replaces the firmware, not the SD card. Your library, your reading positions and your fonts are files on that card and are left alone.</li>
-        <li><strong>Download <code>crossplay-&lt;version&gt;-x4pro-full.bin</code></strong> from the <a href="https://github.com/ma-r-s/crossplay/releases">releases page</a>. That one is the whole firmware, bootloader and partition table included, so you do not need to have installed CrossPoint first.</li>
-        <li><strong>Flash it over USB.</strong> You need <a href="https://github.com/espressif/esptool">esptool</a>, which is one <code>pip install esptool</code> on Windows, macOS or Linux alike. With the device plugged in:
+        <li><strong>Download your device's full image</strong> from the <a href="https://github.com/ma-r-s/crossplay/releases">releases page</a>: <code>crossplay-&lt;version&gt;-x4pro-full.bin</code> or <code>crossplay-&lt;version&gt;-sticky-full.bin</code>. Each is the whole firmware, bootloader and partition table included, so you do not need to have installed CrossPoint first. The firmware refuses an image built for the other board, so the worst a mixed-up download costs is a retry.</li>
+        <li><strong>Flash it over USB.</strong> You need <a href="https://github.com/espressif/esptool">esptool</a>, which is one <code>pip install esptool</code> on Windows, macOS or Linux alike. With the device plugged in (shown for the X4 Pro; swap in the sticky filename on a Sticky):
           <br><code>esptool.py --chip esp32s3 --baud 921600 write_flash 0x0 crossplay-&lt;version&gt;-x4pro-full.bin</code>
         </li>
-        <li><strong>Updating later needs no cable.</strong> Use <strong>Settings &rarr; Check for updates</strong> over Wi-Fi, or put the other release file, <code>firmware.bin</code>, on the SD card and pick it there. That file is the app on its own, which is what a device that already has a bootloader wants. The <code>-full.bin</code> is for USB only -- do not hand it to the updater, which would be writing a bootloader into a slot meant for the application.</li>
+        <li><strong>Updating later needs no cable.</strong> Use <strong>Settings &rarr; Check for updates</strong> over Wi-Fi, or put the app-only release file -- <code>firmware.bin</code> for the X4 Pro, <code>firmware-sticky.bin</code> for the Sticky -- on the SD card and pick it there. Those are the app on its own, which is what a device that already has a bootloader wants. The <code>-full.bin</code> is for USB only -- do not hand it to the updater, which would be writing a bootloader into a slot meant for the application.</li>
         <li><strong>You can go back.</strong> Flashing stock CrossPoint over the top returns the device exactly to where it was.</li>
       </ol>
       <div class="cta-row">
@@ -469,7 +470,7 @@
     <div class="foot-grid">
       <div>
         <h4>CrossPlay</h4>
-        <p class="foot-note">A fork of CrossPoint for the Xteink X4 Pro. Built by one person, in the open. MIT licensed, like the project it forks.</p>
+        <p class="foot-note">A fork of CrossPoint for the Xteink X4 Pro and the Seeed reTerminal Sticky. Built by one person, in the open. MIT licensed, like the project it forks.</p>
       </div>
       <div>
         <h4>Project</h4>

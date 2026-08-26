@@ -22,9 +22,9 @@ namespace {
 // This fork's releases, not upstream's. Left pointing at CrossPoint, "check for
 // update" fetched their newest build and flashed it over the top: every app on
 // the shelf gone, and worse, a cross-chip flash. Upstream's gh_release targets
-// the X4 and X3, which are ESP32-C3; the only device this fork builds for is
-// the X4 Pro, which is an S3. Upstream added a guard against exactly that
-// (crosspoint-reader#2880), which says how it ends without one.
+// the X4 and X3, which are ESP32-C3; this fork's devices (X4 Pro, Sticky) are
+// S3. Upstream added a guard against exactly that (crosspoint-reader#2880),
+// which says how it ends without one.
 constexpr char latestReleaseUrl[] = "https://api.github.com/repos/ma-r-s/crossplay/releases/latest";
 }  // namespace
 
@@ -38,13 +38,16 @@ OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
   // User-Agent (see HttpDownloader).
   ReleaseJsonParser releaseParser;
   // FORK CHANGE: upstream suffixes the asset per board (firmware-x4pro.bin)
-  // because one release feeds many devices. This fork releases for exactly one
-  // device, and every unit in the field since v1.0.0 asks for the literal
-  // "firmware.bin" -- adopting the suffix would strand them: their updater
-  // would keep finding firmware.bin (and flash it), while THIS build would
-  // stop finding anything the moment a release dropped the plain name. One
-  // device, one name, forever. host-tests/release pins the workflow to it.
-  releaseParser.setFirmwareAssetName("firmware.bin");
+  // because one release feeds many devices. This fork's x4pro asks for the
+  // literal "firmware.bin": every unit in the field since v1.0.0 asks for
+  // that name, and adopting the suffix would strand them -- their updater
+  // would keep finding firmware.bin (and flash it), while a suffixed build
+  // would stop finding anything the moment a release dropped the plain name.
+  // Boards added after that (sticky, ...) use the per-board suffix from day
+  // one; CROSSPOINT_RELEASE_ASSET in FirmwareBoardTag.h encodes both rules,
+  // and host-tests/release pins the workflow to whatever each device asks
+  // for.
+  releaseParser.setFirmwareAssetName(CROSSPOINT_RELEASE_ASSET);
   const bool ok = HttpDownloader::fetchUrl(latestReleaseUrl, [&releaseParser](const uint8_t* data, size_t len) {
     releaseParser.feed(reinterpret_cast<const char*>(data), len);
     return true;
@@ -63,7 +66,7 @@ OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
   }
 
   if (!releaseParser.foundFirmware()) {
-    LOG_INF("OTA", "No firmware.bin asset in latest release");
+    LOG_INF("OTA", "No " CROSSPOINT_RELEASE_ASSET " asset in latest release");
     return NO_UPDATE;
   }
 
