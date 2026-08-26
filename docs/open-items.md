@@ -58,10 +58,10 @@ one desk session:
 - **Flash headroom is thinner than the X4 Pro's**: the sticky app image
   carries the mic/buzzer/sensor SDK drivers the x4pro build never compiles,
   so it sits closer to the 6.25MB slot ceiling. Watch it at release time.
-- **The panel mount orientation ships as NO_FLIP pending validation** (the SDK
-  profile says so); the framebuffer is upright, so this needs exactly one
-  human glance at the glass. If it is upside down, the fix is the profile's
-  flip field, not the apps.
+
+The panel mount question is closed: Mario confirmed the glass upright on
+2026-08-26, so the profile's NO_FLIP is correct as shipped -- exactly the
+"confirmed on a unit" its comment asked for.
 
 **Done looks like:** a release that names the Sticky, an OTA install onto the
 desk Sticky from that release, and a stranger's issue report -- either way.
