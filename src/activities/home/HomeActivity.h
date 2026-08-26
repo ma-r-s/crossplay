@@ -43,6 +43,8 @@ class HomeActivity final : public Activity {
   // not the metrics table. 0 until the first render (touch falls back to the
   // static formula, which is also what render uses when nothing shrank).
   int menuTopRendered = 0;
+  // Row gap actually drawn; the touch grid must use the same one.
+  int menuSpacingRendered = 0;
   std::vector<RecentBook> recentBooks;
   const HomeMenuItem initialMenuItem;
 

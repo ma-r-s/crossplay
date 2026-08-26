@@ -307,8 +307,9 @@ void HomeActivity::loop() {
   // Row height from the theme, not the metrics table: RoundedRaff draws
   // font-derived rows and the touch grid must match the visuals exactly.
   const int menuRowHeight = GUI.getMenuRowHeight(renderer);
-  const auto menuTouch = mappedInput.rowTouch(menuRow, menuTop, menuRowHeight + metrics.menuSpacing, renderedMenuCount,
-                                              0, INT32_MAX, menuRowHeight);
+  const int rowSpacing = menuSpacingRendered > 0 ? menuSpacingRendered : metrics.menuSpacing;
+  const auto menuTouch = mappedInput.rowTouch(menuRow, menuTop, menuRowHeight + rowSpacing, renderedMenuCount, 0,
+                                              INT32_MAX, menuRowHeight);
   if (menuTouch != MappedInputManager::RowTouch::None) {
     const int touchedIndex =
         metrics.homeContinueReadingInMenu ? menuRow : menuRow + static_cast<int>(recentBooks.size());
@@ -377,14 +378,37 @@ void HomeActivity::render(RenderLock&&) {
   // getMenuRowHeight() rather than metrics.menuRowHeight: RoundedRaff marks its
   // metric as non-authoritative and derives the drawn height from the renderer,
   // so the metric underestimates and Apps still fell off the bottom.
-  const int menuRowPitch = GUI.getMenuRowHeight(renderer) + metrics.menuSpacing;
-  const int menuNeeds = static_cast<int>(menuItems.size()) * menuRowPitch + metrics.verticalSpacing;
+  // Tighten the gaps between rows before touching the cover tile. The art is
+  // the point of that tile: shrinking it to the leftover space either clipped
+  // the cover or put it hard against the first row, while the row gaps are
+  // generous enough to give up a few pixels each and lose nothing.
+  const int menuRowHeight = GUI.getMenuRowHeight(renderer);
+  const int rows = static_cast<int>(menuItems.size());
+  const int gapBelowTile = metrics.verticalSpacing;
   const int spaceBelowHeader =
       pageHeight - metrics.homeTopPadding - metrics.homeMenuTopOffset - metrics.buttonHintsHeight;
-  int coverTileHeight = metrics.homeCoverTileHeight;
-  if (menuNeeds > spaceBelowHeader - coverTileHeight) {
-    coverTileHeight = std::max(0, spaceBelowHeader - menuNeeds);
+  const int spaceForMenu = spaceBelowHeader - metrics.homeCoverTileHeight - gapBelowTile;
+
+  int menuSpacing = metrics.menuSpacing;
+  if (rows > 0 && rows * (menuRowHeight + menuSpacing) > spaceForMenu) {
+    // Row height is fixed by the theme, so only the gaps can give. Floored at
+    // 1px: rows flush against each other read as one block, not a list.
+    menuSpacing = std::max(1, spaceForMenu / rows - menuRowHeight);
   }
+
+  const int menuNeeds = rows * (menuRowHeight + menuSpacing) + metrics.verticalSpacing;
+  int coverTileHeight = metrics.homeCoverTileHeight;
+  if (menuNeeds > spaceBelowHeader - coverTileHeight - gapBelowTile) {
+    // Even at minimum spacing the rows do not fit, so the tile finally gives.
+    // A sliver is worse than none, so below half its intended height it goes.
+    const int remaining = spaceBelowHeader - menuNeeds - gapBelowTile;
+    coverTileHeight = remaining >= metrics.homeCoverTileHeight / 2 ? remaining : 0;
+  }
+  // Recorded for the touch grid: drawn spacing and hit-test spacing must be the
+  // same number, or taps drift further off with every row down the list.
+  menuSpacingRendered = menuSpacing;
+
+  const int tileBlock = coverTileHeight > 0 ? coverTileHeight + gapBelowTile : 0;
 
   // Recorded so storeCoverBuffer (called from the theme) knows which
   // sub-region of the framebuffer to snapshot, rather than all 48 KB.
@@ -394,7 +418,7 @@ void HomeActivity::render(RenderLock&&) {
   coverRectH = coverTileHeight;
   // The menu top the touch grid in loop() must use; drawButtonMenu below draws
   // at exactly this y.
-  menuTopRendered = metrics.homeTopPadding + coverTileHeight + metrics.homeMenuTopOffset;
+  menuTopRendered = metrics.homeTopPadding + tileBlock + metrics.homeMenuTopOffset;
 
   if (coverTileHeight > 0) {
     GUI.drawRecentBookCover(renderer, Rect{0, metrics.homeTopPadding, pageWidth, coverTileHeight}, recentBooks,
@@ -404,13 +428,13 @@ void HomeActivity::render(RenderLock&&) {
 
   GUI.drawButtonMenu(
       renderer,
-      Rect{0, metrics.homeTopPadding + coverTileHeight + metrics.homeMenuTopOffset, pageWidth,
+      Rect{0, menuTopRendered, pageWidth,
            pageHeight -
                (metrics.homeTopPadding + coverTileHeight + metrics.homeMenuTopOffset + metrics.buttonHintsHeight)},
       static_cast<int>(menuItems.size()),
       metrics.homeContinueReadingInMenu ? selectorIndex : selectorIndex - recentBooks.size(),
       [&menuItems](int index) { return std::string(menuItems[index]); },
-      [&menuIcons](int index) { return menuIcons[index]; });
+      [&menuIcons](int index) { return menuIcons[index]; }, menuSpacing);
 
   const auto labels = mappedInput.mapLabels(recentBooks.empty() ? "" : tr(STR_RESUME), tr(STR_SELECT), tr(STR_DIR_UP),
                                             tr(STR_DIR_DOWN));

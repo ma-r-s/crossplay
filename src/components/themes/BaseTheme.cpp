@@ -796,10 +796,13 @@ int BaseTheme::getMenuRowHeight(const GfxRenderer&) const { return UITheme::getI
 
 void BaseTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
                                const std::function<std::string(int index)>& buttonLabel,
-                               const std::function<UIIcon(int index)>& rowIcon) const {
+                               const std::function<UIIcon(int index)>& rowIcon, const int rowSpacing) const {
+  // -1 means "use this theme's own spacing"; HomeActivity passes a tighter
+  // value when seven rows would otherwise not fit.
+  const int spacing = rowSpacing >= 0 ? rowSpacing : BaseMetrics::values.menuSpacing;
   for (int i = 0; i < buttonCount; ++i) {
     const int tileY = BaseMetrics::values.verticalSpacing + rect.y +
-                      static_cast<int>(i) * (BaseMetrics::values.menuRowHeight + BaseMetrics::values.menuSpacing);
+                      static_cast<int>(i) * (BaseMetrics::values.menuRowHeight + spacing);
 
     const bool selected = selectedIndex == i;
 
