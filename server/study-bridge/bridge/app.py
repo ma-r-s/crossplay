@@ -437,13 +437,19 @@ async def startup():
     import pathlib
 
     # tools_local/study rides in the image at /app/tools_local/study; in dev
-    # it is the repo's copy two levels up from this file.
-    for candidate in (
-        pathlib.Path("/app/tools_local/study"),
-        pathlib.Path(__file__).resolve().parents[3] / "tools_local" / "study",
-    ):
+    # it is the repo's copy. In the image this file is only three levels deep,
+    # so the repo-relative candidate is computed lazily -- constructing it
+    # eagerly raised IndexError before the container path was even tried,
+    # which crash-looped the very first deploy.
+    here = pathlib.Path(__file__).resolve()
+    candidates = [pathlib.Path("/app/tools_local/study")]
+    if len(here.parents) > 3:
+        candidates.append(here.parents[3] / "tools_local" / "study")
+    for candidate in candidates:
         if candidate.is_dir():
             decks.TOOLS = candidate
             break
     logging.basicConfig(level=logging.INFO)
+    if decks.TOOLS is None:
+        log.error("tools_local/study not found; deck builds will fail loudly")
     log.info("bridge up; tools at %s", decks.TOOLS)
