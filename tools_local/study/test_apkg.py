@@ -279,6 +279,29 @@ def main():
             f"rollup wrong: {rolled}",
         )
 
+    # anki_is_running() must not see its own kind: pgrep -f used to match any
+    # process carrying the pattern as an argument, so two concurrent check.sh
+    # runs each saw the other's probe and both refused to sync against an Anki
+    # that was not running. Eight concurrent probes force the overlap; every
+    # one must agree with the solo answer.
+    import deck_to_anki  # noqa: E402
+
+    if deck_to_anki.anki_is_running():
+        print("note: Anki is running; the concurrent-probe check did NOT run")
+    else:
+        probe = (
+            "import sys; sys.path.insert(0, sys.argv[1]); import deck_to_anki; "
+            "sys.exit(1 if any(deck_to_anki.anki_is_running() for _ in range(25)) else 0)"
+        )
+        probes = [
+            subprocess.Popen([sys.executable, "-c", probe, str(HERE)]) for _ in range(8)
+        ]
+        codes = [p.wait() for p in probes]
+        ok(
+            codes == [0] * 8,
+            f"concurrent anki_is_running probes saw each other: {codes}",
+        )
+
     print(f"PASS ({CHECKS} checks)")
     return 0
 
