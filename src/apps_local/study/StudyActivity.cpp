@@ -1282,7 +1282,11 @@ void StudyActivity::showSync(const char* title, const char* body) {
 }
 
 void StudyActivity::beginSync() {
-  flushWrites();
+  // No SD writes here, deliberately. A wake-tap can land on SYNC before the
+  // card's power-up re-init settles, and the first flush through a stale
+  // SdFat handle was a LoadProhibited panic (caught on hardware, backtrace
+  // folded into onExit by ICF). closeDeck() inside the flow flushes
+  // everything through the ordinary path moments later.
   WiFi.mode(WIFI_STA);
   wifiActivated_ = true;
   startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
