@@ -20,6 +20,9 @@ struct OpdsServer {
 class OpdsServerStore : public PersistableStore<OpdsServerStore> {
  private:
   std::vector<OpdsServer> servers;
+  // Persisted so a catalog the user deleted stays deleted; without it every
+  // boot with an empty list would helpfully put the defaults back.
+  bool defaultsSeeded = false;
 
   static constexpr size_t MAX_SERVERS = 8;
 
@@ -40,6 +43,33 @@ class OpdsServerStore : public PersistableStore<OpdsServerStore> {
   const OpdsServer* getServer(size_t index) const;
   size_t getCount() const { return servers.size(); }
   bool hasServers() const { return !servers.empty(); }
+
+  /**
+   * Add the built-in public catalogs the first time this runs, so a fresh
+   * install can search and download without typing a URL on an e-ink
+   * keyboard. Both are free, legitimate libraries whose EPUBs need almost no
+   * optimizing. Does nothing once it has run, whatever the user did after.
+   */
+  bool seedDefaultCatalogs();
+
+  /**
+   * Import catalogs from a provisioning file at the SD card root, if present.
+   *
+   * This exists so a private catalog can be put on a device without ever being
+   * compiled into a public build: drop the file on the card, boot once, done.
+   * Nothing about it is specific to any one server.
+   *
+   * Shape matches the stored config:
+   *   {"servers":[{"name":"...","url":"...","username":"...","password":"..."}]}
+   *
+   * The file is DELETED after a successful import. It holds credentials in
+   * plaintext, and leaving those sitting on a removable card -- readable by
+   * anything that mounts it -- is worse than the small surprise of the file
+   * disappearing. Re-drop it to re-import.
+   */
+  bool importSeedFile();
+
+  static const char* getSeedFilePath() { return "/opds-seed.json"; }
 };
 
 #define OPDS_STORE OpdsServerStore::getInstance()

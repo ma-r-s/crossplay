@@ -5,6 +5,8 @@
 
 #include <cstdint>
 
+#include "OpdsLanguages.h"
+
 class CrossPointSettings : public PersistableStore<CrossPointSettings> {
  private:
   // Private constructor for singleton
@@ -259,6 +261,11 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // 2=Title). See OpdsFilenameFormat. Persisted via a category-less SettingInfo::Enum,
   // edited from the OPDS server list; hidden from the on-device Settings screen.
   uint8_t opdsFilenameFormat = 0;
+  // Comma-separated primary subtags of the languages the OPDS browser shows
+  // (see OpdsLanguages.h). Defaults to English only. Entries with no language,
+  // and entries in a language the table does not list, are always kept -- see
+  // opdsLanguageAllowed().
+  char opdsLanguages[64] = "en";
   // Hide battery percentage
   uint8_t hideBatteryPercentage = HIDE_NEVER;
   // Long-press page turn button behavior

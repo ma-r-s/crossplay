@@ -37,6 +37,10 @@ class OpdsBookBrowserActivity final : public Activity, private UiAppHost {
   std::vector<std::string> navigationHistory;
   std::string currentPath;
   std::string searchTemplate;
+  // Resolved once per server from an OpenSearch description document and
+  // reused while navigating, since subfeeds rarely repeat the search link.
+  std::string resolvedDescriptionUrl;
+  std::string resolvedSearchTemplate;
   int selectorIndex = 0;
   std::string errorMessage;
   std::string statusMessage;
@@ -76,6 +80,7 @@ class OpdsBookBrowserActivity final : public Activity, private UiAppHost {
   void navigateBack();
   void downloadBook(const OpdsEntry& book);
   void launchSearch();
+  std::string fetchSearchTemplate(const std::string& descriptionUrl);
   void performSearch(const std::string& query);
   bool preventAutoSleep() override { return true; }
 };
