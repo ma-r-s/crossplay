@@ -44,9 +44,13 @@ and a green report in the README naming the version that was actually flashed.
 
 ## The Sticky port is new and mostly unproven in the field
 
-Added 2026-08-25, the day the device arrived and the port was made. The Sticky
-(`[env:sticky]`, `gh_release_sticky`) boots CrossPlay, but every claim below
-the boot line is only as strong as one desk session:
+Added 2026-08-25, the day the device arrived and the port was made; SD half
+verified 2026-08-26 on the desk unit's own card (formatted over the serial
+bridge, chess save survived a reboot, the player identity stopped renaming
+itself). The virgin-card save bug that session found -- nothing created
+`/.crosspoint` before the plain HalFile writers needed it -- is fixed at mount
+in main.cpp and was never Sticky-specific. What is still only as strong as
+one desk session:
 
 - **PLAY NEARBY between two Stickys is untested.** One Sticky exists here and
   two-device play needs two. Sticky-to-X4-Pro is the same radio protocol but a
@@ -55,8 +59,9 @@ the boot line is only as strong as one desk session:
   carries the mic/buzzer/sensor SDK drivers the x4pro build never compiles,
   so it sits closer to the 6.25MB slot ceiling. Watch it at release time.
 - **The panel mount orientation ships as NO_FLIP pending validation** (the SDK
-  profile says so); if the desk unit shows everything upside down, the fix is
-  the profile's flip field, not the apps.
+  profile says so); the framebuffer is upright, so this needs exactly one
+  human glance at the glass. If it is upside down, the fix is the profile's
+  flip field, not the apps.
 
 **Done looks like:** a release that names the Sticky, an OTA install onto the
 desk Sticky from that release, and a stranger's issue report -- either way.

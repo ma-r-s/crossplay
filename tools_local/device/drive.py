@@ -15,10 +15,22 @@ is saved in), and the script converts.
     ... shot out.png                    # portrait view PNG + raw .pbm next to it
     ... heap
     ... watch 30                        # just relay log output for N seconds
+    ... ls /.crosspoint                 # list a card directory
+    ... cat /.crosspoint/chess.sav      # stream a card file
+    ... writetest /.crosspoint/x.sav    # the exact open the games use, verbose
+    ... mkdir /d, rm /f, rmdir /d       # card housekeeping
+    ... sdprobe                         # raw cardBegin/volumeBegin, error codes
+    ... sdformat YES                    # DESTRUCTIVE: SdFat formatter (FAT/exFAT)
+    ... sd 10000000                     # remount at a given SPI clock
+    ... reboot
 
 Multiple commands can be chained with commas: "tap 400 240, sleep 2, shot s.png".
-The device logs interleave with replies on the same UART; replies are the lines
-that begin with OK/ERR/SCREENSHOT_, everything else is relayed to stderr.
+Anything not listed passes through as CMD:<VERB>, so new firmware commands need
+no script change. The device logs interleave with replies on the same UART;
+replies are the lines that begin with OK/ERR/SCREENSHOT_, everything else is
+relayed to stderr. Opening the port can reset the device (nondeterministic):
+any flow that must keep device state alive belongs in one `serve <fifo>`
+session rather than one process per step.
 """
 
 import argparse
@@ -47,9 +59,22 @@ def relay(line):
     print(f"  [dev] {line}", file=sys.stderr)
 
 
+def drain(s):
+    """Relay whatever the device printed since the last read. Never discard:
+    the log lines that arrive between commands are exactly the diagnostics a
+    failure investigation needs."""
+    while True:
+        chunk = s.read(4096)
+        if not chunk:
+            return
+        for ln in chunk.decode("utf-8", "replace").splitlines():
+            if ln.strip():
+                relay(ln.strip())
+
+
 def command(s, cmd, timeout=6.0):
     """Send one CMD line, return the OK/ERR reply line (str) or None."""
-    s.reset_input_buffer()
+    drain(s)
     s.write((cmd + "\n").encode())
     deadline = time.time() + timeout
     buf = b""

@@ -431,6 +431,13 @@ void setup() {
     activityManager.goToFullScreenMessage("SD card error", EpdFontFamily::BOLD);
     return;
   }
+  // A virgin card has no /.crosspoint until the first PersistableStore save
+  // happens to run (that path mkdirs for itself), and every plain HalFile
+  // writer -- the game saves, the player identity -- just opens into it and
+  // fails. On the first card the Sticky ever saw, that meant every game save
+  // silently vanished until a store write happened to run first. Create it at
+  // mount, idempotently, so no writer depends on which save ran first.
+  Storage.mkdir("/.crosspoint");
 
   HalSystem::checkPanic();
 
@@ -454,6 +461,15 @@ void setup() {
 
   switch (wakeupReason) {
     case HalGPIO::WakeupReason::PowerButton:
+#if CROSSPOINT_DEV_SERIAL_BRIDGE
+      // A bridge-driven desk device has no finger to hold the button through
+      // the wake check, and boards without USB detect (Sticky) classify every
+      // cold boot as PowerButton -- so a dev build would deep-sleep on every
+      // reset before the bridge could speak. Dev builds boot straight
+      // through; release builds keep the real gate.
+      LOG_DBG("MAIN", "Dev bridge build: skipping power button verification");
+      break;
+#else
       LOG_DBG("MAIN", "Verifying power button press duration");
       if (!gpio.verifyPowerButtonWakeup(SETTINGS.getPowerButtonDuration(),
                                         SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP)) {
@@ -461,6 +477,7 @@ void setup() {
       }
       wakePowerReleasePending = true;
       break;
+#endif
     case HalGPIO::WakeupReason::AfterUSBPower:
       // If USB power caused a cold boot, go back to sleep
       LOG_DBG("MAIN", "Wakeup reason: After USB Power");
