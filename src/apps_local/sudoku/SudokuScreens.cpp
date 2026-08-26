@@ -565,19 +565,22 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   const fui::Rect doors = menuDoors(screen, model, levelRow, sizeof(levelRow));
   const fui::Rect content = screen.contentRect();
 
+  // Two bands, not one. The state and the record used to share a band, set left
+  // and right, which is fine while both are short -- "35 LEFT" beside
+  // "10 SOLVED BEST 8:32" -- and collides the moment neither is. On a card with
+  // no save at all it reads "NOT STARTED" against "0 SOLVED NO EASY TIME YET"
+  // and the two run straight through each other. Stacking them cannot collide
+  // at any length, and costs the grid twenty-one pixels.
   fui::TextStyle body;
   body.font = toybox::kBodyFont;
   body.align = fui::TextAlign::Left;
-  const fui::Rect caption = screen.takeTop(38);
-  screen.target().text(toybox::inkCentred(caption, toybox::kUiCut), state, body);
+  screen.target().text(toybox::inkCentred(screen.takeTop(34), toybox::kUiCut), state, body);
 
   fui::TextStyle small;
   small.font = toybox::kTileFont;
-  small.align = fui::TextAlign::Right;
-  // Two cuts sharing one band sit on two different baselines unless both are
-  // placed by their ink: the component centres each on its own line box, and
-  // the tile cut's is half the height of the body cut's.
-  screen.target().text(toybox::inkCentred(caption, toybox::kTileCut), record, small);
+  small.align = fui::TextAlign::Left;
+  screen.target().text(toybox::inkCentred(screen.takeTop(textBand(1, toybox::kTileCut)), toybox::kTileCut), record,
+                       small);
 
   fui::ButtonProps play;
   play.label = action;
@@ -586,7 +589,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
                                        content.width, toybox::kPillHeight);
   screen.button(play, pill);
 
-  const int16_t top = static_cast<int16_t>(caption.bottom() + toybox::kGutter);
+  const int16_t top = static_cast<int16_t>(screen.body().y + toybox::kGutter);
   drawMiniature(screen,
                 fui::makeRect(content.x, top, content.width, static_cast<int16_t>(pill.y - toybox::kGutter - top)),
                 model.game, model.hasGame);
