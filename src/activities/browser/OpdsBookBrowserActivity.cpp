@@ -14,12 +14,14 @@
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
+#include "OpdsDetailActivity.h"
 #include "OpdsLanguages.h"
 #include "SilentRestart.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UIScale.h"
 #include "components/UITheme.h"
+#include "components/UiAppHelpers.h"
 #include "components/icons/search32.h"
 #include "fontIds.h"
 #include "network/HttpDownloader.h"
@@ -84,7 +86,7 @@ void OpdsBookBrowserActivity::onExit() {
 void OpdsBookBrowserActivity::activateSelected() {
   if (entries.empty() || selectorIndex < 0 || selectorIndex >= static_cast<int>(entries.size())) return;
   const auto& entry = entries[selectorIndex];
-  entry.type == OpdsEntryType::BOOK ? downloadBook(entry) : navigateToEntry(entry);
+  entry.type == OpdsEntryType::BOOK ? openDetail(entry) : navigateToEntry(entry);
 }
 
 void OpdsBookBrowserActivity::onRowEvent(const fui::ActionEvent& event, void* user) {
@@ -436,6 +438,15 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
   if (entries.empty()) errorMessage = tr(STR_NO_ENTRIES);
   rebuildRowItems();
   requestUpdate();
+
+  // Land on the keyboard, not on a directory listing. A catalog that supports
+  // search is one people arrive at wanting to type a title; the root feed's
+  // browse rows are still there behind Back. Only on the first feed, or every
+  // return from a search would bounce straight back into the keyboard.
+  if (openSearchOnArrival) {
+    openSearchOnArrival = false;
+    if (!searchTemplate.empty()) launchSearch();
+  }
 }
 
 // Derives rowItems from entries. Called whenever entries changes
@@ -448,6 +459,9 @@ void OpdsBookBrowserActivity::rebuildRowItems() {
     fui::ListItem item;
     item.label = entry.title.c_str();
     if (entry.type == OpdsEntryType::BOOK && !entry.author.empty()) item.subtitle = entry.author.c_str();
+    // Shape tells a book from a folder faster than reading the row does.
+    item.icon = listIconFor(entry.type == OpdsEntryType::BOOK ? UIIcon::Book : UIIcon::Folder,
+                            entry.type == OpdsEntryType::BOOK ? 32 : 24);
     if (entry.type == OpdsEntryType::NAVIGATION) item.value = ">";
     item.actionValue = static_cast<int16_t>(rowItems.size());
     rowItems.push_back(item);
@@ -477,11 +491,21 @@ void OpdsBookBrowserActivity::navigateToEntry(const OpdsEntry& entry) {
 }
 
 void OpdsBookBrowserActivity::navigateBack() {
+  // Back out of a result list into the keyboard rather than into the root
+  // feed's browse rows: the search is what the reader was doing, and landing
+  // on a directory listing reads as having lost their place. One more Back
+  // from the keyboard leaves for home.
+  if (showingSearchResults && !searchTemplate.empty()) {
+    showingSearchResults = false;
+    launchSearch();
+    return;
+  }
   if (navigationHistory.empty()) {
     onGoHome();
   } else {
     currentPath = navigationHistory.back();
     navigationHistory.pop_back();
+    showingSearchResults = false;
     state = BrowserState::LOADING;
     statusMessage = tr(STR_LOADING);
     releaseEntries();
@@ -612,6 +636,18 @@ std::string OpdsBookBrowserActivity::fetchSearchTemplate(const std::string& desc
   return openSearch.getSearchTemplate();
 }
 
+void OpdsBookBrowserActivity::openDetail(const OpdsEntry& entry) {
+  // A tap opens the details rather than starting a download: covers, summary
+  // and size are how a reader tells two editions apart, and an accidental tap
+  // used to cost a multi-megabyte transfer.
+  startActivityForResult(std::make_unique<OpdsDetailActivity>(renderer, mappedInput, entry, server,
+                                                              UrlUtils::buildUrl(server.url, currentPath)),
+                         [this, entry](const ActivityResult& result) {
+                           if (!result.isCancelled) downloadBook(entry);
+                           requestUpdate();
+                         });
+}
+
 void OpdsBookBrowserActivity::performSearch(const std::string& query) {
   if (query.empty() || searchTemplate.empty()) {
     state = BrowserState::BROWSING;
@@ -659,6 +695,7 @@ void OpdsBookBrowserActivity::performSearch(const std::string& query) {
 
   navigationHistory.push_back(currentPath);
   currentPath = url;
+  showingSearchResults = true;
 
   state = BrowserState::LOADING;
   statusMessage = tr(STR_LOADING);

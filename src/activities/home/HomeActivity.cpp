@@ -271,13 +271,18 @@ void HomeActivity::loop() {
     return;
   }
 
+  // Hit areas follow the DRAWN geometry, not the metrics table: render() may
+  // shrink the cover tile to fit the menu, which moves everything below it up
+  // by the shrink. Before the first render (menuTopRendered == 0) fall back to
+  // the static formula, which is what render() uses when nothing shrank.
+  const int coverBottomDrawn =
+      menuTopRendered > 0 ? coverRectY + coverRectH : metrics.homeTopPadding + metrics.homeCoverTileHeight;
   const int coverColumnCount = std::max(1, metrics.homeRecentBooksCount);
   const int recentCount = std::min(static_cast<int>(recentBooks.size()), coverColumnCount);
   const int coverColumnWidth = (renderer.getScreenWidth() - 2 * metrics.contentSidePadding) / coverColumnCount;
   int touchedBook = -1;
   const auto coverTouch = mappedInput.colTouch(touchedBook, metrics.contentSidePadding, coverColumnWidth, recentCount,
-                                               metrics.homeTopPadding,
-                                               metrics.homeTopPadding + metrics.homeCoverTileHeight, coverColumnWidth);
+                                               metrics.homeTopPadding, coverBottomDrawn, coverColumnWidth);
   if (coverTouch != MappedInputManager::RowTouch::None) {
     if (coverTouch == MappedInputManager::RowTouch::Down) {
       if (selectorIndex != touchedBook) {
@@ -291,7 +296,9 @@ void HomeActivity::loop() {
     return;
   }
 
-  const int menuTop = metrics.homeTopPadding + metrics.homeCoverTileHeight + metrics.homeMenuTopOffset;
+  const int menuTop = menuTopRendered > 0
+                          ? menuTopRendered
+                          : metrics.homeTopPadding + metrics.homeCoverTileHeight + metrics.homeMenuTopOffset;
   const int renderedMenuSelection =
       metrics.homeContinueReadingInMenu ? selectorIndex : selectorIndex - recentBooks.size();
   const int renderedMenuCount =
@@ -336,18 +343,6 @@ void HomeActivity::render(RenderLock&&) {
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.homeTopPadding - metrics.topPadding},
                  metrics.homeContinueReadingInMenu && !recentBooks.empty() ? recentBooks[0].title.c_str() : nullptr);
 
-  // Record the tile rect so storeCoverBuffer (called from the theme) knows
-  // which sub-region of the framebuffer to snapshot. ~16 KB in Portrait
-  // instead of the 48 KB full framebuffer the previous bind captured.
-  coverRectX = 0;
-  coverRectY = metrics.homeTopPadding;
-  coverRectW = pageWidth;
-  coverRectH = metrics.homeCoverTileHeight;
-
-  GUI.drawRecentBookCover(renderer, Rect{0, metrics.homeTopPadding, pageWidth, metrics.homeCoverTileHeight},
-                          recentBooks, selectorIndex, coverRendered, coverBufferStored, bufferRestored,
-                          std::bind(&HomeActivity::storeCoverBuffer, this));
-
   // Build menu items dynamically
   std::vector<const char*> menuItems = {tr(STR_BROWSE_FILES), tr(STR_MENU_RECENT_BOOKS), tr(STR_FILE_TRANSFER),
                                         tr(STR_SETTINGS_TITLE)};
@@ -372,11 +367,46 @@ void HomeActivity::render(RenderLock&&) {
     menuIcons.push_back(shelf::folders()[i].icon);
   }
 
+  // --- fork-local seam ---------------------------------------------------
+  // drawButtonMenu lays rows at a fixed pitch and ignores the rect height, so
+  // a row that does not fit is simply drawn off-screen -- Apps disappeared
+  // entirely under Lyra Extended and was clipped in half under Classic. The
+  // shelf's folders and the Get Books row pushed the count past what the
+  // taller themes have room for. Give the menu what it needs and let the cover
+  // tile take the remainder; on a theme with room this changes nothing.
+  // getMenuRowHeight() rather than metrics.menuRowHeight: RoundedRaff marks its
+  // metric as non-authoritative and derives the drawn height from the renderer,
+  // so the metric underestimates and Apps still fell off the bottom.
+  const int menuRowPitch = GUI.getMenuRowHeight(renderer) + metrics.menuSpacing;
+  const int menuNeeds = static_cast<int>(menuItems.size()) * menuRowPitch + metrics.verticalSpacing;
+  const int spaceBelowHeader =
+      pageHeight - metrics.homeTopPadding - metrics.homeMenuTopOffset - metrics.buttonHintsHeight;
+  int coverTileHeight = metrics.homeCoverTileHeight;
+  if (menuNeeds > spaceBelowHeader - coverTileHeight) {
+    coverTileHeight = std::max(0, spaceBelowHeader - menuNeeds);
+  }
+
+  // Recorded so storeCoverBuffer (called from the theme) knows which
+  // sub-region of the framebuffer to snapshot, rather than all 48 KB.
+  coverRectX = 0;
+  coverRectY = metrics.homeTopPadding;
+  coverRectW = pageWidth;
+  coverRectH = coverTileHeight;
+  // The menu top the touch grid in loop() must use; drawButtonMenu below draws
+  // at exactly this y.
+  menuTopRendered = metrics.homeTopPadding + coverTileHeight + metrics.homeMenuTopOffset;
+
+  if (coverTileHeight > 0) {
+    GUI.drawRecentBookCover(renderer, Rect{0, metrics.homeTopPadding, pageWidth, coverTileHeight}, recentBooks,
+                            selectorIndex, coverRendered, coverBufferStored, bufferRestored,
+                            std::bind(&HomeActivity::storeCoverBuffer, this));
+  }
+
   GUI.drawButtonMenu(
       renderer,
-      Rect{0, metrics.homeTopPadding + metrics.homeCoverTileHeight + metrics.homeMenuTopOffset, pageWidth,
-           pageHeight - (metrics.headerHeight + metrics.homeTopPadding + metrics.verticalSpacing +
-                         metrics.homeMenuTopOffset + metrics.buttonHintsHeight)},
+      Rect{0, metrics.homeTopPadding + coverTileHeight + metrics.homeMenuTopOffset, pageWidth,
+           pageHeight -
+               (metrics.homeTopPadding + coverTileHeight + metrics.homeMenuTopOffset + metrics.buttonHintsHeight)},
       static_cast<int>(menuItems.size()),
       metrics.homeContinueReadingInMenu ? selectorIndex : selectorIndex - recentBooks.size(),
       [&menuItems](int index) { return std::string(menuItems[index]); },

@@ -18,7 +18,8 @@ std::string feedAround(const std::string& entryBody) {
   return R"(<?xml version="1.0" encoding="UTF-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom" xmlns:dcterms="http://purl.org/dc/terms/">
   <title>Test</title>
-  <entry>)" + entryBody + R"(</entry>
+  <entry>)" +
+         entryBody + R"(</entry>
 </feed>)";
 }
 
@@ -26,8 +27,8 @@ constexpr const char* EPUB_LINK =
     R"(<link rel="http://opds-spec.org/acquisition" href="/dl/x.epub" type="application/epub+zip"/>)";
 
 TEST(OpdsFeed, ReadsDctermsLanguage) {
-  const auto entries = parse(feedAround(
-      std::string("<title>A Book</title><dcterms:language>en</dcterms:language>") + EPUB_LINK));
+  const auto entries =
+      parse(feedAround(std::string("<title>A Book</title><dcterms:language>en</dcterms:language>") + EPUB_LINK));
   ASSERT_EQ(entries.size(), 1u);
   EXPECT_EQ(entries[0].language, "en");
   EXPECT_EQ(entries[0].type, OpdsEntryType::BOOK);
@@ -36,8 +37,8 @@ TEST(OpdsFeed, ReadsDctermsLanguage) {
 TEST(OpdsFeed, NormalizesRegionSubtagAndCase) {
   // Feeds are wildly inconsistent here; a filter comparing raw values would
   // match almost nothing.
-  const auto entries = parse(feedAround(
-      std::string("<title>A Book</title><dcterms:language>EN-US</dcterms:language>") + EPUB_LINK));
+  const auto entries =
+      parse(feedAround(std::string("<title>A Book</title><dcterms:language>EN-US</dcterms:language>") + EPUB_LINK));
   ASSERT_EQ(entries.size(), 1u);
   EXPECT_EQ(entries[0].language, "en");
 }
@@ -89,6 +90,58 @@ TEST(OpdsFeed, DescriptionDocumentIsRememberedSeparately) {
   parser.flush();
   EXPECT_TRUE(parser.getSearchTemplate().empty());
   EXPECT_EQ(parser.getSearchDescriptionUrl(), "/opensearch");
+}
+
+TEST(OpdsFeed, PrefersTheThumbnailOverTheFullCover) {
+  // A small box on the detail screen; a 2000px cover costs seconds to fetch
+  // and decode for no visible gain.
+  const auto entries =
+      parse(feedAround(std::string("<title>A Book</title>") +
+                       R"(<link rel="http://opds-spec.org/image" href="/big.jpg" type="image/jpeg"/>)"
+                       R"(<link rel="http://opds-spec.org/image/thumbnail" href="/thumb.jpg" type="image/jpeg"/>)" +
+                       EPUB_LINK));
+  ASSERT_EQ(entries.size(), 1u);
+  EXPECT_EQ(entries[0].coverHref, "/thumb.jpg");
+}
+
+TEST(OpdsFeed, ThumbnailWinsEvenWhenItComesFirst) {
+  const auto entries =
+      parse(feedAround(std::string("<title>A Book</title>") +
+                       R"(<link rel="http://opds-spec.org/image/thumbnail" href="/thumb.jpg" type="image/jpeg"/>)"
+                       R"(<link rel="http://opds-spec.org/image" href="/big.jpg" type="image/jpeg"/>)" +
+                       EPUB_LINK));
+  ASSERT_EQ(entries.size(), 1u);
+  EXPECT_EQ(entries[0].coverHref, "/thumb.jpg");
+}
+
+TEST(OpdsFeed, FullImageIsUsedWhenNoThumbnailExists) {
+  const auto entries =
+      parse(feedAround(std::string("<title>A Book</title>") +
+                       R"(<link rel="http://opds-spec.org/image" href="/big.jpg" type="image/jpeg"/>)" + EPUB_LINK));
+  ASSERT_EQ(entries.size(), 1u);
+  EXPECT_EQ(entries[0].coverHref, "/big.jpg");
+}
+
+TEST(OpdsFeed, SummaryIsRead) {
+  const auto entries = parse(feedAround(
+      std::string("<title>A Book</title><summary>A towel is about the most massively useful thing.</summary>") +
+      EPUB_LINK));
+  ASSERT_EQ(entries.size(), 1u);
+  EXPECT_EQ(entries[0].summary, "A towel is about the most massively useful thing.");
+}
+
+TEST(OpdsFeed, SummaryWinsOverContentWhenBothArePresent) {
+  const auto entries = parse(feedAround(
+      std::string("<title>A Book</title><summary>Short.</summary><content>Long version.</content>") + EPUB_LINK));
+  ASSERT_EQ(entries.size(), 1u);
+  EXPECT_EQ(entries[0].summary, "Short.");
+}
+
+TEST(OpdsFeed, ContentIsUsedWhenThereIsNoSummary) {
+  const auto entries =
+      parse(feedAround(std::string("<title>A Book</title><content>Only content here.</content>") + EPUB_LINK));
+  ASSERT_EQ(entries.size(), 1u);
+  EXPECT_EQ(entries[0].summary, "Only content here.");
 }
 
 }  // namespace

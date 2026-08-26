@@ -32,13 +32,39 @@ against a suite that runs 22,000+ assertions and was green throughout. **One
 tester-hour is worth more than any number of host assertions for anything the
 eye or the finger judges.**
 
-Still true, and still the biggest gap: **Mario does not own the device**, so
-every session after this one is back to the simulator, which fakes buttons the
-hardware does not have and refreshes instantly where the panel takes hundreds of
-milliseconds.
+No longer true as of 2026-08-25: **both devices are on the desk** -- an X4 Pro
+(since 2026-08-25, releases are flashed there before they ship) and a Seeed
+reTerminal Sticky (arrived the same day, port in progress on `app/sticky`).
+The simulator still fakes buttons the hardware does not have and refreshes
+instantly where the panel takes hundreds of milliseconds, so the desk devices
+remain the only honest judge of feel.
 
 **Done looks like:** a second tester pass on a build that contains these fixes,
 and a green report in the README naming the version that was actually flashed.
+
+## The Sticky port is new and mostly unproven in the field
+
+Added 2026-08-25, the day the device arrived and the port was made; SD half
+verified 2026-08-26 on the desk unit's own card (formatted over the serial
+bridge, chess save survived a reboot, the player identity stopped renaming
+itself). The virgin-card save bug that session found -- nothing created
+`/.crosspoint` before the plain HalFile writers needed it -- is fixed at mount
+in main.cpp and was never Sticky-specific. What is still only as strong as
+one desk session:
+
+- **PLAY NEARBY between two Stickys is untested.** One Sticky exists here and
+  two-device play needs two. Sticky-to-X4-Pro is the same radio protocol but a
+  different pairing than any tested before.
+- **Flash headroom is thinner than the X4 Pro's**: the sticky app image
+  carries the mic/buzzer/sensor SDK drivers the x4pro build never compiles,
+  so it sits closer to the 6.25MB slot ceiling. Watch it at release time.
+
+The panel mount question is closed: Mario confirmed the glass upright on
+2026-08-26, so the profile's NO_FLIP is correct as shipped -- exactly the
+"confirmed on a unit" its comment asked for.
+
+**Done looks like:** a release that names the Sticky, an OTA install onto the
+desk Sticky from that release, and a stranger's issue report -- either way.
 
 ## Nothing knows what a refresh costs, so nothing can be tuned for feel
 

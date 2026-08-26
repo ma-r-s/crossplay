@@ -38,6 +38,11 @@ class HomeActivity final : public Activity {
   int coverRectY = 0;
   int coverRectW = 0;
   int coverRectH = 0;
+  // Menu top as actually drawn. render() may shrink the cover tile to fit the
+  // menu, which moves the menu up; the touch grid must follow the drawn rows,
+  // not the metrics table. 0 until the first render (touch falls back to the
+  // static formula, which is also what render uses when nothing shrank).
+  int menuTopRendered = 0;
   std::vector<RecentBook> recentBooks;
   const HomeMenuItem initialMenuItem;
 

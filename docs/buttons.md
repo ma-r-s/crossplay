@@ -33,6 +33,20 @@ they just remap indices onto pins that are not connected to anything.
 **So the entire button budget available to a game on this device is two keys
 that the case labels as previous and next page.**
 
+### The Sticky has three, and it changes nothing
+
+The Seeed reTerminal Sticky (the second supported device) carries the same two
+page keys (Up=GPIO5, Down=GPIO6) plus one more: a shared **Confirm/Power** key
+on GPIO4 -- a click is Confirm, a hold is sleep
+(`InputStyle::DigitalConfirmPowerHold` in its board profile). That key maps
+onto the logical Confirm that every screen already accepts, so it works
+everywhere without any app knowing it exists.
+
+The design rule does not move: **design for the X4 Pro's two keys plus touch.**
+An interaction that _requires_ the third key would be unreachable on the X4
+Pro, so the Sticky's Confirm is a convenience alias for a tap, never the only
+way to do something.
+
 ## 2. Back is a swipe, and it already works
 
 Worth stating plainly, because the pin map above looks alarming and it is not.

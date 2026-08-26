@@ -183,12 +183,12 @@ heavy leading, so the moment the box is shorter than the line box that `max()`
 pins the offset at zero and the text lands `ascender - inkHeight` below the top
 with its foot out of the bottom.
 
-| cut | line box | ink | needs a box of |
-| --- | -------- | --- | -------------- |
-| `toybox_10` | 21px | 13px | 21px |
-| `toybox_14` | 29px | 18px | 29px |
-| `toybox_20` | 42px | 25px | 42px |
-| `toybox_30` | 63px | 38px | **63px** |
+| cut         | line box | ink  | needs a box of |
+| ----------- | -------- | ---- | -------------- |
+| `toybox_10` | 21px     | 13px | 21px           |
+| `toybox_14` | 29px     | 18px | 29px           |
+| `toybox_20` | 42px     | 25px | 42px           |
+| `toybox_30` | 63px     | 38px | **63px**       |
 
 The display cut therefore needs a 63px-tall rect to centre itself, and almost
 nothing inside a game board is 63px tall. The error grows as the box gets
@@ -212,12 +212,12 @@ exactly as low as a centred one. Audit by box height, never by alignment.
 The rest of the cuts this fork ships, for the apps that do not speak Jersey and
 for the reading face a prose app binds to its body slot:
 
-| cut | line box | ink | used by |
-| --- | -------- | --- | ------- |
-| `instrument_10` | 27px | 15px | Connections menu, small slot |
-| `instrument_13` | 35px | 20px | Connections, tile and menu body |
-| `instrument_24` | 65px | 36px | Connections, title slot |
-| `reading_serif_14` | 40px | 21px | Hacker News, Xkcd, body slot |
+| cut                | line box | ink  | used by                         |
+| ------------------ | -------- | ---- | ------------------------------- |
+| `instrument_10`    | 27px     | 15px | Connections menu, small slot    |
+| `instrument_13`    | 35px     | 20px | Connections, tile and menu body |
+| `instrument_24`    | 65px     | 36px | Connections, title slot         |
+| `reading_serif_14` | 40px     | 21px | Hacker News, Xkcd, body slot    |
 
 Two places `inkCentred` cannot reach, both worth knowing before hunting one:
 
@@ -437,6 +437,11 @@ and that is not possible on this device. **The X4 Pro has two buttons**: the
 side page keys, wired to logical Up and Down. Back, Confirm, Left and Right are
 all unassigned in the board profile and are never configured as inputs. Back is
 a left-edge swipe, which `wasReleased(Button::Back)` already folds in.
+
+(The Sticky adds a third key, a shared Confirm/Power click. It maps onto the
+logical Confirm every screen already accepts and changes nothing here: design
+for the X4 Pro's two keys plus touch, and the third key comes along free. See
+[buttons.md](buttons.md).)
 
 So the rule is:
 

@@ -1,3 +1,4 @@
+#include <DevInputInjector.h>
 #include <HalGPIO.h>
 #include <Logging.h>
 #include <PowerManager.h>
@@ -6,6 +7,17 @@
 #include <Wire.h>
 #include <XteinkDetect.h>
 #include <esp_sleep.h>
+
+// Dev-build synthetic input (see lib/DevInput/DevInputInjector.h): every input
+// read consults the injector's frame first, so a host-scheduled tap or button
+// is indistinguishable from a real one downstream. Compiled out of release
+// envs, where DEV_INPUT(expr) leaves only the hardware read.
+#if CROSSPOINT_DEV_SERIAL_BRIDGE
+#define DEV_INPUT(expr) \
+  if (expr) return true;
+#else
+#define DEV_INPUT(expr)
+#endif
 
 // Global HalGPIO instance
 HalGPIO gpio;
@@ -140,6 +152,9 @@ void HalGPIO::begin() {
 
 void HalGPIO::update() {
   inputMgr.update();
+#if CROSSPOINT_DEV_SERIAL_BRIDGE
+  devinput::update();
+#endif
   const bool connected = isUsbConnected();
   usbStateChanged = (connected != lastUsbConnected);
   lastUsbConnected = connected;
@@ -147,19 +162,44 @@ void HalGPIO::update() {
 
 bool HalGPIO::wasUsbStateChanged() const { return usbStateChanged; }
 
-bool HalGPIO::isPressed(uint8_t buttonIndex) const { return inputMgr.isPressed(buttonIndex); }
+bool HalGPIO::isPressed(uint8_t buttonIndex) const {
+  DEV_INPUT(devinput::isPressed(buttonIndex))
+  return inputMgr.isPressed(buttonIndex);
+}
 
-bool HalGPIO::wasPressed(uint8_t buttonIndex) const { return inputMgr.wasPressed(buttonIndex); }
+bool HalGPIO::wasPressed(uint8_t buttonIndex) const {
+  DEV_INPUT(devinput::wasPressed(buttonIndex))
+  return inputMgr.wasPressed(buttonIndex);
+}
 
-bool HalGPIO::wasAnyPressed() const { return inputMgr.wasAnyPressed(); }
+bool HalGPIO::wasAnyPressed() const {
+  DEV_INPUT(devinput::wasAnyPressed())
+  return inputMgr.wasAnyPressed();
+}
 
-bool HalGPIO::wasReleased(uint8_t buttonIndex) const { return inputMgr.wasReleased(buttonIndex); }
+bool HalGPIO::wasReleased(uint8_t buttonIndex) const {
+  DEV_INPUT(devinput::wasReleased(buttonIndex))
+  return inputMgr.wasReleased(buttonIndex);
+}
 
-bool HalGPIO::wasAnyReleased() const { return inputMgr.wasAnyReleased(); }
+bool HalGPIO::wasAnyReleased() const {
+  DEV_INPUT(devinput::wasAnyReleased())
+  return inputMgr.wasAnyReleased();
+}
 
-unsigned long HalGPIO::getHeldTime() const { return inputMgr.getHeldTime(); }
+unsigned long HalGPIO::getHeldTime() const {
+#if CROSSPOINT_DEV_SERIAL_BRIDGE
+  if (const unsigned long t = devinput::heldTime()) return t;
+#endif
+  return inputMgr.getHeldTime();
+}
 
-unsigned long HalGPIO::getPowerButtonHeldTime() const { return inputMgr.getPowerButtonHeldTime(); }
+unsigned long HalGPIO::getPowerButtonHeldTime() const {
+#if CROSSPOINT_DEV_SERIAL_BRIDGE
+  if (devinput::isPressed(BTN_POWER)) return devinput::powerHeldTime();
+#endif
+  return inputMgr.getPowerButtonHeldTime();
+}
 
 bool HalGPIO::hasTouch() const { return inputMgr.hasTouch(); }
 
@@ -169,29 +209,59 @@ bool HalGPIO::wasHomeKeyTapped() const { return inputMgr.wasHomeKeyTapped(); }
 
 bool HalGPIO::wasHomeKeyLongPressed() const { return inputMgr.wasHomeKeyLongPressed(); }
 
-bool HalGPIO::wasTouchTap(float& nx, float& ny) const { return inputMgr.wasTouchTap(nx, ny); }
+bool HalGPIO::wasTouchTap(float& nx, float& ny) const {
+  DEV_INPUT(devinput::wasTouchTap(nx, ny))
+  return inputMgr.wasTouchTap(nx, ny);
+}
 
-bool HalGPIO::wasTouchDown(float& nx, float& ny) const { return inputMgr.wasTouchPressedAt(nx, ny); }
+bool HalGPIO::wasTouchDown(float& nx, float& ny) const {
+  DEV_INPUT(devinput::wasTouchDown(nx, ny))
+  return inputMgr.wasTouchPressedAt(nx, ny);
+}
 
-bool HalGPIO::wasTouchReleased() const { return inputMgr.wasTouchReleased(); }
+bool HalGPIO::wasTouchReleased() const {
+  DEV_INPUT(devinput::wasTouchReleased())
+  return inputMgr.wasTouchReleased();
+}
 
 bool HalGPIO::isTouchTapCandidate(float& nx, float& ny, unsigned long& heldMs) const {
+  DEV_INPUT(devinput::isTouchTapCandidate(nx, ny, heldMs))
   return inputMgr.isTouchTapCandidate(nx, ny, heldMs);
 }
 
-bool HalGPIO::isTouchHeldAt(float& nx, float& ny) const { return inputMgr.isTouchHeldAt(nx, ny); }
+bool HalGPIO::isTouchHeldAt(float& nx, float& ny) const {
+  DEV_INPUT(devinput::isTouchHeldAt(nx, ny))
+  return inputMgr.isTouchHeldAt(nx, ny);
+}
 
-bool HalGPIO::wasTouchLongPress(float& nx, float& ny) const { return inputMgr.wasTouchLongPress(nx, ny); }
+bool HalGPIO::wasTouchLongPress(float& nx, float& ny) const {
+  DEV_INPUT(devinput::wasTouchLongPress(nx, ny))
+  return inputMgr.wasTouchLongPress(nx, ny);
+}
 
-void HalGPIO::suppressTouchContact() { inputMgr.suppressTouchContact(); }
+void HalGPIO::suppressTouchContact() {
+#if CROSSPOINT_DEV_SERIAL_BRIDGE
+  devinput::suppressContact();
+#endif
+  inputMgr.suppressTouchContact();
+}
 
-unsigned long HalGPIO::lastTouchHeldMs() const { return inputMgr.lastTouchHeldMs(); }
+unsigned long HalGPIO::lastTouchHeldMs() const {
+#if CROSSPOINT_DEV_SERIAL_BRIDGE
+  if (const unsigned long t = devinput::lastTouchHeldMs()) return t;
+#endif
+  return inputMgr.lastTouchHeldMs();
+}
 
 bool HalGPIO::wasSwipe(float& nxStart, float& nyStart, float& nxEnd, float& nyEnd) const {
+  DEV_INPUT(devinput::wasSwipe(nxStart, nyStart, nxEnd, nyEnd))
   return inputMgr.wasSwipe(nxStart, nyStart, nxEnd, nyEnd);
 }
 
-bool HalGPIO::wasTouchActivity() const { return inputMgr.wasTouchActivity(); }
+bool HalGPIO::wasTouchActivity() const {
+  DEV_INPUT(devinput::wasTouchActivity())
+  return inputMgr.wasTouchActivity();
+}
 
 void HalGPIO::setSharedConfirmPowerShortPressEmitsPower(const bool enabled) {
   InputManager::setSharedConfirmPowerShortPressEmitsPower(enabled);

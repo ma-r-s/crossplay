@@ -76,6 +76,16 @@ Either one means leave it alone. The cost is not hypothetical: that same day two
 windows independently diagnosed the same simulator build failure, because both
 were working in the shared tree and neither could see the other coming.
 
+**Announce before you integrate.** The checks above catch a session that
+already started; they cannot catch one about to. Before merging into `xteink`,
+bumping the version, tagging, or rebuilding the emulator, announce the claim to
+the other sessions (ListAgents, then SendMessage) and wait one round for
+objections. One session owns a tag from bump to push; everyone else queues
+behind the tag they can see on origin. Three near-collisions on 2026-08-25 (a
+double integration, a queued site deploy, two simultaneous emulator rebuilds)
+were each resolved by exactly this message, sent after the fact instead of
+before.
+
 Each simulator instance gets its own SD card via `CROSSPOINT_SIM_SD`: each
 tree's own `fs_agent/` for scripted runs, and `../fs_mario/` at the workspace
 root for Mario's, which sits outside every tree so his saves and settings follow
