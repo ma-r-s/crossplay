@@ -421,13 +421,19 @@ async def start_sync(request: Request, dev=Depends(require_device)):
         manifests = []
         prints = fresh.setdefault("deck_fingerprints", {})
         for name in fresh["chosen_decks"]:
-            print_now = decks.deck_fingerprint(st, name)
+            content_now, schedule_now = decks.deck_fingerprints(st, name)
+            stored = prints.get(name) or {}
+            if isinstance(stored, str):  # pre-split single fingerprint
+                stored = {}
             existing = decks.latest_build(st, decks.slugify(name))
-            if existing and prints.get(name) == print_now:
+            if existing and stored.get("content") == content_now and stored.get("schedule") == schedule_now:
                 manifests.append(existing)
                 continue
-            manifests.append(decks.build_deck(st, name))
-            prints[name] = print_now
+            if existing and stored.get("content") == content_now:
+                manifests.append(decks.rebuild_cards_only(st, name, existing))
+            else:
+                manifests.append(decks.build_deck(st, name))
+            prints[name] = {"content": content_now, "schedule": schedule_now}
         fresh["status"] = "ok"
         fresh["last_sync"] = int(time.time())
         st.save_state(fresh)
