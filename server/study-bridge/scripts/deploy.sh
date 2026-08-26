@@ -27,4 +27,10 @@ rsync -a --exclude __pycache__ \
 rsync -a --delete --exclude .env --exclude data/ \
   "$STAGE/" orange:/srv/ankibridge/
 
+# The bind mount must belong to the container's uid BEFORE first write, or
+# docker creates it as root and the non-root app gets EACCES -- the exact
+# Getbooks gotcha, hit again on this service's first login. chown-via-docker
+# needs no host sudo.
+ssh orange 'mkdir -p /srv/ankibridge/data \
+  && docker run --rm -v /srv/ankibridge/data:/data alpine chown 10002:10002 /data'
 ssh orange 'cd /srv/ankibridge && docker compose up -d --build'

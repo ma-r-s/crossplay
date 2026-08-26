@@ -167,6 +167,16 @@ async def login(request: Request):
         st = await asyncio.to_thread(accounts.login, username, password)
     except ValueError as e:
         return page("Sign in failed", f"<p>{e}</p><p><a href=/>Try again</a></p>")
+    except Exception:
+        # Whatever broke, the user gets a sentence and the log gets the
+        # traceback -- never a bare Internal Server Error on the one page
+        # where trust is earned.
+        log.exception("login failed unexpectedly")
+        return page(
+            "Something broke",
+            "<p>The bridge hit a problem on its side; nothing about your"
+            " account was stored. Try again in a minute.</p>",
+        )
     resp = RedirectResponse("/devices", status_code=303)
     resp.set_cookie(
         "bridge_session",
