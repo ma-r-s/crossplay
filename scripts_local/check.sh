@@ -276,6 +276,37 @@ else
   echo "  installer    SKIPPED: no .venv-study -- the page's Python suite did NOT run"
 fi
 
+# The sync bridge server suite. Its venv is not committed; uv rebuilds it in
+# a --committed trial worktree (warm uv cache makes that cheap). A missing
+# toolchain FAILS rather than skips: a bridge change riding a green gate whose
+# bridge suite never ran is exactly the silence check.sh exists to prevent.
+BRIDGE_DIR="$REPO/server/study-bridge"
+if [ -d "$BRIDGE_DIR" ]; then
+  BRIDGE_PY="$BRIDGE_DIR/.venv/bin/python"
+  if [ ! -x "$BRIDGE_PY" ] && command -v uv > /dev/null 2>&1; then
+    (cd "$BRIDGE_DIR" && uv venv .venv --quiet \
+      && uv pip install --python .venv/bin/python --quiet -r requirements.txt) \
+      > "$LOGS/bridge-venv.log" 2>&1 || true
+  fi
+  if [ -x "$BRIDGE_PY" ]; then
+    # Ports ride the tree's own slice, same reason as LINKPLAY_BASE_PORT:
+    # two trees' gates must not share a sync-server port.
+    export BRIDGE_TEST_PORT=$(( LINKPLAY_BASE_PORT + 12 ))
+    for t in tests/test_engine.py tests/test_api.py; do
+      if (cd "$BRIDGE_DIR" && "$BRIDGE_PY" "$t") > "$LOGS/bridge-$(basename "$t").log" 2>&1; then
+        printf "  %-12s ok (%s)\n" "bridge" "$(basename "$t")"
+      else
+        printf "  %-12s FAILED (%s)\n" "bridge" "$(basename "$t")"
+        tail -5 "$LOGS/bridge-$(basename "$t").log" | sed 's/^/      /'
+        FAILED=1
+      fi
+    done
+  else
+    printf "  %-12s FAILED (no venv and uv could not build one)\n" "bridge"
+    FAILED=1
+  fi
+fi
+
 if [ -n "$STUDY_PY" ] && [ -f tools_local/site/precompress.py ]; then
   if (cd "$REPO" && $STUDY_PY tools_local/site/precompress.py --check) > "$LOGS/precompress.log" 2>&1; then
     printf "  %-12s ok\n" "encoding"

@@ -1,0 +1,9 @@
+anki==26.8.1
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+cryptography==44.0.0
+python-multipart==0.0.20
+fonttools==4.56.0
+freetype-py==2.5.1
+pillow==11.3.0
+httpx==0.28.1  # tests only
