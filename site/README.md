@@ -36,6 +36,15 @@ loads no third-party fonts, scripts or images, and it must stay that way. Adding
 an analytics snippet or a Google Fonts link will silently fail to load under
 these headers rather than warn.
 
+The one sanctioned exception is the study installer's Pyodide runtime, which
+`site/study/worker.js` loads from `cdn.jsdelivr.net` first and from the
+same-origin `/pyodide/` mirror only as fallback. Vercel's platform attack
+mitigation intermittently challenges worker fetches (it stranded two real
+installs on 2026-08-25) and has no off switch, while jsDelivr sends both CORS
+and `Cross-Origin-Resource-Policy: cross-origin` on every file, which is what
+makes it legal under the headers above; that was verified per-file before the
+exception was made. Any new third-party source must clear the same bar.
+
 **The big binaries ship already brotli-compressed, and that is not an
 optimisation you may quietly undo.** Vercel compresses static files at its
 edge on every cache MISS, and on a multi-megabyte binary it streams that

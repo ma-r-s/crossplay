@@ -62,6 +62,23 @@ def ok(condition, what):
 
 
 def main():
+    # worker.js loads the runtime from the CDN first (Vercel's attack
+    # mitigation strands same-origin worker fetches); its pinned version and
+    # fetch_pyodide.py's must name the same distribution or the CDN path and
+    # the fallback mirror run different Pyodides depending on which wins.
+    import re
+
+    worker = (REPO / "site" / "study" / "worker.js").read_text()
+    cdn = re.search(r"cdn\.jsdelivr\.net/pyodide/v([\d.]+)/full/", worker)
+    fetcher = (REPO / "tools_local" / "study" / "fetch_pyodide.py").read_text()
+    pinned = re.search(r'VERSION = "([\d.]+)"', fetcher)
+    ok(cdn and pinned, "could not find the pyodide version pins to compare")
+    ok(
+        cdn.group(1) == pinned.group(1),
+        f"pyodide version drift: worker.js {cdn.group(1)}"
+        f" vs fetch_pyodide.py {pinned.group(1)}",
+    )
+
     demo = REPO / "site" / "study" / "demo" / "sat-vocabulary.apkg"
     with tempfile.TemporaryDirectory() as tmp:
         work = pathlib.Path(tmp) / "work"
