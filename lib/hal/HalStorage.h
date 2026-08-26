@@ -84,7 +84,7 @@ class HalFile : public Print {
   HalFile(const HalFile&) = delete;
   HalFile& operator=(const HalFile&) = delete;
 
-  void flush();
+  void flush();  // no-op on a never-assigned handle
   size_t getName(char* name, size_t len);
   size_t size();
   size_t fileSize();
@@ -103,7 +103,7 @@ class HalFile : public Print {
   bool rename(const char* newPath);
   bool isDirectory() const;
   void rewindDirectory();
-  bool close();
+  bool close();  // returns false on a never-assigned handle
   HalFile openNextFile();
   bool isOpen() const;
   operator bool() const;
