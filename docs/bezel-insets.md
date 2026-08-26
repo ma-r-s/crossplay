@@ -54,13 +54,29 @@ into the current orientation.
 - The scroll indicators: `UIThemeTokens.h` derives `listScrollInset` from the
   side insets, so they moved from 7px to 1px off the edge on the X4 Pro.
 
-## The fui layer honors it too (flipped on app/bezel)
+## The fui layer honors it too -- and the games deliberately opt out
 
 `FreeInkUIGfxRenderer.h::deviceContext()` fills `DeviceContext.safeArea`
 from `getOrientedViewableTRBL()`, and `freeink::ui::Screen` seeds its
-content rect from `frame.safeRect()` -- so every toybox/fui screen (all the
-games, the shelf, hacker news, xkcd's menus) lays out clear of the glass.
-What made the one-line flip safe, in the order the traps were found:
+content rect from `frame.safeRect()` -- so a fui screen lays out clear of
+the glass by default.
+
+**Toybox-chromed apps (the games, the shelf, player, study, hacker news)
+opt back out** via `toybox::absoluteChrome(screen)`, called first in each
+chrome helper: the header band is paint and may bleed under the bezel (its
+title ink sits well below the covered rows), and every layout in those apps
+is tuned against the band at panel row 0. Shifting their chrome down by the
+insets ate the gaps those layouts were tuned for -- boards touched the
+divider rule, folder icons drifted off their rows, Toy Battle's helper text
+crowded the rule -- while buying nothing, because no game ever drew content
+in the covered rows. This was found on the device, not in the sim: the
+first flip shipped shifted game chrome and Mario spotted all of it in one
+look. What keeps the safe area: xkcd (its comic and menus reach the panel
+edge), the readers, and every screen laid out from
+`UITheme::getScreenSafeArea`.
+
+What made the flip safe for the screens that DO honor it, in the order the
+traps were found:
 
 1. **The ~23 absolute-margin `setContentMargin` sites** (reader menus,
    settings lists, wifi, sliders) build margins in the full screen frame

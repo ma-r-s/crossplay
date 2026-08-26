@@ -57,6 +57,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   fui::HeaderProps header;
   header.title = model.title;
   header.borderEdges = fui::EdgesNone;
+  toybox::absoluteChrome(screen);
   screen.header(header);
 
   const fui::Rect panel = screen.device().screen();

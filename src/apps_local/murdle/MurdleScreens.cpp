@@ -78,6 +78,7 @@ void chrome(toybox::Screen& screen, const char* title, const char* rightLabel,
   header.subtitleText.color = fui::Color::White;
   header.subtitleText.align = fui::TextAlign::Right;
   header.borderEdges = fui::EdgesNone;
+  toybox::absoluteChrome(screen);
   screen.header(header);
   const fui::Rect panel = screen.device().screen();
   const int16_t bandTop = static_cast<int16_t>(screen.body().y - toybox::kHeaderHeight);
@@ -622,8 +623,9 @@ CaseReport buildCase(toybox::Screen& screen, const CaseModel& model) {
     const freeink::Icon* marks[kFaceCount] = {&icon_murdle_face_clues_24, &icon_murdle_face_grid_24,
                                               &icon_murdle_face_info_24};
     constexpr int16_t kDoor = 56;  // 56x76 each: a comfortable thumb, twice over
-    // The header band starts at the safe area's top, where chrome() put it.
-    const int16_t bandTop = screen.frame().safeRect().y;
+    // Chrome is absolute (toybox::absoluteChrome): the band starts at panel
+    // row 0 and bleeds under the bezel.
+    const int16_t bandTop = 0;
     for (int i = 0; i < 2; ++i) {
       const int16_t x = static_cast<int16_t>(band.width - kDoor * (2 - i));
       const fui::Rect box = fui::makeRect(x, bandTop, kDoor, toybox::kHeaderHeight);

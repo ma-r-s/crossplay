@@ -46,6 +46,7 @@ void chrome(toybox::Screen& screen, const char* title, const char* rightLabel = 
       static_cast<int16_t>(screen.target().measureText(toybox::kUiFont, rightLabel, header.subtitleText).width +
                            toybox::kGutter));
   header.borderEdges = fui::EdgesNone;
+  toybox::absoluteChrome(screen);
   screen.header(header);
   toybox::headerRule(screen);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});

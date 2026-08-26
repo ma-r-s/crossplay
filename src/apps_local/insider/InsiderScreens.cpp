@@ -28,6 +28,7 @@ void chrome(toybox::Screen& screen, const char* title, const char* rightLabel) {
   header.subtitleText.color = fui::Color::White;
   header.subtitleText.align = fui::TextAlign::Right;
   header.borderEdges = fui::EdgesNone;
+  toybox::absoluteChrome(screen);
   screen.header(header);
   toybox::headerRule(screen);
 }

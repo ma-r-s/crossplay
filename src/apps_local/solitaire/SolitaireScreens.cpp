@@ -327,6 +327,7 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model, Layout& layout)
   fui::HeaderProps header;
   header.title = "SOLITAIRE";
   header.borderEdges = fui::EdgesNone;
+  toybox::absoluteChrome(screen);
   screen.header(header);
   target.fill(fui::makeRect(0, kHeader + 4, band.width, toybox::kRule), ink);
 
@@ -492,6 +493,7 @@ void buildWin(toybox::Screen& screen, const WinModel& model) {
   fui::HeaderProps header;
   header.title = "SOLITAIRE";
   header.borderEdges = fui::EdgesNone;
+  toybox::absoluteChrome(screen);
   screen.header(header);
   target.fill(fui::makeRect(0, kHeader + 4, band.width, toybox::kRule), ink);
 
@@ -576,6 +578,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   fui::HeaderProps header;
   header.title = "SOLITAIRE";
   header.borderEdges = fui::EdgesNone;
+  toybox::absoluteChrome(screen);
   screen.header(header);
   target.fill(fui::makeRect(0, kHeader + 4, band.width, toybox::kRule), ink);
 

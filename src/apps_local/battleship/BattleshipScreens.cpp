@@ -15,6 +15,7 @@ void toyboxChrome(toybox::Screen& screen, const char* title) {
   fui::HeaderProps header;
   header.title = title;
   header.borderEdges = fui::EdgesNone;
+  toybox::absoluteChrome(screen);
   screen.header(header);
 
   toybox::headerRule(screen);

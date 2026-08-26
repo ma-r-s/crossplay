@@ -641,6 +641,7 @@ void buildBrief(toybox::Screen& screen, const BriefModel& model) {
   header.title = title;
   header.titleText = fittedHeaderTitle(screen, title);
   header.borderEdges = fui::EdgesNone;
+  toybox::absoluteChrome(screen);
   screen.header(header);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
   if (!model.board) return;
@@ -765,6 +766,7 @@ void buildResult(toybox::Screen& screen, const ResultModel& model) {
   fui::HeaderProps header;
   header.title = won ? "YOU WIN" : "YOU LOSE";
   header.borderEdges = fui::EdgesNone;
+  toybox::absoluteChrome(screen);
   screen.header(header);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 
@@ -819,6 +821,7 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   fui::HeaderProps header;
   header.title = "TOY BATTLE";
   header.borderEdges = fui::EdgesNone;
+  toybox::absoluteChrome(screen);
   screen.header(header);
 
   const fui::DeviceContext device = screen.device();

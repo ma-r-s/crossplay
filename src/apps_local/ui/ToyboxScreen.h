@@ -109,11 +109,22 @@ class Screen : public freeink::ui::Screen<kMaxInteractions> {
   Screen(freeink::ui::Frame<kMaxInteractions>&, freeink::ui::ThemeTokens&&) = delete;
 };
 
+// Toybox chrome opts OUT of the device safe area: call FIRST in a screen
+// builder, before screen.header(). The header band is paint and may bleed
+// under the bezel -- its title ink sits well below the covered rows -- and
+// every layout in these apps is tuned against the band at panel row 0.
+// Shifting the chrome down by the insets ate the gaps those layouts were
+// tuned for (boards touched the rule, band decorations drifted) while
+// buying nothing: no game ever drew content in the covered rows. Content
+// that must clear the glass (the readers, xkcd, system lists) takes the
+// safe rect through its own path and does not use this.
+inline void absoluteChrome(Screen& screen) { screen.setContentMarginAbsolute(freeink::ui::Insets{}); }
+
 // The rule under the header band. Full-bleed on purpose -- paint may run
 // under the bezel, content may not -- and derived from the screen's content
-// top rather than a constant, so it tracks the band wherever the device's
-// safe area puts it. Call immediately after screen.header(...): the band was
-// just taken from the content top, so body().y is the band's bottom edge.
+// top rather than a constant, so it tracks the band wherever the screen
+// puts it. Call immediately after screen.header(...): the band was just
+// taken from the content top, so body().y is the band's bottom edge.
 inline void headerRule(Screen& screen) {
   namespace fui = freeink::ui;
   screen.target().fill(
