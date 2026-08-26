@@ -25,7 +25,7 @@ Welcome to the **CrossPoint** firmware. This guide outlines the hardware control
       - [3.6.2 Reader](#362-reader)
       - [3.6.3 Controls](#363-controls)
       - [3.6.4 System](#364-system)
-      - [3.6.5 OPDS Servers (Multiple Libraries)](#365-opds-servers-multiple-libraries)
+      - [3.6.5 Get Books (OPDS Catalogs)](#365-get-books-opds-catalogs)
       - [3.6.6 Web Settings (Wi-Fi + OPDS)](#366-web-settings-wi-fi--opds)
       - [3.6.7 KOReader Sync Quick Setup](#367-koreader-sync-quick-setup)
         - [Option A: CrossPoint Sync Server (`sync.crosspointreader.com`, default)](#option-a-crosspoint-sync-server-synccrosspointreadercom-default)
@@ -304,7 +304,7 @@ The Settings screen allows you to configure the device's behavior. There are a f
 
 - **KOReader Sync**: Options for setting up KOReader for syncing book progress. **Smart sync** is the default for new configurations and auto-resolves simple push/pull decisions. Existing credential files retain **Ask every time** when migrated; you can switch Sync Behavior at any time if you prefer manual confirmation.
 
-- **OPDS Servers**: Manage one or more OPDS [(Open Publication Distribution System)](https://en.wikipedia.org/wiki/Open_Publication_Distribution_System) libraries for browsing and downloading books. See [OPDS Servers (Multiple Libraries)](#365-opds-servers-multiple-libraries) below.
+- **OPDS Servers**: Manage the [OPDS](https://en.wikipedia.org/wiki/Open_Publication_Distribution_System) catalogs that **Get Books** searches. See [Get Books (OPDS Catalogs)](#365-get-books-opds-catalogs) below.
 
 - **Clear Reading Cache**: Clear the internal SD card cache.
 
@@ -314,28 +314,73 @@ The Settings screen allows you to configure the device's behavior. There are a f
 
 - **Manage Fonts**: Browse, download, and manage custom font families installed from the SD card. See [Custom Fonts (SD Card)](#38-custom-fonts-sd-card) for more information.
 
-#### 3.6.5 OPDS Servers (Multiple Libraries)
+#### 3.6.5 Get Books (OPDS Catalogs)
 
-CrossPoint supports saving multiple OPDS servers and switching between them when browsing catalogs.
+**Get Books** appears on the Home screen and downloads books straight to the
+device from an OPDS catalog. Two public catalogs are set up on first run, so it
+works without any configuration:
 
-1. Open **Settings -> System -> OPDS Servers**.
+- **Standard Ebooks** -- carefully produced, public-domain classics
+- **Project Gutenberg** -- a very large public-domain library
 
-2. Select **Add Server** to create a new entry, or select an existing server to edit it.
+Opening Get Books lists your catalogs when more than one is set up; pick one
+and it goes straight to the keyboard if that catalog supports search. Type a
+title or author, pick a result to see its details -- cover, author, format,
+size and description -- then choose **Download**. **Back** walks you from the
+results to the search box, and from there back out. The catalog's own browse
+categories sit behind **Back** from the search box.
+
+If you delete one of the seeded catalogs it stays deleted; they are only added
+once.
+
+##### Adding your own catalog
+
+1. Open **Get Books** to reach the catalog list, or go to
+   **Settings -> System -> OPDS Servers**.
+
+2. Select **Add Server** to create an entry, or an existing one to edit it.
 
 3. Configure these fields:
-   
-   - **Server Name**: Optional display name (for example, "Home Calibre" or "Public Catalog").
-   
-   - **OPDS Server URL**: Full catalog root URL (for Calibre Content Server, usually ends with `/opds`).
-   
+
+   - **Server Name**: Optional display name (for example, "Home Calibre").
+
+   - **OPDS Server URL**: Full catalog root URL (for Calibre Content Server,
+     usually ends with `/opds`).
+
    - **Username / Password**: Optional credentials for authenticated servers.
 
-4. Use **Delete Server** inside a server entry to remove it.
+4. Use **Delete Server** inside an entry to remove it.
+
+##### Filters
+
+**Filters**, at the bottom of the catalog list, restricts results by language. English only is
+the default. Books the catalog does not tag with a language are always shown,
+as are books in languages the list does not cover -- a filter that hid untagged
+books would hide most of a catalog.
+
+##### Provisioning a catalog from the SD card
+
+Rather than typing a URL and password on the on-screen keyboard, you can drop a
+file named `opds-seed.json` at the root of the SD card:
+
+```json
+{"servers": [
+  {"name": "My Library", "url": "https://example.com/opds",
+   "username": "me", "password": "secret"}
+]}
+```
+
+The catalogs are imported on the next boot and **the file is then deleted**,
+because it holds the password in plain text and the card is removable.
 
 Behavior notes:
 
 - You can store up to 8 OPDS servers.
-- OPDS authentication supports HTTP Basic auth. If you use Calibre Content Server with authentication enabled, set it to Basic (not Digest).
+- Authentication is HTTP Basic. With Calibre Content Server, set authentication
+  to Basic rather than Digest.
+- Downloaded filenames come from the entry's title and author. If a catalog
+  packs extra detail into those fields, set **Filename format** to *Title only*
+  to keep it out of the filename on the card.
 
 You can also manage OPDS servers from the web interface while in File Transfer mode:
 
