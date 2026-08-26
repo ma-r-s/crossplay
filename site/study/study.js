@@ -111,12 +111,6 @@ worker.onmessage = function (event) {
         onDeckFiles(msg.files);
       } else if (msg.type === "zip") {
         onZip(msg.buffer);
-      } else if (msg.type === "syncfiles") {
-        onSyncStaged();
-      } else if (msg.type === "sync") {
-        onSyncDone(msg.result);
-      } else if (msg.type === "syncfile") {
-        onSyncFile(msg.buffer);
       } else if (msg.type === "error") {
         setError("Something broke (" + msg.for + "): " + msg.message);
       }
@@ -1005,210 +999,6 @@ worker.onmessage = function (event) {
     // the whole point, and it dies with the page anyway.
   }
 
-  // ---- the sync-back flow -------------------------------------------------
-
-  var syncDecks = null; // {deckName: {"revlog.dat": buf, "cards.dat": buf}}
-  var syncProfileHandle = null;
-  var syncCollection = null; // ArrayBuffer, read fresh at replay time
-
-  function setSyncStatus(text) {
-    $("syncStatus").textContent = text;
-  }
-
-  async function pickSyncCard() {
-    var root;
-    try {
-      root = await window.showDirectoryPicker({ mode: "read" });
-    } catch (e) {
-      return;
-    }
-    try {
-      var study = await root.getDirectoryHandle("study");
-    } catch (e) {
-      setSyncStatus(
-        "That folder has no study/ directory; pick the SD card's root.",
-      );
-      return;
-    }
-    syncDecks = {};
-    var found = [];
-    for await (var entry of study.values()) {
-      if (entry.kind !== "directory" || entry.name === "fonts") continue;
-      var deck = {};
-      var reviews = 0;
-      try {
-        var revlog = await (
-          await (await entry.getFileHandle("revlog.dat")).getFile()
-        ).arrayBuffer();
-        var cards = await (
-          await (await entry.getFileHandle("cards.dat")).getFile()
-        ).arrayBuffer();
-        deck["revlog.dat"] = revlog;
-        deck["cards.dat"] = cards;
-        reviews = Math.floor(revlog.byteLength / 32);
-      } catch (e) {
-        continue;
-      }
-      if (reviews > 0) {
-        syncDecks[entry.name] = deck;
-        found.push(entry.name + " (" + reviews + " review record(s))");
-      }
-    }
-    if (!found.length) {
-      setSyncStatus("No deck on that card has reviews waiting. Nothing to do.");
-      syncDecks = null;
-      return;
-    }
-    setSyncStatus(
-      "Found: " + found.join(", ") + ". Now pick the Anki profile folder.",
-    );
-    $("syncProfile").disabled = false;
-  }
-
-  async function pickSyncProfile() {
-    var profile;
-    try {
-      profile = await window.showDirectoryPicker({ mode: "readwrite" });
-    } catch (e) {
-      return;
-    }
-    var collectionHandle;
-    try {
-      collectionHandle = await profile.getFileHandle("collection.anki2");
-    } catch (e) {
-      setSyncStatus(
-        "No collection.anki2 in that folder. The profile folder is inside " +
-          "Anki2, usually named after you (or 'User 1').",
-      );
-      return;
-    }
-    syncProfileHandle = profile;
-    var size = (await collectionHandle.getFile()).size;
-    setSyncStatus(
-      "Collection found (" +
-        (size / 1024 / 1024).toFixed(1) +
-        " MB). Quit Anki if it is open, then replay.",
-    );
-    $("syncRun").disabled = false;
-    $("syncRun").classList.add("primary");
-  }
-
-  // The browser cannot see processes, but SQLite's sidecar files are Anki's
-  // fingerprint on disk: a non-empty -wal/-journal means unflushed writes,
-  // and an existing -shm means some connection is (or died) holding it open.
-  async function ankiLooksOpen(profile) {
-    try {
-      var shm = await profile.getFileHandle("collection.anki2-shm");
-      if (shm) return "collection.anki2-shm exists";
-    } catch (e) {}
-    var names = ["collection.anki2-wal", "collection.anki2-journal"];
-    for (var i = 0; i < names.length; i++) {
-      try {
-        var extra = await (await profile.getFileHandle(names[i])).getFile();
-        if (extra.size > 0) return names[i] + " is not empty";
-      } catch (e) {}
-    }
-    return null;
-  }
-
-  async function runSync() {
-    if (!syncDecks || !syncProfileHandle) return;
-    ensureWorker();
-    if (!workerReady) {
-      onReady = runSync;
-      setSyncStatus("Loading the Python runtime first…");
-      return;
-    }
-    // Check and read NOW, not at pick time: minutes may have passed, and an
-    // Anki session in between would otherwise be replayed over and reverted.
-    var open = await ankiLooksOpen(syncProfileHandle);
-    if (open) {
-      setSyncStatus(
-        "Anki looks open (" +
-          open +
-          "). Quit it fully, then replay. If Anki crashed recently, open and" +
-          " quit it once so it cleans up, then come back.",
-      );
-      return;
-    }
-    try {
-      syncCollection = await (
-        await (
-          await syncProfileHandle.getFileHandle("collection.anki2")
-        ).getFile()
-      ).arrayBuffer();
-    } catch (e) {
-      setSyncStatus("Could not read collection.anki2: " + (e.message || e));
-      return;
-    }
-    setSyncStatus("Replaying…");
-    $("syncRun").disabled = true;
-    var transfers = [syncCollection];
-    Object.keys(syncDecks).forEach(function (deck) {
-      Object.keys(syncDecks[deck]).forEach(function (name) {
-        transfers.push(syncDecks[deck][name]);
-      });
-    });
-    worker.postMessage(
-      { type: "syncfiles", collection: syncCollection, decks: syncDecks },
-      transfers,
-    );
-    syncCollection = null;
-    syncDecks = null;
-  }
-
-  function onSyncStaged() {
-    worker.postMessage({ type: "sync" });
-  }
-
-  var syncResult = null;
-
-  function onSyncDone(result) {
-    syncResult = result;
-    var log = $("syncLog");
-    log.hidden = false;
-    if (result.error) {
-      log.textContent = result.error;
-      setSyncStatus("The replay did not run.");
-      return;
-    }
-    log.textContent = result.log;
-    if (result.failed) {
-      setSyncStatus(
-        "The replay hit a problem; nothing was written back. The log above has the tool's own words.",
-      );
-      return;
-    }
-    setSyncStatus("Backing up and writing the collection…");
-    worker.postMessage({ type: "syncfile" });
-  }
-
-  async function onSyncFile(buffer) {
-    try {
-      var stamp = Math.floor(Date.now() / 1000);
-      var backupName = "collection.anki2.before-sync-" + stamp;
-      var current = await syncProfileHandle.getFileHandle("collection.anki2");
-      var currentBytes = await (await current.getFile()).arrayBuffer();
-      var backup = await syncProfileHandle.getFileHandle(backupName, {
-        create: true,
-      });
-      var writable = await backup.createWritable();
-      await writable.write(currentBytes);
-      await writable.close();
-
-      var out = await current.createWritable();
-      await out.write(buffer);
-      await out.close();
-      setSyncStatus(
-        "Done. Backup: " +
-          backupName +
-          ". Open Anki: your reviews are there; press Sync to carry them to AnkiWeb.",
-      );
-    } catch (e) {
-      setSyncStatus("Writing the collection back failed: " + (e.message || e));
-    }
-  }
-
   // ---- wiring -------------------------------------------------------------
 
   var dropzone = $("dropzone");
@@ -1291,15 +1081,6 @@ worker.onmessage = function (event) {
     setWriteStatus(
       "This browser cannot write folders (Chrome and Edge can); use the zip.",
     );
-    $("syncCard").disabled = true;
-    setSyncStatus(
-      "This browser cannot open folders (Chrome and Edge can); use the" +
-        " command-line sync from the repository instead.",
-    );
-  } else {
-    $("syncCard").addEventListener("click", pickSyncCard);
-    $("syncProfile").addEventListener("click", pickSyncProfile);
-    $("syncRun").addEventListener("click", runSync);
   }
 
   // The face radios: built-in does nothing (there is nothing to build),
@@ -1392,7 +1173,6 @@ worker.onmessage = function (event) {
     Object.keys(stepSections).forEach(function (key) {
       stepSections[key].classList.toggle("is-current", Number(key) === step);
     });
-    $("modeSync").classList.remove("is-current");
     stepButtons.forEach(function (button) {
       var mine = Number(button.dataset.step);
       button.classList.toggle("is-current", mine === step);
@@ -1402,18 +1182,7 @@ worker.onmessage = function (event) {
       else button.removeAttribute("aria-current");
     });
     $("modeInstall").setAttribute("aria-selected", "true");
-    $("modeSyncBtn").setAttribute("aria-selected", "false");
     $("stepper").classList.remove("is-hidden");
-  }
-
-  function showSyncMode() {
-    Object.keys(stepSections).forEach(function (key) {
-      stepSections[key].classList.remove("is-current");
-    });
-    $("modeSync").classList.add("is-current");
-    $("modeInstall").setAttribute("aria-selected", "false");
-    $("modeSyncBtn").setAttribute("aria-selected", "true");
-    $("stepper").classList.add("is-hidden");
   }
 
   stepButtons.forEach(function (button) {
@@ -1424,8 +1193,6 @@ worker.onmessage = function (event) {
   $("modeInstall").addEventListener("click", function () {
     goTo(currentStep);
   });
-  $("modeSyncBtn").addEventListener("click", showSyncMode);
-  $("toSync").addEventListener("click", showSyncMode);
 
   // Exposed for the write step (phase 4) and tests; harmless otherwise.
   window.StudyInstaller = {

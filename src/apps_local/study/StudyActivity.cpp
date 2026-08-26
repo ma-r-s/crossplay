@@ -2,11 +2,15 @@
 
 #include <Logging.h>
 #include <Memory.h>
+#include <WiFi.h>
+#include <esp_sntp.h>
 
 #include <cstdio>
 #include <cstring>
 #include <ctime>
 
+#include "../../SilentRestart.h"
+#include "../../activities/network/WifiSelectionActivity.h"
 #include "../../components/UITheme.h"
 #include "../../util/QrUtils.h"
 #include "../Shelf.h"
@@ -215,6 +219,11 @@ void StudyActivity::switchDeck() {
 }
 
 void StudyActivity::onExit() {
+  if (wifiActivated_ && WiFi.getMode() != WIFI_MODE_NULL) {
+    WiFi.disconnect(false);
+    delay(30);
+    silentRestart();  // on touch boards: stops SNTP and the radio in place
+  }
   if (cardSource_) cardSource_->flush();
   revlogFile_.flush();
   fonts_.unload(renderer);
@@ -674,7 +683,17 @@ void StudyActivity::undo() {
 
 void StudyActivity::loop() {
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    if (view_ == View::SyncMsg) {
+      view_ = View::Deck;
+      requestUpdate();
+      return;
+    }
     shelf::leave(renderer, mappedInput);
+    return;
+  }
+  if (syncQueued_) {
+    syncQueued_ = false;
+    runSyncFlow();
     return;
   }
   int tapX = 0;
@@ -695,6 +714,11 @@ void StudyActivity::loop() {
   if (view_ == View::Image) {
     // Anywhere goes back. There is one thing to do here and no way to be wrong.
     view_ = View::Card;
+    requestUpdate();
+    return;
+  }
+  if (view_ == View::SyncMsg) {
+    view_ = View::Deck;
     requestUpdate();
     return;
   }
@@ -1045,6 +1069,10 @@ void StudyActivity::buildDeckModel(studyui::DeckModel& out) const {
 }
 
 void StudyActivity::routeAction(const fui::ActionEvent& event) {
+  if (event.action == studyui::ActionSync) {
+    beginSync();
+    return;
+  }
   if (event.action == studyui::ActionSwitchDeck) {
     switchDeck();
     return;
@@ -1104,6 +1132,8 @@ void StudyActivity::render(RenderLock&&) {
   } else if (view_ == View::Card) {
     const int remaining = (queueCount_ - queuePos_) + learningCount_ + 1;
     std::snprintf(title, sizeof(title), "%d LEFT", remaining);
+  } else if (view_ == View::SyncMsg || view_ == View::PairQr || view_ == View::PairConfirm) {
+    std::snprintf(title, sizeof(title), "SYNC");
   } else {
     std::snprintf(title, sizeof(title), "STUDY");
   }
@@ -1149,7 +1179,55 @@ void StudyActivity::render(RenderLock&&) {
   const int bodyTop = metrics.topPadding + metrics.headerHeight;
   const int footerTop = height - kFooterHeight;
 
-  if (view_ == View::Image) {
+  if (view_ == View::SyncMsg) {
+    UITheme::drawCenteredWrappedText(renderer, Rect{0, bodyTop + 60, width, 56}, kReadingFontId, syncTitle_, 1);
+    UITheme::drawCenteredWrappedText(renderer, Rect{24, bodyTop + 140, width - 48, 240}, kMeaningFontId, syncBody_, 6);
+    const auto labels = mappedInput.mapLabels("Back", "", "", "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    renderer.displayBuffer();
+    return;
+  } else if (view_ == View::PairQr) {
+    // The same QR-dominant arrangement the first-run screen won from three
+    // rendered variants; only the words and the payload differ.
+    UITheme::drawCenteredWrappedText(renderer, Rect{0, bodyTop + 16, width, 56}, kReadingFontId, "Pair this reader", 1);
+    const int16_t qrSide = 232;
+    QrUtils::drawQrCode(renderer, Rect{static_cast<int16_t>((width - qrSide) / 2), bodyTop + 88, qrSide, qrSide},
+                        study::StudySync::pairUrl(pairCode_));
+    UITheme::drawCenteredWrappedText(renderer, Rect{0, bodyTop + 88 + qrSide + 16, width, 56}, kReadingFontId,
+                                     pairCode_.c_str(), 1);
+    UITheme::drawCenteredWrappedText(renderer, Rect{20, bodyTop + 88 + qrSide + 82, width - 40, 160}, kMeaningFontId,
+                                     "Scan the code, or go to sync.ma-r-s.com/pair and type it. "
+                                     "Sign in there with your AnkiWeb account.",
+                                     4);
+    const auto labels = mappedInput.mapLabels("Cancel", "", "", "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    renderer.displayBuffer();
+    return;
+  } else if (view_ == View::PairConfirm) {
+    UITheme::drawCenteredWrappedText(renderer, Rect{0, bodyTop + 60, width, 56}, kReadingFontId, "Paired to", 1);
+    UITheme::drawCenteredWrappedText(renderer, Rect{16, bodyTop + 128, width - 32, 80}, kMeaningFontId,
+                                     pairUsername_.c_str(), 2);
+    UITheme::drawCenteredWrappedText(renderer, Rect{24, bodyTop + 224, width - 48, 80}, kMeaningFontId,
+                                     "If this is your account, confirm. If not, cancel -- nothing is stored yet.", 3);
+    // The confirm target: a pill the thumb can reach, tappable because on the
+    // Sticky the Confirm button is the power button.
+    confirmW_ = static_cast<int16_t>(width - 120);
+    confirmH_ = 56;
+    confirmX_ = 60;
+    confirmY_ = static_cast<int16_t>(height - kFooterHeight - 90);
+    renderer.fillRoundedRect(confirmX_, confirmY_, confirmW_, confirmH_, confirmH_ / 2, White);
+    renderer.drawRoundedRect(confirmX_, confirmY_, confirmW_, confirmH_, toybox::kHairline, confirmH_ / 2, true);
+    {
+      const char* confirmLabel = "CONFIRM -- THIS IS ME";
+      const int labelWidth = renderer.getTextWidth(toybox::kUiFontId, confirmLabel);
+      toybox::drawCapsCentered(renderer, toybox::kUiFontId, confirmX_ + (confirmW_ - labelWidth) / 2, confirmY_,
+                               confirmH_, confirmLabel, true);
+    }
+    const auto labels = mappedInput.mapLabels("Cancel", "", "", "Confirm");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    renderer.displayBuffer();
+    return;
+  } else if (view_ == View::Image) {
     drawImage(Rect{0, bodyTop, width, height - bodyTop});
   } else if (view_ == View::Card) {
     drawCard(Rect{0, bodyTop, width, footerTop - bodyTop});
@@ -1176,4 +1254,338 @@ void StudyActivity::render(RenderLock&&) {
   const auto labels = mappedInput.mapLabels("Back", "", "", "");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();
+}
+
+// ------------------------------------------------------------- the sync flow
+//
+// Everything below blocks the loop task on purpose (the KOSync pattern): the
+// render task paints through requestUpdateAndWait, and the wait loops pump
+// input themselves -- the sanctioned exception to the one-pump rule; nothing
+// else pumps while they run.
+
+void StudyActivity::drainInput() {
+  mappedInput.update();
+  (void)mappedInput.wasReleased(MappedInputManager::Button::Back);
+  (void)mappedInput.wasReleased(MappedInputManager::Button::Confirm);
+  int tapX = 0;
+  int tapY = 0;
+  (void)mappedInput.wasScreenTapped(tapX, tapY);
+}
+
+void StudyActivity::showSync(const char* title, const char* body) {
+  {
+    std::snprintf(syncTitle_, sizeof(syncTitle_), "%s", title);
+    std::snprintf(syncBody_, sizeof(syncBody_), "%s", body);
+    view_ = View::SyncMsg;
+  }
+  requestUpdateAndWait();
+}
+
+void StudyActivity::beginSync() {
+  flushWrites();
+  WiFi.mode(WIFI_STA);
+  wifiActivated_ = true;
+  startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
+                         [this](const ActivityResult& result) { onSyncWifi(!result.isCancelled); });
+}
+
+void StudyActivity::onSyncWifi(const bool connected) {
+  if (!connected) {
+    view_ = View::Deck;
+    requestUpdate();
+    return;
+  }
+  // Paint the busy screen now; the blocking flow starts one loop pass later,
+  // so the panel is never blank while the radio settles.
+  std::snprintf(syncTitle_, sizeof(syncTitle_), "SYNC");
+  std::snprintf(syncBody_, sizeof(syncBody_), "Connecting to the bridge.");
+  view_ = View::SyncMsg;
+  syncQueued_ = true;
+  requestUpdate();
+}
+
+void StudyActivity::syncTimeIfNeeded() {
+  // Certificate dates are validated on the bridge connection, so the clock
+  // must be sane before the first handshake. Same dance as KOSync.
+  if (time(nullptr) > 1700000000) return;
+  if (esp_sntp_enabled()) esp_sntp_stop();
+  esp_sntp_setoperatingmode(ESP_SNTP_OPMODE_POLL);
+  esp_sntp_setservername(0, "pool.ntp.org");
+  esp_sntp_init();
+  for (int retry = 0; retry < 50 && sntp_get_sync_status() != SNTP_SYNC_STATUS_COMPLETED; ++retry) {
+    delay(100);
+  }
+}
+
+void StudyActivity::endSyncSession(const char* title, const char* body) {
+  syncBusy_ = false;
+  // Radio down while the user reads the result (on touch boards silentRestart
+  // stops SNTP and the radio in place rather than rebooting).
+  WiFi.disconnect(false);
+  delay(30);
+  silentRestart();
+  wifiActivated_ = false;
+  // The flow closed the deck for heap; put the app back together before the
+  // result screen, so Back lands on a live deck.
+  if (deckCount_ > 0 && deckDir_[0] == '\0') {
+    openDeckAt(deckIndex_);
+    beginDeckSession();
+  }
+  showSync(title, body);
+}
+
+bool StudyActivity::runPairing() {
+  std::string message;
+  study::StudySync::PairStart pair;
+  showSync("SYNC", "Getting a pairing code.");
+  if (!sync_.pairStart(pair, message)) {
+    endSyncSession("SYNC", message.c_str());
+    return false;
+  }
+  pairCode_ = pair.code;
+  {
+    view_ = View::PairQr;
+  }
+  requestUpdateAndWait();
+  drainInput();
+
+  std::string username;
+  std::string token;
+  uint32_t lastPoll = 0;
+  for (;;) {
+    delay(100);
+    mappedInput.update();
+    if (mappedInput.wasReleased(MappedInputManager::Button::Back) || mappedInput.wasHomeGesture()) {
+      endSyncSession("SYNC", "Pairing stopped. Nothing was stored.");
+      return false;
+    }
+    if (millis() - lastPoll >= 3000) {
+      lastPoll = millis();
+      const int result = sync_.pairPoll(pair.pollToken, username, token, message);
+      if (result < 0) {
+        endSyncSession("SYNC", message.c_str());
+        return false;
+      }
+      if (result == 1) break;
+    }
+  }
+
+  // The anti-hijack gate: the device names the account it is about to belong
+  // to, and only a press on THIS hardware stores the token.
+  pairUsername_ = username;
+  {
+    view_ = View::PairConfirm;
+  }
+  requestUpdateAndWait();
+  // Without this drain, the Confirm release that picked the WiFi network two
+  // screens ago sits latched until its first read -- which was here, and it
+  // walked straight through the one gate that exists to need a human. Found
+  // in the simulator: SYNCED appeared before any confirm tap was scheduled.
+  drainInput();
+  for (;;) {
+    delay(50);
+    mappedInput.update();
+    if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+      endSyncSession("SYNC", "Pairing cancelled. Nothing was stored.");
+      return false;
+    }
+    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+      LOG_INF("STUDYSYNC", "confirm gate: Confirm button");
+      break;
+    }
+    int tapX = 0;
+    int tapY = 0;
+    if (mappedInput.wasScreenTapped(tapX, tapY)) {
+      LOG_INF("STUDYSYNC", "confirm gate: tap %d,%d (rect %d,%d %dx%d)", tapX, tapY, confirmX_, confirmY_, confirmW_,
+              confirmH_);
+      if (tapX >= confirmX_ && tapX < confirmX_ + confirmW_ && tapY >= confirmY_ && tapY < confirmY_ + confirmH_) {
+        break;
+      }
+    }
+  }
+  bridge_.token = token;
+  bridge_.paired = true;
+  if (!study::saveBridgeState(bridge_)) {
+    endSyncSession("SYNC", "Could not save the pairing to the card.");
+    return false;
+  }
+  return true;
+}
+
+bool StudyActivity::buildPayloads(std::vector<study::DeckPayload>& out) {
+  for (int i = 0; i < deckCount_; ++i) {
+    char path[96];
+    study::DeckPayload payload;
+    payload.dirName = deckNames_[i];
+
+    std::snprintf(path, sizeof(path), "%s/%s/revlog.dat", kStudyRoot, deckNames_[i]);
+    HalFile revlog;
+    if (Storage.openFileForRead("STUDYSYNC", path, revlog)) {
+      const uint32_t size = revlog.size();
+      uint32_t ack = bridge_.ackFor(deckNames_[i]);
+      if (ack > size) ack = 0;  // the file was replaced under us; resend all
+      payload.revlogOffset = ack;
+      if (size > ack) {
+        payload.revlogTail.resize(size - ack);
+        revlog.seek(ack);
+        if (revlog.read(reinterpret_cast<uint8_t*>(payload.revlogTail.data()), payload.revlogTail.size()) !=
+            static_cast<int>(payload.revlogTail.size())) {
+          return false;
+        }
+      }
+    } else {
+      payload.revlogOffset = 0;
+    }
+
+    std::snprintf(path, sizeof(path), "%s/%s/cards.dat", kStudyRoot, deckNames_[i]);
+    HalFile cards;
+    if (Storage.openFileForRead("STUDYSYNC", path, cards)) {
+      payload.cards.resize(cards.size());
+      if (cards.read(reinterpret_cast<uint8_t*>(payload.cards.data()), payload.cards.size()) !=
+          static_cast<int>(payload.cards.size())) {
+        return false;
+      }
+    }
+    out.push_back(std::move(payload));
+  }
+  return true;
+}
+
+namespace {
+int64_t localFileSize(const char* path) {
+  HalFile file;
+  if (!Storage.openFileForRead("STUDYSYNC", path, file)) return -1;
+  return static_cast<int64_t>(file.size());
+}
+}  // namespace
+
+bool StudyActivity::applyManifests(const std::vector<study::DeckManifest>& manifests, std::string& message) {
+  for (const auto& deck : manifests) {
+    char dir[96];
+    std::snprintf(dir, sizeof(dir), "%s/%s", kStudyRoot, deck.slug.c_str());
+    if (!Storage.exists(dir)) Storage.mkdir(dir);
+
+    // Two passes: every needed file lands as .part first, then the batch
+    // renames together. deck.dat and cards.dat are index-aligned; a torn pair
+    // would show the wrong scheduling under the right cards.
+    std::vector<std::pair<std::string, std::string>> renames;  // part -> final
+    int fetched = 0;
+    for (const auto& file : deck.files) {
+      // The card's own review log is never downloaded: it is the device's
+      // append-only truth and the ack offsets point into it. The glyph lists
+      // are font-pipeline inputs the device never reads.
+      if (file.path == "revlog.dat" || file.path.rfind("glyphs-", 0) == 0 || file.path[0] == '.') continue;
+      const std::string finalPath = std::string(dir) + "/" + file.path;
+      // Fonts are big and immutable per build; one with the manifest's exact
+      // size is taken as current rather than re-downloaded.
+      if (file.path.rfind("fonts/", 0) == 0 && localFileSize(finalPath.c_str()) == static_cast<int64_t>(file.size)) {
+        continue;
+      }
+      const size_t slash = finalPath.find_last_of('/');
+      const std::string parent = finalPath.substr(0, slash);
+      if (!Storage.exists(parent.c_str())) Storage.mkdir(parent.c_str());
+
+      char note[160];
+      std::snprintf(note, sizeof(note), "Fetching %s (%d files in).", deck.slug.c_str(), fetched);
+      showSync("SYNCING", note);
+      const std::string part = finalPath + ".part";
+      if (!sync_.downloadToPart(bridge_, deck, file, part, nullptr, message)) {
+        for (const auto& r : renames) Storage.remove(r.first.c_str());
+        return false;
+      }
+      renames.emplace_back(part, finalPath);
+      ++fetched;
+      mappedInput.update();
+      if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+        for (const auto& r : renames) Storage.remove(r.first.c_str());
+        message = "Stopped. The decks on the card are unchanged; sync again to finish.";
+        return false;
+      }
+    }
+    for (const auto& r : renames) {
+      Storage.remove(r.second.c_str());
+      Storage.rename(r.first.c_str(), r.second.c_str());
+    }
+  }
+  return true;
+}
+
+void StudyActivity::runSyncFlow() {
+  syncBusy_ = true;
+  syncTimeIfNeeded();
+  if (!study::loadBridgeState(bridge_)) {
+    if (!runPairing()) return;  // runPairing already ended the session
+  }
+
+  showSync("SYNCING", "Packing this card's reviews.");
+  closeDeck();  // frees the fonts and file handles; TLS wants the heap
+  std::vector<study::DeckPayload> payloads;
+  if (!buildPayloads(payloads)) {
+    endSyncSession("SYNC", "Could not read the card. Nothing was sent.");
+    return;
+  }
+
+  std::string job;
+  std::string message;
+  std::vector<std::pair<std::string, uint32_t>> acks;
+  showSync("SYNCING", "Sending your reviews.");
+  if (!sync_.syncStart(bridge_, payloads, job, acks, message)) {
+    endSyncSession("SYNC", message.c_str());
+    return;
+  }
+  payloads.clear();
+  payloads.shrink_to_fit();
+  // The ack is valid the moment the POST answered: the reviews are durable in
+  // the bridge's journal even if everything after this fails.
+  for (const auto& ack : acks) bridge_.setAck(ack.first.c_str(), ack.second);
+  study::saveBridgeState(bridge_);
+
+  const uint32_t started = millis();
+  bool preparing = false;
+  int transportBlips = 0;
+  std::vector<study::DeckManifest> manifests;
+  for (;;) {
+    bool leave = false;
+    for (int i = 0; i < 30; ++i) {
+      delay(100);
+      mappedInput.update();
+      if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+        leave = true;
+        break;
+      }
+    }
+    if (leave) {
+      endSyncSession("SYNC",
+                     "Your reviews are safely sent. The bridge keeps working; sync again later for the updated decks.");
+      return;
+    }
+    manifests.clear();
+    message.clear();
+    const std::string status = sync_.syncStatus(bridge_, job, manifests, message);
+    if (status == "done") break;
+    if (status == "error" || status == "frozen") {
+      endSyncSession("SYNC", message.c_str());
+      return;
+    }
+    if (status.empty() && ++transportBlips >= 5) {
+      endSyncSession("SYNC", message.c_str());
+      return;
+    }
+    if (!status.empty()) transportBlips = 0;
+    if (!preparing && millis() - started > 30000) {
+      // The first sync of a big collection is minutes, not seconds. Say so
+      // once, and make leaving safe -- the job keeps running on the bridge.
+      preparing = true;
+      showSync("PREPARING",
+               "This first time can take a while. It keeps working if you leave; sync again later to pick up the "
+               "result.");
+    }
+  }
+
+  if (!applyManifests(manifests, message)) {
+    endSyncSession("SYNC", message.c_str());
+    return;
+  }
+  findDeckDirs();  // the bridge may have delivered a deck this card never had
+  endSyncSession("SYNCED", "This card and your Anki are up to date.");
 }

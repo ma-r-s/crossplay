@@ -245,6 +245,23 @@ included. The CLI (`study.py sync`) is untouched. Install (convert + fonts
 - first copy) stays on the page; the device QR empty-state keeps pointing
   there.
 
+## Status (2026-08-26)
+
+Steps 0-2 of the rollout are BUILT: the bridge is live at sync.ma-r-s.com
+(Mario paired and synced his real collection through it via a curl stand-in
+device), and the firmware slice exists on this branch -- SYNC on the deck
+screen, QR pairing with the on-device confirm gate (instrumented: the log
+names which branch passed it, after a stale-input bypass was caught in the
+simulator and fixed with an input drain), the job-poll flow with the
+PREPARING wording, batch-atomic deck downloads, and TLS verification against
+the root bundle with the SD override. Verified end to end in the simulator
+against a local bridge + local sync server (pairing held unclaimed, held
+claimed-but-unconfirmed, passed only on the confirm tap; a crafted review
+acked at its byte offset; a server-built deck landed on the card). The
+website sync section is removed. Remaining: the release itself, and the
+on-hardware pass of the device TLS path (the simulator's transport is curl,
+so wolfSSL-verifies-Cloudflare is untested until a real device syncs).
+
 ## Rollout
 
 0. Pre-work, already chipped: fix deck_to_anki's QUEUE_LEARNING_INTRADAY

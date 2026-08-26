@@ -27,6 +27,7 @@
 #include "StudyScheduler.h"
 #include "StudyScreens.h"
 #include "StudyStats.h"
+#include "StudySync.h"
 
 struct Rect;
 
@@ -55,7 +56,11 @@ class StudyActivity final : public Activity {
   // Deck is the front door and also the end state: one screen that reflects
   // where the session is, rather than a separate 'finished' page that says
   // the same things with none of the same context.
-  enum class View : uint8_t { Deck, Card, Image, NoDeck };
+  // The three Sync* views are the bridge flow: a message screen that carries
+  // whatever sentence the flow is on, the pairing QR, and the on-device
+  // "Paired to <account> -- confirm?" gate (which closes both directions of
+  // the pairing race; see docs/apps/study-sync-bridge-plan.md).
+  enum class View : uint8_t { Deck, Card, Image, NoDeck, SyncMsg, PairQr, PairConfirm };
   enum class Face : uint8_t { Question, Answer };
 
   bool openDeck();
@@ -190,4 +195,39 @@ class StudyActivity final : public Activity {
   Face face_ = Face::Question;
   bool fontsReady_ = false;
   uint32_t shuffle_ = 0;
+
+  // ---- The sync flow. Blocking network runs on the loop task (the KOSync
+  // pattern); the render task paints through requestUpdateAndWait, and the
+  // poll loops pump input themselves -- the sanctioned exception, nothing
+  // else pumps while they block.
+  void beginSync();
+  void onSyncWifi(bool connected);
+  void runSyncFlow();
+  bool runPairing();
+  bool buildPayloads(std::vector<study::DeckPayload>& out);
+  bool applyManifests(const std::vector<study::DeckManifest>& manifests, std::string& message);
+  void showSync(const char* title, const char* body);
+  void endSyncSession(const char* title, const char* body);
+  void syncTimeIfNeeded();
+  void drainInput();
+  // The radio is up and a stranger is mid-pairing: sleeping here would read
+  // as a crash. The result screen (syncBusy_ false) may sleep normally.
+  bool preventAutoSleep() override {
+    return syncBusy_ || view_ == View::PairQr || view_ == View::PairConfirm;
+  }
+
+  study::StudySync sync_;
+  study::BridgeState bridge_;
+  bool syncQueued_ = false;
+  bool syncBusy_ = false;
+  bool wifiActivated_ = false;
+  char syncTitle_[24] = "";
+  char syncBody_[192] = "";
+  // What the pairing screens draw; only meaningful in the PairQr/PairConfirm
+  // views. The confirm tap target is registered by render() here so the poll
+  // loop and the drawing agree on one rectangle.
+  std::string pairCode_;
+  std::string pairUsername_;
+  // The confirm tap target (Rect is only forward-declared here).
+  int16_t confirmX_ = 0, confirmY_ = 0, confirmW_ = 0, confirmH_ = 0;
 };

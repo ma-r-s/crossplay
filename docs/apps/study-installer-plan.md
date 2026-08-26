@@ -54,7 +54,7 @@ them, so the CLI, CI and the installer cannot drift apart.
 | Fonts         | FreeType 2.13.2 compiled to wasm (tools_local/wasm-ft/, 457 KB) behind a freetype-py stand-in (web_shims/freetype.py), so mono_cpfont.py runs unchanged. fontTools pinned to 4.56.0 on both sides. **Acceptance held: byte-identical .cpfont vs the CLI (test_font_parity.py), verified 2026-08-10.** | done, parity verified |
 | Preview       | preview.html iframe, one boot per document; boot options env/files/wipe in emulator.js write the deck under /fs_/study and CROSSPLAY_AUTOSTART=study (a fork seam in Shelf.cpp, getenv precedent) boots straight into the app | done, verified: injected deck graded, revlog grew |
 | Write to card | File System Access under study/<slug>/, unsynced-review overwrite guard; zip fallback via zipfile in Pyodide | done (pickers hand-tested) |
-| Review sync   | deck_to_anki.py replays in Pyodide against a staged copy; the page writes a timestamped backup then the collection; non-empty -wal/-journal stands in for the Anki-running check | done, tested (test_web_glue.py) |
+| Review sync   | REMOVED from the page (2026-08-26, Mario's call): the device's SYNC button is the only sync surface, via the bridge (study-sync-bridge-plan.md). The Pyodide replay plumbing stays in web_glue/worker for test coverage of the shared code; no UI reaches it | removed |
 
 ## Order of work, as built
 
