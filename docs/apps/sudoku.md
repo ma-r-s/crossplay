@@ -164,19 +164,40 @@ it brackets every copy.
 
 ### What the render caught that the code read did not
 
-The board and the front door were each built in three complete arrangements
-behind a `SUDOKU_VARIANT` macro, rendered through the device path against a
-seeded save, and composed side by side. Mario picked the shaded-clue board and
-the miniature front door; the switch and the two losers went in the same commit.
+Every screen was built in three complete arrangements behind a `SUDOKU_VARIANT`
+macro, rendered through the device path against a seeded save, and composed side
+by side. Mario picked the shaded-clue board, a front door where the grid **is**
+the page, and a how-to that shows each gesture as a **before and after** pair
+with an arrow between. The switch and the losers went in the same commits.
 
-Two things only the pictures showed. The front door's state line and record line
-collided, because a 28px band is shorter than a 20px cut's line box. And the
-digits sat low enough to cross the cell border -- which turned out to be a
-fork-wide trap rather than a Sudoku one, and is now written up in
-[design-language.md](../design-language.md) with a shared fix. The short version:
-`GfxRendererTarget::text` centres the font's _line box_ and clamps, Jersey's
-display cut is a 63px line box around a 38px digit, and a 50px cell is too short
-for the clamp to do anything but pin the text to the top.
+Four of the five lessons describe a gesture, and a gesture is a change: one
+still frame cannot show it and two can. That is the whole argument for the
+before/after pair over a single diagram, and it is why the pictures teach rather
+than decorate.
+
+The renders caught what reading the code did not, and the list is worth keeping
+because none of it was visible in the source:
+
+- The front door's state and record lines **collided**: a 28px band is shorter
+  than a 20px cut's line box.
+- The digits **crossed the cell border**, which turned out to be a fork-wide
+  trap rather than a Sudoku one. See [design-language.md](../design-language.md).
+- The how-to's body text **ran over the board**, because `maxLines = 3` in an
+  84px band and the line height is 42. A band must be at least
+  `maxLines * lineHeight`; the component wraps and centres but never clips.
+- A lesson line **truncated invisibly**, the same ellipsis-with-no-glyph failure
+  as the status capsule.
+- The teaching board was blown up to fill the page and the digits looked lost in
+  it: the largest cut puts 38px of ink in a cell, so a 145px teaching cell is 26%
+  full where the real board's 50px cell is 76%. A picture gets big by holding
+  MORE cells, not bigger ones.
+- The front door's ornament sat **32px short on one side**, and one arrangement's
+  stat row ended 90px short of the right margin while everything else ran the
+  full width.
+- Two diagrams **contradicted the rule they illustrated**: their "before" boards
+  already held two fives in one box, which the game would draw as a clash, and
+  one of them left a third five grey while marking two black. The faces now use
+  clues 1, 3 and 9 only, so nothing clashes until the lesson says it does.
 
 ## The save
 

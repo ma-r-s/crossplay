@@ -119,6 +119,17 @@ void toyboxChrome(toybox::Screen& screen, const char* title, const char* rightLa
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 }
 
+// A band tall enough for the lines it is asked to hold.
+//
+// The component wraps to `maxLines` and centres the BLOCK in the rect it is
+// given; it does not shrink to fit and it does not clip. So a three-line label
+// in an eighty-four pixel band draws its third line straight out of the bottom
+// and over whatever is beneath it. Sizing the band from the cut is the only
+// thing that makes `maxLines` mean anything.
+constexpr int16_t textBand(const int lines, const toybox::CutMetrics& cut) {
+  return static_cast<int16_t>(lines * cut.lineHeight);
+}
+
 void digitText(char* out, const int digit) {
   out[0] = static_cast<char>('0' + digit);
   out[1] = '\0';
@@ -295,15 +306,19 @@ void drawRail(toybox::Screen& screen, const BoardModel& model) {
 // picture is the shape of your specific puzzle plus how far into it you are. It
 // is different on every device and different every time you look.
 void drawMiniature(toybox::Screen& screen, const fui::Rect& room, const sk::Game& game, const bool hasGame) {
-  const int16_t side =
-      static_cast<int16_t>((room.width < room.height ? room.width : room.height) - 2 * toybox::kMargin);
+  // The brackets reach OUTSIDE the grid, so the grid is inset by exactly their
+  // reach and the bracket box lands flush with the band it was given. Sizing
+  // the grid to the band instead, and letting the brackets hang past it, put
+  // the ornament 32px short of every other element on the front door.
+  const int16_t reach = static_cast<int16_t>(toybox::kMargin - 4);
+  const int16_t across = static_cast<int16_t>(room.width - 2 * reach);
+  const int16_t down = static_cast<int16_t>(room.height - 2 * reach);
+  const int16_t side = across < down ? across : down;
   const int16_t cell = static_cast<int16_t>(side / sk::kSize);
   const int16_t grid = static_cast<int16_t>(cell * sk::kSize);
   const int16_t left = static_cast<int16_t>(room.x + (room.width - grid) / 2);
   const int16_t top = static_cast<int16_t>(room.y + (room.height - grid) / 2);
 
-  // The same brackets the board wears, so the two read as one device.
-  const int16_t reach = static_cast<int16_t>(toybox::kMargin - 4);
   cornerMarks(screen,
               fui::makeRect(static_cast<int16_t>(left - reach), static_cast<int16_t>(top - reach),
                             static_cast<int16_t>(grid + 2 * reach), static_cast<int16_t>(grid + 2 * reach)),
@@ -335,61 +350,114 @@ void drawMiniature(toybox::Screen& screen, const fui::Rect& room, const sk::Game
   }
 }
 
-const char* const kLessonLines[] = {
-    "FILL EVERY ROW, COLUMN AND BOX WITH ONE TO NINE. NO DIGIT TWICE IN ANY OF THEM.",
-    "PICK A DIGIT ON THE PAD, THEN TAP CELLS. EVERY COPY OF IT ON THE BOARD IS MARKED, SO YOU CAN SEE WHERE IT CANNOT "
-    "GO.",
-    "TAP YOUR OWN DIGIT AGAIN TO CLEAR IT. TAP A PRINTED CLUE TO PICK ITS DIGIT UP.",
-    "HOLD A CELL TO PENCIL THE ARMED DIGIT IN. HOLD AGAIN TO RUB IT OUT. MARKS FADE ON THEIR OWN ONCE A NEIGHBOUR "
-    "TAKES THE DIGIT.",
-    "A DIGIT THAT CLASHES WITH ONE IT CAN SEE TURNS BLACK. HINT NAMES A CELL YOU CAN SOLVE NOW, AND THE RULE THAT "
-    "PROVES IT.",
+// A lesson is a title, a sentence, and a small board before and after the
+// gesture it describes. The before/after pair is what makes the pictures teach
+// rather than decorate: four of the five pages are about a GESTURE, and a
+// gesture is a change, which a single still frame cannot show.
+struct Lesson {
+  const char* title;
+  const char* body;
+  // The half of each lesson that would not fit two lines. Only the arrangement
+  // with room under its picture prints it.
+  const char* detail;
+  const char* before;
+  const char* after;  // nullptr when the page is a rule rather than a gesture
+  uint8_t armed;
 };
-constexpr int kLessonCount = static_cast<int>(sizeof(kLessonLines) / sizeof(kLessonLines[0]));
 
-// A small worked fragment for each page, built from real rules rather than
-// drawn: the diagram cannot disagree with the lesson beside it.
-void lessonDiagram(toybox::Screen& screen, const int page, const int16_t top, const int16_t bottom,
-                   const fui::Rect& area) {
-  const int16_t cell = 44;
+// Face characters: '.' empty, '1'-'9' your own digit, 'A'-'I' a printed clue,
+// 'p' a pencilled cell, '!' a clashing copy of the lesson's armed digit.
+// The clues are 1, 3 and 9 in the corners, deliberately: any face carrying a
+// clue 5 would put two fives in one box before the player has done anything,
+// and the board's own rule says those clash. A diagram that contradicts the
+// rule it illustrates is worse than no diagram.
+const Lesson kLessons[] = {
+    {"THE RULE", "EVERY ROW, COLUMN AND BOX HOLDS 1 TO 9.", "NO DIGIT TWICE IN ANY OF THEM.", "123456789", nullptr, 0},
+    {"WRITING", "PICK A DIGIT, THEN TAP A CELL TO WRITE IT.", "EVERY COPY OF IT IS MARKED.", "A.C.....I", "A.C.5...I",
+     5},
+    {"CLEARING", "TAP YOUR OWN DIGIT AGAIN TO CLEAR IT.", "TAP A CLUE TO PICK ITS DIGIT UP.", "A.C.5...I", "A.C.....I",
+     5},
+    {"PENCIL", "HOLD A CELL TO PENCIL A DIGIT IN.", "HOLD AGAIN TO RUB IT OUT.", "A.C.....I", "A.C.p...I", 0},
+    // Both fives go black, not one: the clue is clashing too, and the game
+    // inverts every cell in a clash rather than only the newest.
+    {"MISTAKES", "A DIGIT THAT CLASHES TURNS BLACK.", "HINT NAMES A CELL YOU CAN SOLVE.", "A.C.5...I", "A.C!!...I", 5},
+};
+constexpr int kLessonCount = static_cast<int>(sizeof(kLessons) / sizeof(kLessons[0]));
+
+// One 3x3 board from a face string, at whatever size it is given. Every digit
+// goes through inkCentred, which is the whole reason the old diagram's numerals
+// were sliced by their own cell borders: the display cut's line box is 63px and
+// these cells are smaller than that at every size this draws.
+void drawFace(toybox::Screen& screen, const fui::Rect& box, const char* face, const uint8_t armed,
+              const bool outline = true) {
+  const int16_t cell = static_cast<int16_t>(box.width / 3);
   const int16_t grid = static_cast<int16_t>(cell * 3);
-  const int16_t left = static_cast<int16_t>(area.x + (area.width - grid) / 2);
-  const int16_t room = static_cast<int16_t>(bottom - top);
-  if (room < grid) return;
-  const int16_t y = static_cast<int16_t>(top + (room - grid) / 2);
+  const int16_t left = static_cast<int16_t>(box.x + (box.width - grid) / 2);
+  const int16_t top = static_cast<int16_t>(box.y + (box.height - grid) / 2);
 
-  // Page order matches kLessonLines: the box, an armed digit with its marks,
-  // an overwrite, a pencilled cell, a clash.
-  static const char* const kFaces[kLessonCount] = {"123456789", "5..3..7.5", "5..3..7..", "5..3..7..", "5..3..5.."};
-  const char* face = kFaces[page];
+  // The cut is chosen from the cell, not fixed: a 130px teaching cell and a
+  // 70px one want different numerals, and picking the largest that fits is the
+  // design language's own rule about shrinking to fit.
+  const bool big = cell >= 64;
+  const fui::FontId font = big ? toybox::kDisplayFont : toybox::kUiFont;
+  const toybox::CutMetrics cut = big ? toybox::kDisplayCut : toybox::kUiCut;
 
   for (int index = 0; index < 9; ++index) {
-    const fui::Rect box = fui::makeRect(static_cast<int16_t>(left + (index % 3) * cell),
-                                        static_cast<int16_t>(y + (index / 3) * cell), cell, cell);
+    const fui::Rect at = fui::makeRect(static_cast<int16_t>(left + (index % 3) * cell),
+                                       static_cast<int16_t>(top + (index / 3) * cell), cell, cell);
     const char mark = face[index];
-    const bool clash = page == 4 && (index == 0 || index == 6);
+    const bool clue = mark >= 'A' && mark <= 'I';
+    const bool clash = mark == '!';
     if (clash) {
-      screen.target().fill(box, fui::Paint::solid(fui::Color::Black));
-    } else if (page != 0 && mark != '.') {
-      screen.target().fill(box, fui::Paint::dither(fui::Color::LightGray));
+      screen.target().fill(at, fui::Paint::solid(fui::Color::Black));
+    } else if (clue) {
+      screen.target().fill(at, fui::Paint::dither(fui::Color::LightGray));
     }
-    frame(screen, box, toybox::kHairline);
-    if (mark != '.') {
-      char text[2] = {mark, '\0'};
+    frame(screen, at, toybox::kHairline);
+
+    char text[2] = {'\0', '\0'};
+    if (clue) text[0] = static_cast<char>('1' + (mark - 'A'));
+    if (mark >= '1' && mark <= '9') text[0] = mark;
+    if (clash) text[0] = static_cast<char>('0' + armed);
+
+    if (mark == 'p') {
+      drawNotes(screen, at, static_cast<sk::Mask>(sk::bitFor(2) | sk::bitFor(6) | sk::bitFor(9)));
+    } else if (text[0] != '\0') {
       fui::TextStyle digit;
-      digit.font = toybox::kDisplayFont;
+      digit.font = font;
       digit.align = fui::TextAlign::Center;
       digit.color = clash ? fui::Color::White : fui::Color::Black;
-      screen.target().text(box, text, digit);
-      if (page == 1 && mark == '5') cornerMarks(screen, box, 11, toybox::kRule, false);
-    } else if (page == 3 && index == 4) {
-      drawNotes(screen, box, static_cast<sk::Mask>(sk::bitFor(2) | sk::bitFor(6) | sk::bitFor(9)));
+      screen.target().text(toybox::inkCentred(at, cut), text, digit);
+      if (armed != 0 && text[0] == static_cast<char>('0' + armed)) {
+        cornerMarks(screen, at, static_cast<int16_t>(cell / 4), toybox::kRule, clash);
+      }
     }
   }
-  frame(screen,
-        fui::makeRect(static_cast<int16_t>(left - toybox::kRule), static_cast<int16_t>(y - toybox::kRule),
-                      static_cast<int16_t>(grid + 2 * toybox::kRule), static_cast<int16_t>(grid + 2 * toybox::kRule)),
-        toybox::kRule);
+  // Skipped when the face is a box inside a whole board: the board draws that
+  // separator itself, and two rules on one edge read as a notch.
+  if (outline) {
+    frame(screen,
+          fui::makeRect(static_cast<int16_t>(left - toybox::kRule), static_cast<int16_t>(top - toybox::kRule),
+                        static_cast<int16_t>(grid + 2 * toybox::kRule), static_cast<int16_t>(grid + 2 * toybox::kRule)),
+          toybox::kRule);
+  }
+}
+
+// The arrow between a before and an after: two bars and a head, drawn from the
+// band it is given so it cannot drift from the boards it sits between.
+void drawArrow(toybox::Screen& screen, const fui::Rect& band) {
+  const fui::Paint black = fui::Paint::solid(fui::Color::Black);
+  const int16_t midX = static_cast<int16_t>(band.x + band.width / 2);
+  const int16_t midY = static_cast<int16_t>(band.y + band.height / 2);
+  const int16_t shaft = static_cast<int16_t>(band.height / 2);
+  screen.target().fill(fui::makeRect(static_cast<int16_t>(midX - 2), static_cast<int16_t>(midY - shaft), 5, shaft),
+                       black);
+  for (int i = 0; i < 9; ++i) {
+    const int16_t half = static_cast<int16_t>(9 - i);
+    screen.target().fill(fui::makeRect(static_cast<int16_t>(midX - half), static_cast<int16_t>(midY + i),
+                                       static_cast<int16_t>(half * 2), 1),
+                         black);
+  }
 }
 
 }  // namespace
@@ -437,43 +505,10 @@ void formatClock(const uint32_t ms, char* out, const int size) {
 
 int howToPages() { return kLessonCount; }
 
-void buildMenu(toybox::Screen& screen, const MenuModel& model) {
-  toyboxChrome(screen, "SUDOKU", sk::levelName(model.level));
-
-  // The headline is the loudest thing on the page and it is also the main
-  // action's hit target, so the commonest tap needs no button at all.
-  const bool resuming = model.hasGame && !model.levelChanged && model.game.solvedFlag == 0;
-  fui::ButtonProps headline;
-  headline.label = resuming ? "RESUME" : "NEW PUZZLE";
-  headline.action = ActionPlay;
-  headline.styles = toybox::rowStyles();
-  screen.button(headline, screen.takeTop(58));
-
-  // Bands sized to the ink rather than to the number that looked about right.
-  // The first version gave the state 28px and the record 26 and the two ran
-  // into each other, because a 20px cut's line box is taller than its cap.
-  char state[48];
-  if (model.levelChanged) {
-    std::snprintf(state, sizeof(state), "%s, STARTING FRESH", sk::levelName(model.level));
-  } else if (resuming) {
-    std::snprintf(state, sizeof(state), "%d LEFT", sk::emptyCount(model.game));
-  } else if (model.hasGame) {
-    std::snprintf(state, sizeof(state), "LAST ONE SOLVED");
-  } else {
-    std::snprintf(state, sizeof(state), "NOT STARTED");
-  }
-  fui::TextStyle stateStyle;
-  stateStyle.font = toybox::kBodyFont;
-  stateStyle.align = fui::TextAlign::Left;
-  screen.target().text(screen.takeTop(38), state, stateStyle);
-
-  const fui::Rect ruleBand = screen.takeTop(toybox::kRule + 10);
-  screen.target().fill(fui::makeRect(ruleBand.x, static_cast<int16_t>(ruleBand.y + 6), ruleBand.width, toybox::kRule),
-                       fui::Paint::solid(fui::Color::Black));
-
-  // The doors carry the difficulty, which cycles in place.
-  char levelRow[32];
-  std::snprintf(levelRow, sizeof(levelRow), "%s", sk::levelName(model.level));
+// The two doors every arrangement carries, bottom-anchored. Returns the band
+// they took, so whatever fills the middle knows where the floor is.
+fui::Rect menuDoors(toybox::Screen& screen, const MenuModel& model, char* levelRow, const int levelRowSize) {
+  std::snprintf(levelRow, static_cast<size_t>(levelRowSize), "%s", sk::levelName(model.level));
   fui::ListItem rows[static_cast<int>(MenuRow::Count)] = {};
   rows[static_cast<int>(MenuRow::Level)].label = "DIFFICULTY";
   rows[static_cast<int>(MenuRow::Level)].value = levelRow;
@@ -487,12 +522,29 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   list.selectedIndex = static_cast<int16_t>(model.selected);
   list.action = ActionMenuRow;
   const int count = static_cast<int>(MenuRow::Count);
-  const int16_t listHeight =
+  const int16_t height =
       static_cast<int16_t>(count * toybox::kRowHeight + (count - 1) * toybox::kGutter / 2 + toybox::kGutter);
   const fui::Rect content = screen.contentRect();
-  const fui::Rect listBand =
-      fui::makeRect(content.x, static_cast<int16_t>(content.bottom() - listHeight), content.width, listHeight);
-  screen.list(list, listHeight, fui::LayoutAnchor::Bottom);
+  screen.list(list, height, fui::LayoutAnchor::Bottom);
+  return fui::makeRect(content.x, static_cast<int16_t>(content.bottom() - height), content.width, height);
+}
+
+void buildMenu(toybox::Screen& screen, const MenuModel& model) {
+  toyboxChrome(screen, "SUDOKU", sk::levelName(model.level));
+
+  const bool resuming = model.hasGame && !model.levelChanged && model.game.solvedFlag == 0;
+  const char* action = resuming ? "RESUME" : "NEW PUZZLE";
+
+  char state[48];
+  if (model.levelChanged) {
+    std::snprintf(state, sizeof(state), "%s, STARTING FRESH", sk::levelName(model.level));
+  } else if (resuming) {
+    std::snprintf(state, sizeof(state), "%d LEFT", sk::emptyCount(model.game));
+  } else if (model.hasGame) {
+    std::snprintf(state, sizeof(state), "LAST ONE SOLVED");
+  } else {
+    std::snprintf(state, sizeof(state), "NOT STARTED");
+  }
 
   char record[56];
   const int index = static_cast<int>(model.level);
@@ -504,19 +556,45 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
     std::snprintf(record, sizeof(record), "%d SOLVED   NO %s TIME YET", sk::totalSolved(model.record),
                   sk::levelName(model.level));
   }
+
+  char levelRow[32];
+
+  // GRID IS THE PAGE. The app's material is a 9x9, so the front door is one,
+  // nearly full width, and tapping it is what opens the puzzle. Everything else
+  // is a caption on it.
+  const fui::Rect doors = menuDoors(screen, model, levelRow, sizeof(levelRow));
+  const fui::Rect content = screen.contentRect();
+
+  fui::TextStyle body;
+  body.font = toybox::kBodyFont;
+  body.align = fui::TextAlign::Left;
+  const fui::Rect caption = screen.takeTop(38);
+  screen.target().text(toybox::inkCentred(caption, toybox::kUiCut), state, body);
+
   fui::TextStyle small;
   small.font = toybox::kTileFont;
-  small.align = fui::TextAlign::Left;
-  const fui::Rect recordBand = screen.takeTop(26);
-  screen.target().text(recordBand, record, small);
+  small.align = fui::TextAlign::Right;
+  // Two cuts sharing one band sit on two different baselines unless both are
+  // placed by their ink: the component centres each on its own line box, and
+  // the tile cut's is half the height of the body cut's.
+  screen.target().text(toybox::inkCentred(caption, toybox::kTileCut), record, small);
+
+  fui::ButtonProps play;
+  play.label = action;
+  play.action = ActionPlay;
+  const fui::Rect pill = fui::makeRect(content.x, static_cast<int16_t>(doors.y - toybox::kPillHeight - toybox::kGutter),
+                                       content.width, toybox::kPillHeight);
+  screen.button(play, pill);
+
+  const int16_t top = static_cast<int16_t>(caption.bottom() + toybox::kGutter);
   drawMiniature(screen,
-                fui::makeRect(content.x, recordBand.bottom(), content.width,
-                              static_cast<int16_t>(listBand.y - recordBand.bottom())),
+                fui::makeRect(content.x, top, content.width, static_cast<int16_t>(pill.y - toybox::kGutter - top)),
                 model.game, model.hasGame);
 }
 
 void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
   const int page = model.page < 0 ? 0 : (model.page >= kLessonCount ? kLessonCount - 1 : model.page);
+  const Lesson& lesson = kLessons[page];
   char progress[16];
   std::snprintf(progress, sizeof(progress), "%d OF %d", page + 1, kLessonCount);
   toyboxChrome(screen, "HOW TO PLAY", progress);
@@ -527,14 +605,48 @@ void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
   next.action = ActionHowToNext;
   screen.button(next, screen.takeBottom(toybox::kPillHeight, toybox::kGutter));
 
-  const fui::Rect area = screen.body();
+  // BEFORE AND AFTER. Four of the five pages describe a gesture, and a gesture
+  // is a change: one still frame cannot show it and two can.
+  fui::TextStyle title;
+  title.font = toybox::kDisplayFont;
+  title.align = fui::TextAlign::Center;
+  screen.target().text(toybox::inkCentred(screen.takeTop(44), toybox::kDisplayCut), lesson.title, title);
+
   fui::TextStyle body;
   body.font = toybox::kBodyFont;
   body.align = fui::TextAlign::Center;
-  body.maxLines = 5;
-  const int16_t textHeight = 160;
-  screen.target().text(fui::makeRect(area.x, area.y, area.width, textHeight), kLessonLines[page], body);
-  lessonDiagram(screen, page, static_cast<int16_t>(area.y + textHeight + 10), area.bottom(), area);
+  body.maxLines = 2;
+  screen.target().text(screen.takeTop(textBand(2, toybox::kUiCut)), lesson.body, body);
+
+  // The second sentence, small, under the pair. It costs the boards about
+  // seventeen pixels each and it is the only place several mechanics are
+  // written down at all: picking a clue's digit up, rubbing a mark out, and
+  // what HINT does are none of them derivable from the picture.
+  fui::TextStyle detail;
+  detail.font = toybox::kTileFont;
+  detail.align = fui::TextAlign::Center;
+  const fui::Rect detailBand = screen.takeBottom(textBand(1, toybox::kTileCut), toybox::kGutter);
+  screen.target().text(toybox::inkCentred(detailBand, toybox::kTileCut), lesson.detail, detail);
+
+  screen.takeTop(toybox::kGutter);
+  const fui::Rect room = screen.body();
+  if (lesson.after == nullptr) {
+    const int16_t side = room.width < room.height ? room.width : room.height;
+    drawFace(screen,
+             fui::makeRect(static_cast<int16_t>(room.x + (room.width - side) / 2),
+                           static_cast<int16_t>(room.y + (room.height - side) / 2), side, side),
+             lesson.before, lesson.armed);
+  } else {
+    const int16_t arrow = 54;
+    const int16_t side = static_cast<int16_t>((room.height - arrow) / 2);
+    const int16_t boardSide = side < room.width ? side : room.width;
+    const int16_t top = static_cast<int16_t>(room.y + (room.height - (boardSide * 2 + arrow)) / 2);
+    const int16_t left = static_cast<int16_t>(room.x + (room.width - boardSide) / 2);
+    drawFace(screen, fui::makeRect(left, top, boardSide, boardSide), lesson.before, lesson.armed);
+    drawArrow(screen, fui::makeRect(room.x, static_cast<int16_t>(top + boardSide), room.width, arrow));
+    drawFace(screen, fui::makeRect(left, static_cast<int16_t>(top + boardSide + arrow), boardSide, boardSide),
+             lesson.after, lesson.armed);
+  }
 }
 
 void buildBoard(toybox::Screen& screen, const BoardModel& model) {
