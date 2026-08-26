@@ -4650,6 +4650,63 @@ void testAKnucklebonesColumnTotalClearsItsBand() {
   if (total != nullptr) CHECK(total->rect.height == toybox::kUiCut.lineHeight);
 }
 
+// No two lines of the front door's prose may share ink.
+//
+// Measured as INK, not as the rect handed to the component. Those are not the
+// same thing in either direction: `inkCentred` returns a rect one line box tall
+// that deliberately overhangs its band, and a plain rect holds a line box far
+// taller than the letters in it. Comparing rects reports collisions that are
+// not there and misses the one that is.
+//
+// The one that was there: the state and the record shared a band, set left and
+// right, which is invisible while both strings are short -- "35 LEFT" beside
+// "10 SOLVED BEST 8:32" -- and runs them through each other the moment neither
+// is. Checked in BOTH states, because the empty card is the one nobody renders:
+// every screenshot of this screen had been taken against a seeded save.
+fui::Rect sudokuInkBand(const FakeTarget::TextRun& run) {
+  toybox::CutMetrics cut = toybox::kUiCut;
+  if (run.style.font == toybox::kSmallFont) cut = toybox::kTileCut;
+  if (run.style.font == toybox::kDisplayFont) cut = toybox::kDisplayCut;
+  // What GfxRendererTarget::text does: centre the line box in the rect, clamped
+  // at zero, then drawText places the ascender box at that y.
+  const int16_t slack = static_cast<int16_t>(run.rect.height - cut.lineHeight);
+  const int16_t y = static_cast<int16_t>(run.rect.y + (slack > 0 ? slack / 2 : 0) + cut.ascender - cut.inkHeight);
+  return fui::makeRect(run.rect.x, y, run.rect.width, cut.inkHeight);
+}
+
+void testTheSudokuFrontDoorNeverSharesInkBetweenTwoLines() {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  for (int seeded = 0; seeded < 2; ++seeded) {
+    sudokuui::MenuModel model;
+    model.level = sudoku::Level::Easy;
+    model.hasGame = seeded != 0;
+    if (seeded) {
+      model.game = aSudokuGame(sudoku::Level::Easy);
+      model.record.solved[0] = 10;
+      model.record.bestMs[0] = 512000;
+    }
+    Rendered out;
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    sudokuui::buildMenu(screen, model);
+
+    // The header band lays its own title and label out; this is about the prose
+    // the screen builder places itself.
+    for (size_t a = 0; a < out.target.texts.size(); ++a) {
+      if (out.target.texts[a].rect.y < toybox::kHeaderHeight) continue;
+      for (size_t b = a + 1; b < out.target.texts.size(); ++b) {
+        if (out.target.texts[b].rect.y < toybox::kHeaderHeight) continue;
+        const fui::Rect one = sudokuInkBand(out.target.texts[a]);
+        const fui::Rect two = sudokuInkBand(out.target.texts[b]);
+        const bool sameColumn = one.x < two.right() && two.x < one.right();
+        const bool sameRows = one.y < two.bottom() && two.y < one.bottom();
+        CHECK(!(sameColumn && sameRows));
+      }
+    }
+  }
+}
+
 int main() {
   testTheSeaSaltCardYouTapIsTheCardTheRulesGet();
   testTheSeaSaltChromeIsTappableAndTheCallPillIsEarned();
@@ -4674,6 +4731,7 @@ int main() {
   testEverySudokuScreenStaysOnThePanel();
   testEverySudokuLessonPagesAndClearsItsButton();
   testTheSudokuOrnamentCarriesTheGame();
+  testTheSudokuFrontDoorNeverSharesInkBetweenTwoLines();
   testMurdleGridResolvesEveryCellItDrew();
   testMurdleGridEdgesAreLive();
   testMurdleGridDrawsMarksItIsGiven();
