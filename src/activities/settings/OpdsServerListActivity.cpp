@@ -15,6 +15,7 @@
 #include "activities/browser/OpdsBookBrowserActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UITheme.h"
+#include "components/UiAppHelpers.h"
 #include "util/OpdsFilename.h"
 
 namespace fui = freeink::ui;
@@ -89,28 +90,33 @@ void OpdsServerListActivity::rebuildRowItems() {
     item.label = servers[i].name.empty() ? servers[i].url.c_str() : servers[i].name.c_str();
     if (!servers[i].name.empty()) item.subtitle = servers[i].url.c_str();
     item.actionValue = static_cast<int16_t>(i);
+    item.icon = listIconFor(UIIcon::Library, 32);  // subtitle rows carry the larger icon
     rowItems_.push_back(item);
   }
   if (!pickerMode) {
     fui::ListItem addServer;
     addServer.label = tr(STR_ADD_SERVER);
     addServer.actionValue = static_cast<int16_t>(serverCount);
+    addServer.icon = listIconFor(UIIcon::Library);
     rowItems_.push_back(addServer);
 
     fui::ListItem folder;
     folder.label = tr(STR_OPDS_DOWNLOAD_FOLDER);
     folder.actionValue = static_cast<int16_t>(serverCount + 1);
+    folder.icon = listIconFor(UIIcon::Folder, 32);
     rowItems_.push_back(folder);  // subtitle refreshed per render below
 
     fui::ListItem format;
     format.label = tr(STR_OPDS_FILENAME_FORMAT);
     format.actionValue = static_cast<int16_t>(serverCount + 2);
+    format.icon = listIconFor(UIIcon::Settings, 32);
     rowItems_.push_back(format);  // subtitle refreshed per render below
   }
 
   fui::ListItem filters;
   filters.label = tr(STR_OPDS_FILTERS);
   filters.actionValue = static_cast<int16_t>(getItemCount() - 1);
+  filters.icon = listIconFor(UIIcon::Settings);
   rowItems_.push_back(filters);
 }
 

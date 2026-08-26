@@ -1,6 +1,8 @@
 #include "OpdsDetailActivity.h"
 
 #include <Bitmap.h>
+#include <Epub/converters/ImageDecoderFactory.h>
+#include <Epub/converters/ImageToFramebufferDecoder.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
@@ -11,6 +13,8 @@
 
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
+#include "components/UiAppHelpers.h"
+#include "components/icons/listIcons.h"
 #include "network/HttpDownloader.h"
 #include "util/UrlUtils.h"
 
@@ -48,7 +52,16 @@ void OpdsDetailActivity::downloadTrampoline(const fui::ActionEvent&, void* user)
 void OpdsDetailActivity::fetchCover() {
   if (entry.coverHref.empty()) return;
   const std::string url = UrlUtils::buildUrl(feedUrl, entry.coverHref);
-  const std::string dest = "/.crosspoint/opds-cover.tmp";
+  // Keep the source extension: the decoder picks its implementation from it,
+  // and a ".tmp" cover is simply never drawn.
+  std::string extension = ".bmp";
+  const size_t dot = entry.coverHref.find_last_of('.');
+  if (dot != std::string::npos && entry.coverHref.size() - dot <= 5) {
+    extension = entry.coverHref.substr(dot);
+    const size_t query = extension.find('?');
+    if (query != std::string::npos) extension.resize(query);
+  }
+  const std::string dest = "/.crosspoint/opds-cover" + extension;
   Storage.remove(dest.c_str());  // a stale file would silently show the last book's art
   if (HttpDownloader::downloadToFile(url, dest, nullptr, nullptr, server.username, server.password) ==
       HttpDownloader::OK) {
@@ -171,9 +184,9 @@ void OpdsDetailActivity::buildScreen(UiScreen& screen) {
   const int16_t textX = static_cast<int16_t>(row.x + COVER_W + gap);
   const int16_t textW = static_cast<int16_t>(row.width - COVER_W - gap);
   screen.target().text(fui::Rect{textX, row.y, textW, static_cast<int16_t>(titleH * 2)}, entry.title.c_str(), title);
-  screen.target().text(fui::Rect{textX, static_cast<int16_t>(row.y + titleH * 2 + 4), textW,
-                                 static_cast<int16_t>(bodyH * 2)},
-                       metaLine.c_str(), body);
+  screen.target().text(
+      fui::Rect{textX, static_cast<int16_t>(row.y + titleH * 2 + 4), textW, static_cast<int16_t>(bodyH * 2)},
+      metaLine.c_str(), body);
 
   // Summary fills what is left. Most of the screen was empty without it, and
   // it is the thing that tells two editions apart when the covers do not.
@@ -192,6 +205,7 @@ void OpdsDetailActivity::buildScreen(UiScreen& screen) {
   const fui::Rect footer = screen.takeBottom(static_cast<int16_t>(theme.rowHeight + gap));
   fui::ButtonProps download;
   download.label = tr(STR_DOWNLOAD);
+  download.icon = fui::bitmapFromIcon(icon_download_24);
   download.action = ACTION_DOWNLOAD;
   fui::button(screen.frame(), footer.inset(fui::Insets{0, 40, 8, 40}), download);
 }

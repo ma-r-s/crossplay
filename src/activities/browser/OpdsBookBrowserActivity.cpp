@@ -21,6 +21,7 @@
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UIScale.h"
 #include "components/UITheme.h"
+#include "components/UiAppHelpers.h"
 #include "components/icons/search32.h"
 #include "fontIds.h"
 #include "network/HttpDownloader.h"
@@ -458,6 +459,9 @@ void OpdsBookBrowserActivity::rebuildRowItems() {
     fui::ListItem item;
     item.label = entry.title.c_str();
     if (entry.type == OpdsEntryType::BOOK && !entry.author.empty()) item.subtitle = entry.author.c_str();
+    // Shape tells a book from a folder faster than reading the row does.
+    item.icon = listIconFor(entry.type == OpdsEntryType::BOOK ? UIIcon::Book : UIIcon::Folder,
+                            entry.type == OpdsEntryType::BOOK ? 32 : 24);
     if (entry.type == OpdsEntryType::NAVIGATION) item.value = ">";
     item.actionValue = static_cast<int16_t>(rowItems.size());
     rowItems.push_back(item);
