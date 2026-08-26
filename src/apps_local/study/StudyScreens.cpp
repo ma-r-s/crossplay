@@ -249,7 +249,7 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   rows[0].label = waiting > 0 ? "START REVIEWING" : "NOTHING TO REVIEW";
   rows[0].enabled = waiting > 0;
   rows[0].actionValue = 1;
-  rows[0].icon = fui::bitmapFromIcon(icon_play_24);
+  rows[0].icon = fui::bitmapFromIcon(icon_play_32);
   rows[1] = fui::ListItem{};
   rows[1].label = "SYNC";
   // State rides the value slot, right-aligned on the same line: a subtitle
@@ -257,7 +257,7 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   rows[1].value = model.syncSubtitle[0] != '\0' ? model.syncSubtitle : nullptr;
   rows[1].enabled = true;
   rows[1].actionValue = 2;
-  rows[1].icon = fui::bitmapFromIcon(icon_refresh_cw_24);
+  rows[1].icon = fui::bitmapFromIcon(icon_refresh_cw_32);
   fui::ListProps list;
   list.items = rows;
   list.count = 2;
