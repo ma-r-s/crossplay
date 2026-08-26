@@ -1337,6 +1337,7 @@ void StudyActivity::endSyncSession(const char* title, const char* body) {
 bool StudyActivity::runPairing() {
   std::string message;
   study::StudySync::PairStart pair;
+  LOG_INF("STUDYSYNC", "flow: pairing");
   showSync("SYNC", "Getting a pairing code.");
   if (!sync_.pairStart(pair, message)) {
     endSyncSession("SYNC", message.c_str());
@@ -1512,7 +1513,9 @@ bool StudyActivity::applyManifests(const std::vector<study::DeckManifest>& manif
 
 void StudyActivity::runSyncFlow() {
   syncBusy_ = true;
+  LOG_INF("STUDYSYNC", "flow: ntp");
   syncTimeIfNeeded();
+  LOG_INF("STUDYSYNC", "flow: state");
   if (!study::loadBridgeState(bridge_)) {
     if (!runPairing()) return;  // runPairing already ended the session
   }

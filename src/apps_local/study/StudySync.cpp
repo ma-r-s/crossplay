@@ -93,11 +93,31 @@ int request(const char* method, const std::string& path, const std::string& toke
     return 0;
   }
   if (!token.empty()) http.addHeader("Authorization", std::string("Bearer ") + token);
+  LOG_INF("STUDYSYNC", "%s %s (verified TLS)", method, path.c_str());
   const int status = body ? http.sendRequest(method, body, bodyLen) : http.sendRequest(method, std::string());
   if (status <= 0) {
     LOG_ERR("STUDYSYNC", "%s %s failed: %d", method, path.c_str(), status);
     message = "Could not reach the sync service. Check the WiFi and try again.";
     http.end();
+#if defined(CROSSPOINT_DEV_SERIAL_BRIDGE)
+    // Dev-build self-diagnosis, never a fallback: retry the same request
+    // WITHOUT verification purely to bisect the failure, log the verdict,
+    // and still fail. A release build never contains this branch.
+    {
+      freeink::SecureHttpClient probe;
+      probe.setInsecure();
+      probe.setTimeout(15000);
+      int ps = -1;
+      if (probe.begin(bridgeBase() + path)) ps = probe.sendRequest("GET", std::string());
+      probe.end();
+      if (ps > 0) {
+        LOG_ERR("STUDYSYNC", "DIAGNOSIS: insecure probe got HTTP %d -- certificate VERIFICATION is the failure", ps);
+        message = "The bridge answered but its certificate was refused. This build logged the details.";
+      } else {
+        LOG_ERR("STUDYSYNC", "DIAGNOSIS: insecure probe also failed (%d) -- network/DNS level, not certificates", ps);
+      }
+    }
+#endif
     return 0;
   }
   response = http.getString();
