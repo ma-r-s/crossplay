@@ -347,6 +347,7 @@ int StudySync::pairPoll(const std::string& pollToken, std::string& username, std
 
 bool StudySync::syncStart(const BridgeState& state, const std::vector<DeckPayload>& decks, std::string& jobId,
                           std::vector<std::pair<std::string, uint32_t>>& acks, std::string& message) {
+  unpaired = false;
   // Wire shape: [u32 LE header_len][JSON header][per-deck revlog tail then
   // cards.dat, in header order].
   JsonDocument doc;
@@ -377,6 +378,7 @@ bool StudySync::syncStart(const BridgeState& state, const std::vector<DeckPayloa
                              reinterpret_cast<const uint8_t*>(body.data()), body.size(), response, message);
   if (status == 0) return false;
   if (status == 401) {
+    unpaired = true;
     takeServerError(response, message) || (message = "This device is not paired anymore. Pair it again.", true);
     return false;
   }

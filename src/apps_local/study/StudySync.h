@@ -80,6 +80,10 @@ class StudySync {
 
   bool syncStart(const BridgeState& state, const std::vector<DeckPayload>& decks, std::string& jobId,
                  std::vector<std::pair<std::string, uint32_t>>& acks, std::string& message);
+  // True after syncStart was refused for the token itself (revoked or
+  // unknown): the stored pairing is dead and must be cleared, or every
+  // later SYNC repeats the same refusal forever.
+  bool unpaired = false;
   // "running" | "done" | "error" | "frozen" | "" (transport failure).
   std::string syncStatus(const BridgeState& state, const std::string& jobId, std::vector<DeckManifest>& manifests,
                          std::string& message);

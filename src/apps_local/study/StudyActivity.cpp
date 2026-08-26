@@ -1533,6 +1533,14 @@ void StudyActivity::runSyncFlow() {
   std::vector<std::pair<std::string, uint32_t>> acks;
   showSync("SYNCING", "Sending your reviews.");
   if (!sync_.syncStart(bridge_, payloads, job, acks, message)) {
+    if (sync_.unpaired) {
+      // The token was revoked on the bridge. Clear it, or this refusal
+      // repeats forever; the next SYNC walks through pairing again.
+      bridge_ = study::BridgeState{};
+      Storage.remove("/study/.bridge");
+      endSyncSession("SYNC", "This reader was unpaired on the bridge. Press SYNC to pair it again.");
+      return;
+    }
     endSyncSession("SYNC", message.c_str());
     return;
   }
