@@ -205,6 +205,30 @@ digit in these cuts, not of lowercase with descenders. The constants live in
 `ToyboxFonts.cpp` re-derives them from the real font data at startup and logs an
 error if a regenerated cut ever moves them.
 
+The same clamp applies to a **left- or right-aligned** run: alignment is
+horizontal, the clamp is vertical, and a left-aligned score in a short box is
+exactly as low as a centred one. Audit by box height, never by alignment.
+
+The rest of the cuts this fork ships, for the apps that do not speak Jersey and
+for the reading face a prose app binds to its body slot:
+
+| cut | line box | ink | used by |
+| --- | -------- | --- | ------- |
+| `instrument_10` | 27px | 15px | Connections menu, small slot |
+| `instrument_13` | 35px | 20px | Connections, tile and menu body |
+| `instrument_24` | 65px | 36px | Connections, title slot |
+| `reading_serif_14` | 40px | 21px | Hacker News, Xkcd, body slot |
+
+Two places `inkCentred` cannot reach, both worth knowing before hunting one:
+
+- **A slot is not a cut.** An app that rebinds its slots per view -- Connections,
+  and Insider's rules pages -- sets the same `kTileFont` in two different faces,
+  so the right `CutMetrics` depends on which screen is drawing. Read the app's
+  `Faces` before picking one.
+- **A component owns its own rect.** `screen.button()` and the list rows lay
+  their label out themselves, so a pill in the display cut is 3px low and the
+  call site has no rect to wrap. Fixing that means fixing FreeInkUI.
+
 **Centre on cap height, never on `getTextHeight()`.** It returns the font's
 **ascender**, and `drawText()` takes `y` as the top of the ascender box. So
 `(box - getTextHeight()) / 2` centres the _box_, not the letters, and capital ink

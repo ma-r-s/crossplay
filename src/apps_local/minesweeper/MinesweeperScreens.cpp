@@ -98,8 +98,8 @@ void lessonField(toybox::Screen& screen, const int16_t left, const int16_t top, 
   };
   for (int r = 0; r < rowCount; ++r) {
     for (int c = 0; c < columns; ++c) {
-      const fui::Rect box = fui::makeRect(static_cast<int16_t>(left + c * cell),
-                                          static_cast<int16_t>(top + r * cell), cell, cell);
+      const fui::Rect box =
+          fui::makeRect(static_cast<int16_t>(left + c * cell), static_cast<int16_t>(top + r * cell), cell, cell);
       const char mark = rows[r][c];
       if (mark != 'o' && mark != 'M') screen.target().fill(box, fui::Paint::dither(fui::Color::LightGray));
       screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), 2);
@@ -120,7 +120,9 @@ void lessonField(toybox::Screen& screen, const int16_t left, const int16_t top, 
           fui::TextStyle number;
           number.font = toybox::kDisplayFont;
           number.align = fui::TextAlign::Center;
-          screen.target().text(box, digit, number);
+          // A cell is 60px and the display cut's line box is 63, so the box
+          // itself would sit the digit low against the cell's own frame.
+          screen.target().text(toybox::inkCentred(box, toybox::kDisplayCut), digit, number);
         }
       }
     }
@@ -246,8 +248,7 @@ void boardStrip(toybox::Screen& screen, const BoardModel& model) {
   mode.styles = toybox::rowStyles();
   mode.state = model.flagMode ? fui::StateSelected : fui::StateNormal;
   const int16_t modeWidth = static_cast<int16_t>(strip.width / 3);
-  screen.button(mode,
-                fui::makeRect(static_cast<int16_t>(strip.right() - modeWidth), strip.y, modeWidth, strip.height));
+  screen.button(mode, fui::makeRect(static_cast<int16_t>(strip.right() - modeWidth), strip.y, modeWidth, strip.height));
 
   char line[24];
   std::snprintf(line, sizeof(line), "%d OF %d", ms::minesRemaining(model.game), ms::kMines);
@@ -256,7 +257,8 @@ void boardStrip(toybox::Screen& screen, const BoardModel& model) {
   count.align = fui::TextAlign::Center;
   const int16_t markSide = static_cast<int16_t>(strip.height);
   const int16_t countWidth = static_cast<int16_t>(strip.width - modeWidth - markSide - toybox::kGutter);
-  screen.target().text(fui::makeRect(strip.x, strip.y, countWidth, strip.height), line, count);
+  screen.target().text(
+      toybox::inkCentred(fui::makeRect(strip.x, strip.y, countWidth, strip.height), toybox::kDisplayCut), line, count);
   drawFlag(screen, fui::makeRect(static_cast<int16_t>(strip.x + countWidth), strip.y, markSide, markSide), false);
 }
 
@@ -406,7 +408,9 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
           fui::TextStyle number;
           number.font = toybox::kDisplayFont;
           number.align = fui::TextAlign::Center;
-          screen.target().text(box, digit, number);
+          // A cell is 60px and the display cut's line box is 63, so the box
+          // itself would sit the digit low against the cell's own frame.
+          screen.target().text(toybox::inkCentred(box, toybox::kDisplayCut), digit, number);
         }
       }
     }

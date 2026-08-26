@@ -291,7 +291,10 @@ void doBuildHowTo(toybox::Screen& screen, const HowToModel& model) {
   fui::TextStyle title;
   title.font = toybox::kDisplayFont;
   title.align = fui::TextAlign::Center;
-  screen.target().text(fui::makeRect(body.x, body.y, body.width, 46), kTitles[page], title);
+  // inkCentred: the display cut's line box is 63 and this band is 46, so the
+  // target's clamp would drop the title 9px and run its feet past the band.
+  screen.target().text(toybox::inkCentred(fui::makeRect(body.x, body.y, body.width, 46), toybox::kDisplayCut),
+                       kTitles[page], title);
 
   static const char* const kLines[] = {
       "MEN STEP DIAGONALLY FORWARD. REACH THE FAR ROW AND A MAN IS CROWNED.",

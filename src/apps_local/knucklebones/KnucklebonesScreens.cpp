@@ -165,7 +165,10 @@ void drawGrid(toybox::Screen& screen, const kb::Grid& grid, const bool yours) {
     style.font = toybox::kUiFont;
     style.align = fui::TextAlign::Center;
     const int16_t left = static_cast<int16_t>(gridLeftOf(device, yours) + column * (kCell + kCellGap));
-    screen.target().text(fui::makeRect(left, scoreTopOf(yours), kCell, kScoreBand), label, style);
+    // inkCentred because the band is 28px and the ui cut's line box is 42:
+    // handed the band itself, the target's clamp drops the total 6px out of it.
+    screen.target().text(toybox::inkCentred(fui::makeRect(left, scoreTopOf(yours), kCell, kScoreBand), toybox::kUiCut),
+                         label, style);
   }
 }
 
@@ -360,12 +363,16 @@ void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
     score.font = toybox::kDisplayFont;
     score.align = fui::TextAlign::Center;
     miniGrid(screen, left, diagramTop, kMini, stacked, false);
-    screen.target().text(fui::makeRect(zoneX, static_cast<int16_t>(diagramTop + (gridH - 44) / 2), zoneW, 44), "36",
-                         score);
+    screen.target().text(
+        toybox::inkCentred(fui::makeRect(zoneX, static_cast<int16_t>(diagramTop + (gridH - 44) / 2), zoneW, 44),
+                           toybox::kDisplayCut),
+        "36", score);
     const int16_t secondTop = static_cast<int16_t>(diagramTop + gridH + 40);
     miniGrid(screen, left, secondTop, kMini, spread, false);
-    screen.target().text(fui::makeRect(zoneX, static_cast<int16_t>(secondTop + (gridH - 44) / 2), zoneW, 44), "12",
-                         score);
+    screen.target().text(
+        toybox::inkCentred(fui::makeRect(zoneX, static_cast<int16_t>(secondTop + (gridH - 44) / 2), zoneW, 44),
+                           toybox::kDisplayCut),
+        "12", score);
     return;
   }
 
@@ -380,8 +387,10 @@ void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
   fui::TextStyle arrow;
   arrow.font = toybox::kDisplayFont;
   arrow.align = fui::TextAlign::Center;
-  screen.target().text(fui::makeRect(area.x, static_cast<int16_t>(diagramTop + 3 * kMini + 10), area.width, 44), "^",
-                       arrow);
+  screen.target().text(
+      toybox::inkCentred(fui::makeRect(area.x, static_cast<int16_t>(diagramTop + 3 * kMini + 10), area.width, 44),
+                         toybox::kDisplayCut),
+      "^", arrow);
   miniGrid(screen, left, static_cast<int16_t>(diagramTop + 3 * kMini + 60), kMini, yours, true);
 }
 
@@ -476,14 +485,18 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
     nameStyle.align = fui::TextAlign::Left;
     numberStyle.align = fui::TextAlign::Left;
     screen.target().text(fui::makeRect(toybox::kMargin, kDieTop, zoneW, 20), "THEM", nameStyle);
-    screen.target().text(fui::makeRect(toybox::kMargin, static_cast<int16_t>(kDieTop + 22), zoneW, 50), theirsText,
-                         numberStyle);
+    screen.target().text(
+        toybox::inkCentred(fui::makeRect(toybox::kMargin, static_cast<int16_t>(kDieTop + 22), zoneW, 50),
+                           toybox::kDisplayCut),
+        theirsText, numberStyle);
     const int16_t rightX = static_cast<int16_t>(dieLeft + kDieSize + toybox::kGutter);
     const int16_t rightW = static_cast<int16_t>(device.width - toybox::kMargin - rightX);
     nameStyle.align = fui::TextAlign::Right;
     numberStyle.align = fui::TextAlign::Right;
     screen.target().text(fui::makeRect(rightX, kDieTop, rightW, 20), "YOU", nameStyle);
-    screen.target().text(fui::makeRect(rightX, static_cast<int16_t>(kDieTop + 22), rightW, 50), mineText, numberStyle);
+    screen.target().text(
+        toybox::inkCentred(fui::makeRect(rightX, static_cast<int16_t>(kDieTop + 22), rightW, 50), toybox::kDisplayCut),
+        mineText, numberStyle);
   }
 
   // The columns of your own grid, as targets, and only while the placement is

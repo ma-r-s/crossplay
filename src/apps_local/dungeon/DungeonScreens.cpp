@@ -67,20 +67,6 @@ constexpr int kClueGap = toybox::kBoardFrame + 4;
 // The strip above the board carrying the dungeon's name.
 constexpr int kNameStrip = 34;
 
-// How far to raise a clue's digit inside its box.
-//
-// MEASURED, NOT GUESSED. GfxRendererTarget centres a run on the font's line
-// box rather than on cap height, so a digit in the display cut lands low in
-// whatever rect it is given -- 10px of air above and 5 below, at this size.
-// Invisible on white; obvious the moment a spent clue fills a chip behind the
-// number, where the digit then nearly touches the chip's bottom edge.
-//
-// The number comes from cropping a render and measuring the ink: 2.5px low
-// before, 0.5px after, which is as centred as a whole-pixel lift gets. It is
-// specific to this cut in a 56px box -- re-measure if either changes, because
-// the error grows with the gap between line height and cap height.
-constexpr int kClueLift = 3;
-
 // The bestiary. One kind of monster per dungeon, never more: the original
 // varies its creature by dungeon, and a single board carrying four different
 // ones reads as clutter rather than as a rule to satisfy.
@@ -238,13 +224,10 @@ void drawClue(toybox::Screen& screen, const fui::Rect& box, const fui::Rect& chi
     screen.target().fill(chip, fui::Paint::dither(fui::Color::LightGray));
   }
 
-  // The whole box, not a line-height slice of it: the target centres a run on
-  // the font's line box within the rect it is given, and handing it a rect
-  // shorter than that line box is what pushed the digits out of the lane and
-  // over the board's frame. Lifted by kClueLift on top of that, because the
-  // line box is not the ink -- see the note on that constant.
-  screen.target().text(fui::makeRect(box.x, static_cast<int16_t>(box.y - kClueLift), box.width, box.height), text,
-                       style);
+  // inkCentred rather than the box itself: the display cut's line box is 63
+  // and a clue box is 56, so the target's clamp lands the digit low enough to
+  // graze the chip's bottom edge once a spent clue fills it.
+  screen.target().text(toybox::inkCentred(box, toybox::kDisplayCut), text, style);
 }
 
 // Four corner marks around a rect, and nothing in between.
@@ -422,7 +405,7 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model, Layout& layout)
   fui::TextStyle nameText;
   nameText.font = toybox::kUiFont;
   nameText.align = fui::TextAlign::Center;
-  screen.target().text(nameStrip, puzzle.name, nameText);
+  screen.target().text(toybox::inkCentred(nameStrip, toybox::kUiCut), puzzle.name, nameText);
 
   const int size = board.size();
   layout = layoutBoard(screen.body(), size);
@@ -598,7 +581,7 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model, PickerLayout& lay
         screen.target().fill(chip, fui::Paint::solid(fui::Color::Black));
         number.color = fui::Color::White;
       }
-      screen.target().text(chip, tierLabel, number);
+      screen.target().text(toybox::inkCentred(chip, toybox::kUiCut), tierLabel, number);
     }
   }
 

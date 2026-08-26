@@ -91,6 +91,23 @@ constexpr CutMetrics kButtonCut{29, 24, 18};   // toybox_14
 constexpr CutMetrics kUiCut{42, 34, 25};       // toybox_20
 constexpr CutMetrics kDisplayCut{63, 51, 38};  // toybox_30
 
+// Connections speaks Instrument Serif, so its three cuts need the same
+// treatment: the serif line boxes are proportionally taller still, and a 26px
+// status band under a 35px line box is the same clamp as everywhere else.
+constexpr CutMetrics kSerifSmallCut{27, 21, 15};  // instrument_10
+constexpr CutMetrics kSerifTileCut{35, 27, 20};   // instrument_13
+constexpr CutMetrics kSerifTitleCut{65, 50, 36};  // instrument_24
+
+// The reading cuts, which the prose apps bind to their body slot. Listed so
+// verifyCutMetrics() guards every cut this fork registers rather than most of
+// them -- but only sound for an all-caps or all-digit run. These faces have
+// real descenders, and inkCentred centres the CAP band, so mixed-case prose
+// set with it hangs its descenders below the box. Leave prose alone.
+constexpr CutMetrics kReadingSmallCut{31, 25, 17};      // reading_serif_11
+constexpr CutMetrics kReadingCut{40, 32, 21};           // reading_serif_14
+constexpr CutMetrics kReadingBoldSmallCut{34, 27, 18};  // reading_serif_bold_12
+constexpr CutMetrics kReadingBoldCut{45, 36, 23};       // reading_serif_bold_16
+
 // Only sound for glyphs that sit on the baseline with nothing below it, which
 // is every capital and every digit in these cuts (their `top` equals their
 // height). A face with descending figures would need the glyph's own top.

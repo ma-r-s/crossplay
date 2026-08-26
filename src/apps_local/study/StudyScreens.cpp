@@ -178,7 +178,8 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   fui::TextStyle sub;
   sub.font = toybox::kUiFont;
   sub.align = fui::TextAlign::Left;
-  screen.target().text(fui::makeRect(body.x, body.y + 62, body.width, 26), state, sub);
+  screen.target().text(toybox::inkCentred(fui::makeRect(body.x, body.y + 62, body.width, 26), toybox::kUiCut), state,
+                       sub);
   if (waiting > 0) {
     screen.frame().hit(fui::makeRect(body.x, body.y, body.width, 96), ActionStudy, 0);
   }

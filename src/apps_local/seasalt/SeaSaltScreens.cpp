@@ -126,7 +126,7 @@ void drawCardTile(toybox::Screen& screen, const fui::Rect& cell, const CardTile&
   if (tile.groupPoints >= 0) {
     char points[8];
     std::snprintf(points, sizeof(points), "%d", tile.groupPoints);
-    target.text(fui::makeRect(cell.x, cell.y + 5, cell.width - 9, 24), points,
+    target.text(toybox::inkCentred(fui::makeRect(cell.x, cell.y + 5, cell.width - 9, 24), toybox::kUiCut), points,
                 styled(toybox::kUiFont, fui::TextAlign::Right));
   }
 
@@ -146,13 +146,13 @@ void drawCardTile(toybox::Screen& screen, const fui::Rect& cell, const CardTile&
            faceSize == 48 ? *kIcon48[tile.kind] : *kIcon40[tile.kind]);
 
   if (named) {
-    target.text(fui::makeRect(cell.x, nameTop, cell.width, kLineBand), kKindNames[tile.kind],
-                styled(toybox::kSmallFont, fui::TextAlign::Center));
+    target.text(toybox::inkCentred(fui::makeRect(cell.x, nameTop, cell.width, kLineBand), toybox::kTileCut),
+                kKindNames[tile.kind], styled(toybox::kSmallFont, fui::TextAlign::Center));
   }
 
   char census[12];
   std::snprintf(census, sizeof(census), "X%d", tile.supply);
-  target.text(fui::makeRect(cell.x, censusTop, cell.width, kLineBand), census,
+  target.text(toybox::inkCentred(fui::makeRect(cell.x, censusTop, cell.width, kLineBand), toybox::kTileCut), census,
               styled(toybox::kSmallFont, fui::TextAlign::Center));
 }
 
@@ -169,13 +169,13 @@ void drawPileTile(toybox::Screen& screen, const fui::Rect& cell, const PileTile&
   blitIcon(screen, fui::makeRect(cell.x + 6, cell.y + 6, 20, 20), *kColourMarks[pile.colour]);
   char depth[8];
   std::snprintf(depth, sizeof(depth), "%d", pile.size);
-  target.text(fui::makeRect(cell.x, cell.y + 5, cell.width - 8, 24), depth,
+  target.text(toybox::inkCentred(fui::makeRect(cell.x, cell.y + 5, cell.width - 8, 24), toybox::kUiCut), depth,
               styled(toybox::kUiFont, fui::TextAlign::Right));
   blitIcon(screen, fui::makeRect(cell.x + (cell.width - 40) / 2, cell.y + 26, 40, 40), *kIcon40[pile.kind]);
   char pileLine[20];
   std::snprintf(pileLine, sizeof(pileLine), "%s X%d", kKindNames[pile.kind], seasalt::kKindSupply[pile.kind]);
-  target.text(fui::makeRect(cell.x, cell.y + cell.height - 23, cell.width, 16), pileLine,
-              styled(toybox::kSmallFont, fui::TextAlign::Center));
+  target.text(toybox::inkCentred(fui::makeRect(cell.x, cell.y + cell.height - 23, cell.width, 16), toybox::kTileCut),
+              pileLine, styled(toybox::kSmallFont, fui::TextAlign::Center));
 }
 
 // The dashed hint box, fixed height so the layout never jumps as hints change.
@@ -355,7 +355,9 @@ void drawFacts(toybox::Screen& screen, const fui::Rect& strip, const BoardModel&
   std::snprintf(value, sizeof(value), "%d", model.bestColourCount);
   target.text(fui::makeRect(x + 8, strip.y, 28, strip.height), value, styled(toybox::kUiFont, fui::TextAlign::Left));
   blitIcon(screen, fui::makeRect(x + 32, strip.y + (strip.height - 20) / 2, 20, 20), *kColourMarks[model.bestColour]);
-  target.text(fui::makeRect(x + 58, strip.y + strip.height / 2 - 8, cellW - 62, 16), "BEST", capStyle);
+  target.text(
+      toybox::inkCentred(fui::makeRect(x + 58, strip.y + strip.height / 2 - 8, cellW - 62, 16), toybox::kTileCut),
+      "BEST", capStyle);
 }
 
 // The three-tab strip. The active tab is the inverted one -- inversion means
@@ -505,8 +507,9 @@ fui::Rect buildBoard(toybox::Screen& screen, const BoardModel& model) {
   if (model.pages > 1) {
     char pager[16];
     std::snprintf(pager, sizeof(pager), "%d / %d", model.page + 1, model.pages);
-    screen.target().text(fui::makeRect(grid.x, grid.y + grid.height - 16, grid.width, 14), pager,
-                         styled(toybox::kSmallFont, fui::TextAlign::Right));
+    screen.target().text(
+        toybox::inkCentred(fui::makeRect(grid.x, grid.y + grid.height - 16, grid.width, 14), toybox::kTileCut), pager,
+        styled(toybox::kSmallFont, fui::TextAlign::Right));
   }
   return grid;
 }
@@ -613,8 +616,9 @@ void buildTutorial(toybox::Screen& screen, const TutorialModel& model) {
   // are computed, never eyeballed -- the eyeballed version shipped three
   // pages of crowding.
   auto caption = [&](const int16_t y, const char* text) {
-    target.text(fui::makeRect(body.x, static_cast<int16_t>(body.y + y), body.width, 26), text,
-                styled(toybox::kUiFont, fui::TextAlign::Center));
+    target.text(
+        toybox::inkCentred(fui::makeRect(body.x, static_cast<int16_t>(body.y + y), body.width, 26), toybox::kUiCut),
+        text, styled(toybox::kUiFont, fui::TextAlign::Center));
   };
   auto small = [&](const int16_t y, const char* text) {
     target.text(fui::makeRect(body.x, static_cast<int16_t>(body.y + y), body.width, 22), text,

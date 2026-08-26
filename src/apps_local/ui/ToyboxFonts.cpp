@@ -107,7 +107,7 @@ int drawCapsCentered(const GfxRenderer& renderer, const int fontId, const int x,
   return x;
 }
 
-// The four cuts, paired with the constants ToyboxTokens.h carries for them.
+// The cuts, paired with the constants ToyboxTokens.h carries for them.
 // Screens are freestanding and cannot see a font, so those constants are the
 // only thing standing between a regenerated cut and every centred label in the
 // fork drifting at once. Checked here, where the real data is in scope.
@@ -123,6 +123,13 @@ void verifyCutMetrics() {
       {"toybox_14", &toybox_14, &buttonFamily, &toybox::kButtonCut},
       {"toybox_20", &toybox_20, &uiFamily, &toybox::kUiCut},
       {"toybox_30", &toybox_30, &displayFamily, &toybox::kDisplayCut},
+      {"instrument_10", &instrument_10, &serifSmallFamily, &toybox::kSerifSmallCut},
+      {"instrument_13", &instrument_13, &serifTileFamily, &toybox::kSerifTileCut},
+      {"instrument_24", &instrument_24, &serifTitleFamily, &toybox::kSerifTitleCut},
+      {"reading_serif_11", &reading_serif_11, &readingSmallFamily, &toybox::kReadingSmallCut},
+      {"reading_serif_14", &reading_serif_14, &readingFamily, &toybox::kReadingCut},
+      {"reading_serif_bold_12", &reading_serif_bold_12, &readingBoldSmallFamily, &toybox::kReadingBoldSmallCut},
+      {"reading_serif_bold_16", &reading_serif_bold_16, &readingBoldFamily, &toybox::kReadingBoldCut},
   };
   for (const Pair& pair : pairs) {
     const EpdGlyph* glyph = pair.family->getGlyph('H');
