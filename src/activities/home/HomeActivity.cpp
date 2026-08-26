@@ -271,13 +271,18 @@ void HomeActivity::loop() {
     return;
   }
 
+  // Hit areas follow the DRAWN geometry, not the metrics table: render() may
+  // shrink the cover tile to fit the menu, which moves everything below it up
+  // by the shrink. Before the first render (menuTopRendered == 0) fall back to
+  // the static formula, which is what render() uses when nothing shrank.
+  const int coverBottomDrawn =
+      menuTopRendered > 0 ? coverRectY + coverRectH : metrics.homeTopPadding + metrics.homeCoverTileHeight;
   const int coverColumnCount = std::max(1, metrics.homeRecentBooksCount);
   const int recentCount = std::min(static_cast<int>(recentBooks.size()), coverColumnCount);
   const int coverColumnWidth = (renderer.getScreenWidth() - 2 * metrics.contentSidePadding) / coverColumnCount;
   int touchedBook = -1;
   const auto coverTouch = mappedInput.colTouch(touchedBook, metrics.contentSidePadding, coverColumnWidth, recentCount,
-                                               metrics.homeTopPadding,
-                                               metrics.homeTopPadding + metrics.homeCoverTileHeight, coverColumnWidth);
+                                               metrics.homeTopPadding, coverBottomDrawn, coverColumnWidth);
   if (coverTouch != MappedInputManager::RowTouch::None) {
     if (coverTouch == MappedInputManager::RowTouch::Down) {
       if (selectorIndex != touchedBook) {
@@ -291,7 +296,9 @@ void HomeActivity::loop() {
     return;
   }
 
-  const int menuTop = metrics.homeTopPadding + metrics.homeCoverTileHeight + metrics.homeMenuTopOffset;
+  const int menuTop = menuTopRendered > 0
+                          ? menuTopRendered
+                          : metrics.homeTopPadding + metrics.homeCoverTileHeight + metrics.homeMenuTopOffset;
   const int renderedMenuSelection =
       metrics.homeContinueReadingInMenu ? selectorIndex : selectorIndex - recentBooks.size();
   const int renderedMenuCount =
@@ -385,6 +392,9 @@ void HomeActivity::render(RenderLock&&) {
   coverRectY = metrics.homeTopPadding;
   coverRectW = pageWidth;
   coverRectH = coverTileHeight;
+  // The menu top the touch grid in loop() must use; drawButtonMenu below draws
+  // at exactly this y.
+  menuTopRendered = metrics.homeTopPadding + coverTileHeight + metrics.homeMenuTopOffset;
 
   if (coverTileHeight > 0) {
     GUI.drawRecentBookCover(renderer, Rect{0, metrics.homeTopPadding, pageWidth, coverTileHeight}, recentBooks,
