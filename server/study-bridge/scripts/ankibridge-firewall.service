@@ -1,0 +1,12 @@
+[Unit]
+Description=Network isolation for the ankibridge containers
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/srv/ankibridge/scripts/firewall.sh
+
+[Install]
+WantedBy=multi-user.target

@@ -216,6 +216,7 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
     screen.frame().hit(deckRect, ActionSwitchDeck, 0);
   }
 
+
   // The ornament, bracketed the way the board is.
   const int panelTop = body.y + 210;
   const int panelHeight = 190;
@@ -236,6 +237,15 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   caption.font = toybox::kTileFont;
   caption.align = fui::TextAlign::Center;
   screen.target().text(fui::makeRect(body.x, panel.bottom() + 44, body.width, 24), caption_text, caption);
+
+  // The bridge door, in the quiet band between the ornament and the big one.
+  // Always drawn: before pairing it is the way in, after it is the way to
+  // stay current.
+  {
+    const fui::Rect syncRect = fui::makeRect(body.x, panel.bottom() + 92, body.width, 26);
+    screen.target().text(syncRect, "SYNC   >", small);
+    screen.frame().hit(syncRect, ActionSync, 0);
+  }
 
   // The lesser door, bottom-anchored: that is where a thumb rests, and it keeps
   // it from competing with the headline.

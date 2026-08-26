@@ -56,7 +56,6 @@
     </div>
     <div class="wiz-mode" role="tablist" aria-label="What are you here to do">
       <button type="button" id="modeInstall" role="tab" aria-selected="true">Put a deck on it</button>
-      <button type="button" id="modeSyncBtn" role="tab" aria-selected="false">Bring reviews back</button>
     </div>
   </div>
 
@@ -212,39 +211,11 @@
         <p class="study-status-line" id="writeStatus"></p>
         <p class="wiz-after">
           Then, on the reader: <strong>Apps &rsaquo; STUDY</strong>. After
-          studying, come back and use <button class="linklike" id="toSync"
-          type="button">Bring reviews back</button>.
+          studying, press <strong>SYNC</strong> on the deck screen; the
+          reader brings your reviews back to Anki itself.
         </p>
       </div>
       <p class="study-placeholder" id="writePlaceholder" hidden></p>
-    </section>
-
-    <!-- Mode B: sync back ------------------------------------------------- -->
-    <section class="wiz-step" id="modeSync">
-      <div class="wiz-sync">
-        <p>
-          Replays the reviews on the card into your Anki collection, same
-          grades, same timestamps; re-running is safe. A timestamped backup
-          is written first. <strong>Quit Anki before step 3.</strong> Then
-          Anki's own Sync button carries them to AnkiWeb; no credentials
-          touch this page.
-        </p>
-        <div class="cta-row">
-          <button class="btn" id="syncCard" type="button">1 &middot; Pick the SD card</button>
-          <button class="btn" id="syncProfile" type="button" disabled>2 &middot; Pick the Anki profile folder</button>
-          <button class="btn" id="syncRun" type="button" disabled>3 &middot; Replay</button>
-        </div>
-        <p class="study-status-line" id="syncStatus">
-          The profile folder is the one holding collection.anki2. Mac:
-          ~/Library/Application Support/Anki2/&lt;your profile&gt; (the Library
-          folder is hidden in Finder: press Cmd-Shift-G and paste the path).
-          Windows: %APPDATA%\Anki2\&lt;your profile&gt;. Linux:
-          ~/.local/share/Anki2/&lt;your profile&gt;. The backup is written beside
-          collection.anki2 in that same folder. Needs Chrome or Edge; other
-          browsers cannot open a folder, so use the command-line tool.
-        </p>
-        <pre class="study-log" id="syncLog" hidden></pre>
-      </div>
     </section>
 
   </div>

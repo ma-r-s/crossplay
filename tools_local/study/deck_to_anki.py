@@ -67,6 +67,10 @@ KIND_RELEARN = 2
 
 STATE_NEW, STATE_LEARNING, STATE_REVIEW, STATE_RELEARNING = 0, 1, 2, 3
 
+# Anki's queue for a card inside an intraday learning step (mirrors
+# anki_to_deck.py's constant; Anki reads its `due` as a unix timestamp).
+QUEUE_LEARNING_INTRADAY = 1
+
 
 def open_collection(path, read_only=False):
     uri = f"file:{path}" + ("?mode=ro" if read_only else "")

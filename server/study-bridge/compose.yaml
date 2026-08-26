@@ -1,0 +1,91 @@
+# Hardening notes, because every line below is load-bearing rather than cargo:
+# this service is reachable from the public internet, holds AnkiWeb credentials
+# and user collections, and shares a box with Immich, Jellyfin and the *arr
+# stack. The container is treated as though it will eventually be compromised.
+
+networks:
+  ankibridge:
+    name: ankibridge
+    ipam:
+      config:
+        # Pinned so the host firewall rules in scripts/firewall.sh have a
+        # stable subnet to match on. 172.31.83.0/24 belongs to getbooks on the
+        # same box; this service gets its own /24.
+        - subnet: 172.31.84.0/24
+
+services:
+  ankibridge:
+    build: .
+    image: ankibridge:local
+    container_name: ankibridge
+    restart: unless-stopped
+    networks: [ankibridge]
+    # workers=1 is load-bearing: the per-user asyncio mutex stops being a mutex
+    # above one worker. The image CMD runs uvicorn with no --workers flag; do
+    # not add a command: override here that changes that.
+    # Not published on the host: cloudflared reaches it over this network, so
+    # nothing on the LAN can hit it at all.
+    expose:
+      - "8080"
+    # Public resolvers rather than the host's: Docker's embedded DNS forwards
+    # upstream from inside the container's namespace, so with the host walled
+    # off it would otherwise resolve nothing. Pointing it at the internet keeps
+    # the isolation total instead of punching a port 53 hole back to the host.
+    dns:
+      - 1.1.1.1
+      - 9.9.9.9
+    environment:
+      BRIDGE_DATA: /data
+      BRIDGE_FERNET_KEY: ${BRIDGE_FERNET_KEY}
+      BRIDGE_ALLOWLIST: ${BRIDGE_ALLOWLIST}
+    volumes:
+      - ./data:/data
+    # uid 10002: 10001 is getbooks on the same box, and shared uids would let
+    # one compromised container touch the other's bind mounts.
+    user: "10002:10002"
+    read_only: true
+    tmpfs:
+      # The anki library needs a writable temp dir to open collections; capped
+      # so a hostile sync payload cannot fill the disk.
+      - /tmp:size=512m,mode=1777
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    # Sized for a media sync plus one collection-rebuild subprocess in flight,
+    # not Getbooks' 1g: anki loads whole collections rather than one EPUB.
+    mem_limit: 2g
+    pids_limit: 256
+    cpus: 2.0
+    labels:
+      # Watchtower updates every other container on that box; this image only
+      # exists locally, so an unsolicited "update" could only break it.
+      com.centurylinklabs.watchtower.enable: "false"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8080/healthz').read()"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: ankibridge-cloudflared
+    restart: unless-stopped
+    networks: [ankibridge]
+    dns:
+      - 1.1.1.1
+      - 9.9.9.9
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - ankibridge
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    pids_limit: 64
+    labels:
+      # Watchtower updates every other container on that box; the tunnel
+      # connector pins itself with --no-autoupdate and updates on rebuild.
+      com.centurylinklabs.watchtower.enable: "false"
