@@ -21,6 +21,14 @@ mkdir -p "$STAGE/tools_local"
 rsync -a --exclude __pycache__ \
   "$REPO_ROOT/tools_local/study/" "$STAGE/tools_local/study/"
 
+# make_fonts.py shells out to the repo's stock font converter, resolved
+# repo-relative (which in the image means /app/lib/EpdFont/scripts). The web
+# installer bundles these same two files into tools.zip for the same reason.
+mkdir -p "$STAGE/lib/EpdFont/scripts"
+rsync -a "$REPO_ROOT/lib/EpdFont/scripts/fontconvert_sdcard.py" \
+  "$REPO_ROOT/lib/EpdFont/scripts/cpfont_version.py" \
+  "$STAGE/lib/EpdFont/scripts/"
+
 # --exclude .env and --exclude data/ are load-bearing: .env exists only on
 # the pi (secrets, mode 600) and data/ is the live user state; with --delete
 # and without them, this line would erase both.

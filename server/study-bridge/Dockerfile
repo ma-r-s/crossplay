@@ -12,6 +12,8 @@ RUN pip install --no-cache-dir \
 # build time by the deploy script, so the image never depends on the repo
 # layout at runtime and a checkout drift can never alter what runs.
 COPY tools_local /app/tools_local
+# The stock font converter make_fonts.py shells out to, repo-relative.
+COPY lib /app/lib
 
 # The converter uses flat internal imports, so its study/ directory goes on
 # the path and its modules are imported top-level rather than as a package.
