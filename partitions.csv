@@ -1,7 +1,32 @@
 # Name,   Type, SubType, Offset,  Size, Flags
+#
+# FORK CHANGE: upstream splits the 16MB chip into two 6.25MB app slots plus a
+# 3.375MB spiffs partition. Nothing in this firmware ever mounts that spiffs:
+# there is no SPIFFS.begin, no esp_vfs_spiffs_register and no LittleFS.begin
+# anywhere in src/, lib/ or freeink-sdk/, and no release job builds a
+# filesystem image to put in it. Books, fonts, saves and packs are all files on
+# the SD card. It was 21% of the chip held for a filesystem that does not exist.
+#
+# That space is now split between the two app slots, which is where the fork
+# actually needs it: at 1.5.3 the x4pro image was 6,427,744 bytes, 98.1% of a
+# 6.25MB slot, with 123KB left. The same image is 77.2% of a 7.94MB slot.
+#
+# Two app slots are not optional and are not about crash rollback. A running app
+# cannot erase the flash it is executing from, so an OTA needs a second slot to
+# land in. Rollback (CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE) rides along free.
+#
+# THE TABLE ITSELF ONLY CHANGES ON A FULL SERIAL FLASH. An OTA writes the app
+# partition and otadata, never offset 0x8000, so a device already in the field
+# keeps whatever table it was flashed with and stays capped at 6.25MB until it
+# is reflashed over USB with a -full.bin. Published installs are already
+# `write_flash 0x0 <version>-x4pro-full.bin`, which writes the table, so new
+# installs get this for free and only existing devices need the one-time hop.
+#
+# Both app offsets must stay 64KB-aligned, the regions must not overlap, and the
+# last one must not run past 0x1000000. host-tests/release asserts all three,
+# plus that the two app slots stay the same size and that spiffs stays gone.
 nvs,      data, nvs,     0x9000,  0x5000,
 otadata,  data, ota,     0xe000,  0x2000,
-app0,     app,  ota_0,   0x10000, 0x640000,
-app1,     app,  ota_1,   0x650000,0x640000,
-spiffs,   data, spiffs,  0xc90000,0x360000,
+app0,     app,  ota_0,   0x10000, 0x7F0000,
+app1,     app,  ota_1,   0x800000,0x7F0000,
 coredump, data, coredump,0xFF0000,0x10000,
