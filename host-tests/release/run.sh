@@ -119,7 +119,72 @@ else
   ok
 fi
 
-# -- 5. dev-only flags never reach an env a tag builds -------------------------
+# -- 5. the partition table is one an OTA cannot walk off the end of -----------
+#
+# partitions.csv is the one file in the tree where a bad merge is not a failed
+# build, it is a brick: the table is written once, at install time, at 0x8000,
+# and nothing on the device ever checks it again. Upstream still ships a 3.375MB
+# spiffs partition that this fork gave to the app slots, so this file conflicts
+# on every upstream merge, and "resolve by taking theirs" silently halves the
+# room every image has to fit in.
+#
+# Asserted against the arithmetic rather than against the expected literals, so
+# a deliberate future re-split still passes and only a broken one fails.
+TABLE="$ROOT/partitions.csv"
+[ -f "$TABLE" ] || { echo "FAIL release  missing $TABLE"; exit 1; }
+
+CHIP=$((0x1000000))  # 16MB, the flash on both boards (board_upload.flash_size)
+app_sizes=""
+prev_end=0
+overlap=0
+for row in $(grep -vE '^\s*#' "$TABLE" | grep -vE '^\s*$' | tr -d ' \t' ); do
+  IFS=',' read -r name type sub off size _ <<< "$row"
+  [ -n "${off:-}" ] && [ -n "${size:-}" ] || continue
+  o=$((off)); z=$((size))
+  # Regions are listed in ascending order; a row starting before the previous
+  # one ended is an overlap, which esptool does not reject and the bootloader
+  # discovers by loading garbage.
+  [ "$o" -lt "$prev_end" ] && overlap=1
+  prev_end=$((o + z))
+  if [ "$type" = "app" ]; then
+    app_sizes="$app_sizes $z"
+    if [ $((o % 0x10000)) -eq 0 ]; then ok; else
+      bad "app partition '$name' starts at $off, which is not 64KB-aligned; the S3 maps app flash in 64KB pages"
+    fi
+  fi
+done
+
+if [ "$overlap" -eq 0 ]; then ok; else
+  bad "partitions.csv has overlapping regions"
+fi
+
+if [ "$prev_end" -le "$CHIP" ]; then ok; else
+  bad "partitions.csv allocates $prev_end bytes on a $CHIP byte chip; the last region runs off the end"
+fi
+
+# Two app slots, both the same size. Unequal slots are worse than small ones:
+# an image that fits the slot it was flashed into but not the other one gets
+# OTA'd once and then can never be updated again from the slot it landed in.
+set -- $app_sizes
+if [ "$#" -eq 2 ]; then
+  ok
+  if [ "$1" -eq "$2" ]; then ok; else
+    bad "the two app slots differ ($1 vs $2); an OTA can land an image that fits one and not the other"
+  fi
+else
+  bad "expected exactly 2 app partitions (ota_0/ota_1), found $#; OTA needs a second slot to land in"
+fi
+
+# The reason this fork's table differs from upstream's at all. If a merge ever
+# puts spiffs back, every image loses 1.9MB of room with no other symptom than
+# a link failure months later.
+if grep -qE '^\s*spiffs' "$TABLE"; then
+  bad "spiffs is back in partitions.csv -- nothing in this firmware mounts it, and it costs both app slots 1.9MB each"
+else
+  ok
+fi
+
+# -- 6. dev-only flags never reach an env a tag builds -------------------------
 #
 # CROSSPOINT_DEV_SERIAL_BRIDGE and CROSSPOINT_DEV_WIFI_FLASH each open a hole
 # that is fine on a desk and wrong in a release: the bridge lets anything on the
