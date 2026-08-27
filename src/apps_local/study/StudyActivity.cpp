@@ -749,6 +749,20 @@ void StudyActivity::loop() {
       requestUpdate();
       return;
     }
+    if (view_ == View::Image) {
+      view_ = View::Card;
+      requestUpdate();
+      return;
+    }
+    if (view_ == View::Card) {
+      // Back walks up, never out: a review session returns to the deck
+      // screen. The session state stays; the next START REVIEWING re-scans
+      // anyway. Flush so a wall-charger yank right after costs nothing.
+      flushWrites();
+      view_ = View::Deck;
+      requestUpdate();
+      return;
+    }
     shelf::leave(renderer, mappedInput);
     return;
   }
@@ -1154,6 +1168,10 @@ void StudyActivity::routeAction(const fui::ActionEvent& event) {
   if (event.action != studyui::ActionStudy) return;
   if (event.value == 2) {
     beginSync();
+    return;
+  }
+  if (event.value == 3) {
+    switchDeck();
     return;
   }
   // Re-scan rather than resuming a stale queue: a session can end, the user can

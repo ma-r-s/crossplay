@@ -207,20 +207,10 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   small.align = fui::TextAlign::Left;
   screen.target().text(fui::makeRect(body.x, body.y + 122, body.width, 24), record, small);
 
-  // The deck row. One deck: a quiet label naming what is open. More than one:
-  // the switcher, and the count says there is somewhere to go -- the arrow
-  // alone would say "this goes somewhere" without saying how many somewheres.
-  if (model.deckCount > 1) {
-    char deckRow[64];
-    std::snprintf(deckRow, sizeof(deckRow), "DECK %d/%d   %s   >", model.deckIndex + 1, model.deckCount, model.name);
-    const fui::Rect deckRect = fui::makeRect(body.x, body.y + 152, body.width, 26);
-    screen.target().text(deckRect, deckRow, small);
-    screen.frame().hit(deckRect, ActionSwitchDeck, 0);
-  }
-
-  // The ornament, bracketed the way the board is.
+  // The ornament, bracketed the way the board is. With three doors below
+  // (multi-deck cards) it gives up some height so nothing overlaps.
   const int panelTop = body.y + 210;
-  const int panelHeight = 190;
+  const int panelHeight = model.deckCount > 1 ? 132 : 190;
   const fui::Rect panel = fui::makeRect(body.x + 10, panelTop, body.width - 20, panelHeight);
   brackets(screen, fui::makeRect(panel.x - 18, panel.y - 18, panel.width + 36, panel.height + 54), 32);
   timeline(screen, fui::makeRect(panel.x + 12, panel.y + 8, panel.width - 24, panelHeight - 16), model);
@@ -244,7 +234,7 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   // variants; the rows wear the same lucide glyphs the rest of the
   // firmware's lists do, and SYNC carries its own state in the value slot
   // so the door says when it last mattered.
-  fui::ListItem rows[2];
+  fui::ListItem rows[3];
   rows[0] = fui::ListItem{};
   rows[0].label = waiting > 0 ? "START REVIEWING" : "NOTHING TO REVIEW";
   rows[0].enabled = waiting > 0;
@@ -258,9 +248,28 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   rows[1].enabled = true;
   rows[1].actionValue = 2;
   rows[1].icon = fui::bitmapFromIcon(icon_refresh_cw_32);
+  // The deck switcher, a door like its siblings, only when there is
+  // somewhere to go. It replaced the quiet DECK 1/2 text row: Mario asked
+  // for the switch next to the other options, and one door language beats
+  // two affordances for the same act. The value names where you ARE; the
+  // count says how many somewheres exist.
+  const int doorCount = model.deckCount > 1 ? 3 : 2;
+  char deckValue[48] = "";
+  if (doorCount == 3) {
+    rows[2] = fui::ListItem{};
+    rows[2].label = "CHANGE DECK";
+    // Just the position: the deck's NAME is already the row above the
+    // ornament, and repeating it here clipped the label (the value slot
+    // takes its width first).
+    std::snprintf(deckValue, sizeof(deckValue), "%d OF %d", model.deckIndex + 1, model.deckCount);
+    rows[2].value = deckValue;
+    rows[2].actionValue = 3;
+    rows[2].icon = fui::bitmapFromIcon(icon_library_32);
+  }
+
   fui::ListProps list;
   list.items = rows;
-  list.count = 2;
+  list.count = static_cast<uint16_t>(doorCount);
   list.selectedIndex = -1;
   list.action = ActionStudy;
   // The state whispers next to the label: the tile cut, not the theme's
@@ -284,7 +293,7 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   list.textGap = toybox::kMargin;
   list.rowGap = toybox::kMargin;
   list.valueInset = 0;
-  screen.list(list, 2 * toybox::kRowHeight + toybox::kMargin, fui::LayoutAnchor::Bottom);
+  screen.list(list, doorCount * toybox::kRowHeight + (doorCount - 1) * toybox::kMargin, fui::LayoutAnchor::Bottom);
 
   if (model.writeFailed) {
     // Loud, and above the door rather than inside it: a review the user gave
