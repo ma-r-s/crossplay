@@ -147,6 +147,58 @@ jobs:
             Battleship, Jaipur and Sea Salt. Two devices next to each other
             find one another with nothing to type.
 
+            ### What is new in 1.6.0
+
+            **The two app slots grew from 6.25MB to 7.94MB.** A 3.375MB
+            partition that no version of this firmware ever used has been given
+            back to the application. Nothing about this is visible while you
+            read; it is headroom for what comes next.
+
+            It does mean one thing for existing owners, and it is the reason
+            this is 1.6.0 rather than 1.5.4. **The partition table is only
+            written by a USB flash.** Check for updates writes the application
+            and nothing else, so a device installed before this release keeps
+            its old 6.25MB slots no matter how many times it updates over
+            Wi-Fi. Everything keeps working. What happens eventually is that an
+            application grows past 6.25MB, and that device says the firmware is
+            too large and declines the update -- with that reason, before
+            downloading it, rather than failing halfway. If you would rather not
+            meet that months from now, flash
+            `crossplay-1.6.0-x4pro-full.bin` over USB once, exactly as a first
+            install. Your SD card is untouched: books, reading positions, saves
+            and fonts are files on it, not in the firmware. A fresh install from
+            this release onward needs none of this.
+
+            **Get Books**
+
+            Get Books now opens on whatever you last chose. Pick your catalog
+            once under the library icon and it stays picked. Catalogs that can
+            only be searched (rather than browsed) open straight on the
+            keyboard; catalogs with their own categories open on those, with
+            search in the header.
+
+            The library icon is now on every screen, including the search
+            keyboard and the error screen. Previously a catalog that failed to
+            load left you with no way to choose a different one.
+
+            Errors now say what happened instead of "Failed to fetch feed", and
+            include the status the server sent, e.g. "Authentication Failed
+            (401)".
+
+            **Standard Ebooks is no longer set up for you.** Their catalog moved
+            behind the Patrons Circle and now requires a donor account, so it
+            failed for everyone who had not donated. If you have an account, add
+            it under Settings > System > OPDS Servers with your patron email as
+            the username and the password left empty. Devices that already have
+            the entry keep it; delete it there if you want it gone.
+
+            Project Gutenberg's own gateway is intermittently slow and sometimes
+            returns an error. If it fails, tapping to retry usually works.
+
+            Neither of those last two was a fault in this firmware -- one is a
+            paywall and the other is someone else's gateway. What changed is
+            that the reader no longer traps you or misdescribes what happened.
+
             ### Which file to download
 
             Each device has its own pair of images; the board name is in the
@@ -168,24 +220,6 @@ jobs:
             v1.0.0 and v1.0.1 published only the application image and told you
             to write it to `0x0`, which on an ESP32-S3 is where the bootloader
             lives. Do not follow the install steps from those two releases.
-
-            ### If you installed before this release, flash over USB once
-
-            This release repartitions the chip. A 3.375MB partition that no
-            version of this firmware ever used has been given to the two
-            application slots, which grow from 6.25MB each to 7.94MB.
-
-            The partition table is only written by a USB flash. Check for
-            updates writes the application and nothing else, so a device
-            installed before this release keeps its old 6.25MB slots. It will
-            keep updating over Wi-Fi until an application no longer fits in
-            6.25MB, and will then say the firmware is too large and refuse,
-            without downloading it. That is the point to flash
-            `crossplay-<version>-x4pro-full.bin` over USB once, exactly as a
-            first install. Your SD card is untouched: books, reading positions,
-            saves and fonts are files on it, not in the firmware.
-
-            A fresh install from this release onward needs none of this.
 
             Try the whole thing in a browser first, without owning either:
             **[crossplay.ma-r-s.com](https://crossplay.ma-r-s.com)** runs this
