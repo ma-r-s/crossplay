@@ -297,12 +297,9 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   }
 }
 
-// ---- The sync flow surface. Three arrangements behind a variant macro for
-// the render round (docs/apps/study-syncflow-ui.md); the winner ships and
-// the macro dies with it.
-#ifndef STUDY_SYNCFLOW_VARIANT
-#define STUDY_SYNCFLOW_VARIANT 1
-#endif
+// ---- The sync flow surface (docs/apps/study-syncflow-ui.md). The stage
+// band won the three-variant round; the ladder and line+log arrangements
+// and the STUDY_SYNCFLOW_VARIANT macro died with the choice.
 
 namespace {
 
@@ -377,66 +374,6 @@ void buildSyncFlow(toybox::Screen& screen, const SyncFlowModel& model) {
     if (model.stages[i] == SyncStageState::Active) activeStage = i;
   }
 
-#if STUDY_SYNCFLOW_VARIANT == 1
-  // V1 "Ladder": vertical checklist on the door's label/value grid.
-  if (model.verdict == SyncVerdictKind::None) {
-    int y = body.y + 8;
-    for (int i = 0; i < kSyncStageCount; ++i) {
-      const SyncStageState state = model.stages[i];
-      const bool pending = state == SyncStageState::Pending;
-      const fui::Rect marker = fui::makeRect(body.x, y + 4, 18, 18);
-      if (state == SyncStageState::Done) {
-        screen.target().fill(marker, ink);
-      } else {
-        screen.target().stroke(marker, pending ? dim : ink, state == SyncStageState::Active ? 3 : 1);
-      }
-      const int textX = body.x + 18 + toybox::kMargin;
-      const int textW = body.width - 18 - toybox::kMargin;
-      screen.target().text(
-          fui::makeRect(textX, y, textW, 26), stageLabel(i),
-          syncText(toybox::kUiFont, fui::TextAlign::Left, pending ? fui::Color::DarkGray : fui::Color::Black));
-      if (model.facts[i][0] != '\0') {
-        screen.target().text(fui::makeRect(textX, y + 2, textW, 22), model.facts[i],
-                             syncText(toybox::kTileFont, fui::TextAlign::Right));
-      }
-      y += 26 + 8;
-      if (i == activeStage && model.caption[0] != '\0') {
-        screen.target().text(fui::makeRect(textX, y, textW, 60), model.caption,
-                             syncText(toybox::kTileFont, fui::TextAlign::Left, fui::Color::DarkGray, 3));
-        y += 66;
-      }
-      y += toybox::kMargin;
-    }
-    if (model.safety >= SyncSafety::ReviewsSafe) syncSafetyFooter(screen, body);
-  } else {
-    // Verdict, left-aligned on the same column.
-    int y = body.y + 24;
-    screen.target().bitmap(fui::makeRect(body.x, y, 32, 32), verdictGlyph(model.verdict), fui::BitmapMode::Contain,
-                           ink);
-    y += 56;
-    screen.target().text(fui::makeRect(body.x, y, body.width, 48), model.title,
-                         syncText(toybox::kDisplayFont, fui::TextAlign::Left));
-    y += 64;
-    if (const char* safety = safetyLine(model.safety)) {
-      screen.target().text(fui::makeRect(body.x, y, body.width, 22), safety,
-                           syncText(toybox::kTileFont, fui::TextAlign::Left));
-      y += 34;
-    }
-    screen.target().text(fui::makeRect(body.x, y, body.width, 104), model.body,
-                         syncText(toybox::kUiFont, fui::TextAlign::Left, fui::Color::Black, 4));
-    y += 116;
-    for (int i = 0; i < model.factCount; ++i) {
-      screen.target().text(fui::makeRect(body.x, y, body.width, 22), model.factLines[i],
-                           syncText(toybox::kTileFont, fui::TextAlign::Left, fui::Color::DarkGray));
-      y += 26;
-    }
-    if (model.whatNow[0] != '\0') {
-      screen.target().text(fui::makeRect(body.x, body.bottom() - 48, body.width, 44), model.whatNow,
-                           syncText(toybox::kTileFont, fui::TextAlign::Left, fui::Color::DarkGray, 2));
-    }
-  }
-
-#elif STUDY_SYNCFLOW_VARIANT == 2
   // V2 "Stage band": a horizontal four-segment band under the header; the
   // current stage as a headline beneath it.
   const int segGap = 8;
@@ -458,8 +395,13 @@ void buildSyncFlow(toybox::Screen& screen, const SyncFlowModel& model) {
     }
     if (state == SyncStageState::Done) {
       screen.target().fill(seg, ink);
+    } else if (state == SyncStageState::Active) {
+      // Half-tone: in progress on the busy face, "died here" on an error
+      // verdict. A heavier outline alone did not separate from pending.
+      screen.target().fill(seg, fui::Paint::dither(fui::Color::LightGray));
+      screen.target().stroke(seg, ink, 2);
     } else {
-      screen.target().stroke(seg, state == SyncStageState::Active ? ink : dim, state == SyncStageState::Active ? 2 : 1);
+      screen.target().stroke(seg, dim, 1);
     }
     screen.target().text(fui::makeRect(seg.x - 4, bandY + 22, segW + 8, 18), stageShortLabel(i),
                          syncText(toybox::kTileFont, fui::TextAlign::Center,
@@ -503,59 +445,6 @@ void buildSyncFlow(toybox::Screen& screen, const SyncFlowModel& model) {
                            syncText(toybox::kTileFont, fui::TextAlign::Center, fui::Color::DarkGray, 2));
     }
   }
-
-#else
-  // V3 "Line + log": one large current-stage line, completed stages
-  // accumulating quietly beneath. Closest to today's feel.
-  if (model.verdict == SyncVerdictKind::None) {
-    const int headY = body.y + 48;
-    if (activeStage >= 0) {
-      screen.target().text(fui::makeRect(body.x, headY, body.width, 48), stageLabel(activeStage),
-                           syncText(toybox::kDisplayFont, fui::TextAlign::Center));
-    }
-    if (model.caption[0] != '\0') {
-      screen.target().text(fui::makeRect(body.x + 20, headY + 68, body.width - 40, 84), model.caption,
-                           syncText(toybox::kUiFont, fui::TextAlign::Center, fui::Color::DarkGray, 3));
-    }
-    int y = headY + 214;
-    for (int i = 0; i < kSyncStageCount; ++i) {
-      if (model.stages[i] != SyncStageState::Done) continue;
-      const int rowX = body.x + 72;
-      screen.target().bitmap(fui::makeRect(rowX, y, 24, 24), fui::bitmapFromIcon(icon_check_24),
-                             fui::BitmapMode::Contain, ink);
-      const char* line = model.facts[i][0] != '\0' ? model.facts[i] : stageLabel(i);
-      screen.target().text(fui::makeRect(rowX + 24 + 12, y + 2, body.width - 96 - 36, 20), line,
-                           syncText(toybox::kTileFont, fui::TextAlign::Left, fui::Color::DarkGray));
-      y += 32;
-    }
-    if (model.safety >= SyncSafety::ReviewsSafe) syncSafetyFooter(screen, body);
-  } else {
-    int y = body.y + 64;
-    screen.target().bitmap(fui::makeRect(body.x + (body.width - 32) / 2, y, 32, 32), verdictGlyph(model.verdict),
-                           fui::BitmapMode::Contain, ink);
-    y += 56;
-    screen.target().text(fui::makeRect(body.x, y, body.width, 48), model.title,
-                         syncText(toybox::kDisplayFont, fui::TextAlign::Center));
-    y += 66;
-    if (const char* safety = safetyLine(model.safety)) {
-      screen.target().text(fui::makeRect(body.x, y, body.width, 22), safety,
-                           syncText(toybox::kTileFont, fui::TextAlign::Center));
-      y += 36;
-    }
-    screen.target().text(fui::makeRect(body.x + 20, y, body.width - 40, 104), model.body,
-                         syncText(toybox::kUiFont, fui::TextAlign::Center, fui::Color::Black, 4));
-    y += 120;
-    for (int i = 0; i < model.factCount; ++i) {
-      screen.target().text(fui::makeRect(body.x, y, body.width, 22), model.factLines[i],
-                           syncText(toybox::kTileFont, fui::TextAlign::Center, fui::Color::DarkGray));
-      y += 26;
-    }
-    if (model.whatNow[0] != '\0') {
-      screen.target().text(fui::makeRect(body.x + 20, body.bottom() - 48, body.width - 40, 44), model.whatNow,
-                           syncText(toybox::kTileFont, fui::TextAlign::Center, fui::Color::DarkGray, 2));
-    }
-  }
-#endif
 }
 
 }  // namespace studyui
