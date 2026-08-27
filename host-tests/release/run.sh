@@ -184,5 +184,47 @@ else
   ok
 fi
 
+# -- 6. dev-only flags never reach an env a tag builds -------------------------
+#
+# CROSSPOINT_DEV_SERIAL_BRIDGE and CROSSPOINT_DEV_WIFI_FLASH each open a hole
+# that is fine on a desk and wrong in a release: the bridge lets anything on the
+# USB line drive the UI, and the wifi flash adds an unauthenticated HTTP route
+# that replaces the firmware. Both are compile-time so a release image cannot
+# contain them at all -- but only as long as nobody moves one up into a
+# *_common section, which the release envs inherit from. That single edit is
+# invisible in review and ships the hole. So the check is on which SECTION the
+# flag sits in, not merely on whether the release env spells it out.
+INI="$ROOT/platformio.ini"
+[ -f "$INI" ] || { echo "FAIL release  missing $INI"; exit 1; }
+
+for flag in CROSSPOINT_DEV_SERIAL_BRIDGE CROSSPOINT_DEV_WIFI_FLASH; do
+  # Print the section each occurrence of $flag lives in.
+  homes="$(awk -v want="$flag" '
+    /^\[/ { section = $0; sub(/^\[/, "", section); sub(/\].*$/, "", section) }
+    index($0, want) && $0 !~ /^[[:space:]]*;/ { print section }
+  ' "$INI" | sort -u)"
+
+  if [ -z "$homes" ]; then
+    bad "$flag appears nowhere in platformio.ini; the dev tooling that needs it is dead"
+    continue
+  fi
+
+  bad_home=""
+  for section in $homes; do
+    case "$section" in
+      # Only these two. A *_common section is inherited by its release env, and
+      # any gh_release/slim env is something a tag actually builds.
+      env:x4pro|env:sticky) ;;
+      *) bad_home="${bad_home:+$bad_home }$section" ;;
+    esac
+  done
+
+  if [ -z "$bad_home" ]; then
+    ok
+  else
+    bad "$flag is set in [$bad_home] -- release envs inherit that, so a tag would ship it"
+  fi
+done
+
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]

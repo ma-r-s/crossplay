@@ -135,6 +135,12 @@ class CrossPointWebServer {
   void handlePostOpdsServer();
   void handleDeleteOpdsServer();
 
+#if CROSSPOINT_DEV_WIFI_FLASH
+  // Dev-only firmware flash. Declared here rather than behind a runtime setting
+  // so a release build contains no route that can replace the firmware.
+  void handleDevFlash();
+#endif
+
   // Wi-Fi credential handlers
   void handleGetWifiNetworks() const;
   void handlePostWifiNetwork();

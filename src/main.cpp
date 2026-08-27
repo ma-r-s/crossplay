@@ -34,6 +34,9 @@
 #include "SdCardFontSystem.h"
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
+#if CROSSPOINT_DEV_WIFI_FLASH
+#include "DevWifiFlash.h"
+#endif
 #include "activities/settings/SdFirmwareUpdateActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -601,6 +604,12 @@ void setup() {
     gpio.update();
   }
 
+#if CROSSPOINT_DEV_WIFI_FLASH
+  // Last, and non-blocking: storage is mounted by now (the credentials are a
+  // file on the card) and boot must not wait on an access point.
+  devwifi::begin();
+#endif
+
   allowSleepAt = millis() + 2000;
 }
 
@@ -620,6 +629,10 @@ void loop() {
             ESP.getHeapSize(), ESP.getMinFreeHeap(), ESP.getMaxAllocHeap());
     lastMemPrint = millis();
   }
+
+#if CROSSPOINT_DEV_WIFI_FLASH
+  devwifi::update();
+#endif
 
 #if CROSSPOINT_DEV_SERIAL_BRIDGE
   // Dev builds route all serial commands (screenshot included) through the
