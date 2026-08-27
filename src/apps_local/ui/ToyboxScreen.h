@@ -109,6 +109,51 @@ class Screen : public freeink::ui::Screen<kMaxInteractions> {
   Screen(freeink::ui::Frame<kMaxInteractions>&, freeink::ui::ThemeTokens&&) = delete;
 };
 
+// Toybox chrome opts OUT of the device safe area: call FIRST in a screen
+// builder, before screen.header(). The header band is paint and may bleed
+// under the bezel -- its title ink sits well below the covered rows -- and
+// every layout in these apps is tuned against the band at panel row 0.
+// Shifting the chrome down by the insets ate the gaps those layouts were
+// tuned for (boards touched the rule, band decorations drifted) while
+// buying nothing: no game ever drew content in the covered rows. Content
+// that must clear the glass (the readers, xkcd, system lists) takes the
+// safe rect through its own path and does not use this.
+inline void absoluteChrome(Screen& screen) { screen.setContentMarginAbsolute(freeink::ui::Insets{}); }
+
+// The header band under absolute chrome: its BOTTOM edge stays at the tuned
+// kHeaderHeight so nothing below it moves, but its visible top is the bezel's
+// safe top, and the title (and any right label) centres in that visible part
+// rather than in rows nobody can see. The band's covered rows stay paper --
+// they are under the glass on every board, by the board's own measurement.
+// Call in place of screen.header(props) after absoluteChrome().
+inline void headerBand(Screen& screen, const freeink::ui::HeaderProps& props) {
+  namespace fui = freeink::ui;
+  const int16_t visibleTop = screen.frame().safeRect().y;
+  const fui::Rect band = screen.takeTop(screen.theme().headerHeight);
+  screen.header(props, fui::makeRect(band.x, static_cast<int16_t>(band.y + visibleTop), band.width,
+                                     static_cast<int16_t>(band.height - visibleTop)));
+}
+
+// Vertical top for an element of height h centred in the VISIBLE part of the
+// header band, for the decorations that ride it (folder marks, medal
+// tallies, face doors). Matches headerBand()'s centring.
+inline int16_t bandCenterY(Screen& screen, const int16_t elementH) {
+  const int16_t visibleTop = screen.frame().safeRect().y;
+  return static_cast<int16_t>(visibleTop + (kHeaderHeight - visibleTop - elementH) / 2);
+}
+
+// The rule under the header band. Full-bleed on purpose -- paint may run
+// under the bezel, content may not -- and derived from the screen's content
+// top rather than a constant, so it tracks the band wherever the screen
+// puts it. Call immediately after screen.header(...): the band was just
+// taken from the content top, so body().y is the band's bottom edge.
+inline void headerRule(Screen& screen) {
+  namespace fui = freeink::ui;
+  screen.target().fill(
+      fui::makeRect(0, static_cast<int16_t>(screen.body().y + 4), screen.device().screen().width, toybox::kRule),
+      fui::Paint::solid(fui::Color::Black));
+}
+
 // Every icon this fork draws, at the one size ToyboxIcons.h generates.
 constexpr int16_t kIconSize = 32;
 
@@ -159,17 +204,16 @@ inline void iconAtRowRight(Screen& screen, const freeink::ui::Rect& band, const 
 // Use it in pairs to make a ring: a disc in ink with a smaller disc in paper on
 // top closes by construction. The circle test is per row, which also avoids the
 // flat-topped lozenge silhouette the table produced.
-inline void disc(Screen& screen, const int16_t cx, const int16_t cy, const int16_t r,
-                 const freeink::ui::Color colour) {
+inline void disc(Screen& screen, const int16_t cx, const int16_t cy, const int16_t r, const freeink::ui::Color colour) {
   namespace fui = freeink::ui;
   const fui::Paint paint = fui::Paint::solid(colour);
   for (int16_t dy = static_cast<int16_t>(-r); dy <= r; ++dy) {
     int16_t half = 0;
     while ((half + 1) * (half + 1) + dy * dy <= r * r) ++half;
     if (half <= 0) continue;
-    screen.target().fill(
-        fui::makeRect(static_cast<int16_t>(cx - half), static_cast<int16_t>(cy + dy), static_cast<int16_t>(half * 2), 1),
-        paint);
+    screen.target().fill(fui::makeRect(static_cast<int16_t>(cx - half), static_cast<int16_t>(cy + dy),
+                                       static_cast<int16_t>(half * 2), 1),
+                         paint);
   }
 }
 

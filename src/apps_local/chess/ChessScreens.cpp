@@ -96,14 +96,13 @@ void toyboxChrome(toybox::Screen& screen, const char* title) {
   header.borderEdges = fui::EdgesNone;
   // Everything else (title style, side padding, band height, minimum touch
   // size) comes from the theme through Screen.
-  screen.header(header);
+  toybox::absoluteChrome(screen);
+  toybox::headerBand(screen, header);
 
   // Toybox's doubled line: a thinner rule set off from the band rather than
   // flush against it. Drawn straight to the target because it is one fill, not
   // a control, and it deliberately sits in the gap the header left behind.
-  const fui::Rect band = screen.device().screen();
-  screen.target().fill(fui::makeRect(0, toybox::kHeaderHeight + 4, band.width, toybox::kRule),
-                       fui::Paint::solid(fui::Color::Black));
+  toybox::headerRule(screen);
 
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 }

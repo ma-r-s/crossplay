@@ -60,7 +60,7 @@ class StudyActivity final : public Activity {
   // whatever sentence the flow is on, the pairing QR, and the on-device
   // "Paired to <account> -- confirm?" gate (which closes both directions of
   // the pairing race; see docs/apps/study-sync-bridge-plan.md).
-  enum class View : uint8_t { Deck, Card, Image, NoDeck, SyncMsg, PairQr, PairConfirm };
+  enum class View : uint8_t { Deck, Card, Image, NoDeck, SyncFlow, PairQr, PairConfirm };
   enum class Face : uint8_t { Question, Answer };
 
   bool openDeck();
@@ -201,28 +201,36 @@ class StudyActivity final : public Activity {
   // poll loops pump input themselves -- the sanctioned exception, nothing
   // else pumps while they block.
   void beginSync();
+#if !defined(FREEINK_NET_WOLFSSL)
+  // Sim-only render harness: STUDY_SYNCFLOW_PREVIEW drives the sync views
+  // with canned data so sim-shot can photograph them without a bridge.
+  void applySyncFlowPreview(const char* state);
+  studyui::SyncFlowModel previewFlow_;
+  bool previewFlowSet_ = false;
+#endif
   void onSyncWifi(bool connected);
   void runSyncFlow();
   bool runPairing();
   bool buildPayloads(std::vector<study::DeckPayload>& out);
-  bool applyManifests(const std::vector<study::DeckManifest>& manifests, std::string& message);
-  void showSync(const char* title, const char* body);
-  void endSyncSession(const char* title, const char* body);
+  bool applyManifests(const std::vector<study::DeckManifest>& manifests, std::string& message, int& decksUpdated);
+  // Paint the flow model now (requestUpdateAndWait); flowStage() marks every
+  // stage before `stage` done, `stage` active, and swaps the caption.
+  void showFlow();
+  void flowStage(studyui::SyncStage stage, const char* caption);
+  void endSyncSession(studyui::SyncVerdictKind kind, studyui::SyncSafety safety, const char* title, const char* body,
+                      const char* whatNow = nullptr);
   void syncTimeIfNeeded();
   void drainInput();
   // The radio is up and a stranger is mid-pairing: sleeping here would read
   // as a crash. The result screen (syncBusy_ false) may sleep normally.
-  bool preventAutoSleep() override {
-    return syncBusy_ || view_ == View::PairQr || view_ == View::PairConfirm;
-  }
+  bool preventAutoSleep() override { return syncBusy_ || view_ == View::PairQr || view_ == View::PairConfirm; }
 
   study::StudySync sync_;
   study::BridgeState bridge_;
   bool syncQueued_ = false;
   bool syncBusy_ = false;
   bool wifiActivated_ = false;
-  char syncTitle_[24] = "";
-  char syncBody_[192] = "";
+  studyui::SyncFlowModel flow_;
   // What the pairing screens draw; only meaningful in the PairQr/PairConfirm
   // views. The confirm tap target is registered by render() here so the poll
   // loop and the drawing agree on one rectangle.

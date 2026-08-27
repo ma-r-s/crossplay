@@ -23,15 +23,13 @@ void chrome(toybox::Screen& screen, const char* title, const char* rightLabel = 
   header.subtitleText.color = fui::Color::White;
   header.subtitleText.align = fui::TextAlign::Right;
   header.borderEdges = fui::EdgesNone;
-  screen.header(header);
-  const fui::Rect band = screen.device().screen();
-  screen.target().fill(fui::makeRect(0, toybox::kHeaderHeight + 4, band.width, toybox::kRule),
-                       fui::Paint::solid(fui::Color::Black));
+  toybox::absoluteChrome(screen);
+  toybox::headerBand(screen, header);
+  toybox::headerRule(screen);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 }
 
-fui::TextStyle styled(const fui::FontId font, const fui::TextAlign align,
-                      const fui::Color color = fui::Color::Black) {
+fui::TextStyle styled(const fui::FontId font, const fui::TextAlign align, const fui::Color color = fui::Color::Black) {
   fui::TextStyle style;
   style.font = font;
   style.align = align;
@@ -126,8 +124,8 @@ void miniBoard(toybox::Screen& screen, const fui::Rect& box, const tb::Terrain& 
 
   for (int slot = 0; slot < slots; ++slot) {
     const int16_t cx = px(slot), cy = py(slot);
-    const fui::Rect cell = fui::makeRect(static_cast<int16_t>(cx - node / 2), static_cast<int16_t>(cy - node / 2),
-                                         node, node);
+    const fui::Rect cell =
+        fui::makeRect(static_cast<int16_t>(cx - node / 2), static_cast<int16_t>(cy - node / 2), node, node);
     const bool isHq = terrain.isHq(slot);
     const int held = game != nullptr && terrain.isBase(slot) ? game->occupantSeat(slot) : tb::kNoSeat;
 
@@ -264,12 +262,10 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   // would be resuming. Made of the app's own material and showing the app's own
   // data, so a screenshot of it is not the same on everyone's device.
   char caption[64];
-  std::snprintf(caption, sizeof(caption), "%s   %d TO WIN, %d ON THE BOARD", terrain.name,
-                terrain.medalsObjective, medalsOn(terrain));
-  const fui::Rect capBox =
-      fui::makeRect(ornament.x, static_cast<int16_t>(ornament.bottom() - 24), ornament.width, 24);
-  miniBoard(screen,
-            fui::makeRect(ornament.x, ornament.y, ornament.width, static_cast<int16_t>(ornament.height - 30)),
+  std::snprintf(caption, sizeof(caption), "%s   %d TO WIN, %d ON THE BOARD", terrain.name, terrain.medalsObjective,
+                medalsOn(terrain));
+  const fui::Rect capBox = fui::makeRect(ornament.x, static_cast<int16_t>(ornament.bottom() - 24), ornament.width, 24);
+  miniBoard(screen, fui::makeRect(ornament.x, ornament.y, ornament.width, static_cast<int16_t>(ornament.height - 30)),
             terrain, model.preview, 0);
   screen.target().text(capBox, caption, styled(toybox::kTileFont, fui::TextAlign::Center));
 
@@ -311,8 +307,7 @@ void buildSetup(toybox::Screen& screen, const SetupModel& model) {
   start.styles = toybox::invertedStyles();
   start.text = styled(toybox::kDisplayFont, fui::TextAlign::Center, fui::Color::White);
   start.radius = 10;
-  const fui::Rect startBox =
-      fui::makeRect(content.x, static_cast<int16_t>(content.bottom() - 76), content.width, 76);
+  const fui::Rect startBox = fui::makeRect(content.x, static_cast<int16_t>(content.bottom() - 76), content.width, 76);
   screen.button(start, startBox);
 
   // The label-and-value list every settings screen in this fork uses. A tap
@@ -361,13 +356,10 @@ void buildSetup(toybox::Screen& screen, const SetupModel& model) {
   const int16_t below = static_cast<int16_t>(startBox.y - body.y - toybox::kMargin);
   if (below > 60) {
     char note[64];
-    std::snprintf(note, sizeof(note), "%d MEDALS TO WIN, %d ON THE BOARD", terrain.medalsObjective,
-                  medalsOn(terrain));
-    miniBoard(screen, fui::makeRect(body.x, body.y, body.width, static_cast<int16_t>(below - 28)), terrain, nullptr,
-              0);
-    screen.target().text(
-        fui::makeRect(body.x, static_cast<int16_t>(body.y + below - 26), body.width, 24), note,
-        styled(toybox::kTileFont, fui::TextAlign::Center));
+    std::snprintf(note, sizeof(note), "%d MEDALS TO WIN, %d ON THE BOARD", terrain.medalsObjective, medalsOn(terrain));
+    miniBoard(screen, fui::makeRect(body.x, body.y, body.width, static_cast<int16_t>(below - 28)), terrain, nullptr, 0);
+    screen.target().text(fui::makeRect(body.x, static_cast<int16_t>(body.y + below - 26), body.width, 24), note,
+                         styled(toybox::kTileFont, fui::TextAlign::Center));
   }
 }
 
@@ -452,15 +444,13 @@ void buildMapPick(toybox::Screen& screen, const MapPickModel& model) {
     screen.button(pick, card);
 
     screen.target().text(fui::makeRect(static_cast<int16_t>(card.x + toybox::kGutter),
-                                       static_cast<int16_t>(card.y + 22),
-                                       static_cast<int16_t>(card.width - 132), 28),
+                                       static_cast<int16_t>(card.y + 22), static_cast<int16_t>(card.width - 132), 28),
                          terrain.name, styled(toybox::kUiFont, fui::TextAlign::Left));
     char sub[56];
     std::snprintf(sub, sizeof(sub), "%d BASES   WIN AT %d OF %d", terrain.baseCount, terrain.medalsObjective,
                   medalsOn(terrain));
     screen.target().text(fui::makeRect(static_cast<int16_t>(card.x + toybox::kGutter),
-                                       static_cast<int16_t>(card.y + 58),
-                                       static_cast<int16_t>(card.width - 132), 24),
+                                       static_cast<int16_t>(card.y + 58), static_cast<int16_t>(card.width - 132), 24),
                          sub, styled(toybox::kTileFont, fui::TextAlign::Left));
 
     miniBoard(screen,

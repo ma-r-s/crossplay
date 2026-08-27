@@ -67,4 +67,58 @@ struct DeckModel {
 
 void buildDeck(toybox::Screen& screen, const DeckModel& model);
 
+// ---- The sync flow surface (docs/apps/study-syncflow-ui.md).
+//
+// One screen, two faces: the stage ladder while the flow runs, the verdict
+// when it ends. The flow fills this model at each transition instead of
+// passing two strings; the safety flag is a design input because any
+// post-ack failure must LEAD with what is already safe.
+
+enum class SyncStage : uint8_t { Connect = 0, Send, Build, Download };
+inline constexpr int kSyncStageCount = 4;
+
+enum class SyncStageState : uint8_t { Pending, Active, Done };
+
+enum class SyncSafety : uint8_t {
+  None,                     // busy, or pre-ack terminal where "nothing was sent" is the body
+  NothingSent,              // terminal before the ack: the card is exactly as it was
+  ReviewsSafe,              // the ack landed: reviews are durable on the bridge
+  ReviewsSafePartialDecks,  // safe, and some decks already updated on card
+};
+
+enum class SyncVerdictKind : uint8_t { None, Success, Error, Neutral };
+
+struct SyncFlowModel {
+  // Busy face (verdict == None).
+  SyncStageState stages[kSyncStageCount] = {SyncStageState::Pending, SyncStageState::Pending, SyncStageState::Pending,
+                                            SyncStageState::Pending};
+  char facts[kSyncStageCount][20] = {"", "", "", ""};  // per-stage fact, right slot
+  char caption[120] = "";                              // under the active stage
+  // Terminal face.
+  SyncVerdictKind verdict = SyncVerdictKind::None;
+  char title[24] = "";
+  char body[192] = "";
+  char whatNow[96] = "";
+  char factLines[3][40] = {"", "", ""};
+  int factCount = 0;
+  SyncSafety safety = SyncSafety::None;
+};
+
+void buildSyncFlow(toybox::Screen& screen, const SyncFlowModel& model);
+
+// ---- Pairing, in the same chrome. The builders draw the band, the words
+// and the confirm pill; they return the rects for the two things only the
+// activity can draw -- the QR bitmap (QrUtils wants the renderer) and the
+// username (NotoSerif via UITheme: the toybox cuts are ASCII-subset, and a
+// CJK account name in them would blind the anti-hijack gate).
+
+// Draws everything but the QR itself; returns the box the QR goes in.
+fui::Rect buildPairQr(toybox::Screen& screen, const char* code);
+
+struct PairConfirmLayout {
+  fui::Rect username;  // the activity draws the account name here, in serif
+  fui::Rect pill;      // the tap gate; the activity keeps it for hit-testing
+};
+PairConfirmLayout buildPairConfirm(toybox::Screen& screen);
+
 }  // namespace studyui

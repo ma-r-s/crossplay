@@ -28,10 +28,9 @@ void chrome(toybox::Screen& screen, const char* title, const char* rightLabel) {
   header.subtitleText.color = fui::Color::White;
   header.subtitleText.align = fui::TextAlign::Right;
   header.borderEdges = fui::EdgesNone;
-  screen.header(header);
-  const fui::Rect band = screen.device().screen();
-  screen.target().fill(fui::makeRect(0, toybox::kHeaderHeight + 4, band.width, toybox::kRule),
-                       fui::Paint::solid(fui::Color::Black));
+  toybox::absoluteChrome(screen);
+  toybox::headerBand(screen, header);
+  toybox::headerRule(screen);
 }
 
 // Largest cut the string actually fits in, walking down. EpdFont is a bitmap
@@ -400,13 +399,15 @@ void buildPass(toybox::Screen& screen, const PassModel& model) {
     // button then is the one place a big region is right. The emptiness around
     // the ask is the control, which is why nothing else is competing for it.
     //
-    // Centred on the whole screen, not on the body under the header, and not on
-    // what is left under the dots. Mario's call, and he is right: this screen
-    // has one thing on it, so the eye expects that thing in the middle of the
-    // panel. Centring inside the body instead puts it 48px low, which does not
+    // Centred on the whole visible panel (the safe rect -- the bezel hides the
+    // panel's edge rows), not on the body under the header, and not on what is
+    // left under the dots. Mario's call, and he is right: this screen has one
+    // thing on it, so the eye expects that thing in the middle of what it can
+    // see. Centring inside the body instead puts it 48px low, which does not
     // look like a choice -- it looks like it slipped.
     constexpr int16_t kAsk = 52 + 8 + 30;
-    const int16_t top = static_cast<int16_t>((screen.device().screen().height - kAsk) / 2);
+    const fui::Rect visible = screen.frame().safeRect();
+    const int16_t top = static_cast<int16_t>(visible.y + (visible.height - kAsk) / 2);
     char who[20];
     std::snprintf(who, sizeof(who), "PLAYER %d", model.seat + 1);
     screen.target().text(fui::makeRect(body.x, top, body.width, 52), who,
