@@ -260,3 +260,12 @@ minutes at a desk.
 
 **Done looks like:** a measured `ViewableInsets` override in the STICKY
 profile in BoardConfig.h, read off the BEZEL ruler on the physical unit.
+
+## The freeink-sdk pin fetches from the ma-r-s fork
+
+Added 2026-08-26. Three sdk commits (measured X4 Pro insets, safeArea fill,
+header-at-rect) live on github.com/ma-r-s/freeink-sdk so releases can build
+without waiting on upstream; Free-Ink/freeink-sdk#59 carries them upstream.
+
+**Done looks like:** the PR merged, `.gitmodules` pointing back at
+Free-Ink/freeink-sdk, and the submodule pinned to the upstream hash.
