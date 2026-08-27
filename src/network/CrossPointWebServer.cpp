@@ -2146,6 +2146,13 @@ void CrossPointWebServer::handleDevLog() {
 // authenticated endpoint that writes an arbitrary path is a worse primitive
 // than one that writes the only path this feature needs.
 void CrossPointWebServer::handleDevUploadData() {
+#ifdef SIMULATOR
+  // The simulator's WebServer shim has no raw() body API, and the emulator has
+  // neither a radio to reach nor flash to write. A PLATFORM gate, not a feature
+  // gate: Developer Mode still ships in every device build including releases,
+  // which is the whole point of it not being a build flag.
+  return;
+#else
   HTTPRaw& raw = server->raw();
 
   if (raw.status == RAW_START) {
@@ -2193,6 +2200,7 @@ void CrossPointWebServer::handleDevUploadData() {
     devUpload.file.close();
     devUpload.ok = false;
   }
+#endif
 }
 
 void CrossPointWebServer::handleDevUpload() {
@@ -2267,7 +2275,9 @@ void CrossPointWebServer::handleDevFlash() {
   // for the peer's ACK, so give the socket a moment to drain before the reset.
   LOG_INF("DEVFLASH", "flashed, restarting");
   server->send(200, "text/plain", "OK flashed, restarting\n");
-  server->client().flush();
+#ifndef SIMULATOR
+  server->client().flush();  // the simulator's NetworkClient shim has no flush()
+#endif
   delay(250);
   ESP.restart();
 }
