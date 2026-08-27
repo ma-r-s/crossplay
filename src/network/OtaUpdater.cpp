@@ -154,6 +154,19 @@ OtaUpdater::OtaUpdaterError OtaUpdater::installUpdate(ProgressCallback onProgres
     return INTERNAL_UPDATE_ERROR;
   }
 
+  // A device keeps whatever partition table it was installed with: an OTA
+  // writes the app partition and otadata, never the table at 0x8000. Devices
+  // flashed before the spiffs partition was reclaimed still have 6.25MB slots
+  // while the release is built against 7.94MB ones, so an image can legitimately
+  // be too big for the device asking for it. Caught here, from the size the
+  // release already told us, rather than 6MB into a download that esp_ota_write
+  // would end with a generic write failure.
+  if (otaSize > 0 && otaSize > updatePartition->size) {
+    LOG_ERR("OTA", "image %zu > partition %zu on '%s': device needs a USB reflash to repartition", otaSize,
+            static_cast<size_t>(updatePartition->size), updatePartition->label);
+    return TOO_LARGE_ERROR;
+  }
+
   esp_ota_handle_t otaHandle = 0;
   esp_err_t esp_err = esp_ota_begin(updatePartition, OTA_SIZE_UNKNOWN, &otaHandle);
   if (esp_err != ESP_OK) {
