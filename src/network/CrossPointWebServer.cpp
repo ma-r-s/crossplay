@@ -20,6 +20,11 @@
 #include "SettingsList.h"
 #include "WebDAVHandler.h"
 #include "WifiCredentialStore.h"
+#if CROSSPOINT_DEV_WIFI_FLASH
+#include <esp_ota_ops.h>
+
+#include "FirmwareFlasher.h"
+#endif
 #include "html/FilesPageHtml.generated.h"
 #include "html/FontsPageHtml.generated.h"
 #include "html/HomePageHtml.generated.h"
@@ -183,6 +188,10 @@ void CrossPointWebServer::begin() {
   server->on("/api/wifi", HTTP_GET, [this] { handleGetWifiNetworks(); });
   server->on("/api/wifi", HTTP_POST, [this] { handlePostWifiNetwork(); });
   server->on("/api/wifi/delete", HTTP_POST, [this] { handleDeleteWifiNetwork(); });
+
+#if CROSSPOINT_DEV_WIFI_FLASH
+  server->on("/api/dev/flash", HTTP_POST, [this] { handleDevFlash(); });
+#endif
 
   server->onNotFound([this] { handleNotFound(); });
   LOG_DBG("WEB", "[MEM] Free heap after route setup: %d bytes", ESP.getFreeHeap());
@@ -1977,3 +1986,59 @@ void CrossPointWebServer::handleFontDelete() {
     LOG_ERR("WEB", "Failed to delete font family: %s", familyName);
   }
 }
+
+#if CROSSPOINT_DEV_WIFI_FLASH
+// Flash an image already sitting on the SD card, so `scripts_local/wifi-flash.sh`
+// is two ordinary requests: POST /upload to put firmware.bin on the card (the
+// same route that uploads books, no size cap), then this to install it.
+//
+// Deliberately NOT an upload endpoint of its own. Streaming straight into the
+// OTA partition would save one SD write, but it would also mean a second,
+// separately-written path into esp_ota_write that does not share
+// validateImageFile's magic/segment/checksum/SHA/chip/board checks with the SD
+// and OTA paths. One flasher, three callers.
+//
+// Synchronous on purpose: the response IS the result. The flash blocks the
+// server task for a minute or so, which also blocks the UI, and that is the
+// right trade for a dev-build-only tool -- the alternative is a 202 and a
+// caller that has to guess. Point curl at --max-time 300.
+void CrossPointWebServer::handleDevFlash() {
+  const String path = server->hasArg("path") ? server->arg("path") : String("/firmware.bin");
+
+  const esp_partition_t* dest = esp_ota_get_next_update_partition(nullptr);
+  if (!dest) {
+    LOG_ERR("DEVFLASH", "no OTA partition");
+    server->send(500, "text/plain", "no OTA partition\n");
+    return;
+  }
+
+  LOG_INF("DEVFLASH", "validating %s against '%s' (%u bytes)", path.c_str(), dest->label,
+          static_cast<unsigned>(dest->size));
+  const auto vr = firmware_flash::validateImageFile(path.c_str(), dest->size);
+  if (vr != firmware_flash::Result::OK) {
+    // The name is the diagnosis: TOO_LARGE means this device's table predates
+    // the repartition, WRONG_BOARD means a sticky image on an x4pro, and
+    // OPEN_FAIL means the upload never landed.
+    LOG_ERR("DEVFLASH", "validate %s: %s", path.c_str(), firmware_flash::resultName(vr));
+    server->send(422, "text/plain", String(firmware_flash::resultName(vr)) + "\n");
+    return;
+  }
+
+  LOG_INF("DEVFLASH", "flashing %s -> %s", path.c_str(), dest->label);
+  const auto fr = firmware_flash::flashFromSdPath(path.c_str(), nullptr, nullptr, true);
+  if (fr != firmware_flash::Result::OK) {
+    LOG_ERR("DEVFLASH", "flash failed: %s", firmware_flash::resultName(fr));
+    server->send(500, "text/plain", String(firmware_flash::resultName(fr)) + "\n");
+    return;
+  }
+
+  // Answer before rebooting, or the caller cannot tell success from a device
+  // that fell off the network. send() hands the body to lwIP but does not wait
+  // for the peer's ACK, so give the socket a moment to drain before the reset.
+  LOG_INF("DEVFLASH", "flashed, restarting");
+  server->send(200, "text/plain", "OK flashed, restarting\n");
+  server->client().flush();
+  delay(250);
+  ESP.restart();
+}
+#endif  // CROSSPOINT_DEV_WIFI_FLASH
