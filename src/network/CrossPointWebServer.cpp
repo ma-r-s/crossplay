@@ -5,6 +5,7 @@
 #include <FsHelpers.h>
 #include <HalGPIO.h>
 #include <HalStorage.h>
+#include <HalSystem.h>
 #include <Logging.h>
 #include <WiFi.h>
 #include <esp_efuse.h>
@@ -197,7 +198,16 @@ void CrossPointWebServer::begin() {
   server->on("/api/status", HTTP_GET, [this] { handleStatus(); });
   server->on("/api/dev/pair", HTTP_POST, [this] { handleDevPair(); });
   server->on("/api/dev/flash", HTTP_POST, [this] { handleDevFlash(); });
-  server->on("/api/dev/upload", HTTP_POST, [this] { handleDevUpload(); }, [this] { handleDevUploadData(); });
+  // HTTP_PUT, and that is load-bearing rather than taste. This core's
+  // FunctionRequestHandler hands the SAME callback to both the upload path and
+  // the raw path, with nothing passed in to tell them apart -- and calling
+  // server->upload() while the server is in raw mode dereferences a null
+  // _currentUpload and reboots the device. Registering as PUT makes canUpload()
+  // structurally unreachable (it requires HTTP_POST), so only the raw path can
+  // ever fire and there is one mode to write for instead of two to distinguish.
+  server->on("/api/dev/upload", HTTP_PUT, [this] { handleDevUpload(); }, [this] { handleDevUploadData(); });
+  server->on("/api/dev/crash", HTTP_GET, [this] { handleDevCrash(); });
+  server->on("/api/dev/log", HTTP_GET, [this] { handleDevLog(); });
 
   server->onNotFound([this] { handleNotFound(); });
   LOG_DBG("WEB", "[MEM] Free heap after route setup: %d bytes", ESP.getFreeHeap());
@@ -2008,6 +2018,14 @@ void CrossPointWebServer::handleFontDelete() {
 // off is reported as 404, indistinguishable from a build that has no such
 // route, so scanning a network tells you nothing about which devices could be
 // turned into targets. Only once dev mode is on does a wrong token get a 401.
+bool CrossPointWebServer::devTokenOk() const {
+  if (!devmode::status().enabled) return false;
+  std::string token;
+  if (server->hasHeader("X-Dev-Token")) token = server->header("X-Dev-Token").c_str();
+  if (token.empty() && server->hasArg("token")) token = server->arg("token").c_str();
+  return devmode::tokenValid(token);
+}
+
 bool CrossPointWebServer::devAuthorised() {
   const auto st = devmode::status();
   if (!st.enabled) {
@@ -2053,6 +2071,55 @@ void CrossPointWebServer::handleDevPair() {
   server->send(200, "application/json", out);
 }
 
+// What the device remembers about the last time it died.
+//
+// Nothing here is captured for this endpoint; all of it already existed and was
+// only reachable by standing in front of the device. HalSystem keeps the panic
+// message and a stack backtrace in RTC_NOINIT memory, and Logging keeps the
+// last lines in a second RTC_NOINIT ring with a magic word guarding against
+// cold-boot garbage. Both survive the reset that a panic causes, which is the
+// whole reason they are in RTC memory rather than the heap.
+//
+// The log tail matters more than the backtrace most of the time: a backtrace
+// says where it died, the preceding lines say what it was doing.
+//
+// READ-ONLY. Fetching a crash report must not destroy it -- two people
+// debugging the same device would otherwise race, and the first curl would win
+// and the second would see a healthy device. Clearing stays where it was: the
+// on-device crash screen, when a human dismisses it.
+void CrossPointWebServer::handleDevCrash() {
+  if (!devAuthorised()) return;
+
+  JsonDocument doc;
+  const bool corrupt = sanitizeLogHead();
+  doc["panicked"] = HalSystem::isRebootFromPanic();
+  doc["panic"] = HalSystem::getPanicInfo(true);
+  // A corrupt ring is reported rather than hidden: an empty "logs" that means
+  // "nothing was logged" and one that means "RTC memory was garbage" are
+  // different findings, and guessing between them wastes a debugging session.
+  doc["logsValid"] = !corrupt;
+  doc["logs"] = corrupt ? "" : getLastLogs();
+  doc["uptime"] = millis() / 1000;
+  doc["version"] = CROSSPOINT_VERSION;
+
+  String out;
+  serializeJson(doc, out);
+  server->send(200, "application/json", out);
+}
+
+// The same ring, for a device that has not crashed. Sixteen lines is short; it
+// is what fits in RTC memory beside the panic buffers, and it is deliberately
+// the same buffer as the crash report so there is one thing to reason about
+// rather than two that can disagree.
+void CrossPointWebServer::handleDevLog() {
+  if (!devAuthorised()) return;
+  if (sanitizeLogHead()) {
+    server->send(200, "text/plain", "");
+    return;
+  }
+  server->send(200, "text/plain", getLastLogs().c_str());
+}
+
 // Upload straight to the card, token-gated, so Developer Mode never has to
 // expose the file manager to move a firmware image across.
 //
@@ -2061,17 +2128,17 @@ void CrossPointWebServer::handleDevPair() {
 // authenticated endpoint that writes an arbitrary path is a worse primitive
 // than one that writes the only path this feature needs.
 void CrossPointWebServer::handleDevUploadData() {
-  HTTPUpload& up = server->upload();
-  static bool authorised = false;
+  HTTPRaw& raw = server->raw();
 
-  if (up.status == UPLOAD_FILE_START) {
-    // The gate has to run here, not in the completion handler: by the time that
-    // runs the whole body has already been written to the card.
-    authorised = devAuthorised();
-    if (!authorised) return;
-    resetTaskWatchdogIfSubscribed();
+  if (raw.status == RAW_START) {
+    // Decide authorisation here, because by RAW_END the whole body would
+    // already be on the card -- but do NOT answer here. Sending a response
+    // while the body is still being parsed corrupts the server.
+    devUpload.authorised = devTokenOk();
     devUpload.written = 0;
     devUpload.ok = false;
+    if (!devUpload.authorised) return;
+    resetTaskWatchdogIfSubscribed();
     Storage.remove(kDevUploadPath);
     if (!Storage.openFileForWrite("DEVMODE", kDevUploadPath, devUpload.file)) {
       LOG_ERR("DEVMODE", "cannot open %s for write", kDevUploadPath);
@@ -2081,12 +2148,12 @@ void CrossPointWebServer::handleDevUploadData() {
     return;
   }
 
-  if (!authorised) return;
+  if (!devUpload.authorised) return;
 
-  if (up.status == UPLOAD_FILE_WRITE) {
+  if (raw.status == RAW_WRITE) {
     resetTaskWatchdogIfSubscribed();
-    if (devUpload.file && devUpload.file.write(up.buf, up.currentSize) == up.currentSize) {
-      devUpload.written += up.currentSize;
+    if (devUpload.file && devUpload.file.write(raw.buf, raw.currentSize) == raw.currentSize) {
+      devUpload.written += raw.currentSize;
     } else {
       LOG_ERR("DEVMODE", "write failed at %u bytes", static_cast<unsigned>(devUpload.written));
       devUpload.file.close();
@@ -2094,17 +2161,30 @@ void CrossPointWebServer::handleDevUploadData() {
     return;
   }
 
-  if (up.status == UPLOAD_FILE_END) {
+  if (raw.status == RAW_END) {
     if (devUpload.file) {
       devUpload.file.close();
-      devUpload.ok = true;
+      devUpload.ok = devUpload.written > 0;
       LOG_INF("DEVMODE", "received %u bytes", static_cast<unsigned>(devUpload.written));
     }
+    return;
+  }
+
+  if (raw.status == RAW_ABORTED) {
+    LOG_ERR("DEVMODE", "upload aborted at %u bytes", static_cast<unsigned>(devUpload.written));
+    devUpload.file.close();
+    devUpload.ok = false;
   }
 }
 
 void CrossPointWebServer::handleDevUpload() {
-  if (!devAuthorised()) return;
+  // A request with no multipart body never reaches the data callback at all, so
+  // devUpload.authorised is still false from the previous request. Re-test here
+  // rather than trust it, and let devAuthorised() send the refusal.
+  if (!devAuthorised()) {
+    devUpload.authorised = false;
+    return;
+  }
   if (!devUpload.ok) {
     server->send(500, "text/plain", "upload failed\n");
     return;

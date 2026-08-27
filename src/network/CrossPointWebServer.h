@@ -152,14 +152,23 @@ class CrossPointWebServer {
   void handleDevFlash();
   void handleDevUpload();      // POST completion
   void handleDevUploadData();  // streaming body
+  void handleDevCrash();
+  void handleDevLog();
   struct DevUploadState {
     HalFile file;
     size_t written = 0;
     bool ok = false;
+    bool authorised = false;  // decided at UPLOAD_FILE_START, answered at the end
   } devUpload;
   // Shared gate for every /api/dev/ route except pairing. Sends the refusal
   // itself and returns false, so each handler is one line of guard.
   bool devAuthorised();
+  // Same test as devAuthorised() but SILENT. The upload data callback runs
+  // while the request body is still being parsed, and calling server->send()
+  // there corrupts the server and reboots the device -- a remote reset any
+  // unpaired caller could trigger. So the callback decides with this and the
+  // completion handler is the only thing that answers.
+  bool devTokenOk() const;
 
   // Wi-Fi credential handlers
   void handleGetWifiNetworks() const;
