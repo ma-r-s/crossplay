@@ -6,12 +6,17 @@
 #   ./scripts_local/wifi-flash.sh --ip 192.168.1.42
 #   ./scripts_local/wifi-flash.sh --build         # build first, then flash
 #
-# Requires a DEV build already on the device: the endpoint this drives only
-# exists under -DCROSSPOINT_DEV_WIFI_FLASH, which is set in [env:x4pro] and
-# [env:sticky] and never in a gh_release env. A device running a release has no
-# such route and will 404 -- that is the design, not a bug.
+# Requires a DEV build already on the device: everything this drives exists only
+# under -DCROSSPOINT_DEV_WIFI_FLASH, set in [env:x4pro] and [env:sticky] and
+# never in a gh_release env. A device running a release neither joins a network
+# by itself nor answers this route -- that is the design, not a bug. The first
+# flash onto a release device is still USB; every one after it is wireless.
 #
-# The device's web server must be running (Settings -> Network -> Web server).
+# A dev build joins the last-connected network at boot and keeps its web server
+# up, so after the first setup there is nothing to press. A sleeping device is
+# not reachable until something wakes it.
+#
+
 # Boot-time auto-start is not in this version; see docs/wireless-flashing.md.
 #
 # Two ordinary requests, no custom protocol: POST /upload puts firmware.bin on
@@ -102,9 +107,11 @@ PY
   COUNT="$(printf '%s' "$IP" | grep -c . || true)"
   if [ "$COUNT" -eq 0 ]; then
     echo "error: found no device." >&2
-    echo "       The web server only runs while its screen is open:" >&2
-    echo "       on the device, Settings -> Network -> Web server. Then retry," >&2
-    echo "       or pass --ip <addr> (the screen shows it)." >&2
+    echo "       A dev build joins the last-connected network at boot and keeps" >&2
+    echo "       the server up, so the usual causes are: the device is asleep" >&2
+    echo "       (wake it), it has never been given a network (pick one once in" >&2
+    echo "       Settings -> Network), or it is running a release build." >&2
+    echo "       You can also pass --ip <addr> directly." >&2
     exit 1
   fi
   if [ "$COUNT" -gt 1 ]; then
@@ -196,6 +203,8 @@ for _ in $(seq 1 60); do
 done
 echo
 echo "warning: the device did not answer within two minutes." >&2
-echo "         It may have rebooted without the web server running -- that screen" >&2
-echo "         does not reopen by itself. Check the device before assuming failure." >&2
+echo "         The flash reported success, so the image is almost certainly on it;" >&2
+echo "         what is unproven is that it booted. Likely causes: it rejoined a" >&2
+echo "         different network, the AP was slow enough to miss the window, or it" >&2
+echo "         went to sleep. Look at the device before assuming the flash failed." >&2
 exit 1

@@ -19,8 +19,9 @@ every one after it is wireless. `host-tests/release` fails if that flag ever
 appears in a section a tag builds, including the `*_common` sections the
 release envs inherit from.
 
-**The web server running on the device.** Settings -> Network -> Web server.
-This is the part that is still manual, and the reason is below.
+**The device awake and on a known network.** A dev build joins the
+last-connected network at boot and keeps the server up by itself, so after the
+first setup there is nothing to press. See "Staying reachable between flashes".
 
 ## How it works
 
@@ -44,23 +45,42 @@ flashing and waits for uptime to go *backwards*, which is the only evidence
 that the new image actually booted rather than the flash merely reporting
 success.
 
-## What is deliberately not here yet
+## Staying reachable between flashes
 
-**The device does not come back online by itself after a flash.** There is no
-boot-time Wi-Fi connect anywhere in this firmware -- `WiFi.begin` appears in
-exactly one place, `WifiSelectionActivity` -- and the web server only runs
-while its settings screen is open. So after each flash you walk to the device
-and reopen that screen for the next one, which blunts most of the point.
+A flash ends in a reboot, and stock behaviour would bring the device back with
+no Wi-Fi and no server: `WiFi.begin()` lives in `WifiSelectionActivity` and
+nowhere else, and the web server runs only while its settings screen is open.
+That is right for a reader in a bag and useless for a desk device, because
+every flash would end with a walk over to reopen the screen.
 
-Fixing it means connecting from `WifiCredentialStore` at boot and keeping the
-server up in the background, both dev-build-only. That was left out of this
-version on purpose: it changes app lifecycle, heap and power behaviour, and at
-the time it was written both desk units were mid hands-on-test, so it could not
-have been verified on hardware. A lifecycle change that has never run on a
-device is not something to hand someone as working.
+So dev builds also carry `src/DevWifiFlash.{h,cpp}`, which joins the
+last-connected network at boot and keeps the server up:
 
-The endpoint below is the half that is verifiable without a device, so it
-shipped first.
+- **Non-blocking.** `devwifi::begin()` runs last in `setup()`, after storage is
+  mounted, and only starts the attempt. Boot never waits on an access point.
+- **No saved network is not an error.** If nothing has ever been connected
+  there is nothing to join; it logs that once and stops, rather than retrying
+  forever while a dev wonders why the script finds nothing.
+- **Backoff.** A failed join retries at 5s doubling to a 60s ceiling, so a
+  device left on a desk near a dead AP is not spinning.
+- **It yields the ports.** `CrossPointWebServerActivity` binds the same 80, 81
+  and 8134. Opening that screen calls `devwifi::pause()`, closing it calls
+  `resume()`. Two servers on one port is a bind failure that reads as "the web
+  screen is broken", which is a bad hour.
+- **It rejoins rather than assumes on resume.** The screen may have switched to
+  AP mode or joined a different network, so what was connected before is not
+  necessarily connected after.
+
+Release builds contain none of this.
+
+### The limit worth knowing
+
+**Sleep still wins.** If the device sleeps, Wi-Fi goes with it and the server
+dies; `update()` notices the drop, tears the server down and rejoins on wake.
+So a device that has been idle long enough to sleep is not reachable until
+something wakes it. This is not worked around on purpose: a dev flag that
+quietly stopped a device sleeping would change battery behaviour on the exact
+builds used to judge battery behaviour.
 
 ## Errors it reports
 
