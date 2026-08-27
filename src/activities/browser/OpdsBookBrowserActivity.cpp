@@ -104,7 +104,13 @@ void OpdsBookBrowserActivity::onRowEvent(const fui::ActionEvent& event, void* us
 }
 
 void OpdsBookBrowserActivity::onSettingsEvent(const fui::ActionEvent&, void* user) {
-  static_cast<OpdsBookBrowserActivity*>(user)->openSettings();
+  auto* const self = static_cast<OpdsBookBrowserActivity*>(user);
+  // ERROR as well as BROWSING: see screenHeader(). Still refused mid-fetch and
+  // mid-download, where swapping the catalog underneath the work would strand
+  // it.
+  if (self->state != BrowserState::BROWSING && self->state != BrowserState::ERROR) return;
+  self->app.clearTapFlash();
+  self->openSettings();
 }
 
 void OpdsBookBrowserActivity::openSettings() {
@@ -148,6 +154,16 @@ void OpdsBookBrowserActivity::loop() {
   }
 
   if (state == BrowserState::ERROR) {
+    // The settings button gets first refusal on the touch. The rest of this
+    // screen is one big "tap to retry" target, so an unrouted tap on the
+    // button would just re-run the fetch that failed and leave the reader
+    // exactly where they were.
+    const auto route = routeTouch(mappedInput);
+    if (route.routed) {
+      if (app.invalidated()) requestUpdate();
+      if (route) return;  // dispatched to onSettingsEvent
+    }
+
     int tx = 0;
     int ty = 0;
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) || mappedInput.wasScreenTapped(tx, ty)) {
@@ -263,11 +279,16 @@ void OpdsBookBrowserActivity::screenHeader(UiScreen& screen, const bool withSear
   }
   // Catalog and language live behind one button, on every screen of the
   // catalog: which catalog and which languages are the same question.
-  if (withSearch) {
-    // Library rather than a gear: the screen behind it is "which catalog, in
-    // which languages". There is also no gear in the list icon set --
-    // UIIcon::Settings falls through listIconFor's default and returns an
-    // empty bitmap, which draws nothing and reports nothing.
+  // Library rather than a gear: the screen behind it is "which catalog, in
+  // which languages". There is also no gear in the list icon set --
+  // UIIcon::Settings falls through listIconFor's default and returns an
+  // empty bitmap, which draws nothing and reports nothing.
+  //
+  // Shown on the error screen too, and that is the point: a catalog that will
+  // not load (moved, gone, or asking for a password nobody has) leaves the
+  // reader on a screen whose only useful action is to pick another one.
+  // Gating this on a loaded catalog made the failure a dead end.
+  if (state == BrowserState::BROWSING || state == BrowserState::ERROR) {
     header.leadingIcon = listIconFor(UIIcon::Library, 32);
     header.leadingAction = ACTION_SETTINGS;
   }
@@ -410,7 +431,11 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
     OpdsParserStream stream{parser};
     if (!HttpDownloader::fetchUrl(url, stream, server.username, server.password)) {
       state = BrowserState::ERROR;
-      errorMessage = tr(STR_FETCH_FEED_FAILED);
+      // A catalog that wants credentials is not a broken catalog, and saying
+      // "failed to fetch" sends the reader looking at their Wi-Fi instead of
+      // at the server's username and password.
+      const int status = HttpDownloader::lastStatus();
+      errorMessage = (status == 401 || status == 403) ? tr(STR_AUTH_FAILED) : tr(STR_FETCH_FEED_FAILED);
       requestUpdate();
       return;
     }

@@ -41,6 +41,10 @@ struct Sink {
   size_t downloaded = 0;
 };
 
+// Written by both transports (wolfSSL and esp_http_client) before they
+// return, and read by the UI right after a failure.
+int g_lastStatus = 0;
+
 bool isRedirect(int status) {
   return status == 301 || status == 302 || status == 303 || status == 307 || status == 308;
 }
@@ -103,6 +107,7 @@ HttpDownloader::DownloadError runGetWolf(const std::string& startUrl, const std:
         },
         [&sink, &lastPumpMs]() { return abortPoll(sink, lastPumpMs); });
 
+    g_lastStatus = status < 0 ? 0 : status;
     if (http.aborted()) return HttpDownloader::ABORTED;
     if (status < 0) {
       LOG_ERR("HTTP", "wolfSSL request failed: %s", url.c_str());
@@ -192,6 +197,7 @@ HttpDownloader::DownloadError runGet(const std::string& url, const std::string& 
     status = esp_http_client_get_status_code(client);
   }
 
+  g_lastStatus = status;
   if (status != 200) {
     LOG_ERR("HTTP", "unexpected status: %d", status);
     esp_http_client_cleanup(client);
@@ -245,6 +251,9 @@ HttpDownloader::DownloadError runGet(const std::string& url, const std::string& 
 // WiFiClient inside runGetWolf, so this is safe for non-TLS targets too.
 HttpDownloader::DownloadError runGetSecure(const std::string& url, const std::string& username,
                                            const std::string& password, Sink& sink) {
+  // Cleared per request: a transport failure returns before either path sets
+  // it, and a stale 200 from the previous fetch would read as success.
+  g_lastStatus = 0;
 #if defined(FREEINK_NET_WOLFSSL)
   return runGetWolf(url, username, password, sink);
 #else
@@ -252,6 +261,8 @@ HttpDownloader::DownloadError runGetSecure(const std::string& url, const std::st
 #endif
 }
 }  // namespace
+
+int HttpDownloader::lastStatus() { return g_lastStatus; }
 
 bool HttpDownloader::fetchUrl(const std::string& url, Stream& outContent, const std::string& username,
                               const std::string& password) {
