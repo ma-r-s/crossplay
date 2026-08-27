@@ -201,6 +201,13 @@ class StudyActivity final : public Activity {
   // poll loops pump input themselves -- the sanctioned exception, nothing
   // else pumps while they block.
   void beginSync();
+#if !defined(FREEINK_NET_WOLFSSL)
+  // Sim-only render harness: STUDY_SYNCFLOW_PREVIEW drives the sync views
+  // with canned data so sim-shot can photograph them without a bridge.
+  void applySyncFlowPreview(const char* state);
+  studyui::SyncFlowModel previewFlow_;
+  bool previewFlowSet_ = false;
+#endif
   void onSyncWifi(bool connected);
   void runSyncFlow();
   bool runPairing();
@@ -212,9 +219,7 @@ class StudyActivity final : public Activity {
   void drainInput();
   // The radio is up and a stranger is mid-pairing: sleeping here would read
   // as a crash. The result screen (syncBusy_ false) may sleep normally.
-  bool preventAutoSleep() override {
-    return syncBusy_ || view_ == View::PairQr || view_ == View::PairConfirm;
-  }
+  bool preventAutoSleep() override { return syncBusy_ || view_ == View::PairQr || view_ == View::PairConfirm; }
 
   study::StudySync sync_;
   study::BridgeState bridge_;

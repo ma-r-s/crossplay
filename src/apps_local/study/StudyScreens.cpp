@@ -297,4 +297,265 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   }
 }
 
+// ---- The sync flow surface. Three arrangements behind a variant macro for
+// the render round (docs/apps/study-syncflow-ui.md); the winner ships and
+// the macro dies with it.
+#ifndef STUDY_SYNCFLOW_VARIANT
+#define STUDY_SYNCFLOW_VARIANT 1
+#endif
+
+namespace {
+
+const char* stageLabel(const int i) {
+  static const char* kLabels[kSyncStageCount] = {"CONNECT", "SEND REVIEWS", "BUILD DECKS", "DOWNLOAD"};
+  return kLabels[i];
+}
+
+// The band's segments are a quarter-width each; the full labels truncate.
+const char* stageShortLabel(const int i) {
+  static const char* kLabels[kSyncStageCount] = {"CONNECT", "SEND", "BUILD", "DOWNLOAD"};
+  return kLabels[i];
+}
+
+const char* safetyLine(const SyncSafety safety) {
+  switch (safety) {
+    case SyncSafety::ReviewsSafe:
+      return "YOUR REVIEWS ARE SAFE";
+    case SyncSafety::ReviewsSafePartialDecks:
+      return "REVIEWS SAFE -- SOME DECKS ALREADY UPDATED";
+    case SyncSafety::NothingSent:
+      return "NOTHING WAS SENT";
+    default:
+      return nullptr;
+  }
+}
+
+fui::TextStyle syncText(const fui::FontId font, const fui::TextAlign align, const fui::Color color = fui::Color::Black,
+                        const uint8_t maxLines = 1) {
+  fui::TextStyle style;
+  style.font = font;
+  style.align = align;
+  style.color = color;
+  style.maxLines = maxLines;
+  return style;
+}
+
+// The verdict glyph in the door's icon language.
+fui::BitmapRef verdictGlyph(const SyncVerdictKind kind) {
+  switch (kind) {
+    case SyncVerdictKind::Success:
+      return fui::bitmapFromIcon(icon_check_32);
+    case SyncVerdictKind::Error:
+      return fui::bitmapFromIcon(icon_x_32);
+    default:
+      return fui::bitmapFromIcon(icon_minus_32);
+  }
+}
+
+// The safety promise, anchored at the content bottom. Busy face: shown from
+// the ack on, with the leave story; verdict face never calls this (safety
+// leads the verdict text instead).
+void syncSafetyFooter(toybox::Screen& screen, const fui::Rect& body) {
+  const int y = body.bottom() - 52;
+  screen.target().text(fui::makeRect(body.x, y, body.width, 20), "YOUR REVIEWS ARE SAFE",
+                       syncText(toybox::kTileFont, fui::TextAlign::Center));
+  screen.target().text(fui::makeRect(body.x, y + 24, body.width, 20), "BACK LEAVES -- THE BRIDGE KEEPS WORKING",
+                       syncText(toybox::kTileFont, fui::TextAlign::Center, fui::Color::DarkGray));
+}
+
+}  // namespace
+
+void buildSyncFlow(toybox::Screen& screen, const SyncFlowModel& model) {
+  chrome(screen, "SYNC");
+  screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
+  const fui::Rect body = screen.body();
+  const fui::Paint ink = fui::Paint::solid(fui::Color::Black);
+  const fui::Paint dim = fui::Paint::solid(fui::Color::DarkGray);
+
+  int activeStage = -1;
+  for (int i = 0; i < kSyncStageCount; ++i) {
+    if (model.stages[i] == SyncStageState::Active) activeStage = i;
+  }
+
+#if STUDY_SYNCFLOW_VARIANT == 1
+  // V1 "Ladder": vertical checklist on the door's label/value grid.
+  if (model.verdict == SyncVerdictKind::None) {
+    int y = body.y + 8;
+    for (int i = 0; i < kSyncStageCount; ++i) {
+      const SyncStageState state = model.stages[i];
+      const bool pending = state == SyncStageState::Pending;
+      const fui::Rect marker = fui::makeRect(body.x, y + 4, 18, 18);
+      if (state == SyncStageState::Done) {
+        screen.target().fill(marker, ink);
+      } else {
+        screen.target().stroke(marker, pending ? dim : ink, state == SyncStageState::Active ? 3 : 1);
+      }
+      const int textX = body.x + 18 + toybox::kMargin;
+      const int textW = body.width - 18 - toybox::kMargin;
+      screen.target().text(
+          fui::makeRect(textX, y, textW, 26), stageLabel(i),
+          syncText(toybox::kUiFont, fui::TextAlign::Left, pending ? fui::Color::DarkGray : fui::Color::Black));
+      if (model.facts[i][0] != '\0') {
+        screen.target().text(fui::makeRect(textX, y + 2, textW, 22), model.facts[i],
+                             syncText(toybox::kTileFont, fui::TextAlign::Right));
+      }
+      y += 26 + 8;
+      if (i == activeStage && model.caption[0] != '\0') {
+        screen.target().text(fui::makeRect(textX, y, textW, 60), model.caption,
+                             syncText(toybox::kTileFont, fui::TextAlign::Left, fui::Color::DarkGray, 3));
+        y += 66;
+      }
+      y += toybox::kMargin;
+    }
+    if (model.safety >= SyncSafety::ReviewsSafe) syncSafetyFooter(screen, body);
+  } else {
+    // Verdict, left-aligned on the same column.
+    int y = body.y + 24;
+    screen.target().bitmap(fui::makeRect(body.x, y, 32, 32), verdictGlyph(model.verdict), fui::BitmapMode::Contain,
+                           ink);
+    y += 56;
+    screen.target().text(fui::makeRect(body.x, y, body.width, 48), model.title,
+                         syncText(toybox::kDisplayFont, fui::TextAlign::Left));
+    y += 64;
+    if (const char* safety = safetyLine(model.safety)) {
+      screen.target().text(fui::makeRect(body.x, y, body.width, 22), safety,
+                           syncText(toybox::kTileFont, fui::TextAlign::Left));
+      y += 34;
+    }
+    screen.target().text(fui::makeRect(body.x, y, body.width, 104), model.body,
+                         syncText(toybox::kUiFont, fui::TextAlign::Left, fui::Color::Black, 4));
+    y += 116;
+    for (int i = 0; i < model.factCount; ++i) {
+      screen.target().text(fui::makeRect(body.x, y, body.width, 22), model.factLines[i],
+                           syncText(toybox::kTileFont, fui::TextAlign::Left, fui::Color::DarkGray));
+      y += 26;
+    }
+    if (model.whatNow[0] != '\0') {
+      screen.target().text(fui::makeRect(body.x, body.bottom() - 48, body.width, 44), model.whatNow,
+                           syncText(toybox::kTileFont, fui::TextAlign::Left, fui::Color::DarkGray, 2));
+    }
+  }
+
+#elif STUDY_SYNCFLOW_VARIANT == 2
+  // V2 "Stage band": a horizontal four-segment band under the header; the
+  // current stage as a headline beneath it.
+  const int segGap = 8;
+  const int segW = (body.width - segGap * (kSyncStageCount - 1)) / kSyncStageCount;
+  const int bandY = body.y + 4;
+  int endStage = kSyncStageCount;  // verdict face: band shows where it ended
+  if (model.verdict == SyncVerdictKind::Error && activeStage >= 0) endStage = activeStage;
+  for (int i = 0; i < kSyncStageCount; ++i) {
+    const fui::Rect seg = fui::makeRect(body.x + i * (segW + segGap), bandY, segW, 14);
+    SyncStageState state = model.stages[i];
+    if (model.verdict != SyncVerdictKind::None) {
+      if (i < endStage) {
+        state = SyncStageState::Done;
+      } else if (model.verdict == SyncVerdictKind::Error) {
+        state = i == endStage ? SyncStageState::Active : SyncStageState::Pending;
+      } else {
+        state = SyncStageState::Done;
+      }
+    }
+    if (state == SyncStageState::Done) {
+      screen.target().fill(seg, ink);
+    } else {
+      screen.target().stroke(seg, state == SyncStageState::Active ? ink : dim, state == SyncStageState::Active ? 2 : 1);
+    }
+    screen.target().text(fui::makeRect(seg.x - 4, bandY + 22, segW + 8, 18), stageShortLabel(i),
+                         syncText(toybox::kTileFont, fui::TextAlign::Center,
+                                  state == SyncStageState::Pending ? fui::Color::DarkGray : fui::Color::Black));
+  }
+
+  if (model.verdict == SyncVerdictKind::None) {
+    const int headY = bandY + 96;
+    if (activeStage >= 0) {
+      screen.target().text(fui::makeRect(body.x, headY, body.width, 48), stageLabel(activeStage),
+                           syncText(toybox::kDisplayFont, fui::TextAlign::Center));
+    }
+    if (model.caption[0] != '\0') {
+      screen.target().text(fui::makeRect(body.x + 20, headY + 72, body.width - 40, 84), model.caption,
+                           syncText(toybox::kUiFont, fui::TextAlign::Center, fui::Color::DarkGray, 3));
+    }
+    if (model.safety >= SyncSafety::ReviewsSafe) syncSafetyFooter(screen, body);
+  } else {
+    int y = bandY + 88;
+    screen.target().bitmap(fui::makeRect(body.x + (body.width - 32) / 2, y, 32, 32), verdictGlyph(model.verdict),
+                           fui::BitmapMode::Contain, ink);
+    y += 52;
+    screen.target().text(fui::makeRect(body.x, y, body.width, 48), model.title,
+                         syncText(toybox::kDisplayFont, fui::TextAlign::Center));
+    y += 62;
+    if (const char* safety = safetyLine(model.safety)) {
+      screen.target().text(fui::makeRect(body.x, y, body.width, 22), safety,
+                           syncText(toybox::kTileFont, fui::TextAlign::Center));
+      y += 34;
+    }
+    screen.target().text(fui::makeRect(body.x + 20, y, body.width - 40, 104), model.body,
+                         syncText(toybox::kUiFont, fui::TextAlign::Center, fui::Color::Black, 4));
+    y += 112;
+    for (int i = 0; i < model.factCount; ++i) {
+      screen.target().text(fui::makeRect(body.x, y, body.width, 22), model.factLines[i],
+                           syncText(toybox::kTileFont, fui::TextAlign::Center, fui::Color::DarkGray));
+      y += 26;
+    }
+    if (model.whatNow[0] != '\0') {
+      screen.target().text(fui::makeRect(body.x + 20, body.bottom() - 48, body.width - 40, 44), model.whatNow,
+                           syncText(toybox::kTileFont, fui::TextAlign::Center, fui::Color::DarkGray, 2));
+    }
+  }
+
+#else
+  // V3 "Line + log": one large current-stage line, completed stages
+  // accumulating quietly beneath. Closest to today's feel.
+  if (model.verdict == SyncVerdictKind::None) {
+    const int headY = body.y + 48;
+    if (activeStage >= 0) {
+      screen.target().text(fui::makeRect(body.x, headY, body.width, 48), stageLabel(activeStage),
+                           syncText(toybox::kDisplayFont, fui::TextAlign::Center));
+    }
+    if (model.caption[0] != '\0') {
+      screen.target().text(fui::makeRect(body.x + 20, headY + 68, body.width - 40, 84), model.caption,
+                           syncText(toybox::kUiFont, fui::TextAlign::Center, fui::Color::DarkGray, 3));
+    }
+    int y = headY + 214;
+    for (int i = 0; i < kSyncStageCount; ++i) {
+      if (model.stages[i] != SyncStageState::Done) continue;
+      const int rowX = body.x + 72;
+      screen.target().bitmap(fui::makeRect(rowX, y, 24, 24), fui::bitmapFromIcon(icon_check_24),
+                             fui::BitmapMode::Contain, ink);
+      const char* line = model.facts[i][0] != '\0' ? model.facts[i] : stageLabel(i);
+      screen.target().text(fui::makeRect(rowX + 24 + 12, y + 2, body.width - 96 - 36, 20), line,
+                           syncText(toybox::kTileFont, fui::TextAlign::Left, fui::Color::DarkGray));
+      y += 32;
+    }
+    if (model.safety >= SyncSafety::ReviewsSafe) syncSafetyFooter(screen, body);
+  } else {
+    int y = body.y + 64;
+    screen.target().bitmap(fui::makeRect(body.x + (body.width - 32) / 2, y, 32, 32), verdictGlyph(model.verdict),
+                           fui::BitmapMode::Contain, ink);
+    y += 56;
+    screen.target().text(fui::makeRect(body.x, y, body.width, 48), model.title,
+                         syncText(toybox::kDisplayFont, fui::TextAlign::Center));
+    y += 66;
+    if (const char* safety = safetyLine(model.safety)) {
+      screen.target().text(fui::makeRect(body.x, y, body.width, 22), safety,
+                           syncText(toybox::kTileFont, fui::TextAlign::Center));
+      y += 36;
+    }
+    screen.target().text(fui::makeRect(body.x + 20, y, body.width - 40, 104), model.body,
+                         syncText(toybox::kUiFont, fui::TextAlign::Center, fui::Color::Black, 4));
+    y += 120;
+    for (int i = 0; i < model.factCount; ++i) {
+      screen.target().text(fui::makeRect(body.x, y, body.width, 22), model.factLines[i],
+                           syncText(toybox::kTileFont, fui::TextAlign::Center, fui::Color::DarkGray));
+      y += 26;
+    }
+    if (model.whatNow[0] != '\0') {
+      screen.target().text(fui::makeRect(body.x + 20, body.bottom() - 48, body.width - 40, 44), model.whatNow,
+                           syncText(toybox::kTileFont, fui::TextAlign::Center, fui::Color::DarkGray, 2));
+    }
+  }
+#endif
+}
+
 }  // namespace studyui

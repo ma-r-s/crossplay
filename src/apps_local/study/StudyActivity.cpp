@@ -149,8 +149,68 @@ void StudyActivity::onEnter() {
   } else {
     LOG_ERR("STUDY", "No deck under %s -- run tools_local/study/study.py setup", kStudyRoot);
   }
+#if !defined(FREEINK_NET_WOLFSSL)
+  // Render harness for the sync-flow screens, which are otherwise reachable
+  // only mid-flow against a live bridge. Simulator-only by the same gate the
+  // curl transport uses; drives the view with canned data for sim-shot.
+  if (const char* preview = std::getenv("STUDY_SYNCFLOW_PREVIEW")) {
+    applySyncFlowPreview(preview);
+  }
+#endif
   requestUpdate();
 }
+
+#if !defined(FREEINK_NET_WOLFSSL)
+void StudyActivity::applySyncFlowPreview(const char* state) {
+  if (std::strcmp(state, "pairqr") == 0) {
+    pairCode_ = "K7Q2FD";
+    view_ = View::PairQr;
+    return;
+  }
+  if (std::strcmp(state, "pairconfirm") == 0) {
+    pairUsername_ = "mario@example.com";
+    view_ = View::PairConfirm;
+    return;
+  }
+  if (std::strcmp(state, "busy") == 0) {
+    std::snprintf(syncTitle_, sizeof(syncTitle_), "SYNCING");
+    std::snprintf(syncBody_, sizeof(syncBody_), "Sending your reviews.");
+    view_ = View::SyncMsg;
+    return;
+  }
+  // The new faces, canned per the brief's render matrix.
+  studyui::SyncFlowModel& m = previewFlow_;
+  m = studyui::SyncFlowModel{};
+  if (std::strcmp(state, "ladder") == 0) {
+    m.stages[0] = studyui::SyncStageState::Done;
+    m.stages[1] = studyui::SyncStageState::Done;
+    std::snprintf(m.facts[1], sizeof(m.facts[1]), "142 SENT");
+    m.stages[2] = studyui::SyncStageState::Active;
+    std::snprintf(m.caption, sizeof(m.caption), "This first time can take a while. It keeps working if you leave.");
+    m.safety = studyui::SyncSafety::ReviewsSafe;
+    previewFlowSet_ = true;
+  } else if (std::strcmp(state, "success") == 0) {
+    m.verdict = studyui::SyncVerdictKind::Success;
+    std::snprintf(m.title, sizeof(m.title), "SYNCED");
+    std::snprintf(m.body, sizeof(m.body), "This card and your Anki are up to date.");
+    std::snprintf(m.factLines[0], sizeof(m.factLines[0]), "142 REVIEWS SENT");
+    std::snprintf(m.factLines[1], sizeof(m.factLines[1]), "2 DECKS UPDATED");
+    std::snprintf(m.factLines[2], sizeof(m.factLines[2]), "LAST SYNC 20:15");
+    m.factCount = 3;
+    m.safety = studyui::SyncSafety::ReviewsSafe;
+    previewFlowSet_ = true;
+  } else if (std::strcmp(state, "erroracked") == 0) {
+    m.verdict = studyui::SyncVerdictKind::Error;
+    for (int i = 0; i < 2; ++i) m.stages[i] = studyui::SyncStageState::Done;
+    m.stages[2] = studyui::SyncStageState::Active;
+    std::snprintf(m.title, sizeof(m.title), "NOT SYNCED");
+    std::snprintf(m.body, sizeof(m.body), "The bridge could not reach AnkiWeb. This is usually brief.");
+    std::snprintf(m.whatNow, sizeof(m.whatNow), "Press SYNC again in a few minutes.");
+    m.safety = studyui::SyncSafety::ReviewsSafe;
+    previewFlowSet_ = true;
+  }
+}
+#endif
 
 // Everything that starts over when a deck opens -- first open and every switch.
 void StudyActivity::beginDeckSession() {
@@ -1113,6 +1173,18 @@ void StudyActivity::render(RenderLock&&) {
   renderer.clearScreen();
   const int width = renderer.getScreenWidth();
   const int height = renderer.getScreenHeight();
+
+#if !defined(FREEINK_NET_WOLFSSL)
+  if (previewFlowSet_) {
+    fui::GfxRendererTarget target = toybox::makeTarget(renderer);
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(target, target.deviceContext(), noInput, interactions_);
+    toybox::Screen screen(frame);
+    studyui::buildSyncFlow(screen, previewFlow_);
+    renderer.displayBuffer();
+    return;
+  }
+#endif
 
   if (view_ == View::Deck) {
     // Chrome is a FreeInkUI component wearing Toybox, never hand-drawn: Screen
