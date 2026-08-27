@@ -255,6 +255,12 @@ void StudyActivity::closeDeck() {
   revlogReadFile_.close();
   imageFile_.close();
   images_ = study::StudyImages{};
+  // The "no deck open" marker endSyncSession's reopen guard keys on. This was
+  // never cleared, so the post-sync reopen could not fire and the first
+  // START REVIEWING after any sync dereferenced a null cardSource_ -- a
+  // device panic that shipped in v1.5.0 and hid because neither person nor
+  // harness ever reviewed straight after syncing until 2026-08-27.
+  deckDir_[0] = '\0';
 }
 
 void StudyActivity::switchDeck() {
