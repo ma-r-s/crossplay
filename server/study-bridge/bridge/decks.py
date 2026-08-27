@@ -92,6 +92,67 @@ def build_deck(store, deck_name: str) -> dict:
     return entry
 
 
+def deck_fingerprints(store, deck_name: str) -> tuple[str, str]:
+    """Two change detectors, read from the mirror: (content, schedule).
+
+    Content covers what deck.dat and the fonts are made of (note text and
+    card count); schedule covers what only cards.dat encodes (review state).
+    One review changes schedule but not content, and rebuilding cards.dat
+    alone is seconds where the full converter plus font subsetting is ~90s
+    on the pi -- which is the difference between a review-day sync and a
+    first sync, and users do one of those every day."""
+    import sqlite3
+
+    like = deck_name.replace("::", "\x1f")
+    db = sqlite3.connect(f"file:{store.collection_path}?mode=ro", uri=True)
+    try:
+        db.create_collation("unicase", lambda a, b: (a.lower() > b.lower()) - (a.lower() < b.lower()))
+        row = db.execute(
+            """select count(c.id), coalesce(max(n.mod), 0), coalesce(max(c.mod), 0)
+               from cards c join notes n on n.id = c.nid
+               join decks d on d.id = c.did
+               where d.name = ? or d.name like ?""",
+            (like, like + "\x1f%"),
+        ).fetchone()
+    finally:
+        db.close()
+    return f"{row[0]}-{row[1]}", f"{row[0]}-{row[2]}"
+
+
+def rebuild_cards_only(store, deck_name: str, base_build: dict) -> dict:
+    """A schedule-only change: re-run the converter into a fresh build dir,
+    then reuse the PREVIOUS build's fonts and images wholesale (content
+    unchanged means they are byte-identical, and fonts are the expensive
+    part). deck.dat is rewritten too -- it is cheap without the fonts."""
+    import hashlib
+    import shutil as sh
+
+    slug = base_build["slug"]
+    build_id = f"{int(time.time())}"
+    out = store.root / "decks" / slug / build_id
+    prev = store.root / "decks" / slug / base_build["buildId"]
+    out.mkdir(parents=True, exist_ok=True)
+
+    convert = _run(
+        [str(TOOLS / "anki_to_deck.py"), str(store.collection_path), "--deck", deck_name, "--out", str(out)]
+    )
+    if convert.returncode != 0:
+        sh.rmtree(out, ignore_errors=True)
+        raise RuntimeError(f"deck convert failed: {convert.stderr.strip()[-400:]}")
+    if (prev / "fonts").is_dir():
+        sh.copytree(prev / "fonts", out / "fonts")
+
+    files = {}
+    for p in sorted(out.rglob("*")):
+        if p.is_file():
+            rel = str(p.relative_to(out))
+            files[rel] = {"size": p.stat().st_size, "sha256": hashlib.sha256(p.read_bytes()).hexdigest()}
+    entry = {"slug": slug, "deck": deck_name, "buildId": build_id, "files": files}
+    (out / ".manifest.json").write_text(json.dumps(entry, indent=1))
+    _gc(store.root / "decks" / slug)
+    return entry
+
+
 def latest_build(store, slug: str) -> dict | None:
     deck_dir = store.root / "decks" / slug
     if not deck_dir.is_dir():

@@ -81,8 +81,8 @@ bool insufficientHeap(std::string& message) {
 }
 
 // One request, buffered response. Returns HTTP status, 0 on transport error.
-int request(const char* method, const std::string& path, const std::string& token, const uint8_t* body,
-            size_t bodyLen, std::string& response, std::string& message) {
+int request(const char* method, const std::string& path, const std::string& token, const uint8_t* body, size_t bodyLen,
+            std::string& response, std::string& message) {
   if (insufficientHeap(message)) return 0;
   freeink::SecureHttpClient http;
   http.setCACert(caRoots());
@@ -93,11 +93,31 @@ int request(const char* method, const std::string& path, const std::string& toke
     return 0;
   }
   if (!token.empty()) http.addHeader("Authorization", std::string("Bearer ") + token);
+  LOG_INF("STUDYSYNC", "%s %s (verified TLS)", method, path.c_str());
   const int status = body ? http.sendRequest(method, body, bodyLen) : http.sendRequest(method, std::string());
   if (status <= 0) {
     LOG_ERR("STUDYSYNC", "%s %s failed: %d", method, path.c_str(), status);
     message = "Could not reach the sync service. Check the WiFi and try again.";
     http.end();
+#if defined(CROSSPOINT_DEV_SERIAL_BRIDGE)
+    // Dev-build self-diagnosis, never a fallback: retry the same request
+    // WITHOUT verification purely to bisect the failure, log the verdict,
+    // and still fail. A release build never contains this branch.
+    {
+      freeink::SecureHttpClient probe;
+      probe.setInsecure();
+      probe.setTimeout(15000);
+      int ps = -1;
+      if (probe.begin(bridgeBase() + path)) ps = probe.sendRequest("GET", std::string());
+      probe.end();
+      if (ps > 0) {
+        LOG_ERR("STUDYSYNC", "DIAGNOSIS: insecure probe got HTTP %d -- certificate VERIFICATION is the failure", ps);
+        message = "The bridge answered but its certificate was refused. This build logged the details.";
+      } else {
+        LOG_ERR("STUDYSYNC", "DIAGNOSIS: insecure probe also failed (%d) -- network/DNS level, not certificates", ps);
+      }
+    }
+#endif
     return 0;
   }
   response = http.getString();
@@ -147,8 +167,8 @@ bool streamToFile(const std::string& path, const std::string& token, const std::
 
 #else  // simulator: curl, because the HTTP stub cannot carry binary bodies.
 
-int request(const char* method, const std::string& path, const std::string& token, const uint8_t* body,
-            size_t bodyLen, std::string& response, std::string& message) {
+int request(const char* method, const std::string& path, const std::string& token, const uint8_t* body, size_t bodyLen,
+            std::string& response, std::string& message) {
   char bodyPath[] = "/tmp/studysync-body-XXXXXX";
   char outPath[] = "/tmp/studysync-out-XXXXXX";
   int fdBody = mkstemp(bodyPath);
@@ -244,6 +264,23 @@ void BridgeState::setAck(const char* dir, uint32_t offset) {
   }
 }
 
+const char* BridgeState::buildFor(const char* dir) const {
+  for (int i = 0; i < deckCount; ++i) {
+    if (std::strcmp(deckDirs[i], dir) == 0) return lastBuilds[i];
+  }
+  return "";
+}
+
+void BridgeState::setBuild(const char* dir, const char* buildId) {
+  setAck(dir, ackFor(dir));  // ensures the dir has a slot
+  for (int i = 0; i < deckCount; ++i) {
+    if (std::strcmp(deckDirs[i], dir) == 0) {
+      std::snprintf(lastBuilds[i], sizeof(lastBuilds[0]), "%s", buildId);
+      return;
+    }
+  }
+}
+
 bool loadBridgeState(BridgeState& out) {
   out = BridgeState{};
   HalFile file;
@@ -254,9 +291,13 @@ bool loadBridgeState(BridgeState& out) {
   if (file.read(reinterpret_cast<uint8_t*>(raw.data()), raw.size()) != static_cast<int>(raw.size())) return false;
   if (deserializeJson(doc, raw) != DeserializationError::Ok) return false;
   out.token = doc["token"] | "";
+  out.lastSyncAt = doc["lastSyncAt"] | static_cast<int64_t>(0);
   out.paired = !out.token.empty();
   for (JsonPair kv : doc["acks"].as<JsonObject>()) {
     out.setAck(kv.key().c_str(), kv.value().as<uint32_t>());
+  }
+  for (JsonPair kv : doc["builds"].as<JsonObject>()) {
+    out.setBuild(kv.key().c_str(), kv.value().as<const char*>());
   }
   return out.paired;
 }
@@ -264,8 +305,13 @@ bool loadBridgeState(BridgeState& out) {
 bool saveBridgeState(const BridgeState& state) {
   JsonDocument doc;
   doc["token"] = state.token;
+  if (state.lastSyncAt > 0) doc["lastSyncAt"] = state.lastSyncAt;
   JsonObject acks = doc["acks"].to<JsonObject>();
   for (int i = 0; i < state.deckCount; ++i) acks[state.deckDirs[i]] = state.ackOffsets[i];
+  JsonObject builds = doc["builds"].to<JsonObject>();
+  for (int i = 0; i < state.deckCount; ++i) {
+    if (state.lastBuilds[i][0] != '\0') builds[state.deckDirs[i]] = state.lastBuilds[i];
+  }
   std::string raw;
   serializeJson(doc, raw);
   HalFile file;
@@ -301,8 +347,7 @@ bool StudySync::pairStart(PairStart& out, std::string& message) {
   return true;
 }
 
-int StudySync::pairPoll(const std::string& pollToken, std::string& username, std::string& token,
-                        std::string& message) {
+int StudySync::pairPoll(const std::string& pollToken, std::string& username, std::string& token, std::string& message) {
   std::string response;
   const int status = request("GET", "/api/pair/poll?pollToken=" + pollToken, "", nullptr, 0, response, message);
   if (status == 0) return -1;
@@ -327,6 +372,7 @@ int StudySync::pairPoll(const std::string& pollToken, std::string& username, std
 
 bool StudySync::syncStart(const BridgeState& state, const std::vector<DeckPayload>& decks, std::string& jobId,
                           std::vector<std::pair<std::string, uint32_t>>& acks, std::string& message) {
+  unpaired = false;
   // Wire shape: [u32 LE header_len][JSON header][per-deck revlog tail then
   // cards.dat, in header order].
   JsonDocument doc;
@@ -353,10 +399,11 @@ bool StudySync::syncStart(const BridgeState& state, const std::vector<DeckPayloa
   }
 
   std::string response;
-  const int status = request("POST", "/api/sync", state.token,
-                             reinterpret_cast<const uint8_t*>(body.data()), body.size(), response, message);
+  const int status = request("POST", "/api/sync", state.token, reinterpret_cast<const uint8_t*>(body.data()),
+                             body.size(), response, message);
   if (status == 0) return false;
   if (status == 401) {
+    unpaired = true;
     takeServerError(response, message) || (message = "This device is not paired anymore. Pair it again.", true);
     return false;
   }

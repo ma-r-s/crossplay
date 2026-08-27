@@ -140,7 +140,11 @@ def page(title: str, body: str) -> HTMLResponse:
 @app.get("/")
 async def home(request: Request):
     s = session_of(request)
-    if s:
+    # ?again=1 shows the sign-in form even with a live session: it is how an
+    # account whose AnkiWeb key died gets a fresh one. Without it there was
+    # no way to re-login at all -- the session cookie skipped the form and a
+    # dead key looked like a broken bridge (found live, 2026-08-26).
+    if s and request.query_params.get("again") != "1":
         return RedirectResponse("/devices")
     return page(
         "CrossPlay sync",
@@ -221,9 +225,15 @@ async def devices_page(request: Request):
     state = store.UserStore(s["uid"]).load_state()
     rows = ""
     for th, d in state["devices"].items():
+        seen = (
+            time.strftime("%b %d %H:%M", time.localtime(d["last_seen"]))
+            if d.get("last_seen")
+            else "never synced"
+        )
         rows += (
             f"<form method=post action=/devices/revoke><li>{d['name']}"
-            f" <small>paired {time.strftime('%Y-%m-%d', time.localtime(d['created']))}</small>"
+            f" <small>paired {time.strftime('%Y-%m-%d', time.localtime(d['created']))}"
+            f" &middot; last seen {seen}</small>"
             f"<input type=hidden name=csrf value='{s['csrf']}'>"
             f"<input type=hidden name=token_hash value='{th}'>"
             "<button style='width:auto'>Unpair</button></li></form>"
@@ -236,7 +246,11 @@ async def devices_page(request: Request):
             if rows
             else "<p>No reader paired yet. Press SYNC"
             " in Study on the device and scan the code it shows.</p>"
-        ),
+        )
+        + "<p><small>Sync acting up on every device? <a href='/?again=1'>"
+        "Reconnect your AnkiWeb account</a> -- AnkiWeb sometimes retires the"
+        " bridge's session key, and signing in again mints a fresh one."
+        "</small></p>",
     )
 
 
@@ -405,8 +419,21 @@ async def start_sync(request: Request, dev=Depends(require_device)):
             journal.close()
         fresh = st.load_state()
         manifests = []
+        prints = fresh.setdefault("deck_fingerprints", {})
         for name in fresh["chosen_decks"]:
-            manifests.append(decks.build_deck(st, name))
+            content_now, schedule_now = decks.deck_fingerprints(st, name)
+            stored = prints.get(name) or {}
+            if isinstance(stored, str):  # pre-split single fingerprint
+                stored = {}
+            existing = decks.latest_build(st, decks.slugify(name))
+            if existing and stored.get("content") == content_now and stored.get("schedule") == schedule_now:
+                manifests.append(existing)
+                continue
+            if existing and stored.get("content") == content_now:
+                manifests.append(decks.rebuild_cards_only(st, name, existing))
+            else:
+                manifests.append(decks.build_deck(st, name))
+            prints[name] = {"content": content_now, "schedule": schedule_now}
         fresh["status"] = "ok"
         fresh["last_sync"] = int(time.time())
         st.save_state(fresh)
@@ -422,7 +449,12 @@ async def sync_status(job: str, dev=Depends(require_device)):
     uid, _ = dev
     j = jobs.JOBS.get(job)
     if j is None or j.uid != uid:
-        return JSONResponse({"error": "Unknown job."}, 404)
+        # Jobs live in memory; a deploy or reboot forgets them mid-flight.
+        # The reviews are safe (acked into the journal before the job ran),
+        # so the honest answer is a sentence, not a 404 the device cannot
+        # explain to anyone.
+        return {"status": "error",
+                "message": "The bridge restarted mid-sync. Nothing was lost; press SYNC again."}
     out = {"status": j.status}
     if j.status == "done":
         out["summary"] = j.summary

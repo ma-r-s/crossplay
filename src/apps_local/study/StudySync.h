@@ -35,7 +35,16 @@ struct BridgeState {
   std::string token;
   char deckDirs[kMaxSyncDecks][32] = {};
   uint32_t ackOffsets[kMaxSyncDecks] = {};
+  // The buildId last downloaded per deck dir: the server reuses a build
+  // when nothing changed, and a matching id means every file on the card
+  // is already exactly the build the manifest describes.
+  char lastBuilds[kMaxSyncDecks][20] = {};
+  // Seconds since epoch of the last completed sync; drawn under the door.
+  int64_t lastSyncAt = 0;
   int deckCount = 0;
+
+  const char* buildFor(const char* dir) const;
+  void setBuild(const char* dir, const char* buildId);
 
   uint32_t ackFor(const char* dir) const;
   void setAck(const char* dir, uint32_t offset);
@@ -80,6 +89,10 @@ class StudySync {
 
   bool syncStart(const BridgeState& state, const std::vector<DeckPayload>& decks, std::string& jobId,
                  std::vector<std::pair<std::string, uint32_t>>& acks, std::string& message);
+  // True after syncStart was refused for the token itself (revoked or
+  // unknown): the stored pairing is dead and must be cleared, or every
+  // later SYNC repeats the same refusal forever.
+  bool unpaired = false;
   // "running" | "done" | "error" | "frozen" | "" (transport failure).
   std::string syncStatus(const BridgeState& state, const std::string& jobId, std::vector<DeckManifest>& manifests,
                          std::string& message);

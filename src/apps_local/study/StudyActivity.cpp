@@ -1051,6 +1051,19 @@ void StudyActivity::refreshStats() {
 }
 
 void StudyActivity::buildDeckModel(studyui::DeckModel& out) const {
+  {
+    study::BridgeState bridge;
+    if (!study::loadBridgeState(bridge)) {
+      std::snprintf(out.syncSubtitle, sizeof(out.syncSubtitle), "NOT PAIRED YET");
+    } else if (bridge.lastSyncAt > 0) {
+      struct tm parts;
+      const time_t at = static_cast<time_t>(bridge.lastSyncAt);
+      localtime_r(&at, &parts);
+      std::snprintf(out.syncSubtitle, sizeof(out.syncSubtitle), "LAST SYNC %02d:%02d", parts.tm_hour, parts.tm_min);
+    } else {
+      std::snprintf(out.syncSubtitle, sizeof(out.syncSubtitle), "PAIRED");
+    }
+  }
   out.name = deck_.meta().name;
   out.due = dueTotal_;
   out.fresh = newTotal_;
@@ -1078,6 +1091,10 @@ void StudyActivity::routeAction(const fui::ActionEvent& event) {
     return;
   }
   if (event.action != studyui::ActionStudy) return;
+  if (event.value == 2) {
+    beginSync();
+    return;
+  }
   // Re-scan rather than resuming a stale queue: a session can end, the user can
   // sit on this screen past the rollover hour, and what was due then is not
   // what is due now.
@@ -1282,7 +1299,11 @@ void StudyActivity::showSync(const char* title, const char* body) {
 }
 
 void StudyActivity::beginSync() {
-  flushWrites();
+  // No SD writes here, deliberately. A wake-tap can land on SYNC before the
+  // card's power-up re-init settles, and the first flush through a stale
+  // SdFat handle was a LoadProhibited panic (caught on hardware, backtrace
+  // folded into onExit by ICF). closeDeck() inside the flow flushes
+  // everything through the ordinary path moments later.
   WiFi.mode(WIFI_STA);
   wifiActivated_ = true;
   startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
@@ -1337,6 +1358,7 @@ void StudyActivity::endSyncSession(const char* title, const char* body) {
 bool StudyActivity::runPairing() {
   std::string message;
   study::StudySync::PairStart pair;
+  LOG_INF("STUDYSYNC", "flow: pairing");
   showSync("SYNC", "Getting a pairing code.");
   if (!sync_.pairStart(pair, message)) {
     endSyncSession("SYNC", message.c_str());
@@ -1461,6 +1483,9 @@ int64_t localFileSize(const char* path) {
 
 bool StudyActivity::applyManifests(const std::vector<study::DeckManifest>& manifests, std::string& message) {
   for (const auto& deck : manifests) {
+    // A repeated buildId means the card already holds this exact build;
+    // downloading it again would only heat the room.
+    if (deck.buildId == bridge_.buildFor(deck.slug.c_str())) continue;
     char dir[96];
     std::snprintf(dir, sizeof(dir), "%s/%s", kStudyRoot, deck.slug.c_str());
     if (!Storage.exists(dir)) Storage.mkdir(dir);
@@ -1506,13 +1531,17 @@ bool StudyActivity::applyManifests(const std::vector<study::DeckManifest>& manif
       Storage.remove(r.second.c_str());
       Storage.rename(r.first.c_str(), r.second.c_str());
     }
+    bridge_.setBuild(deck.slug.c_str(), deck.buildId.c_str());
+    study::saveBridgeState(bridge_);
   }
   return true;
 }
 
 void StudyActivity::runSyncFlow() {
   syncBusy_ = true;
+  LOG_INF("STUDYSYNC", "flow: ntp");
   syncTimeIfNeeded();
+  LOG_INF("STUDYSYNC", "flow: state");
   if (!study::loadBridgeState(bridge_)) {
     if (!runPairing()) return;  // runPairing already ended the session
   }
@@ -1530,6 +1559,14 @@ void StudyActivity::runSyncFlow() {
   std::vector<std::pair<std::string, uint32_t>> acks;
   showSync("SYNCING", "Sending your reviews.");
   if (!sync_.syncStart(bridge_, payloads, job, acks, message)) {
+    if (sync_.unpaired) {
+      // The token was revoked on the bridge. Clear it, or this refusal
+      // repeats forever; the next SYNC walks through pairing again.
+      bridge_ = study::BridgeState{};
+      Storage.remove("/study/.bridge");
+      endSyncSession("SYNC", "This reader was unpaired on the bridge. Press SYNC to pair it again.");
+      return;
+    }
     endSyncSession("SYNC", message.c_str());
     return;
   }
@@ -1586,6 +1623,8 @@ void StudyActivity::runSyncFlow() {
     endSyncSession("SYNC", message.c_str());
     return;
   }
+  bridge_.lastSyncAt = static_cast<int64_t>(time(nullptr));
+  study::saveBridgeState(bridge_);
   findDeckDirs();  // the bridge may have delivered a deck this card never had
   endSyncSession("SYNCED", "This card and your Anki are up to date.");
 }

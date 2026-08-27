@@ -2,6 +2,8 @@
 
 #include <cstdio>
 
+#include "../../components/icons/listIcons.h"
+
 namespace studyui {
 
 namespace {
@@ -216,7 +218,6 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
     screen.frame().hit(deckRect, ActionSwitchDeck, 0);
   }
 
-
   // The ornament, bracketed the way the board is.
   const int panelTop = body.y + 210;
   const int panelHeight = 190;
@@ -238,28 +239,52 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   caption.align = fui::TextAlign::Center;
   screen.target().text(fui::makeRect(body.x, panel.bottom() + 44, body.width, 24), caption_text, caption);
 
-  // The bridge door, in the quiet band between the ornament and the big one.
-  // Always drawn: before pairing it is the way in, after it is the way to
-  // stay current.
-  {
-    const fui::Rect syncRect = fui::makeRect(body.x, panel.bottom() + 92, body.width, 26);
-    screen.target().text(syncRect, "SYNC   >", small);
-    screen.frame().hit(syncRect, ActionSync, 0);
-  }
-
-  // The lesser door, bottom-anchored: that is where a thumb rests, and it keeps
-  // it from competing with the headline.
-  fui::ListItem rows[1];
+  // The doors, bottom-anchored where thumbs live: reviewing above, the
+  // bridge below it. The stacked arrangement won from three rendered
+  // variants; the rows wear the same lucide glyphs the rest of the
+  // firmware's lists do, and SYNC carries its own state in the value slot
+  // so the door says when it last mattered.
+  fui::ListItem rows[2];
   rows[0] = fui::ListItem{};
   rows[0].label = waiting > 0 ? "START REVIEWING" : "NOTHING TO REVIEW";
   rows[0].enabled = waiting > 0;
   rows[0].actionValue = 1;
+  rows[0].icon = fui::bitmapFromIcon(icon_play_32);
+  rows[1] = fui::ListItem{};
+  rows[1].label = "SYNC";
+  // State rides the value slot, right-aligned on the same line: a subtitle
+  // makes the row taller than its box and the whole door clipped away.
+  rows[1].value = model.syncSubtitle[0] != '\0' ? model.syncSubtitle : nullptr;
+  rows[1].enabled = true;
+  rows[1].actionValue = 2;
+  rows[1].icon = fui::bitmapFromIcon(icon_refresh_cw_32);
   fui::ListProps list;
   list.items = rows;
-  list.count = 1;
+  list.count = 2;
   list.selectedIndex = -1;
   list.action = ActionStudy;
-  screen.list(list, toybox::kRowHeight + 4, fui::LayoutAnchor::Bottom);
+  // The state whispers next to the label: the tile cut, not the theme's
+  // smallText, which deliberately stays at UI size for list values in
+  // general. The named alignment is load-bearing: FONT_SLOT_SMALL is 0 and
+  // a style holding only it reads as unset to Screen::list(), which would
+  // swap the theme back in. The list right-aligns values regardless.
+  // valueInset keeps the same air from the right border that the icon box
+  // gets from the left.
+  fui::TextStyle doorValue;
+  doorValue.font = toybox::kTileFont;
+  doorValue.align = fui::TextAlign::Right;
+  list.valueText = doorValue;
+  // One unit inside and out. The block's frame is kMargin on every side,
+  // and every interior distance takes the same unit: door to door, border
+  // to icon, icon to label, value to border. The theme's tighter list
+  // defaults (12/10) inside a 16px frame is what read as cramped. The
+  // band is exactly two rows plus the gap, so no slack floats the bottom
+  // door off the content margin.
+  list.sidePadding = toybox::kMargin;
+  list.textGap = toybox::kMargin;
+  list.rowGap = toybox::kMargin;
+  list.valueInset = 0;
+  screen.list(list, 2 * toybox::kRowHeight + toybox::kMargin, fui::LayoutAnchor::Bottom);
 
   if (model.writeFailed) {
     // Loud, and above the door rather than inside it: a review the user gave
