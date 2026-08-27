@@ -40,10 +40,18 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# A RELEASE image is a legitimate thing to send, and it is how you turn dev mode
+# off. The dev route has to exist on the DEVICE doing the flashing, not in the
+# image being flashed -- an earlier version of this script conflated the two and
+# refused exactly the flash you most want: putting a unit back to a clean
+# release without a cable. It is one-way, so it says so out loud.
+FAREWELL=0
 case "$ENV_NAME_FW" in
   x4pro|sticky) ;;
-  *) echo "error: --env must be x4pro or sticky (got '$ENV_NAME_FW')" >&2
-     echo "       release envs have no dev flash route by construction." >&2
+  gh_release_x4pro|gh_release_sticky)
+    FAREWELL=1 ;;
+  *) echo "error: --env must be x4pro, sticky, gh_release_x4pro or gh_release_sticky" >&2
+     echo "       (got '$ENV_NAME_FW')" >&2
      exit 2 ;;
 esac
 
@@ -154,6 +162,16 @@ echo "device: $(printf '%s' "$STATUS" | describe || printf '%s' "$STATUS")"
 
 UPTIME_BEFORE="$(printf '%s' "$STATUS" | uptime_of)"
 
+if [ "$FAREWELL" -eq 1 ]; then
+  echo
+  echo "NOTE: '$ENV_NAME_FW' is a RELEASE image. Flashing it turns dev mode off:"
+  echo "      the device will stop joining Wi-Fi by itself, stop running the web"
+  echo "      server at boot, and no longer answer /api/dev/flash or the serial"
+  echo "      bridge. This is the last flash you can send it over Wi-Fi -- the"
+  echo "      next one needs a USB cable. That is usually the point."
+  echo
+fi
+
 # -- upload ------------------------------------------------------------------
 echo "uploading $SIZE bytes ..."
 curl -fsS --max-time 300 -F "file=@$FW;filename=firmware.bin" "http://$IP/upload?path=/" >/dev/null || {
@@ -199,6 +217,9 @@ for _ in $(seq 1 60); do
   [ "$UP" -lt "$UPTIME_BEFORE" ] || continue
   echo
   echo "back up: $(printf '%s' "$NEW" | describe || printf '%s' "$NEW")"
+  if [ "$FAREWELL" -eq 1 ]; then
+    echo "dev mode is now OFF on this device. Reflash a dev build over USB to get it back."
+  fi
   exit 0
 done
 echo

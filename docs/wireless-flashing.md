@@ -82,6 +82,37 @@ something wakes it. This is not worked around on purpose: a dev flag that
 quietly stopped a device sleeping would change battery behaviour on the exact
 builds used to judge battery behaviour.
 
+## Turning dev mode off
+
+There is no switch on the device. The whole feature is compile-time, so a
+device leaves dev mode the only way it entered it: by being flashed with a
+different build. The good news is that the last flash can itself go over Wi-Fi.
+
+```bash
+./scripts_local/wifi-flash.sh --env gh_release_x4pro
+```
+
+That sends a release image through the dev route the device still has. When it
+reboots it no longer joins Wi-Fi by itself, no longer runs the web server at
+boot, and answers neither `/api/dev/flash` nor the serial bridge. **It is
+one-way: the next flash needs a USB cable.** The script says so before it
+uploads and confirms it afterwards.
+
+Do this when you are done working on a device, particularly before taking it
+anywhere that is not your own network -- see below.
+
+### Why you would bother
+
+While dev mode is on, anything on the same network can replace the firmware.
+`/api/dev/flash` has no authentication; the validation it does is for
+*correctness* (right chip, right board, intact image), not *authorisation*. On
+a home network that is a reasonable trade for a desk device. On a shared or
+public one it is not.
+
+Release builds are unaffected in every case -- they contain none of this, which
+is the reason the gate is compile-time rather than a setting someone could
+leave switched on by accident.
+
 ## Errors it reports
 
 | status | means |
