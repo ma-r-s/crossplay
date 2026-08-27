@@ -84,6 +84,11 @@ bool readCanned(const std::string& url, const HttpDownloader::DataCallback& onDa
 
 }  // namespace
 
+// The browser build answers from files on the card, so there is no server and
+// no status line. 0 is the same value the device reports when a request never
+// got a reply, which is what a missing canned file is.
+int HttpDownloader::lastStatus() { return 0; }
+
 bool HttpDownloader::fetchUrl(const std::string& url, std::string& outContent, const std::string&, const std::string&) {
   outContent.clear();
   return readCanned(url, [&outContent](const uint8_t* data, const size_t len) {
