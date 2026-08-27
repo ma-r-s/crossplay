@@ -114,8 +114,9 @@ The reader scans `/study/` and every directory holding a `meta.dat` is a deck,
 sorted by name so the order is stable across boots; a `fonts` directory is
 skipped. Directory names are the tool's choice (study.py slugs the deck name;
 Mario's card predates that and says `mandarin`) and the device never depends on
-them. With more than one deck, the deck screen grows a `DECK 1/2` row that
-cycles, and `/study/.last` holds the name of the deck to reopen on next entry.
+them. With more than one deck, the deck screen grows a third door,
+`CHANGE DECK`, which cycles and shows the position (`2 OF 3`); `/study/.last`
+holds the name of the deck to reopen on next entry.
 
 Fonts live _inside_ the deck at `/study/<deck>/fonts` -- they are subset to
 that deck's glyphs, so they were never really shareable. A card with the old

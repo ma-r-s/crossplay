@@ -1161,10 +1161,6 @@ void StudyActivity::routeAction(const fui::ActionEvent& event) {
     beginSync();
     return;
   }
-  if (event.action == studyui::ActionSwitchDeck) {
-    switchDeck();
-    return;
-  }
   if (event.action != studyui::ActionStudy) return;
   if (event.value == 2) {
     beginSync();

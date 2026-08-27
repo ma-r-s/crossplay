@@ -2029,28 +2029,31 @@ void testStudyDeckRowSwitchesOnlyWhenThereIsSomewhereToGo() {
   int forecast[studyui::kForecastDays] = {};
   forecast[0] = 5;
 
-  // One deck: no switcher. A control that cycles through one thing is a
+  // One deck: no switcher door. A control that cycles through one thing is a
   // control that does nothing, and drawing it would advertise a feature the
   // card does not have.
   {
     Rendered out;
     buildStudyDeck(out, deckWithWork(forecast));
-    CHECK(!out.target.drew("DECK 1/1"));
+    CHECK(!out.target.drew("CHANGE DECK"));
   }
 
-  // Two decks: the row names the open one, says how many there are, and
-  // tapping it is the switch.
+  // More than one: a third door beside START REVIEWING and SYNC. It says the
+  // position rather than the name (the name is the row above the ornament),
+  // and tapping it is the switch -- value 3 on the shared study action.
   {
     Rendered out;
     studyui::DeckModel model = deckWithWork(forecast);
-    model.deckIndex = 0;
-    model.deckCount = 2;
+    model.deckIndex = 1;
+    model.deckCount = 3;
     buildStudyDeck(out, model);
-    const auto* row = out.target.find("DECK 1/2   Mandarin: Vocabulary   >");
+    const auto* row = out.target.find("CHANGE DECK");
     CHECK(row != nullptr);
+    CHECK(out.target.drew("2 OF 3"));
     if (row != nullptr) {
       const fui::ActionEvent onRow = out.tap(row->rect.x + 20, row->rect.y + 10);
-      CHECK(onRow.action == studyui::ActionSwitchDeck);
+      CHECK(onRow.action == studyui::ActionStudy);
+      CHECK(onRow.value == 3);
     }
   }
 }

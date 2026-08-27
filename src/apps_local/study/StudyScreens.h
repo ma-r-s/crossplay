@@ -20,7 +20,6 @@ namespace studyui {
 // Actions the deck screen can produce.
 inline constexpr fui::ActionId ActionStudy = 1;
 inline constexpr fui::ActionId ActionForecast = 2;
-inline constexpr fui::ActionId ActionSwitchDeck = 3;
 inline constexpr fui::ActionId ActionSync = 4;
 
 // How many days either side of today the ornament shows. Two weeks back is far

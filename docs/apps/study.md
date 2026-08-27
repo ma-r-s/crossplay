@@ -48,8 +48,11 @@ remembered in `~/.config/crosspoint-study.json`, so the next run asks nothing.
 Put the card in the reader: **Apps > STUDY**.
 
 Run setup again to put another deck on the card -- adding alongside is the
-default, replacing is offered. On the reader, the `DECK 1/2` row on the deck
-screen cycles between them, and the reader remembers which one you had open.
+default, replacing is offered. The browser installer at /study/ does the same:
+it writes `/study/<slug>/` per deck and only replaces a deck of the same name.
+On the reader, a third door on the deck screen, `CHANGE DECK`, cycles between
+them and shows the position (`2 OF 3`); the reader remembers which one you had
+open.
 Each deck keeps its own scheduling state, review log, stats and fonts.
 
 Every prompt has a flag (`--collection`, `--deck`, `--to`, `--name`, `--add`,
