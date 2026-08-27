@@ -436,6 +436,12 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
       // at the server's username and password.
       const int status = HttpDownloader::lastStatus();
       errorMessage = (status == 401 || status == 403) ? tr(STR_AUTH_FAILED) : tr(STR_FETCH_FEED_FAILED);
+      // The number the server actually sent, appended raw. It is the one fact
+      // that separates "the catalog is down" from "the catalog moved" from
+      // "we never got a reply", and diagnosing it over a USB cable is not
+      // something a reader can do. Digits need no translation; 0 means the
+      // request got no response at all.
+      errorMessage += " (" + std::to_string(status) + ")";
       requestUpdate();
       return;
     }

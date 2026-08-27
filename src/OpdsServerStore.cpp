@@ -119,7 +119,10 @@ bool OpdsServerStore::seedDefaultCatalogs() {
     const char* name;
     const char* url;
   } DEFAULTS[] = {
-      {"Project Gutenberg", "https://m.gutenberg.org/ebooks.opds/"},
+      // www, not m: m.gutenberg.org answers every request with a 301 to this
+      // URL, and following it costs the device a second TLS handshake on a
+      // catalog whose gateway already times out often enough on its own.
+      {"Project Gutenberg", "https://www.gutenberg.org/ebooks.opds/"},
   };
 
   for (const auto& entry : DEFAULTS) {
