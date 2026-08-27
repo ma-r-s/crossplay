@@ -186,18 +186,21 @@ fi
 
 # -- 6. dev-only flags never reach an env a tag builds -------------------------
 #
-# CROSSPOINT_DEV_SERIAL_BRIDGE and CROSSPOINT_DEV_WIFI_FLASH each open a hole
-# that is fine on a desk and wrong in a release: the bridge lets anything on the
-# USB line drive the UI, and the wifi flash adds an unauthenticated HTTP route
-# that replaces the firmware. Both are compile-time so a release image cannot
-# contain them at all -- but only as long as nobody moves one up into a
-# *_common section, which the release envs inherit from. That single edit is
-# invisible in review and ships the hole. So the check is on which SECTION the
-# flag sits in, not merely on whether the release env spells it out.
+# CROSSPOINT_DEV_SERIAL_BRIDGE lets anything on the USB line drive the UI. It is
+# compile-time so a release image cannot contain it at all -- but only as long
+# as nobody moves it up into a *_common section, which the release envs inherit
+# from. That single edit is invisible in review and ships the hole. So the check
+# is on which SECTION the flag sits in, not merely on whether the release env
+# spells it out.
+#
+# Developer Mode is deliberately NOT on this list. It ships in every build by
+# design, because a compile-time gate meant the only way into dev mode was the
+# cable it exists to remove. What protects a release is asserted below instead:
+# it is off by default, and its endpoints require pairing.
 INI="$ROOT/platformio.ini"
 [ -f "$INI" ] || { echo "FAIL release  missing $INI"; exit 1; }
 
-for flag in CROSSPOINT_DEV_SERIAL_BRIDGE CROSSPOINT_DEV_WIFI_FLASH; do
+for flag in CROSSPOINT_DEV_SERIAL_BRIDGE; do
   # Print the section each occurrence of $flag lives in.
   homes="$(awk -v want="$flag" '
     /^\[/ { section = $0; sub(/^\[/, "", section); sub(/\].*$/, "", section) }
@@ -225,6 +228,62 @@ for flag in CROSSPOINT_DEV_SERIAL_BRIDGE CROSSPOINT_DEV_WIFI_FLASH; do
     bad "$flag is set in [$bad_home] -- release envs inherit that, so a tag would ship it"
   fi
 done
+
+# -- 7. Developer Mode ships off, and its endpoints are not open ---------------
+#
+# Dev mode is a runtime setting present in release builds, so the compile-time
+# argument that used to protect users does not apply and something else has to.
+# Three things, each of which has to stay true in a shipped image:
+#   - it defaults to OFF, so nobody gets it by accident;
+#   - every /api/dev/ route except pairing goes through the auth gate;
+#   - the gate is not satisfied by merely being on.
+# A regression in any of these turns every reader whose owner once flipped the
+# toggle into an open firmware-replacement endpoint.
+SETTINGS_H="$ROOT/src/CrossPointSettings.h"
+WEBSERVER="$ROOT/src/network/CrossPointWebServer.cpp"
+for f in "$SETTINGS_H" "$WEBSERVER" "$ROOT/src/DevMode.cpp"; do
+  [ -f "$f" ] || { echo "FAIL release  missing $f"; exit 1; }
+done
+
+if grep -qE '^\s*uint8_t devMode = 0;' "$SETTINGS_H"; then
+  ok
+else
+  bad "devMode does not default to 0 in CrossPointSettings.h -- dev mode would ship ON"
+fi
+
+# Every route registered under /api/dev/ must be either the pair endpoint or a
+# handler whose body calls devAuthorised(). Read the routes out of the source
+# rather than listing them here, so a new endpoint cannot be added without
+# either passing this or failing it.
+dev_routes="$(grep -oE '"/api/dev/[a-z]+"' "$WEBSERVER" | tr -d '"' | sort -u)"
+if [ -z "$dev_routes" ]; then
+  bad "no /api/dev/ routes found; the dev-mode control surface has vanished"
+else
+  for route in $dev_routes; do
+    name="${route##*/}"
+    case "$name" in
+      pair) ok ;;  # pairing is the way IN, so it cannot require a token
+      *)
+        # Find the handler this route dispatches to, then check that handler's body.
+        handler="$(grep -oE "\"$route\"[^;]*handle[A-Za-z]+" "$WEBSERVER" | grep -oE 'handle[A-Za-z]+' | head -1)"
+        if [ -z "$handler" ]; then
+          bad "cannot find the handler for $route"
+        elif awk "/void CrossPointWebServer::$handler\(/,/^}/" "$WEBSERVER" | grep -q 'devAuthorised()'; then
+          ok
+        else
+          bad "$route ($handler) does not call devAuthorised() -- it is open to anyone on the network"
+        fi
+        ;;
+    esac
+  done
+fi
+
+# Being switched on must not be sufficient. The gate has to check a token too.
+if awk '/bool CrossPointWebServer::devAuthorised\(/,/^}/' "$WEBSERVER" | grep -q 'tokenValid'; then
+  ok
+else
+  bad "devAuthorised() does not check a token; turning dev mode on would be enough to flash the device"
+fi
 
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]

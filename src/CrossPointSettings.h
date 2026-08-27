@@ -298,6 +298,11 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t moveFinishedToReadFolder = 0;
   // Short press Back goes to file browser instead of home (0 = disabled, 1 = enabled)
   uint8_t backShortToFileBrowser = 0;
+  // Developer Mode (0 = off, 1 = on). While on, the device joins its last Wi-Fi
+  // network at boot and keeps a paired-only control server up, so it can be
+  // reflashed and driven without a cable. Off is the shipped default and turns
+  // all of it off again; see src/DevMode.h.
+  uint8_t devMode = 0;
   // Image rendering mode in EPUB reader
   uint8_t imageRendering = IMAGES_DISPLAY;
   // Tilt-based page turning (X3 only — requires QMI8658 IMU)

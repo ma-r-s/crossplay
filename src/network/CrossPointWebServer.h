@@ -48,7 +48,17 @@ class CrossPointWebServer {
     UploadState() { buffer.resize(UPLOAD_BUFFER_SIZE); }
   } upload;
 
-  CrossPointWebServer();
+  // devOnly builds the Developer Mode control surface instead of the reader's
+  // web UI: the /api/dev/ routes and nothing else. No file manager, no WebDAV,
+  // no settings API, no WebSocket upload.
+  //
+  // This matters because dev mode keeps its server up for as long as the toggle
+  // is on. The reader's web UI is unauthenticated by design -- it is a
+  // deliberate, temporary thing you open from a screen and close again. Serving
+  // that same surface persistently would quietly turn "I left dev mode on" into
+  // "anyone on this network can browse my card", which is not what the toggle
+  // says it does.
+  explicit CrossPointWebServer(bool devOnly = false);
   ~CrossPointWebServer();
 
   // Start the web server (call after WiFi is connected)
@@ -72,6 +82,7 @@ class CrossPointWebServer {
   std::unique_ptr<WebServer> server = nullptr;
   std::unique_ptr<WebSocketsServer> wsServer = nullptr;
   bool running = false;
+  const bool devOnly = false;
   bool apMode = false;  // true when running in AP mode, false for STA mode
   uint16_t port = 80;
   uint16_t wsPort = 81;  // WebSocket port
@@ -135,11 +146,20 @@ class CrossPointWebServer {
   void handlePostOpdsServer();
   void handleDeleteOpdsServer();
 
-#if CROSSPOINT_DEV_WIFI_FLASH
-  // Dev-only firmware flash. Declared here rather than behind a runtime setting
-  // so a release build contains no route that can replace the firmware.
+  // Developer Mode endpoints. Present in every build, refused unless the
+  // setting is on AND the caller carries a token from a successful pair.
+  void handleDevPair();
   void handleDevFlash();
-#endif
+  void handleDevUpload();      // POST completion
+  void handleDevUploadData();  // streaming body
+  struct DevUploadState {
+    HalFile file;
+    size_t written = 0;
+    bool ok = false;
+  } devUpload;
+  // Shared gate for every /api/dev/ route except pairing. Sends the refusal
+  // itself and returns false, so each handler is one line of guard.
+  bool devAuthorised();
 
   // Wi-Fi credential handlers
   void handleGetWifiNetworks() const;

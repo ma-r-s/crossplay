@@ -1,7 +1,5 @@
 #include "CrossPointWebServerActivity.h"
-#if CROSSPOINT_DEV_WIFI_FLASH
-#include "DevWifiFlash.h"
-#endif
+#include "DevMode.h"
 
 #include <DNSServer.h>
 #include <ESPmDNS.h>
@@ -66,12 +64,10 @@ int barsForRssi(int rssi, int currentBars) {
 
 void CrossPointWebServerActivity::onEnter() {
   Activity::onEnter();
-#if CROSSPOINT_DEV_WIFI_FLASH
-  // This activity binds 80/81/8134 itself, and the dev background server is
-  // already holding them. Two binds on one port fails in a way that reads as
-  // "the web screen is broken", so it yields for as long as the screen is up.
-  devwifi::pause();
-#endif
+  // This activity binds 80/81/8134 itself, and the dev-mode server may already
+  // hold them. Two binds on one port fails in a way that reads as "the web
+  // screen is broken", so dev mode yields for as long as the screen is up.
+  devmode::pause();
 
   LOG_DBG("WEBACT", "Free heap at onEnter: %d bytes", ESP.getFreeHeap());
 
@@ -108,9 +104,7 @@ void CrossPointWebServerActivity::onEnter() {
 
 void CrossPointWebServerActivity::onExit() {
   Activity::onExit();
-#if CROSSPOINT_DEV_WIFI_FLASH
-  devwifi::resume();
-#endif
+  devmode::resume();
 
   LOG_DBG("WEBACT", "Free heap at onExit start: %d bytes", ESP.getFreeHeap());
 
