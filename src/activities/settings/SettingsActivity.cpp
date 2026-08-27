@@ -12,6 +12,7 @@
 #include "ButtonRemapActivity.h"
 #include "ClearCacheActivity.h"
 #include "CrossPointSettings.h"
+#include "DeveloperModeActivity.h"
 #include "FontDownloadActivity.h"
 #include "KOReaderSettingsActivity.h"
 #include "LanguageSelectActivity.h"
@@ -257,6 +258,15 @@ void SettingsActivity::toggleCurrentSetting() {
 
   if (setting.nameId == StrId::STR_TIME_TO_SLEEP) {
     openSleepTimeoutPicker();
+    return;
+  }
+
+  // Developer Mode is a TOGGLE so it persists and shows On/Off like any other,
+  // but selecting it opens a screen rather than flipping in place. It has to:
+  // turning it on produces a pairing code, and a code nobody can read is the
+  // same as no code at all. The screen owns the flip.
+  if (setting.nameId == StrId::STR_DEV_MODE) {
+    startActivityForResult(std::make_unique<DeveloperModeActivity>(renderer, mappedInput), nullptr);
     return;
   }
 

@@ -1304,6 +1304,12 @@ void CrossPointWebServer::handlePostSettings() {
   for (const auto& s : settings) {
     if (!s.key) continue;
     if (!doc[s.key].is<JsonVariant>()) continue;
+    if (isLocalOnlySetting(s.key)) {
+      // Not merely ignored -- said out loud, because a silent no-op on a
+      // security-relevant write is indistinguishable from it having worked.
+      LOG_ERR("WEB", "refused a network write to local-only setting '%s'", s.key);
+      continue;
+    }
 
     switch (s.type) {
       case SettingType::TOGGLE: {
@@ -2011,6 +2017,18 @@ void CrossPointWebServer::handleFontDelete() {
     LOG_ERR("WEB", "Failed to delete font family: %s", familyName);
   }
 }
+
+// Settings a network client must never be able to change, however
+// authenticated the surface feels.
+//
+// The settings list drives the menu, the on-disk JSON AND the web API from one
+// entry, which is exactly why devMode had to be excluded by hand: adding the
+// toggle gave it a web setter for free, and that setter lives on the reader's
+// UNAUTHENTICATED web UI. Anyone on the network, while the transfer screen was
+// open, could have switched Developer Mode on permanently and across reboots --
+// using the temporary surface to enable the persistent one. Turning this device
+// into a development device is a decision made at the device.
+bool CrossPointWebServer::isLocalOnlySetting(const char* key) { return key && strcmp(key, "devMode") == 0; }
 
 // Every /api/dev/ route except pairing goes through here first.
 //

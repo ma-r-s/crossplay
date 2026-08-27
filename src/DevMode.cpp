@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <Logging.h>
+#include <Memory.h>
 #include <WiFi.h>
 #include <esp_random.h>
 
@@ -15,12 +16,22 @@ namespace devmode {
 namespace {
 
 enum class State {
-  Off,         // the setting is off; nothing running, nothing to do
-  NoNetwork,   // on, but no saved network to join -- said once, then quiet
-  Joining,     // on, WiFi.begin() issued, waiting on the AP
-  Serving,     // on, joined, control server up
-  YieldedOut,  // on, but the web server activity owns the ports
+  Off,        // the setting is off; nothing running, nothing to do
+  NoNetwork,  // on, but no saved network to join -- said once, then quiet
+  Joining,    // on, WiFi.begin() issued, waiting on the AP
+  Serving,    // on, joined, control server up
+  Waiting,    // on, joined, but the server could not start; backing off
 };
+
+// Whether another owner (the web transfer screen) holds ports 80/81/8134.
+//
+// A LATCH, deliberately not a State. As a state it was bypassable: update()
+// reconciles the setting before it checks for a yield, so toggling dev mode off
+// and on again while the web screen was open walked straight back into
+// startJoin() and bound the same ports a second time -- and dev mode being OFF
+// made pause() a no-op, so enabling it from that very screen did the same. A
+// latch is checked on every path and cannot be cleared by a state transition.
+bool yielded = false;
 
 State state = State::Off;
 std::unique_ptr<CrossPointWebServer> server;
@@ -29,6 +40,11 @@ std::string password;
 std::string pairingCode;
 std::string activeToken;
 bool paired = false;
+// Whether WE brought the radio up. Dev mode must only ever put down a
+// connection it made itself: the reader has a dozen other things that use
+// Wi-Fi, and switching the radio off underneath one of them is indistinguishable
+// from that feature being broken.
+bool broughtRadioUp = false;
 unsigned long nextAttemptAt = 0;
 unsigned long joinDeadline = 0;
 int attempt = 0;
@@ -79,17 +95,30 @@ void tearDown(const char* why) {
   paired = false;
   attempt = 0;
   nextAttemptAt = 0;
-  // Leave the radio as we found it. Disconnecting is the honest counterpart to
-  // having connected: a user who turns dev mode off did not ask to stay online.
-  if (WiFi.status() == WL_CONNECTED) WiFi.disconnect(true);
-  WiFi.mode(WIFI_OFF);
+  // Only put down what we picked up. A user who turns dev mode off did not ask
+  // to stay online -- but nor did the one who is halfway through downloading a
+  // book on a connection something else established.
+  if (broughtRadioUp) {
+    if (WiFi.status() == WL_CONNECTED) WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+    broughtRadioUp = false;
+  }
 }
 
 void startJoin() {
   attempt++;
   LOG_INF("DEVMODE", "joining '%s' (attempt %d)", ssid.c_str(), attempt);
+  // Do not take a radio that is already in use. Something else owning it --
+  // a link session, an OPDS download -- outranks a background convenience.
+  if (WiFi.getMode() != WIFI_MODE_NULL && WiFi.status() == WL_CONNECTED && !broughtRadioUp) {
+    LOG_INF("DEVMODE", "radio already in use by something else; not joining");
+    state = State::Waiting;
+    nextAttemptAt = millis() + kMaxBackoffMs;
+    return;
+  }
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid.c_str(), password.empty() ? nullptr : password.c_str());
+  broughtRadioUp = true;
   joinDeadline = millis() + kJoinTimeoutMs;
   state = State::Joining;
 }
@@ -124,6 +153,11 @@ void begin() {
 }
 
 void update() {
+  // Before anything else. While another owner holds the ports, dev mode does
+  // not touch the radio, the server, or its own state -- including when the
+  // setting changes underneath it. resume() reconciles whatever it finds.
+  if (yielded) return;
+
   const bool want = SETTINGS.devMode != 0;
 
   if (!want) {
@@ -156,21 +190,29 @@ void update() {
     return;
   }
 
-  if (state == State::YieldedOut) return;
-
   const unsigned long now = millis();
 
   if (state == State::Joining) {
     if (WiFi.status() == WL_CONNECTED) {
       attempt = 0;
       LOG_INF("DEVMODE", "joined '%s' as %s", ssid.c_str(), WiFi.localIP().toString().c_str());
-      server.reset(new CrossPointWebServer(/*devOnly=*/true));
+      // makeUniqueNoThrow, not bare new: with -fno-exceptions a failed new
+      // calls abort() rather than returning null, so the isRunning() check
+      // below could never have run. This path fires on every reconnect, which
+      // is exactly when the heap may be short.
+      server = makeUniqueNoThrow<CrossPointWebServer>(/*devOnly=*/true);
+      if (!server) {
+        LOG_ERR("DEVMODE", "out of memory allocating the control server (free heap %u)", ESP.getFreeHeap());
+        nextAttemptAt = now + backoff();
+        state = State::Waiting;
+        return;
+      }
       server->begin();
       if (!server->isRunning()) {
         LOG_ERR("DEVMODE", "control server failed to start (free heap %u)", ESP.getFreeHeap());
         server.reset();
         nextAttemptAt = now + backoff();
-        joinDeadline = now + kJoinTimeoutMs + backoff();
+        state = State::Waiting;
         return;
       }
       LOG_INF("DEVMODE", "ready at http://%s/  pair with code %s", WiFi.localIP().toString().c_str(),
@@ -191,6 +233,24 @@ void update() {
     return;
   }
 
+  if (state == State::Waiting) {
+    // The server could not be allocated or started. Wait out the backoff rather
+    // than retrying every loop: the old code returned before its own timer was
+    // ever read, so it constructed and destroyed a whole server on every
+    // iteration, fragmenting the heap hardest precisely when it was shortest.
+    if (WiFi.status() != WL_CONNECTED) {
+      nextAttemptAt = now + kMinBackoffMs;
+      joinDeadline = now + kJoinTimeoutMs + kMinBackoffMs;
+      state = State::Joining;
+      return;
+    }
+    if (static_cast<long>(now - nextAttemptAt) >= 0) {
+      LOG_INF("DEVMODE", "retrying the control server");
+      state = State::Joining;  // the CONNECTED branch above starts the server
+    }
+    return;
+  }
+
   // Serving.
   if (WiFi.status() != WL_CONNECTED) {
     stopServer("wifi dropped");
@@ -203,13 +263,18 @@ void update() {
 }
 
 void pause() {
-  if (state == State::Off || state == State::YieldedOut) return;
-  stopServer("web server screen opened");
-  state = State::YieldedOut;
+  // Unconditional, including when dev mode is off: the point is to hold the
+  // latch for as long as the other owner has the ports, so that dev mode being
+  // enabled DURING that window cannot bind them underneath it.
+  if (yielded) return;
+  yielded = true;
+  if (state != State::Off) stopServer("web server screen opened");
 }
 
 void resume() {
-  if (state != State::YieldedOut) return;
+  if (!yielded) return;
+  yielded = false;
+  if (state == State::Off) return;  // never ran; nothing of ours to put down
   if (SETTINGS.devMode == 0) {
     tearDown("developer mode switched off while the web screen was open");
     state = State::Off;

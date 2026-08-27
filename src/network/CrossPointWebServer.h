@@ -162,6 +162,9 @@ class CrossPointWebServer {
   } devUpload;
   // Shared gate for every /api/dev/ route except pairing. Sends the refusal
   // itself and returns false, so each handler is one line of guard.
+  // True for settings that must never be writable over the network, whatever
+  // the surface. See the definition for why devMode is one.
+  static bool isLocalOnlySetting(const char* key);
   bool devAuthorised();
   // Same test as devAuthorised() but SILENT. The upload data callback runs
   // while the request body is still being parsed, and calling server->send()

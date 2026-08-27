@@ -255,7 +255,7 @@ fi
 # handler whose body calls devAuthorised(). Read the routes out of the source
 # rather than listing them here, so a new endpoint cannot be added without
 # either passing this or failing it.
-dev_routes="$(grep -oE '"/api/dev/[a-z]+"' "$WEBSERVER" | tr -d '"' | sort -u)"
+dev_routes="$(grep -oE '"/api/dev/[A-Za-z0-9/_-]+"' "$WEBSERVER" | tr -d '"' | sort -u)"
 if [ -z "$dev_routes" ]; then
   bad "no /api/dev/ routes found; the dev-mode control surface has vanished"
 else
@@ -265,13 +265,30 @@ else
       pair) ok ;;  # pairing is the way IN, so it cannot require a token
       *)
         # Find the handler this route dispatches to, then check that handler's body.
-        handler="$(grep -oE "\"$route\"[^;]*handle[A-Za-z]+" "$WEBSERVER" | grep -oE 'handle[A-Za-z]+' | head -1)"
-        if [ -z "$handler" ]; then
-          bad "cannot find the handler for $route"
-        elif awk "/void CrossPointWebServer::$handler\(/,/^}/" "$WEBSERVER" | grep -q 'devAuthorised()'; then
-          ok
+        # EVERY handler on the line, not the first. A route registered with a
+        # body callback has two, and the second is the one that streams
+        # megabytes to the SD card -- checking only the first left the
+        # dangerous half of /api/dev/upload unasserted while the suite
+        # reported green.
+        # The WHOLE registration line. An earlier version stopped at the first
+        # ";", which falls inside the first lambda body -- so on a route with a
+        # body callback it silently saw only handler one, and the streaming
+        # handler that writes megabytes to the card went unchecked while the
+        # suite printed green. Found by mutation-testing the assertion itself.
+        handlers="$(grep -F "\"$route\"" "$WEBSERVER" | grep -oE 'handle[A-Za-z]+' | sort -u)"
+        if [ -z "$handlers" ]; then
+          bad "cannot find any handler for $route"
         else
-          bad "$route ($handler) does not call devAuthorised() -- it is open to anyone on the network"
+          for handler in $handlers; do
+            # Either gate counts: devAuthorised() answers, devTokenOk() decides
+            # silently for callbacks that must not send mid-parse.
+            if awk "/void CrossPointWebServer::$handler\(/,/^}/" "$WEBSERVER" |
+              grep -qE 'devAuthorised\(\)|devTokenOk\(\)'; then
+              ok
+            else
+              bad "$route ($handler) checks neither devAuthorised() nor devTokenOk() -- open to anyone on the network"
+            fi
+          done
         fi
         ;;
     esac
@@ -283,6 +300,48 @@ if awk '/bool CrossPointWebServer::devAuthorised\(/,/^}/' "$WEBSERVER" | grep -q
   ok
 else
   bad "devAuthorised() does not check a token; turning dev mode on would be enough to flash the device"
+fi
+
+# -- 8. the two Developer Mode invariants that only exist in one line each ------
+#
+# Both of these are load-bearing and both are one edit away from silently
+# reverting, which is exactly the shape that wants a test rather than a comment.
+
+# (a) The upload route must stay HTTP_PUT. This core's FunctionRequestHandler
+# hands the same callback to the upload path and the raw path with nothing to
+# distinguish them, and server->upload() in raw mode dereferences a null
+# _currentUpload and RESETS THE DEVICE -- unauthenticated. PUT makes canUpload()
+# unreachable because it requires HTTP_POST. Changing this line to HTTP_POST or
+# HTTP_ANY restores a remote reboot that already shipped twice.
+if grep -qE '"/api/dev/upload",[[:space:]]*HTTP_PUT' "$WEBSERVER"; then
+  ok
+else
+  bad "/api/dev/upload is not registered HTTP_PUT -- the raw/upload ambiguity that reboots the device is back"
+fi
+
+# (b) Developer Mode must not be writable over the network. The settings list
+# drives the menu, the JSON file AND the web API from one entry, so adding the
+# toggle gave it a web setter for free -- on the reader's UNAUTHENTICATED web
+# UI. That turned the temporary surface into a way to enable the permanent one.
+if awk '/bool CrossPointWebServer::isLocalOnlySetting\(/,/^}/' "$WEBSERVER" | grep -q '"devMode"'; then
+  ok
+else
+  bad "devMode is not in isLocalOnlySetting() -- anyone on the LAN could enable Developer Mode via /api/settings"
+fi
+if awk '/void CrossPointWebServer::handlePostSettings\(/,/^}/' "$WEBSERVER" | grep -q 'isLocalOnlySetting'; then
+  ok
+else
+  bad "handlePostSettings() no longer consults isLocalOnlySetting() -- local-only settings are network-writable again"
+fi
+
+# (c) The pairing code has to be reachable on the device. Without a screen that
+# renders it, the code exists only in a log line read over the cable this
+# feature exists to remove -- which is how it was first written.
+DEVACT="$ROOT/src/activities/settings/DeveloperModeActivity.cpp"
+if [ -f "$DEVACT" ] && grep -q 'st\.code' "$DEVACT"; then
+  ok
+else
+  bad "no on-device screen renders the pairing code; Developer Mode cannot be paired without a serial cable"
 fi
 
 echo "$checks checks, $failed failed"
