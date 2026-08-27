@@ -1181,6 +1181,40 @@ void StudyActivity::render(RenderLock&&) {
   }
 #endif
 
+  if (view_ == View::PairQr) {
+    fui::GfxRendererTarget target = toybox::makeTarget(renderer);
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(target, target.deviceContext(), noInput, interactions_);
+    toybox::Screen screen(frame);
+    const fui::Rect qr = studyui::buildPairQr(screen, pairCode_.c_str());
+    QrUtils::drawQrCode(renderer, Rect{qr.x, qr.y, qr.width, qr.height}, study::StudySync::pairUrl(pairCode_));
+    const auto labels = mappedInput.mapLabels("Cancel", "", "", "");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    renderer.displayBuffer();
+    return;
+  }
+
+  if (view_ == View::PairConfirm) {
+    fui::GfxRendererTarget target = toybox::makeTarget(renderer);
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(target, target.deviceContext(), noInput, interactions_);
+    toybox::Screen screen(frame);
+    const studyui::PairConfirmLayout layout = studyui::buildPairConfirm(screen);
+    // The account name in serif: the toybox cuts are ASCII-subset, and the
+    // gate is only a gate if the name is legible whatever alphabet it uses.
+    UITheme::drawCenteredWrappedText(
+        renderer, Rect{layout.username.x, layout.username.y, layout.username.width, layout.username.height},
+        kMeaningFontId, pairUsername_.c_str(), 2);
+    confirmX_ = layout.pill.x;
+    confirmY_ = layout.pill.y;
+    confirmW_ = layout.pill.width;
+    confirmH_ = layout.pill.height;
+    const auto labels = mappedInput.mapLabels("Cancel", "", "", "Confirm");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    renderer.displayBuffer();
+    return;
+  }
+
   if (view_ == View::SyncFlow) {
     fui::GfxRendererTarget target = toybox::makeTarget(renderer);
     const fui::InputSnapshot noInput{};
@@ -1233,8 +1267,6 @@ void StudyActivity::render(RenderLock&&) {
   } else if (view_ == View::Card) {
     const int remaining = (queueCount_ - queuePos_) + learningCount_ + 1;
     std::snprintf(title, sizeof(title), "%d LEFT", remaining);
-  } else if (view_ == View::PairQr || view_ == View::PairConfirm) {
-    std::snprintf(title, sizeof(title), "SYNC");
   } else {
     std::snprintf(title, sizeof(title), "STUDY");
   }
@@ -1280,48 +1312,7 @@ void StudyActivity::render(RenderLock&&) {
   const int bodyTop = metrics.topPadding + metrics.headerHeight;
   const int footerTop = height - kFooterHeight;
 
-  if (view_ == View::PairQr) {
-    // The same QR-dominant arrangement the first-run screen won from three
-    // rendered variants; only the words and the payload differ.
-    UITheme::drawCenteredWrappedText(renderer, Rect{0, bodyTop + 16, width, 56}, kReadingFontId, "Pair this reader", 1);
-    const int16_t qrSide = 232;
-    QrUtils::drawQrCode(renderer, Rect{static_cast<int16_t>((width - qrSide) / 2), bodyTop + 88, qrSide, qrSide},
-                        study::StudySync::pairUrl(pairCode_));
-    UITheme::drawCenteredWrappedText(renderer, Rect{0, bodyTop + 88 + qrSide + 16, width, 56}, kReadingFontId,
-                                     pairCode_.c_str(), 1);
-    UITheme::drawCenteredWrappedText(renderer, Rect{20, bodyTop + 88 + qrSide + 82, width - 40, 160}, kMeaningFontId,
-                                     "Scan the code, or go to sync.ma-r-s.com/pair and type it. "
-                                     "Sign in there with your AnkiWeb account.",
-                                     4);
-    const auto labels = mappedInput.mapLabels("Cancel", "", "", "");
-    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-    renderer.displayBuffer();
-    return;
-  } else if (view_ == View::PairConfirm) {
-    UITheme::drawCenteredWrappedText(renderer, Rect{0, bodyTop + 60, width, 56}, kReadingFontId, "Paired to", 1);
-    UITheme::drawCenteredWrappedText(renderer, Rect{16, bodyTop + 128, width - 32, 80}, kMeaningFontId,
-                                     pairUsername_.c_str(), 2);
-    UITheme::drawCenteredWrappedText(renderer, Rect{24, bodyTop + 224, width - 48, 80}, kMeaningFontId,
-                                     "If this is your account, confirm. If not, cancel -- nothing is stored yet.", 3);
-    // The confirm target: a pill the thumb can reach, tappable because on the
-    // Sticky the Confirm button is the power button.
-    confirmW_ = static_cast<int16_t>(width - 120);
-    confirmH_ = 56;
-    confirmX_ = 60;
-    confirmY_ = static_cast<int16_t>(height - kFooterHeight - 90);
-    renderer.fillRoundedRect(confirmX_, confirmY_, confirmW_, confirmH_, confirmH_ / 2, White);
-    renderer.drawRoundedRect(confirmX_, confirmY_, confirmW_, confirmH_, toybox::kHairline, confirmH_ / 2, true);
-    {
-      const char* confirmLabel = "CONFIRM -- THIS IS ME";
-      const int labelWidth = renderer.getTextWidth(toybox::kUiFontId, confirmLabel);
-      toybox::drawCapsCentered(renderer, toybox::kUiFontId, confirmX_ + (confirmW_ - labelWidth) / 2, confirmY_,
-                               confirmH_, confirmLabel, true);
-    }
-    const auto labels = mappedInput.mapLabels("Cancel", "", "", "Confirm");
-    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-    renderer.displayBuffer();
-    return;
-  } else if (view_ == View::Image) {
+  if (view_ == View::Image) {
     drawImage(Rect{0, bodyTop, width, height - bodyTop});
   } else if (view_ == View::Card) {
     drawCard(Rect{0, bodyTop, width, footerTop - bodyTop});

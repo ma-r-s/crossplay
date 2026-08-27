@@ -447,4 +447,59 @@ void buildSyncFlow(toybox::Screen& screen, const SyncFlowModel& model) {
   }
 }
 
+fui::Rect buildPairQr(toybox::Screen& screen, const char* code) {
+  chrome(screen, "SYNC");
+  screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
+  const fui::Rect body = screen.body();
+
+  screen.target().text(fui::makeRect(body.x, body.y, body.width, 48), "PAIR THIS READER",
+                       syncText(toybox::kDisplayFont, fui::TextAlign::Center));
+
+  constexpr int16_t kQrSide = 232;
+  const fui::Rect qr = fui::makeRect(static_cast<int16_t>(body.x + (body.width - kQrSide) / 2),
+                                     static_cast<int16_t>(body.y + 48 + toybox::kMargin * 2), kQrSide, kQrSide);
+
+  // The code, said twice on purpose: the QR for phones, the letters for the
+  // person typing it into the pair page by hand.
+  const int codeY = qr.bottom() + toybox::kMargin;
+  screen.target().text(fui::makeRect(body.x, codeY, body.width, 48), code,
+                       syncText(toybox::kDisplayFont, fui::TextAlign::Center));
+
+  screen.target().text(
+      fui::makeRect(body.x + toybox::kMargin, codeY + 48 + toybox::kMargin, body.width - toybox::kMargin * 2, 116),
+      "Scan the code, or go to sync.ma-r-s.com/pair and type it. Sign in there with your AnkiWeb account.",
+      syncText(toybox::kUiFont, fui::TextAlign::Center, fui::Color::DarkGray, 4));
+  return qr;
+}
+
+PairConfirmLayout buildPairConfirm(toybox::Screen& screen) {
+  chrome(screen, "SYNC");
+  screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
+  const fui::Rect body = screen.body();
+  const fui::Paint ink = fui::Paint::solid(fui::Color::Black);
+
+  screen.target().text(fui::makeRect(body.x, body.y + toybox::kMargin, body.width, 48), "PAIRED TO",
+                       syncText(toybox::kDisplayFont, fui::TextAlign::Center));
+
+  PairConfirmLayout layout;
+  layout.username =
+      fui::makeRect(body.x, static_cast<int16_t>(body.y + toybox::kMargin + 48 + toybox::kMargin), body.width, 80);
+
+  screen.target().text(fui::makeRect(body.x + toybox::kMargin, layout.username.bottom() + toybox::kMargin,
+                                     body.width - toybox::kMargin * 2, 84),
+                       "If this is your account, confirm. If not, cancel -- nothing is stored yet.",
+                       syncText(toybox::kUiFont, fui::TextAlign::Center, fui::Color::DarkGray, 3));
+
+  // The confirm target: a pill the thumb can reach, tappable because on the
+  // Sticky the Confirm button is the power button.
+  const int16_t pillH = 56;
+  // Clear of the Sticky's hint bar; the X4 Pro has no bar and just gains air.
+  layout.pill = fui::makeRect(static_cast<int16_t>(body.x + 44), static_cast<int16_t>(body.bottom() - pillH - 48),
+                              static_cast<int16_t>(body.width - 88), pillH);
+  screen.target().stroke(layout.pill, ink, toybox::kRule, static_cast<uint8_t>(pillH / 2));
+  screen.target().text(fui::makeRect(layout.pill.x, layout.pill.y + (pillH - 26) / 2, layout.pill.width, 26),
+                       "THIS IS ME", syncText(toybox::kUiFont, fui::TextAlign::Center));
+  return layout;
+}
+
 }  // namespace studyui
