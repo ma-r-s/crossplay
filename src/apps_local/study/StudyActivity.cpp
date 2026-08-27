@@ -1732,9 +1732,11 @@ void StudyActivity::runSyncFlow() {
       // The first sync of a big collection is minutes, not seconds. Say so
       // once, and make leaving safe -- the job keeps running on the bridge.
       preparing = true;
+      // Three lines at the caption width; the longer sentence overflowed on
+      // hardware and the renderer's own "..." has no glyph in this cut. The
+      // leave story is the safety footer's job anyway.
       std::snprintf(flow_.caption, sizeof(flow_.caption),
-                    "This first time can take a while. It keeps working if you leave; sync again later to pick up "
-                    "the result.");
+                    "This first time can take a while. It keeps working if you leave.");
       showFlow();
     }
   }
