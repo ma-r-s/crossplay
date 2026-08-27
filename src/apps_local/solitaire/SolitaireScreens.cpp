@@ -327,7 +327,8 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model, Layout& layout)
   fui::HeaderProps header;
   header.title = "SOLITAIRE";
   header.borderEdges = fui::EdgesNone;
-  screen.header(header);
+  toybox::absoluteChrome(screen);
+  toybox::headerBand(screen, header);
   target.fill(fui::makeRect(0, kHeader + 4, band.width, toybox::kRule), ink);
 
   // The two standing actions live in the header band, knocked out of the black.
@@ -492,7 +493,8 @@ void buildWin(toybox::Screen& screen, const WinModel& model) {
   fui::HeaderProps header;
   header.title = "SOLITAIRE";
   header.borderEdges = fui::EdgesNone;
-  screen.header(header);
+  toybox::absoluteChrome(screen);
+  toybox::headerBand(screen, header);
   target.fill(fui::makeRect(0, kHeader + 4, band.width, toybox::kRule), ink);
 
   // The cascade. Every physical solitaire ends with the deck coming off the
@@ -576,7 +578,8 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   fui::HeaderProps header;
   header.title = "SOLITAIRE";
   header.borderEdges = fui::EdgesNone;
-  screen.header(header);
+  toybox::absoluteChrome(screen);
+  toybox::headerBand(screen, header);
   target.fill(fui::makeRect(0, kHeader + 4, band.width, toybox::kRule), ink);
 
   // Two columns, because 480 pixels of height will not take the portrait front

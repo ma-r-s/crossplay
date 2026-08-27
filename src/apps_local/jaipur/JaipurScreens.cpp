@@ -27,11 +27,10 @@ void toyboxChrome(toybox::Screen& screen, const char* title, const char* rightLa
   header.subtitleText.color = fui::Color::White;
   header.subtitleText.align = fui::TextAlign::Right;
   header.borderEdges = fui::EdgesNone;
-  screen.header(header);
+  toybox::absoluteChrome(screen);
+  toybox::headerBand(screen, header);
 
-  const fui::Rect band = screen.device().screen();
-  screen.target().fill(fui::makeRect(0, toybox::kHeaderHeight + 4, band.width, toybox::kRule),
-                       fui::Paint::solid(fui::Color::Black));
+  toybox::headerRule(screen);
 
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 }
@@ -46,7 +45,6 @@ void smallLine(toybox::Screen& screen, const fui::Rect& where, const char* text,
   style.align = align;
   screen.target().text(where, text, style);
 }
-
 
 // --- the tutorial's own drawing kit -----------------------------------------
 //
@@ -375,7 +373,6 @@ fui::Rect buildRoundOver(toybox::Screen& screen, const RoundModel& model) {
   return screen.body();
 }
 
-
 int tutorialPages() { return 8; }
 
 void buildTutorial(toybox::Screen& screen, const TutorialModel& model) {
@@ -427,8 +424,8 @@ void buildTutorial(toybox::Screen& screen, const TutorialModel& model) {
         }
       }
       caption(screen, body, capTop,
-                "THE RICHER TRADER TAKES A SEAL OF EXCELLENCE. TWO SEALS WINS THE GAME, SO A MATCH IS TWO OR THREE "
-                "ROUNDS.");
+              "THE RICHER TRADER TAKES A SEAL OF EXCELLENCE. TWO SEALS WINS THE GAME, SO A MATCH IS TWO OR THREE "
+              "ROUNDS.");
       break;
     }
 
@@ -459,7 +456,8 @@ void buildTutorial(toybox::Screen& screen, const TutorialModel& model) {
                 fui::makeRect(static_cast<int16_t>(rightX + (panel - 60) / 2), static_cast<int16_t>(top + 188), 60, 46),
                 5, true);
 
-      caption(screen, body, capTop, "EVERY TURN IS ONE OR THE OTHER. TAKE CARDS FROM THE MARKET, OR SELL FROM YOUR HAND.");
+      caption(screen, body, capTop,
+              "EVERY TURN IS ONE OR THE OTHER. TAKE CARDS FROM THE MARKET, OR SELL FROM YOUR HAND.");
       break;
     }
 
@@ -498,7 +496,7 @@ void buildTutorial(toybox::Screen& screen, const TutorialModel& model) {
         }
       }
       caption(screen, body, capTop,
-                "TAKE ONE GOOD, OR EVERY CAMEL AT ONCE, OR TRADE AT LEAST TWO FOR TWO. CAMELS COUNT AS PAYMENT.");
+              "TAKE ONE GOOD, OR EVERY CAMEL AT ONCE, OR TRADE AT LEAST TWO FOR TWO. CAMELS COUNT AS PAYMENT.");
       break;
     }
 
@@ -557,16 +555,15 @@ void buildTutorial(toybox::Screen& screen, const TutorialModel& model) {
         const int16_t x = static_cast<int16_t>(body.x + (body.width - span) / 2 + i * (chipW + gap));
         const fui::Rect box = fui::makeRect(x, top, chipW, 120);
         screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), toybox::kRule, 8);
-        screen.target().bitmap(fui::makeRect(static_cast<int16_t>(x + (chipW - 44) / 2),
-                                             static_cast<int16_t>(top + 18), 44, 44),
-                               fui::bitmapFromIcon(icon_bonus_token_44), fui::BitmapMode::Contain,
-                               fui::Paint::solid(fui::Color::Black));
+        screen.target().bitmap(
+            fui::makeRect(static_cast<int16_t>(x + (chipW - 44) / 2), static_cast<int16_t>(top + 18), 44, 44),
+            fui::bitmapFromIcon(icon_bonus_token_44), fui::BitmapMode::Contain, fui::Paint::solid(fui::Color::Black));
         note(screen, fui::makeRect(x, static_cast<int16_t>(top + 76), chipW, 24), how[i]);
       }
       note(screen, fui::makeRect(body.x, static_cast<int16_t>(top + 156), body.width, 24), "BIGGER SALE, BIGGER TOKEN");
       caption(screen, body, capTop,
-                "SELL THREE OR MORE OF ONE GOOD AT ONCE AND TAKE A BONUS TOKEN. IT STAYS FACE DOWN UNTIL THE ROUND IS "
-                "SCORED.");
+              "SELL THREE OR MORE OF ONE GOOD AT ONCE AND TAKE A BONUS TOKEN. IT STAYS FACE DOWN UNTIL THE ROUND IS "
+              "SCORED.");
       break;
     }
 
@@ -579,7 +576,8 @@ void buildTutorial(toybox::Screen& screen, const TutorialModel& model) {
       const int16_t col = static_cast<int16_t>(body.width / 2);
       const int herd[2] = {4, 2};
       for (int seat = 0; seat < 2; ++seat) {
-        note(screen, fui::makeRect(static_cast<int16_t>(body.x + seat * col), top, col, 22), seat == 0 ? "YOU" : "THEM");
+        note(screen, fui::makeRect(static_cast<int16_t>(body.x + seat * col), top, col, 22),
+             seat == 0 ? "YOU" : "THEM");
         // Laid out clear of each other rather than fanned. Overlapping them
         // covered each camel with the next card and the herd turned to mush;
         // four is a number you count, so the four have to be countable.
@@ -597,8 +595,8 @@ void buildTutorial(toybox::Screen& screen, const TutorialModel& model) {
                 fui::makeRect(static_cast<int16_t>(body.x + (col - 68) / 2), static_cast<int16_t>(top + 166), 68, 46),
                 jaipur::kCamelTokenValue, true);
       caption(screen, body, capTop,
-                "CAMELS NEVER SELL AND NEVER COUNT AGAINST YOUR HAND. THE BIGGER HERD TAKES FIVE RUPEES WHEN THE ROUND "
-                "ENDS.");
+              "CAMELS NEVER SELL AND NEVER COUNT AGAINST YOUR HAND. THE BIGGER HERD TAKES FIVE RUPEES WHEN THE ROUND "
+              "ENDS.");
       break;
     }
 
@@ -623,8 +621,8 @@ void buildTutorial(toybox::Screen& screen, const TutorialModel& model) {
                                            static_cast<int16_t>(top + 160), cardW, cardH);
       screen.target().stroke(deck, fui::Paint::dither(fui::Color::DarkGray), toybox::kRule, 8);
       caption(screen, body, capTop,
-                "EITHER ONE ENDS THE ROUND ON THE SPOT. COUNT UP, TAKE THE SEAL, AND DEAL AGAIN, WITH THE LOSER "
-                "GOING FIRST.");
+              "EITHER ONE ENDS THE ROUND ON THE SPOT. COUNT UP, TAKE THE SEAL, AND DEAL AGAIN, WITH THE LOSER "
+              "GOING FIRST.");
       break;
     }
 

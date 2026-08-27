@@ -197,7 +197,7 @@ void FrontlightPanelActivity::buildPanelScreen(UiScreen& screen) {
   const auto& metrics = UITheme::getInstance().getMetrics();
   const auto& theme = screen.theme();
   const int16_t bottomInset = static_cast<int16_t>(renderer.getScreenHeight() - panelBottom);
-  screen.setContentMargin(
+  screen.setContentMarginAbsolute(
       fui::Insets{static_cast<int16_t>(metrics.topPadding + metrics.headerHeight), 0, bottomInset, 0});
 
   const int16_t lineHeight = screen.target().lineHeight(theme.bodyText.font);

@@ -45,22 +45,23 @@ how much upstream-owned code it touches.
 
 The code seams, each a deliberate, commented edit:
 
-| File                                           | Why                                                                                                                               | Size                 |
-| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
-| `src/activities/home/HomeActivity.{cpp,h}`     | The shelf seam: Games and Apps as rows on Home, plus the `upstreamMenuRows()` count                                               | 4 hooks + 1 method   |
-| `src/components/themes/BaseTheme.h`            | Two values appended to the `UIIcon` palette: Games, Apps                                                                          | 1 block, appended    |
-| `src/components/themes/lyra/LyraTheme.cpp`     | Two cases mapping them to bitmaps                                                                                                 | 4 lines              |
-| `src/activities/ActivityManager.cpp`           | `Frontlight.present()` guard on the light-panel gesture (the stack `#ifndef` seam retired: upstream adopted it in 1.6.0rc)        | 1 guard              |
-| `src/MappedInputManager.{h,cpp}`               | `swallowCurrentTouch()`: one-line wrapper over the SDK suppression latch, for apps that time their own holds (Minesweeper's flag) | 1 method             |
-| `src/network/OtaUpdater.cpp`                   | Release URL repointed at `ma-r-s/crossplay`: pointing at upstream would flash a C3 build onto an S3                               | 1 URL + comment      |
-| `lib/hal/HalStorage.{h,cpp}`                   | `openFileForAppend()`: `openFileForWrite` carries `O_TRUNC`, so nothing could add to an existing file                             | 1 method             |
-| `lib/GfxRenderer/GfxRenderer.cpp`              | Thick lines thicken across their direction, not always downward: vertical paths drew 1px                                          | 1 fix                |
-| `lib/PngToBmpConverter/PngToBmpConverter.*`    | `...FitWithin()`: contain, not cover, for bounding downloaded images                                                              | 1 method             |
-| `lib/KOReaderSync/KOReaderCredentialStore.cpp` | A comment saying out loud that sync stays on upstream's server, and why                                                           | comment only         |
-| `.gitignore`                                   | Ignore `qa-artifacts/` and the simulator's SD cards                                                                               | 3 lines, append-only |
-| `platformio.ini`                               | One `extra_configs` line pulling in `platformio.sim.ini`                                                                          | 1 line               |
-| `.skills/SKILL.md` (= `CLAUDE.md`)             | The read-this-first banner pointing here, so agents find the fork rules                                                           | ~20 lines            |
-| `SCOPE.md`                                     | One-line pointer here; it is the file that says "no games"                                                                        | 2 lines              |
+| File                                           | Why                                                                                                                                         | Size                 |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
+| `src/activities/home/HomeActivity.{cpp,h}`     | The shelf seam: Games and Apps as rows on Home, plus the `upstreamMenuRows()` count                                                         | 4 hooks + 1 method   |
+| `src/components/themes/BaseTheme.h`            | Two values appended to the `UIIcon` palette: Games, Apps                                                                                    | 1 block, appended    |
+| `src/components/themes/lyra/LyraTheme.cpp`     | Two cases mapping them to bitmaps                                                                                                           | 4 lines              |
+| `src/activities/ActivityManager.cpp`           | `Frontlight.present()` guard on the light-panel gesture (the stack `#ifndef` seam retired: upstream adopted it in 1.6.0rc)                  | 1 guard              |
+| `src/MappedInputManager.{h,cpp}`               | `swallowCurrentTouch()`: one-line wrapper over the SDK suppression latch, for apps that time their own holds (Minesweeper's flag)           | 1 method             |
+| `src/network/OtaUpdater.cpp`                   | Release URL repointed at `ma-r-s/crossplay`: pointing at upstream would flash a C3 build onto an S3                                         | 1 URL + comment      |
+| `lib/hal/HalStorage.{h,cpp}`                   | `openFileForAppend()`: `openFileForWrite` carries `O_TRUNC`, so nothing could add to an existing file                                       | 1 method             |
+| `lib/GfxRenderer/GfxRenderer.cpp`              | Thick lines thicken across their direction, not always downward: vertical paths drew 1px                                                    | 1 fix                |
+| `lib/PngToBmpConverter/PngToBmpConverter.*`    | `...FitWithin()`: contain, not cover, for bounding downloaded images                                                                        | 1 method             |
+| `lib/KOReaderSync/KOReaderCredentialStore.cpp` | A comment saying out loud that sync stays on upstream's server, and why                                                                     | comment only         |
+| `src/components/UITheme.cpp`                   | `getScreenSafeArea()` starts from the bezel's viewable insets, so upstream screens stop drawing under the glass; see `docs/bezel-insets.md` | 1 block              |
+| `.gitignore`                                   | Ignore `qa-artifacts/` and the simulator's SD cards                                                                                         | 3 lines, append-only |
+| `platformio.ini`                               | One `extra_configs` line pulling in `platformio.sim.ini`                                                                                    | 1 line               |
+| `.skills/SKILL.md` (= `CLAUDE.md`)             | The read-this-first banner pointing here, so agents find the fork rules                                                                     | ~20 lines            |
+| `SCOPE.md`                                     | One-line pointer here; it is the file that says "no games"                                                                                  | 2 lines              |
 
 The rest of the twenty-eight are identity, not seams: `README.md`, `LICENSE`,
 `GOVERNANCE.md`, `ROADMAP.md`, `.github/` templates, funding and workflows,

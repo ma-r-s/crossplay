@@ -69,8 +69,8 @@ void OpdsFilterActivity::activateIndex(const int index) {
     // The "all languages" row: on means no filtering, off falls back to the
     // default rather than to nothing, since an empty list filters nothing
     // either and would leave the screen looking broken.
-    mask = (mask == opdsAllLanguagesMask()) ? opdsLanguageMaskFromCodes(OPDS_LANGUAGES_DEFAULT)
-                                            : opdsAllLanguagesMask();
+    mask =
+        (mask == opdsAllLanguagesMask()) ? opdsLanguageMaskFromCodes(OPDS_LANGUAGES_DEFAULT) : opdsAllLanguagesMask();
   } else {
     mask ^= (1u << static_cast<uint32_t>(value));
   }
@@ -85,7 +85,7 @@ void OpdsFilterActivity::buildScreen(UiScreen& screen) {
   // Content sits below the header band and above the button hints, derived
   // from the safe area so bezel insets apply -- same as the server list.
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  screen.setContentMargin(
+  screen.setContentMarginAbsolute(
       fui::Insets{static_cast<int16_t>(safe.y + metrics.topPadding + metrics.headerHeight),
                   static_cast<int16_t>(renderer.getScreenWidth() - (safe.x + safe.width)),
                   static_cast<int16_t>(renderer.getScreenHeight() - (safe.y + safe.height) + metrics.buttonHintsHeight),
