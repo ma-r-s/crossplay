@@ -296,4 +296,203 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   }
 }
 
+// ---- The sync flow surface (docs/apps/study-syncflow-ui.md). The stage
+// band won the three-variant round; the ladder and line+log arrangements
+// and the STUDY_SYNCFLOW_VARIANT macro died with the choice.
+
+namespace {
+
+const char* stageLabel(const int i) {
+  static const char* kLabels[kSyncStageCount] = {"CONNECT", "SEND REVIEWS", "BUILD DECKS", "DOWNLOAD"};
+  return kLabels[i];
+}
+
+// The band's segments are a quarter-width each; the full labels truncate.
+const char* stageShortLabel(const int i) {
+  static const char* kLabels[kSyncStageCount] = {"CONNECT", "SEND", "BUILD", "DOWNLOAD"};
+  return kLabels[i];
+}
+
+const char* safetyLine(const SyncSafety safety) {
+  switch (safety) {
+    case SyncSafety::ReviewsSafe:
+      return "YOUR REVIEWS ARE SAFE";
+    case SyncSafety::ReviewsSafePartialDecks:
+      return "REVIEWS SAFE -- SOME DECKS ALREADY UPDATED";
+    case SyncSafety::NothingSent:
+      return "NOTHING WAS SENT";
+    default:
+      return nullptr;
+  }
+}
+
+fui::TextStyle syncText(const fui::FontId font, const fui::TextAlign align, const fui::Color color = fui::Color::Black,
+                        const uint8_t maxLines = 1) {
+  fui::TextStyle style;
+  style.font = font;
+  style.align = align;
+  style.color = color;
+  style.maxLines = maxLines;
+  return style;
+}
+
+// The verdict glyph in the door's icon language.
+fui::BitmapRef verdictGlyph(const SyncVerdictKind kind) {
+  switch (kind) {
+    case SyncVerdictKind::Success:
+      return fui::bitmapFromIcon(icon_check_32);
+    case SyncVerdictKind::Error:
+      return fui::bitmapFromIcon(icon_x_32);
+    default:
+      return fui::bitmapFromIcon(icon_minus_32);
+  }
+}
+
+// The safety promise, anchored at the content bottom. Busy face: shown from
+// the ack on, with the leave story; verdict face never calls this (safety
+// leads the verdict text instead).
+void syncSafetyFooter(toybox::Screen& screen, const fui::Rect& body) {
+  const int y = body.bottom() - 52;
+  screen.target().text(fui::makeRect(body.x, y, body.width, 20), "YOUR REVIEWS ARE SAFE",
+                       syncText(toybox::kTileFont, fui::TextAlign::Center));
+  screen.target().text(fui::makeRect(body.x, y + 24, body.width, 20), "BACK LEAVES -- THE BRIDGE KEEPS WORKING",
+                       syncText(toybox::kTileFont, fui::TextAlign::Center, fui::Color::DarkGray));
+}
+
+}  // namespace
+
+void buildSyncFlow(toybox::Screen& screen, const SyncFlowModel& model) {
+  chrome(screen, "SYNC");
+  screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
+  const fui::Rect body = screen.body();
+  const fui::Paint ink = fui::Paint::solid(fui::Color::Black);
+  const fui::Paint dim = fui::Paint::solid(fui::Color::DarkGray);
+
+  int activeStage = -1;
+  for (int i = 0; i < kSyncStageCount; ++i) {
+    if (model.stages[i] == SyncStageState::Active) activeStage = i;
+  }
+
+  // V2 "Stage band": a horizontal four-segment band under the header; the
+  // current stage as a headline beneath it.
+  const int segGap = 8;
+  const int segW = (body.width - segGap * (kSyncStageCount - 1)) / kSyncStageCount;
+  const int bandY = body.y + 4;
+  for (int i = 0; i < kSyncStageCount; ++i) {
+    const fui::Rect seg = fui::makeRect(body.x + i * (segW + segGap), bandY, segW, 14);
+    // The band never invents progress: a verdict shows the stages exactly as
+    // the flow left them (a cancelled pairing shows one half-tone segment,
+    // not four filled ones over NOTHING WAS SENT). Success alone fills the
+    // strip, because success means every stage in fact completed.
+    SyncStageState state = model.stages[i];
+    if (model.verdict == SyncVerdictKind::Success) state = SyncStageState::Done;
+    if (state == SyncStageState::Done) {
+      screen.target().fill(seg, ink);
+    } else if (state == SyncStageState::Active) {
+      // Half-tone: in progress on the busy face, "died here" on an error
+      // verdict. A heavier outline alone did not separate from pending.
+      screen.target().fill(seg, fui::Paint::dither(fui::Color::LightGray));
+      screen.target().stroke(seg, ink, 2);
+    } else {
+      screen.target().stroke(seg, dim, 1);
+    }
+    screen.target().text(fui::makeRect(seg.x - 4, bandY + 22, segW + 8, 18), stageShortLabel(i),
+                         syncText(toybox::kTileFont, fui::TextAlign::Center,
+                                  state == SyncStageState::Pending ? fui::Color::DarkGray : fui::Color::Black));
+  }
+
+  if (model.verdict == SyncVerdictKind::None) {
+    const int headY = bandY + 96;
+    if (activeStage >= 0) {
+      screen.target().text(fui::makeRect(body.x, headY, body.width, 48), stageLabel(activeStage),
+                           syncText(toybox::kDisplayFont, fui::TextAlign::Center));
+    }
+    if (model.caption[0] != '\0') {
+      screen.target().text(fui::makeRect(body.x + 20, headY + 72, body.width - 40, 84), model.caption,
+                           syncText(toybox::kUiFont, fui::TextAlign::Center, fui::Color::DarkGray, 3));
+    }
+    if (model.safety >= SyncSafety::ReviewsSafe) syncSafetyFooter(screen, body);
+  } else {
+    int y = bandY + 88;
+    screen.target().bitmap(fui::makeRect(body.x + (body.width - 32) / 2, y, 32, 32), verdictGlyph(model.verdict),
+                           fui::BitmapMode::Contain, ink);
+    y += 52;
+    screen.target().text(fui::makeRect(body.x, y, body.width, 48), model.title,
+                         syncText(toybox::kDisplayFont, fui::TextAlign::Center));
+    y += 62;
+    if (const char* safety = safetyLine(model.safety)) {
+      screen.target().text(fui::makeRect(body.x, y, body.width, 22), safety,
+                           syncText(toybox::kTileFont, fui::TextAlign::Center));
+      y += 34;
+    }
+    screen.target().text(fui::makeRect(body.x + 20, y, body.width - 40, 104), model.body,
+                         syncText(toybox::kUiFont, fui::TextAlign::Center, fui::Color::Black, 4));
+    y += 112;
+    for (int i = 0; i < model.factCount; ++i) {
+      screen.target().text(fui::makeRect(body.x, y, body.width, 22), model.factLines[i],
+                           syncText(toybox::kTileFont, fui::TextAlign::Center, fui::Color::DarkGray));
+      y += 26;
+    }
+    if (model.whatNow[0] != '\0') {
+      screen.target().text(fui::makeRect(body.x + 20, body.bottom() - 48, body.width - 40, 44), model.whatNow,
+                           syncText(toybox::kTileFont, fui::TextAlign::Center, fui::Color::DarkGray, 2));
+    }
+  }
+}
+
+fui::Rect buildPairQr(toybox::Screen& screen, const char* code) {
+  chrome(screen, "SYNC");
+  screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
+  const fui::Rect body = screen.body();
+
+  screen.target().text(fui::makeRect(body.x, body.y, body.width, 48), "PAIR THIS READER",
+                       syncText(toybox::kDisplayFont, fui::TextAlign::Center));
+
+  constexpr int16_t kQrSide = 232;
+  const fui::Rect qr = fui::makeRect(static_cast<int16_t>(body.x + (body.width - kQrSide) / 2),
+                                     static_cast<int16_t>(body.y + 48 + toybox::kMargin * 2), kQrSide, kQrSide);
+
+  // The code, said twice on purpose: the QR for phones, the letters for the
+  // person typing it into the pair page by hand.
+  const int codeY = qr.bottom() + toybox::kMargin;
+  screen.target().text(fui::makeRect(body.x, codeY, body.width, 48), code,
+                       syncText(toybox::kDisplayFont, fui::TextAlign::Center));
+
+  screen.target().text(
+      fui::makeRect(body.x + toybox::kMargin, codeY + 48 + toybox::kMargin, body.width - toybox::kMargin * 2, 116),
+      "Scan the code, or go to sync.ma-r-s.com/pair and type it. Sign in there with your AnkiWeb account.",
+      syncText(toybox::kUiFont, fui::TextAlign::Center, fui::Color::DarkGray, 4));
+  return qr;
+}
+
+PairConfirmLayout buildPairConfirm(toybox::Screen& screen) {
+  chrome(screen, "SYNC");
+  screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
+  const fui::Rect body = screen.body();
+  const fui::Paint ink = fui::Paint::solid(fui::Color::Black);
+
+  screen.target().text(fui::makeRect(body.x, body.y + toybox::kMargin, body.width, 48), "PAIRED TO",
+                       syncText(toybox::kDisplayFont, fui::TextAlign::Center));
+
+  PairConfirmLayout layout;
+  layout.username =
+      fui::makeRect(body.x, static_cast<int16_t>(body.y + toybox::kMargin + 48 + toybox::kMargin), body.width, 80);
+
+  screen.target().text(fui::makeRect(body.x + toybox::kMargin, layout.username.bottom() + toybox::kMargin,
+                                     body.width - toybox::kMargin * 2, 84),
+                       "If this is your account, confirm. If not, cancel -- nothing is stored yet.",
+                       syncText(toybox::kUiFont, fui::TextAlign::Center, fui::Color::DarkGray, 3));
+
+  // The confirm target: a pill the thumb can reach, tappable because on the
+  // Sticky the Confirm button is the power button.
+  const int16_t pillH = 56;
+  // Clear of the Sticky's hint bar; the X4 Pro has no bar and just gains air.
+  layout.pill = fui::makeRect(static_cast<int16_t>(body.x + 44), static_cast<int16_t>(body.bottom() - pillH - 48),
+                              static_cast<int16_t>(body.width - 88), pillH);
+  screen.target().stroke(layout.pill, ink, toybox::kRule, static_cast<uint8_t>(pillH / 2));
+  screen.target().text(fui::makeRect(layout.pill.x, layout.pill.y + (pillH - 26) / 2, layout.pill.width, 26),
+                       "THIS IS ME", syncText(toybox::kUiFont, fui::TextAlign::Center));
+  return layout;
+}
+
 }  // namespace studyui

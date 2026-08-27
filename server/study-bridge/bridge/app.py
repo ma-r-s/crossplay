@@ -292,6 +292,31 @@ async def pair_claim(request: Request):
     )
 
 
+@app.post("/api/pair/abandon")
+async def pair_abandon(request: Request):
+    """Best-effort hygiene from the device. Possession of the token IS the
+    authorization: a pollToken kills its pending code, and a deviceToken
+    revokes its own registration (the confirm screen was cancelled after
+    poll() had already registered it -- without this, a ghost device row
+    stays on /devices that nobody holds a token for)."""
+    if not PAIR_IP.allow(client_ip(request)):
+        return JSONResponse({"error": "Too many tries; wait a few minutes."}, 429)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    poll = str(body.get("pollToken", "") or "")
+    if poll:
+        pairing.PAIRINGS.abandon(poll)
+    token = str(body.get("deviceToken", "") or "")
+    if token:
+        th = pairing.token_hash(token)
+        uid = store.uid_for_token_hash(th)
+        if uid is not None:
+            store.revoke_device(uid, th)
+    return {"ok": True}
+
+
 @app.get("/api/pair/poll")
 async def pair_poll(pollToken: str):
     result = pairing.PAIRINGS.poll(pollToken)

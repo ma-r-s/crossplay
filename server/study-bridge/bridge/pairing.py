@@ -56,6 +56,16 @@ class Pairings:
         p["device_token"] = secrets.token_urlsafe(32)
         return True
 
+    def abandon(self, poll_token: str) -> None:
+        """The device walked away from this code (Back on the QR screen).
+        Without this the code stays claimable until its TTL, and a web user
+        claiming it waits forever for a confirm the reader will never show."""
+        self._sweep()
+        for code, p in list(self._pending.items()):
+            if p["poll_token"] == poll_token:
+                del self._pending[code]
+                return
+
     def poll(self, poll_token: str) -> dict | None:
         """None: unknown/expired. {'pending': True}: not yet claimed.
         Else the one-shot result; the pairing is consumed on delivery."""

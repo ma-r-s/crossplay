@@ -254,7 +254,17 @@ void handleLine(const char* line) {
   if (strcmp(cmd, "SCREENSHOT") == 0) {
     const uint32_t bufferSize = display.getBufferSize();
     transport().printf("SCREENSHOT_START:%u\n", bufferSize);
-    transport().write(display.getFrameBuffer(), bufferSize);
+    // Native USB-CDC drops on a full TX ring rather than blocking (the log
+    // transport must never hang a headless device), so one 48KB write loses
+    // everything past the ring: three desk reads died at ~600 bytes. Chunk
+    // and pace; ~0.4s total, and the CH343 boards are merely unhurt.
+    const uint8_t* fb = display.getFrameBuffer();
+    for (uint32_t off = 0; off < bufferSize; off += 512) {
+      const uint32_t n = bufferSize - off < 512 ? bufferSize - off : 512;
+      transport().write(fb + off, n);
+      transport().flush();
+      delay(3);
+    }
     transport().printf("SCREENSHOT_END\n");
     transport().printf("OK SCREENSHOT %u\n", bufferSize);
     return;
