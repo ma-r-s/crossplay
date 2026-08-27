@@ -106,14 +106,19 @@ bool OpdsServerStore::seedDefaultCatalogs() {
   if (defaultsSeeded) return false;
   defaultsSeeded = true;
 
-  // Standard Ebooks and Project Gutenberg both advertise search through an
-  // OpenSearch description document rather than an inline {searchTerms} href,
-  // which the reader now follows -- see OpdsBookBrowserActivity.
+  // Gutenberg advertises search through an OpenSearch description document
+  // rather than an inline {searchTerms} href, which the reader follows -- see
+  // OpdsBookBrowserActivity.
+  //
+  // Standard Ebooks was seeded here until 2026-08-27. It now answers 401 with
+  // a Basic realm asking for a Patrons Circle email, so every reader who had
+  // not donated met a catalog that could not load. A default has to work for
+  // the person who never configured anything; anyone with patron credentials
+  // can still add it by hand under OPDS Servers.
   static constexpr struct {
     const char* name;
     const char* url;
   } DEFAULTS[] = {
-      {"Standard Ebooks", "https://standardebooks.org/feeds/opds"},
       {"Project Gutenberg", "https://m.gutenberg.org/ebooks.opds/"},
   };
 
