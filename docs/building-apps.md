@@ -371,18 +371,41 @@ came from someone else's server; `hn::foldTypography` is the reference.
 outline leaves the shape hollow and the surface beneath shows through. Fill with
 the page colour, then stroke.
 
-**Flash is not as tight as one build log implies.** `pio` reports the app
-partition, not the chip. `partitions.csv` splits the X4 Pro's 16MB into two
-6.25MB app slots (`app0` running, `app1` the OTA landing pad), 3.38MB of
-SPIFFS, and small nvs/otadata/coredump areas -- all 16MB allocated. At 5.78MB
-used that is 88% of a slot but only 36% of the chip, and quoting the 88% as if
-it were the whole picture reads as alarm where there is none.
+**Flash is the app slot, not the chip.** `pio` reports the app partition.
+`partitions.csv` splits the X4 Pro's 16MB into two 7.94MB app slots (`app0`
+running, `app1` the OTA landing pad) plus small nvs/otadata/coredump areas. Two
+slots are not optional and are not about crash rollback: a running app cannot
+erase the flash it is executing from, so an OTA needs somewhere else to land.
 
-Real headroom: **758KB free in the app slot today**, plus roughly 3MB
-reclaimable from SPIFFS, which this firmware appears not to use at all (books,
-fonts and packs all live on the SD card). Repartitioning needs a serial reflash
-rather than an OTA, so it is free to do before a device ships and expensive
-after.
+The slots used to be 6.25MB each, with 3.38MB held for a SPIFFS partition that
+nothing in this firmware ever mounted (no `SPIFFS.begin`, no
+`esp_vfs_spiffs_register`, and no release job built an image to put in it;
+books, fonts, saves and packs are all files on the SD card). By 1.5.3 the x4pro
+image was 6,427,744 bytes, **98.1% of a slot, 123KB from failing to link**. The
+dead partition was split between the slots, which put the same image at 77.2%.
+
+Where those bytes actually go, measured on the 1.5.3 x4pro image:
+
+| | |
+|---|---|
+| code + libraries | 2,605KB |
+| embedded fonts | 2,426KB (38% of the image) |
+| hyphenation tries | 349KB (German alone is 201KB) |
+| i18n strings | 307KB |
+| icons | 131KB |
+| web UI html/js | 86KB |
+
+So the next two wins, when the new room runs out, are fonts and hyphenation,
+not code. `SdCardFontSystem`, `FontInstaller` and the web UI's font upload
+already exist, so moving all but a fallback family to the SD card is plumbing
+that is mostly built.
+
+**The table only changes on a full serial flash.** An OTA writes the app
+partition and otadata, never offset 0x8000. A device already in the field keeps
+the table it was installed with and stays capped at whatever that table said,
+so repartitioning is free before a device ships and costs a USB reflash after.
+`host-tests/release` asserts the table's arithmetic, because upstream still
+ships the spiffs row and this file conflicts on every upstream merge.
 
 **There are exactly two greys**: `LightGray` (25%) and `DarkGray` (50%). The
 source still says `TODO: maybe find a better pattern?`. Extending that set is

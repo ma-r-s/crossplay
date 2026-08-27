@@ -78,10 +78,11 @@ void chrome(toybox::Screen& screen, const char* title, const char* rightLabel,
   header.subtitleText.color = fui::Color::White;
   header.subtitleText.align = fui::TextAlign::Right;
   header.borderEdges = fui::EdgesNone;
-  screen.header(header);
-  const fui::Rect band = screen.device().screen();
-  screen.target().fill(fui::makeRect(0, toybox::kHeaderHeight + 4, band.width, toybox::kRule),
-                       fui::Paint::solid(fui::Color::Black));
+  toybox::absoluteChrome(screen);
+  toybox::headerBand(screen, header);
+  const fui::Rect panel = screen.device().screen();
+  const int16_t bandTop = static_cast<int16_t>(screen.body().y - toybox::kHeaderHeight);
+  toybox::headerRule(screen);
   // The page margin. `Screen` starts its content rect at the whole safe area,
   // so this is the caller's job and not the theme's; every screen in this fork
   // takes the same one, plus room under the rule the header does not know it
@@ -92,8 +93,8 @@ void chrome(toybox::Screen& screen, const char* title, const char* rightLabel,
     // The right two fifths of the band, which is a 190x76 target and cannot
     // reach the title. Registered after the header drew, so the hit rect and
     // the label are the same band and cannot drift apart.
-    screen.frame().hit(fui::makeRect(static_cast<int16_t>(band.width * 3 / 5), 0,
-                                     static_cast<int16_t>(band.width * 2 / 5), toybox::kHeaderHeight),
+    screen.frame().hit(fui::makeRect(static_cast<int16_t>(panel.width * 3 / 5), bandTop,
+                                     static_cast<int16_t>(panel.width * 2 / 5), toybox::kHeaderHeight),
                        doorAction, doorValue);
   }
 }
@@ -622,15 +623,17 @@ CaseReport buildCase(toybox::Screen& screen, const CaseModel& model) {
     const freeink::Icon* marks[kFaceCount] = {&icon_murdle_face_clues_24, &icon_murdle_face_grid_24,
                                               &icon_murdle_face_info_24};
     constexpr int16_t kDoor = 56;  // 56x76 each: a comfortable thumb, twice over
+    // Chrome is absolute (toybox::absoluteChrome): the band starts at panel
+    // row 0 and bleeds under the bezel.
+    const int16_t bandTop = 0;
     for (int i = 0; i < 2; ++i) {
       const int16_t x = static_cast<int16_t>(band.width - kDoor * (2 - i));
-      const fui::Rect box = fui::makeRect(x, 0, kDoor, toybox::kHeaderHeight);
+      const fui::Rect box = fui::makeRect(x, bandTop, kDoor, toybox::kHeaderHeight);
       // White on the black band. Inset so the two icons do not touch each other
       // or the screen edge.
-      screen.target().bitmap(fui::makeRect(static_cast<int16_t>(x + (kDoor - 24) / 2),
-                                           static_cast<int16_t>((toybox::kHeaderHeight - 24) / 2), 24, 24),
-                             fui::bitmapFromIcon(*marks[other[i]]), fui::BitmapMode::Contain,
-                             fui::Paint::solid(fui::Color::White));
+      screen.target().bitmap(
+          fui::makeRect(static_cast<int16_t>(x + (kDoor - 24) / 2), toybox::bandCenterY(screen, 24), 24, 24),
+          fui::bitmapFromIcon(*marks[other[i]]), fui::BitmapMode::Contain, fui::Paint::solid(fui::Color::White));
       // Registered after the header drew, so the hit rect and the icon come
       // from the same arithmetic and cannot drift apart.
       screen.frame().hit(box, ActionFace, static_cast<int16_t>(other[i]));

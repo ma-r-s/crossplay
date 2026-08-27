@@ -46,7 +46,10 @@ uint8_t gBand[kBandRows * kMaxStride];
 // computing 203 rows "at a 480px viewport", the reader's viewport is 756, and
 // so `pan()` refused every window as too large and no step ever snapped to a
 // gap. See xkcd::gapRowsFor.
-constexpr int kReaderViewportH = 800 - 44;  // the panel less the bar; see xkcdui::readerViewport
+// The panel less the bar: an upper bound for the buffers below. The runtime
+// viewport (xkcdui::readerViewport) is further shrunk by the bezel insets, so
+// the bound only over-allocates, never under.
+constexpr int kReaderViewportH = 800 - 44;
 constexpr int kMaxGapRows = xkcd::gapRowsFor(kReaderViewportH);
 uint8_t gGapFlags[kMaxGapRows];
 
@@ -425,8 +428,7 @@ void XkcdActivity::drawComic() {
   const xkcd::Rendition r = xkcd::renditionFor(comic_, at_.lens);
   if (!r.valid() || r.stride > kMaxStride) return;
 
-  fui::GfxRendererTarget probe(renderer);
-  const fui::Rect view = xkcdui::readerViewport(probe.deviceContext());
+  const fui::Rect view = xkcdui::readerViewport(fui::GfxRendererTarget(renderer).deviceContext());
   const xkcd::Placement p = xkcd::place(r, view.width, view.height, at_);
 
   // A band at a time: one seek per band rather than one per row, and a fixed
@@ -448,6 +450,8 @@ void XkcdActivity::drawComic() {
         // pack's. Drawn pixel by pixel because the renderer has no 1bpp blit
         // that takes a stride, and drawIcon bakes in a portrait rotation that
         // would turn the comic on its side.
+        // Viewport-relative; view.x is added at the drawPixel. It was 0 until
+        // the viewport started honoring the bezel's side columns.
         const int sx = p.originX + x;
         if (sx >= view.width) break;
         // Offset into the row by the column on screen: a comic with more than
@@ -456,7 +460,7 @@ void XkcdActivity::drawComic() {
         // framebuffer.
         const int ix = p.scrollX + x;
         if (ix >= static_cast<int>(r.width)) break;
-        if ((line[ix >> 3] >> (7 - (ix & 7))) & 1) renderer.drawPixel(sx, y, true);
+        if ((line[ix >> 3] >> (7 - (ix & 7))) & 1) renderer.drawPixel(view.x + sx, y, true);
       }
     }
     drawn += rows;
@@ -1182,7 +1186,7 @@ void XkcdActivity::render(RenderLock&&) {
       xkcdui::ReaderModel model;
       model.num = comic_.num;
       model.title = title_;
-      const fui::Rect view = xkcdui::readerViewport(target.deviceContext());
+      const fui::Rect view = xkcdui::readerViewport(fui::GfxRendererTarget(renderer).deviceContext());
       const xkcd::Rendition r = xkcd::renditionFor(comic_, at_.lens);
       // The map comes out of the same placement the artwork was drawn from,
       // rather than being recomputed from the comic. Two functions deriving
@@ -1205,8 +1209,8 @@ void XkcdActivity::render(RenderLock&&) {
       // so the bar's own control wins where they overlap.
       // Always registered, not only when the comic pans: forward now always
       // has somewhere to go, so a dead tap half would be the odd case.
-      frame.hit(xkcdui::readerPanUpHalf(target.deviceContext()), xkcdui::ActionPanUp);
-      frame.hit(xkcdui::readerPanDownHalf(target.deviceContext()), xkcdui::ActionPanDown);
+      frame.hit(xkcdui::readerPanUpHalf(fui::GfxRendererTarget(renderer).deviceContext()), xkcdui::ActionPanUp);
+      frame.hit(xkcdui::readerPanDownHalf(fui::GfxRendererTarget(renderer).deviceContext()), xkcdui::ActionPanDown);
       break;
     }
     case View::Number: {

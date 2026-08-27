@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "activities/UiListActivity.h"
+#include "components/OptionPopup.h"
 
 /**
  * Language filter for the OPDS browser.
@@ -17,8 +18,10 @@ class OpdsFilterActivity final : public UiListActivity {
   OpdsFilterActivity(GfxRenderer& renderer, MappedInputManager& mappedInput);
 
   void onEnter() override;
+  void render(RenderLock&& lock) override;
 
  protected:
+  bool handleCustomInput() override;
   int listCount() const override;
   void buildScreen(UiScreen& screen) override;
   void activateIndex(int index) override;
@@ -30,5 +33,10 @@ class OpdsFilterActivity final : public UiListActivity {
 
   uint32_t mask = 0;
   std::vector<freeink::ui::ListItem> rowItems_;
+  // Parallel to rowItems_: what each row means. See the constants in the .cpp.
+  std::vector<int> rowKind_;
   std::vector<std::string> rowLabels_;
+  std::vector<std::string> sourceLabels_;
+  std::vector<const char*> sourcePointers_;
+  OptionPopup optionPopup;
 };

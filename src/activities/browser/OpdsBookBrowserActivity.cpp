@@ -18,6 +18,7 @@
 #include "OpdsLanguages.h"
 #include "SilentRestart.h"
 #include "activities/network/WifiSelectionActivity.h"
+#include "activities/settings/OpdsFilterActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UIScale.h"
 #include "components/UITheme.h"
@@ -35,6 +36,7 @@ namespace fui = freeink::ui;
 namespace {
 constexpr fui::ActionId ACTION_ROW = 1;
 constexpr fui::ActionId ACTION_SEARCH = 2;
+constexpr fui::ActionId ACTION_SETTINGS = 4;
 constexpr fui::ActionId ACTION_CANCEL = 3;
 constexpr int DOWNLOAD_PROGRESS_STEP_PERCENT = 5;
 constexpr unsigned long DOWNLOAD_PROGRESS_MIN_UPDATE_MS = 5000;
@@ -64,6 +66,7 @@ void OpdsBookBrowserActivity::onEnter() {
   resetUi();
   app.on(ACTION_ROW, &OpdsBookBrowserActivity::onRowEvent, this);
   app.on(ACTION_SEARCH, &OpdsBookBrowserActivity::onSearchEvent, this);
+  app.on(ACTION_SETTINGS, &OpdsBookBrowserActivity::onSettingsEvent, this);
   app.on(ACTION_CANCEL, &OpdsBookBrowserActivity::onCancelEvent, this);
   app.setScreen(&OpdsBookBrowserActivity::rootScreen, this);
   requestUpdate();
@@ -100,10 +103,41 @@ void OpdsBookBrowserActivity::onRowEvent(const fui::ActionEvent& event, void* us
   self->activateSelected();
 }
 
+void OpdsBookBrowserActivity::onSettingsEvent(const fui::ActionEvent&, void* user) {
+  auto* const self = static_cast<OpdsBookBrowserActivity*>(user);
+  // ERROR as well as BROWSING: see screenHeader(). Still refused mid-fetch and
+  // mid-download, where swapping the catalog underneath the work would strand
+  // it.
+  if (self->state != BrowserState::BROWSING && self->state != BrowserState::ERROR) return;
+  self->app.clearTapFlash();
+  self->openSettings();
+}
+
+void OpdsBookBrowserActivity::openSettings() {
+  auto* const self = this;
+  // Catalog choice and language filters are one screen: they are the same
+  // question -- what am I searching -- asked two ways.
+  self->startActivityForResult(
+      std::make_unique<OpdsFilterActivity>(self->renderer, self->mappedInput), [self](const ActivityResult&) {
+        // The catalog may have changed underneath us.
+        const auto& servers = OPDS_STORE.getServers();
+        const size_t index = SETTINGS.opdsLastServer < servers.size() ? SETTINGS.opdsLastServer : 0;
+        if (!servers.empty() && servers[index].url != self->server.url) {
+          // Switching catalog re-enters Get Books, so the new catalog's
+          // own shape decides the screen: rows, or the keyboard.
+          activityManager.goToBrowser();
+          return;
+        }
+        self->rebuildRowItems();
+        self->requestUpdate();
+      });
+}
+
 void OpdsBookBrowserActivity::onSearchEvent(const fui::ActionEvent&, void* user) {
   auto* self = static_cast<OpdsBookBrowserActivity*>(user);
   if (self->state != BrowserState::BROWSING) return;
   self->app.clearTapFlash();
+  self->searchReturn = self->searchOnlyCatalog ? SearchReturn::Home : SearchReturn::Rows;
   self->launchSearch();
 }
 
@@ -120,6 +154,16 @@ void OpdsBookBrowserActivity::loop() {
   }
 
   if (state == BrowserState::ERROR) {
+    // The settings button gets first refusal on the touch. The rest of this
+    // screen is one big "tap to retry" target, so an unrouted tap on the
+    // button would just re-run the fetch that failed and leave the reader
+    // exactly where they were.
+    const auto route = routeTouch(mappedInput);
+    if (route.routed) {
+      if (app.invalidated()) requestUpdate();
+      if (route) return;  // dispatched to onSettingsEvent
+    }
+
     int tx = 0;
     int ty = 0;
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) || mappedInput.wasScreenTapped(tx, ty)) {
@@ -223,14 +267,30 @@ void OpdsBookBrowserActivity::screenHeader(UiScreen& screen, const bool withSear
   fui::HeaderProps header;
   header.title = server.name.empty() ? tr(STR_OPDS_BROWSER) : server.name.c_str();
   header.borderEdges = fui::EdgeBottom;
+  // Optically align the buttons with the title glyphs: text hangs low in its
+  // line cell by the font's internal leading, so drop the buttons to match.
+  const int titleFontId = uiScaleSpec().titleFontId;
+  header.actionOffsetY =
+      static_cast<int16_t>((renderer.getLineHeight(titleFontId) - renderer.getTextHeight(titleFontId)) / 2);
+
   if (withSearch && !searchTemplate.empty()) {
     header.trailingIcon = fui::bitmapFromIcon(icon_search_32);
     header.trailingAction = ACTION_SEARCH;
-    // Optically align the icon with the title glyphs: text hangs low in its
-    // line cell by the font's internal leading; drop the button to match.
-    const int titleFontId = uiScaleSpec().titleFontId;
-    header.actionOffsetY =
-        static_cast<int16_t>((renderer.getLineHeight(titleFontId) - renderer.getTextHeight(titleFontId)) / 2);
+  }
+  // Catalog and language live behind one button, on every screen of the
+  // catalog: which catalog and which languages are the same question.
+  // Library rather than a gear: the screen behind it is "which catalog, in
+  // which languages". There is also no gear in the list icon set --
+  // UIIcon::Settings falls through listIconFor's default and returns an
+  // empty bitmap, which draws nothing and reports nothing.
+  //
+  // Shown on the error screen too, and that is the point: a catalog that will
+  // not load (moved, gone, or asking for a password nobody has) leaves the
+  // reader on a screen whose only useful action is to pick another one.
+  // Gating this on a loaded catalog made the failure a dead end.
+  if (state == BrowserState::BROWSING || state == BrowserState::ERROR) {
+    header.leadingIcon = listIconFor(UIIcon::Library, 32);
+    header.leadingAction = ACTION_SETTINGS;
   }
   screen.header(header);
   // Same breathing room between header and content as the legacy screens.
@@ -241,7 +301,9 @@ void OpdsBookBrowserActivity::buildBrowsingScreen(UiScreen& screen) {
   screenHeader(screen, true);
 
   if (entries.empty()) {
-    screen.centeredText(tr(STR_NO_ENTRIES), screen.theme().bodyText);
+    // A lookup-only catalog has nothing to list; say what to do rather than
+    // reporting the empty feed as a fault.
+    screen.centeredText(searchOnlyCatalog ? tr(STR_SEARCH) : tr(STR_NO_ENTRIES), screen.theme().bodyText);
     return;
   }
 
@@ -369,7 +431,17 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
     OpdsParserStream stream{parser};
     if (!HttpDownloader::fetchUrl(url, stream, server.username, server.password)) {
       state = BrowserState::ERROR;
-      errorMessage = tr(STR_FETCH_FEED_FAILED);
+      // A catalog that wants credentials is not a broken catalog, and saying
+      // "failed to fetch" sends the reader looking at their Wi-Fi instead of
+      // at the server's username and password.
+      const int status = HttpDownloader::lastStatus();
+      errorMessage = (status == 401 || status == 403) ? tr(STR_AUTH_FAILED) : tr(STR_FETCH_FEED_FAILED);
+      // The number the server actually sent, appended raw. It is the one fact
+      // that separates "the catalog is down" from "the catalog moved" from
+      // "we never got a reply", and diagnosing it over a USB cable is not
+      // something a reader can do. Digits need no translation; 0 means the
+      // request got no response at all.
+      errorMessage += " (" + std::to_string(status) + ")";
       requestUpdate();
       return;
     }
@@ -434,18 +506,25 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
     LOG_INF("OPDS", "Feed truncated to fit memory");
   }
 
-  state = entries.empty() ? BrowserState::ERROR : BrowserState::BROWSING;
-  if (entries.empty()) errorMessage = tr(STR_NO_ENTRIES);
+  // A catalog with nothing to browse but a search link is not broken -- that is
+  // what a lookup-only catalog looks like, and LibGen is one. The feed itself
+  // tells us which shape it is, so no per-catalog setting is needed.
+  searchOnlyCatalog = entries.empty() && !searchTemplate.empty();
+
+  state = (entries.empty() && !searchOnlyCatalog) ? BrowserState::ERROR : BrowserState::BROWSING;
+  if (entries.empty() && !searchOnlyCatalog) errorMessage = tr(STR_NO_ENTRIES);
   rebuildRowItems();
   requestUpdate();
 
-  // Land on the keyboard, not on a directory listing. A catalog that supports
-  // search is one people arrive at wanting to type a title; the root feed's
-  // browse rows are still there behind Back. Only on the first feed, or every
-  // return from a search would bounce straight back into the keyboard.
+  // Where the reader lands depends on the catalog's shape, not on a
+  // preference: a lookup-only catalog opens the keyboard, a browsable one
+  // opens its own rows (Recent, Popular, By Subject) with search in the header.
   if (openSearchOnArrival) {
     openSearchOnArrival = false;
-    if (!searchTemplate.empty()) launchSearch();
+    if (searchOnlyCatalog) {
+      searchReturn = SearchReturn::Home;  // nothing behind the keyboard here
+      launchSearch();
+    }
   }
 }
 
@@ -497,6 +576,9 @@ void OpdsBookBrowserActivity::navigateBack() {
   // from the keyboard leaves for home.
   if (showingSearchResults && !searchTemplate.empty()) {
     showingSearchResults = false;
+    // On a lookup-only catalog the keyboard IS the home screen, so dismissing
+    // it leaves for Home; on a browsable one it sits above the rows.
+    searchReturn = searchOnlyCatalog ? SearchReturn::Home : SearchReturn::Rows;
     launchSearch();
     return;
   }
@@ -604,13 +686,25 @@ void OpdsBookBrowserActivity::launchSearch() {
   requestUpdate();
 
   auto keyboard = std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_SEARCH));
+  // A lookup-only catalog opens straight onto this keyboard, so the settings
+  // button that lives in the browsing header would be unreachable without
+  // first backing out of the app's only screen. Put it on the keyboard too.
+  if (searchOnlyCatalog) keyboard->setHeaderAction(listIconFor(UIIcon::Library, 32));
   startActivityForResult(std::move(keyboard), [this](const ActivityResult& result) {
     state = BrowserState::BROWSING;
     if (!result.isCancelled) {
-      performSearch(std::get<KeyboardResult>(result.data).text);
-    } else {
-      requestUpdate();
+      const auto& entered = std::get<KeyboardResult>(result.data);
+      if (entered.headerAction) {
+        openSettings();
+        return;
+      }
+      performSearch(entered.text);
+      return;
     }
+    // Dismissing the keyboard moves UP the chain, never forward into the
+    // results it was opened from. Returning to those results made Back a loop:
+    // results -> keyboard -> results -> keyboard, with no way out but Home.
+    requestUpdate();  // the catalog's own screen: rows, or empty with a header
   });
 }
 

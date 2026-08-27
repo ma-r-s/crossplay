@@ -13,8 +13,13 @@ merges from CrossPoint stay cheap: `activity-manager.md`, `comparison.md`,
 **The fork's cross-cutting docs also live at the root**: how to build an app
 (`building-apps.md`), how it should look (`design-language.md`), what the
 project is (`identity.md`), the shelf contract (`shelf.md`), the two real
-buttons (`buttons.md`), what scale does to games (`games-at-scale.md`), and
-what is knowingly unfinished (`open-items.md`).
+buttons (`buttons.md`), what scale does to games (`games-at-scale.md`), how to
+reflash a desk device without a cable (`wireless-flashing.md`), and what is
+knowingly unfinished (`open-items.md`).
+
+`wireless-flashing.md` documents a route that only dev builds carry, which is
+why it is a fork doc rather than a section in upstream's `webserver-*.md`:
+those stay untouched so merges from CrossPoint stay cheap.
 
 **Everything about one app lives in [apps/](apps/)**, named after its
 directory in `src/apps_local/` (`dungeon.md` for the app the shelf calls

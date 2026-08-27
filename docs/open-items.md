@@ -248,3 +248,24 @@ source rather than worked around here.
 **Done looks like:** the comment fixed upstream in freeink-sdk and the flag
 dropped; `-Wno-format-truncation` narrowed to the files that need it, or the
 buffers given bounds GCC can see.
+
+## The Sticky's bezel insets are still the inherited guess
+
+Added 2026-08-26, revised the same day: the X4 Pro side of this item is done
+(measured insets, safe-area enforcement through both the UITheme and fui
+layers; see [bezel-insets.md](bezel-insets.md)). What remains is the Sticky:
+its profile still carries the default {9,3,3,3} nobody measured, so its
+screens are laid out around a guess. The BEZEL app measures it in two
+minutes at a desk.
+
+**Done looks like:** a measured `ViewableInsets` override in the STICKY
+profile in BoardConfig.h, read off the BEZEL ruler on the physical unit.
+
+## The freeink-sdk pin fetches from the ma-r-s fork
+
+Added 2026-08-26. Three sdk commits (measured X4 Pro insets, safeArea fill,
+header-at-rect) live on github.com/ma-r-s/freeink-sdk so releases can build
+without waiting on upstream; Free-Ink/freeink-sdk#59 carries them upstream.
+
+**Done looks like:** the PR merged, `.gitmodules` pointing back at
+Free-Ink/freeink-sdk, and the submodule pinned to the upstream hash.

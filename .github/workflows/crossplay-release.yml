@@ -169,6 +169,24 @@ jobs:
             to write it to `0x0`, which on an ESP32-S3 is where the bootloader
             lives. Do not follow the install steps from those two releases.
 
+            ### If you installed before this release, flash over USB once
+
+            This release repartitions the chip. A 3.375MB partition that no
+            version of this firmware ever used has been given to the two
+            application slots, which grow from 6.25MB each to 7.94MB.
+
+            The partition table is only written by a USB flash. Check for
+            updates writes the application and nothing else, so a device
+            installed before this release keeps its old 6.25MB slots. It will
+            keep updating over Wi-Fi until an application no longer fits in
+            6.25MB, and will then say the firmware is too large and refuse,
+            without downloading it. That is the point to flash
+            `crossplay-<version>-x4pro-full.bin` over USB once, exactly as a
+            first install. Your SD card is untouched: books, reading positions,
+            saves and fonts are files on it, not in the firmware.
+
+            A fresh install from this release onward needs none of this.
+
             Try the whole thing in a browser first, without owning either:
             **[crossplay.ma-r-s.com](https://crossplay.ma-r-s.com)** runs this
             same firmware compiled to WebAssembly.

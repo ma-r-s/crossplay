@@ -22,6 +22,7 @@ class OtaUpdater {
     INTERNAL_UPDATE_ERROR,
     OOM_ERROR,
     WRONG_DEVICE_ERROR,
+    TOO_LARGE_ERROR,
   };
 
   size_t getOtaSize() const { return otaSize; }

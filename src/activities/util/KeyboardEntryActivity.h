@@ -27,6 +27,12 @@ class KeyboardEntryActivity : public Activity {
         maxLength(maxLength),
         inputType(inputType) {}
 
+  // Optional icon button in the header band. The keyboard covers the whole
+  // screen, so a caller whose only other affordance lives on the screen
+  // behind it has nowhere to put one. Tapping it finishes the activity with
+  // KeyboardResult::headerAction set and the typed text preserved.
+  void setHeaderAction(const freeink::ui::BitmapRef icon) { headerIcon = icon; }
+
   void onEnter() override;
   void onExit() override;
   void loop() override;
@@ -35,6 +41,7 @@ class KeyboardEntryActivity : public Activity {
  private:
   std::string title;
   std::string text;
+  freeink::ui::BitmapRef headerIcon{};
   size_t maxLength;
   InputType inputType;
   bool passwordVisible = false;
