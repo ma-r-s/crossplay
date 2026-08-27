@@ -15,6 +15,9 @@ struct WifiResult {
 
 struct KeyboardResult {
   std::string text;
+  // The caller's optional header button was tapped instead of a key. The
+  // text is whatever had been typed so far; the caller decides what to do.
+  bool headerAction = false;
 };
 
 struct MenuResult {

@@ -37,6 +37,12 @@ class OpdsBookBrowserActivity final : public Activity, private UiAppHost {
   std::vector<std::string> navigationHistory;
   std::string currentPath;
   // Cleared once consumed; see the tail of fetchFeed().
+  // Where dismissing the keyboard goes. Never forward into results.
+  enum class SearchReturn : uint8_t { Home, Rows };
+  SearchReturn searchReturn = SearchReturn::Home;
+  // A catalog with a search link and nothing to browse (LibGen). Derived from
+  // the feed, not configured.
+  bool searchOnlyCatalog = false;
   bool openSearchOnArrival = true;
   // True while the visible feed is a search result set.
   bool showingSearchResults = false;
@@ -68,6 +74,7 @@ class OpdsBookBrowserActivity final : public Activity, private UiAppHost {
   static void rootScreen(UiScreen& screen, void* user);
   static void onRowEvent(const freeink::ui::ActionEvent& event, void* user);
   static void onSearchEvent(const freeink::ui::ActionEvent& event, void* user);
+  static void onSettingsEvent(const freeink::ui::ActionEvent& event, void* user);
   static void onCancelEvent(const freeink::ui::ActionEvent& event, void* user);
   void screenHeader(UiScreen& screen, bool withSearch);
   void buildBrowsingScreen(UiScreen& screen);
@@ -84,6 +91,7 @@ class OpdsBookBrowserActivity final : public Activity, private UiAppHost {
   void navigateBack();
   void downloadBook(const OpdsEntry& book);
   void launchSearch();
+  void openSettings();
   std::string fetchSearchTemplate(const std::string& descriptionUrl);
   void openDetail(const OpdsEntry& entry);
   void performSearch(const std::string& query);

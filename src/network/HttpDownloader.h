@@ -26,6 +26,12 @@ class HttpDownloader {
   /**
    * Fetch text content from a URL with optional credentials.
    */
+  // HTTP status of the last request, or 0 when it never got a response (DNS,
+  // TLS, timeout). "Failed to fetch" reads the same for a dead server and for
+  // a catalog that simply wants a password, so callers need to tell them
+  // apart. Not thread-safe by design: one fetch runs at a time.
+  static int lastStatus();
+
   static bool fetchUrl(const std::string& url, std::string& outContent, const std::string& username = "",
                        const std::string& password = "");
 

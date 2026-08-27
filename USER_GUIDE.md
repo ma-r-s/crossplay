@@ -317,26 +317,31 @@ The Settings screen allows you to configure the device's behavior. There are a f
 #### 3.6.5 Get Books (OPDS Catalogs)
 
 **Get Books** appears on the Home screen and downloads books straight to the
-device from an OPDS catalog. Two public catalogs are set up on first run, so it
-works without any configuration:
+device from an OPDS catalog. **Project Gutenberg**, a very large public-domain
+library, is set up on first run, so it works without any configuration.
 
-- **Standard Ebooks** -- carefully produced, public-domain classics
-- **Project Gutenberg** -- a very large public-domain library
+Standard Ebooks is no longer set up for you: their feed now requires a Patrons
+Circle account. If you have one, add it under **Settings -> System -> OPDS
+Servers** with your patron email as the username and the password left empty.
 
-Opening Get Books lists your catalogs when more than one is set up; pick one
-and it goes straight to the keyboard if that catalog supports search. Type a
-title or author, pick a result to see its details -- cover, author, format,
-size and description -- then choose **Download**. **Back** walks you from the
-results to the search box, and from there back out. The catalog's own browse
-categories sit behind **Back** from the search box.
+Get Books opens on whichever source is selected, and the source decides what
+you see. A browsable catalog opens on its own categories (Recent, Popular, by
+subject) with a search button in the header. A lookup-only catalog has nothing
+to browse, so it opens straight on the keyboard.
+
+Type a title or author, pick a result to see its details -- cover, author,
+format, size and description -- then choose **Download**. **Back** walks you
+from the results to the search box, and from there back out.
+
+The library icon in the top corner opens **Sources & Languages**, on the
+browsing screen and on the search keyboard alike.
 
 If you delete one of the seeded catalogs it stays deleted; they are only added
 once.
 
 ##### Adding your own catalog
 
-1. Open **Get Books** to reach the catalog list, or go to
-   **Settings -> System -> OPDS Servers**.
+1. Go to **Settings -> System -> OPDS Servers**.
 
 2. Select **Add Server** to create an entry, or an existing one to edit it.
 
@@ -351,12 +356,17 @@ once.
 
 4. Use **Delete Server** inside an entry to remove it.
 
-##### Filters
+##### Sources & Languages
 
-**Filters**, at the bottom of the catalog list, restricts results by language. English only is
-the default. Books the catalog does not tag with a language are always shown,
-as are books in languages the list does not cover -- a filter that hid untagged
-books would hide most of a catalog.
+The library icon in the header opens one screen for both settings.
+
+**Source** picks the single catalog Get Books uses. The choice is permanent:
+Get Books opens on that source until you change it here.
+
+**Languages** restricts results. English only is the default. Books the catalog
+does not tag with a language are always shown, as are books in languages the
+list does not cover -- a filter that hid untagged books would hide most of a
+catalog.
 
 ##### Provisioning a catalog from the SD card
 

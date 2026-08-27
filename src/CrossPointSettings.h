@@ -266,6 +266,9 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // and entries in a language the table does not list, are always kept -- see
   // opdsLanguageAllowed().
   char opdsLanguages[64] = "en";
+  // Index of the catalog Get Books last opened, so it reopens there instead of
+  // asking. Clamped on use: catalogs can be deleted.
+  uint8_t opdsLastServer = 0;
   // Hide battery percentage
   uint8_t hideBatteryPercentage = HIDE_NEVER;
   // Long-press page turn button behavior
