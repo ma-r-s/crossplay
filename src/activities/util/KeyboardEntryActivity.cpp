@@ -15,6 +15,9 @@ namespace fui = freeink::ui;
 namespace {
 
 constexpr fui::ActionId ACTION_KEY = 1;
+// Sits in the same value space as the layout's key values, well clear of
+// them: the router dispatches on value alone, not on the action id.
+constexpr int16_t KEY_HEADER_ACTION = 30000;
 
 // ---------------------------------------------------------------------------
 // URL layers. The SDK builtin layouts have no URL variant (":", "/", ".", the
@@ -262,6 +265,14 @@ bool KeyboardEntryActivity::backspaceUtf8() {
 }
 
 bool KeyboardEntryActivity::activateValue(const int16_t value, const bool longPress) {
+  if (value == KEY_HEADER_ACTION) {
+    KeyboardResult result;
+    result.text = text;
+    result.headerAction = true;
+    setResult(std::move(result));
+    finish();
+    return false;
+  }
   switch (value) {
     case fui::QWERTY_KEY_SHIFT:
       delPressCount = 0;
@@ -945,6 +956,20 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   const int hintsTop = renderer.getScreenHeight() - metrics.buttonHintsHeight;
   props.bottomHitOverflow = static_cast<int16_t>(std::max(0, hintsTop - (kbRect.y + kbRect.height)));
   fui::keyboard(frame, kbRect, props);
+  // Drawn into the frame rather than beside drawHeader() so it paints over
+  // the header band and registers a hit rect in the same publish cycle.
+  if (headerIcon) {
+    const int16_t side = static_cast<int16_t>(metrics.headerHeight - 8);
+    fui::ButtonProps action;
+    action.icon = headerIcon;
+    action.action = ACTION_KEY;
+    action.value = KEY_HEADER_ACTION;
+    action.minTouchSize = 44;
+    fui::button(frame,
+                fui::Rect{static_cast<int16_t>(pageWidth - side - 4), static_cast<int16_t>(metrics.topPadding + 4),
+                          side, side},
+                action);
+  }
   interactions.publish();
   interactionsReady = true;
 

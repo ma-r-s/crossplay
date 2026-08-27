@@ -104,7 +104,11 @@ void OpdsBookBrowserActivity::onRowEvent(const fui::ActionEvent& event, void* us
 }
 
 void OpdsBookBrowserActivity::onSettingsEvent(const fui::ActionEvent&, void* user) {
-  auto* const self = static_cast<OpdsBookBrowserActivity*>(user);
+  static_cast<OpdsBookBrowserActivity*>(user)->openSettings();
+}
+
+void OpdsBookBrowserActivity::openSettings() {
+  auto* const self = this;
   // Catalog choice and language filters are one screen: they are the same
   // question -- what am I searching -- asked two ways.
   self->startActivityForResult(
@@ -651,10 +655,19 @@ void OpdsBookBrowserActivity::launchSearch() {
   requestUpdate();
 
   auto keyboard = std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_SEARCH));
+  // A lookup-only catalog opens straight onto this keyboard, so the settings
+  // button that lives in the browsing header would be unreachable without
+  // first backing out of the app's only screen. Put it on the keyboard too.
+  if (searchOnlyCatalog) keyboard->setHeaderAction(listIconFor(UIIcon::Library, 32));
   startActivityForResult(std::move(keyboard), [this](const ActivityResult& result) {
     state = BrowserState::BROWSING;
     if (!result.isCancelled) {
-      performSearch(std::get<KeyboardResult>(result.data).text);
+      const auto& entered = std::get<KeyboardResult>(result.data);
+      if (entered.headerAction) {
+        openSettings();
+        return;
+      }
+      performSearch(entered.text);
       return;
     }
     // Dismissing the keyboard moves UP the chain, never forward into the

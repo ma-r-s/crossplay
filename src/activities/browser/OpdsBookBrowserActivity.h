@@ -91,6 +91,7 @@ class OpdsBookBrowserActivity final : public Activity, private UiAppHost {
   void navigateBack();
   void downloadBook(const OpdsEntry& book);
   void launchSearch();
+  void openSettings();
   std::string fetchSearchTemplate(const std::string& descriptionUrl);
   void openDetail(const OpdsEntry& entry);
   void performSearch(const std::string& query);
