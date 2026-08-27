@@ -17,6 +17,7 @@
 #include "../ui/ToyboxFonts.h"
 #include "../ui/ToyboxIcons.h"
 #include "../ui/ToyboxTheme.h"
+#include "DevMode.h"
 
 namespace {
 
@@ -77,7 +78,10 @@ void HackerNewsActivity::onExit() {
   // The radio has to come down before the activity does. silentRestart() is
   // what the rest of the firmware uses to get the stack back to a clean state
   // after station mode; skipping it leaves the next app on a warm radio.
-  if (WiFi.getMode() != WIFI_MODE_NULL) {
+  // Not ours to put down if Developer Mode brought it up: this branch reboots
+  // the device, and doing that every time Hacker News exits while dev mode
+  // is on is indistinguishable from a crash.
+  if (WiFi.getMode() != WIFI_MODE_NULL && !devmode::holdsRadio()) {
     WiFi.disconnect(false);
     delay(30);
     silentRestart();

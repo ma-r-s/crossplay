@@ -1,28 +1,24 @@
 #!/bin/bash
-# Flash this tree's build to a desk device over Wi-Fi, with no cable.
+# Flash this tree's build to a device over Wi-Fi. No cable.
 #
-#   ./scripts_local/wifi-flash.sh                 # x4pro build, discover the device
+#   ./scripts_local/wifi-flash.sh --pair 123456     # once per device session
+#   ./scripts_local/wifi-flash.sh                   # x4pro build, finds the device
 #   ./scripts_local/wifi-flash.sh --env sticky
-#   ./scripts_local/wifi-flash.sh --ip 192.168.1.42
-#   ./scripts_local/wifi-flash.sh --build         # build first, then flash
+#   ./scripts_local/wifi-flash.sh --ip 192.168.1.42 --build
 #
-# Requires a DEV build already on the device: everything this drives exists only
-# under -DCROSSPOINT_DEV_WIFI_FLASH, set in [env:x4pro] and [env:sticky] and
-# never in a gh_release env. A device running a release neither joins a network
-# by itself nor answers this route -- that is the design, not a bug. The first
-# flash onto a release device is still USB; every one after it is wireless.
+# The device needs Developer Mode on: Settings > System > Developer Mode. That
+# screen shows an address and a six-digit code. Pair once with --pair <code>;
+# the token is cached in ~/.crossplay-devtoken and reused until the device
+# reboots, which is when it stops being valid.
 #
-# A dev build joins the last-connected network at boot and keeps its web server
-# up, so after the first setup there is nothing to press. A sleeping device is
-# not reachable until something wakes it.
+# Works on ANY build, including a shipped release -- Developer Mode is a runtime
+# setting, not a build flag. Turning it off is itself a wireless flash:
 #
-
-# Boot-time auto-start is not in this version; see docs/wireless-flashing.md.
+#   ./scripts_local/wifi-flash.sh --env gh_release_x4pro
 #
-# Two ordinary requests, no custom protocol: POST /upload puts firmware.bin on
-# the SD card using the same route that uploads books, then POST /api/dev/flash
-# validates and installs it through the same firmware_flash path the SD-card and
-# OTA updates use.
+# Two requests underneath: PUT /api/dev/upload streams the image to the card,
+# POST /api/dev/flash validates and installs it through the same firmware_flash
+# path the SD-card and over-the-air updates use.
 set -uo pipefail
 source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib-sim.sh"
 require_same_tree
@@ -30,11 +26,14 @@ require_same_tree
 ENV_NAME_FW="x4pro"
 IP=""
 DO_BUILD=0
+PAIR_CODE=""
+TOKEN_FILE="$HOME/.crossplay-devtoken"
 while [ $# -gt 0 ]; do
   case "$1" in
     --env) ENV_NAME_FW="${2:?--env needs a value}"; shift 2 ;;
     --ip)  IP="${2:?--ip needs a value}"; shift 2 ;;
     --build) DO_BUILD=1; shift ;;
+    --pair) PAIR_CODE="${2:?--pair needs the six digits shown on the device}"; shift 2 ;;
     -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
     *) echo "error: unknown option: $1" >&2; exit 2 ;;
   esac
@@ -115,11 +114,13 @@ PY
   COUNT="$(printf '%s' "$IP" | grep -c . || true)"
   if [ "$COUNT" -eq 0 ]; then
     echo "error: found no device." >&2
-    echo "       A dev build joins the last-connected network at boot and keeps" >&2
-    echo "       the server up, so the usual causes are: the device is asleep" >&2
-    echo "       (wake it), it has never been given a network (pick one once in" >&2
-    echo "       Settings -> Network), or it is running a release build." >&2
-    echo "       You can also pass --ip <addr> directly." >&2
+    echo "       In order of likelihood:" >&2
+    echo "         - it is ASLEEP. Deep sleep is a chip reset, so the device" >&2
+    echo "           leaves the network entirely and cannot be woken remotely." >&2
+    echo "           Press a button on it." >&2
+    echo "         - Developer Mode is off (Settings > System > Developer Mode)." >&2
+    echo "         - it has never joined a network, so there is nothing to rejoin." >&2
+    echo "       Or pass --ip <addr> directly." >&2
     exit 1
   fi
   if [ "$COUNT" -gt 1 ]; then
@@ -162,6 +163,53 @@ echo "device: $(printf '%s' "$STATUS" | describe || printf '%s' "$STATUS")"
 
 UPTIME_BEFORE="$(printf '%s' "$STATUS" | uptime_of)"
 
+# -- pair -------------------------------------------------------------------
+# The token lives only in the device's RAM, so it dies with every reboot --
+# including the one this script causes. Cache it anyway: it survives the many
+# runs between reboots, and a stale one costs a single 401 and a clear message
+# rather than a wrong-looking failure.
+if [ -n "$PAIR_CODE" ]; then
+  TOKEN="$(curl -s --max-time 10 -X POST "http://$IP/api/dev/pair" \
+    --data-urlencode "code=$PAIR_CODE" | python3 -c 'import json,sys
+try:
+    print(json.load(sys.stdin)["token"])
+except Exception:
+    pass')"
+  if [ -z "$TOKEN" ]; then
+    echo "error: pairing refused. Check the six digits on the device screen." >&2
+    echo "       They change every time Developer Mode is switched on." >&2
+    exit 1
+  fi
+  printf '%s' "$TOKEN" > "$TOKEN_FILE"
+  chmod 600 "$TOKEN_FILE"
+  echo "paired; token cached in $TOKEN_FILE"
+else
+  TOKEN="$(cat "$TOKEN_FILE" 2>/dev/null || true)"
+  if [ -z "$TOKEN" ]; then
+    echo "error: not paired with this device." >&2
+    echo "       On the device: Settings > System > Developer Mode." >&2
+    echo "       Then: $0 --pair <the six digits it shows>" >&2
+    exit 1
+  fi
+fi
+
+# Fail early on a dead token rather than after a 6MB upload.
+PROBE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 \
+  -H "X-Dev-Token: $TOKEN" "http://$IP/api/dev/log")"
+if [ "$PROBE" = "401" ]; then
+  echo "error: the cached token is no longer valid." >&2
+  echo "       Tokens live in the device's RAM and do not survive a reboot." >&2
+  echo "       Re-pair: $0 --pair <the six digits on the device>" >&2
+  exit 1
+elif [ "$PROBE" = "404" ]; then
+  echo "error: Developer Mode is off on this device." >&2
+  echo "       Turn it on: Settings > System > Developer Mode." >&2
+  exit 1
+elif [ "$PROBE" != "200" ]; then
+  echo "error: unexpected reply from the device (HTTP $PROBE)" >&2
+  exit 1
+fi
+
 if [ "$FAREWELL" -eq 1 ]; then
   echo
   echo "NOTE: '$ENV_NAME_FW' is a RELEASE image. Flashing it turns dev mode off:"
@@ -174,8 +222,13 @@ fi
 
 # -- upload ------------------------------------------------------------------
 echo "uploading $SIZE bytes ..."
-curl -fsS --max-time 300 -F "file=@$FW;filename=firmware.bin" "http://$IP/upload?path=/" >/dev/null || {
-  echo "error: upload failed" >&2; exit 1; }
+# PUT, not POST, and raw rather than multipart. This core hands one callback to
+# both the upload and raw paths with no way to tell them apart, and taking the
+# upload path here dereferences null and resets the device; PUT makes that path
+# structurally unreachable. See docs/developer-mode.md.
+curl -fsS --max-time 600 -X PUT "http://$IP/api/dev/upload" \
+  -H "X-Dev-Token: $TOKEN" -H "Content-Type: application/octet-stream" \
+  --data-binary "@$FW" >/dev/null || { echo "error: upload failed" >&2; exit 1; }
 echo "uploaded."
 
 # -- flash -------------------------------------------------------------------
@@ -183,17 +236,17 @@ echo "uploaded."
 # before it writes anything, and only switches otadata at the very end, so a
 # failure here leaves the running firmware untouched.
 echo "flashing (about a minute; the device's UI is blocked meanwhile) ..."
-RESULT="$(curl -sS --max-time 300 -o /dev/stdout -w '\n%{http_code}' \
-  -X POST "http://$IP/api/dev/flash" --data-urlencode "path=/firmware.bin" 2>&1)"
+RESULT="$(curl -sS --max-time 600 -o /dev/stdout -w '\n%{http_code}' \
+  -X POST "http://$IP/api/dev/flash" -H "X-Dev-Token: $TOKEN" 2>&1)"
 CODE="$(printf '%s' "$RESULT" | tail -1)"
 BODY="$(printf '%s' "$RESULT" | sed '$d')"
 
 case "$CODE" in
   200) echo "device says: $BODY" ;;
-  404) echo "error: no /api/dev/flash on this device." >&2
-       echo "       It is running a release build. The route only exists under" >&2
-       echo "       -DCROSSPOINT_DEV_WIFI_FLASH, which release envs never set." >&2
-       echo "       Flash a dev build over USB once, then this works." >&2
+  404) echo "error: Developer Mode turned off mid-flash." >&2
+       exit 1 ;;
+  401) echo "error: token rejected mid-flash; the device probably rebooted." >&2
+       echo "       Re-pair: $0 --pair <the six digits on the device>" >&2
        exit 1 ;;
   422) echo "error: the device rejected the image: $BODY" >&2
        echo "       TOO_LARGE means its partition table predates the repartition;" >&2

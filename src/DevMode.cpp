@@ -291,6 +291,10 @@ void resume() {
 
 bool serving() { return state == State::Serving && server && server->isRunning(); }
 
+bool holdsRadio() { return broughtRadioUp && SETTINGS.devMode != 0; }
+
+bool inhibitsSleep() { return SETTINGS.devMode != 0; }
+
 Status status() {
   Status s;
   s.enabled = SETTINGS.devMode != 0;

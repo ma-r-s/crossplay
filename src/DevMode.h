@@ -42,6 +42,23 @@ void resume();
 // True while the control server is up and reachable.
 bool serving();
 
+// True when Developer Mode brought the radio up and still holds it.
+//
+// Exists because five activities used to ask `WiFi.getMode() != WIFI_MODE_NULL`
+// as shorthand for "did I turn Wi-Fi on?", and answered yes by REBOOTING the
+// device to tear it down. That was true enough when nothing else ever held the
+// radio; dev mode holds it for as long as the toggle is on, so every one of
+// them would reboot the reader on exit. Ask this before tearing down a
+// connection you may not own.
+bool holdsRadio();
+
+// True whenever the setting is on, connected or not -- which is deliberately
+// broader than holdsRadio(). The panel tells the user the device will not sleep
+// while Developer Mode is on, and that has to be true even when the join has
+// dropped: a device that sleeps while retrying is a device that never retries,
+// because deep sleep is a reset and nothing on the network can wake it.
+bool inhibitsSleep();
+
 // What the on-device panel shows. Empty ip means "not connected yet".
 struct Status {
   bool enabled = false;

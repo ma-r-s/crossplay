@@ -1,5 +1,4 @@
 #include "CrossPointWebServerActivity.h"
-#include "DevMode.h"
 
 #include <DNSServer.h>
 #include <ESPmDNS.h>
@@ -10,6 +9,7 @@
 
 #include <cstddef>
 
+#include "DevMode.h"
 #include "MappedInputManager.h"
 #include "NetworkModeSelectionActivity.h"
 #include "SilentRestart.h"
@@ -113,14 +113,22 @@ void CrossPointWebServerActivity::onExit() {
   MDNS.end();
 
   // Skip reboot if WiFi was never activated (e.g. user backed out of mode selection).
+  //
+  // Also skip it when Developer Mode holds the radio. The reboot exists to
+  // return the radio to a clean state, and dev mode is going to re-establish
+  // STA the moment resume() above lets it -- so restarting would cost the user
+  // their place for nothing, every single time they close this screen. An AP
+  // still gets torn down, because that one really was ours.
   if (WiFi.getMode() != WIFI_MODE_NULL) {
     if (isApMode) {
       WiFi.softAPdisconnect(true);
-    } else {
+    } else if (!devmode::holdsRadio()) {
       WiFi.disconnect(false);
     }
-    delay(30);
-    silentRestart();
+    if (!devmode::holdsRadio()) {
+      delay(30);
+      silentRestart();
+    }
   }
 
   LOG_DBG("WEBACT", "Free heap at onExit end: %d bytes", ESP.getFreeHeap());

@@ -26,6 +26,7 @@
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "DevMode.h"
 #include "DevSerialBridge.h"
 #include "KOReaderCredentialStore.h"
 #include "MappedInputManager.h"
@@ -34,7 +35,6 @@
 #include "SdCardFontSystem.h"
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
-#include "DevMode.h"
 #include "activities/settings/SdFirmwareUpdateActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -654,8 +654,13 @@ void loop() {
 
   // Check for any user activity (button press or release) or active background work
   static unsigned long lastActivityTime = millis();
+  // devmode::holdsRadio() counts as activity. Deep sleep on this chip is a full
+  // reset, so a sleeping device does not merely idle -- it leaves the network
+  // and cannot be woken from it. A development device that disappears after the
+  // sleep timeout is not one, and the cost is confined to devices whose owner
+  // deliberately switched Developer Mode on.
   if (gpio.wasAnyPressed() || gpio.wasAnyReleased() || gpio.wasTouchActivity() || halTiltSensor.hadActivity() ||
-      activityManager.preventAutoSleep()) {
+      activityManager.preventAutoSleep() || devmode::inhibitsSleep()) {
     lastActivityTime = millis();         // Reset inactivity timer
     powerManager.setPowerSaving(false);  // Restore normal CPU frequency on user activity
   }

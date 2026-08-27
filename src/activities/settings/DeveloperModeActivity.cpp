@@ -82,6 +82,7 @@ void DeveloperModeActivity::render(RenderLock&&) {
     // the theme has and stands alone on its line.
     renderer.drawCenteredText(UI_12_FONT_ID, midY + 20, st.code.c_str(), true, EpdFontFamily::BOLD);
     renderer.drawCenteredText(UI_10_FONT_ID, midY + 55, tr(STR_DEV_MODE_EXPOSED_HINT));
+    renderer.drawCenteredText(UI_10_FONT_ID, midY + 78, tr(STR_DEV_MODE_NO_SLEEP_HINT));
   }
 
   const auto labels =

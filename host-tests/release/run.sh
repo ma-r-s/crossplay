@@ -344,5 +344,36 @@ else
   bad "no on-device screen renders the pairing code; Developer Mode cannot be paired without a serial cable"
 fi
 
+# -- 9. nothing reboots the device to tear down a radio it does not own --------
+#
+# Five activities used `WiFi.getMode() != WIFI_MODE_NULL` as shorthand for "did
+# I turn Wi-Fi on?" and answered yes by calling silentRestart(). That held while
+# nothing else ever owned the radio -- LinkRadio.cpp still carries a comment
+# saying exactly that -- and stopped holding the moment Developer Mode kept it
+# up for as long as its toggle is on. Without the devmode::holdsRadio() guard,
+# closing the OPDS browser or the font downloader reboots the reader mid-use,
+# which reads as a crash rather than as a feature interacting badly.
+for f in src/apps_local/hackernews/HackerNewsActivity.cpp \
+  src/activities/settings/OtaUpdateActivity.cpp \
+  src/activities/browser/OpdsBookBrowserActivity.cpp \
+  src/activities/settings/FontDownloadActivity.cpp \
+  src/activities/network/CrossPointWebServerActivity.cpp; do
+  path="$ROOT/$f"
+  if [ ! -f "$path" ]; then
+    bad "missing $f"
+    continue
+  fi
+  # Only interesting if this file still reboots to tear the radio down.
+  if ! grep -q 'silentRestart()' "$path"; then
+    ok
+    continue
+  fi
+  if grep -q 'devmode::holdsRadio()' "$path"; then
+    ok
+  else
+    bad "$(basename "$f") reboots to tear down Wi-Fi without asking devmode::holdsRadio() -- it will restart the device whenever Developer Mode is on"
+  fi
+done
+
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]
