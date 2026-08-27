@@ -187,7 +187,7 @@ void StudyActivity::applySyncFlowPreview(const char* state) {
   } else if (std::strcmp(state, "success") == 0) {
     m.verdict = studyui::SyncVerdictKind::Success;
     std::snprintf(m.title, sizeof(m.title), "SYNCED");
-    std::snprintf(m.body, sizeof(m.body), "This card and your Anki are up to date.");
+    std::snprintf(m.body, sizeof(m.body), "This reader and your Anki are up to date.");
     std::snprintf(m.factLines[0], sizeof(m.factLines[0]), "142 REVIEWS SENT");
     std::snprintf(m.factLines[1], sizeof(m.factLines[1]), "2 DECKS UPDATED");
     std::snprintf(m.factLines[2], sizeof(m.factLines[2]), "LAST SYNC 20:15");
@@ -1464,6 +1464,7 @@ bool StudyActivity::runPairing() {
     delay(100);
     mappedInput.update();
     if (mappedInput.wasReleased(MappedInputManager::Button::Back) || mappedInput.wasHomeGesture()) {
+      sync_.pairAbandon(pair.pollToken, "");
       endSyncSession(studyui::SyncVerdictKind::Neutral, studyui::SyncSafety::NothingSent, "NOT PAIRED",
                      "Pairing stopped. Nothing was stored.");
       return false;
@@ -1496,6 +1497,9 @@ bool StudyActivity::runPairing() {
     delay(50);
     mappedInput.update();
     if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+      // poll() already registered the token on the bridge; a declined
+      // confirm revokes it, or a ghost device row outlives this screen.
+      sync_.pairAbandon("", token);
       endSyncSession(studyui::SyncVerdictKind::Neutral, studyui::SyncSafety::NothingSent, "NOT PAIRED",
                      "Pairing cancelled. Nothing was stored.");
       return false;
@@ -1517,6 +1521,7 @@ bool StudyActivity::runPairing() {
   bridge_.token = token;
   bridge_.paired = true;
   if (!study::saveBridgeState(bridge_)) {
+    sync_.pairAbandon("", token);
     endSyncSession(studyui::SyncVerdictKind::Error, studyui::SyncSafety::NothingSent, "NOT PAIRED",
                    "Could not save the pairing to the card.");
     return false;
@@ -1766,5 +1771,5 @@ void StudyActivity::runSyncFlow() {
   std::snprintf(flow_.factLines[flow_.factCount++], sizeof(flow_.factLines[0]), "LAST SYNC %02d:%02d", local.tm_hour,
                 local.tm_min);
   endSyncSession(studyui::SyncVerdictKind::Success, studyui::SyncSafety::ReviewsSafe, "SYNCED",
-                 "This card and your Anki are up to date.");
+                 "This reader and your Anki are up to date.");
 }

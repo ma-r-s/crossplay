@@ -379,20 +379,14 @@ void buildSyncFlow(toybox::Screen& screen, const SyncFlowModel& model) {
   const int segGap = 8;
   const int segW = (body.width - segGap * (kSyncStageCount - 1)) / kSyncStageCount;
   const int bandY = body.y + 4;
-  int endStage = kSyncStageCount;  // verdict face: band shows where it ended
-  if (model.verdict == SyncVerdictKind::Error && activeStage >= 0) endStage = activeStage;
   for (int i = 0; i < kSyncStageCount; ++i) {
     const fui::Rect seg = fui::makeRect(body.x + i * (segW + segGap), bandY, segW, 14);
+    // The band never invents progress: a verdict shows the stages exactly as
+    // the flow left them (a cancelled pairing shows one half-tone segment,
+    // not four filled ones over NOTHING WAS SENT). Success alone fills the
+    // strip, because success means every stage in fact completed.
     SyncStageState state = model.stages[i];
-    if (model.verdict != SyncVerdictKind::None) {
-      if (i < endStage) {
-        state = SyncStageState::Done;
-      } else if (model.verdict == SyncVerdictKind::Error) {
-        state = i == endStage ? SyncStageState::Active : SyncStageState::Pending;
-      } else {
-        state = SyncStageState::Done;
-      }
-    }
+    if (model.verdict == SyncVerdictKind::Success) state = SyncStageState::Done;
     if (state == SyncStageState::Done) {
       screen.target().fill(seg, ink);
     } else if (state == SyncStageState::Active) {

@@ -123,6 +123,32 @@ async def run(tmp):
         r = await web.get("/api/pair/poll", params={"pollToken": pair["pollToken"]})
         ok(r.status_code == 410, "a delivered pairing must be consumed")
 
+        # --- Abandon: a code the device walked away from must stop being
+        # claimable, and a declined registration must stop authorizing.
+        r = await web.post("/api/pair/start")
+        dead = r.json()
+        r = await web.post("/api/pair/abandon", json={"pollToken": dead["pollToken"]})
+        ok(r.json().get("ok") is True, "abandon should answer ok")
+        r = await web.post(
+            "/api/pair/claim",
+            data={"code": dead["code"], "csrf": session["csrf"]},
+        )
+        ok("unknown or expired" in r.text, "an abandoned code must not be claimable")
+
+        r = await web.post("/api/pair/start")
+        ghost = r.json()
+        await web.post(
+            "/api/pair/claim", data={"code": ghost["code"], "csrf": session["csrf"]}
+        )
+        r = await web.get("/api/pair/poll", params={"pollToken": ghost["pollToken"]})
+        ghost_token = r.json()["deviceToken"]
+        r = await web.post("/api/pair/abandon", json={"deviceToken": ghost_token})
+        ok(r.json().get("ok") is True, "decline should answer ok")
+        r = await web.get(
+            "/api/decks", headers={"Authorization": f"Bearer {ghost_token}"}
+        )
+        ok(r.status_code == 401, "a declined token must stop authorizing")
+
         dev = {"Authorization": f"Bearer {token}"}
         r = await web.get("/api/decks")
         ok(r.status_code == 401, "device endpoints must refuse without a token")

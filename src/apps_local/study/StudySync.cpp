@@ -370,6 +370,18 @@ int StudySync::pairPoll(const std::string& pollToken, std::string& username, std
   return 1;
 }
 
+void StudySync::pairAbandon(const std::string& pollToken, const std::string& deviceToken) {
+  JsonDocument doc;
+  if (!pollToken.empty()) doc["pollToken"] = pollToken;
+  if (!deviceToken.empty()) doc["deviceToken"] = deviceToken;
+  std::string body;
+  serializeJson(doc, body);
+  std::string response;
+  std::string message;
+  request("POST", "/api/pair/abandon", "", reinterpret_cast<const uint8_t*>(body.data()), body.size(), response,
+          message);
+}
+
 bool StudySync::syncStart(const BridgeState& state, const std::vector<DeckPayload>& decks, std::string& jobId,
                           std::vector<std::pair<std::string, uint32_t>>& acks, std::string& message) {
   unpaired = false;

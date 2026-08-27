@@ -86,6 +86,10 @@ class StudySync {
   bool pairStart(PairStart& out, std::string& message);
   // 1 delivered (username+token filled), 0 still pending, -1 failed/expired.
   int pairPoll(const std::string& pollToken, std::string& username, std::string& token, std::string& message);
+  // Best-effort hygiene on any pairing walk-away: a pollToken kills the
+  // pending code on the bridge, a deviceToken revokes a registration the
+  // confirm screen declined. Failures are ignored; the TTL is the backstop.
+  void pairAbandon(const std::string& pollToken, const std::string& deviceToken);
 
   bool syncStart(const BridgeState& state, const std::vector<DeckPayload>& decks, std::string& jobId,
                  std::vector<std::pair<std::string, uint32_t>>& acks, std::string& message);

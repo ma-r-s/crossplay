@@ -132,3 +132,22 @@ rect), send, build, download of a deck the card had never seen, SYNCED
 verdict with real facts (1 DECK UPDATED, LAST SYNC stamp). Under 42s
 end to end. The render matrix (band busy face, success and post-ack
 error verdicts, both pairing screens) is preview-harness verified.
+
+2026-08-27, user-test agent round (fresh eyes, three journeys): the
+endpoints were judged ready for strangers; two defects found and fixed
+the same night. (1) The verdict band invented progress -- four filled
+segments over NOTHING WAS SENT on a cancelled pairing; the band now
+draws stages exactly as the flow left them, and only Success fills the
+strip. (2) An abandoned pairing code stayed claimable until TTL, and a
+confirm-screen cancel left a ghost device registration (poll() registers
+before the human confirms); /api/pair/abandon takes a pollToken or
+deviceToken (possession is the authorization) and the firmware calls it
+best-effort on every pairing walk-away. Both verified live against the
+local stack; the bridge suite carries four new checks (24 total).
+Wording: "This card" became "This reader" (in a flashcard app, card
+reads as flashcard first). Deferred, recorded here so they are
+decisions: the WiFi picker recurring on every sync is unverified on
+hardware (the sim HAL saves no credentials); mid-flow screens cannot be
+photographed by sim-shot while the flow blocks the loop (preview
+harness covers them); the verdict screen's tap-anywhere exit is
+unlabeled, matching the Image view's house precedent.
