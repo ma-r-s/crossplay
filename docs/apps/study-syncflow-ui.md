@@ -122,3 +122,13 @@ with 142 SENT, BUILD active with the preparing caption, DOWNLOAD
 pending, safety footer on), success verdict (142 REVIEWS SENT, 2 DECKS
 UPDATED), and a post-ack transport error verdict (safety line leading).
 Nine shots, composed per variant.
+
+## Verification record
+
+2026-08-27: full live end-to-end run in the simulator against a local
+bridge + local sync server (tests/sim_stack.sh, throwaway account):
+fresh pairing (QR, phone-side claim, confirm tap through the real gate
+rect), send, build, download of a deck the card had never seen, SYNCED
+verdict with real facts (1 DECK UPDATED, LAST SYNC stamp). Under 42s
+end to end. The render matrix (band busy face, success and post-ack
+error verdicts, both pairing screens) is preview-harness verified.
