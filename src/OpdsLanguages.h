@@ -21,9 +21,9 @@ struct OpdsLanguage {
 };
 
 inline constexpr OpdsLanguage OPDS_LANGUAGES[] = {
-    {"en", "English"},   {"es", "Espanol"},   {"fr", "Francais"}, {"de", "Deutsch"},
-    {"it", "Italiano"},  {"pt", "Portugues"}, {"nl", "Nederlands"}, {"ru", "Russkiy"},
-    {"pl", "Polski"},    {"sv", "Svenska"},   {"zh", "Zhongwen"}, {"ja", "Nihongo"},
+    {"en", "English"}, {"es", "Spanish"},    {"fr", "French"},   {"de", "German"},
+    {"it", "Italian"}, {"pt", "Portuguese"}, {"ru", "Russian"},  {"pl", "Polish"},
+    {"sv", "Swedish"}, {"zh", "Chinese"},    {"ja", "Japanese"},
 };
 
 inline constexpr size_t OPDS_LANGUAGE_COUNT = sizeof(OPDS_LANGUAGES) / sizeof(OPDS_LANGUAGES[0]);

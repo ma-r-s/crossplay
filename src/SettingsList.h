@@ -348,6 +348,7 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
                             sizeof(SETTINGS.opdsDownloadFolder), "opdsDownloadFolder"),
         // OPDS download filename format: persisted + web-exposed, category-less so it
         // is hidden from the on-device Settings screen (cycled from the OPDS UI).
+        SettingInfo::Value(StrId::STR_OPDS_LANGUAGES, &CrossPointSettings::opdsLastServer, {0, 7, 1}, "opdsLastServer"),
         SettingInfo::String(StrId::STR_OPDS_LANGUAGES, &SETTINGS.opdsLanguages[0], sizeof(SETTINGS.opdsLanguages),
                             "opdsLanguages"),
         SettingInfo::Enum(StrId::STR_OPDS_FILENAME_FORMAT, &CrossPointSettings::opdsFilenameFormat,

@@ -220,12 +220,16 @@ void ActivityManager::goToRecentBooks() {
 
 void ActivityManager::goToBrowser() {
   const auto& servers = OPDS_STORE.getServers();
-  // Skip the server picker when there's only one server configured
-  if (servers.size() == 1) {
-    replaceActivity(std::make_unique<OpdsBookBrowserActivity>(renderer, mappedInput, servers[0]));
-  } else {
+  if (servers.empty()) {
+    // Nothing to open yet, so the list is the only useful destination.
     replaceActivity(std::make_unique<OpdsServerListActivity>(renderer, mappedInput, true));
+    return;
   }
+  // Straight into the catalog last used -- never a picker. What that catalog
+  // opens on is its own business: a browsable one shows its rows, a
+  // lookup-only one opens the keyboard. Clamped because catalogs get deleted.
+  const size_t index = SETTINGS.opdsLastServer < servers.size() ? SETTINGS.opdsLastServer : 0;
+  replaceActivity(std::make_unique<OpdsBookBrowserActivity>(renderer, mappedInput, servers[index]));
 }
 
 void ActivityManager::goToReader(std::string path, const bool allowFastInitialRefresh) {

@@ -109,14 +109,14 @@ void OpdsServerListActivity::rebuildRowItems() {
     fui::ListItem format;
     format.label = tr(STR_OPDS_FILENAME_FORMAT);
     format.actionValue = static_cast<int16_t>(serverCount + 2);
-    format.icon = listIconFor(UIIcon::Settings, 32);
+    format.icon = listIconFor(UIIcon::File, 32);
     rowItems_.push_back(format);  // subtitle refreshed per render below
   }
 
   fui::ListItem filters;
   filters.label = tr(STR_OPDS_FILTERS);
   filters.actionValue = static_cast<int16_t>(getItemCount() - 1);
-  filters.icon = listIconFor(UIIcon::Settings);
+  filters.icon = listIconFor(UIIcon::Library);
   rowItems_.push_back(filters);
 }
 
