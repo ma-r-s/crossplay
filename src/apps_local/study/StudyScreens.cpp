@@ -208,8 +208,16 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
 
   // The ornament, bracketed the way the board is. With three doors below
   // (multi-deck cards) it gives up some height so nothing overlaps.
+  // Doors are bottom-anchored, so the ornament gets what they leave. Sized
+  // from the real door count rather than a guess: at four doors the caption
+  // was drawn straight through the top one.
+  const int doorsHere = 2 + (model.deckCount > 1 ? 1 : 0) + (model.paired ? 1 : 0);
+  const int doorBand = doorsHere * toybox::kRowHeight + (doorsHere - 1) * toybox::kMargin;
   const int panelTop = body.y + 210;
-  const int panelHeight = model.deckCount > 1 ? 132 : 190;
+  const int captionH = 30;
+  int panelHeight = body.bottom() - doorBand - toybox::kMargin - captionH - panelTop - 12;
+  if (panelHeight > 190) panelHeight = 190;
+  if (panelHeight < 84) panelHeight = 84;
   const fui::Rect panel = fui::makeRect(body.x + 10, panelTop, body.width - 20, panelHeight);
   brackets(screen, fui::makeRect(panel.x - 18, panel.y - 18, panel.width + 36, panel.height + 54), 32);
   timeline(screen, fui::makeRect(panel.x + 12, panel.y + 8, panel.width - 24, panelHeight - 16), model);
@@ -226,7 +234,7 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   fui::TextStyle caption;
   caption.font = toybox::kTileFont;
   caption.align = fui::TextAlign::Center;
-  screen.target().text(fui::makeRect(body.x, panel.bottom() + 44, body.width, 24), caption_text, caption);
+  screen.target().text(fui::makeRect(body.x, panel.bottom() + 20, body.width, captionH), caption_text, caption);
 
   // The doors, bottom-anchored where thumbs live: reviewing above, the
   // bridge below it. The stacked arrangement won from three rendered
@@ -234,46 +242,48 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   // firmware's lists do, and SYNC carries its own state in the value slot
   // so the door says when it last mattered.
   fui::ListItem rows[4];
-  rows[0] = fui::ListItem{};
-  rows[0].label = waiting > 0 ? "START REVIEWING" : "NOTHING TO REVIEW";
-  rows[0].enabled = waiting > 0;
-  rows[0].actionValue = 1;
-  rows[0].icon = fui::bitmapFromIcon(icon_play_32);
-  rows[1] = fui::ListItem{};
-  rows[1].label = "SYNC";
+  int doorCount = 0;
+  rows[doorCount] = fui::ListItem{};
+  rows[doorCount].label = waiting > 0 ? "START REVIEWING" : "NOTHING TO REVIEW";
+  rows[doorCount].enabled = waiting > 0;
+  rows[doorCount].actionValue = 1;
+  rows[doorCount].icon = fui::bitmapFromIcon(icon_play_32);
+  ++doorCount;
+  rows[doorCount] = fui::ListItem{};
+  rows[doorCount].label = "SYNC";
   // State rides the value slot, right-aligned on the same line: a subtitle
   // makes the row taller than its box and the whole door clipped away.
-  rows[1].value = model.syncSubtitle[0] != '\0' ? model.syncSubtitle : nullptr;
-  rows[1].enabled = true;
-  rows[1].actionValue = 2;
-  rows[1].icon = fui::bitmapFromIcon(icon_refresh_cw_32);
-  // The deck switcher, a door like its siblings, only when there is
-  // somewhere to go. It replaced the quiet DECK 1/2 text row: Mario asked
-  // for the switch next to the other options, and one door language beats
-  // two affordances for the same act. The value names where you ARE; the
-  // count says how many somewheres exist.
-  int doorCount = model.deckCount > 1 ? 3 : 2;
-  if (model.paired) ++doorCount;
+  // State rides the value slot, right-aligned on the same line: a subtitle
+  // makes the row taller than its box and the whole door clipped away.
+  rows[doorCount].value = model.syncSubtitle[0] != '\0' ? model.syncSubtitle : nullptr;
+  rows[doorCount].enabled = true;
+  rows[doorCount].actionValue = 2;
+  rows[doorCount].icon = fui::bitmapFromIcon(icon_refresh_cw_32);
+  ++doorCount;
+
+  // The deck switcher, only when there is somewhere to go. The value names
+  // the position; the deck's NAME is already the row above the ornament, and
+  // repeating it here clipped the label.
   char deckValue[48] = "";
-  if (doorCount == 3) {
-    rows[2] = fui::ListItem{};
-    rows[2].label = "CHANGE DECK";
-    // Just the position: the deck's NAME is already the row above the
-    // ornament, and repeating it here clipped the label (the value slot
-    // takes its width first).
+  if (model.deckCount > 1) {
+    rows[doorCount] = fui::ListItem{};
+    rows[doorCount].label = "CHANGE DECK";
     std::snprintf(deckValue, sizeof(deckValue), "%d OF %d", model.deckIndex + 1, model.deckCount);
-    rows[2].value = deckValue;
-    rows[2].actionValue = 3;
-    rows[2].icon = fui::bitmapFromIcon(icon_library_32);
+    rows[doorCount].value = deckValue;
+    rows[doorCount].actionValue = 3;
+    rows[doorCount].icon = fui::bitmapFromIcon(icon_library_32);
+    ++doorCount;
   }
 
+  // Which Anki decks this reader carries, once paired: otherwise the choice
+  // is answerable only during the first sync and a mis-tap is permanent.
   if (model.paired) {
-    const int slot = doorCount - 1;
-    rows[slot] = fui::ListItem{};
-    rows[slot].label = "DECKS FROM ANKI";
-    rows[slot].value = "CHOOSE";
-    rows[slot].actionValue = 4;
-    rows[slot].icon = fui::bitmapFromIcon(icon_library_32);
+    rows[doorCount] = fui::ListItem{};
+    rows[doorCount].label = "DECKS FROM ANKI";
+    rows[doorCount].value = "CHOOSE";
+    rows[doorCount].actionValue = 4;
+    rows[doorCount].icon = fui::bitmapFromIcon(icon_download_24);
+    ++doorCount;
   }
 
   fui::ListProps list;
@@ -302,7 +312,7 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   list.textGap = toybox::kMargin;
   list.rowGap = toybox::kMargin;
   list.valueInset = 0;
-  screen.list(list, doorCount * toybox::kRowHeight + (doorCount - 1) * toybox::kMargin, fui::LayoutAnchor::Bottom);
+  screen.list(list, doorBand, fui::LayoutAnchor::Bottom);
 
   if (model.writeFailed) {
     // Loud, and above the door rather than inside it: a review the user gave
@@ -469,9 +479,11 @@ void buildSyncFlow(toybox::Screen& screen, const SyncFlowModel& model) {
     // it either.
     fui::ListItem again[1];
     again[0] = fui::ListItem{};
-    again[0].label = model.verdict == SyncVerdictKind::Success ? "DONE" : "TRY AGAIN";
-    again[0].actionValue = model.verdict == SyncVerdictKind::Success ? 2 : 1;
-    again[0].icon = fui::bitmapFromIcon(model.verdict == SyncVerdictKind::Success ? icon_check_32 : icon_refresh_cw_32);
+    // A verdict you asked for offers to close; only a failure offers a retry.
+    const bool offerRetry = model.verdict == SyncVerdictKind::Error;
+    again[0].label = offerRetry ? "TRY AGAIN" : "DONE";
+    again[0].actionValue = offerRetry ? 1 : 2;
+    again[0].icon = fui::bitmapFromIcon(offerRetry ? icon_refresh_cw_32 : icon_check_32);
     fui::ListProps door;
     door.items = again;
     door.count = 1;
@@ -587,8 +599,13 @@ fui::Rect buildPairQr(toybox::Screen& screen, const char* code) {
 
   screen.target().text(
       fui::makeRect(body.x + toybox::kMargin, codeY + 48 + toybox::kMargin, body.width - toybox::kMargin * 2, 116),
-      "Sign in at sync.ma-r-s.com/pair, then scan this code or type it. It lasts five minutes; Back stops.",
-      syncText(toybox::kUiFont, fui::TextAlign::Center, fui::Color::DarkGray, 4));
+      "Sign in at sync.ma-r-s.com/pair first, then scan this code.",
+      syncText(toybox::kUiFont, fui::TextAlign::Center, fui::Color::DarkGray, 3));
+  // Overflow is invisible in these cuts: the renderer appends U+2026 and the
+  // face has no glyph for it, so a long line simply stops mid-word -- which
+  // is how the clause telling a nervous user they may refuse went missing.
+  screen.target().text(fui::makeRect(body.x, body.bottom() - 30, body.width, 24), "CODE LASTS 5 MIN, BACK STOPS",
+                       syncText(toybox::kTileFont, fui::TextAlign::Center, fui::Color::DarkGray));
   return qr;
 }
 
@@ -598,7 +615,7 @@ PairConfirmLayout buildPairConfirm(toybox::Screen& screen) {
   const fui::Rect body = screen.body();
   const fui::Paint ink = fui::Paint::solid(fui::Color::Black);
 
-  screen.target().text(fui::makeRect(body.x, body.y + toybox::kMargin, body.width, 48), "PAIRED TO",
+  screen.target().text(fui::makeRect(body.x, body.y + toybox::kMargin, body.width, 48), "IS THIS YOU?",
                        syncText(toybox::kDisplayFont, fui::TextAlign::Center));
 
   PairConfirmLayout layout;
@@ -607,7 +624,7 @@ PairConfirmLayout buildPairConfirm(toybox::Screen& screen) {
 
   screen.target().text(fui::makeRect(body.x + toybox::kMargin, layout.username.bottom() + toybox::kMargin,
                                      body.width - toybox::kMargin * 2, 84),
-                       "If this is your account, confirm. If not, press Back; nothing is stored yet.",
+                       "Nothing is stored yet.",
                        syncText(toybox::kUiFont, fui::TextAlign::Center, fui::Color::DarkGray, 3));
 
   // The confirm target: a pill the thumb can reach, tappable because on the
@@ -618,7 +635,9 @@ PairConfirmLayout buildPairConfirm(toybox::Screen& screen) {
                               static_cast<int16_t>(body.width - 88), pillH);
   screen.target().stroke(layout.pill, ink, toybox::kRule, static_cast<uint8_t>(pillH / 2));
   screen.target().text(fui::makeRect(layout.pill.x, layout.pill.y + (pillH - 26) / 2, layout.pill.width, 26),
-                       "THIS IS ME", syncText(toybox::kUiFont, fui::TextAlign::Center));
+                       "YES, PAIR IT", syncText(toybox::kUiFont, fui::TextAlign::Center));
+  screen.target().text(fui::makeRect(body.x, layout.pill.y - 34, body.width, 24), "NOT ME? PRESS BACK",
+                       syncText(toybox::kTileFont, fui::TextAlign::Center, fui::Color::DarkGray));
   return layout;
 }
 
