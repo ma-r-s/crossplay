@@ -3,6 +3,7 @@
 #include <BoardConfig.h>
 #include <esp_rom_sys.h>
 
+#include <cstring>
 #include <string>
 
 #define MAX_ENTRY_LEN 256
@@ -69,7 +70,24 @@ void logPrintf(const char* level, const char* origin, const char* format, ...) {
   esp_rom_printf("%s", buf);
 #else
   if (logSerial) {
+    // Only if it fits RIGHT NOW. This is the same root cause as the truncated
+    // screenshots: when a write cannot drain inside tx_timeout_ms, HWCDC gives
+    // up and sets connected = false -- and from then on the device answers
+    // nothing on the cable while Wi-Fi carries on, which is the "wedge" that
+    // needs a physical button press. A log line is the wrong thing to wedge a
+    // device for, so a line that does not fit is dropped rather than waited on.
+    // It still reaches the RTC ring below either way, which is what
+    // /api/dev/log and /api/dev/crash read.
+#if defined(SIMULATOR)
+    // The simulator's HWCDC shim writes to stderr: no ring, nothing to fill,
+    // and no availableForWrite() to ask.
     logSerial.print(buf);
+#else
+    const size_t want = strlen(buf);
+    if (logSerial.availableForWrite() >= static_cast<int>(want)) {
+      logSerial.print(buf);
+    }
+#endif
   }
 #endif
   addToLogRingBuffer(buf);

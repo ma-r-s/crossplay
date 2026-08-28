@@ -72,6 +72,77 @@ int parseLongs(const char* s, long* out, int n) {
   return found;
 }
 
+// How many bytes the transport refused, and how long we waited for it.
+//
+// These exist because the failure they measure is invisible from the device:
+// the host sees a short read, the device sees nothing at all. Reported by
+// CMD:CDCSTAT and, more usefully, LOGGED -- so on a unit whose cable has
+// wedged they can still be read over Wi-Fi with GET /api/dev/log. The
+// debugging channel and the broken channel finally being different things is
+// the only reason the wedge is investigable at all.
+struct TxStats {
+  uint32_t shortWrites = 0;   // write() accepted less than it was asked for
+  uint32_t zeroWrites = 0;    // write() accepted nothing at all
+  uint32_t retryMs = 0;       // total time spent waiting on the ring
+  uint32_t worstStallMs = 0;  // longest single wait
+  uint32_t timeouts = 0;      // gave up on a payload
+};
+TxStats txStats;
+
+// Write every byte, and NEVER ask for more than the transport can take.
+//
+// This is two bugs with one root, and the root is in the core rather than here.
+// HWCDC::write returns how many bytes it ACCEPTED and returns 0 when the TX ring
+// is full or it cannot take tx_lock inside tx_timeout_ms. The bridge discarded
+// that number, so short writes vanished silently -- desk reads died at 26254,
+// 712 and ~600 bytes of 48000, and the host only learned by counting.
+//
+// The worse half: when its internal wait expires, HWCDC gives up and sets
+// `connected = false` (HWCDC.cpp, "write failed due to waiting USB Host -
+// timeout"). Everything downstream reads that flag. `logSerial` is falsy, so
+// logs stop; writes fall into the drop policy; and the device answers nothing
+// on the cable while Wi-Fi carries on perfectly. That is exactly the "wedge"
+// that cost two desk units a night and needed a physical button press: not a
+// dead peripheral, a device that has concluded nobody is listening.
+//
+// So the fix is not to retry harder, it is to never make the core wait:
+// availableForWrite() says how much fits right now, and asking for exactly that
+// means write() cannot time out, cannot flip the flag, and cannot truncate.
+// Waiting happens HERE, where it is bounded, counted, and reportable.
+bool writeAll(const uint8_t* data, const size_t len, const unsigned long timeoutMs) {
+  size_t sent = 0;
+  unsigned long stallStart = 0;
+  while (sent < len) {
+    const int space = transport().availableForWrite();
+    if (space > 0) {
+      const size_t want = static_cast<size_t>(space) < len - sent ? static_cast<size_t>(space) : len - sent;
+      const size_t n = transport().write(data + sent, want);
+      if (n > 0) {
+        if (stallStart != 0) {
+          const uint32_t waited = static_cast<uint32_t>(millis() - stallStart);
+          txStats.retryMs += waited;
+          if (waited > txStats.worstStallMs) txStats.worstStallMs = waited;
+          stallStart = 0;
+        }
+        if (n < want) txStats.shortWrites++;
+        sent += n;
+        continue;
+      }
+      txStats.zeroWrites++;
+    }
+    if (stallStart == 0) {
+      stallStart = millis();
+    } else if (millis() - stallStart >= timeoutMs) {
+      txStats.timeouts++;
+      LOG_ERR("DEVBRIDGE", "transport took no bytes for %lums with %u of %u left; giving up", timeoutMs,
+              static_cast<unsigned>(len - sent), static_cast<unsigned>(len));
+      return false;
+    }
+    delay(2);  // vTaskDelay: let the CDC task drain the ring
+  }
+  return true;
+}
+
 void handleLine(const char* line) {
   if (strncmp(line, "CMD:", 4) != 0) return;
   const char* cmd = line + 4;
@@ -80,6 +151,12 @@ void handleLine(const char* line) {
     transport().printf("OK PONG board=%.*s version=%s heap=%u minheap=%u psram=%u\n",
                        static_cast<int>(board_tag::boardNameLen()), board_tag::boardName(), CROSSPOINT_VERSION,
                        ESP.getFreeHeap(), ESP.getMinFreeHeap(), ESP.getPsramSize());
+    return;
+  }
+
+  if (strcmp(cmd, "CDCSTAT") == 0) {
+    transport().printf("OK CDCSTAT short=%u zero=%u retryMs=%u worstStallMs=%u timeouts=%u\n", txStats.shortWrites,
+                       txStats.zeroWrites, txStats.retryMs, txStats.worstStallMs, txStats.timeouts);
     return;
   }
 
@@ -235,20 +312,35 @@ void handleLine(const char* line) {
 
   if (strcmp(cmd, "SCREENSHOT") == 0) {
     const uint32_t bufferSize = display.getBufferSize();
-    transport().printf("SCREENSHOT_START:%u\n", bufferSize);
-    // Native USB-CDC drops on a full TX ring rather than blocking (the log
-    // transport must never hang a headless device), so one 48KB write loses
-    // everything past the ring: three desk reads died at ~600 bytes. Chunk
-    // and pace; ~0.4s total, and the CH343 boards are merely unhurt.
     const uint8_t* fb = display.getFrameBuffer();
-    for (uint32_t off = 0; off < bufferSize; off += 512) {
-      const uint32_t n = bufferSize - off < 512 ? bufferSize - off : 512;
-      transport().write(fb + off, n);
-      transport().flush();
-      delay(3);
+    if (fb == nullptr) {
+      transport().printf("ERR SCREENSHOT no framebuffer\n");
+      return;
+    }
+    const TxStats before = txStats;
+    transport().printf("SCREENSHOT_START:%u\n", bufferSize);
+    // One call. The old 512-byte chunking with a blind delay(3) was standing in
+    // for flow control; writeAll paces itself off availableForWrite(), which is
+    // the real thing, and is both faster when the ring is empty and correct
+    // when it is not.
+    const bool complete = writeAll(fb, bufferSize, 2000);
+    transport().flush();
+    if (!complete) {
+      // Say it on the wire AND in the log. The host is about to see a short
+      // read; without this it cannot tell a wedged cable from a crashed device,
+      // and that ambiguity cost two sessions a night.
+      transport().printf("\nERR SCREENSHOT truncated\n");
+      LOG_ERR("DEVBRIDGE", "screenshot truncated: short=%u zero=%u worstStall=%ums",
+              static_cast<unsigned>(txStats.shortWrites - before.shortWrites),
+              static_cast<unsigned>(txStats.zeroWrites - before.zeroWrites),
+              static_cast<unsigned>(txStats.worstStallMs));
+      return;
     }
     transport().printf("SCREENSHOT_END\n");
-    transport().printf("OK SCREENSHOT %u\n", bufferSize);
+    transport().printf("OK SCREENSHOT %u short=%u zero=%u stall=%ums\n", bufferSize,
+                       static_cast<unsigned>(txStats.shortWrites - before.shortWrites),
+                       static_cast<unsigned>(txStats.zeroWrites - before.zeroWrites),
+                       static_cast<unsigned>(txStats.worstStallMs));
     return;
   }
 
