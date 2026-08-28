@@ -197,6 +197,11 @@ class WifiLink:
         # Replaced from the X-Panel-* headers on the first screenshot. The
         # firmware sends them; assuming 800x480 forever would make them decor.
         self.panel = (PANEL_W, PANEL_H)
+        # ...and whether that has happened yet, which comparing against the
+        # default cannot tell you: both real boards ARE 800x480, so the warning
+        # fired forever on them and would have stayed silent on the one board
+        # where it mattered.
+        self.panel_read = False
 
     def _open(self, path, data=None, method=None, timeout=10.0, auth=True):
         req = urllib.request.Request(f"http://{self.ip}{path}", data=data, method=method)
@@ -258,6 +263,7 @@ class WifiLink:
                 width = int(r.headers.get("X-Panel-Width", PANEL_W))
                 height = int(r.headers.get("X-Panel-Height", PANEL_H))
                 self.panel = (width, height)
+                self.panel_read = True
                 data = r.read()
             expected = width * height // 8
             if len(data) != expected:
@@ -337,9 +343,12 @@ def warn_if_panel_unknown(link):
     """--view converts against the panel height, and the Wi-Fi link only learns
     that from a screenshot's X-Panel-* headers. Before one has run it is the
     compiled-in default, which is right for both device envs today and silently
-    wrong on anything else. Say so once rather than mis-tapping quietly."""
+    wrong on anything else. Say so once rather than mis-tapping quietly.
+
+    Keyed on whether a screenshot has actually run, not on whether the value
+    equals the default -- on both real boards those are the same number."""
     global _warned_panel
-    if _warned_panel or link.kind != "wifi" or link.panel != (PANEL_W, PANEL_H):
+    if _warned_panel or link.kind != "wifi" or getattr(link, "panel_read", True):
         return
     _warned_panel = True
     print(

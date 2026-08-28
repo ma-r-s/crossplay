@@ -49,6 +49,24 @@ int parseLongs(const char* s, long* out, int n) {
   return found;
 }
 
+// True when there is a further argument after the ones already consumed, so
+// "present but unparseable" can be told from "omitted". Defaulting a typo and
+// answering OK tells a remote driver -- whose only feedback is the reply line --
+// that its command was honoured at a duration it never chose.
+bool hasMoreArgs(const char* s, int consumed) {
+  int seen = 0;
+  char* end = nullptr;
+  while (true) {
+    while (*s == ' ') s++;
+    if (*s == '\0') return false;
+    if (seen >= consumed) return true;
+    strtol(s, &end, 10);
+    if (end == s) return true;  // unparseable where a number was expected
+    s = end;
+    seen++;
+  }
+}
+
 int buttonIndexByName(const char* name, size_t len) {
   struct Entry {
     const char* name;
@@ -108,6 +126,7 @@ bool runCommand(const char* cmd, char* reply, const size_t replyLen) {
   if (strncmp(cmd, "TAP ", 4) == 0) {
     const int n = parseLongs(cmd + 4, v, 3);
     if (n < 2) return refused(reply, replyLen, "ERR TAP wants: x y [holdMs]");
+    if (n < 3 && hasMoreArgs(cmd + 4, n)) return refused(reply, replyLen, "ERR holdMs must be a number");
     if (!onPanel(v[0], v[1])) return refused(reply, replyLen, "ERR TAP off panel: %ld %ld", v[0], v[1]);
     if (n >= 3 && (v[2] < 0 || v[2] > kMaxHoldMs)) return refused(reply, replyLen, "ERR holdMs 0..%ld", kMaxHoldMs);
     const unsigned long hold = n >= 3 ? static_cast<unsigned long>(v[2]) : 140;
@@ -125,6 +144,7 @@ bool runCommand(const char* cmd, char* reply, const size_t replyLen) {
   if (strncmp(cmd, "SWIPE ", 6) == 0) {
     const int n = parseLongs(cmd + 6, v, 5);
     if (n < 4) return refused(reply, replyLen, "ERR SWIPE wants: x0 y0 x1 y1 [ms]");
+    if (n < 5 && hasMoreArgs(cmd + 6, n)) return refused(reply, replyLen, "ERR ms must be a number");
     if (!onPanel(v[0], v[1]) || !onPanel(v[2], v[3])) {
       return refused(reply, replyLen, "ERR SWIPE off panel");
     }

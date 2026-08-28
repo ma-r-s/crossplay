@@ -129,6 +129,8 @@ int main() {
   // cycle. There is no CANCEL verb, so this must be refused at the door.
   expect("TAP 400 240 -1", "ERR holdMs");
   expect("TAP 400 240 999999", "ERR holdMs");
+  expect("TAP 400 240 abc", "ERR holdMs must be a number");
+  expect("TAP 400 240 ", "OK TAP 400 240 140");  // trailing space is an omission
 
   // -- LONG -----------------------------------------------------------------
   expect("LONG 100 100", "OK LONG 100 100");
@@ -155,6 +157,7 @@ int main() {
   expect("SWIPE 10 240 300 480", "ERR SWIPE off panel");
   expect("SWIPE 10 240 300 240 -1", "ERR ms");
   expect("SWIPE 10 240 300 240 999999", "ERR ms");
+  expect("SWIPE 10 240 300 240 abc", "ERR ms must be a number");
 
   // -- BTN ------------------------------------------------------------------
   struct {
@@ -197,6 +200,19 @@ int main() {
       ok();
     else
       bad("isCommand(nullptr) claimed a command");
+
+    // The other two conditions on the same guard line. Both were outside the
+    // "every guard is mutation-tested" claim until now: removing either left
+    // the suite green while runCommand dereferenced the caller's null buffer.
+    if (!devinput::runCommand("TAP 1 1", nullptr, sizeof(reply)))
+      ok();
+    else
+      bad("runCommand accepted a null reply buffer");
+    char tiny[1] = {};
+    if (!devinput::runCommand("TAP 1 1", tiny, 0))
+      ok();
+    else
+      bad("runCommand accepted replyLen 0");
   }
 
   // -- busy is a retry, not a rejection -------------------------------------

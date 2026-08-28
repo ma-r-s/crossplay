@@ -199,8 +199,10 @@ void WifiSelectionActivity::onExit() {
 
   LOG_DBG("WIFI", "Free heap at onExit end: %d bytes", ESP.getFreeHeap());
 
-  // Last, after scanDelete(): resume() issues WiFi.begin() synchronously now,
-  // and a join fired into a live async scan is two things using one radio.
+  // Last, after scanDelete(). resume() no longer joins synchronously -- it asks
+  // update() to do it on the next loop pass -- so this is no longer load-bearing
+  // for that reason. It stays last because the meaning is right: hand the radio
+  // back once this screen has finished with it, not while it still is.
   devmode::resume();
 }
 

@@ -130,11 +130,12 @@ void CrossPointWebServerActivity::onExit() {
     }
   }
 
-  // LAST, after this screen has finished putting its own radio down. resume()
-  // now issues WiFi.begin() synchronously, so calling it first meant dev mode
-  // took the radio at the top of this function and the softAP teardown below
-  // then tore it out again -- leaving dev mode joining a radio that had been
-  // stopped underneath it.
+  // LAST, after this screen has finished putting its own radio down. When
+  // resume() still joined synchronously, calling it first meant dev mode took
+  // the radio at the top of this function and the softAP teardown below tore it
+  // out again. The join is deferred to update() now, but the ordering is still
+  // right on its own terms: the radio is handed back when this screen is done
+  // with it, and holdsRadio() above is read while the yield is still held.
   devmode::resume();
 
   LOG_DBG("WEBACT", "Free heap at onExit end: %d bytes", ESP.getFreeHeap());

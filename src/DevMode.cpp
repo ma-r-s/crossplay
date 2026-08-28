@@ -79,6 +79,9 @@ unsigned long joinDeadline = 0;
 int attempt = 0;
 // Set by resume(); consumed by startJoin(), which runs off the render path.
 bool reloadCredentials = false;
+// True once WE issued the WiFi.begin() for the join now in progress. A
+// connection we did not ask for is somebody else's to put down.
+bool joinIssued = false;
 
 constexpr unsigned long kJoinTimeoutMs = 20000;
 constexpr unsigned long kMinBackoffMs = 5000;
@@ -145,21 +148,6 @@ void tearDown(const char* why) {
 
 void startJoin() {
   attempt++;
-  // Set by resume(): the holder may have joined a different network entirely,
-  // and the Wi-Fi picker exists to do exactly that. Read here rather than in
-  // resume() because this runs from loop(), unlocked -- see the note there.
-  if (reloadCredentials) {
-    reloadCredentials = false;
-    WIFI_STORE.loadFromFile();
-    ssid = WIFI_STORE.getLastConnectedSsid();
-    if (ssid.empty()) {
-      LOG_INF("DEVMODE", "no saved network to go back to; idle until one is joined");
-      state = State::NoNetwork;
-      return;
-    }
-    const auto cred = WIFI_STORE.findCredential(ssid);
-    password = cred ? cred->password : std::string();
-  }
   LOG_INF("DEVMODE", "joining '%s' (attempt %d)", ssid.c_str(), attempt);
   // Do not take a radio that is already in use. Something else owning it --
   // a link session, an OPDS download -- outranks a background convenience.
@@ -171,6 +159,7 @@ void startJoin() {
   }
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid.c_str(), password.empty() ? nullptr : password.c_str());
+  joinIssued = true;
   joinDeadline = millis() + kJoinTimeoutMs;
   state = State::Joining;
 }
@@ -192,6 +181,7 @@ void turnOn() {
   paired = false;
   pairFailures = 0;
   pairNotBefore = 0;
+  joinIssued = false;
   if (ssid.empty()) {
     LOG_INF("DEVMODE", "on, but no saved network; join one in Network settings first");
     state = State::NoNetwork;
@@ -254,13 +244,37 @@ void update() {
   const unsigned long now = millis();
 
   if (state == State::Joining) {
+    // Before the CONNECTED check, not after, and not inside startJoin(): when
+    // the holder handed the radio back still connected we short-circuit
+    // straight to Serving below and startJoin() never runs, which left the
+    // panel naming the network the user had just left. Here because update()
+    // runs from loop() with no render lock -- see resume().
+    if (reloadCredentials) {
+      reloadCredentials = false;
+      WIFI_STORE.loadFromFile();
+      const std::string saved = WIFI_STORE.getLastConnectedSsid();
+      if (saved.empty()) {
+        LOG_INF("DEVMODE", "no saved network to go back to; idle until one is joined");
+        state = State::NoNetwork;
+        return;
+      }
+      ssid = saved;
+      const auto cred = WIFI_STORE.findCredential(ssid);
+      password = cred ? cred->password : std::string();
+    }
     if (WiFi.status() == WL_CONNECTED) {
       attempt = 0;
-      // Only now is the radio ours. Setting this at WiFi.begin() time made
-      // holdsRadio() true while dev mode held nothing -- so with the AP out of
-      // range every guarded activity skipped its cleanup forever, on a device
-      // that also no longer deep-sleeps. Both heap-reclaim paths gone at once.
-      broughtRadioUp = true;
+      // Only now is the radio ours -- and only if it was OUR join that produced
+      // it. Adopting any connection found while Joining meant the Wi-Fi picker's
+      // own successful join was claimed by dev mode, so nine activities skipped
+      // the teardown of a radio they owned, and switching dev mode off later
+      // disconnected a network it had never joined.
+      //
+      // (Setting it at WiFi.begin() time instead made holdsRadio() true while
+      // dev mode held nothing, so with the AP out of range every guarded
+      // activity skipped its cleanup forever, on a device that also no longer
+      // deep-sleeps.)
+      broughtRadioUp = joinIssued;
       LOG_INF("DEVMODE", "joined '%s' as %s", ssid.c_str(), WiFi.localIP().toString().c_str());
       // makeUniqueNoThrow, not bare new: with -fno-exceptions a failed new
       // calls abort() rather than returning null, so the isRunning() check
@@ -354,7 +368,7 @@ void resume() {
   // If the holder gave the radio back switched off -- which is exactly what a
   // link match does, WiFi.mode(WIFI_OFF) in Radio::end() -- then whatever dev
   // mode raised is gone, and saying otherwise is the lie that matters: eight
-  // activities gate their teardown and their heap-defrag restart on
+  // activities gate their radio teardown on
   // holdsRadio(), and every one of them would skip it. Worse, an AP that has
   // since gone out of range means the join below never completes, so nothing
   // would ever re-evaluate it. Only clear it here, never in pause(): during a
@@ -390,6 +404,7 @@ void resume() {
   // own radio down. It costs one loop iteration, against the 25s the original
   // joinDeadline-with-no-attempt cost.
   reloadCredentials = true;
+  joinIssued = false;  // whatever is up now, we did not raise it
   nextAttemptAt = millis();
   if (nextAttemptAt == 0) nextAttemptAt = 1;  // 0 is the "no attempt pending" value
   joinDeadline = millis() + kJoinTimeoutMs;
@@ -403,8 +418,12 @@ bool holdsRadio() {
   // is the web transfer screen's onExit(), and it reads it eleven lines before
   // resume() gets a chance to correct broughtRadioUp -- so a screen that took
   // the radio into AP mode was still told dev mode held an association that
-  // WIFI_AP had already destroyed, and skipped the heap-defrag restart after
-  // the most heap-hungry screen in the firmware on the strength of it.
+  // WIFI_AP had already destroyed, and skipped its own teardown on the strength
+  // of it. Note what that teardown actually is on the shipping boards: both the
+  // X4 Pro and the Sticky have touch, so silentRestart() takes
+  // finishWifiSessionWithoutRestart() and RETURNS -- it stops SNTP and switches
+  // the radio off in place. What gets skipped is a Wi-Fi shutdown, not a
+  // reboot; the defrag reboot only happens on boards without touch.
   //
   // Asking the radio costs nothing and cannot go stale. In the case that
   // matters -- a screen reusing dev mode's own STA -- this still answers yes,
@@ -468,6 +487,7 @@ std::string pair(const std::string& code) {
 
   pairFailures = 0;
   pairNotBefore = 0;
+  joinIssued = false;
   activeToken = makeToken();
   paired = true;
   LOG_INF("DEVMODE", "paired");

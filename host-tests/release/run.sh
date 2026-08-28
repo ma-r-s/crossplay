@@ -395,7 +395,14 @@ done < <(grep -rl 'WiFi.getMode() != WIFI_MODE_NULL' "$ROOT/src" 2>/dev/null | s
 # thing, because a file that only MENTIONS devmode:: in a comment explaining why
 # it does not need to yield was passing every one of them.
 code_lines() {
-  sed -e 's://.*::' -e 's:/\*.*\*/::' "$1" | grep -v '^[[:space:]]*[*]'
+  # Drops //-comments, same-line /* */, and the whole of a multi-line block:
+  # its opening line, its continuation lines (which start with *), and its
+  # closing line. The first version handled only same-line blocks, so a file
+  # whose one devmode:: mention sat on a `/*` opening line passed check 10, and
+  # a file that merely NAMED esp_wifi_stop() there was dragged into it.
+  sed -e 's://.*::' -e 's:/\*.*\*/::' "$1" |
+    awk '/^[[:space:]]*\/\*/ { inblock = 1 } inblock { if (/\*\//) inblock = 0; next } { print }' |
+    grep -v '^[[:space:]]*[*]'
 }
 
 # Counts matches on non-comment lines. A COUNT rather than `code_lines | grep -q`
@@ -412,7 +419,7 @@ count_code() { code_lines "$1" | grep -c "$2"; }
 # It failed with "bad substitution", the while-loop read nothing, and check 10
 # reported green while examining ZERO files -- a check that did not run looks
 # exactly like a check that passed.
-RADIO_TAKERS_RE='esp_wifi_set_channel\(|esp_wifi_set_mode\(|esp_wifi_stop\(|WiFi\.scanNetworks\(|WiFi\.softAP\(|esp_now_init\(|WiFi\.mode\(WIFI_OFF\)|WiFi\.mode\(WIFI_MODE_NULL\)|WiFi\.mode\(WIFI_AP\)|WiFi\.mode\(WIFI_AP_STA\)'
+RADIO_TAKERS_RE='esp_wifi_set_channel\(|esp_wifi_set_mode\(|esp_wifi_stop\(|esp_wifi_deinit\(|WiFi\.scanNetworks\(|WiFi\.softAP\(|WiFi\.softAPConfig\(|WiFi\.enableAP\(|WiFi\.AP\.begin\(|WiFi\.STA\.end\(|esp_now_init\(|WiFi\.mode\(WIFI_OFF\)|WiFi\.mode\(WIFI_MODE_NULL\)|WiFi\.mode\(WIFI_AP\)|WiFi\.mode\(WIFI_AP_STA\)'
 radio_takers() {
   local f
   grep -rlE "$RADIO_TAKERS_RE" "$ROOT/src" "$ROOT/lib" 2>/dev/null | sort | while IFS= read -r f; do
@@ -497,7 +504,10 @@ done < <(radio_takers)
 # count out from under a holder that still has the ports -- and keying the
 # search on pause() alone put exactly that case beyond this check's reach.
 #
-# WHAT THIS CANNOT SEE, said plainly: it counts source lines, not calls.
+# WHAT THIS CANNOT SEE, said plainly: it counts source lines, not calls, and it
+# cannot see REACHABILITY at all. An onExit() with an early `return` above its
+# resume(), or a resume() behind an `if`, reads 1:1 here and still strands
+# Developer Mode until a reboot. It counts source lines, not calls.
 # LinkRadio.cpp reads 1:1 here while end() runs three times per match, and what
 # actually makes that pairing correct at runtime is the held_ flag, not this
 # check. A grep cannot count calls. Do not read a pass as proof of balance.
@@ -530,7 +540,11 @@ while IFS= read -r path; do
   else
     bad "$rel schedules input directly instead of going through devinput::runCommand() -- that is a second vocabulary"
   fi
-done < <(grep -rlE 'devinput::(tap|longPress|swipe|button)\(' "$ROOT/src" "$ROOT/lib" 2>/dev/null | sort)
+done < <(grep -rlE 'devinput::(tap|longPress|swipe|button)\(' "$ROOT/src" "$ROOT/lib" 2>/dev/null | sort |
+  while IFS= read -r f; do
+    # In code, not in prose: a comment naming devinput::tap() is not a caller.
+    if [ "$(code_lines "$f" | grep -cE 'devinput::(tap|longPress|swipe|button)\(')" -gt 0 ]; then echo "$f"; fi
+  done)
 
 # And both transports must actually route through it, or the shared unit is just
 # an unused library that happens to compile.

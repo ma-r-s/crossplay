@@ -191,8 +191,9 @@ that reads it as ownership will miss every non-associating user of the radio.
   and the files that yield.
 
   **One file is still outside that net.** `StudyActivity` tears the radio down
-  behind its own `wifiActivated_` flag, and that flag is set whenever the app
-  wants Wi-Fi rather than when it actually raised the radio -- so with Developer
+  twice: `onExit` does it behind its own `wifiActivated_` flag, which is set
+  whenever the app wants Wi-Fi rather than when it actually raised the radio,
+  and `endSyncSession` does it behind no flag at all. Either way, with Developer
   Mode holding an association it will drop it, and dev mode rejoins ~5s later.
   Annoying, not fatal, and it predates this feature. Check 10 does not catch it
   because the pattern deliberately excludes `WiFi.disconnect(`: a self-owned
