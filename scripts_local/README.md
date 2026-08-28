@@ -86,6 +86,35 @@ double integration, a queued site deploy, two simultaneous emulator rebuilds)
 were each resolved by exactly this message, sent after the fact instead of
 before.
 
+## Desk devices, and Developer Mode
+
+Identify a unit by MAC, never by port name -- `/dev/cu.usbmodem*` numbers track
+port position and swap across sleep/wake, and on 2026-08-27 that cost one
+session another's build. The cheapest probe opens nothing and resets nothing:
+
+```bash
+ioreg -r -c IOUSBHostDevice -l | awk '/USB Serial Number/{s=$NF} /IODialinDevice/{print s,$NF}'
+```
+
+Fall back to `tools_local/device/drive.py PING` (dev builds only, and it proves
+the app is alive), and to `esptool read-mac` last -- that one reboots the device.
+No `/dev/cu.usbmodem*` at all means asleep, not broken.
+
+**After the first flash a device needs no cable.** Settings > System >
+Developer Mode shows an address and six digits:
+
+```bash
+./scripts_local/wifi-flash.sh --pair 123456   # once per dev-mode session
+./scripts_local/wifi-flash.sh                 # every flash after that
+./scripts_local/wifi-flash.sh --disable       # close the device again
+```
+
+It is a runtime setting present in every build including releases, so flashing a
+release does NOT turn it off -- the setting lives on the SD card. While it is on
+the device will not deep-sleep and accepts firmware from anyone who pairs, so
+close it with `--disable` before the device leaves your network. Full detail in
+`docs/developer-mode.md`.
+
 Each simulator instance gets its own SD card via `CROSSPOINT_SIM_SD`: each
 tree's own `fs_agent/` for scripted runs, and `../fs_mario/` at the workspace
 root for Mario's, which sits outside every tree so his saves and settings follow
