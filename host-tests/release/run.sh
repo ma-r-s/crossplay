@@ -403,32 +403,39 @@ code_lines() {
   # opened a string that swallowed the rest of the line -- a strict regression,
   # because the version before it caught that case.
   #
-  # Known limits, stated rather than pretended away, because the last version
-  # quietly dropped this paragraph while ADDING a limit:
-  #   - a raw string R"(...)" spanning lines will latch the block state;
-  #   - a digit separator (1'000) reads as a char literal.
-  # Neither appears in this tree. Both would show up the same way: the check
-  # COUNT stops moving. That is the tell, every time.
+  # A quote straight after an alphanumeric is a C++ DIGIT SEPARATOR, not a char
+  # literal -- see the prev check below. Reading 0x70B0.0001 as a literal opened
+  # one that swallowed the rest of the line, comment and all, and 13 files in
+  # this tree use separators. That rule is safe here only because no L or u8
+  # prefixed char literal exists in the tree; if one appears, revisit it.
+  #
+  # Known limits, stated rather than pretended away, because one version quietly
+  # dropped this paragraph while ADDING a limit, and another claimed separators
+  # did not appear here when they appear 13 times:
+  #   - a raw string spanning lines will latch the block state (none in tree);
+  #   - a prefixed char literal would be read as a separator (none in tree).
+  # Both would show up the same way: the check COUNT stops moving. That is the
+  # tell, every time, which is what the canaries above are for.
   awk '
     {
-      line = $0; out = ""; i = 1; n = length(line)
+      line = $0; out = ""; i = 1; n = length(line); prev = ""
       while (i <= n) {
         c = substr(line, i, 1); d = substr(line, i, 2)
         if (inblock) { if (d == "*/") { inblock = 0; i += 2 } else { i++ } continue }
         if (instr || inchar) {
           if (c == "\\") { out = out substr(line, i, 2); i += 2; continue }
-          out = out c; i++
+          out = out c; prev = c; i++
           if (instr && c == "\"") instr = 0
           if (inchar && c == "'"'"'") inchar = 0
           continue
         }
         if (d == "//") break
         if (d == "/*") { inblock = 1; i += 2; continue }
-        if (c == "\"") { instr = 1; out = out c; i++; continue }
-        if (c == "'"'"'") { inchar = 1; out = out c; i++; continue }
-        out = out c; i++
+        if (c == "\"") { instr = 1; out = out c; i++; prev = c; continue }
+        if (c == "'"'"'" && prev !~ /[0-9A-Za-z_]/) { inchar = 1; out = out c; i++; prev = c; continue }
+        out = out c; prev = c; i++
       }
-      instr = 0; inchar = 0
+      instr = 0; inchar = 0; prev = ""
       print out
     }' "$1"
 }
@@ -675,6 +682,7 @@ const char* k = "/*KEEP_STAR_IN_STRING";
 int keepF();
 void f(char c) { if (c == '"') keepG(); } // GONE_AFTER_CHAR_LITERAL
 char esc = '\''; int keepH(); // GONE_AFTER_ESCAPED_QUOTE
+constexpr int keepI = 0x70B0'0001; // GONE_AFTER_DIGIT_SEPARATOR
 FIXTURE
 scanner_raw="$(cat "$scanner_fixture")"
 scanner_out="$(code_lines "$scanner_fixture")"
@@ -686,9 +694,8 @@ scanner_why=""
 # a typo, or a line edit that did not land -- would otherwise pass trivially,
 # because absence is exactly what the assertion below wants. This test asserted
 # nothing at all for one commit for precisely that reason.
-fixture_src="int keepA(); int keepB(); int keepC(); int keepD(); int keepE(); int keepF(); int keepG(); int keepH();"
 for token in GONE_LINE_COMMENT GONE_SAME_LINE GONE_TRAILING_OPEN GONE_BLOCK_BODY GONE_AFTER_CHAR_LITERAL \
-             GONE_AFTER_ESCAPED_QUOTE KEEP_IN_STRING KEEP_STAR_IN_STRING; do
+             GONE_AFTER_ESCAPED_QUOTE GONE_AFTER_DIGIT_SEPARATOR KEEP_IN_STRING KEEP_STAR_IN_STRING; do
   case "$scanner_raw" in
     *"$token"*) ;;
     *) scanner_ok=0; scanner_why="$scanner_why absent-from-fixture:$token" ;;
@@ -696,12 +703,12 @@ for token in GONE_LINE_COMMENT GONE_SAME_LINE GONE_TRAILING_OPEN GONE_BLOCK_BODY
 done
 # Everything named GONE_ must be stripped; everything named keep must survive.
 for token in GONE_LINE_COMMENT GONE_SAME_LINE GONE_TRAILING_OPEN GONE_BLOCK_BODY GONE_AFTER_CHAR_LITERAL \
-             GONE_AFTER_ESCAPED_QUOTE; do
+             GONE_AFTER_ESCAPED_QUOTE GONE_AFTER_DIGIT_SEPARATOR; do
   case "$scanner_out" in
     *"$token"*) scanner_ok=0; scanner_why="$scanner_why kept:$token" ;;
   esac
 done
-for token in keepA keepB keepC keepD keepE keepF keepG keepH KEEP_IN_STRING KEEP_STAR_IN_STRING; do
+for token in keepA keepB keepC keepD keepE keepF keepG keepH keepI KEEP_IN_STRING KEEP_STAR_IN_STRING; do
   case "$scanner_out" in
     *"$token"*) ;;
     *) scanner_ok=0; scanner_why="$scanner_why lost:$token" ;;

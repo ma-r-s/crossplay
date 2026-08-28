@@ -39,9 +39,6 @@ void update();
 void pause();
 void resume();
 
-// True while the control server is up and reachable.
-bool serving();
-
 // True when Developer Mode brought the radio up and still holds it.
 //
 // Exists because five activities used to ask `WiFi.getMode() != WIFI_MODE_NULL`

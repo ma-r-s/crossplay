@@ -2295,8 +2295,11 @@ void CrossPointWebServer::handleDevUploadData() {
     devUpload.authorised = devTokenOk();
     devUpload.written = 0;
     devUpload.ok = false;
-    if (!devUpload.authorised) return;
+    // Before the refusal, not after: the core drains the body on the main loop
+    // whether we accept it or not, so an unauthorised multi-megabyte PUT went
+    // through that drain with the watchdog unfed.
     resetTaskWatchdogIfSubscribed();
+    if (!devUpload.authorised) return;
     Storage.remove(kDevUploadPath);
     if (!Storage.openFileForWrite("DEVMODE", kDevUploadPath, devUpload.file)) {
       LOG_ERR("DEVMODE", "cannot open %s for write", kDevUploadPath);
@@ -2344,7 +2347,14 @@ void CrossPointWebServer::handleDevUpload() {
     devUpload.authorised = false;
     return;
   }
-  if (!devUpload.ok) {
+  // Read ONCE and clear. ok is only ever set by the raw callback, so a PUT that
+  // never reaches it -- no body, or a body the core drops -- would otherwise
+  // inherit the previous request's success and be answered 200 with the
+  // previous path and size. That is a success reported for an upload that did
+  // not happen, and wifi-flash.sh would go on to ask the device to flash it.
+  const bool uploaded = devUpload.ok;
+  devUpload.ok = false;
+  if (!uploaded) {
     server->send(500, "text/plain", "upload failed\n");
     return;
   }

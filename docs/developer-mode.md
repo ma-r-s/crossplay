@@ -221,7 +221,7 @@ that reads it as ownership will miss every non-associating user of the radio.
   What the convention missed, and what shipped in v1.6.1: Developer Mode's test
   for "is somebody else using this?" is `WiFi.status() == WL_CONNECTED`, so an
   owner that never associates is invisible to it. ESP-NOW never associates. See
-  "Playing and flashing are exclusive" below.
+  "Playing and flashing are exclusive" above.
 - **The unauthenticated web UI can still overwrite
   `/.crosspoint/settings.json`** by basename, which is another route to enabling
   Developer Mode. It predates this feature and is not caused by it, but this

@@ -74,6 +74,9 @@ bool broughtRadioUp = false;
 // which another attempt will be considered.
 int pairFailures = 0;
 unsigned long pairNotBefore = 0;
+// When the code last rotated, so an attacker cannot churn it faster than the
+// owner can read it.
+unsigned long lastRotateMs = 0;
 unsigned long nextAttemptAt = 0;
 unsigned long joinDeadline = 0;
 int attempt = 0;
@@ -86,9 +89,25 @@ bool joinIssued = false;
 constexpr unsigned long kJoinTimeoutMs = 20000;
 constexpr unsigned long kMinBackoffMs = 5000;
 constexpr unsigned long kMaxBackoffMs = 60000;
-// One attempt per second caps a grind at ~86k/day against a 10^6 space, and the
-// rotation below means those attempts are not cumulative anyway.
+// Wrong guesses back off exponentially from one second, and the code cannot
+// rotate more often than once a minute.
+//
+// Both numbers exist because the first design was a denial of pairing wearing a
+// comment that said it was not. One per second and rotate-every-five-failures
+// meant anyone who could reach the device rotated the six digits EVERY FIVE
+// SECONDS from a single loop -- less time than the owner needs to read the panel
+// and type, so their attempt always arrived against a dead code, counted as
+// another wrong guess, and brought the next rotation closer. The comment in
+// pair() said rotation was chosen precisely so nobody could stop the owner
+// pairing. Rotation was that lockout, by a different route.
+//
+// It is reachable from outside the LAN, too: /api/dev/pair takes the code as a
+// query argument on a POST, which is a CORS-simple request, so a page the owner
+// merely visits can fire it cross-origin. It cannot read the reply -- CORS is
+// off on this surface -- but forcing rotation needs no reply.
 constexpr unsigned long kPairRetryMs = 1000;
+constexpr unsigned long kPairRetryCeilingMs = 30000;
+constexpr unsigned long kMinRotateIntervalMs = 60000;
 constexpr int kPairFailuresBeforeRotate = 5;
 
 unsigned long backoff() {
@@ -181,6 +200,10 @@ void turnOn() {
   paired = false;
   pairFailures = 0;
   pairNotBefore = 0;
+  // Switching dev mode on IS a rotation, and it starts the floor -- the minute
+  // right after enabling is exactly when the owner is walking to their terminal
+  // with the code, and the one an attacker would most want to churn.
+  lastRotateMs = millis() == 0 ? 1 : millis();
   joinIssued = false;
   if (ssid.empty()) {
     LOG_INF("DEVMODE", "on, but no saved network; join one in Network settings first");
@@ -289,7 +312,13 @@ void update() {
       // dev mode held nothing, so with the AP out of range every guarded
       // activity skipped its cleanup forever, on a device that also no longer
       // deep-sleeps.)
-      broughtRadioUp = joinIssued;
+      // joinIssued alone is not enough: it survives a join timeout and the whole
+      // backoff window after a drop, so an activity that brought Wi-Fi up in the
+      // meantime got claimed by dev mode -- which then skipped that activity's
+      // teardown, re-issued WiFi.begin() over its download, and armed tearDown()
+      // to disconnect a network dev mode never joined. Ask which network we are
+      // actually on as well.
+      broughtRadioUp = joinIssued && WiFi.SSID() == String(ssid.c_str());
       LOG_INF("DEVMODE", "joined '%s' as %s", ssid.c_str(), WiFi.localIP().toString().c_str());
       // makeUniqueNoThrow, not bare new: with -fno-exceptions a failed new
       // calls abort() rather than returning null, so the isRunning() check
@@ -426,8 +455,6 @@ void resume() {
   state = State::Joining;
 }
 
-bool serving() { return state == State::Serving && server && server->isRunning(); }
-
 bool holdsRadio() {
   // Self-checking, not a latch. The one caller that reads this DURING a yield
   // is the web transfer screen's onExit(), and it reads it eleven lines before
@@ -491,12 +518,22 @@ std::string pair(const std::string& code) {
 
   if (!correct) {
     pairFailures++;
-    pairNotBefore = now + kPairRetryMs;
+    // Exponential, so five wrong guesses cost 31s rather than 5s.
+    unsigned long wait = kPairRetryMs << (pairFailures < 5 ? pairFailures - 1 : 4);
+    if (wait > kPairRetryCeilingMs) wait = kPairRetryCeilingMs;
+    pairNotBefore = now + wait;
     // ROTATE rather than lock out. A lockout would hand anyone on the network a
     // way to stop the owner pairing; moving the target instead throws away
     // every guess made so far and costs the owner only a glance at the screen,
     // which is already showing the new code by the time they look.
-    if (pairFailures >= kPairFailuresBeforeRotate) {
+    // Rotate on sustained failure, but never faster than once a minute: the
+    // owner has to be able to read a code off the panel and still type it. The
+    // guesses are thrown away by the rotation whenever it does happen, and the
+    // backoff above is what actually makes grinding expensive.
+    const bool rotateDue = pairFailures >= kPairFailuresBeforeRotate;
+    const bool rotateAllowed = lastRotateMs == 0 || static_cast<long>(now - (lastRotateMs + kMinRotateIntervalMs)) >= 0;
+    if (rotateDue && rotateAllowed) {
+      lastRotateMs = now == 0 ? 1 : now;
       pairingCode = makeCode();
       std::snprintf(rtcPairCode, sizeof(rtcPairCode), "%s", pairingCode.c_str());
       rtcPairMagic = kPairMagic;

@@ -146,6 +146,14 @@ bool Radio::begin() {
 
   WiFi.persistent(false);
   WiFi.mode(WIFI_STA);
+  // Disarm the core's auto-reconnect BEFORE disconnecting. Our own disconnect
+  // raises WIFI_REASON_ASSOC_LEAVE, which the handler already refuses to
+  // reconnect on -- but events are delivered on the Wi-Fi task, so a
+  // NO_AP_FOUND queued before we got here (it IS on the reconnectable list) is
+  // processed after the channel is pinned and re-issues a scanning association.
+  // That lands the radio back on the router's channel with a match running,
+  // which is the original bug arriving by a route the pause() does not cover.
+  WiFi.setAutoReconnect(false);
 
   // esp_wifi_disconnect() is ASYNCHRONOUS, and while the station is still
   // associated the channel belongs to the AP -- a set_channel issued into that
@@ -184,6 +192,14 @@ bool Radio::begin() {
     end();
     return false;
   }
+  // Set the moment init succeeds, not at the end of begin(). end() gated its
+  // ESP-NOW teardown on started_, which is only set once EVERYTHING below has
+  // worked -- so a failure to register the callback, add the broadcast peer or
+  // read the MAC left the stack initialised, and the next begin() then failed on
+  // esp_now_init() and logged a cause that was not the cause. Every match after
+  // it, until a reboot. This is the same asymmetry held_ exists to fix, eighty
+  // lines down.
+  espNowUp_ = true;
 
   activeRadio = this;
   if (esp_now_register_recv_cb(&onEspNowReceive) != ESP_OK) {
@@ -225,10 +241,11 @@ bool Radio::begin() {
 }
 
 void Radio::end() {
-  if (started_) {
+  if (espNowUp_) {
     esp_now_unregister_recv_cb();
     esp_now_deinit();
     esp_wifi_set_ps(WIFI_PS_NONE);
+    espNowUp_ = false;
   }
   if (activeRadio == this) activeRadio = nullptr;
   started_ = false;
@@ -248,6 +265,10 @@ void Radio::end() {
   // worse than the delay this was written to remove.
   if (held_) {
     held_ = false;
+    // Handed back as we found it: dev mode's control server turns this on for
+    // itself when it starts, but anything else relying on it should not have to
+    // know a match happened.
+    WiFi.setAutoReconnect(true);
     WiFi.mode(WIFI_OFF);
     devmode::resume();
   }

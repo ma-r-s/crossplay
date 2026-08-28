@@ -92,6 +92,10 @@ class Radio final : public Transport {
   // there is no Developer Mode to yield, so the field is genuinely unused there
   // and the attribute says so rather than letting -Werror decide.
   [[maybe_unused]] bool held_ = false;
+  // Whether esp_now_init() succeeded and still needs tearing down. Not the same
+  // as started_, which is only set once the whole of begin() has worked: the
+  // failure paths in between left ESP-NOW up and broke every later match.
+  [[maybe_unused]] bool espNowUp_ = false;
   std::atomic<bool> overflowed_{false};
 
   int socket_ = -1;  // simulator only
