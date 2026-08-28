@@ -207,8 +207,10 @@ uv run --with pillow tools_local/device/drive.py --ip 192.168.68.78 \
   **Those two fields mean nothing on the Sticky.** Its `serialTransport()` is
   `Serial0`, a UART behind a WCH bridge, while `HWCDC::isPlugged()` reports the
   USB-Serial-JTAG peripheral the log does not use, and a `HardwareSerial` is
-  always truthy. Read them on the X4 Pro; ignore them on the Sticky. The
-  counters themselves are honest on both.
+  always truthy. Read them on the X4 Pro; ignore them on the Sticky. `logDrops`
+  is structurally zero there too, because that board logs through
+  `esp_rom_printf`, which never reaches the drop path. The rest of the counters
+  are honest on both.
 
   `logDrops` is not an error count. Serial logging is deliberately lossy now: a
   line that does not fit the 256-byte ring at the instant it is written is

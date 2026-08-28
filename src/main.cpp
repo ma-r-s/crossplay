@@ -609,6 +609,48 @@ void setup() {
   allowSleepAt = millis() + 2000;
 }
 
+#if defined(SIMULATOR)
+// The simulator's HWCDC shim writes to stderr: no ring, nothing to fill, and no
+// availableForWrite() to ask.
+static bool pacedWrite(const uint8_t* data, const size_t len, unsigned long) {
+  logSerial.write(data, len);
+  return true;
+}
+static bool pacedLine(const char* text, unsigned long) {
+  logSerial.print(text);
+  return true;
+}
+#else
+// The release path's own writeAll. The dev bridge has one in DevSerialBridge.cpp
+// and this file cannot reach it, because the bridge is compiled out of exactly
+// the builds that ship -- which is how the release path kept the unguarded
+// version long after the bridge was fixed. EVERY write on this path goes
+// through here: a paced payload followed by a raw printf() terminator is still
+// a raw printf() into the fullest ring of the whole transfer.
+static bool pacedWrite(const uint8_t* data, const size_t len, const unsigned long timeoutMs) {
+  size_t sent = 0;
+  const unsigned long deadline = millis() + timeoutMs;
+  while (sent < len && static_cast<long>(millis() - deadline) < 0) {
+    const int space = logSerial.availableForWrite();
+    if (space <= 0) {
+      delay(2);
+      continue;
+    }
+    const size_t want = static_cast<size_t>(space) < len - sent ? static_cast<size_t>(space) : len - sent;
+    const size_t n = logSerial.write(data + sent, want);
+    if (n == 0) {
+      delay(2);
+      continue;
+    }
+    sent += n;
+  }
+  return sent == len;
+}
+static bool pacedLine(const char* text, const unsigned long timeoutMs) {
+  return pacedWrite(reinterpret_cast<const uint8_t*>(text), strlen(text), timeoutMs);
+}
+#endif
+
 void loop() {
   static unsigned long maxLoopDuration = 0;
   const unsigned long loopStartTime = millis();
@@ -648,63 +690,29 @@ void loop() {
       String cmd = line.substring(4);
       cmd.trim();
       if (cmd == "SCREENSHOT") {
-        // Paced the same way the dev bridge does it, and for the same reason:
-        // one 48KB write hands the core far more than the ring holds, it waits,
-        // gives up after the load-bearing 1ms, marks the cable disconnected and
-        // throws the pending ring away. This is the release path, so it had the
-        // original unguarded version long after the bridge was fixed.
         const uint32_t bufferSize = display.getBufferSize();
         const uint8_t* buf = display.getFrameBuffer();
-        if (buf != nullptr) {
-#if !defined(SIMULATOR)
-          // The header is a write like any other, and printf does one write()
-          // and discards the result -- so a header emitted while the tail of
-          // the boot log still shares the ring goes out short, and the host
-          // parses a truncated digit string as the frame length. Wait for room
-          // first, briefly.
-          for (unsigned long t = millis(); logSerial.availableForWrite() < 32 && millis() - t < 1000;) {
-            delay(2);
-          }
-#endif
-          logSerial.printf("SCREENSHOT_START:%d\n", bufferSize);
-#if defined(SIMULATOR)
-          // The simulator's HWCDC shim has none of this to worry about:
-          // stderr, no ring, and no availableForWrite() to ask.
-          logSerial.write(buf, bufferSize);
-          logSerial.printf("SCREENSHOT_END\n");
-#else
-          uint32_t sent = 0;
-          const unsigned long deadline = millis() + 5000;
-          while (sent < bufferSize && static_cast<long>(millis() - deadline) < 0) {
-            const int space = logSerial.availableForWrite();
-            if (space <= 0) {
-              delay(2);
-              continue;
-            }
-            const uint32_t want =
-                static_cast<uint32_t>(space) < bufferSize - sent ? static_cast<uint32_t>(space) : bufferSize - sent;
-            const size_t n = logSerial.write(buf + sent, want);
-            if (n == 0) {
-              delay(2);
-              continue;
-            }
-            sent += n;
-          }
-          // Only when every byte went. The loop above can exit on its
-          // deadline with sent < bufferSize, and printing the terminator
-          // anyway tells the host a short frame is a whole one -- which it
-          // then saves with this very text written over the image tail.
-          if (sent == bufferSize) {
-            logSerial.printf("SCREENSHOT_END\n");
-          } else {
-            logSerial.printf("\nERR SCREENSHOT truncated\n");
-          }
-#endif
-        } else {
+        if (buf == nullptr) {
           // Say so. Silence here is indistinguishable at the host from a wedged
-          // cable, and it costs the caller the full 30s screenshot timeout to
-          // learn nothing.
-          logSerial.printf("ERR SCREENSHOT no framebuffer\n");
+          // cable, and it costs the caller the full screenshot timeout to learn
+          // nothing.
+          pacedLine("ERR SCREENSHOT no framebuffer\n", 1000);
+        } else {
+          char head[48];
+          snprintf(head, sizeof(head), "SCREENSHOT_START:%u\n", bufferSize);
+          // Checked, not fired and forgotten: a header that went out short
+          // hands the host a truncated digit string to parse as the frame
+          // length, and 48KB of payload it cannot frame follows it.
+          if (!pacedLine(head, 1000)) {
+            LOG_ERR("MAIN", "screenshot: header did not go out");
+          } else if (pacedWrite(buf, bufferSize, 5000)) {
+            pacedLine("SCREENSHOT_END\n", 1000);
+          } else {
+            // The terminator ONLY when every byte went. Printing it anyway
+            // tells the host a short frame is a whole one, which it then saves
+            // with this very text over the image tail.
+            pacedLine("\nERR SCREENSHOT truncated\n", 1000);
+          }
         }
       }
     }

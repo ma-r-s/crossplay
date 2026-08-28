@@ -440,7 +440,12 @@ void handleLine(const char* line) {
     // as the frame length.
     char head[48];
     snprintf(head, sizeof(head), "SCREENSHOT_START:%u\n", bufferSize);
-    writeLine(head, 1000);
+    // Checked. A header that went out short hands the host a truncated digit
+    // string to parse as the frame length, with 48KB it cannot frame behind it.
+    if (!writeLine(head, 1000)) {
+      LOG_ERR("DEVBRIDGE", "screenshot: header did not go out");
+      return;
+    }
     // One call. The old 512-byte chunking with a blind delay(3) was standing in
     // for flow control; writeAll paces itself off availableForWrite(), which is
     // the real thing, and is both faster when the ring is empty and correct

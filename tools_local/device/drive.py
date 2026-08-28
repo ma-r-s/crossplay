@@ -217,16 +217,31 @@ class SerialLink:
                     # newline found is one inside the image. A bogus size is
                     # not merely unparseable: a negative one makes every length
                     # test below pass and hands back the buffer as an image.
-                    try:
-                        size = int(buf[idx + len(marker) : nl])
-                    except ValueError:
-                        print(
-                            f"bad SCREENSHOT_START length: {buf[idx : nl][:40]!r}",
-                            file=sys.stderr,
-                        )
+                    digits = buf[idx + len(marker) : nl]
+                    # Plain ASCII digits only. int() also accepts b"+48000",
+                    # b"4_8000" and b" 48000 ", none of which this device ever
+                    # sends -- so accepting them only widens what a corrupted
+                    # header can be read as.
+                    if not digits.isdigit():
+                        print(f"bad SCREENSHOT_START length: {digits[:40]!r}", file=sys.stderr)
                         return None
+                    size = int(digits)
                     if not 0 < size <= MAX_FRAME_BYTES:
                         print(f"implausible frame length {size}", file=sys.stderr)
+                        return None
+                    # And it has to be THIS panel's frame. Without this a header
+                    # naming any plausible-looking number reached Pillow, which
+                    # raises on a short buffer -- an uncaught traceback that
+                    # kills a `serve` session outright -- or silently saves a
+                    # PNG built from the first w*h/8 bytes of a longer one. The
+                    # Wi-Fi path has always checked this; the cable did not.
+                    expected = self.panel[0] * self.panel[1] // 8
+                    if size != expected:
+                        print(
+                            f"frame length {size} is not this panel's {expected} "
+                            f"({self.panel[0]}x{self.panel[1]})",
+                            file=sys.stderr,
+                        )
                         return None
                     buf = buf[nl + 1 :]
                     break
@@ -282,19 +297,23 @@ class SerialLink:
         def whole():
             return buf[size : size + len(END_MARKER)] == END_MARKER
 
-        grace = None
+        # Quiet is the third signal, and it is the only one a device that simply
+        # stops ever sends. An earlier version armed this only once the frame
+        # looked "settled" -- enough bytes, or a marker in the buffer -- so a
+        # mid-frame stop matched none of them and sat here for the full 30s
+        # saying nothing. Time since the last byte covers that, the stalled
+        # notice, and the finished-but-quiet case, with no special case to get
+        # wrong.
+        last_progress = time.time()
         while time.time() < deadline:
             if whole():
                 break
-            if grace is not None and time.time() > grace:
+            if time.time() - last_progress > GRACE_S:
                 break
-            before = len(buf)
             chunk = self.s.read(8192)
             if chunk:
                 buf += chunk
-            settled = len(buf) >= size or TRUNCATED_MARKER in buf or END_MARKER in buf
-            if settled and (grace is None or len(buf) > before):
-                grace = time.time() + GRACE_S
+                last_progress = time.time()
         if not whole():
             cut = buf.find(TRUNCATED_MARKER)
             end_at = buf.find(END_MARKER)

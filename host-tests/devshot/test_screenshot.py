@@ -242,7 +242,33 @@ for bad, label in [
 ]:
     got, err = shot(bad + image, timeout=1.5)
     check(f"{label} length rejected", got, None)
-    check(f"{label} length explains itself", err.strip() != "", True)
+    # The specific complaint, not merely "something was printed": the short-read
+    # path prints unconditionally, so a non-empty stderr proves nothing.
+    check(f"{label} length says it was the length", "length" in err, True)
+
+# #3: a device that simply stops mid-frame matches no marker and never reaches
+# the byte count, so an "arm the timer once it looks settled" rule never armed
+# at all and sat out the whole 30s default in silence. It has to give up on the
+# quiet, not on the deadline.
+t0 = time.time()
+got, err = shot(header + image[:20000], timeout=20.0)
+check("a device that stops mid-frame is refused", got, None)
+check("and refused on the quiet, not on the deadline", time.time() - t0 < 12.0, True)
+
+# The declared length has to be THIS panel's. Before this the cable path trusted
+# it: a short one reached Pillow and raised, killing a `serve` session outright,
+# and a long one silently saved a PNG built from the first 48000 bytes.
+for wrong, label in [(1000, "too small"), (96000, "too large")]:
+    body = b"SCREENSHOT_START:%d\n" % wrong
+    got, err = shot(body + image + b"SCREENSHOT_END\n", timeout=9.0)
+    check(f"a {label} declared length is refused", got, None)
+    check(f"a {label} declared length names the panel", "800x480" in err, True)
+
+# int() accepts these; this device never sends them, so accepting them only
+# widens what a corrupted header can be mistaken for.
+for sneaky in [b"+48000", b"4_8000", b" 48000 "]:
+    got, err = shot(b"SCREENSHOT_START:" + sneaky + b"\n" + image, timeout=9.0)
+    check(f"{sneaky!r} is not a length", got, None)
 
 # Silence: no header, nothing to quote.
 got, err = shot(b"", timeout=1.0)
@@ -267,7 +293,7 @@ check("byte count alone says what is missing", "no terminator" in err, True)
 # complete AND carries no readable notice, so grace is armed and the
 # remaining notice bytes have to beat it. Stalling any earlier never arms
 # grace and the fixture proves nothing about its length.
-got, err = shot(header + short + notice, timeout=15.0, stalls=[(len(header) + SIZE, 1.2)])
+got, err = shot(header + short + notice, timeout=30.0, stalls=[(len(header) + SIZE, 4.2)])
 check("notice stalled mid-write is still caught", got, None)
 check("notice stalled mid-write says why", "device reported it gave up" in err, True)
 

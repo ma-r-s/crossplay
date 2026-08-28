@@ -766,14 +766,13 @@ else
   # Strict vMAJOR.MINOR.PATCH only. 'v*' also matched release candidates and any
   # stray tag, either of which becomes the baseline, differs from the real notes,
   # and passes the check by accident rather than on merit.
+  # EXCLUDING the version being released. The README has the bump and the tag
+  # going out together, so by the time CI runs, the newest tag IS this version
+  # -- and comparing the notes against themselves skipped the gate in the only
+  # run that could have caught anything.
   PREV_TAG="$(git -C "$ROOT" tag --list --sort=-v:refname |
-    grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)"
-  if [ "$PREV_TAG" = "v$NOTES_VERSION" ]; then
-    # Nothing is pending: the version in platformio.ini is the one already
-    # tagged, so the notes SHOULD be that tag's. The comparison only means
-    # something between a bump and its tag.
-    skip "$NOTES_VERSION is already tagged; notes-freshness applies to a pending bump"
-  elif [ -z "$PREV_TAG" ]; then
+    grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | grep -vx "v$NOTES_VERSION" | head -1)"
+  if [ -z "$PREV_TAG" ]; then
     skip "no previous tag to compare the notes against"
   elif ! git -C "$ROOT" cat-file -e "$PREV_TAG:.github/workflows/crossplay-release.yml" 2>/dev/null; then
     skip "$PREV_TAG has no release workflow to compare against"
@@ -791,6 +790,20 @@ else
       ok
     fi
   fi
+fi
+
+# The tag and the version are bound by a step in the release workflow, and
+# nothing here noticed if that step disappeared -- while scripts_local/README.md
+# told people this suite enforced it. Assert the step's substance, the way
+# host-tests/ci asserts CI's.
+# The substance, not the words: it must read the version out of platformio.ini,
+# compare it to the tag, and fail. Greping for "crossplay" in a file called
+# crossplay-release.yml would have passed on an empty step.
+if grep -q 'GITHUB_REF_NAME' "$WF" && grep -q 'platformio.ini' "$WF" &&
+  grep -q 'v\${VERSION}' "$WF" && grep -q 'exit 1' "$WF"; then
+  ok
+else
+  bad "$(basename "$WF") no longer refuses a tag that disagrees with [crossplay] version"
 fi
 
 echo "$checks checks, $failed failed"
