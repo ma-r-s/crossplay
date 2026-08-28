@@ -203,6 +203,8 @@ void StudyActivity::applySyncFlowPreview(const char* state) {
     m.stages[2] = studyui::SyncStageState::Active;
     std::snprintf(m.caption, sizeof(m.caption), "This first time can take a while. It keeps working if you leave.");
     m.safety = studyui::SyncSafety::ReviewsSafe;
+    m.leaveSafe = true;  // the preview must wear what the flow actually sets
+    std::snprintf(m.facts[static_cast<int>(studyui::SyncStage::Build)], sizeof(m.facts[0]), "1m15s");
     previewFlowSet_ = true;
   } else if (std::strcmp(state, "success") == 0) {
     m.verdict = studyui::SyncVerdictKind::Success;
@@ -1446,11 +1448,9 @@ void StudyActivity::render(RenderLock&&) {
     // box is shorter than the font's line box, and it fails silently.
     UITheme::drawCenteredWrappedText(renderer, Rect{0, static_cast<int16_t>(qrTop + qrSide + 8), width, 40},
                                      kSmallFontId, "crossplay.ma-r-s.com/study", 1);
-    UITheme::drawCenteredWrappedText(renderer, Rect{24, static_cast<int16_t>(qrTop + qrSide + 48), width - 48, 96},
-                                     kMeaningFontId,
-                                     paired ? "Your Anki account is connected. Choose the decks to carry."
-                                            : "Scan it to add a deck from a computer.",
-                                     3);
+    UITheme::drawCenteredWrappedText(
+        renderer, Rect{24, static_cast<int16_t>(qrTop + qrSide + 48), width - 48, 96}, kMeaningFontId,
+        paired ? "Your account is connected. Choose your decks." : "Scan it to add a deck from a computer.", 3);
 
     renderer.drawRoundedRect(noDeckSyncX_, noDeckSyncY_, noDeckSyncW_, noDeckSyncH_, toybox::kHairline,
                              noDeckSyncH_ / 2, true);
@@ -1630,11 +1630,17 @@ bool StudyActivity::runDeckPicker() {
     delay(50);
     mappedInput.update();
     if (mappedInput.wasReleased(MappedInputManager::Button::Back) || mappedInput.wasHomeGesture()) {
+      // Nothing died here: the pass completed and the user stopped at the
+      // question afterwards, so no stage should wear the "died here" mark.
+      for (int i = 0; i < studyui::kSyncStageCount; ++i) {
+        if (flow_.stages[i] == studyui::SyncStageState::Active) flow_.stages[i] = studyui::SyncStageState::Done;
+      }
       // Not NothingSent: a full pass has already run and its acks are
       // durable, so claiming nothing was sent is false in the reassuring
       // direction -- the one direction this line must never be wrong in.
       endSyncSession(studyui::SyncVerdictKind::Neutral, flow_.safety, "STOPPED",
-                     "Your decks are unchanged. Choose them any time from DECKS FROM ANKI.");
+                     deckCount_ > 0 ? "Your decks are unchanged. Change them any time from DECKS FROM ANKI."
+                                    : "Nothing was changed. Choose your decks whenever you are ready.");
       return false;
     }
     int tapX = 0;
@@ -1927,8 +1933,7 @@ void StudyActivity::runSyncFlow() {
                      "This reader was unpaired on the bridge.", "Pair it again to keep syncing.");
       return;
     }
-    endSyncSession(studyui::SyncVerdictKind::Error, studyui::SyncSafety::NothingSent, "NOT SYNCED", message.c_str(),
-                   "The service may be busy. Try again in a few minutes.");
+    endSyncSession(studyui::SyncVerdictKind::Error, studyui::SyncSafety::NothingSent, "NOT SYNCED", message.c_str());
     return;
   }
   payloads.clear();
@@ -1937,9 +1942,11 @@ void StudyActivity::runSyncFlow() {
   // the bridge's journal even if everything after this fails.
   for (const auto& ack : acks) bridge_.setAck(ack.first.c_str(), ack.second);
   study::saveBridgeState(bridge_);
-  // True from here on, so the leave-is-safe footer and the Back hint appear
-  // during the BUILD wait rather than only at DOWNLOAD -- the wait they were
-  // written for is the one they were missing from.
+  // The bridge owns the job from here, so leaving is safe even on a first
+  // sync with no reviews to send; the reviews line is added on top only when
+  // there were reviews. leaveSafe was declared and read but never assigned,
+  // which removed the footer from every screen instead of adding it to more.
+  flow_.leaveSafe = true;
   if (reviewCount > 0) flow_.safety = studyui::SyncSafety::ReviewsSafe;
   if (reviewCount > 0) {
     std::snprintf(flow_.facts[static_cast<int>(studyui::SyncStage::Send)], sizeof(flow_.facts[0]), "%d SENT",
@@ -1947,7 +1954,7 @@ void StudyActivity::runSyncFlow() {
   } else {
     std::snprintf(flow_.facts[static_cast<int>(studyui::SyncStage::Send)], sizeof(flow_.facts[0]), "NONE NEW");
   }
-  flowStage(studyui::SyncStage::Build, nullptr);
+  flowStage(studyui::SyncStage::Build, "Your decks are being built on the sync service.");
 
   const uint32_t started = millis();
   bool preparing = false;
@@ -1983,6 +1990,19 @@ void StudyActivity::runSyncFlow() {
       return;
     }
     if (!status.empty()) transportBlips = 0;
+    const uint32_t elapsed = (millis() - started) / 1000;
+    char clock[16];
+    if (elapsed < 60) {
+      std::snprintf(clock, sizeof(clock), "%us", static_cast<unsigned>(elapsed / 5 * 5));
+    } else {
+      std::snprintf(clock, sizeof(clock), "%um%02us", static_cast<unsigned>(elapsed / 60),
+                    static_cast<unsigned>((elapsed % 60) / 5 * 5));
+    }
+    char* buildFact = flow_.facts[static_cast<int>(studyui::SyncStage::Build)];
+    if (std::strcmp(buildFact, clock) != 0) {
+      std::snprintf(buildFact, sizeof(flow_.facts[0]), "%s", clock);
+      showFlow();
+    }
     if (!preparing && millis() - started > 30000) {
       // The first sync of a big collection is minutes, not seconds. Say so
       // once, and make leaving safe -- the job keeps running on the bridge.
