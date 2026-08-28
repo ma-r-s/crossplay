@@ -2295,11 +2295,14 @@ void CrossPointWebServer::handleDevUploadData() {
     devUpload.authorised = devTokenOk();
     devUpload.written = 0;
     devUpload.ok = false;
-    // Before the refusal, not after: the core drains the body on the main loop
-    // whether we accept it or not, so an unauthorised multi-megabyte PUT went
-    // through that drain with the watchdog unfed.
-    resetTaskWatchdogIfSubscribed();
     if (!devUpload.authorised) return;
+    // NOT a watchdog guard for the unauthorised case, whatever it looks like:
+    // the body is drained in RAW_WRITE chunks that this return never reaches,
+    // and resetTaskWatchdogIfSubscribed() is a no-op across this whole
+    // firmware anyway -- nothing subscribes loopTask to the TWDT. The real
+    // exposure is in Known limits: an unauthenticated client can hold loop()
+    // by trickling a body, which is a freeze, not a reset.
+    resetTaskWatchdogIfSubscribed();
     Storage.remove(kDevUploadPath);
     if (!Storage.openFileForWrite("DEVMODE", kDevUploadPath, devUpload.file)) {
       LOG_ERR("DEVMODE", "cannot open %s for write", kDevUploadPath);
@@ -2345,6 +2348,7 @@ void CrossPointWebServer::handleDevUpload() {
   // rather than trust it, and let devAuthorised() send the refusal.
   if (!devAuthorised()) {
     devUpload.authorised = false;
+    devUpload.ok = false;  // same reason as the consume below
     return;
   }
   // Read ONCE and clear. ok is only ever set by the raw callback, so a PUT that

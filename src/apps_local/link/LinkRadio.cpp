@@ -153,6 +153,12 @@ bool Radio::begin() {
   // processed after the channel is pinned and re-issues a scanning association.
   // That lands the radio back on the router's channel with a match running,
   // which is the original bug arriving by a route the pause() does not cover.
+  //
+  // WHAT THIS DOES NOT COVER, because the core will not let it: STA.cpp keeps a
+  // boot-lifetime `first_connect` static that forces one reconnect ahead of the
+  // autoReconnect test, and our own ASSOC_LEAVE disconnect does not clear it.
+  // So the FIRST non-ASSOC_LEAVE disconnect after boot reconnects whatever this
+  // says. From the second on, the guard bites.
   WiFi.setAutoReconnect(false);
 
   // esp_wifi_disconnect() is ASYNCHRONOUS, and while the station is still
@@ -245,6 +251,11 @@ void Radio::end() {
     esp_now_unregister_recv_cb();
     esp_now_deinit();
     esp_wifi_set_ps(WIFI_PS_NONE);
+    // Note this FORCES power save off rather than restoring what was there, and
+    // esp_now_set_wake_window() is never cleared. Harmless only because held_
+    // and espNowUp_ always clear together, so WiFi.mode(WIFI_OFF) follows and
+    // the core re-applies WiFi.getSleep() on the next STA start. Correct by
+    // consequence, not by construction -- do not separate those two flags.
     espNowUp_ = false;
   }
   if (activeRadio == this) activeRadio = nullptr;
@@ -265,11 +276,11 @@ void Radio::end() {
   // worse than the delay this was written to remove.
   if (held_) {
     held_ = false;
-    // Handed back as we found it: dev mode's control server turns this on for
-    // itself when it starts, but anything else relying on it should not have to
-    // know a match happened.
-    WiFi.setAutoReconnect(true);
     WiFi.mode(WIFI_OFF);
+    // Restored AFTER the radio is down, mirroring the order begin() takes care
+    // over. Unconditionally true because that is the core's default and the only
+    // other writer in this tree also sets true; nothing sets it false.
+    WiFi.setAutoReconnect(true);
     devmode::resume();
   }
 }

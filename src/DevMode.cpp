@@ -203,7 +203,7 @@ void turnOn() {
   // Switching dev mode on IS a rotation, and it starts the floor -- the minute
   // right after enabling is exactly when the owner is walking to their terminal
   // with the code, and the one an attacker would most want to churn.
-  lastRotateMs = millis() == 0 ? 1 : millis();
+  lastRotateMs = millis();
   joinIssued = false;
   if (ssid.empty()) {
     LOG_INF("DEVMODE", "on, but no saved network; join one in Network settings first");
@@ -318,7 +318,16 @@ void update() {
       // teardown, re-issued WiFi.begin() over its download, and armed tearDown()
       // to disconnect a network dev mode never joined. Ask which network we are
       // actually on as well.
-      broughtRadioUp = joinIssued && WiFi.SSID() == String(ssid.c_str());
+      const bool ours = joinIssued && WiFi.SSID() == String(ssid.c_str());
+      if (joinIssued && !ours) {
+        // The expensive direction, and it was silent: a false negative here
+        // means tearDown() never puts the radio down, so switching Developer
+        // Mode off leaves the device associated forever on a device that also
+        // does not sleep -- with nothing in the log saying why.
+        LOG_ERR("DEVMODE", "joined '%s' but the radio reports '%s'; not claiming it", ssid.c_str(),
+                WiFi.SSID().c_str());
+      }
+      broughtRadioUp = ours;
       LOG_INF("DEVMODE", "joined '%s' as %s", ssid.c_str(), WiFi.localIP().toString().c_str());
       // makeUniqueNoThrow, not bare new: with -fno-exceptions a failed new
       // calls abort() rather than returning null, so the isRunning() check
@@ -511,17 +520,30 @@ std::string pair(const std::string& code) {
   // guesser does not have one, and the owner is reading it off the panel.
   const unsigned long now = millis();
   const bool correct = code == pairingCode;
-  if (!correct && pairNotBefore != 0 && static_cast<long>(now - pairNotBefore) < 0) {
-    LOG_ERR("DEVMODE", "pairing attempt too soon; ignored");
-    return std::string();
-  }
 
   if (!correct) {
+    // EVERY wrong attempt costs, including one that arrives while the window is
+    // already open. Refusing those for free was the whole hole: an attacker
+    // armed a 16s window with one guess and then flooded inside it at the
+    // device's request rate, and each of those was a real guess that paired if
+    // it hit. The limiter limited nothing -- 10^6 falls in hours at 10-100
+    // req/s, not the 91 days the backoff suggests.
+    //
+    // This cannot lock the owner out, which is the property the whole design
+    // turns on: a CORRECT code never reaches this branch at all.
+    const bool tooSoon = pairNotBefore != 0 && static_cast<long>(now - pairNotBefore) < 0;
     pairFailures++;
-    // Exponential, so five wrong guesses cost 31s rather than 5s.
-    unsigned long wait = kPairRetryMs << (pairFailures < 5 ? pairFailures - 1 : 4);
+    // Double until the ceiling, rather than a shift with its own cap: the cap
+    // was 4, so the ceiling could never bind and was a constant guarding
+    // nothing.
+    unsigned long wait = kPairRetryMs;
+    for (int i = 1; i < pairFailures && wait < kPairRetryCeilingMs; ++i) wait <<= 1;
     if (wait > kPairRetryCeilingMs) wait = kPairRetryCeilingMs;
     pairNotBefore = now + wait;
+    if (tooSoon) {
+      LOG_ERR("DEVMODE", "pairing attempt too soon; ignored (%d wrong, next in %lums)", pairFailures, wait);
+      return std::string();
+    }
     // ROTATE rather than lock out. A lockout would hand anyone on the network a
     // way to stop the owner pairing; moving the target instead throws away
     // every guess made so far and costs the owner only a glance at the screen,
@@ -531,16 +553,18 @@ std::string pair(const std::string& code) {
     // guesses are thrown away by the rotation whenever it does happen, and the
     // backoff above is what actually makes grinding expensive.
     const bool rotateDue = pairFailures >= kPairFailuresBeforeRotate;
-    const bool rotateAllowed = lastRotateMs == 0 || static_cast<long>(now - (lastRotateMs + kMinRotateIntervalMs)) >= 0;
+    // No lastRotateMs == 0 case: pair() returns early unless pairingCode is set,
+    // and only turnOn() sets it, on the same pass that sets lastRotateMs.
+    const bool rotateAllowed = static_cast<long>(now - (lastRotateMs + kMinRotateIntervalMs)) >= 0;
     if (rotateDue && rotateAllowed) {
-      lastRotateMs = now == 0 ? 1 : now;
+      lastRotateMs = now;
       pairingCode = makeCode();
       std::snprintf(rtcPairCode, sizeof(rtcPairCode), "%s", pairingCode.c_str());
       rtcPairMagic = kPairMagic;
       pairFailures = 0;
       LOG_ERR("DEVMODE", "too many wrong codes; rotated to %s", pairingCode.c_str());
     } else {
-      LOG_ERR("DEVMODE", "wrong pairing code (%d of %d before rotation)", pairFailures, kPairFailuresBeforeRotate);
+      LOG_ERR("DEVMODE", "wrong pairing code (%d wrong, rotates at %d)", pairFailures, kPairFailuresBeforeRotate);
     }
     return std::string();
   }
