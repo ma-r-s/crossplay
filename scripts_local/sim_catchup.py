@@ -187,30 +187,6 @@ patch(
 #
 # Same value as lib/hal's, so the simulator idles on the same schedule the
 # device does rather than on a number picked to make it compile.
-# main.cpp:480 verifies the power-button hold after a wake with this fork's
-# two-argument signature (lib/hal/HalGPIO.h: requiredDurationMs, and whether a
-# short press is allowed to mean SLEEP). The simulator ships its own HalGPIO
-# whose verification is synthetic and takes no arguments, so the call does not
-# compile there. Widening the simulator's declaration to accept and ignore the
-# two values keeps the host path synthetic -- it still always succeeds -- while
-# letting the fork's call site build unchanged.
-patch(
-    src / "HalGPIO.h",
-    "  bool verifyPowerButtonWakeup();",
-    "  bool verifyPowerButtonWakeup(uint16_t requiredDurationMs = 0, bool shortPressAllowed = false);",
-    "HalGPIO::verifyPowerButtonWakeup (accepts the fork's two arguments)",
-    marker="verifyPowerButtonWakeup(uint16_t",
-)
-
-# ...and its definition, or the widened declaration has no body to match.
-patch(
-    src / "HalGPIO.cpp",
-    "bool HalGPIO::verifyPowerButtonWakeup() { return true; }",
-    "bool HalGPIO::verifyPowerButtonWakeup(uint16_t, bool) { return true; }",
-    "HalGPIO::verifyPowerButtonWakeup definition (matches the widened decl)",
-    marker="verifyPowerButtonWakeup(uint16_t",
-)
-
 patch(
     src / "HalPowerManager.h",
     "  static constexpr unsigned long IDLE_DOWNCLOCK_MS = 500;",
