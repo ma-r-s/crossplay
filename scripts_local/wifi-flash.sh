@@ -195,8 +195,18 @@ try:
 except Exception:
     pass')"
   if [ -z "$TOKEN" ]; then
-    echo "error: pairing refused. Check the six digits on the device screen." >&2
-    echo "       They change every time Developer Mode is switched on." >&2
+    # 429 means the code was never looked at: a run of wrong guesses closed the
+    # window. Saying "check the six digits" there sends you to re-read a code
+    # that is already correct.
+    CLOSED="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -X POST "http://$IP/api/dev/pair" \
+      --data-urlencode "code=$PAIR_CODE" 2>/dev/null || true)"
+    if [ "$CLOSED" = "429" ]; then
+      echo "error: pairing is rate-limited right now, and the code you have is fine." >&2
+      echo "       Wait up to 30s and run the same command again." >&2
+    else
+      echo "error: pairing refused. Check the six digits on the device screen." >&2
+      echo "       They change every time Developer Mode is switched on." >&2
+    fi
     exit 1
   fi
   printf '%s' "$TOKEN" > "$TOKEN_FILE"

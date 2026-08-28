@@ -73,11 +73,8 @@ bool paired = false;
 bool broughtRadioUp = false;
 // Wrong-code attempts since the last rotation, and the earliest millis() at
 // which another attempt will be considered.
-int pairFailures = 0;
-unsigned long pairNotBefore = 0;
-// When the code last rotated, so an attacker cannot churn it faster than the
-// owner can read it.
-unsigned long lastRotateMs = 0;
+pairing::State pairState;
+
 unsigned long nextAttemptAt = 0;
 unsigned long joinDeadline = 0;
 int attempt = 0;
@@ -195,12 +192,11 @@ void turnOn() {
   rtcPairMagic = kPairMagic;
   activeToken.clear();
   paired = false;
-  pairFailures = 0;
-  pairNotBefore = 0;
+  pairState = pairing::State{};
   // Switching dev mode on IS a rotation, and it starts the floor -- the minute
   // right after enabling is exactly when the owner is walking to their terminal
   // with the code, and the one an attacker would most want to churn.
-  lastRotateMs = millis();
+  pairState.lastRotate = millis();
   joinIssued = false;
   if (ssid.empty()) {
     LOG_INF("DEVMODE", "on, but no saved network; join one in Network settings first");
@@ -502,6 +498,12 @@ bool tokenValid(const std::string& token) {
   return diff == 0;
 }
 
+unsigned long pairRetryInMs() {
+  if (pairState.notBefore == 0) return 0;
+  const long remaining = static_cast<long>(pairState.notBefore - millis());
+  return remaining > 0 ? static_cast<unsigned long>(remaining) : 0;
+}
+
 std::string pair(const std::string& code) {
   if (SETTINGS.devMode == 0 || pairingCode.empty()) return std::string();
 
@@ -512,23 +514,17 @@ std::string pair(const std::string& code) {
   // firmware. This function is now only the part that needs a device.
   // Qualified, not `using namespace pairing`: this file already has its own
   // State enum for the join state machine, and the two would collide.
-  pairing::State st;
-  st.failures = pairFailures;
-  st.notBefore = pairNotBefore;
-  st.lastRotate = lastRotateMs;
-
-  const pairing::Outcome out = pairing::decide(code == pairingCode, millis(), st);
-  pairFailures = out.next.failures;
-  pairNotBefore = out.next.notBefore;
-  lastRotateMs = out.next.lastRotate;
+  const pairing::Outcome out = pairing::decide(code == pairingCode, millis(), pairState);
+  // ONE assignment. Copying the fields back individually is how round twelve
+  // showed the shipped bug could return with every test green: drop the
+  // notBefore line and the gate never closes again.
+  pairState = out.next;
 
   if (out.rotate) {
     pairingCode = makeCode();
     std::snprintf(rtcPairCode, sizeof(rtcPairCode), "%s", pairingCode.c_str());
     rtcPairMagic = kPairMagic;
     LOG_ERR("DEVMODE", "too many wrong codes; rotated to %s", pairingCode.c_str());
-  } else if (out.log) {
-    LOG_ERR("DEVMODE", "wrong pairing code (rotates at %d)", pairing::kFailuresBeforeRotate);
   }
 
   if (out.verdict != pairing::Verdict::Accept) return std::string();

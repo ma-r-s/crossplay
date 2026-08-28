@@ -2104,7 +2104,17 @@ void CrossPointWebServer::handleDevPair() {
   if (server->hasArg("code")) code = server->arg("code").c_str();
   const std::string token = devmode::pair(code);
   if (token.empty()) {
-    server->send(401, "text/plain", "wrong code\n");
+    // Distinguish "wrong" from "closed". They are the same empty return, and
+    // saying "wrong code" to someone holding the RIGHT code -- because a flood,
+    // or their own earlier typos, closed the window -- sends them to re-read six
+    // digits that were already correct.
+    const unsigned long retry = devmode::pairRetryInMs();
+    if (retry > 0) {
+      server->send(429, "text/plain",
+                   "pairing closed for another " + String(retry) + "ms; the code on the screen is still valid\n");
+    } else {
+      server->send(401, "text/plain", "wrong code\n");
+    }
     return;
   }
   JsonDocument doc;

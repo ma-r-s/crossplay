@@ -69,7 +69,14 @@ Status status();
 // True when this request carries a token handed out by a successful pair.
 bool tokenValid(const std::string& token);
 
-// Exchange the displayed code for a token. Empty return means wrong code.
+// Exchange the displayed code for a token. Empty return means refused.
 std::string pair(const std::string& code);
+
+// Milliseconds until pairing will be considered again, or 0 if it is open now.
+// Non-zero after a run of wrong guesses, and the caller must say so rather than
+// blaming the code: telling someone to re-read six digits that were correct is
+// the wrong instruction, and this branch has cost enough time to wrong
+// instructions already.
+unsigned long pairRetryInMs();
 
 }  // namespace devmode

@@ -19,6 +19,12 @@
 //
 // So: gate first, and a gated attempt changes nothing. One evaluated guess per
 // backoff interval, and the owner's worst case is waiting out one interval.
+//
+// The state is ONE struct on purpose. It used to be three globals copied in and
+// out around this call, and dropping any single line of that write-back --
+// `notBefore` especially -- restored the shipped bug with all 23 tests green,
+// because the tests can only see the pure function. One assignment cannot be
+// half-done.
 
 #include <cstdint>
 
@@ -49,9 +55,15 @@ struct Outcome {
   Verdict verdict = Verdict::Accept;
   State next;
   bool rotate = false;
-  // Whether this refusal is worth a log line. The RTC ring is 16 entries and
-  // this path is reachable unauthenticated, so a flood must not be able to
-  // erase the pre-panic tail that /api/dev/crash exists to deliver.
+  // Whether this refusal is worth a log line.
+  //
+  // Only ROTATIONS are logged now, not individual wrong guesses. The RTC ring
+  // is 16 entries and this path is open to anyone on the network: logging every
+  // evaluated guess put ~8,500 lines a day into it, which erased the pre-panic
+  // tail that /api/dev/crash exists to deliver every ~160 seconds. Rotation is
+  // the security-relevant event and it happens at most once a minute, so the
+  // ring now survives a quarter of an hour of sustained attack. It is still not
+  // unwipeable, and an earlier version of this comment claimed it was.
   bool log = false;
 };
 
@@ -67,7 +79,6 @@ inline Outcome decide(const bool codeMatches, const unsigned long now, const Sta
 
   if (!codeMatches) {
     o.verdict = Verdict::RefusedWrong;
-    o.log = s.failures < kFailuresBeforeRotate;
     // No saturation guard here, and none is needed: rotation resets failures and
     // becomes allowed 60s after the last one, so the counter cannot climb past a
     // handful before it is zeroed. A cap would be a constant guarding nothing,
@@ -78,10 +89,15 @@ inline Outcome decide(const bool codeMatches, const unsigned long now, const Sta
     for (int i = 1; i < o.next.failures && wait < kRetryCeilingMs; ++i) wait <<= 1;
     if (wait > kRetryCeilingMs) wait = kRetryCeilingMs;
     o.next.notBefore = now + wait;
+    // 0 is the sentinel for "no window open", so a deadline that lands exactly
+    // on the millis() wrap would read as no window and hand out a free guess.
+    // Once per 49.7 days, and one line to remove.
+    if (o.next.notBefore == 0) o.next.notBefore = 1;
     const bool due = o.next.failures >= kFailuresBeforeRotate;
     const bool allowed = static_cast<long>(now - (s.lastRotate + kMinRotateIntervalMs)) >= 0;
     if (due && allowed) {
       o.rotate = true;
+      o.log = true;
       o.next.failures = 0;
       o.next.lastRotate = now;
     }

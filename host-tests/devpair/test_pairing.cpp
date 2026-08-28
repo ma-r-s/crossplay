@@ -1,9 +1,9 @@
 // See run.sh for why this exists.
 
-#include "DevModePairing.h"
-
 #include <cstdio>
 #include <string>
+
+#include "DevModePairing.h"
 
 namespace {
 
@@ -18,14 +18,20 @@ void bad(const std::string& what) {
   std::printf("FAIL devpair  %s\n", what.c_str());
 }
 void want(bool cond, const std::string& what) {
-  if (cond) ok(); else bad(what);
+  if (cond)
+    ok();
+  else
+    bad(what);
 }
 
 const char* name(Verdict v) {
   switch (v) {
-    case Verdict::Accept: return "Accept";
-    case Verdict::RefusedClosed: return "RefusedClosed";
-    case Verdict::RefusedWrong: return "RefusedWrong";
+    case Verdict::Accept:
+      return "Accept";
+    case Verdict::RefusedClosed:
+      return "RefusedClosed";
+    case Verdict::RefusedWrong:
+      return "RefusedWrong";
   }
   return "?";
 }
@@ -161,6 +167,50 @@ int main() {
     }
     want(rotations > 0, "rotation never fired in ten minutes of wrong guesses");
     want(rotations <= 11, "rotated " + std::to_string(rotations) + " times in ten minutes");
+  }
+
+  // -- the economics the DOCS quote, pinned here so they cannot drift -------
+  //
+  // docs/developer-mode.md says ~118 days to walk 10^6. That number is only
+  // honest if something fails when the ladder changes. A previous version of
+  // that bullet said 347 days, which was the pinned-ceiling figure -- but
+  // rotation restarts the ladder, so the ceiling is never reached.
+  {
+    State s;
+    unsigned long now = 0;
+    long evaluated = 0;
+    for (long i = 0; i < 3600L * 1000; ++i) {  // one hour at 1kHz
+      const Outcome o = decide(false, now, s);
+      if (o.verdict == Verdict::RefusedWrong) evaluated++;
+      s = o.next;
+      now += 1;
+    }
+    const double perMin = evaluated / 60.0;
+    want(perMin > 4.0 && perMin < 8.0, "evaluated guess rate is " + std::to_string(perMin) +
+                                           "/min; docs quote ~118 days for 10^6, which assumes about 5.9");
+  }
+
+  // -- only rotations are logged, so a flood cannot wipe the 16-line ring ---
+  {
+    State s;
+    unsigned long now = 0;
+    long logs = 0;
+    for (long i = 0; i < 3600L * 1000; ++i) {
+      const Outcome o = decide(false, now, s);
+      if (o.log) logs++;
+      s = o.next;
+      now += 1;
+    }
+    want(logs <= 60, "a one-hour flood emitted " + std::to_string(logs) + " log lines into a 16-entry RTC ring");
+  }
+
+  // -- a deadline must never land on the no-window sentinel ------------------
+  {
+    State s;
+    s.failures = 4;
+    const unsigned long now = 0UL - 16000UL;  // 16s before the wrap
+    const Outcome o = decide(false, now, s);
+    want(o.next.notBefore != 0, "a backoff deadline landed on 0, which reads as no window at all");
   }
 
   // -- a clean device accepts the right code immediately --------------------

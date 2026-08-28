@@ -201,15 +201,28 @@ that reads it as ownership will miss every non-associating user of the radio.
   watchdog, so `resetTaskWatchdogIfSubscribed()` is a no-op across this entire
   firmware. Pre-dates this branch; not fixable inside the handler.
 
-- **A six-digit code on an open endpoint is worth hours, not years, to a
-  determined flood.** The gate in `pair()` refuses to EVALUATE a guess inside
-  the backoff window, which is what actually bounds the search -- one evaluated
-  guess per interval, up to 30s, so ~347 days at the ceiling. Two earlier
-  versions of that gate did not bound it at all, because they compared the code
-  before consulting the timer, and a limiter you have already answered limits
-  nothing. If this ever needs to be genuinely hard rather than adequate for a
-  home LAN, the answers are per-source-IP limiting or more digits; rotation is
-  not one, and never was.
+- **A six-digit code on an open endpoint is worth about four months to a
+  determined flood.** MEASURED, not derived: driving `pairing::decide()` with a
+  24-hour flood at 1kHz gives 8,497 evaluated guesses a day, so ~118 days to
+  walk 10^6 with replacement. `host-tests/devpair` pins that rate, so it cannot
+  drift without failing.
+
+  What bounds it is the gate in `pair()` refusing to EVALUATE a guess inside the
+  backoff window -- one evaluated guess per interval. Two earlier versions of
+  that gate bounded nothing at all, because they compared the code before
+  consulting the timer, and a limiter you have already answered limits nothing.
+
+  It is 118 days rather than the 347 the ceiling alone would give, because
+  ROTATION RESTARTS THE LADDER: zeroing the failure count sends the backoff back
+  to 1s, so it never settles at the 30s ceiling. That is a deliberate trade and
+  it favours the owner -- since the gate now applies to a correct code too, a
+  permanently-pinned ceiling would mean the owner waiting up to 30s to pair on a
+  device nobody is even attacking. Rotation is not what makes grinding
+  expensive; it makes it about three times cheaper, and buys back the owner's
+  latency.
+
+  If this ever needs to be genuinely hard rather than adequate for a home LAN,
+  the answers are per-source-IP limiting or more digits. Rotation is not one.
 
 - **One cached token and code**, in `~/.crossplay-devtoken` and
   `~/.crossplay-devcode`. With two devices you re-pair when you switch between
