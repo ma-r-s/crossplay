@@ -13,7 +13,19 @@
 void DeveloperModeActivity::onEnter() {
   Activity::onEnter();
   nextPollAt = 0;
+  sample();
+  shown = latest;
   requestUpdate();
+}
+
+// Main task only.
+void DeveloperModeActivity::sample() {
+  const auto st = devmode::status();
+  latest.enabled = st.enabled;
+  latest.connected = st.connected;
+  latest.hasNetwork = !st.ssid.empty();
+  latest.ip = st.ip;
+  latest.code = st.code;
 }
 
 void DeveloperModeActivity::toggle() {
@@ -42,8 +54,10 @@ void DeveloperModeActivity::loop() {
   if (nextPollAt != 0 && static_cast<long>(now - nextPollAt) < 0) return;
   nextPollAt = now + 500;
 
-  const auto st = devmode::status();
-  if (st.enabled != lastEnabled || st.connected != lastConnected || st.ip != lastIp || st.code != lastCode) {
+  sample();
+  if (latest.enabled != shown.enabled || latest.connected != shown.connected || latest.hasNetwork != shown.hasNetwork ||
+      latest.ip != shown.ip || latest.code != shown.code) {
+    shown = latest;  // still the main task; render() only ever reads `shown`
     requestUpdate();
   }
 }
@@ -58,12 +72,6 @@ void DeveloperModeActivity::render(RenderLock&&) {
   // real content width, the way CrashActivity does with panic text.
   const auto contentWidth = pageWidth - 2 * metrics.contentSidePadding;
   const auto lineHeight = renderer.getLineHeight(UI_10_FONT_ID);
-
-  const auto st = devmode::status();
-  lastEnabled = st.enabled;
-  lastConnected = st.connected;
-  lastIp = st.ip;
-  lastCode = st.code;
 
   renderer.clearScreen();
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_DEV_MODE));
@@ -81,15 +89,15 @@ void DeveloperModeActivity::render(RenderLock&&) {
 
   int y = pageHeight / 3;
 
-  if (!st.enabled) {
+  if (!shown.enabled) {
     y = block(y, UI_12_FONT_ID, tr(STR_DEV_MODE_OFF_HINT), true);
     y += metrics.verticalSpacing;
     block(y, UI_10_FONT_ID, tr(STR_DEV_MODE_ENABLE_HINT), false);
-  } else if (st.ssid.empty()) {
+  } else if (!shown.hasNetwork) {
     y = block(y, UI_12_FONT_ID, tr(STR_DEV_MODE_TITLE), true);
     y += metrics.verticalSpacing;
     block(y, UI_10_FONT_ID, tr(STR_DEV_MODE_NO_WIFI), false);
-  } else if (!st.connected) {
+  } else if (!shown.connected) {
     y = block(y, UI_12_FONT_ID, tr(STR_DEV_MODE_TITLE), true);
     y += metrics.verticalSpacing;
     block(y, UI_10_FONT_ID, tr(STR_DEV_MODE_WAITING), false);
@@ -101,10 +109,10 @@ void DeveloperModeActivity::render(RenderLock&&) {
     // The address, then the code. Both are short and fixed-width enough not to
     // need wrapping, but they go through the same helper so the flow is one
     // rule rather than two.
-    y = block(y, UI_12_FONT_ID, st.ip.c_str(), true);
+    y = block(y, UI_12_FONT_ID, shown.ip.c_str(), true);
     y += metrics.verticalSpacing * 2;
     y = block(y, UI_10_FONT_ID, tr(STR_DEV_MODE_PAIRING_HINT), false);
-    y = block(y, UI_12_FONT_ID, st.code.c_str(), true);
+    y = block(y, UI_12_FONT_ID, shown.code.c_str(), true);
     y += metrics.verticalSpacing * 2;
     y = block(y, UI_10_FONT_ID, tr(STR_DEV_MODE_EXPOSED_HINT), false);
     y += metrics.verticalSpacing;
@@ -112,7 +120,7 @@ void DeveloperModeActivity::render(RenderLock&&) {
   }
 
   const auto labels =
-      mappedInput.mapLabels(tr(STR_BACK), "", "", st.enabled ? tr(STR_DEV_MODE_TURN_OFF) : tr(STR_DEV_MODE_TURN_ON));
+      mappedInput.mapLabels(tr(STR_BACK), "", "", shown.enabled ? tr(STR_DEV_MODE_TURN_OFF) : tr(STR_DEV_MODE_TURN_ON));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer();

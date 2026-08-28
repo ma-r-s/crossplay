@@ -660,7 +660,7 @@ void loop() {
   // sleep timeout is not one, and the cost is confined to devices whose owner
   // deliberately switched Developer Mode on.
   if (gpio.wasAnyPressed() || gpio.wasAnyReleased() || gpio.wasTouchActivity() || halTiltSensor.hadActivity() ||
-      activityManager.preventAutoSleep() || devmode::inhibitsSleep()) {
+      activityManager.preventAutoSleep()) {
     lastActivityTime = millis();         // Reset inactivity timer
     powerManager.setPowerSaving(false);  // Restore normal CPU frequency on user activity
   }
@@ -714,8 +714,14 @@ void loop() {
   }
 #endif
 
+  // Developer Mode blocks DEEP SLEEP only, and deliberately does not touch
+  // lastActivityTime. Pinning that also suppressed the idle CPU downclock and
+  // held the loop at delay(10) instead of delay(50) -- so the device ran fast
+  // AND never slept, which is a worse battery story than the panel promises and
+  // a faster clock for anything grinding the pairing endpoint. Idle power
+  // saving still engages; the device simply stays reachable.
   const unsigned long sleepTimeoutMs = SETTINGS.getSleepTimeoutMs();
-  if (sleepTimeoutMs > 0 && millis() - lastActivityTime >= sleepTimeoutMs) {
+  if (sleepTimeoutMs > 0 && !devmode::inhibitsSleep() && millis() - lastActivityTime >= sleepTimeoutMs) {
     LOG_DBG("SLP", "Auto-sleep triggered after %lu ms of inactivity", sleepTimeoutMs);
     enterDeepSleep(true);
     // This should never be hit as `enterDeepSleep` calls esp_deep_sleep_start

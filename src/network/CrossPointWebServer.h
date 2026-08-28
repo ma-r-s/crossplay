@@ -152,6 +152,7 @@ class CrossPointWebServer {
   void handleDevFlash();
   void handleDevUpload();      // POST completion
   void handleDevUploadData();  // streaming body
+  void handleDevDisable();
   void handleDevCrash();
   void handleDevLog();
   struct DevUploadState {

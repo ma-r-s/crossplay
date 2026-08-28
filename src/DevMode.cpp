@@ -6,6 +6,8 @@
 #include <WiFi.h>
 #include <esp_random.h>
 
+#include <cstdio>
+#include <cstring>
 #include <memory>
 
 #include "CrossPointSettings.h"
@@ -33,6 +35,21 @@ enum class State {
 // latch is checked on every path and cannot be cleared by a state transition.
 bool yielded = false;
 
+// The pairing code, in RTC memory so it survives the reboot that every flash
+// causes. Without this the token died with the reboot AND the code changed, so
+// a flash-test loop needed someone to walk to the device and read a new code
+// after every single flash -- which is most of "no cable" given back.
+//
+// It weakens nothing: the code is displayed continuously on the device panel
+// for as long as Developer Mode is on, so persisting it across a reset exposes
+// it to nobody who could not already read it. The TOKEN is still RAM-only and
+// still dies with the reboot. RTC memory does not survive power loss, and
+// tearDown() invalidates the magic, so switching Developer Mode off really does
+// rotate the code.
+constexpr uint32_t kPairMagic = 0x50414952;  // 'PAIR'
+RTC_NOINIT_ATTR char rtcPairCode[8];
+RTC_NOINIT_ATTR uint32_t rtcPairMagic;
+
 State state = State::Off;
 std::unique_ptr<CrossPointWebServer> server;
 std::string ssid;
@@ -45,6 +62,10 @@ bool paired = false;
 // Wi-Fi, and switching the radio off underneath one of them is indistinguishable
 // from that feature being broken.
 bool broughtRadioUp = false;
+// Wrong-code attempts since the last rotation, and the earliest millis() at
+// which another attempt will be considered.
+int pairFailures = 0;
+unsigned long pairNotBefore = 0;
 unsigned long nextAttemptAt = 0;
 unsigned long joinDeadline = 0;
 int attempt = 0;
@@ -52,6 +73,10 @@ int attempt = 0;
 constexpr unsigned long kJoinTimeoutMs = 20000;
 constexpr unsigned long kMinBackoffMs = 5000;
 constexpr unsigned long kMaxBackoffMs = 60000;
+// One attempt per second caps a grind at ~86k/day against a 10^6 space, and the
+// rotation below means those attempts are not cumulative anyway.
+constexpr unsigned long kPairRetryMs = 1000;
+constexpr int kPairFailuresBeforeRotate = 5;
 
 unsigned long backoff() {
   const unsigned long ms = kMinBackoffMs << (attempt < 4 ? attempt : 4);
@@ -92,6 +117,9 @@ void tearDown(const char* why) {
   }
   activeToken.clear();
   pairingCode.clear();
+  // Invalidate the RTC copy so the next enable mints a fresh code. Switching
+  // Developer Mode off is the one action that must retire the old one.
+  rtcPairMagic = 0;
   paired = false;
   attempt = 0;
   nextAttemptAt = 0;
@@ -118,7 +146,6 @@ void startJoin() {
   }
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid.c_str(), password.empty() ? nullptr : password.c_str());
-  broughtRadioUp = true;
   joinDeadline = millis() + kJoinTimeoutMs;
   state = State::Joining;
 }
@@ -128,9 +155,18 @@ void startJoin() {
 void turnOn() {
   WIFI_STORE.loadFromFile();
   ssid = WIFI_STORE.getLastConnectedSsid();
-  pairingCode = makeCode();
+  // Reuse the code across a reboot, mint a new one on a real off -> on.
+  if (rtcPairMagic == kPairMagic && rtcPairCode[0] != '\0' && strnlen(rtcPairCode, sizeof(rtcPairCode)) == 6) {
+    pairingCode.assign(rtcPairCode, 6);
+  } else {
+    pairingCode = makeCode();
+  }
+  std::snprintf(rtcPairCode, sizeof(rtcPairCode), "%s", pairingCode.c_str());
+  rtcPairMagic = kPairMagic;
   activeToken.clear();
   paired = false;
+  pairFailures = 0;
+  pairNotBefore = 0;
   if (ssid.empty()) {
     LOG_INF("DEVMODE", "on, but no saved network; join one in Network settings first");
     state = State::NoNetwork;
@@ -195,6 +231,11 @@ void update() {
   if (state == State::Joining) {
     if (WiFi.status() == WL_CONNECTED) {
       attempt = 0;
+      // Only now is the radio ours. Setting this at WiFi.begin() time made
+      // holdsRadio() true while dev mode held nothing -- so with the AP out of
+      // range every guarded activity skipped its cleanup forever, on a device
+      // that also no longer deep-sleeps. Both heap-reclaim paths gone at once.
+      broughtRadioUp = true;
       LOG_INF("DEVMODE", "joined '%s' as %s", ssid.c_str(), WiFi.localIP().toString().c_str());
       // makeUniqueNoThrow, not bare new: with -fno-exceptions a failed new
       // calls abort() rather than returning null, so the isRunning() check
@@ -317,10 +358,38 @@ bool tokenValid(const std::string& token) {
 }
 
 std::string pair(const std::string& code) {
-  if (SETTINGS.devMode == 0 || pairingCode.empty() || code != pairingCode) {
-    LOG_ERR("DEVMODE", "pairing refused");
+  if (SETTINGS.devMode == 0 || pairingCode.empty()) return std::string();
+
+  // A minimum interval between attempts. Six digits is 10^6, which a LAN can
+  // walk in hours unattended -- and until this branch disabled CORS on this
+  // surface, so could a web page the owner merely visited.
+  const unsigned long now = millis();
+  if (pairNotBefore != 0 && static_cast<long>(now - pairNotBefore) < 0) {
+    LOG_ERR("DEVMODE", "pairing attempt too soon; ignored");
     return std::string();
   }
+
+  if (code != pairingCode) {
+    pairFailures++;
+    pairNotBefore = now + kPairRetryMs;
+    // ROTATE rather than lock out. A lockout would hand anyone on the network a
+    // way to stop the owner pairing; moving the target instead throws away
+    // every guess made so far and costs the owner only a glance at the screen,
+    // which is already showing the new code by the time they look.
+    if (pairFailures >= kPairFailuresBeforeRotate) {
+      pairingCode = makeCode();
+      std::snprintf(rtcPairCode, sizeof(rtcPairCode), "%s", pairingCode.c_str());
+      rtcPairMagic = kPairMagic;
+      pairFailures = 0;
+      LOG_ERR("DEVMODE", "too many wrong codes; rotated to %s", pairingCode.c_str());
+    } else {
+      LOG_ERR("DEVMODE", "wrong pairing code (%d of %d before rotation)", pairFailures, kPairFailuresBeforeRotate);
+    }
+    return std::string();
+  }
+
+  pairFailures = 0;
+  pairNotBefore = 0;
   activeToken = makeToken();
   paired = true;
   LOG_INF("DEVMODE", "paired");

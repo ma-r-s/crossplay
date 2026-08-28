@@ -29,13 +29,22 @@ class DeveloperModeActivity final : public Activity {
   void render(RenderLock&&) override;
 
  private:
-  // Last painted snapshot, so an e-ink refresh only happens when something a
-  // reader can see has actually changed.
-  bool lastEnabled = false;
-  bool lastConnected = false;
-  std::string lastIp;
-  std::string lastCode;
+  // What render() draws. Taken on the MAIN task in loop() and never read from
+  // devmode:: inside render(), because render() runs on the ActivityManager's
+  // render task while devmode::update() reassigns those same std::strings on
+  // the main loop. An SSID can be 32 characters, past libstdc++'s small-string
+  // buffer, so that was a heap allocation being freed under a concurrent copy.
+  struct Snapshot {
+    bool enabled = false;
+    bool connected = false;
+    bool hasNetwork = false;
+    std::string ip;
+    std::string code;
+  };
+  Snapshot shown;   // owned by the render task between repaints
+  Snapshot latest;  // written by loop(), copied into `shown` when it differs
   unsigned long nextPollAt = 0;
 
   void toggle();
+  void sample();
 };

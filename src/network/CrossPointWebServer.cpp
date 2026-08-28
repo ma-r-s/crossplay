@@ -143,7 +143,14 @@ void CrossPointWebServer::begin() {
   // Add Access-Control-Allow-* headers to every response so web-based clients
   // and PWAs on other origins can use the HTTP API. Preflight OPTIONS requests
   // are answered in handleNotFound().
-  server->enableCORS(true);
+  // NOT on the Developer Mode surface. This core's enableCORS sends
+  // Access-Control-Allow-Origin/Methods/Headers: *, which lets any page the
+  // user happens to visit both call these routes AND READ THE REPLIES. That
+  // turns a six-digit code into something grindable from a drive-by tab
+  // rather than from the LAN, and the reply to a successful guess hands over
+  // the token. The reader's own web UI is a browser page and needs CORS; the
+  // dev API's client is curl and does not.
+  if (!devOnly) server->enableCORS(true);
 
   // Setup routes
   LOG_DBG("WEB", "Setting up routes (%s)...", devOnly ? "developer mode only" : "full");
@@ -206,6 +213,7 @@ void CrossPointWebServer::begin() {
   // structurally unreachable (it requires HTTP_POST), so only the raw path can
   // ever fire and there is one mode to write for instead of two to distinguish.
   server->on("/api/dev/upload", HTTP_PUT, [this] { handleDevUpload(); }, [this] { handleDevUploadData(); });
+  server->on("/api/dev/disable", HTTP_POST, [this] { handleDevDisable(); });
   server->on("/api/dev/crash", HTTP_GET, [this] { handleDevCrash(); });
   server->on("/api/dev/log", HTTP_GET, [this] { handleDevLog(); });
 
@@ -2038,9 +2046,8 @@ bool CrossPointWebServer::isLocalOnlySetting(const char* key) { return key && st
 // turned into targets. Only once dev mode is on does a wrong token get a 401.
 bool CrossPointWebServer::devTokenOk() const {
   if (!devmode::status().enabled) return false;
-  std::string token;
+  std::string token;  // header only; see devAuthorised()
   if (server->hasHeader("X-Dev-Token")) token = server->header("X-Dev-Token").c_str();
-  if (token.empty() && server->hasArg("token")) token = server->arg("token").c_str();
   return devmode::tokenValid(token);
 }
 
@@ -2050,9 +2057,12 @@ bool CrossPointWebServer::devAuthorised() {
     server->send(404, "text/plain", "not found\n");
     return false;
   }
+  // Header only. Accepting ?token= made every follow-up call a CORS-simple
+  // request that a page could issue without a preflight; requiring a custom
+  // header means a browser must preflight, and with CORS off on this surface
+  // the preflight fails. curl is unaffected.
   std::string token;
   if (server->hasHeader("X-Dev-Token")) token = server->header("X-Dev-Token").c_str();
-  if (token.empty() && server->hasArg("token")) token = server->arg("token").c_str();
   if (!devmode::tokenValid(token)) {
     LOG_ERR("DEVMODE", "refused an unpaired request to %s", server->uri().c_str());
     server->send(401, "text/plain", "pair first: POST /api/dev/pair with the code on the device\n");
@@ -2063,10 +2073,13 @@ bool CrossPointWebServer::devAuthorised() {
 
 // Exchange the six digits shown on the device for a token.
 //
-// Deliberately not rate-limited in code: the code is regenerated every time dev
-// mode is switched on, dev mode is off by default, and the window is a person
-// standing at the device. A lockout would instead give anyone on the network a
-// way to stop the owner pairing.
+// Rate-limited and self-rotating; see devmode::pair().
+//
+// An earlier version argued no limit was needed because "the window is a person
+// standing at the device". That was wrong twice over on this branch: dev mode
+// keeps the device awake indefinitely, so the window is however long the toggle
+// is on, and CORS made the endpoint reachable from any page the user visits
+// rather than only from the LAN.
 void CrossPointWebServer::handleDevPair() {
   const auto st = devmode::status();
   if (!st.enabled) {
@@ -2087,6 +2100,26 @@ void CrossPointWebServer::handleDevPair() {
   String out;
   serializeJson(doc, out);
   server->send(200, "application/json", out);
+}
+
+// Switch Developer Mode off, from the computer.
+//
+// This exists because the obvious way to close a device does not work and the
+// script used to claim it did. Flashing a release image does NOT turn Developer
+// Mode off: the setting is a field in /.crosspoint/settings.json ON THE SD CARD,
+// and flashing replaces the firmware, not the card. Worse, every build now
+// carries these routes -- that is the whole point of it being a runtime setting
+// -- so a device flashed "back to a release" kept joining Wi-Fi and kept
+// answering /api/dev/flash while its owner believed it had been closed.
+//
+// Applied immediately: saveToFile() persists it, and devmode::update() sees the
+// setting change on the next loop and tears the server and the radio down.
+void CrossPointWebServer::handleDevDisable() {
+  if (!devAuthorised()) return;
+  SETTINGS.devMode = 0;
+  SETTINGS.saveToFile();
+  LOG_INF("DEVMODE", "switched off by a paired client");
+  server->send(200, "text/plain", "OK developer mode off\n");
 }
 
 // What the device remembers about the last time it died.
