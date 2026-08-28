@@ -55,6 +55,8 @@ import time
 import urllib.error
 import urllib.request
 
+TRUNCATED_MARKER = b"ERR SCREENSHOT truncated"
+
 PANEL_W = 800
 PANEL_H = 480
 
@@ -159,15 +161,31 @@ class SerialLink:
         # reset the boot log is still streaming, and a 48KB binary reply
         # competing with it for the ring is the one case that still failed --
         # the first shot of a session, never the rest.
+        #
+        # WITH A DEADLINE. A device that talks more often than the port timeout
+        # -- a dev build under load, a boot loop, an error spew -- refreshes
+        # quiet_since forever, and the first version of this would have hung
+        # here with no output at all. Every other loop in this file is bounded;
+        # so is this one.
+        #
+        # And relay what it drains rather than discarding it: drain()'s own
+        # docstring says the lines arriving between commands are exactly the
+        # diagnostics a failure investigation needs.
         quiet_since = time.time()
-        while time.time() - quiet_since < 0.3:
-            if self.s.read(4096):
+        drain_deadline = time.time() + 3.0
+        while time.time() - quiet_since < 0.3 and time.time() < drain_deadline:
+            chunk = self.s.read(4096)
+            if chunk:
                 quiet_since = time.time()
+                for ln in chunk.decode("utf-8", "replace").splitlines():
+                    if ln.strip():
+                        relay(ln.strip())
         self.s.reset_input_buffer()
         self.s.write(b"CMD:SCREENSHOT\n")
         deadline = time.time() + timeout
         buf = b""
         size = None
+        truncated = False
         while time.time() < deadline:
             chunk = self.s.read(4096)
             if chunk:
@@ -187,11 +205,20 @@ class SerialLink:
             chunk = self.s.read(8192)
             if chunk:
                 buf += chunk
+            # Bail the moment the device says it gave up, instead of waiting out
+            # the full timeout. The marker also has to be stripped BEFORE the
+            # length test: it is 26 bytes appended to a short payload, so a
+            # frame truncated by less than that would otherwise measure as
+            # complete and be saved with error text over the image tail.
+            if TRUNCATED_MARKER in buf:
+                buf = buf.split(TRUNCATED_MARKER)[0]
+                truncated = True
+                break
         if len(buf) < size:
             # The device says so itself now. Report ITS reason when it gave one:
             # "short read" alone cannot tell a wedged cable from a crashed
             # device, and that ambiguity is what cost a night.
-            why = "ERR SCREENSHOT truncated" if b"ERR SCREENSHOT truncated" in buf else ""
+            why = "(device reported it gave up)" if truncated else ""
             print(f"short read: {len(buf)}/{size} {why}".rstrip(), file=sys.stderr)
             return None
         return buf[:size]

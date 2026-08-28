@@ -39,6 +39,15 @@ static HardwareSerial& logSerial = Serial;
 #define LOG_SERIAL_HAS_TX_TIMEOUT 0
 #endif
 
+// Log lines skipped because the serial transport had no room for them.
+//
+// They are DROPPED rather than waited on: this firmware sets the CDC tx
+// timeout to one millisecond, and a line that does not fit would otherwise
+// make the core wait, give up, and mark the cable disconnected -- wedging a
+// device for the sake of a log line. The count is exposed so the drop is
+// visible rather than silent; the line still reaches the RTC ring either way.
+uint32_t getDroppedLogLines();
+
 void logPrintf(const char* level, const char* origin, const char* format, ...);
 
 #ifdef ENABLE_SERIAL_LOG

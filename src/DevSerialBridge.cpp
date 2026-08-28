@@ -84,7 +84,7 @@ struct TxStats {
   uint32_t shortWrites = 0;   // write() accepted less than it was asked for
   uint32_t zeroWrites = 0;    // write() accepted nothing at all
   uint32_t retryMs = 0;       // total time spent waiting on the ring
-  uint32_t worstStallMs = 0;  // longest single wait
+  uint32_t worstStallMs = 0;  // longest single wait, LIFETIME
   uint32_t timeouts = 0;      // gave up on a payload
 };
 TxStats txStats;
@@ -112,6 +112,13 @@ TxStats txStats;
 bool writeAll(const uint8_t* data, const size_t len, const unsigned long timeoutMs) {
   size_t sent = 0;
   unsigned long stallStart = 0;
+  // Two deadlines. The per-stall one catches a transport that has stopped; the
+  // overall one catches a transport that dribbles -- a few bytes, a long pause,
+  // repeat -- which resets the per-stall timer forever and would hold the loop
+  // task without bound. That matters more than it sounds: the loop task also
+  // serves Developer Mode's HTTP, so an unbounded stall here would take out
+  // /api/dev/serial, the very channel this instrumentation exists to reach.
+  const unsigned long overallDeadline = millis() + timeoutMs * 4;
   while (sent < len) {
     const int space = transport().availableForWrite();
     if (space > 0) {
@@ -132,7 +139,7 @@ bool writeAll(const uint8_t* data, const size_t len, const unsigned long timeout
     }
     if (stallStart == 0) {
       stallStart = millis();
-    } else if (millis() - stallStart >= timeoutMs) {
+    } else if (millis() - stallStart >= timeoutMs || static_cast<long>(millis() - overallDeadline) >= 0) {
       // Record the stall BEFORE bailing. Only the success path updated
       // worstStallMs, so a run that timed out reported "timeouts=1
       // worstStallMs=2" -- two numbers that cannot both be true, and the
@@ -151,6 +158,12 @@ bool writeAll(const uint8_t* data, const size_t len, const unsigned long timeout
   return true;
 }
 
+void formatTxStats(char* out, const size_t len) {
+  if (out == nullptr || len == 0) return;
+  snprintf(out, len, "short=%u zero=%u retryMs=%u worstStallMs=%u timeouts=%u", txStats.shortWrites, txStats.zeroWrites,
+           txStats.retryMs, txStats.worstStallMs, txStats.timeouts);
+}
+
 void handleLine(const char* line) {
   if (strncmp(line, "CMD:", 4) != 0) return;
   const char* cmd = line + 4;
@@ -163,8 +176,9 @@ void handleLine(const char* line) {
   }
 
   if (strcmp(cmd, "CDCSTAT") == 0) {
-    transport().printf("OK CDCSTAT short=%u zero=%u retryMs=%u worstStallMs=%u timeouts=%u\n", txStats.shortWrites,
-                       txStats.zeroWrites, txStats.retryMs, txStats.worstStallMs, txStats.timeouts);
+    char line[160];
+    formatTxStats(line, sizeof(line));
+    transport().printf("OK CDCSTAT %s\n", line);
     return;
   }
 
@@ -335,7 +349,19 @@ void handleLine(const char* line) {
     // tail of the boot log, and 2s was short enough to lose that one and only
     // that one -- shots two through five went through untouched.
     const bool complete = writeAll(fb, bufferSize, 5000);
-    transport().flush();
+    // NO flush() HERE, and that is the point. HWCDC::flush starts
+    // tries = tx_timeout_ms, and this firmware sets that to 1
+    // (main.cpp: "This is a load-bearing 1. Do not modify."). One millisecond
+    // without drain progress and flush sets connected = false AND calls
+    // flushTXBuffer(NULL, 0), throwing the entire pending ring away. Calling it
+    // straight after a 48KB payload means calling it exactly when the ring is
+    // fullest, on every single screenshot -- the old code called it every 512
+    // bytes, which is worse still.
+    //
+    // Nothing needs it. writeAll has already handed every byte to the ring and
+    // the IN_EMPTY ISR drains it; the OK line below enters the same ring behind
+    // the payload, so ordering holds. flush() only answers "has it left yet",
+    // which no caller asks, at the price of the connection flag.
     if (!complete) {
       // Say it on the wire AND in the log. The host is about to see a short
       // read; without this it cannot tell a wedged cable from a crashed device,
@@ -348,7 +374,7 @@ void handleLine(const char* line) {
       return;
     }
     transport().printf("SCREENSHOT_END\n");
-    transport().printf("OK SCREENSHOT %u short=%u zero=%u stall=%ums\n", bufferSize,
+    transport().printf("OK SCREENSHOT %u short=%u zero=%u stallLifetime=%ums\n", bufferSize,
                        static_cast<unsigned>(txStats.shortWrites - before.shortWrites),
                        static_cast<unsigned>(txStats.zeroWrites - before.zeroWrites),
                        static_cast<unsigned>(txStats.worstStallMs));
@@ -368,11 +394,7 @@ void handleLine(const char* line) {
 
 }  // namespace
 
-void txStatsLine(char* out, const size_t len) {
-  if (out == nullptr || len == 0) return;
-  snprintf(out, len, "short=%u zero=%u retryMs=%u worstStallMs=%u timeouts=%u", txStats.shortWrites, txStats.zeroWrites,
-           txStats.retryMs, txStats.worstStallMs, txStats.timeouts);
-}
+void txStatsLine(char* out, const size_t len) { formatTxStats(out, len); }
 
 void begin() {
 #if FREEINK_DEVICE_STICKY

@@ -620,8 +620,14 @@ void loop() {
 
   renderer.setFadingFix(SETTINGS.fadingFix);
 
-  if (Serial && millis() - lastMemPrint >= 10000) {
-    LOG_INF("MEM", "Free: %d bytes, Total: %d bytes, Min Free: %d bytes, MaxAlloc: %d bytes", ESP.getFreeHeap(),
+  // Every 60s, not 10, and at DBG. The RTC log ring is SIXTEEN lines, so a
+  // ten-second heartbeat flushed the whole thing every 160 seconds -- which is
+  // what made /api/dev/log and /api/dev/crash useless for diagnosing anything
+  // that had already happened. This one was worse than the web server's twin:
+  // LOG_INF ships in gh_release_* at LOG_LEVEL=1, so it was erasing crash tails
+  // on users' devices, not just on desks. Heap trend at 60s is just as useful.
+  if (Serial && millis() - lastMemPrint >= 60000) {
+    LOG_DBG("MEM", "Free: %d bytes, Total: %d bytes, Min Free: %d bytes, MaxAlloc: %d bytes", ESP.getFreeHeap(),
             ESP.getHeapSize(), ESP.getMinFreeHeap(), ESP.getMaxAllocHeap());
     lastMemPrint = millis();
   }
@@ -642,11 +648,40 @@ void loop() {
       String cmd = line.substring(4);
       cmd.trim();
       if (cmd == "SCREENSHOT") {
+        // Paced the same way the dev bridge does it, and for the same reason:
+        // one 48KB write hands the core far more than the ring holds, it waits,
+        // gives up after the load-bearing 1ms, marks the cable disconnected and
+        // throws the pending ring away. This is the release path, so it had the
+        // original unguarded version long after the bridge was fixed.
         const uint32_t bufferSize = display.getBufferSize();
-        logSerial.printf("SCREENSHOT_START:%d\n", bufferSize);
-        uint8_t* buf = display.getFrameBuffer();
-        logSerial.write(buf, bufferSize);
-        logSerial.printf("SCREENSHOT_END\n");
+        const uint8_t* buf = display.getFrameBuffer();
+        if (buf != nullptr) {
+          logSerial.printf("SCREENSHOT_START:%d\n", bufferSize);
+#if defined(SIMULATOR)
+          // The simulator's HWCDC shim has none of this to worry about:
+          // stderr, no ring, and no availableForWrite() to ask.
+          logSerial.write(buf, bufferSize);
+#else
+          uint32_t sent = 0;
+          const unsigned long deadline = millis() + 5000;
+          while (sent < bufferSize && static_cast<long>(millis() - deadline) < 0) {
+            const int space = logSerial.availableForWrite();
+            if (space <= 0) {
+              delay(2);
+              continue;
+            }
+            const uint32_t want =
+                static_cast<uint32_t>(space) < bufferSize - sent ? static_cast<uint32_t>(space) : bufferSize - sent;
+            const size_t n = logSerial.write(buf + sent, want);
+            if (n == 0) {
+              delay(2);
+              continue;
+            }
+            sent += n;
+          }
+#endif
+          logSerial.printf("SCREENSHOT_END\n");
+        }
       }
     }
   }

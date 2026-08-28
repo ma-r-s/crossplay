@@ -9,6 +9,8 @@
 #define MAX_ENTRY_LEN 256
 #define MAX_LOG_LINES 16
 
+static uint32_t droppedLogLines = 0;
+
 // Simple ring buffer log, useful for error reporting when we encounter a crash
 RTC_NOINIT_ATTR char logMessages[MAX_LOG_LINES][MAX_ENTRY_LEN];
 RTC_NOINIT_ATTR size_t logHead = 0;
@@ -86,12 +88,16 @@ void logPrintf(const char* level, const char* origin, const char* format, ...) {
     const size_t want = strlen(buf);
     if (logSerial.availableForWrite() >= static_cast<int>(want)) {
       logSerial.print(buf);
+    } else {
+      droppedLogLines++;
     }
 #endif
   }
 #endif
   addToLogRingBuffer(buf);
 }
+
+uint32_t getDroppedLogLines() { return droppedLogLines; }
 
 std::string getLastLogs() {
   if (rtcLogMagic != LOG_RTC_MAGIC) {
