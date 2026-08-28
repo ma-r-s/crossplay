@@ -11,6 +11,7 @@
 #include <memory>
 
 #include "CrossPointSettings.h"
+#include "DevModePairing.h"
 #include "WifiCredentialStore.h"
 #include "network/CrossPointWebServer.h"
 
@@ -105,10 +106,6 @@ constexpr unsigned long kMaxBackoffMs = 60000;
 // query argument on a POST, which is a CORS-simple request, so a page the owner
 // merely visits can fire it cross-origin. It cannot read the reply -- CORS is
 // off on this surface -- but forcing rotation needs no reply.
-constexpr unsigned long kPairRetryMs = 1000;
-constexpr unsigned long kPairRetryCeilingMs = 30000;
-constexpr unsigned long kMinRotateIntervalMs = 60000;
-constexpr int kPairFailuresBeforeRotate = 5;
 
 unsigned long backoff() {
   const unsigned long ms = kMinBackoffMs << (attempt < 4 ? attempt : 4);
@@ -508,82 +505,34 @@ bool tokenValid(const std::string& token) {
 std::string pair(const std::string& code) {
   if (SETTINGS.devMode == 0 || pairingCode.empty()) return std::string();
 
-  // A minimum interval between attempts. Six digits is 10^6, which a LAN can
-  // walk in hours unattended -- and until this branch disabled CORS on this
-  // surface, so could a web page the owner merely visited.
-  //
-  // THE RIGHT CODE IS NEVER RATE-LIMITED. One global timer, refreshed by every
-  // wrong guess, meant anyone on the network guessing once a second kept the
-  // OWNER permanently inside the "too soon" window -- a lockout handed to an
-  // attacker, which is the exact outcome the rotation comment below says was
-  // rejected on purpose. Rate-limiting a correct code protects nothing: a
-  // guesser does not have one, and the owner is reading it off the panel.
-  const unsigned long now = millis();
+  // The decision itself lives in DevModePairing.h as a pure function, and
+  // host-tests/devpair exercises it. That split is not tidiness: three cold
+  // review rounds found three different bugs in these twenty lines, none of
+  // them visible to any suite, on the gate in front of replacing this device's
+  // firmware. This function is now only the part that needs a device.
+  // Qualified, not `using namespace pairing`: this file already has its own
+  // State enum for the join state machine, and the two would collide.
+  pairing::State st;
+  st.failures = pairFailures;
+  st.notBefore = pairNotBefore;
+  st.lastRotate = lastRotateMs;
 
-  // GATE BEFORE COMPARING. This is the whole point and both previous versions
-  // got it wrong in different ways: they computed `correct` first, so every
-  // guess was fully evaluated and paid off if it hit, and the timer only chose
-  // which log line printed. A limiter you have already answered is not a
-  // limiter -- 10^6 falls at the device's HTTP request rate, hours, whatever
-  // the backoff says.
-  //
-  // A gated attempt is refused WITHOUT looking at the code and WITHOUT
-  // extending the window. That second half matters as much as the first: the
-  // version that extended on every refusal let a flood hold the window open
-  // forever, which locked the owner out AND made rotation unreachable. Not
-  // extending means an attacker gets exactly one evaluated guess per backoff
-  // interval, and the owner's worst case is waiting out one interval -- a delay
-  // of at most kPairRetryCeilingMs, never a lockout.
-  if (pairNotBefore != 0 && static_cast<long>(now - pairNotBefore) < 0) {
-    // Not logged at all: this is the path a flood takes, and it would wipe the
-    // ring sixteen requests in. The refusal is already visible to the caller.
-    return std::string();
+  const pairing::Outcome out = pairing::decide(code == pairingCode, millis(), st);
+  pairFailures = out.next.failures;
+  pairNotBefore = out.next.notBefore;
+  lastRotateMs = out.next.lastRotate;
+
+  if (out.rotate) {
+    pairingCode = makeCode();
+    std::snprintf(rtcPairCode, sizeof(rtcPairCode), "%s", pairingCode.c_str());
+    rtcPairMagic = kPairMagic;
+    LOG_ERR("DEVMODE", "too many wrong codes; rotated to %s", pairingCode.c_str());
+  } else if (out.log) {
+    LOG_ERR("DEVMODE", "wrong pairing code (rotates at %d)", pairing::kFailuresBeforeRotate);
   }
 
-  if (code != pairingCode) {
-    // Log the FIRST few only. logPrintf writes every level into a 16-line RTC
-    // ring (Logging.cpp), LOG_ERR is compiled into releases, and this path is
-    // reachable by anyone on the network -- so sixteen wrong guesses erased the
-    // pre-panic tail that /api/dev/crash exists to deliver. Cross-origin, too.
-    const bool sayIt = pairFailures < kPairFailuresBeforeRotate;
-    // Saturate rather than overflow: this is incremented by an unauthenticated
-    // request, and signed overflow would collapse the backoff to 1s and stop
-    // rotation entirely.
-    if (pairFailures < kPairFailuresBeforeRotate * 4) pairFailures++;
-    unsigned long wait = kPairRetryMs;
-    for (int i = 1; i < pairFailures && wait < kPairRetryCeilingMs; ++i) wait <<= 1;
-    if (wait > kPairRetryCeilingMs) wait = kPairRetryCeilingMs;
-    pairNotBefore = now + wait;
-    // ROTATE rather than lock out. A lockout would hand anyone on the network a
-    // way to stop the owner pairing; moving the target instead throws away
-    // every guess made so far and costs the owner only a glance at the screen,
-    // which is already showing the new code by the time they look.
-    // Rotate on sustained failure, but never faster than once a minute: the
-    // owner has to be able to read a code off the panel and still type it.
-    // Rotation throws away accumulated guesses; it is NOT what makes grinding
-    // expensive, and an earlier version of this comment claimed it was. What
-    // makes grinding expensive is the gate above refusing to evaluate.
-    const bool rotateDue = pairFailures >= kPairFailuresBeforeRotate;
-    // No lastRotateMs == 0 case: pair() returns early unless pairingCode is set,
-    // and only turnOn() sets it, on the same pass that sets lastRotateMs.
-    const bool rotateAllowed = static_cast<long>(now - (lastRotateMs + kMinRotateIntervalMs)) >= 0;
-    if (rotateDue && rotateAllowed) {
-      lastRotateMs = now;
-      pairingCode = makeCode();
-      std::snprintf(rtcPairCode, sizeof(rtcPairCode), "%s", pairingCode.c_str());
-      rtcPairMagic = kPairMagic;
-      pairFailures = 0;
-      LOG_ERR("DEVMODE", "too many wrong codes; rotated to %s", pairingCode.c_str());
-    } else {
-      if (sayIt) {
-        LOG_ERR("DEVMODE", "wrong pairing code (%d wrong, rotates at %d)", pairFailures, kPairFailuresBeforeRotate);
-      }
-    }
-    return std::string();
-  }
+  if (out.verdict != pairing::Verdict::Accept) return std::string();
 
-  pairFailures = 0;
-  pairNotBefore = 0;
   activeToken = makeToken();
   paired = true;
   LOG_INF("DEVMODE", "paired");
