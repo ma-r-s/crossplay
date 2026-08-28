@@ -147,35 +147,51 @@ jobs:
             Battleship, Jaipur and Sea Salt. Two devices next to each other
             find one another with nothing to type.
 
-            ### What is new in 1.6.1
+            ### What is new in 1.6.3
 
-            **Developer Mode**
+            **Get Books is set up for you.** Two catalogs are configured on
+            first run instead of one: **Get Books**, which searches a large
+            library and converts what you pick into a file tuned for this
+            screen before it reaches the device, and **Project Gutenberg**. Get
+            Books is search-only -- it has far too much to browse -- so it
+            opens straight on the keyboard.
 
-            Settings > System > Developer Mode turns this reader into a
-            development device: it joins your Wi-Fi at boot and can be
-            reflashed and inspected from a computer with no cable. It is off
-            unless you turn it on, and off means off -- no Wi-Fi, no server,
-            nothing listening.
+            This reaches devices you already own, not only new installs. Until
+            now, a change to the default catalogs applied solely to a device
+            being set up for the first time.
 
-            **Turn it off with the tooling's `--disable` before this device
-            leaves your network.** While Developer Mode is on, anyone who can
-            read the six-digit code on its screen can replace its firmware.
-            That is the point of the feature and it is fine on your own
-            network; it is not fine in a bag on a train. Flashing a different
-            firmware does NOT turn it off -- the setting lives on your SD card.
+            **Standard Ebooks has been removed**, including from devices that
+            already had it. Their catalog moved behind the Patrons Circle and
+            now errors unless you have donated, so it failed for nearly
+            everyone who tried it. If you had entered your patron email there
+            it is kept, because it works for you; otherwise it is gone, and you
+            can add it back under Settings > System > OPDS Servers.
 
-            While it is on the device will not sleep, so the battery drains
-            faster.
+            The catalog that ships configured is a shared service. The username
+            and password it comes with are the same on every device and live
+            inside the firmware, so treat them as public rather than as an
+            account of your own. Point the entry at your own server if you
+            would rather not share one.
 
-            This is for people building the firmware themselves: the other half
-            is `scripts_local/wifi-flash.sh` in the repository. Turning the
-            setting on by itself does not give you anything to connect with.
+            **Study: Back walks up instead of out.** Pressing Back on a card
+            returns to the deck screen rather than quitting Study and dropping
+            you on the shelf. The deck switcher is now a **CHANGE DECK** door
+            beside START REVIEWING and SYNC, showing which deck you are on.
 
-            You can also read a crash report over Wi-Fi now -- the panic, its
-            backtrace, and the log lines from just before the device reset.
+            Note for new Study users: sync cannot deliver your first deck yet.
+            Install decks from the /study page; sync keeps them up to date
+            afterwards.
 
-            Known limits, and what is deliberately not there yet, are in
-            `docs/developer-mode.md`.
+            ### Also new since 1.6.1
+
+            The 1.6.2 release notes repeated 1.6.1's by mistake, so this did
+            not get announced:
+
+            **Multiplayer works again.** Games over PLAY NEARBY were dying one
+            move in. Developer Mode and the link layer were both trying to own
+            the radio, and the loser was whichever had it. A device in a link
+            match now holds the radio outright and gives it back when the match
+            ends -- which also means it is off Wi-Fi for the duration.
 
             ### Still true from 1.6.0, if you have not flashed over USB since
 
