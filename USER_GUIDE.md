@@ -322,7 +322,12 @@ without any configuration:
 
 - **Get Books** -- searches a large library and converts what you pick into a
   file tuned for this screen before it reaches the device. Search only: it has
-  far too much to browse, so it opens straight on the keyboard.
+  far too much to browse, so it opens straight on the keyboard. It is a shared
+  service run for CrossPlay users, and the username and password it comes
+  configured with are the same for every device: they ship inside the firmware,
+  so treat them as public rather than as an account of your own. Point the
+  entry at your own server under **Settings -> System -> OPDS Servers** if you
+  would rather not share one.
 - **Project Gutenberg** -- a very large public-domain library, browsable by
   category as well as searchable.
 
