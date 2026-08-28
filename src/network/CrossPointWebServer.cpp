@@ -2248,12 +2248,6 @@ void CrossPointWebServer::handleDevInput() {
   server->send(code, "text/plain", String(reply) + "\n");
 }
 
-// The framebuffer as it stands, 1bpp, row-major, MSB leftmost -- the same bytes
-// the serial bridge streams, so one host-side decoder serves both.
-//
-// Unlike the serial path this arrives whole rather than truncated, because TCP
-// has no equivalent of the CDC ring that drops what will not fit. It is still
-// chunked on the way out, for the reason given at the write loop below.
 // The serial transport's TX counters, over Wi-Fi.
 //
 // The whole point: when the cable wedges, CMD:CDCSTAT is unreachable by
@@ -2266,6 +2260,12 @@ void CrossPointWebServer::handleDevSerial() {
   server->send(200, "text/plain", String(line) + "\n");
 }
 
+// The framebuffer as it stands, 1bpp, row-major, MSB leftmost -- the same bytes
+// the serial bridge streams, so one host-side decoder serves both.
+//
+// Unlike the serial path this arrives whole rather than truncated, because TCP
+// has no equivalent of the CDC ring that drops what will not fit. It is still
+// chunked on the way out, for the reason given at the write loop below.
 void CrossPointWebServer::handleDevScreen() {
   if (!devAuthorised()) return;
   const uint8_t* fb = display.getFrameBuffer();

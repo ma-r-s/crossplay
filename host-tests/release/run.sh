@@ -731,10 +731,19 @@ fi
 # of place a version number goes stale: nothing about tagging touches them, and
 # the release still builds and publishes perfectly. So assert the one thing that
 # cannot be true of stale notes -- that they name the version being released.
-NOTES_VERSION="$(sed -n 's/^version = \([0-9][0-9.]*\)$/\1/p' "$ROOT/platformio.ini" | tail -1)"
+# Anchored to [crossplay], not positional. `tail -1` picked whichever version=
+# key came last, and platformio.ini has two -- [crosspoint] is upstream's. A
+# merge that adds or reorders a section would have silently repointed this at
+# the wrong number and stayed green.
+NOTES_VERSION="$(awk '/^\[crossplay\]/{f=1;next} /^\[/{f=0} f && /^version *=/{print $3; exit}' "$ROOT/platformio.ini")"
 if [ -z "$NOTES_VERSION" ]; then
   bad "could not read the crossplay version out of platformio.ini"
-elif grep -q "What is new in $NOTES_VERSION" "$WF"; then
+# Escaped dots AND a boundary. Two attempts got this wrong: an unanchored grep
+# treats . as a wildcard, and a "not followed by a dot" guard still passed
+# "1.6.31" because what follows 1.6.3 there is a digit. The version must be the
+# whole number -- followed by end of line or by something that is not a digit
+# or a dot.
+elif grep -qE "What is new in $(printf '%s' "$NOTES_VERSION" | sed 's/\./\\./g')([^0-9.]|$)" "$WF"; then
   ok
 else
   bad "the release notes in $(basename "$WF") do not say \"What is new in $NOTES_VERSION\" -- they are the previous release's, and the tag will publish them"

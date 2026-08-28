@@ -56,6 +56,7 @@ import urllib.error
 import urllib.request
 
 TRUNCATED_MARKER = b"ERR SCREENSHOT truncated"
+END_MARKER = b"SCREENSHOT_END"
 
 PANEL_W = 800
 PANEL_H = 480
@@ -198,22 +199,53 @@ class SerialLink:
                     size = int(buf[idx + len(marker) : nl])
                     buf = buf[nl + 1 :]
                     break
+            elif b"ERR SCREENSHOT" in buf:
+                # A refusal: it says why, and no START is coming. Only reachable
+                # while no START has been seen, because past that point `buf` is
+                # 48000 bytes of image and image bytes spell things -- checking
+                # for this first made a frame containing those letters look like
+                # a refusal and hang until the timeout.
+                break
         if size is None:
-            print("no SCREENSHOT_START seen", file=sys.stderr)
+            said = buf.decode("utf-8", "replace").strip().splitlines()
+            why = next((ln for ln in reversed(said) if ln.startswith("ERR")), "no SCREENSHOT_START seen")
+            print(why, file=sys.stderr)
             return None
-        while len(buf) < size and time.time() < deadline:
+        # `len(buf) >= size` is NOT proof of a complete frame, and stopping on
+        # it is the bug this loop is shaped around. On truncation the device
+        # appends a notice, so a frame short by less than that notice is long
+        # still reaches `size` bytes -- with error text written over its tail,
+        # and with the notice itself cut in half, so no check for the notice can
+        # see it either. Read on until the DEVICE says which it was.
+        #
+        # The notice counts only when it is the LAST thing the device said.
+        # Image bytes can spell anything, and a frame is 48000 of them; a plain
+        # `in buf` bails on a chance match a thousand bytes into a perfectly
+        # good frame, and then reports it as truncated there. Truncation means
+        # the device stopped, so on the real path nothing follows the notice.
+        #
+        # Silence past `size` is the one genuinely ambiguous case -- every byte
+        # arrived and nothing followed -- and `grace` is what bounds it.
+        def gave_up(b):
+            return b.rstrip(b"\r\n").endswith(TRUNCATED_MARKER)
+
+        grace = None
+        while time.time() < deadline:
+            if len(buf) >= size and END_MARKER in buf[size:]:
+                break
+            if gave_up(buf):
+                break
+            if grace is not None and time.time() > grace:
+                break
+            before = len(buf)
             chunk = self.s.read(8192)
             if chunk:
                 buf += chunk
-            # Bail the moment the device says it gave up, instead of waiting out
-            # the full timeout. The marker also has to be stripped BEFORE the
-            # length test: it is 26 bytes appended to a short payload, so a
-            # frame truncated by less than that would otherwise measure as
-            # complete and be saved with error text over the image tail.
-            if TRUNCATED_MARKER in buf:
-                buf = buf.split(TRUNCATED_MARKER)[0]
-                truncated = True
-                break
+            if len(buf) >= size and (grace is None or len(buf) > before):
+                grace = time.time() + 0.5
+        if not (len(buf) >= size and END_MARKER in buf[size:]) and gave_up(buf):
+            buf = buf[: buf.rfind(TRUNCATED_MARKER)]
+            truncated = True
         if len(buf) < size:
             # The device says so itself now. Report ITS reason when it gave one:
             # "short read" alone cannot tell a wedged cable from a crashed
@@ -264,6 +296,11 @@ class WifiLink:
             return self._get_text("/api/dev/log", timeout)
         if verb == "PING":
             return self._get_text("/api/status", timeout, auth=False)
+        # The counters, over the network. Worth its own route precisely because
+        # the question it answers -- what did the cable do -- is unaskable over
+        # the cable once the cable is the thing that stopped answering.
+        if verb == "CDCSTAT":
+            return self._get_text("/api/dev/serial", timeout)
         try:
             with self._open("/api/dev/input", data=verb.encode(), method="POST", timeout=timeout) as r:
                 return r.read().decode("utf-8", "replace").strip()

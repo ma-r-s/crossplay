@@ -105,10 +105,21 @@ TxStats txStats;
 // that cost two desk units a night and needed a physical button press: not a
 // dead peripheral, a device that has concluded nobody is listening.
 //
-// So the fix is not to retry harder, it is to never make the core wait:
+// So the fix is not to retry harder, it is to stop making the core wait:
 // availableForWrite() says how much fits right now, and asking for exactly that
-// means write() cannot time out, cannot flip the flag, and cannot truncate.
-// Waiting happens HERE, where it is bounded, counted, and reportable.
+// removes the DOMINANT path into its wait. It does not remove every path, and
+// an earlier version of this comment claimed it did -- availableForWrite takes
+// and releases tx_lock, so another writer (a LOG_ from the render task, a web
+// handler) can take the space in between and write() falls into the blocking
+// loop anyway. Much less likely, not never.
+// The waiting we do control happens HERE, bounded, counted and reportable.
+// A short line, paced the same way. printf() goes straight to HWCDC::write, and
+// the ring is 256 bytes -- so a line written immediately AFTER a 48KB payload
+// lands when it is at its fullest, which is exactly the condition the removed
+// flush() was dangerous in. The worst case was the truncation notice itself:
+// the line reporting the jam was the most likely thing to flip the flag.
+bool writeLine(const char* text, unsigned long timeoutMs);
+
 bool writeAll(const uint8_t* data, const size_t len, const unsigned long timeoutMs) {
   size_t sent = 0;
   unsigned long stallStart = 0;
@@ -120,6 +131,17 @@ bool writeAll(const uint8_t* data, const size_t len, const unsigned long timeout
   // /api/dev/serial, the very channel this instrumentation exists to reach.
   const unsigned long overallDeadline = millis() + timeoutMs * 4;
   while (sent < len) {
+    // Checked at the TOP, unconditionally. Tucked inside the stall branch it was
+    // unreachable for the pattern it was added for: one byte accepted, one
+    // stalled iteration, repeat -- stallStart resets on every scrap of progress,
+    // so neither deadline fired and a 48KB payload could hold the loop task for
+    // minutes.
+    if (static_cast<long>(millis() - overallDeadline) >= 0) {
+      txStats.timeouts++;
+      LOG_ERR("DEVBRIDGE", "gave up after %lums overall with %u of %u bytes left", timeoutMs * 4,
+              static_cast<unsigned>(len - sent), static_cast<unsigned>(len));
+      return false;
+    }
     const int space = transport().availableForWrite();
     if (space > 0) {
       const size_t want = static_cast<size_t>(space) < len - sent ? static_cast<size_t>(space) : len - sent;
@@ -139,7 +161,7 @@ bool writeAll(const uint8_t* data, const size_t len, const unsigned long timeout
     }
     if (stallStart == 0) {
       stallStart = millis();
-    } else if (millis() - stallStart >= timeoutMs || static_cast<long>(millis() - overallDeadline) >= 0) {
+    } else if (millis() - stallStart >= timeoutMs) {
       // Record the stall BEFORE bailing. Only the success path updated
       // worstStallMs, so a run that timed out reported "timeouts=1
       // worstStallMs=2" -- two numbers that cannot both be true, and the
@@ -158,10 +180,22 @@ bool writeAll(const uint8_t* data, const size_t len, const unsigned long timeout
   return true;
 }
 
+bool writeLine(const char* text, const unsigned long timeoutMs) {
+  return writeAll(reinterpret_cast<const uint8_t*>(text), strlen(text), timeoutMs);
+}
+
 void formatTxStats(char* out, const size_t len) {
   if (out == nullptr || len == 0) return;
-  snprintf(out, len, "short=%u zero=%u retryMs=%u worstStallMs=%u timeouts=%u", txStats.shortWrites, txStats.zeroWrites,
-           txStats.retryMs, txStats.worstStallMs, txStats.timeouts);
+  // plugged and connected FIRST, because without them the rest is ambiguous:
+  // HWCDC::write returns the FULL size when isCDC_Connected() is false -- it
+  // runs a drop policy and reports complete acceptance -- so a device
+  // discarding every byte reports short=0 zero=0 timeouts=0, byte-identical to
+  // a healthy idle one. An all-zero line was once quoted as proof this route
+  // worked; it proved only that the route answered.
+  snprintf(out, len,
+           "plugged=%d connected=%d short=%u zero=%u retryMs=%u worstStallMsLifetime=%u timeouts=%u logDrops=%u",
+           HWCDC::isPlugged() ? 1 : 0, static_cast<bool>(transport()) ? 1 : 0, txStats.shortWrites, txStats.zeroWrites,
+           txStats.retryMs, txStats.worstStallMs, txStats.timeouts, getDroppedLogLines());
 }
 
 void handleLine(const char* line) {
@@ -176,9 +210,9 @@ void handleLine(const char* line) {
   }
 
   if (strcmp(cmd, "CDCSTAT") == 0) {
-    char line[160];
-    formatTxStats(line, sizeof(line));
-    transport().printf("OK CDCSTAT %s\n", line);
+    char stats[192];
+    formatTxStats(stats, sizeof(stats));
+    transport().printf("OK CDCSTAT %s\n", stats);
     return;
   }
 
@@ -366,14 +400,14 @@ void handleLine(const char* line) {
       // Say it on the wire AND in the log. The host is about to see a short
       // read; without this it cannot tell a wedged cable from a crashed device,
       // and that ambiguity cost two sessions a night.
-      transport().printf("\nERR SCREENSHOT truncated\n");
-      LOG_ERR("DEVBRIDGE", "screenshot truncated: short=%u zero=%u worstStall=%ums",
+      writeLine("\nERR SCREENSHOT truncated\n", 1000);
+      LOG_ERR("DEVBRIDGE", "screenshot truncated: short=%u zero=%u worstStallMsLifetime=%ums",
               static_cast<unsigned>(txStats.shortWrites - before.shortWrites),
               static_cast<unsigned>(txStats.zeroWrites - before.zeroWrites),
               static_cast<unsigned>(txStats.worstStallMs));
       return;
     }
-    transport().printf("SCREENSHOT_END\n");
+    writeLine("SCREENSHOT_END\n", 1000);
     transport().printf("OK SCREENSHOT %u short=%u zero=%u stallLifetime=%ums\n", bufferSize,
                        static_cast<unsigned>(txStats.shortWrites - before.shortWrites),
                        static_cast<unsigned>(txStats.zeroWrites - before.zeroWrites),

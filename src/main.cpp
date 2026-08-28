@@ -681,6 +681,11 @@ void loop() {
           }
 #endif
           logSerial.printf("SCREENSHOT_END\n");
+        } else {
+          // Say so. Silence here is indistinguishable at the host from a wedged
+          // cable, and it costs the caller the full 30s screenshot timeout to
+          // learn nothing.
+          logSerial.printf("ERR SCREENSHOT no framebuffer\n");
         }
       }
     }
