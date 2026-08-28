@@ -120,18 +120,46 @@ Clearing stays on the on-device crash screen, when a human dismisses it. A
 corrupt ring is reported as `logsValid: false` rather than shown as empty --
 "nothing was logged" and "RTC memory was garbage" are different findings.
 
+## Playing and flashing are exclusive
+
+A link match takes the radio outright: `LinkRadio::begin()` calls
+`devmode::pause()` and `end()` calls `devmode::resume()`. While you are playing,
+the device is off Wi-Fi and cannot be flashed or logged. Leave the game and it
+comes back on its own within a few seconds.
+
+This is not a policy choice, it is the hardware. An AP association pins the
+radio to that AP's channel; ESP-NOW here is fixed to channel 1. Both cannot hold
+the radio, so one of them has to yield, and the one the user is looking at wins.
+
+**The bug this replaces is worth knowing, because the shape recurs.** Developer
+Mode decided nobody else was using the radio by asking
+`WiFi.status() == WL_CONNECTED`. ESP-NOW never associates, so a live match read
+as "my connection dropped" -- and dev mode rejoined the house AP
+`kMinBackoffMs` (5s) later, dragging the radio from channel 1 to channel 9 with
+a game running on it. The symptom was precise and misleading: pairing worked,
+the first move landed, and the match died `kPeerTimeoutMs` (10s) after that with
+"connection lost". The 5s backoff is exactly the width of the window in which
+the first move fit.
+
+`WiFi.status()` answers "am I associated", never "is this radio busy". Anything
+that reads it as ownership will miss every non-associating user of the radio.
+
 ## Known limits
 
 - **One cached token and code**, in `~/.crossplay-devtoken` and
   `~/.crossplay-devcode`. With two devices you re-pair when you switch between
   them.
-- **The radio is still not arbitrated.** Developer Mode will not take a radio
-  already in use, only puts down a connection it raised, and every file that
-  tears the radio down now either asks `devmode::holdsRadio()` or tracks its own
-  ownership -- enforced by `host-tests/release`, which discovers those files
-  rather than listing them. But there is no ownership protocol; `LinkRadio`'s
-  "only one thing on the device may own the radio at a time" is still managed by
-  convention, and link multiplayer with Developer Mode on is untested.
+- **The radio is still not arbitrated,** but the two places that take it
+  outright now say so. Developer Mode will not take a radio already in use, only
+  puts down a connection it raised, and every file that tears the radio down
+  either asks `devmode::holdsRadio()` or tracks its own ownership -- enforced by
+  `host-tests/release`, which discovers those files rather than listing them.
+  There is still no general ownership protocol.
+
+  What the convention missed, and what shipped in v1.6.1: Developer Mode's test
+  for "is somebody else using this?" is `WiFi.status() == WL_CONNECTED`, so an
+  owner that never associates is invisible to it. ESP-NOW never associates. See
+  "Playing and flashing are exclusive" below.
 - **The unauthenticated web UI can still overwrite
   `/.crosspoint/settings.json`** by basename, which is another route to enabling
   Developer Mode. It predates this feature and is not caused by it, but this

@@ -390,5 +390,88 @@ while IFS= read -r path; do
   fi
 done < <(grep -rl 'WiFi.getMode() != WIFI_MODE_NULL' "$ROOT/src" 2>/dev/null | sort)
 
+# -- 10. taking the radio out of service means yielding Developer Mode --------
+#
+# Check 9 is about READING who owns the radio. This is about TAKING it.
+#
+# These operations leave the radio unusable to anyone else, because they end the
+# AP association rather than merely closing a socket on top of it: the channel
+# and mode setters -- including the spellings that are the same thing under a
+# different name, since WIFI_MODE_NULL is WIFI_OFF and WIFI_AP_STA is an AP --
+# softAP(), which raises an AP without ever naming a mode, esp_now_init(), and
+# scanNetworks(), which walks off the channel for seconds at a time.
+#
+# lib/ is scanned as well as src/. LinkRadio's own comment warns that the
+# FreeInk SDK ships NearbyTransfer, an ESP-NOW library, and that "whichever
+# registered last silently wins": an SDK file adopting it is precisely the
+# violation this exists for, and it would never live under src/.
+#
+# Developer Mode cannot detect any of them. Its own "is somebody else using
+# this?" test is `WiFi.status() == WL_CONNECTED`, so an owner that never
+# associates -- ESP-NOW, exactly -- is invisible to it, and it responds by
+# rejoining the AP kMinBackoffMs later and dragging the radio back to the
+# router channel.
+#
+# That shipped. Link multiplayer paired, played one move, and lost the peer ten
+# seconds afterwards, on two devices sitting next to each other, because
+# LinkRadio pinned channel 1 while dev mode pulled the radio to channel 9. The
+# 5s backoff is the reason the FIRST move always landed: it is the width of the
+# window before dev mode noticed.
+#
+# The rule: a file that can put the radio out of service must reason about
+# Developer Mode somewhere -- pause() it, or ask holdsRadio(). That is a coarse
+# bar deliberately; it does not try to prove the reasoning is right, only that
+# it happened. A new file that does none of it is the case this exists to catch.
+#
+# DISCOVERED, not listed, for the reason spelled out in check 9.
+while IFS= read -r path; do
+  rel="${path#$ROOT/}"
+  # DevMode.cpp is Developer Mode. Asking it to consult itself is circular, and
+  # exempting it by name is honest in a way that a silent skip would not be.
+  [ "$rel" = "src/DevMode.cpp" ] && continue
+  if grep -q 'devmode::' "$path"; then
+    ok
+  else
+    bad "$rel takes the radio out of service without ever mentioning devmode:: -- it will cut Developer Mode off, or be cut off by it mid-use"
+  fi
+done < <(grep -rlE 'esp_wifi_set_channel\(|esp_wifi_set_mode\(|WiFi\.scanNetworks\(|WiFi\.softAP\(|esp_now_init\(|WiFi\.mode\(WIFI_OFF\)|WiFi\.mode\(WIFI_MODE_NULL\)|WiFi\.mode\(WIFI_AP\)|WiFi\.mode\(WIFI_AP_STA\)' "$ROOT/src" "$ROOT/lib" 2>/dev/null | sort)
+
+# -- 11. every pause() has its resume(), in the same file --------------------
+#
+# Check 10 only proves a file says the word. This proves the pairing. Both ways
+# of getting it wrong are live bugs: pause with no resume strands Developer Mode
+# off the network until a reboot, and resume with no pause is the shipped
+# behaviour that broke link multiplayer.
+#
+# Same file, because these are acquire/release around one owner's lifetime --
+# LinkRadio begin()/end(), an activity's onEnter()/onExit(). A pause handed to
+# another file to release is not a pattern here and should not become one
+# quietly.
+#
+# The count has to match, not merely be non-zero. yieldDepth is a counter
+# precisely so the holders can nest (the web screen yields, then opens the
+# Wi-Fi picker, which yields again), and a counter is what makes an unbalanced
+# pair leak instead of fail loudly.
+#
+# The input set is files with EITHER call. A file carrying only a resume() is
+# the more dangerous half -- it releases a yield it never took, dropping the
+# count out from under a holder that still has the ports -- and keying the
+# search on pause() alone put exactly that case beyond this check's reach.
+#
+# WHAT THIS CANNOT SEE, said plainly: it counts source lines, not calls.
+# LinkRadio.cpp reads 1:1 here while end() runs three times per match, and what
+# actually makes that pairing correct at runtime is the held_ flag, not this
+# check. A grep cannot count calls. Do not read a pass as proof of balance.
+while IFS= read -r path; do
+  rel="${path#$ROOT/}"
+  p_count="$(grep -c 'devmode::pause()' "$path")"
+  r_count="$(grep -c 'devmode::resume()' "$path")"
+  if [ "$p_count" = "$r_count" ]; then
+    ok
+  else
+    bad "$rel calls devmode::pause() $p_count time(s) but devmode::resume() $r_count time(s) -- Developer Mode is left yielded or released early"
+  fi
+done < <(grep -rlE 'devmode::(pause|resume)\(\)' "$ROOT/src" "$ROOT/lib" 2>/dev/null | sort)
+
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]

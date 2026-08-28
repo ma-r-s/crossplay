@@ -17,6 +17,8 @@
 #include <WiFi.h>
 #include <esp_now.h>
 #include <esp_wifi.h>
+
+#include "DevMode.h"
 #else
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -124,9 +126,40 @@ void Radio::enqueueFromCallback(const uint8_t* sourceMac, const uint8_t* data, c
 bool Radio::begin() {
   end();
 
+  // Developer Mode holds an association to the house AP, and an association
+  // pins the radio to that AP's channel. ESP-NOW here is fixed to kChannel, so
+  // the two cannot both have the radio.
+  //
+  // Dev mode cannot see a match coming: its "is someone else using this?" test
+  // is `WiFi.status() == WL_CONNECTED`, and ESP-NOW never associates. So it
+  // read the disconnect below as its own connection dropping and rejoined
+  // kMinBackoffMs later, dragging the radio to the router's channel with a
+  // game running on it. That 5s grace is exactly why the FIRST move always
+  // landed and the second never did, and why it surfaced as "connection lost"
+  // a further kPeerTimeoutMs on rather than as a failure to connect at all.
+  //
+  // So the link takes the radio outright and hands it back in end(). A device
+  // in a match cannot be flashed; that is the honest trade and the only one on
+  // offer, because the channel is not shareable.
+  devmode::pause();
+  held_ = true;
+
   WiFi.persistent(false);
   WiFi.mode(WIFI_STA);
   WiFi.disconnect(false, false);
+
+  // esp_wifi_disconnect() is ASYNCHRONOUS, and while the station is still
+  // associated the channel belongs to the AP -- a set_channel issued into that
+  // window is reverted, and it still returns ESP_OK, so the check below would
+  // never notice. Wait the disassociation out rather than racing it. This is an
+  // independent cause of the same symptom the pause() above fixes: pair, one
+  // move, then silence as the radio drifts back to the router's channel.
+  for (int i = 0; i < 50 && WiFi.status() == WL_CONNECTED; ++i) delay(10);
+  if (WiFi.status() == WL_CONNECTED) {
+    LOG_ERR("LINK", "still associated after 500ms; the channel will not hold");
+    end();
+    return false;
+  }
 
   if (esp_wifi_set_channel(kChannel, WIFI_SECOND_CHAN_NONE) != ESP_OK) {
     LOG_ERR("LINK", "could not set channel %u", kChannel);
@@ -194,7 +227,22 @@ void Radio::end() {
   head_.store(0, std::memory_order_relaxed);
   tail_.store(0, std::memory_order_relaxed);
   overflowed_.store(false, std::memory_order_relaxed);
-  WiFi.mode(WIFI_OFF);
+
+  // Only put the radio down and hand it back if this Radio actually took it.
+  //
+  // end() runs more than once per match and not always after a begin():
+  // begin() opens with one, every failure path inside begin() takes one, and
+  // leaving a game runs PlayBase::stop() -- which calls end() -- and then
+  // ~PlayBase, whose member Radio destructs into end() again. Unconditional,
+  // the second pass switched the radio off underneath the join the first pass
+  // had just started, and its resume() hit yieldDepth 0 and was swallowed, so
+  // dev mode was never told: ~30s off the network after every game, which is
+  // worse than the delay this was written to remove.
+  if (held_) {
+    held_ = false;
+    WiFi.mode(WIFI_OFF);
+    devmode::resume();
+  }
 }
 
 bool Radio::send(const Address& to, const uint8_t* data, const size_t length) {

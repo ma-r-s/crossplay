@@ -25,7 +25,8 @@ enum class State {
   Waiting,    // on, joined, but the server could not start; backing off
 };
 
-// Whether another owner (the web transfer screen) holds ports 80/81/8134.
+// Whether another owner holds the radio or ports 80/81/8134: the web transfer
+// screen, the Wi-Fi picker, or a link match.
 //
 // A LATCH, deliberately not a State. As a state it was bypassable: update()
 // reconciles the setting before it checks for a yield, so toggling dev mode off
@@ -33,7 +34,14 @@ enum class State {
 // startJoin() and bound the same ports a second time -- and dev mode being OFF
 // made pause() a no-op, so enabling it from that very screen did the same. A
 // latch is checked on every path and cannot be cleared by a state transition.
-bool yielded = false;
+//
+// A COUNT rather than a bool, because the holders nest. The web server screen
+// yields for the ports and then opens the Wi-Fi picker, which yields for the
+// radio; as a bool the picker's resume() handed dev mode back while the screen
+// underneath was still serving on 80/81/8134, and dev mode rebound them under
+// it -- the exact collision pause() exists to prevent. Only the outermost
+// release reconciles.
+int yieldDepth = 0;
 
 // The pairing code, in RTC memory so it survives the reboot that every flash
 // causes. Without this the token died with the reboot AND the code changed, so
@@ -192,7 +200,7 @@ void update() {
   // Before anything else. While another owner holds the ports, dev mode does
   // not touch the radio, the server, or its own state -- including when the
   // setting changes underneath it. resume() reconciles whatever it finds.
-  if (yielded) return;
+  if (yieldDepth > 0) return;
 
   const bool want = SETTINGS.devMode != 0;
 
@@ -305,29 +313,57 @@ void update() {
 
 void pause() {
   // Unconditional, including when dev mode is off: the point is to hold the
-  // latch for as long as the other owner has the ports, so that dev mode being
-  // enabled DURING that window cannot bind them underneath it.
-  if (yielded) return;
-  yielded = true;
-  if (state != State::Off) stopServer("web server screen opened");
+  // latch for as long as the other owner has the radio or the ports, so that
+  // dev mode being enabled DURING that window cannot take them underneath it.
+  if (yieldDepth++ > 0) return;
+  if (state != State::Off) stopServer("something else took the radio");
 }
 
 void resume() {
-  if (!yielded) return;
-  yielded = false;
+  // An unbalanced resume() is somebody else's bug, but swallowing it here is
+  // still better than a negative count that never lets dev mode back.
+  if (yieldDepth == 0) return;
+  if (--yieldDepth > 0) return;
   if (state == State::Off) return;  // never ran; nothing of ours to put down
   if (SETTINGS.devMode == 0) {
-    tearDown("developer mode switched off while the web screen was open");
+    tearDown("developer mode switched off while something else held the radio");
     state = State::Off;
     return;
   }
-  LOG_INF("DEVMODE", "web server screen closed; taking the ports back");
+  LOG_INF("DEVMODE", "radio handed back; taking the ports back");
   attempt = 0;
   nextAttemptAt = 0;
-  joinDeadline = millis() + kJoinTimeoutMs;
-  // Rejoin rather than assume: that screen may have switched to AP mode or
-  // joined a different network entirely.
-  state = ssid.empty() ? State::NoNetwork : State::Joining;
+  // Rejoin rather than assume: the holder may have switched to AP mode, joined
+  // a different network entirely, or -- a link match -- handed the radio back
+  // switched off.
+  //
+  // "A different network entirely" is not hypothetical and was not handled: the
+  // Wi-Fi picker exists to change the network and is pushed by nine different
+  // screens, so the saved SSID here is routinely stale by the time we get the
+  // radio back. Re-read it, or dev mode spends the rest of the session
+  // retrying a network the user has just left.
+  WIFI_STORE.loadFromFile();
+  ssid = WIFI_STORE.getLastConnectedSsid();
+  if (ssid.empty()) {
+    state = State::NoNetwork;
+    return;
+  }
+  {
+    const auto cred = WIFI_STORE.findCredential(ssid);
+    password = cred ? cred->password : std::string();
+  }
+  //
+  // Only a still-associated radio reaches Serving on its own. Setting a
+  // joinDeadline for an attempt that had never started made the other case wait
+  // out the full kJoinTimeoutMs before it would even try, then back off
+  // kMinBackoffMs on top: half a minute unreachable after leaving a game,
+  // waiting on the clock for a connection nobody had asked for yet.
+  if (WiFi.status() == WL_CONNECTED) {
+    joinDeadline = millis() + kJoinTimeoutMs;
+    state = State::Joining;  // the CONNECTED branch above promotes it next pass
+    return;
+  }
+  startJoin();
 }
 
 bool serving() { return state == State::Serving && server && server->isRunning(); }

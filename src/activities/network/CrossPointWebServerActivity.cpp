@@ -104,7 +104,6 @@ void CrossPointWebServerActivity::onEnter() {
 
 void CrossPointWebServerActivity::onExit() {
   Activity::onExit();
-  devmode::resume();
 
   LOG_DBG("WEBACT", "Free heap at onExit start: %d bytes", ESP.getFreeHeap());
 
@@ -130,6 +129,13 @@ void CrossPointWebServerActivity::onExit() {
       silentRestart();
     }
   }
+
+  // LAST, after this screen has finished putting its own radio down. resume()
+  // now issues WiFi.begin() synchronously, so calling it first meant dev mode
+  // took the radio at the top of this function and the softAP teardown below
+  // then tore it out again -- leaving dev mode joining a radio that had been
+  // stopped underneath it.
+  devmode::resume();
 
   LOG_DBG("WEBACT", "Free heap at onExit end: %d bytes", ESP.getFreeHeap());
 }

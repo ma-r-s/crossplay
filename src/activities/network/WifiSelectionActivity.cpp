@@ -12,6 +12,7 @@
 #include <ctime>
 
 #include "CrossPointSettings.h"
+#include "DevMode.h"
 #include "MappedInputManager.h"
 #include "WifiCredentialStore.h"
 #include "activities/util/KeyboardEntryActivity.h"
@@ -101,6 +102,15 @@ void WifiSelectionActivity::onPromptEvent(const fui::ActionEvent& event, void* u
 void WifiSelectionActivity::onEnter() {
   Activity::onEnter();
 
+  // This screen's whole job is to take the radio: it disconnects and then
+  // sweeps every channel scanning. Dev mode, still holding an association,
+  // would read that as its connection dropping and start rejoining the OLD
+  // network underneath the user picking a new one -- two joins racing over one
+  // radio, while the scan they are fighting is what the user is looking at.
+  // resume() re-reads the network afterwards rather than assuming, which is
+  // exactly right for a screen that exists to change it.
+  devmode::pause();
+
   // Load saved WiFi credentials - SD card operations need lock as we use SPI
   // for both
   {
@@ -188,6 +198,10 @@ void WifiSelectionActivity::onExit() {
   // up the scan and task.
 
   LOG_DBG("WIFI", "Free heap at onExit end: %d bytes", ESP.getFreeHeap());
+
+  // Last, after scanDelete(): resume() issues WiFi.begin() synchronously now,
+  // and a join fired into a live async scan is two things using one radio.
+  devmode::resume();
 }
 
 void WifiSelectionActivity::startWifiScan(const bool autoScan) {
