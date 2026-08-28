@@ -77,6 +77,8 @@ unsigned long pairNotBefore = 0;
 unsigned long nextAttemptAt = 0;
 unsigned long joinDeadline = 0;
 int attempt = 0;
+// Set by resume(); consumed by startJoin(), which runs off the render path.
+bool reloadCredentials = false;
 
 constexpr unsigned long kJoinTimeoutMs = 20000;
 constexpr unsigned long kMinBackoffMs = 5000;
@@ -143,6 +145,21 @@ void tearDown(const char* why) {
 
 void startJoin() {
   attempt++;
+  // Set by resume(): the holder may have joined a different network entirely,
+  // and the Wi-Fi picker exists to do exactly that. Read here rather than in
+  // resume() because this runs from loop(), unlocked -- see the note there.
+  if (reloadCredentials) {
+    reloadCredentials = false;
+    WIFI_STORE.loadFromFile();
+    ssid = WIFI_STORE.getLastConnectedSsid();
+    if (ssid.empty()) {
+      LOG_INF("DEVMODE", "no saved network to go back to; idle until one is joined");
+      state = State::NoNetwork;
+      return;
+    }
+    const auto cred = WIFI_STORE.findCredential(ssid);
+    password = cred ? cred->password : std::string();
+  }
   LOG_INF("DEVMODE", "joining '%s' (attempt %d)", ssid.c_str(), attempt);
   // Do not take a radio that is already in use. Something else owning it --
   // a link session, an OPDS download -- outranks a background convenience.
@@ -359,36 +376,41 @@ void resume() {
   // screens, so the saved SSID here is routinely stale by the time we get the
   // radio back. Re-read it, or dev mode spends the rest of the session
   // retrying a network the user has just left.
-  WIFI_STORE.loadFromFile();
-  ssid = WIFI_STORE.getLastConnectedSsid();
-  if (ssid.empty()) {
-    // Say so. Announcing "taking the ports back" and then falling silent for
-    // the rest of the session reads, from the log, as dev mode having hung.
-    LOG_INF("DEVMODE", "no saved network to go back to; idle until one is joined");
-    state = State::NoNetwork;
-    return;
-  }
-  {
-    const auto cred = WIFI_STORE.findCredential(ssid);
-    password = cred ? cred->password : std::string();
-  }
+  // Reload and join on the NEXT update() pass, not here.
   //
-  // Only a still-associated radio reaches Serving on its own. Setting a
-  // joinDeadline for an attempt that had never started made the other case wait
-  // out the full kJoinTimeoutMs before it would even try, then back off
-  // kMinBackoffMs on top: half a minute unreachable after leaving a game,
-  // waiting on the clock for a connection nobody had asked for yet.
-  if (WiFi.status() == WL_CONNECTED) {
-    joinDeadline = millis() + kJoinTimeoutMs;
-    state = State::Joining;  // the CONNECTED branch above promotes it next pass
-    return;
-  }
-  startJoin();
+  // resume() can run with the render mutex held -- ~LinkActivity reaches it
+  // through ActivityManager::exitActivity(lock) -- and loadFromFile() takes
+  // storeMutex, reads the card, parses JSON, and can write it back on a format
+  // upgrade. PersistableStore.h warns in as many words against putting that on
+  // the render path. update() runs from loop() with no lock, which is where it
+  // belongs; startJoin() does the reload when it gets there.
+  //
+  // Firing on the next pass rather than immediately also keeps the join out of
+  // onExit() entirely, so it cannot interleave with a holder still putting its
+  // own radio down. It costs one loop iteration, against the 25s the original
+  // joinDeadline-with-no-attempt cost.
+  reloadCredentials = true;
+  nextAttemptAt = millis();
+  if (nextAttemptAt == 0) nextAttemptAt = 1;  // 0 is the "no attempt pending" value
+  joinDeadline = millis() + kJoinTimeoutMs;
+  state = State::Joining;
 }
 
 bool serving() { return state == State::Serving && server && server->isRunning(); }
 
-bool holdsRadio() { return broughtRadioUp && SETTINGS.devMode != 0; }
+bool holdsRadio() {
+  // Self-checking, not a latch. The one caller that reads this DURING a yield
+  // is the web transfer screen's onExit(), and it reads it eleven lines before
+  // resume() gets a chance to correct broughtRadioUp -- so a screen that took
+  // the radio into AP mode was still told dev mode held an association that
+  // WIFI_AP had already destroyed, and skipped the heap-defrag restart after
+  // the most heap-hungry screen in the firmware on the strength of it.
+  //
+  // Asking the radio costs nothing and cannot go stale. In the case that
+  // matters -- a screen reusing dev mode's own STA -- this still answers yes,
+  // because that association really is dev mode's and really is up.
+  return broughtRadioUp && SETTINGS.devMode != 0 && WiFi.getMode() != WIFI_MODE_NULL && WiFi.status() == WL_CONNECTED;
+}
 
 bool inhibitsSleep() { return SETTINGS.devMode != 0; }
 

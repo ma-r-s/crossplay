@@ -94,12 +94,14 @@ bool refused(char* reply, size_t replyLen, const char* fmt, ...) {
 }  // namespace
 
 bool isCommand(const char* cmd) {
+  if (cmd == nullptr) return false;
   return strncmp(cmd, "TAP ", 4) == 0 || strncmp(cmd, "LONG ", 5) == 0 || strncmp(cmd, "SWIPE ", 6) == 0 ||
          strncmp(cmd, "BTN ", 4) == 0;
 }
 
 bool runCommand(const char* cmd, char* reply, const size_t replyLen) {
   if (reply == nullptr || replyLen == 0) return false;
+  if (cmd == nullptr) return refused(reply, replyLen, "ERR no command");
   reply[0] = '\0';
   long v[5];
 
@@ -141,7 +143,11 @@ bool runCommand(const char* cmd, char* reply, const size_t replyLen) {
     const int index = buttonIndexByName(rest, nameLen);
     if (index < 0) return refused(reply, replyLen, "ERR BTN wants: UP|DOWN|CONFIRM|BACK|LEFT|RIGHT|POWER [holdMs]");
     unsigned long hold = 80;
-    if (space && parseLongs(space, v, 1) == 1) {
+    if (space != nullptr && *(space + strspn(space, " ")) != '\0') {
+      // Present but unparseable is a typo, not an omission. Defaulting it and
+      // answering OK told a remote driver -- whose only feedback is this line --
+      // that "BTN UP abc" had been honoured at some duration it never chose.
+      if (parseLongs(space, v, 1) != 1) return refused(reply, replyLen, "ERR holdMs must be a number");
       if (v[0] < 0 || v[0] > kMaxHoldMs) return refused(reply, replyLen, "ERR holdMs 0..%ld", kMaxHoldMs);
       hold = static_cast<unsigned long>(v[0]);
     }

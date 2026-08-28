@@ -161,7 +161,10 @@ bool Radio::begin() {
   // associated, so the one state worth waiting out is the one it cannot see,
   // and dev mode sits in exactly that state whenever it is mid-join.
   if (!WiFi.disconnect(false, false, 500)) {
-    LOG_ERR("LINK", "still associated after 500ms; the channel would not hold");
+    // false also means esp_wifi_disconnect() itself refused (NOT_INIT/NOT_STARTED),
+    // which is a different problem with the same outcome; name both so the log
+    // does not send the next reader hunting an association that never existed.
+    LOG_ERR("LINK", "radio would not leave the AP (still associated, or never started)");
     end();
     return false;
   }

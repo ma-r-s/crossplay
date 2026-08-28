@@ -330,13 +330,34 @@ def split_seqs(words):
     return seqs
 
 
-def send_with_retry(link, cmd, tries=4):
+_warned_panel = False
+
+
+def warn_if_panel_unknown(link):
+    """--view converts against the panel height, and the Wi-Fi link only learns
+    that from a screenshot's X-Panel-* headers. Before one has run it is the
+    compiled-in default, which is right for both device envs today and silently
+    wrong on anything else. Say so once rather than mis-tapping quietly."""
+    global _warned_panel
+    if _warned_panel or link.kind != "wifi" or link.panel != (PANEL_W, PANEL_H):
+        return
+    _warned_panel = True
+    print(
+        f"--view is assuming a {PANEL_W}x{PANEL_H} panel; take a `shot` first to read it "
+        "from the device",
+        file=sys.stderr,
+    )
+
+
+def send_with_retry(link, cmd, tries=9):
     """Send an input command, waiting out an ERR busy rather than failing on it.
 
     "busy" means an event of the same kind is still playing: the command was
     well formed and will work shortly, which is a retry and not a mistake. A
     SWIPE runs up to ten seconds, so a caller that treats busy as failure
-    silently drops the command that follows every long gesture.
+    silently drops the command that follows every long gesture. The budget is
+    sized past that ceiling on purpose: 8 waits x 1.5s covers kMaxSwipeMs with
+    room, where the 4 tries this started with did not.
     """
     for attempt in range(tries):
         reply = link.command(cmd)
@@ -372,6 +393,7 @@ def run_seq(link, seq, view):
         nums = [int(v) for v in rest]
         if view:
             panel_h = link.panel[1]
+            warn_if_panel_unknown(link)
             nums[0], nums[1] = view_to_panel(nums[0], nums[1], panel_h)
             if verb == "swipe":
                 nums[2], nums[3] = view_to_panel(nums[2], nums[3], panel_h)

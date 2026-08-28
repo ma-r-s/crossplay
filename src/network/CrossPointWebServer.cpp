@@ -2212,16 +2212,14 @@ void CrossPointWebServer::handleDevInput() {
   line.trim();
   char reply[96];
   const bool okay = devinput::runCommand(line.c_str(), reply, sizeof(reply));
-  // Refusals at INF, acceptances at DBG. The RTC log ring is 16 lines and it is
-  // the ONLY diagnostic channel a Wi-Fi driver has -- logging every accepted tap
-  // at INF means sixteen taps erase whatever you were trying to read. The OK is
-  // already in the response the caller just read; only the refusal carries
-  // something they do not have.
-  if (okay) {
-    LOG_DBG("WEB", "dev input: %s -> %s", line.c_str(), reply);
-  } else {
-    LOG_INF("WEB", "dev input refused: %s -> %s", line.c_str(), reply);
-  }
+  // Refusals only, and not at DBG either: addToLogRingBuffer() is called for
+  // EVERY level (Logging.cpp:75), and these routes exist only in the envs that
+  // set LOG_LEVEL=2 -- so demoting an accepted tap to LOG_DBG changes the tag
+  // and nothing else. The RTC ring is 16 lines and it is the only diagnostic
+  // channel a Wi-Fi driver has; sixteen accepted taps would still erase whatever
+  // the driver was trying to read. The OK is already in the response the caller
+  // just read, so it carries nothing the caller does not have. A refusal does.
+  if (!okay) LOG_INF("WEB", "dev input refused: %s -> %s", line.c_str(), reply);
   // 409 rather than 400 for "busy": the command was well formed and will work
   // when the previous event finishes, which is a retry, not a fix.
   const int code = okay ? 200 : (strncmp(reply, "ERR busy", 8) == 0 ? 409 : 400);

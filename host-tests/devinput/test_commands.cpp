@@ -1,4 +1,10 @@
 // The input vocabulary both transports speak. See run.sh for why it is tested.
+//
+// WHAT THIS CANNOT SEE: the injector is stubbed out, so the property the
+// duration clamp protects -- that a scheduled contact eventually releases --
+// is not under test here. runCommand() accepts holdMs == 0; what stops that
+// wedging the device is `elapsed > 0` in DevInputInjector.cpp, in a file this
+// suite replaces. Delete that guard and every check below still passes.
 
 #include <HalGPIO.h>
 
@@ -174,6 +180,24 @@ int main() {
     bad("btn explicit hold");
   expect("BTN UP -1", "ERR holdMs");
   expect("BTN UP 999999", "ERR holdMs");
+  // Present but unparseable. Defaulting this and answering OK told a remote
+  // driver its typo had been honoured at a duration it never chose.
+  expect("BTN UP abc", "ERR holdMs must be a number");
+  expect("BTN UP  ", "OK BTN UP 80");  // trailing space is an omission, not a typo
+
+  // A public lib/ entry point must not walk into strncmp(nullptr, ...).
+  {
+    char reply[96] = {};
+    if (!devinput::runCommand(nullptr, reply, sizeof(reply)) && std::strncmp(reply, "ERR", 3) == 0) {
+      ok();
+    } else {
+      bad("runCommand(nullptr) did not refuse cleanly");
+    }
+    if (!devinput::isCommand(nullptr))
+      ok();
+    else
+      bad("isCommand(nullptr) claimed a command");
+  }
 
   // -- busy is a retry, not a rejection -------------------------------------
   injectorAccepts = false;

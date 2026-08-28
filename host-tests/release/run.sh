@@ -390,6 +390,38 @@ while IFS= read -r path; do
   fi
 done < <(grep -rl 'WiFi.getMode() != WIFI_MODE_NULL' "$ROOT/src" 2>/dev/null | sort)
 
+# Lines that are not comments. Check 9 strips them for the reason its comment
+# gives ("Prose about the rule is not the rule"); checks 10 to 12 need the same
+# thing, because a file that only MENTIONS devmode:: in a comment explaining why
+# it does not need to yield was passing every one of them.
+code_lines() {
+  sed -e 's://.*::' -e 's:/\*.*\*/::' "$1" | grep -v '^[[:space:]]*[*]'
+}
+
+# Counts matches on non-comment lines. A COUNT rather than `code_lines | grep -q`
+# because this file runs under `set -o pipefail`: grep -q exits on its first
+# match, SIGPIPEs code_lines mid-write, and pipefail then reports the whole
+# pipeline as failed -- so a large file whose match came early read as "no match"
+# while a small one passed. That cost an hour and looked like a sed bug.
+count_code() { code_lines "$1" | grep -c "$2"; }
+
+# Files that put the radio out of service, in CODE rather than in prose.
+#
+# A function, NOT an inline `done < <(for ...)`: the pattern contains escaped
+# parens, and bash could not find the closing paren of the process substitution.
+# It failed with "bad substitution", the while-loop read nothing, and check 10
+# reported green while examining ZERO files -- a check that did not run looks
+# exactly like a check that passed.
+RADIO_TAKERS_RE='esp_wifi_set_channel\(|esp_wifi_set_mode\(|esp_wifi_stop\(|WiFi\.scanNetworks\(|WiFi\.softAP\(|esp_now_init\(|WiFi\.mode\(WIFI_OFF\)|WiFi\.mode\(WIFI_MODE_NULL\)|WiFi\.mode\(WIFI_AP\)|WiFi\.mode\(WIFI_AP_STA\)'
+radio_takers() {
+  local f
+  grep -rlE "$RADIO_TAKERS_RE" "$ROOT/src" "$ROOT/lib" 2>/dev/null | sort | while IFS= read -r f; do
+    # A header that merely NAMES esp_wifi_stop() in a comment about somebody
+    # else's teardown is not taking the radio.
+    if [ "$(code_lines "$f" | grep -cE "$RADIO_TAKERS_RE")" -gt 0 ]; then echo "$f"; fi
+  done
+}
+
 # -- 10. taking the radio out of service means yielding Developer Mode --------
 #
 # Check 9 is about READING who owns the radio. This is about TAKING it.
@@ -398,8 +430,15 @@ done < <(grep -rl 'WiFi.getMode() != WIFI_MODE_NULL' "$ROOT/src" 2>/dev/null | s
 # AP association rather than merely closing a socket on top of it: the channel
 # and mode setters -- including the spellings that are the same thing under a
 # different name, since WIFI_MODE_NULL is WIFI_OFF and WIFI_AP_STA is an AP --
-# softAP(), which raises an AP without ever naming a mode, esp_now_init(), and
-# scanNetworks(), which walks off the channel for seconds at a time.
+# softAP(), which raises an AP without ever naming a mode, esp_now_init(),
+# scanNetworks(), which walks off the channel for seconds at a time, and
+# esp_wifi_stop(), which is the least ambiguous of the lot -- the radio is off
+# for everyone, and it desyncs the Arduino core's own _esp_wifi_started besides.
+#
+# WiFi.disconnect( is deliberately NOT here: a self-owned teardown is a
+# legitimate use of it, and four files use it that way behind their own
+# ownership flag. Two of those flags are not real ownership; see Known limits in
+# docs/developer-mode.md.
 #
 # lib/ is scanned as well as src/. LinkRadio's own comment warns that the
 # FreeInk SDK ships NearbyTransfer, an ESP-NOW library, and that "whichever
@@ -429,12 +468,12 @@ while IFS= read -r path; do
   # DevMode.cpp is Developer Mode. Asking it to consult itself is circular, and
   # exempting it by name is honest in a way that a silent skip would not be.
   [ "$rel" = "src/DevMode.cpp" ] && continue
-  if grep -q 'devmode::' "$path"; then
+  if [ "$(count_code "$path" 'devmode::')" -gt 0 ]; then
     ok
   else
     bad "$rel takes the radio out of service without ever mentioning devmode:: -- it will cut Developer Mode off, or be cut off by it mid-use"
   fi
-done < <(grep -rlE 'esp_wifi_set_channel\(|esp_wifi_set_mode\(|WiFi\.scanNetworks\(|WiFi\.softAP\(|esp_now_init\(|WiFi\.mode\(WIFI_OFF\)|WiFi\.mode\(WIFI_MODE_NULL\)|WiFi\.mode\(WIFI_AP\)|WiFi\.mode\(WIFI_AP_STA\)' "$ROOT/src" "$ROOT/lib" 2>/dev/null | sort)
+done < <(radio_takers)
 
 # -- 11. every pause() has its resume(), in the same file --------------------
 #
@@ -464,8 +503,8 @@ done < <(grep -rlE 'esp_wifi_set_channel\(|esp_wifi_set_mode\(|WiFi\.scanNetwork
 # check. A grep cannot count calls. Do not read a pass as proof of balance.
 while IFS= read -r path; do
   rel="${path#$ROOT/}"
-  p_count="$(grep -c 'devmode::pause()' "$path")"
-  r_count="$(grep -c 'devmode::resume()' "$path")"
+  p_count="$(count_code "$path" 'devmode::pause()')"
+  r_count="$(count_code "$path" 'devmode::resume()')"
   if [ "$p_count" = "$r_count" ]; then
     ok
   else
@@ -493,10 +532,16 @@ while IFS= read -r path; do
   fi
 done < <(grep -rlE 'devinput::(tap|longPress|swipe|button)\(' "$ROOT/src" "$ROOT/lib" 2>/dev/null | sort)
 
-# And both transports must actually route through it, or the shared unit is
-# just an unused library that happens to compile.
+# And both transports must actually route through it, or the shared unit is just
+# an unused library that happens to compile.
+#
+# This half is a REGRESSION GUARD over the two transports that exist, not a
+# discovery: a third one that hand-rolls a parser is caught by the loop above
+# instead, because it would have to schedule onto the injector to do anything.
+# What neither half catches is a caller inside `namespace devinput` calling
+# tap() unqualified.
 for caller in "src/DevSerialBridge.cpp" "src/network/CrossPointWebServer.cpp"; do
-  if grep -q 'devinput::runCommand(' "$ROOT/$caller"; then
+  if [ "$(count_code "$ROOT/$caller" 'devinput::runCommand(')" -gt 0 ]; then
     ok
   else
     bad "$caller does not call devinput::runCommand() -- it has its own input parsing again"

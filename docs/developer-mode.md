@@ -190,16 +190,17 @@ that reads it as ownership will miss every non-associating user of the radio.
   discover -- rather than list -- the files that put the radio out of service
   and the files that yield.
 
-  **Four files are still outside that net**, and saying "every file" here was
-  wrong: `ConnectionsActivity`, `KOReaderSyncActivity`, `ClockSyncActivity` and
-  `StudyActivity` tear the radio down behind their own `wifiActivated`-style
-  flag rather than asking `devmode::holdsRadio()`. ClockSync's flag is real
-  ownership (it is only set when Wi-Fi was NOT already up); the other three set
-  theirs whenever the app wants Wi-Fi, so with Developer Mode holding the radio
-  they will drop its association and it rejoins ~5s later. Annoying, not fatal,
-  and predates this feature -- but it is not enforced and the check's pattern
-  deliberately excludes `WiFi.disconnect(` because a self-owned teardown is a
-  legitimate use of it. There is still no general ownership protocol.
+  **One file is still outside that net.** `StudyActivity` tears the radio down
+  behind its own `wifiActivated_` flag, and that flag is set whenever the app
+  wants Wi-Fi rather than when it actually raised the radio -- so with Developer
+  Mode holding an association it will drop it, and dev mode rejoins ~5s later.
+  Annoying, not fatal, and it predates this feature. Check 10 does not catch it
+  because the pattern deliberately excludes `WiFi.disconnect(`: a self-owned
+  teardown is a legitimate use of it, and `ClockSyncActivity` is the example of
+  doing that correctly (its flag is only set when Wi-Fi was NOT already up).
+  `ConnectionsActivity` and `KOReaderSyncActivity` had the same hole through
+  `esp_wifi_stop()`, which is unambiguous; both now ask `holdsRadio()` and the
+  check covers that call. There is still no general ownership protocol.
 
   What the convention missed, and what shipped in v1.6.1: Developer Mode's test
   for "is somebody else using this?" is `WiFi.status() == WL_CONNECTED`, so an
