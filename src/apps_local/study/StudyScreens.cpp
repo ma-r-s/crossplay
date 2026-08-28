@@ -214,8 +214,12 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   const int doorsHere = 2 + (model.deckCount > 1 ? 1 : 0) + (model.paired ? 1 : 0);
   const int doorBand = doorsHere * toybox::kRowHeight + (doorsHere - 1) * toybox::kMargin;
   const int panelTop = body.y + 210;
+  // The brackets hang 36px below the panel, so the caption clears them by
+  // 44 -- less and a bottom arm is drawn through the text (the ui suite
+  // checks exactly this).
   const int captionH = 30;
-  int panelHeight = body.bottom() - doorBand - toybox::kMargin - captionH - panelTop - 12;
+  const int captionDrop = 44;
+  int panelHeight = body.bottom() - doorBand - toybox::kMargin - captionDrop - captionH - panelTop;
   if (panelHeight > 190) panelHeight = 190;
   if (panelHeight < 84) panelHeight = 84;
   const fui::Rect panel = fui::makeRect(body.x + 10, panelTop, body.width - 20, panelHeight);
@@ -234,7 +238,8 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   fui::TextStyle caption;
   caption.font = toybox::kTileFont;
   caption.align = fui::TextAlign::Center;
-  screen.target().text(fui::makeRect(body.x, panel.bottom() + 20, body.width, captionH), caption_text, caption);
+  screen.target().text(fui::makeRect(body.x, panel.bottom() + captionDrop, body.width, captionH), caption_text,
+                       caption);
 
   // The doors, bottom-anchored where thumbs live: reviewing above, the
   // bridge below it. The stacked arrangement won from three rendered
