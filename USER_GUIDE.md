@@ -317,12 +317,20 @@ The Settings screen allows you to configure the device's behavior. There are a f
 #### 3.6.5 Get Books (OPDS Catalogs)
 
 **Get Books** appears on the Home screen and downloads books straight to the
-device from an OPDS catalog. **Project Gutenberg**, a very large public-domain
-library, is set up on first run, so it works without any configuration.
+device from an OPDS catalog. Two catalogs are set up on first run, so it works
+without any configuration:
 
-Standard Ebooks is no longer set up for you: their feed now requires a Patrons
-Circle account. If you have one, add it under **Settings -> System -> OPDS
-Servers** with your patron email as the username and the password left empty.
+- **Get Books** -- searches a large library and converts what you pick into a
+  file tuned for this screen before it reaches the device. Search only: it has
+  far too much to browse, so it opens straight on the keyboard.
+- **Project Gutenberg** -- a very large public-domain library, browsable by
+  category as well as searchable.
+
+Standard Ebooks is not set up for you, and is removed from devices that had it:
+their feed now requires a Patrons Circle account, so it failed for everyone who
+had not donated. If you have an account, add it under **Settings -> System ->
+OPDS Servers** with your patron email as the username and the password left
+empty. If you had already put your email into that entry, it is kept.
 
 Get Books opens on whichever source is selected, and the source decides what
 you see. A browsable catalog opens on its own categories (Recent, Popular, by
