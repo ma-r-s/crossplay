@@ -9,6 +9,7 @@
 
 void OpdsServerStore::toJson(JsonDocument& doc) const {
   doc["defaults_seeded"] = defaultsSeeded;
+  doc["retired_purged"] = retiredDefaultsPurged;
   JsonArray arr = doc["servers"].to<JsonArray>();
   for (const auto& server : servers) {
     JsonObject obj = arr.add<JsonObject>();
@@ -24,6 +25,7 @@ bool OpdsServerStore::fromJson(JsonVariantConst doc) {
   // JSON parse error is fatal. A null JsonArray iterates zero times.
   servers.clear();
   defaultsSeeded = doc["defaults_seeded"] | false;
+  retiredDefaultsPurged = doc["retired_purged"] | false;
   JsonArrayConst arr = doc["servers"].as<JsonArrayConst>();
   servers.reserve(std::min(arr.size(), MAX_SERVERS));
   bool needsResave = false;
@@ -39,6 +41,8 @@ bool OpdsServerStore::fromJson(JsonVariantConst doc) {
   }
 
   LOG_DBG("OPS", "Loaded %zu OPDS servers from file", servers.size());
+
+  if (purgeRetiredDefaults()) needsResave = true;
 
   if (needsResave) {
     LOG_DBG("OPS", "Resaving JSON with obfuscated passwords");
@@ -102,6 +106,38 @@ bool OpdsServerStore::importSeedFile() {
   return saved && imported > 0;
 }
 
+// Seeding runs once per device, so retiring a default only stops NEW devices
+// from getting it -- every device seeded before the change keeps the entry
+// forever. This takes it back off them, once.
+//
+// Only an UNTOUCHED entry goes: same URL and no username. Someone who typed a
+// Patrons Circle email into that row has a catalog that works, and deleting
+// their credentials to tidy up our own default would be the worse failure.
+bool OpdsServerStore::purgeRetiredDefaults() {
+  if (retiredDefaultsPurged) return false;
+  retiredDefaultsPurged = true;
+
+  static constexpr const char* RETIRED[] = {
+      "https://standardebooks.org/feeds/opds",
+  };
+
+  const size_t before = servers.size();
+  servers.erase(std::remove_if(servers.begin(), servers.end(),
+                               [](const OpdsServer& s) {
+                                 if (!s.username.empty()) return false;
+                                 return std::any_of(std::begin(RETIRED), std::end(RETIRED),
+                                                    [&](const char* url) { return s.url == url; });
+                               }),
+                servers.end());
+
+  if (servers.size() != before) {
+    LOG_DBG("OPS", "Purged %zu retired default catalog(s)", before - servers.size());
+  }
+  // Always resave: the flag itself has to persist, or this runs on every boot
+  // and a catalog the reader re-added by hand would vanish again.
+  return true;
+}
+
 bool OpdsServerStore::seedDefaultCatalogs() {
   if (defaultsSeeded) return false;
   defaultsSeeded = true;
@@ -114,15 +150,24 @@ bool OpdsServerStore::seedDefaultCatalogs() {
   // a Basic realm asking for a Patrons Circle email, so every reader who had
   // not donated met a catalog that could not load. A default has to work for
   // the person who never configured anything; anyone with patron credentials
-  // can still add it by hand under OPDS Servers.
+  // can still add it by hand under OPDS Servers. purgeRetiredDefaults() takes
+  // it off devices that were seeded before that.
+  //
+  // The Get Books credentials below are PUBLIC ON PURPOSE. They ship in a
+  // public repository, so they are a courtesy gate against casual crawlers and
+  // nothing more -- never Mario's own login, and rotatable on the server
+  // without touching anyone's access. Treat that catalog as a public service.
   static constexpr struct {
     const char* name;
     const char* url;
+    const char* username;
+    const char* password;
   } DEFAULTS[] = {
+      {"Get Books", "https://books.ma-r-s.com/opds", "crossplay", "r4ulp-zm4cg-awjtf-z5zfj"},
       // www, not m: m.gutenberg.org answers every request with a 301 to this
       // URL, and following it costs the device a second TLS handshake on a
       // catalog whose gateway already times out often enough on its own.
-      {"Project Gutenberg", "https://www.gutenberg.org/ebooks.opds/"},
+      {"Project Gutenberg", "https://www.gutenberg.org/ebooks.opds/", "", ""},
   };
 
   for (const auto& entry : DEFAULTS) {
@@ -131,7 +176,7 @@ bool OpdsServerStore::seedDefaultCatalogs() {
     const bool present =
         std::any_of(servers.begin(), servers.end(), [&](const OpdsServer& s) { return s.url == entry.url; });
     if (present) continue;
-    servers.push_back(OpdsServer{entry.name, entry.url, "", ""});
+    servers.push_back(OpdsServer{entry.name, entry.url, entry.username, entry.password});
     LOG_DBG("OPS", "Seeded default catalog: %s", entry.name);
   }
 

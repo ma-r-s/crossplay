@@ -23,6 +23,9 @@ class OpdsServerStore : public PersistableStore<OpdsServerStore> {
   // Persisted so a catalog the user deleted stays deleted; without it every
   // boot with an empty list would helpfully put the defaults back.
   bool defaultsSeeded = false;
+  // One-time removal of catalogs we used to seed and no longer do.
+  bool retiredDefaultsPurged = false;
+  bool purgeRetiredDefaults();
 
   static constexpr size_t MAX_SERVERS = 8;
 
