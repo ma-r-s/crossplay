@@ -188,8 +188,13 @@ UPTIME_BEFORE="$(printf '%s' "$STATUS" | uptime_of)"
 # runs between reboots, and a stale one costs a single 401 and a clear message
 # rather than a wrong-looking failure.
 if [ -n "$PAIR_CODE" ]; then
-  TOKEN="$(curl -s --max-time 10 -X POST "http://$IP/api/dev/pair" \
-    --data-urlencode "code=$PAIR_CODE" | python3 -c 'import json,sys
+  # Body and status from ONE request. An earlier version asked again just to
+  # read the status code, which on a genuine typo spent a SECOND wrong guess and
+  # doubled the backoff the user was about to be told to wait out.
+  PAIR_RAW="$(curl -s --max-time 10 -w '\n%{http_code}' -X POST "http://$IP/api/dev/pair" \
+    --data-urlencode "code=$PAIR_CODE" 2>/dev/null || true)"
+  PAIR_STATUS="$(printf '%s' "$PAIR_RAW" | tail -n1)"
+  TOKEN="$(printf '%s' "$PAIR_RAW" | sed '$d' | python3 -c 'import json,sys
 try:
     print(json.load(sys.stdin)["token"])
 except Exception:
@@ -198,9 +203,7 @@ except Exception:
     # 429 means the code was never looked at: a run of wrong guesses closed the
     # window. Saying "check the six digits" there sends you to re-read a code
     # that is already correct.
-    CLOSED="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -X POST "http://$IP/api/dev/pair" \
-      --data-urlencode "code=$PAIR_CODE" 2>/dev/null || true)"
-    if [ "$CLOSED" = "429" ]; then
+    if [ "$PAIR_STATUS" = "429" ]; then
       echo "error: pairing is rate-limited right now, and the code you have is fine." >&2
       echo "       Wait up to 30s and run the same command again." >&2
     else

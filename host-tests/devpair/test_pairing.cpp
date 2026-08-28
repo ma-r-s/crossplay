@@ -73,7 +73,6 @@ int main() {
     want(o.next.failures == s.failures, "a gated attempt counted");
     want(o.next.lastRotate == s.lastRotate, "a gated attempt moved lastRotate");
     want(!o.rotate, "a gated attempt rotated");
-    want(!o.log, "a gated attempt logged (the ring is 16 lines and this path is open)");
   }
 
   // -- THE OWNER IS NEVER LOCKED OUT ----------------------------------------
@@ -190,14 +189,18 @@ int main() {
                                            "/min; docs quote ~118 days for 10^6, which assumes about 5.9");
   }
 
-  // -- only rotations are logged, so a flood cannot wipe the 16-line ring ---
+  // -- a flood cannot wipe the 16-line ring, because only rotations log ------
+  //
+  // Counted on o.rotate, not on a dedicated flag: a `log` field with one write
+  // and no reader is a proxy, and mutating it out of existence left this test
+  // green. What pair() actually emits is one line per rotation.
   {
     State s;
     unsigned long now = 0;
     long logs = 0;
     for (long i = 0; i < 3600L * 1000; ++i) {
       const Outcome o = decide(false, now, s);
-      if (o.log) logs++;
+      if (o.rotate) logs++;  // rotation is the ONLY thing pair() logs
       s = o.next;
       now += 1;
     }

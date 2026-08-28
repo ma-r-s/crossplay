@@ -17,6 +17,13 @@
 //      forever, which locks the owner out and puts rotation behind a return
 //      that is never reached.
 //
+// Only ROTATIONS are logged by the caller, never individual wrong guesses: the
+// RTC ring is 16 entries and this path is open to anyone on the network, so
+// logging every evaluated guess put ~8,500 lines a day into it and erased the
+// pre-panic tail that /api/dev/crash exists to deliver every ~160 seconds.
+// There is deliberately no `log` field for that -- it had one write and no
+// readers, so the test pinning it pinned nothing. rotate IS the signal.
+//
 // So: gate first, and a gated attempt changes nothing. One evaluated guess per
 // backoff interval, and the owner's worst case is waiting out one interval.
 //
@@ -55,16 +62,6 @@ struct Outcome {
   Verdict verdict = Verdict::Accept;
   State next;
   bool rotate = false;
-  // Whether this refusal is worth a log line.
-  //
-  // Only ROTATIONS are logged now, not individual wrong guesses. The RTC ring
-  // is 16 entries and this path is open to anyone on the network: logging every
-  // evaluated guess put ~8,500 lines a day into it, which erased the pre-panic
-  // tail that /api/dev/crash exists to deliver every ~160 seconds. Rotation is
-  // the security-relevant event and it happens at most once a minute, so the
-  // ring now survives a quarter of an hour of sustained attack. It is still not
-  // unwipeable, and an earlier version of this comment claimed it was.
-  bool log = false;
 };
 
 inline Outcome decide(const bool codeMatches, const unsigned long now, const State& s) {
@@ -97,7 +94,6 @@ inline Outcome decide(const bool codeMatches, const unsigned long now, const Sta
     const bool allowed = static_cast<long>(now - (s.lastRotate + kMinRotateIntervalMs)) >= 0;
     if (due && allowed) {
       o.rotate = true;
-      o.log = true;
       o.next.failures = 0;
       o.next.lastRotate = now;
     }
