@@ -763,7 +763,11 @@ else
   # renaming the heading and leaving the bullets is that same failure minus one
   # line of editing, and the gate above cannot see it. Compare against what the
   # previous tag actually published.
-  PREV_TAG="$(git -C "$ROOT" tag --list 'v*' --sort=-v:refname | head -1)"
+  # Strict vMAJOR.MINOR.PATCH only. 'v*' also matched release candidates and any
+  # stray tag, either of which becomes the baseline, differs from the real notes,
+  # and passes the check by accident rather than on merit.
+  PREV_TAG="$(git -C "$ROOT" tag --list --sort=-v:refname |
+    grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)"
   if [ "$PREV_TAG" = "v$NOTES_VERSION" ]; then
     # Nothing is pending: the version in platformio.ini is the one already
     # tagged, so the notes SHOULD be that tag's. The comparison only means
@@ -774,10 +778,13 @@ else
   elif ! git -C "$ROOT" cat-file -e "$PREV_TAG:.github/workflows/crossplay-release.yml" 2>/dev/null; then
     skip "$PREV_TAG has no release workflow to compare against"
   else
+    # Whitespace-normalised on both sides. Comparing raw text let one inserted
+    # blank line pass a body that was otherwise the previous release's word for
+    # word -- which is the same mistake with one keystroke of camouflage.
+    norm() { grep -v 'What is new in' | tr -s '[:space:]' ' ' | sed 's/^ //; s/ $//'; }
     PREV_BODY="$(git -C "$ROOT" show "$PREV_TAG:.github/workflows/crossplay-release.yml" |
-      awk '/^ *body: \|/{f=1;next} f && /^ *[a-z_-]+:/{f=0} f' |
-      grep -v 'What is new in')"
-    THIS_BODY="$(printf '%s' "$NOTES_BODY" | grep -v 'What is new in')"
+      awk '/^ *body: \|/{f=1;next} f && /^ *[a-z_-]+:/{f=0} f' | norm)"
+    THIS_BODY="$(printf '%s' "$NOTES_BODY" | norm)"
     if [ "$PREV_BODY" = "$THIS_BODY" ]; then
       bad "the release notes are byte-identical to $PREV_TAG's below the heading -- only the version was renamed, and $NOTES_VERSION would publish that tag's text again"
     else

@@ -114,13 +114,6 @@ TxStats txStats;
 // handler) can take the space in between and write() falls into the blocking
 // loop anyway. Much less likely, not never.
 // The waiting we do control happens HERE, bounded, counted and reportable.
-// A short line, paced the same way. printf() goes straight to HWCDC::write, and
-// the ring is 256 bytes -- so a line written immediately AFTER a 48KB payload
-// lands when it is at its fullest, which is exactly the condition the removed
-// flush() was dangerous in. The worst case was the truncation notice itself:
-// the line reporting the jam was the most likely thing to flip the flag.
-bool writeLine(const char* text, unsigned long timeoutMs);
-
 bool writeAll(const uint8_t* data, const size_t len, const unsigned long timeoutMs) {
   size_t sent = 0;
   unsigned long stallStart = 0;
@@ -181,6 +174,11 @@ bool writeAll(const uint8_t* data, const size_t len, const unsigned long timeout
   return true;
 }
 
+// A short line, paced the same way. printf() goes straight to HWCDC::write, and
+// the ring is 256 bytes -- so a line written immediately AFTER a 48KB payload
+// lands when it is at its fullest, which is exactly the condition the removed
+// flush() was dangerous in. The worst case was the truncation notice itself:
+// the line reporting the jam was the most likely thing to flip the flag.
 bool writeLine(const char* text, const unsigned long timeoutMs) {
   return writeAll(reinterpret_cast<const uint8_t*>(text), strlen(text), timeoutMs);
 }
@@ -220,9 +218,13 @@ void handleLine(const char* line) {
   }
 
   if (strcmp(cmd, "CDCSTAT") == 0) {
+    // Paced: this is the command you run BECAUSE the transport is
+    // misbehaving, so it is the last one that should be shoved at it unpaced.
     char stats[256];
     formatTxStats(stats, sizeof(stats));
-    transport().printf("OK CDCSTAT %s\n", stats);
+    char reply[288];
+    snprintf(reply, sizeof(reply), "OK CDCSTAT %s\n", stats);
+    writeLine(reply, 1000);
     return;
   }
 
@@ -342,16 +344,28 @@ void handleLine(const char* line) {
     // drain progress and the connection flag goes down and the ring is thrown
     // away -- the wedge, reached by a single CAT of an ordinary file.
     uint8_t chunk[512];
-    bool complete = true;
-    for (int n = file.read(chunk, sizeof(chunk)); n > 0; n = file.read(chunk, sizeof(chunk))) {
+    const char* failure = nullptr;
+    for (;;) {
+      // 0 is EOF, -1 is a read error, and they must not share an exit: the CAT
+      // protocol carries no length, so a card that fails 4KB into a 40KB file
+      // otherwise ends with "OK CAT" over a truncated body and the host has no
+      // way to know.
+      const int n = file.read(chunk, sizeof(chunk));
+      if (n == 0) break;
+      if (n < 0) {
+        failure = "read error";
+        break;
+      }
       if (!writeAll(chunk, static_cast<size_t>(n), 5000)) {
-        complete = false;
+        failure = "transport";
         break;
       }
     }
-    if (!complete) {
-      LOG_ERR("DEVBRIDGE", "cat truncated: %s", path);
-      writeLine("\nERR CAT truncated\n", 1000);
+    if (failure != nullptr) {
+      LOG_ERR("DEVBRIDGE", "cat truncated (%s): %s", failure, path);
+      char err[96];
+      snprintf(err, sizeof(err), "\nERR CAT truncated (%s)\n", failure);
+      writeLine(err, 1000);
       return;
     }
     char tail[160];
@@ -449,11 +463,11 @@ void handleLine(const char* line) {
     // the payload, so ordering holds. flush() only answers "has it left yet",
     // which no caller asks, at the price of the connection flag.
     if (!complete) {
-      // Say it in the log FIRST, then on the wire. LOG_ERR writes to this same
-      // transport, so emitting it after the notice puts a log line behind the
-      // marker -- and the host's rule is that the notice is the last thing the
-      // device said, because image bytes can spell anything. Getting this
-      // backwards let a corrupt frame through as a good one.
+      // Log FIRST, then the wire. LOG_ERR goes out on this same transport, so
+      // logging after the notice buries the notice behind a log line. The host
+      // no longer depends on that ordering -- it reads the terminator's
+      // position, not what came last -- but a reader tailing the cable does,
+      // and the notice is the line they are looking for.
       LOG_ERR("DEVBRIDGE", "screenshot truncated: short=%u zero=%u worstStallMsLifetime=%ums",
               static_cast<unsigned>(txStats.shortWrites - before.shortWrites),
               static_cast<unsigned>(txStats.zeroWrites - before.zeroWrites),
@@ -462,10 +476,15 @@ void handleLine(const char* line) {
       return;
     }
     writeLine("SCREENSHOT_END\n", 1000);
-    transport().printf("OK SCREENSHOT %u short=%u zero=%u worstStallMsLifetime=%ums\n", bufferSize,
-                       static_cast<unsigned>(txStats.shortWrites - before.shortWrites),
-                       static_cast<unsigned>(txStats.zeroWrites - before.zeroWrites),
-                       static_cast<unsigned>(txStats.worstStallMs));
+    // Paced too. It follows 48KB and the terminator, so of every line in this
+    // file it meets the fullest ring -- which is the condition the whole
+    // no-flush argument above is about.
+    char summary[128];
+    snprintf(summary, sizeof(summary), "OK SCREENSHOT %u short=%u zero=%u worstStallMsLifetime=%ums\n", bufferSize,
+             static_cast<unsigned>(txStats.shortWrites - before.shortWrites),
+             static_cast<unsigned>(txStats.zeroWrites - before.zeroWrites),
+             static_cast<unsigned>(txStats.worstStallMs));
+    writeLine(summary, 1000);
     return;
   }
 

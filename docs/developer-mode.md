@@ -185,14 +185,21 @@ uv run --with pillow tools_local/device/drive.py --ip 192.168.68.78 \
   leftmost, `X-Panel-Width`/`X-Panel-Height` headers. The same bytes the serial
   bridge streams, so one decoder serves both.
 - `GET /api/dev/serial` -- what the USB cable's transmit path has been doing.
-  One line: `plugged` and `connected` (is a host attached, and does it have the
-  port open), `short` and `zero` (writes the ring took only part of, and writes
-  it refused outright), `retryMs` and `worstStallMsLifetime` (time spent waiting
-  on a full ring, in total and at its worst), `timeouts`, and `logDrops` (log
-  lines discarded rather than blocked on). `drive.py cdcstat` reads it, and
-  reads `CMD:CDCSTAT` down the cable for the same numbers.
+  One line: `mac` (which unit this is), `plugged` and `connected` (is a host
+  attached, and does it have the port open), `short` and `zero` (writes the ring
+  took only part of, and writes it refused outright), `retryMs` and
+  `worstStallMsLifetime` (time spent waiting on a full ring, in total and at its
+  worst), `timeouts`, and `logDrops` (log lines discarded rather than blocked
+  on). `drive.py cdcstat` reads it, and reads `CMD:CDCSTAT` down the cable for
+  the same numbers.
 
-  `plugged` and `connected` come first because without them the rest is
+  `mac` leads, and it is read from efuse rather than from `WiFi`, so it answers
+  with the radio off -- the state a device in a link match is in. Over the cable
+  it duplicates what `ioreg` already knows; over Wi-Fi it is the only way to
+  tell two identical desk units apart, and identifying a unit immediately before
+  writing to it is the standing rule here.
+
+  `plugged` and `connected` come next because without them the rest is
   ambiguous: `HWCDC::write` returns the full size when no host has the port
   open, so a device discarding every byte reports `short=0 zero=0 timeouts=0`,
   byte-identical to a healthy idle one.

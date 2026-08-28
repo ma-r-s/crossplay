@@ -200,6 +200,9 @@ for suite in host-tests/*/; do
     FAILED=1
   else
     printf "  %-12s ok (%s sub-suite(s), %s)\n" "$name" "$passed" "$(since $T0)"
+    # A check that did not run must not scroll past looking like one that
+    # passed. Suites write SKIP to their own log, which nothing surfaced.
+    grep -E "^SKIP" "$LOGS/$name.log" | head -5 | sed 's/^/      /'
   fi
 done
 

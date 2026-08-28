@@ -56,6 +56,27 @@ Everything else is work and wants its own tree, **including the things that feel
 like plumbing**: a new script, a new `check.sh` stage, a build fix, a rewritten
 doc. If you are AUTHORING rather than reconciling, you are in the wrong tree.
 
+#### The release itself, in order
+
+1. `check.sh --committed` green on the merged tree.
+2. Rebuild `site/emulator/`.
+3. Bump `version` under **`[crossplay]`** in `platformio.ini`. There are two
+   `version` keys in that file; the other one is upstream's.
+4. **Rewrite the `### What is new in <version>` section inside
+   `.github/workflows/crossplay-release.yml`, and change the heading to the
+   version you are about to tag.** The notes live in the workflow, not in a
+   notes file, which is why v1.6.2 published v1.6.1's text word for word to
+   announce a multiplayer fix it never mentioned. Say what is new; do not
+   re-announce what the last release already told people.
+5. Tag `v<version>` and push. The workflow's first step refuses a tag that does
+   not match the version in `platformio.ini`.
+
+`host-tests/release` enforces 3, 4 and 5 -- including that the notes are not
+byte-identical to the previous tag's below the heading, because renaming the
+heading and leaving the bullets is the same failure with one line of editing.
+It stays quiet when no bump is pending, so a green run before you start is not
+evidence the notes are written.
+
 This needs saying because "it is only integration" is an easy thing to tell
 yourself. On 2026-08-14 it produced eight direct commits on `xteink` -- a
 screenshot recipe, a `check.sh` stage, two build fixes -- none of which were the

@@ -60,6 +60,11 @@ END_MARKER = b"SCREENSHOT_END"
 # A frame is width*height/8. The largest panel here is 800x480 = 48000; the
 # bound is loose on purpose, it exists to reject nonsense, not to validate.
 MAX_FRAME_BYTES = 1 << 20
+# Longer than the firmware's own budget for saying it gave up. writeLine() there
+# allows 1000ms per stall and 4000ms overall, so a host that waits 500ms sees a
+# half-written notice, calls it no notice, and returns the frame. The two numbers
+# live in different languages in the same branch; this one has to be the larger.
+GRACE_S = 5.0
 
 PANEL_W = 800
 PANEL_H = 480
@@ -259,14 +264,27 @@ class SerialLink:
         # stop talking. `grace` is that wait, armed once there is a reason to
         # think the device is done and extended by every byte that follows.
         # WHERE the terminator lands is the verdict, not whether it is present.
-        # END at or past `size` is a whole frame. END before it means the device
-        # called the frame finished early -- which is what every firmware before
-        # this one did on the release path, unconditionally, so a short frame
-        # arrived stamped complete. This tool has to read devices running those
-        # builds, so that case is diagnosed here and not only fixed there.
+        # A WHOLE FRAME IS ONE THE DEVICE TERMINATED, and the terminator sits at
+        # exactly `size` -- the firmware writes it immediately after the payload
+        # with nothing in between.
+        #
+        # Not "at or past": anything injected mid-payload (a LOG_ from another
+        # task on a LOG_LEVEL=2 build) pushes END later, and `>=` reads that
+        # displacement as better-than-whole while the log text sits in the
+        # image. Not "somewhere in the buffer" either: that is a byte count with
+        # extra steps, and image bytes can spell anything.
+        #
+        # And having enough bytes is NOT a fallback. Every earlier version of
+        # this ended with "well, len(buf) >= size, ship it", which is precisely
+        # the assumption this whole branch exists to remove: a frame short by
+        # less than the notice reaches `size` with error text over its tail. No
+        # terminator means we do not know, and not knowing is a short read.
+        def whole():
+            return buf[size : size + len(END_MARKER)] == END_MARKER
+
         grace = None
         while time.time() < deadline:
-            if buf.find(END_MARKER) >= size:
+            if whole():
                 break
             if grace is not None and time.time() > grace:
                 break
@@ -276,23 +294,29 @@ class SerialLink:
                 buf += chunk
             settled = len(buf) >= size or TRUNCATED_MARKER in buf or END_MARKER in buf
             if settled and (grace is None or len(buf) > before):
-                grace = time.time() + 0.5
-        end_at = buf.find(END_MARKER)
-        if end_at < size:
+                grace = time.time() + GRACE_S
+        if not whole():
             cut = buf.find(TRUNCATED_MARKER)
+            end_at = buf.find(END_MARKER)
             if cut >= 0:
                 why = "device reported it gave up"
-            elif end_at >= 0:
-                cut = end_at
-                why = "device ended the frame early"
-            if cut >= 0:
-                buf = buf[:cut]
-                # The device precedes the notice with one newline to break out
-                # of the binary stream. Dropping it keeps the reported byte
-                # count the true one rather than always one high.
-                if buf.endswith(b"\n"):
-                    buf = buf[:-1]
-                truncated = why
+            elif 0 <= end_at < size:
+                # Every firmware before this one printed the terminator on the
+                # release path unconditionally, so a short frame arrived stamped
+                # complete. This tool reads devices running those builds.
+                cut, why = end_at, "device ended the frame early"
+            else:
+                cut, why = len(buf), "no terminator: device stopped talking"
+            buf = buf[:cut]
+            # The device precedes the notice with one newline to break out of
+            # the binary stream. Dropping it keeps the reported byte count the
+            # true one rather than always one high.
+            if buf.endswith(b"\n"):
+                buf = buf[:-1]
+            truncated = why
+            if len(buf) >= size:
+                # Enough bytes, no terminator. Refuse rather than guess.
+                buf = buf[: size - 1]
         if len(buf) < size:
             # The device says so itself now. Report ITS reason when it gave one:
             # "short read" alone cannot tell a wedged cable from a crashed

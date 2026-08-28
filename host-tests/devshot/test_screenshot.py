@@ -40,10 +40,9 @@ def check(name, got, want):
 
 class FakeCable:
     """Hands back a scripted reply, once asked, in chunks. read() never blocks,
-    so a test that would hang in the loop instead runs out the deadline -- and
-    the suite passes a short timeout so that is a second, not thirty."""
+    so a test that would hang in the loop instead runs out the deadline."""
 
-    def __init__(self, reply, chunk=4096, cuts=None):
+    def __init__(self, reply, chunk=4096, cuts=None, stalls=None, chatter=b""):
         self.reply = reply
         self.buf = b""
         self.chunk = chunk
@@ -52,6 +51,17 @@ class FakeCable:
         # the same one, which is how the first version of this suite passed
         # against code that had the bug.
         self.cuts = list(cuts) if cuts else None
+        # (offset, seconds): once `offset` payload bytes have left, say nothing
+        # for that long. Until this existed every fixture ran in the "bytes
+        # arrive instantly" regime, so a grace period could be tested for
+        # EXISTING but never for being LONG ENOUGH -- which is the property
+        # that actually failed against the firmware.
+        self.stalls = sorted(stalls or [])
+        self.at_stall = 0
+        self.hold_until = 0.0
+        self.sent = 0
+        # What the device says before anyone asks it anything, for the pre-drain.
+        self.chatter = chatter
         self.written = b""
 
     def read(self, n):
@@ -59,11 +69,26 @@ class FakeCable:
         # port before asking, and a cable that answers early has its header
         # eaten by that drain -- which is a real behaviour of the real one, and
         # the reason the drain exists.
+        if not self.buf and self.chatter:
+            return self.chatter
+        now = time.time()
+        if now < self.hold_until:
+            return b""
+        limit = len(self.buf)
+        if self.at_stall < len(self.stalls):
+            at, secs = self.stalls[self.at_stall]
+            if self.sent >= at:
+                self.at_stall += 1
+                self.hold_until = now + secs
+                return b""
+            limit = at - self.sent
         if self.cuts and self.buf:
             n = self.cuts.pop(0)
         else:
             n = min(n, self.chunk)
+        n = min(n, limit)
         out, self.buf = self.buf[:n], self.buf[n:]
+        self.sent += len(out)
         return out
 
     def write(self, data):
@@ -76,19 +101,19 @@ class FakeCable:
         pass
 
 
-def link(reply, chunk=4096, cuts=None):
+def link(reply, chunk=4096, cuts=None, stalls=None):
     lk = object.__new__(drive.SerialLink)
-    lk.s = FakeCable(reply, chunk, cuts)
+    lk.s = FakeCable(reply, chunk, cuts, stalls)
     lk.port, lk.baud = "fake", 115200
     return lk
 
 
-def shot(reply, chunk=4096, timeout=2.0, cuts=None):
+def shot(reply, chunk=4096, timeout=2.0, cuts=None, stalls=None):
     """Returns (payload_or_None, what_it_printed_to_stderr)."""
     err = io.StringIO()
     real, sys.stderr = sys.stderr, err
     try:
-        return link(reply, chunk, cuts).screenshot_raw(timeout=timeout), err.getvalue()
+        return link(reply, chunk, cuts, stalls).screenshot_raw(timeout=timeout), err.getvalue()
     finally:
         sys.stderr = real
 
@@ -143,7 +168,10 @@ check("silent truncation does not invent a reason", "device reported" in err, Fa
 # Tighter than the deadline it is meant to prove: with timeout=1.0 a run that
 # waits the deadline out takes >= 1.0s, so 0.9 is the bound that can actually
 # tell "returned early" from "ran to the end".
-check("silent truncation is bounded", time.time() - t0 < 1.0 + 2.0, True)
+# Liveness, not latency: a silent device is refused now, and refusing means
+# waiting the grace out first, so it cannot return before its own deadline. An
+# honest loose bound beats a comment describing a tighter one than is asserted.
+check("silent truncation terminates", time.time() - t0 < 25.0, True)
 
 # The device refusing outright: no header ever comes. Its own words, not a
 # generic timeout, and it must not wait the timeout out to say so.
@@ -152,6 +180,30 @@ got, err = shot(b"ERR SCREENSHOT no framebuffer\n", timeout=5.0)
 check("refusal rejected", got, None)
 check("refusal quotes the device", "no framebuffer" in err, True)
 check("refusal returns early", time.time() - t0 < 3.0, True)
+
+# The PRE-drain, which runs before CMD:SCREENSHOT is written. Unbounded, it
+# hangs against a device that never stops talking -- and no fixture could reach
+# it, because they are all silent until asked.
+noisy = object.__new__(drive.SerialLink)
+noisy.s = FakeCable(header + image + b"SCREENSHOT_END\n", chatter=b"[1] [INF] [MEM] Free\n")
+noisy.port, noisy.baud = "fake", 115200
+done_pre = threading.Event()
+
+
+def _predrain():
+    err = io.StringIO()
+    real, sys.stderr = sys.stderr, err
+    try:
+        noisy.screenshot_raw(timeout=2.0)
+    finally:
+        sys.stderr = real
+    done_pre.set()
+
+
+tp = threading.Thread(target=_predrain, daemon=True)
+tp.start()
+tp.join(25.0)
+check("the pre-drain gives up on a device that never stops talking", done_pre.is_set(), True)
 
 # THE ONE THAT MATTERED. The device logs the same failure on the same wire, so
 # the notice is followed by a log line -- and a rule of "the notice is the last
@@ -197,13 +249,38 @@ got, err = shot(b"", timeout=1.0)
 check("silence rejected", got, None)
 check("silence says no START", "no SCREENSHOT_START" in err, True)
 
-# All the bytes arrived and the device then went quiet: no END, no notice. The
-# payload is whole, so it is returned, but only after the grace period rather
-# than after the full timeout.
-t0 = time.time()
-got, _ = shot(header + image, timeout=5.0)
-check("silent-but-complete frame accepted", got, image)
-check("silent-but-complete frame does not wait out the timeout", time.time() - t0 < 3.0, True)
+# All the bytes arrived and the device then went quiet: no END, no notice.
+# THIS MUST BE REFUSED. It reads as a whole frame only if the byte count is the
+# completion signal -- and a frame short by less than the notice reaches that
+# count with error text over its tail. Not knowing is a short read.
+got, err = shot(header + image, timeout=12.0)
+check("byte count alone is not acceptance", got, None)
+check("byte count alone says what is missing", "no terminator" in err, True)
+
+# The grace period must outlast the DEVICE's own budget for saying it gave up:
+# writeLine() there allows 1000ms per stall. A host that gives up sooner sees
+# half a notice, reads that as no notice, and returns the frame. Before this
+# fixture existed no test could pause, so grace could be tested for existing
+# but never for being long enough.
+# The stall lands once exactly SIZE bytes have been delivered -- payload plus
+# the first 10 bytes of the notice. That is the moment the frame looks
+# complete AND carries no readable notice, so grace is armed and the
+# remaining notice bytes have to beat it. Stalling any earlier never arms
+# grace and the fixture proves nothing about its length.
+got, err = shot(header + short + notice, timeout=15.0, stalls=[(len(header) + SIZE, 1.2)])
+check("notice stalled mid-write is still caught", got, None)
+check("notice stalled mid-write says why", "device reported it gave up" in err, True)
+
+# A log line from another task lands inside the payload and displaces END past
+# `size`. "END at or past size" reads that displacement as better-than-whole,
+# with the log text sitting in the image.
+noise = b"[123456] [INF] [MEM] Free: 200000 bytes, Min Free: 190000\n"
+# SIZE payload bytes PLUS the noise, which is what the device actually put
+# on the wire -- the log line displaces END past `size` rather than
+# replacing image bytes.
+spliced = image[:20000] + noise + image[20000:]
+got, err = shot(header + spliced + b"SCREENSHOT_END\n", timeout=12.0)
+check("a log line spliced into the payload is not a whole frame", got, None)
 
 # drain() is called by command() BEFORE the command is even written, so an
 # unbounded one hangs every verb this tool has -- ping, tap, ls, all of them --
@@ -216,7 +293,10 @@ class Chatterbox:
     """Never stops talking, exactly like a device under LOG_LEVEL=2."""
 
     def read(self, n):
-        return b"[123456] [INF] [MEM] Free: 200000 bytes\n"
+        # Blank: drain() relays only non-empty lines, and a chatterbox emitting
+        # real ones produced 9.7MB of stderr per run, burying every other suite
+        # in the CI log. The bound is what is under test, not the relaying.
+        return b"\n"
 
     def write(self, data):
         return len(data)

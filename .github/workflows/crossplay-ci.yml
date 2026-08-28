@@ -28,6 +28,12 @@ jobs:
       - uses: actions/checkout@v6
         with:
           submodules: recursive
+          # Tags, or host-tests/release cannot compare this release's notes
+          # against what the previous tag published -- it SKIPS instead, which
+          # is exactly the check silently not running in the only place that
+          # would have caught v1.6.2 shipping v1.6.1's text.
+          fetch-depth: 0
+          fetch-tags: true
 
       - uses: actions/setup-python@v6
         with:
