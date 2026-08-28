@@ -475,13 +475,21 @@ std::string pair(const std::string& code) {
   // A minimum interval between attempts. Six digits is 10^6, which a LAN can
   // walk in hours unattended -- and until this branch disabled CORS on this
   // surface, so could a web page the owner merely visited.
+  //
+  // THE RIGHT CODE IS NEVER RATE-LIMITED. One global timer, refreshed by every
+  // wrong guess, meant anyone on the network guessing once a second kept the
+  // OWNER permanently inside the "too soon" window -- a lockout handed to an
+  // attacker, which is the exact outcome the rotation comment below says was
+  // rejected on purpose. Rate-limiting a correct code protects nothing: a
+  // guesser does not have one, and the owner is reading it off the panel.
   const unsigned long now = millis();
-  if (pairNotBefore != 0 && static_cast<long>(now - pairNotBefore) < 0) {
+  const bool correct = code == pairingCode;
+  if (!correct && pairNotBefore != 0 && static_cast<long>(now - pairNotBefore) < 0) {
     LOG_ERR("DEVMODE", "pairing attempt too soon; ignored");
     return std::string();
   }
 
-  if (code != pairingCode) {
+  if (!correct) {
     pairFailures++;
     pairNotBefore = now + kPairRetryMs;
     // ROTATE rather than lock out. A lockout would hand anyone on the network a

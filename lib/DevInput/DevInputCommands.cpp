@@ -114,15 +114,29 @@ bool refused(char* reply, size_t replyLen, const char* fmt, ...) {
 
 }  // namespace
 
-bool isCommand(const char* cmd) {
-  if (cmd == nullptr) return false;
+// Leading whitespace is the transports' business only if they agree, and they
+// did not: the HTTP handler trims its body while the serial bridge strips only
+// \r and \n, so " TAP 400 240" worked over Wi-Fi and answered "unknown command"
+// down the cable. That is a device answering TAP on one transport and not the
+// other -- the exact sentence check 12 exists to prevent -- and neither check 12
+// nor the devinput suite could see it, because both look at runCommand and not
+// at what the transports hand it. So skip it HERE, once, for both.
+const char* skipLeading(const char* cmd) {
+  while (*cmd != '\0' && isspace(static_cast<unsigned char>(*cmd))) cmd++;
+  return cmd;
+}
+
+bool isCommand(const char* raw) {
+  if (raw == nullptr) return false;
+  const char* cmd = skipLeading(raw);
   return strncmp(cmd, "TAP ", 4) == 0 || strncmp(cmd, "LONG ", 5) == 0 || strncmp(cmd, "SWIPE ", 6) == 0 ||
          strncmp(cmd, "BTN ", 4) == 0;
 }
 
-bool runCommand(const char* cmd, char* reply, const size_t replyLen) {
+bool runCommand(const char* raw, char* reply, const size_t replyLen) {
   if (reply == nullptr || replyLen == 0) return false;
-  if (cmd == nullptr) return refused(reply, replyLen, "ERR no command");
+  if (raw == nullptr) return refused(reply, replyLen, "ERR no command");
+  const char* cmd = skipLeading(raw);
   reply[0] = '\0';
   long v[5];
 

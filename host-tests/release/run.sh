@@ -499,19 +499,38 @@ radio_takers() {
 #
 # DISCOVERED, not listed, for the reason spelled out in check 9.
 #
-# FIRST, the floor. Three times on this branch a check stopped examining files
-# and went on reporting green -- a broken process substitution, then two
-# generations of comment scanner that swallowed whole files. Every time, the
-# only tell was the check COUNT not moving, and every time it was a human who
-# noticed. So assert the floor instead: this tree has had at least six radio
-# takers since the feature existed, and a discovery that finds fewer has
-# narrowed itself rather than found a cleaner codebase.
-radio_taker_count="$(radio_takers | grep -c .)"
-if [ "$radio_taker_count" -ge 6 ]; then
-  ok
-else
-  bad "check 10 discovered only $radio_taker_count radio takers (expected >= 6) -- the DISCOVERY is broken, not the code"
-fi
+# FIRST, the canaries. Three times on this branch a check stopped examining
+# files and went on reporting green -- a broken process substitution, then two
+# generations of comment scanner that swallowed whole files. Every time the only
+# tell was the check COUNT not moving, and every time a human noticed rather
+# than the suite.
+#
+# A COUNT floor was the obvious guard and it is worthless: measured against all
+# four broken scanner generations, the taker count stayed at 7 for every one of
+# them, so it caught none of the bugs it was written for. Worse, its slack was
+# one file, and the affordable one was LinkRadio.cpp -- the subject of this
+# entire branch could leave the check set with the floor still green. And
+# consolidating two teardowns into a helper would have failed it for no reason.
+#
+# So: name the files that MUST be discovered. This is not the hardcoded list
+# check 9 condemns -- that one REPLACED the discovery, this one WATCHES it. If a
+# named file stops taking the radio, that is a deliberate change and this list
+# is the right place to notice it.
+# Captured ONCE, and matched with `case`, not `radio_takers | grep -q`: this
+# file runs under pipefail, and grep -q exits on its first match, SIGPIPEs the
+# producer and reports the pipeline as failed. That trap is documented forty
+# lines above and I walked straight into it writing this.
+discovered_takers="$(radio_takers)"
+for must in "src/apps_local/link/LinkRadio.cpp" \
+            "src/activities/network/WifiSelectionActivity.cpp" \
+            "src/activities/network/CrossPointWebServerActivity.cpp"; do
+  case "
+$discovered_takers" in
+    *"
+$ROOT/$must"*) ok ;;
+    *) bad "check 10's discovery lost $must -- the DISCOVERY is broken, or that file genuinely stopped taking the radio and this list needs updating" ;;
+  esac
+done
 
 while IFS= read -r path; do
   rel="${path#$ROOT/}"
@@ -565,6 +584,25 @@ while IFS= read -r path; do
   fi
 done < <(grep -rlE 'devmode::(pause|resume)\(\)' "$ROOT/src" "$ROOT/lib" 2>/dev/null | sort)
 
+# The same canary, for the same reason: a file swallowed by the scanner reads
+# 0 pauses against 0 resumes here, which compare EQUAL and report ok.
+yielders="$(grep -rlE 'devmode::(pause|resume)\(\)' "$ROOT/src" "$ROOT/lib" 2>/dev/null | sort)"
+for must in "src/apps_local/link/LinkRadio.cpp" \
+            "src/activities/network/WifiSelectionActivity.cpp" \
+            "src/activities/network/CrossPointWebServerActivity.cpp"; do
+  case "
+$yielders" in
+    *"
+$ROOT/$must"*) ok ;;
+    *) bad "check 11 no longer sees $must yielding at all" ;;
+  esac
+  if [ "$(count_code "$ROOT/$must" 'devmode::pause()')" -gt 0 ]; then
+    ok
+  else
+    bad "check 11 reads zero pause() calls in $must -- 0 == 0 would report balanced"
+  fi
+done
+
 # -- 12. the input vocabulary has exactly one implementation ------------------
 #
 # lib/DevInput/DevInputCommands.cpp exists so the serial bridge and Developer
@@ -588,6 +626,14 @@ done < <(grep -rlE 'devinput::(tap|longPress|swipe|button)\(' "$ROOT/src" "$ROOT
     # In code, not in prose: a comment naming devinput::tap() is not a caller.
     if [ "$(code_lines "$f" | grep -cE 'devinput::(tap|longPress|swipe|button)\(')" -gt 0 ]; then echo "$f"; fi
   done)
+
+# The shared unit must still be visible to the scanner at all: swallowed, it
+# emits zero checks here and the whole rule evaporates.
+if [ "$(count_code "$ROOT/lib/DevInput/DevInputCommands.cpp" 'devinput::tap(')" -gt 0 ]; then
+  ok
+else
+  bad "check 12 cannot see lib/DevInput/DevInputCommands.cpp scheduling input -- the scanner swallowed it"
+fi
 
 # And both transports must actually route through it, or the shared unit is just
 # an unused library that happens to compile.
@@ -617,6 +663,7 @@ done
 # either side of it survived" -- rather than on exact output, so reformatting
 # the scanner does not rewrite the test.
 scanner_fixture="$(mktemp)"
+trap 'rm -f "$scanner_fixture"' EXIT  # as host-tests/checksh does
 cat > "$scanner_fixture" <<'FIXTURE'
 int keepA(); // GONE_LINE_COMMENT
 int keepB(); /* GONE_SAME_LINE */ int keepC();
@@ -627,15 +674,29 @@ const char* u = "http://KEEP_IN_STRING";
 const char* k = "/*KEEP_STAR_IN_STRING";
 int keepF();
 void f(char c) { if (c == '"') keepG(); } // GONE_AFTER_CHAR_LITERAL
-char esc = '\''; int keepH();
+char esc = '\''; int keepH(); // GONE_AFTER_ESCAPED_QUOTE
 FIXTURE
+scanner_raw="$(cat "$scanner_fixture")"
 scanner_out="$(code_lines "$scanner_fixture")"
 rm -f "$scanner_fixture"
 
 scanner_ok=1
 scanner_why=""
+# Every token must actually BE in the fixture. A GONE_ token that is missing --
+# a typo, or a line edit that did not land -- would otherwise pass trivially,
+# because absence is exactly what the assertion below wants. This test asserted
+# nothing at all for one commit for precisely that reason.
+fixture_src="int keepA(); int keepB(); int keepC(); int keepD(); int keepE(); int keepF(); int keepG(); int keepH();"
+for token in GONE_LINE_COMMENT GONE_SAME_LINE GONE_TRAILING_OPEN GONE_BLOCK_BODY GONE_AFTER_CHAR_LITERAL \
+             GONE_AFTER_ESCAPED_QUOTE KEEP_IN_STRING KEEP_STAR_IN_STRING; do
+  case "$scanner_raw" in
+    *"$token"*) ;;
+    *) scanner_ok=0; scanner_why="$scanner_why absent-from-fixture:$token" ;;
+  esac
+done
 # Everything named GONE_ must be stripped; everything named keep must survive.
-for token in GONE_LINE_COMMENT GONE_SAME_LINE GONE_TRAILING_OPEN GONE_BLOCK_BODY GONE_AFTER_CHAR_LITERAL; do
+for token in GONE_LINE_COMMENT GONE_SAME_LINE GONE_TRAILING_OPEN GONE_BLOCK_BODY GONE_AFTER_CHAR_LITERAL \
+             GONE_AFTER_ESCAPED_QUOTE; do
   case "$scanner_out" in
     *"$token"*) scanner_ok=0; scanner_why="$scanner_why kept:$token" ;;
   esac

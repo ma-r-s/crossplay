@@ -86,7 +86,7 @@ bool button(uint8_t index, unsigned long holdMs) {
 
 int main() {
   // -- isCommand only claims the four verbs --------------------------------
-  for (const char* yes : {"TAP 1 1", "LONG 1 1", "SWIPE 1 1 2 2", "BTN UP"}) {
+  for (const char* yes : {"TAP 1 1", "LONG 1 1", "SWIPE 1 1 2 2", "BTN UP", " TAP 1 1", "\tBTN UP"}) {
     if (devinput::isCommand(yes))
       ok();
     else
@@ -103,6 +103,11 @@ int main() {
 
   // -- TAP ------------------------------------------------------------------
   expect("TAP 400 240", "OK TAP 400 240 140");  // default hold
+  // Leading whitespace, because the two transports disagreed about it: the
+  // HTTP handler trimmed its body, the serial bridge stripped only \r and \n.
+  // Handled in the shared unit now, so they cannot disagree again.
+  expect(" TAP 400 240", "OK TAP 400 240 140");
+  expect("\tTAP 400 240", "OK TAP 400 240 140");
   near(seen.a, (400 + 0.5f) / 800, "tap nx");
   near(seen.b, (240 + 0.5f) / 480, "tap ny");
   if (seen.ms == 140)
