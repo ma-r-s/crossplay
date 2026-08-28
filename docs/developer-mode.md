@@ -193,6 +193,24 @@ that reads it as ownership will miss every non-associating user of the radio.
   nothing here, because it is `LinkActivity::preventAutoSleep()` holding the
   device awake, not Developer Mode.
 
+- **An unauthenticated client can freeze the UI by trickling a body.** A `PUT
+  /api/dev/upload` is refused at `RAW_START`, but this HTTP core drains the body
+  on the loop task before the 401 goes out, and `client.readBytes` blocks per
+  chunk -- so while it drains there is no button input and no `devmode::update()`.
+  A freeze, not a reset: nothing here subscribes the loop task to the task
+  watchdog, so `resetTaskWatchdogIfSubscribed()` is a no-op across this entire
+  firmware. Pre-dates this branch; not fixable inside the handler.
+
+- **A six-digit code on an open endpoint is worth hours, not years, to a
+  determined flood.** The gate in `pair()` refuses to EVALUATE a guess inside
+  the backoff window, which is what actually bounds the search -- one evaluated
+  guess per interval, up to 30s, so ~347 days at the ceiling. Two earlier
+  versions of that gate did not bound it at all, because they compared the code
+  before consulting the timer, and a limiter you have already answered limits
+  nothing. If this ever needs to be genuinely hard rather than adequate for a
+  home LAN, the answers are per-source-IP limiting or more digits; rotation is
+  not one, and never was.
+
 - **One cached token and code**, in `~/.crossplay-devtoken` and
   `~/.crossplay-devcode`. With two devices you re-pair when you switch between
   them.
@@ -205,18 +223,32 @@ that reads it as ownership will miss every non-associating user of the radio.
   three times on that branch a check quietly stopped examining files and went on
   reporting green, and the only tell was the check count.
 
-  **One file is still outside that net.** `StudyActivity` tears the radio down
-  twice: `onExit` does it behind its own `wifiActivated_` flag, which is set
-  whenever the app wants Wi-Fi rather than when it actually raised the radio,
-  and `endSyncSession` does it behind no flag at all. Either way, with Developer
-  Mode holding an association it will drop it, and dev mode rejoins ~5s later.
+  **One file is still outside that net,** and note the checks would not catch it
+  either -- see below. `StudyActivity` tears the radio down twice: `onExit` does
+  it behind its own `wifiActivated_` flag, which is set whenever the app wants
+  Wi-Fi rather than when it actually raised the radio, and `endSyncSession` does
+  it behind no flag at all. Either way, with Developer Mode holding an
+  association it will drop it, and dev mode rejoins ~5s later.
+
+  **Closed on `app/studyradio`, not yet merged** (2026-08-28): `beginSync()`
+  sets `wifiActivated_` only when Wi-Fi was down, and both teardowns ask
+  `holdsRadio()`. Delete this paragraph when that branch lands.
   Annoying, not fatal, and it predates this feature. Check 10 does not catch it
   because the pattern deliberately excludes `WiFi.disconnect(`: a self-owned
   teardown is a legitimate use of it, and `ClockSyncActivity` is the example of
   doing that correctly (its flag is only set when Wi-Fi was NOT already up).
   `ConnectionsActivity` and `KOReaderSyncActivity` had the same hole through
   `esp_wifi_stop()`, which is unambiguous; both now ask `holdsRadio()` and the
-  check covers that call. There is still no general ownership protocol.
+  check covers that call.
+
+  **What the gate does NOT cover, stated plainly:** an ownership flag that is
+  set unconditionally. `StudyActivity`'s pattern -- `WiFi.mode(WIFI_STA)` plus
+  `wifiActivated_ = true` regardless of whether the radio was already up -- is
+  invisible to every check here, because the pattern deliberately excludes
+  `WiFi.disconnect(` and says nothing about flags. Nothing would catch a
+  regression of it. `ClockSyncActivity` is the shape that is correct by
+  construction and worth copying: it only sets its flag when Wi-Fi was NOT
+  already connected. There is still no general ownership protocol.
 
   What the convention missed, and what shipped in v1.6.1: Developer Mode's test
   for "is somebody else using this?" is `WiFi.status() == WL_CONNECTED`, so an

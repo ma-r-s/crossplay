@@ -519,39 +519,50 @@ std::string pair(const std::string& code) {
   // rejected on purpose. Rate-limiting a correct code protects nothing: a
   // guesser does not have one, and the owner is reading it off the panel.
   const unsigned long now = millis();
-  const bool correct = code == pairingCode;
 
-  if (!correct) {
-    // EVERY wrong attempt costs, including one that arrives while the window is
-    // already open. Refusing those for free was the whole hole: an attacker
-    // armed a 16s window with one guess and then flooded inside it at the
-    // device's request rate, and each of those was a real guess that paired if
-    // it hit. The limiter limited nothing -- 10^6 falls in hours at 10-100
-    // req/s, not the 91 days the backoff suggests.
-    //
-    // This cannot lock the owner out, which is the property the whole design
-    // turns on: a CORRECT code never reaches this branch at all.
-    const bool tooSoon = pairNotBefore != 0 && static_cast<long>(now - pairNotBefore) < 0;
-    pairFailures++;
-    // Double until the ceiling, rather than a shift with its own cap: the cap
-    // was 4, so the ceiling could never bind and was a constant guarding
-    // nothing.
+  // GATE BEFORE COMPARING. This is the whole point and both previous versions
+  // got it wrong in different ways: they computed `correct` first, so every
+  // guess was fully evaluated and paid off if it hit, and the timer only chose
+  // which log line printed. A limiter you have already answered is not a
+  // limiter -- 10^6 falls at the device's HTTP request rate, hours, whatever
+  // the backoff says.
+  //
+  // A gated attempt is refused WITHOUT looking at the code and WITHOUT
+  // extending the window. That second half matters as much as the first: the
+  // version that extended on every refusal let a flood hold the window open
+  // forever, which locked the owner out AND made rotation unreachable. Not
+  // extending means an attacker gets exactly one evaluated guess per backoff
+  // interval, and the owner's worst case is waiting out one interval -- a delay
+  // of at most kPairRetryCeilingMs, never a lockout.
+  if (pairNotBefore != 0 && static_cast<long>(now - pairNotBefore) < 0) {
+    // Not logged at all: this is the path a flood takes, and it would wipe the
+    // ring sixteen requests in. The refusal is already visible to the caller.
+    return std::string();
+  }
+
+  if (code != pairingCode) {
+    // Log the FIRST few only. logPrintf writes every level into a 16-line RTC
+    // ring (Logging.cpp), LOG_ERR is compiled into releases, and this path is
+    // reachable by anyone on the network -- so sixteen wrong guesses erased the
+    // pre-panic tail that /api/dev/crash exists to deliver. Cross-origin, too.
+    const bool sayIt = pairFailures < kPairFailuresBeforeRotate;
+    // Saturate rather than overflow: this is incremented by an unauthenticated
+    // request, and signed overflow would collapse the backoff to 1s and stop
+    // rotation entirely.
+    if (pairFailures < kPairFailuresBeforeRotate * 4) pairFailures++;
     unsigned long wait = kPairRetryMs;
     for (int i = 1; i < pairFailures && wait < kPairRetryCeilingMs; ++i) wait <<= 1;
     if (wait > kPairRetryCeilingMs) wait = kPairRetryCeilingMs;
     pairNotBefore = now + wait;
-    if (tooSoon) {
-      LOG_ERR("DEVMODE", "pairing attempt too soon; ignored (%d wrong, next in %lums)", pairFailures, wait);
-      return std::string();
-    }
     // ROTATE rather than lock out. A lockout would hand anyone on the network a
     // way to stop the owner pairing; moving the target instead throws away
     // every guess made so far and costs the owner only a glance at the screen,
     // which is already showing the new code by the time they look.
     // Rotate on sustained failure, but never faster than once a minute: the
-    // owner has to be able to read a code off the panel and still type it. The
-    // guesses are thrown away by the rotation whenever it does happen, and the
-    // backoff above is what actually makes grinding expensive.
+    // owner has to be able to read a code off the panel and still type it.
+    // Rotation throws away accumulated guesses; it is NOT what makes grinding
+    // expensive, and an earlier version of this comment claimed it was. What
+    // makes grinding expensive is the gate above refusing to evaluate.
     const bool rotateDue = pairFailures >= kPairFailuresBeforeRotate;
     // No lastRotateMs == 0 case: pair() returns early unless pairingCode is set,
     // and only turnOn() sets it, on the same pass that sets lastRotateMs.
@@ -564,7 +575,9 @@ std::string pair(const std::string& code) {
       pairFailures = 0;
       LOG_ERR("DEVMODE", "too many wrong codes; rotated to %s", pairingCode.c_str());
     } else {
-      LOG_ERR("DEVMODE", "wrong pairing code (%d wrong, rotates at %d)", pairFailures, kPairFailuresBeforeRotate);
+      if (sayIt) {
+        LOG_ERR("DEVMODE", "wrong pairing code (%d wrong, rotates at %d)", pairFailures, kPairFailuresBeforeRotate);
+      }
     }
     return std::string();
   }

@@ -2074,7 +2074,11 @@ bool CrossPointWebServer::devAuthorised() {
   std::string token;
   if (server->hasHeader("X-Dev-Token")) token = server->header("X-Dev-Token").c_str();
   if (!devmode::tokenValid(token)) {
-    LOG_ERR("DEVMODE", "refused an unpaired request to %s", server->uri().c_str());
+    // Deliberately not logged. This is reachable by anyone on the network, and
+    // logPrintf writes every level into a 16-line RTC ring -- so an
+    // unauthenticated client could erase the pre-panic tail that /api/dev/crash
+    // exists to deliver, sixteen requests in, from a page the owner merely
+    // visited. The 401 tells the caller everything the log would have.
     server->send(401, "text/plain", "pair first: POST /api/dev/pair with the code on the device\n");
     return false;
   }
