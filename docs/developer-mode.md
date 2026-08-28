@@ -77,7 +77,7 @@ That is a real battery cost, confined to devices whose owner deliberately
 switched it on. The alternative is worse: a development device that disappears
 after the sleep timeout is not one.
 
-### A device that is off looks exactly like a device that is asleep
+### On the network, a device that is off looks exactly like one that is asleep
 
 `--disable` leaves no code on the panel, no route, and no other visible sign
 that anything changed. That is correct -- switching Developer Mode off should
