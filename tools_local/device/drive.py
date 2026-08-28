@@ -57,6 +57,9 @@ import urllib.request
 
 TRUNCATED_MARKER = b"ERR SCREENSHOT truncated"
 END_MARKER = b"SCREENSHOT_END"
+# A frame is width*height/8. The largest panel here is 800x480 = 48000; the
+# bound is loose on purpose, it exists to reject nonsense, not to validate.
+MAX_FRAME_BYTES = 1 << 20
 
 PANEL_W = 800
 PANEL_H = 480
@@ -84,11 +87,18 @@ def relay(line):
     print(f"  [dev] {line}", file=sys.stderr)
 
 
-def drain(s):
+def drain(s, timeout=3.0):
     """Relay whatever the device printed since the last read. Never discard:
     the log lines that arrive between commands are exactly the diagnostics a
-    failure investigation needs."""
-    while True:
+    failure investigation needs.
+
+    BOUNDED, and that is not decoration: command() calls this before it writes
+    the command, so an unbounded version hangs every verb this tool has against
+    a device that talks faster than the port timeout -- a dev build at
+    LOG_LEVEL=2, a boot loop, an error spew. Which are the three states you
+    reach for this tool in."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
         chunk = s.read(4096)
         if not chunk:
             return
@@ -186,7 +196,7 @@ class SerialLink:
         deadline = time.time() + timeout
         buf = b""
         size = None
-        truncated = False
+        truncated = ""
         while time.time() < deadline:
             chunk = self.s.read(4096)
             if chunk:
@@ -196,7 +206,23 @@ class SerialLink:
             if idx >= 0:
                 nl = buf.find(b"\n", idx)
                 if nl >= 0:
-                    size = int(buf[idx + len(marker) : nl])
+                    # Device input, not a promise. The header is one unpaced
+                    # write on some paths, so it can arrive short -- and then
+                    # the digits are a prefix of the real length, or the next
+                    # newline found is one inside the image. A bogus size is
+                    # not merely unparseable: a negative one makes every length
+                    # test below pass and hands back the buffer as an image.
+                    try:
+                        size = int(buf[idx + len(marker) : nl])
+                    except ValueError:
+                        print(
+                            f"bad SCREENSHOT_START length: {buf[idx : nl][:40]!r}",
+                            file=sys.stderr,
+                        )
+                        return None
+                    if not 0 < size <= MAX_FRAME_BYTES:
+                        print(f"implausible frame length {size}", file=sys.stderr)
+                        return None
                     buf = buf[nl + 1 :]
                     break
             elif b"ERR SCREENSHOT" in buf:
@@ -218,22 +244,29 @@ class SerialLink:
         # and with the notice itself cut in half, so no check for the notice can
         # see it either. Read on until the DEVICE says which it was.
         #
-        # The notice counts only when it is the LAST thing the device said.
-        # Image bytes can spell anything, and a frame is 48000 of them; a plain
-        # `in buf` bails on a chance match a thousand bytes into a perfectly
-        # good frame, and then reports it as truncated there. Truncation means
-        # the device stopped, so on the real path nothing follows the notice.
+        # Two signals, and QUIET is the third. END means the device finished;
+        # the notice means it gave up. Neither can be trusted on arrival:
         #
-        # Silence past `size` is the one genuinely ambiguous case -- every byte
-        # arrived and nothing followed -- and `grace` is what bounds it.
-        def gave_up(b):
-            return b.rstrip(b"\r\n").endswith(TRUNCATED_MARKER)
-
+        # - image bytes can spell anything, so a notice found a thousand bytes
+        #   into a still-streaming frame is a coincidence, not a verdict;
+        # - and the notice is NOT reliably the last thing on the wire. The
+        #   device logs the same failure, on this same transport, and on a dev
+        #   build any other task can log at any moment. An earlier version of
+        #   this required the notice to end the buffer, which the firmware in
+        #   this very branch violated -- and a corrupt frame came back clean.
+        #
+        # So: END ends it immediately, and anything else waits for the device to
+        # stop talking. `grace` is that wait, armed once there is a reason to
+        # think the device is done and extended by every byte that follows.
+        # WHERE the terminator lands is the verdict, not whether it is present.
+        # END at or past `size` is a whole frame. END before it means the device
+        # called the frame finished early -- which is what every firmware before
+        # this one did on the release path, unconditionally, so a short frame
+        # arrived stamped complete. This tool has to read devices running those
+        # builds, so that case is diagnosed here and not only fixed there.
         grace = None
         while time.time() < deadline:
-            if len(buf) >= size and END_MARKER in buf[size:]:
-                break
-            if gave_up(buf):
+            if buf.find(END_MARKER) >= size:
                 break
             if grace is not None and time.time() > grace:
                 break
@@ -241,17 +274,33 @@ class SerialLink:
             chunk = self.s.read(8192)
             if chunk:
                 buf += chunk
-            if len(buf) >= size and (grace is None or len(buf) > before):
+            settled = len(buf) >= size or TRUNCATED_MARKER in buf or END_MARKER in buf
+            if settled and (grace is None or len(buf) > before):
                 grace = time.time() + 0.5
-        if not (len(buf) >= size and END_MARKER in buf[size:]) and gave_up(buf):
-            buf = buf[: buf.rfind(TRUNCATED_MARKER)]
-            truncated = True
+        end_at = buf.find(END_MARKER)
+        if end_at < size:
+            cut = buf.find(TRUNCATED_MARKER)
+            if cut >= 0:
+                why = "device reported it gave up"
+            elif end_at >= 0:
+                cut = end_at
+                why = "device ended the frame early"
+            if cut >= 0:
+                buf = buf[:cut]
+                # The device precedes the notice with one newline to break out
+                # of the binary stream. Dropping it keeps the reported byte
+                # count the true one rather than always one high.
+                if buf.endswith(b"\n"):
+                    buf = buf[:-1]
+                truncated = why
         if len(buf) < size:
             # The device says so itself now. Report ITS reason when it gave one:
             # "short read" alone cannot tell a wedged cable from a crashed
             # device, and that ambiguity is what cost a night.
-            why = "(device reported it gave up)" if truncated else ""
-            print(f"short read: {len(buf)}/{size} {why}".rstrip(), file=sys.stderr)
+            print(
+                f"short read: {len(buf)}/{size} {f'({truncated})' if truncated else ''}".rstrip(),
+                file=sys.stderr,
+            )
             return None
         return buf[:size]
 

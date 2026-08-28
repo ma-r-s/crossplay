@@ -33,6 +33,20 @@ jobs:
         with:
           submodules: recursive
 
+      # The tag and the version are two hand-edited facts that nothing forced to
+      # agree. A v1.6.4 tag pushed with platformio.ini still at 1.6.3 builds an
+      # image reporting the old version, publishes it under the new one, and
+      # every notes gate stays green because it reads the file, not the tag.
+      # First step, so it costs seconds rather than a full build.
+      - name: The tag must be the version being built
+        run: |
+          VERSION=$(awk '/^\[crossplay\]/{f=1;next} /^\[/{f=0} f && /^version *=/{print $3; exit}' platformio.ini)
+          if [ "${GITHUB_REF_NAME}" != "v${VERSION}" ]; then
+            echo "tag ${GITHUB_REF_NAME} does not match [crossplay] version ${VERSION}" >&2
+            exit 1
+          fi
+          echo "tag ${GITHUB_REF_NAME} matches [crossplay] version ${VERSION}"
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

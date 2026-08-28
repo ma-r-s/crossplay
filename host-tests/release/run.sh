@@ -31,6 +31,9 @@ checks=0
 failed=0
 ok()   { checks=$((checks + 1)); }
 bad()  { checks=$((checks + 1)); failed=$((failed + 1)); echo "FAIL release  $1"; }
+# LOUDLY, and it does NOT count as a check: a gate that did not run must not
+# scroll past looking like one that passed.
+skip() { echo "SKIP release  $1"; }
 
 for f in "$WF" "$PARSER" "$ROOT/README.md" "$ROOT/site/index.html"; do
   [ -f "$f" ] || { echo "FAIL release  missing $f"; exit 1; }
@@ -738,15 +741,49 @@ fi
 NOTES_VERSION="$(awk '/^\[crossplay\]/{f=1;next} /^\[/{f=0} f && /^version *=/{print $3; exit}' "$ROOT/platformio.ini")"
 if [ -z "$NOTES_VERSION" ]; then
   bad "could not read the crossplay version out of platformio.ini"
-# Escaped dots AND a boundary. Two attempts got this wrong: an unanchored grep
-# treats . as a wildcard, and a "not followed by a dot" guard still passed
-# "1.6.31" because what follows 1.6.3 there is a digit. The version must be the
-# whole number -- followed by end of line or by something that is not a digit
-# or a dot.
-elif grep -qE "What is new in $(printf '%s' "$NOTES_VERSION" | sed 's/\./\\./g')([^0-9.]|$)" "$WF"; then
-  ok
 else
-  bad "the release notes in $(basename "$WF") do not say \"What is new in $NOTES_VERSION\" -- they are the previous release's, and the tag will publish them"
+  # The notes block only, not the whole workflow. A cold reviewer defeated the
+  # file-wide version of this with a one-line YAML comment -- `# TODO: What is
+  # new in 1.6.4 -- write the notes` satisfied the gate while every bullet
+  # below it stayed the previous release's.
+  NOTES_BODY="$(awk '/^ *body: \|/{f=1;next} f && /^ *[a-z_-]+:/{f=0} f' "$WF")"
+  # Escaped dots AND a boundary. Two attempts got this wrong: an unanchored grep
+  # treats . as a wildcard, and a "not followed by a dot" guard still passed
+  # "1.6.31" because what follows 1.6.3 there is a digit. The version must be the
+  # whole number -- followed by end of line or by something that is not a digit
+  # or a dot.
+  ESCAPED="$(printf '%s' "$NOTES_VERSION" | sed 's/\./\\./g')"
+  if ! printf '%s' "$NOTES_BODY" | grep -qE "What is new in $ESCAPED([^0-9.]|$)"; then
+    bad "the release notes in $(basename "$WF") do not say \"What is new in $NOTES_VERSION\" -- they are the previous release's, and the tag will publish them"
+  else
+    ok
+  fi
+
+  # And the heading is not the notes. v1.6.2 shipped v1.6.1's text verbatim;
+  # renaming the heading and leaving the bullets is that same failure minus one
+  # line of editing, and the gate above cannot see it. Compare against what the
+  # previous tag actually published.
+  PREV_TAG="$(git -C "$ROOT" tag --list 'v*' --sort=-v:refname | head -1)"
+  if [ "$PREV_TAG" = "v$NOTES_VERSION" ]; then
+    # Nothing is pending: the version in platformio.ini is the one already
+    # tagged, so the notes SHOULD be that tag's. The comparison only means
+    # something between a bump and its tag.
+    skip "$NOTES_VERSION is already tagged; notes-freshness applies to a pending bump"
+  elif [ -z "$PREV_TAG" ]; then
+    skip "no previous tag to compare the notes against"
+  elif ! git -C "$ROOT" cat-file -e "$PREV_TAG:.github/workflows/crossplay-release.yml" 2>/dev/null; then
+    skip "$PREV_TAG has no release workflow to compare against"
+  else
+    PREV_BODY="$(git -C "$ROOT" show "$PREV_TAG:.github/workflows/crossplay-release.yml" |
+      awk '/^ *body: \|/{f=1;next} f && /^ *[a-z_-]+:/{f=0} f' |
+      grep -v 'What is new in')"
+    THIS_BODY="$(printf '%s' "$NOTES_BODY" | grep -v 'What is new in')"
+    if [ "$PREV_BODY" = "$THIS_BODY" ]; then
+      bad "the release notes are byte-identical to $PREV_TAG's below the heading -- only the version was renamed, and $NOTES_VERSION would publish that tag's text again"
+    else
+      ok
+    fi
+  fi
 fi
 
 echo "$checks checks, $failed failed"

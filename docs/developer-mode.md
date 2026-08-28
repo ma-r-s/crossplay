@@ -197,6 +197,20 @@ uv run --with pillow tools_local/device/drive.py --ip 192.168.68.78 \
   open, so a device discarding every byte reports `short=0 zero=0 timeouts=0`,
   byte-identical to a healthy idle one.
 
+  **Those two fields mean nothing on the Sticky.** Its `serialTransport()` is
+  `Serial0`, a UART behind a WCH bridge, while `HWCDC::isPlugged()` reports the
+  USB-Serial-JTAG peripheral the log does not use, and a `HardwareSerial` is
+  always truthy. Read them on the X4 Pro; ignore them on the Sticky. The
+  counters themselves are honest on both.
+
+  `logDrops` is not an error count. Serial logging is deliberately lossy now: a
+  line that does not fit the 256-byte ring at the instant it is written is
+  dropped rather than waited on, because waiting is what took the cable down in
+  the first place. Under a burst -- boot at `LOG_LEVEL=2` especially -- expect
+  to lose lines on a perfectly healthy device. The RTC ring behind
+  `/api/dev/log` still receives every line, but it is only sixteen deep, so
+  neither channel is a complete transcript.
+
   It exists over Wi-Fi because the question it answers -- what did the cable do
   -- is unaskable over the cable once the cable is the thing that stopped
   answering, and the RTC log ring is only sixteen lines. A dev build, unlike the

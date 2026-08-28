@@ -656,11 +656,22 @@ void loop() {
         const uint32_t bufferSize = display.getBufferSize();
         const uint8_t* buf = display.getFrameBuffer();
         if (buf != nullptr) {
+#if !defined(SIMULATOR)
+          // The header is a write like any other, and printf does one write()
+          // and discards the result -- so a header emitted while the tail of
+          // the boot log still shares the ring goes out short, and the host
+          // parses a truncated digit string as the frame length. Wait for room
+          // first, briefly.
+          for (unsigned long t = millis(); logSerial.availableForWrite() < 32 && millis() - t < 1000;) {
+            delay(2);
+          }
+#endif
           logSerial.printf("SCREENSHOT_START:%d\n", bufferSize);
 #if defined(SIMULATOR)
           // The simulator's HWCDC shim has none of this to worry about:
           // stderr, no ring, and no availableForWrite() to ask.
           logSerial.write(buf, bufferSize);
+          logSerial.printf("SCREENSHOT_END\n");
 #else
           uint32_t sent = 0;
           const unsigned long deadline = millis() + 5000;
@@ -679,8 +690,16 @@ void loop() {
             }
             sent += n;
           }
+          // Only when every byte went. The loop above can exit on its
+          // deadline with sent < bufferSize, and printing the terminator
+          // anyway tells the host a short frame is a whole one -- which it
+          // then saves with this very text written over the image tail.
+          if (sent == bufferSize) {
+            logSerial.printf("SCREENSHOT_END\n");
+          } else {
+            logSerial.printf("\nERR SCREENSHOT truncated\n");
+          }
 #endif
-          logSerial.printf("SCREENSHOT_END\n");
         } else {
           // Say so. Silence here is indistinguishable at the host from a wedged
           // cable, and it costs the caller the full 30s screenshot timeout to

@@ -12,6 +12,7 @@
 #include <SPI.h>
 #include <SdFat.h>
 #include <driver/gpio.h>
+#include <esp_mac.h>
 
 #include <cstdlib>
 #include <cstring>
@@ -192,10 +193,19 @@ void formatTxStats(char* out, const size_t len) {
   // discarding every byte reports short=0 zero=0 timeouts=0, byte-identical to
   // a healthy idle one. An all-zero line was once quoted as proof this route
   // worked; it proved only that the route answered.
+  // The MAC, from efuse rather than from WiFi: it has to answer while the
+  // radio is off, which is exactly the case a device in a link match is in.
+  // Over the cable this is redundant with ioreg, but over Wi-Fi it is the only
+  // way to tell two identical desk units apart -- and identifying the unit
+  // immediately before writing to it is the standing rule here.
+  uint8_t mac[6] = {0};
+  esp_read_mac(mac, ESP_MAC_WIFI_STA);
   snprintf(out, len,
-           "plugged=%d connected=%d short=%u zero=%u retryMs=%u worstStallMsLifetime=%u timeouts=%u logDrops=%u",
-           HWCDC::isPlugged() ? 1 : 0, static_cast<bool>(transport()) ? 1 : 0, txStats.shortWrites, txStats.zeroWrites,
-           txStats.retryMs, txStats.worstStallMs, txStats.timeouts, getDroppedLogLines());
+           "mac=%02x:%02x:%02x:%02x:%02x:%02x plugged=%d connected=%d short=%u zero=%u retryMs=%u "
+           "worstStallMsLifetime=%u timeouts=%u logDrops=%u",
+           mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], HWCDC::isPlugged() ? 1 : 0,
+           static_cast<bool>(transport()) ? 1 : 0, txStats.shortWrites, txStats.zeroWrites, txStats.retryMs,
+           txStats.worstStallMs, txStats.timeouts, getDroppedLogLines());
 }
 
 void handleLine(const char* line) {
@@ -210,7 +220,7 @@ void handleLine(const char* line) {
   }
 
   if (strcmp(cmd, "CDCSTAT") == 0) {
-    char stats[192];
+    char stats[256];
     formatTxStats(stats, sizeof(stats));
     transport().printf("OK CDCSTAT %s\n", stats);
     return;
@@ -252,10 +262,19 @@ void handleLine(const char* line) {
   if (strncmp(cmd, "LS", 2) == 0 && (cmd[2] == '\0' || cmd[2] == ' ')) {
     const char* path = cmd[2] == ' ' ? cmd + 3 : "/";
     const auto files = Storage.listFiles(path, 200);
+    // Paced. 200 names is several KB through a 256-byte ring, and an unpaced
+    // run of it is a larger overrun than the screenshot ever was.
     for (const auto& f : files) {
-      transport().printf("  %s\n", f.c_str());
+      char row[288];
+      snprintf(row, sizeof(row), "  %s\n", f.c_str());
+      if (!writeLine(row, 1000)) {
+        writeLine("\nERR LS truncated\n", 1000);
+        return;
+      }
     }
-    transport().printf("OK LS %s %u entries\n", path, static_cast<unsigned>(files.size()));
+    char tail[160];
+    snprintf(tail, sizeof(tail), "OK LS %s %u entries\n", path, static_cast<unsigned>(files.size()));
+    writeLine(tail, 1000);
     return;
   }
 
@@ -308,9 +327,36 @@ void handleLine(const char* line) {
       transport().printf("ERR CAT no such file: %s\n", path);
       return;
     }
-    transport().printf("CAT_START %s\n", path);
-    Storage.readFileToStream(path, transport());
-    transport().printf("\nOK CAT %s\n", path);
+    HalFile file;
+    if (!Storage.openFileForRead("DEVBRIDGE", path, file)) {
+      transport().printf("ERR CAT cannot open: %s\n", path);
+      return;
+    }
+    char head[160];
+    snprintf(head, sizeof(head), "CAT_START %s\n", path);
+    writeLine(head, 1000);
+    // Paced, rather than SDCardManager::readFileToStream. That helper pushes
+    // 256-byte chunks into a 256-byte ring in a tight loop and ignores every
+    // return value, so any file past the first chunk drives HWCDC::write into
+    // its blocking path with tries = tx_timeout_ms = 1. One millisecond without
+    // drain progress and the connection flag goes down and the ring is thrown
+    // away -- the wedge, reached by a single CAT of an ordinary file.
+    uint8_t chunk[512];
+    bool complete = true;
+    for (int n = file.read(chunk, sizeof(chunk)); n > 0; n = file.read(chunk, sizeof(chunk))) {
+      if (!writeAll(chunk, static_cast<size_t>(n), 5000)) {
+        complete = false;
+        break;
+      }
+    }
+    if (!complete) {
+      LOG_ERR("DEVBRIDGE", "cat truncated: %s", path);
+      writeLine("\nERR CAT truncated\n", 1000);
+      return;
+    }
+    char tail[160];
+    snprintf(tail, sizeof(tail), "\nOK CAT %s\n", path);
+    writeLine(tail, 1000);
     return;
   }
 
@@ -374,7 +420,13 @@ void handleLine(const char* line) {
       return;
     }
     const TxStats before = txStats;
-    transport().printf("SCREENSHOT_START:%u\n", bufferSize);
+    // Paced like everything else. Print::vprintf does ONE write() and throws
+    // the result away, so a header written while the boot log still shares the
+    // ring goes out short -- and the host then parses a truncated digit string
+    // as the frame length.
+    char head[48];
+    snprintf(head, sizeof(head), "SCREENSHOT_START:%u\n", bufferSize);
+    writeLine(head, 1000);
     // One call. The old 512-byte chunking with a blind delay(3) was standing in
     // for flow control; writeAll paces itself off availableForWrite(), which is
     // the real thing, and is both faster when the ring is empty and correct
@@ -397,18 +449,20 @@ void handleLine(const char* line) {
     // the payload, so ordering holds. flush() only answers "has it left yet",
     // which no caller asks, at the price of the connection flag.
     if (!complete) {
-      // Say it on the wire AND in the log. The host is about to see a short
-      // read; without this it cannot tell a wedged cable from a crashed device,
-      // and that ambiguity cost two sessions a night.
-      writeLine("\nERR SCREENSHOT truncated\n", 1000);
+      // Say it in the log FIRST, then on the wire. LOG_ERR writes to this same
+      // transport, so emitting it after the notice puts a log line behind the
+      // marker -- and the host's rule is that the notice is the last thing the
+      // device said, because image bytes can spell anything. Getting this
+      // backwards let a corrupt frame through as a good one.
       LOG_ERR("DEVBRIDGE", "screenshot truncated: short=%u zero=%u worstStallMsLifetime=%ums",
               static_cast<unsigned>(txStats.shortWrites - before.shortWrites),
               static_cast<unsigned>(txStats.zeroWrites - before.zeroWrites),
               static_cast<unsigned>(txStats.worstStallMs));
+      writeLine("\nERR SCREENSHOT truncated\n", 1000);
       return;
     }
     writeLine("SCREENSHOT_END\n", 1000);
-    transport().printf("OK SCREENSHOT %u short=%u zero=%u stallLifetime=%ums\n", bufferSize,
+    transport().printf("OK SCREENSHOT %u short=%u zero=%u worstStallMsLifetime=%ums\n", bufferSize,
                        static_cast<unsigned>(txStats.shortWrites - before.shortWrites),
                        static_cast<unsigned>(txStats.zeroWrites - before.zeroWrites),
                        static_cast<unsigned>(txStats.worstStallMs));

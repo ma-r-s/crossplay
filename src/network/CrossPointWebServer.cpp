@@ -2255,7 +2255,10 @@ void CrossPointWebServer::handleDevInput() {
 // ask a device with a dead cable what its cable did.
 void CrossPointWebServer::handleDevSerial() {
   if (!devAuthorised()) return;
-  char line[128];
+  // 256: eight uint32 counters at their widest already ran to 145 characters,
+  // so 128 truncated silently -- snprintf is safe, but the line it produced was
+  // not the line it claimed to be.
+  char line[256];
   devbridge::txStatsLine(line, sizeof(line));
   server->send(200, "text/plain", String(line) + "\n");
 }
