@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "../../DevMode.h"
 #include "../../SilentRestart.h"
 #include "../../activities/ActivityManager.h"
 #include "../../activities/network/WifiSelectionActivity.h"
@@ -129,9 +130,11 @@ void ConnectionsActivity::onExit() {
   if (view == View::Board && puzzleIndex >= 0) saveProgress();
   closePack();
   Activity::onExit();
-  if (wifiActivated) {
+  if (wifiActivated && !devmode::holdsRadio()) {
     // Same teardown every wifi user in this firmware performs: drop the radio,
     // then restart to clear the heap fragmentation a TLS session leaves behind.
+    // Skipped when Developer Mode holds the radio -- wifiActivated says this app
+    // wanted Wi-Fi, not that it was the one who switched it on.
     WiFi.disconnect(false);
     esp_wifi_stop();
     delay(30);

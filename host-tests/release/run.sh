@@ -390,5 +390,335 @@ while IFS= read -r path; do
   fi
 done < <(grep -rl 'WiFi.getMode() != WIFI_MODE_NULL' "$ROOT/src" 2>/dev/null | sort)
 
+# Lines that are not comments. Check 9 strips them for the reason its comment
+# gives ("Prose about the rule is not the rule"); checks 10 to 12 need the same
+# thing, because a file that only MENTIONS devmode:: in a comment explaining why
+# it does not need to yield was passing every one of them.
+code_lines() {
+  # Comment-stripped source. A character scanner, because four cheaper versions
+  # were each walked around in turn: same-line /* */ only; leading-/* only;
+  # blind to string literals (a `/*` in a string latched the block state to end
+  # of file, and since radio_takers() filters candidates THROUGH this, the file
+  # left the check set entirely); and then blind to CHAR literals, where '"'
+  # opened a string that swallowed the rest of the line -- a strict regression,
+  # because the version before it caught that case.
+  #
+  # A quote straight after an alphanumeric is a C++ DIGIT SEPARATOR, not a char
+  # literal -- see the prev check below. Reading 0x70B0.0001 as a literal opened
+  # one that swallowed the rest of the line, comment and all, and 13 files in
+  # this tree use separators. That rule is safe here only because no L or u8
+  # prefixed char literal exists in the tree; if one appears, revisit it.
+  #
+  # Known limits, stated rather than pretended away, because one version quietly
+  # dropped this paragraph while ADDING a limit, and another claimed separators
+  # did not appear here when they appear 13 times:
+  #   - a raw string spanning lines will latch the block state (none in tree);
+  #   - a prefixed char literal would be read as a separator (none in tree).
+  # Both would show up the same way: the check COUNT stops moving. That is the
+  # tell, every time, which is what the canaries above are for.
+  awk '
+    {
+      line = $0; out = ""; i = 1; n = length(line); prev = ""
+      while (i <= n) {
+        c = substr(line, i, 1); d = substr(line, i, 2)
+        if (inblock) { if (d == "*/") { inblock = 0; i += 2 } else { i++ } continue }
+        if (instr || inchar) {
+          if (c == "\\") { out = out substr(line, i, 2); i += 2; continue }
+          out = out c; prev = c; i++
+          if (instr && c == "\"") instr = 0
+          if (inchar && c == "'"'"'") inchar = 0
+          continue
+        }
+        if (d == "//") break
+        if (d == "/*") { inblock = 1; i += 2; continue }
+        if (c == "\"") { instr = 1; out = out c; i++; prev = c; continue }
+        if (c == "'"'"'" && prev !~ /[0-9A-Za-z_]/) { inchar = 1; out = out c; i++; prev = c; continue }
+        out = out c; prev = c; i++
+      }
+      instr = 0; inchar = 0; prev = ""
+      print out
+    }' "$1"
+}
+
+# Counts matches on non-comment lines. A COUNT rather than `code_lines | grep -q`
+# because this file runs under `set -o pipefail`: grep -q exits on its first
+# match, SIGPIPEs code_lines mid-write, and pipefail then reports the whole
+# pipeline as failed -- so a large file whose match came early read as "no match"
+# while a small one passed. That cost an hour and looked like a sed bug.
+count_code() { code_lines "$1" | grep -c "$2"; }
+
+# Files that put the radio out of service, in CODE rather than in prose.
+#
+# A function, NOT an inline `done < <(for ...)`: the pattern contains escaped
+# parens, and bash could not find the closing paren of the process substitution.
+# It failed with "bad substitution", the while-loop read nothing, and check 10
+# reported green while examining ZERO files -- a check that did not run looks
+# exactly like a check that passed.
+RADIO_TAKERS_RE='esp_wifi_set_channel\(|esp_wifi_set_mode\(|esp_wifi_stop\(|esp_wifi_deinit\(|WiFi\.scanNetworks\(|WiFi\.softAP\(|WiFi\.softAPConfig\(|WiFi\.enableAP\(|WiFi\.AP\.begin\(|WiFi\.STA\.end\(|esp_now_init\(|WiFi\.mode\(WIFI_OFF\)|WiFi\.mode\(WIFI_MODE_NULL\)|WiFi\.mode\(WIFI_AP\)|WiFi\.mode\(WIFI_AP_STA\)'
+radio_takers() {
+  local f
+  grep -rlE "$RADIO_TAKERS_RE" "$ROOT/src" "$ROOT/lib" 2>/dev/null | sort | while IFS= read -r f; do
+    # A header that merely NAMES esp_wifi_stop() in a comment about somebody
+    # else's teardown is not taking the radio.
+    if [ "$(code_lines "$f" | grep -cE "$RADIO_TAKERS_RE")" -gt 0 ]; then echo "$f"; fi
+  done
+}
+
+# -- 10. taking the radio out of service means yielding Developer Mode --------
+#
+# Check 9 is about READING who owns the radio. This is about TAKING it.
+#
+# These operations leave the radio unusable to anyone else, because they end the
+# AP association rather than merely closing a socket on top of it: the channel
+# and mode setters -- including the spellings that are the same thing under a
+# different name, since WIFI_MODE_NULL is WIFI_OFF and WIFI_AP_STA is an AP --
+# softAP(), which raises an AP without ever naming a mode, esp_now_init(),
+# scanNetworks(), which walks off the channel for seconds at a time, and
+# esp_wifi_stop(), which is the least ambiguous of the lot -- the radio is off
+# for everyone, and it desyncs the Arduino core's own _esp_wifi_started besides.
+#
+# WiFi.disconnect( is deliberately NOT here: a self-owned teardown is a
+# legitimate use of it, and four files use it that way behind their own
+# ownership flag. Two of those flags are not real ownership; see Known limits in
+# docs/developer-mode.md.
+#
+# lib/ is scanned as well as src/. LinkRadio's own comment warns that the
+# FreeInk SDK ships NearbyTransfer, an ESP-NOW library, and that "whichever
+# registered last silently wins": an SDK file adopting it is precisely the
+# violation this exists for, and it would never live under src/.
+#
+# Developer Mode cannot detect any of them. Its own "is somebody else using
+# this?" test is `WiFi.status() == WL_CONNECTED`, so an owner that never
+# associates -- ESP-NOW, exactly -- is invisible to it, and it responds by
+# rejoining the AP kMinBackoffMs later and dragging the radio back to the
+# router channel.
+#
+# That shipped. Link multiplayer paired, played one move, and lost the peer ten
+# seconds afterwards, on two devices sitting next to each other, because
+# LinkRadio pinned channel 1 while dev mode pulled the radio to channel 9. The
+# 5s backoff is the reason the FIRST move always landed: it is the width of the
+# window before dev mode noticed.
+#
+# The rule: a file that can put the radio out of service must reason about
+# Developer Mode somewhere -- pause() it, or ask holdsRadio(). That is a coarse
+# bar deliberately; it does not try to prove the reasoning is right, only that
+# it happened. A new file that does none of it is the case this exists to catch.
+#
+# DISCOVERED, not listed, for the reason spelled out in check 9.
+#
+# FIRST, the canaries. Three times on this branch a check stopped examining
+# files and went on reporting green -- a broken process substitution, then two
+# generations of comment scanner that swallowed whole files. Every time the only
+# tell was the check COUNT not moving, and every time a human noticed rather
+# than the suite.
+#
+# A COUNT floor was the obvious guard and it is worthless: measured against all
+# four broken scanner generations, the taker count stayed at 7 for every one of
+# them, so it caught none of the bugs it was written for. Worse, its slack was
+# one file, and the affordable one was LinkRadio.cpp -- the subject of this
+# entire branch could leave the check set with the floor still green. And
+# consolidating two teardowns into a helper would have failed it for no reason.
+#
+# So: name the files that MUST be discovered. This is not the hardcoded list
+# check 9 condemns -- that one REPLACED the discovery, this one WATCHES it. If a
+# named file stops taking the radio, that is a deliberate change and this list
+# is the right place to notice it.
+# Captured ONCE, and matched with `case`, not `radio_takers | grep -q`: this
+# file runs under pipefail, and grep -q exits on its first match, SIGPIPEs the
+# producer and reports the pipeline as failed. That trap is documented forty
+# lines above and I walked straight into it writing this.
+discovered_takers="$(radio_takers)"
+for must in "src/apps_local/link/LinkRadio.cpp" \
+            "src/activities/network/WifiSelectionActivity.cpp" \
+            "src/activities/network/CrossPointWebServerActivity.cpp"; do
+  case "
+$discovered_takers" in
+    *"
+$ROOT/$must"*) ok ;;
+    *) bad "check 10's discovery lost $must -- the DISCOVERY is broken, or that file genuinely stopped taking the radio and this list needs updating" ;;
+  esac
+done
+
+while IFS= read -r path; do
+  rel="${path#$ROOT/}"
+  # DevMode.cpp is Developer Mode. Asking it to consult itself is circular, and
+  # exempting it by name is honest in a way that a silent skip would not be.
+  [ "$rel" = "src/DevMode.cpp" ] && continue
+  if [ "$(count_code "$path" 'devmode::')" -gt 0 ]; then
+    ok
+  else
+    bad "$rel takes the radio out of service without ever mentioning devmode:: -- it will cut Developer Mode off, or be cut off by it mid-use"
+  fi
+done < <(radio_takers)
+
+# -- 11. every pause() has its resume(), in the same file --------------------
+#
+# Check 10 only proves a file says the word. This proves the pairing. Both ways
+# of getting it wrong are live bugs: pause with no resume strands Developer Mode
+# off the network until a reboot, and resume with no pause is the shipped
+# behaviour that broke link multiplayer.
+#
+# Same file, because these are acquire/release around one owner's lifetime --
+# LinkRadio begin()/end(), an activity's onEnter()/onExit(). A pause handed to
+# another file to release is not a pattern here and should not become one
+# quietly.
+#
+# The count has to match, not merely be non-zero. yieldDepth is a counter
+# precisely so the holders can nest (the web screen yields, then opens the
+# Wi-Fi picker, which yields again), and a counter is what makes an unbalanced
+# pair leak instead of fail loudly.
+#
+# The input set is files with EITHER call. A file carrying only a resume() is
+# the more dangerous half -- it releases a yield it never took, dropping the
+# count out from under a holder that still has the ports -- and keying the
+# search on pause() alone put exactly that case beyond this check's reach.
+#
+# WHAT THIS CANNOT SEE, said plainly: it counts source lines, not calls, and it
+# cannot see REACHABILITY at all. An onExit() with an early `return` above its
+# resume(), or a resume() behind an `if`, reads 1:1 here and still strands
+# Developer Mode until a reboot.
+# LinkRadio.cpp reads 1:1 here while end() runs three times per match, and what
+# actually makes that pairing correct at runtime is the held_ flag, not this
+# check. A grep cannot count calls. Do not read a pass as proof of balance.
+while IFS= read -r path; do
+  rel="${path#$ROOT/}"
+  p_count="$(count_code "$path" 'devmode::pause()')"
+  r_count="$(count_code "$path" 'devmode::resume()')"
+  if [ "$p_count" = "$r_count" ]; then
+    ok
+  else
+    bad "$rel calls devmode::pause() $p_count time(s) but devmode::resume() $r_count time(s) -- Developer Mode is left yielded or released early"
+  fi
+done < <(grep -rlE 'devmode::(pause|resume)\(\)' "$ROOT/src" "$ROOT/lib" 2>/dev/null | sort)
+
+# The same canary, for the same reason: a file swallowed by the scanner reads
+# 0 pauses against 0 resumes here, which compare EQUAL and report ok.
+yielders="$(grep -rlE 'devmode::(pause|resume)\(\)' "$ROOT/src" "$ROOT/lib" 2>/dev/null | sort)"
+for must in "src/apps_local/link/LinkRadio.cpp" \
+            "src/activities/network/WifiSelectionActivity.cpp" \
+            "src/activities/network/CrossPointWebServerActivity.cpp"; do
+  case "
+$yielders" in
+    *"
+$ROOT/$must"*) ok ;;
+    *) bad "check 11 no longer sees $must yielding at all" ;;
+  esac
+  if [ "$(count_code "$ROOT/$must" 'devmode::pause()')" -gt 0 ]; then
+    ok
+  else
+    bad "check 11 reads zero pause() calls in $must -- 0 == 0 would report balanced"
+  fi
+done
+
+# -- 12. the input vocabulary has exactly one implementation ------------------
+#
+# lib/DevInput/DevInputCommands.cpp exists so the serial bridge and Developer
+# Mode's /api/dev/input cannot drift: a device that answers TAP down a cable but
+# not over Wi-Fi, or takes the arguments in a different order on each, is a trap
+# that only springs while somebody is already debugging something else.
+#
+# Nothing enforced that. host-tests/devinput exercises the shared core with a
+# stub injector and neither transport in the build, so it proves the core
+# behaves and says nothing about who calls it. This is the other half: schedule
+# onto the injector from anywhere else and you have started a second dialect.
+while IFS= read -r path; do
+  rel="${path#$ROOT/}"
+  if [ "$rel" = "lib/DevInput/DevInputCommands.cpp" ]; then
+    ok
+  else
+    bad "$rel schedules input directly instead of going through devinput::runCommand() -- that is a second vocabulary"
+  fi
+done < <(grep -rlE 'devinput::(tap|longPress|swipe|button)\(' "$ROOT/src" "$ROOT/lib" 2>/dev/null | sort |
+  while IFS= read -r f; do
+    # In code, not in prose: a comment naming devinput::tap() is not a caller.
+    if [ "$(code_lines "$f" | grep -cE 'devinput::(tap|longPress|swipe|button)\(')" -gt 0 ]; then echo "$f"; fi
+  done)
+
+# The shared unit must still be visible to the scanner at all: swallowed, it
+# emits zero checks here and the whole rule evaporates.
+if [ "$(count_code "$ROOT/lib/DevInput/DevInputCommands.cpp" 'devinput::tap(')" -gt 0 ]; then
+  ok
+else
+  bad "check 12 cannot see lib/DevInput/DevInputCommands.cpp scheduling input -- the scanner swallowed it"
+fi
+
+# And both transports must actually route through it, or the shared unit is just
+# an unused library that happens to compile.
+#
+# This half is a REGRESSION GUARD over the two transports that exist, not a
+# discovery: a third one that hand-rolls a parser is caught by the loop above
+# instead, because it would have to schedule onto the injector to do anything.
+# What neither half catches is a caller inside `namespace devinput` calling
+# tap() unqualified.
+for caller in "src/DevSerialBridge.cpp" "src/network/CrossPointWebServer.cpp"; do
+  if [ "$(count_code "$ROOT/$caller" 'devinput::runCommand(')" -gt 0 ]; then
+    ok
+  else
+    bad "$caller does not call devinput::runCommand() -- it has its own input parsing again"
+  fi
+done
+
+# -- 13. the comment scanner itself, against a fixture ------------------------
+#
+# Four generations of code_lines() have each been walked around, and each was
+# found by a person reading it rather than by anything here. That is the wrong
+# way round: the scanner decides which files checks 10 to 12 even look at, so a
+# hole in it silences them without failing anything.
+#
+# So it gets a fixture with every shape that has caught it out, and the
+# assertions are on MEANING -- "the word inside this comment is gone", "the code
+# either side of it survived" -- rather than on exact output, so reformatting
+# the scanner does not rewrite the test.
+scanner_fixture="$(mktemp)"
+trap 'rm -f "$scanner_fixture"' EXIT  # as host-tests/checksh does
+cat > "$scanner_fixture" <<'FIXTURE'
+int keepA(); // GONE_LINE_COMMENT
+int keepB(); /* GONE_SAME_LINE */ int keepC();
+int keepD(); /* GONE_TRAILING_OPEN
+   GONE_BLOCK_BODY
+   */ int keepE();
+const char* u = "http://KEEP_IN_STRING";
+const char* k = "/*KEEP_STAR_IN_STRING";
+int keepF();
+void f(char c) { if (c == '"') keepG(); } // GONE_AFTER_CHAR_LITERAL
+char esc = '\''; int keepH(); // GONE_AFTER_ESCAPED_QUOTE
+constexpr int keepI = 0x70B0'0001; // GONE_AFTER_DIGIT_SEPARATOR
+FIXTURE
+scanner_raw="$(cat "$scanner_fixture")"
+scanner_out="$(code_lines "$scanner_fixture")"
+rm -f "$scanner_fixture"
+
+scanner_ok=1
+scanner_why=""
+# Every token must actually BE in the fixture. A GONE_ token that is missing --
+# a typo, or a line edit that did not land -- would otherwise pass trivially,
+# because absence is exactly what the assertion below wants. This test asserted
+# nothing at all for one commit for precisely that reason.
+for token in GONE_LINE_COMMENT GONE_SAME_LINE GONE_TRAILING_OPEN GONE_BLOCK_BODY GONE_AFTER_CHAR_LITERAL \
+             GONE_AFTER_ESCAPED_QUOTE GONE_AFTER_DIGIT_SEPARATOR KEEP_IN_STRING KEEP_STAR_IN_STRING; do
+  case "$scanner_raw" in
+    *"$token"*) ;;
+    *) scanner_ok=0; scanner_why="$scanner_why absent-from-fixture:$token" ;;
+  esac
+done
+# Everything named GONE_ must be stripped; everything named keep must survive.
+for token in GONE_LINE_COMMENT GONE_SAME_LINE GONE_TRAILING_OPEN GONE_BLOCK_BODY GONE_AFTER_CHAR_LITERAL \
+             GONE_AFTER_ESCAPED_QUOTE GONE_AFTER_DIGIT_SEPARATOR; do
+  case "$scanner_out" in
+    *"$token"*) scanner_ok=0; scanner_why="$scanner_why kept:$token" ;;
+  esac
+done
+for token in keepA keepB keepC keepD keepE keepF keepG keepH keepI KEEP_IN_STRING KEEP_STAR_IN_STRING; do
+  case "$scanner_out" in
+    *"$token"*) ;;
+    *) scanner_ok=0; scanner_why="$scanner_why lost:$token" ;;
+  esac
+done
+if [ "$scanner_ok" -eq 1 ]; then
+  ok
+else
+  bad "code_lines mishandled the fixture --$scanner_why"
+fi
+
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]
