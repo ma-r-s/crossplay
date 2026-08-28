@@ -344,36 +344,51 @@ else
   bad "no on-device screen renders the pairing code; Developer Mode cannot be paired without a serial cable"
 fi
 
-# -- 9. nothing reboots the device to tear down a radio it does not own --------
+# -- 9. `WiFi.getMode()` is never the only test of who owns the radio ----------
 #
-# Five activities used `WiFi.getMode() != WIFI_MODE_NULL` as shorthand for "did
-# I turn Wi-Fi on?" and answered yes by calling silentRestart(). That held while
-# nothing else ever owned the radio -- LinkRadio.cpp still carries a comment
-# saying exactly that -- and stopped holding the moment Developer Mode kept it
-# up for as long as its toggle is on. Without the devmode::holdsRadio() guard,
-# closing the OPDS browser or the font downloader reboots the reader mid-use,
-# which reads as a crash rather than as a feature interacting badly.
-for f in src/apps_local/hackernews/HackerNewsActivity.cpp \
-  src/activities/settings/OtaUpdateActivity.cpp \
-  src/activities/browser/OpdsBookBrowserActivity.cpp \
-  src/activities/settings/FontDownloadActivity.cpp \
-  src/activities/network/CrossPointWebServerActivity.cpp; do
-  path="$ROOT/$f"
-  if [ ! -f "$path" ]; then
-    bad "missing $f"
-    continue
-  fi
-  # Only interesting if this file still reboots to tear the radio down.
-  if ! grep -q 'silentRestart()' "$path"; then
+# Files here tear the radio down on exit -- disconnect, then silentRestart() to
+# clear the fragmentation a TLS session leaves. They used to decide whether to
+# do that from `WiFi.getMode() != WIFI_MODE_NULL`, which answers "somebody has
+# the radio", not "I do". That was true enough while nothing else ever held it:
+# LinkRadio.cpp still carries a comment saying exactly that. Developer Mode
+# holds it for as long as its toggle is on, so a bare getMode() check now means
+# every one of these tears down a connection it did not raise.
+#
+# The rule: that expression must never stand alone. Either the file tracks its
+# own ownership (`wifiActivated && WiFi.getMode() ...`, which several already
+# did and which is the better pattern) or it asks devmode::holdsRadio().
+#
+# DISCOVERED, not listed. An earlier version of this check walked a hardcoded
+# five-file list while its commit message claimed it caught any such file --
+# which meant six more files carried the bug and the suite reported green. A
+# test that cannot find a new violation is not testing the rule, it is
+# restating the fix.
+while IFS= read -r path; do
+  rel="${path#$ROOT/}"
+  # Every occurrence in the file has to be qualified, not just one.
+  unqualified=0
+  while IFS= read -r line; do
+    # Prose about the rule is not the rule. DevMode.h explains this very check
+    # in a comment, and an earlier version of this test failed on it.
+    trimmed="$(printf '%s' "$line" | sed 's/^[[:space:]]*//')"
+    case "$trimmed" in
+      '//'*|'*'*|'/*'*) continue ;;
+    esac
+    # A second condition on the same line is the file vouching for itself.
+    case "$line" in
+      *"&&"*) continue ;;
+    esac
+    unqualified=1
+  done < <(grep -F 'WiFi.getMode() != WIFI_MODE_NULL' "$path")
+
+  if [ "$unqualified" -eq 0 ]; then
     ok
-    continue
-  fi
-  if grep -q 'devmode::holdsRadio()' "$path"; then
+  elif grep -q 'devmode::holdsRadio()' "$path"; then
     ok
   else
-    bad "$(basename "$f") reboots to tear down Wi-Fi without asking devmode::holdsRadio() -- it will restart the device whenever Developer Mode is on"
+    bad "$rel decides who owns the radio from WiFi.getMode() alone -- it will tear down Developer Mode's connection"
   fi
-done
+done < <(grep -rl 'WiFi.getMode() != WIFI_MODE_NULL' "$ROOT/src" 2>/dev/null | sort)
 
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]

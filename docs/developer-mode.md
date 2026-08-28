@@ -122,13 +122,20 @@ corrupt ring is reported as `logsValid: false` rather than shown as empty --
 
 ## Known limits
 
-- **One cached token.** `wifi-flash.sh` keeps a single token in
-  `~/.crossplay-devtoken`, so with two devices you re-pair when you switch.
-- **The radio is not arbitrated.** Developer Mode will not take a radio already
-  in use, only puts down a connection it made itself, and the five activities
-  that used to reboot on exit now ask `devmode::holdsRadio()` first. But there
-  is no real ownership protocol; `LinkRadio`'s "only one thing on the device may
-  own the radio at a time" is still managed by convention.
+- **One cached token and code**, in `~/.crossplay-devtoken` and
+  `~/.crossplay-devcode`. With two devices you re-pair when you switch between
+  them.
+- **The radio is still not arbitrated.** Developer Mode will not take a radio
+  already in use, only puts down a connection it raised, and every file that
+  tears the radio down now either asks `devmode::holdsRadio()` or tracks its own
+  ownership -- enforced by `host-tests/release`, which discovers those files
+  rather than listing them. But there is no ownership protocol; `LinkRadio`'s
+  "only one thing on the device may own the radio at a time" is still managed by
+  convention, and link multiplayer with Developer Mode on is untested.
+- **The unauthenticated web UI can still overwrite
+  `/.crosspoint/settings.json`** by basename, which is another route to enabling
+  Developer Mode. It predates this feature and is not caused by it, but this
+  feature is what makes it worth more.
 - **No remote input or screenshots yet.** The serial bridge already has
   TAP/SWIPE/BTN and SCREENSHOT; exposing them over this transport is the obvious
   next step and is not built.

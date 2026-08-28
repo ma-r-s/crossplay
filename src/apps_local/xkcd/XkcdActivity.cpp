@@ -1,3 +1,4 @@
+#include "DevMode.h"
 #include "XkcdActivity.h"
 
 #include <HalStorage.h>
@@ -123,7 +124,10 @@ void XkcdActivity::onExit() {
   // The radio has to come down before the activity does, the same way the
   // Hacker News app does it; skipping silentRestart leaves the next app on a
   // warm radio.
-  if (WiFi.getMode() != WIFI_MODE_NULL) {
+  // Not ours to drop if Developer Mode raised it. Every other wifi user here
+  // either tracks its own ownership flag or asks this; a bare getMode() check
+  // means "somebody has the radio", not "I do".
+  if (WiFi.getMode() != WIFI_MODE_NULL && !devmode::holdsRadio()) {
     WiFi.disconnect(false);
     delay(30);
     silentRestart();
