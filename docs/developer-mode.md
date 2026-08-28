@@ -83,7 +83,26 @@ after the sleep timeout is not one.
 that anything changed. That is correct -- switching Developer Mode off should
 leave an ordinary reader -- and it is completely indistinguishable from the
 outside from a unit that has gone to sleep, lost its network, or been powered
-down. All four give the same silence: no HTTP, no discovery answer, nothing.
+down. All four give the same silence ON THE NETWORK: no HTTP, no discovery
+answer, nothing.
+
+**Over USB they are not the same, and that is the tell.** Measured 2026-08-28
+with one of each on the desk at once:
+
+| symptom | meaning |
+|---|---|
+| no `/dev/cu.usbmodem*` at all | asleep, or unplugged |
+| port present, serial silent, **Wi-Fi answering** | the CABLE is wedged; the device is fine |
+| port present, serial silent, Wi-Fi silent too | wedged AND off-network (a match, or a screen holding the radio) |
+
+So check Wi-Fi before reaching for the power button. The X4 Pro's native USB CDC
+wedges under sustained serial driving and `esptool` cannot rescue it either --
+there is no auto-reset circuit -- but the wedge takes the CABLE down, not the
+device. One unit served HTTP throughout an entire night of it.
+
+Standing in front of the device: a sleeping one paints the sleep screen, a
+wedged one still shows whatever app it was on. E-ink retains either after power,
+so trust the screen's CONTENT, not that there is an image.
 
 This matters when more than one person works on these devices. Twice on
 2026-08-27 a device changed state under another session and produced a
