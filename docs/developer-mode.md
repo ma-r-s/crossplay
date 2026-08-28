@@ -181,6 +181,18 @@ that reads it as ownership will miss every non-associating user of the radio.
 
 ## Known limits
 
+- **A device left in a match is unreachable and stays awake.** Both halves are
+  deliberate and they compound: the link holds the radio (so no Wi-Fi) and
+  `wantsAwake()` is true for the whole match (so no deep sleep, because an
+  opponent thinking for five minutes is indistinguishable from an idle device).
+  Walk away mid-game and the device sits there, off the network, until somebody
+  presses a button. Deep sleep would otherwise have been the recovery path,
+  since waking is a reset and dev mode rejoins on boot.
+
+  Do not "fix" this by making `inhibitsSleep()` yield-aware -- that changes
+  nothing here, because it is `LinkActivity::preventAutoSleep()` holding the
+  device awake, not Developer Mode.
+
 - **One cached token and code**, in `~/.crossplay-devtoken` and
   `~/.crossplay-devcode`. With two devices you re-pair when you switch between
   them.
