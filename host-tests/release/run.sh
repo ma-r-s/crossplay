@@ -720,5 +720,25 @@ else
   bad "code_lines mishandled the fixture --$scanner_why"
 fi
 
+# -- 14. the release notes are about the release being made ------------------
+#
+# v1.6.2 shipped v1.6.1's notes verbatim. The heading still said "What is new
+# in 1.6.1", so the multiplayer fix that release existed for was announced to
+# nobody, and it was found days later by someone reading the published page
+# rather than by anything here.
+#
+# The notes are hand-written inside the workflow file, which is exactly the kind
+# of place a version number goes stale: nothing about tagging touches them, and
+# the release still builds and publishes perfectly. So assert the one thing that
+# cannot be true of stale notes -- that they name the version being released.
+NOTES_VERSION="$(sed -n 's/^version = \([0-9][0-9.]*\)$/\1/p' "$ROOT/platformio.ini" | tail -1)"
+if [ -z "$NOTES_VERSION" ]; then
+  bad "could not read the crossplay version out of platformio.ini"
+elif grep -q "What is new in $NOTES_VERSION" "$WF"; then
+  ok
+else
+  bad "the release notes in $(basename "$WF") do not say \"What is new in $NOTES_VERSION\" -- they are the previous release's, and the tag will publish them"
+fi
+
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]
