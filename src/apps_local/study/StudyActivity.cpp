@@ -220,7 +220,7 @@ void StudyActivity::applySyncFlowPreview(const char* state) {
     m.stages[2] = studyui::SyncStageState::Active;
     std::snprintf(m.title, sizeof(m.title), "NOT SYNCED");
     std::snprintf(m.body, sizeof(m.body), "The sync service could not reach AnkiWeb. This is usually brief.");
-    std::snprintf(m.whatNow, sizeof(m.whatNow), "Press SYNC again in a few minutes.");
+    std::snprintf(m.whatNow, sizeof(m.whatNow), "The service may be busy. Try again in a few minutes.");
     m.safety = studyui::SyncSafety::ReviewsSafe;
     previewFlowSet_ = true;
   }
@@ -1424,8 +1424,10 @@ void StudyActivity::render(RenderLock&&) {
     noDeckSyncX_ = 60;
     noDeckSyncY_ = static_cast<int16_t>(height - kFooterHeight - noDeckSyncH_ - 24);
 
+    study::BridgeState pairedState;
+    const bool paired = study::loadBridgeState(pairedState);
     UITheme::drawCenteredWrappedText(renderer, Rect{0, bodyTop + 16, width, 56}, kReadingFontId,
-                                     "Bring your Anki decks", 1);
+                                     paired ? "Choose your decks" : "Bring your Anki decks", 1);
     const int16_t qrSide = 208;
     const int16_t qrTop = static_cast<int16_t>(bodyTop + 88);
     QrUtils::drawQrCode(renderer, Rect{static_cast<int16_t>((width - qrSide) / 2), qrTop, qrSide, qrSide},
@@ -1435,12 +1437,15 @@ void StudyActivity::render(RenderLock&&) {
     UITheme::drawCenteredWrappedText(renderer, Rect{0, static_cast<int16_t>(qrTop + qrSide + 8), width, 40},
                                      kSmallFontId, "crossplay.ma-r-s.com/study", 1);
     UITheme::drawCenteredWrappedText(renderer, Rect{24, static_cast<int16_t>(qrTop + qrSide + 48), width - 48, 96},
-                                     kMeaningFontId, "Scan it to add a deck from a computer.", 2);
+                                     kMeaningFontId,
+                                     paired ? "Your Anki account is connected. Choose which decks this reader carries."
+                                            : "Scan it to add a deck from a computer.",
+                                     3);
 
     renderer.drawRoundedRect(noDeckSyncX_, noDeckSyncY_, noDeckSyncW_, noDeckSyncH_, toybox::kHairline,
                              noDeckSyncH_ / 2, true);
     {
-      const char* label = "SYNC WITH ANKI";
+      const char* label = paired ? "CHOOSE DECKS" : "SYNC WITH ANKI";
       const int labelWidth = renderer.getTextWidth(toybox::kUiFontId, label);
       toybox::drawCapsCentered(renderer, toybox::kUiFontId, noDeckSyncX_ + (noDeckSyncW_ - labelWidth) / 2,
                                noDeckSyncY_, noDeckSyncH_, label, true);
@@ -1573,11 +1578,11 @@ bool StudyActivity::runDeckPicker() {
       bridge_ = study::BridgeState{};
       Storage.remove("/study/.bridge");
       endSyncSession(studyui::SyncVerdictKind::Error, studyui::SyncSafety::NothingSent, "NOT PAIRED", message.c_str(),
-                     "Press SYNC to pair it again.");
+                     "Pair it again to keep syncing.");
       return false;
     }
     endSyncSession(studyui::SyncVerdictKind::Error, studyui::SyncSafety::NothingSent, "NOT SYNCED", message.c_str(),
-                   "Press SYNC again in a few minutes.");
+                   "The service may be busy. Try again in a few minutes.");
     return false;
   }
   if (deckChoices_.empty()) {
@@ -1653,7 +1658,7 @@ bool StudyActivity::runDeckPicker() {
   flowStage(studyui::SyncStage::Connect, "Saving your choice.");
   if (!sync_.chooseDecks(bridge_, chosen, message)) {
     endSyncSession(studyui::SyncVerdictKind::Error, studyui::SyncSafety::NothingSent, "NOT SYNCED", message.c_str(),
-                   "Press SYNC again in a few minutes.");
+                   "The service may be busy. Try again in a few minutes.");
     return false;
   }
   return true;
@@ -1666,7 +1671,7 @@ bool StudyActivity::runPairing() {
   flowStage(studyui::SyncStage::Connect, "Getting a pairing code.");
   if (!sync_.pairStart(pair, message)) {
     endSyncSession(studyui::SyncVerdictKind::Error, studyui::SyncSafety::NothingSent, "NOT PAIRED", message.c_str(),
-                   "Press SYNC to try again.");
+                   "Try again when you are ready.");
     return false;
   }
   pairCode_ = pair.code;
@@ -1693,7 +1698,7 @@ bool StudyActivity::runPairing() {
       const int result = sync_.pairPoll(pair.pollToken, username, token, message);
       if (result < 0) {
         endSyncSession(studyui::SyncVerdictKind::Error, studyui::SyncSafety::NothingSent, "NOT PAIRED", message.c_str(),
-                       "Press SYNC to try again.");
+                       "Try again when you are ready.");
         return false;
       }
       if (result == 1) break;
@@ -1902,11 +1907,11 @@ void StudyActivity::runSyncFlow() {
       bridge_ = study::BridgeState{};
       Storage.remove("/study/.bridge");
       endSyncSession(studyui::SyncVerdictKind::Error, studyui::SyncSafety::NothingSent, "NOT PAIRED",
-                     "This reader was unpaired on the bridge.", "Press SYNC to pair it again.");
+                     "This reader was unpaired on the bridge.", "Pair it again to keep syncing.");
       return;
     }
     endSyncSession(studyui::SyncVerdictKind::Error, studyui::SyncSafety::NothingSent, "NOT SYNCED", message.c_str(),
-                   "Press SYNC again in a few minutes.");
+                   "The service may be busy. Try again in a few minutes.");
     return;
   }
   payloads.clear();
@@ -1952,12 +1957,12 @@ void StudyActivity::runSyncFlow() {
     if (status == "done") break;
     if (status == "error" || status == "frozen") {
       endSyncSession(studyui::SyncVerdictKind::Error, studyui::SyncSafety::ReviewsSafe, "NOT SYNCED", message.c_str(),
-                     "Press SYNC again in a few minutes.");
+                     "The service may be busy. Try again in a few minutes.");
       return;
     }
     if (status.empty() && ++transportBlips >= 5) {
       endSyncSession(studyui::SyncVerdictKind::Error, studyui::SyncSafety::ReviewsSafe, "NOT SYNCED", message.c_str(),
-                     "Press SYNC again in a few minutes.");
+                     "The service may be busy. Try again in a few minutes.");
       return;
     }
     if (!status.empty()) transportBlips = 0;
@@ -1983,7 +1988,7 @@ void StudyActivity::runSyncFlow() {
     const bool stopped = message.rfind("Stopped.", 0) == 0;
     endSyncSession(stopped ? studyui::SyncVerdictKind::Neutral : studyui::SyncVerdictKind::Error, safety,
                    stopped ? "STOPPED" : "NOT SYNCED", message.c_str(),
-                   stopped ? "Sync again to finish." : "Press SYNC again in a few minutes.");
+                   stopped ? "Sync again to finish." : "The service may be busy. Try again in a few minutes.");
     return;
   }
   bridge_.lastSyncAt = static_cast<int64_t>(time(nullptr));

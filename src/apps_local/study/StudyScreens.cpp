@@ -169,7 +169,11 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
 
   char state[64];
   if (waiting > 0) {
-    std::snprintf(state, sizeof(state), "%d DUE   %d NEW", model.due, model.fresh);
+    if (model.deckCount > 1) {
+      std::snprintf(state, sizeof(state), "%d DUE   %d NEW   IN THIS DECK", model.due, model.fresh);
+    } else {
+      std::snprintf(state, sizeof(state), "%d DUE   %d NEW", model.due, model.fresh);
+    }
   } else if (model.reviewed > 0) {
     std::snprintf(state, sizeof(state), "%d REVIEWED   %d%% RIGHT", model.reviewed,
                   model.reviewed > 0 ? model.recalled * 100 / model.reviewed : 0);
@@ -385,10 +389,12 @@ fui::BitmapRef verdictGlyph(const SyncVerdictKind kind) {
 // The safety promise, anchored at the content bottom. Busy face: shown from
 // the ack on, with the leave story; verdict face never calls this (safety
 // leads the verdict text instead).
-void syncSafetyFooter(toybox::Screen& screen, const fui::Rect& body) {
+void syncSafetyFooter(toybox::Screen& screen, const fui::Rect& body, const bool reviewsSafe) {
   const int y = body.bottom() - 52;
-  screen.target().text(fui::makeRect(body.x, y, body.width, 20), "YOUR REVIEWS ARE SAFE",
-                       syncText(toybox::kTileFont, fui::TextAlign::Center));
+  if (reviewsSafe) {
+    screen.target().text(fui::makeRect(body.x, y, body.width, 20), "YOUR REVIEWS ARE SAFE",
+                         syncText(toybox::kTileFont, fui::TextAlign::Center));
+  }
   screen.target().text(fui::makeRect(body.x, y + 24, body.width, 20), "BACK LEAVES; THE SYNC KEEPS RUNNING",
                        syncText(toybox::kTileFont, fui::TextAlign::Center, fui::Color::DarkGray));
 }
@@ -452,7 +458,7 @@ void buildSyncFlow(toybox::Screen& screen, const SyncFlowModel& model) {
       screen.target().text(fui::makeRect(body.x + 20, headY + 84, body.width - 40, 84), model.caption,
                            syncText(toybox::kUiFont, fui::TextAlign::Center, fui::Color::DarkGray, 3));
     }
-    if (model.safety >= SyncSafety::ReviewsSafe) syncSafetyFooter(screen, body);
+    if (model.leaveSafe) syncSafetyFooter(screen, body, model.safety >= SyncSafety::ReviewsSafe);
   } else {
     int y = bandY + 88;
     screen.target().bitmap(fui::makeRect(body.x + (body.width - 32) / 2, y, 32, 32), verdictGlyph(model.verdict),
@@ -562,7 +568,12 @@ void buildDeckPicker(toybox::Screen& screen, DeckPickerModel& model) {
 
   if (model.count > visible) {
     char more[48];
-    std::snprintf(more, sizeof(more), "%d MORE, TAP HERE", model.count - visible);
+    const int shown = model.topIndex + visible;
+    if (shown < model.count) {
+      std::snprintf(more, sizeof(more), "%d MORE, TAP HERE", model.count - shown);
+    } else {
+      std::snprintf(more, sizeof(more), "BACK TO THE START, TAP HERE");
+    }
     const fui::Rect pager = fui::makeRect(body.x, listTop + visible * (rowH + 6), body.width, 24);
     screen.target().text(pager, more, syncText(toybox::kTileFont, fui::TextAlign::Left, fui::Color::DarkGray));
     screen.frame().hit(pager, ActionPickDeck, -1);  // -1 pages

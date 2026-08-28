@@ -110,6 +110,11 @@ struct SyncFlowModel {
   char factLines[3][40] = {"", "", ""};
   int factCount = 0;
   SyncSafety safety = SyncSafety::None;
+  // Whether leaving is safe RIGHT NOW: true from the moment the bridge owns
+  // the job, which is before any reviews exist to be safe. A first sync sends
+  // nothing, so keying the footer on `safety` hid it from the longest wait
+  // any user ever does.
+  bool leaveSafe = false;
 };
 
 void buildSyncFlow(toybox::Screen& screen, const SyncFlowModel& model);
