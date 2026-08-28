@@ -395,34 +395,35 @@ done < <(grep -rl 'WiFi.getMode() != WIFI_MODE_NULL' "$ROOT/src" 2>/dev/null | s
 # thing, because a file that only MENTIONS devmode:: in a comment explaining why
 # it does not need to yield was passing every one of them.
 code_lines() {
-  # Comment-stripped source. A real scanner, because two cheaper versions were
-  # both walked around: matching only same-line /* */ let a mention hide in a
-  # multi-line block, and latching on a LEADING /* let it hide in a block opened
-  # at the end of a code line -- `foo(); /* devmode::holdsRadio() not needed`.
-  # Both directions matter: prose must not excuse a violation, and prose must not
-  # manufacture one by merely naming an API.
+  # Comment-stripped source. A character scanner, because three cheaper versions
+  # were each walked around: same-line /* */ only, then leading-/* only, then
+  # both-but-blind-to-string-literals. That last one was the dangerous shape --
+  # a `/*` inside a string latched the block state to end of file, and since
+  # radio_takers() filters candidates THROUGH this function, the file left the
+  # check set entirely. Zero extra checks, still green: a check that did not run
+  # looking exactly like a check that passed, which is the failure this suite has
+  # already had once.
   #
-  # Known limit, stated rather than pretended away: it does not understand string
-  # literals, so a "//" inside a string truncates the line. No file in this tree
-  # does that on a line that matters, and the alternative is a C lexer in awk.
+  # So it tracks strings too. A string does not span lines in C, so an
+  # unterminated quote is reset per line rather than allowed to swallow the file.
   awk '
     {
-      line = $0; out = ""
-      while (1) {
-        if (inblock) {
-          i = index(line, "*/")
-          if (i == 0) { line = ""; break }
-          line = substr(line, i + 2); inblock = 0
+      line = $0; out = ""; i = 1; n = length(line)
+      while (i <= n) {
+        c = substr(line, i, 1); d = substr(line, i, 2)
+        if (inblock) { if (d == "*/") { inblock = 0; i += 2 } else { i++ } continue }
+        if (instr) {
+          if (c == "\\") { out = out substr(line, i, 2); i += 2; continue }
+          out = out c; i++
+          if (c == "\"") instr = 0
           continue
         }
-        j = index(line, "//"); k = index(line, "/*")
-        if (k > 0 && (j == 0 || k < j)) {
-          out = out substr(line, 1, k - 1); line = substr(line, k + 2); inblock = 1
-          continue
-        }
-        if (j > 0) { out = out substr(line, 1, j - 1) } else { out = out line }
-        line = ""; break
+        if (d == "//") break
+        if (d == "/*") { inblock = 1; i += 2; continue }
+        if (c == "\"") { instr = 1; out = out c; i++; continue }
+        out = out c; i++
       }
+      instr = 0
       print out
     }' "$1"
 }

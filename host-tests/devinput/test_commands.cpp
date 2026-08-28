@@ -147,6 +147,12 @@ int main() {
   expect("LONG -5 100", "ERR LONG off panel");
   expect("LONG 100 -5", "ERR LONG off panel");
   expect("LONG 800 100", "ERR LONG off panel");
+  // LONG's duration is fixed in the injector, so a third argument is a
+  // misunderstanding -- and the reply echoes none, so silently dropping it
+  // leaves the caller no signal whatsoever.
+  expect("LONG 100 100 3000", "ERR LONG takes x y and nothing else");
+  expect("LONG 100 100 abc", "ERR LONG takes x y and nothing else");
+  expect("LONG 100 100\t", "OK LONG 100 100");
 
   // -- SWIPE ----------------------------------------------------------------
   expect("SWIPE 10 240 300 240", "OK SWIPE 10 240 300 240 250");
@@ -199,6 +205,10 @@ int main() {
   expect("BTN UP abc", "ERR BTN: holdMs");
   expect("BTN UP 1.5", "ERR BTN: holdMs");
   expect("BTN UP 100 7", "ERR BTN: holdMs");
+  // A tab is whitespace. Splitting the name on ' ' alone made this fail as an
+  // unknown button, blaming the one part of the command that was correct.
+  expect("BTN UP\t", "OK BTN UP 80");
+  expect("BTN UP\t250", "OK BTN UP 250");
   expect("BTN UP  ", "OK BTN UP 80");  // trailing space is an omission, not a typo
 
   // A public lib/ entry point must not walk into strncmp(nullptr, ...).

@@ -184,6 +184,10 @@ void turnOn() {
   joinIssued = false;
   if (ssid.empty()) {
     LOG_INF("DEVMODE", "on, but no saved network; join one in Network settings first");
+    // Clear both, the same way update()'s NoNetwork path does. Fixing one of two
+    // identical sites is exactly how the pair() bug happened.
+    password.clear();
+    nextAttemptAt = 0;
     state = State::NoNetwork;
     return;
   }
@@ -261,6 +265,10 @@ void update() {
         // Wi-Fi picker, the one flow that reaches here.
         LOG_INF("DEVMODE", "no saved network to go back to; idle until one is joined");
         password.clear();
+        // Left set and in the past, this made the later turnOn() -> startJoin()
+        // fire again on the next pass: one redundant WiFi.begin(), and `attempt`
+        // inflated to 2 so the backoff started at 10s instead of 5s.
+        nextAttemptAt = 0;
         state = State::NoNetwork;
         return;
       }
@@ -372,9 +380,9 @@ void resume() {
 
   // If the holder gave the radio back switched off -- which is exactly what a
   // link match does, WiFi.mode(WIFI_OFF) in Radio::end() -- then whatever dev
-  // mode raised is gone, and saying otherwise is the lie that matters: eight
-  // activities gate their radio teardown on
-  // holdsRadio(), and every one of them would skip it. Worse, an AP that has
+  // mode raised is gone, and saying otherwise is the lie that matters: ten
+  // activities gate their radio teardown on holdsRadio(), and every one of them
+  // would skip it. Worse, an AP that has
   // since gone out of range means the join below never completes, so nothing
   // would ever re-evaluate it. Only clear it here, never in pause(): during a
   // yield the association is still the one dev mode raised, and the web

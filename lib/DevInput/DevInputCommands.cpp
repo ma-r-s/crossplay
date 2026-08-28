@@ -140,6 +140,10 @@ bool runCommand(const char* cmd, char* reply, const size_t replyLen) {
 
   if (strncmp(cmd, "LONG ", 5) == 0) {
     if (parseLongs(cmd + 5, v, 2) < 2) return refused(reply, replyLen, "ERR LONG wants: x y");
+    // LONG's duration is fixed in the injector, so a third argument is not
+    // "ignored", it is a misunderstanding -- and the reply echoes no duration,
+    // so the caller would get no signal at all that it was dropped.
+    if (trailingGarbage(cmd + 5, 2)) return refused(reply, replyLen, "ERR LONG takes x y and nothing else");
     if (!onPanel(v[0], v[1])) return refused(reply, replyLen, "ERR LONG off panel: %ld %ld", v[0], v[1]);
     if (!devinput::longPress(normX(v[0]), normY(v[1]))) return refused(reply, replyLen, "ERR busy");
     return scheduled(reply, replyLen, "OK LONG %ld %ld", v[0], v[1]);
@@ -163,8 +167,13 @@ bool runCommand(const char* cmd, char* reply, const size_t replyLen) {
 
   if (strncmp(cmd, "BTN ", 4) == 0) {
     const char* rest = cmd + 4;
-    const char* space = strchr(rest, ' ');
-    const size_t nameLen = space ? static_cast<size_t>(space - rest) : strlen(rest);
+    // Any whitespace, not just ' ': a tab survives the serial path (only \r and
+    // \n are stripped there), and splitting on a space alone made "BTN UP<tab>"
+    // fail as an unknown BUTTON NAME -- blaming the one part that was right.
+    const char* space = rest;
+    while (*space != '\0' && !isspace(static_cast<unsigned char>(*space))) space++;
+    const size_t nameLen = static_cast<size_t>(space - rest);
+    if (*space == '\0') space = nullptr;
     const int index = buttonIndexByName(rest, nameLen);
     if (index < 0) return refused(reply, replyLen, "ERR BTN wants: UP|DOWN|CONFIRM|BACK|LEFT|RIGHT|POWER [holdMs]");
     unsigned long hold = 80;
