@@ -498,6 +498,21 @@ radio_takers() {
 # it happened. A new file that does none of it is the case this exists to catch.
 #
 # DISCOVERED, not listed, for the reason spelled out in check 9.
+#
+# FIRST, the floor. Three times on this branch a check stopped examining files
+# and went on reporting green -- a broken process substitution, then two
+# generations of comment scanner that swallowed whole files. Every time, the
+# only tell was the check COUNT not moving, and every time it was a human who
+# noticed. So assert the floor instead: this tree has had at least six radio
+# takers since the feature existed, and a discovery that finds fewer has
+# narrowed itself rather than found a cleaner codebase.
+radio_taker_count="$(radio_takers | grep -c .)"
+if [ "$radio_taker_count" -ge 6 ]; then
+  ok
+else
+  bad "check 10 discovered only $radio_taker_count radio takers (expected >= 6) -- the DISCOVERY is broken, not the code"
+fi
+
 while IFS= read -r path; do
   rel="${path#$ROOT/}"
   # DevMode.cpp is Developer Mode. Asking it to consult itself is circular, and
@@ -589,6 +604,53 @@ for caller in "src/DevSerialBridge.cpp" "src/network/CrossPointWebServer.cpp"; d
     bad "$caller does not call devinput::runCommand() -- it has its own input parsing again"
   fi
 done
+
+# -- 13. the comment scanner itself, against a fixture ------------------------
+#
+# Four generations of code_lines() have each been walked around, and each was
+# found by a person reading it rather than by anything here. That is the wrong
+# way round: the scanner decides which files checks 10 to 12 even look at, so a
+# hole in it silences them without failing anything.
+#
+# So it gets a fixture with every shape that has caught it out, and the
+# assertions are on MEANING -- "the word inside this comment is gone", "the code
+# either side of it survived" -- rather than on exact output, so reformatting
+# the scanner does not rewrite the test.
+scanner_fixture="$(mktemp)"
+cat > "$scanner_fixture" <<'FIXTURE'
+int keepA(); // GONE_LINE_COMMENT
+int keepB(); /* GONE_SAME_LINE */ int keepC();
+int keepD(); /* GONE_TRAILING_OPEN
+   GONE_BLOCK_BODY
+   */ int keepE();
+const char* u = "http://KEEP_IN_STRING";
+const char* k = "/*KEEP_STAR_IN_STRING";
+int keepF();
+void f(char c) { if (c == '"') keepG(); } // GONE_AFTER_CHAR_LITERAL
+char esc = '\''; int keepH();
+FIXTURE
+scanner_out="$(code_lines "$scanner_fixture")"
+rm -f "$scanner_fixture"
+
+scanner_ok=1
+scanner_why=""
+# Everything named GONE_ must be stripped; everything named keep must survive.
+for token in GONE_LINE_COMMENT GONE_SAME_LINE GONE_TRAILING_OPEN GONE_BLOCK_BODY GONE_AFTER_CHAR_LITERAL; do
+  case "$scanner_out" in
+    *"$token"*) scanner_ok=0; scanner_why="$scanner_why kept:$token" ;;
+  esac
+done
+for token in keepA keepB keepC keepD keepE keepF keepG keepH KEEP_IN_STRING KEEP_STAR_IN_STRING; do
+  case "$scanner_out" in
+    *"$token"*) ;;
+    *) scanner_ok=0; scanner_why="$scanner_why lost:$token" ;;
+  esac
+done
+if [ "$scanner_ok" -eq 1 ]; then
+  ok
+else
+  bad "code_lines mishandled the fixture --$scanner_why"
+fi
 
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]
