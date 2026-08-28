@@ -167,9 +167,11 @@ bool runCommand(const char* cmd, char* reply, const size_t replyLen) {
 
   if (strncmp(cmd, "BTN ", 4) == 0) {
     const char* rest = cmd + 4;
-    // Any whitespace, not just ' ': a tab survives the serial path (only \r and
-    // \n are stripped there), and splitting on a space alone made "BTN UP<tab>"
-    // fail as an unknown BUTTON NAME -- blaming the one part that was right.
+    // Any whitespace, not just ' ', on BOTH sides of the name: a tab survives
+    // the serial path (only \r and \n are stripped there), and splitting on a
+    // space alone made "BTN UP<tab>" -- and "BTN  UP" -- fail as an unknown
+    // BUTTON NAME, blaming the one part of the command that was right.
+    while (*rest != '\0' && isspace(static_cast<unsigned char>(*rest))) rest++;
     const char* space = rest;
     while (*space != '\0' && !isspace(static_cast<unsigned char>(*space))) space++;
     const size_t nameLen = static_cast<size_t>(space - rest);

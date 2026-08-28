@@ -267,7 +267,9 @@ void update() {
         password.clear();
         // Left set and in the past, this made the later turnOn() -> startJoin()
         // fire again on the next pass: one redundant WiFi.begin(), and `attempt`
-        // inflated to 2 so the backoff started at 10s instead of 5s.
+        // inflated to 2, so the first backoff was 5000<<2 = 20s instead of
+        // 5000<<1 = 10s. (attempt++ is the first line of startJoin(), so a
+        // backoff of 5s is unreachable.)
         nextAttemptAt = 0;
         state = State::NoNetwork;
         return;

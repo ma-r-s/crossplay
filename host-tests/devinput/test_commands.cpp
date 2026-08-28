@@ -209,6 +209,8 @@ int main() {
   // unknown button, blaming the one part of the command that was correct.
   expect("BTN UP\t", "OK BTN UP 80");
   expect("BTN UP\t250", "OK BTN UP 250");
+  expect("BTN  UP", "OK BTN UP 80");  // double space is a separator, not a name
+  expect("BTN \tUP 250", "OK BTN UP 250");
   expect("BTN UP  ", "OK BTN UP 80");  // trailing space is an omission, not a typo
 
   // A public lib/ entry point must not walk into strncmp(nullptr, ...).

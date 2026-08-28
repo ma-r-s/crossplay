@@ -395,35 +395,40 @@ done < <(grep -rl 'WiFi.getMode() != WIFI_MODE_NULL' "$ROOT/src" 2>/dev/null | s
 # thing, because a file that only MENTIONS devmode:: in a comment explaining why
 # it does not need to yield was passing every one of them.
 code_lines() {
-  # Comment-stripped source. A character scanner, because three cheaper versions
-  # were each walked around: same-line /* */ only, then leading-/* only, then
-  # both-but-blind-to-string-literals. That last one was the dangerous shape --
-  # a `/*` inside a string latched the block state to end of file, and since
-  # radio_takers() filters candidates THROUGH this function, the file left the
-  # check set entirely. Zero extra checks, still green: a check that did not run
-  # looking exactly like a check that passed, which is the failure this suite has
-  # already had once.
+  # Comment-stripped source. A character scanner, because four cheaper versions
+  # were each walked around in turn: same-line /* */ only; leading-/* only;
+  # blind to string literals (a `/*` in a string latched the block state to end
+  # of file, and since radio_takers() filters candidates THROUGH this, the file
+  # left the check set entirely); and then blind to CHAR literals, where '"'
+  # opened a string that swallowed the rest of the line -- a strict regression,
+  # because the version before it caught that case.
   #
-  # So it tracks strings too. A string does not span lines in C, so an
-  # unterminated quote is reset per line rather than allowed to swallow the file.
+  # Known limits, stated rather than pretended away, because the last version
+  # quietly dropped this paragraph while ADDING a limit:
+  #   - a raw string R"(...)" spanning lines will latch the block state;
+  #   - a digit separator (1'000) reads as a char literal.
+  # Neither appears in this tree. Both would show up the same way: the check
+  # COUNT stops moving. That is the tell, every time.
   awk '
     {
       line = $0; out = ""; i = 1; n = length(line)
       while (i <= n) {
         c = substr(line, i, 1); d = substr(line, i, 2)
         if (inblock) { if (d == "*/") { inblock = 0; i += 2 } else { i++ } continue }
-        if (instr) {
+        if (instr || inchar) {
           if (c == "\\") { out = out substr(line, i, 2); i += 2; continue }
           out = out c; i++
-          if (c == "\"") instr = 0
+          if (instr && c == "\"") instr = 0
+          if (inchar && c == "'"'"'") inchar = 0
           continue
         }
         if (d == "//") break
         if (d == "/*") { inblock = 1; i += 2; continue }
         if (c == "\"") { instr = 1; out = out c; i++; continue }
+        if (c == "'"'"'") { inchar = 1; out = out c; i++; continue }
         out = out c; i++
       }
-      instr = 0
+      instr = 0; inchar = 0
       print out
     }' "$1"
 }
