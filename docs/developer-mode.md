@@ -120,6 +120,39 @@ Clearing stays on the on-device crash screen, when a human dismisses it. A
 corrupt ring is reported as `logsValid: false` rather than shown as empty --
 "nothing was logged" and "RTC memory was garbage" are different findings.
 
+## Driving the device
+
+Since `app/linkradio`, a paired device takes synthetic input and hands back its
+screen, so a session can navigate the UI and see the result without anybody
+touching the hardware.
+
+```bash
+# one tool, two transports -- --port for the cable, --ip for Developer Mode
+uv run --with pillow tools_local/device/drive.py --ip 192.168.68.78 \
+    shot before.png, tap 240 400, sleep 1, shot after.png
+```
+
+- `POST /api/dev/input` -- body is one command line, the same four verbs the
+  serial bridge takes: `TAP x y [holdMs]`, `LONG x y`,
+  `SWIPE x0 y0 x1 y1 [ms]`, `BTN UP|DOWN|CONFIRM|BACK|LEFT|RIGHT|POWER [holdMs]`.
+  Coordinates are panel-native pixels; `drive.py --view` converts from the
+  portrait frame the PNGs are saved in. Answers `200` with the device's `OK`
+  line, `400` for bad arguments, `409` when an event of the same kind is still
+  playing (retry, do not rewrite the command).
+- `GET /api/dev/screen` -- the framebuffer as it stands: 1bpp, row-major, MSB
+  leftmost, `X-Panel-Width`/`X-Panel-Height` headers. The same bytes the serial
+  bridge streams, so one decoder serves both.
+
+**The verbs live in one place**, `lib/DevInput/DevInputCommands.cpp`, and both
+transports call it. A device that answers `TAP` down a cable but not over Wi-Fi,
+or that takes the arguments in a different order on each, is a trap that only
+springs while somebody is already debugging something else.
+
+**Dev builds only**, unlike the rest of Developer Mode. That is not about
+secrecy -- anyone who can pair can already replace the firmware, which is
+strictly more powerful -- but about cost: the injector overlays every HalGPIO
+read, and a shipped reader should not pay for a frame hook nobody will use.
+
 ## Playing and flashing are exclusive
 
 A link match takes the radio outright: `LinkRadio::begin()` calls
@@ -164,9 +197,11 @@ that reads it as ownership will miss every non-associating user of the radio.
   `/.crosspoint/settings.json`** by basename, which is another route to enabling
   Developer Mode. It predates this feature and is not caused by it, but this
   feature is what makes it worth more.
-- **No remote input or screenshots yet.** The serial bridge already has
-  TAP/SWIPE/BTN and SCREENSHOT; exposing them over this transport is the obvious
-  next step and is not built.
+- **Remote input and screenshots are dev builds only.** They are gated on
+  `CROSSPOINT_DEV_SERIAL_BRIDGE`, the same flag as the injector they schedule
+  onto, so a shipped release carries neither the routes nor the per-frame input
+  overlay. A release device in Developer Mode can be flashed and read, but not
+  driven. See "Driving the device" above.
 - **The simulator does none of this.** Two call sites are guarded on `SIMULATOR`
   because the host's `WebServer` shim has no raw-body API. A platform gate, not
   a feature gate.

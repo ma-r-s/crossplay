@@ -3,6 +3,7 @@
 #include <ArduinoJson.h>
 #include <BoardConfig.h>
 #include <FsHelpers.h>
+#include <HalDisplay.h>
 #include <HalGPIO.h>
 #include <HalStorage.h>
 #include <HalSystem.h>
@@ -14,8 +15,10 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstring>
 
 #include "CrossPointSettings.h"
+#include "DevInputCommands.h"
 #include "DevMode.h"
 #include "FirmwareFlasher.h"
 #include "FontInstaller.h"
@@ -216,6 +219,13 @@ void CrossPointWebServer::begin() {
   server->on("/api/dev/disable", HTTP_POST, [this] { handleDevDisable(); });
   server->on("/api/dev/crash", HTTP_GET, [this] { handleDevCrash(); });
   server->on("/api/dev/log", HTTP_GET, [this] { handleDevLog(); });
+#if CROSSPOINT_DEV_SERIAL_BRIDGE
+  // Driving the device, over the transport that needs no cable. Gated on the
+  // same flag as the injector itself, so a release build carries neither the
+  // routes nor the per-frame input overlay they schedule onto.
+  server->on("/api/dev/input", HTTP_POST, [this] { handleDevInput(); });
+  server->on("/api/dev/screen", HTTP_GET, [this] { handleDevScreen(); });
+#endif
 
   server->onNotFound([this] { handleNotFound(); });
   LOG_DBG("WEB", "[MEM] Free heap after route setup: %d bytes", ESP.getFreeHeap());
@@ -2170,6 +2180,84 @@ void CrossPointWebServer::handleDevLog() {
   }
   server->send(200, "text/plain", getLastLogs().c_str());
 }
+
+#if CROSSPOINT_DEV_SERIAL_BRIDGE
+// One input command per request, in the same words the serial bridge takes:
+// TAP x y [holdMs] / LONG x y / SWIPE x0 y0 x1 y1 [ms] / BTN NAME [holdMs].
+//
+// The body is the command, not a JSON envelope. It is what a person types into
+// curl and what drive.py already speaks, and a second encoding of four verbs
+// would be two things to keep in step for no reader's benefit.
+void CrossPointWebServer::handleDevInput() {
+  if (!devAuthorised()) return;
+  // The content type is load-bearing, and there is no recovering from the wrong
+  // one. This core only keeps a body whole under arg("plain") when it is NOT
+  // form-encoded; for application/x-www-form-urlencoded it runs the body
+  // through _parseArguments, which bails at the first field with no '=' and
+  // leaves args() == 0. An input command never contains '=', so a body sent the
+  // way `curl -d` and Python's urllib send it by default is not merely
+  // misplaced, it is gone. Say so in the error rather than guessing.
+  const String body = server->arg("plain");
+  if (body.isEmpty()) {
+    server->send(400, "text/plain",
+                 "ERR body must be one command, e.g. TAP 400 240\n"
+                 "    send it as Content-Type: text/plain -- a form-encoded body is\n"
+                 "    parsed away by the HTTP core before this handler sees it:\n"
+                 "      curl -H 'Content-Type: text/plain' --data-binary 'TAP 400 240' ...\n");
+    return;
+  }
+  // Trim, so a trailing newline from `curl --data-binary @file` is not an
+  // argument. The injector's vocabulary is line-oriented; the transport is not.
+  String line = body;
+  line.trim();
+  char reply[96];
+  const bool okay = devinput::runCommand(line.c_str(), reply, sizeof(reply));
+  // "my taps are not landing" has to be answerable from the log rather than by
+  // asking whoever was driving.
+  LOG_INF("WEB", "dev input: %s -> %s", line.c_str(), reply);
+  // 409 rather than 400 for "busy": the command was well formed and will work
+  // when the previous event finishes, which is a retry, not a fix.
+  const int code = okay ? 200 : (strncmp(reply, "ERR busy", 8) == 0 ? 409 : 400);
+  server->send(code, "text/plain", String(reply) + "\n");
+}
+
+// The framebuffer as it stands, 1bpp, row-major, MSB leftmost -- the same bytes
+// the serial bridge streams, so one host-side decoder serves both.
+//
+// Sent whole rather than chunked: this transport is TCP, which does not have
+// the CDC ring that forced the serial path to pace itself at 512 bytes.
+void CrossPointWebServer::handleDevScreen() {
+  if (!devAuthorised()) return;
+  const uint8_t* fb = display.getFrameBuffer();
+  if (fb == nullptr) {
+    server->send(503, "text/plain", "ERR no framebuffer\n");
+    return;
+  }
+  const size_t size = display.getBufferSize();
+  // Width and height are not in the payload, so say them where a host decoder
+  // can read them. Queued before send(), which is what emits the header block.
+  server->sendHeader("X-Panel-Width", String(BoardConfig::ACTIVE.displayWidth));
+  server->sendHeader("X-Panel-Height", String(BoardConfig::ACTIVE.displayHeight));
+  server->setContentLength(size);
+  server->send(200, "application/octet-stream", "");
+
+  // Chunked, watchdog-fed, and stopping on a dead peer -- the same shape as
+  // handleDownload above, and for the same reason. NetworkClient::write resets
+  // its retry budget on every partial send, so one 48KB call against a peer
+  // that trickles can hold this loop indefinitely; handleClient() runs on the
+  // main loop, so that is the whole UI frozen, not a slow download.
+  NetworkClient client = server->client();
+  size_t sent = 0;
+  while (sent < size) {
+    resetTaskWatchdogIfSubscribed();
+    const size_t wrote = client.write(fb + sent, size - sent > 4096 ? 4096 : size - sent);
+    if (wrote == 0) break;  // peer gone; the short body is the honest answer
+    sent += wrote;
+  }
+  client.clear();
+  if (sent < size) LOG_ERR("WEB", "screen: client took %u of %u bytes", sent, size);
+}
+#endif  // CROSSPOINT_DEV_SERIAL_BRIDGE
 
 // Upload straight to the card, token-gated, so Developer Mode never has to
 // expose the file manager to move a firmware image across.

@@ -155,6 +155,10 @@ class CrossPointWebServer {
   void handleDevDisable();
   void handleDevCrash();
   void handleDevLog();
+#if CROSSPOINT_DEV_SERIAL_BRIDGE
+  void handleDevInput();
+  void handleDevScreen();
+#endif
   struct DevUploadState {
     HalFile file;
     size_t written = 0;

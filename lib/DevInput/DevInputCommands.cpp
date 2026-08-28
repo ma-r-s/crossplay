@@ -1,0 +1,142 @@
+#include "DevInputCommands.h"
+
+#if CROSSPOINT_DEV_SERIAL_BRIDGE
+
+#include <BoardConfig.h>
+#include <HalGPIO.h>
+
+#include <cstdarg>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+
+#include "DevInputInjector.h"
+
+namespace devinput {
+namespace {
+
+// A synthetic contact is released by elapsed >= holdMs, so a negative hold
+// becomes an enormous unsigned one and the contact NEVER releases: busy() stays
+// true and every later command answers "ERR busy" until someone power-cycles
+// the device. Down a cable that was a person's own typo with the device in
+// their hand; over Wi-Fi it is a wedged device with no CANCEL verb to unwedge
+// it. Bound both durations, and keep coordinates on the panel so the
+// float->int conversion downstream stays in range.
+constexpr long kMaxHoldMs = 5000;
+constexpr long kMaxSwipeMs = 10000;
+
+bool onPanel(long x, long y) {
+  return x >= 0 && y >= 0 && x < BoardConfig::ACTIVE.displayWidth && y < BoardConfig::ACTIVE.displayHeight;
+}
+
+// Panel-native pixels in, normalized out. The injector takes 0..1 precisely so
+// it needs no board geometry; the conversion belongs to whoever speaks pixels.
+float normX(long px) { return (static_cast<float>(px) + 0.5f) / BoardConfig::ACTIVE.displayWidth; }
+float normY(long py) { return (static_cast<float>(py) + 0.5f) / BoardConfig::ACTIVE.displayHeight; }
+
+// Parse up to n longs out of s; returns how many were found.
+int parseLongs(const char* s, long* out, int n) {
+  int found = 0;
+  char* end = nullptr;
+  while (found < n) {
+    while (*s == ' ') s++;
+    if (*s == '\0') break;
+    const long v = strtol(s, &end, 10);
+    if (end == s) break;
+    out[found++] = v;
+    s = end;
+  }
+  return found;
+}
+
+int buttonIndexByName(const char* name, size_t len) {
+  struct Entry {
+    const char* name;
+    uint8_t index;
+  };
+  static constexpr Entry MAP[] = {
+      {"BACK", HalGPIO::BTN_BACK},   {"CONFIRM", HalGPIO::BTN_CONFIRM}, {"LEFT", HalGPIO::BTN_LEFT},
+      {"RIGHT", HalGPIO::BTN_RIGHT}, {"UP", HalGPIO::BTN_UP},           {"DOWN", HalGPIO::BTN_DOWN},
+      {"POWER", HalGPIO::BTN_POWER},
+  };
+  for (const auto& e : MAP) {
+    if (strlen(e.name) == len && strncmp(e.name, name, len) == 0) return e.index;
+  }
+  return -1;
+}
+
+// The printf attribute is not decoration: without it these four call sites get
+// no -Wformat checking at all, and a %d for a long would be silent.
+__attribute__((format(printf, 3, 4))) bool say(char* reply, size_t replyLen, const char* fmt, ...);
+bool say(char* reply, size_t replyLen, const char* fmt, ...) {
+  va_list args;
+  va_start(args, fmt);
+  vsnprintf(reply, replyLen, fmt, args);
+  va_end(args);
+  return strncmp(reply, "OK", 2) == 0;
+}
+
+}  // namespace
+
+bool isCommand(const char* cmd) {
+  return strncmp(cmd, "TAP ", 4) == 0 || strncmp(cmd, "LONG ", 5) == 0 || strncmp(cmd, "SWIPE ", 6) == 0 ||
+         strncmp(cmd, "BTN ", 4) == 0;
+}
+
+bool runCommand(const char* cmd, char* reply, const size_t replyLen) {
+  if (reply == nullptr || replyLen == 0) return false;
+  reply[0] = '\0';
+  long v[5];
+
+  if (strncmp(cmd, "TAP ", 4) == 0) {
+    const int n = parseLongs(cmd + 4, v, 3);
+    if (n < 2) return say(reply, replyLen, "ERR TAP wants: x y [holdMs]");
+    if (!onPanel(v[0], v[1])) return say(reply, replyLen, "ERR TAP off panel: %ld %ld", v[0], v[1]);
+    if (n >= 3 && (v[2] < 0 || v[2] > kMaxHoldMs)) return say(reply, replyLen, "ERR holdMs 0..%ld", kMaxHoldMs);
+    const unsigned long hold = n >= 3 ? static_cast<unsigned long>(v[2]) : 140;
+    if (!devinput::tap(normX(v[0]), normY(v[1]), hold)) return say(reply, replyLen, "ERR busy");
+    return say(reply, replyLen, "OK TAP %ld %ld %lu", v[0], v[1], hold);
+  }
+
+  if (strncmp(cmd, "LONG ", 5) == 0) {
+    if (parseLongs(cmd + 5, v, 2) < 2) return say(reply, replyLen, "ERR LONG wants: x y");
+    if (!onPanel(v[0], v[1])) return say(reply, replyLen, "ERR LONG off panel: %ld %ld", v[0], v[1]);
+    if (!devinput::longPress(normX(v[0]), normY(v[1]))) return say(reply, replyLen, "ERR busy");
+    return say(reply, replyLen, "OK LONG %ld %ld", v[0], v[1]);
+  }
+
+  if (strncmp(cmd, "SWIPE ", 6) == 0) {
+    const int n = parseLongs(cmd + 6, v, 5);
+    if (n < 4) return say(reply, replyLen, "ERR SWIPE wants: x0 y0 x1 y1 [ms]");
+    if (!onPanel(v[0], v[1]) || !onPanel(v[2], v[3])) {
+      return say(reply, replyLen, "ERR SWIPE off panel");
+    }
+    if (n >= 5 && (v[4] < 0 || v[4] > kMaxSwipeMs)) return say(reply, replyLen, "ERR ms 0..%ld", kMaxSwipeMs);
+    const unsigned long ms = n >= 5 ? static_cast<unsigned long>(v[4]) : 250;
+    if (!devinput::swipe(normX(v[0]), normY(v[1]), normX(v[2]), normY(v[3]), ms)) {
+      return say(reply, replyLen, "ERR busy");
+    }
+    return say(reply, replyLen, "OK SWIPE %ld %ld %ld %ld %lu", v[0], v[1], v[2], v[3], ms);
+  }
+
+  if (strncmp(cmd, "BTN ", 4) == 0) {
+    const char* rest = cmd + 4;
+    const char* space = strchr(rest, ' ');
+    const size_t nameLen = space ? static_cast<size_t>(space - rest) : strlen(rest);
+    const int index = buttonIndexByName(rest, nameLen);
+    if (index < 0) return say(reply, replyLen, "ERR BTN wants: UP|DOWN|CONFIRM|BACK|LEFT|RIGHT|POWER [holdMs]");
+    unsigned long hold = 80;
+    if (space && parseLongs(space, v, 1) == 1) {
+      if (v[0] < 0 || v[0] > kMaxHoldMs) return say(reply, replyLen, "ERR holdMs 0..%ld", kMaxHoldMs);
+      hold = static_cast<unsigned long>(v[0]);
+    }
+    if (!devinput::button(static_cast<uint8_t>(index), hold)) return say(reply, replyLen, "ERR busy");
+    return say(reply, replyLen, "OK BTN %.*s %lu", static_cast<int>(nameLen), rest, hold);
+  }
+
+  return say(reply, replyLen, "ERR not an input command");
+}
+
+}  // namespace devinput
+
+#endif  // CROSSPOINT_DEV_SERIAL_BRIDGE
