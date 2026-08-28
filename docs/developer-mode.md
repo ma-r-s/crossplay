@@ -198,9 +198,12 @@ that reads it as ownership will miss every non-associating user of the radio.
   them.
 - **The radio is still not arbitrated,** but the two places that take it
   outright now say so. Developer Mode will not take a radio already in use, only
-  puts down a connection it raised, and `host-tests/release` checks 10 and 11
+  puts down a connection it raised, and `host-tests/release` checks 10 to 13
   discover -- rather than list -- the files that put the radio out of service
-  and the files that yield.
+  and the files that yield. 13 tests the comment scanner those checks depend on,
+  and named canaries assert that specific files are still being discovered:
+  three times on that branch a check quietly stopped examining files and went on
+  reporting green, and the only tell was the check count.
 
   **One file is still outside that net.** `StudyActivity` tears the radio down
   twice: `onExit` does it behind its own `wifiActivated_` flag, which is set
