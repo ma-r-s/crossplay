@@ -18,14 +18,27 @@ struct OpdsServer {
  * and base64-encoded before writing to JSON.
  */
 class OpdsServerStore : public PersistableStore<OpdsServerStore> {
+ public:
+  struct DefaultCatalog {
+    const char* name;
+    const char* url;
+    const char* username;
+    const char* password;
+  };
+
  private:
+  void addDefaultIfAbsent(const DefaultCatalog& entry);
+
   std::vector<OpdsServer> servers;
   // Persisted so a catalog the user deleted stays deleted; without it every
   // boot with an empty list would helpfully put the defaults back.
   bool defaultsSeeded = false;
-  // One-time removal of catalogs we used to seed and no longer do.
-  bool retiredDefaultsPurged = false;
-  bool purgeRetiredDefaults();
+  // Which generation of the default list this device has been through. Bump
+  // SEED_VERSION and extend migrateSeeds() when the defaults change, or the
+  // change reaches new devices only.
+  static constexpr int SEED_VERSION = 1;
+  int seedVersion = 0;
+  bool migrateSeeds();
 
   static constexpr size_t MAX_SERVERS = 8;
 
