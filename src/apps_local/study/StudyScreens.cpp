@@ -233,7 +233,7 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   // variants; the rows wear the same lucide glyphs the rest of the
   // firmware's lists do, and SYNC carries its own state in the value slot
   // so the door says when it last mattered.
-  fui::ListItem rows[3];
+  fui::ListItem rows[4];
   rows[0] = fui::ListItem{};
   rows[0].label = waiting > 0 ? "START REVIEWING" : "NOTHING TO REVIEW";
   rows[0].enabled = waiting > 0;
@@ -252,7 +252,8 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   // for the switch next to the other options, and one door language beats
   // two affordances for the same act. The value names where you ARE; the
   // count says how many somewheres exist.
-  const int doorCount = model.deckCount > 1 ? 3 : 2;
+  int doorCount = model.deckCount > 1 ? 3 : 2;
+  if (model.paired) ++doorCount;
   char deckValue[48] = "";
   if (doorCount == 3) {
     rows[2] = fui::ListItem{};
@@ -264,6 +265,15 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
     rows[2].value = deckValue;
     rows[2].actionValue = 3;
     rows[2].icon = fui::bitmapFromIcon(icon_library_32);
+  }
+
+  if (model.paired) {
+    const int slot = doorCount - 1;
+    rows[slot] = fui::ListItem{};
+    rows[slot].label = "DECKS FROM ANKI";
+    rows[slot].value = "CHOOSE";
+    rows[slot].actionValue = 4;
+    rows[slot].icon = fui::bitmapFromIcon(icon_library_32);
   }
 
   fui::ListProps list;
@@ -327,7 +337,7 @@ const char* safetyLine(const SyncSafety safety) {
     case SyncSafety::ReviewsSafe:
       return "YOUR REVIEWS ARE SAFE";
     case SyncSafety::ReviewsSafePartialDecks:
-      return "REVIEWS SAFE -- SOME DECKS ALREADY UPDATED";
+      return "REVIEWS SAFE, SOME DECKS ALREADY UPDATED";
     case SyncSafety::NothingSent:
       return "NOTHING WAS SENT";
     default:
@@ -364,7 +374,7 @@ void syncSafetyFooter(toybox::Screen& screen, const fui::Rect& body) {
   const int y = body.bottom() - 52;
   screen.target().text(fui::makeRect(body.x, y, body.width, 20), "YOUR REVIEWS ARE SAFE",
                        syncText(toybox::kTileFont, fui::TextAlign::Center));
-  screen.target().text(fui::makeRect(body.x, y + 24, body.width, 20), "BACK LEAVES -- THE BRIDGE KEEPS WORKING",
+  screen.target().text(fui::makeRect(body.x, y + 24, body.width, 20), "BACK LEAVES; THE SYNC KEEPS RUNNING",
                        syncText(toybox::kTileFont, fui::TextAlign::Center, fui::Color::DarkGray));
 }
 
@@ -416,8 +426,15 @@ void buildSyncFlow(toybox::Screen& screen, const SyncFlowModel& model) {
       screen.target().text(fui::makeRect(body.x, headY, body.width, 48), stageLabel(activeStage),
                            syncText(toybox::kDisplayFont, fui::TextAlign::Center));
     }
+    // The active stage's own fact, under its name: on e-ink a screen that
+    // never changes and a screen that is stuck look identical, and this is the
+    // only live number the wait has (files fetched, reviews sent).
+    if (activeStage >= 0 && model.facts[activeStage][0] != '\0') {
+      screen.target().text(fui::makeRect(body.x, headY + 52, body.width, 22), model.facts[activeStage],
+                           syncText(toybox::kTileFont, fui::TextAlign::Center));
+    }
     if (model.caption[0] != '\0') {
-      screen.target().text(fui::makeRect(body.x + 20, headY + 72, body.width - 40, 84), model.caption,
+      screen.target().text(fui::makeRect(body.x + 20, headY + 84, body.width - 40, 84), model.caption,
                            syncText(toybox::kUiFont, fui::TextAlign::Center, fui::Color::DarkGray, 3));
     }
     if (model.safety >= SyncSafety::ReviewsSafe) syncSafetyFooter(screen, body);
@@ -443,10 +460,111 @@ void buildSyncFlow(toybox::Screen& screen, const SyncFlowModel& model) {
       y += 26;
     }
     if (model.whatNow[0] != '\0') {
-      screen.target().text(fui::makeRect(body.x + 20, body.bottom() - 48, body.width - 40, 44), model.whatNow,
-                           syncText(toybox::kTileFont, fui::TextAlign::Center, fui::Color::DarkGray, 2));
+      screen.target().text(fui::makeRect(body.x + 20, body.bottom() - toybox::kRowHeight - 52, body.width - 40, 44),
+                           model.whatNow, syncText(toybox::kTileFont, fui::TextAlign::Center, fui::Color::DarkGray, 2));
     }
+    // A verdict has to offer the next step rather than name it: telling a
+    // stranded user to "press SYNC" pointed at a control that is not on this
+    // screen, and on a reader with no decks yet it is not on the screen behind
+    // it either.
+    fui::ListItem again[1];
+    again[0] = fui::ListItem{};
+    again[0].label = model.verdict == SyncVerdictKind::Success ? "DONE" : "TRY AGAIN";
+    again[0].actionValue = model.verdict == SyncVerdictKind::Success ? 2 : 1;
+    again[0].icon = fui::bitmapFromIcon(model.verdict == SyncVerdictKind::Success ? icon_check_32 : icon_refresh_cw_32);
+    fui::ListProps door;
+    door.items = again;
+    door.count = 1;
+    door.selectedIndex = -1;
+    door.action = ActionSyncVerdict;
+    door.sidePadding = toybox::kMargin;
+    door.textGap = toybox::kMargin;
+    screen.list(door, toybox::kRowHeight, fui::LayoutAnchor::Bottom);
   }
+}
+
+void buildDeckPicker(toybox::Screen& screen, DeckPickerModel& model) {
+  chrome(screen, "SYNC");
+  screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
+  const fui::Rect body = screen.body();
+
+  screen.target().text(fui::makeRect(body.x, body.y, body.width, 52), "WHICH DECKS?",
+                       syncText(toybox::kDisplayFont, fui::TextAlign::Left));
+
+  char caption[72];
+  if (model.atCap) {
+    std::snprintf(caption, sizeof(caption), "%d OF %d, THE MOST THIS READER CARRIES", model.chosenCount,
+                  model.maxChosen);
+  } else {
+    std::snprintf(caption, sizeof(caption), "%d CHOSEN, UP TO %d", model.chosenCount, model.maxChosen);
+  }
+  screen.target().text(fui::makeRect(body.x, body.y + 58, body.width, 22), caption,
+                       syncText(toybox::kTileFont, fui::TextAlign::Left, fui::Color::DarkGray));
+
+  // The confirm door sits at the bottom, in the same language as the deck
+  // screen's doors; the list takes what is left.
+  const int doorH = toybox::kRowHeight;
+  const int listTop = body.y + 92;
+  const int listH = body.bottom() - doorH - toybox::kMargin - listTop;
+  // Two lines per row: an Anki deck name is routinely longer than the width a
+  // count column leaves beside it, and a truncated name loses exactly the part
+  // that distinguishes "Mandarin: Vocabulary" from "Mandarin: Sentences" --
+  // with no ellipsis to warn, since the toybox cuts have no glyph for one.
+  const int rowH = toybox::kRowHeight;
+  int visible = listH / (rowH + 6);
+  if (visible < 1) visible = 1;
+  if (visible > model.count - model.topIndex) visible = model.count - model.topIndex;
+  model.visibleRows = visible;
+
+  const fui::Paint ink = fui::Paint::solid(fui::Color::Black);
+  for (int i = 0; i < visible; ++i) {
+    const int index = model.topIndex + i;
+    const DeckPickerModel::Row& row = model.rows[index];
+    const fui::Rect r = fui::makeRect(body.x, listTop + i * (rowH + 6), body.width, rowH);
+
+    // The checkbox is the state; a filled square reads at arm's length where a
+    // tick does not.
+    const fui::Rect box = fui::makeRect(r.x + 2, r.y + (rowH - 22) / 2, 22, 22);
+    screen.target().stroke(box, ink, toybox::kHairline);
+    if (row.chosen) {
+      screen.target().fill(fui::makeRect(box.x + 5, box.y + 5, 12, 12), ink);
+    }
+
+    char count[32];
+    std::snprintf(count, sizeof(count), "%d CARDS", row.cards);
+    const int textX = r.x + 22 + toybox::kMargin;
+    const int textW = r.right() - textX;
+    // Each box gets its own line height: text is centred in its box, so a box
+    // shorter than the font's line spills over the one below it.
+    screen.target().text(fui::makeRect(textX, r.y + 2, textW, 34), row.name,
+                         syncText(toybox::kUiFont, fui::TextAlign::Left));
+    screen.target().text(fui::makeRect(textX, r.y + 38, textW, 22), count,
+                         syncText(toybox::kTileFont, fui::TextAlign::Left, fui::Color::DarkGray));
+    screen.frame().hit(r, ActionPickDeck, static_cast<int16_t>(index));
+  }
+
+  if (model.count > visible) {
+    char more[48];
+    std::snprintf(more, sizeof(more), "%d MORE, TAP HERE", model.count - visible);
+    const fui::Rect pager = fui::makeRect(body.x, listTop + visible * (rowH + 6), body.width, 24);
+    screen.target().text(pager, more, syncText(toybox::kTileFont, fui::TextAlign::Left, fui::Color::DarkGray));
+    screen.frame().hit(pager, ActionPickDeck, -1);  // -1 pages
+  }
+
+  fui::ListItem door[1];
+  door[0] = fui::ListItem{};
+  door[0].label = model.chosenCount > 0 ? "SYNC THESE" : "CHOOSE AT LEAST ONE";
+  door[0].enabled = model.chosenCount > 0;
+  door[0].actionValue = 1;
+  door[0].icon = fui::bitmapFromIcon(icon_refresh_cw_32);
+  fui::ListProps list;
+  list.items = door;
+  list.count = 1;
+  list.selectedIndex = -1;
+  list.action = ActionPickDone;
+  list.sidePadding = toybox::kMargin;
+  list.textGap = toybox::kMargin;
+  screen.list(list, doorH, fui::LayoutAnchor::Bottom);
 }
 
 fui::Rect buildPairQr(toybox::Screen& screen, const char* code) {
@@ -469,7 +587,7 @@ fui::Rect buildPairQr(toybox::Screen& screen, const char* code) {
 
   screen.target().text(
       fui::makeRect(body.x + toybox::kMargin, codeY + 48 + toybox::kMargin, body.width - toybox::kMargin * 2, 116),
-      "Scan the code, or go to sync.ma-r-s.com/pair and type it. Sign in there with your AnkiWeb account.",
+      "Sign in at sync.ma-r-s.com/pair, then scan this code or type it. It lasts five minutes; Back stops.",
       syncText(toybox::kUiFont, fui::TextAlign::Center, fui::Color::DarkGray, 4));
   return qr;
 }
@@ -489,7 +607,7 @@ PairConfirmLayout buildPairConfirm(toybox::Screen& screen) {
 
   screen.target().text(fui::makeRect(body.x + toybox::kMargin, layout.username.bottom() + toybox::kMargin,
                                      body.width - toybox::kMargin * 2, 84),
-                       "If this is your account, confirm. If not, cancel -- nothing is stored yet.",
+                       "If this is your account, confirm. If not, press Back; nothing is stored yet.",
                        syncText(toybox::kUiFont, fui::TextAlign::Center, fui::Color::DarkGray, 3));
 
   // The confirm target: a pill the thumb can reach, tappable because on the

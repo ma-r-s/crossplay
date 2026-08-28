@@ -21,6 +21,12 @@ namespace studyui {
 inline constexpr fui::ActionId ActionStudy = 1;
 inline constexpr fui::ActionId ActionForecast = 2;
 inline constexpr fui::ActionId ActionSync = 4;
+// The deck picker: one action for the rows (value = deck index) and one for
+// the confirm door.
+inline constexpr fui::ActionId ActionPickDeck = 5;
+inline constexpr fui::ActionId ActionPickDone = 6;
+// The verdict screen's door: 1 = sync again, 2 = close and go back.
+inline constexpr fui::ActionId ActionSyncVerdict = 7;
 
 // How many days either side of today the ornament shows. Two weeks back is far
 // enough to see a habit, two weeks forward far enough to see a backlog coming,
@@ -62,6 +68,9 @@ struct DeckModel {
   int deckCount = 1;
   // The SYNC door's subtitle: LAST SYNC HH:MM, PAIRED, or NOT PAIRED YET.
   char syncSubtitle[40] = "";
+  // Paired readers get a fourth door: which Anki decks this reader carries is
+  // otherwise answerable only once, during the first sync.
+  bool paired = false;
 };
 
 void buildDeck(toybox::Screen& screen, const DeckModel& model);
@@ -104,6 +113,31 @@ struct SyncFlowModel {
 };
 
 void buildSyncFlow(toybox::Screen& screen, const SyncFlowModel& model);
+
+// ---- Choosing which of the account's decks this reader carries.
+//
+// A fresh account has chosen nothing, so without this screen a first sync
+// delivers an empty manifest and the reader stays empty forever. The bridge
+// caps a sync at kMaxSyncDecks decks; the screen enforces the same cap so the
+// refusal happens where the user can see it rather than server-side.
+inline constexpr int kMaxPickerDecks = 24;
+
+struct DeckPickerModel {
+  struct Row {
+    const char* name = "";
+    int cards = 0;
+    bool chosen = false;
+  };
+  const Row* rows = nullptr;
+  int count = 0;
+  int topIndex = 0;     // first row drawn; the list pages rather than scrolls
+  int visibleRows = 0;  // filled in by the builder, so paging can match
+  int chosenCount = 0;
+  int maxChosen = 8;   // mirrors StudySync::kMaxSyncDecks
+  bool atCap = false;  // drawn as a caption, so the cap explains itself
+};
+
+void buildDeckPicker(toybox::Screen& screen, DeckPickerModel& model);
 
 // ---- Pairing, in the same chrome. The builders draw the band, the words
 // and the confirm pill; they return the rects for the two things only the

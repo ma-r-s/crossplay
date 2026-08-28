@@ -292,6 +292,7 @@ bool loadBridgeState(BridgeState& out) {
   if (deserializeJson(doc, raw) != DeserializationError::Ok) return false;
   out.token = doc["token"] | "";
   out.lastSyncAt = doc["lastSyncAt"] | static_cast<int64_t>(0);
+  out.choseDecks = doc["choseDecks"] | false;
   out.paired = !out.token.empty();
   for (JsonPair kv : doc["acks"].as<JsonObject>()) {
     out.setAck(kv.key().c_str(), kv.value().as<uint32_t>());
@@ -306,6 +307,7 @@ bool saveBridgeState(const BridgeState& state) {
   JsonDocument doc;
   doc["token"] = state.token;
   if (state.lastSyncAt > 0) doc["lastSyncAt"] = state.lastSyncAt;
+  if (state.choseDecks) doc["choseDecks"] = true;
   JsonObject acks = doc["acks"].to<JsonObject>();
   for (int i = 0; i < state.deckCount; ++i) acks[state.deckDirs[i]] = state.ackOffsets[i];
   JsonObject builds = doc["builds"].to<JsonObject>();
@@ -380,6 +382,64 @@ void StudySync::pairAbandon(const std::string& pollToken, const std::string& dev
   std::string message;
   request("POST", "/api/pair/abandon", "", reinterpret_cast<const uint8_t*>(body.data()), body.size(), response,
           message);
+}
+
+bool StudySync::listDecks(const BridgeState& state, std::vector<DeckChoice>& out, std::string& message) {
+  out.clear();
+  std::string response;
+  const int status = request("GET", "/api/decks", state.token, nullptr, 0, response, message);
+  if (status == 0) return false;
+  if (status == 401) {
+    unpaired = true;
+    message = "This reader was unpaired on the bridge.";
+    return false;
+  }
+  if (status != 200) {
+    if (!takeServerError(response, message)) message = "The sync service could not list your decks.";
+    return false;
+  }
+  JsonDocument doc;
+  if (deserializeJson(doc, response) != DeserializationError::Ok || !doc["decks"].is<JsonArray>()) {
+    message = "The sync service answered something unexpected.";
+    return false;
+  }
+  for (JsonVariant chosen : doc["chosen"].as<JsonArray>()) {
+    (void)chosen;  // presence handled per deck below
+  }
+  for (JsonObject deck : doc["decks"].as<JsonArray>()) {
+    DeckChoice choice;
+    choice.name = deck["name"] | "";
+    choice.cards = deck["cards"] | 0;
+    if (choice.name.empty()) continue;
+    for (JsonVariant chosen : doc["chosen"].as<JsonArray>()) {
+      if (choice.name == (chosen.as<const char*>() ? chosen.as<const char*>() : "")) choice.chosen = true;
+    }
+    out.push_back(std::move(choice));
+    if (out.size() >= static_cast<size_t>(kMaxSyncDecks) * 4) break;  // the account can hold more than it can sync
+  }
+  return true;
+}
+
+bool StudySync::chooseDecks(const BridgeState& state, const std::vector<std::string>& names, std::string& message) {
+  JsonDocument doc;
+  JsonArray arr = doc["decks"].to<JsonArray>();
+  for (const auto& name : names) arr.add(name);
+  std::string body;
+  serializeJson(doc, body);
+  std::string response;
+  const int status = request("POST", "/api/decks/choose", state.token, reinterpret_cast<const uint8_t*>(body.data()),
+                             body.size(), response, message);
+  if (status == 0) return false;
+  if (status == 401) {
+    unpaired = true;
+    message = "This reader was unpaired on the bridge.";
+    return false;
+  }
+  if (status != 200) {
+    if (!takeServerError(response, message)) message = "The sync service would not save that choice.";
+    return false;
+  }
+  return true;
 }
 
 bool StudySync::syncStart(const BridgeState& state, const std::vector<DeckPayload>& decks, std::string& jobId,

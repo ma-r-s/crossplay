@@ -42,6 +42,9 @@ struct BridgeState {
   // Seconds since epoch of the last completed sync; drawn under the door.
   int64_t lastSyncAt = 0;
   int deckCount = 0;
+  // Whether this reader has ever answered "which decks?"; without it a
+  // re-pair would silently inherit whatever the account last chose.
+  bool choseDecks = false;
 
   const char* buildFor(const char* dir) const;
   void setBuild(const char* dir, const char* buildId);
@@ -90,6 +93,17 @@ class StudySync {
   // pending code on the bridge, a deviceToken revokes a registration the
   // confirm screen declined. Failures are ignored; the TTL is the backstop.
   void pairAbandon(const std::string& pollToken, const std::string& deviceToken);
+
+  // The account's decks, and which of them this account already syncs. A
+  // fresh account has chosen nothing, so the device must ask before its
+  // first sync can deliver anything at all.
+  struct DeckChoice {
+    std::string name;
+    int cards = 0;
+    bool chosen = false;
+  };
+  bool listDecks(const BridgeState& state, std::vector<DeckChoice>& out, std::string& message);
+  bool chooseDecks(const BridgeState& state, const std::vector<std::string>& names, std::string& message);
 
   bool syncStart(const BridgeState& state, const std::vector<DeckPayload>& decks, std::string& jobId,
                  std::vector<std::pair<std::string, uint32_t>>& acks, std::string& message);

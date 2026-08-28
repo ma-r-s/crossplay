@@ -18,6 +18,7 @@
 #include <HalStorage.h>
 
 #include <memory>
+#include <vector>
 
 #include "../../activities/Activity.h"
 #include "StudyDeck.h"
@@ -60,7 +61,7 @@ class StudyActivity final : public Activity {
   // whatever sentence the flow is on, the pairing QR, and the on-device
   // "Paired to <account> -- confirm?" gate (which closes both directions of
   // the pairing race; see docs/apps/study-sync-bridge-plan.md).
-  enum class View : uint8_t { Deck, Card, Image, NoDeck, SyncFlow, PairQr, PairConfirm };
+  enum class View : uint8_t { Deck, Card, Image, NoDeck, SyncFlow, PairQr, PairConfirm, DeckPicker };
   enum class Face : uint8_t { Question, Answer };
 
   bool openDeck();
@@ -211,6 +212,12 @@ class StudyActivity final : public Activity {
   void onSyncWifi(bool connected);
   void runSyncFlow();
   bool runPairing();
+  // Blocking, like the rest of the flow: paints the picker and pumps input
+  // until the user confirms or leaves. False means the sync should stop.
+  bool runDeckPicker();
+  std::vector<study::StudySync::DeckChoice> deckChoices_;
+  studyui::DeckPickerModel picker_;
+  std::vector<studyui::DeckPickerModel::Row> pickerRows_;
   bool buildPayloads(std::vector<study::DeckPayload>& out);
   bool applyManifests(const std::vector<study::DeckManifest>& manifests, std::string& message, int& decksUpdated);
   // Paint the flow model now (requestUpdateAndWait); flowStage() marks every
@@ -223,7 +230,9 @@ class StudyActivity final : public Activity {
   void drainInput();
   // The radio is up and a stranger is mid-pairing: sleeping here would read
   // as a crash. The result screen (syncBusy_ false) may sleep normally.
-  bool preventAutoSleep() override { return syncBusy_ || view_ == View::PairQr || view_ == View::PairConfirm; }
+  bool preventAutoSleep() override {
+    return syncBusy_ || view_ == View::PairQr || view_ == View::PairConfirm || view_ == View::DeckPicker;
+  }
 
   study::StudySync sync_;
   study::BridgeState bridge_;
@@ -231,9 +240,16 @@ class StudyActivity final : public Activity {
   bool syncBusy_ = false;
   bool wifiActivated_ = false;
   studyui::SyncFlowModel flow_;
+  bool secondPass_ = false;
   // What the pairing screens draw; only meaningful in the PairQr/PairConfirm
   // views. The confirm tap target is registered by render() here so the poll
   // loop and the drawing agree on one rectangle.
+  // The empty-card screen's sync door, registered by render() so the tap
+  // test and the pixels cannot drift apart.
+  int16_t noDeckSyncX_ = 0;
+  int16_t noDeckSyncY_ = 0;
+  int16_t noDeckSyncW_ = 0;
+  int16_t noDeckSyncH_ = 0;
   std::string pairCode_;
   std::string pairUsername_;
   // The confirm tap target (Rect is only forward-declared here).

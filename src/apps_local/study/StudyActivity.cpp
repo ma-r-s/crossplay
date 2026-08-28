@@ -165,8 +165,27 @@ void StudyActivity::onEnter() {
 #if !defined(FREEINK_NET_WOLFSSL)
 void StudyActivity::applySyncFlowPreview(const char* state) {
   if (std::strcmp(state, "pairqr") == 0) {
-    pairCode_ = "K7Q2FD";
+    pairCode_ = "GAS7V3AY";  // real codes are 8 characters; a shorter stand-in hides overflow
     view_ = View::PairQr;
+    return;
+  }
+  if (std::strcmp(state, "picker") == 0) {
+    static const char* kNames[] = {"Mandarin: Vocabulary", "GRE Vocab List", "Kanji N5", "Default"};
+    static const int kCards[] = {5001, 1992, 812, 0};
+    pickerRows_.clear();
+    for (int i = 0; i < 4; ++i) {
+      studyui::DeckPickerModel::Row row;
+      row.name = kNames[i];
+      row.cards = kCards[i];
+      row.chosen = i == 0;
+      pickerRows_.push_back(row);
+    }
+    picker_ = studyui::DeckPickerModel{};
+    picker_.rows = pickerRows_.data();
+    picker_.count = static_cast<int>(pickerRows_.size());
+    picker_.maxChosen = study::kMaxSyncDecks;
+    picker_.chosenCount = 1;
+    view_ = View::DeckPicker;
     return;
   }
   if (std::strcmp(state, "pairconfirm") == 0) {
@@ -200,7 +219,7 @@ void StudyActivity::applySyncFlowPreview(const char* state) {
     for (int i = 0; i < 2; ++i) m.stages[i] = studyui::SyncStageState::Done;
     m.stages[2] = studyui::SyncStageState::Active;
     std::snprintf(m.title, sizeof(m.title), "NOT SYNCED");
-    std::snprintf(m.body, sizeof(m.body), "The bridge could not reach AnkiWeb. This is usually brief.");
+    std::snprintf(m.body, sizeof(m.body), "The sync service could not reach AnkiWeb. This is usually brief.");
     std::snprintf(m.whatNow, sizeof(m.whatNow), "Press SYNC again in a few minutes.");
     m.safety = studyui::SyncSafety::ReviewsSafe;
     previewFlowSet_ = true;
@@ -746,6 +765,13 @@ void StudyActivity::undo() {
 void StudyActivity::loop() {
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     if (view_ == View::SyncFlow) {
+      view_ = deckCount_ > 0 ? View::Deck : View::NoDeck;
+      requestUpdate();
+      return;
+    }
+    if (view_ == View::DeckPicker) {
+      // The picker's own loop owns Back while a sync is running; reaching
+      // here means it is on screen with no flow behind it.
       view_ = View::Deck;
       requestUpdate();
       return;
@@ -794,8 +820,29 @@ void StudyActivity::loop() {
     return;
   }
   if (view_ == View::SyncFlow) {
-    view_ = View::Deck;
+    if (interactionsReady_) {
+      fui::InputSnapshot input;
+      input.touchReleased = true;
+      input.touchX = static_cast<int16_t>(tapX);
+      input.touchY = static_cast<int16_t>(tapY);
+      const fui::ActionEvent event = interactions_.route(input);
+      if (event.action == studyui::ActionSyncVerdict && event.value == 1) {
+        beginSync();
+        return;
+      }
+    }
+    // Back to whatever a fresh open would show: a reader with no decks yet
+    // must not land on a deck screen announcing ALL CLEAR over nothing, with
+    // the installer QR it still needs nowhere in sight.
+    view_ = deckCount_ > 0 ? View::Deck : View::NoDeck;
     requestUpdate();
+    return;
+  }
+  if (view_ == View::NoDeck) {
+    if (tapX >= noDeckSyncX_ && tapX < noDeckSyncX_ + noDeckSyncW_ && tapY >= noDeckSyncY_ &&
+        tapY < noDeckSyncY_ + noDeckSyncH_) {
+      beginSync();
+    }
     return;
   }
   if (view_ != View::Card) return;
@@ -1129,7 +1176,8 @@ void StudyActivity::refreshStats() {
 void StudyActivity::buildDeckModel(studyui::DeckModel& out) const {
   {
     study::BridgeState bridge;
-    if (!study::loadBridgeState(bridge)) {
+    out.paired = study::loadBridgeState(bridge);
+    if (!out.paired) {
       std::snprintf(out.syncSubtitle, sizeof(out.syncSubtitle), "NOT PAIRED YET");
     } else if (bridge.lastSyncAt > 0) {
       struct tm parts;
@@ -1169,6 +1217,14 @@ void StudyActivity::routeAction(const fui::ActionEvent& event) {
   }
   if (event.value == 3) {
     switchDeck();
+    return;
+  }
+  if (event.value == 4) {
+    // Re-open the deck choice. The flow reaches the picker on its own once
+    // the flag is down, and it re-raises the flag after the choice sticks.
+    bridge_.choseDecks = false;
+    study::saveBridgeState(bridge_);
+    beginSync();
     return;
   }
   // Re-scan rather than resuming a stale queue: a session can end, the user can
@@ -1231,6 +1287,21 @@ void StudyActivity::render(RenderLock&&) {
     confirmW_ = layout.pill.width;
     confirmH_ = layout.pill.height;
     const auto labels = mappedInput.mapLabels("Cancel", "", "", "Confirm");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    renderer.displayBuffer();
+    return;
+  }
+
+  if (view_ == View::DeckPicker) {
+    fui::GfxRendererTarget target = toybox::makeTarget(renderer);
+    const fui::InputSnapshot noInput{};
+    interactionsReady_ = false;
+    toybox::Frame frame(target, target.deviceContext(), noInput, interactions_);
+    toybox::Screen screen(frame);
+    studyui::buildDeckPicker(screen, picker_);
+    interactionsReady_ = true;
+    toybox::reportOverflow(interactions_, "Study deck picker");
+    const auto labels = mappedInput.mapLabels("Back", "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer();
     return;
@@ -1344,17 +1415,36 @@ void StudyActivity::render(RenderLock&&) {
     // chosen from three rendered variants (the numbered-steps arrangement
     // collapsed into overlaps on screen; the prose-first one buried the code).
     constexpr const char* kInstallerUrl = "https://crossplay.ma-r-s.com/study";
+    // Two ways in, and the screen has to hold both without either crowding the
+    // other: the installer QR for a computer, and the sync door for a reader
+    // that only has wi-fi. The door is anchored to the bottom and the QR block
+    // sized from what is left, so neither can overlap the other.
+    noDeckSyncH_ = 56;
+    noDeckSyncW_ = static_cast<int16_t>(width - 120);
+    noDeckSyncX_ = 60;
+    noDeckSyncY_ = static_cast<int16_t>(height - kFooterHeight - noDeckSyncH_ - 24);
+
     UITheme::drawCenteredWrappedText(renderer, Rect{0, bodyTop + 16, width, 56}, kReadingFontId,
                                      "Bring your Anki decks", 1);
-    const int16_t qrSide = 264;
-    QrUtils::drawQrCode(renderer, Rect{static_cast<int16_t>((width - qrSide) / 2), bodyTop + 92, qrSide, qrSide},
+    const int16_t qrSide = 208;
+    const int16_t qrTop = static_cast<int16_t>(bodyTop + 88);
+    QrUtils::drawQrCode(renderer, Rect{static_cast<int16_t>((width - qrSide) / 2), qrTop, qrSide, qrSide},
                         kInstallerUrl);
-    UITheme::drawCenteredWrappedText(renderer, Rect{0, bodyTop + 92 + qrSide + 18, width, 40}, kSmallFontId,
-                                     "crossplay.ma-r-s.com/study", 1);
-    UITheme::drawCenteredWrappedText(renderer, Rect{20, bodyTop + 92 + qrSide + 66, width - 40, 240}, kMeaningFontId,
-                                     "Scan the code, drop your Anki export on the page, and it writes "
-                                     "the deck straight onto this card.",
-                                     5);
+    // Height 40, not 32: drawCenteredWrappedText draws nothing at all when the
+    // box is shorter than the font's line box, and it fails silently.
+    UITheme::drawCenteredWrappedText(renderer, Rect{0, static_cast<int16_t>(qrTop + qrSide + 8), width, 40},
+                                     kSmallFontId, "crossplay.ma-r-s.com/study", 1);
+    UITheme::drawCenteredWrappedText(renderer, Rect{24, static_cast<int16_t>(qrTop + qrSide + 48), width - 48, 96},
+                                     kMeaningFontId, "Scan it to add a deck from a computer.", 2);
+
+    renderer.drawRoundedRect(noDeckSyncX_, noDeckSyncY_, noDeckSyncW_, noDeckSyncH_, toybox::kHairline,
+                             noDeckSyncH_ / 2, true);
+    {
+      const char* label = "SYNC WITH ANKI";
+      const int labelWidth = renderer.getTextWidth(toybox::kUiFontId, label);
+      toybox::drawCapsCentered(renderer, toybox::kUiFontId, noDeckSyncX_ + (noDeckSyncW_ - labelWidth) / 2,
+                               noDeckSyncY_, noDeckSyncH_, label, true);
+    }
   }
 
   const auto labels = mappedInput.mapLabels("Back", "", "", "");
@@ -1473,6 +1563,100 @@ void StudyActivity::endSyncSession(const studyui::SyncVerdictKind kind, const st
                 body != nullptr && body[0] != '\0' ? body : "The sync service could not be reached.");
   std::snprintf(flow_.whatNow, sizeof(flow_.whatNow), "%s", whatNow != nullptr ? whatNow : "");
   showFlow();
+}
+
+bool StudyActivity::runDeckPicker() {
+  std::string message;
+  flowStage(studyui::SyncStage::Connect, "Reading your Anki decks.");
+  if (!sync_.listDecks(bridge_, deckChoices_, message)) {
+    if (sync_.unpaired) {
+      bridge_ = study::BridgeState{};
+      Storage.remove("/study/.bridge");
+      endSyncSession(studyui::SyncVerdictKind::Error, studyui::SyncSafety::NothingSent, "NOT PAIRED", message.c_str(),
+                     "Press SYNC to pair it again.");
+      return false;
+    }
+    endSyncSession(studyui::SyncVerdictKind::Error, studyui::SyncSafety::NothingSent, "NOT SYNCED", message.c_str(),
+                   "Press SYNC again in a few minutes.");
+    return false;
+  }
+  if (deckChoices_.empty()) {
+    endSyncSession(studyui::SyncVerdictKind::Neutral, studyui::SyncSafety::NothingSent, "NO DECKS",
+                   "This Anki account has no decks yet. Add one in Anki, then sync.");
+    return false;
+  }
+
+  pickerRows_.clear();
+  pickerRows_.reserve(deckChoices_.size());
+  for (const auto& choice : deckChoices_) {
+    studyui::DeckPickerModel::Row row;
+    row.name = choice.name.c_str();
+    row.cards = choice.cards;
+    row.chosen = choice.chosen;
+    pickerRows_.push_back(row);
+  }
+  picker_ = studyui::DeckPickerModel{};
+  picker_.rows = pickerRows_.data();
+  picker_.count = static_cast<int>(pickerRows_.size());
+  picker_.maxChosen = study::kMaxSyncDecks;
+  for (const auto& row : pickerRows_) picker_.chosenCount += row.chosen ? 1 : 0;
+  picker_.atCap = picker_.chosenCount >= picker_.maxChosen;
+
+  LOG_INF("STUDYSYNC", "picker: %d decks offered, %d already chosen", picker_.count, picker_.chosenCount);
+  view_ = View::DeckPicker;
+  requestUpdateAndWait();
+  drainInput();
+
+  for (;;) {
+    delay(50);
+    mappedInput.update();
+    if (mappedInput.wasReleased(MappedInputManager::Button::Back) || mappedInput.wasHomeGesture()) {
+      endSyncSession(studyui::SyncVerdictKind::Neutral, studyui::SyncSafety::NothingSent, "STOPPED",
+                     "Nothing was changed. Press SYNC when you want to choose decks.");
+      return false;
+    }
+    int tapX = 0;
+    int tapY = 0;
+    if (!mappedInput.wasScreenTapped(tapX, tapY) || !interactionsReady_) continue;
+
+    fui::InputSnapshot input;
+    input.touchReleased = true;
+    input.touchX = static_cast<int16_t>(tapX);
+    input.touchY = static_cast<int16_t>(tapY);
+    const fui::ActionEvent event = interactions_.route(input);
+    if (event.action == studyui::ActionPickDeck) {
+      if (event.value < 0) {
+        // Page: the list shows what fits and the pager moves the window.
+        picker_.topIndex += picker_.visibleRows;
+        if (picker_.topIndex >= picker_.count) picker_.topIndex = 0;
+      } else {
+        studyui::DeckPickerModel::Row& row = pickerRows_[event.value];
+        if (!row.chosen && picker_.chosenCount >= picker_.maxChosen) {
+          picker_.atCap = true;  // say why nothing happened
+        } else {
+          row.chosen = !row.chosen;
+          picker_.chosenCount += row.chosen ? 1 : -1;
+          picker_.atCap = picker_.chosenCount >= picker_.maxChosen;
+        }
+      }
+      requestUpdateAndWait();
+      continue;
+    }
+    if (event.action == studyui::ActionPickDone && picker_.chosenCount > 0) break;
+  }
+
+  std::vector<std::string> chosen;
+  for (size_t i = 0; i < pickerRows_.size(); ++i) {
+    if (pickerRows_[i].chosen) chosen.push_back(deckChoices_[i].name);
+  }
+  LOG_INF("STUDYSYNC", "picker: chose %d deck(s)", static_cast<int>(chosen.size()));
+  flowStage(studyui::SyncStage::Connect, "Saving your choice.");
+  if (!sync_.chooseDecks(bridge_, chosen, message)) {
+    endSyncSession(studyui::SyncVerdictKind::Error, studyui::SyncSafety::NothingSent, "NOT SYNCED", message.c_str(),
+                   "Press SYNC again in a few minutes.");
+    return false;
+  }
+  return true;
 }
 
 bool StudyActivity::runPairing() {
@@ -1681,11 +1865,21 @@ void StudyActivity::runSyncFlow() {
   LOG_INF("STUDYSYNC", "flow: ntp");
   syncTimeIfNeeded();
   LOG_INF("STUDYSYNC", "flow: state");
-  if (!study::loadBridgeState(bridge_)) {
+  const bool freshPairing = !study::loadBridgeState(bridge_);
+  if (freshPairing) {
     if (!runPairing()) return;  // runPairing already ended the session
   }
+  // A reader that has never chosen decks would sync forever against an empty
+  // manifest: the bridge builds only chosen decks and a new account has none.
+  // Ask on the first sync after pairing, and any time the account still has
+  // nothing chosen.
+  // ...but it cannot be asked yet on a FIRST sync. The bridge only mirrors
+  // the collection during a sync cycle, so before one has run its deck list
+  // is empty and the question would offer nothing. The order that works is:
+  // sync once (which mirrors), then ask, then sync again to build what was
+  // chosen. runSyncPass() below is that pass, and it runs twice at most.
 
-  flowStage(studyui::SyncStage::Send, "Packing this card's reviews.");
+  flowStage(studyui::SyncStage::Send, secondPass_ ? "Fetching the decks you chose." : "Packing this card's reviews.");
   closeDeck();  // frees the fonts and file handles; TLS wants the heap
   std::vector<study::DeckPayload> payloads;
   if (!buildPayloads(payloads)) {
@@ -1721,6 +1915,10 @@ void StudyActivity::runSyncFlow() {
   // the bridge's journal even if everything after this fails.
   for (const auto& ack : acks) bridge_.setAck(ack.first.c_str(), ack.second);
   study::saveBridgeState(bridge_);
+  // True from here on, so the leave-is-safe footer and the Back hint appear
+  // during the BUILD wait rather than only at DOWNLOAD -- the wait they were
+  // written for is the one they were missing from.
+  if (reviewCount > 0) flow_.safety = studyui::SyncSafety::ReviewsSafe;
   if (reviewCount > 0) {
     std::snprintf(flow_.facts[static_cast<int>(studyui::SyncStage::Send)], sizeof(flow_.facts[0]), "%d SENT",
                   reviewCount);
@@ -1777,7 +1975,7 @@ void StudyActivity::runSyncFlow() {
   }
 
   flowStage(studyui::SyncStage::Download, nullptr);
-  flow_.safety = studyui::SyncSafety::ReviewsSafe;
+  if (reviewCount > 0) flow_.safety = studyui::SyncSafety::ReviewsSafe;
   int decksUpdated = 0;
   if (!applyManifests(manifests, message, decksUpdated)) {
     const studyui::SyncSafety safety =
@@ -1791,6 +1989,23 @@ void StudyActivity::runSyncFlow() {
   bridge_.lastSyncAt = static_cast<int64_t>(time(nullptr));
   study::saveBridgeState(bridge_);
   findDeckDirs();  // the bridge may have delivered a deck this card never had
+
+  // The mirror exists now, so the question can finally be answered. Ask once,
+  // then run the flow again: this second pass is the one that builds and
+  // downloads what was chosen. Without the re-run the user would choose decks
+  // and be told SYNCED with nothing on the card.
+  if (!bridge_.choseDecks) {
+    if (!runDeckPicker()) return;  // runDeckPicker already ended the session
+    bridge_.choseDecks = true;
+    study::saveBridgeState(bridge_);
+    syncBusy_ = false;
+    // The second pass is the one that fetches what was just chosen. Say so,
+    // or four filled bars emptying and starting again reads as a retry after
+    // a failure.
+    secondPass_ = true;
+    runSyncFlow();
+    return;
+  }
 
   flow_.factCount = 0;
   if (reviewCount > 0) {
@@ -1807,6 +2022,8 @@ void StudyActivity::runSyncFlow() {
   localtime_r(&now, &local);
   std::snprintf(flow_.factLines[flow_.factCount++], sizeof(flow_.factLines[0]), "LAST SYNC %02d:%02d", local.tm_hour,
                 local.tm_min);
-  endSyncSession(studyui::SyncVerdictKind::Success, studyui::SyncSafety::ReviewsSafe, "SYNCED",
-                 "This reader and your Anki are up to date.");
+  endSyncSession(studyui::SyncVerdictKind::Success,
+                 reviewCount > 0 ? studyui::SyncSafety::ReviewsSafe : studyui::SyncSafety::None, "SYNCED",
+                 "This reader and your Anki are up to date.",
+                 deckCount_ > 0 ? "Your decks are in Study, ready to review." : nullptr);
 }
