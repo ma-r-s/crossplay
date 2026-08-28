@@ -112,8 +112,13 @@ Developer Mode shows an address and six digits:
 It is a runtime setting present in every build including releases, so flashing a
 release does NOT turn it off -- the setting lives on the SD card. While it is on
 the device will not deep-sleep and accepts firmware from anyone who pairs, so
-close it with `--disable` before the device leaves your network. Full detail in
-`docs/developer-mode.md`.
+close it with `--disable` before the device leaves your network.
+
+A device in a multiplayer match is off Wi-Fi and cannot be flashed: the link
+takes the radio outright, because ESP-NOW is pinned to channel 1 and an AP
+association pins the radio to the router's. Leave the game and dev mode is back
+in a few seconds. Until `app/linkradio` it did not yield at all, and multiplayer
+died one move into every game. Full detail in `docs/developer-mode.md`.
 
 Each simulator instance gets its own SD card via `CROSSPOINT_SIM_SD`: each
 tree's own `fs_agent/` for scripted runs, and `../fs_mario/` at the workspace

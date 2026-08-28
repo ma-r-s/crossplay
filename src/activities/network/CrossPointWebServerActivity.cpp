@@ -104,7 +104,6 @@ void CrossPointWebServerActivity::onEnter() {
 
 void CrossPointWebServerActivity::onExit() {
   Activity::onExit();
-  devmode::resume();
 
   LOG_DBG("WEBACT", "Free heap at onExit start: %d bytes", ESP.getFreeHeap());
 
@@ -130,6 +129,14 @@ void CrossPointWebServerActivity::onExit() {
       silentRestart();
     }
   }
+
+  // LAST, after this screen has finished putting its own radio down. When
+  // resume() still joined synchronously, calling it first meant dev mode took
+  // the radio at the top of this function and the softAP teardown below tore it
+  // out again. The join is deferred to update() now, but the ordering is still
+  // right on its own terms: the radio is handed back when this screen is done
+  // with it, and holdsRadio() above is read while the yield is still held.
+  devmode::resume();
 
   LOG_DBG("WEBACT", "Free heap at onExit end: %d bytes", ESP.getFreeHeap());
 }

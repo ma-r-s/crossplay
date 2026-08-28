@@ -11,6 +11,7 @@
 #include <memory>
 
 #include "CrossPointSettings.h"
+#include "DevModePairing.h"
 #include "WifiCredentialStore.h"
 #include "network/CrossPointWebServer.h"
 
@@ -25,7 +26,8 @@ enum class State {
   Waiting,    // on, joined, but the server could not start; backing off
 };
 
-// Whether another owner (the web transfer screen) holds ports 80/81/8134.
+// Whether another owner holds the radio or ports 80/81/8134: the web transfer
+// screen, the Wi-Fi picker, or a link match.
 //
 // A LATCH, deliberately not a State. As a state it was bypassable: update()
 // reconciles the setting before it checks for a yield, so toggling dev mode off
@@ -33,7 +35,14 @@ enum class State {
 // startJoin() and bound the same ports a second time -- and dev mode being OFF
 // made pause() a no-op, so enabling it from that very screen did the same. A
 // latch is checked on every path and cannot be cleared by a state transition.
-bool yielded = false;
+//
+// A COUNT rather than a bool, because the holders nest. The web server screen
+// yields for the ports and then opens the Wi-Fi picker, which yields for the
+// radio; as a bool the picker's resume() handed dev mode back while the screen
+// underneath was still serving on 80/81/8134, and dev mode rebound them under
+// it -- the exact collision pause() exists to prevent. Only the outermost
+// release reconciles.
+int yieldDepth = 0;
 
 // The pairing code, in RTC memory so it survives the reboot that every flash
 // causes. Without this the token died with the reboot AND the code changed, so
@@ -64,19 +73,36 @@ bool paired = false;
 bool broughtRadioUp = false;
 // Wrong-code attempts since the last rotation, and the earliest millis() at
 // which another attempt will be considered.
-int pairFailures = 0;
-unsigned long pairNotBefore = 0;
+pairing::State pairState;
+
 unsigned long nextAttemptAt = 0;
 unsigned long joinDeadline = 0;
 int attempt = 0;
+// Set by resume(); consumed by startJoin(), which runs off the render path.
+bool reloadCredentials = false;
+// True once WE issued the WiFi.begin() for the join now in progress. A
+// connection we did not ask for is somebody else's to put down.
+bool joinIssued = false;
 
 constexpr unsigned long kJoinTimeoutMs = 20000;
 constexpr unsigned long kMinBackoffMs = 5000;
 constexpr unsigned long kMaxBackoffMs = 60000;
-// One attempt per second caps a grind at ~86k/day against a 10^6 space, and the
-// rotation below means those attempts are not cumulative anyway.
-constexpr unsigned long kPairRetryMs = 1000;
-constexpr int kPairFailuresBeforeRotate = 5;
+// Wrong guesses back off exponentially from one second, and the code cannot
+// rotate more often than once a minute.
+//
+// Both numbers exist because the first design was a denial of pairing wearing a
+// comment that said it was not. One per second and rotate-every-five-failures
+// meant anyone who could reach the device rotated the six digits EVERY FIVE
+// SECONDS from a single loop -- less time than the owner needs to read the panel
+// and type, so their attempt always arrived against a dead code, counted as
+// another wrong guess, and brought the next rotation closer. The comment in
+// pair() said rotation was chosen precisely so nobody could stop the owner
+// pairing. Rotation was that lockout, by a different route.
+//
+// It is reachable from outside the LAN, too: /api/dev/pair takes the code as a
+// query argument on a POST, which is a CORS-simple request, so a page the owner
+// merely visits can fire it cross-origin. It cannot read the reply -- CORS is
+// off on this surface -- but forcing rotation needs no reply.
 
 unsigned long backoff() {
   const unsigned long ms = kMinBackoffMs << (attempt < 4 ? attempt : 4);
@@ -146,6 +172,7 @@ void startJoin() {
   }
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid.c_str(), password.empty() ? nullptr : password.c_str());
+  joinIssued = true;
   joinDeadline = millis() + kJoinTimeoutMs;
   state = State::Joining;
 }
@@ -165,10 +192,18 @@ void turnOn() {
   rtcPairMagic = kPairMagic;
   activeToken.clear();
   paired = false;
-  pairFailures = 0;
-  pairNotBefore = 0;
+  pairState = pairing::State{};
+  // Switching dev mode on IS a rotation, and it starts the floor -- the minute
+  // right after enabling is exactly when the owner is walking to their terminal
+  // with the code, and the one an attacker would most want to churn.
+  pairState.lastRotate = millis();
+  joinIssued = false;
   if (ssid.empty()) {
     LOG_INF("DEVMODE", "on, but no saved network; join one in Network settings first");
+    // Clear both, the same way update()'s NoNetwork path does. Fixing one of two
+    // identical sites is exactly how the pair() bug happened.
+    password.clear();
+    nextAttemptAt = 0;
     state = State::NoNetwork;
     return;
   }
@@ -192,7 +227,7 @@ void update() {
   // Before anything else. While another owner holds the ports, dev mode does
   // not touch the radio, the server, or its own state -- including when the
   // setting changes underneath it. resume() reconciles whatever it finds.
-  if (yielded) return;
+  if (yieldDepth > 0) return;
 
   const bool want = SETTINGS.devMode != 0;
 
@@ -229,13 +264,63 @@ void update() {
   const unsigned long now = millis();
 
   if (state == State::Joining) {
+    // Before the CONNECTED check, not after, and not inside startJoin(): when
+    // the holder handed the radio back still connected we short-circuit
+    // straight to Serving below and startJoin() never runs, which left the
+    // panel naming the network the user had just left. Here because update()
+    // runs from loop() with no render lock -- see resume().
+    if (reloadCredentials) {
+      reloadCredentials = false;
+      WIFI_STORE.loadFromFile();
+      ssid = WIFI_STORE.getLastConnectedSsid();
+      if (ssid.empty()) {
+        // Assign first, THEN test. Keeping the old value on this path left the
+        // panel deriving hasNetwork from a network that no longer exists, so it
+        // showed "connecting" forever instead of "join a network first" -- which
+        // is what the user sees after forgetting the current network in the
+        // Wi-Fi picker, the one flow that reaches here.
+        LOG_INF("DEVMODE", "no saved network to go back to; idle until one is joined");
+        password.clear();
+        // Left set and in the past, this made the later turnOn() -> startJoin()
+        // fire again on the next pass: one redundant WiFi.begin(), and `attempt`
+        // inflated to 2, so the first backoff was 5000<<2 = 20s instead of
+        // 5000<<1 = 10s. (attempt++ is the first line of startJoin(), so a
+        // backoff of 5s is unreachable.)
+        nextAttemptAt = 0;
+        state = State::NoNetwork;
+        return;
+      }
+      const auto cred = WIFI_STORE.findCredential(ssid);
+      password = cred ? cred->password : std::string();
+    }
     if (WiFi.status() == WL_CONNECTED) {
       attempt = 0;
-      // Only now is the radio ours. Setting this at WiFi.begin() time made
-      // holdsRadio() true while dev mode held nothing -- so with the AP out of
-      // range every guarded activity skipped its cleanup forever, on a device
-      // that also no longer deep-sleeps. Both heap-reclaim paths gone at once.
-      broughtRadioUp = true;
+      // Only now is the radio ours -- and only if it was OUR join that produced
+      // it. Adopting any connection found while Joining meant the Wi-Fi picker's
+      // own successful join was claimed by dev mode, so ten activities skipped
+      // the teardown of a radio they owned, and switching dev mode off later
+      // disconnected a network it had never joined.
+      //
+      // (Setting it at WiFi.begin() time instead made holdsRadio() true while
+      // dev mode held nothing, so with the AP out of range every guarded
+      // activity skipped its cleanup forever, on a device that also no longer
+      // deep-sleeps.)
+      // joinIssued alone is not enough: it survives a join timeout and the whole
+      // backoff window after a drop, so an activity that brought Wi-Fi up in the
+      // meantime got claimed by dev mode -- which then skipped that activity's
+      // teardown, re-issued WiFi.begin() over its download, and armed tearDown()
+      // to disconnect a network dev mode never joined. Ask which network we are
+      // actually on as well.
+      const bool ours = joinIssued && WiFi.SSID() == String(ssid.c_str());
+      if (joinIssued && !ours) {
+        // The expensive direction, and it was silent: a false negative here
+        // means tearDown() never puts the radio down, so switching Developer
+        // Mode off leaves the device associated forever on a device that also
+        // does not sleep -- with nothing in the log saying why.
+        LOG_ERR("DEVMODE", "joined '%s' but the radio reports '%s'; not claiming it", ssid.c_str(),
+                WiFi.SSID().c_str());
+      }
+      broughtRadioUp = ours;
       LOG_INF("DEVMODE", "joined '%s' as %s", ssid.c_str(), WiFi.localIP().toString().c_str());
       // makeUniqueNoThrow, not bare new: with -fno-exceptions a failed new
       // calls abort() rather than returning null, so the isRunning() check
@@ -305,34 +390,90 @@ void update() {
 
 void pause() {
   // Unconditional, including when dev mode is off: the point is to hold the
-  // latch for as long as the other owner has the ports, so that dev mode being
-  // enabled DURING that window cannot bind them underneath it.
-  if (yielded) return;
-  yielded = true;
-  if (state != State::Off) stopServer("web server screen opened");
+  // latch for as long as the other owner has the radio or the ports, so that
+  // dev mode being enabled DURING that window cannot take them underneath it.
+  if (yieldDepth++ > 0) return;
+  if (state != State::Off) stopServer("something else took the radio");
 }
 
 void resume() {
-  if (!yielded) return;
-  yielded = false;
+  // An unbalanced resume() is somebody else's bug, but swallowing it here is
+  // still better than a negative count that never lets dev mode back.
+  if (yieldDepth == 0) return;
+  if (--yieldDepth > 0) return;
   if (state == State::Off) return;  // never ran; nothing of ours to put down
   if (SETTINGS.devMode == 0) {
-    tearDown("developer mode switched off while the web screen was open");
+    tearDown("developer mode switched off while something else held the radio");
     state = State::Off;
     return;
   }
-  LOG_INF("DEVMODE", "web server screen closed; taking the ports back");
+  LOG_INF("DEVMODE", "radio handed back; taking the ports back");
   attempt = 0;
   nextAttemptAt = 0;
+
+  // If the holder gave the radio back switched off -- which is exactly what a
+  // link match does, WiFi.mode(WIFI_OFF) in Radio::end() -- then whatever dev
+  // mode raised is gone, and saying otherwise is the lie that matters: ten
+  // activities gate their radio teardown on holdsRadio(), and every one of them
+  // would skip it. Worse, an AP that has
+  // since gone out of range means the join below never completes, so nothing
+  // would ever re-evaluate it. Only clear it here, never in pause(): during a
+  // yield the association is still the one dev mode raised, and the web
+  // transfer screen reads holdsRadio() precisely so it does not reboot to tear
+  // down a connection that is not its own.
+  //
+  // getMode()/status() rather than WiFi.STA.connected(): the simulator's WiFi
+  // shim is an external dependency with no STA member, and clearing is the safe
+  // direction anyway -- a false clear costs an activity one teardown it did not
+  // strictly need, a false keep costs ten activities the teardown they did.
+  if (WiFi.getMode() == WIFI_MODE_NULL || WiFi.status() != WL_CONNECTED) broughtRadioUp = false;
+  // Rejoin rather than assume: the holder may have switched to AP mode, joined
+  // a different network entirely, or -- a link match -- handed the radio back
+  // switched off.
+  //
+  // "A different network entirely" is not hypothetical and was not handled: the
+  // Wi-Fi picker exists to change the network and is pushed by nine different
+  // screens, so the saved SSID here is routinely stale by the time we get the
+  // radio back. Re-read it, or dev mode spends the rest of the session
+  // retrying a network the user has just left.
+  // Reload and join on the NEXT update() pass, not here.
+  //
+  // resume() can run with the render mutex held -- ~LinkActivity reaches it
+  // through ActivityManager::exitActivity(lock) -- and loadFromFile() takes
+  // storeMutex, reads the card, parses JSON, and can write it back on a format
+  // upgrade. PersistableStore.h warns in as many words against putting that on
+  // the render path. update() runs from loop() with no lock, which is where it
+  // belongs; startJoin() does the reload when it gets there.
+  //
+  // Firing on the next pass rather than immediately also keeps the join out of
+  // onExit() entirely, so it cannot interleave with a holder still putting its
+  // own radio down. It costs one loop iteration, against the 25s the original
+  // joinDeadline-with-no-attempt cost.
+  reloadCredentials = true;
+  joinIssued = false;  // whatever is up now, we did not raise it
+  nextAttemptAt = millis();
+  if (nextAttemptAt == 0) nextAttemptAt = 1;  // 0 is the "no attempt pending" value
   joinDeadline = millis() + kJoinTimeoutMs;
-  // Rejoin rather than assume: that screen may have switched to AP mode or
-  // joined a different network entirely.
-  state = ssid.empty() ? State::NoNetwork : State::Joining;
+  state = State::Joining;
 }
 
-bool serving() { return state == State::Serving && server && server->isRunning(); }
-
-bool holdsRadio() { return broughtRadioUp && SETTINGS.devMode != 0; }
+bool holdsRadio() {
+  // Self-checking, not a latch. The one caller that reads this DURING a yield
+  // is the web transfer screen's onExit(), and it reads it eleven lines before
+  // resume() gets a chance to correct broughtRadioUp -- so a screen that took
+  // the radio into AP mode was still told dev mode held an association that
+  // WIFI_AP had already destroyed, and skipped its own teardown on the strength
+  // of it. Note what that teardown actually is on the shipping boards: both the
+  // X4 Pro and the Sticky have touch, so silentRestart() takes
+  // finishWifiSessionWithoutRestart() and RETURNS -- it stops SNTP and switches
+  // the radio off in place. What gets skipped is a Wi-Fi shutdown, not a
+  // reboot; the defrag reboot only happens on boards without touch.
+  //
+  // Asking the radio costs nothing and cannot go stale. In the case that
+  // matters -- a screen reusing dev mode's own STA -- this still answers yes,
+  // because that association really is dev mode's and really is up.
+  return broughtRadioUp && SETTINGS.devMode != 0 && WiFi.getMode() != WIFI_MODE_NULL && WiFi.status() == WL_CONNECTED;
+}
 
 bool inhibitsSleep() { return SETTINGS.devMode != 0; }
 
@@ -357,39 +498,37 @@ bool tokenValid(const std::string& token) {
   return diff == 0;
 }
 
+unsigned long pairRetryInMs() {
+  if (pairState.notBefore == 0) return 0;
+  const long remaining = static_cast<long>(pairState.notBefore - millis());
+  return remaining > 0 ? static_cast<unsigned long>(remaining) : 0;
+}
+
 std::string pair(const std::string& code) {
   if (SETTINGS.devMode == 0 || pairingCode.empty()) return std::string();
 
-  // A minimum interval between attempts. Six digits is 10^6, which a LAN can
-  // walk in hours unattended -- and until this branch disabled CORS on this
-  // surface, so could a web page the owner merely visited.
-  const unsigned long now = millis();
-  if (pairNotBefore != 0 && static_cast<long>(now - pairNotBefore) < 0) {
-    LOG_ERR("DEVMODE", "pairing attempt too soon; ignored");
-    return std::string();
+  // The decision itself lives in DevModePairing.h as a pure function, and
+  // host-tests/devpair exercises it. That split is not tidiness: three cold
+  // review rounds found three different bugs in these twenty lines, none of
+  // them visible to any suite, on the gate in front of replacing this device's
+  // firmware. This function is now only the part that needs a device.
+  // Qualified, not `using namespace pairing`: this file already has its own
+  // State enum for the join state machine, and the two would collide.
+  const pairing::Outcome out = pairing::decide(code == pairingCode, millis(), pairState);
+  // ONE assignment. Copying the fields back individually is how round twelve
+  // showed the shipped bug could return with every test green: drop the
+  // notBefore line and the gate never closes again.
+  pairState = out.next;
+
+  if (out.rotate) {
+    pairingCode = makeCode();
+    std::snprintf(rtcPairCode, sizeof(rtcPairCode), "%s", pairingCode.c_str());
+    rtcPairMagic = kPairMagic;
+    LOG_ERR("DEVMODE", "too many wrong codes; rotated to %s", pairingCode.c_str());
   }
 
-  if (code != pairingCode) {
-    pairFailures++;
-    pairNotBefore = now + kPairRetryMs;
-    // ROTATE rather than lock out. A lockout would hand anyone on the network a
-    // way to stop the owner pairing; moving the target instead throws away
-    // every guess made so far and costs the owner only a glance at the screen,
-    // which is already showing the new code by the time they look.
-    if (pairFailures >= kPairFailuresBeforeRotate) {
-      pairingCode = makeCode();
-      std::snprintf(rtcPairCode, sizeof(rtcPairCode), "%s", pairingCode.c_str());
-      rtcPairMagic = kPairMagic;
-      pairFailures = 0;
-      LOG_ERR("DEVMODE", "too many wrong codes; rotated to %s", pairingCode.c_str());
-    } else {
-      LOG_ERR("DEVMODE", "wrong pairing code (%d of %d before rotation)", pairFailures, kPairFailuresBeforeRotate);
-    }
-    return std::string();
-  }
+  if (out.verdict != pairing::Verdict::Accept) return std::string();
 
-  pairFailures = 0;
-  pairNotBefore = 0;
   activeToken = makeToken();
   paired = true;
   LOG_INF("DEVMODE", "paired");

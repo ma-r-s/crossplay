@@ -84,6 +84,18 @@ class Radio final : public Transport {
 
   Address local_ = {};
   bool started_ = false;
+  // Whether THIS radio yielded Developer Mode and owes it a resume(). Not the
+  // same as started_: begin() takes the radio before it can fail, and end()
+  // runs on paths where nothing was ever taken.
+  //
+  // Device only -- the host and simulator builds take the socket branch, where
+  // there is no Developer Mode to yield, so the field is genuinely unused there
+  // and the attribute says so rather than letting -Werror decide.
+  [[maybe_unused]] bool held_ = false;
+  // Whether esp_now_init() succeeded and still needs tearing down. Not the same
+  // as started_, which is only set once the whole of begin() has worked: the
+  // failure paths in between left ESP-NOW up and broke every later match.
+  [[maybe_unused]] bool espNowUp_ = false;
   std::atomic<bool> overflowed_{false};
 
   int socket_ = -1;  // simulator only
