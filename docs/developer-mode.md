@@ -77,6 +77,45 @@ That is a real battery cost, confined to devices whose owner deliberately
 switched it on. The alternative is worse: a development device that disappears
 after the sleep timeout is not one.
 
+### On the network, a device that is off looks exactly like one that is asleep
+
+`--disable` leaves no code on the panel, no route, and no other visible sign
+that anything changed. That is correct -- switching Developer Mode off should
+leave an ordinary reader -- and it is completely indistinguishable from the
+outside from a unit that has gone to sleep, lost its network, or been powered
+down. All four give the same silence ON THE NETWORK: no HTTP, no discovery
+answer, nothing.
+
+**Over USB they are not the same, and that is the tell.** Measured 2026-08-28
+with one of each on the desk at once:
+
+| symptom | meaning |
+|---|---|
+| no `/dev/cu.usbmodem*` at all | asleep, or unplugged |
+| port present, serial silent, **Wi-Fi answering** | the CABLE is wedged; the device is fine |
+| port present, serial silent, Wi-Fi silent too | wedged AND off-network (a match, or a screen holding the radio) |
+
+So check Wi-Fi before reaching for the power button. The X4 Pro's native USB CDC
+wedges under sustained serial driving and `esptool` cannot rescue it either --
+there is no auto-reset circuit -- but the wedge takes the CABLE down, not the
+device. One unit served HTTP throughout an entire night of it.
+
+Standing in front of the device: a sleeping one paints the sleep screen, a
+wedged one still shows whatever app it was on. E-ink retains either after power,
+so trust the screen's CONTENT, not that there is an image.
+
+This matters when more than one person works on these devices. Twice on
+2026-08-27 a device changed state under another session and produced a
+confident, wrong instruction: "wake it and read the six-digit code" against a
+unit whose Developer Mode had since been switched off, and a `curl` against an
+already-dark device read as a rejected pairing. In both cases the device looked
+broken rather than reconfigured.
+
+So: before concluding a device is faulty, establish which of the four it is.
+`ioreg` says whether it is on USB at all, and if a unit is silent on the network
+the first question is whether anyone switched Developer Mode off, not what
+broke.
+
 ## Endpoints
 
 | Route | Takes | Returns |
@@ -120,25 +159,162 @@ Clearing stays on the on-device crash screen, when a human dismisses it. A
 corrupt ring is reported as `logsValid: false` rather than shown as empty --
 "nothing was logged" and "RTC memory was garbage" are different findings.
 
+## Driving the device
+
+Since `app/linkradio`, a paired device takes synthetic input and hands back its
+screen, so a session can navigate the UI and see the result without anybody
+touching the hardware.
+
+```bash
+# one tool, two transports -- --port for the cable, --ip for Developer Mode
+uv run --with pillow tools_local/device/drive.py --ip 192.168.68.78 \
+    shot before.png, tap 240 400, sleep 1, shot after.png
+```
+
+- `POST /api/dev/input` -- body is one command line, the same four verbs the
+  serial bridge takes: `TAP x y [holdMs]`, `LONG x y`,
+  `SWIPE x0 y0 x1 y1 [ms]`, `BTN UP|DOWN|CONFIRM|BACK|LEFT|RIGHT|POWER [holdMs]`.
+  Coordinates are panel-native pixels; `drive.py --view` converts from the
+  portrait frame the PNGs are saved in. Answers `200` with the device's `OK`
+  line, `400` for bad arguments, `409` when an event of the same kind is still
+  playing. 409 is a retry, not a mistake: the command was well formed and will
+  work once the previous gesture finishes, and `drive.py` waits it out rather
+  than reporting failure.
+- `GET /api/dev/screen` -- the framebuffer as it stands: 1bpp, row-major, MSB
+  leftmost, `X-Panel-Width`/`X-Panel-Height` headers. The same bytes the serial
+  bridge streams, so one decoder serves both.
+
+**The verbs live in one place**, `lib/DevInput/DevInputCommands.cpp`, and both
+transports call it. A device that answers `TAP` down a cable but not over Wi-Fi,
+or that takes the arguments in a different order on each, is a trap that only
+springs while somebody is already debugging something else.
+
+**Dev builds only**, unlike the rest of Developer Mode. That is not about
+secrecy -- anyone who can pair can already replace the firmware, which is
+strictly more powerful -- but about cost: the injector overlays every HalGPIO
+read, and a shipped reader should not pay for a frame hook nobody will use.
+
+## Playing and flashing are exclusive
+
+A link match takes the radio outright: `LinkRadio::begin()` calls
+`devmode::pause()` and `end()` calls `devmode::resume()`. While you are playing,
+the device is off Wi-Fi and cannot be flashed or logged. Leave the game and it
+comes back on its own within a few seconds.
+
+This is not a policy choice, it is the hardware. An AP association pins the
+radio to that AP's channel; ESP-NOW here is fixed to channel 1. Both cannot hold
+the radio, so one of them has to yield, and the one the user is looking at wins.
+
+**The bug this replaces is worth knowing, because the shape recurs.** Developer
+Mode decided nobody else was using the radio by asking
+`WiFi.status() == WL_CONNECTED`. ESP-NOW never associates, so a live match read
+as "my connection dropped" -- and dev mode rejoined the house AP
+`kMinBackoffMs` (5s) later, dragging the radio from channel 1 to channel 9 with
+a game running on it. The symptom was precise and misleading: pairing worked,
+the first move landed, and the match died `kPeerTimeoutMs` (10s) after that with
+"connection lost". The 5s backoff is exactly the width of the window in which
+the first move fit.
+
+`WiFi.status()` answers "am I associated", never "is this radio busy". Anything
+that reads it as ownership will miss every non-associating user of the radio.
+
 ## Known limits
+
+- **A device left in a match is unreachable and stays awake.** Both halves are
+  deliberate and they compound: the link holds the radio (so no Wi-Fi) and
+  `wantsAwake()` is true for the whole match (so no deep sleep, because an
+  opponent thinking for five minutes is indistinguishable from an idle device).
+  Walk away mid-game and the device sits there, off the network, until somebody
+  presses a button. Deep sleep would otherwise have been the recovery path,
+  since waking is a reset and dev mode rejoins on boot.
+
+  Do not "fix" this by making `inhibitsSleep()` yield-aware -- that changes
+  nothing here, because it is `LinkActivity::preventAutoSleep()` holding the
+  device awake, not Developer Mode.
+
+- **An unauthenticated client can freeze the UI by trickling a body.** A `PUT
+  /api/dev/upload` is refused at `RAW_START`, but this HTTP core drains the body
+  on the loop task before the 401 goes out, and `client.readBytes` blocks per
+  chunk -- so while it drains there is no button input and no `devmode::update()`.
+  A freeze, not a reset: nothing here subscribes the loop task to the task
+  watchdog, so `resetTaskWatchdogIfSubscribed()` is a no-op across this entire
+  firmware. Pre-dates this branch; not fixable inside the handler.
+
+- **A six-digit code on an open endpoint is worth about four months to a
+  determined flood.** MEASURED, not derived: driving `pairing::decide()` with a
+  24-hour flood at 1kHz gives 8,497 evaluated guesses a day, so ~118 days to
+  walk 10^6 with replacement. `host-tests/devpair` pins that rate, so it cannot
+  drift without failing.
+
+  What bounds it is the gate in `pair()` refusing to EVALUATE a guess inside the
+  backoff window -- one evaluated guess per interval. Two earlier versions of
+  that gate bounded nothing at all, because they compared the code before
+  consulting the timer, and a limiter you have already answered limits nothing.
+
+  It is 118 days rather than the 347 the ceiling alone would give, because
+  ROTATION RESTARTS THE LADDER: zeroing the failure count sends the backoff back
+  to 1s, so it never settles at the 30s ceiling. That is a deliberate trade and
+  it favours the owner -- since the gate now applies to a correct code too, a
+  permanently-pinned ceiling would mean the owner waiting up to 30s to pair on a
+  device nobody is even attacking. Rotation is not what makes grinding
+  expensive; it makes it about three times cheaper, and buys back the owner's
+  latency.
+
+  If this ever needs to be genuinely hard rather than adequate for a home LAN,
+  the answers are per-source-IP limiting or more digits. Rotation is not one.
 
 - **One cached token and code**, in `~/.crossplay-devtoken` and
   `~/.crossplay-devcode`. With two devices you re-pair when you switch between
   them.
-- **The radio is still not arbitrated.** Developer Mode will not take a radio
-  already in use, only puts down a connection it raised, and every file that
-  tears the radio down now either asks `devmode::holdsRadio()` or tracks its own
-  ownership -- enforced by `host-tests/release`, which discovers those files
-  rather than listing them. But there is no ownership protocol; `LinkRadio`'s
-  "only one thing on the device may own the radio at a time" is still managed by
-  convention, and link multiplayer with Developer Mode on is untested.
+- **The radio is still not arbitrated,** but the two places that take it
+  outright now say so. Developer Mode will not take a radio already in use, only
+  puts down a connection it raised, and `host-tests/release` checks 10 to 13
+  discover -- rather than list -- the files that put the radio out of service
+  and the files that yield. 13 tests the comment scanner those checks depend on,
+  and named canaries assert that specific files are still being discovered:
+  three times on that branch a check quietly stopped examining files and went on
+  reporting green, and the only tell was the check count.
+
+  **One file is still outside that net,** and note the checks would not catch it
+  either -- see below. `StudyActivity` tears the radio down twice: `onExit` does
+  it behind its own `wifiActivated_` flag, which is set whenever the app wants
+  Wi-Fi rather than when it actually raised the radio, and `endSyncSession` does
+  it behind no flag at all. Either way, with Developer Mode holding an
+  association it will drop it, and dev mode rejoins ~5s later.
+
+  **Closed on `app/studyradio`, not yet merged** (2026-08-28): `beginSync()`
+  sets `wifiActivated_` only when Wi-Fi was down, and both teardowns ask
+  `holdsRadio()`. Delete this paragraph when that branch lands.
+  Annoying, not fatal, and it predates this feature. Check 10 does not catch it
+  because the pattern deliberately excludes `WiFi.disconnect(`: a self-owned
+  teardown is a legitimate use of it, and `ClockSyncActivity` is the example of
+  doing that correctly (its flag is only set when Wi-Fi was NOT already up).
+  `ConnectionsActivity` and `KOReaderSyncActivity` had the same hole through
+  `esp_wifi_stop()`, which is unambiguous; both now ask `holdsRadio()` and the
+  check covers that call.
+
+  **What the gate does NOT cover, stated plainly:** an ownership flag that is
+  set unconditionally. `StudyActivity`'s pattern -- `WiFi.mode(WIFI_STA)` plus
+  `wifiActivated_ = true` regardless of whether the radio was already up -- is
+  invisible to every check here, because the pattern deliberately excludes
+  `WiFi.disconnect(` and says nothing about flags. Nothing would catch a
+  regression of it. `ClockSyncActivity` is the shape that is correct by
+  construction and worth copying: it only sets its flag when Wi-Fi was NOT
+  already connected. There is still no general ownership protocol.
+
+  What the convention missed, and what shipped in v1.6.1: Developer Mode's test
+  for "is somebody else using this?" is `WiFi.status() == WL_CONNECTED`, so an
+  owner that never associates is invisible to it. ESP-NOW never associates. See
+  "Playing and flashing are exclusive" above.
 - **The unauthenticated web UI can still overwrite
   `/.crosspoint/settings.json`** by basename, which is another route to enabling
   Developer Mode. It predates this feature and is not caused by it, but this
   feature is what makes it worth more.
-- **No remote input or screenshots yet.** The serial bridge already has
-  TAP/SWIPE/BTN and SCREENSHOT; exposing them over this transport is the obvious
-  next step and is not built.
+- **Remote input and screenshots are dev builds only.** They are gated on
+  `CROSSPOINT_DEV_SERIAL_BRIDGE`, the same flag as the injector they schedule
+  onto, so a shipped release carries neither the routes nor the per-frame input
+  overlay. A release device in Developer Mode can be flashed and read, but not
+  driven. See "Driving the device" above.
 - **The simulator does none of this.** Two call sites are guarded on `SIMULATOR`
   because the host's `WebServer` shim has no raw-body API. A platform gate, not
   a feature gate.

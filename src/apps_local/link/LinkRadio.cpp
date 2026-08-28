@@ -17,6 +17,8 @@
 #include <WiFi.h>
 #include <esp_now.h>
 #include <esp_wifi.h>
+
+#include "DevMode.h"
 #else
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -124,9 +126,62 @@ void Radio::enqueueFromCallback(const uint8_t* sourceMac, const uint8_t* data, c
 bool Radio::begin() {
   end();
 
+  // Developer Mode holds an association to the house AP, and an association
+  // pins the radio to that AP's channel. ESP-NOW here is fixed to kChannel, so
+  // the two cannot both have the radio.
+  //
+  // Dev mode cannot see a match coming: its "is someone else using this?" test
+  // is `WiFi.status() == WL_CONNECTED`, and ESP-NOW never associates. So it
+  // read the disconnect below as its own connection dropping and rejoined
+  // kMinBackoffMs later, dragging the radio to the router's channel with a
+  // game running on it. That 5s grace is exactly why the FIRST move always
+  // landed and the second never did, and why it surfaced as "connection lost"
+  // a further kPeerTimeoutMs on rather than as a failure to connect at all.
+  //
+  // So the link takes the radio outright and hands it back in end(). A device
+  // in a match cannot be flashed; that is the honest trade and the only one on
+  // offer, because the channel is not shareable.
+  devmode::pause();
+  held_ = true;
+
   WiFi.persistent(false);
   WiFi.mode(WIFI_STA);
-  WiFi.disconnect(false, false);
+  // Disarm the core's auto-reconnect BEFORE disconnecting. Our own disconnect
+  // raises WIFI_REASON_ASSOC_LEAVE, which the handler already refuses to
+  // reconnect on -- but events are delivered on the Wi-Fi task, so a
+  // NO_AP_FOUND queued before we got here (it IS on the reconnectable list) is
+  // processed after the channel is pinned and re-issues a scanning association.
+  // That lands the radio back on the router's channel with a match running,
+  // which is the original bug arriving by a route the pause() does not cover.
+  //
+  // WHAT THIS DOES NOT COVER, because the core will not let it: STA.cpp keeps a
+  // boot-lifetime `first_connect` static that forces one reconnect ahead of the
+  // autoReconnect test, and our own ASSOC_LEAVE disconnect does not clear it.
+  // So the FIRST non-ASSOC_LEAVE disconnect after boot reconnects whatever this
+  // says. From the second on, the guard bites.
+  WiFi.setAutoReconnect(false);
+
+  // esp_wifi_disconnect() is ASYNCHRONOUS, and while the station is still
+  // associated the channel belongs to the AP -- a set_channel issued into that
+  // window is reverted, and it still returns ESP_OK, so the check below would
+  // never notice. This is an independent cause of the same symptom the pause()
+  // above fixes: pair, one move, then silence as the radio drifts back to the
+  // router's channel.
+  //
+  // The third argument is a timeout, and the return value is "it really went
+  // down": the core loops on WiFi.STA.connected(), which is the L2 association.
+  // Do NOT hand-roll this against WiFi.status() -- status() only reaches
+  // WL_CONNECTED on GOT_IP (STA.cpp:175) and reads WL_IDLE_STATUS while merely
+  // associated, so the one state worth waiting out is the one it cannot see,
+  // and dev mode sits in exactly that state whenever it is mid-join.
+  if (!WiFi.disconnect(false, false, 500)) {
+    // false also means esp_wifi_disconnect() itself refused (NOT_INIT/NOT_STARTED),
+    // which is a different problem with the same outcome; name both so the log
+    // does not send the next reader hunting an association that never existed.
+    LOG_ERR("LINK", "radio would not leave the AP (still associated, or never started)");
+    end();
+    return false;
+  }
 
   if (esp_wifi_set_channel(kChannel, WIFI_SECOND_CHAN_NONE) != ESP_OK) {
     LOG_ERR("LINK", "could not set channel %u", kChannel);
@@ -143,6 +198,14 @@ bool Radio::begin() {
     end();
     return false;
   }
+  // Set the moment init succeeds, not at the end of begin(). end() gated its
+  // ESP-NOW teardown on started_, which is only set once EVERYTHING below has
+  // worked -- so a failure to register the callback, add the broadcast peer or
+  // read the MAC left the stack initialised, and the next begin() then failed on
+  // esp_now_init() and logged a cause that was not the cause. Every match after
+  // it, until a reboot. This is the same asymmetry held_ exists to fix, eighty
+  // lines down.
+  espNowUp_ = true;
 
   activeRadio = this;
   if (esp_now_register_recv_cb(&onEspNowReceive) != ESP_OK) {
@@ -184,17 +247,42 @@ bool Radio::begin() {
 }
 
 void Radio::end() {
-  if (started_) {
+  if (espNowUp_) {
     esp_now_unregister_recv_cb();
     esp_now_deinit();
     esp_wifi_set_ps(WIFI_PS_NONE);
+    // Note this FORCES power save off rather than restoring what was there, and
+    // esp_now_set_wake_window() is never cleared. Harmless only because held_
+    // and espNowUp_ always clear together, so WiFi.mode(WIFI_OFF) follows and
+    // the core re-applies WiFi.getSleep() on the next STA start. Correct by
+    // consequence, not by construction -- do not separate those two flags.
+    espNowUp_ = false;
   }
   if (activeRadio == this) activeRadio = nullptr;
   started_ = false;
   head_.store(0, std::memory_order_relaxed);
   tail_.store(0, std::memory_order_relaxed);
   overflowed_.store(false, std::memory_order_relaxed);
-  WiFi.mode(WIFI_OFF);
+
+  // Only put the radio down and hand it back if this Radio actually took it.
+  //
+  // end() runs more than once per match and not always after a begin():
+  // begin() opens with one, every failure path inside begin() takes one, and
+  // leaving a game runs PlayBase::stop() -- which calls end() -- and then
+  // ~PlayBase, whose member Radio destructs into end() again. Unconditional,
+  // the second pass switched the radio off underneath the join the first pass
+  // had just started, and its resume() hit yieldDepth 0 and was swallowed, so
+  // dev mode was never told: ~30s off the network after every game, which is
+  // worse than the delay this was written to remove.
+  if (held_) {
+    held_ = false;
+    WiFi.mode(WIFI_OFF);
+    // Restored AFTER the radio is down, mirroring the order begin() takes care
+    // over. Unconditionally true because that is the core's default and the only
+    // other writer in this tree also sets true; nothing sets it false.
+    WiFi.setAutoReconnect(true);
+    devmode::resume();
+  }
 }
 
 bool Radio::send(const Address& to, const uint8_t* data, const size_t length) {

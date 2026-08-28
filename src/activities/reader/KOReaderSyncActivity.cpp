@@ -12,6 +12,7 @@
 #include <cassert>
 #include <cmath>
 
+#include "DevMode.h"
 #include "Epub/Section.h"
 #include "EpubReaderUtils.h"
 #include "KOReaderCredentialStore.h"
@@ -368,7 +369,9 @@ void KOReaderSyncActivity::performUpload() {
   const auto result = KOReaderSyncClient::updateProgress(progress);
 
   // Drop the radio while user reads the result; full teardown happens at silent reboot.
-  esp_wifi_stop();
+  // Not if Developer Mode raised it: esp_wifi_stop() is unambiguous -- the radio
+  // is off for everyone, including a connection this screen did not make.
+  if (!devmode::holdsRadio()) esp_wifi_stop();
 
   if (result != KOReaderSyncClient::OK) {
     {
@@ -422,7 +425,7 @@ void KOReaderSyncActivity::onEnter() {
 void KOReaderSyncActivity::onExit() {
   Activity::onExit();
 
-  if (wifiActivated) {
+  if (wifiActivated && !devmode::holdsRadio()) {
     WiFi.disconnect(false);
     delay(30);
     silentRestartToReader();

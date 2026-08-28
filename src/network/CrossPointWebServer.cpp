@@ -3,6 +3,7 @@
 #include <ArduinoJson.h>
 #include <BoardConfig.h>
 #include <FsHelpers.h>
+#include <HalDisplay.h>
 #include <HalGPIO.h>
 #include <HalStorage.h>
 #include <HalSystem.h>
@@ -14,8 +15,10 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstring>
 
 #include "CrossPointSettings.h"
+#include "DevInputCommands.h"
 #include "DevMode.h"
 #include "FirmwareFlasher.h"
 #include "FontInstaller.h"
@@ -216,6 +219,13 @@ void CrossPointWebServer::begin() {
   server->on("/api/dev/disable", HTTP_POST, [this] { handleDevDisable(); });
   server->on("/api/dev/crash", HTTP_GET, [this] { handleDevCrash(); });
   server->on("/api/dev/log", HTTP_GET, [this] { handleDevLog(); });
+#if CROSSPOINT_DEV_SERIAL_BRIDGE
+  // Driving the device, over the transport that needs no cable. Gated on the
+  // same flag as the injector itself, so a release build carries neither the
+  // routes nor the per-frame input overlay they schedule onto.
+  server->on("/api/dev/input", HTTP_POST, [this] { handleDevInput(); });
+  server->on("/api/dev/screen", HTTP_GET, [this] { handleDevScreen(); });
+#endif
 
   server->onNotFound([this] { handleNotFound(); });
   LOG_DBG("WEB", "[MEM] Free heap after route setup: %d bytes", ESP.getFreeHeap());
@@ -2064,7 +2074,11 @@ bool CrossPointWebServer::devAuthorised() {
   std::string token;
   if (server->hasHeader("X-Dev-Token")) token = server->header("X-Dev-Token").c_str();
   if (!devmode::tokenValid(token)) {
-    LOG_ERR("DEVMODE", "refused an unpaired request to %s", server->uri().c_str());
+    // Deliberately not logged. This is reachable by anyone on the network, and
+    // logPrintf writes every level into a 16-line RTC ring -- so an
+    // unauthenticated client could erase the pre-panic tail that /api/dev/crash
+    // exists to deliver, sixteen requests in, from a page the owner merely
+    // visited. The 401 tells the caller everything the log would have.
     server->send(401, "text/plain", "pair first: POST /api/dev/pair with the code on the device\n");
     return false;
   }
@@ -2088,9 +2102,25 @@ void CrossPointWebServer::handleDevPair() {
   }
   std::string code;
   if (server->hasArg("code")) code = server->arg("code").c_str();
+  // BEFORE pair(), not after. pair() mutates the window on every evaluated
+  // guess, so asking afterwards always finds one open and every refusal became
+  // a 429 -- telling someone who had simply mistyped that "the code you have is
+  // fine, wait 30s", which is the exact inversion of the advice this was added
+  // to fix. Read it first: non-zero here means the attempt was never looked at.
+  const unsigned long retry = devmode::pairRetryInMs();
   const std::string token = devmode::pair(code);
   if (token.empty()) {
-    server->send(401, "text/plain", "wrong code\n");
+    // Distinguish "wrong" from "closed". They are the same empty return, and
+    // saying "wrong code" to someone holding the RIGHT code -- because a flood,
+    // or their own earlier typos, closed the window -- sends them to re-read six
+    // digits that were already correct.
+    if (retry > 0) {
+      server->send(429, "text/plain",
+                   "not checked: pairing is rate-limited for another " + String(retry) +
+                       "ms. The code on the screen has NOT changed -- wait and send the same one.\n");
+    } else {
+      server->send(401, "text/plain", "wrong code\n");
+    }
     return;
   }
   JsonDocument doc;
@@ -2171,6 +2201,96 @@ void CrossPointWebServer::handleDevLog() {
   server->send(200, "text/plain", getLastLogs().c_str());
 }
 
+#if CROSSPOINT_DEV_SERIAL_BRIDGE
+// One input command per request, in the same words the serial bridge takes:
+// TAP x y [holdMs] / LONG x y / SWIPE x0 y0 x1 y1 [ms] / BTN NAME [holdMs].
+//
+// The body is the command, not a JSON envelope. It is what a person types into
+// curl and what drive.py already speaks, and a second encoding of four verbs
+// would be two things to keep in step for no reader's benefit.
+void CrossPointWebServer::handleDevInput() {
+  if (!devAuthorised()) return;
+  // The content type is load-bearing, and there is no recovering from the wrong
+  // one. This core only keeps a body whole under arg("plain") when it is NOT
+  // form-encoded; for application/x-www-form-urlencoded it runs the body
+  // through _parseArguments, which bails at the first field with no '=' and
+  // leaves args() == 0. An input command never contains '=', so a body sent the
+  // way `curl -d` and Python's urllib send it by default is not merely
+  // misplaced, it is gone. Say so in the error rather than guessing.
+  const String body = server->arg("plain");
+  if (body.isEmpty()) {
+    server->send(400, "text/plain",
+                 "ERR body must be one command, e.g. TAP 400 240\n"
+                 "    send it as Content-Type: text/plain -- a form-encoded body is\n"
+                 "    parsed away by the HTTP core before this handler sees it:\n"
+                 "      curl -H 'Content-Type: text/plain' --data-binary 'TAP 400 240' ...\n");
+    return;
+  }
+  // Trim, so a trailing newline from `curl --data-binary @file` is not an
+  // argument. The injector's vocabulary is line-oriented; the transport is not.
+  String line = body;
+  line.trim();
+  char reply[96];
+  const bool okay = devinput::runCommand(line.c_str(), reply, sizeof(reply));
+  // Refusals only, and not at DBG either: addToLogRingBuffer() is called for
+  // EVERY level (Logging.cpp:75), and these routes exist only in the envs that
+  // set LOG_LEVEL=2 -- so demoting an accepted tap to LOG_DBG changes the tag
+  // and nothing else. The RTC ring is 16 lines and it is the only diagnostic
+  // channel a Wi-Fi driver has; sixteen accepted taps would still erase whatever
+  // the driver was trying to read. The OK is already in the response the caller
+  // just read, so it carries nothing the caller does not have. A refusal does.
+  if (!okay) LOG_INF("WEB", "dev input refused: %s -> %s", line.c_str(), reply);
+  // 409 rather than 400 for "busy": the command was well formed and will work
+  // when the previous event finishes, which is a retry, not a fix.
+  const int code = okay ? 200 : (strncmp(reply, "ERR busy", 8) == 0 ? 409 : 400);
+  server->send(code, "text/plain", String(reply) + "\n");
+}
+
+// The framebuffer as it stands, 1bpp, row-major, MSB leftmost -- the same bytes
+// the serial bridge streams, so one host-side decoder serves both.
+//
+// Unlike the serial path this arrives whole rather than truncated, because TCP
+// has no equivalent of the CDC ring that drops what will not fit. It is still
+// chunked on the way out, for the reason given at the write loop below.
+void CrossPointWebServer::handleDevScreen() {
+  if (!devAuthorised()) return;
+  const uint8_t* fb = display.getFrameBuffer();
+  if (fb == nullptr) {
+    server->send(503, "text/plain", "ERR no framebuffer\n");
+    return;
+  }
+  const size_t size = display.getBufferSize();
+  // Width and height are not in the payload, so say them where a host decoder
+  // can read them. Queued before send(), which is what emits the header block.
+  //
+  // From the DISPLAY, not from BoardConfig: the host multiplies these to check
+  // the length it got, so they have to be the geometry that produced the byte
+  // count. The two agree on both device envs today, but the SDK has boards
+  // whose silicon frame and framebuffer frame differ, and there the mismatch
+  // would reject every screenshot as short.
+  server->sendHeader("X-Panel-Width", String(display.getDisplayWidth()));
+  server->sendHeader("X-Panel-Height", String(display.getDisplayHeight()));
+  server->setContentLength(size);
+  server->send(200, "application/octet-stream", "");
+
+  // Chunked, watchdog-fed, and stopping on a dead peer -- the same shape as
+  // handleDownload above, and for the same reason. NetworkClient::write resets
+  // its retry budget on every partial send, so one 48KB call against a peer
+  // that trickles can hold this loop indefinitely; handleClient() runs on the
+  // main loop, so that is the whole UI frozen, not a slow download.
+  NetworkClient client = server->client();
+  size_t sent = 0;
+  while (sent < size) {
+    resetTaskWatchdogIfSubscribed();
+    const size_t wrote = client.write(fb + sent, size - sent > 4096 ? 4096 : size - sent);
+    if (wrote == 0) break;  // peer gone; the short body is the honest answer
+    sent += wrote;
+  }
+  client.clear();
+  if (sent < size) LOG_ERR("WEB", "screen: client took %u of %u bytes", sent, size);
+}
+#endif  // CROSSPOINT_DEV_SERIAL_BRIDGE
+
 // Upload straight to the card, token-gated, so Developer Mode never has to
 // expose the file manager to move a firmware image across.
 //
@@ -2196,6 +2316,12 @@ void CrossPointWebServer::handleDevUploadData() {
     devUpload.written = 0;
     devUpload.ok = false;
     if (!devUpload.authorised) return;
+    // NOT a watchdog guard for the unauthorised case, whatever it looks like:
+    // the body is drained in RAW_WRITE chunks that this return never reaches,
+    // and resetTaskWatchdogIfSubscribed() is a no-op across this whole
+    // firmware anyway -- nothing subscribes loopTask to the TWDT. The real
+    // exposure is in Known limits: an unauthenticated client can hold loop()
+    // by trickling a body, which is a freeze, not a reset.
     resetTaskWatchdogIfSubscribed();
     Storage.remove(kDevUploadPath);
     if (!Storage.openFileForWrite("DEVMODE", kDevUploadPath, devUpload.file)) {
@@ -2242,9 +2368,17 @@ void CrossPointWebServer::handleDevUpload() {
   // rather than trust it, and let devAuthorised() send the refusal.
   if (!devAuthorised()) {
     devUpload.authorised = false;
+    devUpload.ok = false;  // same reason as the consume below
     return;
   }
-  if (!devUpload.ok) {
+  // Read ONCE and clear. ok is only ever set by the raw callback, so a PUT that
+  // never reaches it -- no body, or a body the core drops -- would otherwise
+  // inherit the previous request's success and be answered 200 with the
+  // previous path and size. That is a success reported for an upload that did
+  // not happen, and wifi-flash.sh would go on to ask the device to flash it.
+  const bool uploaded = devUpload.ok;
+  devUpload.ok = false;
+  if (!uploaded) {
     server->send(500, "text/plain", "upload failed\n");
     return;
   }
