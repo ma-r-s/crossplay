@@ -172,51 +172,36 @@ jobs:
             Battleship, Jaipur and Sea Salt. Two devices next to each other
             find one another with nothing to type.
 
-            ### What is new in 1.6.3
+            ### What is new in 1.6.4
 
-            **Get Books is set up for you.** Two catalogs are configured on
-            first run instead of one: **Get Books**, which searches a large
-            library and converts what you pick into a file tuned for this
-            screen before it reaches the device, and **Project Gutenberg**. Get
-            Books is search-only -- it has far too much to browse -- so it
-            opens straight on the keyboard.
+            **A crash can be read again.** The sixteen log lines a device keeps through a
+            reset are the only record of what it was doing when something went wrong, and
+            a heap heartbeat was overwriting all sixteen every 160 seconds. On a release
+            build that heartbeat is gone entirely now rather than merely quieter, so those
+            sixteen lines are sixteen real ones. If you have ever reported a problem and
+            been asked what the device said, this is the release where it can answer.
 
-            This reaches devices you already own, not only new installs. Until
-            now, a change to the default catalogs applied solely to a device
-            being set up for the first time.
+            **The USB cable stops giving up.** Anything long sent down the cable -- a
+            screenshot, a file read off the card -- was being written faster than the port
+            could drain it. One millisecond behind and the chip marks the cable
+            disconnected and discards everything still queued, which is why screenshots
+            arrived cut short, and why a device sometimes went quiet on USB while Wi-Fi
+            carried on working normally. Everything long now paces itself against the port
+            instead of flooding it.
 
-            **Standard Ebooks has been removed**, including from devices that
-            already had it. Their catalog moved behind the Patrons Circle and
-            now errors unless you have donated, so it failed for nearly
-            everyone who tried it. If you had entered your patron email there
-            it is kept, because it works for you; otherwise it is gone, and you
-            can add it back under Settings > System > OPDS Servers.
+            **And when it does fail, it says so.** A truncated transfer used to look
+            identical to a crashed device from the other end of the cable. The device
+            reports what happened now, and refuses to stamp a short transfer as a complete
+            one -- so a screenshot is either the picture or an error, never a picture with
+            an error message written across the bottom of it.
 
-            The catalog that ships configured is a shared service. The username
-            and password it comes with are the same on every device and live
-            inside the firmware, so treat them as public rather than as an
-            account of your own. Point the entry at your own server if you
-            would rather not share one.
+            **Developer Mode gains one diagnostic**, `GET /api/dev/serial`: what the cable
+            has actually been doing, and the device's MAC address, over Wi-Fi. That pairing
+            is the point -- "why did the cable stop answering" is not a question the cable
+            can answer, and two identical devices on a desk are otherwise impossible to
+            tell apart over the network.
 
-            **Study: Back walks up instead of out.** Pressing Back on a card
-            returns to the deck screen rather than quitting Study and dropping
-            you on the shelf. The deck switcher is now a **CHANGE DECK** door
-            beside START REVIEWING and SYNC, showing which deck you are on.
-
-            Note for new Study users: sync cannot deliver your first deck yet.
-            Install decks from the /study page; sync keeps them up to date
-            afterwards.
-
-            ### Also new since 1.6.1
-
-            The 1.6.2 release notes repeated 1.6.1's by mistake, so this did
-            not get announced:
-
-            **Multiplayer works again.** Games over PLAY NEARBY were dying one
-            move in. Developer Mode and the link layer were both trying to own
-            the radio, and the loser was whichever had it. A device in a link
-            match now holds the radio outright and gives it back when the match
-            ends -- which also means it is off Wi-Fi for the duration.
+            Mostly a plumbing release, then. Nothing about reading a book changes.
 
             ### Still true from 1.6.0, if you have not flashed over USB since
 
