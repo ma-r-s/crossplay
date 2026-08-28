@@ -77,6 +77,26 @@ That is a real battery cost, confined to devices whose owner deliberately
 switched it on. The alternative is worse: a development device that disappears
 after the sleep timeout is not one.
 
+### A device that is off looks exactly like a device that is asleep
+
+`--disable` leaves no code on the panel, no route, and no other visible sign
+that anything changed. That is correct -- switching Developer Mode off should
+leave an ordinary reader -- and it is completely indistinguishable from the
+outside from a unit that has gone to sleep, lost its network, or been powered
+down. All four give the same silence: no HTTP, no discovery answer, nothing.
+
+This matters when more than one person works on these devices. Twice on
+2026-08-27 a device changed state under another session and produced a
+confident, wrong instruction: "wake it and read the six-digit code" against a
+unit whose Developer Mode had since been switched off, and a `curl` against an
+already-dark device read as a rejected pairing. In both cases the device looked
+broken rather than reconfigured.
+
+So: before concluding a device is faulty, establish which of the four it is.
+`ioreg` says whether it is on USB at all, and if a unit is silent on the network
+the first question is whether anyone switched Developer Mode off, not what
+broke.
+
 ## Endpoints
 
 | Route | Takes | Returns |
