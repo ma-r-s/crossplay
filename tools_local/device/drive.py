@@ -48,6 +48,7 @@ session rather than one process per step.
 """
 
 import argparse
+import http.client
 import os
 import sys
 import time
@@ -197,9 +198,10 @@ class WifiLink:
         # firmware sends them; assuming 800x480 forever would make them decor.
         self.panel = (PANEL_W, PANEL_H)
 
-    def _open(self, path, data=None, method=None, timeout=10.0):
+    def _open(self, path, data=None, method=None, timeout=10.0, auth=True):
         req = urllib.request.Request(f"http://{self.ip}{path}", data=data, method=method)
-        req.add_header("X-Dev-Token", self.token)
+        if auth:
+            req.add_header("X-Dev-Token", self.token)
         # Explicit, because urllib defaults a body to x-www-form-urlencoded and
         # the device's HTTP core then parses it into arguments instead of
         # leaving it whole. The firmware recovers from that, but sending what we
@@ -228,17 +230,17 @@ class WifiLink:
             # 409 is "busy", which is the device's own ERR line, not a transport
             # failure: hand it back unchanged so callers can retry on it.
             return body or f"ERR HTTP {e.code}"
-        except (urllib.error.URLError, OSError) as e:
+        except (urllib.error.URLError, OSError, http.client.HTTPException) as e:
             return f"ERR unreachable: {e}"
 
     def _get_text(self, path, timeout, auth=True):
         try:
-            with self._open(path, timeout=timeout) as r:
+            with self._open(path, timeout=timeout, auth=auth) as r:
                 body = r.read().decode("utf-8", "replace").strip()
             return "OK " + body if body else "OK (empty)"
         except urllib.error.HTTPError as e:
             return f"ERR HTTP {e.code}"
-        except (urllib.error.URLError, OSError) as e:
+        except (urllib.error.URLError, OSError, http.client.HTTPException) as e:
             return f"ERR unreachable: {e}"
 
     def read(self, n):
@@ -262,7 +264,11 @@ class WifiLink:
                 print(f"short screenshot: {len(data)}/{expected} bytes", file=sys.stderr)
                 return None
             return data
-        except (urllib.error.URLError, OSError) as e:
+        except (urllib.error.URLError, OSError, http.client.HTTPException) as e:
+            # IncompleteRead is an HTTPException, not an OSError, and it is the
+            # EXPECTED shape when the device gives up mid-frame: handleDevScreen
+            # promises a Content-Length and then bails on a dead peer. Catching
+            # only OSError turned that into a traceback.
             print(f"screenshot failed: {e}", file=sys.stderr)
             return None
 
@@ -289,13 +295,19 @@ def screenshot(link, out_path, timeout=30.0):
     return True
 
 
-def view_to_panel(x, y):
-    """Portrait-view pixel (480x800) -> panel-native pixel (800x480).
+def view_to_panel(x, y, panel_h=PANEL_H):
+    """Portrait-view pixel -> panel-native pixel.
 
     The view is the panel rotated 90 deg clockwise, so undo it:
-    panel_x = view_y, panel_y = PANEL_H - 1 - view_x.
+    panel_x = view_y, panel_y = panel_h - 1 - view_x. This matches
+    GfxRenderer::tapToLogical's Portrait case exactly; if that changes, so must
+    this.
+
+    panel_h comes from the link, not from the module constant: the device sends
+    its geometry in X-Panel-Height and reading it for the PNG while assuming it
+    here is the one combination that silently taps the wrong place.
     """
-    return y, PANEL_H - 1 - x
+    return y, panel_h - 1 - x
 
 
 def split_seqs(words):
@@ -316,6 +328,23 @@ def split_seqs(words):
     if cur:
         seqs.append(cur)
     return seqs
+
+
+def send_with_retry(link, cmd, tries=4):
+    """Send an input command, waiting out an ERR busy rather than failing on it.
+
+    "busy" means an event of the same kind is still playing: the command was
+    well formed and will work shortly, which is a retry and not a mistake. A
+    SWIPE runs up to ten seconds, so a caller that treats busy as failure
+    silently drops the command that follows every long gesture.
+    """
+    for attempt in range(tries):
+        reply = link.command(cmd)
+        if not (reply and reply.startswith("ERR busy")):
+            return reply
+        if attempt < tries - 1:
+            time.sleep(1.5)
+    return reply
 
 
 def run_seq(link, seq, view):
@@ -342,16 +371,17 @@ def run_seq(link, seq, view):
     if verb in ("tap", "long", "swipe"):
         nums = [int(v) for v in rest]
         if view:
-            nums[0], nums[1] = view_to_panel(nums[0], nums[1])
+            panel_h = link.panel[1]
+            nums[0], nums[1] = view_to_panel(nums[0], nums[1], panel_h)
             if verb == "swipe":
-                nums[2], nums[3] = view_to_panel(nums[2], nums[3])
-        reply = link.command(f"CMD:{verb.upper()} " + " ".join(str(n) for n in nums))
+                nums[2], nums[3] = view_to_panel(nums[2], nums[3], panel_h)
+        reply = send_with_retry(link, f"CMD:{verb.upper()} " + " ".join(str(n) for n in nums))
         print(reply or "no reply", flush=True)
         # Let the gesture play out before the next command.
         time.sleep(0.6)
         return bool(reply and reply.startswith("OK"))
     if verb == "btn":
-        reply = link.command("CMD:BTN " + " ".join(rest).upper())
+        reply = send_with_retry(link, "CMD:BTN " + " ".join(rest).upper())
         print(reply or "no reply", flush=True)
         time.sleep(0.4)
         return bool(reply and reply.startswith("OK"))
@@ -393,11 +423,20 @@ def serve(link, fifo_path, view):
                         continue
                     try:
                         run_seq(link, seq, view)
-                    except Exception as e:
+                    except OSError as e:
                         # The CH343 can drop for a moment when the device
                         # resets; reopen rather than dying mid-session.
+                        #
+                        # OSError, not Exception: serial.SerialException is an
+                        # OSError, so this keeps the old behaviour on the cable
+                        # -- while a plain typo ("tap abc 240" -> ValueError)
+                        # would otherwise take the reopen path, and reopening
+                        # the port can reboot the device, which is the one thing
+                        # a serve session exists to avoid.
                         print(f"link hiccup: {e}; reopening", flush=True)
                         link.reopen()
+                    except Exception as e:
+                        print(f"bad command: {e}", flush=True)
                 print("READY", flush=True)
 
 
@@ -428,10 +467,15 @@ def main():
                 with open(path) as f:
                     token = f.read().strip()
             except OSError:
-                ap.error(
-                    f"no token: pass --token, or pair first so {path} exists "
-                    "(scripts_local/wifi-flash.sh --pair <code>)"
+                # Not fatal: `ping` reads /api/status, which needs no token.
+                # Everything else gets the device's own 401, which says how to
+                # pair -- a better message than argparse refusing to start.
+                print(
+                    f"no token in {path}; only `ping` will work "
+                    "(pair with scripts_local/wifi-flash.sh --pair <code>)",
+                    file=sys.stderr,
                 )
+                token = ""
         link = WifiLink(args.ip, token)
     else:
         # Importing pyserial only on the cable path keeps the Wi-Fi transport

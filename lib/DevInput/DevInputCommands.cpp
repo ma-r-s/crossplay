@@ -65,15 +65,30 @@ int buttonIndexByName(const char* name, size_t len) {
   return -1;
 }
 
-// The printf attribute is not decoration: without it these four call sites get
-// no -Wformat checking at all, and a %d for a long would be silent.
-__attribute__((format(printf, 3, 4))) bool say(char* reply, size_t replyLen, const char* fmt, ...);
-bool say(char* reply, size_t replyLen, const char* fmt, ...) {
+// The printf attribute is not decoration: without it these call sites get no
+// -Wformat checking at all, and a %d for a long would be silent.
+//
+// Two helpers rather than one that infers its answer from the text it just
+// wrote -- one for each outcome. Re-reading the buffer for an "OK" prefix meant a reply too short to
+// hold one reported failure for a command that had in fact been scheduled --
+// latent at the 96 bytes both callers pass, and invisible to a test that also
+// passes 96. The branch knows which it is; it should say so.
+__attribute__((format(printf, 3, 4))) bool scheduled(char* reply, size_t replyLen, const char* fmt, ...);
+bool scheduled(char* reply, size_t replyLen, const char* fmt, ...) {
   va_list args;
   va_start(args, fmt);
   vsnprintf(reply, replyLen, fmt, args);
   va_end(args);
-  return strncmp(reply, "OK", 2) == 0;
+  return true;
+}
+
+__attribute__((format(printf, 3, 4))) bool refused(char* reply, size_t replyLen, const char* fmt, ...);
+bool refused(char* reply, size_t replyLen, const char* fmt, ...) {
+  va_list args;
+  va_start(args, fmt);
+  vsnprintf(reply, replyLen, fmt, args);
+  va_end(args);
+  return false;
 }
 
 }  // namespace
@@ -90,33 +105,33 @@ bool runCommand(const char* cmd, char* reply, const size_t replyLen) {
 
   if (strncmp(cmd, "TAP ", 4) == 0) {
     const int n = parseLongs(cmd + 4, v, 3);
-    if (n < 2) return say(reply, replyLen, "ERR TAP wants: x y [holdMs]");
-    if (!onPanel(v[0], v[1])) return say(reply, replyLen, "ERR TAP off panel: %ld %ld", v[0], v[1]);
-    if (n >= 3 && (v[2] < 0 || v[2] > kMaxHoldMs)) return say(reply, replyLen, "ERR holdMs 0..%ld", kMaxHoldMs);
+    if (n < 2) return refused(reply, replyLen, "ERR TAP wants: x y [holdMs]");
+    if (!onPanel(v[0], v[1])) return refused(reply, replyLen, "ERR TAP off panel: %ld %ld", v[0], v[1]);
+    if (n >= 3 && (v[2] < 0 || v[2] > kMaxHoldMs)) return refused(reply, replyLen, "ERR holdMs 0..%ld", kMaxHoldMs);
     const unsigned long hold = n >= 3 ? static_cast<unsigned long>(v[2]) : 140;
-    if (!devinput::tap(normX(v[0]), normY(v[1]), hold)) return say(reply, replyLen, "ERR busy");
-    return say(reply, replyLen, "OK TAP %ld %ld %lu", v[0], v[1], hold);
+    if (!devinput::tap(normX(v[0]), normY(v[1]), hold)) return refused(reply, replyLen, "ERR busy");
+    return scheduled(reply, replyLen, "OK TAP %ld %ld %lu", v[0], v[1], hold);
   }
 
   if (strncmp(cmd, "LONG ", 5) == 0) {
-    if (parseLongs(cmd + 5, v, 2) < 2) return say(reply, replyLen, "ERR LONG wants: x y");
-    if (!onPanel(v[0], v[1])) return say(reply, replyLen, "ERR LONG off panel: %ld %ld", v[0], v[1]);
-    if (!devinput::longPress(normX(v[0]), normY(v[1]))) return say(reply, replyLen, "ERR busy");
-    return say(reply, replyLen, "OK LONG %ld %ld", v[0], v[1]);
+    if (parseLongs(cmd + 5, v, 2) < 2) return refused(reply, replyLen, "ERR LONG wants: x y");
+    if (!onPanel(v[0], v[1])) return refused(reply, replyLen, "ERR LONG off panel: %ld %ld", v[0], v[1]);
+    if (!devinput::longPress(normX(v[0]), normY(v[1]))) return refused(reply, replyLen, "ERR busy");
+    return scheduled(reply, replyLen, "OK LONG %ld %ld", v[0], v[1]);
   }
 
   if (strncmp(cmd, "SWIPE ", 6) == 0) {
     const int n = parseLongs(cmd + 6, v, 5);
-    if (n < 4) return say(reply, replyLen, "ERR SWIPE wants: x0 y0 x1 y1 [ms]");
+    if (n < 4) return refused(reply, replyLen, "ERR SWIPE wants: x0 y0 x1 y1 [ms]");
     if (!onPanel(v[0], v[1]) || !onPanel(v[2], v[3])) {
-      return say(reply, replyLen, "ERR SWIPE off panel");
+      return refused(reply, replyLen, "ERR SWIPE off panel");
     }
-    if (n >= 5 && (v[4] < 0 || v[4] > kMaxSwipeMs)) return say(reply, replyLen, "ERR ms 0..%ld", kMaxSwipeMs);
+    if (n >= 5 && (v[4] < 0 || v[4] > kMaxSwipeMs)) return refused(reply, replyLen, "ERR ms 0..%ld", kMaxSwipeMs);
     const unsigned long ms = n >= 5 ? static_cast<unsigned long>(v[4]) : 250;
     if (!devinput::swipe(normX(v[0]), normY(v[1]), normX(v[2]), normY(v[3]), ms)) {
-      return say(reply, replyLen, "ERR busy");
+      return refused(reply, replyLen, "ERR busy");
     }
-    return say(reply, replyLen, "OK SWIPE %ld %ld %ld %ld %lu", v[0], v[1], v[2], v[3], ms);
+    return scheduled(reply, replyLen, "OK SWIPE %ld %ld %ld %ld %lu", v[0], v[1], v[2], v[3], ms);
   }
 
   if (strncmp(cmd, "BTN ", 4) == 0) {
@@ -124,17 +139,17 @@ bool runCommand(const char* cmd, char* reply, const size_t replyLen) {
     const char* space = strchr(rest, ' ');
     const size_t nameLen = space ? static_cast<size_t>(space - rest) : strlen(rest);
     const int index = buttonIndexByName(rest, nameLen);
-    if (index < 0) return say(reply, replyLen, "ERR BTN wants: UP|DOWN|CONFIRM|BACK|LEFT|RIGHT|POWER [holdMs]");
+    if (index < 0) return refused(reply, replyLen, "ERR BTN wants: UP|DOWN|CONFIRM|BACK|LEFT|RIGHT|POWER [holdMs]");
     unsigned long hold = 80;
     if (space && parseLongs(space, v, 1) == 1) {
-      if (v[0] < 0 || v[0] > kMaxHoldMs) return say(reply, replyLen, "ERR holdMs 0..%ld", kMaxHoldMs);
+      if (v[0] < 0 || v[0] > kMaxHoldMs) return refused(reply, replyLen, "ERR holdMs 0..%ld", kMaxHoldMs);
       hold = static_cast<unsigned long>(v[0]);
     }
-    if (!devinput::button(static_cast<uint8_t>(index), hold)) return say(reply, replyLen, "ERR busy");
-    return say(reply, replyLen, "OK BTN %.*s %lu", static_cast<int>(nameLen), rest, hold);
+    if (!devinput::button(static_cast<uint8_t>(index), hold)) return refused(reply, replyLen, "ERR busy");
+    return scheduled(reply, replyLen, "OK BTN %.*s %lu", static_cast<int>(nameLen), rest, hold);
   }
 
-  return say(reply, replyLen, "ERR not an input command");
+  return refused(reply, replyLen, "ERR not an input command");
 }
 
 }  // namespace devinput

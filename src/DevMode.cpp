@@ -333,6 +333,23 @@ void resume() {
   LOG_INF("DEVMODE", "radio handed back; taking the ports back");
   attempt = 0;
   nextAttemptAt = 0;
+
+  // If the holder gave the radio back switched off -- which is exactly what a
+  // link match does, WiFi.mode(WIFI_OFF) in Radio::end() -- then whatever dev
+  // mode raised is gone, and saying otherwise is the lie that matters: eight
+  // activities gate their teardown and their heap-defrag restart on
+  // holdsRadio(), and every one of them would skip it. Worse, an AP that has
+  // since gone out of range means the join below never completes, so nothing
+  // would ever re-evaluate it. Only clear it here, never in pause(): during a
+  // yield the association is still the one dev mode raised, and the web
+  // transfer screen reads holdsRadio() precisely so it does not reboot to tear
+  // down a connection that is not its own.
+  //
+  // getMode()/status() rather than WiFi.STA.connected(): the simulator's WiFi
+  // shim is an external dependency with no STA member, and clearing is the safe
+  // direction anyway -- a false clear costs an activity one teardown it did not
+  // strictly need, a false keep costs eight activities the teardown they did.
+  if (WiFi.getMode() == WIFI_MODE_NULL || WiFi.status() != WL_CONNECTED) broughtRadioUp = false;
   // Rejoin rather than assume: the holder may have switched to AP mode, joined
   // a different network entirely, or -- a link match -- handed the radio back
   // switched off.
@@ -345,6 +362,9 @@ void resume() {
   WIFI_STORE.loadFromFile();
   ssid = WIFI_STORE.getLastConnectedSsid();
   if (ssid.empty()) {
+    // Say so. Announcing "taking the ports back" and then falling silent for
+    // the rest of the session reads, from the log, as dev mode having hung.
+    LOG_INF("DEVMODE", "no saved network to go back to; idle until one is joined");
     state = State::NoNetwork;
     return;
   }

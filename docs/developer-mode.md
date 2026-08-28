@@ -138,7 +138,9 @@ uv run --with pillow tools_local/device/drive.py --ip 192.168.68.78 \
   Coordinates are panel-native pixels; `drive.py --view` converts from the
   portrait frame the PNGs are saved in. Answers `200` with the device's `OK`
   line, `400` for bad arguments, `409` when an event of the same kind is still
-  playing (retry, do not rewrite the command).
+  playing. 409 is a retry, not a mistake: the command was well formed and will
+  work once the previous gesture finishes, and `drive.py` waits it out rather
+  than reporting failure.
 - `GET /api/dev/screen` -- the framebuffer as it stands: 1bpp, row-major, MSB
   leftmost, `X-Panel-Width`/`X-Panel-Height` headers. The same bytes the serial
   bridge streams, so one decoder serves both.
@@ -184,10 +186,20 @@ that reads it as ownership will miss every non-associating user of the radio.
   them.
 - **The radio is still not arbitrated,** but the two places that take it
   outright now say so. Developer Mode will not take a radio already in use, only
-  puts down a connection it raised, and every file that tears the radio down
-  either asks `devmode::holdsRadio()` or tracks its own ownership -- enforced by
-  `host-tests/release`, which discovers those files rather than listing them.
-  There is still no general ownership protocol.
+  puts down a connection it raised, and `host-tests/release` checks 10 and 11
+  discover -- rather than list -- the files that put the radio out of service
+  and the files that yield.
+
+  **Four files are still outside that net**, and saying "every file" here was
+  wrong: `ConnectionsActivity`, `KOReaderSyncActivity`, `ClockSyncActivity` and
+  `StudyActivity` tear the radio down behind their own `wifiActivated`-style
+  flag rather than asking `devmode::holdsRadio()`. ClockSync's flag is real
+  ownership (it is only set when Wi-Fi was NOT already up); the other three set
+  theirs whenever the app wants Wi-Fi, so with Developer Mode holding the radio
+  they will drop its association and it rejoins ~5s later. Annoying, not fatal,
+  and predates this feature -- but it is not enforced and the check's pattern
+  deliberately excludes `WiFi.disconnect(` because a self-owned teardown is a
+  legitimate use of it. There is still no general ownership protocol.
 
   What the convention missed, and what shipped in v1.6.1: Developer Mode's test
   for "is somebody else using this?" is `WiFi.status() == WL_CONNECTED`, so an

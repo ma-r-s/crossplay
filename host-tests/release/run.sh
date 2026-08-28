@@ -473,5 +473,35 @@ while IFS= read -r path; do
   fi
 done < <(grep -rlE 'devmode::(pause|resume)\(\)' "$ROOT/src" "$ROOT/lib" 2>/dev/null | sort)
 
+# -- 12. the input vocabulary has exactly one implementation ------------------
+#
+# lib/DevInput/DevInputCommands.cpp exists so the serial bridge and Developer
+# Mode's /api/dev/input cannot drift: a device that answers TAP down a cable but
+# not over Wi-Fi, or takes the arguments in a different order on each, is a trap
+# that only springs while somebody is already debugging something else.
+#
+# Nothing enforced that. host-tests/devinput exercises the shared core with a
+# stub injector and neither transport in the build, so it proves the core
+# behaves and says nothing about who calls it. This is the other half: schedule
+# onto the injector from anywhere else and you have started a second dialect.
+while IFS= read -r path; do
+  rel="${path#$ROOT/}"
+  if [ "$rel" = "lib/DevInput/DevInputCommands.cpp" ]; then
+    ok
+  else
+    bad "$rel schedules input directly instead of going through devinput::runCommand() -- that is a second vocabulary"
+  fi
+done < <(grep -rlE 'devinput::(tap|longPress|swipe|button)\(' "$ROOT/src" "$ROOT/lib" 2>/dev/null | sort)
+
+# And both transports must actually route through it, or the shared unit is
+# just an unused library that happens to compile.
+for caller in "src/DevSerialBridge.cpp" "src/network/CrossPointWebServer.cpp"; do
+  if grep -q 'devinput::runCommand(' "$ROOT/$caller"; then
+    ok
+  else
+    bad "$caller does not call devinput::runCommand() -- it has its own input parsing again"
+  fi
+done
+
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]

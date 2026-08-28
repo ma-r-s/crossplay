@@ -2212,9 +2212,16 @@ void CrossPointWebServer::handleDevInput() {
   line.trim();
   char reply[96];
   const bool okay = devinput::runCommand(line.c_str(), reply, sizeof(reply));
-  // "my taps are not landing" has to be answerable from the log rather than by
-  // asking whoever was driving.
-  LOG_INF("WEB", "dev input: %s -> %s", line.c_str(), reply);
+  // Refusals at INF, acceptances at DBG. The RTC log ring is 16 lines and it is
+  // the ONLY diagnostic channel a Wi-Fi driver has -- logging every accepted tap
+  // at INF means sixteen taps erase whatever you were trying to read. The OK is
+  // already in the response the caller just read; only the refusal carries
+  // something they do not have.
+  if (okay) {
+    LOG_DBG("WEB", "dev input: %s -> %s", line.c_str(), reply);
+  } else {
+    LOG_INF("WEB", "dev input refused: %s -> %s", line.c_str(), reply);
+  }
   // 409 rather than 400 for "busy": the command was well formed and will work
   // when the previous event finishes, which is a retry, not a fix.
   const int code = okay ? 200 : (strncmp(reply, "ERR busy", 8) == 0 ? 409 : 400);
@@ -2224,8 +2231,9 @@ void CrossPointWebServer::handleDevInput() {
 // The framebuffer as it stands, 1bpp, row-major, MSB leftmost -- the same bytes
 // the serial bridge streams, so one host-side decoder serves both.
 //
-// Sent whole rather than chunked: this transport is TCP, which does not have
-// the CDC ring that forced the serial path to pace itself at 512 bytes.
+// Unlike the serial path this arrives whole rather than truncated, because TCP
+// has no equivalent of the CDC ring that drops what will not fit. It is still
+// chunked on the way out, for the reason given at the write loop below.
 void CrossPointWebServer::handleDevScreen() {
   if (!devAuthorised()) return;
   const uint8_t* fb = display.getFrameBuffer();
@@ -2236,8 +2244,14 @@ void CrossPointWebServer::handleDevScreen() {
   const size_t size = display.getBufferSize();
   // Width and height are not in the payload, so say them where a host decoder
   // can read them. Queued before send(), which is what emits the header block.
-  server->sendHeader("X-Panel-Width", String(BoardConfig::ACTIVE.displayWidth));
-  server->sendHeader("X-Panel-Height", String(BoardConfig::ACTIVE.displayHeight));
+  //
+  // From the DISPLAY, not from BoardConfig: the host multiplies these to check
+  // the length it got, so they have to be the geometry that produced the byte
+  // count. The two agree on both device envs today, but the SDK has boards
+  // whose silicon frame and framebuffer frame differ, and there the mismatch
+  // would reject every screenshot as short.
+  server->sendHeader("X-Panel-Width", String(display.getDisplayWidth()));
+  server->sendHeader("X-Panel-Height", String(display.getDisplayHeight()));
   server->setContentLength(size);
   server->send(200, "application/octet-stream", "");
 

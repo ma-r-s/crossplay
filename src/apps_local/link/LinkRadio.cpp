@@ -146,17 +146,22 @@ bool Radio::begin() {
 
   WiFi.persistent(false);
   WiFi.mode(WIFI_STA);
-  WiFi.disconnect(false, false);
 
   // esp_wifi_disconnect() is ASYNCHRONOUS, and while the station is still
   // associated the channel belongs to the AP -- a set_channel issued into that
   // window is reverted, and it still returns ESP_OK, so the check below would
-  // never notice. Wait the disassociation out rather than racing it. This is an
-  // independent cause of the same symptom the pause() above fixes: pair, one
-  // move, then silence as the radio drifts back to the router's channel.
-  for (int i = 0; i < 50 && WiFi.status() == WL_CONNECTED; ++i) delay(10);
-  if (WiFi.status() == WL_CONNECTED) {
-    LOG_ERR("LINK", "still associated after 500ms; the channel will not hold");
+  // never notice. This is an independent cause of the same symptom the pause()
+  // above fixes: pair, one move, then silence as the radio drifts back to the
+  // router's channel.
+  //
+  // The third argument is a timeout, and the return value is "it really went
+  // down": the core loops on WiFi.STA.connected(), which is the L2 association.
+  // Do NOT hand-roll this against WiFi.status() -- status() only reaches
+  // WL_CONNECTED on GOT_IP (STA.cpp:175) and reads WL_IDLE_STATUS while merely
+  // associated, so the one state worth waiting out is the one it cannot see,
+  // and dev mode sits in exactly that state whenever it is mid-join.
+  if (!WiFi.disconnect(false, false, 500)) {
+    LOG_ERR("LINK", "still associated after 500ms; the channel would not hold");
     end();
     return false;
   }
