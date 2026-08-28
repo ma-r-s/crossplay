@@ -129,8 +129,17 @@ int main() {
   // cycle. There is no CANCEL verb, so this must be refused at the door.
   expect("TAP 400 240 -1", "ERR holdMs");
   expect("TAP 400 240 999999", "ERR holdMs");
-  expect("TAP 400 240 abc", "ERR holdMs must be a number");
-  expect("TAP 400 240 ", "OK TAP 400 240 140");  // trailing space is an omission
+  // A whole number, and nothing after it. The first version of this guard only
+  // looked at the leading character, so every one of these answered OK at a
+  // duration the caller never chose.
+  expect("TAP 400 240 abc", "ERR TAP: holdMs");
+  expect("TAP 400 240 1.5", "ERR TAP: holdMs");
+  expect("TAP 400 240 1e3", "ERR TAP: holdMs");
+  expect("TAP 400 240 100abc", "ERR TAP: holdMs");
+  expect("TAP 400 240 100 999", "ERR TAP: holdMs");
+  expect("TAP 400 240 100\t", "OK TAP 400 240 100");
+  expect("TAP 400 240 ", "OK TAP 400 240 140");   // trailing space is an omission
+  expect("TAP 400 240\t", "OK TAP 400 240 140");  // so is a trailing tab
 
   // -- LONG -----------------------------------------------------------------
   expect("LONG 100 100", "OK LONG 100 100");
@@ -157,7 +166,9 @@ int main() {
   expect("SWIPE 10 240 300 480", "ERR SWIPE off panel");
   expect("SWIPE 10 240 300 240 -1", "ERR ms");
   expect("SWIPE 10 240 300 240 999999", "ERR ms");
-  expect("SWIPE 10 240 300 240 abc", "ERR ms must be a number");
+  expect("SWIPE 10 240 300 240 abc", "ERR SWIPE: ms");
+  expect("SWIPE 10 240 300 240 2.5", "ERR SWIPE: ms");
+  expect("SWIPE 10 240 300 240 100 7", "ERR SWIPE: ms");
 
   // -- BTN ------------------------------------------------------------------
   struct {
@@ -185,7 +196,9 @@ int main() {
   expect("BTN UP 999999", "ERR holdMs");
   // Present but unparseable. Defaulting this and answering OK told a remote
   // driver its typo had been honoured at a duration it never chose.
-  expect("BTN UP abc", "ERR holdMs must be a number");
+  expect("BTN UP abc", "ERR BTN: holdMs");
+  expect("BTN UP 1.5", "ERR BTN: holdMs");
+  expect("BTN UP 100 7", "ERR BTN: holdMs");
   expect("BTN UP  ", "OK BTN UP 80");  // trailing space is an omission, not a typo
 
   // A public lib/ entry point must not walk into strncmp(nullptr, ...).

@@ -252,13 +252,18 @@ void update() {
     if (reloadCredentials) {
       reloadCredentials = false;
       WIFI_STORE.loadFromFile();
-      const std::string saved = WIFI_STORE.getLastConnectedSsid();
-      if (saved.empty()) {
+      ssid = WIFI_STORE.getLastConnectedSsid();
+      if (ssid.empty()) {
+        // Assign first, THEN test. Keeping the old value on this path left the
+        // panel deriving hasNetwork from a network that no longer exists, so it
+        // showed "connecting" forever instead of "join a network first" -- which
+        // is what the user sees after forgetting the current network in the
+        // Wi-Fi picker, the one flow that reaches here.
         LOG_INF("DEVMODE", "no saved network to go back to; idle until one is joined");
+        password.clear();
         state = State::NoNetwork;
         return;
       }
-      ssid = saved;
       const auto cred = WIFI_STORE.findCredential(ssid);
       password = cred ? cred->password : std::string();
     }
@@ -266,7 +271,7 @@ void update() {
       attempt = 0;
       // Only now is the radio ours -- and only if it was OUR join that produced
       // it. Adopting any connection found while Joining meant the Wi-Fi picker's
-      // own successful join was claimed by dev mode, so nine activities skipped
+      // own successful join was claimed by dev mode, so ten activities skipped
       // the teardown of a radio they owned, and switching dev mode off later
       // disconnected a network it had never joined.
       //
@@ -379,7 +384,7 @@ void resume() {
   // getMode()/status() rather than WiFi.STA.connected(): the simulator's WiFi
   // shim is an external dependency with no STA member, and clearing is the safe
   // direction anyway -- a false clear costs an activity one teardown it did not
-  // strictly need, a false keep costs eight activities the teardown they did.
+  // strictly need, a false keep costs ten activities the teardown they did.
   if (WiFi.getMode() == WIFI_MODE_NULL || WiFi.status() != WL_CONNECTED) broughtRadioUp = false;
   // Rejoin rather than assume: the holder may have switched to AP mode, joined
   // a different network entirely, or -- a link match -- handed the radio back
@@ -487,7 +492,6 @@ std::string pair(const std::string& code) {
 
   pairFailures = 0;
   pairNotBefore = 0;
-  joinIssued = false;
   activeToken = makeToken();
   paired = true;
   LOG_INF("DEVMODE", "paired");

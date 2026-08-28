@@ -5,6 +5,7 @@
 #include <BoardConfig.h>
 #include <HalGPIO.h>
 
+#include <cctype>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -49,22 +50,24 @@ int parseLongs(const char* s, long* out, int n) {
   return found;
 }
 
-// True when there is a further argument after the ones already consumed, so
-// "present but unparseable" can be told from "omitted". Defaulting a typo and
-// answering OK tells a remote driver -- whose only feedback is the reply line --
-// that its command was honoured at a duration it never chose.
-bool hasMoreArgs(const char* s, int consumed) {
-  int seen = 0;
+// True when anything follows the arguments already consumed. "Anything" means
+// any non-space byte, not "a token that fails to start with a digit": the first
+// version accepted 1.5, 1e3 and 100abc, took the integer prefix, and answered
+// OK at a duration the caller never chose -- which is precisely the typo a
+// remote driver makes and precisely what this exists to refuse. An extra
+// argument past the optional one is refused for the same reason: silently
+// dropping it is not an answer either.
+bool trailingGarbage(const char* s, int consumed) {
   char* end = nullptr;
-  while (true) {
-    while (*s == ' ') s++;
-    if (*s == '\0') return false;
-    if (seen >= consumed) return true;
+  for (int i = 0; i < consumed; ++i) {
     strtol(s, &end, 10);
-    if (end == s) return true;  // unparseable where a number was expected
+    if (end == s) break;
     s = end;
-    seen++;
   }
+  // isspace, not ' ': a tab survives the serial path, and refusing it as garbage
+  // was wrong -- trailing whitespace is an omission, not a typo.
+  while (isspace(static_cast<unsigned char>(*s))) s++;
+  return *s != '\0';
 }
 
 int buttonIndexByName(const char* name, size_t len) {
@@ -126,7 +129,8 @@ bool runCommand(const char* cmd, char* reply, const size_t replyLen) {
   if (strncmp(cmd, "TAP ", 4) == 0) {
     const int n = parseLongs(cmd + 4, v, 3);
     if (n < 2) return refused(reply, replyLen, "ERR TAP wants: x y [holdMs]");
-    if (n < 3 && hasMoreArgs(cmd + 4, n)) return refused(reply, replyLen, "ERR holdMs must be a number");
+    if (trailingGarbage(cmd + 4, n))
+      return refused(reply, replyLen, "ERR TAP: holdMs must be a whole number, and nothing after it");
     if (!onPanel(v[0], v[1])) return refused(reply, replyLen, "ERR TAP off panel: %ld %ld", v[0], v[1]);
     if (n >= 3 && (v[2] < 0 || v[2] > kMaxHoldMs)) return refused(reply, replyLen, "ERR holdMs 0..%ld", kMaxHoldMs);
     const unsigned long hold = n >= 3 ? static_cast<unsigned long>(v[2]) : 140;
@@ -144,7 +148,8 @@ bool runCommand(const char* cmd, char* reply, const size_t replyLen) {
   if (strncmp(cmd, "SWIPE ", 6) == 0) {
     const int n = parseLongs(cmd + 6, v, 5);
     if (n < 4) return refused(reply, replyLen, "ERR SWIPE wants: x0 y0 x1 y1 [ms]");
-    if (n < 5 && hasMoreArgs(cmd + 6, n)) return refused(reply, replyLen, "ERR ms must be a number");
+    if (trailingGarbage(cmd + 6, n))
+      return refused(reply, replyLen, "ERR SWIPE: ms must be a whole number, and nothing after it");
     if (!onPanel(v[0], v[1]) || !onPanel(v[2], v[3])) {
       return refused(reply, replyLen, "ERR SWIPE off panel");
     }
@@ -163,13 +168,15 @@ bool runCommand(const char* cmd, char* reply, const size_t replyLen) {
     const int index = buttonIndexByName(rest, nameLen);
     if (index < 0) return refused(reply, replyLen, "ERR BTN wants: UP|DOWN|CONFIRM|BACK|LEFT|RIGHT|POWER [holdMs]");
     unsigned long hold = 80;
-    if (space != nullptr && *(space + strspn(space, " ")) != '\0') {
-      // Present but unparseable is a typo, not an omission. Defaulting it and
-      // answering OK told a remote driver -- whose only feedback is this line --
-      // that "BTN UP abc" had been honoured at some duration it never chose.
-      if (parseLongs(space, v, 1) != 1) return refused(reply, replyLen, "ERR holdMs must be a number");
-      if (v[0] < 0 || v[0] > kMaxHoldMs) return refused(reply, replyLen, "ERR holdMs 0..%ld", kMaxHoldMs);
-      hold = static_cast<unsigned long>(v[0]);
+    if (space != nullptr) {
+      const int n = parseLongs(space, v, 1);
+      if (trailingGarbage(space, n)) {
+        return refused(reply, replyLen, "ERR BTN: holdMs must be a whole number, and nothing after it");
+      }
+      if (n == 1) {
+        if (v[0] < 0 || v[0] > kMaxHoldMs) return refused(reply, replyLen, "ERR holdMs 0..%ld", kMaxHoldMs);
+        hold = static_cast<unsigned long>(v[0]);
+      }
     }
     if (!devinput::button(static_cast<uint8_t>(index), hold)) return refused(reply, replyLen, "ERR busy");
     return scheduled(reply, replyLen, "OK BTN %.*s %lu", static_cast<int>(nameLen), rest, hold);

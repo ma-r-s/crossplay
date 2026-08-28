@@ -395,14 +395,36 @@ done < <(grep -rl 'WiFi.getMode() != WIFI_MODE_NULL' "$ROOT/src" 2>/dev/null | s
 # thing, because a file that only MENTIONS devmode:: in a comment explaining why
 # it does not need to yield was passing every one of them.
 code_lines() {
-  # Drops //-comments, same-line /* */, and the whole of a multi-line block:
-  # its opening line, its continuation lines (which start with *), and its
-  # closing line. The first version handled only same-line blocks, so a file
-  # whose one devmode:: mention sat on a `/*` opening line passed check 10, and
-  # a file that merely NAMED esp_wifi_stop() there was dragged into it.
-  sed -e 's://.*::' -e 's:/\*.*\*/::' "$1" |
-    awk '/^[[:space:]]*\/\*/ { inblock = 1 } inblock { if (/\*\//) inblock = 0; next } { print }' |
-    grep -v '^[[:space:]]*[*]'
+  # Comment-stripped source. A real scanner, because two cheaper versions were
+  # both walked around: matching only same-line /* */ let a mention hide in a
+  # multi-line block, and latching on a LEADING /* let it hide in a block opened
+  # at the end of a code line -- `foo(); /* devmode::holdsRadio() not needed`.
+  # Both directions matter: prose must not excuse a violation, and prose must not
+  # manufacture one by merely naming an API.
+  #
+  # Known limit, stated rather than pretended away: it does not understand string
+  # literals, so a "//" inside a string truncates the line. No file in this tree
+  # does that on a line that matters, and the alternative is a C lexer in awk.
+  awk '
+    {
+      line = $0; out = ""
+      while (1) {
+        if (inblock) {
+          i = index(line, "*/")
+          if (i == 0) { line = ""; break }
+          line = substr(line, i + 2); inblock = 0
+          continue
+        }
+        j = index(line, "//"); k = index(line, "/*")
+        if (k > 0 && (j == 0 || k < j)) {
+          out = out substr(line, 1, k - 1); line = substr(line, k + 2); inblock = 1
+          continue
+        }
+        if (j > 0) { out = out substr(line, 1, j - 1) } else { out = out line }
+        line = ""; break
+      }
+      print out
+    }' "$1"
 }
 
 # Counts matches on non-comment lines. A COUNT rather than `code_lines | grep -q`
@@ -507,7 +529,7 @@ done < <(radio_takers)
 # WHAT THIS CANNOT SEE, said plainly: it counts source lines, not calls, and it
 # cannot see REACHABILITY at all. An onExit() with an early `return` above its
 # resume(), or a resume() behind an `if`, reads 1:1 here and still strands
-# Developer Mode until a reboot. It counts source lines, not calls.
+# Developer Mode until a reboot.
 # LinkRadio.cpp reads 1:1 here while end() runs three times per match, and what
 # actually makes that pairing correct at runtime is the held_ flag, not this
 # check. A grep cannot count calls. Do not read a pass as proof of balance.
