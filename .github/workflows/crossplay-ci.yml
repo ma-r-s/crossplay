@@ -85,6 +85,18 @@ jobs:
       - name: Build the simulator
         run: pio run -e simulator_x4_pro
 
+      # THE ENVS THAT ACTUALLY SHIP. x4pro and sticky above define
+      # CROSSPOINT_DEV_SERIAL_BRIDGE, so every release-only branch in main.cpp
+      # is preprocessed away in both of them -- and until this step existed,
+      # gh_release_* was compiled for the first time by the release workflow,
+      # i.e. after the tag was already pushed. A typo in release-only code cost
+      # a delete-and-retag to find.
+      - name: Build the release firmware (x4pro)
+        run: pio run -e gh_release_x4pro
+
+      - name: Build the release firmware (sticky)
+        run: pio run -e gh_release_sticky
+
       # Nothing is forgiven. ui:paperOnTheBand was a real baseline failure
       # once, and this step carried a carefully shaped exemption for it until
       # 2026-08-14 -- four days after the failure was fixed. In that window a

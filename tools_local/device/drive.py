@@ -428,8 +428,15 @@ class WifiLink:
     def screenshot_raw(self, timeout=30.0):
         try:
             with self._open("/api/dev/screen", timeout=timeout) as r:
-                width = int(r.headers.get("X-Panel-Width", PANEL_W))
-                height = int(r.headers.get("X-Panel-Height", PANEL_H))
+                # Headers are device input too. int() raises on anything that
+                # is not a number and ValueError is not in the except tuple
+                # below, so a malformed header killed the process -- taking a
+                # `serve` session's device state with it. The cable path was
+                # given this guard and its twin here was not.
+                width = panel_number(r.headers.get("X-Panel-Width"), PANEL_W, "X-Panel-Width")
+                height = panel_number(r.headers.get("X-Panel-Height"), PANEL_H, "X-Panel-Height")
+                if width is None or height is None:
+                    return None
                 self.panel = (width, height)
                 self.panel_read = True
                 data = r.read()
@@ -445,6 +452,18 @@ class WifiLink:
             # only OSError turned that into a traceback.
             print(f"screenshot failed: {e}", file=sys.stderr)
             return None
+
+
+def panel_number(raw, fallback, name):
+    """A panel dimension from a header: absent means the default, present means
+    it has to be a plausible number. None on refusal."""
+    if raw is None:
+        return fallback
+    text = raw.strip()
+    if not text.isdigit() or not 0 < int(text) <= 10000:
+        print(f"{name}: {raw!r} is not a panel dimension", file=sys.stderr)
+        return None
+    return int(text)
 
 
 def screenshot(link, out_path, timeout=30.0):

@@ -14,6 +14,7 @@
 #include <driver/gpio.h>
 #include <esp_mac.h>
 
+#include <cstdarg>
 #include <cstdlib>
 #include <cstring>
 
@@ -114,9 +115,21 @@ TxStats txStats;
 // handler) can take the space in between and write() falls into the blocking
 // loop anyway. Much less likely, not never.
 // The waiting we do control happens HERE, bounded, counted and reportable.
+// Bulk payloads. Under drive.py's GRACE_S so the host is still listening when
+// this gives up; the overall bound is 4x, which also caps how long a screenshot
+// can hold the loop task -- and with it Developer Mode's HTTP.
+constexpr unsigned long kBulkStallMs = 2000;
+
 bool writeAll(const uint8_t* data, const size_t len, const unsigned long timeoutMs) {
   size_t sent = 0;
   unsigned long stallStart = 0;
+  // PER-STALL MUST STAY UNDER THE HOST'S GRACE (drive.py GRACE_S, 5.0s), and
+  // host-tests/release check 15 compares the two numbers so they cannot drift
+  // apart again. They were equal at 5000ms: a device stalling right at its own
+  // limit had its truncation notice arrive after the host had stopped listening,
+  // which turned a precise "device reported it gave up" into a vague "device
+  // stopped talking". Same refusal, worse diagnosis.
+  //
   // Two deadlines. The per-stall one catches a transport that has stopped; the
   // overall one catches a transport that dribbles -- a few bytes, a long pause,
   // repeat -- which resets the per-stall timer forever and would hold the loop
@@ -174,6 +187,12 @@ bool writeAll(const uint8_t* data, const size_t len, const unsigned long timeout
   return true;
 }
 
+// Every reply goes through here. The bulk writers were paced first because
+// they are the obvious risk, but a 60-byte reply landing on a momentarily-full
+// ring takes the same blocking path with tries = tx_timeout_ms = 1, and the
+// whole point of this bridge is that it answers when things are going wrong.
+bool reply(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
+
 // A short line, paced the same way. printf() goes straight to HWCDC::write, and
 // the ring is 256 bytes -- so a line written immediately AFTER a 48KB payload
 // lands when it is at its fullest, which is exactly the condition the removed
@@ -181,6 +200,15 @@ bool writeAll(const uint8_t* data, const size_t len, const unsigned long timeout
 // the line reporting the jam was the most likely thing to flip the flag.
 bool writeLine(const char* text, const unsigned long timeoutMs) {
   return writeAll(reinterpret_cast<const uint8_t*>(text), strlen(text), timeoutMs);
+}
+
+bool reply(const char* fmt, ...) {
+  char line[288];
+  va_list args;
+  va_start(args, fmt);
+  vsnprintf(line, sizeof(line), fmt, args);
+  va_end(args);
+  return writeLine(line, 1000);
 }
 
 void formatTxStats(char* out, const size_t len) {
@@ -211,9 +239,8 @@ void handleLine(const char* line) {
   const char* cmd = line + 4;
 
   if (strcmp(cmd, "PING") == 0) {
-    transport().printf("OK PONG board=%.*s version=%s heap=%u minheap=%u psram=%u\n",
-                       static_cast<int>(board_tag::boardNameLen()), board_tag::boardName(), CROSSPOINT_VERSION,
-                       ESP.getFreeHeap(), ESP.getMinFreeHeap(), ESP.getPsramSize());
+    reply("OK PONG board=%.*s version=%s heap=%u minheap=%u psram=%u\n", static_cast<int>(board_tag::boardNameLen()),
+          board_tag::boardName(), CROSSPOINT_VERSION, ESP.getFreeHeap(), ESP.getMinFreeHeap(), ESP.getPsramSize());
     return;
   }
 
@@ -229,9 +256,8 @@ void handleLine(const char* line) {
   }
 
   if (strcmp(cmd, "HEAP") == 0) {
-    transport().printf("OK HEAP free=%u min=%u maxalloc=%u total=%u psramfree=%u psramtotal=%u\n", ESP.getFreeHeap(),
-                       ESP.getMinFreeHeap(), ESP.getMaxAllocHeap(), ESP.getHeapSize(), ESP.getFreePsram(),
-                       ESP.getPsramSize());
+    reply("OK HEAP free=%u min=%u maxalloc=%u total=%u psramfree=%u psramtotal=%u\n", ESP.getFreeHeap(),
+          ESP.getMinFreeHeap(), ESP.getMaxAllocHeap(), ESP.getHeapSize(), ESP.getFreePsram(), ESP.getPsramSize());
     return;
   }
 
@@ -245,17 +271,17 @@ void handleLine(const char* line) {
     strftime(sys, sizeof(sys), "%Y-%m-%d %H:%M:%S", &t);
     Rtc::DateTime dt;
     const bool rtcOk = halClock.available() && halClock.raw(dt);
-    transport().printf("OK DATE system=%sZ rtc=", sys);
+    reply("OK DATE system=%sZ rtc=", sys);
     if (rtcOk) {
-      transport().printf("%04u-%02u-%02u %02u:%02u:%02uZ\n", dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second);
+      reply("%04u-%02u-%02u %02u:%02u:%02uZ\n", dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second);
     } else {
-      transport().printf("unavailable\n");
+      reply("unavailable\n");
     }
     return;
   }
 
   if (strcmp(cmd, "REBOOT") == 0) {
-    transport().printf("OK REBOOT\n");
+    reply("OK REBOOT\n");
     delay(50);
     ESP.restart();
     return;
@@ -299,39 +325,38 @@ void handleLine(const char* line) {
     const bool there = Storage.exists(p);
     char buf[64] = {};
     const size_t got = there ? Storage.readFileToBuffer(p, buf, sizeof(buf)) : 0;
-    transport().printf("OK WRITETEST path=%s dotdir=%d opened=%d written=%u exists=%d read=%u content=%s\n", p,
-                       parent ? 1 : 0, opened ? 1 : 0, static_cast<unsigned>(written), there ? 1 : 0,
-                       static_cast<unsigned>(got), buf);
+    reply("OK WRITETEST path=%s dotdir=%d opened=%d written=%u exists=%d read=%u content=%s\n", p, parent ? 1 : 0,
+          opened ? 1 : 0, static_cast<unsigned>(written), there ? 1 : 0, static_cast<unsigned>(got), buf);
     return;
   }
 
   if (strncmp(cmd, "MKDIR ", 6) == 0) {
     const bool ok = Storage.mkdir(cmd + 6);
-    transport().printf("OK MKDIR %s ok=%d exists=%d\n", cmd + 6, ok ? 1 : 0, Storage.exists(cmd + 6) ? 1 : 0);
+    reply("OK MKDIR %s ok=%d exists=%d\n", cmd + 6, ok ? 1 : 0, Storage.exists(cmd + 6) ? 1 : 0);
     return;
   }
 
   if (strncmp(cmd, "RM ", 3) == 0) {
     const bool ok = Storage.remove(cmd + 3);
-    transport().printf("OK RM %s ok=%d\n", cmd + 3, ok ? 1 : 0);
+    reply("OK RM %s ok=%d\n", cmd + 3, ok ? 1 : 0);
     return;
   }
 
   if (strncmp(cmd, "RMDIR ", 6) == 0) {
     const bool ok = Storage.rmdir(cmd + 6);
-    transport().printf("OK RMDIR %s ok=%d\n", cmd + 6, ok ? 1 : 0);
+    reply("OK RMDIR %s ok=%d\n", cmd + 6, ok ? 1 : 0);
     return;
   }
 
   if (strncmp(cmd, "CAT ", 4) == 0) {
     const char* path = cmd + 4;
     if (!Storage.exists(path)) {
-      transport().printf("ERR CAT no such file: %s\n", path);
+      reply("ERR CAT no such file: %s\n", path);
       return;
     }
     HalFile file;
     if (!Storage.openFileForRead("DEVBRIDGE", path, file)) {
-      transport().printf("ERR CAT cannot open: %s\n", path);
+      reply("ERR CAT cannot open: %s\n", path);
       return;
     }
     char head[160];
@@ -356,7 +381,7 @@ void handleLine(const char* line) {
         failure = "read error";
         break;
       }
-      if (!writeAll(chunk, static_cast<size_t>(n), 5000)) {
+      if (!writeAll(chunk, static_cast<size_t>(n), kBulkStallMs)) {
         failure = "transport";
         break;
       }
@@ -379,14 +404,13 @@ void handleLine(const char* line) {
     // all, and if so, does anything mountable live on it?
     sdRailAndBus();
     if (!probeSd.cardBegin(SdSpiConfig(BoardConfig::ACTIVE.sd.cs, SHARED_SPI, SD_SCK_MHZ(4)))) {
-      transport().printf("OK SDPROBE card=0 err=0x%02X data=0x%02X\n", probeSd.sdErrorCode(), probeSd.sdErrorData());
+      reply("OK SDPROBE card=0 err=0x%02X data=0x%02X\n", probeSd.sdErrorCode(), probeSd.sdErrorData());
       return;
     }
     const uint32_t sectors = probeSd.card()->sectorCount();
     const bool vol = probeSd.volumeBegin();
-    transport().printf("OK SDPROBE card=1 sectors=%u mb=%u vol=%d fatType=%d err=0x%02X\n", sectors,
-                       static_cast<unsigned>(sectors / 2048u), vol ? 1 : 0, vol ? probeSd.fatType() : 0,
-                       probeSd.sdErrorCode());
+    reply("OK SDPROBE card=1 sectors=%u mb=%u vol=%d fatType=%d err=0x%02X\n", sectors,
+          static_cast<unsigned>(sectors / 2048u), vol ? 1 : 0, vol ? probeSd.fatType() : 0, probeSd.sdErrorCode());
     probeSd.end();
     return;
   }
@@ -395,20 +419,19 @@ void handleLine(const char* line) {
     // Destructive: erases whatever is on the card. The literal YES is the
     // arming pin so a mistyped command cannot do it.
     if (strcmp(cmd, "SDFORMAT YES") != 0) {
-      transport().printf("ERR SDFORMAT requires the literal argument YES\n");
+      reply("ERR SDFORMAT requires the literal argument YES\n");
       return;
     }
     sdRailAndBus();
     if (!probeSd.cardBegin(SdSpiConfig(BoardConfig::ACTIVE.sd.cs, SHARED_SPI, SD_SCK_MHZ(4)))) {
-      transport().printf("ERR SDFORMAT no card: err=0x%02X data=0x%02X\n", probeSd.sdErrorCode(),
-                         probeSd.sdErrorData());
+      reply("ERR SDFORMAT no card: err=0x%02X data=0x%02X\n", probeSd.sdErrorCode(), probeSd.sdErrorData());
       return;
     }
     // FsFormatter picks FAT16/32 vs exFAT by card size; progress lines go to
     // this same serial.
     const bool ok = probeSd.format(&transport());
     const bool vol = ok && probeSd.volumeBegin();
-    transport().printf("OK SDFORMAT ok=%d vol=%d fatType=%d\n", ok ? 1 : 0, vol ? 1 : 0, vol ? probeSd.fatType() : 0);
+    reply("OK SDFORMAT ok=%d vol=%d fatType=%d\n", ok ? 1 : 0, vol ? 1 : 0, vol ? probeSd.fatType() : 0);
     probeSd.end();
     return;
   }
@@ -422,7 +445,7 @@ void handleLine(const char* line) {
       BoardConfig::ACTIVE.sd.spiHz = static_cast<uint32_t>(hz[0]);
     }
     const bool up = Storage.begin();
-    transport().printf("OK SD mounted=%d spiHz=%u\n", up ? 1 : 0, BoardConfig::ACTIVE.sd.spiHz);
+    reply("OK SD mounted=%d spiHz=%u\n", up ? 1 : 0, BoardConfig::ACTIVE.sd.spiHz);
     return;
   }
 
@@ -430,7 +453,7 @@ void handleLine(const char* line) {
     const uint32_t bufferSize = display.getBufferSize();
     const uint8_t* fb = display.getFrameBuffer();
     if (fb == nullptr) {
-      transport().printf("ERR SCREENSHOT no framebuffer\n");
+      reply("ERR SCREENSHOT no framebuffer\n");
       return;
     }
     const TxStats before = txStats;
@@ -453,7 +476,7 @@ void handleLine(const char* line) {
     // 5s, not 2. The first screenshot after a reset shares the ring with the
     // tail of the boot log, and 2s was short enough to lose that one and only
     // that one -- shots two through five went through untouched.
-    const bool complete = writeAll(fb, bufferSize, 5000);
+    const bool complete = writeAll(fb, bufferSize, kBulkStallMs);
     // NO flush() HERE, and that is the point. HWCDC::flush starts
     // tries = tx_timeout_ms, and this firmware sets that to 1
     // (main.cpp: "This is a load-bearing 1. Do not modify."). One millisecond
@@ -495,13 +518,13 @@ void handleLine(const char* line) {
 
   if (devinput::isCommand(cmd)) {
     // One vocabulary, two transports. See lib/DevInput/DevInputCommands.h.
-    char reply[96];
-    devinput::runCommand(cmd, reply, sizeof(reply));
-    transport().printf("%s\n", reply);
+    char answer[96];
+    devinput::runCommand(cmd, answer, sizeof(answer));
+    reply("%s\n", answer);
     return;
   }
 
-  transport().printf("ERR unknown command\n");
+  reply("ERR unknown command\n");
 }
 
 }  // namespace
@@ -514,8 +537,8 @@ void begin() {
   // else starts its receive side (log output goes through esp_rom_printf).
   transport().begin(115200);
 #endif
-  transport().printf("OK DEVBRIDGE %.*s %s\n", static_cast<int>(board_tag::boardNameLen()), board_tag::boardName(),
-                     CROSSPOINT_VERSION);
+  reply("OK DEVBRIDGE %.*s %s\n", static_cast<int>(board_tag::boardNameLen()), board_tag::boardName(),
+        CROSSPOINT_VERSION);
 }
 
 void update() {

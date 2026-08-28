@@ -147,6 +147,13 @@ if [ "${1:-}" = "--committed" ]; then
   else
     echo "  no workspace marker found; this will be a cold build"
   fi
+  # The envs that SHIP are not the envs anyone builds. x4pro and sticky define
+  # CROSSPOINT_DEV_SERIAL_BRIDGE, so the release-only branches of main.cpp are
+  # preprocessed away in every routine build -- and gh_release_* is compiled
+  # for the first time by the release workflow, AFTER the tag exists. A typo
+  # there costs a delete-and-retag. --committed is the mode you run because you
+  # are about to rely on the result, so it builds them.
+  export CHECK_BUILD_RELEASE_ENVS=1
   (cd "$TRIAL" && ./scripts_local/check.sh "${2:-}")
   exit $?
 fi
@@ -345,7 +352,11 @@ if [ "${1:-}" != "--tests" ]; then
 
   # Both firmware envs (x4pro, sticky) reach into that same ~/.platformio, so
   # the lock is taken before the first of them and held until the last is done.
-  for env in simulator_x4_pro x4pro sticky; do
+  BUILD_ENVS="simulator_x4_pro x4pro sticky"
+  # See the note in the --committed block: these are the only builds that
+  # compile the release-path serial code at all.
+  [ -n "${CHECK_BUILD_RELEASE_ENVS:-}" ] && BUILD_ENVS="$BUILD_ENVS gh_release_x4pro gh_release_sticky"
+  for env in $BUILD_ENVS; do
     printf "build: %-18s %s ...\n" "$env" "$(date +%H:%M:%S)"
     BUILD_T0=$(date +%s)
     if [ "$env" = "x4pro" ] && [ -d "$(dirname "$FW_LOCK")" ]; then

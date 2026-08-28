@@ -31,9 +31,17 @@ checks=0
 failed=0
 ok()   { checks=$((checks + 1)); }
 bad()  { checks=$((checks + 1)); failed=$((failed + 1)); echo "FAIL release  $1"; }
-# LOUDLY, and it does NOT count as a check: a gate that did not run must not
-# scroll past looking like one that passed.
-skip() { echo "SKIP release  $1"; }
+# Locally a SKIP is information: a full clone may legitimately lack a tag. In
+# CI every input is supposed to be there, so a check that did not run is a
+# FAILURE -- otherwise the fix for "this gate never ran in CI" is itself
+# unguarded, and deleting fetch-tags puts it right back to silently skipping.
+skip() {
+  if [ -n "${CI:-}" ]; then
+    bad "$1 (a skip is a failure in CI: the inputs should be present here)"
+  else
+    echo "SKIP release  $1"
+  fi
+}
 
 for f in "$WF" "$PARSER" "$ROOT/README.md" "$ROOT/site/index.html"; do
   [ -f "$f" ] || { echo "FAIL release  missing $f"; exit 1; }
@@ -796,14 +804,42 @@ fi
 # nothing here noticed if that step disappeared -- while scripts_local/README.md
 # told people this suite enforced it. Assert the step's substance, the way
 # host-tests/ci asserts CI's.
-# The substance, not the words: it must read the version out of platformio.ini,
-# compare it to the tag, and fail. Greping for "crossplay" in a file called
-# crossplay-release.yml would have passed on an empty step.
-if grep -q 'GITHUB_REF_NAME' "$WF" && grep -q 'platformio.ini' "$WF" &&
-  grep -q 'v\${VERSION}' "$WF" && grep -q 'exit 1' "$WF"; then
+# EXECUTE the step, do not grep it. Four greps for its ingredients passed a
+# version of it ending in `&& false`, which can never fire -- the ingredients
+# were all still there. host-tests/ci runs CI's step text for the same reason.
+GUARD="$(awk '/- name: The tag must be the version being built/{f=1;next}
+              f && /^      - /{exit}
+              f && /run: \|/{g=1;next}
+              g' "$WF")"
+if [ -z "$GUARD" ]; then
+  bad "$(basename "$WF") has no tag-versus-version step"
+else
+  guard_says() { (cd "$ROOT" && GITHUB_REF_NAME="$1" bash -c "$GUARD" > /dev/null 2>&1); }
+  if guard_says "v$NOTES_VERSION"; then
+    ok
+  else
+    bad "the release workflow's tag check rejects the correct tag v$NOTES_VERSION"
+  fi
+  # The half that matters, and the half a grep cannot see.
+  if guard_says "v0.0.1-wrong"; then
+    bad "the release workflow's tag check ACCEPTS a tag that disagrees with [crossplay] version"
+  else
+    ok
+  fi
+fi
+
+# The host must still be listening when the device gives up, or a precise
+# "device reported it gave up" degrades into "device stopped talking". The two
+# numbers live in different languages in different directories and nothing made
+# them agree; they were equal, which is not ordered.
+GRACE_S="$(sed -n 's/^GRACE_S = \([0-9.]*\).*/\1/p' "$ROOT/tools_local/device/drive.py" | head -1)"
+STALL_MS="$(sed -n 's/^constexpr unsigned long kBulkStallMs = \([0-9]*\).*/\1/p' "$ROOT/src/DevSerialBridge.cpp" | head -1)"
+if [ -z "$GRACE_S" ] || [ -z "$STALL_MS" ]; then
+  bad "cannot read GRACE_S (drive.py) or kBulkStallMs (DevSerialBridge.cpp); one of them was renamed"
+elif [ "$(awk -v g="$GRACE_S" -v s="$STALL_MS" 'BEGIN{print (g*1000 > s) ? 1 : 0}')" = "1" ]; then
   ok
 else
-  bad "$(basename "$WF") no longer refuses a tag that disagrees with [crossplay] version"
+  bad "drive.py GRACE_S (${GRACE_S}s) must exceed DevSerialBridge kBulkStallMs (${STALL_MS}ms): the device gives up after the host stopped listening"
 fi
 
 echo "$checks checks, $failed failed"

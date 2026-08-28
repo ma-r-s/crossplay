@@ -244,7 +244,10 @@ for bad, label in [
     check(f"{label} length rejected", got, None)
     # The specific complaint, not merely "something was printed": the short-read
     # path prints unconditionally, so a non-empty stderr proves nothing.
-    check(f"{label} length says it was the length", "length" in err, True)
+    # The specific guard, not merely "a guard": every rejection here mentions
+    # "length", so that word could not tell the digits check from the panel
+    # check, and either one alone would have kept these green.
+    check(f"{label} length is refused before the panel check", "SCREENSHOT_START" in err or "implausible" in err, True)
 
 # #3: a device that simply stops mid-frame matches no marker and never reaches
 # the byte count, so an "arm the timer once it looks settled" rule never armed
@@ -347,6 +350,26 @@ t = threading.Thread(target=_drain, daemon=True)
 t.start()
 t.join(5.0)
 check("drain returns against a device that never stops", done.is_set(), True)
+
+# The Wi-Fi twin. Its panel dimensions arrive as HTTP headers rather than in a
+# START line, and they are device input in exactly the same way -- int() on a
+# malformed one raised, and ValueError is not in that path's except tuple, so it
+# killed the process outright.
+quiet = io.StringIO()
+_real, sys.stderr = sys.stderr, quiet
+panel_cases = [
+    (None, 800, "absent means the default"),
+    ("800", 800, "a number is itself"),
+    ("eight hundred", None, "words are refused"),
+    ("", None, "empty is refused"),
+    ("-5", None, "negative is refused"),
+    ("0", None, "zero is refused"),
+    ("999999", None, "absurd is refused"),
+]
+results = [(drive.panel_number(raw, 800, "X-Panel-Width"), want, why) for raw, want, why in panel_cases]
+sys.stderr = _real
+for got, want, why in results:
+    check(f"panel header: {why}", got, want)
 
 print(f"{CHECKS} checks, {FAILED} failed")
 sys.exit(1 if FAILED else 0)

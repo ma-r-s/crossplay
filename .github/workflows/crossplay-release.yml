@@ -32,6 +32,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+          # Tags, for host-tests/release below: without them its notes gate
+          # cannot see what the previous tag published and skips itself.
+          fetch-depth: 0
 
       # The tag and the version are two hand-edited facts that nothing forced to
       # agree. A v1.6.4 tag pushed with platformio.ini still at 1.6.3 builds an
@@ -46,6 +49,14 @@ jobs:
             exit 1
           fi
           echo "tag ${GITHUB_REF_NAME} matches [crossplay] version ${VERSION}"
+
+      # The notes gate runs HERE, not only in CI. CI is a different workflow on
+      # a different trigger with no `needs:` binding it to this one, so pushing
+      # the branch and the tag together published the release first and went red
+      # afterwards -- which changes nothing already public. This is the last
+      # moment stale notes can still be stopped.
+      - name: The release notes must be this release's
+        run: bash host-tests/release/run.sh
 
       - uses: actions/setup-python@v5
         with:
