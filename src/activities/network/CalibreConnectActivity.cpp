@@ -1,3 +1,4 @@
+#include "DevMode.h"
 #include "CalibreConnectActivity.h"
 
 #include <ESPmDNS.h>
@@ -55,7 +56,10 @@ void CalibreConnectActivity::onExit() {
 
   MDNS.end();
 
-  if (WiFi.getMode() != WIFI_MODE_NULL) {
+  // Not ours to drop if Developer Mode raised it. Every other wifi user here
+  // either tracks its own ownership flag or asks this; a bare getMode() check
+  // means "somebody has the radio", not "I do".
+  if (WiFi.getMode() != WIFI_MODE_NULL && !devmode::holdsRadio()) {
     WiFi.disconnect(false);
     delay(30);
     silentRestart();

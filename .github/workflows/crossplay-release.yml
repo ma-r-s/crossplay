@@ -147,6 +147,51 @@ jobs:
             Battleship, Jaipur and Sea Salt. Two devices next to each other
             find one another with nothing to type.
 
+            ### What is new in 1.6.1
+
+            **Developer Mode**
+
+            Settings > System > Developer Mode turns this reader into a
+            development device: it joins your Wi-Fi at boot and can be
+            reflashed and inspected from a computer with no cable. It is off
+            unless you turn it on, and off means off -- no Wi-Fi, no server,
+            nothing listening.
+
+            **Turn it off with the tooling's `--disable` before this device
+            leaves your network.** While Developer Mode is on, anyone who can
+            read the six-digit code on its screen can replace its firmware.
+            That is the point of the feature and it is fine on your own
+            network; it is not fine in a bag on a train. Flashing a different
+            firmware does NOT turn it off -- the setting lives on your SD card.
+
+            While it is on the device will not sleep, so the battery drains
+            faster.
+
+            This is for people building the firmware themselves: the other half
+            is `scripts_local/wifi-flash.sh` in the repository. Turning the
+            setting on by itself does not give you anything to connect with.
+
+            You can also read a crash report over Wi-Fi now -- the panic, its
+            backtrace, and the log lines from just before the device reset.
+
+            Known limits, and what is deliberately not there yet, are in
+            `docs/developer-mode.md`.
+
+            ### Still true from 1.6.0, if you have not flashed over USB since
+
+            **The two app slots grew from 6.25MB to 7.94MB, and the partition
+            table is only written by a USB flash.** Check for updates writes the
+            application and nothing else, so a device installed before 1.6.0
+            keeps its old 6.25MB slots no matter how many times it updates over
+            Wi-Fi. Everything keeps working. What happens eventually is that an
+            application grows past 6.25MB, and that device says the firmware is
+            too large and declines the update -- with that reason, before
+            downloading it, rather than failing halfway. If you would rather not
+            meet that months from now, flash
+            `crossplay-1.6.1-x4pro-full.bin` over USB once, exactly as a first
+            install. Your SD card is untouched: books, reading positions, saves
+            and fonts are files on it, not in the firmware.
+
             ### Which file to download
 
             Each device has its own pair of images; the board name is in the
@@ -168,24 +213,6 @@ jobs:
             v1.0.0 and v1.0.1 published only the application image and told you
             to write it to `0x0`, which on an ESP32-S3 is where the bootloader
             lives. Do not follow the install steps from those two releases.
-
-            ### If you installed before this release, flash over USB once
-
-            This release repartitions the chip. A 3.375MB partition that no
-            version of this firmware ever used has been given to the two
-            application slots, which grow from 6.25MB each to 7.94MB.
-
-            The partition table is only written by a USB flash. Check for
-            updates writes the application and nothing else, so a device
-            installed before this release keeps its old 6.25MB slots. It will
-            keep updating over Wi-Fi until an application no longer fits in
-            6.25MB, and will then say the firmware is too large and refuse,
-            without downloading it. That is the point to flash
-            `crossplay-<version>-x4pro-full.bin` over USB once, exactly as a
-            first install. Your SD card is untouched: books, reading positions,
-            saves and fonts are files on it, not in the firmware.
-
-            A fresh install from this release onward needs none of this.
 
             Try the whole thing in a browser first, without owning either:
             **[crossplay.ma-r-s.com](https://crossplay.ma-r-s.com)** runs this

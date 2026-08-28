@@ -186,18 +186,21 @@ fi
 
 # -- 6. dev-only flags never reach an env a tag builds -------------------------
 #
-# CROSSPOINT_DEV_SERIAL_BRIDGE and CROSSPOINT_DEV_WIFI_FLASH each open a hole
-# that is fine on a desk and wrong in a release: the bridge lets anything on the
-# USB line drive the UI, and the wifi flash adds an unauthenticated HTTP route
-# that replaces the firmware. Both are compile-time so a release image cannot
-# contain them at all -- but only as long as nobody moves one up into a
-# *_common section, which the release envs inherit from. That single edit is
-# invisible in review and ships the hole. So the check is on which SECTION the
-# flag sits in, not merely on whether the release env spells it out.
+# CROSSPOINT_DEV_SERIAL_BRIDGE lets anything on the USB line drive the UI. It is
+# compile-time so a release image cannot contain it at all -- but only as long
+# as nobody moves it up into a *_common section, which the release envs inherit
+# from. That single edit is invisible in review and ships the hole. So the check
+# is on which SECTION the flag sits in, not merely on whether the release env
+# spells it out.
+#
+# Developer Mode is deliberately NOT on this list. It ships in every build by
+# design, because a compile-time gate meant the only way into dev mode was the
+# cable it exists to remove. What protects a release is asserted below instead:
+# it is off by default, and its endpoints require pairing.
 INI="$ROOT/platformio.ini"
 [ -f "$INI" ] || { echo "FAIL release  missing $INI"; exit 1; }
 
-for flag in CROSSPOINT_DEV_SERIAL_BRIDGE CROSSPOINT_DEV_WIFI_FLASH; do
+for flag in CROSSPOINT_DEV_SERIAL_BRIDGE; do
   # Print the section each occurrence of $flag lives in.
   homes="$(awk -v want="$flag" '
     /^\[/ { section = $0; sub(/^\[/, "", section); sub(/\].*$/, "", section) }
@@ -225,6 +228,167 @@ for flag in CROSSPOINT_DEV_SERIAL_BRIDGE CROSSPOINT_DEV_WIFI_FLASH; do
     bad "$flag is set in [$bad_home] -- release envs inherit that, so a tag would ship it"
   fi
 done
+
+# -- 7. Developer Mode ships off, and its endpoints are not open ---------------
+#
+# Dev mode is a runtime setting present in release builds, so the compile-time
+# argument that used to protect users does not apply and something else has to.
+# Three things, each of which has to stay true in a shipped image:
+#   - it defaults to OFF, so nobody gets it by accident;
+#   - every /api/dev/ route except pairing goes through the auth gate;
+#   - the gate is not satisfied by merely being on.
+# A regression in any of these turns every reader whose owner once flipped the
+# toggle into an open firmware-replacement endpoint.
+SETTINGS_H="$ROOT/src/CrossPointSettings.h"
+WEBSERVER="$ROOT/src/network/CrossPointWebServer.cpp"
+for f in "$SETTINGS_H" "$WEBSERVER" "$ROOT/src/DevMode.cpp"; do
+  [ -f "$f" ] || { echo "FAIL release  missing $f"; exit 1; }
+done
+
+if grep -qE '^\s*uint8_t devMode = 0;' "$SETTINGS_H"; then
+  ok
+else
+  bad "devMode does not default to 0 in CrossPointSettings.h -- dev mode would ship ON"
+fi
+
+# Every route registered under /api/dev/ must be either the pair endpoint or a
+# handler whose body calls devAuthorised(). Read the routes out of the source
+# rather than listing them here, so a new endpoint cannot be added without
+# either passing this or failing it.
+dev_routes="$(grep -oE '"/api/dev/[A-Za-z0-9/_-]+"' "$WEBSERVER" | tr -d '"' | sort -u)"
+if [ -z "$dev_routes" ]; then
+  bad "no /api/dev/ routes found; the dev-mode control surface has vanished"
+else
+  for route in $dev_routes; do
+    name="${route##*/}"
+    case "$name" in
+      pair) ok ;;  # pairing is the way IN, so it cannot require a token
+      *)
+        # Find the handler this route dispatches to, then check that handler's body.
+        # EVERY handler on the line, not the first. A route registered with a
+        # body callback has two, and the second is the one that streams
+        # megabytes to the SD card -- checking only the first left the
+        # dangerous half of /api/dev/upload unasserted while the suite
+        # reported green.
+        # The WHOLE registration line. An earlier version stopped at the first
+        # ";", which falls inside the first lambda body -- so on a route with a
+        # body callback it silently saw only handler one, and the streaming
+        # handler that writes megabytes to the card went unchecked while the
+        # suite printed green. Found by mutation-testing the assertion itself.
+        handlers="$(grep -F "\"$route\"" "$WEBSERVER" | grep -oE 'handle[A-Za-z]+' | sort -u)"
+        if [ -z "$handlers" ]; then
+          bad "cannot find any handler for $route"
+        else
+          for handler in $handlers; do
+            # Either gate counts: devAuthorised() answers, devTokenOk() decides
+            # silently for callbacks that must not send mid-parse.
+            if awk "/void CrossPointWebServer::$handler\(/,/^}/" "$WEBSERVER" |
+              grep -qE 'devAuthorised\(\)|devTokenOk\(\)'; then
+              ok
+            else
+              bad "$route ($handler) checks neither devAuthorised() nor devTokenOk() -- open to anyone on the network"
+            fi
+          done
+        fi
+        ;;
+    esac
+  done
+fi
+
+# Being switched on must not be sufficient. The gate has to check a token too.
+if awk '/bool CrossPointWebServer::devAuthorised\(/,/^}/' "$WEBSERVER" | grep -q 'tokenValid'; then
+  ok
+else
+  bad "devAuthorised() does not check a token; turning dev mode on would be enough to flash the device"
+fi
+
+# -- 8. the two Developer Mode invariants that only exist in one line each ------
+#
+# Both of these are load-bearing and both are one edit away from silently
+# reverting, which is exactly the shape that wants a test rather than a comment.
+
+# (a) The upload route must stay HTTP_PUT. This core's FunctionRequestHandler
+# hands the same callback to the upload path and the raw path with nothing to
+# distinguish them, and server->upload() in raw mode dereferences a null
+# _currentUpload and RESETS THE DEVICE -- unauthenticated. PUT makes canUpload()
+# unreachable because it requires HTTP_POST. Changing this line to HTTP_POST or
+# HTTP_ANY restores a remote reboot that already shipped twice.
+if grep -qE '"/api/dev/upload",[[:space:]]*HTTP_PUT' "$WEBSERVER"; then
+  ok
+else
+  bad "/api/dev/upload is not registered HTTP_PUT -- the raw/upload ambiguity that reboots the device is back"
+fi
+
+# (b) Developer Mode must not be writable over the network. The settings list
+# drives the menu, the JSON file AND the web API from one entry, so adding the
+# toggle gave it a web setter for free -- on the reader's UNAUTHENTICATED web
+# UI. That turned the temporary surface into a way to enable the permanent one.
+if awk '/bool CrossPointWebServer::isLocalOnlySetting\(/,/^}/' "$WEBSERVER" | grep -q '"devMode"'; then
+  ok
+else
+  bad "devMode is not in isLocalOnlySetting() -- anyone on the LAN could enable Developer Mode via /api/settings"
+fi
+if awk '/void CrossPointWebServer::handlePostSettings\(/,/^}/' "$WEBSERVER" | grep -q 'isLocalOnlySetting'; then
+  ok
+else
+  bad "handlePostSettings() no longer consults isLocalOnlySetting() -- local-only settings are network-writable again"
+fi
+
+# (c) The pairing code has to be reachable on the device. Without a screen that
+# renders it, the code exists only in a log line read over the cable this
+# feature exists to remove -- which is how it was first written.
+DEVACT="$ROOT/src/activities/settings/DeveloperModeActivity.cpp"
+if [ -f "$DEVACT" ] && grep -q 'st\.code' "$DEVACT"; then
+  ok
+else
+  bad "no on-device screen renders the pairing code; Developer Mode cannot be paired without a serial cable"
+fi
+
+# -- 9. `WiFi.getMode()` is never the only test of who owns the radio ----------
+#
+# Files here tear the radio down on exit -- disconnect, then silentRestart() to
+# clear the fragmentation a TLS session leaves. They used to decide whether to
+# do that from `WiFi.getMode() != WIFI_MODE_NULL`, which answers "somebody has
+# the radio", not "I do". That was true enough while nothing else ever held it:
+# LinkRadio.cpp still carries a comment saying exactly that. Developer Mode
+# holds it for as long as its toggle is on, so a bare getMode() check now means
+# every one of these tears down a connection it did not raise.
+#
+# The rule: that expression must never stand alone. Either the file tracks its
+# own ownership (`wifiActivated && WiFi.getMode() ...`, which several already
+# did and which is the better pattern) or it asks devmode::holdsRadio().
+#
+# DISCOVERED, not listed. An earlier version of this check walked a hardcoded
+# five-file list while its commit message claimed it caught any such file --
+# which meant six more files carried the bug and the suite reported green. A
+# test that cannot find a new violation is not testing the rule, it is
+# restating the fix.
+while IFS= read -r path; do
+  rel="${path#$ROOT/}"
+  # Every occurrence in the file has to be qualified, not just one.
+  unqualified=0
+  while IFS= read -r line; do
+    # Prose about the rule is not the rule. DevMode.h explains this very check
+    # in a comment, and an earlier version of this test failed on it.
+    trimmed="$(printf '%s' "$line" | sed 's/^[[:space:]]*//')"
+    case "$trimmed" in
+      '//'*|'*'*|'/*'*) continue ;;
+    esac
+    # A second condition on the same line is the file vouching for itself.
+    case "$line" in
+      *"&&"*) continue ;;
+    esac
+    unqualified=1
+  done < <(grep -F 'WiFi.getMode() != WIFI_MODE_NULL' "$path")
+
+  if [ "$unqualified" -eq 0 ]; then
+    ok
+  elif grep -q 'devmode::holdsRadio()' "$path"; then
+    ok
+  else
+    bad "$rel decides who owns the radio from WiFi.getMode() alone -- it will tear down Developer Mode's connection"
+  fi
+done < <(grep -rl 'WiFi.getMode() != WIFI_MODE_NULL' "$ROOT/src" 2>/dev/null | sort)
 
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]

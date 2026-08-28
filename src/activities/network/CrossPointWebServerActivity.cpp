@@ -1,7 +1,4 @@
 #include "CrossPointWebServerActivity.h"
-#if CROSSPOINT_DEV_WIFI_FLASH
-#include "DevWifiFlash.h"
-#endif
 
 #include <DNSServer.h>
 #include <ESPmDNS.h>
@@ -12,6 +9,7 @@
 
 #include <cstddef>
 
+#include "DevMode.h"
 #include "MappedInputManager.h"
 #include "NetworkModeSelectionActivity.h"
 #include "SilentRestart.h"
@@ -66,12 +64,10 @@ int barsForRssi(int rssi, int currentBars) {
 
 void CrossPointWebServerActivity::onEnter() {
   Activity::onEnter();
-#if CROSSPOINT_DEV_WIFI_FLASH
-  // This activity binds 80/81/8134 itself, and the dev background server is
-  // already holding them. Two binds on one port fails in a way that reads as
-  // "the web screen is broken", so it yields for as long as the screen is up.
-  devwifi::pause();
-#endif
+  // This activity binds 80/81/8134 itself, and the dev-mode server may already
+  // hold them. Two binds on one port fails in a way that reads as "the web
+  // screen is broken", so dev mode yields for as long as the screen is up.
+  devmode::pause();
 
   LOG_DBG("WEBACT", "Free heap at onEnter: %d bytes", ESP.getFreeHeap());
 
@@ -108,9 +104,7 @@ void CrossPointWebServerActivity::onEnter() {
 
 void CrossPointWebServerActivity::onExit() {
   Activity::onExit();
-#if CROSSPOINT_DEV_WIFI_FLASH
-  devwifi::resume();
-#endif
+  devmode::resume();
 
   LOG_DBG("WEBACT", "Free heap at onExit start: %d bytes", ESP.getFreeHeap());
 
@@ -119,14 +113,22 @@ void CrossPointWebServerActivity::onExit() {
   MDNS.end();
 
   // Skip reboot if WiFi was never activated (e.g. user backed out of mode selection).
+  //
+  // Also skip it when Developer Mode holds the radio. The reboot exists to
+  // return the radio to a clean state, and dev mode is going to re-establish
+  // STA the moment resume() above lets it -- so restarting would cost the user
+  // their place for nothing, every single time they close this screen. An AP
+  // still gets torn down, because that one really was ours.
   if (WiFi.getMode() != WIFI_MODE_NULL) {
     if (isApMode) {
       WiFi.softAPdisconnect(true);
-    } else {
+    } else if (!devmode::holdsRadio()) {
       WiFi.disconnect(false);
     }
-    delay(30);
-    silentRestart();
+    if (!devmode::holdsRadio()) {
+      delay(30);
+      silentRestart();
+    }
   }
 
   LOG_DBG("WEBACT", "Free heap at onExit end: %d bytes", ESP.getFreeHeap());

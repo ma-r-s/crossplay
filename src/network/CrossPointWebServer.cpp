@@ -5,26 +5,25 @@
 #include <FsHelpers.h>
 #include <HalGPIO.h>
 #include <HalStorage.h>
+#include <HalSystem.h>
 #include <Logging.h>
 #include <WiFi.h>
 #include <esp_efuse.h>
 #include <esp_efuse_table.h>
+#include <esp_ota_ops.h>
 
 #include <algorithm>
 #include <cctype>
 
 #include "CrossPointSettings.h"
+#include "DevMode.h"
+#include "FirmwareFlasher.h"
 #include "FontInstaller.h"
 #include "OpdsServerStore.h"
 #include "SdCardFontSystem.h"
 #include "SettingsList.h"
 #include "WebDAVHandler.h"
 #include "WifiCredentialStore.h"
-#if CROSSPOINT_DEV_WIFI_FLASH
-#include <esp_ota_ops.h>
-
-#include "FirmwareFlasher.h"
-#endif
 #include "html/FilesPageHtml.generated.h"
 #include "html/FontsPageHtml.generated.h"
 #include "html/HomePageHtml.generated.h"
@@ -39,6 +38,9 @@ namespace {
 constexpr const char* HIDDEN_ITEMS[] = {"System Volume Information", "XTCache"};
 constexpr uint16_t UDP_PORTS[] = {54982, 48123, 39001, 44044, 59678};
 constexpr uint16_t LOCAL_UDP_PORT = 8134;
+
+// Where Developer Mode uploads land. Fixed on purpose; see handleDevUploadData.
+constexpr const char* kDevUploadPath = "/.crosspoint/devmode-firmware.bin";
 
 // Static pointer for WebSocket callback (WebSocketsServer requires C-style callback)
 CrossPointWebServer* wsInstance = nullptr;
@@ -92,7 +94,7 @@ bool isProtectedItemName(const String& name) {
 // - HomePageHtml (from html/HomePage.html)
 // - FilesPageHeaderHtml (from html/FilesPageHeader.html)
 // - FilesPageFooterHtml (from html/FilesPageFooter.html)
-CrossPointWebServer::CrossPointWebServer() {}
+CrossPointWebServer::CrossPointWebServer(bool devOnly) : devOnly(devOnly) {}
 
 CrossPointWebServer::~CrossPointWebServer() { stop(); }
 
@@ -141,76 +143,107 @@ void CrossPointWebServer::begin() {
   // Add Access-Control-Allow-* headers to every response so web-based clients
   // and PWAs on other origins can use the HTTP API. Preflight OPTIONS requests
   // are answered in handleNotFound().
-  server->enableCORS(true);
+  // NOT on the Developer Mode surface. This core's enableCORS sends
+  // Access-Control-Allow-Origin/Methods/Headers: *, which lets any page the
+  // user happens to visit both call these routes AND READ THE REPLIES. That
+  // turns a six-digit code into something grindable from a drive-by tab
+  // rather than from the LAN, and the reply to a successful guess hands over
+  // the token. The reader's own web UI is a browser page and needs CORS; the
+  // dev API's client is curl and does not.
+  if (!devOnly) server->enableCORS(true);
 
   // Setup routes
-  LOG_DBG("WEB", "Setting up routes...");
-  server->on("/", HTTP_GET, [this] { handleRoot(); });
-  server->on("/files", HTTP_GET, [this] { handleFileList(); });
-  server->on("/js/jszip.min.js", HTTP_GET, [this] { handleJszip(); });
+  LOG_DBG("WEB", "Setting up routes (%s)...", devOnly ? "developer mode only" : "full");
+  if (!devOnly) {
+    server->on("/", HTTP_GET, [this] { handleRoot(); });
+    server->on("/files", HTTP_GET, [this] { handleFileList(); });
+    server->on("/js/jszip.min.js", HTTP_GET, [this] { handleJszip(); });
 
+    server->on("/api/status", HTTP_GET, [this] { handleStatus(); });
+    server->on("/api/files", HTTP_GET, [this] { handleFileListData(); });
+    server->on("/download", HTTP_GET, [this] { handleDownload(); });
+
+    // Upload endpoint with special handling for multipart form data
+    server->on("/upload", HTTP_POST, [this] { handleUploadPost(upload); }, [this] { handleUpload(upload); });
+
+    // Create folder endpoint
+    server->on("/mkdir", HTTP_POST, [this] { handleCreateFolder(); });
+
+    // Rename file endpoint
+    server->on("/rename", HTTP_POST, [this] { handleRename(); });
+
+    // Move file endpoint
+    server->on("/move", HTTP_POST, [this] { handleMove(); });
+
+    // Delete file/folder endpoint
+    server->on("/delete", HTTP_POST, [this] { handleDelete(); });
+
+    // Settings endpoints
+    server->on("/settings", HTTP_GET, [this] { handleSettingsPage(); });
+    server->on("/api/settings", HTTP_GET, [this] { handleGetSettings(); });
+    server->on("/api/settings", HTTP_POST, [this] { handlePostSettings(); });
+
+    // Font management endpoints
+    server->on("/fonts", HTTP_GET, [this] { handleFontsPage(); });
+    server->on("/api/fonts", HTTP_GET, [this] { handleFontList(); });
+    server->on("/api/fonts/upload", HTTP_POST, [this] { handleFontUpload(); }, [this] { handleFontUploadData(); });
+    server->on("/api/fonts/delete", HTTP_POST, [this] { handleFontDelete(); });
+
+    // OPDS server endpoints
+    server->on("/api/opds", HTTP_GET, [this] { handleGetOpdsServers(); });
+    server->on("/api/opds", HTTP_POST, [this] { handlePostOpdsServer(); });
+    server->on("/api/opds/delete", HTTP_POST, [this] { handleDeleteOpdsServer(); });
+
+    // Wi-Fi credential endpoints
+    server->on("/api/wifi", HTTP_GET, [this] { handleGetWifiNetworks(); });
+    server->on("/api/wifi", HTTP_POST, [this] { handlePostWifiNetwork(); });
+    server->on("/api/wifi/delete", HTTP_POST, [this] { handleDeleteWifiNetwork(); });
+  }  // !devOnly
+
+  // Always present, in both surfaces. /api/status carries no secrets and is how
+  // a script finds and identifies a device before it has a token.
   server->on("/api/status", HTTP_GET, [this] { handleStatus(); });
-  server->on("/api/files", HTTP_GET, [this] { handleFileListData(); });
-  server->on("/download", HTTP_GET, [this] { handleDownload(); });
-
-  // Upload endpoint with special handling for multipart form data
-  server->on("/upload", HTTP_POST, [this] { handleUploadPost(upload); }, [this] { handleUpload(upload); });
-
-  // Create folder endpoint
-  server->on("/mkdir", HTTP_POST, [this] { handleCreateFolder(); });
-
-  // Rename file endpoint
-  server->on("/rename", HTTP_POST, [this] { handleRename(); });
-
-  // Move file endpoint
-  server->on("/move", HTTP_POST, [this] { handleMove(); });
-
-  // Delete file/folder endpoint
-  server->on("/delete", HTTP_POST, [this] { handleDelete(); });
-
-  // Settings endpoints
-  server->on("/settings", HTTP_GET, [this] { handleSettingsPage(); });
-  server->on("/api/settings", HTTP_GET, [this] { handleGetSettings(); });
-  server->on("/api/settings", HTTP_POST, [this] { handlePostSettings(); });
-
-  // Font management endpoints
-  server->on("/fonts", HTTP_GET, [this] { handleFontsPage(); });
-  server->on("/api/fonts", HTTP_GET, [this] { handleFontList(); });
-  server->on("/api/fonts/upload", HTTP_POST, [this] { handleFontUpload(); }, [this] { handleFontUploadData(); });
-  server->on("/api/fonts/delete", HTTP_POST, [this] { handleFontDelete(); });
-
-  // OPDS server endpoints
-  server->on("/api/opds", HTTP_GET, [this] { handleGetOpdsServers(); });
-  server->on("/api/opds", HTTP_POST, [this] { handlePostOpdsServer(); });
-  server->on("/api/opds/delete", HTTP_POST, [this] { handleDeleteOpdsServer(); });
-
-  // Wi-Fi credential endpoints
-  server->on("/api/wifi", HTTP_GET, [this] { handleGetWifiNetworks(); });
-  server->on("/api/wifi", HTTP_POST, [this] { handlePostWifiNetwork(); });
-  server->on("/api/wifi/delete", HTTP_POST, [this] { handleDeleteWifiNetwork(); });
-
-#if CROSSPOINT_DEV_WIFI_FLASH
+  server->on("/api/dev/pair", HTTP_POST, [this] { handleDevPair(); });
   server->on("/api/dev/flash", HTTP_POST, [this] { handleDevFlash(); });
-#endif
+  // HTTP_PUT, and that is load-bearing rather than taste. This core's
+  // FunctionRequestHandler hands the SAME callback to both the upload path and
+  // the raw path, with nothing passed in to tell them apart -- and calling
+  // server->upload() while the server is in raw mode dereferences a null
+  // _currentUpload and reboots the device. Registering as PUT makes canUpload()
+  // structurally unreachable (it requires HTTP_POST), so only the raw path can
+  // ever fire and there is one mode to write for instead of two to distinguish.
+  server->on("/api/dev/upload", HTTP_PUT, [this] { handleDevUpload(); }, [this] { handleDevUploadData(); });
+  server->on("/api/dev/disable", HTTP_POST, [this] { handleDevDisable(); });
+  server->on("/api/dev/crash", HTTP_GET, [this] { handleDevCrash(); });
+  server->on("/api/dev/log", HTTP_GET, [this] { handleDevLog(); });
 
   server->onNotFound([this] { handleNotFound(); });
   LOG_DBG("WEB", "[MEM] Free heap after route setup: %d bytes", ESP.getFreeHeap());
 
   // Collect WebDAV headers and register handler
-  const char* davHeaders[] = {"Depth", "Destination", "Overwrite", "If", "Lock-Token", "Timeout"};
-  server->collectHeaders(davHeaders, 6);
-  server->addHandler(new WebDAVHandler());  // Note: WebDAVHandler will be deleted by WebServer when server is stopped
-  LOG_DBG("WEB", "WebDAV handler initialized");
+  // X-Dev-Token rides along here: Arduino's WebServer only retains headers it
+  // was told to collect, so without this hasHeader() is always false and every
+  // paired request looks unpaired.
+  const char* davHeaders[] = {"Depth", "Destination", "Overwrite", "If", "Lock-Token", "Timeout", "X-Dev-Token"};
+  server->collectHeaders(davHeaders, 7);
+  if (!devOnly) {
+    server->addHandler(new WebDAVHandler());  // deleted by WebServer when the server is stopped
+    LOG_DBG("WEB", "WebDAV handler initialized");
+  }
 
   server->begin();
 
-  // Start WebSocket server for fast binary uploads
-  LOG_DBG("WEB", "Starting WebSocket server on port %d...", wsPort);
-  wsServer.reset(new WebSocketsServer(wsPort));
-  wsInstance = const_cast<CrossPointWebServer*>(this);
-  wsServer->begin();
-  wsServer->onEvent(wsEventCallback);
-  LOG_DBG("WEB", "WebSocket server started");
+  if (!devOnly) {
+    // Fast binary uploads for the file manager. Dev mode uploads over plain
+    // HTTP instead, which is one fewer listening port for the surface that
+    // stays up the longest.
+    LOG_DBG("WEB", "Starting WebSocket server on port %d...", wsPort);
+    wsServer.reset(new WebSocketsServer(wsPort));
+    wsInstance = const_cast<CrossPointWebServer*>(this);
+    wsServer->begin();
+    wsServer->onEvent(wsEventCallback);
+    LOG_DBG("WEB", "WebSocket server started");
+  }
 
   udpActive = udp.begin(LOCAL_UDP_PORT);
   LOG_DBG("WEB", "Discovery UDP %s on port %d", udpActive ? "enabled" : "failed", LOCAL_UDP_PORT);
@@ -1279,6 +1312,12 @@ void CrossPointWebServer::handlePostSettings() {
   for (const auto& s : settings) {
     if (!s.key) continue;
     if (!doc[s.key].is<JsonVariant>()) continue;
+    if (isLocalOnlySetting(s.key)) {
+      // Not merely ignored -- said out loud, because a silent no-op on a
+      // security-relevant write is indistinguishable from it having worked.
+      LOG_ERR("WEB", "refused a network write to local-only setting '%s'", s.key);
+      continue;
+    }
 
     switch (s.type) {
       case SettingType::TOGGLE: {
@@ -1987,7 +2026,236 @@ void CrossPointWebServer::handleFontDelete() {
   }
 }
 
-#if CROSSPOINT_DEV_WIFI_FLASH
+// Settings a network client must never be able to change, however
+// authenticated the surface feels.
+//
+// The settings list drives the menu, the on-disk JSON AND the web API from one
+// entry, which is exactly why devMode had to be excluded by hand: adding the
+// toggle gave it a web setter for free, and that setter lives on the reader's
+// UNAUTHENTICATED web UI. Anyone on the network, while the transfer screen was
+// open, could have switched Developer Mode on permanently and across reboots --
+// using the temporary surface to enable the persistent one. Turning this device
+// into a development device is a decision made at the device.
+bool CrossPointWebServer::isLocalOnlySetting(const char* key) { return key && strcmp(key, "devMode") == 0; }
+
+// Every /api/dev/ route except pairing goes through here first.
+//
+// Two conditions, and the order matters for what a stranger can learn: dev mode
+// off is reported as 404, indistinguishable from a build that has no such
+// route, so scanning a network tells you nothing about which devices could be
+// turned into targets. Only once dev mode is on does a wrong token get a 401.
+bool CrossPointWebServer::devTokenOk() const {
+  if (!devmode::status().enabled) return false;
+  std::string token;  // header only; see devAuthorised()
+  if (server->hasHeader("X-Dev-Token")) token = server->header("X-Dev-Token").c_str();
+  return devmode::tokenValid(token);
+}
+
+bool CrossPointWebServer::devAuthorised() {
+  const auto st = devmode::status();
+  if (!st.enabled) {
+    server->send(404, "text/plain", "not found\n");
+    return false;
+  }
+  // Header only. Accepting ?token= made every follow-up call a CORS-simple
+  // request that a page could issue without a preflight; requiring a custom
+  // header means a browser must preflight, and with CORS off on this surface
+  // the preflight fails. curl is unaffected.
+  std::string token;
+  if (server->hasHeader("X-Dev-Token")) token = server->header("X-Dev-Token").c_str();
+  if (!devmode::tokenValid(token)) {
+    LOG_ERR("DEVMODE", "refused an unpaired request to %s", server->uri().c_str());
+    server->send(401, "text/plain", "pair first: POST /api/dev/pair with the code on the device\n");
+    return false;
+  }
+  return true;
+}
+
+// Exchange the six digits shown on the device for a token.
+//
+// Rate-limited and self-rotating; see devmode::pair().
+//
+// An earlier version argued no limit was needed because "the window is a person
+// standing at the device". That was wrong twice over on this branch: dev mode
+// keeps the device awake indefinitely, so the window is however long the toggle
+// is on, and CORS made the endpoint reachable from any page the user visits
+// rather than only from the LAN.
+void CrossPointWebServer::handleDevPair() {
+  const auto st = devmode::status();
+  if (!st.enabled) {
+    server->send(404, "text/plain", "not found\n");
+    return;
+  }
+  std::string code;
+  if (server->hasArg("code")) code = server->arg("code").c_str();
+  const std::string token = devmode::pair(code);
+  if (token.empty()) {
+    server->send(401, "text/plain", "wrong code\n");
+    return;
+  }
+  JsonDocument doc;
+  doc["token"] = token;
+  doc["device"] = BoardConfig::ACTIVE.name;
+  doc["version"] = CROSSPOINT_VERSION;
+  String out;
+  serializeJson(doc, out);
+  server->send(200, "application/json", out);
+}
+
+// Switch Developer Mode off, from the computer.
+//
+// This exists because the obvious way to close a device does not work and the
+// script used to claim it did. Flashing a release image does NOT turn Developer
+// Mode off: the setting is a field in /.crosspoint/settings.json ON THE SD CARD,
+// and flashing replaces the firmware, not the card. Worse, every build now
+// carries these routes -- that is the whole point of it being a runtime setting
+// -- so a device flashed "back to a release" kept joining Wi-Fi and kept
+// answering /api/dev/flash while its owner believed it had been closed.
+//
+// Applied immediately: saveToFile() persists it, and devmode::update() sees the
+// setting change on the next loop and tears the server and the radio down.
+void CrossPointWebServer::handleDevDisable() {
+  if (!devAuthorised()) return;
+  SETTINGS.devMode = 0;
+  SETTINGS.saveToFile();
+  LOG_INF("DEVMODE", "switched off by a paired client");
+  server->send(200, "text/plain", "OK developer mode off\n");
+}
+
+// What the device remembers about the last time it died.
+//
+// Nothing here is captured for this endpoint; all of it already existed and was
+// only reachable by standing in front of the device. HalSystem keeps the panic
+// message and a stack backtrace in RTC_NOINIT memory, and Logging keeps the
+// last lines in a second RTC_NOINIT ring with a magic word guarding against
+// cold-boot garbage. Both survive the reset that a panic causes, which is the
+// whole reason they are in RTC memory rather than the heap.
+//
+// The log tail matters more than the backtrace most of the time: a backtrace
+// says where it died, the preceding lines say what it was doing.
+//
+// READ-ONLY. Fetching a crash report must not destroy it -- two people
+// debugging the same device would otherwise race, and the first curl would win
+// and the second would see a healthy device. Clearing stays where it was: the
+// on-device crash screen, when a human dismisses it.
+void CrossPointWebServer::handleDevCrash() {
+  if (!devAuthorised()) return;
+
+  JsonDocument doc;
+  const bool corrupt = sanitizeLogHead();
+  doc["panicked"] = HalSystem::isRebootFromPanic();
+  doc["panic"] = HalSystem::getPanicInfo(true);
+  // A corrupt ring is reported rather than hidden: an empty "logs" that means
+  // "nothing was logged" and one that means "RTC memory was garbage" are
+  // different findings, and guessing between them wastes a debugging session.
+  doc["logsValid"] = !corrupt;
+  doc["logs"] = corrupt ? "" : getLastLogs();
+  doc["uptime"] = millis() / 1000;
+  doc["version"] = CROSSPOINT_VERSION;
+
+  String out;
+  serializeJson(doc, out);
+  server->send(200, "application/json", out);
+}
+
+// The same ring, for a device that has not crashed. Sixteen lines is short; it
+// is what fits in RTC memory beside the panic buffers, and it is deliberately
+// the same buffer as the crash report so there is one thing to reason about
+// rather than two that can disagree.
+void CrossPointWebServer::handleDevLog() {
+  if (!devAuthorised()) return;
+  if (sanitizeLogHead()) {
+    server->send(200, "text/plain", "");
+    return;
+  }
+  server->send(200, "text/plain", getLastLogs().c_str());
+}
+
+// Upload straight to the card, token-gated, so Developer Mode never has to
+// expose the file manager to move a firmware image across.
+//
+// Streams in chunks like every other upload path here; the body is 6MB and will
+// not fit anywhere else. The destination is fixed rather than caller-chosen: an
+// authenticated endpoint that writes an arbitrary path is a worse primitive
+// than one that writes the only path this feature needs.
+void CrossPointWebServer::handleDevUploadData() {
+#ifdef SIMULATOR
+  // The simulator's WebServer shim has no raw() body API, and the emulator has
+  // neither a radio to reach nor flash to write. A PLATFORM gate, not a feature
+  // gate: Developer Mode still ships in every device build including releases,
+  // which is the whole point of it not being a build flag.
+  return;
+#else
+  HTTPRaw& raw = server->raw();
+
+  if (raw.status == RAW_START) {
+    // Decide authorisation here, because by RAW_END the whole body would
+    // already be on the card -- but do NOT answer here. Sending a response
+    // while the body is still being parsed corrupts the server.
+    devUpload.authorised = devTokenOk();
+    devUpload.written = 0;
+    devUpload.ok = false;
+    if (!devUpload.authorised) return;
+    resetTaskWatchdogIfSubscribed();
+    Storage.remove(kDevUploadPath);
+    if (!Storage.openFileForWrite("DEVMODE", kDevUploadPath, devUpload.file)) {
+      LOG_ERR("DEVMODE", "cannot open %s for write", kDevUploadPath);
+      return;
+    }
+    LOG_INF("DEVMODE", "receiving firmware -> %s", kDevUploadPath);
+    return;
+  }
+
+  if (!devUpload.authorised) return;
+
+  if (raw.status == RAW_WRITE) {
+    resetTaskWatchdogIfSubscribed();
+    if (devUpload.file && devUpload.file.write(raw.buf, raw.currentSize) == raw.currentSize) {
+      devUpload.written += raw.currentSize;
+    } else {
+      LOG_ERR("DEVMODE", "write failed at %u bytes", static_cast<unsigned>(devUpload.written));
+      devUpload.file.close();
+    }
+    return;
+  }
+
+  if (raw.status == RAW_END) {
+    if (devUpload.file) {
+      devUpload.file.close();
+      devUpload.ok = devUpload.written > 0;
+      LOG_INF("DEVMODE", "received %u bytes", static_cast<unsigned>(devUpload.written));
+    }
+    return;
+  }
+
+  if (raw.status == RAW_ABORTED) {
+    LOG_ERR("DEVMODE", "upload aborted at %u bytes", static_cast<unsigned>(devUpload.written));
+    devUpload.file.close();
+    devUpload.ok = false;
+  }
+#endif
+}
+
+void CrossPointWebServer::handleDevUpload() {
+  // A request with no multipart body never reaches the data callback at all, so
+  // devUpload.authorised is still false from the previous request. Re-test here
+  // rather than trust it, and let devAuthorised() send the refusal.
+  if (!devAuthorised()) {
+    devUpload.authorised = false;
+    return;
+  }
+  if (!devUpload.ok) {
+    server->send(500, "text/plain", "upload failed\n");
+    return;
+  }
+  JsonDocument doc;
+  doc["path"] = kDevUploadPath;
+  doc["size"] = devUpload.written;
+  String out;
+  serializeJson(doc, out);
+  server->send(200, "application/json", out);
+}
+
 // Flash an image already sitting on the SD card, so `scripts_local/wifi-flash.sh`
 // is two ordinary requests: POST /upload to put firmware.bin on the card (the
 // same route that uploads books, no size cap), then this to install it.
@@ -2003,7 +2271,10 @@ void CrossPointWebServer::handleFontDelete() {
 // right trade for a dev-build-only tool -- the alternative is a 202 and a
 // caller that has to guess. Point curl at --max-time 300.
 void CrossPointWebServer::handleDevFlash() {
-  const String path = server->hasArg("path") ? server->arg("path") : String("/firmware.bin");
+  if (!devAuthorised()) return;
+  // Defaults to whatever /api/dev/upload just wrote, so the ordinary flow is
+  // upload-then-flash with no path bookkeeping in the caller.
+  const String path = server->hasArg("path") ? server->arg("path") : String(kDevUploadPath);
 
   const esp_partition_t* dest = esp_ota_get_next_update_partition(nullptr);
   if (!dest) {
@@ -2037,8 +2308,9 @@ void CrossPointWebServer::handleDevFlash() {
   // for the peer's ACK, so give the socket a moment to drain before the reset.
   LOG_INF("DEVFLASH", "flashed, restarting");
   server->send(200, "text/plain", "OK flashed, restarting\n");
-  server->client().flush();
+#ifndef SIMULATOR
+  server->client().flush();  // the simulator's NetworkClient shim has no flush()
+#endif
   delay(250);
   ESP.restart();
 }
-#endif  // CROSSPOINT_DEV_WIFI_FLASH
