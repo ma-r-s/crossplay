@@ -9,6 +9,7 @@
 #include <cstring>
 #include <ctime>
 
+#include "../../DevMode.h"
 #include "../../SilentRestart.h"
 #include "../../activities/network/WifiSelectionActivity.h"
 #include "../../components/UITheme.h"
@@ -280,7 +281,7 @@ void StudyActivity::switchDeck() {
 }
 
 void StudyActivity::onExit() {
-  if (wifiActivated_ && WiFi.getMode() != WIFI_MODE_NULL) {
+  if (wifiActivated_ && !devmode::holdsRadio() && WiFi.getMode() != WIFI_MODE_NULL) {
     WiFi.disconnect(false);
     delay(30);
     silentRestart();  // on touch boards: stops SNTP and the radio in place
@@ -1399,8 +1400,19 @@ void StudyActivity::beginSync() {
   // SdFat handle was a LoadProhibited panic (caught on hardware, backtrace
   // folded into onExit by ICF). closeDeck() inside the flow flushes
   // everything through the ordinary path moments later.
-  WiFi.mode(WIFI_STA);
-  wifiActivated_ = true;
+  // Ownership means "this app raised the radio", not "this app wants it".
+  // Developer Mode (and anything else already associated) leaves Wi-Fi up;
+  // Study simply uses it and must not put it down afterwards. Set
+  // unconditionally, this flag made every sync tear down a connection it did
+  // not own -- which on a dev-mode device drops the flashing route mid-session
+  // and looks like a crash. ClockSyncActivity is the same shape.
+  const bool alreadyUp = WiFi.status() == WL_CONNECTED;
+  if (!alreadyUp) WiFi.mode(WIFI_STA);
+  wifiActivated_ = !alreadyUp;
+  if (alreadyUp) {
+    onSyncWifi(true);
+    return;
+  }
   startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
                          [this](const ActivityResult& result) { onSyncWifi(!result.isCancelled); });
 }
@@ -1438,10 +1450,13 @@ void StudyActivity::endSyncSession(const studyui::SyncVerdictKind kind, const st
                                    const char* title, const char* body, const char* whatNow) {
   syncBusy_ = false;
   // Radio down while the user reads the result (on touch boards silentRestart
-  // stops SNTP and the radio in place rather than rebooting).
-  WiFi.disconnect(false);
-  delay(30);
-  silentRestart();
+  // stops SNTP and the radio in place rather than rebooting) -- but only what
+  // this app raised. Not ours to put down if Developer Mode brought it up.
+  if (wifiActivated_ && !devmode::holdsRadio()) {
+    WiFi.disconnect(false);
+    delay(30);
+    silentRestart();
+  }
   wifiActivated_ = false;
   // The flow closed the deck for heap; put the app back together before the
   // result screen, so Back lands on a live deck.
