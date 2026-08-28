@@ -155,6 +155,14 @@ class SerialLink:
         self.s = open_port(self.port, self.baud)
 
     def screenshot_raw(self, timeout=30.0):
+        # Drain until the device stops talking before asking. Right after a
+        # reset the boot log is still streaming, and a 48KB binary reply
+        # competing with it for the ring is the one case that still failed --
+        # the first shot of a session, never the rest.
+        quiet_since = time.time()
+        while time.time() - quiet_since < 0.3:
+            if self.s.read(4096):
+                quiet_since = time.time()
         self.s.reset_input_buffer()
         self.s.write(b"CMD:SCREENSHOT\n")
         deadline = time.time() + timeout
@@ -180,7 +188,11 @@ class SerialLink:
             if chunk:
                 buf += chunk
         if len(buf) < size:
-            print(f"short read: {len(buf)}/{size}", file=sys.stderr)
+            # The device says so itself now. Report ITS reason when it gave one:
+            # "short read" alone cannot tell a wedged cable from a crashed
+            # device, and that ambiguity is what cost a night.
+            why = "ERR SCREENSHOT truncated" if b"ERR SCREENSHOT truncated" in buf else ""
+            print(f"short read: {len(buf)}/{size} {why}".rstrip(), file=sys.stderr)
             return None
         return buf[:size]
 

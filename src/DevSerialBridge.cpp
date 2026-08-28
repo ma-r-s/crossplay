@@ -133,6 +133,14 @@ bool writeAll(const uint8_t* data, const size_t len, const unsigned long timeout
     if (stallStart == 0) {
       stallStart = millis();
     } else if (millis() - stallStart >= timeoutMs) {
+      // Record the stall BEFORE bailing. Only the success path updated
+      // worstStallMs, so a run that timed out reported "timeouts=1
+      // worstStallMs=2" -- two numbers that cannot both be true, and the
+      // contradiction is what showed the accounting was wrong rather than the
+      // transport.
+      const uint32_t waited = static_cast<uint32_t>(millis() - stallStart);
+      txStats.retryMs += waited;
+      if (waited > txStats.worstStallMs) txStats.worstStallMs = waited;
       txStats.timeouts++;
       LOG_ERR("DEVBRIDGE", "transport took no bytes for %lums with %u of %u left; giving up", timeoutMs,
               static_cast<unsigned>(len - sent), static_cast<unsigned>(len));
@@ -323,7 +331,10 @@ void handleLine(const char* line) {
     // for flow control; writeAll paces itself off availableForWrite(), which is
     // the real thing, and is both faster when the ring is empty and correct
     // when it is not.
-    const bool complete = writeAll(fb, bufferSize, 2000);
+    // 5s, not 2. The first screenshot after a reset shares the ring with the
+    // tail of the boot log, and 2s was short enough to lose that one and only
+    // that one -- shots two through five went through untouched.
+    const bool complete = writeAll(fb, bufferSize, 5000);
     transport().flush();
     if (!complete) {
       // Say it on the wire AND in the log. The host is about to see a short
@@ -356,6 +367,12 @@ void handleLine(const char* line) {
 }
 
 }  // namespace
+
+void txStatsLine(char* out, const size_t len) {
+  if (out == nullptr || len == 0) return;
+  snprintf(out, len, "short=%u zero=%u retryMs=%u worstStallMs=%u timeouts=%u", txStats.shortWrites, txStats.zeroWrites,
+           txStats.retryMs, txStats.worstStallMs, txStats.timeouts);
+}
 
 void begin() {
 #if FREEINK_DEVICE_STICKY
