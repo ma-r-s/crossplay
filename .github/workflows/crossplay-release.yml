@@ -147,57 +147,50 @@ jobs:
             Battleship, Jaipur and Sea Salt. Two devices next to each other
             find one another with nothing to type.
 
-            ### What is new in 1.6.0
+            ### What is new in 1.6.1
 
-            **The two app slots grew from 6.25MB to 7.94MB.** A 3.375MB
-            partition that no version of this firmware ever used has been given
-            back to the application. Nothing about this is visible while you
-            read; it is headroom for what comes next.
+            **Developer Mode**
 
-            It does mean one thing for existing owners, and it is the reason
-            this is 1.6.0 rather than 1.5.4. **The partition table is only
-            written by a USB flash.** Check for updates writes the application
-            and nothing else, so a device installed before this release keeps
-            its old 6.25MB slots no matter how many times it updates over
+            Settings > System > Developer Mode turns this reader into a
+            development device: it joins your Wi-Fi at boot and can be
+            reflashed and inspected from a computer with no cable. It is off
+            unless you turn it on, and off means off -- no Wi-Fi, no server,
+            nothing listening.
+
+            **Turn it off with the tooling's `--disable` before this device
+            leaves your network.** While Developer Mode is on, anyone who can
+            read the six-digit code on its screen can replace its firmware.
+            That is the point of the feature and it is fine on your own
+            network; it is not fine in a bag on a train. Flashing a different
+            firmware does NOT turn it off -- the setting lives on your SD card.
+
+            While it is on the device will not sleep, so the battery drains
+            faster.
+
+            This is for people building the firmware themselves: the other half
+            is `scripts_local/wifi-flash.sh` in the repository. Turning the
+            setting on by itself does not give you anything to connect with.
+
+            You can also read a crash report over Wi-Fi now -- the panic, its
+            backtrace, and the log lines from just before the device reset.
+
+            Known limits, and what is deliberately not there yet, are in
+            `docs/developer-mode.md`.
+
+            ### Still true from 1.6.0, if you have not flashed over USB since
+
+            **The two app slots grew from 6.25MB to 7.94MB, and the partition
+            table is only written by a USB flash.** Check for updates writes the
+            application and nothing else, so a device installed before 1.6.0
+            keeps its old 6.25MB slots no matter how many times it updates over
             Wi-Fi. Everything keeps working. What happens eventually is that an
             application grows past 6.25MB, and that device says the firmware is
             too large and declines the update -- with that reason, before
             downloading it, rather than failing halfway. If you would rather not
             meet that months from now, flash
-            `crossplay-1.6.0-x4pro-full.bin` over USB once, exactly as a first
+            `crossplay-1.6.1-x4pro-full.bin` over USB once, exactly as a first
             install. Your SD card is untouched: books, reading positions, saves
-            and fonts are files on it, not in the firmware. A fresh install from
-            this release onward needs none of this.
-
-            **Get Books**
-
-            Get Books now opens on whatever you last chose. Pick your catalog
-            once under the library icon and it stays picked. Catalogs that can
-            only be searched (rather than browsed) open straight on the
-            keyboard; catalogs with their own categories open on those, with
-            search in the header.
-
-            The library icon is now on every screen, including the search
-            keyboard and the error screen. Previously a catalog that failed to
-            load left you with no way to choose a different one.
-
-            Errors now say what happened instead of "Failed to fetch feed", and
-            include the status the server sent, e.g. "Authentication Failed
-            (401)".
-
-            **Standard Ebooks is no longer set up for you.** Their catalog moved
-            behind the Patrons Circle and now requires a donor account, so it
-            failed for everyone who had not donated. If you have an account, add
-            it under Settings > System > OPDS Servers with your patron email as
-            the username and the password left empty. Devices that already have
-            the entry keep it; delete it there if you want it gone.
-
-            Project Gutenberg's own gateway is intermittently slow and sometimes
-            returns an error. If it fails, tapping to retry usually works.
-
-            Neither of those last two was a fault in this firmware -- one is a
-            paywall and the other is someone else's gateway. What changed is
-            that the reader no longer traps you or misdescribes what happened.
+            and fonts are files on it, not in the firmware.
 
             ### Which file to download
 
