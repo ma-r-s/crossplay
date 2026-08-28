@@ -1220,10 +1220,20 @@ void StudyActivity::routeAction(const fui::ActionEvent& event) {
     return;
   }
   if (event.value == 4) {
-    // Re-open the deck choice. The flow reaches the picker on its own once
-    // the flag is down, and it re-raises the flag after the choice sticks.
+    // Re-open the deck choice. Load before mutating: this member is otherwise
+    // only filled inside runSyncFlow(), so on a freshly opened Study it is
+    // default-constructed and saving it wrote an empty token over a real
+    // pairing -- the door whose whole job is changing decks silently unpaired
+    // the reader.
+    if (!study::loadBridgeState(bridge_)) {
+      LOG_ERR("STUDYSYNC", "choose decks: no pairing on the card");
+      return;
+    }
     bridge_.choseDecks = false;
-    study::saveBridgeState(bridge_);
+    if (!study::saveBridgeState(bridge_)) {
+      LOG_ERR("STUDYSYNC", "choose decks: could not write the card");
+      return;
+    }
     beginSync();
     return;
   }
@@ -1438,7 +1448,7 @@ void StudyActivity::render(RenderLock&&) {
                                      kSmallFontId, "crossplay.ma-r-s.com/study", 1);
     UITheme::drawCenteredWrappedText(renderer, Rect{24, static_cast<int16_t>(qrTop + qrSide + 48), width - 48, 96},
                                      kMeaningFontId,
-                                     paired ? "Your Anki account is connected. Choose which decks this reader carries."
+                                     paired ? "Your Anki account is connected. Choose the decks to carry."
                                             : "Scan it to add a deck from a computer.",
                                      3);
 
@@ -1572,7 +1582,11 @@ void StudyActivity::endSyncSession(const studyui::SyncVerdictKind kind, const st
 
 bool StudyActivity::runDeckPicker() {
   std::string message;
-  flowStage(studyui::SyncStage::Connect, "Reading your Anki decks.");
+  // No flowStage() here: the picker opens AFTER a completed pass, and rewinding
+  // the ladder to CONNECT erased three finished stages -- which reads as a
+  // failed sync retrying itself.
+  std::snprintf(flow_.caption, sizeof(flow_.caption), "Reading your Anki decks.");
+  showFlow();
   if (!sync_.listDecks(bridge_, deckChoices_, message)) {
     if (sync_.unpaired) {
       bridge_ = study::BridgeState{};
@@ -1616,8 +1630,11 @@ bool StudyActivity::runDeckPicker() {
     delay(50);
     mappedInput.update();
     if (mappedInput.wasReleased(MappedInputManager::Button::Back) || mappedInput.wasHomeGesture()) {
-      endSyncSession(studyui::SyncVerdictKind::Neutral, studyui::SyncSafety::NothingSent, "STOPPED",
-                     "Nothing was changed. Press SYNC when you want to choose decks.");
+      // Not NothingSent: a full pass has already run and its acks are
+      // durable, so claiming nothing was sent is false in the reassuring
+      // direction -- the one direction this line must never be wrong in.
+      endSyncSession(studyui::SyncVerdictKind::Neutral, flow_.safety, "STOPPED",
+                     "Your decks are unchanged. Choose them any time from DECKS FROM ANKI.");
       return false;
     }
     int tapX = 0;

@@ -169,11 +169,7 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
 
   char state[64];
   if (waiting > 0) {
-    if (model.deckCount > 1) {
-      std::snprintf(state, sizeof(state), "%d DUE   %d NEW   IN THIS DECK", model.due, model.fresh);
-    } else {
-      std::snprintf(state, sizeof(state), "%d DUE   %d NEW", model.due, model.fresh);
-    }
+    std::snprintf(state, sizeof(state), "%d DUE   %d NEW", model.due, model.fresh);
   } else if (model.reviewed > 0) {
     std::snprintf(state, sizeof(state), "%d REVIEWED   %d%% RIGHT", model.reviewed,
                   model.reviewed > 0 ? model.recalled * 100 / model.reviewed : 0);
@@ -209,6 +205,14 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   small.font = toybox::kTileFont;
   small.align = fui::TextAlign::Left;
   screen.target().text(fui::makeRect(body.x, body.y + 122, body.width, 24), record, small);
+  // Scope, on its own line so it cannot push the headline out of its box: the
+  // counts above are this deck's, and with more than one on the card they read
+  // as the whole account's.
+  if (model.deckCount > 1) {
+    fui::TextStyle scope = small;
+    scope.color = fui::Color::DarkGray;
+    screen.target().text(fui::makeRect(body.x, body.y + 146, body.width, 22), "COUNTS ARE FOR THIS DECK", scope);
+  }
 
   // The ornament, bracketed the way the board is. With three doors below
   // (multi-deck cards) it gives up some height so nothing overlaps.

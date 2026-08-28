@@ -322,7 +322,7 @@ async def pair_poll(pollToken: str):
     result = pairing.PAIRINGS.poll(pollToken)
     if result is None:
         return JSONResponse(
-            {"error": "That code expired. Press SYNC again for a fresh one."}, 410
+            {"error": "That code expired. Start again for a fresh one."}, 410
         )
     if result["pending"]:
         return {"pending": True}
