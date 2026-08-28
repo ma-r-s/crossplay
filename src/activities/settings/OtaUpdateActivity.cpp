@@ -4,6 +4,7 @@
 #include <I18n.h>
 #include <WiFi.h>
 
+#include "DevMode.h"
 #include "MappedInputManager.h"
 #include "SilentRestart.h"
 #include "activities/network/WifiSelectionActivity.h"
@@ -92,7 +93,10 @@ void OtaUpdateActivity::onExit() {
   // (loop() above) so the new firmware boots normally. Back-out paths land
   // here with wifi still active; silent-restart to free the LWIP/mbedTLS
   // fragmentation, same as the other wifi activities.
-  if (WiFi.getMode() != WIFI_MODE_NULL) {
+  // Not ours to put down if Developer Mode brought it up: this branch reboots
+  // the device, and doing that every time the updater exits while dev mode
+  // is on is indistinguishable from a crash.
+  if (WiFi.getMode() != WIFI_MODE_NULL && !devmode::holdsRadio()) {
     WiFi.disconnect(false);
     delay(30);
     silentRestart();

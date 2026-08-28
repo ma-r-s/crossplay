@@ -8,6 +8,7 @@
 #include <WiFi.h>
 #include <esp_rom_crc.h>
 
+#include "DevMode.h"
 #include "MappedInputManager.h"
 #include "SdCardFontSystem.h"
 #include "SilentRestart.h"
@@ -43,7 +44,10 @@ void FontDownloadActivity::onEnter() {
 void FontDownloadActivity::onExit() {
   Activity::onExit();
 
-  if (WiFi.getMode() != WIFI_MODE_NULL) {
+  // Not ours to put down if Developer Mode brought it up: this branch reboots
+  // the device, and doing that every time the font downloader exits while dev mode
+  // is on is indistinguishable from a crash.
+  if (WiFi.getMode() != WIFI_MODE_NULL && !devmode::holdsRadio()) {
     WiFi.disconnect(false);
     delay(30);
     silentRestart();

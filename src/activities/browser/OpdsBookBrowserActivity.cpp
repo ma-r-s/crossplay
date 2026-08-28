@@ -13,6 +13,7 @@
 #include <algorithm>
 
 #include "CrossPointSettings.h"
+#include "DevMode.h"
 #include "MappedInputManager.h"
 #include "OpdsDetailActivity.h"
 #include "OpdsLanguages.h"
@@ -79,7 +80,10 @@ void OpdsBookBrowserActivity::onExit() {
   entries.clear();
   navigationHistory.clear();
 
-  if (WiFi.getMode() != WIFI_MODE_NULL) {
+  // Not ours to put down if Developer Mode brought it up: this branch reboots
+  // the device, and doing that every time the OPDS browser exits while dev mode
+  // is on is indistinguishable from a crash.
+  if (WiFi.getMode() != WIFI_MODE_NULL && !devmode::holdsRadio()) {
     WiFi.disconnect(false);
     delay(30);
     silentRestart();

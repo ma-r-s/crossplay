@@ -26,6 +26,7 @@
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "DevMode.h"
 #include "DevSerialBridge.h"
 #include "KOReaderCredentialStore.h"
 #include "MappedInputManager.h"
@@ -34,9 +35,6 @@
 #include "SdCardFontSystem.h"
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
-#if CROSSPOINT_DEV_WIFI_FLASH
-#include "DevWifiFlash.h"
-#endif
 #include "activities/settings/SdFirmwareUpdateActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -604,11 +602,9 @@ void setup() {
     gpio.update();
   }
 
-#if CROSSPOINT_DEV_WIFI_FLASH
-  // Last, and non-blocking: storage is mounted by now (the credentials are a
-  // file on the card) and boot must not wait on an access point.
-  devwifi::begin();
-#endif
+  // Last, and non-blocking: storage is mounted by now (the setting and the
+  // credentials are both files on the card) and boot must not wait on an AP.
+  devmode::begin();
 
   allowSleepAt = millis() + 2000;
 }
@@ -630,9 +626,7 @@ void loop() {
     lastMemPrint = millis();
   }
 
-#if CROSSPOINT_DEV_WIFI_FLASH
-  devwifi::update();
-#endif
+  devmode::update();
 
 #if CROSSPOINT_DEV_SERIAL_BRIDGE
   // Dev builds route all serial commands (screenshot included) through the
@@ -660,6 +654,11 @@ void loop() {
 
   // Check for any user activity (button press or release) or active background work
   static unsigned long lastActivityTime = millis();
+  // devmode::holdsRadio() counts as activity. Deep sleep on this chip is a full
+  // reset, so a sleeping device does not merely idle -- it leaves the network
+  // and cannot be woken from it. A development device that disappears after the
+  // sleep timeout is not one, and the cost is confined to devices whose owner
+  // deliberately switched Developer Mode on.
   if (gpio.wasAnyPressed() || gpio.wasAnyReleased() || gpio.wasTouchActivity() || halTiltSensor.hadActivity() ||
       activityManager.preventAutoSleep()) {
     lastActivityTime = millis();         // Reset inactivity timer
@@ -715,8 +714,14 @@ void loop() {
   }
 #endif
 
+  // Developer Mode blocks DEEP SLEEP only, and deliberately does not touch
+  // lastActivityTime. Pinning that also suppressed the idle CPU downclock and
+  // held the loop at delay(10) instead of delay(50) -- so the device ran fast
+  // AND never slept, which is a worse battery story than the panel promises and
+  // a faster clock for anything grinding the pairing endpoint. Idle power
+  // saving still engages; the device simply stays reachable.
   const unsigned long sleepTimeoutMs = SETTINGS.getSleepTimeoutMs();
-  if (sleepTimeoutMs > 0 && millis() - lastActivityTime >= sleepTimeoutMs) {
+  if (sleepTimeoutMs > 0 && !devmode::inhibitsSleep() && millis() - lastActivityTime >= sleepTimeoutMs) {
     LOG_DBG("SLP", "Auto-sleep triggered after %lu ms of inactivity", sleepTimeoutMs);
     enterDeepSleep(true);
     // This should never be hit as `enterDeepSleep` calls esp_deep_sleep_start
