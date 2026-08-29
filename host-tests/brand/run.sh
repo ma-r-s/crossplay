@@ -94,9 +94,17 @@ PROTECTED = [
      "the Calibre plugin, named in every translation; renaming it sends people looking for nothing"),
 ]
 
-EVERYWHERE = [("src", (".cpp", ".h", ".html", ".js", ".c")), ("lib", (".cpp", ".h", ".c", ".yaml")),
-              ("scripts", (".py", ".sh")), ("tools_local", (".py", ".sh")),
-              ("site", (".html", ".js", ".py")), ("host-tests", (".sh",))]
+# The twin sweep asks git for every tracked path rather than guessing at
+# extensions, and checks the PATH as well as the contents. Two things that
+# guesswork missed: tools_local/wasm/sdcard/.crosspoint/ is a real directory in
+# the repo -- the emulator's SD card -- which no content grep can see, and the
+# card path is also written by .cpp helpers, .sh recipes and site/*.txt. A
+# rename that lands in the firmware but not in the emulator's card, or the other
+# way round, splits the layout in two: files written by one side land somewhere
+# the other never looks.
+TRACKED = subprocess.run(["git", "-C", root, "ls-files", "-z"],
+                         capture_output=True, text=True).stdout.split("\0")
+TRACKED = [t for t in TRACKED if t]
 
 for dirs, literal, floor, twin, reason in PROTECTED:
     n = 0
@@ -107,14 +115,21 @@ for dirs, literal, floor, twin, reason in PROTECTED:
           f"found {n} in {'/'.join(dirs)}, expected at least {floor} -- renaming this is not a rebrand")
 
     where = []
-    for subdir, exts in EVERYWHERE:
-        for rel in walk(subdir, exts):
-            if rel.startswith("host-tests/brand/"):
-                continue  # this file names every twin on purpose
-            if re.search(twin, read(rel)):
-                where.append(rel)
+    for rel in TRACKED:
+        if rel.startswith("host-tests/brand/"):
+            continue  # this file names every twin on purpose
+        if re.search(twin, rel):
+            where.append(f"{rel} (the path itself)")
+            continue
+        try:
+            with open(os.path.join(root, rel), encoding="utf-8") as f:
+                body = f.read()
+        except (OSError, UnicodeDecodeError):
+            continue  # binary or unreadable: paths are still checked above
+        if re.search(twin, body):
+            where.append(rel)
     check(not where, f"nothing has been rebranded to match {twin!r} ({reason})",
-          f"found in {', '.join(where)} -- a partial rename is worse than none")
+          f"found in {', '.join(where[:6])} -- a partial rename is worse than none")
 
 tdir = os.path.join(root, "lib", "I18n", "translations")
 langs = sorted(n for n in os.listdir(tdir) if n.endswith(".yaml"))
