@@ -116,13 +116,16 @@ void ForeheadActivity::startRound() {
   round.begin(category, roundSeconds, deck, rng);
   startMs = static_cast<uint32_t>(millis());
   lastTick = -1;
+  swallowKeyRelease = false;
   resultPage = 0;
   go(View::Play);
 }
 
 void ForeheadActivity::endRound() {
   round.expire();
-  record.push(category, round.score());
+  // The ROUND's category, not the activity's. They cannot disagree today, but
+  // the round is the thing that was played and the field beside it is a copy.
+  record.push(round.category(), round.score());
   dirty = true;
   flushSave();
   resultPage = 0;
@@ -131,6 +134,9 @@ void ForeheadActivity::endRound() {
   // better one than a beep, because everybody in the room is already looking at
   // the panel when it goes off.
   flashOnNextPaint = true;
+  // A key may still be down: the round read its press, and its release is about
+  // to arrive on the results screen, where the same key means "next page".
+  swallowKeyRelease = true;
   go(View::Result);
 }
 
@@ -250,6 +256,18 @@ void ForeheadActivity::loop() {
   // release to that latency is the difference between a game that keeps up with
   // a shouting room and one that does not.
   if (view == View::Play) {
+    // The clock is read FIRST, so a key press that lands after time is up
+    // cannot score a card. The window is milliseconds -- rendering is its own
+    // FreeRTOS task, so loop() is not blocked by the refresh -- but the whole
+    // point of Mark::Unanswered is that the card in hand at the buzzer is
+    // neither got nor given up on, and a press that beats the check would make
+    // it one of them.
+    const int left = secondsLeft();
+    if (left <= 0) {
+      endRound();
+      return;
+    }
+
     if (mappedInput.wasPressed(kGotItKey)) {
       routeAction(ui::ActionGot, 0);
       return;
@@ -259,14 +277,9 @@ void ForeheadActivity::loop() {
       return;
     }
 
-    // The clock. Repaints are driven by the paint schedule moving, never by the
-    // second hand: a per-second countdown is sixty partial refreshes a round on
-    // the one screen somebody across the room is trying to read.
-    const int left = secondsLeft();
-    if (left <= 0) {
-      endRound();
-      return;
-    }
+    // Repaints are driven by the paint schedule moving, never by the second
+    // hand: a per-second countdown is sixty partial refreshes a round on the
+    // one screen somebody across the room is trying to read.
     // The schedule has to match what the round screen actually draws, or the
     // clock on the panel goes stale: the screen draws a bar, so a repaint is
     // owed exactly when a segment changes.
@@ -283,6 +296,14 @@ void ForeheadActivity::loop() {
   if (view == View::HowTo || view == View::Picker || view == View::Result) {
     const bool forward = mappedInput.wasReleased(MappedInputManager::Button::Down);
     const bool backward = mappedInput.wasReleased(MappedInputManager::Button::Up);
+    // The round consumes key PRESSES; the results screen pages on RELEASES. A
+    // key still held when the clock ran out therefore delivers its release to a
+    // screen that never saw the press, and the results open on page two. One
+    // stale release is eaten, and only the one.
+    if (swallowKeyRelease && (forward || backward)) {
+      swallowKeyRelease = false;
+      return;
+    }
     if (forward || backward) {
       const int step = forward ? 1 : -1;
       int* page = view == View::HowTo ? &howToPage : (view == View::Picker ? &pickerPage : &resultPage);

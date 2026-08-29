@@ -147,6 +147,23 @@ whatever it can measure is whatever is bound. The 30px cut doubles as the
 screen's chrome face, which is why there is no UI cut on the round screen and no
 need for one -- the only other text is two edge labels and a score.
 
+**The word is fitted to one rect and drawn in another**, and the difference is
+worth knowing before anybody "simplifies" it. It is CENTRED in the whole white
+area between the two key bands, because that is the frame a reader sees. It is
+FITTED to that area minus the chrome height at BOTH ends, so the tallest layout
+the ladder can choose still cannot reach the timer bar. Centring it in the
+leftover space under the chrome instead is what had a four-letter word hanging
+four millimetres low against its own frame, which measures as obviously as it
+sounds and is invisible while you are reading the code that causes it.
+
+**The word is also the one place this design knowingly leaves something on the
+table.** `toybox_64` is sized so the worst case fits one line -- 22 characters
+is the full panel width -- so every ordinary four-to-nine letter word, which is
+almost all of them, is drawn at the size the rarest word needs. A 96px cut, or
+pixel-doubling the 64px cut for the word slot alone (which costs no flash at
+all, this being a deliberate-pixel face), would make the common case half again
+as large. Deliberately not done: see the note at the end of this file.
+
 ---
 
 ## 5. The words
@@ -175,11 +192,21 @@ category is ever in play.
 
 ### Every list is bigger than a round can hold
 
-`kMaxCards` is 128 and every category has more entries than that, so a round
-can never lap its own deck and show you the same word twice. This is asserted
-exhaustively in `host-tests/forehead/`, and it is how STORYBOOK (123) and MYTHS
-AND MONSTERS (126) were found: both were under the cap and both grew. **If you
-add a category, it needs more than 128 entries.**
+`kMaxCards` is 128 and every category has more entries than that. The generator
+enforces it, reading the number out of `ForeheadCore.h` rather than keeping its
+own copy, and it is how STORYBOOK (123) and MYTHS (126) were caught: both were
+under the cap and both grew past 180. **A new category needs more than 128
+entries.**
+
+That is necessary and it is not sufficient, which is the subtler half. The deck
+is **persistent** -- it lives in the save file -- so after a few evenings a
+category holds fewer unseen cards than a round will answer, and the round
+crosses a lap. A lap that cleared the whole slice would hand back words already
+on that round's own results screen: measured at 63% of evenings on a busy
+category, sometimes twice in a row. So `Deck::draw` does **not** lap. It returns
+-1 when the category is spent and `Round::dealNext` laps with `lapExcept()`,
+passing the cards this round has already dealt so they stay marked. The deck
+cannot own that decision because it cannot know what is on the screen.
 
 ### The deck
 
@@ -270,3 +297,14 @@ Button presses (`UP`, `DOWN`) need no conversion and drive the whole round.
   card is missing. If it ever earns its place it goes the way the Study decks
   did, not before.
 - **No tilt, no shake, no timer sound.** There is no IMU and no speaker.
+- **No cut above `toybox_64`.** A cold look review measured the word at 9.4mm
+  of capital in 768px of usable width and called it the biggest thing left on
+  the table, correctly: two thirds of the panel's width is unused for a typical
+  word. Mario's call, made against the flash cost (~100KB for a 96px cut) and
+  the fact that 9.5mm already beats a phone playing the same game by nearly two
+  to one and reads to about 2.4m. If a big or loud room ever makes it worth
+  revisiting, the cheap route is the one the review pointed at and I had not
+  costed: **pixel-double `toybox_64` for the word slot only**, which costs no
+  flash and is exactly what a deliberate-pixel face wants. It needs a scaling
+  glyph blitter, since `drawText` has no scale and doubling through the SDK text
+  path would give up `measureText` and alignment with it.

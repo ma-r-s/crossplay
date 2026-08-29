@@ -85,9 +85,17 @@ class Deck {
 
   void reset();
 
-  // An unseen entry from `category`, marked as seen. Laps the category when it
-  // is spent. Returns -1 only for a category index that does not exist.
+  // An unseen entry from `category`, marked as seen, or -1 when the category is
+  // SPENT. It does not lap on its own, and that is the whole point: the deck
+  // cannot know which cards are on the results screen of the round in progress,
+  // and a lap that re-deals one of those is the "this device is broken" reading
+  // the deck exists to prevent. Round::dealNext owns the lap because Round is
+  // the thing that knows.
   int draw(int category, Rng& rng);
+
+  // Clears the category's marks EXCEPT the entries listed, which stay seen.
+  // `keep` is the round's own dealt cards.
+  void lapExcept(int category, const int16_t* keep, int keepCount);
 
   int remainingIn(int category) const;
   bool seen(int entry) const;
@@ -99,8 +107,6 @@ class Deck {
   void setMask(const uint8_t* bytes);
 
  private:
-  void lap(int category);
-
   uint8_t seen_[kMaskBytes] = {};
 };
 

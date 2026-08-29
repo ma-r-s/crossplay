@@ -21,10 +21,21 @@ Slice sliceOf(const int category) {
 }  // namespace
 
 uint32_t Rng::below(const uint32_t bound) {
-  if (bound == 0) return 0;
-  const uint32_t limit = UINT32_MAX - (UINT32_MAX % bound) - (bound - 1);
+  if (bound <= 1) return 0;
+  // 2^32 mod bound, computed without 64-bit arithmetic. Rejecting exactly this
+  // many values from the top makes what is left an exact multiple of `bound`.
+  //
+  // The first version subtracted (bound - 1) too many, which is harmless at the
+  // bounds this app passes (a category count, at most 189: a skew of 4e-8) and
+  // collapses at large ones -- at a bound near 3e9 it accepted about one draw in
+  // two billion, which is a hang rather than a bias. Correct is cheaper than
+  // documenting where it may be called from.
+  const uint32_t excess = (UINT32_MAX % bound + 1u) % bound;
   uint32_t value = next();
-  while (value > limit) value = next();
+  if (excess != 0) {
+    const uint32_t limit = 0u - excess;  // 2^32 - excess, by wraparound
+    while (value >= limit) value = next();
+  }
   return value % bound;
 }
 
@@ -61,10 +72,18 @@ int Deck::remainingIn(const int category) const {
   return count;
 }
 
-void Deck::lap(const int category) {
+void Deck::lapExcept(const int category, const int16_t* keep, const int keepCount) {
   const Slice slice = sliceOf(category);
   for (int entry = slice.first; entry < slice.end; ++entry) {
     seen_[entry / 8] &= static_cast<uint8_t>(~(1u << (entry % 8)));
+  }
+  // Put back the cards the caller is still holding. Without this a round that
+  // crosses a lap boundary re-deals words that are already on its own results
+  // screen -- measured at 63% of evenings on a busy category before this
+  // existed, and twice back to back often enough to see.
+  for (int i = 0; i < keepCount; ++i) {
+    const int entry = keep[i];
+    if (entry >= slice.first && entry < slice.end) markSeen(entry);
   }
 }
 
@@ -72,11 +91,8 @@ int Deck::draw(const int category, Rng& rng) {
   const Slice slice = sliceOf(category);
   if (!slice.valid) return -1;
 
-  int remaining = remainingIn(category);
-  if (remaining == 0) {
-    lap(category);
-    remaining = slice.end - slice.first;
-  }
+  const int remaining = remainingIn(category);
+  if (remaining == 0) return -1;
 
   // Pick the Nth unseen rather than rejection-sampling positions: with one card
   // left in a 189-entry category, rejection would expect 189 draws to find it,
@@ -110,6 +126,14 @@ void Round::dealNext(Deck& deck, Rng& rng) {
     return;
   }
   current_ = static_cast<int16_t>(deck.draw(category_, rng));
+  if (current_ >= 0) return;
+
+  // The category ran out mid-round. Lap it, but keep this round's own cards
+  // marked so the lap cannot hand back a word already on the results screen.
+  deck.lapExcept(category_, entries_, count_);
+  current_ = static_cast<int16_t>(deck.draw(category_, rng));
+  // Still nothing means the round has answered every entry in the category,
+  // which ends it honestly rather than by repeating itself.
   if (current_ < 0) live_ = false;
 }
 
@@ -156,7 +180,7 @@ Mark Round::markAt(const int index) const {
 
 void Record::push(const int category, const int score) {
   const int clamped = score < 0 ? 0 : (score > 255 ? 255 : score);
-  ++rounds;
+  if (rounds < 65535) ++rounds;
   words = static_cast<uint16_t>(words + clamped > 65535 ? 65535 : words + clamped);
   if (clamped > best) best = static_cast<uint8_t>(clamped);
 

@@ -1,4 +1,4 @@
-# title: SPORTS & GAMES
+# title: SPORTS
 # hint: PLAY IT OR NAME IT
 # icon: trophy
 

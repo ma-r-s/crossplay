@@ -1,7 +1,7 @@
 #!/bin/sh
 # Builds and runs the FOREHEAD rules and word-list tests. No device and no
 # PlatformIO: ForeheadCore is freestanding C++17 and the generated word table is
-# plain data, so the whole rulebook AND all 2598 entries are checked on a laptop.
+# plain data, so the whole rulebook AND every entry are checked on a laptop.
 #
 #   host-tests/forehead/run.sh
 set -e

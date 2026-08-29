@@ -54,16 +54,32 @@ MAX_ENTRY_LEN = 22
 # "HOLD IT ON YOUR FOREHEAD" is 24 and fits exactly.
 MAX_HINT_LEN = 24
 # The picker row draws the title between a 32px icon and a right-aligned value.
-# Measured: sixteen characters clips, fifteen fits -- and the truncation is that
-# same missing U+2026, so it reads as a category with a chopped name and nothing
-# says why. "AROUND THE HOUSE", "SPACE AND SCIENCE" and "MYTHS AND MONSTERS" all
-# shipped that way until somebody rendered page two.
-MAX_TITLE_LEN = 15
+#
+# Fifteen fits the ROW. It does not fit the row once the value is "BEST 14"
+# instead of "NEW", and that is the cap that matters: measured, a 15-character
+# title runs 19px into where a two-digit best begins, and 14 runs 13px in. The
+# first renders all looked clean only because those categories were unplayed --
+# the collision arrives the day somebody scores in one, and it arrives as a
+# silently chopped name, because the truncation glyph U+2026 is not in Jersey.
+# Thirteen clears the widest value the row can ever show.
+MAX_TITLE_LEN = 13
+# A round records up to kMaxCards cards, and a category with fewer entries than
+# that laps inside a single round -- which is the "this device is broken"
+# reading the no-repeat deck exists to prevent. Read out of the header rather
+# than copied, so the two cannot drift apart.
+CORE = REPO / "src/apps_local/forehead/ForeheadCore.h"
 ENTRY_RE = re.compile(r"[A-Z0-9 '&.-]+")
 
 
 def fail(message):
     sys.exit(f"gen_forehead_words: {message}")
+
+
+def max_cards():
+    match = re.search(r"inline constexpr int kMaxCards = (\d+);", CORE.read_text())
+    if not match:
+        fail(f"no kMaxCards in {CORE.name}")
+    return int(match.group(1))
 
 
 def read_list(path):
@@ -117,6 +133,7 @@ def main():
     if set(slugs) != on_disk:
         fail(f"categories.txt and words/ disagree: {set(slugs) ^ on_disk}")
 
+    floor = max_cards()
     categories, entries, seen, shared = [], [], {}, []
     for slug in slugs:
         title, hint, icon, words = read_list(WORDS / f"{slug}.txt")
@@ -124,6 +141,9 @@ def main():
             if word in seen:
                 shared.append(f"{word} ({seen[word]} + {slug})")
             seen[word] = slug
+        if len(words) <= floor:
+            fail(f"{slug}.txt has {len(words)} entries; a category needs more than "
+                 f"kMaxCards ({floor}) or a single round can lap it")
         categories.append((slug, title, hint, icon, len(entries), len(words)))
         entries.extend(words)
 

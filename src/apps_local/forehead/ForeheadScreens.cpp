@@ -14,27 +14,6 @@ namespace fh = forehead;
 // ---------------------------------------------------------------------------
 // Shared chrome
 
-// The header band with the offset rule under it, as jaipur, yahtzee and the
-// dungeon wear it. A local copy rather than a shared helper, for the reason
-// LinkScreens gives: a copy is cheaper than a header dependency between apps.
-void toyboxChrome(toybox::Screen& screen, const char* title, const char* rightLabel = nullptr) {
-  fui::HeaderProps header;
-  header.title = title;
-  header.rightLabel = rightLabel;
-  // rightLabel is drawn with subtitleText, whose theme default is black -- on
-  // the black band that is an invisible label indistinguishable from one never
-  // set. Jaipur paid for this discovery; see its toyboxChrome.
-  header.subtitleText = fui::TextStyle{};
-  header.subtitleText.font = toybox::kUiFont;
-  header.subtitleText.color = fui::Color::White;
-  header.subtitleText.align = fui::TextAlign::Right;
-  header.borderEdges = fui::EdgesNone;
-  toybox::absoluteChrome(screen);
-  toybox::headerBand(screen, header);
-  toybox::headerRule(screen);
-  screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
-}
-
 fui::TextStyle textStyle(const fui::FontId font, const fui::TextAlign align,
                          const fui::Color colour = fui::Color::Black) {
   fui::TextStyle style;
@@ -53,6 +32,43 @@ void drawText(toybox::Screen& screen, const fui::Rect& box, const char* text, co
               const fui::TextAlign align, const toybox::CutMetrics& cut,
               const fui::Color colour = fui::Color::Black) {
   screen.target().text(toybox::inkCentred(box, cut), text, textStyle(font, align, colour));
+}
+
+// The header band with the offset rule under it, as jaipur, yahtzee and the
+// dungeon wear it. A local copy rather than a shared helper, for the reason
+// LinkScreens gives: a copy is cheaper than a header dependency between apps.
+void toyboxChrome(toybox::Screen& screen, const char* title, const char* rightLabel = nullptr) {
+  fui::HeaderProps header;
+  header.title = title;
+  header.borderEdges = fui::EdgesNone;
+  toybox::absoluteChrome(screen);
+  toybox::headerBand(screen, header);
+
+  // The right label is drawn HERE rather than handed to header.rightLabel, and
+  // that is a correctness fix rather than a preference.
+  //
+  // The component centres each run on its own LINE BOX. The title is the 63px
+  // display cut and the label the 42px UI cut, and Jersey's leading differs
+  // between them, so centring both on the same 76px band leaves their ink 11 to
+  // 13 pixels apart: measured, the title lands dead centre and the label rides
+  // low enough to see. Every app in this fork that passes rightLabel has it.
+  // inkCentred solves for the rect that puts the LABEL's ink where the title's
+  // is. (The colour matters too: subtitleText defaults to black on the black
+  // band, which is a label indistinguishable from one never set -- jaipur paid
+  // for that one.)
+  if (rightLabel != nullptr && *rightLabel != '\0') {
+    const int16_t bandTop = static_cast<int16_t>(screen.body().y - toybox::kHeaderHeight);
+    const int16_t visibleTop = screen.frame().safeRect().y;
+    const fui::Rect band =
+        fui::makeRect(0, static_cast<int16_t>(bandTop + visibleTop),
+                      static_cast<int16_t>(screen.device().screen().width - toybox::kMargin),
+                      static_cast<int16_t>(toybox::kHeaderHeight - visibleTop));
+    drawText(screen, band, rightLabel, toybox::kUiFont, fui::TextAlign::Right, toybox::kUiCut,
+             fui::Color::White);
+  }
+
+  toybox::headerRule(screen);
+  screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 }
 
 // ---------------------------------------------------------------------------
@@ -286,14 +302,16 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   // else on this screen offers to play: the three doors below are CATEGORY,
   // ROUND and HOW TO PLAY, so a player who does not know the headline is the
   // button has nowhere to find out.
-  char state[48];
-  if (model.record != nullptr && model.record->everPlayed(model.category)) {
-    std::snprintf(state, sizeof(state), "TAP TO PLAY   BEST HERE %d", model.record->bestIn[model.category]);
-  } else {
-    std::snprintf(state, sizeof(state), "TAP TO PLAY   NEVER PLAYED");
-  }
+  // The state band, and nothing else. It used to carry "BEST HERE 14" as well,
+  // which is the same number the record line prints three lines below under a
+  // different label -- and at the same cut and left edge as the hint above it,
+  // so the two ran together as one paragraph and the front door's
+  // headline/state/rule structure collapsed. Air above it, and one job.
+  screen.takeTop(toybox::kGutter);
   const fui::Rect stateRow = screen.takeTop(30);
-  drawText(screen, stateRow, state, toybox::kSmallFont, fui::TextAlign::Left, toybox::kButtonCut);
+  drawText(screen, stateRow,
+           model.record != nullptr && model.record->everPlayed(model.category) ? "TAP TO PLAY" : "TAP TO PLAY   NEW",
+           toybox::kSmallFont, fui::TextAlign::Left, toybox::kButtonCut);
 
   // Everything above the rule is the start button, so a thumb landing anywhere
   // near the name plays. Derived from the rects that drew it rather than
@@ -334,17 +352,30 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
     const int peak = model.record->recentPeak();
     const int16_t inset = 26;
     const int16_t plotW = static_cast<int16_t>(panel.width - inset * 2);
-    const int16_t plotH = static_cast<int16_t>(panel.height - inset * 2);
+    const int16_t plotH = static_cast<int16_t>(panel.height - inset * 2 - 6);
     const int16_t step = static_cast<int16_t>(plotW / fh::Record::kRecentCount);
     const int16_t barW = static_cast<int16_t>(step - 6);
+    // The remainder of the integer division is SPLIT rather than dumped on the
+    // right. Sixteen bars in a 447px frame leave 69px over, and giving all of
+    // it to one side put the whole series twelve pixels left of centre inside
+    // its own symmetric brackets -- which nags on a screen that holds its image
+    // for hours.
+    const int16_t slack = static_cast<int16_t>(plotW - step * fh::Record::kRecentCount);
+    const int16_t left = static_cast<int16_t>(panel.x + inset + slack / 2);
     const int16_t base = static_cast<int16_t>(panel.y + inset + plotH);
+    // A baseline for the series to stand on. Without it the shortest bar is a
+    // three-pixel dash floating among neighbours forty times its height, and it
+    // reads as a dropped row rather than as a bad round.
+    screen.target().fill(fui::makeRect(left, base, static_cast<int16_t>(step * fh::Record::kRecentCount),
+                                       toybox::kHairline),
+                         fui::Paint::solid(fui::Color::Black));
     for (int i = 0; i < fh::Record::kRecentCount; ++i) {
       const int score = model.record->recentAt(i);
       if (score < 0) continue;
-      const int16_t x = static_cast<int16_t>(panel.x + inset + i * step + 3);
-      // A zero-score round still gets a mark: an empty column and a round never
-      // played must not look the same.
-      const int16_t barH = static_cast<int16_t>(score <= 0 ? 3 : 3 + (score * (plotH - 3)) / peak);
+      const int16_t x = static_cast<int16_t>(left + i * step + 3);
+      // A zero-score round still gets a bar: scoring nothing and never having
+      // played must not look the same, and now it sits on the baseline.
+      const int16_t barH = static_cast<int16_t>(score <= 0 ? 6 : 6 + (score * (plotH - 6)) / peak);
       const bool newest = i == fh::Record::kRecentCount - 1;
       const fui::Rect bar = fui::makeRect(x, static_cast<int16_t>(base - barH), barW, barH);
       screen.target().fill(bar, fui::Paint::solid(newest ? fui::Color::Black : fui::Color::White));
@@ -483,28 +514,48 @@ void buildPlay(toybox::Screen& screen, const PlayModel& model) {
   const int16_t h = screen.device().screen().height;
 
   drawKeyBands(screen);
-  const int16_t bodyTop = kKeyBandHeight;
-  const int16_t bodyH = static_cast<int16_t>(h - kKeyBandHeight * 2);
+  const int16_t whiteTop = kKeyBandHeight;
+  const int16_t whiteH = static_cast<int16_t>(h - kKeyBandHeight * 2);
+
+  // The side inset the glass hides, in this orientation. The bands above and
+  // below are paint and may run under the bezel; the bar is READ, so it may
+  // not. Rotated into landscape the X4 Pro's 10px strip lands on a side, and a
+  // bar starting at a flat 16px margin would show six visible pixels of its
+  // first segment on one edge and twenty on the other -- which on a countdown
+  // reads as time already gone.
+  const int16_t safeX = screen.frame().safeRect().x > toybox::kMargin ? screen.frame().safeRect().x
+                                                                      : static_cast<int16_t>(toybox::kMargin);
+  const int16_t barLeft = safeX;
+  const int16_t barRight = static_cast<int16_t>(w - safeX);
 
   // The clock is a bar, and no figures appear on this screen except the score.
   //
   // Chosen against a version with the seconds in figures and a version with no
-  // clock at all, by rendering all three and looking. Two things decided it.
-  // A bar costs FIVE forced repaints across a sixty-second round where a
-  // ticking numeral costs eleven, and on a panel that takes a third of a second
-  // to update, a screen that blinks every five seconds while nobody has pressed
-  // anything is a screen somebody is trying to read through. And the bar is
-  // legible from the sofa, which is where the people who need the clock are
-  // sitting: the guesser cannot see any of this, so every element here is for
-  // the room, and a 30px numeral is not a room-sized thing.
+  // clock at all, by rendering all three and looking. A bar costs FIVE forced
+  // repaints across a sixty-second round where a ticking numeral costs eleven,
+  // and on a panel that takes a third of a second to update, a screen that
+  // blinks every five seconds while nobody has pressed anything is a screen
+  // somebody is trying to read through. And the bar is legible from the sofa,
+  // which is where the people who need the clock are sitting: the guesser
+  // cannot see any of this, so every element here is for the room.
   //
-  // Eight segments, never more than one segment stale.
+  // A full kMargin of air under the band, not six pixels. At six the bar and
+  // the solid band were the two heaviest masses on the screen a fifth of a
+  // millimetre apart, and from three metres they close into one thick header
+  // with a hairline through it -- the same merge the design language documents
+  // for two parallel strokes at 1 bit.
   constexpr int16_t kBarH = 14;
+  const int16_t barTop = static_cast<int16_t>(whiteTop + toybox::kMargin);
   const int16_t segments = static_cast<int16_t>(fh::barSegments(model.secondsLeft, model.lengthSeconds));
-  const int16_t segW = static_cast<int16_t>((w - toybox::kMargin * 2) / fh::kBarSegments);
+  const int16_t barW = static_cast<int16_t>(barRight - barLeft);
   for (int i = 0; i < fh::kBarSegments; ++i) {
-    const fui::Rect cell = fui::makeRect(static_cast<int16_t>(toybox::kMargin + i * segW),
-                                         static_cast<int16_t>(bodyTop + 10), static_cast<int16_t>(segW - 4), kBarH);
+    // Each segment's edges are derived from the FULL width rather than from a
+    // rounded segment width, so the integer remainder is absorbed between them
+    // and the last segment ends exactly on the right margin. Dividing first
+    // left a full bar four pixels short of its own right edge.
+    const int16_t x0 = static_cast<int16_t>(barLeft + static_cast<int32_t>(barW) * i / fh::kBarSegments);
+    const int16_t x1 = static_cast<int16_t>(barLeft + static_cast<int32_t>(barW) * (i + 1) / fh::kBarSegments);
+    const fui::Rect cell = fui::makeRect(x0, barTop, static_cast<int16_t>(x1 - x0 - 4), kBarH);
     // A spent segment keeps its outline rather than disappearing. A bar that
     // only shortens says how much is left; one that also shows where it started
     // says how fast it is going, which is the thing a room shouts about.
@@ -515,22 +566,28 @@ void buildPlay(toybox::Screen& screen, const PlayModel& model) {
     }
   }
 
-  // The score sits UNDER the bar rather than beside it: the bar runs the full
-  // width on purpose (it is the clock, and a clock you have to hunt for is not
-  // one), so there is no room beside it and the first version overlapped.
-  constexpr int16_t kChromeH = 10 + kBarH + 10;
-  constexpr int16_t kScoreBand = 48;
+  // The score shares the bar's row and its right edge. It used to sit in a band
+  // of its own below the bar, which cost the word forty-eight pixels of height
+  // for something occupying one corner, and its right edge missed the bar's by
+  // four pixels -- two near-aligned edges at 1 bit read as a mistake.
   char scoreText[8];
   std::snprintf(scoreText, sizeof(scoreText), "%d", model.score);
+  const int16_t chromeH = static_cast<int16_t>(toybox::kMargin + kBarH + 38);
   drawText(screen,
-           fui::makeRect(static_cast<int16_t>(w - toybox::kMargin - 120), static_cast<int16_t>(bodyTop + kChromeH),
-                         120, 44),
+           fui::makeRect(static_cast<int16_t>(barRight - 160), static_cast<int16_t>(barTop + kBarH + 10), 160, 42),
            scoreText, toybox::kBodyFont, fui::TextAlign::Right, toybox::kDisplayCut);
 
-  const fui::Rect card = fui::makeRect(toybox::kMargin, static_cast<int16_t>(bodyTop + kChromeH + kScoreBand),
-                                       static_cast<int16_t>(w - toybox::kMargin * 2),
-                                       static_cast<int16_t>(bodyH - kChromeH - kScoreBand - 8));
-  drawCard(screen, card, model.word, layOutCard(screen, card, model.word), fui::Color::Black);
+  // Two rects, and the difference between them is the whole fix for a word that
+  // hung four millimetres low. The word is CENTRED in the full white area
+  // between the two bands, which is the frame a reader sees -- but it is FITTED
+  // to that area minus the chrome at both ends, so the tallest layout the
+  // ladder can pick still cannot reach the bar. Centring in the leftover space
+  // under the chrome is what made a four-letter word sag against its frame.
+  const fui::Rect drawBox =
+      fui::makeRect(barLeft, whiteTop, static_cast<int16_t>(barRight - barLeft), whiteH);
+  const fui::Rect fitBox = fui::makeRect(drawBox.x, static_cast<int16_t>(whiteTop + chromeH), drawBox.width,
+                                         static_cast<int16_t>(whiteH - chromeH * 2));
+  drawCard(screen, drawBox, model.word, layOutCard(screen, fitBox, model.word), fui::Color::Black);
 
   registerKeyTouch(screen);
 }
@@ -542,6 +599,12 @@ namespace {
 constexpr int kResultRows = 6;
 constexpr int kResultCols = 2;
 constexpr int kResultsPerPage = kResultRows * kResultCols;
+
+// How the words on a page split between the two columns. Filling the left one
+// to six before starting the right left eight words as 6 + 2, with a third of
+// the panel empty beneath the short column and half the divider separating a
+// column from nothing. Balanced, eight words are 4 + 4.
+constexpr int leftColumnCount(const int onPage) { return (onPage + 1) / 2; }
 }  // namespace
 
 int resultsPerPage() { return kResultsPerPage; }
@@ -576,9 +639,10 @@ void buildResult(toybox::Screen& screen, const ResultModel& model) {
            toybox::kSmallFont, fui::TextAlign::Center, toybox::kButtonCut);
 
   // A rule between the number and the list, so the two read as two things.
-  screen.target().fill(fui::makeRect(static_cast<int16_t>(content.x + kScoreColumn), content.y, toybox::kHairline + 1,
-                                     content.height),
-                       fui::Paint::solid(fui::Color::Black));
+  // kRule, which is a Toybox weight; the first version was 2px, which is none
+  // of them. This divides two zones of the screen, so it is a rule and not a
+  // hairline -- and it stops at the taller column rather than running on past
+  // the words into empty paper.
 
   // The list. This is the screen people argue over, and e-ink holds it for free
   // while they do, so it gets the space rather than a summary line.
@@ -589,13 +653,25 @@ void buildResult(toybox::Screen& screen, const ResultModel& model) {
   const int page = model.page < 0 ? 0 : (model.page >= pages ? pages - 1 : model.page);
   drawPips(screen, pips, pages, page, ActionResultsPage);
 
+  const int onPage = cards - page * kResultsPerPage < kResultsPerPage ? cards - page * kResultsPerPage
+                                                                      : kResultsPerPage;
+  const int leftCount = leftColumnCount(onPage);
   const int16_t colW = static_cast<int16_t>(band.width / kResultCols);
   const int16_t rowH = static_cast<int16_t>(band.height / kResultRows);
-  for (int slot = 0; slot < kResultsPerPage; ++slot) {
+  // A short list is centred in the band rather than stacked against its top.
+  // Four words in a six-row band left every one of them high with the slack
+  // below, on the screen people sit and look at longest.
+  const int16_t listTop =
+      static_cast<int16_t>(band.y + (band.height - leftCount * rowH) / 2);
+  screen.target().fill(fui::makeRect(static_cast<int16_t>(content.x + kScoreColumn), listTop, toybox::kRule,
+                                     static_cast<int16_t>(leftCount * rowH)),
+                       fui::Paint::solid(fui::Color::Black));
+  for (int slot = 0; slot < onPage; ++slot) {
     const int index = page * kResultsPerPage + slot;
-    if (index >= cards) break;
-    const int16_t x = static_cast<int16_t>(band.x + (slot / kResultRows) * colW);
-    const int16_t y = static_cast<int16_t>(band.y + (slot % kResultRows) * rowH);
+    const int column = slot < leftCount ? 0 : 1;
+    const int row = slot < leftCount ? slot : slot - leftCount;
+    const int16_t x = static_cast<int16_t>(band.x + column * colW);
+    const int16_t y = static_cast<int16_t>(listTop + row * rowH);
 
     // The mark is not a tick and a cross: at 1 bit and this size a cross is two
     // diagonals that merge into a blob, so a word you got is a filled disc and
@@ -642,24 +718,31 @@ void buildResult(toybox::Screen& screen, const ResultModel& model) {
 
 namespace {
 
+// What a page draws under its text. Every page has one, because a page of type
+// with a third of the panel blank under it is a real defect on a screen that
+// holds its image for hours, not merely untidy -- and the fix that page two got
+// was written up in this file while pages one and three shipped without it.
+enum class Figure : uint8_t { Card, Keys, Marks };
+
 struct Page {
   const char* title;
-  // Nine lines at the 14px cut, which is about 32 characters across this panel.
-  // The 20px UI cut fits 24, and the component truncates an overrun with U+2026
-  // -- a glyph Jersey does not carry, so it draws as NOTHING and the sentence
-  // just stops mid-word. Two pages shipped that way before anybody rendered one.
-  const char* body[9];
-  // The controls page draws the two key bands underneath its text, at the size
-  // and in the positions they occupy during a round. A picture of the thing
-  // being explained, made of the thing itself -- and it fills a page that was
-  // otherwise two-thirds empty, which on a screen that holds its image for
-  // hours is a real defect rather than untidiness.
-  bool keys = false;
+  // Seven lines at the 14px cut, which is about 32 characters across this
+  // panel. The 20px UI cut fits 24, and the component truncates an overrun with
+  // U+2026 -- a glyph Jersey does not carry, so it draws as NOTHING and the
+  // sentence just stops mid-word. Two pages shipped that way before anybody
+  // rendered one.
+  const char* body[7];
+  Figure figure;
 };
 
 // Written for somebody who has never played, in the order they need it. The
 // controls come SECOND, before the scoring, because they are the only part this
 // device does differently from every other version of this game.
+//
+// No page names a number of seconds. The round length is a setting on the front
+// door, and the first version said SIXTY here while the menu three taps away
+// said THIRTY: two screens of the same app disagreeing, both of them wrong for
+// somebody.
 constexpr Page kPages[] = {
     {"THE GAME",
      {"ONE PLAYER HOLDS THE DEVICE FLAT",
@@ -667,11 +750,9 @@ constexpr Page kPages[] = {
       "FACING OUT. THEY CANNOT SEE IT.",
       "",
       "EVERYBODY ELSE CAN, AND SHOUTS",
-      "CLUES UNTIL THEY GET IT.",
-      "",
-      "SIXTY SECONDS. ONE POINT PER",
-      "WORD. THAT IS THE WHOLE GAME."},
-     false},
+      "CLUES UNTIL THEY GET IT. ONE",
+      "POINT FOR EVERY WORD."},
+     Figure::Card},
     {"THE TWO KEYS",
      {"TURN THE DEVICE SIDEWAYS AND THE",
       "TWO PAGE KEYS LAND ON THE TOP",
@@ -679,35 +760,67 @@ constexpr Page kPages[] = {
       "FINGERS ALREADY ARE.",
       "",
       "THE SCREEN LABELS BOTH EDGES SO",
-      "THE ROOM CAN CALL THEM OUT.",
-      "",
-      ""},
-     true},
-    {"SCORING",
-     {"ONE POINT FOR EVERY WORD YOU",
-      "GET. GIVING UP COSTS NOTHING",
-      "BUT THE SECONDS IT TOOK.",
-      "",
-      "THE WORD IN YOUR HAND WHEN THE",
-      "CLOCK RUNS OUT IS NEITHER, AND",
-      "THE RESULTS SCREEN SAYS SO",
-      "RATHER THAN QUIETLY COUNTING IT",
-      "AGAINST YOU."},
-     false},
-    {"THE LISTS",
-     {"SEVENTEEN OF THEM, AND NONE",
-      "REPEATS A WORD UNTIL YOU HAVE",
-      "SEEN EVERY ONE IN THE LIST.",
-      "",
-      "ACT IT OUT AND MAKE A SOUND ARE",
-      "THE TWO THAT RUIN FRIENDSHIPS.",
-      "",
-      "FOR KIDS AND TRICKY ARE THE",
-      "EASY AND HARD ENDS OF THE SHELF."},
-     false},
+      "THE ROOM CAN CALL THEM OUT."},
+     Figure::Keys},
+    {"THE SCOREBOARD",
+     {"GIVING UP COSTS NOTHING BUT THE",
+      "SECONDS IT TOOK. THE WORD IN",
+      "YOUR HAND WHEN THE CLOCK RUNS",
+      "OUT IS NEITHER, AND THE RESULTS",
+      "SAY SO RATHER THAN QUIETLY",
+      "COUNTING IT AGAINST YOU. THE",
+      "MARKS THERE MEAN:"},
+     Figure::Marks},
 };
 
 constexpr int kPageCount = static_cast<int>(sizeof(kPages) / sizeof(kPages[0]));
+
+// A little device, drawn portrait-shaped so it reads as the thing in your hand
+// turned on its side. Its bands are the SAME FRACTION of its height as the real
+// ones are of the panel: at a flat 40px they were 19% against the round
+// screen's 11%, so the proportions a reader memorised here were twice as heavy
+// as the ones they would meet.
+void drawMiniDevice(toybox::Screen& screen, const fui::Rect& box, const char* word, const bool labelled) {
+  screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), toybox::kFrame);
+  const int16_t band = static_cast<int16_t>((box.height - toybox::kFrame * 2) * kKeyBandHeight / 480);
+  const fui::Rect top = fui::makeRect(static_cast<int16_t>(box.x + toybox::kFrame),
+                                      static_cast<int16_t>(box.y + toybox::kFrame),
+                                      static_cast<int16_t>(box.width - toybox::kFrame * 2), band);
+  const fui::Rect bottom = fui::makeRect(
+      top.x, static_cast<int16_t>(box.y + box.height - toybox::kFrame - band), top.width, band);
+  screen.target().fill(top, fui::Paint::solid(fui::Color::Black));
+  screen.target().fill(bottom, fui::Paint::solid(fui::Color::Black));
+  if (labelled) {
+    drawText(screen, top, "PASS", toybox::kSmallFont, fui::TextAlign::Center, toybox::kButtonCut,
+             fui::Color::White);
+    drawText(screen, bottom, "GOT IT", toybox::kSmallFont, fui::TextAlign::Center, toybox::kButtonCut,
+             fui::Color::White);
+  }
+  drawText(screen, fui::makeRect(box.x, static_cast<int16_t>(box.y + box.height / 2 - 22), box.width, 44), word,
+           toybox::kUiFont, fui::TextAlign::Center, toybox::kUiCut);
+}
+
+// The three marks the results screen uses, with what they mean. Three shapes
+// and no legend is a room asking the same question every game.
+void drawMarkLegend(toybox::Screen& screen, const fui::Rect& box) {
+  const int16_t rowH = static_cast<int16_t>(box.height / 3);
+  const int16_t cx = static_cast<int16_t>(box.x + 20);
+  const char* labels[3] = {"YOU GOT IT", "YOU GAVE UP", "TIME RAN OUT"};
+  for (int i = 0; i < 3; ++i) {
+    const int16_t cy = static_cast<int16_t>(box.y + i * rowH + rowH / 2);
+    if (i == 0) {
+      toybox::disc(screen, cx, cy, 9, fui::Color::Black);
+    } else if (i == 1) {
+      toybox::ring(screen, cx, cy, 9, toybox::kHairline + 1, fui::Color::Black, fui::Color::White);
+    } else {
+      screen.target().fill(fui::makeRect(static_cast<int16_t>(cx - 9), static_cast<int16_t>(cy - 2), 18, 4),
+                           fui::Paint::solid(fui::Color::Black));
+    }
+    drawText(screen, fui::makeRect(static_cast<int16_t>(cx + 26), static_cast<int16_t>(box.y + i * rowH),
+                                   static_cast<int16_t>(box.width - 46), rowH),
+             labels[i], toybox::kSmallFont, fui::TextAlign::Left, toybox::kButtonCut);
+  }
+}
 
 }  // namespace
 
@@ -733,31 +846,30 @@ void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
     }
   }
 
-  if (kPages[page].keys) {
-    // A little device, drawn portrait-shaped so it reads as the thing in your
-    // hand turned on its side: the labels sit on the long edges exactly where
-    // the round puts them.
-    const fui::Rect left = screen.body();
-    const int16_t h = static_cast<int16_t>(left.height - toybox::kGutter);
-    const int16_t w = static_cast<int16_t>(h * 8 / 5);
-    const fui::Rect device =
-        fui::makeRect(static_cast<int16_t>(left.x + (left.width - w) / 2), left.y, w, h);
-    screen.target().stroke(device, fui::Paint::solid(fui::Color::Black), toybox::kFrame);
-
-    const int16_t band = 40;
-    const fui::Rect top = fui::makeRect(static_cast<int16_t>(device.x + toybox::kFrame),
-                                        static_cast<int16_t>(device.y + toybox::kFrame),
-                                        static_cast<int16_t>(device.width - toybox::kFrame * 2), band);
-    const fui::Rect bottom =
-        fui::makeRect(top.x, static_cast<int16_t>(device.y + device.height - toybox::kFrame - band), top.width, band);
-    screen.target().fill(top, fui::Paint::solid(fui::Color::Black));
-    screen.target().fill(bottom, fui::Paint::solid(fui::Color::Black));
-    drawText(screen, top, "PASS", toybox::kSmallFont, fui::TextAlign::Center, toybox::kButtonCut,
-             fui::Color::White);
-    drawText(screen, bottom, "GOT IT", toybox::kSmallFont, fui::TextAlign::Center, toybox::kButtonCut,
-             fui::Color::White);
-    drawText(screen, fui::makeRect(device.x, static_cast<int16_t>(device.y + device.height / 2 - 20), device.width, 40),
-             "PENGUIN", toybox::kUiFont, fui::TextAlign::Center, toybox::kUiCut);
+  screen.takeTop(toybox::kGutter);
+  const fui::Rect figure = screen.body();
+  switch (kPages[page].figure) {
+    case Figure::Marks:
+      drawMarkLegend(screen, figure);
+      break;
+    case Figure::Card:
+    case Figure::Keys:
+    default: {
+      // Fitted to the figure rect in BOTH axes. Sized from the height alone it
+      // came out wider than the page and was clipped at each edge, which on a
+      // picture of a device reads as a device with no sides.
+      int16_t deviceH = figure.height;
+      int16_t deviceW = static_cast<int16_t>(deviceH * 5 / 3);
+      if (deviceW > figure.width) {
+        deviceW = figure.width;
+        deviceH = static_cast<int16_t>(deviceW * 3 / 5);
+      }
+      drawMiniDevice(screen,
+                     fui::makeRect(static_cast<int16_t>(figure.x + (figure.width - deviceW) / 2), figure.y, deviceW,
+                                   deviceH),
+                     "PENGUIN", kPages[page].figure == Figure::Keys);
+      break;
+    }
   }
 
   // Anywhere below the header advances, matching the tutorial in Insider: this

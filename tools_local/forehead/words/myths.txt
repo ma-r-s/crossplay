@@ -1,4 +1,4 @@
-# title: MYTHS & BEASTS
+# title: MYTHS
 # hint: GODS AND MONSTERS
 # icon: ghost
 

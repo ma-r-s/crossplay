@@ -59,6 +59,9 @@ class ForeheadActivity final : public Activity {
   uint32_t startMs = 0;
   int lastTick = -1;
 
+  // Eats the release edge of the key that was still held when the clock ran
+  // out, so the buzzer cannot also turn the results page. See loop().
+  bool swallowKeyRelease = false;
   bool dirty = false;
   bool flashOnNextPaint = false;
   bool interactionsReady = false;

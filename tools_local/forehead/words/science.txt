@@ -1,4 +1,4 @@
-# title: SPACE & SCIENCE
+# title: SCIENCE
 # hint: FROM ATOMS TO GALAXIES
 # icon: atom
 

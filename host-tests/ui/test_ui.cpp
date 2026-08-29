@@ -4880,8 +4880,13 @@ void testTheForeheadHeadlineIsTheStartButton() {
   CHECK(out.tap(200, 150).action == foreheadui::ActionReady);
   // And it says so, because nothing else on this screen offers to play: the
   // three doors below are CATEGORY, ROUND and HOW TO PLAY, none of which reads
-  // as "start". find() matches a whole run, and the run carries the record too.
-  CHECK(out.target.find("TAP TO PLAY   BEST HERE 11") != nullptr);
+  // as "start".
+  CHECK(out.target.find("TAP TO PLAY") != nullptr);
+  // The state band says ONE thing. It used to append the category best, which
+  // is the same number the record line below already prints under its own
+  // label, so the screen said it twice.
+  const FakeTarget::TextRun* best = out.target.find("TAP TO PLAY   BEST HERE 11");
+  CHECK(best == nullptr);
 
   Rendered doors;
   buildForeheadMenu(doors, model);

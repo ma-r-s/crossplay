@@ -8,8 +8,8 @@
 // deck over tens of thousands of draws, because the interesting deck bugs live
 // in the LAST card of a lap, which a spot check reaches roughly never.
 //
-// The third is the one worth copying elsewhere: an exhaustive pass over all
-// 2598 entries and all 17 category slices. The generator already refuses bad
+// The third is the one worth copying elsewhere: an exhaustive pass over every
+// entry and every category slice. The generator already refuses bad
 // content, but the generator is not what ships -- the committed header is, and
 // a hand-edit to it would sail past a script nobody re-ran. This checks the
 // artefact.
@@ -128,11 +128,85 @@ void testADeckDealsEveryCardOnceBeforeLapping() {
     }
     CHECK(deck.remainingIn(category) == 0);
 
-    // The next draw laps rather than failing, and lands inside the slice.
-    const int lapped = deck.draw(category, rng);
-    CHECK(lapped >= info.first && lapped < info.first + info.count);
-    CHECK(deck.remainingIn(category) == info.count - 1);
+    // A spent category returns -1 rather than lapping itself. The deck cannot
+    // know which cards are on the results screen of the round in progress, so
+    // the lap is Round's to decide; see testARoundNeverRepeatsACard.
+    CHECK(deck.draw(category, rng) == -1);
   }
+}
+
+void testALapKeepsWhatTheCallerIsHolding() {
+  const int category = 6;
+  const CategoryInfo& info = kCategories[category];
+  Deck deck;
+  deck.reset();
+  Rng rng(31u);
+  for (int i = 0; i < info.count; ++i) deck.draw(category, rng);
+  CHECK(deck.remainingIn(category) == 0);
+
+  const int16_t held[3] = {static_cast<int16_t>(info.first), static_cast<int16_t>(info.first + 5),
+                           static_cast<int16_t>(info.first + info.count - 1)};
+  deck.lapExcept(category, held, 3);
+  CHECK(deck.remainingIn(category) == info.count - 3);
+  for (const int16_t entry : held) CHECK(deck.seen(entry));
+
+  // An entry from another category in the keep list is ignored rather than
+  // marked, so a caller cannot poison a neighbour by passing the wrong slice.
+  Deck other;
+  other.reset();
+  const int16_t alien[1] = {0};
+  other.lapExcept(category, alien, 1);
+  CHECK(!other.seen(0));
+}
+
+void testALapLeavesEveryOtherCategoryAlone() {
+  // The lap's slice discipline. Wiping all seventeen categories on every lap
+  // used to leave this suite green, because the one test that lapped only ever
+  // looked at the category it had lapped.
+  const int mine = 2;
+  Deck deck;
+  deck.reset();
+  Rng rng(41u);
+  for (int category = 0; category < kCategoryCount; ++category) {
+    for (int i = 0; i < 7; ++i) deck.draw(category, rng);
+  }
+  const CategoryInfo& info = kCategories[mine];
+  for (int i = 7; i < info.count; ++i) deck.draw(mine, rng);
+  CHECK(deck.remainingIn(mine) == 0);
+
+  deck.lapExcept(mine, nullptr, 0);
+  CHECK(deck.remainingIn(mine) == info.count);
+  for (int category = 0; category < kCategoryCount; ++category) {
+    if (category == mine) continue;
+    CHECK(deck.remainingIn(category) == kCategories[category].count - 7);
+  }
+}
+
+void testTheDeckDealsEvenlyAcrossItsSlice() {
+  // The deck deals a permutation, which the test above proves, and that says
+  // nothing about WHERE in the slice the draws land. Front-loading the first
+  // quarter fourfold used to leave this suite green: an evening would have kept
+  // returning the same end of the alphabet and every test would have agreed it
+  // was fine.
+  const int category = 0;
+  const CategoryInfo& info = kCategories[category];
+  constexpr int kLaps = 400;
+  int firstHalf = 0;
+  Deck deck;
+  deck.reset();
+  Rng rng(0x5EED1234u);
+  for (int lap = 0; lap < kLaps; ++lap) {
+    // Only the first draw of each lap is measured. Later draws in a lap are
+    // constrained by what is already gone, so the whole lap is a permutation
+    // and only its opening is a free choice over the whole slice.
+    const int entry = deck.draw(category, rng);
+    CHECK(entry >= info.first && entry < info.first + info.count);
+    if (entry - info.first < info.count / 2) ++firstHalf;
+    for (int i = 1; i < info.count; ++i) deck.draw(category, rng);
+    deck.lapExcept(category, nullptr, 0);
+  }
+  CHECK(firstHalf > kLaps * 2 / 5);
+  CHECK(firstHalf < kLaps * 3 / 5);
 }
 
 void testDrawingOneCategoryLeavesTheOthersAlone() {
@@ -248,12 +322,25 @@ void testAnsweringAfterTheEndDoesNothing() {
 void testARoundNeverRepeatsACard() {
   // Every card in one round is distinct, which is the property a player would
   // actually notice being broken.
+  //
+  // NOT from a fresh deck. The deck is persistent -- it lives in the save file
+  // -- so after a few evenings a category has fewer unseen cards than a round
+  // will answer, and the round crosses a lap. That is the case this test used
+  // to reset away: with deck.reset() inside the loop the lap branch is
+  // unreachable and the property is free. It was 63% of evenings.
   for (uint32_t seed = 1; seed <= 300; ++seed) {
     Deck deck;
     deck.reset();
     Rng rng(seed);
-    Round round;
     const int category = static_cast<int>(seed % kCategoryCount);
+    // Wear the category down to a handful of unseen cards first, so almost
+    // every round below has to lap partway through.
+    {
+      Rng warm(seed * 7919u + 13u);
+      const int wear = kCategories[category].count - static_cast<int>(seed % 5) - 2;
+      for (int i = 0; i < wear; ++i) deck.draw(category, warm);
+    }
+    Round round;
     round.begin(category, 60, deck, rng);
     bool used[kEntryCount] = {};
     while (round.live() && round.cards() < kMaxCards - 1) {
@@ -411,16 +498,62 @@ void testTheRngStaysInRange() {
 void testTheRngIsNotVisiblyBiased() {
   // Not a statistics suite -- just enough to catch the modulo shortcut, which
   // would make one end of a category's alphabet likelier than the other.
-  constexpr int kBuckets = 16;
-  constexpr int kDraws = 160000;
+  //
+  // 189, which is ANIMALS' size, and NOT a power of two. The first version used
+  // 16 buckets and could not fail: 2^32 divides exactly by 16, so `next() %
+  // bound` is perfectly uniform there and the shortcut this test exists to
+  // catch survived it with 0 failures. A rejection sampler is only
+  // distinguishable from a modulo at a bound that does not divide 2^32.
+  constexpr int kBuckets = 189;
+  constexpr int kDraws = 189 * 4000;
   int counts[kBuckets] = {};
   Rng rng(0xABCDEF01u);
   for (int i = 0; i < kDraws; ++i) ++counts[rng.below(kBuckets)];
   const int expected = kDraws / kBuckets;
   for (const int count : counts) {
-    CHECK(count > expected * 9 / 10);
-    CHECK(count < expected * 11 / 10);
+    CHECK(count > expected * 8 / 10);
+    CHECK(count < expected * 12 / 10);
   }
+}
+
+void testARoundObjectIsCleanWhenItBeginsAgain() {
+  // The device keeps ONE Round as an activity member and calls begin() for
+  // every round of a session. Every other test here builds a fresh one, so
+  // deleting any of the three resets in begin() left the suite green while the
+  // second round of an evening would have carried the first one's score into
+  // the record.
+  Deck deck;
+  deck.reset();
+  Rng rng(77u);
+  Round round;
+  round.begin(3, 90, deck, rng);
+  round.got(deck, rng);
+  round.got(deck, rng);
+  round.missed(deck, rng);
+  round.expire();
+  CHECK(round.score() == 2);
+  CHECK(round.cards() == 4);
+
+  round.begin(5, 30, deck, rng);
+  CHECK(round.score() == 0);
+  CHECK(round.cards() == 0);
+  CHECK(round.live());
+  // The new round's own settings, not the previous round's, and not the
+  // defaults either -- 30 and 5 are both different from 60 and 0.
+  CHECK(round.category() == 5);
+  CHECK(round.lengthSeconds() == 30);
+  CHECK(round.cardEntry() >= kCategories[5].first);
+  CHECK(round.cardEntry() < kCategories[5].first + kCategories[5].count);
+}
+
+void testTheRecordSaturatesRatherThanWrapping() {
+  Record record;
+  for (int i = 0; i < 400; ++i) record.push(0, 255);
+  // Both counters saturate. `words` wrapping would show a device that has
+  // played all evening as having played nothing.
+  CHECK(record.words == 65535);
+  CHECK(record.rounds == 400);
+  CHECK(record.best == 255);
 }
 
 void testTwoSeedsDealDifferentRounds() {
@@ -472,6 +605,9 @@ int main() {
   testEveryCategoryIsBigEnoughForAnEvening();
 
   testADeckDealsEveryCardOnceBeforeLapping();
+  testALapKeepsWhatTheCallerIsHolding();
+  testALapLeavesEveryOtherCategoryAlone();
+  testTheDeckDealsEvenlyAcrossItsSlice();
   testDrawingOneCategoryLeavesTheOthersAlone();
   testTheLastCardOfALapIsReachable();
   testSetMaskIgnoresBitsPastTheLastEntry();
@@ -481,6 +617,7 @@ int main() {
   testAnsweringAfterTheEndDoesNothing();
   testARoundNeverRepeatsACard();
   testARoundStopsAtItsCardCap();
+  testARoundObjectIsCleanWhenItBeginsAgain();
   testTextAndMarkAreBoundedByTheCardCount();
 
   testTheRecordKeepsTheLastSixteenRounds();
@@ -488,6 +625,7 @@ int main() {
   testAZeroRoundIsPlayedRatherThanAbsent();
   testPerCategoryBestsDoNotLeak();
   testAnOutOfRangeCategoryCannotCorruptTheRecord();
+  testTheRecordSaturatesRatherThanWrapping();
 
   testTheClockRepaintsAreAffordable();
   testTheBarIsFullAtTheStartAndEmptyAtTheEnd();
