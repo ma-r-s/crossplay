@@ -18,6 +18,9 @@ import pathlib
 import re
 import sys
 
+if len(sys.argv) < 2:
+    sys.exit("usage: shelf_coverage.py <repo-root>")
+
 root = pathlib.Path(sys.argv[1])
 shelf = (root / "src/apps_local/Shelf.cpp").read_text()
 

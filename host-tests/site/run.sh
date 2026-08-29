@@ -148,11 +148,23 @@ fi
 # that shipped and was never written up looks exactly like a game that does not
 # exist. Two of them had been on the shelf for eleven releases. The list comes
 # out of Shelf.cpp, so a new app fails this until somebody writes it up.
-shelf_missing="$(python3 "$HERE/shelf_coverage.py" "$ROOT")"
-if [ -z "$shelf_missing" ]; then
-  ok
+# The status is checked, not just the output, and that distinction is the whole
+# reason this block is four lines longer than it looks like it should be. This
+# check reports gaps by PRINTING them, so "printed nothing" is its success
+# signal -- and a script that crashes also prints nothing to stdout. Wired the
+# obvious way, a shelf_coverage.py with a syntax error made the suite report
+# "29 checks, 0 failed" and exit 0, which is the worst possible outcome: a
+# guard that has stopped guarding while still saying it is fine. Verified by
+# replacing the script with `raise SystemExit("boom")` and watching it pass.
+if shelf_missing="$(python3 "$HERE/shelf_coverage.py" "$ROOT" 2>&1)"; then
+  if [ -z "$shelf_missing" ]; then
+    ok
+  else
+    while IFS= read -r line; do bad "$line"; done <<< "$shelf_missing"
+  fi
 else
-  while IFS= read -r line; do bad "$line"; done <<< "$shelf_missing"
+  bad "shelf_coverage.py could not run, so the shelf went unchecked:"
+  while IFS= read -r line; do echo "      $line"; done <<< "$shelf_missing"
 fi
 
 echo "$checks checks, $failed failed"
