@@ -71,6 +71,9 @@ struct DeckModel {
   // Paired readers get a fourth door: which Anki decks this reader carries is
   // otherwise answerable only once, during the first sync.
   bool paired = false;
+  // Cards waiting in the reader's other decks, so the headline cannot say
+  // ALL CLEAR while work sits one tap away.
+  int otherWaiting = 0;
 };
 
 void buildDeck(toybox::Screen& screen, const DeckModel& model);

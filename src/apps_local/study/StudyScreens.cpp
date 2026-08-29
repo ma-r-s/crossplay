@@ -212,7 +212,17 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   if (model.deckCount > 1) {
     fui::TextStyle scope = small;
     scope.color = fui::Color::DarkGray;
-    screen.target().text(fui::makeRect(body.x, body.y + 146, body.width, 22), "COUNTS ARE FOR THIS DECK", scope);
+    char elsewhere[64];
+    // Name the work waiting one tap away. Without this the headline could say
+    // ALL CLEAR truthfully about the open deck while another deck held every
+    // card the user meant to study, and they would put the reader down.
+    if (model.otherWaiting > 0) {
+      std::snprintf(elsewhere, sizeof(elsewhere), "%d WAITING IN YOUR OTHER DECK%s", model.otherWaiting,
+                    model.deckCount > 2 ? "S" : "");
+    } else {
+      std::snprintf(elsewhere, sizeof(elsewhere), "COUNTS ARE FOR THIS DECK");
+    }
+    screen.target().text(fui::makeRect(body.x, body.y + 146, body.width, 22), elsewhere, scope);
   }
 
   // The ornament, bracketed the way the board is. With three doors below

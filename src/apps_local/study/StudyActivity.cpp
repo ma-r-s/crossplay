@@ -511,6 +511,11 @@ void StudyActivity::buildQueue() {
       }
     }
   }
+  otherWaiting_ = 0;
+  for (int i = 0; i < deckCount_; ++i) {
+    if (i == deckIndex_) continue;
+    otherWaiting_ += countWaitingIn(deckNames_[i]);
+  }
   LOG_INF("STUDY", "Queue: %d of %d due, %d new (day %d, minute %d)", queueCount_, dueTotal_, newTotal_, today_,
           minute);
 }
@@ -1194,6 +1199,44 @@ int64_t localFileSize(const char* path) {
 }
 }  // namespace
 
+// Cards waiting in a deck this reader holds but does not have open. Streams
+// cards.dat with the same fixed offsets buildQueue() uses rather than opening
+// the deck, so the whole pass is one sequential read and no allocation. All
+// decks on a card come from one Anki collection through one bridge, so the
+// open deck's day number applies to them too.
+int StudyActivity::countWaitingIn(const char* dirName) const {
+  char path[96];
+  std::snprintf(path, sizeof(path), "%s/%s/cards.dat", kStudyRoot, dirName);
+  HalFile file;
+  if (!Storage.openFileForRead("STUDY", path, file)) return 0;
+  const uint32_t size = static_cast<uint32_t>(file.size());
+  const int records = static_cast<int>(size / study::kCardRecordSize);
+  int waiting = 0;
+  constexpr int kChunk = 64;
+  uint8_t buffer[kChunk * study::kCardRecordSize];
+  for (int base = 0; base < records; base += kChunk) {
+    const int count = (records - base) < kChunk ? (records - base) : kChunk;
+    if (!file.seekSet(static_cast<uint32_t>(base) * study::kCardRecordSize)) break;
+    if (file.read(buffer, static_cast<size_t>(count) * study::kCardRecordSize) !=
+        static_cast<int>(count * study::kCardRecordSize)) {
+      break;
+    }
+    for (int i = 0; i < count; ++i) {
+      const uint8_t* record = buffer + i * study::kCardRecordSize;
+      const uint8_t state = record[28];
+      if (state == static_cast<uint8_t>(study::State::Suspended)) continue;
+      if (state == static_cast<uint8_t>(study::State::New)) {
+        ++waiting;
+        continue;
+      }
+      int32_t dueDay = 0;
+      std::memcpy(&dueDay, record + 16, sizeof(dueDay));
+      if (dueDay <= today_) ++waiting;
+    }
+  }
+  return waiting;
+}
+
 void StudyActivity::buildDeckModel(studyui::DeckModel& out) const {
   {
     study::BridgeState bridge;
@@ -1216,6 +1259,7 @@ void StudyActivity::buildDeckModel(studyui::DeckModel& out) const {
         }
       }
     }
+    out.otherWaiting = otherWaiting_;
     if (!out.paired) {
       std::snprintf(out.syncSubtitle, sizeof(out.syncSubtitle), "NOT PAIRED YET");
     } else if (unsent > 0) {

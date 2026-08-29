@@ -244,6 +244,11 @@ class StudyActivity final : public Activity {
   // A runtime request for the deck picker; never persisted, so cancelling it
   // cannot leave the reader stuck answering the question on every sync.
   bool pickerRequested_ = false;
+  // Cards waiting in the card's OTHER decks, refreshed with the queue rather
+  // than per render: "ALL CLEAR" on the open deck was read as "nothing to
+  // study today" while another deck held work.
+  int countWaitingIn(const char* dirName) const;
+  int otherWaiting_ = 0;
   // What the pairing screens draw; only meaningful in the PairQr/PairConfirm
   // views. The confirm tap target is registered by render() here so the poll
   // loop and the drawing agree on one rectangle.
