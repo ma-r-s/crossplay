@@ -206,6 +206,16 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   small.font = toybox::kTileFont;
   small.align = fui::TextAlign::Left;
   screen.target().text(fui::makeRect(body.x, body.y + 122, body.width, 24), record, small);
+
+  // Which deck this is. The record line only names it while the deck has no
+  // history, so the decks you actually study were the ones the screen stopped
+  // naming -- and with several on the card nothing else says which is open.
+  int nextLine = 146;
+  if (model.deckCount > 1 && model.lifetimeReviews > 0) {
+    fui::TextStyle deckName = small;
+    screen.target().text(fui::makeRect(body.x, body.y + nextLine, body.width, 22), model.name, deckName);
+    nextLine += 24;
+  }
   // Scope, on its own line so it cannot push the headline out of its box: the
   // counts above are this deck's, and with more than one on the card they read
   // as the whole account's.
@@ -220,9 +230,9 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
       std::snprintf(elsewhere, sizeof(elsewhere), "%d WAITING IN YOUR OTHER DECK%s", model.otherWaiting,
                     model.deckCount > 2 ? "S" : "");
     } else {
-      std::snprintf(elsewhere, sizeof(elsewhere), "COUNTS ARE FOR THIS DECK");
+      std::snprintf(elsewhere, sizeof(elsewhere), "TODAY'S COUNTS ARE FOR THIS DECK");
     }
-    screen.target().text(fui::makeRect(body.x, body.y + 146, body.width, 22), elsewhere, scope);
+    screen.target().text(fui::makeRect(body.x, body.y + nextLine, body.width, 22), elsewhere, scope);
   }
 
   // The ornament, bracketed the way the board is. With three doors below
@@ -268,9 +278,13 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   fui::ListItem rows[4];
   int doorCount = 0;
   rows[doorCount] = fui::ListItem{};
-  rows[doorCount].label = waiting > 0 ? "START REVIEWING" : "NOTHING TO REVIEW";
-  rows[doorCount].enabled = waiting > 0;
-  rows[doorCount].actionValue = 1;
+  // With nothing due here but work waiting elsewhere, the top door used to
+  // read NOTHING TO REVIEW and sit there looking live: same box, same glyph,
+  // no response. It becomes the way to that work instead.
+  const bool elsewhereOnly = waiting == 0 && model.otherWaiting > 0;
+  rows[doorCount].label = waiting > 0 ? "START REVIEWING" : elsewhereOnly ? "REVIEW ANOTHER DECK" : "NOTHING TO REVIEW";
+  rows[doorCount].enabled = waiting > 0 || elsewhereOnly;
+  rows[doorCount].actionValue = elsewhereOnly ? 3 : 1;
   rows[doorCount].icon = fui::bitmapFromIcon(icon_play_32);
   ++doorCount;
   rows[doorCount] = fui::ListItem{};

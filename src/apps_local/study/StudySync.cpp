@@ -97,7 +97,7 @@ int request(const char* method, const std::string& path, const std::string& toke
   const int status = body ? http.sendRequest(method, body, bodyLen) : http.sendRequest(method, std::string());
   if (status <= 0) {
     LOG_ERR("STUDYSYNC", "%s %s failed: %d", method, path.c_str(), status);
-    message = "Could not reach the sync service. Check the WiFi and try again.";
+    message = "Could not reach the sync service. Check Wi-Fi and try again.";
     http.end();
 #if defined(CROSSPOINT_DEV_SERIAL_BRIDGE)
     // Dev-build self-diagnosis, never a fallback: retry the same request
@@ -206,7 +206,7 @@ int request(const char* method, const std::string& path, const std::string& toke
   }
   remove(bodyPath);
   remove(outPath);
-  if (status == 0) message = "Could not reach the sync service. Check the WiFi and try again.";
+  if (status == 0) message = "Could not reach the sync service. Check Wi-Fi and try again.";
   return status;
 }
 
