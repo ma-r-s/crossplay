@@ -33,13 +33,16 @@ constexpr int kMaxSyncDecks = 8;
 struct BridgeState {
   bool paired = false;
   std::string token;
-  char deckDirs[kMaxSyncDecks][32] = {};
+  // 48, not 32: the service slugifies deck names up to 40 characters, so a
+  // shorter buffer silently truncated real Anki deck names ("AnkiDroid
+  // Japanese Core 2000 Step 01") and then never matched their slug again.
+  char deckDirs[kMaxSyncDecks][48] = {};
   uint32_t ackOffsets[kMaxSyncDecks] = {};
-  // The first eight bytes of the revlog the offset was measured against. An
-  // offset is meaningless once the file it points into has been replaced --
-  // which the app's own repair path does, since deleting a deck folder takes
-  // the review log with it and a re-download never restores one.
-  uint64_t revlogTags[kMaxSyncDecks] = {};
+  // A checksum of the bytes the offset claims were already sent, i.e. of
+  // [0, ack). An offset alone cannot tell a log that grew from one that was
+  // replaced, rolled back to an older copy, or half-updated by a failed sync;
+  // the hash of the region it covers can. Zero means "not recorded yet".
+  uint64_t ackHashes[kMaxSyncDecks] = {};
   // The buildId last downloaded per deck dir: the server reuses a build
   // when nothing changed, and a matching id means every file on the card
   // is already exactly the build the manifest describes.
@@ -55,8 +58,8 @@ struct BridgeState {
   void setBuild(const char* dir, const char* buildId);
 
   uint32_t ackFor(const char* dir) const;
-  uint64_t revlogTagFor(const char* dir) const;
-  void setRevlogTag(const char* dir, uint64_t tag);
+  uint64_t ackHashFor(const char* dir) const;
+  void setAckHash(const char* dir, uint64_t hash);
   void setAck(const char* dir, uint32_t offset);
 };
 

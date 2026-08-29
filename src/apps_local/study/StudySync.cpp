@@ -250,23 +250,23 @@ uint32_t BridgeState::ackFor(const char* dir) const {
   return 0;
 }
 
-uint64_t BridgeState::revlogTagFor(const char* dir) const {
+uint64_t BridgeState::ackHashFor(const char* dir) const {
   for (int i = 0; i < deckCount; ++i) {
-    if (std::strcmp(deckDirs[i], dir) == 0) return revlogTags[i];
+    if (std::strcmp(deckDirs[i], dir) == 0) return ackHashes[i];
   }
   return 0;
 }
 
-void BridgeState::setRevlogTag(const char* dir, const uint64_t tag) {
+void BridgeState::setAckHash(const char* dir, const uint64_t hash) {
   for (int i = 0; i < deckCount; ++i) {
     if (std::strcmp(deckDirs[i], dir) == 0) {
-      revlogTags[i] = tag;
+      ackHashes[i] = hash;
       return;
     }
   }
   if (deckCount >= kMaxSyncDecks) return;
   std::snprintf(deckDirs[deckCount], sizeof(deckDirs[0]), "%s", dir);
-  revlogTags[deckCount] = tag;
+  ackHashes[deckCount] = hash;
   ++deckCount;
 }
 
@@ -314,8 +314,8 @@ bool loadBridgeState(BridgeState& out) {
   out.lastSyncAt = doc["lastSyncAt"] | static_cast<int64_t>(0);
   out.choseDecks = doc["choseDecks"] | false;
   out.paired = !out.token.empty();
-  for (JsonPair kv : doc["revtags"].as<JsonObject>()) {
-    out.setRevlogTag(kv.key().c_str(), kv.value().as<uint64_t>());
+  for (JsonPair kv : doc["ackhashes"].as<JsonObject>()) {
+    out.setAckHash(kv.key().c_str(), kv.value().as<uint64_t>());
   }
   for (JsonPair kv : doc["acks"].as<JsonObject>()) {
     out.setAck(kv.key().c_str(), kv.value().as<uint32_t>());
@@ -333,9 +333,9 @@ bool saveBridgeState(const BridgeState& state) {
   if (state.choseDecks) doc["choseDecks"] = true;
   JsonObject acks = doc["acks"].to<JsonObject>();
   for (int i = 0; i < state.deckCount; ++i) acks[state.deckDirs[i]] = state.ackOffsets[i];
-  JsonObject revtags = doc["revtags"].to<JsonObject>();
+  JsonObject hashes = doc["ackhashes"].to<JsonObject>();
   for (int i = 0; i < state.deckCount; ++i) {
-    if (state.revlogTags[i] != 0) revtags[state.deckDirs[i]] = state.revlogTags[i];
+    if (state.ackHashes[i] != 0) hashes[state.deckDirs[i]] = state.ackHashes[i];
   }
   JsonObject builds = doc["builds"].to<JsonObject>();
   for (int i = 0; i < state.deckCount; ++i) {

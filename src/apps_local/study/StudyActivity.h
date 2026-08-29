@@ -173,11 +173,11 @@ class StudyActivity final : public Activity {
   // Every deck on the card, discovered at onEnter. Eight is not a limit anyone
   // will meet: it is one SD card full of separate study subjects.
   static constexpr int kMaxDecks = 8;
-  char deckNames_[kMaxDecks][32] = {};
+  char deckNames_[kMaxDecks][48] = {};
   int deckCount_ = 0;
   int deckIndex_ = 0;
   // The open deck's directory, /study/<name>; empty until a deck is open.
-  char deckDir_[48] = "";
+  char deckDir_[64] = "";  // "/study/" + a 40-char slug, with room to spare
 
   int currentIndex_ = -1;
   int today_ = 0;

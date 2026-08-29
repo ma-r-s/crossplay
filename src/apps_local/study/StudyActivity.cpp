@@ -337,7 +337,11 @@ bool StudyActivity::findDeckDirs() {
     HalFile entry = root.openNextFile();
     if (!entry.isOpen()) break;
     if (!entry.isDirectory()) continue;
-    char name[32];
+    // 48: the service slugifies deck names up to 40 characters, so a 32-byte
+    // buffer truncated real Anki names ("AnkiDroid Japanese Core 2000 Step
+    // 01"), the meta probe then missed, and the deck was skipped silently --
+    // downloaded to the card and invisible on it.
+    char name[48];
     entry.getName(name, sizeof(name));
     if (std::strcmp(name, kFontsDirName) == 0) continue;
     char probe[96];
@@ -348,7 +352,7 @@ bool StudyActivity::findDeckDirs() {
   }
   for (int i = 1; i < deckCount_; ++i) {
     for (int j = i; j > 0 && std::strcmp(deckNames_[j], deckNames_[j - 1]) < 0; --j) {
-      char swap[32];
+      char swap[sizeof(deckNames_[0])];
       std::memcpy(swap, deckNames_[j], sizeof(swap));
       std::memcpy(deckNames_[j], deckNames_[j - 1], sizeof(swap));
       std::memcpy(deckNames_[j - 1], swap, sizeof(swap));
@@ -358,7 +362,7 @@ bool StudyActivity::findDeckDirs() {
   // Reopen whatever was open last time. A device that greets you with a deck
   // you were not studying feels like someone else's.
   deckIndex_ = 0;
-  char last[32] = "";
+  char last[sizeof(deckNames_[0])] = "";
   HalFile lastFile;
   char lastPath[64];
   std::snprintf(lastPath, sizeof(lastPath), "%s/.last", kStudyRoot);
@@ -625,7 +629,19 @@ bool StudyActivity::persist(const int index, const study::CardState& card, const
     std::memcpy(record + 20, &interval, 4);
     // tookMs is left zero: nothing here times the user, and inventing a
     // plausible number would poison the data Anki reimports.
-    const uint32_t at = static_cast<uint32_t>(revlogFile_.size());
+    // Append on the record grid, never after a half-written tail. A power cut
+    // or an unclean eject can leave revlog.dat a non-multiple of the record
+    // size; appending at that length puts every later record off-grid, so the
+    // reviews either side of the seam are unreadable by anything that walks
+    // the file in strides -- the device's own stats, its unsent count, and the
+    // bridge's parser alike. Overwriting the partial tail loses only the
+    // record that was already incomplete.
+    uint32_t at = static_cast<uint32_t>(revlogFile_.size());
+    const uint32_t stray = at % study::kRevlogRecordBytes;
+    if (stray != 0) {
+      LOG_ERR("STUDY", "revlog.dat ends %u bytes into a record; overwriting the partial tail", stray);
+      at -= stray;
+    }
     if (!revlogFile_.seekSet(at) || revlogFile_.write(record, sizeof(record)) != sizeof(record)) {
       LOG_ERR("STUDY", "Failed to append to revlog.dat");
       ok = false;
@@ -1199,6 +1215,35 @@ namespace {
 // Reviews between two offsets that have not been undone. A voided record is
 // struck out in place rather than removed (revlog.dat is append-only), so a
 // byte count over-reports by exactly the undos it contains.
+// Both callers hold a different handle: the payload builder has the deck's
+// ByteSource, the ack writer has a HalFile. One shim keeps a single hash.
+inline bool readChunk(study::ByteSource& source, uint32_t at, uint8_t* out, uint32_t len) {
+  return source.read(at, out, len);
+}
+inline bool readChunk(HalFile& file, uint32_t at, uint8_t* out, uint32_t len) {
+  if (!file.seekSet(at)) return false;
+  return file.read(out, len) == static_cast<int>(len);
+}
+
+// FNV-1a over the first `length` bytes. Cheap, allocation-free, and only has
+// to distinguish one review log from another -- not resist an adversary.
+template <typename Source>
+uint64_t hashPrefix(Source& source, const uint32_t length) {
+  uint64_t hash = 1469598103934665603ULL;
+  uint8_t chunk[256];
+  uint32_t at = 0;
+  while (at < length) {
+    const uint32_t want = (length - at) < sizeof(chunk) ? (length - at) : sizeof(chunk);
+    if (!readChunk(source, at, chunk, want)) return 0;
+    for (uint32_t i = 0; i < want; ++i) {
+      hash ^= chunk[i];
+      hash *= 1099511628211ULL;
+    }
+    at += want;
+  }
+  return hash == 0 ? 1 : hash;
+}
+
 int countLiveRecords(const char* path, const uint32_t from, const uint32_t to) {
   HalFile file;
   if (!Storage.openFileForRead("STUDY", path, file)) return 0;
@@ -1918,36 +1963,23 @@ bool StudyActivity::buildPayloads(std::vector<study::DeckPayload>& out) {
       // past the old offset -- after which every review before that offset is
       // skipped for good and the reader still reports SYNCED. Tag the file by
       // its first record and resend everything when the tag changes.
-      // The fingerprint has to identify the FILE, and the first eight bytes are
-      // only the first review's card id -- which repeats the moment a deck is
-      // restored, because the most-due card is offered first again. A log
-      // replaced from a backup or copied between cards then matched a file it
-      // shared nothing else with, and every record up to the stale offset was
-      // skipped. Mixing in that review's millisecond timestamp makes a
-      // collision mean two different files recorded the same card at the same
-      // millisecond. Old tags (card id alone) will not match the new
-      // derivation, so upgrading devices resend once; the bridge dedupes on
-      // (card id, timestamp), so that costs nothing.
-      uint64_t tag = 0;
-      if (size >= 16) {
-        uint8_t head[16];
-        revlog.seek(0);
-        if (revlog.read(head, sizeof(head)) == static_cast<int>(sizeof(head))) {
-          uint64_t cardId = 0;
-          uint64_t atMs = 0;
-          std::memcpy(&cardId, head, sizeof(cardId));
-          std::memcpy(&atMs, head + 8, sizeof(atMs));
-          tag = (cardId * 1099511628211ULL) ^ atMs;
-          if (tag == 0) tag = 1;  // 0 means "no tag recorded"
+      // Verify the bytes the ack claims were already sent, rather than
+      // trusting the number alone. An offset cannot tell a log that grew from
+      // one that was replaced, rolled back to an older copy, or left
+      // half-updated by a failed sync; a checksum of [0, ack) can, and it
+      // collapses the whole family of "the marker and the file disagree"
+      // failures into one harmless resend that the service dedupes.
+      const uint64_t knownHash = bridge_.ackHashFor(deckNames_[i]);
+      if (ack > size) {
+        LOG_INF("STUDYSYNC", "%s: the log is shorter than the ack; resending the whole log", deckNames_[i]);
+        ack = 0;
+      } else if (ack > 0) {
+        const uint64_t actual = hashPrefix(revlog, ack);
+        if (knownHash == 0 || actual != knownHash) {
+          LOG_INF("STUDYSYNC", "%s: the sent-so-far bytes do not match; resending the whole log", deckNames_[i]);
+          ack = 0;
         }
       }
-      const uint64_t knownTag = bridge_.revlogTagFor(deckNames_[i]);
-      if (tag != 0 && knownTag != 0 && tag != knownTag) {
-        LOG_INF("STUDYSYNC", "%s: review log was replaced; resending all of it", deckNames_[i]);
-        ack = 0;
-      }
-      if (ack > size) ack = 0;  // truncated under us; resend all
-      if (tag != 0 && tag != knownTag) bridge_.setRevlogTag(deckNames_[i], tag);
       payload.revlogOffset = ack;
       if (size > ack) {
         payload.revlogTail.resize(size - ack);
@@ -1967,10 +1999,10 @@ bool StudyActivity::buildPayloads(std::vector<study::DeckPayload>& out) {
       // card, so even the first-record tag matched. Forget both here, where
       // the absence is known.
       payload.revlogOffset = 0;
-      if (bridge_.ackFor(deckNames_[i]) != 0 || bridge_.revlogTagFor(deckNames_[i]) != 0) {
+      if (bridge_.ackFor(deckNames_[i]) != 0 || bridge_.ackHashFor(deckNames_[i]) != 0) {
         LOG_INF("STUDYSYNC", "%s: review log is gone; forgetting its ack", deckNames_[i]);
         bridge_.setAck(deckNames_[i], 0);
-        bridge_.setRevlogTag(deckNames_[i], 0);
+        bridge_.setAckHash(deckNames_[i], 0);
         study::saveBridgeState(bridge_);
       }
     }
@@ -2074,13 +2106,13 @@ void StudyActivity::runSyncFlow() {
   {
     bool forgot = false;
     for (int i = 0; i < bridge_.deckCount; ++i) {
-      if (bridge_.ackOffsets[i] == 0 && bridge_.revlogTags[i] == 0) continue;
+      if (bridge_.ackOffsets[i] == 0 && bridge_.ackHashes[i] == 0) continue;
       char dir[96];
       std::snprintf(dir, sizeof(dir), "%s/%s", kStudyRoot, bridge_.deckDirs[i]);
       if (Storage.exists(dir)) continue;
       LOG_INF("STUDYSYNC", "%s: not on the card; forgetting its ack", bridge_.deckDirs[i]);
       bridge_.ackOffsets[i] = 0;
-      bridge_.revlogTags[i] = 0;
+      bridge_.ackHashes[i] = 0;
       forgot = true;
     }
     if (forgot) study::saveBridgeState(bridge_);
@@ -2138,7 +2170,19 @@ void StudyActivity::runSyncFlow() {
   payloads.shrink_to_fit();
   // The ack is valid the moment the POST answered: the reviews are durable in
   // the bridge's journal even if everything after this fails.
-  for (const auto& ack : acks) bridge_.setAck(ack.first.c_str(), ack.second);
+  for (const auto& ack : acks) {
+    bridge_.setAck(ack.first.c_str(), ack.second);
+    // Record what those bytes were, so the next sync can tell this log from a
+    // different one that happens to be the same length.
+    char logPath[96];
+    std::snprintf(logPath, sizeof(logPath), "%s/%s/revlog.dat", kStudyRoot, ack.first.c_str());
+    HalFile file;
+    uint64_t hash = 0;
+    if (ack.second > 0 && Storage.openFileForRead("STUDY", logPath, file)) {
+      hash = hashPrefix(file, ack.second);
+    }
+    bridge_.setAckHash(ack.first.c_str(), hash);
+  }
   study::saveBridgeState(bridge_);
   // The bridge owns the job from here, so leaving is safe even on a first
   // sync with no reviews to send; the reviews line is added on top only when
