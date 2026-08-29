@@ -20,6 +20,7 @@
 #include "SilentRestart.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "activities/settings/OpdsFilterActivity.h"
+#include "activities/settings/OpdsServerListActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UIScale.h"
 #include "components/UITheme.h"
@@ -50,6 +51,18 @@ OpdsBookBrowserActivity::OpdsBookBrowserActivity(GfxRenderer& renderer, MappedIn
       UiAppHost(renderer),
       buttonNavigator(),
       server(std::move(server)) {}
+
+std::unique_ptr<Activity> OpdsBookBrowserActivity::create(GfxRenderer& renderer, MappedInputManager& mappedInput) {
+  const auto& servers = OPDS_STORE.getServers();
+  if (servers.empty()) {
+    // Nothing to open yet, so the list is the only useful destination.
+    return std::make_unique<OpdsServerListActivity>(renderer, mappedInput, true);
+  }
+  // Straight into the catalog last used -- never a picker. Clamped because
+  // catalogs get deleted.
+  const size_t index = SETTINGS.opdsLastServer < servers.size() ? SETTINGS.opdsLastServer : 0;
+  return std::make_unique<OpdsBookBrowserActivity>(renderer, mappedInput, servers[index]);
+}
 
 void OpdsBookBrowserActivity::onEnter() {
   Activity::onEnter();

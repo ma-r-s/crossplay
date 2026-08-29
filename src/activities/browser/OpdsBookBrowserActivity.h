@@ -20,6 +20,12 @@ class OpdsBookBrowserActivity final : public Activity, private UiAppHost {
 
   explicit OpdsBookBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, OpdsServer server);
 
+  // Shelf factory: Get Books is a row in APPS, and the shelf hands every app
+  // the same two arguments. Picking which catalog to open is this class's
+  // business, so ActivityManager::goToBrowser() calls it too rather than
+  // keeping a second copy of the rule.
+  static std::unique_ptr<Activity> create(GfxRenderer& renderer, MappedInputManager& mappedInput);
+
   void onEnter() override;
   void onExit() override;
   void loop() override;
