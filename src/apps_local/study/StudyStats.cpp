@@ -33,21 +33,14 @@ bool readStats(ByteSource& revlog, const int todayDay, const int64_t collectionC
   if (size < kRevlogRecordSize) return true;  // an empty log is not an error
 
   const uint32_t records = size / kRevlogRecordSize;
-  // Every record, minus the ones the user took back. The comment here used to
-  // claim voided records were "subtracted as they are walked"; they were not,
-  // because the walk stops at the window's edge, so an undo made the lifetime
-  // figure count a review that never happened.
+  // Every record, minus the undos the window walk below finds. Undos older
+  // than the fortnight are not subtracted, and that is deliberate: walking
+  // the whole file to find them would make opening a deck O(history) -- a
+  // year of reviews on every open -- and the suite pins that (test_stats:
+  // "the scan stops at the window instead of walking the file"). An undo is
+  // something you do to the answer you just gave, so it is inside the window
+  // essentially always.
   out.lifetimeReviews = static_cast<int>(records);
-  {
-    uint8_t scan[kChunkRecords * kRevlogRecordSize];
-    for (uint32_t base = 0; base < records; base += kChunkRecords) {
-      const uint32_t count = (records - base) < kChunkRecords ? (records - base) : kChunkRecords;
-      if (!revlog.read(base * kRevlogRecordSize, scan, count * kRevlogRecordSize)) break;
-      for (uint32_t i = 0; i < count; ++i) {
-        if (scan[i * kRevlogRecordSize + kRevlogFlagsOffset] & kRevlogVoided) --out.lifetimeReviews;
-      }
-    }
-  }
 
   // Walk backwards. Records are appended in answer order, so once a chunk is
   // entirely older than the window every earlier chunk is too, and the scan
@@ -69,8 +62,12 @@ bool readStats(ByteSource& revlog, const int todayDay, const int64_t collectionC
       const uint8_t rating = record[16];
       if (cardId == 0 || rating < 1 || rating > 4) continue;
       // A review the user took back never happened, as far as anything that
-      // reads this file is concerned.
-      if (record[kRevlogFlagsOffset] & kRevlogVoided) continue;
+      // reads this file is concerned -- including the lifetime figure, which
+      // counted the raw records and so kept crediting undone reviews.
+      if (record[kRevlogFlagsOffset] & kRevlogVoided) {
+        if (out.lifetimeReviews > 0) --out.lifetimeReviews;
+        continue;
+      }
 
       const int day = static_cast<int>((atMs / 1000 - collectionCreated) / kSecondsPerDay);
       const int age = todayDay - day;
