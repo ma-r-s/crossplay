@@ -131,11 +131,20 @@ sentence where a button gets three words, but it may not become a brochure.
   "linkplay" are internal words.
 - It is a **fork of CrossPoint**, said plainly and early. We track it, we did not
   replace it, and the relationship is a credential rather than an embarrassment.
+- **Upstream's name stays on upstream's things**, and only on those: the
+  `/.crosspoint` card directory that holds every user's saves and progress, the
+  `CROSSPOINT-BOARD-V1` image tag upstream's web flasher scans for, the
+  `crosspoint` token in Calibre's discovery reply, the Calibre plugin, the
+  `sync.crosspointreader.com` sync server and the `crosspoint-fonts` repo.
+  Renaming any of those does not rebrand anything -- it loses somebody's data or
+  breaks a handshake. Everything a person actually reads is ours and says
+  CrossPlay. `host-tests/brand/` holds the line in both directions.
 - The device is the **Xteink X4 Pro**. CrossPlay does not claim the others.
 
 ## The mark
 
-Corner brackets around a screen. See `site/assets/logo.svg`.
+Corner brackets around a screen. See `site/assets/logo.svg`, and
+`scripts/generate_logo.py` for the version the device draws.
 
 The brackets are the one shape this fork invented rather than inherited: they
 frame the chess board, the mini board on its menu, and every Toybox panel. That
@@ -152,11 +161,31 @@ hamburger, small), and a pixel C monogram -- the last one only because it says
 nothing about a device, and it is what to reach for if the mark ever has to live
 off a screen.
 
-Two files carry it. `logo.svg` keeps `currentColor` and is inlined in the page
-so the theme toggle moves it; `favicon.svg` resolves the colour with a
-`prefers-color-scheme` rule, because a favicon renders alone and `currentColor`
-would come out black against a dark tab strip. One shape, two files: change one
-and change the other.
+### Where the mark lives
+
+Off the device, two files carry it by hand. `site/assets/logo.svg` keeps
+`currentColor` and is inlined in the page so the theme toggle moves it;
+`site/assets/favicon.svg` resolves the colour with a `prefers-color-scheme`
+rule, because a favicon renders alone and `currentColor` would come out black
+against a dark tab strip. One shape, two files: change one and change the other.
+
+On the device it is the boot screen and the sleep screen, which is where most
+people meet it. Those are generated rather than drawn, by
+`scripts/generate_logo.py`, which writes all three of `src/images/Logo120.h`
+(the 1-bit array the panel draws), `src/images/Logo120.png` (the same pixels as
+RGBA, which the user guide cover is built from) and `src/images/logo.svg`. The
+geometry lives in the script; the files are output. Edit the script and re-run
+it, never the files -- a hand-edited header still compiles, and a green build
+says nothing about whether your change is in the tree.
+
+Two details that cost time if rediscovered. The array is stored a quarter turn
+from how it is seen (`stored(a, b)` is `visible(H-1-b, a)`), and `1` is WHITE,
+so the mark itself is the zeroes. And it is rasterised from exact rectangles
+rather than rendered and thresholded: every edge is axis-aligned, the panel is
+1-bit, and an anti-aliased grey edge has nowhere to go. That also means the
+script needs neither PIL nor cairosvg, neither of which is installed here.
+
+`host-tests/brand/` fails if the generated files stop matching the script.
 
 # CrossPlay: the identity, on the device and off it
 

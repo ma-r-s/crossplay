@@ -82,7 +82,7 @@ doc = SimpleDocTemplate(
     topMargin=13 * mm,
     bottomMargin=12 * mm,
     title="Study - quick reference",
-    author="CrossPoint / Xteink X4 Pro",
+    author="CrossPlay / Xteink X4 Pro",
 )
 
 s = []

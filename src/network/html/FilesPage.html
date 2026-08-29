@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Files - CrossPoint Reader</title>
+  <title>Files - CrossPlay</title>
   <script src="/js/jszip.min.js"></script>
   <style>
     :root {
@@ -1501,7 +1501,7 @@
   </style>
 </head>
 <body>
-<h1>📚 CrossPoint Reader</h1>
+<h1>CrossPlay</h1>
 
 <div class="nav-links">
   <a href="/">Home</a>
@@ -1547,7 +1547,7 @@
 
 <div class="card">
   <p style="text-align: center; color: #95a5a6; margin: 0;">
-    CrossPoint E-Reader • Open Source
+    CrossPlay • a fork of CrossPoint • Open Source
   </p>
 </div>
 
@@ -1846,7 +1846,7 @@
 
   if (currentPath !== '/') {
     const leaf = currentPath.split('/').filter(Boolean).pop();
-    if (leaf) document.title = leaf + ' - Files - CrossPoint Reader';
+    if (leaf) document.title = leaf + ' - Files - CrossPlay';
   }
 
   // Network status monitoring
@@ -3319,7 +3319,9 @@ let ENABLE_GRAYSCALE = DEFAULT_ENABLE_GRAYSCALE;
 let ENABLE_AUTO_CROP = DEFAULT_ENABLE_AUTO_CROP;
 let HANDEDNESS = 'right'; // 'right' = clockwise (right-handed), 'left' = counter-clockwise (left-handed)
 let OVERLAP_PERCENT = 5; // Minimum overlap percentage for splits (5%, 10%, 15%)
-const UPLOAD_SETTINGS_STORAGE_KEY = 'crosspoint.files.uploadSettings.v1';
+const UPLOAD_SETTINGS_STORAGE_KEY = 'crossplay.files.uploadSettings.v1';
+// Read-only fallback for browsers that remembered settings under the pre-fork name.
+const LEGACY_UPLOAD_SETTINGS_STORAGE_KEY = 'crosspoint.files.uploadSettings.v1';
 const DEFAULT_UPLOAD_SETTINGS = Object.freeze({
   convertBeforeUpload: false,
   renameFromMetadata: false,
@@ -3367,7 +3369,9 @@ function applyUploadSettings(settings = {}) {
 
 function restoreUploadSettingsFromStorage() {
   try {
-    const saved = JSON.parse(localStorage.getItem(UPLOAD_SETTINGS_STORAGE_KEY) || 'null');
+    const stored = localStorage.getItem(UPLOAD_SETTINGS_STORAGE_KEY)
+      ?? localStorage.getItem(LEGACY_UPLOAD_SETTINGS_STORAGE_KEY);
+    const saved = JSON.parse(stored || 'null');
     applyUploadSettings(saved?.rememberSettings ? saved : undefined);
   } catch (e) {
     console.warn('Could not read remembered upload settings:', e);
@@ -3380,10 +3384,12 @@ function updateUploadSettingsPersistence() {
   try {
     if (!document.getElementById('rememberUploadSettings')?.checked) {
       localStorage.removeItem(UPLOAD_SETTINGS_STORAGE_KEY);
+      localStorage.removeItem(LEGACY_UPLOAD_SETTINGS_STORAGE_KEY);
       return;
     }
     const settings = { ...getCurrentUploadSettings(), rememberSettings: true };
     localStorage.setItem(UPLOAD_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+    localStorage.removeItem(LEGACY_UPLOAD_SETTINGS_STORAGE_KEY);
   } catch (e) {
     console.warn('Could not save upload settings:', e);
   }
@@ -3755,7 +3761,7 @@ function exportLogToFile(filename = null, isBatch = false) {
   }
   // Extract text from log entries
   const entries = logContainer.querySelectorAll('.log-entry');
-  let logText = `CrossPoint Reader ${crosspointVersion} - EPUB Conversion Log\n`;
+  let logText = `CrossPlay ${crosspointVersion} - EPUB Conversion Log\n`;
   logText += `Generated: ${new Date().toLocaleString()}\n`;
   logText += `${'='.repeat(60)}\n\n`;
 

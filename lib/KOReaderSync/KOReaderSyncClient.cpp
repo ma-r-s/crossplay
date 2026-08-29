@@ -12,9 +12,12 @@
 int KOReaderSyncClient::lastHttpCode = 0;
 
 namespace {
-// Device identifier for CrossPoint reader
-constexpr char DEVICE_NAME[] = "CrossPoint";
-constexpr char DEVICE_ID[] = "crosspoint-reader";
+// How this device labels itself to a sync server. DEVICE_NAME is what KOReader
+// shows in its own UI; DEVICE_ID distinguishes devices server-side. Both were
+// upstream's until the fork took its own name. Nothing here reads deviceId back
+// off a download, so the change is one-way and costs an existing user nothing.
+constexpr char DEVICE_NAME[] = "CrossPlay";
+constexpr char DEVICE_ID[] = "crossplay-reader";
 
 // KOSync's TLS-1.3 servers can't be reached through the precompiled system
 // mbedTLS (TLS 1.3 is stubbed out), so requests run over wolfSSL via
