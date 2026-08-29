@@ -37,9 +37,6 @@ class OpdsBookBrowserActivity final : public Activity, private UiAppHost {
   std::vector<std::string> navigationHistory;
   std::string currentPath;
   // Cleared once consumed; see the tail of fetchFeed().
-  // Where dismissing the keyboard goes. Never forward into results.
-  enum class SearchReturn : uint8_t { Home, Rows };
-  SearchReturn searchReturn = SearchReturn::Home;
   // A catalog with a search link and nothing to browse (LibGen). Derived from
   // the feed, not configured.
   bool searchOnlyCatalog = false;
@@ -47,6 +44,8 @@ class OpdsBookBrowserActivity final : public Activity, private UiAppHost {
   // True while the visible feed is a search result set.
   bool showingSearchResults = false;
   std::string searchTemplate;
+  // The feed's <subtitle>, drawn when it has no entries to draw instead.
+  std::string feedSubtitle;
   // Resolved once per server from an OpenSearch description document and
   // reused while navigating, since subfeeds rarely repeat the search link.
   std::string resolvedDescriptionUrl;

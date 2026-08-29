@@ -141,7 +141,6 @@ void OpdsBookBrowserActivity::onSearchEvent(const fui::ActionEvent&, void* user)
   auto* self = static_cast<OpdsBookBrowserActivity*>(user);
   if (self->state != BrowserState::BROWSING) return;
   self->app.clearTapFlash();
-  self->searchReturn = self->searchOnlyCatalog ? SearchReturn::Home : SearchReturn::Rows;
   self->launchSearch();
 }
 
@@ -307,7 +306,14 @@ void OpdsBookBrowserActivity::buildBrowsingScreen(UiScreen& screen) {
   if (entries.empty()) {
     // A lookup-only catalog has nothing to list; say what to do rather than
     // reporting the empty feed as a fault.
-    screen.centeredText(searchOnlyCatalog ? tr(STR_SEARCH) : tr(STR_NO_ENTRIES), screen.theme().bodyText);
+    // The catalog's own words first: an empty feed's <subtitle> is where a
+    // server says WHY it is empty ("No EPUBs found for dune"), and it beats
+    // anything generic we could write. Otherwise: a lookup-only catalog with
+    // nothing typed yet is waiting for a search, and everything else is empty.
+    const char* empty = feedSubtitle.empty()
+                            ? (searchOnlyCatalog && !showingSearchResults ? tr(STR_SEARCH) : tr(STR_NO_ENTRIES))
+                            : feedSubtitle.c_str();
+    screen.centeredText(empty, screen.theme().bodyText);
     return;
   }
 
@@ -458,6 +464,7 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
     return;
   }
 
+  feedSubtitle = parser.getSubtitle();
   searchTemplate = parser.getSearchTemplate();
   if (searchTemplate.empty()) {
     // Most real catalogs advertise search by pointing at an OpenSearch
@@ -526,7 +533,6 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
   if (openSearchOnArrival) {
     openSearchOnArrival = false;
     if (searchOnlyCatalog) {
-      searchReturn = SearchReturn::Home;  // nothing behind the keyboard here
       launchSearch();
     }
   }
@@ -582,7 +588,6 @@ void OpdsBookBrowserActivity::navigateBack() {
     showingSearchResults = false;
     // On a lookup-only catalog the keyboard IS the home screen, so dismissing
     // it leaves for Home; on a browsable one it sits above the rows.
-    searchReturn = searchOnlyCatalog ? SearchReturn::Home : SearchReturn::Rows;
     launchSearch();
     return;
   }
@@ -705,10 +710,11 @@ void OpdsBookBrowserActivity::launchSearch() {
       performSearch(entered.text);
       return;
     }
-    // Dismissing the keyboard moves UP the chain, never forward into the
-    // results it was opened from. Returning to those results made Back a loop:
-    // results -> keyboard -> results -> keyboard, with no way out but Home.
-    requestUpdate();  // the catalog's own screen: rows, or empty with a header
+    // Back from the search box leaves Get Books, always -- not into the rows
+    // behind it and never into an earlier search. The keyboard is the top of
+    // this app's stack, and settings stays reachable from the icon on the
+    // keyboard itself rather than from a screen behind it.
+    onGoHome();
   });
 }
 
@@ -791,7 +797,10 @@ void OpdsBookBrowserActivity::performSearch(const std::string& query) {
     url.erase(open, close - open + 1);
   }
 
-  navigationHistory.push_back(currentPath);
+  // Deliberately NOT pushed onto navigationHistory. A search is a mode, not a
+  // place in the catalog: stacking them made Back walk backwards through every
+  // query the reader had ever typed instead of returning to the keyboard.
+  // Back out of results is handled by showingSearchResults in navigateBack().
   currentPath = url;
   showingSearchResults = true;
 

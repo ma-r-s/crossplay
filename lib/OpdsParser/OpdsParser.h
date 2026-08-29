@@ -58,6 +58,10 @@ class OpdsParser final : public Print {
 
   // Disable copy
   const std::string& getSearchTemplate() const { return searchTemplate; }
+  // The feed's own <subtitle>. A catalog with nothing to list uses it to say
+  // why -- "No EPUBs found for dune" -- which is the only thing worth drawing
+  // on an otherwise empty screen.
+  const std::string& getSubtitle() const { return subtitle; }
   // Set only when the feed's search link points at an OpenSearch description
   // document instead of inlining {searchTerms}. Resolve it with OpenSearchParser.
   const std::string& getSearchDescriptionUrl() const { return searchDescriptionUrl; }
@@ -101,6 +105,7 @@ class OpdsParser final : public Print {
   static void XMLCALL characterData(void* userData, const XML_Char* s, int len);
 
   std::string searchTemplate;
+  std::string subtitle;
   std::string searchDescriptionUrl;
   std::string nextPageUrl;
   std::string prevPageUrl;
@@ -122,6 +127,7 @@ class OpdsParser final : public Print {
   bool inId = false;
   bool inLanguage = false;
   bool inSummary = false;
+  bool inSubtitle = false;
   bool coverIsThumbnail = false;
   bool collectCurrentEntry = false;
 

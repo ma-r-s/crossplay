@@ -95,12 +95,14 @@ bool OpdsParser::error() const { return errorOccured; }
 void OpdsParser::clear() {
   entries.clear();
   searchTemplate.clear();
+  subtitle.clear();
   searchDescriptionUrl.clear();
   nextPageUrl.clear();
   prevPageUrl.clear();
   currentEntry = OpdsEntry{};
   currentText.clear();
   inEntry = inTitle = inAuthor = inAuthorName = inId = inLanguage = inSummary = false;
+  inSubtitle = false;
   coverIsThumbnail = false;
   collectCurrentEntry = false;
   feedTruncated = false;
@@ -186,10 +188,13 @@ void XMLCALL OpdsParser::startElement(void* userData, const XML_Char* name, cons
             assignBounded(self->currentEntry.href, href, MAX_HREF_CHARS);
           }
         } else if (rel && strstr(rel, "opds-spec.org/image") != nullptr && type && strncmp(type, "image/", 6) == 0) {
-          // A feed may carry both; the thumbnail wins whichever order they
-          // arrive in, and the full image is only kept when nothing better has.
+          // A feed may carry both, and the FULL image wins. The thumbnail used
+          // to, on the reasoning that the detail screen draws small -- but
+          // Gutenberg's thumbnail is 66x93, and scaled into a 200-wide box it
+          // dithers to a black blob. Nothing upscales, so a too-small source
+          // cannot be recovered; a too-large one costs only bytes.
           const bool isThumbnail = strstr(rel, "/thumbnail") != nullptr;
-          if (isThumbnail || !self->coverIsThumbnail) {
+          if (!isThumbnail || self->currentEntry.coverHref.empty()) {
             assignBounded(self->currentEntry.coverHref, href, MAX_HREF_CHARS);
             self->coverIsThumbnail = isThumbnail;
           }
@@ -201,6 +206,14 @@ void XMLCALL OpdsParser::startElement(void* userData, const XML_Char* name, cons
         }
       }
     }
+  }
+
+  // Feed-level <subtitle>, before the entry gate below: it never sits inside
+  // an entry, so it has to be read here or not at all.
+  if (!self->inEntry && (strcmp(name, "subtitle") == 0 || strstr(name, ":subtitle") != nullptr)) {
+    self->inSubtitle = true;
+    self->currentText.clear();
+    return;
   }
 
   if (!self->inEntry || !self->collectCurrentEntry) return;
@@ -241,6 +254,9 @@ void XMLCALL OpdsParser::endElement(void* userData, const XML_Char* name) {
     }
     self->inEntry = false;
     self->collectCurrentEntry = false;
+  } else if (self->inSubtitle && (strcmp(name, "subtitle") == 0 || strstr(name, ":subtitle") != nullptr)) {
+    self->subtitle = self->currentText;
+    self->inSubtitle = false;
   } else if (self->inEntry) {
     if (strcmp(name, "title") == 0 || strstr(name, ":title") != nullptr) {
       if (self->inTitle) self->currentEntry.title = self->currentText;
@@ -266,6 +282,10 @@ void XMLCALL OpdsParser::endElement(void* userData, const XML_Char* name) {
 
 void XMLCALL OpdsParser::characterData(void* userData, const XML_Char* s, const int len) {
   auto* self = static_cast<OpdsParser*>(userData);
+  if (self->inSubtitle) {
+    appendBounded(self->currentText, s, len, MAX_TITLE_CHARS);
+    return;
+  }
   if (!self->collectCurrentEntry) return;
   if (self->inTitle) {
     appendBounded(self->currentText, s, len, MAX_TITLE_CHARS);
