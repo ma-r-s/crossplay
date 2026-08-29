@@ -144,5 +144,111 @@ CARRY=xteink expect "the branch carried in reaches the gate" fired
 # handed across stays quiet.
 CARRY=app/something expect "a carried feature branch stays quiet" silent
 
+# ---------------------------------------------------------------------------
+# The firmware build lock, tested for its SPAN rather than its existence.
+#
+# The lock serialises device builds across worktrees because they share
+# ~/.platformio, and a collision surfaces as a missing framework header naming
+# no file of ours. It was acquired on x4pro and released on a hardcoded
+# "sticky" -- correct until gh_release_x4pro and gh_release_sticky were appended
+# to BUILD_ENVS and the release was not moved with them, leaving both release
+# builds unlocked for a week. A release gate then collided with any other tree's
+# device build by design, which is how it was found: WiFi.h, on 2026-08-29.
+#
+# So this asserts the lock is HELD DURING every env that touches ~/.platformio.
+# Asserting it is merely taken and released would pass the broken code -- the
+# bug was never a missing lock, it was a lock whose span stopped early.
+# ---------------------------------------------------------------------------
+
+# Lift the real loop, from the env list down to the `done` that closes it.
+python3 - "$CHECK" >"$WORK/loop.sh" <<'PY'
+import sys
+lines = open(sys.argv[1]).read().split("\n")
+start = next(i for i, l in enumerate(lines) if l.strip().startswith('BUILD_ENVS="simulator'))
+head = next(j for j in range(start, len(lines)) if lines[j].strip().startswith("for env in"))
+# Close on the `done` at the FOR's own indentation. The first `done` after it
+# belongs to the inner `while ! mkdir` spin that waits for the lock, and
+# stopping there lifts half a loop that will not parse.
+col = len(lines[head]) - len(lines[head].lstrip())
+end = next(j for j in range(head + 1, len(lines))
+           if lines[j].strip() == "done" and len(lines[j]) - len(lines[j].lstrip()) == col)
+body = lines[start:end + 1]
+indent = min(len(l) - len(l.lstrip()) for l in body if l.strip())
+print("\n".join(l[indent:] if l.strip() else "" for l in body))
+PY
+
+[ -s "$WORK/loop.sh" ] || { echo "FAIL checksh  could not lift the build loop out of check.sh"; failed=$((failed + 1)); }
+
+# A pio that builds nothing and records whether the lock was held while it ran.
+mkdir -p "$WORK/bin"
+cat >"$WORK/bin/pio" <<'STUB'
+#!/bin/bash
+env_name="$3"
+if [ -d "$FW_LOCK" ]; then echo "$env_name held" >>"$LOCK_TRACE"
+else echo "$env_name free" >>"$LOCK_TRACE"; fi
+exit 0
+STUB
+chmod +x "$WORK/bin/pio"
+
+run_loop() {  # $1 = value for CHECK_BUILD_RELEASE_ENVS ("" or "1")
+  rm -f "$WORK/trace"; rm -rf "$WORK/lockdir"; mkdir -p "$WORK/lockdir" "$WORK/logs"
+  (
+    export PATH="$WORK/bin:$PATH"
+    export FW_LOCK="$WORK/lockdir/x4pro.lock"
+    export LOCK_TRACE="$WORK/trace"
+    export LOGS="$WORK/logs"
+    export CHECK_BUILD_RELEASE_ENVS="$1"
+    FAILED=0
+    # shellcheck disable=SC1090
+    . "$WORK/loop.sh"
+  ) >/dev/null 2>&1
+  cat "$WORK/trace" 2>/dev/null
+}
+
+lock_spans() {  # every env but the simulator must report "held"
+  local trace="$1" bad=""
+  while read -r name state; do
+    case "$name" in simulator*) continue ;; esac
+    [ "$state" = "held" ] || bad="$bad $name"
+  done <<<"$trace"
+  printf '%s' "$bad"
+}
+
+for mode in "" "1"; do
+  label="plain"; [ -n "$mode" ] && label="--committed"
+  trace="$(run_loop "$mode")"
+  checks=$((checks + 1))
+  if [ -z "$trace" ]; then
+    failed=$((failed + 1))
+    echo "FAIL checksh  the lifted build loop ran no envs in $label mode"
+    continue
+  fi
+  unlocked="$(lock_spans "$trace")"
+  if [ -n "$unlocked" ]; then
+    failed=$((failed + 1))
+    echo "FAIL checksh  in $label mode these device builds ran with no lock held:$unlocked"
+    echo "$trace" | sed 's/^/       /'
+  fi
+done
+
+# And the test must be able to see the bug it was written for: put the hardcoded
+# release back and the span assertion has to go red. A check that cannot fail
+# against the code it replaced is not evidence of anything.
+checks=$((checks + 1))
+sed 's/if \[ "\$env" = "\$LAST_FW_ENV" \]; then/if [ "$env" = "sticky" ]; then/' \
+  "$WORK/loop.sh" >"$WORK/loop-broken.sh"
+if cmp -s "$WORK/loop.sh" "$WORK/loop-broken.sh"; then
+  failed=$((failed + 1))
+  echo "FAIL checksh  could not reintroduce the early release; the span test proves nothing"
+else
+  cp "$WORK/loop.sh" "$WORK/loop-good.sh"; cp "$WORK/loop-broken.sh" "$WORK/loop.sh"
+  broken_unlocked="$(lock_spans "$(run_loop 1)")"
+  cp "$WORK/loop-good.sh" "$WORK/loop.sh"
+  if [ -z "$broken_unlocked" ]; then
+    failed=$((failed + 1))
+    echo "FAIL checksh  releasing the lock on 'sticky' left the release builds unlocked and this test did not notice"
+  fi
+fi
+
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]
