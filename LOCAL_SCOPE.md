@@ -18,7 +18,7 @@ upstream's to own. We do not fork it, improve it, or diverge from it. Anything
 that makes reading better belongs upstream, so send it there.
 
 What we add is **games and small tools that make the device worth carrying
-instead of a phone**. Eighteen apps are here now: fifteen games, a
+instead of a phone**. Nineteen apps are here now: sixteen games, a
 spaced-repetition trainer, a Hacker News reader and an xkcd viewer.
 
 ## The one rule that keeps this sustainable
@@ -164,7 +164,7 @@ beta branch, the only place X4 Pro and touch support lived. Upstream deleted
 that branch without merging it. Its content is not in `develop`, not in
 `master`, not anywhere upstream -- `xteink` is its only living continuation,
 and our pushed copy survives as `origin/feat-touch-ui`. The touch layer this
-fork's eighteen apps sit on is therefore ours to carry now, not a passthrough.
+fork's nineteen apps sit on is therefore ours to carry now, not a passthrough.
 
 `base` now tracks **`crosspoint/develop`**, the durable trunk, re-founded at
 `v1.5.0` (`e00f5958`): the last develop commit fully contained in `xteink`.

@@ -255,11 +255,14 @@ Added 2026-08-26, revised the same day: the X4 Pro side of this item is done
 (measured insets, safe-area enforcement through both the UITheme and fui
 layers; see [bezel-insets.md](bezel-insets.md)). What remains is the Sticky:
 its profile still carries the default {9,3,3,3} nobody measured, so its
-screens are laid out around a guess. The BEZEL app measures it in two
-minutes at a desk.
+screens are laid out around a guess. The BEZEL ruler measures it in two
+minutes at a desk, once it is restored: it was removed from the shelf after
+the X4 Pro was measured, and [bezel-insets.md](bezel-insets.md) carries the
+two commands that bring it back.
 
 **Done looks like:** a measured `ViewableInsets` override in the STICKY
-profile in BoardConfig.h, read off the BEZEL ruler on the physical unit.
+profile in BoardConfig.h, read off the restored BEZEL ruler on the physical
+unit.
 
 ## The freeink-sdk pin fetches from the ma-r-s fork
 

@@ -7,9 +7,12 @@ problem on the X4 (discussion #618: 5-11 hidden top rows across eleven units,
 the default 9 chosen "mostly by eye"), then carried the values to the X4 Pro
 unmeasured.
 
-Measured on the physical unit on 2026-08-26 with the BEZEL ruler app
-(`src/apps_local/bezel/`, Apps > BEZEL, 1px ticks on all four edges; the
-smallest number visible on an edge is that edge's hidden pixel count):
+Measured on the physical unit on 2026-08-26 with the BEZEL ruler app, which
+drew a numbered 1px tick ruler on each edge: looking straight on, the smallest
+number still visible on an edge is that edge's hidden pixel count. The app was
+a measuring instrument rather than something to ship, and it was removed from
+the shelf once both edges of this table were filled in. See "Measuring another
+unit" below for how to get it back.
 
 | edge   | hidden px | firmware assumed |
 | ------ | --------- | ---------------- |
@@ -31,7 +34,7 @@ into the current orientation.
 
 - X4 Pro: `{10, 1, 0, 1}` (measured, above).
 - Sticky: **still the inherited default `{9, 3, 3, 3}` -- unmeasured.** The
-  BEZEL app works there too; measure and override its profile.
+  ruler works there too; restore it, measure, and override its profile.
 - Simulator builds select the X4 profile (no `FREEINK_DEVICE_X4PRO` define in
   `platformio.sim.ini`), so sim renders use `{9, 3, 3, 3}`, not the X4 Pro
   values. Sim screenshots are therefore 1px off the device at the top and 2px
@@ -101,8 +104,9 @@ traps were found:
    panel width (paint may run under the bezel; content may not), the XKCD
    reader bar and its map stay on the true bottom edge, Connections'
    tap-anywhere hit rect covers the whole panel (the digitizer works over
-   the covered strip), and the BEZEL ruler app draws edge-to-edge because
-   measuring the bezel is its job.
+   the covered strip). The BEZEL ruler app was the other exception, drawing
+   edge-to-edge because measuring the bezel was its whole job; it has since
+   been removed.
 5. **Solitaire's absolute landscape layout is untouched**: rotated into
    landscape, the insets put 1px on the logical top/bottom and the 10px
    strip inside its side margins, all absorbed. Its chrome shifts by 1px.
@@ -112,8 +116,24 @@ and PLAYER in the simulator (21 screens) -- the ui host-tests cannot catch
 any of this: they construct `DeviceContext` with `safeArea = {}`, which also
 means they pin the same geometry before and after the flip by construction.
 
-## Measuring a unit
+## Measuring another unit
 
-Apps > BEZEL. Look straight on. For each edge, the smallest number whose tick
-you can see is the hidden pixel count. The screen also prints the values the
-firmware is currently configured with (`SET T.. R.. B.. L..`).
+The ruler is not on the shelf any more. It was a two-file app that existed to
+fill in the table above, and a permanent row on APPS is a poor home for an
+instrument used twice. It is not lost, though, and restoring it is a checkout
+plus the one row it needs:
+
+```bash
+git log --all --diff-filter=D -1 --format=%H -- src/apps_local/bezel   # the commit that removed it
+git checkout <that commit>^ -- src/apps_local/bezel
+```
+
+Then re-add its include and its `kApps` row in `src/apps_local/Shelf.cpp`, and
+build. On the device: Apps > BEZEL, look straight on, and for each edge the
+smallest number whose tick you can still see is that edge's hidden pixel count.
+The screen also prints what the firmware is currently configured with
+(`SET T.. R.. B.. L..`), so a measurement and the value it should replace are
+on the panel together.
+
+Take it back off the shelf when you are done. That is the whole reason this
+section exists rather than the app.
