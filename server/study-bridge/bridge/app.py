@@ -360,7 +360,17 @@ async def list_decks(dev=Depends(require_device)):
             )
         finally:
             col.close()
-        return [{"name": n.replace("\x1f", "::"), "cards": c} for n, c in rows]
+        # Count the subtree, not the deck's own cards. A shared deck arrives
+        # as a parent whose cards all live in subdecks, so its own count is
+        # zero -- and the reader hides a zero-card deck, because the converter
+        # refuses a truly empty one. The converter itself matches subdecks
+        # (anki_to_deck.collect_notes: d.name = ? or d.name like ? || x'1f%'),
+        # so the parent builds correctly and only the count was lying.
+        own = [(n, c) for n, c in rows]
+        def subtree(name):
+            return sum(c for n, c in own if n == name or n.startswith(name + "\x1f"))
+
+        return [{"name": n.replace("\x1f", "::"), "cards": subtree(n)} for n, _ in own]
 
     async with store.LOCKS.for_user(uid):
         all_decks = await asyncio.to_thread(read)

@@ -175,6 +175,10 @@ class StudyActivity final : public Activity {
   static constexpr int kMaxDecks = 8;
   char deckNames_[kMaxDecks][48] = {};
   int deckCount_ = 0;
+  // Deck folders on the card beyond the kMaxDecks this reader can hold. They
+  // are invisible everywhere else, including to the sync, so the number has to
+  // reach the screen.
+  int decksOverCap_ = 0;
   int deckIndex_ = 0;
   // The open deck's directory, /study/<name>; empty until a deck is open.
   char deckDir_[64] = "";  // "/study/" + a 40-char slug, with room to spare
@@ -262,6 +266,10 @@ class StudyActivity final : public Activity {
   int16_t noDeckSyncY_ = 0;
   int16_t noDeckSyncW_ = 0;
   int16_t noDeckSyncH_ = 0;
+  // The second door on an empty card, drawn only once decks have been chosen.
+  // Zero height means it is not on screen and cannot be tapped.
+  int16_t noDeckPickY_ = 0;
+  int16_t noDeckPickH_ = 0;
   std::string pairCode_;
   std::string pairUsername_;
   // The confirm tap target (Rect is only forward-declared here).

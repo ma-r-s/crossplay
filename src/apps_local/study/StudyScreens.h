@@ -60,6 +60,14 @@ struct DeckModel {
   int lifetimeReviews = 0;
   bool sessionOver = false;  // nothing left to answer right now
   bool writeFailed = false;
+  // No wall clock yet (a flat battery clears the RTC; a sync sets it). Every
+  // review answered in this state is stamped near the epoch and would be
+  // replayed into the real Anki collection as the card's last review, so the
+  // app refuses to log one -- and therefore must refuse to ask for one.
+  bool clockUnset = false;
+  // Deck folders on the card past the number this reader can open. Their
+  // reviews cannot be sent, so silence here reads as "nothing outstanding".
+  int decksOverCap = 0;
   // Which of the card's decks this is. With one deck the row is a label; with
   // more it is the switcher, and tapping it cycles. Cycling rather than a list
   // because a card realistically holds two or three decks, and a dedicated

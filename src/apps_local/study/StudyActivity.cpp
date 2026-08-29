@@ -340,9 +340,15 @@ bool StudyActivity::findDeckDirs() {
   // in FAT order, which changes when files do, and a switcher that reshuffles
   // itself between sessions would make "the next deck" mean nothing.
   deckCount_ = 0;
+  decksOverCap_ = 0;
   HalFile root = Storage.open(kStudyRoot);
   if (!root.isOpen() || !root.isDirectory()) return false;
-  while (deckCount_ < kMaxDecks) {
+  // Keep counting past the cap. A deck beyond it is invisible in the switcher
+  // AND unreachable to buildPayloads, so its reviews are never sent while the
+  // door reports nothing outstanding. Nothing deletes a deck folder, so a card
+  // grows past eight simply by changing your mind, and the user has to be told
+  // which decks to remove.
+  for (;;) {
     HalFile entry = root.openNextFile();
     if (!entry.isOpen()) break;
     if (!entry.isDirectory()) continue;
@@ -356,8 +362,16 @@ bool StudyActivity::findDeckDirs() {
     char probe[96];
     std::snprintf(probe, sizeof(probe), "%s/%s/meta.dat", kStudyRoot, name);
     if (!Storage.exists(probe)) continue;
+    if (deckCount_ >= kMaxDecks) {
+      ++decksOverCap_;
+      continue;
+    }
     std::snprintf(deckNames_[deckCount_], sizeof(deckNames_[0]), "%s", name);
     ++deckCount_;
+  }
+  if (decksOverCap_ > 0) {
+    LOG_ERR("STUDY", "%d deck folder(s) past the %d this reader holds; their reviews cannot be sent", decksOverCap_,
+            kMaxDecks);
   }
   for (int i = 1; i < deckCount_; ++i) {
     for (int j = i; j > 0 && std::strcmp(deckNames_[j], deckNames_[j - 1]) < 0; --j) {
@@ -635,7 +649,7 @@ bool StudyActivity::persist(const int index, const study::CardState& card, const
       // review. Refusing the record loses one answer; writing it corrupts
       // the user's own scheduling history.
       LOG_ERR("STUDY", "clock is not set; not logging this review");
-      return ok;
+      return false;
     }
     const int64_t nowMs = nowS * 1000;
     const int16_t elapsed = static_cast<int16_t>(card.lastReviewDay < 0 ? 0 : today_ - card.lastReviewDay);
@@ -896,6 +910,17 @@ void StudyActivity::loop() {
       // asked to re-pick them is the screen contradicting its own button.
       study::BridgeState onCard;
       pickerRequested_ = !(study::loadBridgeState(onCard) && onCard.choseDecks);
+      beginSync();
+      return;
+    }
+    // The way out when the chosen decks are the problem. A deck the service
+    // cannot build -- a cloze deck is the ordinary case, and nothing warns
+    // about it beforehand -- leaves a card with nothing on it, and the door
+    // above only re-runs the same failing build. Without this the only escape
+    // was unpairing from a browser.
+    if (noDeckPickH_ > 0 && tapX >= noDeckSyncX_ && tapX < noDeckSyncX_ + noDeckSyncW_ && tapY >= noDeckPickY_ &&
+        tapY < noDeckPickY_ + noDeckPickH_) {
+      pickerRequested_ = true;
       beginSync();
     }
     return;
@@ -1387,6 +1412,8 @@ void StudyActivity::buildDeckModel(studyui::DeckModel& out) const {
   out.deckCount = deckCount_;
   out.sessionOver = (queueCount_ - queuePos_) + learningCount_ == 0;
   out.writeFailed = writeFailed_;
+  out.clockUnset = time(nullptr) < study::kClockFloor;
+  out.decksOverCap = decksOverCap_;
 }
 
 void StudyActivity::routeAction(const fui::ActionEvent& event) {
@@ -1636,10 +1663,20 @@ void StudyActivity::render(RenderLock&&) {
     UITheme::drawCenteredWrappedText(
         renderer, Rect{24, bodyBoxTop, width - 48, static_cast<int16_t>(paired ? 200 : 96)}, kMeaningFontId,
         !paired                  ? "Scan it to add a deck from a computer."
-        : pairedState.choseDecks ? "Your decks are chosen but not on this card yet. Sync to bring them back."
+        : pairedState.choseDecks ? "Your decks are chosen but not on this card yet."
                                  : "Your Anki account is connected. Pick the decks it keeps.",
         paired ? 4 : 3);
 
+    noDeckPickH_ = paired && pairedState.choseDecks ? noDeckSyncH_ : 0;
+    if (noDeckPickH_ > 0) {
+      noDeckPickY_ = static_cast<int16_t>(noDeckSyncY_ - noDeckPickH_ - 12);
+      renderer.drawRoundedRect(noDeckSyncX_, noDeckPickY_, noDeckSyncW_, noDeckPickH_, toybox::kHairline,
+                               noDeckPickH_ / 2, true);
+      const char* pick = "CHOOSE OTHER DECKS";
+      const int pickWidth = renderer.getTextWidth(toybox::kUiFontId, pick);
+      toybox::drawCapsCentered(renderer, toybox::kUiFontId, noDeckSyncX_ + (noDeckSyncW_ - pickWidth) / 2, noDeckPickY_,
+                               noDeckPickH_, pick, true);
+    }
     renderer.drawRoundedRect(noDeckSyncX_, noDeckSyncY_, noDeckSyncW_, noDeckSyncH_, toybox::kHairline,
                              noDeckSyncH_ / 2, true);
     {
@@ -2336,8 +2373,16 @@ void StudyActivity::runSyncFlow() {
     // no cards of its own and a deck of cloze notes, and a deck renamed on
     // the desktop side is simply gone.
     char detail[192];
-    std::snprintf(detail, sizeof(detail), "%s could not be built. Everything else is up to date.",
-                  sync_.failedDecks.front().c_str());
+    const size_t failed = sync_.failedDecks.size();
+    const bool others = decksUpdated > 0 || deckCount_ > static_cast<int>(failed);
+    if (failed == 1) {
+      std::snprintf(detail, sizeof(detail), "%s could not be built.%s", sync_.failedDecks.front().c_str(),
+                    others ? " Everything else is up to date." : "");
+    } else {
+      std::snprintf(detail, sizeof(detail), "%u decks could not be built, starting with %s.%s",
+                    static_cast<unsigned>(failed), sync_.failedDecks.front().c_str(),
+                    others ? " Everything else is up to date." : "");
+    }
     endSyncSession(studyui::SyncVerdictKind::Neutral, studyui::SyncSafety::ReviewsSafePartialDecks, "PART WAY", detail,
                    "Choose your decks again to drop it, or fix it in Anki.");
     return;

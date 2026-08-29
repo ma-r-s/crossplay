@@ -241,6 +241,29 @@ async def run(tmp):
         rows = desktop.db.all("select id from revlog where cid = ?", card_id)
         ok(any(r0[0] == ms for r0 in rows), "desktop should see the device review")
 
+        # --- A parent deck reports its subdecks' cards, or the reader hides it.
+        parent = desktop.decks.id("Shared::Level 1")
+        note = desktop.new_note(nt)
+        note["Front"], note["Back"] = "sub", "SUB"
+        desktop.add_note(note, parent)
+        desktop.sync_collection(auth, sync_media=False)
+        r = await web.post("/api/sync", headers=dev, content=struct.pack("<I", len(empty_header)) + empty_header)
+        j2 = r.json()["job"]
+        for _ in range(600):
+            await asyncio.sleep(0.1)
+            if (await web.get("/api/sync/status", headers=dev, params={"job": j2})).json()["status"] in (
+                "done",
+                "error",
+                "frozen",
+            ):
+                break
+        listed = {d["name"]: d["cards"] for d in (await web.get("/api/decks", headers=dev)).json()["decks"]}
+        ok("Shared" in listed, f"the parent deck should be listed, got {sorted(listed)}")
+        ok(
+            listed.get("Shared") == 1,
+            f"a parent's count must include its subdecks, got {listed.get('Shared')}",
+        )
+
         # --- A deck the converter refuses costs only itself.
         desktop.decks.id("Empty Parent")  # created with no cards of its own
         desktop.sync_collection(auth, sync_media=False)

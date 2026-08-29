@@ -459,7 +459,7 @@ bool StudySync::listDecks(const BridgeState& state, std::vector<DeckChoice>& out
       if (choice.name == (chosen.as<const char*>() ? chosen.as<const char*>() : "")) choice.chosen = true;
     }
     out.push_back(std::move(choice));
-    if (out.size() >= static_cast<size_t>(kMaxSyncDecks) * 4) {
+    if (out.size() >= kMaxOfferedDecks) {
       // The account can hold more decks than the picker can list. Saying so
       // is the difference between "my deck is not here" and "my deck is not
       // on this page", which the user cannot tell apart otherwise.

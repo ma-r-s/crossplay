@@ -222,10 +222,26 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
     screen.target().text(fui::makeRect(body.x, body.y + nextLine, body.width, 22), model.name, deckName);
     nextLine += 24;
   }
+  // A warning rides the scope line rather than getting one of its own. At four
+  // doors this screen has no spare row: above the ornament the brackets start
+  // 5px below the line before it, and below the caption is the top door. The
+  // nudge it displaces is routine; a warning is neither routine nor silent.
+  char warning[48] = "";
+  if (model.writeFailed) {
+    std::snprintf(warning, sizeof(warning), "SOME REVIEWS DID NOT SAVE");
+  } else if (model.clockUnset) {
+    std::snprintf(warning, sizeof(warning), "THIS READER LOST THE DATE -- SYNC TO SET IT");
+  } else if (model.decksOverCap > 0) {
+    std::snprintf(warning, sizeof(warning), "%d DECK%s HERE CANNOT BE OPENED OR SENT", model.decksOverCap,
+                  model.decksOverCap == 1 ? "" : "S");
+  }
   // Scope, on its own line so it cannot push the headline out of its box: the
   // counts above are this deck's, and with more than one on the card they read
   // as the whole account's.
-  if (model.deckCount > 1) {
+  if (warning[0] != '\0') {
+    fui::TextStyle warn = small;
+    screen.target().text(fui::makeRect(body.x, body.y + nextLine, body.width, 22), warning, warn);
+  } else if (model.deckCount > 1) {
     fui::TextStyle scope = small;
     scope.color = fui::Color::DarkGray;
     char elsewhere[64];
@@ -288,8 +304,11 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   // read NOTHING TO REVIEW and sit there looking live: same box, same glyph,
   // no response. It becomes the way to that work instead.
   const bool elsewhereOnly = waiting == 0 && model.otherWaiting > 0;
-  rows[doorCount].label = waiting > 0 ? "START REVIEWING" : elsewhereOnly ? "REVIEW ANOTHER DECK" : "NOTHING TO REVIEW";
-  rows[doorCount].enabled = waiting > 0 || elsewhereOnly;
+  rows[doorCount].label = model.clockUnset ? "SYNC TO SET THE CLOCK"
+                          : waiting > 0    ? "START REVIEWING"
+                          : elsewhereOnly  ? "REVIEW ANOTHER DECK"
+                                           : "NOTHING TO REVIEW";
+  rows[doorCount].enabled = !model.clockUnset && (waiting > 0 || elsewhereOnly);
   rows[doorCount].actionValue = elsewhereOnly ? 3 : 1;
   rows[doorCount].icon = fui::bitmapFromIcon(icon_play_32);
   ++doorCount;
@@ -357,16 +376,6 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   list.rowGap = toybox::kMargin;
   list.valueInset = 0;
   screen.list(list, doorBand, fui::LayoutAnchor::Bottom);
-
-  if (model.writeFailed) {
-    // Loud, and above the door rather than inside it: a review the user gave
-    // that did not reach the card is the one failure this app must never
-    // swallow.
-    fui::TextStyle warn;
-    warn.font = toybox::kTileFont;
-    warn.align = fui::TextAlign::Center;
-    screen.target().text(fui::makeRect(body.x, panel.bottom() + 72, body.width, 24), "SOME REVIEWS DID NOT SAVE", warn);
-  }
 }
 
 // ---- The sync flow surface (docs/apps/study-syncflow-ui.md). The stage
@@ -596,9 +605,11 @@ void buildDeckPicker(toybox::Screen& screen, DeckPickerModel& model) {
       }
     }
 
-    // A deck with no cards of its own cannot be built -- a parent deck holds
-    // its cards in its subdecks, and the converter refuses either way. Say so
-    // on the row rather than letting the choice fail three minutes later.
+    // Genuinely empty: the count the service sends covers the deck AND its
+    // subdecks, so a parent full of subdeck cards reports them and stays
+    // choosable. Only a deck with nothing anywhere under it lands here, and
+    // the converter refuses those. Say so on the row rather than letting the
+    // choice fail three minutes later.
     char count[40];
     if (row.cards > 0) {
       std::snprintf(count, sizeof(count), "%d CARDS", row.cards);

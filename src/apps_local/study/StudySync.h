@@ -34,6 +34,11 @@ namespace study {
 
 constexpr char kBridgeHost[] = "sync.ma-r-s.com";
 constexpr int kMaxSyncDecks = 8;
+// How many decks the picker will list. Eight is what a card can hold, but the
+// list has to reach the one you want before you can choose it, and a
+// collection of forty subdecks is ordinary. Each row is a name and a count,
+// so the whole list is kilobytes on a board with 8MB of PSRAM.
+constexpr size_t kMaxOfferedDecks = 200;
 
 // /study/.bridge: the pairing token and per-deck-directory ack offsets.
 struct BridgeState {
