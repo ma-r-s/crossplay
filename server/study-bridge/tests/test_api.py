@@ -241,6 +241,35 @@ async def run(tmp):
         rows = desktop.db.all("select id from revlog where cid = ?", card_id)
         ok(any(r0[0] == ms for r0 in rows), "desktop should see the device review")
 
+        # --- A deck the converter refuses costs only itself.
+        desktop.decks.id("Empty Parent")  # created with no cards of its own
+        desktop.sync_collection(auth, sync_media=False)
+        r = await web.post(
+            "/api/decks/choose", headers=dev, json={"decks": ["Default", "Empty Parent"]}
+        )
+        ok(r.status_code == 200, "choosing an unbuildable deck should be accepted")
+        body = struct.pack("<I", len(empty_header)) + empty_header
+        r = await web.post("/api/sync", headers=dev, content=body)
+        job = r.json()["job"]
+        for _ in range(600):
+            await asyncio.sleep(0.1)
+            r = await web.get("/api/sync/status", headers=dev, params={"job": job})
+            if r.json()["status"] in ("done", "error", "frozen"):
+                break
+        status = r.json()
+        ok(
+            status["status"] == "done",
+            f"one unbuildable deck must not fail the sync, got {status}",
+        )
+        ok(
+            status["summary"]["failedDecks"] == ["Empty Parent"],
+            f"the failed deck should be named, got {status['summary'].get('failedDecks')}",
+        )
+        ok(
+            any(m["deck"] == "Default" for m in status["summary"]["manifests"]),
+            "the buildable deck should still be built",
+        )
+
         # --- Revocation kills the token.
         th = __import__("bridge.pairing", fromlist=["token_hash"]).token_hash(token)
         store_mod.revoke_device(st.uid, th)

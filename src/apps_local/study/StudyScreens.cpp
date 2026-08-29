@@ -553,6 +553,8 @@ void buildDeckPicker(toybox::Screen& screen, DeckPickerModel& model) {
   if (model.atCap) {
     std::snprintf(caption, sizeof(caption), "%d OF %d, THE MOST THIS READER CARRIES", model.chosenCount,
                   model.maxChosen);
+  } else if (model.withheld) {
+    std::snprintf(caption, sizeof(caption), "%d CHOSEN, ONLY THE FIRST %d ARE LISTED", model.chosenCount, model.count);
   } else {
     std::snprintf(caption, sizeof(caption), "%d CHOSEN, UP TO %d", model.chosenCount, model.maxChosen);
   }
@@ -582,23 +584,37 @@ void buildDeckPicker(toybox::Screen& screen, DeckPickerModel& model) {
 
     // The checkbox is the state; a filled square reads at arm's length where a
     // tick does not.
+    // A row with no checkbox is not a choice. Greying one is not enough at
+    // 1bpp: DarkGray dithers, and at hairline weight it reads as black, so a
+    // box the tap ignores looks exactly like a box that works.
+    const bool choosable = row.cards > 0;
     const fui::Rect box = fui::makeRect(r.x + 2, r.y + (rowH - 22) / 2, 22, 22);
-    screen.target().stroke(box, ink, toybox::kHairline);
-    if (row.chosen) {
-      screen.target().fill(fui::makeRect(box.x + 5, box.y + 5, 12, 12), ink);
+    if (choosable) {
+      screen.target().stroke(box, ink, toybox::kHairline);
+      if (row.chosen) {
+        screen.target().fill(fui::makeRect(box.x + 5, box.y + 5, 12, 12), ink);
+      }
     }
 
-    char count[32];
-    std::snprintf(count, sizeof(count), "%d CARDS", row.cards);
+    // A deck with no cards of its own cannot be built -- a parent deck holds
+    // its cards in its subdecks, and the converter refuses either way. Say so
+    // on the row rather than letting the choice fail three minutes later.
+    char count[40];
+    if (row.cards > 0) {
+      std::snprintf(count, sizeof(count), "%d CARDS", row.cards);
+    } else {
+      std::snprintf(count, sizeof(count), "NO CARDS OF ITS OWN");
+    }
     const int textX = r.x + 22 + toybox::kMargin;
     const int textW = r.right() - textX;
     // Each box gets its own line height: text is centred in its box, so a box
     // shorter than the font's line spills over the one below it.
-    screen.target().text(fui::makeRect(textX, r.y + 2, textW, 34), row.name,
-                         syncText(toybox::kUiFont, fui::TextAlign::Left));
+    screen.target().text(
+        fui::makeRect(textX, r.y + 2, textW, 34), row.name,
+        syncText(toybox::kUiFont, fui::TextAlign::Left, choosable ? fui::Color::Black : fui::Color::DarkGray));
     screen.target().text(fui::makeRect(textX, r.y + 38, textW, 22), count,
                          syncText(toybox::kTileFont, fui::TextAlign::Left, fui::Color::DarkGray));
-    screen.frame().hit(r, ActionPickDeck, static_cast<int16_t>(index));
+    if (choosable) screen.frame().hit(r, ActionPickDeck, static_cast<int16_t>(index));
   }
 
   if (model.count > visible) {

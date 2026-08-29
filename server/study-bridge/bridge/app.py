@@ -445,24 +445,36 @@ async def start_sync(request: Request, dev=Depends(require_device)):
         fresh = st.load_state()
         manifests = []
         prints = fresh.setdefault("deck_fingerprints", {})
+        # One deck that cannot be built must not cost the user the others, nor
+        # the sync itself. The converter refuses an empty deck, a cloze-only
+        # deck and a deck renamed away on the desktop side; aborting the job
+        # here left the reader with an error, no decks, and no route back to
+        # the picker, repeating identically forever because the state below
+        # was never saved.
+        failed = []
         for name in fresh["chosen_decks"]:
-            content_now, schedule_now = decks.deck_fingerprints(st, name)
-            stored = prints.get(name) or {}
-            if isinstance(stored, str):  # pre-split single fingerprint
-                stored = {}
-            existing = decks.latest_build(st, decks.slugify(name))
-            if existing and stored.get("content") == content_now and stored.get("schedule") == schedule_now:
-                manifests.append(existing)
-                continue
-            if existing and stored.get("content") == content_now:
-                manifests.append(decks.rebuild_cards_only(st, name, existing))
-            else:
-                manifests.append(decks.build_deck(st, name))
-            prints[name] = {"content": content_now, "schedule": schedule_now}
+            try:
+                content_now, schedule_now = decks.deck_fingerprints(st, name)
+                stored = prints.get(name) or {}
+                if isinstance(stored, str):  # pre-split single fingerprint
+                    stored = {}
+                existing = decks.latest_build(st, decks.slugify(name))
+                if existing and stored.get("content") == content_now and stored.get("schedule") == schedule_now:
+                    manifests.append(existing)
+                    continue
+                if existing and stored.get("content") == content_now:
+                    manifests.append(decks.rebuild_cards_only(st, name, existing))
+                else:
+                    manifests.append(decks.build_deck(st, name))
+                prints[name] = {"content": content_now, "schedule": schedule_now}
+            except Exception:
+                log.exception("deck build failed, skipping: %s", name)
+                failed.append(name)
         fresh["status"] = "ok"
         fresh["last_sync"] = int(time.time())
         st.save_state(fresh)
         summary["manifests"] = manifests
+        summary["failedDecks"] = failed
         return summary
 
     job = jobs.JOBS.start(uid, work)

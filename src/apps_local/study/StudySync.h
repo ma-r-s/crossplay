@@ -6,8 +6,14 @@
 // protocol is the bridge's device API: QR pairing (start / poll / on-device
 // confirm), then sync as one binary POST (this card's own revlog.dat tails
 // and cards.dat, in the exact shapes it already writes), a polled job, and
-// hash-manifested deck downloads. Acks are byte offsets into revlog.dat;
-// the file itself is never truncated.
+// manifested deck downloads. Acks are byte offsets into revlog.dat; the file
+// itself is never truncated.
+//
+// A download is checked against the manifest's LENGTH, not its sha256: the
+// hash arrives and is parsed, and nothing on the device reads it. TLS covers
+// the wire, so what this leaves open is a file that lands the right length
+// and the wrong bytes on the card. Do not read the sha256 field as proof
+// that something verified it.
 //
 // Two transports, split on FREEINK_NET_WOLFSSL:
 //  - Device: freeink::SecureHttpClient with certificate verification against
@@ -112,6 +118,8 @@ class StudySync {
     int cards = 0;
     bool chosen = false;
   };
+  // True after listDecks stopped short of the account's full deck list.
+  bool decksWithheld = false;
   bool listDecks(const BridgeState& state, std::vector<DeckChoice>& out, std::string& message);
   bool chooseDecks(const BridgeState& state, const std::vector<std::string>& names, std::string& message);
 
@@ -121,6 +129,10 @@ class StudySync {
   // unknown): the stored pairing is dead and must be cleared, or every
   // later SYNC repeats the same refusal forever.
   bool unpaired = false;
+  // Decks the bridge could not build this cycle. The rest of the sync
+  // succeeds around them, so the verdict has to name them or the user is
+  // told SYNCED and finds a deck missing.
+  std::vector<std::string> failedDecks;
   // "running" | "done" | "error" | "frozen" | "" (transport failure).
   std::string syncStatus(const BridgeState& state, const std::string& jobId, std::vector<DeckManifest>& manifests,
                          std::string& message);

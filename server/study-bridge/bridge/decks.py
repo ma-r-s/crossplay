@@ -26,8 +26,18 @@ KEEP_BUILDS = 3
 
 
 def slugify(deck_name: str) -> str:
+    """A directory name, an ack key and a build key, all in one string, so two
+    deck names must never reach the same one. An ASCII slug alone does: every
+    purely non-Latin name (Chinese, Japanese, Russian, Greek) reduces to the
+    empty string, and long subdeck families truncate into each other. Both
+    collisions are silent and hand the user one deck's cards under another
+    deck's name. Names that survive the reduction intact keep their plain
+    slug, so nothing already on a card is renamed."""
     slug = re.sub(r"[^a-z0-9]+", "-", deck_name.lower()).strip("-")
-    return slug[:40] or "deck"
+    if slug and len(slug) <= 40:
+        return slug
+    stamp = hashlib.sha1(deck_name.encode("utf-8")).hexdigest()[:8]
+    return f"{slug[:31]}-{stamp}" if slug else f"deck-{stamp}"
 
 
 def _run(args: list[str], timeout: int = 900) -> subprocess.CompletedProcess:

@@ -224,8 +224,12 @@ class StudyActivity final : public Activity {
   // stage before `stage` done, `stage` active, and swaps the caption.
   void showFlow();
   void flowStage(studyui::SyncStage stage, const char* caption);
+  // describeQueue makes the footer say what is waiting to study. It cannot be
+  // passed in as text: the flow closed the deck for heap, so the counts are
+  // zero until endSyncSession reopens it, and an argument is evaluated before
+  // the call. Composed inside, after the reopen, it tells the truth.
   void endSyncSession(studyui::SyncVerdictKind kind, studyui::SyncSafety safety, const char* title, const char* body,
-                      const char* whatNow = nullptr);
+                      const char* whatNow = nullptr, bool describeQueue = false);
   void syncTimeIfNeeded();
   void drainInput();
   // The radio is up and a stranger is mid-pairing: sleeping here would read

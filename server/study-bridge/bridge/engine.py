@@ -103,6 +103,7 @@ def sync_cycle(store, journal, hostkey: str, endpoint: str, device_cards: dict) 
     cards.dat, used by apply() to set final card state for touched cards.
     Returns a summary dict for the job status. Raises Frozen when a human
     is needed."""
+    from anki.errors import SyncError, SyncErrorKind
     from anki.sync import SyncAuth
 
     col = Collection(str(store.collection_path))
@@ -164,5 +165,16 @@ def sync_cycle(store, journal, hostkey: str, endpoint: str, device_cards: dict) 
         else:
             journal.clear_pushed()
         return summary
+    except SyncError as e:
+        # An expired or revoked AnkiWeb session is not an outage, and the
+        # reader cannot tell the two apart from a generic failure: it kept
+        # advising "try again in a few minutes" for a condition no amount of
+        # waiting fixes. Freezing carries this sentence to the screen instead.
+        if getattr(e, "kind", None) == SyncErrorKind.AUTH:
+            raise Frozen(
+                "The bridge is signed out of AnkiWeb. Sign in again on the"
+                " pairing page on a computer, then sync from here."
+            ) from e
+        raise
     finally:
         col.close()

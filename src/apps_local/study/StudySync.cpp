@@ -343,12 +343,28 @@ bool saveBridgeState(const BridgeState& state) {
   }
   std::string raw;
   serializeJson(doc, raw);
-  HalFile file;
-  if (!Storage.openFileForWrite("STUDYSYNC", kBridgeStatePath, file)) {
-    LOG_ERR("STUDYSYNC", "cannot write %s", kBridgeStatePath);
+  // Write beside it and rename. Opening the real path truncates first, so a
+  // power cut mid-write left an unparseable .bridge, which reads exactly like
+  // a device that was never paired: the next sync walked the user through
+  // pairing again for no reason they could see.
+  const std::string tempPath = std::string(kBridgeStatePath) + ".part";
+  {
+    HalFile file;
+    if (!Storage.openFileForWrite("STUDYSYNC", tempPath.c_str(), file)) {
+      LOG_ERR("STUDYSYNC", "cannot write %s", tempPath.c_str());
+      return false;
+    }
+    if (file.write(reinterpret_cast<const uint8_t*>(raw.data()), raw.size()) != static_cast<int>(raw.size())) {
+      LOG_ERR("STUDYSYNC", "short write to %s", tempPath.c_str());
+      return false;
+    }
+  }
+  Storage.remove(kBridgeStatePath);
+  if (!Storage.rename(tempPath.c_str(), kBridgeStatePath)) {
+    LOG_ERR("STUDYSYNC", "cannot rename %s into place", tempPath.c_str());
     return false;
   }
-  return file.write(reinterpret_cast<const uint8_t*>(raw.data()), raw.size()) == static_cast<int>(raw.size());
+  return true;
 }
 
 std::string StudySync::pairUrl(const std::string& code) {
@@ -412,6 +428,7 @@ void StudySync::pairAbandon(const std::string& pollToken, const std::string& dev
 }
 
 bool StudySync::listDecks(const BridgeState& state, std::vector<DeckChoice>& out, std::string& message) {
+  decksWithheld = false;
   out.clear();
   std::string response;
   const int status = request("GET", "/api/decks", state.token, nullptr, 0, response, message);
@@ -442,7 +459,13 @@ bool StudySync::listDecks(const BridgeState& state, std::vector<DeckChoice>& out
       if (choice.name == (chosen.as<const char*>() ? chosen.as<const char*>() : "")) choice.chosen = true;
     }
     out.push_back(std::move(choice));
-    if (out.size() >= static_cast<size_t>(kMaxSyncDecks) * 4) break;  // the account can hold more than it can sync
+    if (out.size() >= static_cast<size_t>(kMaxSyncDecks) * 4) {
+      // The account can hold more decks than the picker can list. Saying so
+      // is the difference between "my deck is not here" and "my deck is not
+      // on this page", which the user cannot tell apart otherwise.
+      decksWithheld = true;
+      break;
+    }
   }
   return true;
 }
@@ -533,9 +556,14 @@ std::string StudySync::syncStatus(const BridgeState& state, const std::string& j
     return "";
   }
   const std::string jobStatus = doc["status"].as<const char*>();
+  failedDecks.clear();
   if (jobStatus == "error" || jobStatus == "frozen") {
     message = doc["message"] | "Syncing hit a problem on the bridge. Try again in a while.";
   } else if (jobStatus == "done") {
+    for (JsonVariant name : doc["summary"]["failedDecks"].as<JsonArray>()) {
+      const char* text = name.as<const char*>();
+      if (text && *text) failedDecks.push_back(text);
+    }
     for (JsonObject m : doc["summary"]["manifests"].as<JsonArray>()) {
       DeckManifest deck;
       deck.slug = m["slug"] | "";

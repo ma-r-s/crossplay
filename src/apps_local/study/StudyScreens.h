@@ -143,6 +143,10 @@ struct DeckPickerModel {
   int chosenCount = 0;
   int maxChosen = 8;   // mirrors StudySync::kMaxSyncDecks
   bool atCap = false;  // drawn as a caption, so the cap explains itself
+  // True when the account holds more decks than the list could carry. Drawn,
+  // because "my deck is not in this list" and "my deck is on a page that was
+  // never sent" look identical from the chair.
+  bool withheld = false;
 };
 
 void buildDeckPicker(toybox::Screen& screen, DeckPickerModel& model);

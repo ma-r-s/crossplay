@@ -33,6 +33,12 @@ inline constexpr uint32_t kRevlogFlagsOffset = 28;
 // skips it: the sync, the stats, and the streak.
 inline constexpr uint8_t kRevlogVoided = 1 << 0;
 
+// Any wall clock below this (2023-11-14) has not been set: a flat battery
+// clears the RTC and time() restarts near the epoch. Reviews are stamped from
+// this clock and replayed into the user's real collection, so both the review
+// log and the NTP catch-up gate on it.
+inline constexpr int64_t kClockFloor = 1700000000;
+
 // Two weeks, matching the deck screen's forecast so the two panels read as one
 // timeline: what happened, then what is coming.
 inline constexpr int kHistoryDays = 14;

@@ -185,6 +185,7 @@ void StudyActivity::applySyncFlowPreview(const char* state) {
     picker_.count = static_cast<int>(pickerRows_.size());
     picker_.maxChosen = study::kMaxSyncDecks;
     picker_.chosenCount = 1;
+    picker_.withheld = true;
     view_ = View::DeckPicker;
     return;
   }
@@ -215,6 +216,14 @@ void StudyActivity::applySyncFlowPreview(const char* state) {
     std::snprintf(m.factLines[2], sizeof(m.factLines[2]), "LAST SYNC 20:15");
     m.factCount = 3;
     m.safety = studyui::SyncSafety::ReviewsSafe;
+    previewFlowSet_ = true;
+  } else if (std::strcmp(state, "partway") == 0) {
+    m.verdict = studyui::SyncVerdictKind::Neutral;
+    for (int i = 0; i < 4; ++i) m.stages[i] = studyui::SyncStageState::Done;
+    std::snprintf(m.title, sizeof(m.title), "PART WAY");
+    std::snprintf(m.body, sizeof(m.body), "Mandarin: Vocabulary could not be built. Everything else is up to date.");
+    std::snprintf(m.whatNow, sizeof(m.whatNow), "Choose your decks again to drop it, or fix it in Anki.");
+    m.safety = studyui::SyncSafety::ReviewsSafePartialDecks;
     previewFlowSet_ = true;
   } else if (std::strcmp(state, "erroracked") == 0) {
     m.verdict = studyui::SyncVerdictKind::Error;
@@ -618,7 +627,17 @@ bool StudyActivity::persist(const int index, const study::CardState& card, const
   // from. See docs/apps/study-deck-format.md.
   if (revlogFile_.isOpen()) {
     uint8_t record[32] = {};
-    const int64_t nowMs = static_cast<int64_t>(time(nullptr)) * 1000;
+    const int64_t nowS = static_cast<int64_t>(time(nullptr));
+    if (nowS < study::kClockFloor) {
+      // No clock yet (a flat battery clears the RTC; the first sync sets it).
+      // A review logged now is stamped near the epoch, and deck_to_anki
+      // replays that straight into the real collection as the card's last
+      // review. Refusing the record loses one answer; writing it corrupts
+      // the user's own scheduling history.
+      LOG_ERR("STUDY", "clock is not set; not logging this review");
+      return ok;
+    }
+    const int64_t nowMs = nowS * 1000;
     const int16_t elapsed = static_cast<int16_t>(card.lastReviewDay < 0 ? 0 : today_ - card.lastReviewDay);
     const int32_t interval = outcome.intervalDays > 0 ? outcome.intervalDays : -outcome.delayMinutes * 60;
     std::memcpy(record, &card.ankiCardId, 8);
@@ -1710,7 +1729,7 @@ void StudyActivity::onSyncWifi(const bool connected) {
 void StudyActivity::syncTimeIfNeeded() {
   // Certificate dates are validated on the bridge connection, so the clock
   // must be sane before the first handshake. Same dance as KOSync.
-  if (time(nullptr) > 1700000000) return;
+  if (time(nullptr) > study::kClockFloor) return;
   if (esp_sntp_enabled()) esp_sntp_stop();
   esp_sntp_setoperatingmode(ESP_SNTP_OPMODE_POLL);
   esp_sntp_setservername(0, "pool.ntp.org");
@@ -1721,7 +1740,7 @@ void StudyActivity::syncTimeIfNeeded() {
 }
 
 void StudyActivity::endSyncSession(const studyui::SyncVerdictKind kind, const studyui::SyncSafety safety,
-                                   const char* title, const char* body, const char* whatNow) {
+                                   const char* title, const char* body, const char* whatNow, const bool describeQueue) {
   syncBusy_ = false;
   // Radio down while the user reads the result (on touch boards silentRestart
   // stops SNTP and the radio in place rather than rebooting) -- but only what
@@ -1737,6 +1756,13 @@ void StudyActivity::endSyncSession(const studyui::SyncVerdictKind kind, const st
   if (deckCount_ > 0 && deckDir_[0] == '\0') {
     openDeckAt(deckIndex_);
     beginDeckSession();
+  }
+  char waiting[64] = "";
+  if (describeQueue && deckCount_ > 0) {
+    std::snprintf(waiting, sizeof(waiting), "%s",
+                  (dueTotal_ + newTotal_ + otherWaiting_) > 0 ? "Your decks are in Study, ready to review."
+                                                              : "Your decks are in Study. Nothing is due right now.");
+    whatNow = waiting;
   }
   flow_.verdict = kind;
   flow_.safety = safety;
@@ -1789,6 +1815,7 @@ bool StudyActivity::runDeckPicker() {
   picker_.maxChosen = study::kMaxSyncDecks;
   for (const auto& row : pickerRows_) picker_.chosenCount += row.chosen ? 1 : 0;
   picker_.atCap = picker_.chosenCount >= picker_.maxChosen;
+  picker_.withheld = sync_.decksWithheld;
 
   LOG_INF("STUDYSYNC", "picker: %d decks offered, %d already chosen", picker_.count, picker_.chosenCount);
   view_ = View::DeckPicker;
@@ -2110,15 +2137,41 @@ void StudyActivity::runSyncFlow() {
       char dir[96];
       std::snprintf(dir, sizeof(dir), "%s/%s", kStudyRoot, bridge_.deckDirs[i]);
       if (Storage.exists(dir)) continue;
-      LOG_INF("STUDYSYNC", "%s: not on the card; forgetting its ack", bridge_.deckDirs[i]);
-      bridge_.ackOffsets[i] = 0;
-      bridge_.ackHashes[i] = 0;
+      LOG_INF("STUDYSYNC", "%s: not on the card; releasing its slot", bridge_.deckDirs[i]);
+      // Release the whole slot, not just the marker. There are eight, and
+      // every setter silently no-ops when they are full, so decks left
+      // behind by two changes of mind cost the current decks their build id
+      // and their ack: a full re-download and a full revlog resend on every
+      // sync, with nothing on screen to explain the wait.
+      for (int j = i + 1; j < bridge_.deckCount; ++j) {
+        std::snprintf(bridge_.deckDirs[j - 1], sizeof(bridge_.deckDirs[0]), "%s", bridge_.deckDirs[j]);
+        std::snprintf(bridge_.lastBuilds[j - 1], sizeof(bridge_.lastBuilds[0]), "%s", bridge_.lastBuilds[j]);
+        bridge_.ackOffsets[j - 1] = bridge_.ackOffsets[j];
+        bridge_.ackHashes[j - 1] = bridge_.ackHashes[j];
+      }
+      --bridge_.deckCount;
+      --i;  // the slot now holds the next deck
       forgot = true;
     }
     if (forgot) study::saveBridgeState(bridge_);
   }
   if (freshPairing) {
     if (!runPairing()) return;  // runPairing already ended the session
+  }
+  // An explicit "choose again" is answered first, before any pass that can
+  // fail. It used to be read only after the build, so a chosen deck the
+  // bridge could not build -- an empty one, a cloze-only one, one renamed
+  // away in Anki -- ended the sync in an error before the request was ever
+  // seen, and the door that sets the request was the only way out of that
+  // state. The mirror this needs already exists: choseDecks means a cycle
+  // has run.
+  if (pickerRequested_ && bridge_.choseDecks) {
+    if (!runDeckPicker()) {
+      pickerRequested_ = false;  // a cancel leaves no request behind
+      return;                    // runDeckPicker already ended the session
+    }
+    pickerRequested_ = false;
+    secondPass_ = true;  // what follows fetches what was just chosen
   }
   // A reader that has never chosen decks would sync forever against an empty
   // manifest: the bridge builds only chosen decks and a new account has none.
@@ -2276,6 +2329,19 @@ void StudyActivity::runSyncFlow() {
   bridge_.lastSyncAt = static_cast<int64_t>(time(nullptr));
   study::saveBridgeState(bridge_);
   findDeckDirs();  // the bridge may have delivered a deck this card never had
+  if (!sync_.failedDecks.empty()) {
+    // The rest of the sync worked, so the reviews are away and the other
+    // decks are current; saying SYNCED anyway would send the user looking
+    // for a deck that was never built. Anki refuses to convert a deck with
+    // no cards of its own and a deck of cloze notes, and a deck renamed on
+    // the desktop side is simply gone.
+    char detail[192];
+    std::snprintf(detail, sizeof(detail), "%s could not be built. Everything else is up to date.",
+                  sync_.failedDecks.front().c_str());
+    endSyncSession(studyui::SyncVerdictKind::Neutral, studyui::SyncSafety::ReviewsSafePartialDecks, "PART WAY", detail,
+                   "Choose your decks again to drop it, or fix it in Anki.");
+    return;
+  }
 
   // The mirror exists now, so the question can finally be answered. Ask once,
   // then run the flow again: this second pass is the one that builds and
@@ -2297,6 +2363,7 @@ void StudyActivity::runSyncFlow() {
     runSyncFlow();
     return;
   }
+  secondPass_ = false;
 
   flow_.factCount = 0;
   if (reviewCount > 0) {
@@ -2320,8 +2387,5 @@ void StudyActivity::runSyncFlow() {
                 local.tm_min);
   endSyncSession(studyui::SyncVerdictKind::Success,
                  reviewCount > 0 ? studyui::SyncSafety::ReviewsSafe : studyui::SyncSafety::None, "SYNCED",
-                 "This reader and your Anki are up to date.",
-                 deckCount_ == 0                               ? nullptr
-                 : (dueTotal_ + newTotal_ + otherWaiting_) > 0 ? "Your decks are in Study, ready to review."
-                                                               : "Your decks are in Study. Nothing is due right now.");
+                 "This reader and your Anki are up to date.", nullptr, /*describeQueue=*/true);
 }
