@@ -163,43 +163,50 @@ jobs:
           body: |
             Games and small tools for the **Xteink X4 Pro** and the **Seeed
             reTerminal Sticky**, on top of
-            [CrossPoint](https://crosspointreader.com/). Fourteen games --
+            [CrossPoint](https://crosspointreader.com/). Seventeen games --
             Chess, Checkers, Connect Four, Yahtzee, Knucklebones, Minesweeper,
-            Battleship, Connections, Solitaire, D&Diagrams, Insider, Jaipur,
-            Murdle and Sea Salt & Paper -- plus spaced-repetition flashcards,
-            Hacker News and the xkcd archive. Eight of them play over **PLAY
-            NEARBY**: Chess, Checkers, Connect Four, Yahtzee, Knucklebones,
-            Battleship, Jaipur and Sea Salt. Two devices next to each other
-            find one another with nothing to type.
+            Sudoku, Toy Battle, Forehead, Battleship, Connections, Solitaire,
+            D&Diagrams, Insider, Jaipur, Murdle and Sea Salt & Paper -- plus
+            spaced-repetition flashcards, Hacker News, the xkcd archive and a
+            catalog browser for downloading books. Eight of them play over
+            **PLAY NEARBY**: Chess, Checkers, Connect Four, Yahtzee,
+            Knucklebones, Battleship, Jaipur and Sea Salt. Two devices next to
+            each other find one another with nothing to type.
 
-            ### What is new in 1.7.1
+            ### What is new in 1.8.0
 
-            **Get Books has moved into Apps.** It used to sit on the Home screen;
-            it is now a row inside **Apps**, beside Study and xkcd. Everything
-            it does is unchanged -- this is only where you find it.
+            **A new game: Forehead.** Hold the device against your forehead
+            with the screen facing out. You cannot see it; everybody else can,
+            and they shout clues until you get the word. Press the **bottom**
+            key when you get one and the **top** key to give up, and keep going
+            until the clock runs out.
 
-            **The book you are looking at now has its cover on the screen.** The
-            details page fetched covers all along and never drew a single one:
-            it could only read one image format, and catalogs send another.
-            The page is also rebuilt around what the catalog actually sends.
-            When there is no description the cover fills the screen with the
-            title, author and details under it; when there is one, the cover
-            steps aside and the description takes the room.
+            It is the phone game everyone has played, and the two page keys
+            turn out to be better than the tilt they replace: a tilt has to be
+            big enough to detect and small enough not to lose your grip, it
+            fires when you stumble, and it takes the screen off your forehead
+            on every single card. A key moves nothing.
 
-            **"No EPUBs found" is no longer a folder you can tap.** A search
-            that found nothing used to draw its message as a row, complete with
-            a folder icon and an arrow, and tapping it took you somewhere.
+            **Seventeen word lists, 2722 words**, and none of them repeats until
+            you have seen every word in it -- the device remembers across
+            evenings. Animals, Act It Out, Make A Sound, Food & Drink, Movies,
+            Famous People, Music, Jobs, Sports, Household, Places, Nature,
+            Science, Myths, Storybook, For Kids and Tricky. Act It Out and Make
+            A Sound are the two that ruin friendships.
 
-            **Back leaves Get Books from the search box.** It used to walk
-            backwards through every search you had run, in order. Now: from
-            results, Back returns to the search box; from the search box, Back
-            leaves. However many searches or catalogs came before.
+            Turn the device sideways when it asks. The round is played in
+            landscape so the word is as big as the panel can make it, and the
+            screen labels its own two edges so the room can call out which key
+            to press. Rounds are 30, 60, 90 or 120 seconds. The results screen
+            lists every word with what happened to it, including the one you
+            were still holding when time ran out -- which counts as neither,
+            and says so instead of quietly going against you.
 
-            **The wait after Download says what it is.** Pressing Download
-            showed "Downloading" with no progress for as long as half a minute,
-            because nothing was downloading yet -- the catalog was still
-            fetching the book and converting it for this screen. It now says so,
-            and shows the progress bar once the book is actually on its way.
+            **The BEZEL ruler has left Apps.** It was a measuring instrument
+            rather than an app: it existed to measure how much of the panel
+            this device's glass covers, that measurement is done, and it had
+            been sitting on the Apps list ever since. Nothing else changes on
+            that screen.
 
             ### Still true from 1.6.0, if you have not flashed over USB since
 
@@ -210,7 +217,15 @@ jobs:
             Wi-Fi. Everything keeps working. What happens eventually is that an
             application grows past 6.25MB, and that device says the firmware is
             too large and declines the update -- with that reason, before
-            downloading it, rather than failing halfway. If you would rather not
+            downloading it, rather than failing halfway.
+
+            **This release still fits, with 52KB to spare**, and that is the
+            first time the margin has been worth printing: 1.8.0 is 6,500,522
+            bytes against the old 6,553,600-byte slot. It is the tightest a
+            release has been. If you are on an old table, this one installs
+            over Wi-Fi like any other -- but the next release that adds a
+            typeface may not, and you would rather do the USB flash below at
+            your convenience than the first time an update refuses itself. If you would rather not
             meet that months from now, flash
             `crossplay-1.6.1-x4pro-full.bin` over USB once, exactly as a first
             install. Your SD card is untouched: books, reading positions, saves
