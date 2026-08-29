@@ -8,8 +8,10 @@ available while CrossPoint Reader is in File Transfer or Calibre Wireless mode.
 - UDP discovery listener: port 8134
 - WebDAV: port 80, handled by the same HTTP server
 
-Examples use `crosspoint.local`. If mDNS does not resolve on your network, use
-the IP address shown on the device screen.
+Examples use `crosspoint.local`. **On CrossPlay the device answers to
+`crossplay.local` instead** -- this page is upstream's and is kept unedited so
+merges stay cheap, so substitute the host in every example below. If mDNS does
+not resolve on your network, use the IP address shown on the device screen.
 
 ## HTTP Pages
 

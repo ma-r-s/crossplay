@@ -12,6 +12,8 @@ This document shows common issues and possible solutions while using the device 
 
 **Problem:** Browser shows "Cannot connect" or "Site can't be reached"
 
+> **On CrossPlay these names differ.** The device advertises `crossplay.local`, not `crosspoint.local`, and the hotspot it creates is called `CrossPlay`, not `CrossPoint-Reader`. This page is upstream's and is kept unedited so merges stay cheap; substitute as you read.
+
 **Solutions:**
 
 1. Verify both devices are on the correct network
