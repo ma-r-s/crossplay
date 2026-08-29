@@ -142,5 +142,18 @@ else
   bad "api/firmware.js and serve.py disagree about the image filename"
 fi
 
+# -- every game and app on the shelf is showcased on the page ------------------
+#
+# The one gap here is not a mismatch between two files, it is an ABSENCE: a game
+# that shipped and was never written up looks exactly like a game that does not
+# exist. Two of them had been on the shelf for eleven releases. The list comes
+# out of Shelf.cpp, so a new app fails this until somebody writes it up.
+shelf_missing="$(python3 "$HERE/shelf_coverage.py" "$ROOT")"
+if [ -z "$shelf_missing" ]; then
+  ok
+else
+  while IFS= read -r line; do bad "$line"; done <<< "$shelf_missing"
+fi
+
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]

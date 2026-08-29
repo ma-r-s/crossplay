@@ -1,0 +1,21 @@
+# How site/assets/shots/getbooks.png was captured. Run from wt/webflash.
+#
+# Two things make this one different from the games.
+#
+# It needs a network, and it gets a real one: the simulator's WiFi shim reports
+# WL_CONNECTED after any begin(), and HTTPClient on the host is the real thing,
+# so the device in the shot is browsing the actual Project Gutenberg catalog.
+# The ENTER at 3000 picks "Simulator WiFi (fake)" off the Wi-Fi screen; the one
+# at 9000 opens Popular.
+#
+# And it needs Gutenberg to be the FIRST server in
+# fs_agent/.crosspoint/opds.json, because the app opens the first one and the
+# other seeded server (books.ma-r-s.com) is a search-first feed -- correct
+# behaviour, and a keyboard is not a picture of a catalog.
+#
+# CROSSPLAY_AUTOSTART="GET BOOKS" ./scripts_local/sim-shot.sh \
+#   '3000:ENTER;9000:ENTER;36000:QUIT' '30000:qa-artifacts/gb-pop2.bmp'
+# then downsample qa-artifacts/gb-pop2.png from 960x1600 to 480x800 (LANCZOS).
+#
+# NOT reproducible byte-for-byte: Gutenberg's Popular list is whatever Gutenberg
+# says is popular that day.
