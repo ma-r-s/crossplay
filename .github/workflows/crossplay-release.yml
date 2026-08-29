@@ -231,6 +231,19 @@ jobs:
             install. Your SD card is untouched: books, reading positions, saves
             and fonts are files on it, not in the firmware.
 
+            ### The short way: press Install
+
+            **[crossplay.ma-r-s.com/#get](https://crossplay.ma-r-s.com/#get)**
+            installs this release for you. Open it in Chrome or Edge on a
+            computer, plug the device in, wake it, and press Install: the page
+            downloads the right image and writes it over USB itself, with
+            nothing to install first and no command to type. Safari, Firefox and
+            every phone have no Web Serial, and the page says so rather than
+            failing when pressed.
+
+            The files below are for doing it by hand, and for the on-device
+            updater.
+
             ### Which file to download
 
             Each device has its own pair of images; the board name is in the

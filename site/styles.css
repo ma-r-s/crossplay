@@ -1405,9 +1405,9 @@ body::before {
   margin-bottom: 0;
 }
 
-/* The one thing a visitor must not miss on the install section: nothing has
- * ever booted this on a panel. Bordered rather than tinted, because the page
- * has no colour to warn with and a grey box would read as an aside. */
+/* The install section's standing caveat: how much hardware this has actually
+ * run on. Bordered rather than tinted, because the page has no colour to warn
+ * with and a grey box would read as an aside. */
 .untested {
   margin: 0 0 1.6rem;
   padding: 0.9rem 1.1rem;
@@ -1415,4 +1415,177 @@ body::before {
   font-size: 0.95rem;
   line-height: 1.6;
   max-width: 62ch;
+}
+
+/* --- the install panel ----------------------------------------------------
+ * The one control on this site that reaches out of the page and writes to
+ * somebody's hardware, so it is drawn as a bordered slab rather than as more
+ * prose: heavier than .untested, which is the only other boxed thing in this
+ * section, and clearly the thing you came here to press.
+ */
+.installer {
+  border: 3px solid var(--ink);
+  padding: 1.4rem 1.5rem 1.5rem;
+  margin: 0 0 2rem;
+  max-width: 62ch;
+  background: var(--paper-2);
+}
+.installer-hed {
+  font-family: var(--display);
+  font-size: 1.7rem;
+  letter-spacing: 0.02em;
+  margin: 0 0 0.4rem;
+}
+.installer-sub {
+  margin: 0 0 1.1rem;
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+.installer-devices {
+  border: 0;
+  padding: 0;
+  margin: 0 0 1.1rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 1.4rem;
+}
+.installer-devices legend {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 0;
+  margin-bottom: 0.5rem;
+}
+.installer-devices label {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+.installer-devices input {
+  accent-color: var(--ink);
+  width: 1.05rem;
+  height: 1.05rem;
+}
+.installer button.btn {
+  cursor: pointer;
+}
+.installer button.btn:disabled {
+  opacity: 0.42;
+  cursor: default;
+  transform: none;
+}
+
+/* Progress. One bar for the download and then the same bar for the write:
+ * two bars would imply the second starts when the first ends, and on a slow
+ * connection the download is most of the wait. */
+.installer-bar {
+  display: block;
+  height: 0.55rem;
+  margin-top: 1rem;
+  border: 2px solid var(--ink);
+}
+.installer-bar[hidden] {
+  display: none;
+}
+.installer-bar span {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--ink);
+  transition: width 0.15s linear;
+}
+
+.installer-status {
+  margin: 0.8rem 0 0;
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  letter-spacing: 0.04em;
+  line-height: 1.6;
+  color: var(--muted);
+  min-height: 1.3em;
+}
+/* No colour on this page, so state is weight and a rule, not red and green. */
+.installer-status[data-kind="bad"] {
+  color: var(--ink);
+  font-weight: 700;
+  border-left: 3px solid var(--ink);
+  padding-left: 0.7rem;
+}
+.installer-status[data-kind="good"] {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.installer-done {
+  margin: 0.9rem 0 0;
+  padding: 0.8rem 1rem;
+  border: 2px solid var(--ink);
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+.installer-log {
+  margin-top: 0.9rem;
+  font-size: 0.85rem;
+}
+.installer-log summary {
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.installer-log pre {
+  margin: 0.6rem 0 0;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--edge);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  line-height: 1.5;
+  max-height: 14rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.installer-warn {
+  margin: 0 0 1.1rem;
+  padding: 0.8rem 1rem;
+  border: 2px solid var(--ink);
+  font-size: 0.92rem;
+  line-height: 1.6;
+}
+.installer[data-unsupported] .installer-devices,
+.installer[data-unsupported] .installer-fine {
+  opacity: 0.5;
+}
+.installer-fine {
+  margin: 1.1rem 0 0;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+/* The by-hand steps. Present, complete, and folded away: the whole point of
+ * the button above is that most people never open this. */
+.by-hand {
+  margin: 0 0 1.6rem;
+  max-width: 62ch;
+}
+.by-hand summary {
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.by-hand summary:hover {
+  color: var(--ink);
+}
+.by-hand > .steps {
+  margin-top: 1rem;
 }

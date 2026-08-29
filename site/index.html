@@ -421,38 +421,55 @@
       <a href="https://github.com/ma-r-s/crossplay/issues">say what you
       find</a>, either way.
     </p>
-    <ol class="steps">
-        <li><strong>Check your device.</strong> CrossPlay targets the <strong>Xteink X4 Pro</strong> and the <strong>Seeed reTerminal Sticky</strong>. For every other supported device, CrossPoint upstream is the right answer and is excellent.</li>
-        <li><strong>Keep your books.</strong> Flashing replaces the firmware, not the SD card. Your library, your reading positions and your fonts are files on that card and are left alone.</li>
-        <li><strong>Download your device's full image</strong> from the <a href="https://github.com/ma-r-s/crossplay/releases">releases page</a>: <code>crossplay-&lt;version&gt;-x4pro-full.bin</code> or <code>crossplay-&lt;version&gt;-sticky-full.bin</code>. Each is the whole firmware, bootloader and partition table included, so you do not need to have installed CrossPoint first. The firmware refuses an image built for the other board, so the worst a mixed-up download costs is a retry.</li>
-        <li><strong>Flash it over USB.</strong> You need <a href="https://github.com/espressif/esptool">esptool</a>, which is one <code>pip install esptool</code> on Windows, macOS or Linux alike. With the device plugged in (shown for the X4 Pro; swap in the sticky filename on a Sticky):
-          <br><code>esptool.py --chip esp32s3 --baud 921600 write_flash 0x0 crossplay-&lt;version&gt;-x4pro-full.bin</code>
-        </li>
-        <li><strong>Updating later needs no cable.</strong> Use <strong>Settings &rarr; Check for updates</strong> over Wi-Fi, or put the app-only release file -- <code>firmware.bin</code> for the X4 Pro, <code>firmware-sticky.bin</code> for the Sticky -- on the SD card and pick it there. Those are the app on its own, which is what a device that already has a bootloader wants. The <code>-full.bin</code> is for USB only -- do not hand it to the updater, which would be writing a bootloader into a slot meant for the application.</li>
+    <!-- The button that does the whole thing. It is first, and short, because
+         the first person who could not install this said on Reddit that he had
+         been looking for a tutorial. Anything a person does not need before
+         pressing it belongs below, or folded away. assets/install.js carries
+         the reasoning. -->
+    <div class="installer" id="installer">
+        <p class="installer-hed">Install it from this page</p>
+        <p class="installer-sub">Plug the device in, wake it, press the button.
+          Chrome or Edge, on a computer.</p>
+        <p class="installer-warn" id="installUnsupported" hidden></p>
+        <fieldset class="installer-devices">
+          <legend>Which device</legend>
+          <label><input type="radio" name="install-device" value="x4pro" checked> Xteink X4 Pro</label>
+          <label><input type="radio" name="install-device" value="sticky"> Seeed reTerminal Sticky</label>
+        </fieldset>
+        <button class="btn primary" type="button" id="installButton">Install on Xteink X4 Pro</button>
+        <div class="installer-bar" id="installBar" hidden><span id="installBarFill"></span></div>
+        <p class="installer-status" id="installStatus" role="status" aria-live="polite"></p>
+        <p class="installer-done" id="installDone" hidden><strong>One thing left.</strong>
+          <span id="installDoneText"></span></p>
+        <details class="installer-log" id="installLogBox" hidden>
+          <summary>Show the log</summary>
+          <pre id="installLog"></pre>
+        </details>
+        <p class="installer-fine">Your books stay. The SD card is not touched.</p>
+      </div>
+
+      <ol class="steps">
+        <li><strong>These two devices only.</strong> The <strong>Xteink X4 Pro</strong> and the <strong>Seeed reTerminal Sticky</strong>. For every other supported device, <a href="https://crosspointreader.com/">CrossPoint</a> upstream is the right answer and is excellent.</li>
+        <li><strong>After this, no more cables.</strong> <strong>Settings &rarr; Check for updates</strong> does the rest over Wi-Fi.</li>
         <li><strong>You can go back.</strong> Flashing stock CrossPoint over the top returns the device exactly to where it was.</li>
       </ol>
+
+      <details class="by-hand">
+        <summary>Or install it by hand</summary>
+        <ol class="steps">
+          <li><strong>Download your device's full image</strong> from the <a href="https://github.com/ma-r-s/crossplay/releases">releases page</a>: <code>crossplay-&lt;version&gt;-x4pro-full.bin</code> or <code>crossplay-&lt;version&gt;-sticky-full.bin</code>. Each is the whole firmware, bootloader and partition table included, so you do not need to have installed CrossPoint first. The firmware refuses an image built for the other board, so the worst a mixed-up download costs is a retry.</li>
+          <li><strong>Flash it over USB.</strong> You need <a href="https://github.com/espressif/esptool">esptool</a>, which is one <code>pip install esptool</code> on Windows, macOS or Linux alike. With the device plugged in (shown for the X4 Pro; swap in the sticky filename on a Sticky):
+            <br><code>esptool.py --chip esp32s3 --baud 921600 write_flash 0x0 crossplay-&lt;version&gt;-x4pro-full.bin</code>
+          </li>
+          <li><strong>Updating an install you already have</strong> uses the app-only file instead -- <code>firmware.bin</code> for the X4 Pro, <code>firmware-sticky.bin</code> for the Sticky -- over Wi-Fi or from the SD card. The <code>-full.bin</code> is for USB only: handing it to the updater writes a bootloader into a slot meant for the application.</li>
+        </ol>
+      </details>
+
       <div class="cta-row">
         <a class="btn primary" href="https://github.com/ma-r-s/crossplay/releases">Releases</a>
         <a class="btn" href="https://github.com/ma-r-s/crossplay">Read the source</a>
       </div>
       <p class="release-stamp" id="releaseStamp" hidden></p>
-      <script>
-        // The page never said which version is current; GitHub knows. One
-        // request, and a failed fetch leaves no broken control behind, same
-        // rule as the avatar data.
-        (function () {
-          var el = document.getElementById('releaseStamp');
-          fetch('https://api.github.com/repos/ma-r-s/crossplay/releases/latest')
-            .then(function (r) { return r.ok ? r.json() : null; })
-            .then(function (d) {
-              if (d && d.tag_name) {
-                el.textContent = 'Latest release: ' + d.tag_name;
-                el.hidden = false;
-              }
-            })
-            .catch(function () {});
-        })();
-      </script>
     </div>
     <div class="bracket">
       <figure>
@@ -511,6 +528,10 @@
   </div>
 </footer>
 
+<!-- The Install button, and the release stamp it also fills in. It pulls
+     assets/esptool.bundle.js in only when someone presses Install, so the
+     175KB library costs the people just reading the page nothing. -->
+<script src="assets/install.js"></script>
 <script src="assets/avatar-data.js"></script>
 <!-- ?v=2 defeats a poisoned cache entry, not a normal cache miss. Until
      2026-08-09 /assets/ was served immutable for a year, so every browser

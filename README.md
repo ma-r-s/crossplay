@@ -93,6 +93,17 @@ right answer and is excellent.
 
 You do not need to have installed CrossPoint first.
 
+### From the browser
+
+Open [**crossplay.ma-r-s.com/#get**](https://crossplay.ma-r-s.com/#get) in
+Chrome or Edge on a computer, plug the device in, wake it, and press **Install**.
+The page downloads the current release and writes it over USB itself; there is
+nothing to install first and no command to type. Safari and Firefox have no Web
+Serial, and no phone or tablet does either, so the button says so rather than
+failing when pressed.
+
+### By hand
+
 1. Download your device's full image from the
    [releases page](https://github.com/ma-r-s/crossplay/releases):
    `crossplay-<version>-x4pro-full.bin` for the X4 Pro,
