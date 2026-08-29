@@ -788,6 +788,11 @@ void StudyActivity::loop() {
       // screen. The session state stays; the next START REVIEWING re-scans
       // anyway. Flush so a wall-charger yank right after costs nothing.
       flushWrites();
+      // Re-read what this session just wrote. Without these the deck screen
+      // redraws its session-start counts over an empty history panel, which
+      // reads as "the answers you just gave were thrown away".
+      buildQueue();
+      refreshStats();
       view_ = View::Deck;
       requestUpdate();
       return;
@@ -843,6 +848,14 @@ void StudyActivity::loop() {
   if (view_ == View::NoDeck) {
     if (tapX >= noDeckSyncX_ && tapX < noDeckSyncX_ + noDeckSyncW_ && tapY >= noDeckSyncY_ &&
         tapY < noDeckSyncY_ + noDeckSyncH_) {
+      // A paired reader with an empty card is offered CHOOSE DECKS, so the
+      // tap has to actually reopen the question; without this it ran a plain
+      // sync that answered DECKS UP TO DATE over an empty card, forever.
+      study::BridgeState onCard;
+      if (study::loadBridgeState(onCard) && onCard.choseDecks) {
+        onCard.choseDecks = false;
+        study::saveBridgeState(onCard);
+      }
       beginSync();
     }
     return;
@@ -1185,7 +1198,19 @@ void StudyActivity::buildDeckModel(studyui::DeckModel& out) const {
       struct tm parts;
       const time_t at = static_cast<time_t>(bridge.lastSyncAt);
       localtime_r(&at, &parts);
-      std::snprintf(out.syncSubtitle, sizeof(out.syncSubtitle), "LAST SYNC %02d:%02d", parts.tm_hour, parts.tm_min);
+      // A bare clock time reads as "this morning" three days later, so only
+      // today gets a clock; anything older gets its date.
+      const time_t nowT = time(nullptr);
+      struct tm now;
+      localtime_r(&nowT, &now);
+      if (parts.tm_yday == now.tm_yday && parts.tm_year == now.tm_year) {
+        std::snprintf(out.syncSubtitle, sizeof(out.syncSubtitle), "LAST SYNC %02d:%02d", parts.tm_hour, parts.tm_min);
+      } else {
+        static const char* kMonths[] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+                                        "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
+        std::snprintf(out.syncSubtitle, sizeof(out.syncSubtitle), "LAST SYNC %d %s", parts.tm_mday,
+                      kMonths[parts.tm_mon % 12]);
+      }
     } else {
       std::snprintf(out.syncSubtitle, sizeof(out.syncSubtitle), "PAIRED");
     }
@@ -1827,11 +1852,16 @@ bool StudyActivity::applyManifests(const std::vector<study::DeckManifest>& manif
                                    int& decksUpdated) {
   decksUpdated = 0;
   for (const auto& deck : manifests) {
-    // A repeated buildId means the card already holds this exact build;
-    // downloading it again would only heat the room.
-    if (deck.buildId == bridge_.buildFor(deck.slug.c_str())) continue;
     char dir[96];
     std::snprintf(dir, sizeof(dir), "%s/%s", kStudyRoot, deck.slug.c_str());
+    // A repeated buildId means the card already holds this exact build --
+    // but only if it still does. Trusting the cache blind meant a deck the
+    // user deleted (or a download that never finished) was never fetched
+    // again, while every sync went on reporting DECKS UP TO DATE forever.
+    char cardsPath[128];
+    std::snprintf(cardsPath, sizeof(cardsPath), "%s/cards.dat", dir);
+    const bool onCard = Storage.exists(dir) && Storage.exists(cardsPath);
+    if (onCard && deck.buildId == bridge_.buildFor(deck.slug.c_str())) continue;
     if (!Storage.exists(dir)) Storage.mkdir(dir);
 
     // Two passes: every needed file lands as .part first, then the batch
@@ -1971,8 +2001,11 @@ void StudyActivity::runSyncFlow() {
       }
     }
     if (leave) {
-      endSyncSession(studyui::SyncVerdictKind::Neutral, studyui::SyncSafety::ReviewsSafe, "STOPPED",
-                     "Your reviews are safely sent. The bridge keeps working; sync again later for the updated decks.");
+      endSyncSession(studyui::SyncVerdictKind::Neutral,
+                     reviewCount > 0 ? studyui::SyncSafety::ReviewsSafe : studyui::SyncSafety::None, "STOPPED",
+                     reviewCount > 0
+                         ? "Your reviews are safely sent. The sync keeps running; sync again for the updated decks."
+                         : "The sync keeps running. Sync again later to pick up the decks.");
       return;
     }
     manifests.clear();
@@ -2051,7 +2084,8 @@ void StudyActivity::runSyncFlow() {
 
   flow_.factCount = 0;
   if (reviewCount > 0) {
-    std::snprintf(flow_.factLines[flow_.factCount++], sizeof(flow_.factLines[0]), "%d REVIEWS SENT", reviewCount);
+    std::snprintf(flow_.factLines[flow_.factCount++], sizeof(flow_.factLines[0]), "%d REVIEW%s SENT", reviewCount,
+                  reviewCount == 1 ? "" : "S");
   }
   if (decksUpdated > 0) {
     std::snprintf(flow_.factLines[flow_.factCount++], sizeof(flow_.factLines[0]), "%d DECK%s UPDATED", decksUpdated,
