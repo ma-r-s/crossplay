@@ -35,6 +35,11 @@ struct BridgeState {
   std::string token;
   char deckDirs[kMaxSyncDecks][32] = {};
   uint32_t ackOffsets[kMaxSyncDecks] = {};
+  // The first eight bytes of the revlog the offset was measured against. An
+  // offset is meaningless once the file it points into has been replaced --
+  // which the app's own repair path does, since deleting a deck folder takes
+  // the review log with it and a re-download never restores one.
+  uint64_t revlogTags[kMaxSyncDecks] = {};
   // The buildId last downloaded per deck dir: the server reuses a build
   // when nothing changed, and a matching id means every file on the card
   // is already exactly the build the manifest describes.
@@ -50,6 +55,8 @@ struct BridgeState {
   void setBuild(const char* dir, const char* buildId);
 
   uint32_t ackFor(const char* dir) const;
+  uint64_t revlogTagFor(const char* dir) const;
+  void setRevlogTag(const char* dir, uint64_t tag);
   void setAck(const char* dir, uint32_t offset);
 };
 

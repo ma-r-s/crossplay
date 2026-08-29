@@ -1528,16 +1528,25 @@ void StudyActivity::render(RenderLock&&) {
                                      paired ? "Choose your decks" : "Bring your Anki decks", 1);
     const int16_t qrSide = 208;
     const int16_t qrTop = static_cast<int16_t>(bodyTop + 88);
-    QrUtils::drawQrCode(renderer, Rect{static_cast<int16_t>((width - qrSide) / 2), qrTop, qrSide, qrSide},
-                        kInstallerUrl);
-    // Height 40, not 32: drawCenteredWrappedText draws nothing at all when the
-    // box is shorter than the font's line box, and it fails silently.
-    UITheme::drawCenteredWrappedText(renderer, Rect{0, static_cast<int16_t>(qrTop + qrSide + 8), width, 40},
-                                     kSmallFontId, "crossplay.ma-r-s.com/study", 1);
+    // The QR is the from-a-computer route. Once paired, the heading above it
+    // asks about choosing decks -- which that page cannot do -- so it would be
+    // the largest thing on screen pointing at the wrong answer.
+    if (!paired) {
+      QrUtils::drawQrCode(renderer, Rect{static_cast<int16_t>((width - qrSide) / 2), qrTop, qrSide, qrSide},
+                          kInstallerUrl);
+      // Height 40, not 32: drawCenteredWrappedText draws nothing at all when
+      // the box is shorter than the font's line box, and it fails silently.
+      UITheme::drawCenteredWrappedText(renderer, Rect{0, static_cast<int16_t>(qrTop + qrSide + 8), width, 40},
+                                       kSmallFontId, "crossplay.ma-r-s.com/study", 1);
+    }
+    // Paired, the words are all there is, so they get the QR's room: at 96px
+    // this box fitted two lines of a three-line sentence and dropped the rest
+    // in silence.
+    const int16_t bodyBoxTop = static_cast<int16_t>(paired ? qrTop + 8 : qrTop + qrSide + 48);
     UITheme::drawCenteredWrappedText(
-        renderer, Rect{24, static_cast<int16_t>(qrTop + qrSide + 48), width - 48, 96}, kMeaningFontId,
+        renderer, Rect{24, bodyBoxTop, width - 48, static_cast<int16_t>(paired ? 200 : 96)}, kMeaningFontId,
         paired ? "Your Anki account is connected. Pick the decks it keeps." : "Scan it to add a deck from a computer.",
-        3);
+        paired ? 4 : 3);
 
     renderer.drawRoundedRect(noDeckSyncX_, noDeckSyncY_, noDeckSyncW_, noDeckSyncH_, toybox::kHairline,
                              noDeckSyncH_ / 2, true);
@@ -1874,7 +1883,26 @@ bool StudyActivity::buildPayloads(std::vector<study::DeckPayload>& out) {
     if (Storage.openFileForRead("STUDYSYNC", path, revlog)) {
       const uint32_t size = revlog.size();
       uint32_t ack = bridge_.ackFor(deckNames_[i]);
-      if (ack > size) ack = 0;  // the file was replaced under us; resend all
+      // An offset is only meaningful against the file it was measured on.
+      // A bare `ack > size` check misses the case that matters: delete a deck
+      // folder (which the app's own repair path invites), let it re-download
+      // WITHOUT its review log, and a fresh revlog grows back to exactly or
+      // past the old offset -- after which every review before that offset is
+      // skipped for good and the reader still reports SYNCED. Tag the file by
+      // its first record and resend everything when the tag changes.
+      uint64_t tag = 0;
+      if (size >= sizeof(tag)) {
+        uint8_t head[sizeof(tag)];
+        revlog.seek(0);
+        if (revlog.read(head, sizeof(head)) == static_cast<int>(sizeof(head))) std::memcpy(&tag, head, sizeof(tag));
+      }
+      const uint64_t knownTag = bridge_.revlogTagFor(deckNames_[i]);
+      if (tag != 0 && knownTag != 0 && tag != knownTag) {
+        LOG_INF("STUDYSYNC", "%s: review log was replaced; resending all of it", deckNames_[i]);
+        ack = 0;
+      }
+      if (ack > size) ack = 0;  // truncated under us; resend all
+      if (tag != 0 && tag != knownTag) bridge_.setRevlogTag(deckNames_[i], tag);
       payload.revlogOffset = ack;
       if (size > ack) {
         payload.revlogTail.resize(size - ack);
