@@ -33,9 +33,21 @@ bool readStats(ByteSource& revlog, const int todayDay, const int64_t collectionC
   if (size < kRevlogRecordSize) return true;  // an empty log is not an error
 
   const uint32_t records = size / kRevlogRecordSize;
-  // Counted as written; voided ones are subtracted as they are walked, so a
-  // long-ago undo outside the window does not skew the lifetime figure much.
+  // Every record, minus the ones the user took back. The comment here used to
+  // claim voided records were "subtracted as they are walked"; they were not,
+  // because the walk stops at the window's edge, so an undo made the lifetime
+  // figure count a review that never happened.
   out.lifetimeReviews = static_cast<int>(records);
+  {
+    uint8_t scan[kChunkRecords * kRevlogRecordSize];
+    for (uint32_t base = 0; base < records; base += kChunkRecords) {
+      const uint32_t count = (records - base) < kChunkRecords ? (records - base) : kChunkRecords;
+      if (!revlog.read(base * kRevlogRecordSize, scan, count * kRevlogRecordSize)) break;
+      for (uint32_t i = 0; i < count; ++i) {
+        if (scan[i * kRevlogRecordSize + kRevlogFlagsOffset] & kRevlogVoided) --out.lifetimeReviews;
+      }
+    }
+  }
 
   // Walk backwards. Records are appended in answer order, so once a chunk is
   // entirely older than the window every earlier chunk is too, and the scan

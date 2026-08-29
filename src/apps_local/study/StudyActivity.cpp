@@ -1192,6 +1192,22 @@ void StudyActivity::refreshStats() {
 namespace {
 // Used by both the deck model (how much is waiting to send) and the sync
 // flow (is a font already the right size), so it lives above both.
+// Reviews between two offsets that have not been undone. A voided record is
+// struck out in place rather than removed (revlog.dat is append-only), so a
+// byte count over-reports by exactly the undos it contains.
+int countLiveRecords(const char* path, const uint32_t from, const uint32_t to) {
+  HalFile file;
+  if (!Storage.openFileForRead("STUDY", path, file)) return 0;
+  int live = 0;
+  uint8_t record[study::kRevlogRecordBytes];
+  for (uint32_t at = from; at + study::kRevlogRecordBytes <= to; at += study::kRevlogRecordBytes) {
+    if (!file.seekSet(at)) break;
+    if (file.read(record, sizeof(record)) != static_cast<int>(sizeof(record))) break;
+    if ((record[study::kRevlogFlagsOffset] & study::kRevlogVoided) == 0) ++live;
+  }
+  return live;
+}
+
 int64_t localFileSize(const char* path) {
   HalFile file;
   if (!Storage.openFileForRead("STUDY", path, file)) return -1;
@@ -1255,7 +1271,10 @@ void StudyActivity::buildDeckModel(studyui::DeckModel& out) const {
         if (size <= 0) continue;
         const uint32_t acked = bridge.ackFor(deckNames_[i]);
         if (static_cast<uint32_t>(size) > acked) {
-          unsent += static_cast<int>((static_cast<uint32_t>(size) - acked) / study::kRevlogRecordBytes);
+          // Only reviews that still stand: an undone one is struck out in
+          // place, and counting it made the door promise to send something
+          // that no longer exists.
+          unsent += countLiveRecords(path, acked, static_cast<uint32_t>(size));
         }
       }
     }
@@ -2022,6 +2041,26 @@ void StudyActivity::runSyncFlow() {
   syncTimeIfNeeded();
   LOG_INF("STUDYSYNC", "flow: state");
   const bool freshPairing = !study::loadBridgeState(bridge_);
+  // Forget any marker whose deck is not on the card. An ack is a byte offset
+  // into a review log; if the folder is gone the log is gone, and the offset
+  // now points into whatever the next sync downloads. Doing it here rather
+  // than in buildPayloads is what makes it deterministic: the losing case is
+  // a deck RESTORED by this very sync, which buildPayloads never sees because
+  // it only walks decks already present.
+  {
+    bool forgot = false;
+    for (int i = 0; i < bridge_.deckCount; ++i) {
+      if (bridge_.ackOffsets[i] == 0 && bridge_.revlogTags[i] == 0) continue;
+      char dir[96];
+      std::snprintf(dir, sizeof(dir), "%s/%s", kStudyRoot, bridge_.deckDirs[i]);
+      if (Storage.exists(dir)) continue;
+      LOG_INF("STUDYSYNC", "%s: not on the card; forgetting its ack", bridge_.deckDirs[i]);
+      bridge_.ackOffsets[i] = 0;
+      bridge_.revlogTags[i] = 0;
+      forgot = true;
+    }
+    if (forgot) study::saveBridgeState(bridge_);
+  }
   if (freshPairing) {
     if (!runPairing()) return;  // runPairing already ended the session
   }
@@ -2043,9 +2082,16 @@ void StudyActivity::runSyncFlow() {
                    "Could not read the card. Nothing was sent.");
     return;
   }
-  uint32_t reviewBytes = 0;
-  for (const auto& p : payloads) reviewBytes += p.revlogTail.size();
-  const int reviewCount = static_cast<int>(reviewBytes / study::kRevlogRecordBytes);
+  // Count what will actually land: the tail carries undone reviews too, and
+  // the bridge drops them, so a byte count made the verdict claim it had sent
+  // reviews the server correctly refused.
+  int reviewCount = 0;
+  for (const auto& payload : payloads) {
+    for (size_t at = 0; at + study::kRevlogRecordBytes <= payload.revlogTail.size(); at += study::kRevlogRecordBytes) {
+      const uint8_t flags = static_cast<uint8_t>(payload.revlogTail[at + study::kRevlogFlagsOffset]);
+      if ((flags & study::kRevlogVoided) == 0) ++reviewCount;
+    }
+  }
 
   std::string job;
   std::string message;
