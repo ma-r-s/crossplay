@@ -1,4 +1,3 @@
-#include "DevMode.h"
 #include "CalibreConnectActivity.h"
 
 #include <ESPmDNS.h>
@@ -7,6 +6,7 @@
 #include <I18n.h>
 #include <WiFi.h>
 
+#include "DevMode.h"
 #include "MappedInputManager.h"
 #include "SilentRestart.h"
 #include "WifiSelectionActivity.h"
@@ -15,7 +15,7 @@
 #include "util/TaskWatchdog.h"
 
 namespace {
-constexpr const char* HOSTNAME = "crosspoint";
+constexpr const char* HOSTNAME = "crossplay";
 }  // namespace
 
 void CalibreConnectActivity::onEnter() {

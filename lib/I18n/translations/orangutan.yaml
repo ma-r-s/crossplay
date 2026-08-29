@@ -2,7 +2,7 @@ _language_name: "Orangutan"
 _language_code: "OOK"
 _order: "34"
 
-STR_CROSSPOINT: "CrossPoint"
+STR_CROSSPLAY: "CrossPlay"
 STR_BOOTING: "OOK"
 STR_SLEEPING: "Oooook"
 STR_ENTERING_SLEEP: "Ook..."

@@ -53,7 +53,7 @@ import time
 import urllib.error
 import urllib.request
 
-UA = {"User-Agent": "CrossPoint-xkcd-pack/1 (personal e-reader; contact via github)"}
+UA = {"User-Agent": "CrossPlay-xkcd-pack/1 (personal e-reader; contact via github)"}
 
 MAGIC = 0x44434B58  # "XKCD"
 FORMAT_VERSION = 3

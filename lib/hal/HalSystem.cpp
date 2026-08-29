@@ -134,7 +134,7 @@ std::string getPanicInfo(bool full) {
   } else {
     std::string info;
 
-    info += "CrossPoint version: " CROSSPOINT_VERSION;
+    info += "CrossPlay version: " CROSSPOINT_VERSION;
     info += "\n\nPanic reason: " + std::string(panicMessage);
     info += "\n\nLast logs:\n" + getLastLogs();
     info += "\n\nStack memory:\n";

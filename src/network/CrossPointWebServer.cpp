@@ -379,6 +379,10 @@ void CrossPointWebServer::handleClient() {
           if (hostname.isEmpty()) {
             hostname = "crosspoint";
           }
+          // A discovery handshake, not a label. Two things match this leading
+          // token to recognise the device: upstream's crosspoint_reader Calibre
+          // plugin, and the fork's OWN scripts_local/wifi-flash.sh. Renaming it
+          // would break wireless flashing, which is the surprising half.
           String message = "crosspoint (on " + hostname + ");" + String(wsPort);
           udp.beginPacket(udp.remoteIP(), udp.remotePort());
           udp.write(reinterpret_cast<const uint8_t*>(message.c_str()), message.length());
