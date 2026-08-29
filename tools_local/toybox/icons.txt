@@ -238,3 +238,44 @@ toybattle = share-2
 # `table` and `table-2` (same boxed-grid silhouette), `pencil` (a tool, not a
 # game, and every game here is played with one), `brain` (mush at 32px).
 sudoku      = hash
+
+# ---------------------------------------------------------------------------
+# FOREHEAD, and its seventeen category marks.
+#
+# The game itself is `hourglass`. Not a face and not a mask: `venetian-mask` is
+# Insider's and the two are both party games in the same folder, which is
+# exactly the collision Yahtzee and Knucklebones had to resolve. A bowtie of two
+# triangles meeting at a point shares no outline with the crown, hull, grid,
+# suit, joystick, map, mask, gem, footprints, disc, die, bomb, origami, node
+# graph or hash around it, it has no interior detail at all to mush at 32px, and
+# the sixty-second clock is what the game IS -- every other guessing game on
+# this shelf lets you think. Rejected: `smile` and `drama` (faces, and the fork
+# spends faces on the player avatar; drama was already turned down twice here
+# for interior detail), `megaphone` (a cone with arcs, too near `radio`, which
+# is the multiplayer mark and must never be echoed), `lightbulb` (says "idea",
+# which is every puzzle in the folder).
+forehead = hourglass
+
+# The category marks, 32px, drawn in the picker's rows the way the shelf draws
+# an app's. They have to separate from EACH OTHER rather than from the shelf,
+# which is what ruled out the obvious set: `baby` for the children's list is a
+# head, `user-round` is a head, and `person-standing` is a figure, so three of
+# seventeen rows would have read as the same person.
+cat_animals = paw-print
+cat_act     = person-standing   # a whole figure, mid-stride
+cat_sound   = volume-2
+cat_food    = utensils-crossed
+cat_movies  = clapperboard
+cat_people  = user-round        # a bust: the only head in the set once kids moved off `baby`
+cat_music   = music
+cat_jobs    = briefcase
+cat_sports  = trophy
+cat_house   = lamp
+cat_places  = map-pin
+cat_nature  = trees
+cat_science = rocket            # not `atom`: three crossed ellipses is interior
+                                # detail, and this list is read at a glance
+cat_myths   = ghost
+cat_story   = book-open
+cat_kids    = toy-brick         # a studded block, not a baby's head
+cat_tricky  = puzzle            # the one list with nothing you can point at

@@ -56,6 +56,21 @@ constexpr int kButtonFontId = 0x70B0'0009;
 constexpr int kReadingSmallFontId = 0x70B0'000A;
 constexpr int kReadingBoldSmallFontId = 0x70B0'000B;
 
+// Two cuts above the display cut, for a screen whose whole content is one word
+// read from the other side of a room.
+//
+// The 30px display cut puts a 38px capital on the panel: 4.4mm at 220ppi, which
+// is right for a header somebody is holding and useless at three metres. These
+// are 57px and 82px of capital, or 6.6mm and 9.5mm -- the larger one is bigger
+// than the word on a phone playing the same game, which is the benchmark that
+// settled the sizes.
+//
+// Both, not one, because the ladder needs a rung: the longest single word in
+// the word lists is fifteen characters, which does not fit the panel at the
+// huge cut at any line count, and does fit at the large one.
+constexpr int kHugeFontId = 0x70B0'000C;
+constexpr int kLargeFontId = 0x70B0'000D;
+
 // Call from an activity's onEnter() before drawing. Idempotent and cheap.
 void ensureFonts(GfxRenderer& renderer);
 

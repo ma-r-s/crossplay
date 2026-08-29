@@ -19,6 +19,7 @@
 #include "../../src/apps_local/chess/ChessScreens.h"
 #include "../../src/apps_local/connectfour/ConnectFourScreens.h"
 #include "../../src/apps_local/connections/ConnectionsScreens.h"
+#include "../../src/apps_local/forehead/ForeheadScreens.h"
 #include "../../src/apps_local/hackernews/HackerNewsScreens.h"
 #include "../../src/apps_local/insider/InsiderScreens.h"
 #include "../../src/apps_local/knucklebones/KnucklebonesScreens.h"
@@ -4710,6 +4711,228 @@ void testTheSudokuFrontDoorNeverSharesInkBetweenTwoLines() {
   }
 }
 
+
+// --- FOREHEAD ---------------------------------------------------------------
+
+namespace {
+
+// The round is played in landscape, so its tests are too. Everything the key
+// bands claim is claimed about THIS frame.
+fui::DeviceContext landscapeDevice() {
+  fui::DeviceContext ctx;
+  ctx.width = 800;
+  ctx.height = 480;
+  ctx.hasTouch = true;
+  ctx.hasButtons = true;
+  return ctx;
+}
+
+void buildForeheadPlay(Rendered& out, const foreheadui::PlayModel& model) {
+  const fui::DeviceContext ctx = landscapeDevice();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  foreheadui::buildPlay(screen, model);
+}
+
+void buildForeheadMenu(Rendered& out, const foreheadui::MenuModel& model) {
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, device(), noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  foreheadui::buildMenu(screen, model);
+}
+
+void buildForeheadPicker(Rendered& out, const foreheadui::PickerModel& model) {
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, device(), noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  foreheadui::buildPicker(screen, model);
+}
+
+void buildForeheadResult(Rendered& out, const foreheadui::ResultModel& model) {
+  const fui::DeviceContext ctx = landscapeDevice();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  foreheadui::buildResult(screen, model);
+}
+
+}  // namespace
+
+// THE test for this app.
+//
+// The guesser cannot see the screen. The room reads the two edge labels aloud
+// and the guesser presses what the room tells them, so a label on the wrong
+// edge is not cosmetic -- it makes every player in the room give the wrong
+// instruction, and it would look exactly like the player being bad at the game.
+//
+// Asserting the labels alone would prove nothing: this fork already shipped a
+// FACE TO FACE setting that was verified by screenshotting its own label. So
+// this checks the label's POSITION and the ACTION a tap in that half returns,
+// together, from one paint.
+void testTheForeheadKeyLabelsSitOnTheEdgesTheyAct() {
+  Rendered out;
+  foreheadui::PlayModel model;
+  model.word = "PENGUIN";
+  model.secondsLeft = 42;
+  model.lengthSeconds = 60;
+  buildForeheadPlay(out, model);
+
+  const FakeTarget::TextRun* pass = out.target.find("PASS");
+  const FakeTarget::TextRun* got = out.target.find("GOT IT");
+  CHECK(pass != nullptr);
+  CHECK(got != nullptr);
+  if (pass == nullptr || got == nullptr) return;
+
+  // PASS is on the top edge, GOT IT on the bottom, and they are on opposite
+  // halves of the panel rather than merely in that order.
+  CHECK(pass->rect.y < 240);
+  CHECK(got->rect.y >= 240);
+
+  // And the halves do what their labels say. Tapping the middle of the top
+  // half gives up on the card; the bottom half scores it.
+  CHECK(out.tap(400, 160).action == foreheadui::ActionMissed);
+  Rendered again;
+  buildForeheadPlay(again, model);
+  CHECK(again.tap(400, 320).action == foreheadui::ActionGot);
+}
+
+void testTheForeheadRoundIgnoresTapsWhereFingersGrip() {
+  Rendered out;
+  foreheadui::PlayModel model;
+  model.word = "PENGUIN";
+  model.secondsLeft = 42;
+  buildForeheadPlay(out, model);
+  // The guesser's hands are on the short edges and their fingers curl over the
+  // long ones to reach the keys. A half-screen target would sit under both, so
+  // the corners and the extreme edges answer nothing.
+  CHECK(out.tap(20, 240).action == fui::NO_ACTION);
+  Rendered b;
+  buildForeheadPlay(b, model);
+  CHECK(b.tap(780, 30).action == fui::NO_ACTION);
+  Rendered c;
+  buildForeheadPlay(c, model);
+  CHECK(c.tap(400, 10).action == fui::NO_ACTION);
+  Rendered d;
+  buildForeheadPlay(d, model);
+  CHECK(d.tap(400, 470).action == fui::NO_ACTION);
+}
+
+void testTheForeheadCardNeverDrawsPastItsBox() {
+  // The fake target measures ten pixels a character at every size, so this pins
+  // the ALGORITHM -- greedy wrap, never inside a word, at most three lines --
+  // and not the real fit. Real fit is held by the generator's 22-character cap
+  // and by looking at a render.
+  //
+  // NARROW boxes as well as the real one, and that is the whole point. At the
+  // panel's 768px every 22-character entry is 220 fake pixels and fits on one
+  // line, so a mutant that let the ladder accept three times the box width
+  // survived: the wrap it was supposed to break had never once run. A fixture
+  // more convenient than the real caller stops testing the real caller.
+  const fui::DeviceContext ctx = landscapeDevice();
+  // 200 and 150 are chosen so the wrap is FORCED at the fake metric: 20 and 15
+  // characters a line against a 22-character longest entry and a 15-character
+  // longest word. 240 was the first try and it fits every entry on one line,
+  // which is how a width can look narrow and test nothing.
+  const int16_t widths[] = {768, 200, 150};
+  for (const int16_t width : widths) {
+    const fui::Rect box = fui::makeRect(16, 100, width, 300);
+    bool anyWrapped = false;
+    for (int entry = 0; entry < forehead::kEntryCount; ++entry) {
+      Rendered out;
+      const fui::InputSnapshot noInput{};
+      toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+      toybox::Screen screen(frame, toybox::themeTokens());
+      const char* text = forehead::kEntries[entry];
+      const foreheadui::CardLayout layout = foreheadui::layOutCard(screen, box, text);
+      CHECK(layout.lines >= 1 && layout.lines <= foreheadui::kCardMaxLines);
+      if (layout.lines > 1) anyWrapped = true;
+      int covered = 0;
+      for (int line = 0; line < layout.lines; ++line) {
+        CHECK(layout.width[line] <= box.width);
+        CHECK(layout.end[line] > layout.start[line]);
+        // A break lands on a space or on the end of the string: a word split in
+        // half is unreadable in a way a smaller word never is.
+        const int at = layout.end[line];
+        CHECK(text[at] == '\0' || text[at] == ' ');
+        covered += layout.end[line] - layout.start[line];
+      }
+      // Every character is drawn once, so nothing is silently dropped.
+      CHECK(covered >= static_cast<int>(std::strlen(text)) - (layout.lines - 1));
+    }
+    // At the two narrow widths the wrap MUST have run, or the loop above was
+    // checking a property nothing exercises.
+    if (width < 768) CHECK(anyWrapped);
+  }
+}
+
+void testTheForeheadHeadlineIsTheStartButton() {
+  Rendered out;
+  forehead::Record record;
+  record.push(0, 11);
+  foreheadui::MenuModel model;
+  model.category = 0;
+  model.record = &record;
+  buildForeheadMenu(out, model);
+
+  // The most common action is the largest thing on the screen and needs no
+  // button: tapping the category name opens the ready card.
+  CHECK(out.tap(200, 150).action == foreheadui::ActionReady);
+  // And it says so, because nothing else on this screen offers to play: the
+  // three doors below are CATEGORY, ROUND and HOW TO PLAY, none of which reads
+  // as "start". find() matches a whole run, and the run carries the record too.
+  CHECK(out.target.find("TAP TO PLAY   BEST HERE 11") != nullptr);
+
+  Rendered doors;
+  buildForeheadMenu(doors, model);
+  const fui::ActionEvent row = doors.tap(240, 620);
+  CHECK(row.action == foreheadui::ActionMenuRow);
+  CHECK(row.value == static_cast<int>(foreheadui::MenuRow::Category));
+}
+
+void testTheForeheadPickerReportsAbsoluteCategories() {
+  Rendered out;
+  foreheadui::PickerModel model;
+  model.page = 1;
+  model.current = 0;
+  buildForeheadPicker(out, model);
+  // The screen is handed a slice, but a tap has to report WHICH LIST it is,
+  // not which row of which page -- the shelf learned this the hard way.
+  const fui::ActionEvent hit = out.tap(240, 150);
+  CHECK(hit.action == foreheadui::ActionCategoryRow);
+  CHECK(hit.value == foreheadui::pickerRowsPerPage());
+  CHECK(hit.value < forehead::kCategoryCount);
+}
+
+void testTheForeheadResultsMarkTheUnansweredCardApart() {
+  forehead::Deck deck;
+  deck.reset();
+  forehead::Rng rng(5u);
+  forehead::Round round;
+  round.begin(0, 60, deck, rng);
+  round.got(deck, rng);
+  round.missed(deck, rng);
+  round.expire();
+
+  Rendered out;
+  foreheadui::ResultModel model;
+  model.category = 0;
+  model.score = round.score();
+  model.round = &round;
+  buildForeheadResult(out, model);
+
+  // Three cards, three different marks. The card in hand when the clock ran
+  // out is neither got nor given up on, and the table will argue about it, so
+  // it must not be drawn as either.
+  CHECK(round.cards() == 3);
+  CHECK(out.target.find(round.textAt(0)) != nullptr);
+  CHECK(out.target.find(round.textAt(1)) != nullptr);
+  CHECK(out.target.find(round.textAt(2)) != nullptr);
+  CHECK(out.target.find("OUT OF 3") != nullptr);
+  // One point, and the screen says WORD rather than WORDS for it.
+  CHECK(out.target.find("WORD") != nullptr);
+}
+
 int main() {
   testTheSeaSaltCardYouTapIsTheCardTheRulesGet();
   testTheSeaSaltChromeIsTappableAndTheCallPillIsEarned();
@@ -4723,6 +4946,12 @@ int main() {
   testEveryRulesPositionCouldExist();
   testTheTerrainCardNeverTruncatesWhatItDraws();
   testNoRulesPageDrawsOverItsOwnButtons();
+  testTheForeheadKeyLabelsSitOnTheEdgesTheyAct();
+  testTheForeheadRoundIgnoresTapsWhereFingersGrip();
+  testTheForeheadCardNeverDrawsPastItsBox();
+  testTheForeheadHeadlineIsTheStartButton();
+  testTheForeheadPickerReportsAbsoluteCategories();
+  testTheForeheadResultsMarkTheUnansweredCardApart();
   testToyBattleShell();
   testAFrozenCardLooksDifferent();
   testSearchingAsksNothing();
