@@ -241,6 +241,9 @@ class StudyActivity final : public Activity {
   bool wifiActivated_ = false;
   studyui::SyncFlowModel flow_;
   bool secondPass_ = false;
+  // A runtime request for the deck picker; never persisted, so cancelling it
+  // cannot leave the reader stuck answering the question on every sync.
+  bool pickerRequested_ = false;
   // What the pairing screens draw; only meaningful in the PairQr/PairConfirm
   // views. The confirm tap target is registered by render() here so the poll
   // loop and the drawing agree on one rectangle.

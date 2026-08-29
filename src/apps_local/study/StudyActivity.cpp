@@ -851,11 +851,7 @@ void StudyActivity::loop() {
       // A paired reader with an empty card is offered CHOOSE DECKS, so the
       // tap has to actually reopen the question; without this it ran a plain
       // sync that answered DECKS UP TO DATE over an empty card, forever.
-      study::BridgeState onCard;
-      if (study::loadBridgeState(onCard) && onCard.choseDecks) {
-        onCard.choseDecks = false;
-        study::saveBridgeState(onCard);
-      }
+      pickerRequested_ = true;
       beginSync();
     }
     return;
@@ -1188,12 +1184,42 @@ void StudyActivity::refreshStats() {
   }
 }
 
+namespace {
+// Used by both the deck model (how much is waiting to send) and the sync
+// flow (is a font already the right size), so it lives above both.
+int64_t localFileSize(const char* path) {
+  HalFile file;
+  if (!Storage.openFileForRead("STUDY", path, file)) return -1;
+  return static_cast<int64_t>(file.size());
+}
+}  // namespace
+
 void StudyActivity::buildDeckModel(studyui::DeckModel& out) const {
   {
     study::BridgeState bridge;
     out.paired = study::loadBridgeState(bridge);
+    // How much this reader is holding that AnkiWeb has not seen: revlog.dat
+    // past the acked offset, in whole records. Nothing syncs on its own, so
+    // without this a finished session sits on the card indefinitely while the
+    // screen says DONE and the door says LAST SYNC, and the user reasonably
+    // assumes their answers are in Anki.
+    int unsent = 0;
+    if (out.paired) {
+      for (int i = 0; i < deckCount_; ++i) {
+        char path[96];
+        std::snprintf(path, sizeof(path), "%s/%s/revlog.dat", kStudyRoot, deckNames_[i]);
+        const int64_t size = localFileSize(path);
+        if (size <= 0) continue;
+        const uint32_t acked = bridge.ackFor(deckNames_[i]);
+        if (static_cast<uint32_t>(size) > acked) {
+          unsent += static_cast<int>((static_cast<uint32_t>(size) - acked) / study::kRevlogRecordBytes);
+        }
+      }
+    }
     if (!out.paired) {
       std::snprintf(out.syncSubtitle, sizeof(out.syncSubtitle), "NOT PAIRED YET");
+    } else if (unsent > 0) {
+      std::snprintf(out.syncSubtitle, sizeof(out.syncSubtitle), "%d TO SEND", unsent);
     } else if (bridge.lastSyncAt > 0) {
       struct tm parts;
       const time_t at = static_cast<time_t>(bridge.lastSyncAt);
@@ -1247,20 +1273,11 @@ void StudyActivity::routeAction(const fui::ActionEvent& event) {
     return;
   }
   if (event.value == 4) {
-    // Re-open the deck choice. Load before mutating: this member is otherwise
-    // only filled inside runSyncFlow(), so on a freshly opened Study it is
-    // default-constructed and saving it wrote an empty token over a real
-    // pairing -- the door whose whole job is changing decks silently unpaired
-    // the reader.
-    if (!study::loadBridgeState(bridge_)) {
-      LOG_ERR("STUDYSYNC", "choose decks: no pairing on the card");
-      return;
-    }
-    bridge_.choseDecks = false;
-    if (!study::saveBridgeState(bridge_)) {
-      LOG_ERR("STUDYSYNC", "choose decks: could not write the card");
-      return;
-    }
+    // Ask for the picker at RUNTIME rather than by clearing the persisted
+    // flag. Clearing it wrote the request to the card, so cancelling the
+    // picker left it cleared and every later plain SYNC was hijacked into
+    // the question, with no way back. A cancel must leave nothing behind.
+    pickerRequested_ = true;
     beginSync();
     return;
   }
@@ -1475,7 +1492,8 @@ void StudyActivity::render(RenderLock&&) {
                                      kSmallFontId, "crossplay.ma-r-s.com/study", 1);
     UITheme::drawCenteredWrappedText(
         renderer, Rect{24, static_cast<int16_t>(qrTop + qrSide + 48), width - 48, 96}, kMeaningFontId,
-        paired ? "Your account is connected. Choose your decks." : "Scan it to add a deck from a computer.", 3);
+        paired ? "Your Anki account is connected. Pick the decks it keeps." : "Scan it to add a deck from a computer.",
+        3);
 
     renderer.drawRoundedRect(noDeckSyncX_, noDeckSyncY_, noDeckSyncW_, noDeckSyncH_, toybox::kHairline,
                              noDeckSyncH_ / 2, true);
@@ -1840,14 +1858,6 @@ bool StudyActivity::buildPayloads(std::vector<study::DeckPayload>& out) {
   return true;
 }
 
-namespace {
-int64_t localFileSize(const char* path) {
-  HalFile file;
-  if (!Storage.openFileForRead("STUDYSYNC", path, file)) return -1;
-  return static_cast<int64_t>(file.size());
-}
-}  // namespace
-
 bool StudyActivity::applyManifests(const std::vector<study::DeckManifest>& manifests, std::string& message,
                                    int& decksUpdated) {
   decksUpdated = 0;
@@ -2069,8 +2079,12 @@ void StudyActivity::runSyncFlow() {
   // then run the flow again: this second pass is the one that builds and
   // downloads what was chosen. Without the re-run the user would choose decks
   // and be told SYNCED with nothing on the card.
-  if (!bridge_.choseDecks) {
-    if (!runDeckPicker()) return;  // runDeckPicker already ended the session
+  if (!bridge_.choseDecks || pickerRequested_) {
+    if (!runDeckPicker()) {
+      pickerRequested_ = false;  // a cancel leaves no request behind
+      return;                    // runDeckPicker already ended the session
+    }
+    pickerRequested_ = false;
     bridge_.choseDecks = true;
     study::saveBridgeState(bridge_);
     syncBusy_ = false;

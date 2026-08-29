@@ -192,10 +192,11 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   // means it: what you have done, small, on one line.
   char record[80];
   if (model.retention >= 0) {
-    std::snprintf(record, sizeof(record), "STREAK %d   %d%% RECALL   %d REVIEWS", model.streak, model.retention,
-                  model.lifetimeReviews);
+    std::snprintf(record, sizeof(record), "STREAK %d   %d%% RECALL   %d REVIEW%s", model.streak, model.retention,
+                  model.lifetimeReviews, model.lifetimeReviews == 1 ? "" : "S");
   } else if (model.lifetimeReviews > 0) {
-    std::snprintf(record, sizeof(record), "%d REVIEWS   NONE THIS FORTNIGHT", model.lifetimeReviews);
+    std::snprintf(record, sizeof(record), "%d REVIEW%s   NONE THIS FORTNIGHT", model.lifetimeReviews,
+                  model.lifetimeReviews == 1 ? "" : "S");
   } else {
     // No history at all: name the deck rather than print a row of zeroes,
     // which reads as a broken counter rather than as a fresh start.
