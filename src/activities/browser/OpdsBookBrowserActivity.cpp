@@ -191,7 +191,22 @@ void OpdsBookBrowserActivity::loop() {
     return;
   }
 
-  if (state == BrowserState::DOWNLOADING) return;
+  if (state == BrowserState::DOWNLOADING) {
+    // Nothing is downloading yet: the server is still fetching the book from
+    // the catalog and converting it, which takes tens of seconds and sends no
+    // bytes at all. With no bytes there is no total, so there is no bar to
+    // draw -- and a still screen reading "Downloading" for half a minute is
+    // indistinguishable from a hang. A slow tick says the device is alive.
+    if (downloadTotal == 0) {
+      const uint32_t now = millis();
+      if (now - waitTickMs >= WAIT_TICK_MS) {
+        waitTickMs = now;
+        waitDots = static_cast<uint8_t>((waitDots + 1) % 4);
+        requestUpdate();
+      }
+    }
+    return;
+  }
 
   if (state == BrowserState::BROWSING) {
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
@@ -356,10 +371,23 @@ void OpdsBookBrowserActivity::buildDownloadScreen(UiScreen& screen) {
   const fui::Rect body = screen.body();
   if (body.height > blockH) screen.spacer(static_cast<int16_t>((body.height - blockH) / 2));
 
-  screen.target().text(screen.takeTop(lh, gap), tr(STR_DOWNLOADING), centered);
+  if (downloadTotal == 0) {
+    // "Preparing" rather than "Downloading", because nothing is downloading
+    // yet and saying so is what makes the wait feel broken.
+    char waiting[64];
+    snprintf(waiting, sizeof(waiting), "%s%.*s", tr(STR_PREPARING_BOOK), waitDots, "...");
+    screen.target().text(screen.takeTop(lh, gap), waiting, centered);
+  } else {
+    screen.target().text(screen.takeTop(lh, gap), tr(STR_DOWNLOADING), centered);
+  }
   screen.target().text(screen.takeTop(lh, gap), statusMessage.c_str(), centered);
 
   const fui::Rect bar = screen.takeTop(barH, gap).inset(fui::Insets{0, 50, 0, 50});
+  if (downloadTotal == 0) {
+    // The bar's slot carries the reason for the wait instead of an empty gap.
+    fui::TextStyle hint = centered;
+    screen.target().text(bar, tr(STR_PREPARING_HINT), hint);
+  }
   if (downloadTotal > 0) {
     fui::ProgressBarProps progress;
     progress.value = static_cast<int32_t>(downloadProgress);
@@ -610,6 +638,8 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book) {
   state = BrowserState::DOWNLOADING;
   statusMessage = book.title;
   downloadProgress = downloadTotal = 0;
+  waitTickMs = millis();
+  waitDots = 0;
   cancelDownload = false;
   goHomeAfterCancel = false;
   requestUpdate(true);
