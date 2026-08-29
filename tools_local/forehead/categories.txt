@@ -1,0 +1,24 @@
+# Category order, as the picker shows them. The crowd-pleasers first: a party
+# picks the first thing it recognises, so the order is the recommendation.
+# The two that are really difficulty settings, FOR KIDS and TRICKY, bracket the
+# far end where somebody looking for them will go and nobody else will land.
+#
+# Every file in words/ must be named here and every name must have a file:
+# gen_forehead_words.py refuses otherwise, so a category cannot be half-added.
+animals
+act
+sound
+food
+movies
+people
+music
+jobs
+sports
+house
+places
+nature
+science
+myths
+story
+kids
+tricky

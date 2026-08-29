@@ -81,6 +81,30 @@ That is the whole finding. Not "we should use the buttons more" as a matter of
 taste -- the device ships with two physical keys, they are page keys, and our
 games ignore them.
 
+### One game since then does not, and it is the exception that proves the rule
+
+FOREHEAD (2026-08-28) is the first game here where the two keys are the primary
+input rather than a page turn, and it earns that by satisfying section 4 exactly
+rather than by making an exception to it. The player holds the panel against
+their own forehead and **cannot see the screen**, so there is no "where" to
+point at: GOT IT and PASS are answers, not positions. That is the one shape a
+button is for, and it is why the game has no cursor either.
+
+It also shows what the rule's second half costs when taken seriously. "Never
+only a button" still holds and the two halves of the round screen are tappable
+-- but not as halves, because the guesser's fingers curl over the long edges to
+reach the keys and would answer their own card. The touch targets are bands
+across the middle of each half instead. See [apps/forehead.md](apps/forehead.md).
+
+Worth knowing before writing another landscape app: `ScreenUp` / `ScreenDown`
+look like exactly the right API for a rotated screen and are a trap here. In
+`LandscapeCounterClockwise`, `mapScreenDirection()` resolves them to
+`Button::Left` and `Button::Right`, which are `PIN_UNASSIGNED` on this board and
+can never fire -- and the whole mapping is gated on
+`SETTINGS.frontButtonFollowOrientation`, a reader preference most players have
+never opened. Read `Button::Up` and `Button::Down` and do the rotation
+arithmetic yourself.
+
 ---
 
 ## 4. The rule

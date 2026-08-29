@@ -16,6 +16,8 @@
 #include "fonts/toybox_14.h"
 #include "fonts/toybox_20.h"
 #include "fonts/toybox_30.h"
+#include "fonts/toybox_44.h"
+#include "fonts/toybox_64.h"
 
 namespace toybox {
 namespace {
@@ -33,6 +35,8 @@ namespace {
 // One face, no bold: at these sizes a synthesised bold would just be the same
 // flooding by another route. Weight comes from size and from inversion instead.
 EpdFont display30(&toybox_30);
+EpdFont large44(&toybox_44);
+EpdFont huge64(&toybox_64);
 EpdFont ui20(&toybox_20);
 EpdFont tile10(&toybox_10);
 // Noto Serif, converted at 1 bit by us rather than taken from builtinFonts/.
@@ -54,6 +58,8 @@ EpdFont instrument10(&instrument_10);
 EpdFont instrument13(&instrument_13);
 EpdFont instrument24(&instrument_24);
 EpdFontFamily displayFamily(&display30);
+EpdFontFamily largeFamily(&large44);
+EpdFontFamily hugeFamily(&huge64);
 EpdFontFamily uiFamily(&ui20);
 EpdFontFamily tileFamily(&tile10);
 EpdFontFamily buttonFamily(&button14);
@@ -70,7 +76,9 @@ bool registered = false;
 }  // namespace
 
 FontMetrics metricsFor(const int fontId) {
-  const EpdFontFamily& family = fontId == kDisplayFontId            ? displayFamily
+  const EpdFontFamily& family = fontId == kHugeFontId               ? hugeFamily
+                                : fontId == kLargeFontId            ? largeFamily
+                                : fontId == kDisplayFontId          ? displayFamily
                                 : fontId == kTileFontId             ? tileFamily
                                 : fontId == kButtonFontId           ? buttonFamily
                                 : fontId == kReadingBoldFontId      ? readingBoldFamily
@@ -78,7 +86,9 @@ FontMetrics metricsFor(const int fontId) {
                                 : fontId == kReadingSmallFontId     ? readingSmallFamily
                                 : fontId == kReadingBoldSmallFontId ? readingBoldSmallFamily
                                                                     : uiFamily;
-  const EpdFontData* data = fontId == kDisplayFontId            ? &toybox_30
+  const EpdFontData* data = fontId == kHugeFontId               ? &toybox_64
+                            : fontId == kLargeFontId            ? &toybox_44
+                            : fontId == kDisplayFontId          ? &toybox_30
                             : fontId == kTileFontId             ? &toybox_10
                             : fontId == kButtonFontId           ? &toybox_14
                             : fontId == kReadingBoldFontId      ? &reading_serif_bold_16
@@ -123,6 +133,8 @@ void verifyCutMetrics() {
       {"toybox_14", &toybox_14, &buttonFamily, &toybox::kButtonCut},
       {"toybox_20", &toybox_20, &uiFamily, &toybox::kUiCut},
       {"toybox_30", &toybox_30, &displayFamily, &toybox::kDisplayCut},
+      {"toybox_44", &toybox_44, &largeFamily, &toybox::kLargeCut},
+      {"toybox_64", &toybox_64, &hugeFamily, &toybox::kHugeCut},
       {"instrument_10", &instrument_10, &serifSmallFamily, &toybox::kSerifSmallCut},
       {"instrument_13", &instrument_13, &serifTileFamily, &toybox::kSerifTileCut},
       {"instrument_24", &instrument_24, &serifTitleFamily, &toybox::kSerifTitleCut},
@@ -151,6 +163,8 @@ void ensureFonts(GfxRenderer& renderer) {
   // upstream surface. insertFont is idempotent per id, but the guard keeps this
   // free to call from every activity's onEnter().
   renderer.insertFont(kDisplayFontId, displayFamily);
+  renderer.insertFont(kLargeFontId, largeFamily);
+  renderer.insertFont(kHugeFontId, hugeFamily);
   renderer.insertFont(kUiFontId, uiFamily);
   renderer.insertFont(kTileFontId, tileFamily);
   renderer.insertFont(kButtonFontId, buttonFamily);
