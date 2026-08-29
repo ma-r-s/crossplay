@@ -316,8 +316,8 @@ The Settings screen allows you to configure the device's behavior. There are a f
 
 #### 3.6.5 Get Books (OPDS Catalogs)
 
-**Get Books** appears on the Home screen and downloads books straight to the
-device from an OPDS catalog. Two catalogs are set up on first run, so it works
+**Get Books** lives in **Apps** on the Home screen, and downloads books
+straight to the device from an OPDS catalog. Two catalogs are set up on first run, so it works
 without any configuration:
 
 - **Get Books** -- searches a large library and converts what you pick into a
