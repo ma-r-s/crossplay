@@ -842,5 +842,34 @@ else
   bad "drive.py GRACE_S (${GRACE_S}s) must exceed DevSerialBridge kBulkStallMs (${STALL_MS}ms): the device gives up after the host stopped listening"
 fi
 
+# -- the Install button asks for a file the release actually publishes ---------
+#
+# site/api/firmware.js builds the download URL from a filename template rather
+# than looking the asset up, which is the trade that keeps the GitHub API's
+# per-IP rate limit off a shared server address. The cost is a literal filename
+# in a second file, and nothing else would ever notice it drifting: renaming the
+# artefact in the workflow leaves the site rendering perfectly, the button
+# reaching a 404, and every other check green.
+#
+# Read from the JS rather than listed here, so adding a third board fails until
+# the workflow names its image too.
+API="$ROOT/site/api/firmware.js"
+if [ ! -f "$API" ]; then
+  bad "site/api/firmware.js is gone -- the Install button has nothing to download from"
+else
+  ok
+  api_boards="$(grep -oE 'crossplay-\{tag\}-[a-z0-9]+-full\.bin' "$API" \
+                | sed -E 's/^crossplay-\{tag\}-//; s/-full\.bin$//' | sort -u)"
+  wf_boards="$(grep -oE 'crossplay-\$\{GITHUB_REF_NAME\}-[a-z0-9]+-full\.bin' "$WF" \
+               | sed -E 's/^crossplay-\$\{GITHUB_REF_NAME\}-//; s/-full\.bin$//' | sort -u)"
+  if [ -z "$api_boards" ]; then
+    bad "api/firmware.js names no -full.bin image, so the Install button can never download one"
+  elif [ "$api_boards" = "$wf_boards" ]; then
+    ok
+  else
+    bad "the Install button asks for [$(echo $api_boards)] and the release publishes [$(echo $wf_boards)]"
+  fi
+fi
+
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]

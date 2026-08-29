@@ -1,7 +1,7 @@
 {
   "name": "CrossPlay",
   "short_name": "CrossPlay",
-  "description": "The CrossPlay firmware for the Xteink X4 Pro, running in your browser.",
+  "description": "CrossPlay, firmware for the Xteink X4 Pro and the Seeed reTerminal Sticky. The browser runs the X4 Pro build.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

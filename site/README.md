@@ -3,6 +3,10 @@
 Static. No build step, no framework, no dependencies. `index.html`, one
 stylesheet, and the assets it names.
 
+One exception, and it is deliberate: `api/firmware.js`, a single Vercel
+function that exists so the Install button can work at all. See **The Install
+button** below before touching it.
+
 ## Before it deploys
 
 Two steps, both of which fail silently if skipped:
@@ -101,6 +105,64 @@ different URL, so both pages load `assets/emulator.js?v=2`. The HTML itself
 revalidates, which is what makes that work. Keep the query on both pages until
 2027, and bump it rather than removing it if this ever recurs.
 
+## The Install button
+
+`index.html` carries an Install panel; `assets/install.js` drives it and writes
+firmware to a device over Web Serial; `assets/esptool.bundle.js` is the library
+that talks the protocol. Someone said on Reddit that they could not flash the
+device and had been looking for a tutorial, and a longer tutorial was not the
+answer.
+
+**The one server-side thing on this site is `api/firmware.js`, and it is not
+optional.** GitHub serves release assets from
+`release-assets.githubusercontent.com`, which sends **no**
+`Access-Control-Allow-Origin` header at all -- so a page cannot `fetch()` a
+release asset, on this site or any other. (The site-wide COEP `require-corp`
+would refuse it a second time.) The function fetches the file server-side and
+streams it back on our own origin. Three things about it are load-bearing:
+
+- **It streams, and must not declare a `Content-Length`.** A _buffered_ Vercel
+  function response is capped at 4.5MB; these images are ~6.3MB. Streaming is
+  exempt, and setting a length is what turns one into the other. The size the
+  progress bar needs rides in `X-Firmware-Size`, which also happens to be the
+  decoded size -- so the progress counter cannot repeat the Study page's
+  "154% downloaded".
+- **The browser passes the release tag; the function does not look one up.**
+  The GitHub API's unauthenticated rate limit is per IP. Asking it from the
+  function means every visitor shares a handful of Vercel egress addresses and
+  the button starts answering 403 under exactly the traffic it was built for.
+  The page already asked the API for the latest tag before this feature
+  existed, to print "Latest release", and that limit is per visitor.
+- **Therefore the tag is client-supplied, and is validated before it becomes a
+  URL.** `^v\d{1,3}\.\d{1,3}\.\d{1,3}$` and a fixed device -> filename map:
+  no host, no scheme, no traversal. The worst a hostile caller can do is
+  download a different version of our own firmware.
+
+The filename template (`crossplay-{tag}-x4pro-full.bin`) is a literal copy of
+what `.github/workflows/crossplay-release.yml` publishes. Nothing links the
+two, and a rename there leaves the site rendering perfectly while the button
+404s, so `host-tests/release/run.sh` asserts them against each other and
+`host-tests/site/run.sh` asserts every element id `install.js` reaches for.
+`serve.py` answers the same endpoint locally -- without it the button is
+untestable off Vercel, and its failure looks like a broken endpoint rather than
+a missing one.
+
+**What it writes is the merged image at offset 0**, not the app into a spare
+OTA slot the way CrossPoint's flasher does. That is on purpose: this fork
+changed `partitions.csv` (7.94MB slots), and only a write at 0 lays the new
+table down. An OTA-slot write would leave every install this button makes
+capped at the old 6.25MB forever.
+
+To rebuild the library after an esptool-js release:
+
+```bash
+bash tools_local/site/build_esptool.sh
+```
+
+It pins the version deliberately. **Flash a real device before committing a
+bump** -- this file writes a bootloader to somebody else's hardware, and no
+check here can tell you it still does.
+
 ## Looking at it
 
 A plain `python3 -m http.server` will serve the page but **not** the emulator:
@@ -195,6 +257,12 @@ is that this is what the device shows.
 `assets/fonts/` is Jersey 25 and Instrument Serif, the two faces the device
 itself draws, converted to woff2. Both are SIL OFL and their licences ship
 beside them; keep them there.
+
+`assets/esptool.bundle.js` is generated too -- esptool-js, Apache-2.0, bundled
+by `tools_local/site/build_esptool.sh`. Edit the script, never the file. At
+175KB it is the largest script here, so nothing loads it until someone actually
+presses Install; it sits under the ~1MB line where `precompress.py` starts
+mattering, and does not want a `Content-Encoding` of its own.
 
 ## The rules this page follows
 

@@ -168,10 +168,11 @@ jobs:
             Sudoku, Toy Battle, Forehead, Battleship, Connections, Solitaire,
             D&Diagrams, Insider, Jaipur, Murdle and Sea Salt & Paper -- plus
             spaced-repetition flashcards, Hacker News, the xkcd archive and a
-            catalog browser for downloading books. Eight of them play over
+            catalog browser for downloading books. Nine of them play over
             **PLAY NEARBY**: Chess, Checkers, Connect Four, Yahtzee,
-            Knucklebones, Battleship, Jaipur and Sea Salt. Two devices next to
-            each other find one another with nothing to type.
+            Knucklebones, Battleship, Jaipur, Sea Salt and Toy Battle. Two
+            devices next to each other find one another with nothing to type --
+            and they do not have to be the same device.
 
             ### What is new in 1.8.0
 
@@ -230,6 +231,19 @@ jobs:
             `crossplay-1.6.1-x4pro-full.bin` over USB once, exactly as a first
             install. Your SD card is untouched: books, reading positions, saves
             and fonts are files on it, not in the firmware.
+
+            ### The short way: press Install
+
+            **[crossplay.ma-r-s.com/#get](https://crossplay.ma-r-s.com/#get)**
+            installs this release for you. Open it in Chrome or Edge on a
+            computer, plug the device in, wake it, and press Install: the page
+            downloads the right image and writes it over USB itself, with
+            nothing to install first and no command to type. Safari, Firefox and
+            every phone have no Web Serial, and the page says so rather than
+            failing when pressed.
+
+            The files below are for doing it by hand, and for the on-device
+            updater.
 
             ### Which file to download
 

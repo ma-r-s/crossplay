@@ -1,0 +1,14 @@
+# How site/assets/shots/sudoku.png was captured. Run from wt/webflash.
+#
+# CROSSPLAY_AUTOSTART jumps straight into a shelf item by title (Shelf.cpp,
+# autostartFromEnv), which beats counting DOWN presses down a list of
+# seventeen games that grows every few weeks.
+#
+# CROSSPLAY_AUTOSTART=SUDOKU ./scripts_local/sim-shot.sh \
+#   '3000:TAP:240,605;16000:QUIT' '14000:qa-artifacts/sud-b2.bmp'
+# then downsample qa-artifacts/sud-b2.png from 960x1600 to 480x800 (LANCZOS).
+#
+# The tap is NEW PUZZLE on the front door. NOT reproducible byte-for-byte: the
+# puzzle is generated per run, so the clues differ every time. What the shot has
+# to show is the same either way -- shaded givens, the number pad, the count of
+# empty cells, UNDO and HINT.
