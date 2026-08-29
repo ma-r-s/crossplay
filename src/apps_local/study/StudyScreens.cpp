@@ -215,7 +215,9 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   // history, so the decks you actually study were the ones the screen stopped
   // naming -- and with several on the card nothing else says which is open.
   int nextLine = 146;
-  if (model.deckCount > 1 && model.lifetimeReviews > 0) {
+  // Also at one deck: the name was dropped entirely there, so a single-deck
+  // reader never saw which deck they were in.
+  if (model.lifetimeReviews > 0) {
     fui::TextStyle deckName = small;
     screen.target().text(fui::makeRect(body.x, body.y + nextLine, body.width, 22), model.name, deckName);
     nextLine += 24;

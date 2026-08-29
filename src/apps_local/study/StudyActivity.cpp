@@ -856,7 +856,11 @@ void StudyActivity::loop() {
       // A paired reader with an empty card is offered CHOOSE DECKS, so the
       // tap has to actually reopen the question; without this it ran a plain
       // sync that answered DECKS UP TO DATE over an empty card, forever.
-      pickerRequested_ = true;
+      // Only ask which decks when that is genuinely open: a reader whose decks
+      // are already chosen and merely missing wants them fetched, and being
+      // asked to re-pick them is the screen contradicting its own button.
+      study::BridgeState onCard;
+      pickerRequested_ = !(study::loadBridgeState(onCard) && onCard.choseDecks);
       beginSync();
     }
     return;
@@ -1544,7 +1548,10 @@ void StudyActivity::render(RenderLock&&) {
     study::BridgeState pairedState;
     const bool paired = study::loadBridgeState(pairedState);
     UITheme::drawCenteredWrappedText(renderer, Rect{0, bodyTop + 16, width, 56}, kReadingFontId,
-                                     paired ? "Choose your decks" : "Bring your Anki decks", 1);
+                                     !paired                  ? "Bring your Anki decks"
+                                     : pairedState.choseDecks ? "Get your decks back"
+                                                              : "Choose your decks",
+                                     1);
     const int16_t qrSide = 208;
     const int16_t qrTop = static_cast<int16_t>(bodyTop + 88);
     // The QR is the from-a-computer route. Once paired, the heading above it
@@ -1911,11 +1918,28 @@ bool StudyActivity::buildPayloads(std::vector<study::DeckPayload>& out) {
       // past the old offset -- after which every review before that offset is
       // skipped for good and the reader still reports SYNCED. Tag the file by
       // its first record and resend everything when the tag changes.
+      // The fingerprint has to identify the FILE, and the first eight bytes are
+      // only the first review's card id -- which repeats the moment a deck is
+      // restored, because the most-due card is offered first again. A log
+      // replaced from a backup or copied between cards then matched a file it
+      // shared nothing else with, and every record up to the stale offset was
+      // skipped. Mixing in that review's millisecond timestamp makes a
+      // collision mean two different files recorded the same card at the same
+      // millisecond. Old tags (card id alone) will not match the new
+      // derivation, so upgrading devices resend once; the bridge dedupes on
+      // (card id, timestamp), so that costs nothing.
       uint64_t tag = 0;
-      if (size >= sizeof(tag)) {
-        uint8_t head[sizeof(tag)];
+      if (size >= 16) {
+        uint8_t head[16];
         revlog.seek(0);
-        if (revlog.read(head, sizeof(head)) == static_cast<int>(sizeof(head))) std::memcpy(&tag, head, sizeof(tag));
+        if (revlog.read(head, sizeof(head)) == static_cast<int>(sizeof(head))) {
+          uint64_t cardId = 0;
+          uint64_t atMs = 0;
+          std::memcpy(&cardId, head, sizeof(cardId));
+          std::memcpy(&atMs, head + 8, sizeof(atMs));
+          tag = (cardId * 1099511628211ULL) ^ atMs;
+          if (tag == 0) tag = 1;  // 0 means "no tag recorded"
+        }
       }
       const uint64_t knownTag = bridge_.revlogTagFor(deckNames_[i]);
       if (tag != 0 && knownTag != 0 && tag != knownTag) {
@@ -2236,7 +2260,11 @@ void StudyActivity::runSyncFlow() {
                   reviewCount == 1 ? "" : "S");
   }
   if (decksUpdated > 0) {
-    std::snprintf(flow_.factLines[flow_.factCount++], sizeof(flow_.factLines[0]), "%d DECK%s UPDATED", decksUpdated,
+    // Sending reviews moves the deck's fingerprint, so the bridge rebuilds it
+    // and the reader fetches it back. Calling that UPDATED made every
+    // review-only sync announce a change the user had not made.
+    std::snprintf(flow_.factLines[flow_.factCount++], sizeof(flow_.factLines[0]),
+                  reviewCount > 0 ? "%d DECK%s REBUILT WITH YOUR ANSWERS" : "%d DECK%s UPDATED", decksUpdated,
                   decksUpdated == 1 ? "" : "S");
   } else {
     std::snprintf(flow_.factLines[flow_.factCount++], sizeof(flow_.factLines[0]), "DECKS UP TO DATE");
