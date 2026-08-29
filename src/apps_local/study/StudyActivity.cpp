@@ -1545,13 +1545,15 @@ void StudyActivity::render(RenderLock&&) {
     const int16_t bodyBoxTop = static_cast<int16_t>(paired ? qrTop + 8 : qrTop + qrSide + 48);
     UITheme::drawCenteredWrappedText(
         renderer, Rect{24, bodyBoxTop, width - 48, static_cast<int16_t>(paired ? 200 : 96)}, kMeaningFontId,
-        paired ? "Your Anki account is connected. Pick the decks it keeps." : "Scan it to add a deck from a computer.",
+        !paired                  ? "Scan it to add a deck from a computer."
+        : pairedState.choseDecks ? "Your decks are chosen but not on this card yet. Sync to bring them back."
+                                 : "Your Anki account is connected. Pick the decks it keeps.",
         paired ? 4 : 3);
 
     renderer.drawRoundedRect(noDeckSyncX_, noDeckSyncY_, noDeckSyncW_, noDeckSyncH_, toybox::kHairline,
                              noDeckSyncH_ / 2, true);
     {
-      const char* label = paired ? "CHOOSE DECKS" : "SYNC WITH ANKI";
+      const char* label = !paired ? "SYNC WITH ANKI" : pairedState.choseDecks ? "GET MY DECKS" : "CHOOSE DECKS";
       const int labelWidth = renderer.getTextWidth(toybox::kUiFontId, label);
       toybox::drawCapsCentered(renderer, toybox::kUiFontId, noDeckSyncX_ + (noDeckSyncW_ - labelWidth) / 2,
                                noDeckSyncY_, noDeckSyncH_, label, true);
@@ -1913,7 +1915,21 @@ bool StudyActivity::buildPayloads(std::vector<study::DeckPayload>& out) {
         }
       }
     } else {
+      // No review log on the card at all: the deck folder was removed and
+      // came back without one (a deck download never carries a review log).
+      // The stored offset now points into a file that no longer exists, and
+      // leaving it meant the reviews written into the NEXT log were skipped
+      // whenever it grew back to the same length -- which it does, because
+      // the first card offered after a restore is usually the same most-due
+      // card, so even the first-record tag matched. Forget both here, where
+      // the absence is known.
       payload.revlogOffset = 0;
+      if (bridge_.ackFor(deckNames_[i]) != 0 || bridge_.revlogTagFor(deckNames_[i]) != 0) {
+        LOG_INF("STUDYSYNC", "%s: review log is gone; forgetting its ack", deckNames_[i]);
+        bridge_.setAck(deckNames_[i], 0);
+        bridge_.setRevlogTag(deckNames_[i], 0);
+        study::saveBridgeState(bridge_);
+      }
     }
 
     std::snprintf(path, sizeof(path), "%s/%s/cards.dat", kStudyRoot, deckNames_[i]);
@@ -2187,5 +2203,7 @@ void StudyActivity::runSyncFlow() {
   endSyncSession(studyui::SyncVerdictKind::Success,
                  reviewCount > 0 ? studyui::SyncSafety::ReviewsSafe : studyui::SyncSafety::None, "SYNCED",
                  "This reader and your Anki are up to date.",
-                 deckCount_ > 0 ? "Your decks are in Study, ready to review." : nullptr);
+                 deckCount_ == 0                               ? nullptr
+                 : (dueTotal_ + newTotal_ + otherWaiting_) > 0 ? "Your decks are in Study, ready to review."
+                                                               : "Your decks are in Study. Nothing is due right now.");
 }

@@ -159,7 +159,11 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   if (waiting > 0) {
     std::snprintf(headline, sizeof(headline), "%d TO GO", waiting);
   } else {
-    std::snprintf(headline, sizeof(headline), model.reviewed > 0 ? "DONE" : "ALL CLEAR");
+    if (model.otherWaiting > 0) {
+      std::snprintf(headline, sizeof(headline), model.reviewed > 0 ? "DECK DONE" : "DECK CLEAR");
+    } else {
+      std::snprintf(headline, sizeof(headline), model.reviewed > 0 ? "DONE" : "ALL CLEAR");
+    }
   }
 
   fui::TextStyle hero;
@@ -174,7 +178,7 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
     std::snprintf(state, sizeof(state), "%d REVIEWED   %d%% RIGHT", model.reviewed,
                   model.reviewed > 0 ? model.recalled * 100 / model.reviewed : 0);
   } else {
-    std::snprintf(state, sizeof(state), "NOTHING DUE TODAY");
+    std::snprintf(state, sizeof(state), model.otherWaiting > 0 ? "NOTHING DUE IN THIS DECK" : "NOTHING DUE TODAY");
   }
   fui::TextStyle sub;
   sub.font = toybox::kUiFont;
