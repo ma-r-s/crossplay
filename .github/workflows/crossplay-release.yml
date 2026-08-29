@@ -172,38 +172,34 @@ jobs:
             Battleship, Jaipur and Sea Salt. Two devices next to each other
             find one another with nothing to type.
 
-            ### What is new in 1.7.0
+            ### What is new in 1.7.1
 
-            **The device has its own name on it now.** The screen you see most -- the one it
-            shows while it sleeps -- said CrossPoint, and so did the splash, the pages it
-            serves in a browser, and the mark above them. That mark was upstream's. This
-            release puts CrossPlay's own on the boot and sleep screens: the corner brackets
-            that already frame the chess board, the mini board on its menu and every Toybox
-            panel. It is the one shape this fork drew rather than inherited, and it was on
-            the website and not on the device.
+            **Get Books has moved into Apps.** It used to sit on the Home screen;
+            it is now a row inside **Apps**, beside Study and xkcd. Everything
+            it does is unchanged -- this is only where you find it.
 
-            **Two names you may have typed change with it.** The hotspot the device creates
-            is called **CrossPlay** now, not CrossPoint-Reader, so a phone that remembered
-            the old open network will not rejoin it on its own -- pick it once from the list
-            and it is remembered again. And the address is **`http://crossplay.local/`**,
-            not crosspoint.local, so a bookmark to the old one stops resolving. Neither is
-            worth writing down: the File Transfer screen draws the address and a QR code for
-            it every time you open it, which is the shortest way back.
+            **The book you are looking at now has its cover on the screen.** The
+            details page fetched covers all along and never drew a single one:
+            it could only read one image format, and catalogs send another.
+            The page is also rebuilt around what the catalog actually sends.
+            When there is no description the cover fills the screen with the
+            title, author and details under it; when there is one, the cover
+            steps aside and the description takes the room.
 
-            **Your books, saves and settings do not move.** They live in `.crosspoint` on the
-            card and that folder keeps its name, along with the tag the web flasher reads and
-            the handshake Calibre uses to find the device. Renaming those would not have
-            rebranded anything; it would have hidden every game you have in progress and
-            every page you were on. The rule is now written down, and a test fails if a
-            future change goes either too far or not far enough.
+            **"No EPUBs found" is no longer a folder you can tap.** A search
+            that found nothing used to draw its message as a row, complete with
+            a folder icon and an arrow, and tapping it took you somewhere.
 
-            **Smaller things that also said the wrong name:** the crash report the device
-            writes to the card for you to attach to a bug report, the name a KOReader sync
-            server records for the device, what your router lists it as, and how it
-            introduces itself to catalog servers when it downloads a book.
+            **Back leaves Get Books from the search box.** It used to walk
+            backwards through every search you had run, in order. Now: from
+            results, Back returns to the search box; from the search box, Back
+            leaves. However many searches or catalogs came before.
 
-            Nothing about reading a book changes, and nothing you have is touched.
-
+            **The wait after Download says what it is.** Pressing Download
+            showed "Downloading" with no progress for as long as half a minute,
+            because nothing was downloading yet -- the catalog was still
+            fetching the book and converting it for this screen. It now says so,
+            and shows the progress bar once the book is actually on its way.
 
             ### Still true from 1.6.0, if you have not flashed over USB since
 
