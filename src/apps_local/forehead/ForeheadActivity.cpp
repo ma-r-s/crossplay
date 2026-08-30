@@ -157,21 +157,55 @@ void ForeheadActivity::routeAction(const int action, const int value) {
           pickerPage = category / ui::pickerRowsPerPage();
           go(View::Picker);
           break;
-        case ui::MenuRow::Length: {
+        case ui::MenuRow::Settings:
+          confirmingReset = false;
+          go(View::Settings);
+          break;
+        case ui::MenuRow::HowTo:
+          howToPage = 0;
+          go(View::HowTo);
+          break;
+        default:
+          break;
+      }
+      break;
+    case ui::ActionSettingsRow:
+      switch (static_cast<ui::SettingRow>(value)) {
+        case ui::SettingRow::Length: {
           int index = 0;
           for (int i = 0; i < fh::kRoundLengthCount; ++i) {
             if (fh::kRoundLengths[i] == roundSeconds) index = i;
           }
           roundSeconds = fh::kRoundLengths[(index + 1) % fh::kRoundLengthCount];
           dirty = true;
-          // Changes in place, with the menu still open. The confirmation is a
+          // Changes in place, with the screen still open. The confirmation is a
           // label the player was going to read anyway, not a dialog.
+          //
+          // Touching the length disarms a pending reset: two adjacent rows and
+          // one of them irreversible means the second tap has to be on the row
+          // that asked, not merely the next tap anywhere.
+          confirmingReset = false;
           requestUpdate();
           break;
         }
-        case ui::MenuRow::HowTo:
-          howToPage = 0;
-          go(View::HowTo);
+        case ui::SettingRow::Reset:
+          if (record.rounds == 0) break;
+          if (!confirmingReset) {
+            confirmingReset = true;
+          } else {
+            // Everything the app persists, which is the scores AND the seen-word
+            // mask. Clearing one without the other is the state that reads as a
+            // bug either way: a fresh record whose words are all used up, or a
+            // deck reset that leaves yesterday's best standing.
+            record = fh::Record{};
+            deck.reset();
+            category = 0;
+            roundSeconds = fh::kDefaultRoundSeconds;
+            confirmingReset = false;
+            dirty = true;
+            flushSave();
+          }
+          requestUpdate();
           break;
         default:
           break;
@@ -197,6 +231,10 @@ void ForeheadActivity::routeAction(const int action, const int value) {
       requestUpdate();
       break;
     case ui::ActionHowToNext:
+      // The last page's button says DONE and closes; every earlier one says
+      // NEXT and advances. Unlike the keys this does not wrap, because the
+      // label is a promise: a button reading DONE that reopened page one would
+      // be the paging bug with a caption on it.
       if (howToPage + 1 < ui::howToPages()) {
         ++howToPage;
         requestUpdate();
@@ -245,6 +283,7 @@ void ForeheadActivity::loop() {
       // records nothing, because nothing was finished -- but the cards it dealt
       // stay dealt, which is what the deck mask is for.
       dirty = true;
+      confirmingReset = false;
       go(View::Menu);
     }
     return;
@@ -310,11 +349,12 @@ void ForeheadActivity::loop() {
       const int pages = view == View::HowTo    ? ui::howToPages()
                         : view == View::Picker ? ui::pickerPages()
                                                : ui::resultPages(round.cards());
-      const int next = *page + step;
-      if (next >= 0 && next < pages) {
-        *page = next;
-        requestUpdate();
-      }
+      // Wraps. Paging past the last page returns to the first rather than
+      // stopping dead, because a key that does nothing is indistinguishable
+      // from a key that was not registered -- and on a panel that takes 0.3s to
+      // answer, "nothing happened" is the one response the player cannot read.
+      *page = ui::pageAfter(*page, step, pages);
+      requestUpdate();
       return;
     }
   }
@@ -353,8 +393,8 @@ void ForeheadActivity::render(RenderLock&&) {
   // Ready and Play share cardFaces because Ready's whole job is to show the
   // round's own layout before the round starts.
   const toybox::Faces faces = (view == View::Play || view == View::Ready) ? toybox::cardFaces()
-                              : view == View::Result                     ? toybox::bigNumberFaces()
-                                                                         : toybox::proseMenuFaces();
+                              : view == View::Result                      ? toybox::bigNumberFaces()
+                                                                          : toybox::proseMenuFaces();
   fui::GfxRendererTarget target = toybox::makeTarget(renderer, faces);
   const fui::InputSnapshot noInput{};
   interactionsReady = false;
@@ -400,6 +440,14 @@ void ForeheadActivity::render(RenderLock&&) {
       model.page = resultPage;
       model.round = &round;
       ui::buildResult(screen, model);
+      break;
+    }
+    case View::Settings: {
+      ui::SettingsModel model;
+      model.roundSeconds = roundSeconds;
+      model.confirmingReset = confirmingReset;
+      model.record = &record;
+      ui::buildSettings(screen, model);
       break;
     }
     case View::Menu:
@@ -471,8 +519,7 @@ bool ForeheadActivity::loadState() {
   record.rounds = state.rounds;
   record.words = state.words;
   record.best = state.best;
-  record.recentCount =
-      state.recentCount > fh::Record::kRecentCount ? fh::Record::kRecentCount : state.recentCount;
+  record.recentCount = state.recentCount > fh::Record::kRecentCount ? fh::Record::kRecentCount : state.recentCount;
   std::memcpy(record.recent, state.recent, sizeof(record.recent));
   std::memcpy(record.bestIn, state.bestIn, sizeof(record.bestIn));
   record.played = state.played;

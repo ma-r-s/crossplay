@@ -27,7 +27,7 @@ class ForeheadActivity final : public Activity {
   void render(RenderLock&&) override;
 
  private:
-  enum class View : uint8_t { Menu, Picker, HowTo, Ready, Play, Result };
+  enum class View : uint8_t { Menu, Picker, HowTo, Settings, Ready, Play, Result };
 
   // Landscape for everything you hold against your head, portrait for
   // everything you hold in your hand. The orientation is global, so it is set
@@ -63,6 +63,10 @@ class ForeheadActivity final : public Activity {
   // out, so the buzzer cannot also turn the results page. See loop().
   bool swallowKeyRelease = false;
   bool dirty = false;
+  // Armed by the first tap on RESET EVERYTHING and disarmed by leaving the
+  // screen, so the question cannot be answered by a stray tap arriving on a
+  // screen the player has already walked away from.
+  bool confirmingReset = false;
   bool flashOnNextPaint = false;
   bool interactionsReady = false;
   toybox::Interactions interactions;

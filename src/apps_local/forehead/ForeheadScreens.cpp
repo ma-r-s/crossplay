@@ -29,8 +29,7 @@ fui::TextStyle textStyle(const fui::FontId font, const fui::TextAlign align,
 }
 
 void drawText(toybox::Screen& screen, const fui::Rect& box, const char* text, const fui::FontId font,
-              const fui::TextAlign align, const toybox::CutMetrics& cut,
-              const fui::Color colour = fui::Color::Black) {
+              const fui::TextAlign align, const toybox::CutMetrics& cut, const fui::Color colour = fui::Color::Black) {
   screen.target().text(toybox::inkCentred(box, cut), text, textStyle(font, align, colour));
 }
 
@@ -59,12 +58,10 @@ void toyboxChrome(toybox::Screen& screen, const char* title, const char* rightLa
   if (rightLabel != nullptr && *rightLabel != '\0') {
     const int16_t bandTop = static_cast<int16_t>(screen.body().y - toybox::kHeaderHeight);
     const int16_t visibleTop = screen.frame().safeRect().y;
-    const fui::Rect band =
-        fui::makeRect(0, static_cast<int16_t>(bandTop + visibleTop),
-                      static_cast<int16_t>(screen.device().screen().width - toybox::kMargin),
-                      static_cast<int16_t>(toybox::kHeaderHeight - visibleTop));
-    drawText(screen, band, rightLabel, toybox::kUiFont, fui::TextAlign::Right, toybox::kUiCut,
-             fui::Color::White);
+    const fui::Rect band = fui::makeRect(0, static_cast<int16_t>(bandTop + visibleTop),
+                                         static_cast<int16_t>(screen.device().screen().width - toybox::kMargin),
+                                         static_cast<int16_t>(toybox::kHeaderHeight - visibleTop));
+    drawText(screen, band, rightLabel, toybox::kUiFont, fui::TextAlign::Right, toybox::kUiCut, fui::Color::White);
   }
 
   toybox::headerRule(screen);
@@ -96,8 +93,8 @@ void drawPips(toybox::Screen& screen, const fui::Rect& band, const int pages, co
     } else {
       toybox::ring(screen, cx, cy, kPipSize / 2, toybox::kHairline + 1, fui::Color::Black, fui::Color::White);
     }
-    screen.frame().hit(fui::makeRect(static_cast<int16_t>(left + page * kPipStep),
-                                     static_cast<int16_t>(band.y), kPipStep, band.height),
+    screen.frame().hit(fui::makeRect(static_cast<int16_t>(left + page * kPipStep), static_cast<int16_t>(band.y),
+                                     kPipStep, band.height),
                        action, static_cast<int16_t>(page));
   }
 }
@@ -269,8 +266,8 @@ void drawCard(toybox::Screen& screen, const fui::Rect& box, const char* text, co
     if (count <= 0 || count > fh::kMaxEntryLen) continue;
     std::memcpy(buffer, text + layout.start[line], static_cast<size_t>(count));
     buffer[count] = '\0';
-    drawText(screen, fui::makeRect(box.x, y, box.width, layout.lineHeight), buffer, layout.font,
-             fui::TextAlign::Center, cut, colour);
+    drawText(screen, fui::makeRect(box.x, y, box.width, layout.lineHeight), buffer, layout.font, fui::TextAlign::Center,
+             cut, colour);
     y = static_cast<int16_t>(y + gap);
   }
 }
@@ -284,42 +281,48 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   const fh::CategoryInfo& category = fh::kCategories[model.category];
   toyboxChrome(screen, "FOREHEAD");
 
-  // The doors' height is reserved up front so the slack between the record and
-  // them belongs to the ornament rather than to nobody: layouts are anchored,
-  // not centred. Screen::list() takes what is LEFT of the content rect, so the
-  // reservation is arithmetic here and the list is drawn last.
   constexpr int16_t kDoorsHeight = 3 * toybox::kRowHeight + 2 * 4;
 
-  // Headline: the category, and the tap that starts a round. The most common
-  // action is the largest thing on the screen and needs no button.
-  const fui::Rect headline = screen.takeTop(72);
-  drawText(screen, headline, category.title, toybox::kDisplayFont, fui::TextAlign::Left, toybox::kDisplayCut);
+  // The play control is a BOX with a play mark in it, not a line of type that
+  // happens to be tappable.
+  //
+  // It used to be the category name with "TAP TO PLAY" under it, on the
+  // reasoning that the biggest thing on the screen needs no button. That is
+  // true of a headline you already know is a button, and this one nobody did:
+  // the three rows below it are bordered and look like controls, so the one
+  // thing that actually starts the game was the only unbordered thing on the
+  // screen. A border and a triangle cost two draws and remove the guess.
+  const fui::Rect play = screen.takeTop(140);
+  screen.target().stroke(play, fui::Paint::solid(fui::Color::Black), toybox::kRule);
 
-  const fui::Rect hint = screen.takeTop(30);
-  drawText(screen, hint, category.hint, toybox::kSmallFont, fui::TextAlign::Left, toybox::kButtonCut);
+  constexpr int16_t kMark = 44;
+  const int16_t markLeft = static_cast<int16_t>(play.x + play.width - toybox::kMargin - kMark);
+  const int16_t markMid = static_cast<int16_t>(play.y + play.height / 2);
+  // A solid triangle, which is the one glyph every device on earth agrees means
+  // start. Drawn rather than vendored: three points need no asset.
+  screen.target().triangle(fui::Point{markLeft, static_cast<int16_t>(markMid - kMark / 2)},
+                           fui::Point{markLeft, static_cast<int16_t>(markMid + kMark / 2)},
+                           fui::Point{static_cast<int16_t>(markLeft + kMark), markMid},
+                           fui::Paint::solid(fui::Color::Black));
 
-  // The state line carries the affordance as well as the state, because nothing
-  // else on this screen offers to play: the three doors below are CATEGORY,
-  // ROUND and HOW TO PLAY, so a player who does not know the headline is the
-  // button has nowhere to find out.
-  // The state band, and nothing else. It used to carry "BEST HERE 14" as well,
-  // which is the same number the record line prints three lines below under a
-  // different label -- and at the same cut and left edge as the hint above it,
-  // so the two ran together as one paragraph and the front door's
-  // headline/state/rule structure collapsed. Air above it, and one job.
-  screen.takeTop(toybox::kGutter);
-  const fui::Rect stateRow = screen.takeTop(30);
-  drawText(screen, stateRow,
-           model.record != nullptr && model.record->everPlayed(model.category) ? "TAP TO PLAY" : "TAP TO PLAY   NEW",
+  const int16_t textLeft = static_cast<int16_t>(play.x + toybox::kMargin);
+  const int16_t textWidth = static_cast<int16_t>(markLeft - textLeft - toybox::kGutter);
+  drawText(screen, fui::makeRect(textLeft, static_cast<int16_t>(play.y + 18), textWidth, 52), category.title,
+           toybox::kDisplayFont, fui::TextAlign::Left, toybox::kDisplayCut);
+  drawText(screen, fui::makeRect(textLeft, static_cast<int16_t>(play.y + 76), textWidth, 30), category.hint,
            toybox::kSmallFont, fui::TextAlign::Left, toybox::kButtonCut);
 
-  // Everything above the rule is the start button, so a thumb landing anywhere
-  // near the name plays. Derived from the rects that drew it rather than
-  // recomputed: two functions that are only wrong together are the bug this
-  // fork keeps re-finding.
-  screen.frame().hit(fui::makeRect(headline.x, headline.y, headline.width,
-                                   static_cast<int16_t>(stateRow.y + stateRow.height - headline.y)),
-                     ActionReady);
+  char state[40];
+  if (model.record != nullptr && model.record->everPlayed(model.category)) {
+    std::snprintf(state, sizeof(state), "BEST %d", model.record->bestIn[model.category]);
+  } else {
+    std::snprintf(state, sizeof(state), "NEW");
+  }
+  drawText(screen, fui::makeRect(textLeft, static_cast<int16_t>(play.y + 104), textWidth, 28), state,
+           toybox::kSmallFont, fui::TextAlign::Left, toybox::kButtonCut);
+
+  // Derived from the rect that drew it, never recomputed.
+  screen.frame().hit(play, ActionReady);
 
   screen.takeTop(toybox::kGutter);
   const fui::Rect ruleRow = screen.takeTop(toybox::kRule);
@@ -328,23 +331,15 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
 
   char record[64];
   if (model.record != nullptr && model.record->rounds > 0) {
-    std::snprintf(record, sizeof(record), "%d ROUNDS   %d WORDS   BEST %d", model.record->rounds,
-                  model.record->words, model.record->best);
+    std::snprintf(record, sizeof(record), "%d ROUNDS   %d WORDS   BEST %d", model.record->rounds, model.record->words,
+                  model.record->best);
   } else {
     std::snprintf(record, sizeof(record), "NO ROUNDS PLAYED YET");
   }
   drawText(screen, screen.takeTop(28), record, toybox::kSmallFont, fui::TextAlign::Left, toybox::kButtonCut);
 
-  // The ornament: the last sixteen rounds as bars, in the bracketed panel the
-  // chess board and the connections grid both wear.
-  //
-  // It is the app's own material (a row of cards) carrying the app's own data
-  // (how many you got), which is the only kind of decoration this design
-  // language allows. A screenshot of it is different on every device and
-  // different every evening, which is the test.
   screen.takeTop(toybox::kGutter);
-  const fui::Rect panel =
-      screen.takeTop(static_cast<int16_t>(screen.body().height - kDoorsHeight - toybox::kGutter));
+  const fui::Rect panel = screen.takeTop(static_cast<int16_t>(screen.body().height - kDoorsHeight - toybox::kGutter));
   screen.takeTop(toybox::kGutter);
   toybox::bracket(screen, panel, 22, toybox::kRule);
 
@@ -354,45 +349,37 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
     const int16_t plotW = static_cast<int16_t>(panel.width - inset * 2);
     const int16_t plotH = static_cast<int16_t>(panel.height - inset * 2 - 6);
     const int16_t step = static_cast<int16_t>(plotW / fh::Record::kRecentCount);
-    const int16_t barW = static_cast<int16_t>(step - 6);
-    // The remainder of the integer division is SPLIT rather than dumped on the
-    // right. Sixteen bars in a 447px frame leave 69px over, and giving all of
-    // it to one side put the whole series twelve pixels left of centre inside
-    // its own symmetric brackets -- which nags on a screen that holds its image
-    // for hours.
     const int16_t slack = static_cast<int16_t>(plotW - step * fh::Record::kRecentCount);
     const int16_t left = static_cast<int16_t>(panel.x + inset + slack / 2);
     const int16_t base = static_cast<int16_t>(panel.y + inset + plotH);
-    // A baseline for the series to stand on. Without it the shortest bar is a
-    // three-pixel dash floating among neighbours forty times its height, and it
-    // reads as a dropped row rather than as a bad round.
-    screen.target().fill(fui::makeRect(left, base, static_cast<int16_t>(step * fh::Record::kRecentCount),
-                                       toybox::kHairline),
-                         fui::Paint::solid(fui::Color::Black));
+    screen.target().fill(
+        fui::makeRect(left, base, static_cast<int16_t>(step * fh::Record::kRecentCount), toybox::kHairline),
+        fui::Paint::solid(fui::Color::Black));
     for (int i = 0; i < fh::Record::kRecentCount; ++i) {
       const int score = model.record->recentAt(i);
       if (score < 0) continue;
       const int16_t x = static_cast<int16_t>(left + i * step + 3);
-      // A zero-score round still gets a bar: scoring nothing and never having
-      // played must not look the same, and now it sits on the baseline.
       const int16_t barH = static_cast<int16_t>(score <= 0 ? 6 : 6 + (score * (plotH - 6)) / peak);
       const bool newest = i == fh::Record::kRecentCount - 1;
-      const fui::Rect bar = fui::makeRect(x, static_cast<int16_t>(base - barH), barW, barH);
+      const fui::Rect bar = fui::makeRect(x, static_cast<int16_t>(base - barH), static_cast<int16_t>(step - 6), barH);
       screen.target().fill(bar, fui::Paint::solid(newest ? fui::Color::Black : fui::Color::White));
       screen.target().stroke(bar, fui::Paint::solid(fui::Color::Black), toybox::kHairline + 1);
     }
   } else {
-    drawText(screen, panel, "YOUR SCORES SHOW UP HERE", toybox::kUiFont, fui::TextAlign::Center, toybox::kUiCut);
+    // The 14px cut, not the 20px one. At 20 this line is 469px in a 448px
+    // panel, so the first screen anybody ever saw had a sentence running off
+    // the side of it -- and it is the ONE state that only appears before you
+    // have played, so it never showed up again to be noticed.
+    drawText(screen, panel, "YOUR SCORES SHOW UP HERE", toybox::kSmallFont, fui::TextAlign::Center, toybox::kButtonCut);
   }
 
-  // The doors, quietest, at the bottom.
   char length[16];
   std::snprintf(length, sizeof(length), "%d SECONDS", model.roundSeconds);
   fui::ListItem rows[static_cast<int>(MenuRow::Count)];
   rows[static_cast<int>(MenuRow::Category)].label = "CATEGORY";
   rows[static_cast<int>(MenuRow::Category)].value = category.title;
-  rows[static_cast<int>(MenuRow::Length)].label = "ROUND";
-  rows[static_cast<int>(MenuRow::Length)].value = length;
+  rows[static_cast<int>(MenuRow::Settings)].label = "SETTINGS";
+  rows[static_cast<int>(MenuRow::Settings)].value = length;
   rows[static_cast<int>(MenuRow::HowTo)].label = "HOW TO PLAY";
   for (int i = 0; i < static_cast<int>(MenuRow::Count); ++i) rows[i].actionValue = static_cast<int16_t>(i);
 
@@ -400,8 +387,6 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   list.items = rows;
   list.count = static_cast<int>(MenuRow::Count);
   list.selectedIndex = static_cast<int16_t>(model.selected);
-  // One action for the whole list; the row is carried in actionValue. That is
-  // the component's shape, and it is why MenuRow exists rather than three ids.
   list.action = ActionMenuRow;
   screen.list(list);
 }
@@ -413,7 +398,7 @@ namespace {
 // Nine, which is what the band holds without a footer, so seventeen lists are
 // two pages rather than three with one lonely row on the last.
 constexpr int kPickerRows = 9;
-}
+}  // namespace
 
 int pickerRowsPerPage() { return kPickerRows; }
 int pickerPages() { return (fh::kCategoryCount + kPickerRows - 1) / kPickerRows; }
@@ -583,8 +568,7 @@ void buildPlay(toybox::Screen& screen, const PlayModel& model) {
   // to that area minus the chrome at both ends, so the tallest layout the
   // ladder can pick still cannot reach the bar. Centring in the leftover space
   // under the chrome is what made a four-letter word sag against its frame.
-  const fui::Rect drawBox =
-      fui::makeRect(barLeft, whiteTop, static_cast<int16_t>(barRight - barLeft), whiteH);
+  const fui::Rect drawBox = fui::makeRect(barLeft, whiteTop, static_cast<int16_t>(barRight - barLeft), whiteH);
   const fui::Rect fitBox = fui::makeRect(drawBox.x, static_cast<int16_t>(whiteTop + chromeH), drawBox.width,
                                          static_cast<int16_t>(whiteH - chromeH * 2));
   drawCard(screen, drawBox, model.word, layOutCard(screen, fitBox, model.word), fui::Color::Black);
@@ -625,7 +609,10 @@ void buildResult(toybox::Screen& screen, const ResultModel& model) {
   // one, so the score reads from BODY and everything else from SMALL. The
   // TITLE slot stays the 30px display cut, which is what keeps the header band
   // from clipping its own title in half.
-  constexpr int16_t kScoreColumn = 180;
+  // 140, not 180. The score is at most three digits and the column was sized
+  // by eye; the 40px it gives back go to the word list, where they are the
+  // difference between BEAUTY AND THE BEAST fitting and clipping.
+  constexpr int16_t kScoreColumn = 140;
   const fui::Rect content = screen.body();
   char scoreText[8];
   std::snprintf(scoreText, sizeof(scoreText), "%d", model.score);
@@ -647,22 +634,21 @@ void buildResult(toybox::Screen& screen, const ResultModel& model) {
   // The list. This is the screen people argue over, and e-ink holds it for free
   // while they do, so it gets the space rather than a summary line.
   const fui::Rect band =
-      fui::makeRect(static_cast<int16_t>(content.x + kScoreColumn + toybox::kGutter * 2), content.y,
-                    static_cast<int16_t>(content.width - kScoreColumn - toybox::kGutter * 2), content.height);
+      fui::makeRect(static_cast<int16_t>(content.x + kScoreColumn + toybox::kGutter), content.y,
+                    static_cast<int16_t>(content.width - kScoreColumn - toybox::kGutter), content.height);
   const int pages = resultPages(cards);
   const int page = model.page < 0 ? 0 : (model.page >= pages ? pages - 1 : model.page);
   drawPips(screen, pips, pages, page, ActionResultsPage);
 
-  const int onPage = cards - page * kResultsPerPage < kResultsPerPage ? cards - page * kResultsPerPage
-                                                                      : kResultsPerPage;
+  const int onPage =
+      cards - page * kResultsPerPage < kResultsPerPage ? cards - page * kResultsPerPage : kResultsPerPage;
   const int leftCount = leftColumnCount(onPage);
   const int16_t colW = static_cast<int16_t>(band.width / kResultCols);
   const int16_t rowH = static_cast<int16_t>(band.height / kResultRows);
   // A short list is centred in the band rather than stacked against its top.
   // Four words in a six-row band left every one of them high with the slack
   // below, on the screen people sit and look at longest.
-  const int16_t listTop =
-      static_cast<int16_t>(band.y + (band.height - leftCount * rowH) / 2);
+  const int16_t listTop = static_cast<int16_t>(band.y + (band.height - leftCount * rowH) / 2);
   screen.target().fill(fui::makeRect(static_cast<int16_t>(content.x + kScoreColumn), listTop, toybox::kRule,
                                      static_cast<int16_t>(leftCount * rowH)),
                        fui::Paint::solid(fui::Color::Black));
@@ -714,6 +700,74 @@ void buildResult(toybox::Screen& screen, const ResultModel& model) {
 }
 
 // ---------------------------------------------------------------------------
+// Paging
+
+int pageAfter(const int page, const int step, const int pages) {
+  if (pages <= 0) return 0;
+  // Two modulos, because C++ gives the sign of the DIVIDEND: -1 % 5 is -1, so
+  // the single-modulo version pages backwards off page one into a negative
+  // index and draws whatever is at kCategories[-4].
+  return ((page + step) % pages + pages) % pages;
+}
+
+// ---------------------------------------------------------------------------
+// Settings (portrait)
+
+void buildSettings(toybox::Screen& screen, const SettingsModel& model) {
+  toyboxChrome(screen, "SETTINGS");
+
+  char length[20];
+  std::snprintf(length, sizeof(length), "%d SECONDS", model.roundSeconds);
+
+  const bool anything = model.record != nullptr && model.record->rounds > 0;
+
+  fui::ListItem rows[static_cast<int>(SettingRow::Count)];
+  rows[static_cast<int>(SettingRow::Length)].label = "ROUND";
+  rows[static_cast<int>(SettingRow::Length)].value = length;
+  // A cycle rather than four rows: the row shows what it IS and a tap shows the
+  // next one. Four rows would spend the screen on a setting nobody changes
+  // twice, and the subtitle is where the cycle is spelled out because a value
+  // column reading "60 SECONDS >" is a promise about a control this list does
+  // not have.
+  rows[static_cast<int>(SettingRow::Length)].subtitle = "TAP TO CYCLE 30 60 90 120";
+
+  rows[static_cast<int>(SettingRow::Reset)].label = "RESET EVERYTHING";
+  // The cost goes in the SUBTITLE, which owns its own line, and never in the
+  // value column beside a sixteen-character label: those two together are 474px
+  // of an approximately 416px row, and the overflow does not look like an
+  // overflow. It looked like a row reading "RE  NOTHING TO CLEAR YET", because
+  // the truncation glyph U+2026 has no bitmap in Jersey and drew as nothing.
+  //
+  // Fixed sentences, with no count interpolated into them: "CLEARS 999 ROUNDS
+  // AND WORDS SEEN" is 436px and would bring the same bug back on the day
+  // somebody plays their thousandth round. The counts are on the front door.
+  rows[static_cast<int>(SettingRow::Reset)].subtitle =
+      !anything ? "NOTHING TO CLEAR YET"
+                : (model.confirmingReset ? "TAP AGAIN TO CONFIRM" : "CLEARS SCORES AND WORDS SEEN");
+  rows[static_cast<int>(SettingRow::Reset)].enabled = anything;
+
+  for (int i = 0; i < static_cast<int>(SettingRow::Count); ++i) rows[i].actionValue = static_cast<int16_t>(i);
+
+  fui::ListProps list;
+  list.items = rows;
+  list.count = static_cast<int>(SettingRow::Count);
+  list.selectedIndex = -1;
+  list.action = ActionSettingsRow;
+  // The subtitle is set EXPLICITLY to the small slot, and maxLines carries the
+  // setting: FONT_SLOT_SMALL is 0, so a style that names only the font is
+  // indistinguishable from a default-constructed one and Screen::list quietly
+  // substitutes the theme's, which here is the 20px body cut. That is what put
+  // "CLEARS SCORES AND WOR" on this screen at label size -- a subtitle drawn as
+  // big as the thing it was subtitling, and truncated because it did not fit.
+  // maxLines is what makes the style caller-owned, and it is also a real
+  // second line, so a sentence that outgrows the row wraps instead of stopping
+  // mid-word with no ellipsis to show for it.
+  list.subtitleText.font = toybox::kSmallFont;
+  list.subtitleText.maxLines = 2;
+  screen.list(list);
+}
+
+// ---------------------------------------------------------------------------
 // How to play (portrait, paged by the side keys and by the pips)
 
 namespace {
@@ -745,30 +799,16 @@ struct Page {
 // somebody.
 constexpr Page kPages[] = {
     {"THE GAME",
-     {"ONE PLAYER HOLDS THE DEVICE FLAT",
-      "AGAINST THEIR FOREHEAD, SCREEN",
-      "FACING OUT. THEY CANNOT SEE IT.",
-      "",
-      "EVERYBODY ELSE CAN, AND SHOUTS",
-      "CLUES UNTIL THEY GET IT. ONE",
-      "POINT FOR EVERY WORD."},
+     {"ONE PLAYER HOLDS THE DEVICE FLAT", "AGAINST THEIR FOREHEAD, SCREEN", "FACING OUT. THEY CANNOT SEE IT.", "",
+      "EVERYBODY ELSE CAN, AND SHOUTS", "CLUES UNTIL THEY GET IT. ONE", "POINT FOR EVERY WORD."},
      Figure::Card},
     {"THE TWO KEYS",
-     {"TURN THE DEVICE SIDEWAYS AND THE",
-      "TWO PAGE KEYS LAND ON THE TOP",
-      "AND BOTTOM EDGES, WHERE YOUR",
-      "FINGERS ALREADY ARE.",
-      "",
-      "THE SCREEN LABELS BOTH EDGES SO",
-      "THE ROOM CAN CALL THEM OUT."},
+     {"TURN THE DEVICE SIDEWAYS AND THE", "TWO PAGE KEYS LAND ON THE TOP", "AND BOTTOM EDGES, WHERE YOUR",
+      "FINGERS ALREADY ARE.", "", "THE SCREEN LABELS BOTH EDGES SO", "THE ROOM CAN CALL THEM OUT."},
      Figure::Keys},
     {"THE SCOREBOARD",
-     {"GIVING UP COSTS NOTHING BUT THE",
-      "SECONDS IT TOOK. THE WORD IN",
-      "YOUR HAND WHEN THE CLOCK RUNS",
-      "OUT IS NEITHER, AND THE RESULTS",
-      "SAY SO RATHER THAN QUIETLY",
-      "COUNTING IT AGAINST YOU. THE",
+     {"GIVING UP COSTS NOTHING BUT THE", "SECONDS IT TOOK. THE WORD IN", "YOUR HAND WHEN THE CLOCK RUNS",
+      "OUT IS NEITHER, AND THE RESULTS", "SAY SO RATHER THAN QUIETLY", "COUNTING IT AGAINST YOU. THE",
       "MARKS THERE MEAN:"},
      Figure::Marks},
 };
@@ -783,16 +823,15 @@ constexpr int kPageCount = static_cast<int>(sizeof(kPages) / sizeof(kPages[0]));
 void drawMiniDevice(toybox::Screen& screen, const fui::Rect& box, const char* word, const bool labelled) {
   screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), toybox::kFrame);
   const int16_t band = static_cast<int16_t>((box.height - toybox::kFrame * 2) * kKeyBandHeight / 480);
-  const fui::Rect top = fui::makeRect(static_cast<int16_t>(box.x + toybox::kFrame),
-                                      static_cast<int16_t>(box.y + toybox::kFrame),
-                                      static_cast<int16_t>(box.width - toybox::kFrame * 2), band);
-  const fui::Rect bottom = fui::makeRect(
-      top.x, static_cast<int16_t>(box.y + box.height - toybox::kFrame - band), top.width, band);
+  const fui::Rect top =
+      fui::makeRect(static_cast<int16_t>(box.x + toybox::kFrame), static_cast<int16_t>(box.y + toybox::kFrame),
+                    static_cast<int16_t>(box.width - toybox::kFrame * 2), band);
+  const fui::Rect bottom =
+      fui::makeRect(top.x, static_cast<int16_t>(box.y + box.height - toybox::kFrame - band), top.width, band);
   screen.target().fill(top, fui::Paint::solid(fui::Color::Black));
   screen.target().fill(bottom, fui::Paint::solid(fui::Color::Black));
   if (labelled) {
-    drawText(screen, top, "PASS", toybox::kSmallFont, fui::TextAlign::Center, toybox::kButtonCut,
-             fui::Color::White);
+    drawText(screen, top, "PASS", toybox::kSmallFont, fui::TextAlign::Center, toybox::kButtonCut, fui::Color::White);
     drawText(screen, bottom, "GOT IT", toybox::kSmallFont, fui::TextAlign::Center, toybox::kButtonCut,
              fui::Color::White);
   }
@@ -816,8 +855,9 @@ void drawMarkLegend(toybox::Screen& screen, const fui::Rect& box) {
       screen.target().fill(fui::makeRect(static_cast<int16_t>(cx - 9), static_cast<int16_t>(cy - 2), 18, 4),
                            fui::Paint::solid(fui::Color::Black));
     }
-    drawText(screen, fui::makeRect(static_cast<int16_t>(cx + 26), static_cast<int16_t>(box.y + i * rowH),
-                                   static_cast<int16_t>(box.width - 46), rowH),
+    drawText(screen,
+             fui::makeRect(static_cast<int16_t>(cx + 26), static_cast<int16_t>(box.y + i * rowH),
+                           static_cast<int16_t>(box.width - 46), rowH),
              labels[i], toybox::kSmallFont, fui::TextAlign::Left, toybox::kButtonCut);
   }
 }
@@ -864,10 +904,10 @@ void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
         deviceW = figure.width;
         deviceH = static_cast<int16_t>(deviceW * 3 / 5);
       }
-      drawMiniDevice(screen,
-                     fui::makeRect(static_cast<int16_t>(figure.x + (figure.width - deviceW) / 2), figure.y, deviceW,
-                                   deviceH),
-                     "PENGUIN", kPages[page].figure == Figure::Keys);
+      drawMiniDevice(
+          screen,
+          fui::makeRect(static_cast<int16_t>(figure.x + (figure.width - deviceW) / 2), figure.y, deviceW, deviceH),
+          "PENGUIN", kPages[page].figure == Figure::Keys);
       break;
     }
   }

@@ -108,10 +108,10 @@ one moment in the game that has earned it.
 
 ## 3. Two orientations, and the turn teaches itself
 
-| Screen                          | Orientation |
-| ------------------------------- | ----------- |
-| front door, picker, how to play | portrait    |
-| ready card, round, results      | landscape   |
+| Screen                                    | Orientation |
+| ----------------------------------------- | ----------- |
+| front door, picker, settings, how to play | portrait    |
+| ready card, round, results                | landscape   |
 
 Portrait for what you hold in your hand, landscape for what you hold against
 your head -- and landscape because the word gets 800px instead of 480.
@@ -168,23 +168,52 @@ as large. Deliberately not done: see the note at the end of this file.
 
 ## 5. The words
 
-**2722 entries across 17 categories**, in flash as a `constexpr` table.
+**2477 entries across 17 categories**, in flash as a `constexpr` table.
 
-Written for this fork rather than lifted: entry lists are generated from
-`tools_local/forehead/words/*.txt` by `gen_forehead_words.py`, in the same shape
-as Insider's. Edit a `.txt`, run the script, commit both -- the generated header
-is committed because a checkout has to build without Python.
+Generated from `tools_local/forehead/words/*.txt` by `gen_forehead_words.py`, in
+the same shape as Insider's. Edit a `.txt`, run the script, commit both -- the
+generated header is committed because a checkout has to build without Python.
 
-The generator refuses three things, all of which fail silently at 220ppi:
+### The lists are read, not remembered
+
+The first version of these lists was written from memory, and it had a
+structural fault that no amount of reviewing it against itself would have found:
+**there was no easy tier at all.** Measured against published, play-tested
+charades and party-word lists, ACT IT OUT was missing all fifteen of the easy
+words; FOOD was missing BREAD, APPLE, CHEESE, EGG, RICE and MILK; ANIMALS was
+missing DOG, COW, PIG, BIRD, FISH and BEAR. Every list started at the difficulty
+a published list reaches halfway down. A game whose easiest word is PORCUPINE is
+not a hard game, it is a game nobody finishes a round of.
+
+`tools_local/forehead/sources/` holds what was read and what was done with it:
+`published.py` is the transcribed source material, `curate.py` the fixes, cuts
+and additions applied on top, and `README.md` names the sources.
+
+Recorded there too: **frequency filtering was tried and rejected.** Scoring
+entries by corpus frequency to find the too-obscure ones flagged ALLIGATOR,
+PENGUIN, BROOM, CRAYON and TOOTHBRUSH -- five words every six-year-old mimes on
+demand. Word frequency measures how often a word is written down, and this game
+is about what is easy to act out. Nobody should spend an evening rediscovering
+that.
+
+### What the generator refuses
+
+Four things, all of which fail silently at 220ppi:
 
 - **Non-ASCII.** Toybox's face is subset to ASCII and a glyph the font does not
   have draws as **nothing** -- no box, no fallback, no log line. A curly
   apostrophe pasted from a web page produces a card with a hole in it. This one
   is not hypothetical: it caught `SÉANCE` on the first run.
-- **Anything over 22 characters**, which is what the card ladder is tuned
-  against.
+- **Anything too wide in PIXELS**, measured against the real font tables rather
+  than counted in characters. Entries are checked against the 276px results
+  column, titles against the 280px the picker row leaves beside its value, hints
+  against the 760px of the landscape ready card. A character cap is what this
+  used to be, and it cannot work: "HOLD IT ON YOUR FOREHEAD" and "EASY ONES FOR
+  SMALL ONES" are both 24 characters and differ by 69 pixels. `measure.py` will
+  tell you what any string costs at any cut.
 - **A duplicate inside one list**, which defeats the no-repeat deck silently:
   the mask marks one index and the other is still in the bag.
+- **A category with fewer than `kMaxCards` entries**, covered below.
 
 A word appearing in **two** categories is fine and often right -- CLAPPING is
 both an action and a sound -- so those are reported and allowed. Only one
@@ -249,18 +278,38 @@ core is about cards rather than seconds.
 ./host-tests/forehead/run.sh
 ```
 
-407k checks. Three kinds, and the third is the one worth copying:
+358k checks. Three kinds, and the third is the one worth copying:
 
 1. Hand-built states for each rule.
 2. Deck soaks. The interesting deck bug is the **last card of a lap** --
    rejection sampling on positions would expect ~189 draws to find the one card
    left, and a spot check reaches that case roughly never. There is a test that
    sets up exactly it, for 200 seeds.
-3. An exhaustive pass over all 2722 entries and all 17 slices: ASCII, length,
+3. An exhaustive pass over all 2477 entries and all 17 slices: ASCII, length,
    case, no doubled spaces, slices tile the array with no gap or overlap, no
    duplicate within a list, every list bigger than `kMaxCards`. The generator
    already refuses bad content, but **the generator is not what ships** -- the
    committed header is, and a hand-edit would sail past a script nobody re-ran.
+
+### The overflow gate is the simulator, not a test
+
+Every text overflow this app has had was invisible in a screenshot. The SDK
+truncates with U+2026, Jersey has no U+2026, and a glyph the face does not carry
+draws as nothing -- so an overflowing line does not clip, it **stops**, at a
+plausible-looking place. Two shipped: a settings row that read `RE` and a first
+run whose only sentence ran off the side of the panel.
+
+The renderer logs `No glyph for codepoint 8230` every time, on every screen, for
+computed boxes as well as fixed ones. `sim-shot.sh` now **fails** on that line
+rather than printing it into the trace and exiting 0. That is a better gate than
+any table of strings could be, because it needs no table: it sees whatever the
+app actually drew.
+
+When it fires, measure the string:
+
+```bash
+tools_local/forehead/measure.py 20 'RESET EVERYTHING'   # 309px
+```
 
 ### Rendering it
 

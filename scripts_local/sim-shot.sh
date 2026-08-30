@@ -44,3 +44,24 @@ grep -E "${SIM_LOG_GREP:-Entering activity|\[ERR\]}" "$LOG" | sed 's/^/  /' || e
 echo "screenshots:"
 bmp_to_png "$OUT_DIR"
 echo "full log: $LOG"
+
+# A missing glyph is ALWAYS a layout bug, and it is the one bug this panel
+# cannot show you. The SDK truncates overflowing text with U+2026; Jersey has no
+# U+2026; a glyph the face does not carry draws as nothing at all. So an
+# overflowing line does not arrive as a clipped word or a box character -- the
+# sentence just stops, at a plausible-looking place, and the screenshot looks
+# fine. FOREHEAD shipped two of these: a settings row reading "RE" and a first
+# run whose only sentence ran off the side.
+#
+# The renderer logs it every single time, on every screen, for computed boxes as
+# well as fixed ones, which makes this a better gate than any table of strings
+# could be. It was already in the trace above and exited 0, which is the failure
+# mode docs warn about in its own right: a printed error that nothing acts on
+# reads exactly like a note.
+if grep -q "No glyph for codepoint" "$LOG"; then
+  echo
+  echo "FAILED: text overflowed and was truncated with a glyph the font does not have."
+  grep -n "No glyph for codepoint" "$LOG" | sed 's/^/  /' | head -10
+  echo "  Measure the offending string: tools_local/forehead/measure.py <cut> '<text>'"
+  exit 1
+fi

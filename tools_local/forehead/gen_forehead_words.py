@@ -47,6 +47,26 @@ ICONS_OUT = REPO / "src/apps_local/forehead/ForeheadCategoryIcons.h"
 # What the card layout is tuned against. Raising it means re-checking the
 # smallest cut against the widest card, not just changing this number.
 MAX_ENTRY_LEN = 22
+
+# The caps below are in PIXELS, measured against the real font, because the
+# character counts they replaced were wrong in a way only a render showed.
+#
+# A character cap assumes every letter is the same width and none is: "HOLD IT
+# ON YOUR FOREHEAD" and "EASY ONES FOR SMALL ONES" are both 24 characters and
+# differ by 69 pixels on the panel. Three separate overflows shipped behind
+# character caps that all looked satisfied -- a category hint, a set of picker
+# titles, and 24 entries clipped in the results list -- and each truncates with
+# U+2026, which Jersey does not carry, so the text stops mid-word and looks
+# deliberate.
+#
+# The boxes, from ForeheadScreens.cpp:
+#   entry -> the results list's label column, drawn at the 14px cut
+#   title -> the picker row between its icon and its right-aligned value, 20px
+#   hint  -> the READY card across the landscape panel, 30px
+MAX_ENTRY_PX = 276
+MAX_TITLE_PX = 280
+MAX_HINT_PX = 760
+FONTS_DIR = REPO / "src/apps_local/ui/fonts"
 # The hint appears in three places and the tightest is the READY card, which
 # draws it at the 30px cut across 800px of landscape: about 24 characters.
 # Past that it is truncated with U+2026 -- which Jersey does not have, so it
@@ -73,6 +93,30 @@ ENTRY_RE = re.compile(r"[A-Z0-9 '&.-]+")
 
 def fail(message):
     sys.exit(f"gen_forehead_words: {message}")
+
+
+_ADVANCES = {}
+
+
+def pixels(text, size):
+    """Width of `text` at a Toybox cut, in real panel pixels.
+
+    Read out of the generated font header rather than estimated: EpdGlyph stores
+    advanceX as 12.4 fixed point, so the raw number is sixteenths of a pixel. An
+    estimate is exactly what a character count already was.
+    """
+    if size not in _ADVANCES:
+        source = (FONTS_DIR / f"toybox_{size}.h").read_text()
+        table = {}
+        for m in re.finditer(r"\{\s*\d+,\s*\d+,\s*(\d+),[^}]*\},\s*//\s*(.)", source):
+            table[m.group(2)] = int(m.group(1)) / 16.0
+        space = re.search(r"\{\s*\d+,\s*\d+,\s*(\d+),[^}]*\},\s*//\s*U\+0020", source)
+        if space:
+            table[" "] = int(space.group(1)) / 16.0
+        if not table:
+            fail(f"could not read glyph advances out of toybox_{size}.h")
+        _ADVANCES[size] = table
+    return sum(_ADVANCES[size].get(c, 0) for c in text)
 
 
 def max_cards():
@@ -109,15 +153,23 @@ def read_list(path):
             fail(
                 f"{path.name}:{lineno}: {line!r} is {len(line)} chars, cap is {MAX_ENTRY_LEN}"
             )
+        wide = pixels(line, 14)
+        if wide > MAX_ENTRY_PX:
+            fail(
+                f"{path.name}:{lineno}: {line!r} is {wide:.0f}px at the 14px cut and "
+                f"the results column is {MAX_ENTRY_PX}px -- it would clip with no ellipsis"
+            )
         entries.append(line)
 
     for field, value in (("title", title), ("hint", hint), ("icon", icon)):
         if not value:
             fail(f"{path.name}: no '# {field}:' line")
-    if len(hint) > MAX_HINT_LEN:
-        fail(f"{path.name}: hint is {len(hint)} chars, cap is {MAX_HINT_LEN}")
-    if len(title) > MAX_TITLE_LEN:
-        fail(f"{path.name}: title is {len(title)} chars, cap is {MAX_TITLE_LEN}")
+    if pixels(hint, 30) > MAX_HINT_PX:
+        fail(f"{path.name}: hint is {pixels(hint, 30):.0f}px at the 30px cut, "
+             f"and the READY card has {MAX_HINT_PX}px")
+    if pixels(title, 20) > MAX_TITLE_PX:
+        fail(f"{path.name}: title is {pixels(title, 20):.0f}px at the 20px cut, "
+             f"and the picker row has {MAX_TITLE_PX}px beside its value")
     if len(set(entries)) != len(entries):
         duplicate = next(e for e in entries if entries.count(e) > 1)
         fail(f"{path.name}: {duplicate!r} appears twice")
