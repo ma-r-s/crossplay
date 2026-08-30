@@ -653,7 +653,17 @@ bool StudyActivity::persist(const int index, const study::CardState& card, const
   // revlog.dat is append-only and never rewritten: it is what deck_to_anki.py
   // replays back into the collection, and what FSRS optimisation would retrain
   // from. See docs/apps/study-deck-format.md.
-  if (revlogFile_.isOpen()) {
+  if (!revlogFile_.isOpen()) {
+    // The one file in a deck that has to be CREATED rather than opened, so on
+    // a full or failing card it is the one that fails while the others open.
+    // Logging that and continuing gave a whole working study session whose
+    // every answer went nowhere: cards.dat advanced, the next build overwrote
+    // it with the server's copy, and the sync said SYNCED with NONE NEW.
+    // Failing here lights the banner the deck screen already has.
+    LOG_ERR("STUDY", "no review log open; refusing to answer a card into nothing");
+    return false;
+  }
+  {
     uint8_t record[32] = {};
     const int64_t nowS = static_cast<int64_t>(time(nullptr));
     if (nowS < study::kClockFloor) {
@@ -2189,11 +2199,19 @@ void StudyActivity::runSyncFlow() {
     bool forgot = false;
     for (int i = 0; i < bridge_.deckCount; ++i) {
       if (bridge_.ackOffsets[i] == 0 && bridge_.ackHashes[i] == 0) continue;
-      char dir[96];
-      std::snprintf(dir, sizeof(dir), "%s/%s", kStudyRoot, bridge_.deckDirs[i]);
-      if (Storage.exists(dir)) continue;
-      LOG_INF("STUDYSYNC", "%s: not on the card; releasing its slot", bridge_.deckDirs[i]);
-      // Release the whole slot, not just the marker. There are eight, and
+      // Keyed on what this reader can OPEN, not on what is present. Nothing
+      // deletes a deck folder, so a card accumulates them, and the openable
+      // set is the alphabetically-first kMaxDecks of a growing list: a deck
+      // can fall out of that window while still sitting on the card, and its
+      // slot was then held forever against a deck the reader actually uses.
+      bool openable = false;
+      for (int j = 0; j < deckCount_ && !openable; ++j) {
+        openable = std::strcmp(deckNames_[j], bridge_.deckDirs[i]) == 0;
+      }
+      if (openable) continue;
+      LOG_INF("STUDYSYNC", "%s: not open to this reader; releasing its slot", bridge_.deckDirs[i]);
+      // Release the whole slot, not just the marker. There are kMaxSyncDecks
+      // of them, one per openable deck, and
       // every setter silently no-ops when they are full, so decks left
       // behind by two changes of mind cost the current decks their build id
       // and their ack: a full re-download and a full revlog resend on every
