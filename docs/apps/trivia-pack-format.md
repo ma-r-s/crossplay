@@ -41,8 +41,10 @@ Each record:
     difficulty  uint8       1-5, derived (see below)
     year        uint16      air year, for a recency filter
     alt_count   uint8       number of alternate accepted answers
-    fields      uint16 length + UTF-8 bytes, repeated (2 + alt_count) times:
-                question, answer, then each alternate
+    wrong_count uint8       number of stored distractors (0 = quizmaster only)
+    fields      uint16 length + UTF-8 bytes, repeated
+                (2 + alt_count + wrong_count) times: question, answer, each
+                alternate, then each distractor
 
 **The index is never resident.** 195 KB of offsets for a 50k pack is RAM the
 device does not have. Entry `i` and its successor are one 8-byte read at
@@ -86,3 +88,24 @@ Nobody copies files to a card. Following xkcd: a rolling `trivia-pack` GitHub
 **prerelease**, so the OTA's `releases/latest` can never see it, and the app's
 first run offers to fetch it. Files land as `.part` and are renamed only when
 complete, so a torn download leaves the card exactly as it was.
+
+
+## Solo multiple choice
+
+15,932 of the 50,000 carry precomputed distractors. The rest are quizmaster-only,
+which is why both modes exist rather than one.
+
+**The type comes from the clue itself.** A Jeopardy clue names what its answer
+is -- "this **country**", "this **writer**", "this **metal**" -- so distractors
+are drawn from questions of the same type. 104 types have a pool of 25 or more,
+which is what makes an option plausible instead of absurd.
+
+**Distractors are length-matched on purpose.** The longest option being the
+correct one is the tell every published corpus leaks: measured at 31.7% for The
+Trivia API, 35.0% for OpenTriviaQA and 38.0% for OpenTDB, against a 25% baseline.
+Matching lengths puts this pack at **6.1%** -- below chance, so option length
+carries no information at all. `test_pack.py` fails the build above 15%.
+
+Six distractors are stored and the device picks three, so replaying a question
+does not give the same four options. The device shuffles; nothing about stored
+order may be relied on.

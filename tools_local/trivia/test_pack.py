@@ -76,6 +76,22 @@ def main(path):
     check('difficulty reasonably spread', hi <= lo * 2.5,
           f'{dict(sorted(spread.items()))}')
 
+    # solo multiple choice: the generated options must not leak the answer
+    mc = [r for r in rows if r.get('w')]
+    check('solo MC questions exist', len(mc) > 5000, f'only {len(mc)}')
+    check('every MC has at least 3 distractors', all(len(r['w']) >= 3 for r in mc))
+    dup = [r for r in mc if any(w.lower() == r['a'].lower() for w in r['w'])]
+    check('no distractor equals its answer', not dup, f'{len(dup)} collide')
+    dupw = [r for r in mc if len({w.lower() for w in r['w']}) != len(r['w'])]
+    check('distractors are distinct', not dupw, f'{len(dupw)} with repeats')
+    if mc:
+        # the tell every published corpus leaks: 31-38% there, chance is 25%
+        strict = sum(1 for r in mc
+                     if len(r['a']) > max(len(w) for w in r['w'][:3]))
+        rate = 100 * strict / len(mc)
+        check('answer is not the longest option', rate < 15,
+              f'strictly longest {rate:.1f}% of the time')
+
     # duplicates by normalised clue
     norm = [re.sub(r'[^a-z0-9]', '', r['q'].lower()) for r in rows]
     check('no duplicate clues', len(set(norm)) == n, f'{n - len(set(norm))} duplicates')

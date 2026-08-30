@@ -6,7 +6,7 @@ Output: a ranked JSONL pack plus a report. See docs/trivia-curation.md.
 
 The device never sees this script; it reads the finished pack from the SD card.
 """
-import argparse, collections, csv, hashlib, json, math, os, re, sys
+import argparse, collections, csv, hashlib, json, math, os, random, re, sys
 
 csv.field_size_limit(10**7)
 
@@ -94,6 +94,62 @@ def expand_abbrev(s):
         s = rx.sub(full, s)
     return re.sub(r'\s+', ' ', s).strip()
 
+# --- answer type, for solo multiple choice ----------------------------------
+# A Jeopardy clue names the answer's type: "this country", "this author".
+# Distractors are drawn from the same type AND length-matched, because the
+# longest-option tell is the defect every published corpus leaks (measured at
+# 31-38% against a 25% baseline). Precomputed here so the device never scans.
+TYPE_STOP = {'many', 'one', 'the', 'future', 'largest', 'smallest', 'other', 'same', 'type',
+             'kind', 'word', 'term', 'name', 'number', 'first', 'last', 'group', 'form', 'part',
+             'way', 'thing', 'item', 'list', 'phrase', 'title', 'little', 'new', 'old', 'famous',
+             'great', 'well', 'only', 'sort', 'next'}
+TYPE_SYN = {'nation': 'country', 'capital': 'city', 'town': 'city', 'author': 'writer',
+            'novelist': 'writer', 'singer': 'musician', 'composer': 'musician',
+            'band': 'musician', 'actress': 'actor', 'flick': 'film', 'movie': 'film',
+            'tune': 'song', 'veggie': 'vegetable'}
+TYPE_RX = re.compile(r"\bthis\s+((?:[a-z][\w'-]*\s+){0,3}?)([a-z][\w-]{2,})(?:'s)?\b")
+
+def answer_type(clue):
+    m = TYPE_RX.search(clue)
+    if not m:
+        return None
+    w = m.group(2).lower().strip("'")
+    if w.endswith('s') and not w.endswith('ss'):
+        w = w[:-1]
+    if w in TYPE_STOP:
+        return None
+    return TYPE_SYN.get(w, w)
+
+MIN_TYPE_POOL = 25      # below this a type cannot supply plausible distractors
+DISTRACTORS = 6         # stored; the device picks 3, so a replay differs
+
+def add_distractors(pack, rng):
+    by = collections.defaultdict(list)
+    for x in pack:
+        if x.get('t'):
+            by[x['t']].append(x)
+    for x in pack:
+        t = x.get('t')
+        if not t or len(by[t]) < MIN_TYPE_POOL:
+            x.pop('t', None)
+            continue
+        L = len(x['a'])
+        pool = sorted((y for y in by[t] if y['a'].lower() != x['a'].lower()),
+                      key=lambda y: abs(len(y['a']) - L))[:40]
+        seen, picks = {x['a'].lower()}, []
+        for c in rng.sample(pool, len(pool)):
+            if c['a'].lower() in seen:
+                continue
+            seen.add(c['a'].lower())
+            picks.append(c['a'])
+            if len(picks) == DISTRACTORS:
+                break
+        if len(picks) >= 3:
+            x['w'] = picks
+        else:
+            x.pop('t', None)
+    return pack
+
 # --- rejection rules ---------------------------------------------------------
 EVENT = re.compile(r'(Teen|College|Kids|Celebrity|Tournament of Champions|Battle of the Decades'
                    r'|All-Star|Masters|Professors|Teachers|Back to School|Seniors|Armed Forces'
@@ -180,6 +236,9 @@ def build(src, keep_events=False):
         score = round(2.0 * math.log1p(af) + math.log1p(cf) - (0.6 if ev else 0), 3)
         item = {'id': hashlib.sha1(k.encode()).hexdigest()[:12],
                 'q': clue, 'a': primary, 'd': d, 'y': int(r['air_date'][:4]), 'g': score}
+        t = answer_type(clue)
+        if t:
+            item['t'] = t
         if accepts:
             item['alt'] = accepts
         if ev:
@@ -222,6 +281,9 @@ def main():
     pack, n_bad, n_good = apply_verdicts(pack, a.verdicts)
     if a.limit:
         pack = pack[:a.limit]
+    # distractors are drawn from the SHIPPED slice, so an option is never an
+    # answer the player could not otherwise meet
+    add_distractors(pack, random.Random(20260830))
 
     with open(a.out, 'w', encoding='utf-8') as f:
         for x in pack:
@@ -241,6 +303,7 @@ def main():
 
     print(f"\npack              : {len(pack):,}")
     print(f"  with alternates : {sum(1 for x in pack if x.get('alt')):,}")
+    print(f"  solo MC ready   : {sum(1 for x in pack if x.get('w')):,}")
     print(f"  difficulty      : {dict(sorted(collections.Counter(x['d'] for x in pack).items()))}")
     print(f"  size            : {os.path.getsize(a.out)/1e6:.1f} MB")
 

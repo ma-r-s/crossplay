@@ -12,10 +12,14 @@ VERSION = 1
 HEADER = struct.Struct('<8sHBBI')      # magic, version, flags, reserved, count
 
 def _rec(item):
-    """difficulty, year, alt-count, then uint16-length-prefixed UTF-8 fields."""
+    """difficulty, year, alt-count, distractor-count, then uint16-length-prefixed
+    UTF-8 fields: question, answer, alternates, then distractors."""
+    alts = item.get('alt', [])
+    wrong = item.get('w', [])
     parts = [item['q'].encode('utf-8'), item['a'].encode('utf-8')]
-    parts += [a.encode('utf-8') for a in item.get('alt', [])]
-    body = struct.pack('<BHB', item['d'], item['y'], len(parts) - 2)
+    parts += [a.encode('utf-8') for a in alts]
+    parts += [w.encode('utf-8') for w in wrong]
+    body = struct.pack('<BHBB', item['d'], item['y'], len(alts), len(wrong))
     for p in parts:
         body += struct.pack('<H', len(p)) + p
     return body
@@ -56,13 +60,14 @@ def read_one(pack, i):
     start, end = struct.unpack('<II', pack['f'].read(8))   # entry + its successor
     pack['f'].seek(pack['base'] + start)
     buf = pack['f'].read(end - start)
-    d, y, nalt = struct.unpack_from('<BHB', buf, 0)
-    o = 4
+    d, y, nalt, nwrong = struct.unpack_from('<BHBB', buf, 0)
+    o = 5
     fields = []
-    for _ in range(2 + nalt):
+    for _ in range(2 + nalt + nwrong):
         (ln,) = struct.unpack_from('<H', buf, o); o += 2
         fields.append(buf[o:o + ln].decode('utf-8')); o += ln
-    return {'d': d, 'y': y, 'q': fields[0], 'a': fields[1], 'alt': fields[2:]}
+    return {'d': d, 'y': y, 'q': fields[0], 'a': fields[1],
+            'alt': fields[2:2 + nalt], 'w': fields[2 + nalt:]}
 
 
 # --- mutable state -----------------------------------------------------------
