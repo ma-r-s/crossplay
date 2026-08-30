@@ -159,6 +159,7 @@ void ForeheadActivity::routeAction(const int action, const int value) {
           break;
         case ui::MenuRow::Settings:
           confirmingReset = false;
+          armedFrameShown = false;
           go(View::Settings);
           break;
         case ui::MenuRow::HowTo:
@@ -170,6 +171,10 @@ void ForeheadActivity::routeAction(const int action, const int value) {
       }
       break;
     case ui::ActionSettingsRow:
+      // Guarded on the view like ActionGot and ActionPage are. Nothing reaches
+      // this from elsewhere today, but the row destroys data and a second door
+      // into Settings that forgot to disarm would be the whole bug.
+      if (view != View::Settings) break;
       switch (static_cast<ui::SettingRow>(value)) {
         case ui::SettingRow::Length: {
           int index = 0;
@@ -185,13 +190,16 @@ void ForeheadActivity::routeAction(const int action, const int value) {
           // one of them irreversible means the second tap has to be on the row
           // that asked, not merely the next tap anywhere.
           confirmingReset = false;
+          armedFrameShown = false;
           requestUpdate();
           break;
         }
-        case ui::SettingRow::Reset:
-          if (record.rounds == 0) break;
-          if (!confirmingReset) {
+        case ui::SettingRow::Reset: {
+          const fh::ResetTap tap = fh::resetTap(anythingToClear(), confirmingReset, armedFrameShown);
+          if (tap == fh::ResetTap::Ignore) break;
+          if (tap == fh::ResetTap::Arm) {
             confirmingReset = true;
+            armedFrameShown = false;
           } else {
             // Everything the app persists, which is the scores AND the seen-word
             // mask. Clearing one without the other is the state that reads as a
@@ -202,11 +210,13 @@ void ForeheadActivity::routeAction(const int action, const int value) {
             category = 0;
             roundSeconds = fh::kDefaultRoundSeconds;
             confirmingReset = false;
+            armedFrameShown = false;
             dirty = true;
             flushSave();
           }
           requestUpdate();
           break;
+        }
         default:
           break;
       }
@@ -284,6 +294,7 @@ void ForeheadActivity::loop() {
       // stay dealt, which is what the deck mask is for.
       dirty = true;
       confirmingReset = false;
+      armedFrameShown = false;
       go(View::Menu);
     }
     return;
@@ -353,8 +364,15 @@ void ForeheadActivity::loop() {
       // stopping dead, because a key that does nothing is indistinguishable
       // from a key that was not registered -- and on a panel that takes 0.3s to
       // answer, "nothing happened" is the one response the player cannot read.
-      *page = ui::pageAfter(*page, step, pages);
-      requestUpdate();
+      // Only when it MOVED. The wrap made this unconditional, and a one-page
+      // screen -- which is every results screen of twelve cards or fewer, the
+      // exact screen keys get mashed on right after the buzzer -- then spent a
+      // 0.3s refresh redrawing a byte-identical image on every press.
+      const int next = ui::pageAfter(*page, step, pages);
+      if (next != *page) {
+        *page = next;
+        requestUpdate();
+      }
       return;
     }
   }
@@ -446,7 +464,7 @@ void ForeheadActivity::render(RenderLock&&) {
       ui::SettingsModel model;
       model.roundSeconds = roundSeconds;
       model.confirmingReset = confirmingReset;
-      model.record = &record;
+      model.anythingToClear = anythingToClear();
       ui::buildSettings(screen, model);
       break;
     }
@@ -468,6 +486,19 @@ void ForeheadActivity::render(RenderLock&&) {
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer(flashOnNextPaint ? HalDisplay::FULL_REFRESH : HalDisplay::FAST_REFRESH);
   flashOnNextPaint = false;
+
+  // Stamped AFTER the panel has the image, which is the whole point: until this
+  // line runs, the armed question exists only in memory and a second tap cannot
+  // be an answer to it.
+  armedFrameShown = view == View::Settings && confirmingReset;
+}
+
+bool ForeheadActivity::anythingToClear() const {
+  // The record AND the deck. Cards are marked at deal time and the record only
+  // advances when a round finishes, so backing out of a round burns words and
+  // leaves the record at zero -- and a gate that asked the record alone would
+  // report NOTHING TO CLEAR YET while a category quietly emptied.
+  return record.rounds > 0 || deck.anySeen();
 }
 
 void ForeheadActivity::flushSave() {

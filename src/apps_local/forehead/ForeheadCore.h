@@ -98,6 +98,11 @@ class Deck {
   void lapExcept(int category, const int16_t* keep, int keepCount);
 
   int remainingIn(int category) const;
+  // Whether ANY card anywhere has been dealt. The reset offer needs this and
+  // cannot use the record: cards are marked at DEAL time and the record only
+  // advances when a round FINISHES, so a round backed out of burns words and
+  // leaves the record at zero.
+  bool anySeen() const;
   bool seen(int entry) const;
   void markSeen(int entry);
 
@@ -207,5 +212,19 @@ struct Record {
 // instant the round starts.
 inline constexpr int kBarSegments = 8;
 int barSegments(int secondsLeft, int lengthSeconds);
+
+// What a tap on RESET EVERYTHING means.
+//
+// Freestanding for the same reason pageAfter() is, only more so: this is the
+// one decision in the app that destroys data, and leaving it inline in the
+// activity made it the one decision no host test could reach.
+enum class ResetTap { Ignore, Arm, Confirm };
+
+// `shown` is whether the armed frame has actually reached the panel. It is not
+// bookkeeping -- render() turns the new interaction map live before the refresh
+// completes, and the refresh is ~0.3s, so a player who taps twice at a control
+// that appears not to have answered would otherwise confirm a question they
+// never saw.
+ResetTap resetTap(bool anythingToClear, bool armed, bool shown);
 
 }  // namespace forehead

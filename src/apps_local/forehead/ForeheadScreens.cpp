@@ -719,7 +719,7 @@ void buildSettings(toybox::Screen& screen, const SettingsModel& model) {
   char length[20];
   std::snprintf(length, sizeof(length), "%d SECONDS", model.roundSeconds);
 
-  const bool anything = model.record != nullptr && model.record->rounds > 0;
+  const bool anything = model.anythingToClear;
 
   fui::ListItem rows[static_cast<int>(SettingRow::Count)];
   rows[static_cast<int>(SettingRow::Length)].label = "ROUND";
@@ -741,9 +741,14 @@ void buildSettings(toybox::Screen& screen, const SettingsModel& model) {
   // Fixed sentences, with no count interpolated into them: "CLEARS 999 ROUNDS
   // AND WORDS SEEN" is 436px and would bring the same bug back on the day
   // somebody plays their thousandth round. The counts are on the front door.
+  //
+  // And it enumerates all three things, because the reset clears the chosen
+  // category and the round length too. A row promising only scores that also
+  // moves you back to the first list is a surprise found later, on a different
+  // screen.
   rows[static_cast<int>(SettingRow::Reset)].subtitle =
       !anything ? "NOTHING TO CLEAR YET"
-                : (model.confirmingReset ? "TAP AGAIN TO CONFIRM" : "CLEARS SCORES AND WORDS SEEN");
+                : (model.confirmingReset ? "TAP AGAIN TO CONFIRM" : "SCORES WORDS AND SETTINGS");
   rows[static_cast<int>(SettingRow::Reset)].enabled = anything;
 
   for (int i = 0; i < static_cast<int>(SettingRow::Count); ++i) rows[i].actionValue = static_cast<int16_t>(i);

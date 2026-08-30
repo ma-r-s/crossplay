@@ -102,7 +102,11 @@ struct SettingsModel {
   // and the design language's rule is that a destructive setting confirms with
   // a label you were going to read anyway.
   bool confirmingReset = false;
-  const forehead::Record* record = nullptr;
+  // Whether there is anything to clear -- scores OR dealt cards. Handed in
+  // rather than derived from a Record here, because a round abandoned halfway
+  // burns words without ever touching the record, and a screen that asked the
+  // record would offer nothing to clear while a category quietly emptied.
+  bool anythingToClear = false;
 };
 
 void buildMenu(toybox::Screen& screen, const MenuModel& model);

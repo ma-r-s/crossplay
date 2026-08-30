@@ -10,7 +10,6 @@
 
 #include <cstdio>
 #include <cstring>
-#include <map>
 #include <string>
 #include <vector>
 
@@ -91,7 +90,11 @@ class FakeTarget final : public fui::DrawTarget {
   // like a button" is a question about a BORDER, so a target that records only
   // text and fills cannot be asked it -- and that is why the forehead start
   // control shipped as a bare headline that three rounds of tests called fine.
-  std::vector<fui::Rect> strokes;
+  struct Stroke {
+    fui::Rect rect;
+    uint8_t width;
+  };
+  std::vector<Stroke> strokes;
   struct Triangle {
     fui::Point a, b, c;
     fui::Color color;
@@ -117,9 +120,9 @@ class FakeTarget final : public fui::DrawTarget {
       fillPaints.push_back(paint);
     }
   }
-  void stroke(const fui::Rect rect, const fui::Paint paint, const uint8_t, const uint8_t = 0,
+  void stroke(const fui::Rect rect, const fui::Paint paint, const uint8_t width, const uint8_t = 0,
               const uint8_t = 0xFF) override {
-    if (paint.kind != fui::PaintKind::None) strokes.push_back(rect);
+    if (paint.kind != fui::PaintKind::None) strokes.push_back(Stroke{rect, width});
   }
   void line(const fui::Point, const fui::Point, const uint8_t, const fui::Paint) override {}
   void triangle(const fui::Point a, const fui::Point b, const fui::Point c, const fui::Paint paint) override {
@@ -184,13 +187,17 @@ class FakeTarget final : public fui::DrawTarget {
 
   bool outlined(const fui::Rect rect) const {
     for (const auto& s : strokes) {
-      if (s.x == rect.x && s.y == rect.y && s.width == rect.width && s.height == rect.height) return true;
+      if (s.width == 0) continue;  // a zero-width stroke draws nothing
+      if (s.rect.x == rect.x && s.rect.y == rect.y && s.rect.width == rect.width && s.rect.height == rect.height) {
+        return true;
+      }
     }
     return false;
   }
 
-  bool triangleInside(const fui::Rect rect) const {
+  bool triangleInside(const fui::Rect rect, const fui::Color color = fui::Color::Black) const {
     for (const auto& tri : triangles) {
+      if (tri.color != color) continue;
       const fui::Point pts[3] = {tri.a, tri.b, tri.c};
       bool all = true;
       for (const auto& p : pts) {
@@ -4907,56 +4914,6 @@ void buildForeheadSettings(Rendered& out, const foreheadui::SettingsModel& model
   foreheadui::buildSettings(screen, model);
 }
 
-void probeForeheadSettingsMap() {
-  forehead::Record record;
-  record.push(0, 9);
-  Rendered r;
-  foreheadui::SettingsModel model;
-  model.record = &record;
-  model.roundSeconds = 90;
-  buildForeheadSettings(r, model);
-  struct Box {
-    int minx = 99999, miny = 99999, maxx = -1, maxy = -1;
-  };
-  std::map<std::pair<int, int>, Box> seen;
-  for (int y = 0; y < 800; y += 2) {
-    for (int x = 0; x < 480; x += 2) {
-      const fui::ActionEvent e = r.tap(x, y);
-      if (e.action == fui::NO_ACTION) continue;
-      Box& b = seen[{(int)e.action, (int)e.value}];
-      if (x < b.minx) b.minx = x;
-      if (y < b.miny) b.miny = y;
-      if (x > b.maxx) b.maxx = x;
-      if (y > b.maxy) b.maxy = y;
-    }
-  }
-  for (const auto& kv : seen) {
-    std::printf("PROBE settings action=%d value=%d  x[%d..%d] y[%d..%d]\n", kv.first.first, kv.first.second,
-                kv.second.minx, kv.second.maxx, kv.second.miny, kv.second.maxy);
-  }
-  // Menu map too.
-  Rendered m;
-  foreheadui::MenuModel mm;
-  mm.record = &record;
-  buildForeheadMenu(m, mm);
-  std::map<std::pair<int, int>, Box> seen2;
-  for (int y = 0; y < 800; y += 2) {
-    for (int x = 0; x < 480; x += 2) {
-      const fui::ActionEvent e = m.tap(x, y);
-      if (e.action == fui::NO_ACTION) continue;
-      Box& b = seen2[{(int)e.action, (int)e.value}];
-      if (x < b.minx) b.minx = x;
-      if (y < b.miny) b.miny = y;
-      if (x > b.maxx) b.maxx = x;
-      if (y > b.maxy) b.maxy = y;
-    }
-  }
-  for (const auto& kv : seen2) {
-    std::printf("PROBE menu action=%d value=%d  x[%d..%d] y[%d..%d]\n", kv.first.first, kv.first.second, kv.second.minx,
-                kv.second.maxx, kv.second.miny, kv.second.maxy);
-  }
-}
-
 void testTheForeheadPagingWraps() {
   // Forward off the end returns to the first page, back off the front reaches
   // the last. The complaint that produced this was a key that stopped
@@ -4990,33 +4947,39 @@ void testTheForeheadPagingWraps() {
 }
 
 void testTheForeheadResetSaysWhatItDestroysAndAsksFirst() {
-  forehead::Record record;
-  record.push(0, 9);
-  record.push(1, 4);
-
   Rendered armed;
   foreheadui::SettingsModel model;
-  model.record = &record;
+  model.anythingToClear = true;
   model.roundSeconds = 90;
   buildForeheadSettings(armed, model);
-  // The row names the cost before it is tapped. "RESET EVERYTHING" alone is a
-  // shrug: it is the count of rounds that makes somebody stop.
-  CHECK(armed.target.drew("CLEARS SCORES AND WORDS SEEN"));
+  // The row enumerates what "everything" means before it is tapped. All three
+  // things, because the reset also drops the chosen category and the round
+  // length: a row promising only scores that also moves you back to the first
+  // list is a surprise found later, on a different screen.
+  CHECK(armed.target.drew("SCORES WORDS AND SETTINGS"));
   CHECK(armed.target.drew("90 SECONDS"));
   CHECK(!armed.target.drew("TAP AGAIN TO CONFIRM"));
+
+  // Offered means TAPPABLE. Without this the row could be made permanently
+  // inert and the suite would not notice -- proved by mutation: forcing
+  // enabled=false left 0 failures before this line existed.
+  const fui::ActionEvent hit = armed.tap(240, 220);
+  CHECK(hit.action == foreheadui::ActionSettingsRow);
+  CHECK(hit.value == static_cast<int>(foreheadui::SettingRow::Reset));
 
   Rendered asking;
   model.confirmingReset = true;
   buildForeheadSettings(asking, model);
   CHECK(asking.target.drew("TAP AGAIN TO CONFIRM"));
+  // Still tappable while armed, or the confirmation could never be given.
+  CHECK(asking.tap(240, 220).action == foreheadui::ActionSettingsRow);
 
   // With nothing to clear the row is not offered at all, so the one
   // irreversible control on the device cannot be armed by a player who has
   // never played -- and cannot be armed twice by one who just used it.
-  forehead::Record empty;
   Rendered fresh;
   foreheadui::SettingsModel blank;
-  blank.record = &empty;
+  blank.anythingToClear = false;
   buildForeheadSettings(fresh, blank);
   CHECK(fresh.target.drew("NOTHING TO CLEAR YET"));
   CHECK(fresh.tap(240, 220).action != foreheadui::ActionSettingsRow);
@@ -5042,10 +5005,17 @@ void testTheForeheadStartControlLooksLikeAButton() {
   CHECK(!out.target.strokes.empty());
   fui::Rect box{};
   for (const auto& s : out.target.strokes) {
-    if (s.height >= 100 && s.width >= 300) box = s;
+    if (s.width == 0) continue;
+    if (s.rect.height >= 100 && s.rect.width >= 300) box = s.rect;
   }
   CHECK(box.width > 0);
-  CHECK(out.target.triangleInside(box));
+  // Drawn AND visible. A zero-width border and a white-on-white triangle both
+  // used to pass this: the target threw the stroke width away and never read
+  // the triangle's colour back, so the two things the test is named for were
+  // the two things it could not see.
+  CHECK(out.target.outlined(box));
+  CHECK(out.target.triangleInside(box, fui::Color::Black));
+  CHECK(!out.target.triangleInside(box, fui::Color::White));
 
   // The border is the tap target, not a decoration drawn near one. Corners
   // included: a box you can only press in the middle is worse than no box,
@@ -5130,7 +5100,6 @@ int main() {
   testTheForeheadKeyLabelsSitOnTheEdgesTheyAct();
   testTheForeheadRoundIgnoresTapsWhereFingersGrip();
   testTheForeheadCardNeverDrawsPastItsBox();
-  probeForeheadSettingsMap();
   testTheForeheadPagingWraps();
   testTheForeheadResetSaysWhatItDestroysAndAsksFirst();
   testTheForeheadStartControlLooksLikeAButton();
