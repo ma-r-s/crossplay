@@ -92,3 +92,34 @@ letting one layer silently shadow the other.
 - **Cross-category repeats are fine and were not chased.** CLAPPING is legitimately
   both an action and a sound, and only one category is ever in play, so a word in
   two lists can never collide inside a round. The generator says so too.
+
+### How much a "source" is worth (read before citing one)
+
+An independent pass re-checked the TRICKY shortlist against 20+ published lists.
+Two findings about the METHOD, which matter more than the entries:
+
+**Not all of these publishers are equal.** thegamegal.com (printable PDFs),
+Woman's Day, YourDictionary, Brightful and psycatgames are established. Several
+others read as SEO or AI-generated list farms. A "found in 2 sources" count that
+rests entirely on the second group is weaker than the number looks, and two list
+farms agreeing may just be two copies of one scrape.
+
+**Absence is weak evidence for an abstract word.** The traditional printed decks
+-- Taboo, Catchphrase, the Game Gal PDFs -- are overwhelmingly CONCRETE nouns.
+Nearly every abstract entry that verified at all came from modern web lists. So
+"I could not find it in a published list" is a real signal for ANIMALS or FOOD
+and a much weaker one for TRICKY, where the published corpus is thin to begin
+with.
+
+For TRICKY specifically that means the design test outranks the source count:
+**does the room's clue produce exactly one word?** DEJA VU passes on six sources
+and would pass on none. HAPPINESS fails on any number, because JOY is equally
+right.
+
+This is the same shape as the frequency-filtering failure recorded above. Both
+times a measurement that looked objective was answering a different question
+from the one being asked.
+
+The check did confirm the researcher's discipline held: of the 22 shortlisted
+terms it could not source anywhere (COLD FEET, CABIN FEVER, AMNESIA, ALIBI,
+NICKNAME, VERTIGO, ETERNITY, MIRACLE and the rest), **none were added.**
