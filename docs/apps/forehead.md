@@ -168,7 +168,7 @@ as large. Deliberately not done: see the note at the end of this file.
 
 ## 5. The words
 
-**2477 entries across 17 categories**, in flash as a `constexpr` table.
+**2460 entries across 17 categories**, in flash as a `constexpr` table.
 
 Generated from `tools_local/forehead/words/*.txt` by `gen_forehead_words.py`, in
 the same shape as Insider's. Edit a `.txt`, run the script, commit both -- the
@@ -213,7 +213,46 @@ Four things, all of which fail silently at 220ppi:
   tell you what any string costs at any cut.
 - **A duplicate inside one list**, which defeats the no-repeat deck silently:
   the mask marks one index and the other is still in the bag.
+- **A NEAR duplicate**: one answer written two ways. A plural beside its
+  singular (GRAPE/GRAPES), a word order beside its reverse (DOG BARKING/BARKING
+  DOG), a title with and without its article (LION KING/THE LION KING), two
+  spellings of one word (DONUT/DOUGHNUT). The deck deals each pair as two cards
+  and the room has one answer for both, so the holder who says the other one is
+  marked wrong.
+
+  Every pair of this shape that shipped was **manufactured by the curation
+  step**, whose "is it already there" test was an exact string match: it added
+  the variant of a word that was already present, and the exact-duplicate check
+  above waved it through. Subsets are deliberately NOT refused -- TABLE TENNIS
+  and TENNIS are two sports -- and `dupes.py` reports those for a human instead.
 - **A category with fewer than `kMaxCards` entries**, covered below.
+
+### Two traps in the curation script
+
+`curate.py`'s tables are written as `"""WORD WORD WORD""".split()`, which is readable and
+correct for single words and **shreds anything with a space in it**.
+`"SITTING DOWN STANDING UP"` became four entries, and `act.txt` shipped
+containing the cards `DOWN` and `UP`. The same line hit `food` (`ICE CREAM` ->
+`ICE`, `CREAM`) and `house` (`LIGHT SWITCH` -> `LIGHT`, `SWITCH`): six junk
+cards from one habit. Multi-word entries go in an explicit list, appended with
+`+[...]`, where a space cannot be mistaken for a separator.
+
+The other one: `ADD` runs **after** `FIX`, so an added entry is exempt from
+every correction in the file -- and since `ADD` re-adds the uncorrected spelling
+on every run, the list ends up holding both forms. That is how `SCOOBY DOO` and
+`SCOOBY-DOO` both shipped, in two categories, out of the very table meant to
+remove duplicates. Additions go through `FIX` now, and running `curate.py`
+twice is a no-op, which is the property that proves it.
+
+### A name that does not fit is dropped, not shortened
+
+The pixel cap is mirrored into `curate.py`, so an entry too wide for the
+results column fails where it is **written** rather than one step later at
+generation. That matters because of what happens at the later point: faced with
+`CHRISTOPHER COLUMBUS` at 280px against a 276px column, the fix applied once in
+this repo was to shorten it to `COLUMBUS`, which trades an overflow for a city
+in Ohio. `PIRATES OF CARIBBEAN` and `JACK AND BEANSTALK` are the same mistake
+already made. If the real name does not fit, the entry goes.
 
 A word appearing in **two** categories is fine and often right -- CLAPPING is
 both an action and a sound -- so those are reported and allowed. Only one
@@ -278,14 +317,14 @@ core is about cards rather than seconds.
 ./host-tests/forehead/run.sh
 ```
 
-358k checks. Three kinds, and the third is the one worth copying:
+355k checks. Three kinds, and the third is the one worth copying:
 
 1. Hand-built states for each rule.
 2. Deck soaks. The interesting deck bug is the **last card of a lap** --
    rejection sampling on positions would expect ~189 draws to find the one card
    left, and a spot check reaches that case roughly never. There is a test that
    sets up exactly it, for 200 seeds.
-3. An exhaustive pass over all 2477 entries and all 17 slices: ASCII, length,
+3. An exhaustive pass over all 2460 entries and all 17 slices: ASCII, length,
    case, no doubled spaces, slices tile the array with no gap or overlap, no
    duplicate within a list, every list bigger than `kMaxCards`. The generator
    already refuses bad content, but **the generator is not what ships** -- the

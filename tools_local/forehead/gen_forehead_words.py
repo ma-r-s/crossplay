@@ -119,6 +119,58 @@ def pixels(text, size):
     return sum(_ADVANCES[size].get(c, 0) for c in text)
 
 
+def near_duplicates(entries):
+    """Pairs that are ONE answer written two ways.
+
+    The exact-duplicate check was never the problem. What shipped was a plural
+    beside its singular (GRAPE/GRAPES), a word order beside its reverse
+    (DOG BARKING/BARKING DOG), a title with and without its article
+    (LION KING/THE LION KING), and two spellings of one word
+    (DONUT/DOUGHNUT). The deck deals each pair as two cards; the room has one
+    answer for both, and the holder who says the other one is marked wrong.
+
+    Every pair of this shape in the shipped lists was MANUFACTURED by the
+    curation step, whose "is it already there" test was an exact string match --
+    so it added the variant of a word that was already present and this file
+    waved it through.
+
+    SUBSETS are deliberately not checked here. TABLE TENNIS and TENNIS are two
+    sports, WATER POLO and POLO are two sports, and a rule that refuses them
+    refuses the truth. tools_local/forehead/dupes.py reports those for a human
+    to judge; only the four classes above are mechanical enough to fail a build.
+    """
+    stop = {"THE", "A", "AN", "OF", "AND"}
+    spellings = [("DONUT", "DOUGHNUT"), ("YOGURT", "YOGHURT"),
+                 ("OMELET", "OMELETTE"), ("GRAY", "GREY")]
+
+    def singular(word):
+        if word.endswith("IES") and len(word) > 4:
+            return word[:-3] + "Y"
+        if word.endswith("ES") and len(word) > 4 and word[-3] in "SXZHO":
+            return word[:-2]
+        if word.endswith("S") and not word.endswith("SS") and len(word) > 3:
+            return word[:-1]
+        return word
+
+    def bag(entry):
+        # Punctuation goes too: MRS DOUBTFIRE and MRS. DOUBTFIRE are one film.
+        words = (re.sub(r"[.'-]", "", w) for w in entry.split())
+        return frozenset(singular(w) for w in words if w and w not in stop)
+
+    found, seen = [], {}
+    for entry in entries:
+        key = bag(entry)
+        if not key:
+            continue
+        for other in seen.get(key, []):
+            found.append((other, entry))
+        seen.setdefault(key, []).append(entry)
+    for a, b in spellings:
+        if a in entries and b in entries:
+            found.append((a, b))
+    return found
+
+
 def max_cards():
     match = re.search(r"inline constexpr int kMaxCards = (\d+);", CORE.read_text())
     if not match:
@@ -173,6 +225,9 @@ def read_list(path):
     if len(set(entries)) != len(entries):
         duplicate = next(e for e in entries if entries.count(e) > 1)
         fail(f"{path.name}: {duplicate!r} appears twice")
+    for a, b in near_duplicates(entries):
+        fail(f"{path.name}: {a!r} and {b!r} are one answer written two ways -- "
+             f"the deck deals two cards and the room has one word for both")
     if not entries:
         fail(f"{path.name}: no entries")
     return title, hint, icon, entries

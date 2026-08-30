@@ -21,6 +21,11 @@ import pathlib
 import re
 import sys
 
+# The generator is the authority on how wide a string is; importing its
+# measurement rather than copying it means the two cannot drift.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+from gen_forehead_words import pixels  # noqa: E402
+
 WORDS = pathlib.Path(__file__).resolve().parents[1] / "words"
 
 # Spelling and punctuation, all of them real errors in the shipped lists.
@@ -190,9 +195,9 @@ ADD = {
     "animals": "DOG COW PIG BIRD FISH BEAR".split(),
     "food": """BREAD APPLE CAKE CHEESE EGG BURGER RICE SOUP SALAD TEA WATER MILK
         ORANGE POTATO CHOCOLATE TACOS PANCAKES JUICE BUTTER SUGAR SALT HONEY
-        LEMON GRAPE STRAWBERRY CHERRY PEACH CORN BEANS ONION TOMATO CUCUMBER
-        FRIES CHIPS BACON HAM STEAK CHICKEN FISH SANDWICH TOAST CEREAL
-        YOGURT ICE CREAM COOKIE DONUT MUFFIN PIE JAM SOUP""".split(),
+        LEMON GRAPES STRAWBERRY CHERRY PEACH CORN BEANS ONION TOMATO CUCUMBER
+        BACON HAM STEAK CHICKEN FISH SANDWICH TOAST CEREAL
+        YOGURT COOKIE DONUT MUFFIN PIE JAM SOUP""".split() + ["ICE CREAM"],
     "jobs": "DRIVER COOK POLICE DANCER CLOWN CHEF ACTOR ARTIST JUDGE GUARD".split(),
     "sports": """RUNNING SKATING JUMPING THROWING CATCHING KICKING RACING
         WALKING STRETCHING""".split(),
@@ -200,7 +205,7 @@ ADD = {
         COOKING CLEANING DRIVING SINGING DANCING CRYING LAUGHING SMILING
         WAVING CLAPPING POINTING RUNNING THINKING LISTENING SHOUTING
         WHISPERING KNOCKING PUSHING PULLING LIFTING CARRYING THROWING
-        CATCHING KICKING CLIMBING FALLING SITTING DOWN STANDING UP""".split(),
+        CATCHING KICKING CLIMBING FALLING""".split() + ["SITTING DOWN", "STANDING UP"],
     "kids": """UNICORN PIRATE SPACESHIP MERMAID PRINCESS WIZARD FIREFIGHTER
         FAIRY CIRCUS COWBOY ROBOT GHOST WITCH SANTA SNOWMAN BALLOON BUBBLE
         SLIDE SWING KITE""".split(),
@@ -208,7 +213,7 @@ ADD = {
         SHOWER TOILET TOWEL PILLOW BLANKET CARPET CURTAIN KEY PHONE COMPUTER
         PLATE CUP FORK SPOON KNIFE BOWL POT PAN SOAP BRUSH COMB GLUE TAPE
         PENCIL PAPER BIN LADDER HAMMER NAIL CANDLE PICTURE SHELF DESK
-        LIGHT SWITCH BUCKET SPONGE BASKET""".split(),
+        BUCKET SPONGE BASKET""".split() + ["LIGHT SWITCH"],
     "movies": [
 
         "THE LION KING", "JURASSIC PARK", "BATMAN", "SUPERMAN", "SPIDER-MAN",
@@ -299,7 +304,10 @@ ADD["music"] += [
     "SINGALONG", "HUMMING", "OPERA SINGER", "ROCK STAR", "POP STAR",
 ]
 ADD["people"] += [
-    "JULIUS CAESAR", "ALEXANDER THE GREAT", "MARCO POLO", "CHRISTOPHER COLUMBUS",
+    # No CHRISTOPHER COLUMBUS: 280px against a 276px results column, so it would
+    # ship clipped. The bare surname was tried and is worse -- Columbus is a city
+    # in Ohio as often as it is the man, and the room cannot clue past that.
+    "JULIUS CAESAR", "ALEXANDER THE GREAT", "MARCO POLO",
     "WALT DISNEY", "HENRY FORD", "THOMAS EDISON", "NIKOLA TESLA",
     "MARIE CURIE", "STEPHEN HAWKING", "MUHAMMAD ALI", "PELE", "USAIN BOLT",
     "SERENA WILLIAMS", "MICHAEL JORDAN", "BRUCE LEE", "CHARLIE BROWN",
@@ -318,7 +326,9 @@ ADD["sound"] += [
 
 ADD["movies"] += [
     "THE PRINCESS BRIDE", "FORREST GUMP", "THE MUMMY", "MEN IN BLACK",
-    "PIRATES OF CARIBBEAN", "NIGHT AT THE MUSEUM", "THE KARATE KID",
+    # "PIRATES OF THE CARIBBEAN" is the title and it is over the pixel cap; the
+    # shortened form is not the name of anything.
+    "NIGHT AT THE MUSEUM", "THE KARATE KID",
     "SPACE JAM", "THE LEGO MOVIE", "SING",
 ]
 ADD["people"] += [
@@ -328,12 +338,145 @@ ADD["people"] += [
 ]
 
 
+
+# ---------------------------------------------------------------------------
+# Second pass: what a cold reviewer found after the first revision shipped.
+#
+# The first pass fixed 22 hand-listed strings. That is why the Britishisms
+# below survived it -- they were never in the table, and a table of literals
+# only ever fixes what somebody already noticed. These are the systematic ones,
+# found by reading every file rather than by spot-checking.
+
+FIX.update({
+    # British spellings in an American-English game. Every replacement is
+    # inside both the character and the pixel cap; measured, not assumed.
+    "ALUMINIUM": "ALUMINUM",
+    "JEWELLER": "JEWELER",
+    "OMELETTE": "OMELET",
+    "NEWSREADER": "NEWS ANCHOR",
+    "FOOTBALLER": "FOOTBALL PLAYER",
+    "RACING DRIVER": "RACE CAR DRIVER",
+    "TRAIN DRIVER": "TRAIN ENGINEER",
+    "TORCH": "FLASHLIGHT",
+    "BIN": "TRASH CAN",
+    "BREAD BIN": "BREAD BOX",
+    "TEA TOWEL": "DISH TOWEL",
+    "WARDROBE": "CLOSET",
+    "MASHED POTATO": "MASHED POTATOES",
+    "AUTUMN": "FALL",
+    "CINEMA": "MOVIE THEATER",
+    "BOBSLEIGH": "BOBSLED",
+    "SLEDGING": "SLEDDING",
+    "ATHLETICS": "TRACK AND FIELD",
+    "DRIPPING TAP": "DRIPPING FAUCET",
+    "ICE CREAM VAN": "ICE CREAM TRUCK",
+    "SWEETCORN": "CORN ON THE COB",
+    "NAAN BREAD": "NAAN",
+
+    # Proper nouns that were wrong. A wrong title is worse than a missing one:
+    # the room clues the film it can see and the holder answers with the name
+    # the film actually has.
+    "SCOOBY DOO": "SCOOBY-DOO",
+    "JACK-O-LANTERN": "JACK-O'-LANTERN",
+    "LITTLE BO PEEP": "LITTLE BO-PEEP",
+    # Nobody is called Johann Bach. The full name is over the pixel cap, and
+    # the surname alone is what a room shouts anyway.
+    "JOHANN BACH": "BACH",
+})
+
+CUT.update({
+    "food": CUT.get("food", []) + [
+        # One answer, two cards. The deck deals them as separate words and the
+        # room cannot tell the holder which spelling to say.
+        "DOUGHNUT", "YOGHURT", "GRAPE", "PANCAKE", "TACO", "FRIES",
+        # British, and each collides with the American entry already present.
+        "BISCUIT", "CHIPS", "PORRIDGE", "BREAD ROLL",
+    ],
+    "movies": CUT.get("movies", []) + [
+        "LION KING", "MRS DOUBTFIRE",
+        # The real title is "PIRATES OF THE CARIBBEAN", which is over the pixel
+        # cap. Ship no entry rather than a wrong proper noun.
+        "PIRATES OF CARIBBEAN",
+    ],
+    "story": CUT.get("story", []) + [
+        "THE GOLDEN GOOSE",
+        # "JACK AND BEANSTALK" is not the title and the real one does not fit.
+        "JACK AND BEANSTALK",
+    ],
+    "myths": CUT.get("myths", []) + ["NINE-HEADED HYDRA"],
+    "music": CUT.get("music", []) + ["SPEAKERS", "MOUTH ORGAN"],
+    "people": CUT.get("people", []) + [
+        # A city in Ohio as often as the man, and the unambiguous form is over
+        # the pixel cap. Both spellings go: the short one is ambiguous and the
+        # long one is 280px against a 276px column.
+        "COLUMBUS", "CHRISTOPHER COLUMBUS",
+    ],
+    "jobs": CUT.get("jobs", []) + [
+        "POSTMAN",   # MAIL CARRIER is present
+        "CHEMIST",   # means pharmacist in the US, and PHARMACIST is present
+        # POLICE and POLICE OFFICER are one answer. POLICE is the anchored
+        # one -- it is in the published easy tier -- so the longer variant goes.
+        "POLICE OFFICER",
+    ],
+    "nature": CUT.get("nature", []) + ["WOODLAND"],  # FOREST is present
+    "sports": CUT.get("sports", []) + [
+        "NETBALL", "SNOOKER",   # not played where this game is played
+        "PING PONG",            # TABLE TENNIS is present
+        "QUIDDITCH",            # fictional, in a list of real sports
+    ],
+    "sound": CUT.get("sound", []) + [
+        # Word-order twins: one sound, two cards. The survivor of each pair is
+        # the form the ADD tables above use, so this file has one house style
+        # rather than two spellings of the same noise.
+        "BARKING DOG", "PURRING CAT", "CLOCK TICKING", "WOLF HOWL",
+        "TELEPHONE RINGING",  # PHONE RINGING is present
+    ],
+    "house": CUT.get("house", []) + ["HOT WATER BOTTLE"],
+})
+
+# Replacements, so the cuts above do not push a list under the floor. Easy-tier
+# and concrete, which is the half these lists were short of.
+for _slug, _words in {
+    # movies was two entries above the floor before three wrong or duplicated
+    # titles came out of it, so the replacements are not optional. All of these
+    # are real titles at their real length -- "HOW TO TRAIN A DRAGON" was
+    # rejected for the same reason PIRATES was: the film is called something
+    # else, and a shortened title is a wrong answer the room cannot clue.
+    "movies": [
+        "FANTASIA", "ROBIN HOOD", "LILO AND STITCH", "WRECK-IT RALPH",
+        "THE LORAX", "TROLLS", "HAPPY FEET", "CHICKEN RUN", "CORALINE",
+        "THE IRON GIANT", "ANASTASIA", "THE CROODS",
+    ],
+    "myths": ["GHOST", "GOLDEN FLEECE", "PEGASUS"],
+    "music": ["MICROPHONE", "MARCHING BAND", "LULLABY", "CHOIR"],
+    "sports": ["DODGEBALL", "SOFTBALL", "LACROSSE", "BADMINTON", "HIGH JUMP"],
+    # No CHURCH BELL: CHURCH BELLS is already there, and the two are one answer.
+    "sound": ["BABY CRYING", "FOOTSTEPS", "DOORBELL", "WHISTLE"],
+    "house": ["TELEVISION", "REMOTE CONTROL", "COFFEE TABLE"],
+    "science": ["MICROSCOPE", "TELESCOPE"],
+}.items():
+    ADD.setdefault(_slug, []).extend(_words)
+
+# .split() IS THE TRAP IN THIS FILE. It splits on whitespace, so any multi-word
+# entry written into one of the strings above is silently shredded into its
+# words: "SITTING DOWN STANDING UP" became four entries, and act.txt shipped
+# with the entries DOWN and UP in it. So did food ("ICE CREAM" -> ICE, CREAM)
+# and house ("LIGHT SWITCH" -> LIGHT, SWITCH). Six junk cards from one habit.
+#
+# Single words in a triple-quoted block are fine and readable. ANYTHING WITH A
+# SPACE goes in an explicit list, appended with +[...], where a space cannot be
+# mistaken for a separator.
+
+
 def main():
     # An entry in both tables oscillates: added by one run, cut by the next,
     # for as long as nobody looks. Two top-up entries were in both.
     for slug in set(CUT) | set(ADD):
         cuts = {c.strip() for c in CUT.get(slug, []) if c.strip()}
-        adds = {" ".join(a.split()).upper() for a in ADD.get(slug, [])}
+        adds = set()
+        for a in ADD.get(slug, []):
+            a = " ".join(a.split()).upper()
+            adds.add(FIX.get(a, a))
         both = cuts & adds
         assert not both, f"{slug}: in both CUT and ADD: {sorted(both)}"
 
@@ -355,6 +498,13 @@ def main():
         added = []
         for a in ADD.get(path.stem, []):
             a = " ".join(a.split()).upper()
+            # Through FIX as well, because ADD runs AFTER it. Without this an
+            # addition is exempt from every correction in this file, and worse:
+            # ADD re-adds the uncorrected spelling on every run, so the file
+            # ends up holding BOTH forms. That is exactly how SCOOBY DOO and
+            # SCOOBY-DOO both shipped, in two categories, from a table whose
+            # whole job was to remove duplicates.
+            a = FIX.get(a, a)
             if a and a not in have:
                 have.add(a)
                 added.append(a)
@@ -365,6 +515,12 @@ def main():
         for e in final:
             assert re.fullmatch(r"[A-Z0-9 '&.-]+", e), f"{path.stem}: bad chars in {e!r}"
             assert len(e) <= 22, f"{path.stem}: {e!r} is {len(e)} chars, cap is 22"
+            wide = round(pixels(e, 14))
+            assert wide <= 276, (
+                f"{path.stem}: {e!r} is {wide}px at the 14px cut and the results "
+                f"column is 276px -- shorten it or drop it, but do not invent a "
+                f"shorter name for it"
+            )
 
         path.write_text(head + "\n\n" + "\n".join(final) + "\n")
         changed += 1
