@@ -74,12 +74,12 @@ CUT = {
         SHOWJUMPING|TOBOGGANING|OFFSIDE|DRIBBLING|WHISTLE|STADIUM|REFEREE|SUDOKU|
         JIGSAW|CROSS COUNTRY|HAMMER THROW|SHOT PUT|DISCUS""".split("|"),
     "myths": """AUGEAN STABLES|ELYSIAN FIELDS|ORACLE BONES|NINE REALMS|AMBROSIA|
-        ARGONAUTS|DEMETER|ODYSSEUS|PERSEUS|DJINN|KAPPA|JACKALOPE|WILL-O-THE-WISP|
-        KELPIE|DRYAD|SATYR|WRAITH|HOBGOBLIN|CHANGELING|THE HUNDRED-EYED GIANT|
+        ARGONAUTS|DEMETER|DJINN|KAPPA|JACKALOPE|WILL-O-THE-WISP|
+        DRYAD|WRAITH|HOBGOBLIN|CHANGELING|THE HUNDRED-EYED GIANT|
         SNAKE-HAIRED WOMAN|SALAMANDER OF FIRE|UNDERWORLD FERRYMAN|SHAPE SHIFTER|
         SPIRIT FOX|SKY SERPENT|MOON RABBIT|WORLD TURTLE|TWIN GODS|SWAN MAIDEN|
         WATER NYMPH|WHITE STAG|TREE SPIRIT|GREEN MAN|BROWNIE|CORNUCOPIA|ARGUS|
-        FENRIR|FREYA|HARPY|MERMAID'S SONG|DRAGON'S HOARD|LAMP OF WISHES|
+        MERMAID'S SONG|DRAGON'S HOARD|LAMP OF WISHES|
         HALL OF THE GODS|FOUNTAIN OF LIFE|IRON GOLEM|OGRE'S CLUB|PIXIE DUST|
         ROC'S EGG|MIRROR WORLD|LOST CITY|KING UNDER THE HILL|IMP OF MISCHIEF|
         SEANCE|MANDRAKE|THIRD EYE|EVIL EYE|POMEGRANATE SEEDS""".split("|"),
@@ -448,7 +448,7 @@ for _slug, _words in {
         "THE IRON GIANT", "ANASTASIA", "THE CROODS",
     ],
     "myths": ["GHOST", "GOLDEN FLEECE", "PEGASUS"],
-    "music": ["MICROPHONE", "MARCHING BAND", "LULLABY", "CHOIR"],
+    "music": ["MICROPHONE", "LULLABY", "CHOIR"],
     "sports": ["DODGEBALL", "SOFTBALL", "LACROSSE", "BADMINTON", "HIGH JUMP"],
     # No CHURCH BELL: CHURCH BELLS is already there, and the two are one answer.
     "sound": ["BABY CRYING", "FOOTSTEPS", "DOORBELL", "WHISTLE"],
@@ -456,6 +456,114 @@ for _slug, _words in {
     "science": ["MICROSCOPE", "TELESCOPE"],
 }.items():
     ADD.setdefault(_slug, []).extend(_words)
+
+
+# ---------------------------------------------------------------------------
+# Third pass: MYTHS, MUSIC and TRICKY rebuilt from published sources.
+#
+# Mario played the shipped game and called these three "clearly not good". He
+# was right, and none of it is taste: they were cards that CANNOT BE WON.
+#
+#   myths   nine indistinguishable small magical humanoids. The room clues
+#           "small magic person" and there are nine correct answers.
+#   music   ten mutually-correct theory nouns. The room hums; SONG, TUNE,
+#           MELODY and RHYTHM are simultaneously right; one scores.
+#   tricky  exact-synonym clusters. The room clues "green-eyed monster", the
+#           holder says ENVY, the card says JEALOUSY, no point. A category can
+#           be hard on purpose; it cannot mark a right answer wrong.
+#
+# THIS PASS OVERRULES THE FIRST ONE, in both directions, and that is the point
+# of keeping it as a separate layer rather than editing the tables above.
+# The first pass worked from memory and got music backwards: it ADDED the
+# theory nouns and CUT the instruments. It also swept seven real, published
+# myth entries (FENRIR, FREYA, HARPY, KELPIE, ODYSSEUS, PERSEUS, SATYR) into a
+# purge of confabulations like SALAMANDER OF FIRE. Where the two disagree, the
+# researched decision wins -- but the disagreement is RESOLVED here explicitly,
+# never by letting one silently shadow the other.
+LATE = {
+    "myths": (
+        [
+            "DWARF", "IMP", "NYMPH", "PIXIE", "SASQUATCH", "WOLFMAN", "GORGON", "GHOST SHIP",
+            "MIDAS TOUCH", "COCKATRICE", "FIRE BIRD", "SEA MONSTER", "SEA SERPENT",
+            "GIANT SQUID", "STORM GIANT", "MOUNTAIN TROLL", "MUMMY'S CURSE",
+            "THE PHARAOH'S CURSE", "ARES", "ARTEMIS", "CUPID", "CHARIOT OF THE SUN",
+            "RIVER OF THE DEAD", "BLACK CAT", "BROOMSTICK", "CRYSTAL BALL", "LUCKY CHARM",
+            "OUIJA BOARD", "TAROT CARDS", "SKELETON KEY", "WISHING WELL", "SHADOW PUPPET",
+            "STONE CIRCLE", "BERMUDA TRIANGLE", "FLYING CARPET", "INVISIBLE CLOAK",
+            "MAGIC POTION", "SPELLBOOK", "ENCHANTED SWORD", "GOLDEN APPLE",
+            "JACK-O'-LANTERN", "THUNDERBOLT", "TRIDENT", "WINGED SANDALS", "HAUNTED HOUSE",
+            "RAINBOW BRIDGE", "FOUNTAIN OF YOUTH", "PHILOSOPHER'S STONE", "LABYRINTH",
+            "JINN", "VOODOO DOLL",
+        ],
+        [
+            "DIONYSUS", "PAN", "HEPHAESTUS", "PERSEPHONE", "CHARON", "NIKE", "NEMESIS",
+            "HARPY", "SATYR", "SCYLLA", "TYPHON", "NEMEAN LION", "ARACHNE", "CIRCE",
+            "PERSEUS", "ODYSSEUS", "NARCISSUS", "SISYPHUS", "STYX", "TROJAN HORSE", "RA",
+            "OSIRIS", "HORUS", "BASTET", "THOTH", "FENRIR", "RAGNAROK", "FREYA", "SLEIPNIR",
+            "MIDGARD SERPENT", "YGGDRASIL", "HEIMDALL", "BALDUR", "MERLIN", "KELPIE",
+            "BABA YAGA", "MONKEY KING", "KITSUNE", "ONI", "QUETZALCOATL", "LA LLORONA",
+            "ANANSI", "MAUI", "MOTHMAN", "WENDIGO", "JERSEY DEVIL", "GENIE", "GRENDEL",
+            "BEHEMOTH", "FRANKENSTEIN", "CTHULHU", "KRAMPUS",
+        ],
+    ),
+    "music": (
+        [
+            "SONG", "TUNE", "MELODY", "RHYTHM", "BEAT", "TEMPO", "VERSE", "CHORUS", "TREBLE",
+            "SOLO", "FIDDLE", "EARPHONES", "LOUDSPEAKER", "WHISTLE", "WHISTLING", "CLAPPING",
+            "BASS", "RECORDER", "KEYBOARD", "ACOUSTIC GUITAR", "BASS GUITAR", "GUITAR SOLO",
+            "GUITARIST", "GUITAR PICK", "DRUM KIT", "DRUM SOLO", "STEEL DRUM", "GRAND PIANO",
+            "PIANIST", "PIANO KEYS", "BAND PRACTICE", "BRASS BAND", "MARCHING BAND",
+            "ALBUM COVER", "BACKING SINGER", "CHIME", "CONCERT HALL", "OPERA SINGER",
+            "ROCK AND ROLL", "SOUND SYSTEM", "DANCE MUSIC", "DANCING", "HUMMING",
+        ],
+        [
+            "ACCORDION", "BANJO", "UKULELE", "HARP", "CLARINET", "FRENCH HORN",
+            "DOUBLE BASS", "CASTANETS", "COWBELL", "CHURCH ORGAN", "DIDGERIDOO", "SITAR",
+            "PAN PIPES", "BLUES", "TECHNO", "FOLK MUSIC", "FLAMENCO", "MARIACHI", "TANGO",
+            "WALTZ", "SLOW DANCE", "ENCORE", "MOSH PIT", "ROADIE", "HEADLINER",
+            "OPENING ACT", "SOUND CHECK", "WORLD TOUR", "AIR GUITAR", "METRONOME",
+            "MUSIC STAND", "TREBLE CLEF", "CASSETTE TAPE", "BOOMBOX", "LYRICS",
+            "NATIONAL ANTHEM", "NURSERY RHYME", "WEDDING MARCH", "ELEVATOR MUSIC", "DUET",
+            "TONE DEAF", "PERFECT PITCH", "HIGH NOTE", "BEATBOXING", "FANFARE", "SERENADE",
+            "HEADBANGING", "CONGA LINE",
+        ],
+    ),
+    "tricky": (
+        [
+            "ANXIETY", "BARGAIN", "BETRAYAL", "BRIBERY", "CHANCE", "CHARITY", "CRITICISM",
+            "DEMOCRACY", "DISCIPLINE", "DOUBT", "DUTY", "ENVY", "EQUALITY", "FAIRNESS",
+            "FAITH", "FEAR", "GRIEF", "GUT FEELING", "HAPPINESS", "HARMONY", "HONESTY",
+            "HUMOR", "INSPIRATION", "LEADERSHIP", "MERCY", "MOOD", "MOTIVATION", "OPTIMISM",
+            "PITY", "POVERTY", "PRIVACY", "PROGRESS", "PURPOSE", "RISK", "ROUTINE", "RUMOR",
+            "SHAME", "SILENCE", "SMALL TALK", "TENSION", "TIRED", "TRADITION", "TRAGEDY",
+            "TRUST", "WORRY",
+        ],
+        [
+            "ALGORITHM", "BODY LANGUAGE", "BRAIN FREEZE", "BURNOUT", "BUTTERFLY EFFECT",
+            "CLAUSTROPHOBIA", "CLIFFHANGER", "CONSCIENCE", "CONSPIRACY THEORY",
+            "CULTURE SHOCK", "DIGITAL DETOX", "EMOTIONAL BAGGAGE", "FIRE DRILL",
+            "GOOSEBUMPS", "HANGOVER", "HOROSCOPE", "HYPNOSIS", "IMPOSTER SYNDROME",
+            "INFINITY", "INSOMNIA", "JET LAG", "JOB INTERVIEW", "KARMA", "MAGIC",
+            "MORAL DILEMMA", "PARALLEL UNIVERSE", "PHOTO BOMB", "PLOT TWIST",
+            "REALITY CHECK", "ROAD TRIP", "SELF-CARE", "SOCIAL EXPERIMENT", "STAGE FRIGHT",
+            "SUPERSTITION", "TEMPTATION", "TRAFFIC JAM", "VIRTUAL REALITY", "WI-FI",
+            "WRITER'S BLOCK",
+        ],
+    ),
+}
+
+for _slug, (_cut, _add) in LATE.items():
+    _late_cut, _late_add = set(_cut), set(_add)
+    # An earlier ADD that this pass cuts is withdrawn, and an earlier CUT that
+    # this pass adds is lifted. Without this the two layers would sit in the
+    # tables contradicting each other, and main()'s disjointness assert would
+    # fire on 52 entries with no way to tell which decision was the later one.
+    if _slug in ADD:
+        ADD[_slug] = [a for a in ADD[_slug] if " ".join(a.split()).upper() not in _late_cut]
+    if _slug in CUT:
+        CUT[_slug] = [c for c in CUT[_slug] if c.strip() not in _late_add]
+    CUT.setdefault(_slug, []).extend(_cut)
+    ADD.setdefault(_slug, []).extend(_add)
 
 # .split() IS THE TRAP IN THIS FILE. It splits on whitespace, so any multi-word
 # entry written into one of the strings above is silently shredded into its

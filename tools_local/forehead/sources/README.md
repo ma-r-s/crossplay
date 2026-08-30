@@ -35,3 +35,60 @@ Corpus), taking the RAREST token in each entry. Frequency alone is a weak
 signal -- FLAMINGO scores rare in a web corpus and every five-year-old knows it
 -- so it is used to FLAG rather than to decide, and a flagged entry is kept only
 if a published list vouches for it or it is a concrete thing a child could draw.
+
+## Third pass: MYTHS, MUSIC and TRICKY (2026-08-30)
+
+Mario played the shipped game and said these three were "clearly not good". He
+was right, and the defect in all three was the same one: **a card that cannot be
+won.** Not a hard card. An unwinnable one.
+
+- **MYTHS** carried nine indistinguishable small magical humanoids -- DWARF,
+  GNOME, ELF, IMP, PIXIE, LEPRECHAUN, GOBLIN, FAIRY, NYMPH. The room clues
+  "small magic person" and there are nine correct answers, one of which counts.
+  Five survive, each with a clue nobody else answers: ELF has Santa, FAIRY has
+  Tinker Bell, GNOME has the garden, LEPRECHAUN has the pot of gold, GOBLIN has
+  Gringotts.
+- **MUSIC** carried ten mutually-correct theory nouns -- SONG, TUNE, MELODY,
+  RHYTHM, BEAT, TEMPO, VERSE, CHORUS, TREBLE, SOLO. Somebody hums; four of them
+  are right at once. All ten are gone, and the concept slot is carried by
+  concrete nouns instead (LYRICS, SHEET MUSIC, TREBLE CLEF, PERFECT PITCH).
+- **TRICKY** carried exact-synonym clusters. The room clues "green-eyed
+  monster", the holder says ENVY, the card says JEALOUSY, no point. Each cluster
+  collapses to one survivor. The category stays hard on purpose; being hard and
+  marking a right answer wrong are different things.
+
+### The first pass had MUSIC backwards
+
+Worth knowing before trusting any layer of this directory: the first pass
+*added* the ten theory nouns and *cut* the instruments -- ACCORDION, BANJO,
+CLARINET, HARP, UKULELE, all of which are in published charades instrument
+lists. It also swept seven real myth entries (FENRIR, FREYA, HARPY, KELPIE,
+ODYSSEUS, PERSEUS, SATYR) into a purge of confabulations like SALAMANDER OF
+FIRE and LAMP OF WISHES.
+
+That is what writing from memory looks like from the inside: confident, tidy,
+and wrong in both directions at once. The third pass overrules it, and
+`curate.py` resolves the 52 resulting contradictions **explicitly** rather than
+letting one layer silently shadow the other.
+
+### Rulings worth not re-litigating
+
+- **No deities of currently practised religions.** VOODOO DOLL is cut (Vodou is
+  practised; the doll is a Hollywood invention about it), and no Hindu gods were
+  added. ISIS was deliberately left out despite being top-five Egyptian: the
+  acronym makes it a bad thing to shout across a room.
+- **TRICKY's hint was the thing that was wrong**, not its entries. It said
+  "NOTHING YOU CAN POINT AT", which describes the civic nouns nobody could clue
+  (DEMOCRACY, PROGRESS, DUTY) and argues against the category's best cards
+  (GALAXY, SHADOW, ECLIPSE). It now says "NOTHING YOU CAN HAND OVER": you can
+  point at a galaxy, you cannot hand one over.
+- **A published entry can still be broken here.** Several sources list
+  DEMOCRACY and HARMONY in their hard tiers, but those are ACTING games, where
+  the actor picks the clue and one person has to be satisfied. Forehead is
+  describe-only and the holder must produce the exact string.
+- **MIDLIFE CRISIS was kept** against the reviewer's mixed-room flag: it is a
+  red sports car and a ponytail, a roast rather than a bereavement. GRIEF,
+  TRAGEDY, BETRAYAL and POVERTY name suffering and are gone.
+- **Cross-category repeats are fine and were not chased.** CLAPPING is legitimately
+  both an action and a sound, and only one category is ever in play, so a word in
+  two lists can never collide inside a round. The generator says so too.
