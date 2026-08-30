@@ -123,3 +123,69 @@ Old clues also age: "this Yugoslavian republic", "the current world record". The
 check will catch a clue that was true in 1994.
 
 Layer 3 is what catches those, which is another reason it matters most.
+
+---
+
+## The pack, as built
+
+`tools_local/trivia/build_pack.py` produces it; `test_pack.py` guards it.
+
+```bash
+python3 tools_local/trivia/build_pack.py \
+    --src <combined_season1-42.tsv> --out pack.jsonl \
+    --limit 50000 --verdicts tools_local/trivia/verdicts.tsv
+python3 tools_local/trivia/test_pack.py pack.jsonl
+```
+
+544,110 clues in, **303,516 survive the filters**, and the shipped slice is the
+**top 50,000 by generality score** -- 7.9 MB, difficulty 13,385 / 11,166 / 9,875 /
+8,536 / 7,038 across tiers 1-5. The slice's score floor (12.6) sits well above the
+full pack's median (8.8), so it really is the general-knowledge core rather than
+an arbitrary cut.
+
+5,507 questions carry alternate accepted answers, parsed out of Jeopardy's own
+notation: `(Luther) Burbank` yields *Burbank* plus *Luther Burbank*, `spores (or
+seeds)` yields both. That recovers the alias capability I had said only TriviaQA
+had.
+
+### How "playable" was actually established
+
+Filters cannot prove playability, so I read 70 questions by hand: 40 sampled
+uniformly, then 30 from the **bottom** of the shipping slice, on the argument that
+if the worst decile reads well the whole slice does.
+
+That found exactly one systematic defect -- **Jeopardy's on-screen shorthand**
+(`ran off to Switz.`, `int'l trade route`). The clues were written to be read on a
+screen while a host spoke them; at a bar somebody reads them aloud, and "Switz."
+is not a sentence. 5,175 clues are now expanded rather than dropped. It also found
+one bad question (an expired present-tense claim about Ocalan), now the first
+entry in `verdicts.tsv`.
+
+A second suspected defect -- clues opening on a bare possessive -- turned out to
+be a **false alarm**. "While fighting for his patent for the cotton gin, he made
+arms for the U.S. government" is perfectly answerable. Dropping that pattern would
+have cost 7,866 good questions for nothing.
+
+### What the tests caught that reading did not
+
+Writing the invariants found three defects 70 careful reads had missed: 65
+shouted answers, 2 duplicates my normalisation was too loose to see, and later a
+regression I introduced myself when a normalisation change silently broke the
+answer-leak check.
+
+One of the test's own assertions was also wrong: it flagged `E.T.`, `NAACP`,
+`AT&T` and `R.E.M.` as shouting. They are acronyms and must stay upper. The rule
+is now "an all-caps word of six or more letters", which catches `SWISS CHEESE
+PLANT` and exempts the acronyms.
+
+### The honest residual
+
+**2.5% of the shipped pack makes a present-tense superlative or exclusive claim**
+("is the only", "is the largest"), and 79% of those aired before 2005. Most are
+still true -- Vancouver is still Canada's third-largest urban area, Hamburg still
+Germany's second city -- so dropping 1,235 questions to catch perhaps a hundred
+stale ones is a bad trade. They stay, and Layer 3 flagging is what will find the
+ones that have gone off.
+
+Nothing here fact-checks the corpus. The generality score measures how often an
+answer recurs, not whether the clue is right.

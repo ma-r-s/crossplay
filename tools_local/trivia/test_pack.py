@@ -1,0 +1,96 @@
+#!/usr/bin/env python3
+"""Invariants every shipped trivia pack must hold.
+
+These are the properties that reading 70 questions by hand established as
+mattering. Encoding them here means a corpus refresh cannot quietly break one.
+
+    python3 tools_local/trivia/test_pack.py <pack.jsonl>
+"""
+import collections, json, re, sys
+
+FAILURES = []
+CHECKS = 0
+
+def check(name, ok, detail=''):
+    global CHECKS
+    CHECKS += 1
+    status = 'ok  ' if ok else 'FAIL'
+    print(f"  [{status}] {name}{('  -- ' + detail) if detail and not ok else ''}")
+    if not ok:
+        FAILURES.append(name)
+
+def main(path):
+    rows = [json.loads(l) for l in open(path, encoding='utf-8')]
+    n = len(rows)
+    print(f"pack: {path}  ({n:,} questions)\n")
+
+    # structure
+    check('every row has q, a, d, id',
+          all({'q', 'a', 'd', 'id'} <= set(r) for r in rows))
+    ids = [r['id'] for r in rows]
+    check('ids are unique', len(set(ids)) == n, f'{n - len(set(ids))} collisions')
+    check('difficulty is 1-5', all(1 <= r['d'] <= 5 for r in rows))
+
+    # screen fit -- 480x800, and the clue must be readable aloud
+    bad_len = [r for r in rows if not (30 <= len(r['q']) <= 140)]
+    check('clue length within 30-140 chars', not bad_len, f'{len(bad_len)} outside')
+    bad_ans = [r for r in rows if not (0 < len(r['a']) <= 25)]
+    check('answer at most 25 chars', not bad_ans, f'{len(bad_ans)} too long')
+
+    # text hygiene
+    unbal = [r for r in rows if r['q'].count('"') % 2 or r['q'].count('(') != r['q'].count(')')]
+    check('punctuation balanced', not unbal, f'{len(unbal)} unbalanced')
+    esc = [r for r in rows if '\\"' in r['q'] or '\\\\' in r['q']]
+    check('no leaked escapes', not esc, f'{len(esc)} with backslash escapes')
+    abbr = re.compile(r"\b(Switz\.|int'l|Amer\.|Brit\.|Gov\.|Pres\.|Gen\.|Capt\.|Col\.|"
+                      r"Mt\.|Mts\.|Ft\.|cent\.|mil\.|bil\.|yrs\.)")
+    ab = [r for r in rows if abbr.search(r['q'])]
+    check('no read-aloud abbreviations', len(ab) <= n * 0.0002,
+          f'{len(ab)} remain, e.g. {ab[0]["q"][:60] if ab else ""}')
+    # A shout is an all-caps WORD of 6+ letters ("SWISS CHEESE PLANT").
+    # Acronyms (E.T., NAACP, AT&T, R.E.M.) are correctly upper and must survive.
+    def shouted(a):
+        return any(w.isalpha() and w.isupper() and len(w) >= 6 for w in re.split(r'[\s.&-]+', a))
+    caps = [r for r in rows if shouted(r['a'])]
+    check('no shouted answers (acronyms exempt)', not caps,
+          f'{len(caps)} e.g. {caps[0]["a"] if caps else ""}')
+
+    # playability
+    demo = re.compile(r'\b(this|these|his|her|its|hers|he|she|they|it)\b', re.I)
+    nodemo = [r for r in rows if not demo.search(r['q'])]
+    check('every clue points at its answer', not nodemo, f'{len(nodemo)} without a demonstrative')
+    media = re.compile(r'(seen here|heard here|pictured|audio clue|on your monitor|\[)', re.I)
+    med = [r for r in rows if media.search(r['q'])]
+    check('no media-dependent clues', not med, f'{len(med)} need a picture or sound')
+    leak = []
+    for r in rows:
+        toks = [t for t in re.sub(r'[^a-z0-9 ]', '', r['a'].lower()).split() if len(t) > 3]
+        c = re.sub(r'[^a-z0-9 ]', '', r['q'].lower())
+        if toks and all(re.search(rf'\b{re.escape(t)}', c) for t in toks):
+            leak.append(r)
+    check('clue never contains its own answer', not leak, f'{len(leak)} self-answering')
+
+    # balance -- a pack skewed to one tier plays badly
+    spread = collections.Counter(r['d'] for r in rows)
+    lo, hi = min(spread.values()), max(spread.values())
+    check('difficulty reasonably spread', hi <= lo * 2.5,
+          f'{dict(sorted(spread.items()))}')
+
+    # duplicates by normalised clue
+    norm = [re.sub(r'[^a-z0-9]', '', r['q'].lower()) for r in rows]
+    check('no duplicate clues', len(set(norm)) == n, f'{n - len(set(norm))} duplicates')
+
+    # verdicts must have been applied
+    try:
+        bad = {l.split('\t')[0] for l in open('tools_local/trivia/verdicts.tsv', encoding='utf-8')
+               if l.strip() and not l.startswith('#') and '\tbad\t' in l}
+        check('no question marked bad survives', not (bad & set(ids)),
+              f'{len(bad & set(ids))} rejected questions still present')
+    except FileNotFoundError:
+        pass
+
+    print(f"\n{CHECKS - len(FAILURES)} checks passed, {len(FAILURES)} failed")
+    return 1 if FAILURES else 0
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1] if len(sys.argv) > 1 else 'pack.jsonl'))
