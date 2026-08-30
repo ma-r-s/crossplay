@@ -40,21 +40,22 @@ struct SaveState {
   uint8_t deck[fh::Deck::kMaskBytes];
 } __attribute__((packed));
 
-// THE ONE FACT IN THIS APP THAT THE SIMULATOR CANNOT CHECK.
+// CONFIRMED ON HARDWARE, 2026-08-30, by playing it.
 //
-// The X4 Pro has two keys and they are on the long edges: GPIO0 on the physical
+// This was derived rather than measured for two days, and the derivation was
+// right: the X4 Pro's two keys are on the long edges, GPIO0 on the physical
 // left in portrait (logical Up) and GPIO7 on the physical right (logical Down).
-// Turned into LandscapeCounterClockwise the portrait right edge becomes the
-// TOP and the portrait left edge becomes the BOTTOM -- follow
-// rotateCoordinates() in GfxRenderer.cpp, which maps portrait logical y onto
-// panel x and so rotates the device a quarter turn anticlockwise.
+// Turned into LandscapeCounterClockwise the portrait right edge becomes the TOP
+// and the portrait left edge becomes the BOTTOM -- follow rotateCoordinates()
+// in GfxRenderer.cpp, which maps portrait logical y onto panel x and so rotates
+// the device a quarter turn anticlockwise.
 //
 // So Up is the bottom key and Down is the top key, and the game reads them as
 // the phone version reads a tilt: down is GOT IT, up is PASS.
 //
-// If this is backwards on a real unit, that is the entire fix -- swap these two
-// lines. The screen labels the edges, so a wrong mapping is visible in the
-// first three seconds of the first round rather than being subtle.
+// Left in full because the next app to use these keys in landscape needs the
+// rotation, not the conclusion -- and because a derivation nobody has checked
+// and a derivation somebody has played are different things to inherit.
 constexpr auto kGotItKey = MappedInputManager::Button::Up;
 constexpr auto kPassKey = MappedInputManager::Button::Down;
 

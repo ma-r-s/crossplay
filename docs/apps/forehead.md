@@ -29,19 +29,21 @@ forehead on every single card. A key does not move the device at all.
 | `Button::Up` (GPIO0)   | bottom edge  | GOT IT | tilt down        |
 | `Button::Down` (GPIO7) | top edge     | PASS   | tilt up          |
 
-The rotation is worth following once, because it is the one fact in this app
-the simulator cannot check. `docs/buttons.md`: GPIO0 is the key on the physical
-LEFT in portrait and GPIO7 the one on the physical RIGHT.
+**Confirmed on hardware on 2026-08-30**, by playing it. It was derived rather
+than measured for two days, and the derivation held -- but follow the rotation
+once anyway, because the next app to use these keys in landscape needs the
+reasoning and not the answer. `docs/buttons.md`: GPIO0 is the key on the
+physical LEFT in portrait and GPIO7 the one on the physical RIGHT.
 `rotateCoordinates()` in `GfxRenderer.cpp` maps portrait logical _y_ onto panel
 _x_, which is a quarter turn anticlockwise -- so the portrait right edge becomes
 the landscape **top** and the portrait left edge becomes the landscape
 **bottom**.
 
-**If that is backwards on a real unit, the fix is two lines**: `kGotItKey` and
-`kPassKey` at the top of `ForeheadActivity.cpp`. It is deliberately not
-configurable. A settings row for it would be a permanent apology for never
-having checked, and the screen labels its own edges, so a wrong mapping is
-obvious inside the first three seconds of the first round rather than subtle.
+It is deliberately not configurable, and now that a person has played it that
+stays true: a settings row for this would be a permanent apology for never
+having checked. The screen labels its own edges, so a wrong mapping would have
+been obvious inside the first three seconds of the first round -- which is
+exactly how it got confirmed.
 
 ### Touch is there, but not as two halves
 
