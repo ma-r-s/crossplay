@@ -190,7 +190,12 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   screen.target().text(toybox::inkCentred(bands.headline, toybox::kDisplayCut), headline,
                        onPaper(screen.theme().titleText, fui::TextAlign::Left));
 
-  screen.target().text(bands.title, model.hasArchive ? model.latestTitle : "The archive, one download away",
+  // Short enough to FIT. "The archive, one download away" overflowed this band
+  // and truncated to "The archive, one download aw" -- with no ellipsis, because
+  // the truncation glyph U+2026 has no bitmap in this face, so the sentence just
+  // stopped. Every comic title that lands here is bounded by the same band; only
+  // the empty state's own copy is ours to keep short.
+  screen.target().text(bands.title, model.hasArchive ? model.latestTitle : "One download away",
                        onPaper(screen.theme().bodyText, fui::TextAlign::Left));
 
   if (model.hasArchive) {
@@ -205,7 +210,9 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
 
   char record[96];
   if (!model.hasArchive) {
-    snprintf(record, sizeof(record), "GET THE COMICS needs only WiFi");
+    // Same band, same overflow: this read "GET THE COMICS needs only" on the
+    // panel, and the missing word was the one the sentence was about.
+    snprintf(record, sizeof(record), "GET THE COMICS needs WiFi");
   } else if (model.waiting > 0) {
     snprintf(record, sizeof(record), "%d COMICS   %d READ   %d WAITING", model.comicCount, model.readCount,
              model.waiting);

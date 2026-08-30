@@ -10,6 +10,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -4906,6 +4907,56 @@ void buildForeheadSettings(Rendered& out, const foreheadui::SettingsModel& model
   foreheadui::buildSettings(screen, model);
 }
 
+void probeForeheadSettingsMap() {
+  forehead::Record record;
+  record.push(0, 9);
+  Rendered r;
+  foreheadui::SettingsModel model;
+  model.record = &record;
+  model.roundSeconds = 90;
+  buildForeheadSettings(r, model);
+  struct Box {
+    int minx = 99999, miny = 99999, maxx = -1, maxy = -1;
+  };
+  std::map<std::pair<int, int>, Box> seen;
+  for (int y = 0; y < 800; y += 2) {
+    for (int x = 0; x < 480; x += 2) {
+      const fui::ActionEvent e = r.tap(x, y);
+      if (e.action == fui::NO_ACTION) continue;
+      Box& b = seen[{(int)e.action, (int)e.value}];
+      if (x < b.minx) b.minx = x;
+      if (y < b.miny) b.miny = y;
+      if (x > b.maxx) b.maxx = x;
+      if (y > b.maxy) b.maxy = y;
+    }
+  }
+  for (const auto& kv : seen) {
+    std::printf("PROBE settings action=%d value=%d  x[%d..%d] y[%d..%d]\n", kv.first.first, kv.first.second,
+                kv.second.minx, kv.second.maxx, kv.second.miny, kv.second.maxy);
+  }
+  // Menu map too.
+  Rendered m;
+  foreheadui::MenuModel mm;
+  mm.record = &record;
+  buildForeheadMenu(m, mm);
+  std::map<std::pair<int, int>, Box> seen2;
+  for (int y = 0; y < 800; y += 2) {
+    for (int x = 0; x < 480; x += 2) {
+      const fui::ActionEvent e = m.tap(x, y);
+      if (e.action == fui::NO_ACTION) continue;
+      Box& b = seen2[{(int)e.action, (int)e.value}];
+      if (x < b.minx) b.minx = x;
+      if (y < b.miny) b.miny = y;
+      if (x > b.maxx) b.maxx = x;
+      if (y > b.maxy) b.maxy = y;
+    }
+  }
+  for (const auto& kv : seen2) {
+    std::printf("PROBE menu action=%d value=%d  x[%d..%d] y[%d..%d]\n", kv.first.first, kv.first.second, kv.second.minx,
+                kv.second.maxx, kv.second.miny, kv.second.maxy);
+  }
+}
+
 void testTheForeheadPagingWraps() {
   // Forward off the end returns to the first page, back off the front reaches
   // the last. The complaint that produced this was a key that stopped
@@ -5079,6 +5130,7 @@ int main() {
   testTheForeheadKeyLabelsSitOnTheEdgesTheyAct();
   testTheForeheadRoundIgnoresTapsWhereFingersGrip();
   testTheForeheadCardNeverDrawsPastItsBox();
+  probeForeheadSettingsMap();
   testTheForeheadPagingWraps();
   testTheForeheadResetSaysWhatItDestroysAndAsksFirst();
   testTheForeheadStartControlLooksLikeAButton();
