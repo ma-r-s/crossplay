@@ -215,6 +215,7 @@ def main():
     ap.add_argument('--limit', type=int, default=0, help='keep only the top N by score')
     ap.add_argument('--verdicts', default='')
     ap.add_argument('--keep-events', action='store_true')
+    ap.add_argument('--dat', default='', help='also write the on-card binary pack')
     a = ap.parse_args()
 
     pack, drop, total = build(a.src, a.keep_events)
@@ -231,6 +232,13 @@ def main():
         print(f"  dropped {v:>7,}  {k}")
     if n_bad or n_good:
         print(f"  verdicts          : {n_bad} bad, {n_good} pinned")
+    if a.dat:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import pack_format
+        n = pack_format.write(pack, a.dat)
+        pack_format.write_state(pack_format.state_path(a.dat), len(pack))
+        print(f"  on-card pack    : {a.dat} ({n/1e6:.2f} MB)")
+
     print(f"\npack              : {len(pack):,}")
     print(f"  with alternates : {sum(1 for x in pack if x.get('alt')):,}")
     print(f"  difficulty      : {dict(sorted(collections.Counter(x['d'] for x in pack).items()))}")

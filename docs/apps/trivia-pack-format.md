@@ -1,0 +1,88 @@
+# The trivia pack
+
+What `tools_local/trivia/build_pack.py` writes to `/trivia` on the card, and
+what the app reads back. The curation behind it is in
+[../trivia-curation.md](../trivia-curation.md); this is the format.
+
+Shape follows [study-deck-format.md](study-deck-format.md): immutable content
+with an offset index and a trailing sentinel, mutable state in a separate
+fixed-width file. `tools_local/trivia/pack_format.py` is both the writer and a
+reference reader, so the format is executable rather than only described.
+
+## Why there is a pack at all
+
+50,000 questions is 5.37 MB. The app partition is 7.94 MB total and the image
+already uses most of it, so the questions cannot ride in flash. They live on the
+card, like study decks and the xkcd archive.
+
+## Two files
+
+```
+/trivia/pack.dat     immutable questions, written by the converter
+/trivia/pack.state   one byte per question, written by the device
+```
+
+### pack.dat
+
+    magic    "XTRIVIA\0"                8 bytes
+    version  uint16                     format version, currently 1
+    flags    uint8                      reserved, 0
+    resv     uint8                      reserved, 0
+    count    uint32                     number of questions
+    index    uint32 * (count + 1)       byte offset of each record from `base`,
+                                        plus a sentinel so a record's length is
+                                        index[i+1] - index[i]
+    blob     count records
+
+`base` is `16 + 4 * (count + 1)`.
+
+Each record:
+
+    difficulty  uint8       1-5, derived (see below)
+    year        uint16      air year, for a recency filter
+    alt_count   uint8       number of alternate accepted answers
+    fields      uint16 length + UTF-8 bytes, repeated (2 + alt_count) times:
+                question, answer, then each alternate
+
+**The index is never resident.** 195 KB of offsets for a 50k pack is RAM the
+device does not have. Entry `i` and its successor are one 8-byte read at
+`16 + 4*i`, then the record itself is a second seek. Two seeks, two reads, and
+the only RAM used is the record: **186 bytes worst case**, 107 bytes on average.
+
+### pack.state
+
+`count` bytes, one per question, at the question's own index. Bit 0 `SEEN`,
+bit 1 `FLAGGED`. Marking a question is one seek and one byte, never a rewrite,
+so a power loss mid-write can lose at most one question's state and can never
+touch the question text — the same durability rule study follows.
+
+49 KB for a 50,000-question pack.
+
+`FLAGGED` is the in-play "this question is bad" button. Those indices are read
+back off the card and merged into `tools_local/trivia/verdicts.tsv`, which the
+next build applies. That is the loop that improves the pack through play rather
+than through a curation project.
+
+## Difficulty is derived, not stored upstream
+
+Jeopardy doubled its clue values on 2001-11-26, so raw `clue_value` is not
+comparable across the 42 seasons. The builder doubles pre-2001 values, halves
+Double Jeopardy to the round-one scale, and calls Final Jeopardy tier 5. The
+result is an even spread; raw values would not be.
+
+## Building it
+
+```bash
+python3 tools_local/trivia/build_pack.py \
+    --src <combined_season1-42.tsv> \
+    --out pack.jsonl --dat /trivia/pack.dat \
+    --limit 50000 --verdicts tools_local/trivia/verdicts.tsv
+python3 tools_local/trivia/test_pack.py pack.jsonl
+```
+
+## Where the pack comes from
+
+Nobody copies files to a card. Following xkcd: a rolling `trivia-pack` GitHub
+**prerelease**, so the OTA's `releases/latest` can never see it, and the app's
+first run offers to fetch it. Files land as `.part` and are renamed only when
+complete, so a torn download leaves the card exactly as it was.
