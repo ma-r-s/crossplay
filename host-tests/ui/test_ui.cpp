@@ -4970,7 +4970,12 @@ void testTheForeheadResetSaysWhatItDestroysAndAsksFirst() {
   Rendered asking;
   model.confirmingReset = true;
   buildForeheadSettings(asking, model);
-  CHECK(asking.target.drew("TAP AGAIN TO CONFIRM"));
+  // The LABEL changes, not only the subtitle: an armed destructive action
+  // that looks almost identical to an unarmed one is one you can arm by
+  // accident and never notice.
+  CHECK(asking.target.drew("TAP AGAIN TO WIPE"));
+  CHECK(asking.target.drew("THIS CANNOT BE UNDONE"));
+  CHECK(!asking.target.drew("RESET EVERYTHING"));
   // Still tappable while armed, or the confirmation could never be given.
   CHECK(asking.tap(240, 220).action == foreheadui::ActionSettingsRow);
 

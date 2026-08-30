@@ -331,8 +331,24 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
 
   char record[64];
   if (model.record != nullptr && model.record->rounds > 0) {
-    std::snprintf(record, sizeof(record), "%d ROUNDS   %d WORDS   BEST %d", model.record->rounds, model.record->words,
-                  model.record->best);
+    // "TOTAL" because this line counts every category, while the card directly
+    // above it shows one. A player read NEW on the card and "15 ROUNDS BEST 8"
+    // underneath as a single block and concluded the card was wrong.
+    //
+    // The all-time BEST is deliberately NOT here any more. It was the specific
+    // collision -- the card's per-category BEST and an unlabelled overall BEST,
+    // one above the other -- and comparing a best in ANIMALS against a best in
+    // TRICKY is meaningless anyway when the lists differ in difficulty. The
+    // number that matters is on the card, for the list you are about to play.
+    //
+    // Widest this can ever draw is 422px of a 448px row, with both counters
+    // saturated at 65535. Adding BEST back costs 121px and does not fit.
+    //
+    // And the singulars, because "1 ROUNDS" was the first thing anybody saw
+    // after their first game. The results screen already got this right.
+    std::snprintf(record, sizeof(record), "TOTAL  %d %s  %d %s", model.record->rounds,
+                  model.record->rounds == 1 ? "ROUND" : "ROUNDS", model.record->words,
+                  model.record->words == 1 ? "WORD" : "WORDS");
   } else {
     std::snprintf(record, sizeof(record), "NO ROUNDS PLAYED YET");
   }
@@ -731,7 +747,11 @@ void buildSettings(toybox::Screen& screen, const SettingsModel& model) {
   // not have.
   rows[static_cast<int>(SettingRow::Length)].subtitle = "TAP TO CYCLE 30 60 90 120";
 
-  rows[static_cast<int>(SettingRow::Reset)].label = "RESET EVERYTHING";
+  // The LABEL changes when armed, not just the subtitle. A destructive action
+  // whose armed state is one small second line is a destructive action you can
+  // arm without noticing -- on e-ink, at arm's length, across a room. The big
+  // text is the only part of this row read at a glance.
+  rows[static_cast<int>(SettingRow::Reset)].label = model.confirmingReset ? "TAP AGAIN TO WIPE" : "RESET EVERYTHING";
   // The cost goes in the SUBTITLE, which owns its own line, and never in the
   // value column beside a sixteen-character label: those two together are 474px
   // of an approximately 416px row, and the overflow does not look like an
@@ -748,7 +768,7 @@ void buildSettings(toybox::Screen& screen, const SettingsModel& model) {
   // screen.
   rows[static_cast<int>(SettingRow::Reset)].subtitle =
       !anything ? "NOTHING TO CLEAR YET"
-                : (model.confirmingReset ? "TAP AGAIN TO CONFIRM" : "SCORES WORDS AND SETTINGS");
+                : (model.confirmingReset ? "THIS CANNOT BE UNDONE" : "SCORES WORDS AND SETTINGS");
   rows[static_cast<int>(SettingRow::Reset)].enabled = anything;
 
   for (int i = 0; i < static_cast<int>(SettingRow::Count); ++i) rows[i].actionValue = static_cast<int16_t>(i);
@@ -849,7 +869,10 @@ void drawMiniDevice(toybox::Screen& screen, const fui::Rect& box, const char* wo
 void drawMarkLegend(toybox::Screen& screen, const fui::Rect& box) {
   const int16_t rowH = static_cast<int16_t>(box.height / 3);
   const int16_t cx = static_cast<int16_t>(box.x + 20);
-  const char* labels[3] = {"YOU GOT IT", "YOU GAVE UP", "TIME RAN OUT"};
+  // "PASSED", not "YOU GAVE UP". The key is labelled PASS on the round screen
+  // and on the ready card, and a legend that renames the action makes the
+  // reader check whether it means something else.
+  const char* labels[3] = {"YOU GOT IT", "YOU PASSED", "TIME RAN OUT"};
   for (int i = 0; i < 3; ++i) {
     const int16_t cy = static_cast<int16_t>(box.y + i * rowH + rowH / 2);
     if (i == 0) {

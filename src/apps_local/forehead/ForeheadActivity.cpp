@@ -184,6 +184,13 @@ void ForeheadActivity::routeAction(const int action, const int value) {
           }
           roundSeconds = fh::kRoundLengths[(index + 1) % fh::kRoundLengthCount];
           dirty = true;
+          // Written NOW, not at onExit. A round length is chosen once before a
+          // party and then the device is put down; anything that ends the app
+          // without a clean exit -- a deep sleep, a flat battery, a panic --
+          // silently reverted it. One SD write on a rare, deliberate action is
+          // the right trade, and the throttling rule is about redundant writes
+          // in loops, not about user decisions.
+          flushSave();
           // Changes in place, with the screen still open. The confirmation is a
           // label the player was going to read anyway, not a dialog.
           //
@@ -226,6 +233,7 @@ void ForeheadActivity::routeAction(const int action, const int value) {
       if (value >= 0 && value < fh::kCategoryCount) {
         category = value;
         dirty = true;
+        flushSave();  // same exposure as the round length above
         go(View::Menu);
       }
       break;
@@ -499,7 +507,11 @@ bool ForeheadActivity::anythingToClear() const {
   // advances when a round finishes, so backing out of a round burns words and
   // leaves the record at zero -- and a gate that asked the record alone would
   // report NOTHING TO CLEAR YET while a category quietly emptied.
-  return record.rounds > 0 || deck.anySeen();
+  // Settings count, because the reset CLEARS them: the row's own subtitle says
+  // "SCORES WORDS AND SETTINGS". Without this the screen offered nothing to
+  // clear while a changed round length sat in the row directly above, and both
+  // taps on it did nothing with no feedback at all.
+  return record.rounds > 0 || deck.anySeen() || category != 0 || roundSeconds != fh::kDefaultRoundSeconds;
 }
 
 void ForeheadActivity::flushSave() {

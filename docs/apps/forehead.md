@@ -352,6 +352,19 @@ When it fires, measure the string:
 tools_local/forehead/measure.py 20 'RESET EVERYTHING'   # 309px
 ```
 
+### The simulator takes taps in PORTRAIT coordinates, always
+
+A trap that cost a tester most of a session: `sim-shot.sh` SCALES taps from the
+portrait 480x800 frame onto whatever is on screen -- it does not rotate them. So
+on the landscape round and results screens,
+
+    portrait_x = landscape_x * 0.6
+    portrait_y = landscape_y * 1.667
+
+PLAY AGAIN is `TAP:123,727` and DONE is `TAP:357,727`, not the coordinates you
+read off the landscape screenshot. Tapped in landscape coordinates both look
+DEAD, which is exactly what got reported before the scaling was worked out.
+
 ### Rendering it
 
 ```bash
