@@ -518,15 +518,22 @@ void buildSyncFlow(toybox::Screen& screen, const SyncFlowModel& model) {
     }
     screen.target().text(fui::makeRect(body.x + 20, y, body.width - 40, 104), model.body,
                          syncText(toybox::kUiFont, fui::TextAlign::Center, fui::Color::Black, 4));
-    y += 112;
-    for (int i = 0; i < model.factCount; ++i) {
-      screen.target().text(fui::makeRect(body.x, y, body.width, 22), model.factLines[i],
-                           syncText(toybox::kTileFont, fui::TextAlign::Center, fui::Color::DarkGray));
-      y += 26;
-    }
+    // The facts hang from the bottom, above the what-now line, rather than
+    // following the body. The body is the one element here whose height is not
+    // known: it wraps to as many as four lines and overflows its own box doing
+    // it, so anything stacked after it by a fixed offset is drawn THROUGH it
+    // as soon as the sentence is long -- which is exactly when a verdict has
+    // most to say. Everything below is anchored; only the body floats.
+    const int whatNowTop = body.bottom() - toybox::kRowHeight - 52;
     if (model.whatNow[0] != '\0') {
-      screen.target().text(fui::makeRect(body.x + 20, body.bottom() - toybox::kRowHeight - 52, body.width - 40, 44),
-                           model.whatNow, syncText(toybox::kTileFont, fui::TextAlign::Center, fui::Color::DarkGray, 2));
+      screen.target().text(fui::makeRect(body.x + 20, whatNowTop, body.width - 40, 44), model.whatNow,
+                           syncText(toybox::kTileFont, fui::TextAlign::Center, fui::Color::DarkGray, 2));
+    }
+    int factY = whatNowTop - 12 - model.factCount * 26;
+    for (int i = 0; i < model.factCount; ++i) {
+      screen.target().text(fui::makeRect(body.x, factY, body.width, 22), model.factLines[i],
+                           syncText(toybox::kTileFont, fui::TextAlign::Center, fui::Color::DarkGray));
+      factY += 26;
     }
     // A verdict has to offer the next step rather than name it: telling a
     // stranded user to "press SYNC" pointed at a control that is not on this

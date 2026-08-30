@@ -120,7 +120,7 @@ def deck_fingerprints(store, deck_name: str) -> tuple[str, str]:
         row = db.execute(
             """select count(c.id), coalesce(max(n.mod), 0), coalesce(max(c.mod), 0)
                from cards c join notes n on n.id = c.nid
-               join decks d on d.id = c.did
+               join decks d on d.id = (case when c.odid = 0 then c.did else c.odid end)
                where d.name = ? or d.name like ?""",
             (like, like + "\x1f%"),
         ).fetchone()

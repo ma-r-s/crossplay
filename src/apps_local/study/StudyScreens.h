@@ -134,7 +134,7 @@ void buildSyncFlow(toybox::Screen& screen, const SyncFlowModel& model);
 //
 // A fresh account has chosen nothing, so without this screen a first sync
 // delivers an empty manifest and the reader stays empty forever. The bridge
-// caps a sync at kMaxSyncDecks decks; the screen enforces the same cap so the
+// caps a sync at kMaxChosenDecks decks; the screen enforces the same cap so the
 // refusal happens where the user can see it rather than server-side.
 inline constexpr int kMaxPickerDecks = 24;
 
@@ -149,7 +149,7 @@ struct DeckPickerModel {
   int topIndex = 0;     // first row drawn; the list pages rather than scrolls
   int visibleRows = 0;  // filled in by the builder, so paging can match
   int chosenCount = 0;
-  int maxChosen = 8;   // mirrors StudySync::kMaxSyncDecks
+  int maxChosen = 8;   // mirrors StudySync::kMaxChosenDecks
   bool atCap = false;  // drawn as a caption, so the cap explains itself
   // True when the account holds more decks than the list could carry. Drawn,
   // because "my deck is not in this list" and "my deck is on a page that was

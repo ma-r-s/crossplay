@@ -183,7 +183,7 @@ void StudyActivity::applySyncFlowPreview(const char* state) {
     picker_ = studyui::DeckPickerModel{};
     picker_.rows = pickerRows_.data();
     picker_.count = static_cast<int>(pickerRows_.size());
-    picker_.maxChosen = study::kMaxSyncDecks;
+    picker_.maxChosen = study::kMaxChosenDecks;
     picker_.chosenCount = 1;
     picker_.withheld = true;
     view_ = View::DeckPicker;
@@ -223,6 +223,8 @@ void StudyActivity::applySyncFlowPreview(const char* state) {
     std::snprintf(m.title, sizeof(m.title), "PART WAY");
     std::snprintf(m.body, sizeof(m.body), "Mandarin: Vocabulary could not be built. Everything else is up to date.");
     std::snprintf(m.whatNow, sizeof(m.whatNow), "Choose your decks again to drop it, or fix it in Anki.");
+    std::snprintf(m.factLines[0], sizeof(m.factLines[0]), "142 SENT, 3 HAD NO CARD IN ANKI");
+    m.factCount = 1;
     m.safety = studyui::SyncSafety::ReviewsSafePartialDecks;
     previewFlowSet_ = true;
   } else if (std::strcmp(state, "erroracked") == 0) {
@@ -1865,7 +1867,7 @@ bool StudyActivity::runDeckPicker() {
   picker_ = studyui::DeckPickerModel{};
   picker_.rows = pickerRows_.data();
   picker_.count = static_cast<int>(pickerRows_.size());
-  picker_.maxChosen = study::kMaxSyncDecks;
+  picker_.maxChosen = study::kMaxChosenDecks;
   for (const auto& row : pickerRows_) picker_.chosenCount += row.chosen ? 1 : 0;
   picker_.atCap = picker_.chosenCount >= picker_.maxChosen;
   picker_.withheld = sync_.decksWithheld;
@@ -2398,6 +2400,17 @@ void StudyActivity::runSyncFlow() {
       std::snprintf(detail, sizeof(detail), "%u decks could not be built, starting with %s.%s",
                     static_cast<unsigned>(failed), sync_.failedDecks.front().c_str(),
                     others ? " Everything else is up to date." : "");
+    }
+    // The dropped-review count belongs here most of all: a deck deleted on
+    // the desktop fails to build AND leaves every review of it with no card
+    // to land on, so this verdict is the one that hides the biggest loss.
+    flow_.factCount = 0;
+    if (sync_.reviewsMissing > 0) {
+      std::snprintf(flow_.factLines[flow_.factCount++], sizeof(flow_.factLines[0]), "%d SENT, %d HAD NO CARD IN ANKI",
+                    reviewCount, sync_.reviewsMissing);
+    } else if (reviewCount > 0) {
+      std::snprintf(flow_.factLines[flow_.factCount++], sizeof(flow_.factLines[0]), "%d REVIEW%s SENT", reviewCount,
+                    reviewCount == 1 ? "" : "S");
     }
     endSyncSession(studyui::SyncVerdictKind::Neutral, studyui::SyncSafety::ReviewsSafePartialDecks, "PART WAY", detail,
                    "Choose your decks again to drop it, or fix it in Anki.");

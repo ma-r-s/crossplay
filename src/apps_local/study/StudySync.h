@@ -33,7 +33,17 @@
 namespace study {
 
 constexpr char kBridgeHost[] = "sync.ma-r-s.com";
-constexpr int kMaxSyncDecks = 8;
+// One slot per deck folder the app can open (StudyActivity::kMaxDecks). When
+// this was the smaller number, a deck past it got no slot and every setter
+// no-opped in silence: its whole review log re-uploaded and its whole build
+// re-downloaded on every sync, forever, while the verdict counted it as
+// rebuilt. Raise both together or neither.
+constexpr int kMaxSyncDecks = 16;
+// How many decks the user may choose. Separate from the slot count on purpose:
+// the service truncates the chosen list to this (bridge/app.py, /api/decks/
+// choose), so offering more would drop the extras without saying so. The card
+// holds more than this because nothing removes a deck folder.
+constexpr int kMaxChosenDecks = 8;
 // How many decks the picker will list. Eight is what a card can hold, but the
 // list has to reach the one you want before you can choose it, and a
 // collection of forty subdecks is ordinary. Each row is a name and a count,

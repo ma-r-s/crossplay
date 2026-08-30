@@ -31,6 +31,9 @@ from . import accounts, decks, engine, jobs, pairing, store, wire
 from .journal import Journal
 
 log = logging.getLogger("bridge.app")
+
+# Mirrors StudySync::kMaxChosenDecks in the firmware.
+MAX_CHOSEN_DECKS = 8
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
 MAX_SYNC_BODY = 8 * 1024 * 1024  # revlog tails + cards.dat; a 5k-card deck is ~320KB
@@ -354,10 +357,20 @@ async def list_decks(dev=Depends(require_device)):
 
         col = Collection(str(st.collection_path))
         try:
+            # Cards are counted against the deck they came FROM, matching the
+            # converter: a card in a filtered deck (Custom Study) has did = the
+            # filtered deck and odid = its home deck.
             rows = col.db.all(
-                "select d.name, count(c.id) from decks d"
-                " left join cards c on c.did = d.id group by d.id"
+                "select d.id, d.name, count(c.id) from decks d"
+                " left join cards c on (case when c.odid = 0 then c.did else c.odid end) = d.id"
+                " group by d.id"
             )
+            # Filtered decks own no cards of their own -- they borrow them and
+            # give them back -- so offering one as a choice builds a deck that
+            # empties itself, after which every sync ends PART WAY until the
+            # user re-picks. There is no dyn column any more (decks keep their
+            # kind in a protobuf blob), so this is the API's question to answer.
+            rows = [(n, c) for did, n, c in rows if not col.decks.is_filtered(did)]
         finally:
             col.close()
         # Count the subtree, not the deck's own cards. A shared deck arrives
@@ -381,7 +394,10 @@ async def list_decks(dev=Depends(require_device)):
 async def choose_decks(request: Request, dev=Depends(require_device)):
     uid, _ = dev
     body = await request.json()
-    names = [str(n) for n in body.get("decks", [])][:8]
+    # Must equal StudySync::kMaxChosenDecks on the device. The picker enforces
+    # the same number, so this truncation should never fire; it is the backstop
+    # for a client that does not.
+    names = [str(n) for n in body.get("decks", [])][:MAX_CHOSEN_DECKS]
     st, state = _user_bits(uid)
     state["chosen_decks"] = names
     st.save_state(state)

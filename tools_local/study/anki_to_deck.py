@@ -377,6 +377,11 @@ def deck_config_for(db, deck_name):
 
 
 def collect_notes(db, deck_name, limit=None, override=None):
+    # A card sitting in a filtered deck (Custom Study) has did = the filtered
+    # deck and odid = the deck it came from. Joining on did alone dropped every
+    # such card from its home deck's export -- silently, and the picker's count
+    # used the same join so the number agreed with the shortfall. The cards a
+    # user just flagged as needing work are exactly the ones this lost.
     like = deck_name.replace("::", "\x1f")
     rows = db.execute(
         """select c.id, n.flds, nt.name, c.data, c.due, c.ivl, c.reps, c.lapses, c.type,
@@ -384,7 +389,7 @@ def collect_notes(db, deck_name, limit=None, override=None):
            from cards c
            join notes n on n.id = c.nid
            join notetypes nt on nt.id = n.mid
-           join decks d on d.id = c.did
+           join decks d on d.id = (case when c.odid = 0 then c.did else c.odid end)
            where d.name = ? or d.name like ?
            order by c.id""",
         (like, like + "\x1f%"),

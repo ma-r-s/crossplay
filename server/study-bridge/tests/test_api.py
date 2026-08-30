@@ -241,6 +241,36 @@ async def run(tmp):
         rows = desktop.db.all("select id from revlog where cid = ?", card_id)
         ok(any(r0[0] == ms for r0 in rows), "desktop should see the device review")
 
+        # --- A card pulled into a filtered deck still belongs to its home deck.
+        did_home = desktop.decks.id("Filtered Source")
+        n_f = desktop.new_note(nt)
+        n_f["Front"], n_f["Back"] = "borrowed", "BORROWED"
+        desktop.add_note(n_f, did_home)
+        dyn = desktop.decks.new_filtered("Custom Study Session")
+        desktop.sched.rebuild_filtered_deck(dyn)
+        moved = desktop.db.scalar("select count(*) from cards where odid != 0")
+        ok(moved >= 1, f"the filtered deck should have borrowed a card, got {moved}")
+        desktop.sync_collection(auth, sync_media=False)
+        r = await web.post("/api/sync", headers=dev, content=struct.pack("<I", len(empty_header)) + empty_header)
+        jf = r.json()["job"]
+        for _ in range(600):
+            await asyncio.sleep(0.1)
+            if (await web.get("/api/sync/status", headers=dev, params={"job": jf})).json()["status"] in (
+                "done",
+                "error",
+                "frozen",
+            ):
+                break
+        seen = {d["name"]: d["cards"] for d in (await web.get("/api/decks", headers=dev)).json()["decks"]}
+        ok(
+            "Custom Study Session" not in seen,
+            f"a filtered deck must not be offered as a choice, got {sorted(seen)}",
+        )
+        ok(
+            seen.get("Filtered Source") == 1,
+            f"a borrowed card still counts for its home deck, got {seen.get('Filtered Source')}",
+        )
+
         # --- A review whose card is gone is counted, not silently dropped.
         gone = struct.pack(d2a.REVLOG_RECORD, 999999999999, ms + 1, 3, 0, 0, 1, 0, 0)
         header = json.dumps(
