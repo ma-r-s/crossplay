@@ -20,6 +20,7 @@
 #include "CrossPointSettings.h"
 #include "DevInputCommands.h"
 #include "DevMode.h"
+#include "DevSerialBridge.h"
 #include "FirmwareFlasher.h"
 #include "FontInstaller.h"
 #include "OpdsServerStore.h"
@@ -225,6 +226,7 @@ void CrossPointWebServer::begin() {
   // routes nor the per-frame input overlay they schedule onto.
   server->on("/api/dev/input", HTTP_POST, [this] { handleDevInput(); });
   server->on("/api/dev/screen", HTTP_GET, [this] { handleDevScreen(); });
+  server->on("/api/dev/serial", HTTP_GET, [this] { handleDevSerial(); });
 #endif
 
   server->onNotFound([this] { handleNotFound(); });
@@ -338,8 +340,6 @@ void CrossPointWebServer::stop() {
 }
 
 void CrossPointWebServer::handleClient() {
-  static unsigned long lastDebugPrint = 0;
-
   // Check running flag FIRST before accessing server
   if (!running) {
     return;
@@ -351,11 +351,13 @@ void CrossPointWebServer::handleClient() {
     return;
   }
 
-  // Print debug every 10 seconds to confirm handleClient is being called
-  if (millis() - lastDebugPrint > 10000) {
-    LOG_DBG("WEB", "handleClient active, server running on port %d", port);
-    lastDebugPrint = millis();
-  }
+  // No heartbeat. It fired every 10 seconds and said only that a loop was
+  // still looping -- and the RTC log ring is SIXTEEN lines, so it flushed the
+  // ring every 160 seconds. That made /api/dev/log and /api/dev/crash useless
+  // for anything that happened more than two and a half minutes ago: a real
+  // diagnosis of a wedged cable was overwritten by a heartbeat while it was
+  // still being read. A log line that only says "still running" is worth less
+  // than the sixteenth of the ring it costs.
 
   server->handleClient();
 
@@ -377,6 +379,10 @@ void CrossPointWebServer::handleClient() {
           if (hostname.isEmpty()) {
             hostname = "crosspoint";
           }
+          // A discovery handshake, not a label. Two things match this leading
+          // token to recognise the device: upstream's crosspoint_reader Calibre
+          // plugin, and the fork's OWN scripts_local/wifi-flash.sh. Renaming it
+          // would break wireless flashing, which is the surprising half.
           String message = "crosspoint (on " + hostname + ");" + String(wsPort);
           udp.beginPacket(udp.remoteIP(), udp.remotePort());
           udp.write(reinterpret_cast<const uint8_t*>(message.c_str()), message.length());
@@ -2244,6 +2250,21 @@ void CrossPointWebServer::handleDevInput() {
   // when the previous event finishes, which is a retry, not a fix.
   const int code = okay ? 200 : (strncmp(reply, "ERR busy", 8) == 0 ? 409 : 400);
   server->send(code, "text/plain", String(reply) + "\n");
+}
+
+// The serial transport's TX counters, over Wi-Fi.
+//
+// The whole point: when the cable wedges, CMD:CDCSTAT is unreachable by
+// definition, and the RTC log ring is sixteen lines. This is the only way to
+// ask a device with a dead cable what its cable did.
+void CrossPointWebServer::handleDevSerial() {
+  if (!devAuthorised()) return;
+  // 256: eight uint32 counters at their widest already ran to 145 characters,
+  // so 128 truncated silently -- snprintf is safe, but the line it produced was
+  // not the line it claimed to be.
+  char line[256];
+  devbridge::txStatsLine(line, sizeof(line));
+  server->send(200, "text/plain", String(line) + "\n");
 }
 
 // The framebuffer as it stands, 1bpp, row-major, MSB leftmost -- the same bytes

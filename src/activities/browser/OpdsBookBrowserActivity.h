@@ -20,6 +20,12 @@ class OpdsBookBrowserActivity final : public Activity, private UiAppHost {
 
   explicit OpdsBookBrowserActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, OpdsServer server);
 
+  // Shelf factory: Get Books is a row in APPS, and the shelf hands every app
+  // the same two arguments. Picking which catalog to open is this class's
+  // business, so ActivityManager::goToBrowser() calls it too rather than
+  // keeping a second copy of the rule.
+  static std::unique_ptr<Activity> create(GfxRenderer& renderer, MappedInputManager& mappedInput);
+
   void onEnter() override;
   void onExit() override;
   void loop() override;
@@ -37,9 +43,6 @@ class OpdsBookBrowserActivity final : public Activity, private UiAppHost {
   std::vector<std::string> navigationHistory;
   std::string currentPath;
   // Cleared once consumed; see the tail of fetchFeed().
-  // Where dismissing the keyboard goes. Never forward into results.
-  enum class SearchReturn : uint8_t { Home, Rows };
-  SearchReturn searchReturn = SearchReturn::Home;
   // A catalog with a search link and nothing to browse (LibGen). Derived from
   // the feed, not configured.
   bool searchOnlyCatalog = false;
@@ -47,6 +50,12 @@ class OpdsBookBrowserActivity final : public Activity, private UiAppHost {
   // True while the visible feed is a search result set.
   bool showingSearchResults = false;
   std::string searchTemplate;
+  // The feed's <subtitle>, drawn when it has no entries to draw instead.
+  std::string feedSubtitle;
+  // The "Preparing" tick, for the stretch before the server sends any bytes.
+  static constexpr uint32_t WAIT_TICK_MS = 2000;
+  uint32_t waitTickMs = 0;
+  uint8_t waitDots = 0;
   // Resolved once per server from an OpenSearch description document and
   // reused while navigating, since subfeeds rarely repeat the search link.
   std::string resolvedDescriptionUrl;

@@ -36,7 +36,7 @@ int HomeActivity::upstreamMenuRows() const {
   // but it is why this counts the row and that function does not.)
   const auto& metrics = UITheme::getInstance().getMetrics();
   const bool continueRow = metrics.homeContinueReadingInMenu && !recentBooks.empty();
-  return 4 + (showOpdsRow ? 1 : 0) + (continueRow ? 1 : 0);
+  return 4 + (continueRow ? 1 : 0);
 }
 
 int HomeActivity::getMenuItemCount() const {
@@ -48,9 +48,6 @@ int HomeActivity::getMenuItemCount() const {
   int count = 4 + shelf::folderCount();  // File Browser, Recents, File transfer, Settings, + ours
   if (!recentBooks.empty()) {
     count += recentBooks.size();
-  }
-  if (showOpdsRow) {
-    count++;
   }
   return count;
 }
@@ -135,14 +132,12 @@ void HomeActivity::loadRecentCovers(int coverHeight) {
 void HomeActivity::onEnter() {
   Activity::onEnter();
 
-  // Always shown; see the seam note on showOpdsRow in the header.
-  showOpdsRow = true;
-
   const auto& metrics = UITheme::getInstance().getMetrics();
   loadRecentBooks(metrics.homeRecentBooksCount);
 
   const auto base = static_cast<int>(recentBooks.size());
-  selectorIndex = initialMenuItem == HomeMenuItem::NONE ? 0 : base + menuItemToIndex(initialMenuItem, showOpdsRow);
+  selectorIndex =
+      initialMenuItem == HomeMenuItem::NONE ? 0 : base + menuItemToIndex(initialMenuItem, /*hasOpdsUrl=*/false);
 
   // fork-local seam: goHome() restores the selection by matching the departing
   // activity's name against HomeMenuItem, which cannot know about shelf rows,
@@ -214,7 +209,10 @@ void HomeActivity::loop() {
       return;
     }
     const int menuIndex = selectorIndex - static_cast<int>(recentBooks.size());
-    switch (indexToMenuItem(menuIndex, showOpdsRow)) {
+    // Get Books moved into the APPS folder, so Home never draws its row.
+    // Upstream's helpers still take the flag; they stay byte-identical and
+    // merge cleanly, and false simply removes the row from their arithmetic.
+    switch (indexToMenuItem(menuIndex, /*hasOpdsUrl=*/false)) {
       case HomeMenuItem::FILE_BROWSER:
         onFileBrowserOpen();
         break;
@@ -349,11 +347,6 @@ void HomeActivity::render(RenderLock&&) {
                                         tr(STR_SETTINGS_TITLE)};
   std::vector<UIIcon> menuIcons = {Folder, Recent, Transfer, Settings};
 
-  if (showOpdsRow) {
-    menuItems.insert(menuItems.begin() + 2, tr(STR_OPDS_BROWSER));
-    menuIcons.insert(menuIcons.begin() + 2, Library);
-  }
-
   if (metrics.homeContinueReadingInMenu && !recentBooks.empty()) {
     // Insert Continue Reading at the top if enabled in theme
     menuItems.insert(menuItems.begin(), tr(STR_CONTINUE_READING));
@@ -369,45 +362,33 @@ void HomeActivity::render(RenderLock&&) {
   }
 
   // --- fork-local seam ---------------------------------------------------
-  // drawButtonMenu lays rows at a fixed pitch and ignores the rect height, so
-  // a row that does not fit is simply drawn off-screen -- Apps disappeared
-  // entirely under Lyra Extended and was clipped in half under Classic. The
-  // shelf's folders and the Get Books row pushed the count past what the
-  // taller themes have room for. Give the menu what it needs and let the cover
-  // tile take the remainder; on a theme with room this changes nothing.
+  // The shelf's folders (GAMES, APPS) are appended to upstream's rows, and
+  // RoundedRaff adds a Continue Reading row of its own once a book has been
+  // opened. drawButtonMenu lays rows at a fixed pitch and ignores the rect
+  // height, so a row that does not fit is drawn off-screen and simply is not
+  // there -- and the home menu does not scroll, so it cannot be reached at all.
+  // APPS is the last row, which is how Get Books (inside it) would vanish.
+  //
+  // Only the row GAPS give. The cover tile keeps its full height: its art is
+  // the point of it, and the gaps are generous enough to lose a few pixels
+  // each and read the same.
   // getMenuRowHeight() rather than metrics.menuRowHeight: RoundedRaff marks its
-  // metric as non-authoritative and derives the drawn height from the renderer,
-  // so the metric underestimates and Apps still fell off the bottom.
-  // Tighten the gaps between rows before touching the cover tile. The art is
-  // the point of that tile: shrinking it to the leftover space either clipped
-  // the cover or put it hard against the first row, while the row gaps are
-  // generous enough to give up a few pixels each and lose nothing.
+  // metric as non-authoritative and derives the drawn height from the renderer.
   const int menuRowHeight = GUI.getMenuRowHeight(renderer);
   const int rows = static_cast<int>(menuItems.size());
-  const int gapBelowTile = metrics.verticalSpacing;
-  const int spaceBelowHeader =
-      pageHeight - metrics.homeTopPadding - metrics.homeMenuTopOffset - metrics.buttonHintsHeight;
-  const int spaceForMenu = spaceBelowHeader - metrics.homeCoverTileHeight - gapBelowTile;
-
+  const int coverTileHeight = metrics.homeCoverTileHeight;
+  const int spaceForMenu = pageHeight - metrics.homeTopPadding - metrics.homeMenuTopOffset - metrics.buttonHintsHeight -
+                           coverTileHeight - metrics.verticalSpacing;
   int menuSpacing = metrics.menuSpacing;
   if (rows > 0 && rows * (menuRowHeight + menuSpacing) > spaceForMenu) {
     // Row height is fixed by the theme, so only the gaps can give. Floored at
     // 1px: rows flush against each other read as one block, not a list.
     menuSpacing = std::max(1, spaceForMenu / rows - menuRowHeight);
   }
-
-  const int menuNeeds = rows * (menuRowHeight + menuSpacing) + metrics.verticalSpacing;
-  int coverTileHeight = metrics.homeCoverTileHeight;
-  if (menuNeeds > spaceBelowHeader - coverTileHeight - gapBelowTile) {
-    // Even at minimum spacing the rows do not fit, so the tile finally gives.
-    // A sliver is worse than none, so below half its intended height it goes.
-    const int remaining = spaceBelowHeader - menuNeeds - gapBelowTile;
-    coverTileHeight = remaining >= metrics.homeCoverTileHeight / 2 ? remaining : 0;
-  }
-  // Recorded for the touch grid: drawn spacing and hit-test spacing must be the
-  // same number, or taps drift further off with every row down the list.
+  // Drawn spacing and hit-test spacing must be the same number, or taps drift
+  // further off with every row down the list.
   menuSpacingRendered = menuSpacing;
-
+  const int gapBelowTile = metrics.verticalSpacing;
   const int tileBlock = coverTileHeight > 0 ? coverTileHeight + gapBelowTile : 0;
 
   // Recorded so storeCoverBuffer (called from the theme) knows which

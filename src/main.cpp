@@ -503,7 +503,7 @@ void setup() {
   }
 
   // First serial output only here to avoid timing inconsistencies for power button press duration verification
-  LOG_DBG("MAIN", "Starting CrossPoint version " CROSSPOINT_VERSION);
+  LOG_DBG("MAIN", "Starting CrossPlay version " CROSSPOINT_VERSION);
 
   // Resolve the single boot-presentation decision. Skipping the splash also
   // skips the panel-clearing pass and the X3 initial-full-sync arming (see
@@ -609,6 +609,48 @@ void setup() {
   allowSleepAt = millis() + 2000;
 }
 
+#if defined(SIMULATOR)
+// The simulator's HWCDC shim writes to stderr: no ring, nothing to fill, and no
+// availableForWrite() to ask.
+static bool pacedWrite(const uint8_t* data, const size_t len, unsigned long) {
+  logSerial.write(data, len);
+  return true;
+}
+static bool pacedLine(const char* text, unsigned long) {
+  logSerial.print(text);
+  return true;
+}
+#else
+// The release path's own writeAll. The dev bridge has one in DevSerialBridge.cpp
+// and this file cannot reach it, because the bridge is compiled out of exactly
+// the builds that ship -- which is how the release path kept the unguarded
+// version long after the bridge was fixed. EVERY write on this path goes
+// through here: a paced payload followed by a raw printf() terminator is still
+// a raw printf() into the fullest ring of the whole transfer.
+static bool pacedWrite(const uint8_t* data, const size_t len, const unsigned long timeoutMs) {
+  size_t sent = 0;
+  const unsigned long deadline = millis() + timeoutMs;
+  while (sent < len && static_cast<long>(millis() - deadline) < 0) {
+    const int space = logSerial.availableForWrite();
+    if (space <= 0) {
+      delay(2);
+      continue;
+    }
+    const size_t want = static_cast<size_t>(space) < len - sent ? static_cast<size_t>(space) : len - sent;
+    const size_t n = logSerial.write(data + sent, want);
+    if (n == 0) {
+      delay(2);
+      continue;
+    }
+    sent += n;
+  }
+  return sent == len;
+}
+static bool pacedLine(const char* text, const unsigned long timeoutMs) {
+  return pacedWrite(reinterpret_cast<const uint8_t*>(text), strlen(text), timeoutMs);
+}
+#endif
+
 void loop() {
   static unsigned long maxLoopDuration = 0;
   const unsigned long loopStartTime = millis();
@@ -620,8 +662,14 @@ void loop() {
 
   renderer.setFadingFix(SETTINGS.fadingFix);
 
-  if (Serial && millis() - lastMemPrint >= 10000) {
-    LOG_INF("MEM", "Free: %d bytes, Total: %d bytes, Min Free: %d bytes, MaxAlloc: %d bytes", ESP.getFreeHeap(),
+  // Every 60s, not 10, and at DBG. The RTC log ring is SIXTEEN lines, so a
+  // ten-second heartbeat flushed the whole thing every 160 seconds -- which is
+  // what made /api/dev/log and /api/dev/crash useless for diagnosing anything
+  // that had already happened. This one was worse than the web server's twin:
+  // LOG_INF ships in gh_release_* at LOG_LEVEL=1, so it was erasing crash tails
+  // on users' devices, not just on desks. Heap trend at 60s is just as useful.
+  if (Serial && millis() - lastMemPrint >= 60000) {
+    LOG_DBG("MEM", "Free: %d bytes, Total: %d bytes, Min Free: %d bytes, MaxAlloc: %d bytes", ESP.getFreeHeap(),
             ESP.getHeapSize(), ESP.getMinFreeHeap(), ESP.getMaxAllocHeap());
     lastMemPrint = millis();
   }
@@ -643,10 +691,29 @@ void loop() {
       cmd.trim();
       if (cmd == "SCREENSHOT") {
         const uint32_t bufferSize = display.getBufferSize();
-        logSerial.printf("SCREENSHOT_START:%d\n", bufferSize);
-        uint8_t* buf = display.getFrameBuffer();
-        logSerial.write(buf, bufferSize);
-        logSerial.printf("SCREENSHOT_END\n");
+        const uint8_t* buf = display.getFrameBuffer();
+        if (buf == nullptr) {
+          // Say so. Silence here is indistinguishable at the host from a wedged
+          // cable, and it costs the caller the full screenshot timeout to learn
+          // nothing.
+          pacedLine("ERR SCREENSHOT no framebuffer\n", 1000);
+        } else {
+          char head[48];
+          snprintf(head, sizeof(head), "SCREENSHOT_START:%u\n", bufferSize);
+          // Checked, not fired and forgotten: a header that went out short
+          // hands the host a truncated digit string to parse as the frame
+          // length, and 48KB of payload it cannot frame follows it.
+          if (!pacedLine(head, 1000)) {
+            LOG_ERR("MAIN", "screenshot: header did not go out");
+          } else if (pacedWrite(buf, bufferSize, 5000)) {
+            pacedLine("SCREENSHOT_END\n", 1000);
+          } else {
+            // The terminator ONLY when every byte went. Printing it anyway
+            // tells the host a short frame is a whole one, which it then saves
+            // with this very text over the image tail.
+            pacedLine("\nERR SCREENSHOT truncated\n", 1000);
+          }
+        }
       }
     }
   }

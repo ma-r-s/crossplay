@@ -20,6 +20,7 @@
 #include "SilentRestart.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "activities/settings/OpdsFilterActivity.h"
+#include "activities/settings/OpdsServerListActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UIScale.h"
 #include "components/UITheme.h"
@@ -50,6 +51,18 @@ OpdsBookBrowserActivity::OpdsBookBrowserActivity(GfxRenderer& renderer, MappedIn
       UiAppHost(renderer),
       buttonNavigator(),
       server(std::move(server)) {}
+
+std::unique_ptr<Activity> OpdsBookBrowserActivity::create(GfxRenderer& renderer, MappedInputManager& mappedInput) {
+  const auto& servers = OPDS_STORE.getServers();
+  if (servers.empty()) {
+    // Nothing to open yet, so the list is the only useful destination.
+    return std::make_unique<OpdsServerListActivity>(renderer, mappedInput, true);
+  }
+  // Straight into the catalog last used -- never a picker. Clamped because
+  // catalogs get deleted.
+  const size_t index = SETTINGS.opdsLastServer < servers.size() ? SETTINGS.opdsLastServer : 0;
+  return std::make_unique<OpdsBookBrowserActivity>(renderer, mappedInput, servers[index]);
+}
 
 void OpdsBookBrowserActivity::onEnter() {
   Activity::onEnter();
@@ -141,7 +154,6 @@ void OpdsBookBrowserActivity::onSearchEvent(const fui::ActionEvent&, void* user)
   auto* self = static_cast<OpdsBookBrowserActivity*>(user);
   if (self->state != BrowserState::BROWSING) return;
   self->app.clearTapFlash();
-  self->searchReturn = self->searchOnlyCatalog ? SearchReturn::Home : SearchReturn::Rows;
   self->launchSearch();
 }
 
@@ -192,7 +204,22 @@ void OpdsBookBrowserActivity::loop() {
     return;
   }
 
-  if (state == BrowserState::DOWNLOADING) return;
+  if (state == BrowserState::DOWNLOADING) {
+    // Nothing is downloading yet: the server is still fetching the book from
+    // the catalog and converting it, which takes tens of seconds and sends no
+    // bytes at all. With no bytes there is no total, so there is no bar to
+    // draw -- and a still screen reading "Downloading" for half a minute is
+    // indistinguishable from a hang. A slow tick says the device is alive.
+    if (downloadTotal == 0) {
+      const uint32_t now = millis();
+      if (now - waitTickMs >= WAIT_TICK_MS) {
+        waitTickMs = now;
+        waitDots = static_cast<uint8_t>((waitDots + 1) % 4);
+        requestUpdate();
+      }
+    }
+    return;
+  }
 
   if (state == BrowserState::BROWSING) {
     if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
@@ -307,7 +334,14 @@ void OpdsBookBrowserActivity::buildBrowsingScreen(UiScreen& screen) {
   if (entries.empty()) {
     // A lookup-only catalog has nothing to list; say what to do rather than
     // reporting the empty feed as a fault.
-    screen.centeredText(searchOnlyCatalog ? tr(STR_SEARCH) : tr(STR_NO_ENTRIES), screen.theme().bodyText);
+    // The catalog's own words first: an empty feed's <subtitle> is where a
+    // server says WHY it is empty ("No EPUBs found for dune"), and it beats
+    // anything generic we could write. Otherwise: a lookup-only catalog with
+    // nothing typed yet is waiting for a search, and everything else is empty.
+    const char* empty = feedSubtitle.empty()
+                            ? (searchOnlyCatalog && !showingSearchResults ? tr(STR_SEARCH) : tr(STR_NO_ENTRIES))
+                            : feedSubtitle.c_str();
+    screen.centeredText(empty, screen.theme().bodyText);
     return;
   }
 
@@ -350,10 +384,23 @@ void OpdsBookBrowserActivity::buildDownloadScreen(UiScreen& screen) {
   const fui::Rect body = screen.body();
   if (body.height > blockH) screen.spacer(static_cast<int16_t>((body.height - blockH) / 2));
 
-  screen.target().text(screen.takeTop(lh, gap), tr(STR_DOWNLOADING), centered);
+  if (downloadTotal == 0) {
+    // "Preparing" rather than "Downloading", because nothing is downloading
+    // yet and saying so is what makes the wait feel broken.
+    char waiting[64];
+    snprintf(waiting, sizeof(waiting), "%s%.*s", tr(STR_PREPARING_BOOK), waitDots, "...");
+    screen.target().text(screen.takeTop(lh, gap), waiting, centered);
+  } else {
+    screen.target().text(screen.takeTop(lh, gap), tr(STR_DOWNLOADING), centered);
+  }
   screen.target().text(screen.takeTop(lh, gap), statusMessage.c_str(), centered);
 
   const fui::Rect bar = screen.takeTop(barH, gap).inset(fui::Insets{0, 50, 0, 50});
+  if (downloadTotal == 0) {
+    // The bar's slot carries the reason for the wait instead of an empty gap.
+    fui::TextStyle hint = centered;
+    screen.target().text(bar, tr(STR_PREPARING_HINT), hint);
+  }
   if (downloadTotal > 0) {
     fui::ProgressBarProps progress;
     progress.value = static_cast<int32_t>(downloadProgress);
@@ -458,6 +505,7 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
     return;
   }
 
+  feedSubtitle = parser.getSubtitle();
   searchTemplate = parser.getSearchTemplate();
   if (searchTemplate.empty()) {
     // Most real catalogs advertise search by pointing at an OpenSearch
@@ -526,7 +574,6 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
   if (openSearchOnArrival) {
     openSearchOnArrival = false;
     if (searchOnlyCatalog) {
-      searchReturn = SearchReturn::Home;  // nothing behind the keyboard here
       launchSearch();
     }
   }
@@ -582,7 +629,6 @@ void OpdsBookBrowserActivity::navigateBack() {
     showingSearchResults = false;
     // On a lookup-only catalog the keyboard IS the home screen, so dismissing
     // it leaves for Home; on a browsable one it sits above the rows.
-    searchReturn = searchOnlyCatalog ? SearchReturn::Home : SearchReturn::Rows;
     launchSearch();
     return;
   }
@@ -605,6 +651,8 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book) {
   state = BrowserState::DOWNLOADING;
   statusMessage = book.title;
   downloadProgress = downloadTotal = 0;
+  waitTickMs = millis();
+  waitDots = 0;
   cancelDownload = false;
   goHomeAfterCancel = false;
   requestUpdate(true);
@@ -705,10 +753,11 @@ void OpdsBookBrowserActivity::launchSearch() {
       performSearch(entered.text);
       return;
     }
-    // Dismissing the keyboard moves UP the chain, never forward into the
-    // results it was opened from. Returning to those results made Back a loop:
-    // results -> keyboard -> results -> keyboard, with no way out but Home.
-    requestUpdate();  // the catalog's own screen: rows, or empty with a header
+    // Back from the search box leaves Get Books, always -- not into the rows
+    // behind it and never into an earlier search. The keyboard is the top of
+    // this app's stack, and settings stays reachable from the icon on the
+    // keyboard itself rather than from a screen behind it.
+    onGoHome();
   });
 }
 
@@ -791,7 +840,10 @@ void OpdsBookBrowserActivity::performSearch(const std::string& query) {
     url.erase(open, close - open + 1);
   }
 
-  navigationHistory.push_back(currentPath);
+  // Deliberately NOT pushed onto navigationHistory. A search is a mode, not a
+  // place in the catalog: stacking them made Back walk backwards through every
+  // query the reader had ever typed instead of returning to the keyboard.
+  // Back out of results is handled by showingSearchResults in navigateBack().
   currentPath = url;
   showingSearchResults = true;
 

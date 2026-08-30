@@ -55,6 +55,17 @@ import time
 import urllib.error
 import urllib.request
 
+TRUNCATED_MARKER = b"ERR SCREENSHOT truncated"
+END_MARKER = b"SCREENSHOT_END"
+# A frame is width*height/8. The largest panel here is 800x480 = 48000; the
+# bound is loose on purpose, it exists to reject nonsense, not to validate.
+MAX_FRAME_BYTES = 1 << 20
+# Longer than the firmware's own budget for saying it gave up. writeLine() there
+# allows 1000ms per stall and 4000ms overall, so a host that waits 500ms sees a
+# half-written notice, calls it no notice, and returns the frame. The two numbers
+# live in different languages in the same branch; this one has to be the larger.
+GRACE_S = 5.0
+
 PANEL_W = 800
 PANEL_H = 480
 
@@ -81,11 +92,18 @@ def relay(line):
     print(f"  [dev] {line}", file=sys.stderr)
 
 
-def drain(s):
+def drain(s, timeout=3.0):
     """Relay whatever the device printed since the last read. Never discard:
     the log lines that arrive between commands are exactly the diagnostics a
-    failure investigation needs."""
-    while True:
+    failure investigation needs.
+
+    BOUNDED, and that is not decoration: command() calls this before it writes
+    the command, so an unbounded version hangs every verb this tool has against
+    a device that talks faster than the port timeout -- a dev build at
+    LOG_LEVEL=2, a boot loop, an error spew. Which are the three states you
+    reach for this tool in."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
         chunk = s.read(4096)
         if not chunk:
             return
@@ -155,11 +173,35 @@ class SerialLink:
         self.s = open_port(self.port, self.baud)
 
     def screenshot_raw(self, timeout=30.0):
+        # Drain until the device stops talking before asking. Right after a
+        # reset the boot log is still streaming, and a 48KB binary reply
+        # competing with it for the ring is the one case that still failed --
+        # the first shot of a session, never the rest.
+        #
+        # WITH A DEADLINE. A device that talks more often than the port timeout
+        # -- a dev build under load, a boot loop, an error spew -- refreshes
+        # quiet_since forever, and the first version of this would have hung
+        # here with no output at all. Every other loop in this file is bounded;
+        # so is this one.
+        #
+        # And relay what it drains rather than discarding it: drain()'s own
+        # docstring says the lines arriving between commands are exactly the
+        # diagnostics a failure investigation needs.
+        quiet_since = time.time()
+        drain_deadline = time.time() + 3.0
+        while time.time() - quiet_since < 0.3 and time.time() < drain_deadline:
+            chunk = self.s.read(4096)
+            if chunk:
+                quiet_since = time.time()
+                for ln in chunk.decode("utf-8", "replace").splitlines():
+                    if ln.strip():
+                        relay(ln.strip())
         self.s.reset_input_buffer()
         self.s.write(b"CMD:SCREENSHOT\n")
         deadline = time.time() + timeout
         buf = b""
         size = None
+        truncated = ""
         while time.time() < deadline:
             chunk = self.s.read(4096)
             if chunk:
@@ -169,18 +211,139 @@ class SerialLink:
             if idx >= 0:
                 nl = buf.find(b"\n", idx)
                 if nl >= 0:
-                    size = int(buf[idx + len(marker) : nl])
+                    # Device input, not a promise. The header is one unpaced
+                    # write on some paths, so it can arrive short -- and then
+                    # the digits are a prefix of the real length, or the next
+                    # newline found is one inside the image. A bogus size is
+                    # not merely unparseable: a negative one makes every length
+                    # test below pass and hands back the buffer as an image.
+                    digits = buf[idx + len(marker) : nl]
+                    # Plain ASCII digits only. int() also accepts b"+48000",
+                    # b"4_8000" and b" 48000 ", none of which this device ever
+                    # sends -- so accepting them only widens what a corrupted
+                    # header can be read as.
+                    if not digits.isdigit():
+                        print(f"bad SCREENSHOT_START length: {digits[:40]!r}", file=sys.stderr)
+                        return None
+                    size = int(digits)
+                    if not 0 < size <= MAX_FRAME_BYTES:
+                        print(f"implausible frame length {size}", file=sys.stderr)
+                        return None
+                    # And it has to be THIS panel's frame. Without this a header
+                    # naming any plausible-looking number reached Pillow, which
+                    # raises on a short buffer -- an uncaught traceback that
+                    # kills a `serve` session outright -- or silently saves a
+                    # PNG built from the first w*h/8 bytes of a longer one. The
+                    # Wi-Fi path has always checked this; the cable did not.
+                    expected = self.panel[0] * self.panel[1] // 8
+                    if size != expected:
+                        print(
+                            f"frame length {size} is not this panel's {expected} "
+                            f"({self.panel[0]}x{self.panel[1]})",
+                            file=sys.stderr,
+                        )
+                        return None
                     buf = buf[nl + 1 :]
                     break
+            elif b"ERR SCREENSHOT" in buf:
+                # A refusal: it says why, and no START is coming. Only reachable
+                # while no START has been seen, because past that point `buf` is
+                # 48000 bytes of image and image bytes spell things -- checking
+                # for this first made a frame containing those letters look like
+                # a refusal and hang until the timeout.
+                break
         if size is None:
-            print("no SCREENSHOT_START seen", file=sys.stderr)
+            said = buf.decode("utf-8", "replace").strip().splitlines()
+            why = next((ln for ln in reversed(said) if ln.startswith("ERR")), "no SCREENSHOT_START seen")
+            print(why, file=sys.stderr)
             return None
-        while len(buf) < size and time.time() < deadline:
+        # `len(buf) >= size` is NOT proof of a complete frame, and stopping on
+        # it is the bug this loop is shaped around. On truncation the device
+        # appends a notice, so a frame short by less than that notice is long
+        # still reaches `size` bytes -- with error text written over its tail,
+        # and with the notice itself cut in half, so no check for the notice can
+        # see it either. Read on until the DEVICE says which it was.
+        #
+        # Two signals, and QUIET is the third. END means the device finished;
+        # the notice means it gave up. Neither can be trusted on arrival:
+        #
+        # - image bytes can spell anything, so a notice found a thousand bytes
+        #   into a still-streaming frame is a coincidence, not a verdict;
+        # - and the notice is NOT reliably the last thing on the wire. The
+        #   device logs the same failure, on this same transport, and on a dev
+        #   build any other task can log at any moment. An earlier version of
+        #   this required the notice to end the buffer, which the firmware in
+        #   this very branch violated -- and a corrupt frame came back clean.
+        #
+        # So: END ends it immediately, and anything else waits for the device to
+        # stop talking. `grace` is that wait, armed once there is a reason to
+        # think the device is done and extended by every byte that follows.
+        # WHERE the terminator lands is the verdict, not whether it is present.
+        # A WHOLE FRAME IS ONE THE DEVICE TERMINATED, and the terminator sits at
+        # exactly `size` -- the firmware writes it immediately after the payload
+        # with nothing in between.
+        #
+        # Not "at or past": anything injected mid-payload (a LOG_ from another
+        # task on a LOG_LEVEL=2 build) pushes END later, and `>=` reads that
+        # displacement as better-than-whole while the log text sits in the
+        # image. Not "somewhere in the buffer" either: that is a byte count with
+        # extra steps, and image bytes can spell anything.
+        #
+        # And having enough bytes is NOT a fallback. Every earlier version of
+        # this ended with "well, len(buf) >= size, ship it", which is precisely
+        # the assumption this whole branch exists to remove: a frame short by
+        # less than the notice reaches `size` with error text over its tail. No
+        # terminator means we do not know, and not knowing is a short read.
+        def whole():
+            return buf[size : size + len(END_MARKER)] == END_MARKER
+
+        # Quiet is the third signal, and it is the only one a device that simply
+        # stops ever sends. An earlier version armed this only once the frame
+        # looked "settled" -- enough bytes, or a marker in the buffer -- so a
+        # mid-frame stop matched none of them and sat here for the full 30s
+        # saying nothing. Time since the last byte covers that, the stalled
+        # notice, and the finished-but-quiet case, with no special case to get
+        # wrong.
+        last_progress = time.time()
+        while time.time() < deadline:
+            if whole():
+                break
+            if time.time() - last_progress > GRACE_S:
+                break
             chunk = self.s.read(8192)
             if chunk:
                 buf += chunk
+                last_progress = time.time()
+        if not whole():
+            cut = buf.find(TRUNCATED_MARKER)
+            end_at = buf.find(END_MARKER)
+            if cut >= 0:
+                why = "device reported it gave up"
+            elif 0 <= end_at < size:
+                # Every firmware before this one printed the terminator on the
+                # release path unconditionally, so a short frame arrived stamped
+                # complete. This tool reads devices running those builds.
+                cut, why = end_at, "device ended the frame early"
+            else:
+                cut, why = len(buf), "no terminator: device stopped talking"
+            buf = buf[:cut]
+            # The device precedes the notice with one newline to break out of
+            # the binary stream. Dropping it keeps the reported byte count the
+            # true one rather than always one high.
+            if buf.endswith(b"\n"):
+                buf = buf[:-1]
+            truncated = why
+            if len(buf) >= size:
+                # Enough bytes, no terminator. Refuse rather than guess.
+                buf = buf[: size - 1]
         if len(buf) < size:
-            print(f"short read: {len(buf)}/{size}", file=sys.stderr)
+            # The device says so itself now. Report ITS reason when it gave one:
+            # "short read" alone cannot tell a wedged cable from a crashed
+            # device, and that ambiguity is what cost a night.
+            print(
+                f"short read: {len(buf)}/{size} {f'({truncated})' if truncated else ''}".rstrip(),
+                file=sys.stderr,
+            )
             return None
         return buf[:size]
 
@@ -225,6 +388,11 @@ class WifiLink:
             return self._get_text("/api/dev/log", timeout)
         if verb == "PING":
             return self._get_text("/api/status", timeout, auth=False)
+        # The counters, over the network. Worth its own route precisely because
+        # the question it answers -- what did the cable do -- is unaskable over
+        # the cable once the cable is the thing that stopped answering.
+        if verb == "CDCSTAT":
+            return self._get_text("/api/dev/serial", timeout)
         try:
             with self._open("/api/dev/input", data=verb.encode(), method="POST", timeout=timeout) as r:
                 return r.read().decode("utf-8", "replace").strip()
@@ -260,8 +428,15 @@ class WifiLink:
     def screenshot_raw(self, timeout=30.0):
         try:
             with self._open("/api/dev/screen", timeout=timeout) as r:
-                width = int(r.headers.get("X-Panel-Width", PANEL_W))
-                height = int(r.headers.get("X-Panel-Height", PANEL_H))
+                # Headers are device input too. int() raises on anything that
+                # is not a number and ValueError is not in the except tuple
+                # below, so a malformed header killed the process -- taking a
+                # `serve` session's device state with it. The cable path was
+                # given this guard and its twin here was not.
+                width = panel_number(r.headers.get("X-Panel-Width"), PANEL_W, "X-Panel-Width")
+                height = panel_number(r.headers.get("X-Panel-Height"), PANEL_H, "X-Panel-Height")
+                if width is None or height is None:
+                    return None
                 self.panel = (width, height)
                 self.panel_read = True
                 data = r.read()
@@ -277,6 +452,18 @@ class WifiLink:
             # only OSError turned that into a traceback.
             print(f"screenshot failed: {e}", file=sys.stderr)
             return None
+
+
+def panel_number(raw, fallback, name):
+    """A panel dimension from a header: absent means the default, present means
+    it has to be a plausible number. None on refusal."""
+    if raw is None:
+        return fallback
+    text = raw.strip()
+    if not text.isdigit() or not 0 < int(text) <= 10000:
+        print(f"{name}: {raw!r} is not a panel dimension", file=sys.stderr)
+        return None
+    return int(text)
 
 
 def screenshot(link, out_path, timeout=30.0):

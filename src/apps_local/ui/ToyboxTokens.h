@@ -90,6 +90,8 @@ constexpr CutMetrics kTileCut{21, 17, 13};     // toybox_10
 constexpr CutMetrics kButtonCut{29, 24, 18};   // toybox_14
 constexpr CutMetrics kUiCut{42, 34, 25};       // toybox_20
 constexpr CutMetrics kDisplayCut{63, 51, 38};  // toybox_30
+constexpr CutMetrics kLargeCut{92, 74, 57};    // toybox_44
+constexpr CutMetrics kHugeCut{133, 108, 82};   // toybox_64
 
 // Connections speaks Instrument Serif, so its three cuts need the same
 // treatment: the serif line boxes are proportionally taller still, and a 26px

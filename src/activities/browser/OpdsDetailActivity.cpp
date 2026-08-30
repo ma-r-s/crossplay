@@ -10,6 +10,8 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <string>
+#include <vector>
 
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
@@ -26,10 +28,39 @@ constexpr freeink::ui::ActionId ACTION_DOWNLOAD = 1;
 // The safe area runs to the bezel; text flush against it reads as a bug.
 constexpr int16_t SIDE_PADDING = 16;
 
-// The cover box. Everything the catalog sends is fitted into this, so the
-// layout never moves with the image.
-constexpr int16_t COVER_W = 120;
-constexpr int16_t COVER_H = 180;
+// The description decides the arrangement, the way the catalog's shape decides
+// the entry screen. Without one there is nothing to fill the lower half, so
+// the cover becomes the screen and everything centres under it. With one, the
+// cover steps aside into a column so the text has room.
+//
+// Portrait, centered: the bookshop look, used when there is no description.
+constexpr int16_t COVER_BIG_W = 200;
+constexpr int16_t COVER_BIG_H = 300;
+// Small, beside a column of facts, used when a description needs the space.
+constexpr int16_t COVER_SMALL_W = 110;
+constexpr int16_t COVER_SMALL_H = 165;
+
+// "Herbert, Frank · 2005 · English · EPUB · 73 MB" is what catalogs pack into
+// the author field. Split on the separator so a layout can lay the facts out
+// as rows instead of truncating the line at "73...".
+std::vector<std::string> splitFacts(const std::string& line) {
+  std::vector<std::string> out;
+  size_t start = 0;
+  const std::string sep = " \u00b7 ";
+  // The separator is a UTF-8 middle dot; search for the raw bytes.
+  static const char kSep[] = "\xc2\xb7";
+  while (start <= line.size()) {
+    const size_t at = line.find(kSep, start);
+    std::string part = line.substr(start, at == std::string::npos ? std::string::npos : at - start);
+    // Trim the spaces that surrounded the dot.
+    while (!part.empty() && part.front() == ' ') part.erase(part.begin());
+    while (!part.empty() && part.back() == ' ') part.pop_back();
+    if (!part.empty()) out.push_back(part);
+    if (at == std::string::npos) break;
+    start = at + sizeof(kSep) - 1;
+  }
+  return out;
+}
 }  // namespace
 
 OpdsDetailActivity::OpdsDetailActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, OpdsEntry entry,
@@ -84,11 +115,6 @@ void OpdsDetailActivity::onEnter() {
   requestUpdate();
 }
 
-fui::Rect OpdsDetailActivity::coverBox(const fui::Rect& content) const {
-  const int16_t x = static_cast<int16_t>(content.x + (content.width - COVER_W) / 2);
-  return fui::Rect{x, content.y, COVER_W, COVER_H};
-}
-
 void OpdsDetailActivity::drawPlaceholder(UiScreen& screen, const fui::Rect& box) {
   // One placeholder for every failure: no cover link, a fetch that timed out,
   // and a format we cannot decode. Distinguishing them on screen would only
@@ -121,27 +147,46 @@ void OpdsDetailActivity::drawCover(UiScreen& screen, const fui::Rect& box) {
 
 void OpdsDetailActivity::paintCover() {
   if (!coverAvailable || coverRect.width <= 0 || coverRect.height <= 0) return;
-  HalFile file;
-  if (!Storage.openFileForRead("OPDS", coverPath.c_str(), file)) return;
-  Bitmap bitmap(file);
-  // The constructor only stores the handle; dimensions are zero until the
-  // headers are parsed.
-  const BmpReaderError err = bitmap.parseHeaders();
-  if (err != BmpReaderError::Ok) {
-    LOG_DBG("OPDS", "cover unreadable: %s", Bitmap::errorToString(err));
-    return;
+
+  // BMP first, because it needs no decoder at all: the Get Books service
+  // serves 8-bit greyscale BMP for exactly that reason, and it is the only
+  // path that also works in the simulator, where JPEGDEC is not built.
+  {
+    HalFile bmpFile;
+    if (Storage.openFileForRead("OPDS", coverPath.c_str(), bmpFile)) {
+      Bitmap probe(bmpFile);
+      if (probe.parseHeaders() == BmpReaderError::Ok) {
+        const float fit = std::min(static_cast<float>(coverRect.width) / static_cast<float>(probe.getWidth()),
+                                   static_cast<float>(coverRect.height) / static_cast<float>(probe.getHeight()));
+        const float scale = fit < 1.0f ? fit : 1.0f;  // matches drawBitmap: never upscale
+        const int drawnW = static_cast<int>(probe.getWidth() * scale);
+        const int drawnH = static_cast<int>(probe.getHeight() * scale);
+        renderer.drawBitmap(probe, coverRect.x + (coverRect.width - drawnW) / 2,
+                            coverRect.y + (coverRect.height - drawnH) / 2, coverRect.width, coverRect.height);
+        return;
+      }
+    }
   }
-  // Fits within the box preserving aspect, so a landscape or square cover
-  // letterboxes rather than stretching, and a small one is not blown up --
-  // a 90px thumbnail scaled to 240 is mush at 1 bit.
-  const float fit = std::min(static_cast<float>(coverRect.width) / static_cast<float>(bitmap.getWidth()),
-                             static_cast<float>(coverRect.height) / static_cast<float>(bitmap.getHeight()));
-  const float scale = fit < 1.0f ? fit : 1.0f;  // matches drawBitmap: never upscale
-  const int drawnW = static_cast<int>(bitmap.getWidth() * scale);
-  const int drawnH = static_cast<int>(bitmap.getHeight() * scale);
-  const int x = coverRect.x + (coverRect.width - drawnW) / 2;
-  const int y = coverRect.y + (coverRect.height - drawnH) / 2;
-  renderer.drawBitmap(bitmap, x, y, coverRect.width, coverRect.height);
+
+  // Anything else -- other catalogs serve JPEG and PNG. The EPUB reader
+  // already decodes both for in-book images; this is the same decoder.
+  if (ImageDecoderFactory::isFormatSupported(coverPath)) {
+    ImageToFramebufferDecoder* decoder = ImageDecoderFactory::getDecoder(coverPath);
+    if (decoder) {
+      RenderConfig config;
+      config.x = coverRect.x;
+      config.y = coverRect.y;
+      config.maxWidth = coverRect.width;
+      config.maxHeight = coverRect.height;
+      // Dithered 1-bit, not greyscale. The panel is 1-bit, and asking the
+      // decoder for greyscale here produced a solid black rectangle: the
+      // grey levels have nowhere to go in this draw path.
+      config.useGrayscale = false;
+      config.useDithering = true;
+      if (decoder->decodeToFramebuffer(coverPath, renderer, config)) return;
+      LOG_DBG("OPDS", "cover decode failed: %s", decoder->getFormatName());
+    }
+  }
 }
 
 void OpdsDetailActivity::screenTrampoline(UiScreen& screen, void* user) {
@@ -169,29 +214,63 @@ void OpdsDetailActivity::buildScreen(UiScreen& screen) {
   // line hides the part that distinguishes editions.
   title.maxLines = 2;
   fui::TextStyle body = theme.bodyText;
-  body.maxLines = 2;
   const int16_t titleH = screen.target().lineHeight(title.font);
   const int16_t bodyH = screen.target().lineHeight(body.font);
   const int16_t gap = theme.spaceMd;
 
-  // Cover left, text right. With no cover the text column simply widens, so
-  // the absent case is not a hole in the layout -- the arrangement that put a
-  // full-width cover box on top left a third of the screen as an empty frame.
-  screen.spacer(gap);
-  const fui::Rect row = screen.takeTop(COVER_H, gap);
-  drawCover(screen, fui::Rect{row.x, row.y, COVER_W, COVER_H});
+  // "Herbert, Frank · 2005 · English · EPUB · 731 kB" is one field as far as
+  // the catalog is concerned. Split it so the author -- the part a reader
+  // actually reads -- gets its own line and the rest stays on one tidy row
+  // instead of wrapping into a ragged block.
+  const std::vector<std::string> facts = splitFacts(metaLine);
+  const std::string author = facts.empty() ? std::string() : facts.front();
+  std::string details;
+  for (size_t i = 1; i < facts.size(); ++i) {
+    if (!details.empty()) details += " \u00b7 ";
+    details += facts[i];
+  }
 
-  const int16_t textX = static_cast<int16_t>(row.x + COVER_W + gap);
-  const int16_t textW = static_cast<int16_t>(row.width - COVER_W - gap);
-  screen.target().text(fui::Rect{textX, row.y, textW, static_cast<int16_t>(titleH * 2)}, entry.title.c_str(), title);
-  screen.target().text(
-      fui::Rect{textX, static_cast<int16_t>(row.y + titleH * 2 + 4), textW, static_cast<int16_t>(bodyH * 2)},
-      metaLine.c_str(), body);
+  if (entry.summary.empty()) {
+    // ---- No description: the cover is the screen ----
+    screen.spacer(gap);
+    const fui::Rect coverRow = screen.takeTop(COVER_BIG_H, gap);
+    drawCover(screen, fui::Rect{static_cast<int16_t>(coverRow.x + (coverRow.width - COVER_BIG_W) / 2), coverRow.y,
+                                COVER_BIG_W, COVER_BIG_H});
 
-  // Summary fills what is left. Most of the screen was empty without it, and
-  // it is the thing that tells two editions apart when the covers do not.
-  if (!entry.summary.empty()) {
-    fui::TextStyle summary = theme.bodyText;
+    fui::TextStyle centeredTitle = title;
+    centeredTitle.align = fui::TextAlign::Center;
+    screen.target().text(screen.takeTop(static_cast<int16_t>(titleH * 2), 6), entry.title.c_str(), centeredTitle);
+
+    fui::TextStyle centeredBody = body;
+    centeredBody.align = fui::TextAlign::Center;
+    centeredBody.maxLines = 1;
+    if (!author.empty()) {
+      screen.target().text(screen.takeTop(bodyH, 2), author.c_str(), centeredBody);
+    }
+    if (!details.empty()) {
+      screen.target().text(screen.takeTop(bodyH, gap), details.c_str(), centeredBody);
+    }
+  } else {
+    // ---- With a description: cover steps aside, text gets the room ----
+    screen.spacer(gap);
+    screen.target().text(screen.takeTop(static_cast<int16_t>(titleH * 2), gap), entry.title.c_str(), title);
+
+    const fui::Rect row = screen.takeTop(COVER_SMALL_H, gap);
+    drawCover(screen, fui::Rect{row.x, row.y, COVER_SMALL_W, COVER_SMALL_H});
+
+    // One fact per line so nothing truncates and the eye can scan down.
+    const int16_t factX = static_cast<int16_t>(row.x + COVER_SMALL_W + gap);
+    const int16_t factW = static_cast<int16_t>(row.width - COVER_SMALL_W - gap);
+    int16_t factY = row.y;
+    fui::TextStyle fact = body;
+    fact.maxLines = 1;
+    for (const auto& f : facts) {
+      if (factY + bodyH > row.y + row.height) break;
+      screen.target().text(fui::Rect{factX, factY, factW, bodyH}, f.c_str(), fact);
+      factY = static_cast<int16_t>(factY + bodyH + 2);
+    }
+
+    fui::TextStyle summary = body;
     const fui::Rect remaining = screen.body();
     const int16_t summaryH = static_cast<int16_t>(remaining.height - theme.rowHeight - gap * 2);
     if (summaryH > bodyH) {

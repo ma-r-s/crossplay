@@ -84,5 +84,26 @@ expect "a ui suite that never compiled fails the build" fail
 rm -rf "$WORK/host-tests"; fake ui 0 '2284 checks, 0 failed'; fake chess 1 'FAIL boom'
 expect "a non-ui suite failing still fails the build" fail
 
+# Every git dependency must be pinned by its FULL commit id.
+#
+# A short SHA resolves against a warm cache, because the object is already on
+# disk, and fails on a cold clone with `fatal: couldn't find remote ref
+# 8323320` -- a fetch takes a ref or a full commit id, never an abbreviation.
+# So it passes every local build and breaks CI alone, which is the one failure
+# mode nothing else here can see. It cost a red xteink that was blamed on
+# upstream for hours.
+for ini in "$HERE/../.."/platformio*.ini; do
+  [ -f "$ini" ] || continue
+  while IFS= read -r pin; do
+    checks=$((checks + 1))
+    if [ "${#pin}" -eq 40 ]; then
+      :
+    else
+      failed=$((failed + 1))
+      echo "FAIL ci  $(basename "$ini"): git pin '#$pin' is ${#pin} chars, not a full 40-character commit id; it will fail on a cold clone"
+    fi
+  done < <(grep -oE '^[^;#]*=(https?|git)://[^ ]*#[0-9a-f]+' "$ini" | sed 's/.*#//')
+done
+
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]

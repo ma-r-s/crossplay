@@ -53,14 +53,15 @@ restyled to match the design language the apps use.
 | **Sudoku**       | Generated on the device and graded by the technique it needs, not the clues. |
 | **Sea Salt**     | Sea Salt & Paper: collect duos, bet on STOP or LAST CHANCE.                  |
 | **Toy Battle**   | Nine boards of bases and paths. Hold regions, take medals, solo or nearby.   |
+| **Forehead**     | Screen against your forehead, the room shouts clues, sixty seconds.          |
 | **Study**        | Anki decks with the FSRS scheduler, offline.                                 |
 | **Hacker News**  | The front page in a reading serif, articles kept on the card.                |
 | **xkcd**         | The archive, packed for the card and drawn one to one.                       |
+| **Get Books**    | Browse any OPDS catalog and download straight to the card, no computer.      |
 
-Chess, Battleship, Jaipur, Knucklebones, Checkers, Connect Four, Yahtzee and
-Sea Salt and Toy Battle play
-over **PLAY NEARBY**: put two devices next to
-each other and they find one another. No pairing screen, no room code, no
+Nine of them play over **PLAY NEARBY**: Chess, Checkers, Connect Four,
+Yahtzee, Knucklebones, Battleship, Jaipur, Sea Salt and Toy Battle. Put two
+devices next to each other and they find one another. No pairing screen, no room code, no
 account, no router, no internet.
 
 Each game's rules, its state machines and the decisions behind them:
@@ -93,6 +94,17 @@ right answer and is excellent.
 
 You do not need to have installed CrossPoint first.
 
+### From the browser
+
+Open [**crossplay.ma-r-s.com/#get**](https://crossplay.ma-r-s.com/#get) in
+Chrome or Edge on a computer, plug the device in, wake it, and press **Install**.
+The page downloads the current release and writes it over USB itself; there is
+nothing to install first and no command to type. Safari and Firefox have no Web
+Serial, and no phone or tablet does either, so the button says so rather than
+failing when pressed.
+
+### By hand
+
 1. Download your device's full image from the
    [releases page](https://github.com/ma-r-s/crossplay/releases):
    `crossplay-<version>-x4pro-full.bin` for the X4 Pro,
@@ -123,6 +135,26 @@ exact filename, so do not rename it.
 `-full.bin` is for the USB install only. Do not hand it to the on-device
 updater: that would be writing a bootloader into a slot meant for the
 application.
+
+### Reflashing without a cable
+
+**Settings > System > Developer Mode** turns any device into one you can flash
+over Wi-Fi, including a device that has only ever run shipped releases: it is a
+setting, not a build flag. Pair once with the six-digit code the screen shows,
+then every flash after that is one command.
+
+```bash
+./scripts_local/wifi-flash.sh --pair 123456
+./scripts_local/wifi-flash.sh
+./scripts_local/wifi-flash.sh --disable
+```
+
+It is off until you turn it on, it says on the panel that the device will not
+sleep while it is on, and `--disable` closes it again. It also serves the last
+panic, its backtrace and the log lines from before the reset at
+`GET /api/dev/crash`, which used to need a cable to read.
+[docs/developer-mode.md](docs/developer-mode.md) has the rest, including what
+protects it.
 
 Two things worth knowing before you start:
 

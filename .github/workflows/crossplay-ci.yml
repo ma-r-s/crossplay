@@ -28,6 +28,12 @@ jobs:
       - uses: actions/checkout@v6
         with:
           submodules: recursive
+          # Tags, or host-tests/release cannot compare this release's notes
+          # against what the previous tag published -- it SKIPS instead, which
+          # is exactly the check silently not running in the only place that
+          # would have caught v1.6.2 shipping v1.6.1's text.
+          fetch-depth: 0
+          fetch-tags: true
 
       - uses: actions/setup-python@v6
         with:
@@ -78,6 +84,18 @@ jobs:
 
       - name: Build the simulator
         run: pio run -e simulator_x4_pro
+
+      # THE ENVS THAT ACTUALLY SHIP. x4pro and sticky above define
+      # CROSSPOINT_DEV_SERIAL_BRIDGE, so every release-only branch in main.cpp
+      # is preprocessed away in both of them -- and until this step existed,
+      # gh_release_* was compiled for the first time by the release workflow,
+      # i.e. after the tag was already pushed. A typo in release-only code cost
+      # a delete-and-retag to find.
+      - name: Build the release firmware (x4pro)
+        run: pio run -e gh_release_x4pro
+
+      - name: Build the release firmware (sticky)
+        run: pio run -e gh_release_sticky
 
       # Nothing is forgiven. ui:paperOnTheBand was a real baseline failure
       # once, and this step carried a carefully shaped exemption for it until

@@ -67,6 +67,28 @@ inline Faces readingChromeFaces() { return Faces{kButtonFontId, kReadingFontId, 
 // cut on the screen where it *is* the title, which is the front page.
 inline Faces readerFaces() { return Faces{kButtonFontId, kReadingFontId, kReadingBoldFontId}; }
 
+// A screen whose content is ONE WORD, sized to be read across a room. All three
+// slots carry a different size of the same face, largest in the title slot,
+// because the card picks the biggest cut the word fits in and a freestanding
+// builder has no way to ask for a rebind mid-layout: whatever it can measure is
+// whatever is bound. The 30px cut doubles as this screen's chrome face, which
+// is why there is no UI cut here and no need for one -- the only other text is
+// two edge labels and a score.
+inline Faces cardFaces() { return Faces{kLargeFontId, kDisplayFontId, kHugeFontId}; }
+
+// A front door with a secondary line under its headline and a record line under
+// the rule. Both are sentences rather than labels, and at the 20px UI cut a
+// sentence runs off a 480px panel and is truncated with an ellipsis Jersey does
+// not carry -- so it draws as nothing and the line simply stops. The small slot
+// takes the button cut, which fits about half again as much.
+inline Faces proseMenuFaces() { return Faces{kButtonFontId, kUiFontId, kDisplayFontId}; }
+
+// A results screen: a header band, a list of words, and one very large number.
+// The title slot stays the display cut so the band is not clipped by a face
+// meant for a card; the huge cut goes in the BODY slot, which is the only slot
+// the score needs, and the list takes the UI cut in the small slot.
+inline Faces bigNumberFaces() { return Faces{kButtonFontId, kHugeFontId, kDisplayFontId}; }
+
 inline fui::GfxRendererTarget makeTarget(const GfxRenderer& renderer, const Faces& faces = Faces{}) {
   fui::GfxRendererTarget target(renderer);
   // The small slot carries the dense cut, not a small UI face; see ToyboxTokens.h.

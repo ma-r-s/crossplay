@@ -31,6 +31,17 @@ checks=0
 failed=0
 ok()   { checks=$((checks + 1)); }
 bad()  { checks=$((checks + 1)); failed=$((failed + 1)); echo "FAIL release  $1"; }
+# Locally a SKIP is information: a full clone may legitimately lack a tag. In
+# CI every input is supposed to be there, so a check that did not run is a
+# FAILURE -- otherwise the fix for "this gate never ran in CI" is itself
+# unguarded, and deleting fetch-tags puts it right back to silently skipping.
+skip() {
+  if [ -n "${CI:-}" ]; then
+    bad "$1 (a skip is a failure in CI: the inputs should be present here)"
+  else
+    echo "SKIP release  $1"
+  fi
+}
 
 for f in "$WF" "$PARSER" "$ROOT/README.md" "$ROOT/site/index.html"; do
   [ -f "$f" ] || { echo "FAIL release  missing $f"; exit 1; }
@@ -718,6 +729,146 @@ if [ "$scanner_ok" -eq 1 ]; then
   ok
 else
   bad "code_lines mishandled the fixture --$scanner_why"
+fi
+
+# -- 14. the release notes are about the release being made ------------------
+#
+# v1.6.2 shipped v1.6.1's notes verbatim. The heading still said "What is new
+# in 1.6.1", so the multiplayer fix that release existed for was announced to
+# nobody, and it was found days later by someone reading the published page
+# rather than by anything here.
+#
+# The notes are hand-written inside the workflow file, which is exactly the kind
+# of place a version number goes stale: nothing about tagging touches them, and
+# the release still builds and publishes perfectly. So assert the one thing that
+# cannot be true of stale notes -- that they name the version being released.
+# Anchored to [crossplay], not positional. `tail -1` picked whichever version=
+# key came last, and platformio.ini has two -- [crosspoint] is upstream's. A
+# merge that adds or reorders a section would have silently repointed this at
+# the wrong number and stayed green.
+NOTES_VERSION="$(awk '/^\[crossplay\]/{f=1;next} /^\[/{f=0} f && /^version *=/{print $3; exit}' "$ROOT/platformio.ini")"
+if [ -z "$NOTES_VERSION" ]; then
+  bad "could not read the crossplay version out of platformio.ini"
+else
+  # The notes block only, not the whole workflow. A cold reviewer defeated the
+  # file-wide version of this with a one-line YAML comment -- `# TODO: What is
+  # new in 1.6.4 -- write the notes` satisfied the gate while every bullet
+  # below it stayed the previous release's.
+  NOTES_BODY="$(awk '/^ *body: \|/{f=1;next} f && /^ *[a-z_-]+:/{f=0} f' "$WF")"
+  # Escaped dots AND a boundary. Two attempts got this wrong: an unanchored grep
+  # treats . as a wildcard, and a "not followed by a dot" guard still passed
+  # "1.6.31" because what follows 1.6.3 there is a digit. The version must be the
+  # whole number -- followed by end of line or by something that is not a digit
+  # or a dot.
+  ESCAPED="$(printf '%s' "$NOTES_VERSION" | sed 's/\./\\./g')"
+  if ! printf '%s' "$NOTES_BODY" | grep -qE "What is new in $ESCAPED([^0-9.]|$)"; then
+    bad "the release notes in $(basename "$WF") do not say \"What is new in $NOTES_VERSION\" -- they are the previous release's, and the tag will publish them"
+  else
+    ok
+  fi
+
+  # And the heading is not the notes. v1.6.2 shipped v1.6.1's text verbatim;
+  # renaming the heading and leaving the bullets is that same failure minus one
+  # line of editing, and the gate above cannot see it. Compare against what the
+  # previous tag actually published.
+  # Strict vMAJOR.MINOR.PATCH only. 'v*' also matched release candidates and any
+  # stray tag, either of which becomes the baseline, differs from the real notes,
+  # and passes the check by accident rather than on merit.
+  # EXCLUDING the version being released. The README has the bump and the tag
+  # going out together, so by the time CI runs, the newest tag IS this version
+  # -- and comparing the notes against themselves skipped the gate in the only
+  # run that could have caught anything.
+  PREV_TAG="$(git -C "$ROOT" tag --list --sort=-v:refname |
+    grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | grep -vx "v$NOTES_VERSION" | head -1)"
+  if [ -z "$PREV_TAG" ]; then
+    skip "no previous tag to compare the notes against"
+  elif ! git -C "$ROOT" cat-file -e "$PREV_TAG:.github/workflows/crossplay-release.yml" 2>/dev/null; then
+    skip "$PREV_TAG has no release workflow to compare against"
+  else
+    # Whitespace-normalised on both sides. Comparing raw text let one inserted
+    # blank line pass a body that was otherwise the previous release's word for
+    # word -- which is the same mistake with one keystroke of camouflage.
+    norm() { grep -v 'What is new in' | tr -s '[:space:]' ' ' | sed 's/^ //; s/ $//'; }
+    PREV_BODY="$(git -C "$ROOT" show "$PREV_TAG:.github/workflows/crossplay-release.yml" |
+      awk '/^ *body: \|/{f=1;next} f && /^ *[a-z_-]+:/{f=0} f' | norm)"
+    THIS_BODY="$(printf '%s' "$NOTES_BODY" | norm)"
+    if [ "$PREV_BODY" = "$THIS_BODY" ]; then
+      bad "the release notes are byte-identical to $PREV_TAG's below the heading -- only the version was renamed, and $NOTES_VERSION would publish that tag's text again"
+    else
+      ok
+    fi
+  fi
+fi
+
+# The tag and the version are bound by a step in the release workflow, and
+# nothing here noticed if that step disappeared -- while scripts_local/README.md
+# told people this suite enforced it. Assert the step's substance, the way
+# host-tests/ci asserts CI's.
+# EXECUTE the step, do not grep it. Four greps for its ingredients passed a
+# version of it ending in `&& false`, which can never fire -- the ingredients
+# were all still there. host-tests/ci runs CI's step text for the same reason.
+GUARD="$(awk '/- name: The tag must be the version being built/{f=1;next}
+              f && /^      - /{exit}
+              f && /run: \|/{g=1;next}
+              g' "$WF")"
+if [ -z "$GUARD" ]; then
+  bad "$(basename "$WF") has no tag-versus-version step"
+else
+  guard_says() { (cd "$ROOT" && GITHUB_REF_NAME="$1" bash -c "$GUARD" > /dev/null 2>&1); }
+  if guard_says "v$NOTES_VERSION"; then
+    ok
+  else
+    bad "the release workflow's tag check rejects the correct tag v$NOTES_VERSION"
+  fi
+  # The half that matters, and the half a grep cannot see.
+  if guard_says "v0.0.1-wrong"; then
+    bad "the release workflow's tag check ACCEPTS a tag that disagrees with [crossplay] version"
+  else
+    ok
+  fi
+fi
+
+# The host must still be listening when the device gives up, or a precise
+# "device reported it gave up" degrades into "device stopped talking". The two
+# numbers live in different languages in different directories and nothing made
+# them agree; they were equal, which is not ordered.
+GRACE_S="$(sed -n 's/^GRACE_S = \([0-9.]*\).*/\1/p' "$ROOT/tools_local/device/drive.py" | head -1)"
+STALL_MS="$(sed -n 's/^constexpr unsigned long kBulkStallMs = \([0-9]*\).*/\1/p' "$ROOT/src/DevSerialBridge.cpp" | head -1)"
+if [ -z "$GRACE_S" ] || [ -z "$STALL_MS" ]; then
+  bad "cannot read GRACE_S (drive.py) or kBulkStallMs (DevSerialBridge.cpp); one of them was renamed"
+elif [ "$(awk -v g="$GRACE_S" -v s="$STALL_MS" 'BEGIN{print (g*1000 > s) ? 1 : 0}')" = "1" ]; then
+  ok
+else
+  bad "drive.py GRACE_S (${GRACE_S}s) must exceed DevSerialBridge kBulkStallMs (${STALL_MS}ms): the device gives up after the host stopped listening"
+fi
+
+# -- the Install button asks for a file the release actually publishes ---------
+#
+# site/api/firmware.js builds the download URL from a filename template rather
+# than looking the asset up, which is the trade that keeps the GitHub API's
+# per-IP rate limit off a shared server address. The cost is a literal filename
+# in a second file, and nothing else would ever notice it drifting: renaming the
+# artefact in the workflow leaves the site rendering perfectly, the button
+# reaching a 404, and every other check green.
+#
+# Read from the JS rather than listed here, so adding a third board fails until
+# the workflow names its image too.
+API="$ROOT/site/api/firmware.js"
+if [ ! -f "$API" ]; then
+  bad "site/api/firmware.js is gone -- the Install button has nothing to download from"
+else
+  ok
+  api_boards="$(grep -oE 'crossplay-\{tag\}-[a-z0-9]+-full\.bin' "$API" \
+                | sed -E 's/^crossplay-\{tag\}-//; s/-full\.bin$//' | sort -u)"
+  wf_boards="$(grep -oE 'crossplay-\$\{GITHUB_REF_NAME\}-[a-z0-9]+-full\.bin' "$WF" \
+               | sed -E 's/^crossplay-\$\{GITHUB_REF_NAME\}-//; s/-full\.bin$//' | sort -u)"
+  if [ -z "$api_boards" ]; then
+    bad "api/firmware.js names no -full.bin image, so the Install button can never download one"
+  elif [ "$api_boards" = "$wf_boards" ]; then
+    ok
+  else
+    bad "the Install button asks for [$(echo $api_boards)] and the release publishes [$(echo $wf_boards)]"
+  fi
 fi
 
 echo "$checks checks, $failed failed"

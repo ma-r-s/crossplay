@@ -21,6 +21,8 @@
 
 #if CROSSPOINT_DEV_SERIAL_BRIDGE
 
+#include <cstddef>
+
 namespace devbridge {
 
 // Call once after the display HAL is up; on boards whose transport is a real
@@ -29,6 +31,13 @@ void begin();
 
 // Poll for complete command lines. Call every loop() iteration.
 void update();
+
+// The transport's TX counters, as one line, for callers that are not the
+// transport. This exists because the failure it measures KILLS the cable: a
+// device whose serial has gone answers nothing on CMD:CDCSTAT, and the numbers
+// that would explain why are only reachable over Wi-Fi. Writes at most `len`
+// bytes including the terminator.
+void txStatsLine(char* out, size_t len);
 
 }  // namespace devbridge
 

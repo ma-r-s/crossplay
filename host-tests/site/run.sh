@@ -78,5 +78,94 @@ for prop in --panel-long --panel-room; do
   fi
 done
 
+# -- the install button's ids, spelled in two files that never see each other --
+#
+# assets/install.js finds every control by getElementById. A renamed id in
+# index.html does not break the page, does not log anything, and does not fail a
+# build: the panel renders exactly as before and the button quietly does
+# nothing, because init() returned early on a null it never checked. That is the
+# same class of bug as the orientation attribute above, on the one control here
+# that writes to somebody's hardware.
+INSTALL="$ROOT/site/assets/install.js"
+HTML="$ROOT/site/index.html"
+for f in "$INSTALL" "$HTML"; do
+  [ -f "$f" ] || { echo "FAIL site  missing $f"; exit 1; }
+done
+
+# Quote-agnostic: the repository formatter rewrites JS string quotes, and a
+# check that only knows one of them fails on a reformat rather than on a bug.
+ids="$(sed -nE 's/.*\$\(["'"'"']([A-Za-z]+)["'"'"']\).*/\1/p' "$INSTALL" | sort -u)"
+if [ -z "$ids" ]; then
+  bad "install.js looks up no element ids at all"
+else
+  ok
+  for id in $ids; do
+    if grep -q "id=\"$id\"" "$HTML"; then
+      ok
+    else
+      bad "install.js asks for #$id and index.html has no such element"
+    fi
+  done
+fi
+
+# -- the device ids, spelled in four files ------------------------------------
+#
+# The radio value is what index.html sends, install.js keys its restart text
+# off, api/firmware.js turns into a filename, and serve.py mirrors for local
+# work. Any one of them out of step is a button that downloads a 404 for
+# whichever device nobody tested.
+API="$ROOT/site/api/firmware.js"
+SERVE="$ROOT/site/serve.py"
+for f in "$API" "$SERVE"; do
+  [ -f "$f" ] || { echo "FAIL site  missing $f"; exit 1; }
+done
+
+devices="$(grep -oE 'name="install-device" value="[a-z0-9]+"' "$HTML" | sed -E 's/.*value="//; s/"//' | sort -u)"
+if [ -z "$devices" ]; then
+  bad "index.html offers no device to install onto"
+else
+  ok
+  for d in $devices; do
+    grep -qE "^ *$d: \{" "$INSTALL" && ok || bad "index.html offers device '$d' and install.js has no entry for it"
+    grep -qE "^ *$d: [\"']" "$API" && ok || bad "index.html offers device '$d' and api/firmware.js cannot name its image"
+    grep -qE "\"$d\": \"" "$SERVE" && ok || bad "index.html offers device '$d' and serve.py cannot name its image, so it is untestable locally"
+  done
+fi
+
+# The two halves of the endpoint have to agree on the filename, or local work
+# passes against a name production never asks for.
+api_names="$(grep -oE 'crossplay-\{tag\}-[a-z0-9]+-full\.bin' "$API" | sort -u)"
+serve_names="$(grep -oE 'crossplay-\{tag\}-[a-z0-9]+-full\.bin' "$SERVE" | sort -u)"
+if [ -n "$api_names" ] && [ "$api_names" = "$serve_names" ]; then
+  ok
+else
+  bad "api/firmware.js and serve.py disagree about the image filename"
+fi
+
+# -- every game and app on the shelf is showcased on the page ------------------
+#
+# The one gap here is not a mismatch between two files, it is an ABSENCE: a game
+# that shipped and was never written up looks exactly like a game that does not
+# exist. Two of them had been on the shelf for eleven releases. The list comes
+# out of Shelf.cpp, so a new app fails this until somebody writes it up.
+# The status is checked, not just the output, and that distinction is the whole
+# reason this block is four lines longer than it looks like it should be. This
+# check reports gaps by PRINTING them, so "printed nothing" is its success
+# signal -- and a script that crashes also prints nothing to stdout. Wired the
+# obvious way, a shelf_coverage.py with a syntax error made the suite report
+# "29 checks, 0 failed" and exit 0, which is the worst possible outcome: a
+# guard that has stopped guarding while still saying it is fine. Verified by
+# replacing the script with `raise SystemExit("boom")` and watching it pass.
+if shelf_missing="$(python3 "$HERE/shelf_coverage.py" "$ROOT" 2>&1)"; then
+  if [ -z "$shelf_missing" ]; then
+    ok
+  else
+    while IFS= read -r line; do bad "$line"; done <<< "$shelf_missing"
+  fi
+else
+  bad "shelf_coverage.py could not run, so the shelf went unchecked:"
+  while IFS= read -r line; do echo "      $line"; done <<< "$shelf_missing"
+fi
+
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]

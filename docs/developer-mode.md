@@ -125,6 +125,7 @@ broke.
 | `POST /api/dev/flash` | `path` | validates, installs, reboots |
 | `GET /api/dev/crash` | | panic message, backtrace, log from before the reset |
 | `GET /api/dev/log` | | the live log ring |
+| `GET /api/dev/serial` | | the cable's TX counters (see below) |
 
 All but `pair` require `X-Dev-Token`.
 
@@ -183,6 +184,46 @@ uv run --with pillow tools_local/device/drive.py --ip 192.168.68.78 \
 - `GET /api/dev/screen` -- the framebuffer as it stands: 1bpp, row-major, MSB
   leftmost, `X-Panel-Width`/`X-Panel-Height` headers. The same bytes the serial
   bridge streams, so one decoder serves both.
+- `GET /api/dev/serial` -- what the USB cable's transmit path has been doing.
+  One line: `mac` (which unit this is), `plugged` and `connected` (is a host
+  attached, and does it have the port open), `short` and `zero` (writes the ring
+  took only part of, and writes it refused outright), `retryMs` and
+  `worstStallMsLifetime` (time spent waiting on a full ring, in total and at its
+  worst), `timeouts`, and `logDrops` (log lines discarded rather than blocked
+  on). `drive.py cdcstat` reads it, and reads `CMD:CDCSTAT` down the cable for
+  the same numbers.
+
+  `mac` leads, and it is read from efuse rather than from `WiFi`, so it answers
+  with the radio off -- the state a device in a link match is in. Over the cable
+  it duplicates what `ioreg` already knows; over Wi-Fi it is the only way to
+  tell two identical desk units apart, and identifying a unit immediately before
+  writing to it is the standing rule here.
+
+  `plugged` and `connected` come next because without them the rest is
+  ambiguous: `HWCDC::write` returns the full size when no host has the port
+  open, so a device discarding every byte reports `short=0 zero=0 timeouts=0`,
+  byte-identical to a healthy idle one.
+
+  **Those two fields mean nothing on the Sticky.** Its `serialTransport()` is
+  `Serial0`, a UART behind a WCH bridge, while `HWCDC::isPlugged()` reports the
+  USB-Serial-JTAG peripheral the log does not use, and a `HardwareSerial` is
+  always truthy. Read them on the X4 Pro; ignore them on the Sticky. `logDrops`
+  is structurally zero there too, because that board logs through
+  `esp_rom_printf`, which never reaches the drop path. The rest of the counters
+  are honest on both.
+
+  `logDrops` is not an error count. Serial logging is deliberately lossy now: a
+  line that does not fit the 256-byte ring at the instant it is written is
+  dropped rather than waited on, because waiting is what took the cable down in
+  the first place. Under a burst -- boot at `LOG_LEVEL=2` especially -- expect
+  to lose lines on a perfectly healthy device. The RTC ring behind
+  `/api/dev/log` still receives every line, but it is only sixteen deep, so
+  neither channel is a complete transcript.
+
+  It exists over Wi-Fi because the question it answers -- what did the cable do
+  -- is unaskable over the cable once the cable is the thing that stopped
+  answering, and the RTC log ring is only sixteen lines. A dev build, unlike the
+  rest of the table.
 
 **The verbs live in one place**, `lib/DevInput/DevInputCommands.cpp`, and both
 transports call it. A device that answers `TAP` down a cable but not over Wi-Fi,

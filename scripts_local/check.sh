@@ -147,6 +147,13 @@ if [ "${1:-}" = "--committed" ]; then
   else
     echo "  no workspace marker found; this will be a cold build"
   fi
+  # The envs that SHIP are not the envs anyone builds. x4pro and sticky define
+  # CROSSPOINT_DEV_SERIAL_BRIDGE, so the release-only branches of main.cpp are
+  # preprocessed away in every routine build -- and gh_release_* is compiled
+  # for the first time by the release workflow, AFTER the tag exists. A typo
+  # there costs a delete-and-retag. --committed is the mode you run because you
+  # are about to rely on the result, so it builds them.
+  export CHECK_BUILD_RELEASE_ENVS=1
   (cd "$TRIAL" && ./scripts_local/check.sh "${2:-}")
   exit $?
 fi
@@ -200,6 +207,9 @@ for suite in host-tests/*/; do
     FAILED=1
   else
     printf "  %-12s ok (%s sub-suite(s), %s)\n" "$name" "$passed" "$(since $T0)"
+    # A check that did not run must not scroll past looking like one that
+    # passed. Suites write SKIP to their own log, which nothing surfaced.
+    grep -E "^SKIP" "$LOGS/$name.log" | head -5 | sed 's/^/      /'
   fi
 done
 
@@ -340,12 +350,26 @@ if [ "${1:-}" != "--tests" ]; then
   # would mean committed x4pro builds never took the lock at all.
   FW_LOCK="${PLATFORMIO_BUILD_CACHE_DIR:-$WS/.pio-cache}/x4pro.lock"
 
-  # Both firmware envs (x4pro, sticky) reach into that same ~/.platformio, so
-  # the lock is taken before the first of them and held until the last is done.
-  for env in simulator_x4_pro x4pro sticky; do
+  BUILD_ENVS="simulator_x4_pro x4pro sticky"
+  # See the note in the --committed block: these are the only builds that
+  # compile the release-path serial code at all.
+  [ -n "${CHECK_BUILD_RELEASE_ENVS:-}" ] && BUILD_ENVS="$BUILD_ENVS gh_release_x4pro gh_release_sticky"
+
+  # Every env here except the native simulator reaches into the shared
+  # ~/.platformio, so the lock must SPAN from the first of them to the last.
+  # Both ends are derived from the list rather than named, because naming them
+  # is how this broke: gh_release_x4pro and gh_release_sticky were appended in
+  # 2f860bee and the hardcoded release on "sticky" was not moved with them, so
+  # for a week both release builds ran with no lock at all. That makes a release
+  # gate and any other tree's device build collide by design, and it surfaces as
+  # a missing framework header naming no file of ours -- WiFi.h on 2026-08-29,
+  # the same shape as the sdkconfig.h failure that has cost two sessions.
+  FIRST_FW_ENV="$(printf '%s\n' $BUILD_ENVS | grep -v '^simulator' | head -1)"
+  LAST_FW_ENV="$(printf '%s\n' $BUILD_ENVS | grep -v '^simulator' | tail -1)"
+  for env in $BUILD_ENVS; do
     printf "build: %-18s %s ...\n" "$env" "$(date +%H:%M:%S)"
     BUILD_T0=$(date +%s)
-    if [ "$env" = "x4pro" ] && [ -d "$(dirname "$FW_LOCK")" ]; then
+    if [ "$env" = "$FIRST_FW_ENV" ] && [ -d "$(dirname "$FW_LOCK")" ]; then
       waited=0
       while ! mkdir "$FW_LOCK" 2>/dev/null; do
         [ $(( waited % 30 )) -eq 0 ] && echo "  waiting for another tree's firmware build (${waited}s) ..."
@@ -371,7 +395,7 @@ if [ "${1:-}" != "--tests" ]; then
     # Released as soon as the last firmware build is done rather than at exit,
     # so a tree that still has other work to print does not hold every other
     # tree up.
-    if [ "$env" = "sticky" ]; then
+    if [ "$env" = "$LAST_FW_ENV" ]; then
       rmdir "$FW_LOCK" 2>/dev/null
       trap - EXIT INT TERM
     fi

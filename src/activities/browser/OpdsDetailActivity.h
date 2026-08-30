@@ -11,14 +11,14 @@
  * Book details, shown between tapping a result and downloading it.
  *
  * The cover is whatever the catalog happens to serve: portrait, landscape,
- * tiny, or absent. Every case lands in the same fixed box (see coverBox()),
+ * tiny, or absent. Every case lands in a fixed box,
  * and a missing cover, a failed fetch and an unsupported format all draw the
  * same placeholder -- a timeout should not look like a different bug.
  */
 class OpdsDetailActivity final : public Activity, private UiAppHost {
  public:
-  OpdsDetailActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, OpdsEntry entry,
-                     const OpdsServer& server, std::string feedUrl);
+  OpdsDetailActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, OpdsEntry entry, const OpdsServer& server,
+                     std::string feedUrl);
 
   void onEnter() override;
   void loop() override;
@@ -28,7 +28,6 @@ class OpdsDetailActivity final : public Activity, private UiAppHost {
   static void screenTrampoline(UiScreen& screen, void* user);
   void buildScreen(UiScreen& screen);
   // Fixed destination box for the cover, whatever its source dimensions.
-  freeink::ui::Rect coverBox(const freeink::ui::Rect& content) const;
   void drawCover(UiScreen& screen, const freeink::ui::Rect& box);
   void drawPlaceholder(UiScreen& screen, const freeink::ui::Rect& box);
   void paintCover();
