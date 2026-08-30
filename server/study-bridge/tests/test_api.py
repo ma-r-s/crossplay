@@ -241,6 +241,36 @@ async def run(tmp):
         rows = desktop.db.all("select id from revlog where cid = ?", card_id)
         ok(any(r0[0] == ms for r0 in rows), "desktop should see the device review")
 
+        # --- A review whose card is gone is counted, not silently dropped.
+        gone = struct.pack(d2a.REVLOG_RECORD, 999999999999, ms + 1, 3, 0, 0, 1, 0, 0)
+        header = json.dumps(
+            {
+                "decks": [
+                    {
+                        "slug": "default",
+                        "revlogOffset": 0,
+                        "revlogLen": len(gone),
+                        "cardsLen": 0,
+                    }
+                ]
+            }
+        ).encode()
+        r = await web.post(
+            "/api/sync",
+            headers=dev,
+            content=struct.pack("<I", len(header)) + header + gone,
+        )
+        jm = r.json()["job"]
+        for _ in range(600):
+            await asyncio.sleep(0.1)
+            st_m = (await web.get("/api/sync/status", headers=dev, params={"job": jm})).json()
+            if st_m["status"] in ("done", "error", "frozen"):
+                break
+        ok(
+            st_m["summary"].get("missing") == 1,
+            f"a review for an absent card must be counted missing, got {st_m['summary'].get('missing')}",
+        )
+
         # --- A parent deck reports its subdecks' cards, or the reader hides it.
         parent = desktop.decks.id("Shared::Level 1")
         note = desktop.new_note(nt)

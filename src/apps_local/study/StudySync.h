@@ -138,6 +138,12 @@ class StudySync {
   // succeeds around them, so the verdict has to name them or the user is
   // told SYNCED and finds a deck missing.
   std::vector<std::string> failedDecks;
+  // Reviews the service could not apply because their card is no longer in
+  // the collection (a deck deleted on the desktop, notes removed, a shared
+  // deck re-imported with fresh card ids). They are dropped there and their
+  // ack still advances here, so they are gone -- and a verdict that counts
+  // them as sent is telling the user the opposite of what happened.
+  int reviewsMissing = 0;
   // "running" | "done" | "error" | "frozen" | "" (transport failure).
   std::string syncStatus(const BridgeState& state, const std::string& jobId, std::vector<DeckManifest>& manifests,
                          std::string& message);

@@ -557,6 +557,7 @@ std::string StudySync::syncStatus(const BridgeState& state, const std::string& j
   }
   const std::string jobStatus = doc["status"].as<const char*>();
   failedDecks.clear();
+  reviewsMissing = doc["summary"]["missing"] | 0;
   if (jobStatus == "error" || jobStatus == "frozen") {
     message = doc["message"] | "Syncing hit a problem on the bridge. Try again in a while.";
   } else if (jobStatus == "done") {

@@ -211,7 +211,7 @@ void StudyActivity::applySyncFlowPreview(const char* state) {
     m.verdict = studyui::SyncVerdictKind::Success;
     std::snprintf(m.title, sizeof(m.title), "SYNCED");
     std::snprintf(m.body, sizeof(m.body), "This reader and your Anki are up to date.");
-    std::snprintf(m.factLines[0], sizeof(m.factLines[0]), "142 REVIEWS SENT");
+    std::snprintf(m.factLines[0], sizeof(m.factLines[0]), "142 SENT, 3 HAD NO CARD IN ANKI");
     std::snprintf(m.factLines[1], sizeof(m.factLines[1]), "2 DECKS UPDATED");
     std::snprintf(m.factLines[2], sizeof(m.factLines[2]), "LAST SYNC 20:15");
     m.factCount = 3;
@@ -363,7 +363,19 @@ bool StudyActivity::findDeckDirs() {
     std::snprintf(probe, sizeof(probe), "%s/%s/meta.dat", kStudyRoot, name);
     if (!Storage.exists(probe)) continue;
     if (deckCount_ >= kMaxDecks) {
+      // Full. Keep the alphabetically-first set rather than whichever eight
+      // the filesystem happened to hand back: truncating before the sort meant
+      // FAT order decided, which is creation order, so the decks dropped were
+      // always the ones just chosen -- the worst possible choice and an
+      // invisible one. Deterministic is not fair, but it is explicable, and
+      // the same decks survive on every boot.
+      int worst = 0;
+      for (int i = 1; i < deckCount_; ++i) {
+        if (std::strcmp(deckNames_[i], deckNames_[worst]) > 0) worst = i;
+      }
       ++decksOverCap_;
+      if (std::strcmp(name, deckNames_[worst]) >= 0) continue;
+      std::snprintf(deckNames_[worst], sizeof(deckNames_[0]), "%s", name);
       continue;
     }
     std::snprintf(deckNames_[deckCount_], sizeof(deckNames_[0]), "%s", name);
@@ -1749,7 +1761,11 @@ void StudyActivity::beginSync() {
 
 void StudyActivity::onSyncWifi(const bool connected) {
   if (!connected) {
-    view_ = View::Deck;
+    // The same guard the two other ways out of the flow carry. Without it,
+    // backing out of the wi-fi list on a card with no decks landed on a deck
+    // screen for a deck that does not exist -- ALL CLEAR, 0 CARDS -- and took
+    // the pairing QR the user still needs off the screen with it.
+    view_ = deckCount_ > 0 ? View::Deck : View::NoDeck;
     requestUpdate();
     return;
   }
@@ -2412,8 +2428,16 @@ void StudyActivity::runSyncFlow() {
 
   flow_.factCount = 0;
   if (reviewCount > 0) {
-    std::snprintf(flow_.factLines[flow_.factCount++], sizeof(flow_.factLines[0]), "%d REVIEW%s SENT", reviewCount,
-                  reviewCount == 1 ? "" : "S");
+    // Corrected in place rather than added as a fourth line: there is room for
+    // three, and the line that needs fixing is this one. "40 SENT" beside a
+    // silent drop of 3 is the claim that misleads.
+    if (sync_.reviewsMissing > 0) {
+      std::snprintf(flow_.factLines[flow_.factCount++], sizeof(flow_.factLines[0]), "%d SENT, %d HAD NO CARD IN ANKI",
+                    reviewCount, sync_.reviewsMissing);
+    } else {
+      std::snprintf(flow_.factLines[flow_.factCount++], sizeof(flow_.factLines[0]), "%d REVIEW%s SENT", reviewCount,
+                    reviewCount == 1 ? "" : "S");
+    }
   }
   if (decksUpdated > 0) {
     // Sending reviews moves the deck's fingerprint, so the bridge rebuilds it

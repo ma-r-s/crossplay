@@ -170,9 +170,12 @@ class StudyActivity final : public Activity {
   // cell on the answer side, so the two faces divide the same bar the same way.
   static constexpr int kUndoSlots = 4;
 
-  // Every deck on the card, discovered at onEnter. Eight is not a limit anyone
-  // will meet: it is one SD card full of separate study subjects.
-  static constexpr int kMaxDecks = 8;
+  // Every deck on the card, discovered at onEnter. Sixteen, not eight: nothing
+  // removes a deck folder, so a card accumulates every deck ever chosen, and
+  // eight slots were reachable by changing your mind once about five decks.
+  // Past the cap a deck is invisible AND unreachable to the sync, so its
+  // reviews are never sent. 16 x 48 bytes is 768.
+  static constexpr int kMaxDecks = 16;
   char deckNames_[kMaxDecks][48] = {};
   int deckCount_ = 0;
   // Deck folders on the card beyond the kMaxDecks this reader can hold. They
