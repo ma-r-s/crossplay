@@ -104,7 +104,7 @@ through the manifest pipeline.
    arrangement bones stay (they won their own round), confirm mechanics
    untouched.
 
-## The three variants to render
+## The three variants to render (SETTLED: V2 won, 2026-08-27)
 
 - V1 "Ladder": vertical checklist, markers in a left gutter, facts
   right-aligned per row (the door's label/value pattern). Verdict as a
@@ -151,3 +151,67 @@ hardware (the sim HAL saves no credentials); mid-flow screens cannot be
 photographed by sim-shot while the flow blocks the loop (preview
 harness covers them); the verdict screen's tap-anywhere exit is
 unlabeled, matching the Image view's house precedent.
+
+## What the done-done pass changed (2026-08-29)
+
+Mario's ask: work until any new user can use this, spawning a cold
+reviewer each round who reads the feature as a stranger, repeating until
+nothing worth fixing comes back. Fifteen rounds. Most of what they found
+was behaviour rather than layout, and lives in the commit messages on
+`app/studyradio`; what follows is only what changes a claim made above.
+
+**A fourth verdict kind: PART WAY.** The table above has success,
+error, neutral and early-leave. One deck the service cannot build no
+longer fails the whole sync, so a run can now end genuinely in between:
+reviews away, most decks current, one deck named as unbuilt. It renders
+Neutral with the ReviewsSafePartialDecks safety, and its what-now line
+points at re-choosing. Cloze decks are the ordinary cause and nothing
+warns beforehand -- the .apkg installer page discloses it, the pairing
+page does not.
+
+**The success footer is composed inside endSyncSession, not passed to
+it.** The brief says the contract is a struct rather than two strings,
+and it is, but the "what is waiting to study" line was still built at
+the call site -- evaluated before endSyncSession reopens the deck the
+flow closed for heap, so it always read zero counts. A user whose first
+deck had just landed was told "Nothing is due right now" with two new
+cards in it. Anything that reads deck counts belongs after the reopen.
+
+**The deck picker is part of this surface now.** It was reachable only
+on a first sync when the brief was written. It gained: rows that cannot
+be chosen drawn with no checkbox at all (greying is not enough at 1bpp,
+DarkGray dithers and reads as black at hairline weight), a caption when
+the account holds more decks than the list carried, and a 200-deck list
+where it was 32.
+
+**The empty-card screen carries two doors.** GET MY DECKS re-downloads
+what was chosen; CHOOSE OTHER DECKS re-opens the question. With one door
+a failed build was a closed room: the only screen a deckless card can
+show set the re-choose flag false whenever decks had been chosen, which
+the failing pass sets true before it fails.
+
+**Warnings share the scope line.** At four doors the deck screen has no
+spare row -- above the ornament the brackets start five pixels below the
+line before it, and below the caption is the top door. A first attempt
+drew the warning straight through that door; the render caught it and no
+test would have.
+
+### Verification record, this pass
+
+The journey a new user actually walks, run in the simulator against
+tests/sim_stack.sh: an empty card, pairing, the QR, the browser claim,
+the on-device confirm, the first sync that mirrors the collection, the
+picker, the build, the download, and a card graded on the delivered
+deck. Separately proven by scripted run: a poisoned ack checksum resends
+the whole log and the sync still completes; an ack past EOF does the
+same; a log truncated mid-record snaps back onto the record grid; a
+32-character deck directory is found and opened; a matching checksum
+sends nothing extra; the over-cap warning renders without collision on a
+card holding ten decks; the escape door reaches the picker before any
+build runs.
+
+Known and open: the device parses each download's sha256 and never
+checks it. Verification is by length, with TLS covering the wire, so
+what is open is a file landing the right length with the wrong bytes.
+StudySync.h says so plainly rather than letting the field imply
+otherwise.
