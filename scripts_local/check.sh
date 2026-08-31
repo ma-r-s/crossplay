@@ -506,6 +506,11 @@ if [ "${1:-}" != "--tests" ]; then
       # arrived red on CI and green here.
       owner_tree="${REPO:-$PWD}"
       printf '%s %s\n' "$$" "${owner_tree##*/}" > "$FW_LOCK/owner"
+      # Tell the builds underneath us that this lock is ours. Without it,
+      # scripts_local/require_build_lock.py -- which runs inside pio itself and
+      # is the only place a raw `pio run` cannot skip -- would see a live
+      # stranger holding the lock and refuse our own device builds.
+      export XTEINK_FW_LOCK_OWNER="$$"
       # rm -rf, not rmdir: the owner file makes the directory non-empty, and an
       # rmdir that silently fails would leak the lock to every other tree.
       # Same rule on the way out: a run that died after its lock was reclaimed
