@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+#
+# Refuse to publish somebody else's release train.
+#
+# Several sessions share one integration tree. A train is: merge, rebuild the
+# emulator, bump [crossplay], gate, tag, push -- and between the bump and the
+# push the tree holds commits that are not yet public. `wt.sh new` used to
+# branch from that local state, so a second session could cut a tree, merge it
+# back (a FAST-FORWARD, which no merge hook sees) and push, publishing the
+# first session's release under its own name. The owner has no reason to look,
+# and the tag they later push points into history somebody else already made
+# public.
+#
+# The signature of a train in flight is exact and cheap to test: a
+# `chore: crossplay <version>` commit whose tag does not exist. The owner is
+# never caught by it -- they push the branch and the tag in one command, and
+# this reads both. Anyone else pushing that commit is publishing a release that
+# is not theirs to publish.
+#
+# Enable per clone (see docs/contributing/getting-started.md):
+#   git config core.hooksPath .githooks
+#
+# Override, for the rare deliberate case:
+#   CROSSPLAY_ALLOW_UNTAGGED_BUMP=1 git push origin xteink
+set -uo pipefail
+
+remote_name="${1:-origin}"
+deploy_branch="xteink"
+zero="0000000000000000000000000000000000000000"
+
+# stdin is consumed once, so read every ref before deciding anything.
+refs=()
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ -n "${local_ref:-}" ] && refs+=("$local_ref $local_sha $remote_ref $remote_sha")
+done
+
+[ "${#refs[@]}" -gt 0 ] || exit 0
+[ -n "${CROSSPLAY_ALLOW_UNTAGGED_BUMP:-}" ] && exit 0
+
+# Tags travelling in this same push count as "tagged": that is the owner's
+# `git push origin xteink v1.2.3`, which must not be refused.
+tags_in_push=""
+for r in "${refs[@]}"; do
+  set -- $r
+  case "$3" in
+    refs/tags/*) tags_in_push="$tags_in_push ${3#refs/tags/}" ;;
+  esac
+done
+
+fail=0
+for r in "${refs[@]}"; do
+  set -- $r
+  local_sha="$2" remote_ref="$3" remote_sha="$4"
+  [ "$remote_ref" = "refs/heads/$deploy_branch" ] || continue
+  [ "$local_sha" = "$zero" ] && continue  # branch deletion
+
+  if [ "$remote_sha" = "$zero" ]; then
+    range="$local_sha"
+  else
+    range="$remote_sha..$local_sha"
+  fi
+
+  # Bump commits about to become public.
+  while IFS= read -r subject; do
+    version="${subject##* }"
+    [ -n "$version" ] || continue
+    tag="v$version"
+    # Already public, or going out in this very push: not a hijack.
+    git rev-parse -q --verify "refs/tags/$tag" >/dev/null 2>&1 &&
+      git ls-remote --tags --exit-code "$remote_name" "refs/tags/$tag" >/dev/null 2>&1 && continue
+    case " $tags_in_push " in *" $tag "*) continue ;; esac
+
+    fail=1
+    echo "pre-push: refusing to publish $deploy_branch." >&2
+    echo "" >&2
+    echo "  It carries \"$subject\", and $tag exists neither on $remote_name nor in this push." >&2
+    echo "  That is a release someone else has staged and not yet tagged. Pushing it" >&2
+    echo "  publishes their train under your push, and they have no reason to look." >&2
+    echo "" >&2
+    echo "  If it is yours: push the tag with it -> git push $remote_name $deploy_branch $tag" >&2
+    echo "  If it is not:   leave it. To publish only your own commits, cherry-pick them" >&2
+    echo "                  onto $remote_name/$deploy_branch in a throwaway worktree:" >&2
+    echo "                    git worktree add --detach /tmp/pub $remote_name/$deploy_branch" >&2
+    echo "                    cd /tmp/pub && git cherry-pick <your commits> && git push $remote_name HEAD:$deploy_branch" >&2
+    echo "  Deliberate exception: CROSSPLAY_ALLOW_UNTAGGED_BUMP=1 git push ..." >&2
+    echo "" >&2
+    echo "  (You are seeing this because core.hooksPath is set to .githooks in this" >&2
+    echo "   clone. It is NOT set by default, so a colleague without it gets no" >&2
+    echo "   refusal at all -- do not assume everyone is covered.)" >&2
+  done < <(git log --format='%s' "$range" 2>/dev/null | grep -E '^chore: crossplay [0-9]+\.[0-9]+\.[0-9]+$' || true)
+done
+
+exit $fail
