@@ -58,7 +58,8 @@ needed() {
   fi
 }
 
-reset_tree() { q git reset --hard origin/xteink; q git clean -fdq; }
+reset_tree() { q git checkout -q "$MAIN" 2>/dev/null; q git reset --hard origin/xteink; q git clean -fdq; }
+MAIN="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo xteink)"
 
 echo "device-build-needed"
 
@@ -123,6 +124,41 @@ dev() {
     [ "$rc" -eq 1 ] && ok "$label -> host-green is enough" || bad "$label -> demanded a device gate needlessly"
   fi
 }
+
+# --range must answer about the commits B ADDS, not about the difference between
+# two tips. `git diff A B` is symmetric, so a caller asking "do the commits I am
+# MISSING touch firmware?" would get back ITS OWN firmware changes. The case
+# below is built so a symmetric implementation gives the opposite answer: the
+# side branch changes src/, the range's other end changes only docs/.
+echo
+echo "device-build-needed --range"
+
+reset_tree
+q git checkout -q -b sidebranch
+printf 'int f(){return 2;}\n' > src/plain.cpp
+q git add -A; q git commit -m "firmware only on this side"
+q git checkout -q "$MAIN"
+echo inert >> docs/a.md
+q git add -A; q git commit -m "docs only on the other side"
+out="$(env -u CHECK_BUILD_RELEASE_ENVS "$TOOL" --range "sidebranch..$MAIN" 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ]; then
+  ok "--range ignores the OTHER side's firmware changes"
+else
+  bad "--range saw the other side's firmware: $out"
+fi
+
+# And it must still see firmware that the range genuinely adds.
+q git checkout -q sidebranch
+q git checkout -q "$MAIN"
+printf '#include <esp_sleep.h>\n' > src/added.cpp
+q git add -A; q git commit -m "firmware added by this side"
+out="$(env -u CHECK_BUILD_RELEASE_ENVS "$TOOL" --range "sidebranch..$MAIN" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ]; then
+  ok "--range still sees firmware the range really adds"
+else
+  bad "--range missed firmware it should have seen: $out"
+fi
+q git checkout -q "$MAIN"
 
 echo
 echo "device-build-needed --device-only"

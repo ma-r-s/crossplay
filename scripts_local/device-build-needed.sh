@@ -78,11 +78,24 @@ if [ -n "$RANGE" ]; then
     say "device builds: needed (cannot read range $RANGE)"
     exit 0
   fi
-  RANGE_CHANGED="$(git diff --name-only "$RANGE_A" "$RANGE_B" 2>/dev/null | sed 's/ -> /\n/' | sed '/^$/d' | sort -u)" || RANGE_CHANGED=""
   if ! git rev-parse -q --verify "$RANGE_A" >/dev/null 2>&1 || ! git rev-parse -q --verify "$RANGE_B" >/dev/null 2>&1; then
     say "device builds: needed (cannot resolve one end of $RANGE)"
     exit 0
   fi
+  # Diff from the MERGE BASE, not from A. `git diff A B` is symmetric: given two
+  # branch tips it reports what A changed as well as what B changed, so a caller
+  # asking "do the commits I am MISSING touch firmware?" gets back its own
+  # firmware changes and a confident wrong answer. That happened on the tool's
+  # first hand use. tree_freshness.sh passes an ancestor as A and is unaffected
+  # -- merge-base of an ancestor is itself -- so this only fixes the callers who
+  # would otherwise have to know to do it themselves. A report that is evidence
+  # only when the caller constructed it correctly is not evidence.
+  RANGE_BASE="$(git merge-base "$RANGE_A" "$RANGE_B" 2>/dev/null || true)"
+  if [ -z "$RANGE_BASE" ]; then
+    say "device builds: needed (no merge base between the ends of $RANGE)"
+    exit 0
+  fi
+  RANGE_CHANGED="$(git diff --name-only "$RANGE_BASE" "$RANGE_B" 2>/dev/null | sed 's/ -> /\n/' | sed '/^$/d' | sort -u)" || RANGE_CHANGED=""
   if [ -z "$RANGE_CHANGED" ]; then
     say "device builds: not needed (nothing changed in $RANGE)"
     exit 1
