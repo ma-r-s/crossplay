@@ -99,5 +99,10 @@ reset_tree
 "$TOOL" --base refs/heads/does-not-exist >/dev/null 2>&1
 [ $? -eq 0 ] && ok "unresolvable base -> builds run" || bad "unresolvable base -> skipped"
 
+# The unlocked-build guard's own suite. It runs inside pio, so a bug in it
+# fails every device build in the workspace rather than one.
+echo
+if python3 "$HERE/test_build_lock.py"; then :; else FAIL=$((FAIL+1)); fi
+
 echo "$((PASS+FAIL)) checks, $FAIL failed"
 [ "$FAIL" -eq 0 ]
