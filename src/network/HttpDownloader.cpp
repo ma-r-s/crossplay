@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <WiFi.h>
 #include <base64.h>
 
 #include <functional>
@@ -254,6 +255,19 @@ HttpDownloader::DownloadError runGetSecure(const std::string& url, const std::st
   // Cleared per request: a transport failure returns before either path sets
   // it, and a stale 200 from the previous fetch would read as success.
   g_lastStatus = 0;
+  // No radio, no request. Entering the TLS stack with WiFi never started does
+  // not fail, it PANICS: the socket layer takes a mutex that has not been
+  // created and FreeRTOS asserts on the null handle (xQueueSemaphoreTake,
+  // queue.c:1709). Trivia's pack download shipped that way and crashed the
+  // device on the button. A caller that forgets the radio deserves an error it
+  // can show, not a reboot -- and this is the one place every fetch passes
+  // through, so the guard cannot be forgotten by the next app either.
+  // Also correct while a match owns the radio: ESP-NOW leaves status
+  // disconnected, so a fetch mid-game is refused rather than fighting for it.
+  if (WiFi.status() != WL_CONNECTED) {
+    LOG_ERR("HTTP", "no WiFi connection; refusing to fetch %s", url.c_str());
+    return HttpDownloader::HTTP_ERROR;
+  }
 #if defined(FREEINK_NET_WOLFSSL)
   return runGetWolf(url, username, password, sink);
 #else
