@@ -47,10 +47,41 @@ python3 scripts/debugging_monitor.py
 - [User Guide troubleshooting section](../../USER_GUIDE.md#7-troubleshooting-issues--escaping-bootloop)
 - [Webserver troubleshooting](../troubleshooting.md)
 
-## A check that fails silently is worse than one that fails loudly
+## The environment a check runs in is part of the check
 
-Two shapes of this have cost real time, and they look nothing alike until you
-line them up.
+Three failures in one night, all the same shape: something was true where the
+check was run and not true where it matters. None of them is a bug in the code
+under test, and none of them looks like an environment problem from the inside.
+
+**A suite can pass where its author runs it and fail where it actually runs.**
+`host-tests/gatepath/run.sh` is green standalone and red inside every
+`./scripts_local/check.sh --committed`, because `--committed` exports
+`CHECK_BUILD_RELEASE_ENVS=1` and the suite inherits it -- so the four cases
+that assert "no device build needed" get "needed (release envs requested)" and
+fail. A suite testing a decision must CONTROL that decision's inputs, not
+inherit the ambient ones. Reproduce before diagnosing: run it once bare and
+once with the variable set, and the answer takes ten seconds instead of an
+afternoon reading a diff that is fine.
+
+**The simulator is a place where things are true that are not true on the
+device.** Two of tonight's three came from reading it as evidence about
+hardware. The bridge URL override is compiled out of device builds
+(`#if !defined(FREEINK_NET_WOLFSSL)`), so a sync that works in the simulator
+against a local service cannot happen on hardware at all until the real
+hostname exists. The simulator also fakes buttons the X4 Pro does not have and
+refreshes instantly where the panel takes hundreds of milliseconds. Before
+claiming a simulator run proves something about the device, check whether the
+code path you exercised is even compiled there.
+
+**A merge is a new tree, and it can be bigger than either input.** Checking a
+merge for what it silently REMOVED -- a shelf row, an icon, a line from a test
+list -- is the well-known half. The other half is what it ADDED: a merge that
+brings a whole new app in makes every size measurement taken before it stale,
+and a clean compile says nothing about headroom. Re-measure flash after any
+merge you intend to ship, and see the flash-budget notes for why an image that
+fits here can still be un-installable on an older device.
+
+## A check that fails silently is worse than one that fails loudly
 
 **In a shell harness, `set -o pipefail` turns "matched nothing" into "the
 script is over."** `ls dir/*.part` exits non-zero when the glob matches
@@ -69,6 +100,7 @@ column, never the percentage -- this machine's APFS volumes share a container
 and report 41% and 97% for the same free space) and check whether another tree
 is building.
 
-The connecting rule: the gate is the only thing a session can certify itself
-with. Anything that makes a green look green when it did not run, or a red
-look like your fault when it is not, costs far more than the check was worth.
+The connecting rule for both sections: the gate is the only thing a session can
+certify itself with. Anything that makes a green look green when it did not
+run, or a red look like your fault when it is not, costs far more than the
+check was worth.
