@@ -195,6 +195,14 @@ if [ -d "$REPO/.githooks" ] && [ -z "$(git -C "$REPO" config core.hooksPath || t
   echo
 fi
 
+# THE ORDER OF THE NEXT THREE BLOCKS IS NOT ARBITRARY: each one decides whether
+# the next is worth asking. A conflicted tree makes the submodule and freshness
+# answers meaningless; a drifted submodule makes freshness meaningless, because
+# a tree building an SDK its commit does not name is not describing any commit
+# to be behind or current WITH. So: merge state, then submodules, then
+# freshness. Adding a fourth means deciding what it invalidates and what
+# invalidates it, not appending to the end.
+#
 # Before anything else: a tree mid-conflict cannot report anything meaningful,
 # and the suites will not notice. On 2026-08-31 a merge conflicted, the failure
 # was swallowed by `git merge ... | tail -2` (which reports tail's status), and

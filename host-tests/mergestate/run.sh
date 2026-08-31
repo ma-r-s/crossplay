@@ -89,6 +89,32 @@ if [ "$rc" -eq 0 ] && [ -z "$out" ]; then ok; else
   bad "a RESOLVED merge was refused (rc=$rc); that blocks the main reason to run check.sh by hand: $out"
 fi
 
+# 3b. THE CASE THAT DISTINGUISHES THIS GUARD FROM THE OBVIOUS ONE: resolved on
+#     disk, NOT staged. There is nothing left to scan and the tree is still
+#     half-resolved. Measured, not reasoned:
+#
+#       after the conflict:    markers 1, index unmerged
+#       resolved on disk only: markers 0, index unmerged   <-- this case
+#       after git add:         index clean
+#
+#     Without this, a marker-SCANNING implementation passes every other case in
+#     this file, because they all leave markers on disk alongside the unmerged
+#     index. The suite could not then tell this guard from the weaker one it
+#     exists to beat -- and a suite a weaker implementation would pass is not
+#     evidence for the stronger one. Found on 2026-08-31, after the guard
+#     refused its own branch in exactly this state during a merge resolve.
+build_conflict
+printf 'extra_scripts =\n  pre:ours.py\n  pre:theirs.py\n' > "$WORK/repo/platformio.ini"
+# NO git add here. That is the entire point.
+markers="$(grep -c '^<<<<<<<' "$WORK/repo/platformio.ini" || true)"
+if [ "$markers" -eq 0 ]; then ok; else
+  bad "fixture still has $markers marker(s) on disk, so it cannot prove a scanner would miss this state"
+fi
+out="$("$PROBE" "$WORK/repo" 2>&1)"; rc=$?
+if [ "$rc" -eq 2 ]; then ok; else
+  bad "resolved-on-disk-but-unstaged reported rc=$rc, expected 2; the index still holds it unmerged and a gate here runs on a half-resolved tree: $out"
+fi
+
 # 4. Markers committed into a tracked file: git status is silent, this is not.
 rm -rf "$WORK/marked"
 git init --quiet "$WORK/marked"
