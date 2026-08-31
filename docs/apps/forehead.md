@@ -335,10 +335,18 @@ core is about cards rather than seconds.
 ### The overflow gate is the simulator, not a test
 
 Every text overflow this app has had was invisible in a screenshot. The SDK
-truncates with U+2026, Jersey has no U+2026, and a glyph the face does not carry
-draws as nothing -- so an overflowing line does not clip, it **stops**, at a
-plausible-looking place. Two shipped: a settings row that read `RE` and a first
-run whose only sentence ran off the side of the panel.
+truncates with U+2026, and **the Toybox cuts do not all carry it**: `toybox_10`
+has the ellipsis, and 14, 20, 30, 44 and 64 do not. A glyph the face lacks draws
+as nothing, so at every cut this app uses, an overflowing line does not clip --
+it **stops**, at a plausible-looking place. Two shipped that way: a settings row
+that read `RE` and a first run whose only sentence ran off the side.
+
+That asymmetry is also the gate's coverage. At the 10px cut an overflow ends in
+a visible `...` and the renderer logs nothing, so the gate is silent there -- and
+does not need to be loud, because a human can see it. At 14 and above the
+failure is invisible to a human and the gate is the only thing that sees it.
+FOREHEAD draws at 14 and above throughout; `kTileCut` (10) is used by SEA SALT,
+SUDOKU and TOY BATTLE.
 
 The renderer logs `No glyph for codepoint 8230` every time, on every screen, for
 computed boxes as well as fixed ones. `sim-shot.sh` now **fails** on that line
