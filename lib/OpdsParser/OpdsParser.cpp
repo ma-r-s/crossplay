@@ -1,6 +1,7 @@
 #include "OpdsParser.h"
 
 #include <Logging.h>
+#include <Utf8.h>
 #include <XmlParserUtils.h>
 
 #include <cctype>
@@ -255,16 +256,16 @@ void XMLCALL OpdsParser::endElement(void* userData, const XML_Char* name) {
     self->inEntry = false;
     self->collectCurrentEntry = false;
   } else if (self->inSubtitle && (strcmp(name, "subtitle") == 0 || strstr(name, ":subtitle") != nullptr)) {
-    self->subtitle = self->currentText;
+    self->subtitle = utf8CollapseWhitespace(self->currentText);
     self->inSubtitle = false;
   } else if (self->inEntry) {
     if (strcmp(name, "title") == 0 || strstr(name, ":title") != nullptr) {
-      if (self->inTitle) self->currentEntry.title = self->currentText;
+      if (self->inTitle) self->currentEntry.title = utf8CollapseWhitespace(self->currentText);
       self->inTitle = false;
     } else if (strcmp(name, "author") == 0 || strstr(name, ":author") != nullptr) {
       self->inAuthor = false;
     } else if (self->inAuthorName && (strcmp(name, "name") == 0 || strstr(name, ":name") != nullptr)) {
-      self->currentEntry.author = self->currentText;
+      self->currentEntry.author = utf8CollapseWhitespace(self->currentText);
       self->inAuthorName = false;
     } else if (strcmp(name, "id") == 0 || strstr(name, ":id") != nullptr) {
       if (self->inId) self->currentEntry.id = self->currentText;
@@ -274,7 +275,7 @@ void XMLCALL OpdsParser::endElement(void* userData, const XML_Char* name) {
       self->inLanguage = false;
     } else if (self->inSummary && (strcmp(name, "summary") == 0 || strstr(name, ":summary") != nullptr ||
                                    strcmp(name, "content") == 0 || strstr(name, ":content") != nullptr)) {
-      self->currentEntry.summary = self->currentText;
+      self->currentEntry.summary = utf8CollapseWhitespace(self->currentText);
       self->inSummary = false;
     }
   }

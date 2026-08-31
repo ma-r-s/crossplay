@@ -55,10 +55,12 @@ restyled to match the design language the apps use.
 | **Toy Battle**   | Nine boards of bases and paths. Hold regions, take medals, solo or nearby.   |
 | **Forehead**     | Screen against your forehead, the room shouts clues, sixty seconds.          |
 | **Trivia**       | 50,000 questions off 42 years of Jeopardy. Read them out, or play alone.     |
+| **Wavelength**   | A hidden point on a spectrum, one clue, and the whole table arguing.         |
 | **Study**        | Anki decks with the FSRS scheduler, offline.                                 |
 | **Hacker News**  | The front page in a reading serif, articles kept on the card.                |
 | **xkcd**         | The archive, packed for the card and drawn one to one.                       |
 | **Get Books**    | Browse any OPDS catalog and download straight to the card, no computer.      |
+| **Instapaper**   | Your read-later queue, synced both ways: reading position and archiving.     |
 
 Nine of them play over **PLAY NEARBY**: Chess, Checkers, Connect Four,
 Yahtzee, Knucklebones, Battleship, Jaipur, Sea Salt and Toy Battle. Put two
