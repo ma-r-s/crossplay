@@ -106,13 +106,23 @@ and instead reduce how many taps a game needs.
 
 ## The image no longer fits the OLD partition table, so early installs cannot OTA
 
-Measured 2026-08-31 on current `xteink`: `gh_release_x4pro` is **6,560,918
-bytes**. Two ceilings matter and they are not the same number:
+Measured 2026-08-31 on `xteink` at the end of the v1.12.0 batch, from a full
+`--committed` run rather than added across branches -- flash is a property of
+the SUM and per-branch figures do not add:
 
-| slot             | bytes     | since                    | this image               |
-| ---------------- | --------- | ------------------------ | ------------------------ |
-| new (`0x7F0000`) | 8,323,072 | `app/flashroom`, v1.5.3+ | 78.8% used, 1.68MB spare |
-| old (`0x640000`) | 6,553,600 | before that              | **7,318 bytes OVER**     |
+| env                 | bytes     | new slot (8,323,072) | old slot (6,553,600)   |
+| ------------------- | --------- | -------------------- | ---------------------- |
+| `gh_release_x4pro`  | 6,599,690 | 79.3%, 1.65MB spare  | **46,090 bytes OVER**  |
+| `gh_release_sticky` | 6,549,699 | 78.7%, 1.69MB spare  | 3,901 bytes under      |
+
+**Re-measure rather than quoting these.** They were 6,560,918 and 7,318 over
+earlier the same night, before five branches landed. A figure like this rots
+within hours during a batch, and the previous version of this section asserted
+one of them as current for long enough that a scope decision was nearly made
+from it.
+
+The Sticky's 3,901 bytes is 0.06% of the slot. It fits today and one modest
+feature takes it over, and nothing measures that automatically.
 
 So on flash headroom the fork is comfortable, and the old "96.6% and every new
 screen costs some" framing this section used to carry was measuring against a
