@@ -1,0 +1,6 @@
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+cryptography==44.0.0
+python-multipart==0.0.20
+# Runtime, not tests-only: every Instapaper call goes through it.
+httpx==0.28.1
