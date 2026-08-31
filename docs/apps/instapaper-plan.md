@@ -230,15 +230,40 @@ One addition specific to this service: **the token can delete bookmarks, and
 nothing in this design ever calls delete.** The endpoint is not wrapped, not
 proxied, and not reachable from the device protocol at all.
 
-## What Mario has to do that no code can
+## The one thing that cannot be verified from here
 
-1. **Request an Instapaper OAuth consumer token.** It is a form, and every
-   request is reviewed by a human before activation. Nothing works end to
-   end without it. Until it arrives, the whole stack is provable against
-   `tests/fake_instapaper.py`, which implements the five endpoints we use.
-2. **Point a hostname at the service** (the firmware constant currently says
-   `read.ma-r-s.com`) and add it to the tunnel, the way `sync.ma-r-s.com`
-   was added.
+Everything in this document is built and tested. The suites run against
+`tests/fake_instapaper.py`, which implements the five endpoints this bridge
+uses, applies the `have` delta rules, and **verifies OAuth signatures** -- so
+the signing, the delta, the conversion, the device protocol and the archive
+round trip are all proven without an account and without a network.
 
-Neither blocks building or testing, which is why this document exists before
-either has happened rather than after.
+What a fake cannot prove is that the real Instapaper behaves the way this fake
+believes it does. Specifically, and these are the assumptions worth naming
+because each one came from the documentation rather than from an observation:
+
+- that `delete_ids` is limit-scoped exactly as documented, so the window guard
+  in `engine.py` is guarding the real behaviour and not an imagined one;
+- that a bookmark's `hash` really is computed from url + title + description +
+  progress and NOT from the content, which is what lets the bridge reuse
+  cached text when the hash moves;
+- that progress in the `have` string is accepted only when its timestamp is
+  newer, which is the whole conflict-resolution story;
+- that `get_text` returns the shape of HTML the converter was written against,
+  on real articles rather than fixtures.
+
+**What is needed:** one sign-in with a real Instapaper account, through the
+bridge's own page, plus an OAuth consumer token (a form on instapaper.com,
+reviewed by a human) for the service to sign with.
+
+**What it unblocks:** the four assumptions above become observations, and the
+service can be deployed for real use.
+
+**What stays unproven until then:** nothing about the code as written -- it is
+green -- but every one of those four is a belief about somebody else's server.
+If one of them is wrong, the failure is quiet: a stale row, a re-downloaded
+article, or a reading position that does not move.
+
+The other operational step, whenever it happens: a hostname for the service
+(the firmware constant says `read.ma-r-s.com`) added to the tunnel, the way
+`sync.ma-r-s.com` was.
