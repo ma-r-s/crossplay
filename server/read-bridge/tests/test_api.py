@@ -1,0 +1,343 @@
+#!/usr/bin/env python3
+"""The whole HTTP surface, end to end, against the fake Instapaper.
+
+The fake runs as a real uvicorn process and the bridge runs in-process over
+an ASGI transport. That split is deliberate: what has to be real is the leg
+where OAuth signatures cross a socket, because the signature the bridge
+builds is then verified by something that did not build it. The bridge's own
+HTTP surface gains nothing from a second process and loses the session
+cookie, which is Secure and so is never sent over a plaintext loopback.
+
+Covers: sign-in and its refusals, CSRF on claim, the pairing handshake,
+device auth and revocation, a first sync with downloads, a second sync that
+delivers nothing because the delta worked, reading progress pushed up,
+archive intents, a per-article failure that does not cost the sync, the
+unrenderable verdict, and the fact that nothing here ever calls delete.
+
+Run: .venv/bin/python tests/test_api.py
+"""
+
+import asyncio
+import json
+import os
+import pathlib
+import shutil
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+
+HERE = pathlib.Path(__file__).resolve().parent
+ROOT = HERE.parent
+sys.path.insert(0, str(ROOT))
+
+BASE_PORT = int(os.environ.get("BRIDGE_TEST_PORT", "8996"))
+FAKE_PORT = BASE_PORT + 1
+BRIDGE_PORT = BASE_PORT + 2
+
+USER, PW = "mario@example.com", "reading-pw"
+CONSUMER_KEY, CONSUMER_SECRET = "fake-consumer-key", "fake-consumer-secret"
+
+checks = 0
+failures = 0
+
+
+def ok(condition, what):
+    global checks, failures
+    checks += 1
+    if not condition:
+        failures += 1
+        print(f"  FAIL: {what}")
+
+
+def wait_port(port, timeout=25):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        s = socket.socket()
+        s.settimeout(0.5)
+        try:
+            s.connect(("127.0.0.1", port))
+            s.close()
+            return
+        except OSError:
+            time.sleep(0.2)
+    raise RuntimeError(f"nothing opened port {port}")
+
+
+PROSE = (
+    "<p>" + ("The quick brown fox jumps over the lazy dog. " * 12) + "</p>"
+    "<p>" + ("Sphinx of black quartz, judge my vow. " * 12) + "</p>"
+)
+CHINESE = "<p>" + ("我有一百块钱，还有一本很好的书。" * 20) + "</p>"
+
+
+def fixture_state():
+    return {
+        "users": {USER: {"password": PW, "token": "tok-1", "secret": "sec-1"}},
+        "bookmarks": [
+            {
+                "bookmark_id": 101,
+                "url": "https://www.example.com/one",
+                "title": "The first article",
+                "description": "",
+                "time": 1756000000,
+                "progress": 0.0,
+                "progress_timestamp": 0,
+                "folder": "unread",
+                "text": PROSE,
+            },
+            {
+                "bookmark_id": 102,
+                "url": "https://blog.example.org/two",
+                "title": "It’s the second — really",
+                "description": "",
+                "time": 1756000100,
+                "progress": 0.0,
+                "progress_timestamp": 0,
+                "folder": "unread",
+                "text": PROSE,
+            },
+            {
+                "bookmark_id": 103,
+                "url": "https://example.net/broken",
+                "title": "This one has no text",
+                "description": "",
+                "time": 1756000200,
+                "folder": "unread",
+                "text_fails": True,
+            },
+            {
+                "bookmark_id": 104,
+                "url": "https://example.cn/chinese",
+                "title": "Written in Chinese",
+                "description": "",
+                "time": 1756000300,
+                "folder": "unread",
+                "text": CHINESE,
+            },
+        ],
+    }
+
+
+async def poll_job(client, headers, job, tries=80):
+    for _ in range(tries):
+        r = await client.get(f"/api/sync/status?job={job}", headers=headers)
+        body = r.json()
+        if body["status"] in ("done", "error"):
+            return body
+        await asyncio.sleep(0.25)
+    return {"status": "timeout"}
+
+
+async def run(tmp, state_file):
+    import httpx
+    from cryptography.fernet import Fernet
+
+    from bridge.app import app
+
+    fake = f"http://127.0.0.1:{FAKE_PORT}"
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(
+        transport=transport, base_url="https://bridge", timeout=60
+    ) as client, httpx.AsyncClient(base_url=fake, timeout=30) as fakec:
+        r = await client.get("/healthz")
+        ok(r.status_code == 200 and r.json()["ok"], "healthz answers")
+
+        # --- sign-in
+        r = await client.post("/login", data={"username": USER, "password": "wrong"})
+        ok("did not accept" in r.text, "a wrong password is refused in a sentence")
+        r = await client.post("/login", data={"username": "nobody@example.com", "password": "x"})
+        ok("invitation-only" in r.text, "an account outside the allowlist is refused")
+
+        r = await client.post("/login", data={"username": USER, "password": PW})
+        ok(r.status_code == 303, "a good password signs in")
+        cookie = r.cookies.get("read_session")
+        ok(bool(cookie), "a session cookie is set")
+        session = json.loads(
+            Fernet(os.environ["READ_FERNET_KEY"].encode()).decrypt(cookie.encode())
+        )
+        csrf = session["csrf"]
+
+        r = await client.get("/devices")
+        ok("No reader paired yet" in r.text, "the devices page starts empty")
+        ok("never deletes anything" in r.text, "the page says what the token can and cannot do")
+
+        # --- pairing
+        r = await client.post("/api/pair/start")
+        pair = r.json()
+        ok(len(pair["code"]) == 8, "a pairing code is eight characters")
+        ok(not set(pair["code"]) & set("01OI"), "the code alphabet has no ambiguous glyphs")
+
+        r = await client.post("/api/pair/claim", data={"code": pair["code"]})
+        ok(r.status_code == 401, "claiming without the CSRF token is refused")
+
+        r = await client.post("/api/pair/claim", data={"code": pair["code"], "csrf": csrf})
+        ok("confirm on the reader" in r.text, "a claimed code waits for the device to confirm")
+
+        r = await client.get(f"/api/pair/poll?pollToken={pair['pollToken']}")
+        delivered = r.json()
+        token = delivered["deviceToken"]
+        ok(delivered["username"] == USER, "poll names the account, for the confirm screen")
+        headers = {"Authorization": f"Bearer {token}"}
+
+        r = await client.get(f"/api/pair/poll?pollToken={pair['pollToken']}")
+        ok(r.status_code == 410, "a pairing is one-shot")
+
+        # --- device auth
+        r = await client.post("/api/sync", json={"have": [], "archive": []})
+        ok(r.status_code == 401, "syncing without a token is refused")
+        r = await client.post(
+            "/api/sync", json={"have": []}, headers={"Authorization": "Bearer nonsense"}
+        )
+        ok(r.status_code == 401 and "not paired" in r.json()["error"], "an unknown token gets a sentence")
+
+        # --- first sync
+        r = await client.post("/api/sync", json={"have": [], "archive": []}, headers=headers)
+        ok(r.status_code == 200, "a paired device may sync")
+        result = await poll_job(client, headers, r.json()["job"])
+        ok(result["status"] == "done", f"the first sync finishes ({result.get('message', '')})")
+        summary = result.get("summary", {})
+        articles = {a["id"]: a for a in summary.get("articles", [])}
+        ok(set(articles) == {101, 102, 104}, f"three articles delivered, not the broken one ({sorted(articles)})")
+        ok([f["id"] for f in summary["failed"]] == [103], "the one with no text is named in failed")
+        ok("could not produce" in summary["failed"][0]["why"], "the failure carries Instapaper's reason")
+
+        a101 = articles[101]
+        ok(a101["domain"] == "example.com", "the row's subtitle is the domain")
+        ok(a101["renderable"] is True, "an English article is renderable")
+        ok(a101["words"] > 100 and a101["minutes"] >= 1, "word count and reading time are computed")
+        ok(len(a101["sha"]) == 16, "each article carries a content sha for the device to compare")
+        ok(articles[104]["renderable"] is False, "a Chinese article is marked unrenderable")
+        ok(articles[102]["title"] == "It's the second -- really", "titles are folded to what the cut draws")
+
+        # --- downloading
+        r = await client.get(f"/api/article/101/{a101['hash']}", headers=headers)
+        ok(r.status_code == 200, "an article downloads")
+        ok(r.headers["content-type"].startswith("text/plain"), "as text/plain")
+        ok(len(r.content) == a101["bytes"], "the manifest's byte count is the file's")
+        ok("quick brown fox" in r.text and "<p>" not in r.text, "the text arrived flattened")
+
+        r = await client.get("/api/article/101/..%2f..%2fstate", headers=headers)
+        ok(r.status_code == 404, "a traversal in the hash reaches nothing")
+        r = await client.get("/api/article/999/abc", headers=headers)
+        ok(r.status_code == 404, "an article the bridge does not have is a 404 with a sentence")
+
+        # --- second sync: the delta must deliver nothing
+        have = [{"id": a["id"], "hash": a["hash"], "progress": 0.0, "progressAt": 0} for a in articles.values()]
+        r = await client.post("/api/sync", json={"have": have, "archive": []}, headers=headers)
+        result = await poll_job(client, headers, r.json()["job"])
+        ok(result["status"] == "done", "the second sync finishes")
+        second = result["summary"]
+        ok(second["articles"] == [], "nothing is re-sent when nothing changed")
+        ok(second["deleteIds"] == [], "and nothing is falsely reported deleted")
+
+        # --- reading progress goes up
+        have[0]["progress"] = 0.42
+        have[0]["progressAt"] = 1756100000
+        r = await client.post("/api/sync", json={"have": have, "archive": []}, headers=headers)
+        result = await poll_job(client, headers, r.json()["job"])
+        ok(result["status"] == "done", "the progress sync finishes")
+        remote = (await fakec.get("/_test/state")).json()
+        pushed = [b for b in remote["bookmarks"] if b["bookmark_id"] == have[0]["id"]][0]
+        ok(abs(float(pushed["progress"]) - 0.42) < 0.01, "the reader's progress reached Instapaper")
+        ok(pushed["progress_timestamp"] == 1756100000, "with the reader's own timestamp")
+
+        # A progress push changes the bookmark's hash, so it comes back down
+        # -- and the bridge must NOT have re-fetched its text for that.
+        back = {a["id"]: a for a in result["summary"]["articles"]}
+        ok(have[0]["id"] in back, "the changed bookmark comes back with a new hash")
+        ok(back[have[0]["id"]]["sha"] == a101["sha"], "its text is unchanged, so the sha is too")
+
+        # --- archiving
+        r = await client.post("/api/sync", json={"have": have, "archive": [102]}, headers=headers)
+        result = await poll_job(client, headers, r.json()["job"])
+        ok(result["summary"]["archived"] == [102], "the archive intent is confirmed back")
+        remote = (await fakec.get("/_test/state")).json()
+        moved = [b for b in remote["bookmarks"] if b["bookmark_id"] == 102][0]
+        ok(moved["folder"] == "archive", "and the article really moved on Instapaper")
+        ok(102 in result["summary"]["deleteIds"], "an archived article is reported gone from unread")
+
+        # Archiving something already archived must not fail: the device's
+        # queue is at-least-once by design.
+        r = await client.post("/api/sync", json={"have": [], "archive": [102, 999]}, headers=headers)
+        result = await poll_job(client, headers, r.json()["job"])
+        ok(result["status"] == "done", "a repeated archive does not break the sync")
+        ok(sorted(result["summary"]["archived"]) == [102, 999], "a bookmark that is already gone counts as archived")
+
+        # --- an unknown job answers a sentence, not a 404
+        r = await client.get("/api/sync/status?job=nope", headers=headers)
+        ok(r.status_code == 200 and "restarted" in r.json()["message"], "a forgotten job is explained")
+
+        # --- revocation
+        page = await client.get("/devices")
+        token_hash = page.text.split("name=token_hash value='")[1].split("'")[0]
+        r = await client.post("/devices/revoke", data={"csrf": csrf, "token_hash": token_hash})
+        ok(r.status_code == 303, "a device can be unpaired from the page")
+        r = await client.post("/api/sync", json={"have": []}, headers=headers)
+        ok(
+            r.status_code == 401 and "not paired anymore" in r.json()["error"],
+            "a revoked token is refused with the sentence that tells the device to re-pair",
+        )
+
+        # --- the one thing this service must never do
+        remote = (await fakec.get("/_test/state")).json()
+        ok("delete_was_called" not in remote, "the bridge never called bookmarks/delete")
+
+    print(f"{checks} checks, {failures} failed")
+    return 1 if failures else 0
+
+
+def main():
+    tmp = tempfile.mkdtemp(prefix="readbridge-test-")
+    state_file = pathlib.Path(tmp) / "fake.json"
+    state_file.write_text(json.dumps(fixture_state()))
+
+    from cryptography.fernet import Fernet
+
+    env = dict(os.environ)
+    env.update(
+        {
+            "FAKE_INSTAPAPER_STATE": str(state_file),
+            "FAKE_CONSUMER_KEY": CONSUMER_KEY,
+            "FAKE_CONSUMER_SECRET": CONSUMER_SECRET,
+            "READ_DATA": str(pathlib.Path(tmp) / "data"),
+            "READ_FERNET_KEY": Fernet.generate_key().decode(),
+            "READ_ALLOWLIST": USER,
+            "READ_CONSUMER_KEY": CONSUMER_KEY,
+            "READ_CONSUMER_SECRET": CONSUMER_SECRET,
+            "READ_INSTAPAPER_BASE": f"http://127.0.0.1:{FAKE_PORT}",
+            "PYTHONPATH": str(ROOT),
+        }
+    )
+    # The bridge is imported AFTER this, because instapaper.BASE is read from
+    # the environment at import time and a stale value would send the suite at
+    # the real Instapaper.
+    os.environ.update({k: v for k, v in env.items() if k.startswith("READ_")})
+
+    procs = []
+    try:
+        procs.append(
+            subprocess.Popen(
+                [
+                    sys.executable, "-m", "uvicorn", "tests.fake_instapaper:app",
+                    "--host", "127.0.0.1", "--port", str(FAKE_PORT), "--log-level", "warning",
+                ],
+                cwd=ROOT, env=env,
+            )
+        )
+        wait_port(FAKE_PORT)
+        return asyncio.run(run(tmp, state_file))
+    finally:
+        for p in procs:
+            p.terminate()
+        for p in procs:
+            try:
+                p.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                p.kill()
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

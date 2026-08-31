@@ -1,0 +1,20 @@
+# How site/assets/shots/instapaper.png was captured. Run from wt/instapaper.
+#
+# No network and no account: the shot is of a SEEDED card, because the queue is
+# the only screen worth showing and it is entirely local once a sync has run.
+# Seeding it also makes the shot reproducible, which a real reading list is not.
+#
+# Write fs_agent/.crosspoint/instapaper/index.tsv with four rows in the format
+# InstapaperIndex.h documents -- one of them part-read and one finished, or the
+# value column is empty in every row and the picture says less than it could --
+# plus one a<id>.txt per row so nothing in the list opens to nothing.
+#
+#   CROSSPLAY_AUTOSTART=INSTAPAPER ./scripts_local/sim-shot.sh \
+#     '3000:QUIT' '1600:./qa-artifacts/site-instapaper.bmp'
+#
+# then downsample qa-artifacts/site-instapaper.png from 960x1600 to 480x800
+# (LANCZOS), the same as every other shot on the page.
+#
+# The whole stack, including a real pairing handshake and a real sync, is
+# server/read-bridge/tests/sim_stack.sh. That one needs no account either: it
+# runs the fake Instapaper.

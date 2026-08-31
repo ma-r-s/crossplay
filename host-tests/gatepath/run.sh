@@ -41,9 +41,16 @@ q git push -u origin xteink
 case "$PWD" in "$WORK"/*) ;; *) echo "FAIL fixture not in place (cwd $PWD)"; exit 1 ;; esac
 
 # needed <label> <expect: yes|no> -- runs the tool and checks the direction.
+#
+# CHECK_BUILD_RELEASE_ENVS is unset for the call, deliberately. check.sh exports
+# it under --committed, and the tool correctly answers "needed" whenever it is
+# set -- so inheriting it made every skip case fail inside exactly the mode this
+# suite most needs to be trusted in, while passing standalone where its author
+# ran it. The environment a check runs in is part of the check. The release-envs
+# behaviour is asserted below by setting the variable ON PURPOSE.
 needed() {
   local label="$1" expect="$2" out rc
-  out="$("$TOOL" 2>&1)"; rc=$?
+  out="$(env -u CHECK_BUILD_RELEASE_ENVS "$TOOL" 2>&1)"; rc=$?
   if [ "$expect" = "yes" ]; then
     [ "$rc" -eq 0 ] && ok "$label -> builds run" || bad "$label -> SKIPPED, must not ($out)"
   else
@@ -96,7 +103,7 @@ CHECK_BUILD_RELEASE_ENVS=1 "$TOOL" >/dev/null 2>&1
 
 # Fail-safe: if the base cannot be resolved, build.
 reset_tree
-"$TOOL" --base refs/heads/does-not-exist >/dev/null 2>&1
+env -u CHECK_BUILD_RELEASE_ENVS "$TOOL" --base refs/heads/does-not-exist >/dev/null 2>&1
 [ $? -eq 0 ] && ok "unresolvable base -> builds run" || bad "unresolvable base -> skipped"
 
 # The unlocked-build guard's own suite. It runs inside pio, so a bug in it

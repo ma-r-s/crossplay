@@ -325,6 +325,29 @@ if [ "$(seeded_loop "$dead_pid tree" "1")" != "waited" ]; then
   echo "FAIL checksh  the lock was reclaimed from a dead holder while a device build was still running"
 fi
 
+# A lock with NO owner file is held, never abandoned. It belongs to a tree whose
+# check.sh predates the owner file and took it with a plain mkdir; such a holder
+# cannot say whether it is alive, so it must be assumed to be. Deciding by
+# builds_alive instead is not safe, and this is the exact gap: a --committed run
+# builds four device envs in sequence and between them NO pio exists, so a
+# waiter landing in that window would take a live holder's lock. Observed on
+# 2026-08-31 -- an empty x4pro.lock held by a live pre-owner-file check.sh while
+# another tree waited on it. FAKE_DEVICE_BUILD is "" here precisely because that
+# is the dangerous case: nothing is building at this instant, and the lock must
+# STILL be respected.
+checks=$((checks + 1))
+if [ "$(seeded_loop "" "")" != "waited" ]; then
+  failed=$((failed + 1))
+  echo "FAIL checksh  an ownerless lock was reclaimed -- an older check.sh holding it would have been robbed"
+fi
+
+# And with a build running, for the same reason and by a different route.
+checks=$((checks + 1))
+if [ "$(seeded_loop "" "1")" != "waited" ]; then
+  failed=$((failed + 1))
+  echo "FAIL checksh  an ownerless lock was reclaimed while a device build was running"
+fi
+
 kill "$live_pid" 2>/dev/null; wait "$live_pid" 2>/dev/null
 
 # --- the probe must actually RUN, not merely be present --------------------
@@ -425,6 +448,111 @@ if [ -z "$owner_line" ]; then
 elif [ -z "$label" ] || [ "$label" = "$owner_line" ]; then
   failed=$((failed + 1))
   echo "FAIL checksh  the lock owner carries no tree label ('$owner_line'); a waiter cannot say who holds it"
+fi
+
+# ---------------------------------------------------------------------------
+# The submodule-state wiring (2026-08-31).
+#
+# The probe itself is covered by host-tests/submodules. What is covered HERE is
+# the part that decided nothing tonight: check.sh's reaction to it. A gate ran
+# fully green on a tree whose freeink-sdk was checked out at an unlanded
+# upstream merge, and the existing "uncommitted file(s)" note was read straight
+# past. So uninitialised must STOP the run, and drift must reach the verdict
+# line -- a warning printed 400 lines above "all green" is a warning nobody
+# reads.
+lift() {  # substring that appears on the opening `if` line
+  python3 - "$CHECK" "$1" <<'PY'
+import re
+import sys
+lines = open(sys.argv[1]).read().splitlines()
+needle = sys.argv[2]
+start = next(i for i, l in enumerate(lines)
+             if l.strip().startswith('if ') and needle in l)
+# Carry down the assignments the block reads but does not make: lifting
+# `if [ -x "$SUB_STATE" ]` without the SUB_STATE= line above it produces an
+# unbound-variable failure that looks like the block refusing, not like a
+# broken extraction.
+top = start
+while top > 0 and re.match(r"^\s*[A-Za-z_][A-Za-z0-9_]*=", lines[top - 1]):
+    top -= 1
+depth, end = 0, None
+for i in range(start, len(lines)):
+    head = lines[i].strip()
+    if head.startswith('if '):
+        depth += 1
+    if head == 'fi':
+        depth -= 1
+        if depth == 0:
+            end = i
+            break
+if end is None:
+    raise SystemExit('unbalanced block')
+print("\n".join(lines[top:end + 1]))
+PY
+}
+
+lift '-x "$SUB_STATE"' >"$WORK/subwire.sh" 2>/dev/null
+lift 'SUBMODULE_DRIFT' >"$WORK/verdict.sh" 2>/dev/null
+if [ -s "$WORK/subwire.sh" ] && [ -s "$WORK/verdict.sh" ]; then
+  # A repo whose probe we control, so each verdict can be driven on demand.
+  stub_repo() {  # exit_code, message
+    rm -rf "$WORK/subrepo"
+    mkdir -p "$WORK/subrepo/scripts_local"
+    { echo '#!/bin/bash'
+      [ -n "$2" ] && echo "echo '$2'"
+      echo "exit $1"
+    } > "$WORK/subrepo/scripts_local/submodule_state.sh"
+    chmod +x "$WORK/subrepo/scripts_local/submodule_state.sh"
+  }
+
+  # Uninitialised (2) must stop the gate. Twenty minutes later, inside a
+  # compiler error naming no file of ours, is the alternative.
+  checks=$((checks + 1))
+  stub_repo 2 "submodule sdk is NOT INITIALISED."
+  if ( set +e; REPO="$WORK/subrepo"; SUBMODULE_DRIFT=""; . "$WORK/subwire.sh"; exit 0 ) >/dev/null 2>&1; then
+    failed=$((failed + 1))
+    echo "FAIL checksh  an uninitialised submodule did not stop the gate"
+  fi
+
+  # Drift (3) must NOT stop the gate -- an SDK bump in progress is real work --
+  # but must set the flag that qualifies the verdict.
+  checks=$((checks + 1))
+  stub_repo 3 "submodule sdk is CHECKED OUT AT A DIFFERENT COMMIT"
+  drift_out="$( set +e; REPO="$WORK/subrepo"; SUBMODULE_DRIFT=""; . "$WORK/subwire.sh"; echo "FLAG=[$SUBMODULE_DRIFT]" 2>/dev/null )"
+  case "$drift_out" in
+    *"FLAG=[]"*) failed=$((failed + 1)); echo "FAIL checksh  drift ran but set no flag; the verdict would read as unqualified green" ;;
+    *"FLAG=["*)  : ;;
+    *)           failed=$((failed + 1)); echo "FAIL checksh  drift stopped the gate; an SDK bump in progress cannot be gated at all" ;;
+  esac
+
+  # A healthy tree stays silent and unflagged.
+  checks=$((checks + 1))
+  stub_repo 0 ""
+  clean_out="$( set +e; REPO="$WORK/subrepo"; SUBMODULE_DRIFT=""; . "$WORK/subwire.sh"; echo "FLAG=[$SUBMODULE_DRIFT]" )"
+  case "$clean_out" in
+    "FLAG=[]") : ;;
+    *) failed=$((failed + 1)); echo "FAIL checksh  a healthy tree was not silent+unflagged: $clean_out" ;;
+  esac
+
+  # The verdict line itself: the flag has to change what the last line says.
+  checks=$((checks + 1))
+  qualified="$( set +e; SUBMODULE_DRIFT=1; LOGS=/tmp/x; . "$WORK/verdict.sh" )"
+  case "$qualified" in
+    *DRIFTED*) : ;;
+    *) failed=$((failed + 1)); echo "FAIL checksh  the verdict does not mention drift when drifted: $qualified" ;;
+  esac
+
+  checks=$((checks + 1))
+  plain="$( set +e; SUBMODULE_DRIFT=""; LOGS=/tmp/x; . "$WORK/verdict.sh" )"
+  case "$plain" in
+    *DRIFTED*) failed=$((failed + 1)); echo "FAIL checksh  a clean tree's verdict claims drift: $plain" ;;
+    *"all green"*) : ;;
+    *) failed=$((failed + 1)); echo "FAIL checksh  a clean tree lost its 'all green' verdict: $plain" ;;
+  esac
+else
+  checks=$((checks + 1))
+  failed=$((failed + 1))
+  echo "FAIL checksh  could not lift the submodule wiring or the verdict out of check.sh"
 fi
 
 echo "$checks checks, $failed failed"
