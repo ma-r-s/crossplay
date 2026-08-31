@@ -21,6 +21,12 @@ namespace studyui {
 inline constexpr fui::ActionId ActionStudy = 1;
 inline constexpr fui::ActionId ActionForecast = 2;
 inline constexpr fui::ActionId ActionSync = 4;
+// The deck picker: one action for the rows (value = deck index) and one for
+// the confirm door.
+inline constexpr fui::ActionId ActionPickDeck = 5;
+inline constexpr fui::ActionId ActionPickDone = 6;
+// The verdict screen's door: 1 = sync again, 2 = close and go back.
+inline constexpr fui::ActionId ActionSyncVerdict = 7;
 
 // How many days either side of today the ornament shows. Two weeks back is far
 // enough to see a habit, two weeks forward far enough to see a backlog coming,
@@ -54,6 +60,14 @@ struct DeckModel {
   int lifetimeReviews = 0;
   bool sessionOver = false;  // nothing left to answer right now
   bool writeFailed = false;
+  // No wall clock yet (a flat battery clears the RTC; a sync sets it). Every
+  // review answered in this state is stamped near the epoch and would be
+  // replayed into the real Anki collection as the card's last review, so the
+  // app refuses to log one -- and therefore must refuse to ask for one.
+  bool clockUnset = false;
+  // Deck folders on the card past the number this reader can open. Their
+  // reviews cannot be sent, so silence here reads as "nothing outstanding".
+  int decksOverCap = 0;
   // Which of the card's decks this is. With one deck the row is a label; with
   // more it is the switcher, and tapping it cycles. Cycling rather than a list
   // because a card realistically holds two or three decks, and a dedicated
@@ -62,6 +76,12 @@ struct DeckModel {
   int deckCount = 1;
   // The SYNC door's subtitle: LAST SYNC HH:MM, PAIRED, or NOT PAIRED YET.
   char syncSubtitle[40] = "";
+  // Paired readers get a fourth door: which Anki decks this reader carries is
+  // otherwise answerable only once, during the first sync.
+  bool paired = false;
+  // Cards waiting in the reader's other decks, so the headline cannot say
+  // ALL CLEAR while work sits one tap away.
+  int otherWaiting = 0;
 };
 
 void buildDeck(toybox::Screen& screen, const DeckModel& model);
@@ -101,9 +121,43 @@ struct SyncFlowModel {
   char factLines[3][40] = {"", "", ""};
   int factCount = 0;
   SyncSafety safety = SyncSafety::None;
+  // Whether leaving is safe RIGHT NOW: true from the moment the bridge owns
+  // the job, which is before any reviews exist to be safe. A first sync sends
+  // nothing, so keying the footer on `safety` hid it from the longest wait
+  // any user ever does.
+  bool leaveSafe = false;
 };
 
 void buildSyncFlow(toybox::Screen& screen, const SyncFlowModel& model);
+
+// ---- Choosing which of the account's decks this reader carries.
+//
+// A fresh account has chosen nothing, so without this screen a first sync
+// delivers an empty manifest and the reader stays empty forever. The bridge
+// caps a sync at kMaxChosenDecks decks; the screen enforces the same cap so the
+// refusal happens where the user can see it rather than server-side.
+inline constexpr int kMaxPickerDecks = 24;
+
+struct DeckPickerModel {
+  struct Row {
+    const char* name = "";
+    int cards = 0;
+    bool chosen = false;
+  };
+  const Row* rows = nullptr;
+  int count = 0;
+  int topIndex = 0;     // first row drawn; the list pages rather than scrolls
+  int visibleRows = 0;  // filled in by the builder, so paging can match
+  int chosenCount = 0;
+  int maxChosen = 8;   // mirrors StudySync::kMaxChosenDecks
+  bool atCap = false;  // drawn as a caption, so the cap explains itself
+  // True when the account holds more decks than the list could carry. Drawn,
+  // because "my deck is not in this list" and "my deck is on a page that was
+  // never sent" look identical from the chair.
+  bool withheld = false;
+};
+
+void buildDeckPicker(toybox::Screen& screen, DeckPickerModel& model);
 
 // ---- Pairing, in the same chrome. The builders draw the band, the words
 // and the confirm pill; they return the rects for the two things only the

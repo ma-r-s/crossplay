@@ -6,8 +6,14 @@
 // protocol is the bridge's device API: QR pairing (start / poll / on-device
 // confirm), then sync as one binary POST (this card's own revlog.dat tails
 // and cards.dat, in the exact shapes it already writes), a polled job, and
-// hash-manifested deck downloads. Acks are byte offsets into revlog.dat;
-// the file itself is never truncated.
+// manifested deck downloads. Acks are byte offsets into revlog.dat; the file
+// itself is never truncated.
+//
+// A download is checked against the manifest's LENGTH, not its sha256: the
+// hash arrives and is parsed, and nothing on the device reads it. TLS covers
+// the wire, so what this leaves open is a file that lands the right length
+// and the wrong bytes on the card. Do not read the sha256 field as proof
+// that something verified it.
 //
 // Two transports, split on FREEINK_NET_WOLFSSL:
 //  - Device: freeink::SecureHttpClient with certificate verification against
@@ -27,14 +33,37 @@
 namespace study {
 
 constexpr char kBridgeHost[] = "sync.ma-r-s.com";
-constexpr int kMaxSyncDecks = 8;
+// One slot per deck folder the app can open (StudyActivity::kMaxDecks). When
+// this was the smaller number, a deck past it got no slot and every setter
+// no-opped in silence: its whole review log re-uploaded and its whole build
+// re-downloaded on every sync, forever, while the verdict counted it as
+// rebuilt. Raise both together or neither.
+constexpr int kMaxSyncDecks = 16;
+// How many decks the user may choose. Separate from the slot count on purpose:
+// the service truncates the chosen list to this (bridge/app.py, /api/decks/
+// choose), so offering more would drop the extras without saying so. The card
+// holds more than this because nothing removes a deck folder.
+constexpr int kMaxChosenDecks = 8;
+// How many decks the picker will list. Eight is what a card can hold, but the
+// list has to reach the one you want before you can choose it, and a
+// collection of forty subdecks is ordinary. Each row is a name and a count,
+// so the whole list is kilobytes on a board with 8MB of PSRAM.
+constexpr size_t kMaxOfferedDecks = 200;
 
 // /study/.bridge: the pairing token and per-deck-directory ack offsets.
 struct BridgeState {
   bool paired = false;
   std::string token;
-  char deckDirs[kMaxSyncDecks][32] = {};
+  // 48, not 32: the service slugifies deck names up to 40 characters, so a
+  // shorter buffer silently truncated real Anki deck names ("AnkiDroid
+  // Japanese Core 2000 Step 01") and then never matched their slug again.
+  char deckDirs[kMaxSyncDecks][48] = {};
   uint32_t ackOffsets[kMaxSyncDecks] = {};
+  // A checksum of the bytes the offset claims were already sent, i.e. of
+  // [0, ack). An offset alone cannot tell a log that grew from one that was
+  // replaced, rolled back to an older copy, or half-updated by a failed sync;
+  // the hash of the region it covers can. Zero means "not recorded yet".
+  uint64_t ackHashes[kMaxSyncDecks] = {};
   // The buildId last downloaded per deck dir: the server reuses a build
   // when nothing changed, and a matching id means every file on the card
   // is already exactly the build the manifest describes.
@@ -42,11 +71,16 @@ struct BridgeState {
   // Seconds since epoch of the last completed sync; drawn under the door.
   int64_t lastSyncAt = 0;
   int deckCount = 0;
+  // Whether this reader has ever answered "which decks?"; without it a
+  // re-pair would silently inherit whatever the account last chose.
+  bool choseDecks = false;
 
   const char* buildFor(const char* dir) const;
   void setBuild(const char* dir, const char* buildId);
 
   uint32_t ackFor(const char* dir) const;
+  uint64_t ackHashFor(const char* dir) const;
+  void setAckHash(const char* dir, uint64_t hash);
   void setAck(const char* dir, uint32_t offset);
 };
 
@@ -91,12 +125,35 @@ class StudySync {
   // confirm screen declined. Failures are ignored; the TTL is the backstop.
   void pairAbandon(const std::string& pollToken, const std::string& deviceToken);
 
+  // The account's decks, and which of them this account already syncs. A
+  // fresh account has chosen nothing, so the device must ask before its
+  // first sync can deliver anything at all.
+  struct DeckChoice {
+    std::string name;
+    int cards = 0;
+    bool chosen = false;
+  };
+  // True after listDecks stopped short of the account's full deck list.
+  bool decksWithheld = false;
+  bool listDecks(const BridgeState& state, std::vector<DeckChoice>& out, std::string& message);
+  bool chooseDecks(const BridgeState& state, const std::vector<std::string>& names, std::string& message);
+
   bool syncStart(const BridgeState& state, const std::vector<DeckPayload>& decks, std::string& jobId,
                  std::vector<std::pair<std::string, uint32_t>>& acks, std::string& message);
   // True after syncStart was refused for the token itself (revoked or
   // unknown): the stored pairing is dead and must be cleared, or every
   // later SYNC repeats the same refusal forever.
   bool unpaired = false;
+  // Decks the bridge could not build this cycle. The rest of the sync
+  // succeeds around them, so the verdict has to name them or the user is
+  // told SYNCED and finds a deck missing.
+  std::vector<std::string> failedDecks;
+  // Reviews the service could not apply because their card is no longer in
+  // the collection (a deck deleted on the desktop, notes removed, a shared
+  // deck re-imported with fresh card ids). They are dropped there and their
+  // ack still advances here, so they are gone -- and a verdict that counts
+  // them as sent is telling the user the opposite of what happened.
+  int reviewsMissing = 0;
   // "running" | "done" | "error" | "frozen" | "" (transport failure).
   std::string syncStatus(const BridgeState& state, const std::string& jobId, std::vector<DeckManifest>& manifests,
                          std::string& message);

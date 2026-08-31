@@ -31,6 +31,9 @@ from . import accounts, decks, engine, jobs, pairing, store, wire
 from .journal import Journal
 
 log = logging.getLogger("bridge.app")
+
+# Mirrors StudySync::kMaxChosenDecks in the firmware.
+MAX_CHOSEN_DECKS = 8
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
 MAX_SYNC_BODY = 8 * 1024 * 1024  # revlog tails + cards.dat; a 5k-card deck is ~320KB
@@ -322,7 +325,7 @@ async def pair_poll(pollToken: str):
     result = pairing.PAIRINGS.poll(pollToken)
     if result is None:
         return JSONResponse(
-            {"error": "That code expired. Press SYNC again for a fresh one."}, 410
+            {"error": "That code expired. Start again for a fresh one."}, 410
         )
     if result["pending"]:
         return {"pending": True}
@@ -354,13 +357,33 @@ async def list_decks(dev=Depends(require_device)):
 
         col = Collection(str(st.collection_path))
         try:
+            # Cards are counted against the deck they came FROM, matching the
+            # converter: a card in a filtered deck (Custom Study) has did = the
+            # filtered deck and odid = its home deck.
             rows = col.db.all(
-                "select d.name, count(c.id) from decks d"
-                " left join cards c on c.did = d.id group by d.id"
+                "select d.id, d.name, count(c.id) from decks d"
+                " left join cards c on (case when c.odid = 0 then c.did else c.odid end) = d.id"
+                " group by d.id"
             )
+            # Filtered decks own no cards of their own -- they borrow them and
+            # give them back -- so offering one as a choice builds a deck that
+            # empties itself, after which every sync ends PART WAY until the
+            # user re-picks. There is no dyn column any more (decks keep their
+            # kind in a protobuf blob), so this is the API's question to answer.
+            rows = [(n, c) for did, n, c in rows if not col.decks.is_filtered(did)]
         finally:
             col.close()
-        return [{"name": n.replace("\x1f", "::"), "cards": c} for n, c in rows]
+        # Count the subtree, not the deck's own cards. A shared deck arrives
+        # as a parent whose cards all live in subdecks, so its own count is
+        # zero -- and the reader hides a zero-card deck, because the converter
+        # refuses a truly empty one. The converter itself matches subdecks
+        # (anki_to_deck.collect_notes: d.name = ? or d.name like ? || x'1f%'),
+        # so the parent builds correctly and only the count was lying.
+        own = [(n, c) for n, c in rows]
+        def subtree(name):
+            return sum(c for n, c in own if n == name or n.startswith(name + "\x1f"))
+
+        return [{"name": n.replace("\x1f", "::"), "cards": subtree(n)} for n, _ in own]
 
     async with store.LOCKS.for_user(uid):
         all_decks = await asyncio.to_thread(read)
@@ -371,7 +394,10 @@ async def list_decks(dev=Depends(require_device)):
 async def choose_decks(request: Request, dev=Depends(require_device)):
     uid, _ = dev
     body = await request.json()
-    names = [str(n) for n in body.get("decks", [])][:8]
+    # Must equal StudySync::kMaxChosenDecks on the device. The picker enforces
+    # the same number, so this truncation should never fire; it is the backstop
+    # for a client that does not.
+    names = [str(n) for n in body.get("decks", [])][:MAX_CHOSEN_DECKS]
     st, state = _user_bits(uid)
     state["chosen_decks"] = names
     st.save_state(state)
@@ -445,24 +471,36 @@ async def start_sync(request: Request, dev=Depends(require_device)):
         fresh = st.load_state()
         manifests = []
         prints = fresh.setdefault("deck_fingerprints", {})
+        # One deck that cannot be built must not cost the user the others, nor
+        # the sync itself. The converter refuses an empty deck, a cloze-only
+        # deck and a deck renamed away on the desktop side; aborting the job
+        # here left the reader with an error, no decks, and no route back to
+        # the picker, repeating identically forever because the state below
+        # was never saved.
+        failed = []
         for name in fresh["chosen_decks"]:
-            content_now, schedule_now = decks.deck_fingerprints(st, name)
-            stored = prints.get(name) or {}
-            if isinstance(stored, str):  # pre-split single fingerprint
-                stored = {}
-            existing = decks.latest_build(st, decks.slugify(name))
-            if existing and stored.get("content") == content_now and stored.get("schedule") == schedule_now:
-                manifests.append(existing)
-                continue
-            if existing and stored.get("content") == content_now:
-                manifests.append(decks.rebuild_cards_only(st, name, existing))
-            else:
-                manifests.append(decks.build_deck(st, name))
-            prints[name] = {"content": content_now, "schedule": schedule_now}
+            try:
+                content_now, schedule_now = decks.deck_fingerprints(st, name)
+                stored = prints.get(name) or {}
+                if isinstance(stored, str):  # pre-split single fingerprint
+                    stored = {}
+                existing = decks.latest_build(st, decks.slugify(name))
+                if existing and stored.get("content") == content_now and stored.get("schedule") == schedule_now:
+                    manifests.append(existing)
+                    continue
+                if existing and stored.get("content") == content_now:
+                    manifests.append(decks.rebuild_cards_only(st, name, existing))
+                else:
+                    manifests.append(decks.build_deck(st, name))
+                prints[name] = {"content": content_now, "schedule": schedule_now}
+            except Exception:
+                log.exception("deck build failed, skipping: %s", name)
+                failed.append(name)
         fresh["status"] = "ok"
         fresh["last_sync"] = int(time.time())
         st.save_state(fresh)
         summary["manifests"] = manifests
+        summary["failedDecks"] = failed
         return summary
 
     job = jobs.JOBS.start(uid, work)
