@@ -56,7 +56,8 @@ MAX_ENTRY_LEN = 22
 # differ by 69 pixels on the panel. Three separate overflows shipped behind
 # character caps that all looked satisfied -- a category hint, a set of picker
 # titles, and 24 entries clipped in the results list -- and each truncates with
-# U+2026, which Jersey does not carry, so the text stops mid-word and looks
+# U+2026, which the cuts at 14 and above do not carry, so the text stops
+# mid-word and looks
 # deliberate.
 #
 # The boxes, from ForeheadScreens.cpp:
@@ -69,8 +70,9 @@ MAX_HINT_PX = 760
 FONTS_DIR = REPO / "src/apps_local/ui/fonts"
 # The hint appears in three places and the tightest is the READY card, which
 # draws it at the 30px cut across 800px of landscape: about 24 characters.
-# Past that it is truncated with U+2026 -- which Jersey does not have, so it
-# draws as NOTHING and the sentence just stops. Measured, not estimated:
+# Past that it is truncated with U+2026, which the 30px cut does not carry
+# (only toybox_10 does), so it draws as NOTHING and the sentence just stops.
+# Measured, not estimated:
 # "HOLD IT ON YOUR FOREHEAD" is 24 and fits exactly.
 MAX_HINT_LEN = 24
 # The picker row draws the title between a 32px icon and a right-aligned value.
@@ -80,7 +82,7 @@ MAX_HINT_LEN = 24
 # title runs 19px into where a two-digit best begins, and 14 runs 13px in. The
 # first renders all looked clean only because those categories were unplayed --
 # the collision arrives the day somebody scores in one, and it arrives as a
-# silently chopped name, because the truncation glyph U+2026 is not in Jersey.
+# silently chopped name, because the 20px cut does not carry U+2026.
 # Thirteen clears the widest value the row can ever show.
 MAX_TITLE_LEN = 13
 # A round records up to kMaxCards cards, and a category with fewer entries than

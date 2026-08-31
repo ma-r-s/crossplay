@@ -46,12 +46,17 @@ bmp_to_png "$OUT_DIR"
 echo "full log: $LOG"
 
 # A missing glyph is ALWAYS a layout bug, and it is the one bug this panel
-# cannot show you. The SDK truncates overflowing text with U+2026; Jersey has no
-# U+2026; a glyph the face does not carry draws as nothing at all. So an
-# overflowing line does not arrive as a clipped word or a box character -- the
-# sentence just stops, at a plausible-looking place, and the screenshot looks
-# fine. FOREHEAD shipped two of these: a settings row reading "RE" and a first
-# run whose only sentence ran off the side.
+# cannot show you. The SDK truncates overflowing text with U+2026, and the
+# Toybox cuts DO NOT ALL CARRY IT: toybox_10 has the ellipsis, 14/20/30/44/64 do
+# not. A glyph the face lacks draws as nothing at all, so at every cut above 10
+# an overflowing line does not arrive as a clipped word or a box character --
+# the sentence just stops, at a plausible-looking place, and the screenshot
+# looks fine. FOREHEAD shipped two of these: a settings row reading "RE" and a
+# first run whose only sentence ran off the side.
+#
+# The corollary is this gate's coverage: an overflow at the 10px cut draws a
+# real "..." and logs nothing, so the gate cannot see it -- and does not need
+# to, because a human can. Above 10 the gate is the only thing that can.
 #
 # The renderer logs it every single time, on every screen, for computed boxes as
 # well as fixed ones, which makes this a better gate than any table of strings

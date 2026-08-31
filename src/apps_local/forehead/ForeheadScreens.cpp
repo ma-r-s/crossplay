@@ -756,7 +756,8 @@ void buildSettings(toybox::Screen& screen, const SettingsModel& model) {
   // value column beside a sixteen-character label: those two together are 474px
   // of an approximately 416px row, and the overflow does not look like an
   // overflow. It looked like a row reading "RE  NOTHING TO CLEAR YET", because
-  // the truncation glyph U+2026 has no bitmap in Jersey and drew as nothing.
+  // the 20px cut has no U+2026 bitmap (only toybox_10 does) and it drew as
+  // nothing.
   //
   // Fixed sentences, with no count interpolated into them: "CLEARS 999 ROUNDS
   // AND WORDS SEEN" is 436px and would bring the same bug back on the day
@@ -807,7 +808,8 @@ struct Page {
   const char* title;
   // Seven lines at the 14px cut, which is about 32 characters across this
   // panel. The 20px UI cut fits 24, and the component truncates an overrun with
-  // U+2026 -- a glyph Jersey does not carry, so it draws as NOTHING and the
+  // U+2026 -- which this cut does not carry (only toybox_10 does), so it
+  // draws as NOTHING and the
   // sentence just stops mid-word. Two pages shipped that way before anybody
   // rendered one.
   const char* body[7];
