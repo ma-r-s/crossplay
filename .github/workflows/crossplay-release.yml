@@ -163,43 +163,62 @@ jobs:
           body: |
             Games and small tools for the **Xteink X4 Pro** and the **Seeed
             reTerminal Sticky**, on top of
-            [CrossPoint](https://crosspointreader.com/). Seventeen games --
+            [CrossPoint](https://crosspointreader.com/). Nineteen games --
             Chess, Checkers, Connect Four, Yahtzee, Knucklebones, Minesweeper,
             Sudoku, Toy Battle, Forehead, Battleship, Connections, Solitaire,
-            D&Diagrams, Insider, Jaipur, Murdle and Sea Salt & Paper -- plus
-            spaced-repetition flashcards, Hacker News, the xkcd archive and a
-            catalog browser for downloading books. Nine of them play over
+            D&Diagrams, Insider, Jaipur, Murdle, Sea Salt & Paper, Trivia and
+            Wavelength -- plus spaced-repetition flashcards, Hacker News, the
+            xkcd archive, a read-later queue and a catalog browser for
+            downloading books. Nine of them play over
             **PLAY NEARBY**: Chess, Checkers, Connect Four, Yahtzee,
             Knucklebones, Battleship, Jaipur, Sea Salt and Toy Battle. Two
             devices next to each other find one another with nothing to type --
             and they do not have to be the same device.
 
-            ### What is new in 1.11.1
+            ### What is new in 1.12.0
 
-            **A fix for a mirrored, unresponsive display on some X4 Pro units.**
-            Four people reported it: the screen comes up flipped along the
-            horizontal axis and the device answers almost no input. Flashing
-            again did not help, because nothing about the flash was wrong.
+            **Read it later, on the reader.** A new **Instapaper** app: your
+            unread queue, the article text, page turns, and archiving from the
+            device. It syncs through a small service of its own, the same shape
+            as the Anki bridge.
 
-            The cause was this fork's freeink-sdk pin, which sat 69 commits
-            behind upstream on a branch of its own. The upstream work it was
-            missing includes an X4 Pro display driver update, e-ink
-            initialisation and ghosting improvements, and the touch mirroring
-            fixes. The pin now tracks upstream main.
+            **Wavelength.** The spectrum party game, on one device passed round
+            a table. Give the clue, argue, turn the dial, reveal.
 
-            **This one ships without having been witnessed, on purpose, and that
-            is worth saying plainly.** It does not reproduce on the desk unit.
-            An X4 Pro selects one of SSD1677, UC8179 or UC8279 at boot, the desk
-            unit selects a variant that never showed the fault, and the
-            simulator does not reproduce it either. So the fix is the upstream
-            driver update for the variants that do fail, reasoned rather than
-            observed. A reporter confirming on their own hardware is the
-            verification step, not a formality, and
-            [#6](https://github.com/ma-r-s/crossplay/issues/6) stays open until
-            one does.
+            **Hacker News saved articles work again.** The storage half had been
+            shipping for three weeks with nothing calling it, and it would not
+            have opened an existing library even if something had -- a
+            version-1 index was read with a version-2 column count, so every
+            saved story was discarded as damage. Save a story, read it back with
+            no network.
 
-            **If your display is mirrored, install over USB rather than from the
-            device.** A flipped screen cannot drive the on-device updater.
+            **Trivia: two fixes that made it unusable on a device.** GET THE
+            QUESTIONS entered the TLS stack with the radio down and panicked the
+            device. And the first successful download created its own folder,
+            after which every later attempt reported "NO ROOM" on a card with
+            gigabytes free.
+
+            **Sleep returns you to your game**, not to Home.
+
+            **Book text from a catalog no longer arrives with its markup
+            showing**, and a Study deck installed from the website and one
+            synced from the service now agree on where it lives -- before, one
+            deck could land in two folders with two separate review histories.
+
+            ### If you have not plugged your X4 Pro into a computer since August
+
+            **This update will refuse to install over the air, and one USB flash
+            fixes it permanently.**
+
+            Devices flashed before v1.5.3 have a 6.25MB app slot. This release
+            is 6,599,690 bytes, which is 46,090 over it. The device checks the
+            size before downloading and refuses cleanly -- nothing is damaged,
+            and it now tells you the remedy rather than only the problem.
+
+            The fix is a one-time flash of the `-full.bin` below, which carries
+            the partition table that the over-the-air updater never writes.
+            After it, updates work from the device forever. Sticky owners are
+            unaffected.
 
             ### The short way: press Install
 
