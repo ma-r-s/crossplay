@@ -72,6 +72,7 @@ def survey():
     for path in sorted((REPO / "lib/I18n/translations").glob("*.yaml")):
         strings = translations(path)
         worst = None
+        near = None
         for slot, bold, key in keys:
             face = faces.get((slot, bold))
             if face is None or key not in strings:
@@ -79,13 +80,27 @@ def survey():
             width, _ = measure(strings[key], *face)
             if width > PANEL_WIDTH and (worst is None or width > worst[1]):
                 worst = (key, width)
-        rows.append((path.stem, worst))
+            elif width <= PANEL_WIDTH and (near is None or width > near):
+                near = width
+        rows.append((path.stem, worst, near))
     over = [r for r in rows if r[1]]
     print("all-language survey (reported, not gated)")
-    for name, worst in sorted(over, key=lambda r: -r[1][1]):
+    for name, worst, _ in sorted(over, key=lambda r: -r[1][1]):
         print("  %-12s worst %7.1fpx > %dpx  %s" % (name, worst[1], PANEL_WIDTH, worst[0]))
     print("  %d of %d languages have at least one overflowing unwrapped string"
           % (len(over), len(rows)))
+    # This count is a READING, not a property of the codebase. Several languages
+    # sit within a few pixels of the limit, so rewording one string in one
+    # language moves it. Quote the measurement, never the number.
+    margin = 15
+    edge = sorted((PANEL_WIDTH - r[2], r[0]) for r in rows
+                  if not r[1] and r[2] and PANEL_WIDTH - r[2] <= margin)
+    if edge:
+        print("  %d more are within %dpx of the limit, so this count MOVES when any"
+              % (len(edge), margin))
+        print("  string in any language is reworded -- re-measure, do not quote:")
+        for gap, name in edge:
+            print("    %-12s %5.1fpx of margin" % (name, gap))
     return 0
 
 
