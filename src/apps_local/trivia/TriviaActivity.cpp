@@ -8,6 +8,7 @@
 #include <cstring>
 
 #include "../../components/UITheme.h"
+#include "../../network/HttpDownloader.h"
 #include "../ui/ToyboxFonts.h"
 #include "../ui/ToyboxTheme.h"
 
@@ -15,7 +16,13 @@ namespace fui = freeink::ui;
 
 namespace {
 
+constexpr const char* kDir = "/trivia";
 constexpr const char* kPackPath = "/trivia/pack.dat";
+constexpr const char* kPartPath = "/trivia/pack.dat.part";
+// A rolling PRERELEASE, so the OTA's releases/latest can never see it and a
+// 6MB question pack never lands in a firmware update. Same arrangement as the
+// xkcd archive; see docs/apps/trivia-pack-format.md.
+constexpr const char* kPackUrl = "https://github.com/ma-r-s/crossplay/releases/download/trivia-pack/pack.dat";
 constexpr const char* kStatePath = "/trivia/pack.state";
 
 // A ByteSource over a HalFile. Every read seeks first: an index entry and the
@@ -35,7 +42,7 @@ class FileSource final : public trivia::WritableByteSource {
   }
   bool write(const uint32_t offset, const void* src, const uint32_t length) override {
     if (length == 0) return true;
-    if (file_ == nullptr || offset + length > size_) return false;   // state never grows
+    if (file_ == nullptr || offset + length > size_) return false;  // state never grows
     if (!file_->seekSet(offset)) return false;
     return file_->write(static_cast<const uint8_t*>(src), length) == length;
   }
@@ -115,23 +122,11 @@ void TriviaActivity::onEnter() {
     view_ = View::Menu;
     LOG_INF("TRIVIA", "Pack open: %u questions", static_cast<unsigned>(pack_.count()));
   } else {
-    view_ = View::NoPack;
+    showNotice("NO QUESTIONS",
+               "There is no question pack on this card yet. Connect to WiFi and fetch one; it is about 6MB.",
+               "GET THE QUESTIONS", triviaui::ActionGetPack);
   }
 
-#if !defined(FREEINK_NET_WOLFSSL)
-  // Render harness for the three arrangements of the question screen, so the
-  // choice is made by looking. Simulator-only, by the same gate Study's
-  // sync-flow preview uses. Goes away when one is chosen.
-  if (const char* forced = std::getenv("TRIVIA_LAYOUT")) {
-    if (std::strcmp(forced, "page") == 0) layout_ = triviaui::QuestionLayout::Page;
-    if (std::strcmp(forced, "stage") == 0) layout_ = triviaui::QuestionLayout::Stage;
-    if (std::strcmp(forced, "card") == 0) layout_ = triviaui::QuestionLayout::Card;
-    if (view_ != View::NoPack) {
-      view_ = View::Quizmaster;
-      deal();
-    }
-  }
-#endif
   flashOnNextPaint_ = true;
   requestUpdate();
 }
@@ -142,10 +137,99 @@ void TriviaActivity::onExit() {
   Activity::onExit();
 }
 
+void TriviaActivity::showNotice(const char* headline, const char* body, const char* actionLabel,
+                                const freeink::ui::ActionId action) {
+  std::snprintf(noticeHead_, sizeof(noticeHead_), "%s", headline);
+  std::snprintf(noticeBody_, sizeof(noticeBody_), "%s", body);
+  noticeAction_ = actionLabel;
+  noticeActionId_ = action;
+  view_ = View::Notice;
+  interactionsReady_ = false;
+  flashOnNextPaint_ = true;
+  requestUpdate();
+}
+
+// One asset, to a .part name, renamed only once it is whole -- so a torn
+// download can never masquerade as a corrupt pack. The app simply finds no
+// pack, exactly as before the attempt.
+//
+// Synchronous: loop() is blocked but the render task is not, so progress paints
+// through requestUpdateAndWait(). The input pump in the progress callback is
+// the sanctioned exception to the one-pump rule -- nothing else pumps while
+// this blocks, and without it Back could not cancel a multi-minute download.
+void TriviaActivity::runPackDownload() {
+  if (!Storage.mkdir(kDir)) {
+    showNotice("NO ROOM", "Could not create /trivia on the card. Is the card in, and writable?");
+    return;
+  }
+
+  g_packFile.close();
+  g_stateFile.close();
+  downloadCancel_ = false;
+
+  size_t lastPainted = 0;
+  const auto progress = [this, &lastPainted](const size_t got, const size_t total) {
+    // Every ~1MB: each paint is an e-ink refresh, and finer steps would spend
+    // more time refreshing than downloading.
+    if (got - lastPainted >= 1024u * 1024u || (total > 0 && got == total)) {
+      lastPainted = got;
+      if (total > 0) {
+        std::snprintf(noticeBody_, sizeof(noticeBody_), "Fetching the questions: %u of %u MB. Back stops it.",
+                      static_cast<unsigned>(got >> 20), static_cast<unsigned>(total >> 20));
+      } else {
+        std::snprintf(noticeBody_, sizeof(noticeBody_), "Fetching the questions: %u MB so far. Back stops it.",
+                      static_cast<unsigned>(got >> 20));
+      }
+      requestUpdateAndWait();
+    }
+    mappedInput.update();
+    if (mappedInput.wasReleased(MappedInputManager::Button::Back)) downloadCancel_ = true;
+    if (mappedInput.wasHomeGesture()) downloadCancel_ = true;
+  };
+
+  std::snprintf(noticeHead_, sizeof(noticeHead_), "%s", "FETCHING");
+  std::snprintf(noticeBody_, sizeof(noticeBody_), "%s", "Starting. Back stops it.");
+  noticeAction_ = nullptr;
+  requestUpdateAndWait();
+
+  const auto err = HttpDownloader::downloadToFile(kPackUrl, kPartPath, progress, &downloadCancel_);
+  if (err != HttpDownloader::OK) {
+    Storage.remove(kPartPath);
+    if (err == HttpDownloader::ABORTED) {
+      showNotice("STOPPED", "Download stopped. Nothing was kept.");
+    } else if (err == HttpDownloader::FILE_ERROR) {
+      showNotice("CARD TROUBLE", "The card would not take the file. Nothing was kept.");
+    } else {
+      showNotice("NO ANSWER", "The download did not answer. The card is unchanged; try again later.");
+    }
+    return;
+  }
+
+  Storage.remove(kPackPath);  // a half pack from an earlier era must not block the rename
+  if (!Storage.rename(kPartPath, kPackPath)) {
+    showNotice("CARD TROUBLE", "Downloaded, but the card refused the final rename. Try again.");
+    return;
+  }
+
+  // The state file describes the OLD pack. openPack rewrites it when the
+  // question count no longer matches, which loses which questions have been
+  // seen -- the right trade against reading a stale byte for a question it
+  // does not describe.
+  if (!openPack()) {
+    showNotice("BAD PACK", "Downloaded, but the pack did not open. Try again later.");
+    return;
+  }
+  char body[96];
+  std::snprintf(body, sizeof(body), "%u questions on the card. Ready when you are.",
+                static_cast<unsigned>(pack_.count()));
+  showNotice("READY", body, "PLAY", triviaui::ActionMenuRow);
+  selected_ = -1;
+}
+
 void TriviaActivity::go(const View next) {
   view_ = next;
   interactionsReady_ = false;
-  flashOnNextPaint_ = true;      // a mode change is a page turn, so spend the flash
+  flashOnNextPaint_ = true;  // a mode change is a page turn, so spend the flash
   requestUpdate();
 }
 
@@ -173,7 +257,14 @@ void TriviaActivity::deal() {
 
 void TriviaActivity::routeAction(const int action, const int value) {
   switch (action) {
+    case triviaui::ActionGetPack:
+      downloadQueued_ = true;
+      break;
     case triviaui::ActionMenuRow:
+      if (view_ == View::Notice) {  // the READY notice's PLAY button
+        go(View::Menu);
+        break;
+      }
       selected_ = value;
       if (value == 0) {
         go(View::Quizmaster);
@@ -216,6 +307,15 @@ void TriviaActivity::routeAction(const int action, const int value) {
 }
 
 void TriviaActivity::loop() {
+  // Started from the action handler rather than inside it: the download blocks
+  // for minutes and pumps input itself, which must not happen while an action
+  // is still being routed.
+  if (downloadQueued_) {
+    downloadQueued_ = false;
+    runPackDownload();
+    return;
+  }
+
   fui::InputSnapshot input;
   int tapX = 0;
   int tapY = 0;
@@ -235,16 +335,27 @@ void TriviaActivity::loop() {
 void TriviaActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
-  fui::GfxRendererTarget target = toybox::makeTarget(renderer, toybox::readingChromeFaces());
+  // Faces per view, not per app. The clue is a page of prose and wants the
+  // reading serif; the front door is a menu and must look like every other
+  // menu in the fork, which is Jersey. proseMenuFaces exists for exactly this
+  // shape -- a headline with a sentence under it -- because at the 20px UI cut
+  // a sentence runs off the panel and is truncated with an ellipsis Jersey
+  // does not carry, so the line simply stops. See ToyboxTheme.h.
+  const bool prose = view_ == View::Quizmaster || view_ == View::Solo || view_ == View::Notice;
+  fui::GfxRendererTarget target =
+      toybox::makeTarget(renderer, prose ? toybox::readingChromeFaces() : toybox::proseMenuFaces());
   const fui::InputSnapshot noInput{};
   toybox::Frame frame(target, target.deviceContext(), noInput, interactions_);
   toybox::Screen screen(frame);
 
   switch (view_) {
-    case View::NoPack: {
-      triviaui::MenuModel model;
-      model.packMissing = true;
-      triviaui::buildMenu(screen, model);
+    case View::Notice: {
+      triviaui::NoticeModel model;
+      model.headline = noticeHead_;
+      model.body = noticeBody_;
+      model.actionLabel = noticeAction_;
+      model.action = noticeActionId_;
+      triviaui::buildNotice(screen, model);
       break;
     }
     case View::Menu: {
@@ -257,7 +368,6 @@ void TriviaActivity::render(RenderLock&&) {
     }
     case View::Quizmaster: {
       triviaui::QuestionModel model;
-      model.layout = layout_;
       if (haveQuestion_) {
         model.clue = question_.clue();
         model.difficulty = question_.difficulty();

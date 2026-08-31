@@ -5,8 +5,8 @@ namespace {
 
 uint16_t readU16(const uint8_t* p) { return static_cast<uint16_t>(p[0] | (p[1] << 8)); }
 uint32_t readU32(const uint8_t* p) {
-  return static_cast<uint32_t>(p[0]) | (static_cast<uint32_t>(p[1]) << 8) |
-         (static_cast<uint32_t>(p[2]) << 16) | (static_cast<uint32_t>(p[3]) << 24);
+  return static_cast<uint32_t>(p[0]) | (static_cast<uint32_t>(p[1]) << 8) | (static_cast<uint32_t>(p[2]) << 16) |
+         (static_cast<uint32_t>(p[3]) << 24);
 }
 
 bool sameText(const char* a, const char* b) {
@@ -43,6 +43,15 @@ bool Pack::open(ByteSource& source) {
   const uint32_t indexBytes = (count + 1) * 4u;
   if (source.size() < sizeof(header) + indexBytes) return false;
 
+  // The sentinel is the total size of the record blob. A card pulled mid-write
+  // otherwise opens as a complete pack whose tail records are whatever bytes
+  // were there before, which reads as corrupt questions rather than as a
+  // missing pack. Rejecting whole means the app offers to fetch one instead.
+  uint8_t sentinel[4] = {};
+  if (!source.read(sizeof(header) + count * 4u, sentinel, sizeof(sentinel))) return false;
+  const uint32_t blobBytes = readU32(sentinel);
+  if (static_cast<uint64_t>(sizeof(header)) + indexBytes + blobBytes > source.size()) return false;
+
   source_ = &source;
   count_ = count;
   indexAt_ = sizeof(header);
@@ -60,7 +69,7 @@ bool Pack::read(const uint32_t index, Question& out) const {
   if (end <= start) return false;
 
   const uint32_t length = end - start;
-  if (length > kMaxRecordBytes) return false;   // reject, never truncate
+  if (length > kMaxRecordBytes) return false;  // reject, never truncate
 
   uint8_t buffer[kMaxRecordBytes];
   if (!source_->read(base_ + start, buffer, length)) return false;
@@ -114,7 +123,7 @@ bool PackState::setFlag(const uint32_t index, const uint8_t bit) {
   if (source_ == nullptr || index >= count_) return false;
   uint8_t byte = flags(index);
   const uint8_t updated = static_cast<uint8_t>(byte | bit);
-  if (updated == byte) return true;                 // already set, no write
+  if (updated == byte) return true;  // already set, no write
   if (!source_->write(index, &updated, 1)) return false;
   return source_->flush();
 }
@@ -149,10 +158,10 @@ bool Chooser::next(uint32_t& indexOut, const bool requireChoice, const int diffi
     for (uint32_t step = 0; step < count; ++step) {
       const uint32_t i = (cursor_ + step) % count;
       const uint8_t flags = state_->flags(i);
-      if ((flags & kFlagged) != 0) continue;              // a player rejected it
+      if ((flags & kFlagged) != 0) continue;  // a player rejected it
       if (pass == 0 && (flags & kSeen) != 0) continue;
       Question q;
-      if (!pack_->read(i, q)) continue;                   // torn record, skip
+      if (!pack_->read(i, q)) continue;  // torn record, skip
       if (requireChoice && !q.playableAsChoice()) continue;
       if (difficulty != 0 && q.difficulty() != difficulty) continue;
       cursor_ = (i + 1) % count;

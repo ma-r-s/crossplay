@@ -1,5 +1,7 @@
 #include "TriviaScreens.h"
 
+#include <cstdio>
+
 namespace triviaui {
 namespace {
 
@@ -9,7 +11,7 @@ constexpr int16_t kFooterHeight = 96;
 fui::TextStyle textStyle(const fui::FontId font, const fui::TextAlign align,
                          const fui::Color colour = fui::Color::Black) {
   fui::TextStyle style;
-  style.font = font;      // named even when it is the slot the component defaults to
+  style.font = font;  // named even when it is the slot the component defaults to
   style.align = align;
   style.color = colour;
   return style;
@@ -17,8 +19,7 @@ fui::TextStyle textStyle(const fui::FontId font, const fui::TextAlign align,
 
 // All-caps chrome: safe to ink-centre, because every glyph sits on the baseline.
 void drawLabel(toybox::Screen& screen, const fui::Rect& box, const char* text, const fui::FontId font,
-               const fui::TextAlign align, const toybox::CutMetrics& cut,
-               const fui::Color colour = fui::Color::Black) {
+               const fui::TextAlign align, const toybox::CutMetrics& cut, const fui::Color colour = fui::Color::Black) {
   screen.target().text(toybox::inkCentred(box, cut), text, textStyle(font, align, colour));
 }
 
@@ -62,10 +63,8 @@ void chrome(toybox::Screen& screen, const char* title, const char* rightLabel) {
   // that passes a right label has this.
   if (rightLabel != nullptr && *rightLabel != '\0') {
     const int16_t bandTop = static_cast<int16_t>(screen.body().y - toybox::kHeaderHeight);
-    const fui::Rect box{static_cast<int16_t>(screen.body().x),
-                        bandTop,
-                        static_cast<int16_t>(screen.body().width - kMargin),
-                        toybox::kHeaderHeight};
+    const fui::Rect box{static_cast<int16_t>(screen.body().x), bandTop,
+                        static_cast<int16_t>(screen.body().width - kMargin), toybox::kHeaderHeight};
     drawLabel(screen, box, rightLabel, toybox::kSmallFont, fui::TextAlign::Right, toybox::kButtonCut,
               fui::Color::White);
   }
@@ -96,143 +95,86 @@ void drawAction(toybox::Screen& screen, const char* label, const fui::ActionId a
   const fui::Rect box{static_cast<int16_t>(body.x + kMargin), static_cast<int16_t>(footerTop(screen) + 16),
                       static_cast<int16_t>(body.width - kMargin * 2), 64};
   screen.target().fill(box, fui::Paint::solid(fui::Color::Black));
-  drawLabel(screen, box, label, toybox::kSmallFont, fui::TextAlign::Center, toybox::kButtonCut,
-            fui::Color::White);
+  drawLabel(screen, box, label, toybox::kSmallFont, fui::TextAlign::Center, toybox::kButtonCut, fui::Color::White);
   screen.frame().hit(box, action);
 }
 
-// ---------------------------------------------------------------------------
-// The three arrangements. Same model, same content, different composition.
+// The primary action, plus a narrower outlined one beside it. The secondary is
+// outlined rather than filled because it is the rarer choice and the black you
+// can afford is inversely proportional to how often you want it pressed.
+void drawActionPair(toybox::Screen& screen, const char* primary, const fui::ActionId primaryAction,
+                    const char* secondary, const fui::ActionId secondaryAction) {
+  const fui::Rect body = screen.body();
+  const int16_t top = static_cast<int16_t>(footerTop(screen) + 16);
+  const int16_t full = static_cast<int16_t>(body.width - kMargin * 2);
+  const int16_t narrow = 132;
+  const int16_t wide = static_cast<int16_t>(full - narrow - 12);
 
-// A -- CARD. Chrome at the top, the clue as the card's face, one action under
-// it. Closest to the rest of the fork, so it looks like the same device.
+  const fui::Rect main{static_cast<int16_t>(body.x + kMargin), top, wide, 64};
+  screen.target().fill(main, fui::Paint::solid(fui::Color::Black));
+  drawLabel(screen, main, primary, toybox::kSmallFont, fui::TextAlign::Center, toybox::kButtonCut, fui::Color::White);
+  screen.frame().hit(main, primaryAction);
+
+  const fui::Rect aside{static_cast<int16_t>(body.x + kMargin + wide + 12), top, narrow, 64};
+  screen.target().stroke(aside, fui::Paint::solid(fui::Color::Black), 2);
+  drawLabel(screen, aside, secondary, toybox::kSmallFont, fui::TextAlign::Center, toybox::kButtonCut);
+  screen.frame().hit(aside, secondaryAction);
+}
+
+// ---------------------------------------------------------------------------
+// The question. Chrome at the top, the clue as the card's face, one action
+// under it -- so it reads as the same device as the rest of the shelf.
+//
+// Chosen from three arrangements rendered side by side (the others set the clue
+// as a left-ragged column, and as the whole panel with no header at all). This
+// one won on looking like the fork; see docs/apps/trivia.md.
 void questionCard(toybox::Screen& screen, const QuestionModel& model) {
   chrome(screen, "TRIVIA", model.answer != nullptr ? "ANSWER" : "QUESTION");
   const fui::Rect body = screen.body();
 
-  drawDifficulty(screen, static_cast<int16_t>(body.x + kMargin), static_cast<int16_t>(body.y + 20),
-                 model.difficulty);
+  drawDifficulty(screen, static_cast<int16_t>(body.x + kMargin), static_cast<int16_t>(body.y + 20), model.difficulty);
 
   const int16_t top = static_cast<int16_t>(body.y + 56);
   const int16_t height = static_cast<int16_t>(footerTop(screen) - top - 24);
-  drawProse(screen,
-            fui::Rect{static_cast<int16_t>(body.x + kMargin), top,
-                      static_cast<int16_t>(body.width - kMargin * 2), height},
-            model.clue, fui::TextAlign::Center);
+  drawProse(
+      screen,
+      fui::Rect{static_cast<int16_t>(body.x + kMargin), top, static_cast<int16_t>(body.width - kMargin * 2), height},
+      model.clue, fui::TextAlign::Center);
 
   if (model.answer != nullptr) {
     hairline(screen, static_cast<int16_t>(footerTop(screen) - 96));
-    drawLabel(screen,
-              fui::Rect{body.x, static_cast<int16_t>(footerTop(screen) - 84), body.width, 64},
-              model.answer, toybox::kDisplayFont, fui::TextAlign::Center, toybox::kLargeCut);
-    drawAction(screen, "NEXT", ActionNext);
-  } else {
-    drawAction(screen, "REVEAL", ActionReveal);
-  }
-}
-
-// B -- PAGE. Editorial. A rule under the chrome, the clue set ragged-right like
-// a paragraph rather than centred, the answer arriving in the same column.
-void questionPage(toybox::Screen& screen, const QuestionModel& model) {
-  chrome(screen, "TRIVIA", nullptr);
-  const fui::Rect body = screen.body();
-
-  const int16_t railTop = static_cast<int16_t>(body.y + 18);
-  drawDifficulty(screen, static_cast<int16_t>(body.x + kMargin), railTop, model.difficulty);
-  hairline(screen, static_cast<int16_t>(railTop + 26));
-
-  const int16_t top = static_cast<int16_t>(railTop + 48);
-  const int16_t height = static_cast<int16_t>(footerTop(screen) - top - 16);
-  drawProse(screen,
-            fui::Rect{static_cast<int16_t>(body.x + kMargin), top,
-                      static_cast<int16_t>(body.width - kMargin * 2), height},
-            model.clue, fui::TextAlign::Left);
-
-  if (model.answer != nullptr) {
-    const int16_t answerTop = static_cast<int16_t>(footerTop(screen) - 92);
-    hairline(screen, answerTop);
-    drawLabel(screen,
-              fui::Rect{static_cast<int16_t>(body.x + kMargin), static_cast<int16_t>(answerTop + 12),
-                        static_cast<int16_t>(body.width - kMargin * 2), 60},
-              model.answer, toybox::kDisplayFont, fui::TextAlign::Left, toybox::kLargeCut);
-    drawAction(screen, "NEXT", ActionNext);
-  } else {
-    drawAction(screen, "REVEAL", ActionReveal);
-  }
-}
-
-// C -- STAGE. No header band. The clue is the whole screen, vertically centred,
-// with the instruction as a hairline footnote. The most readable across a table
-// and the least like the rest of the fork -- which is the trade.
-void stageHairline(toybox::Screen& screen, const int16_t y, const int16_t w) {
-  screen.target().fill(fui::makeRect(kMargin, y, static_cast<int16_t>(w - kMargin * 2), toybox::kHairline),
-                       fui::Paint::solid(fui::Color::Black));
-}
-
-void questionStage(toybox::Screen& screen, const QuestionModel& model) {
-  toybox::absoluteChrome(screen);
-  const fui::Rect body = screen.body();
-  const int16_t w = screen.device().screen().width;
-  const int16_t h = screen.device().screen().height;
-
-  drawDifficulty(screen, static_cast<int16_t>((w - (trivia::kDifficulties * 16 - 7)) / 2), 28,
-                 model.difficulty);
-
-  const int16_t top = 72;
-  const int16_t bottom = static_cast<int16_t>(h - 108);
-  drawProse(screen,
-            fui::Rect{kMargin, top, static_cast<int16_t>(w - kMargin * 2),
-                      static_cast<int16_t>(bottom - top)},
-            model.clue, fui::TextAlign::Center);
-
-  if (model.answer != nullptr) {
-    stageHairline(screen, static_cast<int16_t>(bottom - 76), w);
-    drawLabel(screen, fui::Rect{0, static_cast<int16_t>(bottom - 62), w, 64}, model.answer,
+    drawLabel(screen, fui::Rect{body.x, static_cast<int16_t>(footerTop(screen) - 84), body.width, 64}, model.answer,
               toybox::kDisplayFont, fui::TextAlign::Center, toybox::kLargeCut);
+    // FLAG is only offered once the answer is showing: you cannot judge a
+    // question bad until you have seen what it claims the answer is.
+    drawActionPair(screen, "NEXT", ActionNext, "FLAG", ActionFlag);
+  } else {
+    drawAction(screen, "REVEAL", ActionReveal);
   }
-
-  stageHairline(screen, static_cast<int16_t>(h - 72), w);
-  drawLabel(screen, fui::Rect{0, static_cast<int16_t>(h - 60), w, 44},
-            model.answer != nullptr ? "TAP FOR THE NEXT ONE" : "TAP TO REVEAL", toybox::kSmallFont,
-            fui::TextAlign::Center, toybox::kButtonCut);
-
-  // The whole screen is the target. A bar game is passed hand to hand and a
-  // 64px button is a thing to aim at; the panel is not.
-  screen.frame().hit(fui::Rect{0, 0, w, static_cast<int16_t>(h - 40)},
-                     model.answer != nullptr ? ActionNext : ActionReveal);
-  (void)body;
 }
 
 }  // namespace
 
-void buildQuestion(toybox::Screen& screen, const QuestionModel& model) {
-  switch (model.layout) {
-    case QuestionLayout::Page:
-      questionPage(screen, model);
-      break;
-    case QuestionLayout::Stage:
-      questionStage(screen, model);
-      break;
-    case QuestionLayout::Card:
-    default:
-      questionCard(screen, model);
-      break;
-  }
+void buildQuestion(toybox::Screen& screen, const QuestionModel& model) { questionCard(screen, model); }
+
+void buildNotice(toybox::Screen& screen, const NoticeModel& model) {
+  chrome(screen, "TRIVIA", nullptr);
+  const fui::Rect body = screen.body();
+
+  const int16_t top = static_cast<int16_t>(body.y + 96);
+  drawLabel(screen,
+            fui::Rect{static_cast<int16_t>(body.x + kMargin), top, static_cast<int16_t>(body.width - kMargin * 2), 64},
+            model.headline, toybox::kDisplayFont, fui::TextAlign::Center, toybox::kLargeCut);
+  drawProse(screen,
+            fui::Rect{static_cast<int16_t>(body.x + kMargin), static_cast<int16_t>(top + 88),
+                      static_cast<int16_t>(body.width - kMargin * 2), 260},
+            model.body, fui::TextAlign::Center);
+  if (model.actionLabel != nullptr) drawAction(screen, model.actionLabel, model.action);
 }
 
 void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   chrome(screen, "TRIVIA", nullptr);
   const fui::Rect body = screen.body();
-
-  if (model.packMissing) {
-    drawProse(screen,
-              fui::Rect{static_cast<int16_t>(body.x + kMargin), static_cast<int16_t>(body.y + 60),
-                        static_cast<int16_t>(body.width - kMargin * 2), 220},
-              "No question pack on the card yet. Connect to WiFi and this app will "
-              "fetch one, or copy pack.dat into /trivia yourself.",
-              fui::TextAlign::Center);
-    return;
-  }
 
   fui::ListProps list;
   list.action = ActionMenuRow;
@@ -240,38 +182,58 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
 
   fui::ListItem items[static_cast<int>(MenuRow::Count)];
   items[0].label = "QUIZMASTER";
-  items[0].subtitle = "One question, everyone argues, tap to reveal";
+  // Measured, not guessed: at the 20px UI cut these run off the panel and are
+  // truncated with an ellipsis Jersey has no glyph for, so the line just stops.
+  items[0].subtitle = "Read it out, argue, reveal";
   items[0].actionValue = 0;
   items[1].label = "SOLO";
-  items[1].subtitle = "Four options, the device keeps score";
+  items[1].subtitle = "Four options, scored";
   items[1].actionValue = 1;
   items[2].label = "DIFFICULTY";
-  items[2].subtitle = model.difficulty == 0 ? "Any" : "Set";
+  items[2].subtitle = model.difficulty == 0 ? "Any difficulty" : "One level only";
   items[2].actionValue = 2;
 
   list.items = items;
   list.count = static_cast<uint16_t>(MenuRow::Count);
   screen.list(list);
+
+  // A record line at the foot, so the front door is a page rather than three
+  // rows with a hole under them.
+  if (model.packCount > 0) {
+    char line[48];
+    std::snprintf(line, sizeof(line), "%u QUESTIONS ON THE CARD", static_cast<unsigned>(model.packCount));
+    const int16_t footY = static_cast<int16_t>(body.y + body.height - 72);
+    hairline(screen, footY);
+    drawLabel(screen, fui::Rect{body.x, static_cast<int16_t>(footY + 14), body.width, 44}, line, toybox::kSmallFont,
+              fui::TextAlign::Center, toybox::kButtonCut);
+  }
 }
 
 void buildChoice(toybox::Screen& screen, const ChoiceModel& model) {
-  chrome(screen, "TRIVIA", nullptr);
+  char score[16] = {};
+  if (model.asked > 0) {
+    std::snprintf(score, sizeof(score), "%d/%d", model.right, model.asked);
+  }
+  chrome(screen, "TRIVIA", model.asked > 0 ? score : nullptr);
   const fui::Rect body = screen.body();
 
-  drawDifficulty(screen, static_cast<int16_t>(body.x + kMargin), static_cast<int16_t>(body.y + 18),
-                 model.difficulty);
+  drawDifficulty(screen, static_cast<int16_t>(body.x + kMargin), static_cast<int16_t>(body.y + 18), model.difficulty);
 
+  // The four options are anchored to the bottom and the clue takes what is
+  // left, so the screen has no hole under it whatever the clue's length. A
+  // fixed clue box leaves a short clue floating above a gap, and dead space at
+  // the bottom is a real defect on a panel that holds its image for hours.
+  const int16_t optionsHeight = static_cast<int16_t>(trivia::kOptions * 70);
   const int16_t clueTop = static_cast<int16_t>(body.y + 54);
-  const int16_t clueHeight = 200;
+  const int16_t clueHeight = static_cast<int16_t>(footerTop(screen) - clueTop - optionsHeight - 12);
   drawProse(screen,
-            fui::Rect{static_cast<int16_t>(body.x + kMargin), clueTop,
-                      static_cast<int16_t>(body.width - kMargin * 2), clueHeight},
+            fui::Rect{static_cast<int16_t>(body.x + kMargin), clueTop, static_cast<int16_t>(body.width - kMargin * 2),
+                      clueHeight},
             model.clue, fui::TextAlign::Left);
 
-  int16_t y = static_cast<int16_t>(clueTop + clueHeight + 12);
+  int16_t y = static_cast<int16_t>(footerTop(screen) - optionsHeight);
   for (int i = 0; i < trivia::kOptions; ++i) {
-    const fui::Rect box{static_cast<int16_t>(body.x + kMargin), y,
-                        static_cast<int16_t>(body.width - kMargin * 2), 62};
+    const fui::Rect box{static_cast<int16_t>(body.x + kMargin), y, static_cast<int16_t>(body.width - kMargin * 2), 62};
     const bool isCorrect = model.chosen >= 0 && i == model.correct;
     const bool isWrongPick = model.chosen == i && i != model.correct;
 
@@ -281,8 +243,7 @@ void buildChoice(toybox::Screen& screen, const ChoiceModel& model) {
       screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), static_cast<uint8_t>(isWrongPick ? 3 : 1));
     }
     drawLabel(screen, box, model.option[i] != nullptr ? model.option[i] : "", toybox::kSmallFont,
-              fui::TextAlign::Center, toybox::kButtonCut,
-              isCorrect ? fui::Color::White : fui::Color::Black);
+              fui::TextAlign::Center, toybox::kButtonCut, isCorrect ? fui::Color::White : fui::Color::Black);
     if (model.chosen < 0) screen.frame().hit(box, ActionOption);
     y = static_cast<int16_t>(y + 70);
   }

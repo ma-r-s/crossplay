@@ -23,25 +23,30 @@ namespace triviaui {
 namespace fui = freeink::ui;
 
 enum : fui::ActionId {
-  ActionMenuRow = 1,   // the front door's list; ListItem carries which row
-  ActionReveal = 2,    // quizmaster: turn the answer over
+  ActionMenuRow = 1,  // the front door's list; ListItem carries which row
+  ActionReveal = 2,   // quizmaster: turn the answer over
   ActionNext = 3,
-  ActionFlag = 4,      // "this question is bad" -- the whole curation loop
-  ActionOption = 5,    // solo: ListItem carries which of the four
+  ActionFlag = 4,    // "this question is bad" -- the whole curation loop
+  ActionOption = 5,  // solo: ListItem carries which of the four
   ActionQuit = 6,
   ActionDifficulty = 7,
+  ActionGetPack = 8,  // fetch the question pack over WiFi
 };
-
-// Three arrangements of the one screen that matters, rendered side by side so
-// the choice is made by looking rather than by describing. See
-// docs/apps/trivia.md; the chosen one stays and the others go.
-enum class QuestionLayout : uint8_t { Card = 0, Page = 1, Stage = 2 };
 
 enum class MenuRow : int { Quizmaster = 0, Solo, Difficulty, Count };
 
+// A headline, a sentence, and at most one thing to do about it. Used for the
+// empty card and for every download outcome.
+struct NoticeModel {
+  const char* headline = "";
+  const char* body = "";
+  const char* actionLabel = nullptr;
+  fui::ActionId action = 0;
+};
+
 struct MenuModel {
   int selected = -1;
-  int difficulty = 0;          // 0 = any
+  int difficulty = 0;  // 0 = any
   uint32_t packCount = 0;
   bool packMissing = false;
 };
@@ -55,7 +60,6 @@ struct QuestionModel {
   const char* alternate = nullptr;
   int difficulty = 1;
   int asked = 0;
-  QuestionLayout layout = QuestionLayout::Card;
 };
 
 // Solo. The options are always drawn; `chosen` is -1 until one is tapped, and
@@ -71,6 +75,7 @@ struct ChoiceModel {
 };
 
 void buildMenu(toybox::Screen& screen, const MenuModel& model);
+void buildNotice(toybox::Screen& screen, const NoticeModel& model);
 void buildQuestion(toybox::Screen& screen, const QuestionModel& model);
 void buildChoice(toybox::Screen& screen, const ChoiceModel& model);
 

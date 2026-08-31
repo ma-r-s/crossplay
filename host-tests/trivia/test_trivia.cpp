@@ -147,7 +147,7 @@ void testFormat() {
   }
 
   Question q;
-  CHECK(!pack.read(40, q));      // past the end
+  CHECK(!pack.read(40, q));  // past the end
   CHECK(!pack.read(9999, q));
 }
 
@@ -155,22 +155,37 @@ void testRejectsBadFiles() {
   const auto items = sampleItems(4);
 
   auto bad = buildPack(items);
-  bad[0] = 'Y';                                  // wrong magic
+  bad[0] = 'Y';  // wrong magic
   MemorySource m1(bad);
   Pack p1;
   CHECK(!p1.open(m1));
 
   bad = buildPack(items);
-  bad[8] = 99;                                   // unsupported version
+  bad[8] = 99;  // unsupported version
   MemorySource m2(bad);
   Pack p2;
   CHECK(!p2.open(m2));
 
   bad = buildPack(items);
-  bad.resize(20);                                // truncated before the index ends
+  bad.resize(20);  // truncated before the index ends
   MemorySource m3(bad);
   Pack p3;
   CHECK(!p3.open(m3));
+
+  // A pack torn mid-write: header and index intact, blob short. Without the
+  // sentinel check this opens happily and the tail records read as whatever
+  // was on the card before -- corrupt questions rather than a missing pack.
+  const auto whole = buildPack(sampleItems(30));
+  for (size_t cut : {size_t(4), size_t(64), size_t(400)}) {
+    auto torn = whole;
+    torn.resize(whole.size() - cut);
+    MemorySource m(torn);
+    Pack p;
+    CHECK(!p.open(m));
+  }
+  MemorySource intact(whole);
+  Pack good;
+  CHECK(good.open(intact));  // and the untorn one still opens
 
   // A record claiming to be larger than the buffer must be REJECTED, never
   // truncated: half a UTF-8 sequence renders as garbage and gets blamed on the
@@ -182,7 +197,7 @@ void testRejectsBadFiles() {
   CHECK(p4.open(m4));
   Question q;
   CHECK(!p4.read(0, q));
-  CHECK(p4.read(1, q));           // the neighbour still reads
+  CHECK(p4.read(1, q));  // the neighbour still reads
 }
 
 // --- state ----------------------------------------------------------------
@@ -198,11 +213,11 @@ void testState() {
   CHECK(!state.flagged(3));
   CHECK(state.setFlag(3, kFlagged));
   CHECK(state.seen(3) && state.flagged(3));
-  CHECK(state.flags(4) == 0);     // neighbours untouched
+  CHECK(state.flags(4) == 0);  // neighbours untouched
 
   const int before = src.writes;
-  CHECK(state.setFlag(3, kSeen)); // already set
-  CHECK(src.writes == before);    // and therefore writes nothing
+  CHECK(state.setFlag(3, kSeen));  // already set
+  CHECK(src.writes == before);     // and therefore writes nothing
 
   // A state file shorter than the pack means the pack was replaced under it.
   MemorySource small(std::vector<uint8_t>(10, 0));
@@ -308,7 +323,7 @@ void testChoices() {
   CHECK(pack.open(src));
 
   Question q;
-  CHECK(pack.read(0, q));         // even index, so it carries distractors
+  CHECK(pack.read(0, q));  // even index, so it carries distractors
   CHECK(q.playableAsChoice());
 
   Rng rng(42);
@@ -331,7 +346,7 @@ void testChoices() {
   }
 
   Question quizmasterOnly;
-  CHECK(pack.read(1, quizmasterOnly));   // odd index, no distractors
+  CHECK(pack.read(1, quizmasterOnly));  // odd index, no distractors
   CHECK(!quizmasterOnly.playableAsChoice());
   Choices unused;
   CHECK(!buildChoices(quizmasterOnly, rng, unused));
@@ -351,11 +366,11 @@ void testAnswerMatching() {
   CHECK(pack.read(0, q));
 
   CHECK(answerMatches(q, "Netherlands"));
-  CHECK(answerMatches(q, "netherlands"));        // case is not the player's problem
+  CHECK(answerMatches(q, "netherlands"));  // case is not the player's problem
   CHECK(answerMatches(q, "the Netherlands"));
   CHECK(answerMatches(q, "HOLLAND"));
   CHECK(!answerMatches(q, "Belgium"));
-  CHECK(!answerMatches(q, "Nether"));            // a prefix is not an answer
+  CHECK(!answerMatches(q, "Nether"));  // a prefix is not an answer
   CHECK(!answerMatches(q, ""));
 }
 
@@ -371,7 +386,7 @@ void testRngIsDeterministic() {
   CHECK(moved);
   Rng d(9);
   for (int i = 0; i < 500; ++i) CHECK(d.below(7) < 7);
-  CHECK(Rng(0).next() != 0);      // a zero seed must not lock the generator
+  CHECK(Rng(0).next() != 0);  // a zero seed must not lock the generator
 }
 
 }  // namespace

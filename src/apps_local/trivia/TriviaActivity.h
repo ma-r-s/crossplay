@@ -15,8 +15,7 @@
 
 class TriviaActivity final : public Activity {
  public:
-  TriviaActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
-      : Activity("Trivia", renderer, mappedInput) {}
+  TriviaActivity(GfxRenderer& renderer, MappedInputManager& mappedInput) : Activity("Trivia", renderer, mappedInput) {}
   ~TriviaActivity() override = default;
 
   static std::unique_ptr<Activity> create(GfxRenderer& renderer, MappedInputManager& mappedInput);
@@ -27,9 +26,12 @@ class TriviaActivity final : public Activity {
   void render(RenderLock&&) override;
 
  private:
-  enum class View : uint8_t { Menu, Quizmaster, Solo, NoPack };
+  enum class View : uint8_t { Menu, Quizmaster, Solo, Notice };
 
   bool openPack();
+  void runPackDownload();
+  void showNotice(const char* headline, const char* body, const char* actionLabel = nullptr,
+                  freeink::ui::ActionId action = 0);
   bool ensureState(uint32_t count);
   void go(View next);
   void deal();
@@ -37,7 +39,7 @@ class TriviaActivity final : public Activity {
 
   View view_ = View::Menu;
   int selected_ = -1;
-  int difficulty_ = 0;              // 0 = any
+  int difficulty_ = 0;  // 0 = any
 
   trivia::Pack pack_;
   trivia::PackState state_;
@@ -52,9 +54,12 @@ class TriviaActivity final : public Activity {
   bool revealed_ = false;
   int chosen_ = -1;
 
-  // Which of the three arrangements to draw. A simulator-only override exists
-  // for the render sheet; see onEnter.
-  triviaui::QuestionLayout layout_ = triviaui::QuestionLayout::Card;
+  char noticeHead_[24] = {};
+  char noticeBody_[160] = {};
+  const char* noticeAction_ = nullptr;
+  freeink::ui::ActionId noticeActionId_ = 0;
+  bool downloadCancel_ = false;
+  bool downloadQueued_ = false;
 
   bool flashOnNextPaint_ = false;
   bool interactionsReady_ = false;
