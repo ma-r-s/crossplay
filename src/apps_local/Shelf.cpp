@@ -29,6 +29,7 @@
 #include "study/StudyActivity.h"
 #include "sudoku/SudokuActivity.h"
 #include "toybattle/ToyBattleActivity.h"
+#include "trivia/TriviaActivity.h"
 #include "ui/ToyboxIcons.h"
 #include "xkcd/XkcdActivity.h"
 #include "yahtzee/YahtzeeActivity.h"
@@ -56,6 +57,7 @@ constexpr shelf::Item kGames[] = {
     {"SUDOKU", &icon_sudoku_32, &SudokuActivity::create},
     {"TOY BATTLE", &icon_toybattle_32, &ToyBattleActivity::create},
     {"FOREHEAD", &icon_forehead_32, &ForeheadActivity::create},
+    {"TRIVIA", &icon_trivia_32, &TriviaActivity::create},
 };
 constexpr shelf::Item kApps[] = {
     {"STUDY", &icon_study_32, &StudyActivity::create},
