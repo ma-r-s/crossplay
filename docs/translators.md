@@ -64,3 +64,33 @@ If you'd like to add your name to this list, please open a PR adding yourself an
 
 ## Danish
 - [hajisan](https://github.com/hajisan)
+
+## Some strings cannot wrap, and have a hard pixel budget
+
+A number of screens draw a string through `renderer.drawCenteredText`, which
+renders ONE line and does not wrap. On those keys a translation that is longer
+than the panel is wide does not spill onto a second line -- it runs off the
+edge and the reader never sees the end of it.
+
+**The panel is 480px.** The budget is pixels, not characters: the face is
+proportional, so "iiiii" and "WWWWW" differ by about threefold, and the bold
+face is roughly 5% wider again.
+
+Measure before you commit a translation:
+
+```bash
+tools_local/i18n/measure_string.py "your translated string"
+host-tests/i18nwidth/run.sh --all-languages
+```
+
+`host-tests/i18nwidth/run.sh` gates ENGLISH only. It is not a statement about
+your language. When this was written, **25 of the 32 translations had at least
+one overflowing unwrapped string** -- worst cases on the recovery and sync
+screens, some more than 250px past the edge. English happens to be one of the
+few that fit, which is exactly why its green must not be read as "it fits
+everywhere".
+
+The keys most affected are the hints: `STR_RECOVERY_MODE_HINT`,
+`STR_POWER_ON_HINT`, `STR_SYNC_READY`, `STR_CLEAR_CACHE_WARNING_1`. If yours is
+over, prefer a shorter sentence that keeps the ACTION over a faithful
+translation that keeps the explanation. The reader needs to know what to do.

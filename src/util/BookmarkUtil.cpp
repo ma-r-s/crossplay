@@ -1,5 +1,7 @@
 #include "BookmarkUtil.h"
 
+#include <Utf8.h>
+
 #include <algorithm>
 #include <string>
 
@@ -19,15 +21,11 @@ std::string BookmarkUtil::getBookmarkPath(const std::string& bookPath) {
 }
 
 std::string BookmarkUtil::sanitizeBookmarkSummary(std::string summary) {
-  summary.erase(
-      std::unique(summary.begin(), summary.end(), [](char a, char b) { return std::isspace(a) && std::isspace(b); }),
-      summary.end());
-  summary.erase(std::remove(summary.begin(), summary.end(), '\n'), summary.end());
-  summary.erase(summary.begin(),
-                std::find_if(summary.begin(), summary.end(), [](unsigned char ch) { return !std::isspace(ch); }));
-  summary.erase(
-      std::find_if(summary.rbegin(), summary.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base(),
-      summary.end());
+  // This used to collapse runs of whitespace and then DELETE the newlines that
+  // survived, which joined the words either side of every line break: a summary
+  // reading "call me\nIshmael" was stored as "call meIshmael". EPUB body text
+  // is wrapped, so that fired on most bookmarks rather than on a rare one.
+  summary = utf8CollapseWhitespace(summary);
   if (summary.size() > 72) {
     summary.resize(72);
   }

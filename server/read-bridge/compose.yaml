@@ -1,0 +1,89 @@
+# Hardening notes, because every line below is load-bearing rather than cargo:
+# this service is reachable from the public internet, holds Instapaper OAuth
+# tokens that can read and archive a user's whole reading list, and shares a
+# box with Immich, Jellyfin, Getbooks, Ankibridge and the *arr stack. The
+# container is treated as though it will eventually be compromised.
+
+networks:
+  readbridge:
+    name: readbridge
+    ipam:
+      config:
+        # Pinned so the host firewall rules in scripts/firewall.sh have a
+        # stable subnet to match on. 172.31.83.0/24 is getbooks and
+        # 172.31.84.0/24 is ankibridge on the same box; this service gets its
+        # own /24.
+        - subnet: 172.31.85.0/24
+
+services:
+  readbridge:
+    build: .
+    image: readbridge:local
+    container_name: readbridge
+    restart: unless-stopped
+    networks: [readbridge]
+    # workers=1 is load-bearing: the per-user asyncio mutex stops being a
+    # mutex above one worker. The image CMD runs uvicorn with no --workers
+    # flag; do not add a command: override here that changes that.
+    # Not published on the host: cloudflared reaches it over this network, so
+    # nothing on the LAN can hit it at all.
+    expose:
+      - "8080"
+    # Public resolvers rather than the host's: Docker's embedded DNS forwards
+    # upstream from inside the container's namespace, so with the host walled
+    # off it would otherwise resolve nothing.
+    dns:
+      - 1.1.1.1
+      - 9.9.9.9
+    environment:
+      READ_DATA: /data
+      READ_FERNET_KEY: ${READ_FERNET_KEY}
+      READ_ALLOWLIST: ${READ_ALLOWLIST}
+      READ_CONSUMER_KEY: ${READ_CONSUMER_KEY}
+      READ_CONSUMER_SECRET: ${READ_CONSUMER_SECRET}
+    volumes:
+      - ./data:/data
+    user: "10003:10003"
+    read_only: true
+    tmpfs:
+      # httpx needs somewhere to spool; capped so a hostile response cannot
+      # fill the disk. Smaller than ankibridge's because nothing here opens a
+      # collection -- the biggest object in flight is one article.
+      - /tmp:size=64m,mode=1777
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    # An article is tens of kilobytes and the service holds no mirror, so this
+    # is an order of magnitude below ankibridge's on purpose.
+    mem_limit: 512m
+    pids_limit: 128
+    cpus: 1.0
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8080/healthz').read()"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: readbridge-cloudflared
+    restart: unless-stopped
+    networks: [readbridge]
+    dns:
+      - 1.1.1.1
+      - 9.9.9.9
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - readbridge
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    pids_limit: 64
+    labels:
+      com.centurylinklabs.watchtower.enable: "false"

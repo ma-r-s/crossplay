@@ -18,6 +18,13 @@ battleship  = ship
 connections = grid-2x2    # four cells, four groups
 solitaire   = spade       # the card suit reads instantly at any size
 
+# WAVELENGTH's board IS a fader: a vertical strip with one heavy bar on it, and
+# the bar is the whole game. `sliders-vertical` is that shape rather than a
+# metaphor for it. `audio-waveform` was the obvious pun on the name and was
+# rejected for reading as a media player, and `gauge` for reading as a dial the
+# panel deliberately does not have.
+wavelength  = sliders-vertical
+
 # The multiplayer mark. One symbol, everywhere two devices talk to each other:
 # the PLAY NEARBY row of every game and the shared link screen. Recognition is
 # the whole point, so it is never used for anything else.
@@ -284,3 +291,19 @@ cat_myths   = ghost
 cat_story   = book-open
 cat_kids    = toy-brick         # a studded block, not a baby's head
 cat_tricky  = puzzle            # the one list with nothing you can point at
+
+# Instapaper, in APPS. `bookmark` -- a ribbon with a notch, and the only
+# downward pennant on the shelf. It has to separate from its NEIGHBOURS rather
+# than from the games: STUDY is letterforms, HACKER NEWS a folded broadsheet,
+# XKCD a stack of frames, GET BOOKS a shelf of spines. A ribbon shares an
+# outline with none of them, and "saved to come back to" is exactly what the
+# app holds.
+#
+# Rejected: `book-marked` (a book with a ribbon -- the book half is GET BOOKS'
+# territory and the two would read as the same row at 32px), `scroll-text`
+# (a curl of paper that blurs shut at this size, already turned down once for
+# murdle's clue face), `clock` and `hourglass` (the hourglass is FOREHEAD's,
+# and "later" as a clock says timer rather than reading), `newspaper` (Hacker
+# News owns it, and two apps that both read as "a page of text" is the one
+# thing a 62px row cannot disambiguate).
+instapaper  = bookmark
