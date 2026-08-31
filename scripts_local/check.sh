@@ -269,6 +269,7 @@ if [ -n "$STUDY_PY" ]; then
               "tools_local/study/test_fsrs.py" \
               "tools_local/study/test_web_glue.py" \
               "tools_local/study/test_web_glue.py --from-zip" \
+              "tools_local/study/test_slug_parity.py" \
               "tools_local/study/test_font_parity.py"; do
     step="$(echo "$args" | sed 's|tools_local/study/||')"
     # One log per step: a failing step's output used to be overwritten by the
