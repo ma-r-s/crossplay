@@ -272,3 +272,22 @@ without waiting on upstream; Free-Ink/freeink-sdk#59 carries them upstream.
 
 **Done looks like:** the PR merged, `.gitmodules` pointing back at
 Free-Ink/freeink-sdk, and the submodule pinned to the upstream hash.
+
+## Study still carries its own copy of the bridge transport
+
+Added 2026-08-30, with the Instapaper app.
+
+`src/apps_local/bridge/BridgeHttp.{h,cpp}` is the shared version: verified TLS
+with an SD-override root bundle, the heap floor a wolfSSL handshake needs, the
+dev-build diagnosis probe, and the two request shapes. The Instapaper app uses
+it. Study does not -- its copy still lives inside `StudySync.cpp`, because
+`app/studyradio` is a long-lived branch sitting on that exact file and
+refactoring under it would turn a merge into an archaeology session.
+
+The certificate bundle is NOT duplicated (BridgeHttp includes Study's), so the
+thing whose duplication would actually rot is already single. What is doubled
+is the plumbing around it, and the risk is the ordinary one: a fix landing on
+one path and not its twin.
+
+Move Study onto BridgeHttp the week `app/studyradio` merges. It is a delete and
+five call sites.

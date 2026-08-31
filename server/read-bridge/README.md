@@ -38,6 +38,20 @@ uv venv .venv && uv pip install --python .venv/bin/python -r requirements.txt
 signatures**, so the suites prove the signing without a consumer key or a
 network. `check.sh` runs all four and FAILS rather than skips when it cannot.
 
+One more, deliberately outside the gate because it builds and drives the
+simulator:
+
+```sh
+tests/sim_stack.sh      # the reader, this bridge and the fake, end to end
+```
+
+It runs the pairing handshake for real -- the simulator shows a code, the
+script claims it over HTTP as the signed-in human, the simulator confirms with
+a button press -- then syncs and checks what landed on the card. That is the
+only thing here that exercises the DEVICE's half of the protocol; the suites
+above drive the bridge with curl and would pass against a firmware that
+composed its `have` string wrongly.
+
 ## Isolation
 
 The box also runs Immich, Jellyfin, Getbooks, Ankibridge and the *arr stack,
