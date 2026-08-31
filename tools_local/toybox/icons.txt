@@ -284,3 +284,6 @@ cat_myths   = ghost
 cat_story   = book-open
 cat_kids    = toy-brick         # a studded block, not a baby's head
 cat_tricky  = puzzle            # the one list with nothing you can point at
+
+# Hacker News: the reader's band mark for a saved article.
+saved       = bookmark

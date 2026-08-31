@@ -39,12 +39,29 @@ enum : fui::ActionId {
   // way it is pointing and two would let the label and the effect disagree.
   ActionSwapView = 303,
   ActionNotice = 304,
+  // The list's two segments. Two actions rather than one toggle: a segment
+  // names a destination absolutely, so tapping the one you are already in does
+  // nothing, and neither can disagree with what is on screen.
+  ActionShowFrontPage = 306,
+  ActionShowSaved = 307,
+  // The reader band's save mark, which toggles. Two actions for the same
+  // reason: each names an absolute intent, so neither can disagree with what
+  // the mark is currently showing.
+  ActionSave = 308,
+  ActionUnsave = 309,
 };
 
 // --- The front page ------------------------------------------------------
 
 struct ListModel {
   const char* title = "HACKER NEWS";
+  // Which half of the library is on screen. Same filled-means-here language as
+  // the reader's mark, so there is one idea to learn rather than two.
+  bool showingSaved = false;
+  // Drawn instead of rows when the list is empty. An empty SAVED shelf on a new
+  // device is the normal case, and a blank panel reads as a fault.
+  const char* emptyHeadline = nullptr;
+  const char* emptyMessage = nullptr;
   // Built by the Activity, the way shelfui::MenuModel carries its rows: label
   // is the story, subtitle is "412 points, 88 comments", which is the only
   // metadata worth the ink.
@@ -106,6 +123,11 @@ struct ReaderModel {
   bool swapAvailable = true;
   bool canPagePrev = false;
   bool canPageNext = false;
+  // The band's save mark: absent on a thread (there is nothing to save but the
+  // article), outlined when it can be saved, filled once it is on the device --
+  // and tapping a filled one removes it again.
+  bool canSave = false;
+  bool saved = false;
 };
 
 void buildReader(toybox::Screen& screen, const ReaderModel& model);
