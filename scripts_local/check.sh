@@ -173,6 +173,17 @@ if [ -z "${LINKPLAY_BASE_PORT:-}" ]; then
   export LINKPLAY_BASE_PORT=$(( 46000 + SLICE * 16 ))
 fi
 
+# The repo ships hooks in .githooks -- a pre-commit formatter and a pre-push
+# guard against publishing another session's unpushed release. Git only runs
+# them when core.hooksPath points there, and that is a per-clone step nobody
+# on this machine had done, so both sat inert while everyone assumed they were
+# covered. A guard nobody enabled is not a guard; say so where it will be read.
+if [ -d "$REPO/.githooks" ] && [ -z "$(git -C "$REPO" config core.hooksPath || true)" ]; then
+  echo "note: .githooks exists but core.hooksPath is unset, so NO repo hook runs here."
+  echo "      enable per clone with: git config core.hooksPath .githooks"
+  echo
+fi
+
 DIRTY="$(dirty_count)"
 if [ "$DIRTY" -ne 0 ]; then
   echo "note: verifying your working tree, which has $DIRTY uncommitted file(s)."

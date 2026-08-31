@@ -83,6 +83,10 @@ for r in "${refs[@]}"; do
     echo "                    git worktree add --detach /tmp/pub $remote_name/$deploy_branch" >&2
     echo "                    cd /tmp/pub && git cherry-pick <your commits> && git push $remote_name HEAD:$deploy_branch" >&2
     echo "  Deliberate exception: CROSSPLAY_ALLOW_UNTAGGED_BUMP=1 git push ..." >&2
+    echo "" >&2
+    echo "  (You are seeing this because core.hooksPath is set to .githooks in this" >&2
+    echo "   clone. It is NOT set by default, so a colleague without it gets no" >&2
+    echo "   refusal at all -- do not assume everyone is covered.)" >&2
   done < <(git log --format='%s' "$range" 2>/dev/null | grep -E '^chore: crossplay [0-9]+\.[0-9]+\.[0-9]+$' || true)
 done
 
