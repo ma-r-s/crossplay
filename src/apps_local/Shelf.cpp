@@ -19,6 +19,7 @@
 #include "forehead/ForeheadActivity.h"
 #include "hackernews/HackerNewsActivity.h"
 #include "insider/InsiderActivity.h"
+#include "instapaper/InstapaperActivity.h"
 #include "jaipur/JaipurActivity.h"
 #include "knucklebones/KnucklebonesActivity.h"
 #include "minesweeper/MinesweeperActivity.h"
@@ -66,6 +67,7 @@ constexpr shelf::Item kApps[] = {
     {"HACKER NEWS", &icon_hackernews_32, &HackerNewsActivity::create},
     {"XKCD", &icon_xkcd_32, &XkcdActivity::create},
     {"GET BOOKS", &icon_getbooks_32, &OpdsBookBrowserActivity::create},
+    {"INSTAPAPER", &icon_instapaper_32, &InstapaperActivity::create},
 };
 
 // The two rows Home grows, in reading order. Titles are Title Case because

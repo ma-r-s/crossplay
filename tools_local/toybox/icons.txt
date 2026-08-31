@@ -291,3 +291,19 @@ cat_myths   = ghost
 cat_story   = book-open
 cat_kids    = toy-brick         # a studded block, not a baby's head
 cat_tricky  = puzzle            # the one list with nothing you can point at
+
+# Instapaper, in APPS. `bookmark` -- a ribbon with a notch, and the only
+# downward pennant on the shelf. It has to separate from its NEIGHBOURS rather
+# than from the games: STUDY is letterforms, HACKER NEWS a folded broadsheet,
+# XKCD a stack of frames, GET BOOKS a shelf of spines. A ribbon shares an
+# outline with none of them, and "saved to come back to" is exactly what the
+# app holds.
+#
+# Rejected: `book-marked` (a book with a ribbon -- the book half is GET BOOKS'
+# territory and the two would read as the same row at 32px), `scroll-text`
+# (a curl of paper that blurs shut at this size, already turned down once for
+# murdle's clue face), `clock` and `hourglass` (the hourglass is FOREHEAD's,
+# and "later" as a clock says timer rather than reading), `newspaper` (Hacker
+# News owns it, and two apps that both read as "a page of text" is the one
+# thing a 62px row cannot disambiguate).
+instapaper  = bookmark
