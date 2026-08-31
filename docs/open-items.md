@@ -104,19 +104,44 @@ is fast, wire it through the HAL and acknowledge taps the way every e-reader
 does. If `displayWindow` is experimental because it does not work, say so here
 and instead reduce how many taps a game needs.
 
-## Flash is at 96.6% and every new screen costs some
+## The image no longer fits the OLD partition table, so early installs cannot OTA
 
-6,331,054 bytes of 6,553,600 after Sudoku, which cost 25KB for a whole game
-(a technique ladder is cheap: it is code and almost no data). About 222KB left.
+Measured 2026-08-31 on current `xteink`: `gh_release_x4pro` is **6,560,918
+bytes**. Two ceilings matter and they are not the same number:
 
-Nothing is broken and no single change caused it, which is exactly why it is
-worth writing down: the failure mode is a build that does not fit, arriving
-without warning, on whichever app happens to be next.
+| slot             | bytes     | since                    | this image               |
+| ---------------- | --------- | ------------------------ | ------------------------ |
+| new (`0x7F0000`) | 8,323,072 | `app/flashroom`, v1.5.3+ | 78.8% used, 1.68MB spare |
+| old (`0x640000`) | 6,553,600 | before that              | **7,318 bytes OVER**     |
 
-**Done looks like:** a measurement of what actually occupies the binary (fonts
-are the first suspect -- 80+ global `EpdFont` objects, though those are flash
-constants by design), and either headroom recovered or a written ceiling on how
-many more apps fit.
+So on flash headroom the fork is comfortable, and the old "96.6% and every new
+screen costs some" framing this section used to carry was measuring against a
+ceiling that no longer applies to new installs.
+
+**What it does mean:** the partition table is written by a USB flash and NEVER
+by an OTA, so a device installed before v1.5.3 keeps 6.25MB slots for life. Any
+such device cannot receive this build over the air -- the write has nowhere to
+go. It crossed by 0.1%, which is the awkward part: a small trim would restore
+it, and every future app pushes it further away.
+
+**It already fails legibly, which was checked rather than assumed.**
+`OtaUpdater.cpp:164` compares the release's stated size against the partition
+BEFORE downloading and returns `TOO_LARGE_ERROR`, so the device does not erase
+its spare slot and grind through 6MB first;
+`OtaUpdateActivity.cpp:196` shows `STR_FIRMWARE_TOO_LARGE`, "Firmware too large
+for partition". Someone built this for exactly this day.
+
+The gap left is one sentence of wording: that message says what went wrong and
+not what to do about it, and the remedy (reflash once over USB, which rewrites
+the table and moves the device to 7.94MB slots permanently) currently exists
+only in a log line the user never sees.
+
+**Undecided, and a product call rather than a code one:** trim back under
+6,553,600 so every existing device stays updatable over the air, or accept the
+split and point affected users at a one-time USB reflash.
+
+**Done looks like:** the decision made and written here; and, either way, that
+string naming the remedy.
 
 ## The 1.6.0rc merge moved the reader's controls under a real user's hands
 
