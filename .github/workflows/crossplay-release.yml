@@ -233,9 +233,10 @@ jobs:
             too large and declines the update -- with that reason, before
             downloading it, rather than failing halfway.
 
-            **This release still fits, with 44KB to spare**: 1.10.0 is
-            6,508,786 bytes against the old 6,553,600-byte slot. That is 13KB
-            larger than 1.9.0. If you are on an old table this installs over
+            **This release still fits, with about 44KB to spare**: 1.10.0
+            measures 6,508,786 bytes locally against the old 6,553,600-byte
+            slot, and CI lands within a kilobyte of that. It is 13KB larger
+            than 1.9.0. If you are on an old table this installs over
             Wi-Fi like any other, but the margin is now small enough that a
             release adding a typeface could cross it. You would rather do the
             USB flash below at your convenience than the first time an update
