@@ -72,7 +72,15 @@ face and renders, which is what makes this a font problem with a name.
 table from a glob of `lib/I18n/translations/*.yaml` and requires every file
 to declare `_language_name`, so any translation present is offered in the
 picker. Selecting one whose script the face lacks gives a near-blank
-interface -- including the menu needed to change it back.
+interface, including the menu labels on the path back.
+
+**The user is not trapped, though, and it is worth being exact about that.**
+Language names are written in their own script, and each was measured in the
+same face: `English`, `Espanol`, `Hebrew` and the rest all render, and Arabic is
+the ONLY entry whose own name does not. So the language screen shows a legible
+list with exactly one blank row -- the one the user is on -- and the way out is
+visible once that screen is reached. What is broken is REACHING it, which has to
+be done from memory or by position. Bad, and not a factory reset.
 
 A font carrying the script is the fix. No translator can shorten a string
 out of this, and asking them to try wastes their time.
