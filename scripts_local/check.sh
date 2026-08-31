@@ -269,6 +269,7 @@ if [ -n "$STUDY_PY" ]; then
               "tools_local/study/test_fsrs.py" \
               "tools_local/study/test_web_glue.py" \
               "tools_local/study/test_web_glue.py --from-zip" \
+              "tools_local/study/test_slug_parity.py" \
               "tools_local/study/test_font_parity.py"; do
     step="$(echo "$args" | sed 's|tools_local/study/||')"
     # One log per step: a failing step's output used to be overwritten by the
@@ -389,17 +390,72 @@ if [ "${1:-}" != "--tests" ]; then
     printf "build: %-18s %s ...\n" "$env" "$(date +%H:%M:%S)"
     BUILD_T0=$(date +%s)
     if [ "$env" = "$FIRST_FW_ENV" ] && [ -d "$(dirname "$FW_LOCK")" ]; then
+      # A lock is stale when its HOLDER is gone, never merely when it is old.
+      # This used to `rm -rf` the lock after 900s with no liveness test at all,
+      # and 900s is shorter than a cold --committed run's four device builds --
+      # so a queued tree stole the lock from a live release gate BY DESIGN and
+      # both then raced ~/.platformio. Seen 2026-08-31: the thief died on
+      # `ComponentManager/.../index.lock: File exists`, an error naming no file
+      # of ours. The lock now records its holder's pid so a waiter can ask.
       waited=0
       while ! mkdir "$FW_LOCK" 2>/dev/null; do
-        [ $(( waited % 30 )) -eq 0 ] && echo "  waiting for another tree's firmware build (${waited}s) ..."
+        owner="$(cat "$FW_LOCK/owner" 2>/dev/null || true)"
+        owner_pid="${owner%% *}"
+        # Match the resolved pio path, not the bare words: a shell whose command
+        # line merely MENTIONS "pio run" (a waiter, a probe, a heredoc) is not a
+        # build, and on this workspace one usually does. Simulator builds are
+        # excluded because they never take this lock -- they touch neither
+        # ~/.platformio nor the ComponentManager cache -- so one running
+        # elsewhere must not stop us reclaiming an abandoned lock.
+        # And never `pgrep -c` here: macOS pgrep has no -c, so it exits 2 and
+        # any `|| echo 0` fallback reports "no builds" forever.
+        if pgrep -fl "[b]in/pio run" 2>/dev/null | grep -v -- "-e simulator" | grep -q .; then
+          builds_alive=1
+        else
+          builds_alive=0
+        fi
+        if [ -n "$owner_pid" ] && kill -0 "$owner_pid" 2>/dev/null; then
+          # Holder alive. Not stale at any age; a 40-minute release gate is
+          # working, not hung.
+          [ $(( waited % 30 )) -eq 0 ] &&
+            echo "  waiting for another tree's firmware build (pid $owner_pid, ${waited}s) ..."
+        elif [ "$builds_alive" -eq 1 ]; then
+          # Holder gone but a build survives it: killing a shell orphans its pio
+          # child, and the EXIT trap that frees the lock never runs. Breaking in
+          # here is the corruption case, so say what is true and keep waiting.
+          [ $(( waited % 60 )) -eq 0 ] &&
+            echo "  lock holder is gone but a build is still running; waiting rather than racing it." >&2
+        else
+          # Holder dead (or a lock with no owner file, e.g. hand-made) and no
+          # build anywhere: genuinely abandoned, and waiting out a clock buys
+          # nothing.
+          # Delete only the lock we judged. With three waiters, one can be
+          # descheduled between deciding "abandoned" and deleting, and would
+          # otherwise remove a lock a second waiter has since taken and is
+          # building under -- the very race this loop exists to prevent. A lock
+          # is removed by its owner, or by whoever proved that owner dead.
+          owner_now="$(cat "$FW_LOCK/owner" 2>/dev/null || true)"
+          if [ "$owner_now" = "$owner" ]; then
+            echo "  firmware lock abandoned by ${owner_pid:-unknown holder}; reclaiming $FW_LOCK" >&2
+            rm -rf "$FW_LOCK"
+          fi
+        fi
         sleep 2
         waited=$((waited + 2))
-        if [ "$waited" -gt 900 ]; then
-          echo "  firmware lock held 15 minutes; removing stale $FW_LOCK" >&2
-          rm -rf "$FW_LOCK"
-        fi
       done
-      trap 'rmdir "$FW_LOCK" 2>/dev/null' EXIT INT TERM
+      # ${REPO:-$PWD}, never a bare ${REPO}: this loop is lifted out and run by
+      # host-tests/checksh, where REPO does not exist. Bash 4.4+ (every Linux
+      # CI runner) aborts on the unset expansion under `set -u` and the lock is
+      # then acquired but never owned or released; macOS bash 3.2 silently
+      # substitutes empty and the tests pass. That gap is exactly how this
+      # arrived red on CI and green here.
+      owner_tree="${REPO:-$PWD}"
+      printf '%s %s\n' "$$" "${owner_tree##*/}" > "$FW_LOCK/owner"
+      # rm -rf, not rmdir: the owner file makes the directory non-empty, and an
+      # rmdir that silently fails would leak the lock to every other tree.
+      # Same rule on the way out: a run that died after its lock was reclaimed
+      # must not delete the reclaimer's.
+      trap 'o="$(cat "$FW_LOCK/owner" 2>/dev/null || true)"; [ "${o%% *}" = "$$" ] && rm -rf "$FW_LOCK"; true' EXIT INT TERM
     fi
     if pio run -e "$env" > "$LOGS/$env.log" 2>&1; then
       # The native build reports no RAM/Flash. Say "ok" rather than printing
@@ -415,7 +471,12 @@ if [ "${1:-}" != "--tests" ]; then
     # so a tree that still has other work to print does not hold every other
     # tree up.
     if [ "$env" = "$LAST_FW_ENV" ]; then
-      rmdir "$FW_LOCK" 2>/dev/null
+      # rm -rf, matching the trap: the lock holds an owner file now, so the
+      # rmdir this replaced could not empty it and failed into 2>/dev/null --
+      # the early release silently stopped happening and every other tree kept
+      # waiting until this run exited. host-tests/checksh caught exactly that.
+      owner_now="$(cat "$FW_LOCK/owner" 2>/dev/null || true)"
+      [ "${owner_now%% *}" = "$$" ] && rm -rf "$FW_LOCK"
       trap - EXIT INT TERM
     fi
   done
