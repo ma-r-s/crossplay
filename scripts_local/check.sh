@@ -185,6 +185,25 @@ if [ -d "$REPO/.githooks" ] && [ -z "$(git -C "$REPO" config core.hooksPath || t
   echo
 fi
 
+# Before anything else: a tree mid-conflict cannot report anything meaningful,
+# and the suites will not notice. On 2026-08-31 a merge conflicted, the failure
+# was swallowed by `git merge ... | tail -2` (which reports tail's status), and
+# the gate printed "all green" over conflict markers sitting in platformio.ini
+# -- a file --tests never parses. The suites were honestly green. Nothing read
+# the broken file. See scripts_local/merge_state.sh.
+MERGE_STATE="$REPO/scripts_local/merge_state.sh"
+if [ -x "$MERGE_STATE" ]; then
+  MERGE_OUT="$("$MERGE_STATE" "$REPO" 2>&1)" && MERGE_RC=0 || MERGE_RC=$?
+  if [ -n "$MERGE_OUT" ]; then
+    echo "$MERGE_OUT" | sed 's/^/  /'
+    echo
+  fi
+  if [ "$MERGE_RC" -ne 0 ]; then
+    echo "refusing to gate a tree that is mid-conflict."
+    exit 1
+  fi
+fi
+
 # A tree can be checked out at submodules its own commit does not describe, and
 # then every suite and every build passes while describing nothing. See
 # scripts_local/submodule_state.sh. Uninitialised stops the gate here rather
