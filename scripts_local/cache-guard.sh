@@ -116,7 +116,18 @@ cache_guard_prune() {
   start_kb="$now_kb"
   next_report=$(( now_kb - 2097152 ))
   removed=0
-  find "$dir" -maxdepth 1 -name '.*' -prune -o -type f ! -name '*.lock' -print0 2>/dev/null \
+  # -path, NOT -maxdepth. `-maxdepth` is a GLOBAL option in find: writing
+  # `-maxdepth 1 -name '.*' -prune -o -type f -print` does not scope the depth
+  # to the prune clause, it caps the ENTIRE walk at depth 1 -- and the cache
+  # stores its objects under 00/ 01/ 02/, so the prune saw 2 files out of
+  # 336,164 and deleted nothing while announcing that it was trimming. The
+  # tests passed because their fixture was flat; they are nested now.
+  # Prune whole SUBTREES, not just matching files. A lock is a DIRECTORY
+  # containing an owner file, so `! -name '*.lock'` skips the directory and
+  # then happily deletes the owner inside it -- which is the ownership bug
+  # this script documents, reintroduced by its own cleanup. -maxdepth used to
+  # hide that by never descending at all.
+  find "$dir" \( -path "$dir/.*" -o -name '*.lock' \) -prune -o -type f -print0 2>/dev/null \
     | xargs -0 stat -f '%m %z %N' 2>/dev/null \
     | sort -n \
     | while IFS=' ' read -r _mtime bytes path; do

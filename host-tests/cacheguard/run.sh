@@ -22,9 +22,17 @@ check() {
 }
 
 # 40 files of 1MB, mtimes one day apart, oldest first.
+#
+# NESTED IN SUBDIRECTORIES, exactly like the real cache, which stores its
+# content-addressed objects under 00/ 01/ 02/ ... A flat fixture is why the
+# first version of these tests passed while the cap was a no-op on the real
+# 88GB cache: `find -maxdepth 1` is a GLOBAL option, so the prune only ever
+# saw the two files at the root and never descended. Measured on the real
+# cache: 2 files at depth 1, 336,164 at any depth.
 i=0
 while [ $i -lt 40 ]; do
-  f="$WORK/cache/obj$(printf '%02d' $i).o"
+  mkdir -p "$WORK/cache/$(printf '%02d' $((i % 8)))"
+  f="$WORK/cache/$(printf '%02d' $((i % 8)))/obj$(printf '%02d' $i).o"
   dd if=/dev/zero of="$f" bs=1048576 count=1 2>/dev/null
   touch -t "$(date -v-${i}d +%Y%m%d%H%M 2>/dev/null || date -d "-${i} days" +%Y%m%d%H%M)" "$f"
   i=$((i + 1))
@@ -47,7 +55,8 @@ big="$WORK/big"
 mkdir -p "$big"
 i=0
 while [ $i -lt 60 ]; do
-  f="$big/obj$(printf '%02d' $i).o"
+  mkdir -p "$big/$(printf '%02d' $((i % 8)))"
+  f="$big/$(printf '%02d' $((i % 8)))/obj$(printf '%02d' $i).o"
   dd if=/dev/zero of="$f" bs=1048576 count=1 2>/dev/null
   touch -t "$(date -v-${i}d +%Y%m%d%H%M 2>/dev/null || date -d "-${i} days" +%Y%m%d%H%M)" "$f"
   i=$((i + 1))
@@ -66,10 +75,20 @@ check "over the cap keeps some" "$([ "$survivors" -gt 0 ] && echo yes || echo no
 check "cache root survives" "$([ -d "$big" ] && echo yes || echo no)" "yes"
 check "lock in a trimmed cache survives" "$([ -d "$big/x4pro.lock" ] && echo yes || echo no)" "yes"
 
+# The lock's CONTENTS, not just the directory. A lock is a directory holding an
+# owner file, so a filter that only skips names ending .lock steps into it and
+# deletes the owner -- reintroducing the ownership bug this script documents,
+# via its own cleanup. -maxdepth used to hide this by never descending at all.
+printf '99999 sometree\n' > "$big/x4pro.lock/owner"
+touch -t 202001010000 "$big/x4pro.lock/owner"
+CACHE_CAP_GB=0.001 AVAIL_FLOOR_GB=0 "$GUARD" --prune "$big" >/dev/null 2>&1
+check "the lock OWNER file survives a deep prune" \
+  "$([ -f "$big/x4pro.lock/owner" ] && echo yes || echo no)" "yes"
+
 # Whatever survived must be the NEWEST, never an arbitrary subset.
 oldest_gone=yes
 for n in 59 58 57 56 55; do
-  [ -f "$big/obj$n.o" ] && oldest_gone=no
+  [ -f "$big/$(printf '%02d' $((n % 8)))/obj$n.o" ] && oldest_gone=no
 done
 check "oldest evicted first" "$oldest_gone" "yes"
 
@@ -107,7 +126,8 @@ state="$WORK/state"
 mkdir -p "$state"
 i=0
 while [ $i -lt 40 ]; do
-  f="$state/obj$(printf '%02d' $i).o"
+  mkdir -p "$state/$(printf '%02d' $((i % 8)))"
+  f="$state/$(printf '%02d' $((i % 8)))/obj$(printf '%02d' $i).o"
   dd if=/dev/zero of="$f" bs=1048576 count=1 2>/dev/null
   touch -t "$(date -v-${i}d +%Y%m%d%H%M 2>/dev/null || date -d "-${i} days" +%Y%m%d%H%M)" "$f"
   i=$((i + 1))
@@ -144,10 +164,14 @@ for arg in --committed --tests --unknown "-x" ""; do
 done
 
 # ...while the executed forms still dispatch, including the usage error.
-"$GUARD" --status "$WORK/cache" >/dev/null 2>&1
-check "executed --status still works" "$?" "0"
-"$GUARD" --nonsense >/dev/null 2>&1
-check "executed with a bad flag still errors" "$?" "2"
+# `|| rc=$?` on both, because this file runs under `set -e`: a bare call whose
+# exit code is the thing being TESTED aborts the suite before it can print its
+# summary, and an aborted suite prints nothing at all -- which reads exactly
+# like a pass when the caller only looks at the last line. That happened here.
+rc=0; "$GUARD" --status "$WORK/cache" >/dev/null 2>&1 || rc=$?
+check "executed --status still works" "$rc" "0"
+rc=0; "$GUARD" --nonsense >/dev/null 2>&1 || rc=$?
+check "executed with a bad flag still errors" "$rc" "2"
 
 echo "$checks checks, $failures failed"
 [ "$failures" -eq 0 ]
