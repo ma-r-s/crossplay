@@ -184,7 +184,11 @@ mkdir -p "$WORK/bin"
 cat >"$WORK/bin/pio" <<'STUB'
 #!/bin/bash
 env_name="$3"
-if [ -d "$FW_LOCK" ]; then echo "$env_name held" >>"$LOCK_TRACE"
+# "held" is not enough. A lock can exist and be UNOWNED -- acquired by a run
+# whose owner line died -- and an unowned lock is one no waiter can judge and
+# no run can release. Record the stronger fact.
+if [ -s "$FW_LOCK/owner" ]; then echo "$env_name owned" >>"$LOCK_TRACE"
+elif [ -d "$FW_LOCK" ]; then echo "$env_name held" >>"$LOCK_TRACE"
 else echo "$env_name free" >>"$LOCK_TRACE"; fi
 # Simulates the lock being reclaimed out from under this run: whoever holds it
 # now, it is not us, and neither the release path nor the trap may delete it.
@@ -212,7 +216,7 @@ lock_spans() {  # every env but the simulator must report "held"
   local trace="$1" bad=""
   while read -r name state; do
     case "$name" in simulator*) continue ;; esac
-    [ "$state" = "held" ] || bad="$bad $name"
+    [ "$state" = "owned" ] || bad="$bad $name"
   done <<<"$trace"
   printf '%s' "$bad"
 }
@@ -321,6 +325,29 @@ if [ "$(seeded_loop "$dead_pid tree" "1")" != "waited" ]; then
   echo "FAIL checksh  the lock was reclaimed from a dead holder while a device build was still running"
 fi
 
+# A lock with NO owner file is held, never abandoned. It belongs to a tree whose
+# check.sh predates the owner file and took it with a plain mkdir; such a holder
+# cannot say whether it is alive, so it must be assumed to be. Deciding by
+# builds_alive instead is not safe, and this is the exact gap: a --committed run
+# builds four device envs in sequence and between them NO pio exists, so a
+# waiter landing in that window would take a live holder's lock. Observed on
+# 2026-08-31 -- an empty x4pro.lock held by a live pre-owner-file check.sh while
+# another tree waited on it. FAKE_DEVICE_BUILD is "" here precisely because that
+# is the dangerous case: nothing is building at this instant, and the lock must
+# STILL be respected.
+checks=$((checks + 1))
+if [ "$(seeded_loop "" "")" != "waited" ]; then
+  failed=$((failed + 1))
+  echo "FAIL checksh  an ownerless lock was reclaimed -- an older check.sh holding it would have been robbed"
+fi
+
+# And with a build running, for the same reason and by a different route.
+checks=$((checks + 1))
+if [ "$(seeded_loop "" "1")" != "waited" ]; then
+  failed=$((failed + 1))
+  echo "FAIL checksh  an ownerless lock was reclaimed while a device build was running"
+fi
+
 kill "$live_pid" 2>/dev/null; wait "$live_pid" 2>/dev/null
 
 # --- the probe must actually RUN, not merely be present --------------------
@@ -389,6 +416,38 @@ checks=$((checks + 1))
 if run_loop "" >/dev/null && [ -d "$WORK/lockdir/x4pro.lock" ]; then
   failed=$((failed + 1))
   echo "FAIL checksh  the lock outlived its own run; the early release silently did nothing"
+fi
+
+# The lock must carry a usable owner LABEL, not just a pid. This is the CI gap
+# that shipped: the line wrote "${REPO##*/}", REPO does not exist when the loop
+# is lifted here, and bash 4.4+ aborts on it under `set -u` while macOS bash
+# 3.2 substitutes empty and says nothing. Asserting the label is non-empty
+# fails on both, which is the only kind of assertion worth having for a
+# difference that only one platform reports.
+checks=$((checks + 1))
+rm -f "$WORK/trace"; rm -rf "$WORK/lockdir"; mkdir -p "$WORK/lockdir" "$WORK/logs"
+cat >"$WORK/bin/pio" <<'STUB'
+#!/bin/bash
+[ -s "$FW_LOCK/owner" ] && cat "$FW_LOCK/owner" >>"$LOCK_TRACE.owner"
+exit 0
+STUB
+chmod +x "$WORK/bin/pio"
+(
+  export PATH="$WORK/bin:$PATH" FW_LOCK="$WORK/lockdir/x4pro.lock" LOCK_TRACE="$WORK/trace"
+  export LOGS="$WORK/logs" CHECK_BUILD_RELEASE_ENVS=""
+  unset REPO
+  FAILED=0
+  # shellcheck disable=SC1090
+  . "$WORK/loop.sh"
+) >/dev/null 2>&1
+owner_line="$(head -1 "$WORK/trace.owner" 2>/dev/null || true)"
+label="${owner_line#* }"
+if [ -z "$owner_line" ]; then
+  failed=$((failed + 1))
+  echo "FAIL checksh  the lock was never owned during a build; the owner line did not run"
+elif [ -z "$label" ] || [ "$label" = "$owner_line" ]; then
+  failed=$((failed + 1))
+  echo "FAIL checksh  the lock owner carries no tree label ('$owner_line'); a waiter cannot say who holds it"
 fi
 
 echo "$checks checks, $failed failed"

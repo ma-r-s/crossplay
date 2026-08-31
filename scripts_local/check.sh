@@ -269,6 +269,7 @@ if [ -n "$STUDY_PY" ]; then
               "tools_local/study/test_fsrs.py" \
               "tools_local/study/test_web_glue.py" \
               "tools_local/study/test_web_glue.py --from-zip" \
+              "tools_local/study/test_slug_parity.py" \
               "tools_local/study/test_font_parity.py"; do
     step="$(echo "$args" | sed 's|tools_local/study/||')"
     # One log per step: a failing step's output used to be overwritten by the
@@ -394,7 +395,27 @@ if [ "${1:-}" != "--tests" ]; then
         else
           builds_alive=0
         fi
-        if [ -n "$owner_pid" ] && kill -0 "$owner_pid" 2>/dev/null; then
+        if [ ! -e "$FW_LOCK/owner" ]; then
+          # A lock with no owner file is HELD, never abandoned. It was taken by
+          # a tree whose check.sh predates the owner file, with a plain mkdir,
+          # and such a holder cannot tell us whether it is alive -- so assume it
+          # is. Treating it as dead and falling through to the builds_alive test
+          # is not safe: a --committed run builds four device envs in sequence,
+          # and between them no `pio run` exists at all, so a waiter landing in
+          # that gap would reclaim a live holder's lock and both would then race
+          # ~/.platformio. Seen on 2026-08-31, an empty x4pro.lock held by a
+          # live pre-owner-file check.sh while another tree waited on it.
+          #
+          # The cost is that a genuinely dead ownerless lock never self-clears.
+          # That is the pre-owner-file status quo, and it is the right way round:
+          # waiting too long is a delay, reclaiming too early is two concurrent
+          # builds and an error naming no file of ours.
+          [ $(( waited % 60 )) -eq 0 ] && {
+            echo "  lock has no owner file: an older check.sh holds it, and this cannot self-clear." >&2
+            echo "  waiting (${waited}s). If nothing is really building, remove it by hand:" >&2
+            echo "    rm -rf $FW_LOCK" >&2
+          }
+        elif [ -n "$owner_pid" ] && kill -0 "$owner_pid" 2>/dev/null; then
           # Holder alive. Not stale at any age; a 40-minute release gate is
           # working, not hung.
           [ $(( waited % 30 )) -eq 0 ] &&
@@ -423,7 +444,14 @@ if [ "${1:-}" != "--tests" ]; then
         sleep 2
         waited=$((waited + 2))
       done
-      printf '%s %s\n' "$$" "${REPO##*/}" > "$FW_LOCK/owner"
+      # ${REPO:-$PWD}, never a bare ${REPO}: this loop is lifted out and run by
+      # host-tests/checksh, where REPO does not exist. Bash 4.4+ (every Linux
+      # CI runner) aborts on the unset expansion under `set -u` and the lock is
+      # then acquired but never owned or released; macOS bash 3.2 silently
+      # substitutes empty and the tests pass. That gap is exactly how this
+      # arrived red on CI and green here.
+      owner_tree="${REPO:-$PWD}"
+      printf '%s %s\n' "$$" "${owner_tree##*/}" > "$FW_LOCK/owner"
       # rm -rf, not rmdir: the owner file makes the directory non-empty, and an
       # rmdir that silently fails would leak the lock to every other tree.
       # Same rule on the way out: a run that died after its lock was reclaimed
