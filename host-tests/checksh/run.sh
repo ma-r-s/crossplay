@@ -250,5 +250,75 @@ else
   fi
 fi
 
+# --- a lock is stale when its HOLDER is gone, never when it is merely old -----
+#
+# The 900s timeout this replaced could not tell a working release gate from a
+# corpse: a cold --committed run's four device builds outlast it, so a queued
+# tree reclaimed the lock from a live holder BY DESIGN and both then raced
+# ~/.platformio. On 2026-08-31 the thief died on
+# `ComponentManager/.../index.lock: File exists`, naming no file of ours.
+#
+# The three cases below are the whole decision. pgrep is STUBBED rather than
+# consulted, because the real one answers about this machine: a sibling
+# session's build would otherwise decide whether this suite passes.
+cat >"$WORK/bin/pgrep" <<'STUB'
+#!/bin/bash
+[ -n "${FAKE_DEVICE_BUILD:-}" ] || exit 1
+echo "4242 /somewhere/bin/pio run -e x4pro"
+STUB
+chmod +x "$WORK/bin/pgrep"
+
+# Runs the lifted loop against a lock that ALREADY exists, and reports whether
+# it got past it. The simulator env builds before the lock is taken, so its
+# trace line proves nothing: only a device env in the trace means "proceeded".
+seeded_loop() {  # $1 = owner file content ("" = none), $2 = FAKE_DEVICE_BUILD
+  rm -f "$WORK/trace"; rm -rf "$WORK/lockdir"; mkdir -p "$WORK/lockdir" "$WORK/logs"
+  mkdir -p "$WORK/lockdir/x4pro.lock"
+  [ -n "$1" ] && printf '%s\n' "$1" >"$WORK/lockdir/x4pro.lock/owner"
+  (
+    export PATH="$WORK/bin:$PATH"
+    export FW_LOCK="$WORK/lockdir/x4pro.lock"
+    export LOCK_TRACE="$WORK/trace"
+    export LOGS="$WORK/logs"
+    export CHECK_BUILD_RELEASE_ENVS=""
+    export FAKE_DEVICE_BUILD="$2"
+    FAILED=0
+    # shellcheck disable=SC1090
+    . "$WORK/loop.sh"
+  ) >/dev/null 2>&1 &
+  local pid=$! waited=0
+  while [ "$waited" -lt 10 ]; do
+    grep -qvE '^simulator' "$WORK/trace" 2>/dev/null && break
+    sleep 1; waited=$((waited + 1))
+  done
+  kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+  if grep -qvE '^simulator' "$WORK/trace" 2>/dev/null; then echo proceeded; else echo waited; fi
+}
+
+( : ) & dead_pid=$!; wait "$dead_pid" 2>/dev/null   # a pid that is certainly gone
+sleep 45 & live_pid=$!
+
+checks=$((checks + 1))
+if [ "$(seeded_loop "$dead_pid tree" "")" != "proceeded" ]; then
+  failed=$((failed + 1))
+  echo "FAIL checksh  a lock whose holder is dead, with no build running, was not reclaimed"
+fi
+
+checks=$((checks + 1))
+if [ "$(seeded_loop "$live_pid tree" "")" != "waited" ]; then
+  failed=$((failed + 1))
+  echo "FAIL checksh  the lock was taken from a LIVE holder -- this is the concurrent-build corruption"
+fi
+
+# Killing a shell orphans its pio child while the EXIT trap that frees the lock
+# never runs, so "holder dead" alone must not authorise a break.
+checks=$((checks + 1))
+if [ "$(seeded_loop "$dead_pid tree" "1")" != "waited" ]; then
+  failed=$((failed + 1))
+  echo "FAIL checksh  the lock was reclaimed from a dead holder while a device build was still running"
+fi
+
+kill "$live_pid" 2>/dev/null; wait "$live_pid" 2>/dev/null
+
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]
