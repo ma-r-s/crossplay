@@ -25,6 +25,29 @@ that works is a cap on SIZE, evicting oldest-first.
 package caches, not `build_cache_dir`. Its dry run offered 962 MB, none of it
 the 66 GB.
 
+## The trim's cost lands on the NEXT gate, once
+
+A trim removes the oldest objects, and the oldest objects are exactly the ones a
+cold build wants. So the gate that runs **after** a trim pays for it, not the one
+that performed it.
+
+Measured on 2026-08-31, the first two gates after the cache went 88.8GB -> 24.8GB:
+
+| | x4pro build |
+| --- | --- |
+| baseline on a warm capped cache | 302s |
+| first gate after the trim | 649s |
+
+**That is not a regression and not a hang.** It is the cap working as designed,
+and it is paid once per trim rather than once per gate: the gate after that one
+was back to normal. Somebody reading a doubled build time without this note will
+go looking for a cause in their own diff, which is the same wasted hunt every
+other entry in this file exists to prevent.
+
+The tell that it is the trim rather than a stall: a fresh log line and a live
+`pio`, checked rather than felt. See the timings in
+[building-apps.md](building-apps.md) for what normal looks like.
+
 ## Three causes, one signature
 
 The reason this is hard to debug is that **three unrelated failures look
