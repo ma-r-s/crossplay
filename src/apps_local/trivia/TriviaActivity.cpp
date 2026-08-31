@@ -3,10 +3,12 @@
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <WiFi.h>
 
 #include <cstdlib>
 #include <cstring>
 
+#include "../../activities/network/WifiSelectionActivity.h"
 #include "../../components/UITheme.h"
 #include "../../network/HttpDownloader.h"
 #include "../ui/ToyboxFonts.h"
@@ -157,6 +159,19 @@ void TriviaActivity::showNotice(const char* headline, const char* body, const ch
 // through requestUpdateAndWait(). The input pump in the progress callback is
 // the sanctioned exception to the one-pump rule -- nothing else pumps while
 // this blocks, and without it Back could not cancel a multi-minute download.
+void TriviaActivity::onWifiChosen(const bool connected) {
+  if (!connected) {
+    // Cancelling the picker is a decision, not a failure: say what did not
+    // happen and leave the button that starts it again.
+    showNotice("NO WIFI", "The pack needs WiFi to download. The card is unchanged.", "TRY AGAIN",
+               triviaui::ActionGetPack);
+    return;
+  }
+  // Queued rather than run here: the download blocks for minutes, and this is
+  // the result handler of the activity that is still unwinding.
+  downloadQueued_ = true;
+}
+
 void TriviaActivity::runPackDownload() {
   if (!Storage.mkdir(kDir)) {
     showNotice("NO ROOM", "Could not create /trivia on the card. Is the card in, and writable?", "TRY AGAIN",
@@ -266,7 +281,14 @@ void TriviaActivity::deal() {
 void TriviaActivity::routeAction(const int action, const int value) {
   switch (action) {
     case triviaui::ActionGetPack:
-      downloadQueued_ = true;
+      // The radio first. Entering the TLS stack with WiFi never started is not
+      // a failed download, it is a panic: the socket layer takes a mutex that
+      // does not exist yet and FreeRTOS asserts on the null handle
+      // (xQueueSemaphoreTake, queue.c:1709). The notice this button sits under
+      // has always said "connect to WiFi and fetch one"; nothing did.
+      WiFi.mode(WIFI_STA);
+      startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
+                             [this](const ActivityResult& result) { onWifiChosen(!result.isCancelled); });
       break;
     case triviaui::ActionMenuRow:
       if (view_ == View::Notice) {  // the READY notice's PLAY button

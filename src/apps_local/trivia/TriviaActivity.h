@@ -29,6 +29,7 @@ class TriviaActivity final : public Activity {
   enum class View : uint8_t { Menu, Quizmaster, Solo, Notice };
 
   bool openPack();
+  void onWifiChosen(bool connected);
   void runPackDownload();
   void showNotice(const char* headline, const char* body, const char* actionLabel = nullptr,
                   freeink::ui::ActionId action = 0);
