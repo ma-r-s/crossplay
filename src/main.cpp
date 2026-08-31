@@ -36,6 +36,7 @@
 #include "activities/Activity.h"
 #include "activities/ActivityManager.h"
 #include "activities/settings/SdFirmwareUpdateActivity.h"
+#include "apps_local/Shelf.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "images/LoadingIcon.h"
@@ -264,6 +265,10 @@ void enterDeepSleep(bool fromTimeout = false) {
   APP_STATE.showBootScreen = false;
 
   APP_STATE.saveToFile();
+
+  // Before goToSleep() replaces the activity: after it, the thing on screen is
+  // the sleep screen and the shelf can no longer tell what the user was doing.
+  shelf::rememberForWake(activityManager.currentActivityName());
 
   // Commit to sleeping before goToSleep() runs the outgoing activity's onExit():
   // a WiFi activity would otherwise silentRestart() here and reboot instead.
@@ -571,6 +576,13 @@ void setup() {
     // through to the sleep-wake "resume reader" logic, which fires on stale
     // openEpubPath + lastSleepFromReader from a prior session.
     activityManager.goHome();
+  } else if (resume == BootResume::SplashlessWake && !mappedInputManager.isPressed(MappedInputManager::Button::Back) &&
+             shelf::resumeFromWake(renderer, mappedInputManager)) {
+    // Woke from a sleep taken inside a game or app: back into it. Only on a
+    // verified sleep wake, so a cold boot cannot resume off a stale card; and
+    // not while Back is held, which is the same escape hatch the reader has for
+    // an activity that will not load. Sleeping in a game is the common way to
+    // put this device down, and Home is not where the user left off.
   } else if (APP_STATE.openEpubPath.empty() || !APP_STATE.lastSleepFromReader ||
              mappedInputManager.isPressed(MappedInputManager::Button::Back) || APP_STATE.readerActivityLoadCount > 0) {
     // Boot to home screen if no book is open, last sleep was not from reader, back button is held, or reader activity

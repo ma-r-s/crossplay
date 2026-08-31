@@ -79,8 +79,8 @@ Three things follow, and each was got wrong once:
   exist. `ListItem::actionValue` still carries the absolute index, so a tap
   reports which game it is rather than which row.
 - **The marks are an indicator, not a row of buttons.** A small centred cluster
-  with air around it; targets a thumb wide and contiguous *within the cluster
-  only*, so the screen edges do nothing. They stay tappable because
+  with air around it; targets a thumb wide and contiguous _within the cluster
+  only_, so the screen edges do nothing. They stay tappable because
   `BaseTheme::drawButtonHints` returns early when `gpio.hasTouch()` and the X4
   Pro has a GT911: upstream teaches nothing about the physical buttons on a
   touch device, so a touch user cannot discover that Up and Down would page.
@@ -201,11 +201,11 @@ drawn" is not the same as asserting "the control is not there".
 `ShelfScreen` is, like every screen here. `Shelf.cpp` is not: it exists to swap
 activities, so it pulls in `ActivityManager` and cannot be built freestanding.
 
-Its whole job is three facts -- which folder is open, which folder Home should
-select, which row each folder should select -- and those are verified in the
-simulator instead.
+Its whole job is four facts -- which folder is open, which folder Home should
+select, which row each folder should select, and which item was open when the
+device went to sleep -- and those are verified in the simulator instead.
 
-The last two of those now outlive a reboot, in `/.crosspoint/shelf.cfg` beside
+The last three of those outlive a reboot, in `/.crosspoint/shelf.cfg` beside
 `player.cfg`. They are plain `.bss` otherwise, and `main.cpp` deep-sleeps on the
 idle timeout with wake being effectively a chip reset, so the shelf used to
 forget which game you were playing every time you put the device down. Verified
@@ -221,6 +221,50 @@ game put it on the first. If you touch that bookkeeping, drive it:
 ```
 
 The cursor should come back on the row you opened.
+
+## Wake comes back into the app, not to Home
+
+Deep sleep is a chip reset, so before it there is one write and after it one
+read. `shelf::rememberForWake()` runs on the way into sleep and records the open
+item's **title** on a second line of `shelf.cfg`; `shelf::resumeFromWake()` runs
+from `setup()`'s routing block and reopens it, ahead of the reader's own resume.
+Without it every sleep taken in a game woke up on Home, which is what made the
+"Quick Resume" sleep screen a lie outside the reader: it leaves your game on the
+panel with a small moon in the corner, and the wake then threw that game away.
+
+Three things that look optional and are not:
+
+- **The title, not the row index.** The card outlives firmware updates and row
+  indices move whenever a game is added. An index would resume into a different
+  game, silently. `findItemByTitle()` is the one place a title becomes a row,
+  and a title that no longer exists falls back to Home.
+- **The activity name, not `openFolderIndex`.** An item counts as open only when
+  the activity it launched is the one on screen. The Home gesture leaves an app
+  without passing through `leave()`, so `openFolderIndex` alone would claim a
+  game you left ten minutes ago is still open and wake into it.
+- **Only on a verified sleep wake.** The gate is `BootResume::SplashlessWake`,
+  which needs both the one-shot `showBootScreen` flag the sleep wrote and a
+  power-button wakeup reason. A cold boot must not resume off a stale card.
+
+The simulator models the whole cycle -- a button press while asleep re-execs the
+process reporting a power wake -- so drive it end to end rather than in halves:
+
+```bash
+CROSSPOINT_SIM_INPUT_SCRIPT_AFTER_WAKE='7000:QUIT' \
+CROSSPOINT_SIM_SCREENSHOTS_AFTER_WAKE='4000:qa-artifacts/after-wake.bmp' \
+./scripts/sim-shot.sh '2500:TAP:240,650;4500:TAP:240,472;7000:SLEEP;10000:POWER' ''
+```
+
+The trace must show the game entered again on the second process, with no Boot
+and no Home between. Do not settle for checking the two halves separately: the
+gate is the _combination_ of the flag and the wakeup reason, and setting each by
+hand proves neither.
+
+What this does **not** do is restore a half-played board. Reopening the app is
+the shelf's job; remembering the position is the app's, through the same save
+its `onExit` already writes. Chess, Solitaire and Sudoku come back mid-game;
+Checkers, Connect Four, Knucklebones, Minesweeper and Yahtzee persist only their
+history, so they come back on their own menu.
 
 ## Two icon paths, opposite conventions
 
