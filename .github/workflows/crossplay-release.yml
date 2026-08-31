@@ -174,40 +174,53 @@ jobs:
             devices next to each other find one another with nothing to type --
             and they do not have to be the same device.
 
-            ### What is new in 1.8.0
+            ### What is new in 1.9.0
 
-            **A new game: Forehead.** Hold the device against your forehead
-            with the screen facing out. You cannot see it; everybody else can,
-            and they shout clues until you get the word. Press the **bottom**
-            key when you get one and the **top** key to give up, and keep going
-            until the clock runs out.
+            **Forehead's word lists have been rewritten.** The first version of
+            them was written rather than researched, and it showed: read against
+            published charades lists, every category was missing its easy third.
+            Act It Out had none of the fifteen words those lists lead with. Food
+            was missing bread, apple, cheese, egg, rice and milk. Animals was
+            missing dog, cow, pig, bird, fish and bear. The lists started at the
+            difficulty a published one reaches halfway down, which is why some
+            cards felt impossible: the easy ones were never there.
 
-            It is the phone game everyone has played, and the two page keys
-            turn out to be better than the tilt they replace: a tilt has to be
-            big enough to detect and small enough not to lose your grip, it
-            fires when you stumble, and it takes the screen off your forehead
-            on every single card. A key moves nothing.
+            All seventeen are now built from published, play-tested sources.
+            2460 words, slightly fewer than before and considerably better.
 
-            **Seventeen word lists, 2722 words**, and none of them repeats until
-            you have seen every word in it -- the device remembers across
-            evenings. Animals, Act It Out, Make A Sound, Food & Drink, Movies,
-            Famous People, Music, Jobs, Sports, Household, Places, Nature,
-            Science, Myths, Storybook, For Kids and Tricky. Act It Out and Make
-            A Sound are the two that ruin friendships.
+            **Three categories were rebuilt outright**, because they held cards
+            that could not be won rather than cards that were hard. Myths had
+            nine different small magical creatures -- dwarf, gnome, elf, imp,
+            pixie, leprechaun, goblin, fairy, nymph -- so the room shouts "small
+            magic person" and there are nine right answers and only one counts.
+            Music had ten words for the same thing: song, tune, melody, rhythm,
+            beat. Somebody hums, four of them are correct, one scores. Tricky
+            had pairs like envy and jealousy on separate cards, so the room
+            clues "green-eyed monster", you say the other one, and you lose a
+            point for being right. Those are gone. Tricky is still the hard
+            category; it just no longer marks correct answers wrong.
 
-            Turn the device sideways when it asks. The round is played in
-            landscape so the word is as big as the panel can make it, and the
-            screen labels its own two edges so the room can call out which key
-            to press. Rounds are 30, 60, 90 or 120 seconds. The results screen
-            lists every word with what happened to it, including the one you
-            were still holding when time ran out -- which counts as neither,
-            and says so instead of quietly going against you.
+            Spelling is fixed throughout, and the game speaks American English
+            consistently now rather than mixing in tyre, licorice and aluminium.
 
-            **The BEZEL ruler has left Apps.** It was a measuring instrument
-            rather than an app: it existed to measure how much of the panel
-            this device's glass covers, that measurement is done, and it had
-            been sitting on the Apps list ever since. Nothing else changes on
-            that screen.
+            **The front door has a play button.** The category name was the
+            thing you tapped to start, which nobody could tell, because it was
+            the only control on the screen without a border. It is a box with a
+            play mark in it now.
+
+            **Round length has moved into Settings**, along with a reset that
+            clears your scores, your seen words and your choices. It asks once
+            before it does it. Settings you change are saved immediately rather
+            than when you leave, so putting the device down no longer loses them.
+
+            **Paging wraps.** Pressing forward on the last page of the category
+            list takes you to the first instead of doing nothing, which on a
+            screen that takes a third of a second to redraw was indistinguishable
+            from the key not working.
+
+            **Xkcd's first screen was cut off.** Before you download an archive
+            it explains what to do, and two of those sentences stopped
+            mid-thought. They fit now.
 
             ### Still true from 1.6.0, if you have not flashed over USB since
 
@@ -220,10 +233,11 @@ jobs:
             too large and declines the update -- with that reason, before
             downloading it, rather than failing halfway.
 
-            **This release still fits, with 52KB to spare**, and that is the
-            first time the margin has been worth printing: 1.8.0 is 6,500,522
-            bytes against the old 6,553,600-byte slot. It is the tightest a
-            release has been. If you are on an old table, this one installs
+            **This release still fits, with 58KB to spare**: 1.9.0 is
+            6,495,586 bytes against the old 6,553,600-byte slot. That is 5KB
+            roomier than 1.8.0 was, because rewriting the word lists took words
+            out as well as putting them in -- but the direction of travel over
+            releases is still down. If you are on an old table, this one installs
             over Wi-Fi like any other -- but the next release that adds a
             typeface may not, and you would rather do the USB flash below at
             your convenience than the first time an update refuses itself. If you would rather not
