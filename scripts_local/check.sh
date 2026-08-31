@@ -389,7 +389,7 @@ if [ "${1:-}" != "--tests" ]; then
         # elsewhere must not stop us reclaiming an abandoned lock.
         # And never `pgrep -c` here: macOS pgrep has no -c, so it exits 2 and
         # any `|| echo 0` fallback reports "no builds" forever.
-        if pgrep -fl "bin/pio run" 2>/dev/null | grep -v -- "-e simulator" | grep -q .; then
+        if pgrep -fl "[b]in/pio run" 2>/dev/null | grep -v -- "-e simulator" | grep -q .; then
           builds_alive=1
         else
           builds_alive=0
@@ -409,8 +409,16 @@ if [ "${1:-}" != "--tests" ]; then
           # Holder dead (or a lock with no owner file, e.g. hand-made) and no
           # build anywhere: genuinely abandoned, and waiting out a clock buys
           # nothing.
-          echo "  firmware lock abandoned by ${owner_pid:-unknown holder}; reclaiming $FW_LOCK" >&2
-          rm -rf "$FW_LOCK"
+          # Delete only the lock we judged. With three waiters, one can be
+          # descheduled between deciding "abandoned" and deleting, and would
+          # otherwise remove a lock a second waiter has since taken and is
+          # building under -- the very race this loop exists to prevent. A lock
+          # is removed by its owner, or by whoever proved that owner dead.
+          owner_now="$(cat "$FW_LOCK/owner" 2>/dev/null || true)"
+          if [ "$owner_now" = "$owner" ]; then
+            echo "  firmware lock abandoned by ${owner_pid:-unknown holder}; reclaiming $FW_LOCK" >&2
+            rm -rf "$FW_LOCK"
+          fi
         fi
         sleep 2
         waited=$((waited + 2))
@@ -418,7 +426,9 @@ if [ "${1:-}" != "--tests" ]; then
       printf '%s %s\n' "$$" "${REPO##*/}" > "$FW_LOCK/owner"
       # rm -rf, not rmdir: the owner file makes the directory non-empty, and an
       # rmdir that silently fails would leak the lock to every other tree.
-      trap 'rm -rf "$FW_LOCK"' EXIT INT TERM
+      # Same rule on the way out: a run that died after its lock was reclaimed
+      # must not delete the reclaimer's.
+      trap 'o="$(cat "$FW_LOCK/owner" 2>/dev/null || true)"; [ "${o%% *}" = "$$" ] && rm -rf "$FW_LOCK"; true' EXIT INT TERM
     fi
     if pio run -e "$env" > "$LOGS/$env.log" 2>&1; then
       # The native build reports no RAM/Flash. Say "ok" rather than printing
@@ -438,7 +448,8 @@ if [ "${1:-}" != "--tests" ]; then
       # rmdir this replaced could not empty it and failed into 2>/dev/null --
       # the early release silently stopped happening and every other tree kept
       # waiting until this run exited. host-tests/checksh caught exactly that.
-      rm -rf "$FW_LOCK"
+      owner_now="$(cat "$FW_LOCK/owner" 2>/dev/null || true)"
+      [ "${owner_now%% *}" = "$$" ] && rm -rf "$FW_LOCK"
       trap - EXIT INT TERM
     fi
   done

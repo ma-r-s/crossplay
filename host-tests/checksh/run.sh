@@ -186,6 +186,9 @@ cat >"$WORK/bin/pio" <<'STUB'
 env_name="$3"
 if [ -d "$FW_LOCK" ]; then echo "$env_name held" >>"$LOCK_TRACE"
 else echo "$env_name free" >>"$LOCK_TRACE"; fi
+# Simulates the lock being reclaimed out from under this run: whoever holds it
+# now, it is not us, and neither the release path nor the trap may delete it.
+[ -n "${STEAL_LOCK:-}" ] && [ -d "$FW_LOCK" ] && printf '999999 thief\n' >"$FW_LOCK/owner"
 exit 0
 STUB
 chmod +x "$WORK/bin/pio"
@@ -319,6 +322,74 @@ if [ "$(seeded_loop "$dead_pid tree" "1")" != "waited" ]; then
 fi
 
 kill "$live_pid" 2>/dev/null; wait "$live_pid" 2>/dev/null
+
+# --- the probe must actually RUN, not merely be present --------------------
+#
+# Both of tonight's lock incidents were the same shape and neither was a wrong
+# answer: `pgrep -c -f X 2>/dev/null || echo 0` exits 2 on macOS (no -c flag),
+# so the fallback printed "no builds" forever and a constant was read as a
+# measurement. A test that asserts the check SAID something cannot catch that;
+# this one gives the real probe a real process and demands it be found.
+mkdir -p "$WORK/realbin/bin"
+cat >"$WORK/realbin/bin/pio" <<'STUB'
+#!/bin/bash
+sleep 30
+STUB
+chmod +x "$WORK/realbin/bin/pio"
+
+probe() {  # the production form, lifted from check.sh so it cannot drift
+  grep -o 'pgrep -fl "\[b\]in/pio run"[^;]*grep -q \.' "$CHECK" | head -1
+}
+
+checks=$((checks + 1))
+probe_expr="$(probe)"
+if [ -z "$probe_expr" ]; then
+  failed=$((failed + 1))
+  echo "FAIL checksh  cannot find the liveness probe in check.sh; it may have been rewritten into an untested form"
+else
+  "$WORK/realbin/bin/pio" run -e x4pro & probe_target=$!
+  sleep 1
+  checks=$((checks + 1))
+  if eval "$probe_expr" >/dev/null 2>&1; then
+    :
+  else
+    failed=$((failed + 1))
+    echo "FAIL checksh  the liveness probe did not see a running device build -- it is reporting a constant, not measuring"
+  fi
+  kill "$probe_target" 2>/dev/null; wait "$probe_target" 2>/dev/null
+fi
+
+# The counting form that started all this must never come back: on macOS it
+# exits 2, and any `|| echo 0` around it answers "nothing is running" forever.
+checks=$((checks + 1))
+if grep -vE '^\s*#' "$CHECK" | grep -q 'pgrep -c'; then
+  failed=$((failed + 1))
+  echo "FAIL checksh  check.sh uses 'pgrep -c', which macOS pgrep does not support: it exits 2 and reports a constant"
+fi
+
+# A lock is removed by its owner, or by whoever proved that owner dead -- never
+# unconditionally. Judged by BEHAVIOUR, because a guarded delete and an
+# unguarded one are the same line of shell: the stub pio rewrites the owner
+# file mid-build, so the run finishes holding a lock that is no longer its own
+# and must leave it alone. Without the guard, a waiter descheduled between
+# deciding "abandoned" and deleting removes a lock another waiter has taken.
+checks=$((checks + 1))
+steal_trace="$(STEAL_LOCK=1 run_loop "")"
+if [ -z "$steal_trace" ]; then
+  failed=$((failed + 1))
+  echo "FAIL checksh  the lock-theft scenario ran no envs, so it proves nothing"
+elif [ ! -d "$WORK/lockdir/x4pro.lock" ]; then
+  failed=$((failed + 1))
+  echo "FAIL checksh  the run deleted a lock it no longer owned; a second tree's build is now unprotected"
+fi
+
+# ...and the ordinary case must still release, or every other tree waits for
+# nothing. This is the rmdir-on-a-non-empty-directory bug, asserted directly.
+checks=$((checks + 1))
+if run_loop "" >/dev/null && [ -d "$WORK/lockdir/x4pro.lock" ]; then
+  failed=$((failed + 1))
+  echo "FAIL checksh  the lock outlived its own run; the early release silently did nothing"
+fi
 
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]
