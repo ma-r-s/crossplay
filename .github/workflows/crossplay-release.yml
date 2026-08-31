@@ -211,9 +211,16 @@ jobs:
             fixes it permanently.**
 
             Devices flashed before v1.5.3 have a 6.25MB app slot. This release
-            is 6,599,674 bytes, which is 46,074 over it. The device checks the
-            size before downloading and refuses cleanly -- nothing is damaged,
-            and it now tells you the remedy rather than only the problem.
+            is about 45KB over it. The device checks the size before downloading
+            and refuses cleanly -- nothing is damaged, and it now tells you the
+            remedy rather than only the problem.
+
+            <!-- Approximate on purpose. The exact byte count is a property of
+            the CI build, not of any local one: v1.11.1 came out 506 bytes above
+            the local measurement and v1.12.0 502 bytes above, same tree,
+            different toolchain instance. A precise figure written here from a
+            local gate is wrong by the time anyone reads it. Quote the ceiling,
+            which is fixed, not the image, which is not. -->
 
             The fix is a one-time flash of the `-full.bin` below, which carries
             the partition table that the over-the-air updater never writes.
