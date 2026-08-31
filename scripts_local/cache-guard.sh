@@ -132,7 +132,11 @@ cache_guard_prune() {
     | sort -n \
     | while IFS=' ' read -r _mtime bytes path; do
         [ "$now_kb" -le "$target_kb" ] && break
-        rm -f "$path" 2>/dev/null || continue
+        if [ -n "${CACHE_GUARD_DRY_RUN:-}" ]; then
+          printf '%s %s\n' "$bytes" "$path" >> "$CACHE_GUARD_DRY_LIST"
+        else
+          rm -f "$path" 2>/dev/null || continue
+        fi
         now_kb=$(( now_kb - (bytes / 1024) - 1 ))
         removed=$(( removed + 1 ))
         if [ "$now_kb" -le "$next_report" ]; then
@@ -207,14 +211,48 @@ MSG
 #
 # $0 is the sourcing script's name when sourced, and this file's own path when
 # executed, so comparing basenames tells the two apart in both bash and sh.
+# What a trim WOULD remove, deleting nothing. Exists because every bug this
+# script has had was a mismatch between a synthetic fixture and the real cache:
+# a flat fixture where the cache is nested, a prune that behaved differently the
+# first time it descended, and a suite whose silence read as a pass. A fixture
+# cannot tell you the real cache's shape; the real cache can.
+cache_guard_dry_run() {
+  dir="${1:-${PLATFORMIO_BUILD_CACHE_DIR:-}}"
+  [ -n "$dir" ] && [ -d "$dir" ] || { echo "no cache at '$dir'"; return 1; }
+  CACHE_GUARD_DRY_LIST="$(mktemp)"
+  export CACHE_GUARD_DRY_RUN=1 CACHE_GUARD_DRY_LIST
+
+  before_kb=$(cache_guard_size_kb "$dir")
+  total_files=$(find "$dir" -type f 2>/dev/null | wc -l | tr -d ' ')
+  printf 'cache now : %sGB in %s files\n' "$(cache_guard_size_gb "$dir")" "$total_files"
+  printf 'cap       : %sGB\n' "$CACHE_CAP_GB"
+
+  cache_guard_prune "$dir" >/dev/null 2>&1
+
+  # Sizes come from the walk, not a second stat pass: `xargs -d` is GNU-only
+  # and silently absent on macOS, which is how this first printed 0.0GB.
+  n=$(wc -l < "$CACHE_GUARD_DRY_LIST" | tr -d ' ')
+  bytes=$(awk '{t+=$1} END{printf "%d", t+0}' "$CACHE_GUARD_DRY_LIST")
+  printf 'would remove: %s files, %sGB\n' "$n" "$(awk -v b="$bytes" 'BEGIN{printf "%.1f", b/1073741824}')"
+  printf 'would leave : %sGB  (cap is %sGB)\n' \
+    "$(awk -v a="$before_kb" -v b="$bytes" 'BEGIN{printf "%.1f", (a-b/1024)/1048576}')" "$CACHE_CAP_GB"
+
+  printf 'locks in the list      : %s  (want 0)\n' "$(grep -c '\.lock/' "$CACHE_GUARD_DRY_LIST" || true)"
+  printf 'dotfiles in the list   : %s  (want 0)\n' "$(grep -c " $dir/\." "$CACHE_GUARD_DRY_LIST" || true)"
+  printf 'sconsign in the list   : %s  (want 0)\n' "$(grep -c 'sconsign' "$CACHE_GUARD_DRY_LIST" || true)"
+  rm -f "$CACHE_GUARD_DRY_LIST"
+  unset CACHE_GUARD_DRY_RUN CACHE_GUARD_DRY_LIST
+}
+
 case "$(basename "${0:-}")" in
   cache-guard.sh)
     case "${1:-}" in
+      --dry-run) cache_guard_dry_run "${2:-}" ;;
       --status) cache_guard_status "${2:-}" ;;
       --prune)  cache_guard_status "${2:-}"; cache_guard_prune "${2:-}" ;;
       --check)  cache_guard_check "${2:-}" ;;
       "")       cache_guard_status "" ;;
-      *)        echo "usage: cache-guard.sh [--status|--prune|--check] [dir]" >&2; exit 2 ;;
+      *)        echo "usage: cache-guard.sh [--status|--prune|--check|--dry-run] [dir]" >&2; exit 2 ;;
     esac
     ;;
 esac
