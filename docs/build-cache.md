@@ -193,6 +193,35 @@ Neither was visible by reading. `host-tests/cacheguard/run.sh` builds a
 synthetic cache with known sizes and mtimes and asserts both, plus that age
 alone never triggers a prune -- the measured fact the whole policy rests on.
 
+## What is still not fixed, and why it will bite someone
+
+**Four mutable things are shared between every worktree in this workspace**:
+
+1. the object cache (`.pio-cache`) -- capped by this guard
+2. the SCons signature database -- now per-tree, see above
+3. `~/.platformio`, ~10GB of frameworks and toolchains -- **unprotected**
+4. one firmware build lock -- ownership-checked since `app/locklive`
+
+Three of the four had no protection at all until 2026-08-30. The one that still
+does not is `~/.platformio`.
+
+It cannot be sharded: it is 10GB, every device build reaches into it, and
+PlatformIO offers no per-tree equivalent. **Its only defence is the convention
+that everybody goes through `check.sh` rather than a raw `pio run`** -- because
+only `check.sh` takes the firmware lock.
+
+A losing build reports framework headers missing -- `Arduino.h`, `HWCDC.h`,
+`esp32-hal.h` -- **which are present on disk the moment you look**. Verified
+that way on 2026-08-30: a gate failed on `sticky` while `x4pro` before it and
+both release envs after it passed at the same commit, and all five named headers
+existed seconds later.
+
+A convention is exactly what a session under time pressure abandons, and this
+one has already corrupted a sibling's build here once. If this bites again, the
+fix is not another guard: it is making the lock impossible to bypass, or giving
+the ESP32 builds a package directory each and paying the disk for it. Both are
+larger than a size cap and are Mario's call.
+
 ## What else was large
 
 For context, when this was written the cache was the *second* biggest thing on
