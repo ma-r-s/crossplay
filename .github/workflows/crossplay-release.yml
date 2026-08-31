@@ -174,77 +174,38 @@ jobs:
             devices next to each other find one another with nothing to type --
             and they do not have to be the same device.
 
-            ### What is new in 1.9.0
+            ### What is new in 1.11.0
 
-            **Forehead's word lists have been rewritten.** The first version of
-            them was written rather than researched, and it showed: read against
-            published charades lists, every category was missing its easy third.
-            Act It Out had none of the fifteen words those lists lead with. Food
-            was missing bread, apple, cheese, egg, rice and milk. Animals was
-            missing dog, cow, pig, bird, fish and bear. The lists started at the
-            difficulty a published one reaches halfway down, which is why some
-            cards felt impossible: the easy ones were never there.
+            **A trivia game, with fifty thousand questions.** They come off
+            forty-two years of Jeopardy!, and they are not on the device: the
+            app fetches a 6MB pack the first time you open it, and it lives on
+            the card next to your books.
 
-            All seventeen are now built from published, play-tested sources.
-            2460 words, slightly fewer than before and considerably better.
+            Two ways to play, because they are different evenings. **QUIZMASTER**
+            puts one question on the panel and nothing else. You read it out,
+            the table argues, and a tap turns the answer over. **SOLO** gives you
+            four options and keeps score.
 
-            **Three categories were rebuilt outright**, because they held cards
-            that could not be won rather than cards that were hard. Myths had
-            nine different small magical creatures -- dwarf, gnome, elf, imp,
-            pixie, leprechaun, goblin, fairy, nymph -- so the room shouts "small
-            magic person" and there are nine right answers and only one counts.
-            Music had ten words for the same thing: song, tune, melody, rhythm,
-            beat. Somebody hums, four of them are correct, one scores. Tricky
-            had pairs like envy and jealousy on separate cards, so the room
-            clues "green-eyed monster", you say the other one, and you lose a
-            point for being right. Those are gone. Tricky is still the hard
-            category; it just no longer marks correct answers wrong.
+            The four options are not lifted from anywhere; they are built. A
+            Jeopardy clue says what its answer is -- "this country", "this
+            metal" -- so the wrong answers are drawn from the same kind of
+            thing and matched for length. Published trivia sets leak the answer
+            through option length between 32% and 38% of the time against a 25%
+            baseline, which is to say you can win them without knowing anything.
+            This one measures 6%.
 
-            Spelling is fixed throughout, and the game speaks American English
-            consistently now rather than mixing in tyre, licorice and aluminium.
+            Questions are graded 1 to 5. Jeopardy doubled its clue values in
+            2001, so the difficulty is normalised across the whole run rather
+            than read off the board.
 
-            **The front door has a play button.** The category name was the
-            thing you tapped to start, which nobody could tell, because it was
-            the only control on the screen without a border. It is a box with a
-            play mark in it now.
+            **A question that turns out to be wrong can be flagged as you play**,
+            and never comes back. Fifty thousand questions cannot be checked by
+            anybody; the few hundred you actually see can be, and that is the
+            only curation that scales.
 
-            **Round length has moved into Settings**, along with a reset that
-            clears your scores, your seen words and your choices. It asks once
-            before it does it. Settings you change are saved immediately rather
-            than when you leave, so putting the device down no longer loses them.
-
-            **Paging wraps.** Pressing forward on the last page of the category
-            list takes you to the first instead of doing nothing, which on a
-            screen that takes a third of a second to redraw was indistinguishable
-            from the key not working.
-
-            **Xkcd's first screen was cut off.** Before you download an archive
-            it explains what to do, and two of those sentences stopped
-            mid-thought. They fit now.
-
-            ### Still true from 1.6.0, if you have not flashed over USB since
-
-            **The two app slots grew from 6.25MB to 7.94MB, and the partition
-            table is only written by a USB flash.** Check for updates writes the
-            application and nothing else, so a device installed before 1.6.0
-            keeps its old 6.25MB slots no matter how many times it updates over
-            Wi-Fi. Everything keeps working. What happens eventually is that an
-            application grows past 6.25MB, and that device says the firmware is
-            too large and declines the update -- with that reason, before
-            downloading it, rather than failing halfway.
-
-            **This release still fits, with 58KB to spare**: 1.9.0 is
-            6,495,586 bytes against the old 6,553,600-byte slot. That is 5KB
-            roomier than 1.8.0 was, because rewriting the word lists took words
-            out as well as putting them in -- but the direction of travel over
-            releases is still down. If you are on an old table, this one installs
-            over Wi-Fi like any other -- but the next release that adds a
-            typeface may not, and you would rather do the USB flash below at
-            your convenience than the first time an update refuses itself. If you would rather not
-            meet that months from now, flash
-            `crossplay-1.6.1-x4pro-full.bin` over USB once, exactly as a first
-            install. Your SD card is untouched: books, reading positions, saves
-            and fonts are files on it, not in the firmware.
+            Special editions are left out on purpose -- Tournament of Champions,
+            Teen, College, Celebrity -- because their difficulty is set for a
+            different room than yours.
 
             ### The short way: press Install
 
