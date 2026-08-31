@@ -287,36 +287,55 @@ else
   echo "  installer    SKIPPED: no .venv-study -- the page's Python suite did NOT run"
 fi
 
-# The sync bridge server suite. Its venv is not committed; uv rebuilds it in
-# a --committed trial worktree (warm uv cache makes that cheap). A missing
+# The sync bridge server suites. Their venvs are not committed; uv rebuilds them
+# in a --committed trial worktree (warm uv cache makes that cheap). A missing
 # toolchain FAILS rather than skips: a bridge change riding a green gate whose
 # bridge suite never ran is exactly the silence check.sh exists to prevent.
-BRIDGE_DIR="$REPO/server/study-bridge"
-if [ -d "$BRIDGE_DIR" ]; then
+#
+# Two services now, so this is a loop rather than a block. Each entry is
+#   <directory> <label> <port offset within the tree's slice> <suites...>
+# and the offsets are picked apart from each other AND from the link suite,
+# which owns LINKPLAY_BASE_PORT+0..7 (LinkRadio.cpp, kSlots). readbridge takes
+# 8..11 because its harness derives a fake-service port from the base; study
+# takes 12. Sharing an offset would only bite when two trees gate at once,
+# which is exactly when nobody is looking.
+for entry in \
+  "server/study-bridge:bridge:12:tests/test_engine.py tests/test_api.py" \
+  "server/read-bridge:readbridge:8:tests/test_oauth.py tests/test_article.py tests/test_engine.py tests/test_api.py"
+do
+  BRIDGE_DIR="$REPO/${entry%%:*}"
+  rest="${entry#*:}"
+  BRIDGE_LABEL="${rest%%:*}"
+  rest="${rest#*:}"
+  BRIDGE_OFFSET="${rest%%:*}"
+  BRIDGE_SUITES="${rest#*:}"
+  [ -d "$BRIDGE_DIR" ] || continue
+
   BRIDGE_PY="$BRIDGE_DIR/.venv/bin/python"
   if [ ! -x "$BRIDGE_PY" ] && command -v uv > /dev/null 2>&1; then
     (cd "$BRIDGE_DIR" && uv venv .venv --quiet \
       && uv pip install --python .venv/bin/python --quiet -r requirements.txt) \
-      > "$LOGS/bridge-venv.log" 2>&1 || true
+      > "$LOGS/$BRIDGE_LABEL-venv.log" 2>&1 || true
   fi
   if [ -x "$BRIDGE_PY" ]; then
     # Ports ride the tree's own slice, same reason as LINKPLAY_BASE_PORT:
-    # two trees' gates must not share a sync-server port.
-    export BRIDGE_TEST_PORT=$(( LINKPLAY_BASE_PORT + 12 ))
-    for t in tests/test_engine.py tests/test_api.py; do
-      if (cd "$BRIDGE_DIR" && "$BRIDGE_PY" "$t") > "$LOGS/bridge-$(basename "$t").log" 2>&1; then
-        printf "  %-12s ok (%s)\n" "bridge" "$(basename "$t")"
+    # two trees' gates must not share a test server's port.
+    export BRIDGE_TEST_PORT=$(( LINKPLAY_BASE_PORT + BRIDGE_OFFSET ))
+    for t in $BRIDGE_SUITES; do
+      log="$LOGS/$BRIDGE_LABEL-$(basename "$t").log"
+      if (cd "$BRIDGE_DIR" && "$BRIDGE_PY" "$t") > "$log" 2>&1; then
+        printf "  %-12s ok (%s)\n" "$BRIDGE_LABEL" "$(basename "$t")"
       else
-        printf "  %-12s FAILED (%s)\n" "bridge" "$(basename "$t")"
-        tail -5 "$LOGS/bridge-$(basename "$t").log" | sed 's/^/      /'
+        printf "  %-12s FAILED (%s)\n" "$BRIDGE_LABEL" "$(basename "$t")"
+        tail -5 "$log" | sed 's/^/      /'
         FAILED=1
       fi
     done
   else
-    printf "  %-12s FAILED (no venv and uv could not build one)\n" "bridge"
+    printf "  %-12s FAILED (no venv and uv could not build one)\n" "$BRIDGE_LABEL"
     FAILED=1
   fi
-fi
+done
 
 if [ -n "$STUDY_PY" ] && [ -f tools_local/site/precompress.py ]; then
   if (cd "$REPO" && $STUDY_PY tools_local/site/precompress.py --check) > "$LOGS/precompress.log" 2>&1; then
