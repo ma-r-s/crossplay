@@ -32,9 +32,9 @@ CALL = re.compile(
 )
 
 
-def translations():
+def translations(path=None):
     out = {}
-    path = REPO / "lib/I18n/translations/english.yaml"
+    path = path or REPO / "lib/I18n/translations/english.yaml"
     for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         m = re.match(r'^(STR_[A-Z0-9_]+):\s*"(.*)"\s*$', line)
         if m:
@@ -56,7 +56,42 @@ def sites():
     return found
 
 
+def survey():
+    """Every language, reported and NOT gated. 26 of 32 languages had at least
+    one overflowing unwrapped string when this was written -- a live shipping
+    defect on the recovery and sync screens, in Catalan, Czech, German, Kazakh
+    and 22 others. English is one of the six that fit, which is exactly why a
+    green English gate must not be read as "it fits everywhere".
+
+    Fixing it is a translator pass, not a release task, so this reports rather
+    than fails. docs/translators.md carries the constraint.
+    """
+    faces = {k: load_font(v) for k, v in FACES.items() if v.exists()}
+    keys = {(slot, bold, key) for slot, bold, key, _ in sites()}
+    rows = []
+    for path in sorted((REPO / "lib/I18n/translations").glob("*.yaml")):
+        strings = translations(path)
+        worst = None
+        for slot, bold, key in keys:
+            face = faces.get((slot, bold))
+            if face is None or key not in strings:
+                continue
+            width, _ = measure(strings[key], *face)
+            if width > PANEL_WIDTH and (worst is None or width > worst[1]):
+                worst = (key, width)
+        rows.append((path.stem, worst))
+    over = [r for r in rows if r[1]]
+    print("all-language survey (reported, not gated)")
+    for name, worst in sorted(over, key=lambda r: -r[1][1]):
+        print("  %-12s worst %7.1fpx > %dpx  %s" % (name, worst[1], PANEL_WIDTH, worst[0]))
+    print("  %d of %d languages have at least one overflowing unwrapped string"
+          % (len(over), len(rows)))
+    return 0
+
+
 def main():
+    if "--all-languages" in sys.argv:
+        return survey()
     strings = translations()
     faces = {k: load_font(v) for k, v in FACES.items() if v.exists()}
     if not faces:
@@ -91,7 +126,11 @@ def main():
     total = len(seen)
     bad = len(failures) + len(missing)
     if not bad:
-        print("  ok   %d unwrapped strings all fit %dpx" % (total, PANEL_WIDTH))
+        # Say what this does NOT cover. The gate reads english.yaml, and 26 of
+        # the 32 translations have an overflowing unwrapped string today, so a
+        # bare "all fit" would certify a defect rather than catch it.
+        print("  ok   %d unwrapped strings all fit %dpx -- ENGLISH ONLY" % (total, PANEL_WIDTH))
+        print("       other languages are NOT gated: run with --all-languages")
     print("%d checks, %d failed" % (total, bad))
     return 1 if bad else 0
 
