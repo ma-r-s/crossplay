@@ -27,7 +27,7 @@ class ForeheadActivity final : public Activity {
   void render(RenderLock&&) override;
 
  private:
-  enum class View : uint8_t { Menu, Picker, HowTo, Ready, Play, Result };
+  enum class View : uint8_t { Menu, Picker, HowTo, Settings, Ready, Play, Result };
 
   // Landscape for everything you hold against your head, portrait for
   // everything you hold in your hand. The orientation is global, so it is set
@@ -44,6 +44,7 @@ class ForeheadActivity final : public Activity {
   bool loadState();
   void saveState();
   void flushSave();
+  bool anythingToClear() const;
 
   forehead::Deck deck;
   forehead::Round round;
@@ -63,6 +64,18 @@ class ForeheadActivity final : public Activity {
   // out, so the buzzer cannot also turn the results page. See loop().
   bool swallowKeyRelease = false;
   bool dirty = false;
+  // Armed by the first tap on RESET EVERYTHING and disarmed by leaving the
+  // screen, so the question cannot be answered by a stray tap arriving on a
+  // screen the player has already walked away from.
+  bool confirmingReset = false;
+  // Whether the ARMED frame has actually reached the panel. render() turns the
+  // new interaction map live before displayBuffer returns, and a FAST_REFRESH
+  // is ~0.3s during which loop() keeps polling touch at ~10ms -- so without
+  // this, a second tap on a control that looks like it did nothing lands on the
+  // armed map and wipes the save before the player has seen the question. That
+  // is the same "nothing happened is unreadable on this panel" argument the
+  // page wrap is built on, applied to the one irreversible control here.
+  bool armedFrameShown = false;
   bool flashOnNextPaint = false;
   bool interactionsReady = false;
   toybox::Interactions interactions;

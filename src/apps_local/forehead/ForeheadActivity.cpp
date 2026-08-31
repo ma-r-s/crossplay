@@ -40,21 +40,22 @@ struct SaveState {
   uint8_t deck[fh::Deck::kMaskBytes];
 } __attribute__((packed));
 
-// THE ONE FACT IN THIS APP THAT THE SIMULATOR CANNOT CHECK.
+// CONFIRMED ON HARDWARE, 2026-08-30, by playing it.
 //
-// The X4 Pro has two keys and they are on the long edges: GPIO0 on the physical
+// This was derived rather than measured for two days, and the derivation was
+// right: the X4 Pro's two keys are on the long edges, GPIO0 on the physical
 // left in portrait (logical Up) and GPIO7 on the physical right (logical Down).
-// Turned into LandscapeCounterClockwise the portrait right edge becomes the
-// TOP and the portrait left edge becomes the BOTTOM -- follow
-// rotateCoordinates() in GfxRenderer.cpp, which maps portrait logical y onto
-// panel x and so rotates the device a quarter turn anticlockwise.
+// Turned into LandscapeCounterClockwise the portrait right edge becomes the TOP
+// and the portrait left edge becomes the BOTTOM -- follow rotateCoordinates()
+// in GfxRenderer.cpp, which maps portrait logical y onto panel x and so rotates
+// the device a quarter turn anticlockwise.
 //
 // So Up is the bottom key and Down is the top key, and the game reads them as
 // the phone version reads a tilt: down is GOT IT, up is PASS.
 //
-// If this is backwards on a real unit, that is the entire fix -- swap these two
-// lines. The screen labels the edges, so a wrong mapping is visible in the
-// first three seconds of the first round rather than being subtle.
+// Left in full because the next app to use these keys in landscape needs the
+// rotation, not the conclusion -- and because a derivation nobody has checked
+// and a derivation somebody has played are different things to inherit.
 constexpr auto kGotItKey = MappedInputManager::Button::Up;
 constexpr auto kPassKey = MappedInputManager::Button::Down;
 
@@ -157,18 +158,11 @@ void ForeheadActivity::routeAction(const int action, const int value) {
           pickerPage = category / ui::pickerRowsPerPage();
           go(View::Picker);
           break;
-        case ui::MenuRow::Length: {
-          int index = 0;
-          for (int i = 0; i < fh::kRoundLengthCount; ++i) {
-            if (fh::kRoundLengths[i] == roundSeconds) index = i;
-          }
-          roundSeconds = fh::kRoundLengths[(index + 1) % fh::kRoundLengthCount];
-          dirty = true;
-          // Changes in place, with the menu still open. The confirmation is a
-          // label the player was going to read anyway, not a dialog.
-          requestUpdate();
+        case ui::MenuRow::Settings:
+          confirmingReset = false;
+          armedFrameShown = false;
+          go(View::Settings);
           break;
-        }
         case ui::MenuRow::HowTo:
           howToPage = 0;
           go(View::HowTo);
@@ -177,10 +171,69 @@ void ForeheadActivity::routeAction(const int action, const int value) {
           break;
       }
       break;
+    case ui::ActionSettingsRow:
+      // Guarded on the view like ActionGot and ActionPage are. Nothing reaches
+      // this from elsewhere today, but the row destroys data and a second door
+      // into Settings that forgot to disarm would be the whole bug.
+      if (view != View::Settings) break;
+      switch (static_cast<ui::SettingRow>(value)) {
+        case ui::SettingRow::Length: {
+          int index = 0;
+          for (int i = 0; i < fh::kRoundLengthCount; ++i) {
+            if (fh::kRoundLengths[i] == roundSeconds) index = i;
+          }
+          roundSeconds = fh::kRoundLengths[(index + 1) % fh::kRoundLengthCount];
+          dirty = true;
+          // Written NOW, not at onExit. A round length is chosen once before a
+          // party and then the device is put down; anything that ends the app
+          // without a clean exit -- a deep sleep, a flat battery, a panic --
+          // silently reverted it. One SD write on a rare, deliberate action is
+          // the right trade, and the throttling rule is about redundant writes
+          // in loops, not about user decisions.
+          flushSave();
+          // Changes in place, with the screen still open. The confirmation is a
+          // label the player was going to read anyway, not a dialog.
+          //
+          // Touching the length disarms a pending reset: two adjacent rows and
+          // one of them irreversible means the second tap has to be on the row
+          // that asked, not merely the next tap anywhere.
+          confirmingReset = false;
+          armedFrameShown = false;
+          requestUpdate();
+          break;
+        }
+        case ui::SettingRow::Reset: {
+          const fh::ResetTap tap = fh::resetTap(anythingToClear(), confirmingReset, armedFrameShown);
+          if (tap == fh::ResetTap::Ignore) break;
+          if (tap == fh::ResetTap::Arm) {
+            confirmingReset = true;
+            armedFrameShown = false;
+          } else {
+            // Everything the app persists, which is the scores AND the seen-word
+            // mask. Clearing one without the other is the state that reads as a
+            // bug either way: a fresh record whose words are all used up, or a
+            // deck reset that leaves yesterday's best standing.
+            record = fh::Record{};
+            deck.reset();
+            category = 0;
+            roundSeconds = fh::kDefaultRoundSeconds;
+            confirmingReset = false;
+            armedFrameShown = false;
+            dirty = true;
+            flushSave();
+          }
+          requestUpdate();
+          break;
+        }
+        default:
+          break;
+      }
+      break;
     case ui::ActionCategoryRow:
       if (value >= 0 && value < fh::kCategoryCount) {
         category = value;
         dirty = true;
+        flushSave();  // same exposure as the round length above
         go(View::Menu);
       }
       break;
@@ -197,6 +250,10 @@ void ForeheadActivity::routeAction(const int action, const int value) {
       requestUpdate();
       break;
     case ui::ActionHowToNext:
+      // The last page's button says DONE and closes; every earlier one says
+      // NEXT and advances. Unlike the keys this does not wrap, because the
+      // label is a promise: a button reading DONE that reopened page one would
+      // be the paging bug with a caption on it.
       if (howToPage + 1 < ui::howToPages()) {
         ++howToPage;
         requestUpdate();
@@ -245,6 +302,8 @@ void ForeheadActivity::loop() {
       // records nothing, because nothing was finished -- but the cards it dealt
       // stay dealt, which is what the deck mask is for.
       dirty = true;
+      confirmingReset = false;
+      armedFrameShown = false;
       go(View::Menu);
     }
     return;
@@ -310,8 +369,16 @@ void ForeheadActivity::loop() {
       const int pages = view == View::HowTo    ? ui::howToPages()
                         : view == View::Picker ? ui::pickerPages()
                                                : ui::resultPages(round.cards());
-      const int next = *page + step;
-      if (next >= 0 && next < pages) {
+      // Wraps. Paging past the last page returns to the first rather than
+      // stopping dead, because a key that does nothing is indistinguishable
+      // from a key that was not registered -- and on a panel that takes 0.3s to
+      // answer, "nothing happened" is the one response the player cannot read.
+      // Only when it MOVED. The wrap made this unconditional, and a one-page
+      // screen -- which is every results screen of twelve cards or fewer, the
+      // exact screen keys get mashed on right after the buzzer -- then spent a
+      // 0.3s refresh redrawing a byte-identical image on every press.
+      const int next = ui::pageAfter(*page, step, pages);
+      if (next != *page) {
         *page = next;
         requestUpdate();
       }
@@ -353,8 +420,8 @@ void ForeheadActivity::render(RenderLock&&) {
   // Ready and Play share cardFaces because Ready's whole job is to show the
   // round's own layout before the round starts.
   const toybox::Faces faces = (view == View::Play || view == View::Ready) ? toybox::cardFaces()
-                              : view == View::Result                     ? toybox::bigNumberFaces()
-                                                                         : toybox::proseMenuFaces();
+                              : view == View::Result                      ? toybox::bigNumberFaces()
+                                                                          : toybox::proseMenuFaces();
   fui::GfxRendererTarget target = toybox::makeTarget(renderer, faces);
   const fui::InputSnapshot noInput{};
   interactionsReady = false;
@@ -402,6 +469,14 @@ void ForeheadActivity::render(RenderLock&&) {
       ui::buildResult(screen, model);
       break;
     }
+    case View::Settings: {
+      ui::SettingsModel model;
+      model.roundSeconds = roundSeconds;
+      model.confirmingReset = confirmingReset;
+      model.anythingToClear = anythingToClear();
+      ui::buildSettings(screen, model);
+      break;
+    }
     case View::Menu:
     default: {
       ui::MenuModel model;
@@ -420,6 +495,23 @@ void ForeheadActivity::render(RenderLock&&) {
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer(flashOnNextPaint ? HalDisplay::FULL_REFRESH : HalDisplay::FAST_REFRESH);
   flashOnNextPaint = false;
+
+  // Stamped AFTER the panel has the image, which is the whole point: until this
+  // line runs, the armed question exists only in memory and a second tap cannot
+  // be an answer to it.
+  armedFrameShown = view == View::Settings && confirmingReset;
+}
+
+bool ForeheadActivity::anythingToClear() const {
+  // The record AND the deck. Cards are marked at deal time and the record only
+  // advances when a round finishes, so backing out of a round burns words and
+  // leaves the record at zero -- and a gate that asked the record alone would
+  // report NOTHING TO CLEAR YET while a category quietly emptied.
+  // Settings count, because the reset CLEARS them: the row's own subtitle says
+  // "SCORES WORDS AND SETTINGS". Without this the screen offered nothing to
+  // clear while a changed round length sat in the row directly above, and both
+  // taps on it did nothing with no feedback at all.
+  return record.rounds > 0 || deck.anySeen() || category != 0 || roundSeconds != fh::kDefaultRoundSeconds;
 }
 
 void ForeheadActivity::flushSave() {
@@ -471,8 +563,7 @@ bool ForeheadActivity::loadState() {
   record.rounds = state.rounds;
   record.words = state.words;
   record.best = state.best;
-  record.recentCount =
-      state.recentCount > fh::Record::kRecentCount ? fh::Record::kRecentCount : state.recentCount;
+  record.recentCount = state.recentCount > fh::Record::kRecentCount ? fh::Record::kRecentCount : state.recentCount;
   std::memcpy(record.recent, state.recent, sizeof(record.recent));
   std::memcpy(record.bestIn, state.bestIn, sizeof(record.bestIn));
   record.played = state.played;

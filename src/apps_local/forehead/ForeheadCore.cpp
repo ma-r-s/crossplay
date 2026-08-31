@@ -62,6 +62,21 @@ void Deck::setMask(const uint8_t* bytes) {
   }
 }
 
+ResetTap resetTap(const bool anythingToClear, const bool armed, const bool shown) {
+  if (!anythingToClear) return ResetTap::Ignore;
+  if (!armed) return ResetTap::Arm;
+  return shown ? ResetTap::Confirm : ResetTap::Ignore;
+}
+
+bool Deck::anySeen() const {
+  // setMask clears the bits above the last real entry, so a set bit anywhere in
+  // the mask is a real card and no tail masking is needed here.
+  for (const uint8_t byte : seen_) {
+    if (byte != 0) return true;
+  }
+  return false;
+}
+
 int Deck::remainingIn(const int category) const {
   const Slice slice = sliceOf(category);
   if (!slice.valid) return 0;

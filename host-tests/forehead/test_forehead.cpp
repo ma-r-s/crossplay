@@ -596,6 +596,68 @@ void testTheSameSeedReplaysExactly() {
   }
 }
 
+void testTheDeckKnowsWhetherAnythingHasBeenDealt() {
+  Deck deck;
+  deck.reset();
+  CHECK(!deck.anySeen());
+
+  Rng rng(7u);
+  CHECK(deck.draw(3, rng) >= 0);
+  // One card anywhere is enough. The reset offer asks this and cannot ask the
+  // record: a round backed out of halfway marks cards and never advances the
+  // record, so the record would report nothing to clear while the category
+  // quietly emptied.
+  CHECK(deck.anySeen());
+
+  deck.reset();
+  CHECK(!deck.anySeen());
+
+  // Every category, not just the one the mask happens to start in -- a scan
+  // that stopped at the first byte would pass the check above and fail here.
+  for (int category = 0; category < kCategoryCount; ++category) {
+    Deck one;
+    one.reset();
+    Rng r(static_cast<uint32_t>(category + 1));
+    CHECK(one.draw(category, r) >= 0);
+    CHECK(one.anySeen());
+  }
+}
+
+void testTheResetNeedsAQuestionThePlayerActuallySaw() {
+  // Nothing to clear: every tap is inert, armed or not.
+  CHECK(resetTap(false, false, false) == ResetTap::Ignore);
+  CHECK(resetTap(false, true, true) == ResetTap::Ignore);
+
+  // First tap arms.
+  CHECK(resetTap(true, false, false) == ResetTap::Arm);
+  CHECK(resetTap(true, false, true) == ResetTap::Arm);
+
+  // Armed but the question has not reached the panel yet: this is a blind
+  // repeat of the first tap, not an answer. THE case that matters -- the
+  // refresh is ~0.3s and touch is polled every ~10ms, so a player tapping
+  // twice at a control that looks unresponsive would otherwise wipe the save
+  // without ever seeing what they were asked.
+  CHECK(resetTap(true, true, false) == ResetTap::Ignore);
+
+  // Armed and seen: this one counts.
+  CHECK(resetTap(true, true, true) == ResetTap::Confirm);
+
+  // Exhaustive over all eight inputs, so no combination is left to inference.
+  int confirms = 0;
+  for (int i = 0; i < 8; ++i) {
+    const bool any = (i & 1) != 0, armed = (i & 2) != 0, shown = (i & 4) != 0;
+    const ResetTap tap = resetTap(any, armed, shown);
+    if (tap == ResetTap::Confirm) confirms++;
+    // Data is destroyed on exactly one path, and it requires all three.
+    if (tap == ResetTap::Confirm) {
+      CHECK(any);
+      CHECK(armed);
+      CHECK(shown);
+    }
+  }
+  CHECK(confirms == 1);
+}
+
 }  // namespace
 
 int main() {
@@ -608,6 +670,8 @@ int main() {
   testALapKeepsWhatTheCallerIsHolding();
   testALapLeavesEveryOtherCategoryAlone();
   testTheDeckDealsEvenlyAcrossItsSlice();
+  testTheDeckKnowsWhetherAnythingHasBeenDealt();
+  testTheResetNeedsAQuestionThePlayerActuallySaw();
   testDrawingOneCategoryLeavesTheOthersAlone();
   testTheLastCardOfALapIsReachable();
   testSetMaskIgnoresBitsPastTheLastEntry();

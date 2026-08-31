@@ -37,12 +37,17 @@ enum : fui::ActionId {
   ActionHowToNext = 11,
   ActionResultsPage = 12,
   ActionStart = 13,
+  ActionSettingsRow = 14,
 };
+
+// The settings screen's rows. RESET is last and separated, because it is the
+// only irreversible thing in the app.
+enum class SettingRow : int { Length = 0, Reset, Count };
 
 // The front door. Every band here is the pattern in docs/design-language.md:
 // headline, state, rule, record, ornament, then the lesser doors at the bottom
 // where a thumb rests.
-enum class MenuRow : int { Category = 0, Length, HowTo, Count };
+enum class MenuRow : int { Category = 0, Settings, HowTo, Count };
 
 struct MenuModel {
   int category = 0;
@@ -90,12 +95,35 @@ struct HowToModel {
   int page = 0;
 };
 
+struct SettingsModel {
+  int roundSeconds = forehead::kDefaultRoundSeconds;
+  // A reset asks once, in place, by relabelling its own row. A dialog would be
+  // a second screen for a question that fits on the row you already tapped --
+  // and the design language's rule is that a destructive setting confirms with
+  // a label you were going to read anyway.
+  bool confirmingReset = false;
+  // Whether there is anything to clear -- scores OR dealt cards. Handed in
+  // rather than derived from a Record here, because a round abandoned halfway
+  // burns words without ever touching the record, and a screen that asked the
+  // record would offer nothing to clear while a category quietly emptied.
+  bool anythingToClear = false;
+};
+
 void buildMenu(toybox::Screen& screen, const MenuModel& model);
 void buildPicker(toybox::Screen& screen, const PickerModel& model);
 void buildReady(toybox::Screen& screen, const ReadyModel& model);
 void buildPlay(toybox::Screen& screen, const PlayModel& model);
 void buildResult(toybox::Screen& screen, const ResultModel& model);
 void buildHowTo(toybox::Screen& screen, const HowToModel& model);
+void buildSettings(toybox::Screen& screen, const SettingsModel& model);
+
+// Where a page key lands. Wraps in both directions, so the last page's forward
+// key returns to the first and the first page's back key reaches the last.
+//
+// Freestanding and here rather than inline in the activity because the activity
+// is the one layer no host test can construct: left there, the arithmetic that
+// decides whether paging dead-ends is exactly as testable as the device is.
+int pageAfter(int page, int step, int pages);
 
 int howToPages();
 int pickerPages();
