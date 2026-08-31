@@ -354,6 +354,14 @@ and passes. The shelf-wide sweep that found the XKCD bug visited each app's
 OPENING screen; "every app is clean" means every app's first screen is clean and
 no more than that.
 
+A worked example, found by a peer within an hour of the gate landing: GET BOOKS
+logs `No glyph for codepoint 10` -- a raw newline out of an OPDS feed reaching
+`drawText` while it renders book titles. Two things follow. It is NOT the
+truncation case, so the width tooling explains nothing about it (the gate says
+so itself now, and splits its advice by codepoint). And the shelf sweep could
+never have found it: Get Books needs Wi-Fi and a seeded `opds.json` before it
+reaches that screen at all. Every network-fed app has that shape.
+
 So the gate is a backstop, not a proof. Where a length is known before the
 device sees it -- a generated word list, a downloaded content pack -- cap it at
 BUILD time against the measured cut, so the device is never handed a string that
