@@ -27,6 +27,7 @@ LOGS="${TMPDIR:-/tmp}/xteink-check-$TAG"
 mkdir -p "$LOGS"
 FAILED=0
 SUBMODULE_DRIFT=""
+TREE_STALE=""
 
 # --ignore-submodules=untracked: the icon tools drop a __pycache__/ inside
 # freeink-sdk, which is untracked content in a submodule and not your work.
@@ -51,6 +52,15 @@ if [ "${1:-}" = "--committed" ]; then
   TRIAL="${TMPDIR:-/tmp}/xteink-committed-$TAG-$$"
   echo "verifying HEAD ($(git rev-parse --short HEAD)) in a throwaway worktree"
   TRIAL_T0=$(date +%s)
+  # Refresh the remote ref HERE, in the tree that owns it: the freshness check
+  # runs inside the trial worktree, which shares these refs, and measuring
+  # staleness against a stale ref is the joke telling itself. --committed is
+  # the one mode worth a network round trip, because it is the mode run when
+  # the result is about to be trusted. Never fatal: no network is a reason to
+  # gate a little blind, not a reason not to gate.
+  if ! git fetch --quiet origin 2>/dev/null; then
+    echo "  could not fetch origin; staleness below is measured against the ref as it stands"
+  fi
   # Unique paths mean a run killed hard (kill -9 skips the trap below) leaves
   # an orphan that no later run would inherit, so sweep siblings whose owning
   # process is gone: ~600MB each, and a half-populated worktree is a state
@@ -208,6 +218,28 @@ if [ -x "$SUB_STATE" ]; then
   esac
 fi
 
+# And a tree can be at the submodules its commit describes while the COMMIT is
+# not what the branch describes. Same ending: a green that describes nothing.
+# See scripts_local/tree_freshness.sh. Fetch only under --committed, the mode
+# run precisely because the result is about to be trusted; --tests runs too
+# often to put a network round trip in front of it.
+FRESH="$REPO/scripts_local/tree_freshness.sh"
+if [ -x "$FRESH" ]; then
+  # No --fetch here: under --committed the OUTER run has already fetched (the
+  # trial worktree shares this repository's refs), and every other mode
+  # deliberately reads the ref as it stands rather than putting a network round
+  # trip in front of a host suite.
+  FRESH_OUT="$("$FRESH" "$REPO" 2>&1)" && FRESH_RC=0 || FRESH_RC=$?
+  if [ -n "$FRESH_OUT" ]; then
+    echo "$FRESH_OUT" | sed 's/^/  /'
+    echo
+  fi
+  case "$FRESH_RC" in
+    3) TREE_STALE="behind origin" ;;
+    4) TREE_STALE="behind origin ON FIRMWARE" ;;
+  esac
+fi
+
 DIRTY="$(dirty_count)"
 if [ "$DIRTY" -ne 0 ]; then
   echo "note: verifying your working tree, which has $DIRTY uncommitted file(s)."
@@ -224,6 +256,20 @@ fi
 # when the suites were running perfectly well. Neither of us could tell from
 # the log, and "I had to ask what it was doing" is a logging bug, not a
 # patience problem.
+# What made this run not describe what ships. Both can be true at once, and
+# each alone means the same thing, so they compose into one clause that lands
+# ON the verdict line rather than in a note above it: the equivalent notes at
+# the top of this script were read past three separate times in one night.
+qualifier_text() {
+  q=""
+  [ -n "${SUBMODULE_DRIFT:-}" ] && q="ON DRIFTED SUBMODULES"
+  if [ -n "${TREE_STALE:-}" ]; then
+    [ -n "$q" ] && q="$q and "
+    q="$q${TREE_STALE}"
+  fi
+  printf '%s' "$q"
+}
+
 say_stage() { printf "  %-12s %s ...\n" "$1" "$(date +%H:%M:%S)"; }
 since() { echo "$(( $(date +%s) - $1 ))s"; }
 
@@ -616,8 +662,9 @@ fi
 
 echo
 if [ "$FAILED" -eq 0 ]; then
-  if [ -n "$SUBMODULE_DRIFT" ]; then
-    echo "all green -- BUT ON DRIFTED SUBMODULES, so it describes no commit. logs in $LOGS"
+  QUALIFIER="$(qualifier_text)"
+  if [ -n "$QUALIFIER" ]; then
+    echo "all green -- BUT $QUALIFIER, so it does not describe what ships. logs in $LOGS"
   else
     echo "all green. logs in $LOGS"
   fi

@@ -491,9 +491,24 @@ print("\n".join(lines[top:end + 1]))
 PY
 }
 
+# A shell function, start line to its closing brace at column 0.
+lift_fn() {  # function name
+  python3 - "$CHECK" "$1" <<'PY'
+import sys
+lines = open(sys.argv[1]).read().splitlines()
+name = sys.argv[2]
+start = next(i for i, l in enumerate(lines) if l.startswith(name + '() {'))
+end = next(i for i in range(start + 1, len(lines)) if lines[i] == '}')
+print('\n'.join(lines[start:end + 1]))
+PY
+}
+
 lift '-x "$SUB_STATE"' >"$WORK/subwire.sh" 2>/dev/null
-lift 'SUBMODULE_DRIFT' >"$WORK/verdict.sh" 2>/dev/null
-if [ -s "$WORK/subwire.sh" ] && [ -s "$WORK/verdict.sh" ]; then
+lift '-x "$FRESH"'     >"$WORK/freshwire.sh" 2>/dev/null
+lift 'QUALIFIER'       >"$WORK/verdict.sh" 2>/dev/null
+lift_fn qualifier_text >"$WORK/qualifier.sh" 2>/dev/null
+if [ -s "$WORK/subwire.sh" ] && [ -s "$WORK/verdict.sh" ] &&
+   [ -s "$WORK/freshwire.sh" ] && [ -s "$WORK/qualifier.sh" ]; then
   # A repo whose probe we control, so each verdict can be driven on demand.
   stub_repo() {  # exit_code, message
     rm -rf "$WORK/subrepo"
@@ -534,25 +549,86 @@ if [ -s "$WORK/subwire.sh" ] && [ -s "$WORK/verdict.sh" ]; then
     *) failed=$((failed + 1)); echo "FAIL checksh  a healthy tree was not silent+unflagged: $clean_out" ;;
   esac
 
-  # The verdict line itself: the flag has to change what the last line says.
+  # ---- freshness wiring: behind origin must reach the verdict ----
+  #
+  # An armed watcher fired --committed on 26-commit-stale code because it was
+  # written before the merge-first rule existed. Being behind never STOPS the
+  # gate (unlike an uninitialised submodule, working behind origin is ordinary
+  # mid-work) but it must change what the last line claims.
+  fresh_stub() {  # exit_code, message
+    rm -rf "$WORK/subrepo"
+    mkdir -p "$WORK/subrepo/scripts_local"
+    { echo '#!/bin/bash'
+      [ -n "$2" ] && echo "echo '$2'"
+      echo "exit $1"
+    } > "$WORK/subrepo/scripts_local/tree_freshness.sh"
+    chmod +x "$WORK/subrepo/scripts_local/tree_freshness.sh"
+  }
+  run_fresh() {  # exit_code -> prints FLAG=[...]
+    # A healthy probe says nothing at all, so the stub must not either: a
+    # message on the silent path would make this assert the wrong thing.
+    if [ "$1" -eq 0 ]; then fresh_stub 0 ""; else fresh_stub "$1" "behind by something"; fi
+    ( set +e; REPO="$WORK/subrepo"; TREE_STALE=""; . "$WORK/freshwire.sh"; echo "FLAG=[$TREE_STALE]" ) 2>/dev/null
+  }
+
   checks=$((checks + 1))
-  qualified="$( set +e; SUBMODULE_DRIFT=1; LOGS=/tmp/x; . "$WORK/verdict.sh" )"
-  case "$qualified" in
-    *DRIFTED*) : ;;
-    *) failed=$((failed + 1)); echo "FAIL checksh  the verdict does not mention drift when drifted: $qualified" ;;
+  case "$(run_fresh 3)" in
+    *"FLAG=[]"*) failed=$((failed + 1)); echo "FAIL checksh  behind-by-inert set no flag, so the verdict reads as unqualified green" ;;
+    *"FLAG=["*)  : ;;
+    *)           failed=$((failed + 1)); echo "FAIL checksh  behind-by-inert stopped the gate; being behind is ordinary mid-work" ;;
   esac
 
   checks=$((checks + 1))
-  plain="$( set +e; SUBMODULE_DRIFT=""; LOGS=/tmp/x; . "$WORK/verdict.sh" )"
+  case "$(run_fresh 4)" in
+    *FIRMWARE*) : ;;
+    *) failed=$((failed + 1)); echo "FAIL checksh  behind-on-firmware is not distinguished from behind-by-anything: $(run_fresh 4)" ;;
+  esac
+
+  checks=$((checks + 1))
+  case "$(run_fresh 0)" in
+    "FLAG=[]") : ;;
+    *) failed=$((failed + 1)); echo "FAIL checksh  an up-to-date tree was flagged stale: $(run_fresh 0)" ;;
+  esac
+
+  # ---- the verdict line, driven through the real composition function ----
+  verdict() {  # SUBMODULE_DRIFT, TREE_STALE
+    ( set +e; SUBMODULE_DRIFT="$1"; TREE_STALE="$2"; LOGS=/tmp/x
+      . "$WORK/qualifier.sh"; . "$WORK/verdict.sh" )
+  }
+
+  checks=$((checks + 1))
+  case "$(verdict 1 '')" in
+    *DRIFTED*) : ;;
+    *) failed=$((failed + 1)); echo "FAIL checksh  the verdict does not mention drift when drifted: $(verdict 1 '')" ;;
+  esac
+
+  checks=$((checks + 1))
+  case "$(verdict '' 'behind origin')" in
+    *"behind origin"*) : ;;
+    *) failed=$((failed + 1)); echo "FAIL checksh  the verdict does not mention staleness when stale: $(verdict '' 'behind origin')" ;;
+  esac
+
+  # Both at once. Either one silently swallowing the other is the bug here:
+  # a stale tree ON drifted submodules must not report only half of why its
+  # green means nothing.
+  checks=$((checks + 1))
+  both="$(verdict 1 'behind origin')"
+  case "$both" in
+    *DRIFTED*"behind origin"*) : ;;
+    *) failed=$((failed + 1)); echo "FAIL checksh  the verdict drops one of two reasons: $both" ;;
+  esac
+
+  checks=$((checks + 1))
+  plain="$(verdict '' '')"
   case "$plain" in
-    *DRIFTED*) failed=$((failed + 1)); echo "FAIL checksh  a clean tree's verdict claims drift: $plain" ;;
+    *DRIFTED*|*behind*) failed=$((failed + 1)); echo "FAIL checksh  a clean tree's verdict claims a problem: $plain" ;;
     *"all green"*) : ;;
     *) failed=$((failed + 1)); echo "FAIL checksh  a clean tree lost its 'all green' verdict: $plain" ;;
   esac
 else
   checks=$((checks + 1))
   failed=$((failed + 1))
-  echo "FAIL checksh  could not lift the submodule wiring or the verdict out of check.sh"
+  echo "FAIL checksh  could not lift the submodule wiring, freshness wiring, verdict or qualifier out of check.sh"
 fi
 
 echo "$checks checks, $failed failed"
