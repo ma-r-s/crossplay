@@ -174,76 +174,38 @@ jobs:
             devices next to each other find one another with nothing to type --
             and they do not have to be the same device.
 
-            ### What is new in 1.10.0
+            ### What is new in 1.11.0
 
-            **Flashcard sync has had a hard look at every way it could lose a
-            review, and several of them were real.** The reader remembers how
-            much of its review log the service has already taken. That memory
-            was a position in the file and nothing more, so any time the file
-            changed underneath it -- a send that failed partway, a card
-            restored from a backup, a deck replaced -- the next sync skipped
-            past real reviews and said it had sent them. It now remembers a
-            fingerprint of the bytes as well, and resends the whole log rather
-            than guess. Resending costs a few seconds and nothing else, because
-            the service already ignores reviews it has seen.
+            **A trivia game, with fifty thousand questions.** They come off
+            forty-two years of Jeopardy!, and they are not on the device: the
+            app fetches a 6MB pack the first time you open it, and it lives on
+            the card next to your books.
 
-            **Decks you downloaded from AnkiWeb can be chosen now.** A shared
-            deck arrives as a parent with its cards in subdecks, and the picker
-            counted only the parent's own cards, found none, and drew it as
-            unselectable. That is the ordinary way people get decks.
+            Two ways to play, because they are different evenings. **QUIZMASTER**
+            puts one question on the panel and nothing else. You read it out,
+            the table argues, and a tap turns the answer over. **SOLO** gives you
+            four options and keeps score.
 
-            **Deck names in Chinese, Japanese, Russian or Greek no longer
-            collide.** Every name without Latin letters reduced to the same
-            internal name, so two such decks shared one folder and one
-            identity: one would quietly serve the other's cards while the
-            screen said everything was up to date.
+            The four options are not lifted from anywhere; they are built. A
+            Jeopardy clue says what its answer is -- "this country", "this
+            metal" -- so the wrong answers are drawn from the same kind of
+            thing and matched for length. Published trivia sets leak the answer
+            through option length between 32% and 38% of the time against a 25%
+            baseline, which is to say you can win them without knowing anything.
+            This one measures 6%.
 
-            **One deck the service cannot build no longer costs you the rest.**
-            Picking a deck of cloze cards, or an empty one, used to abort the
-            entire sync -- every other deck too, forever, with the reader
-            advising you to wait for a service that was not busy. Now the rest
-            of the sync completes, the reader names the deck that failed, and
-            there is a way back to the picker to drop it.
+            Questions are graded 1 to 5. Jeopardy doubled its clue values in
+            2001, so the difficulty is normalised across the whole run rather
+            than read off the board.
 
-            **Cards borrowed by Custom Study stopped going missing.** A card
-            pulled into a filtered deck belongs to that deck and to the deck it
-            came from; the converter only looked at the first, so the cards you
-            had just flagged as needing work were the ones left out of the
-            build. The count agreed with the shortfall, so nothing looked
-            wrong.
+            **A question that turns out to be wrong can be flagged as you play**,
+            and never comes back. Fifty thousand questions cannot be checked by
+            anybody; the few hundred you actually see can be, and that is the
+            only curation that scales.
 
-            **The reader stopped saying things that were not true.** It said
-            "nothing is due" over a deck it had just delivered with cards in
-            it. It counted reviews as sent when their card no longer existed in
-            Anki and they had been dropped. It reported decks as rebuilt that
-            it had merely downloaded again. Those all say what happened now.
-
-            **A reader whose battery went flat will not let you review until it
-            has the date back.** Reviews are stamped with the clock, and a flat
-            battery clears it; answering cards in that state wrote a session
-            dated 1970 into your real collection. The reader now asks you to
-            sync first, which is what sets the clock.
-
-            **The two app slots grew from 6.25MB to 7.94MB, and the partition
-            table is only written by a USB flash.** Check for updates writes the
-            application and nothing else, so a device installed before 1.6.0
-            keeps its old 6.25MB slots no matter how many times it updates over
-            Wi-Fi. Everything keeps working. What happens eventually is that an
-            application grows past 6.25MB, and that device says the firmware is
-            too large and declines the update -- with that reason, before
-            downloading it, rather than failing halfway.
-
-            **This release still fits, with about 44KB to spare**: 1.10.0
-            measures 6,508,786 bytes locally against the old 6,553,600-byte
-            slot, and CI lands within a kilobyte of that. It is 13KB larger
-            than 1.9.0. If you are on an old table this installs over
-            Wi-Fi like any other, but the margin is now small enough that a
-            release adding a typeface could cross it. You would rather do the
-            USB flash below at your convenience than the first time an update
-            refuses itself. Flash `crossplay-1.6.1-x4pro-full.bin` over USB
-            once, exactly as a first install. Your SD card is untouched: books,
-            reading positions, saves and fonts are files on it, not in the
-            firmware.
+            Special editions are left out on purpose -- Tournament of Champions,
+            Teen, College, Celebrity -- because their difficulty is set for a
+            different room than yours.
 
             ### The short way: press Install
 

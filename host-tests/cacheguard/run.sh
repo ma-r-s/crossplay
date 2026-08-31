@@ -129,5 +129,25 @@ check "dot-directories at the root survive" \
 check "the prune still did its job" \
   "$([ "$(find "$state" -name '*.o' | wc -l | tr -d ' ')" -lt 40 ] && echo yes || echo no)" "yes"
 
+# Sourcing must be inert, whatever the caller's arguments are.
+#
+# check.sh sources this from inside its build loop, where $1 is the caller's own
+# first argument -- "--committed" on every release gate. A sourced script
+# inherits those positional parameters, so an unguarded `case "${1:-}"` reached
+# its usage branch and called exit 2, killing the gate from inside a helper that
+# had not been asked to do anything. It broke every --committed run and every
+# lock test at once, and neither the executed forms nor a bare source revealed
+# it, because both have an empty or expected $1.
+for arg in --committed --tests --unknown "-x" ""; do
+  out=$(sh -c "set -- $arg; . '$GUARD' >/dev/null 2>&1; echo SURVIVED" 2>/dev/null || true)
+  check "sourcing is inert with \$1='$arg'" "$out" "SURVIVED"
+done
+
+# ...while the executed forms still dispatch, including the usage error.
+"$GUARD" --status "$WORK/cache" >/dev/null 2>&1
+check "executed --status still works" "$?" "0"
+"$GUARD" --nonsense >/dev/null 2>&1
+check "executed with a bad flag still errors" "$?" "2"
+
 echo "$checks checks, $failures failed"
 [ "$failures" -eq 0 ]

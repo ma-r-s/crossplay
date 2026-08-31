@@ -170,10 +170,25 @@ MSG
   return 0
 }
 
-case "${1:-}" in
-  --status) cache_guard_status "${2:-}" ;;
-  --prune)  cache_guard_status "${2:-}"; cache_guard_prune "${2:-}" ;;
-  --check)  cache_guard_check "${2:-}" ;;
-  "")       : ;;   # sourced
-  *)        echo "usage: cache-guard.sh [--status|--prune|--check] [dir]" >&2; exit 2 ;;
+# Dispatch ONLY when executed, never when sourced.
+#
+# A sourced script inherits the caller's positional parameters. check.sh sources
+# this from inside its build loop, where $1 is the caller's own first argument --
+# "--committed" on every release gate. The old unguarded `case "${1:-}"` then
+# fell through to its usage branch and called `exit 2`, killing the gate from
+# inside a helper that had not been asked to do anything. It also aborted
+# host-tests/checksh before its owner line ran, which is how it was found.
+#
+# $0 is the sourcing script's name when sourced, and this file's own path when
+# executed, so comparing basenames tells the two apart in both bash and sh.
+case "$(basename "${0:-}")" in
+  cache-guard.sh)
+    case "${1:-}" in
+      --status) cache_guard_status "${2:-}" ;;
+      --prune)  cache_guard_status "${2:-}"; cache_guard_prune "${2:-}" ;;
+      --check)  cache_guard_check "${2:-}" ;;
+      "")       cache_guard_status "" ;;
+      *)        echo "usage: cache-guard.sh [--status|--prune|--check] [dir]" >&2; exit 2 ;;
+    esac
+    ;;
 esac
