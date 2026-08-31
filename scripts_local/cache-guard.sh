@@ -21,8 +21,18 @@
 #
 # It fails as a compiler error, never as a disk warning: `[Errno 28] No space
 # left on device` arrives from inside the espressif32 builder, naming no file of
-# ours, while extracting framework libs the fork does not even use. It reads
-# exactly like the concurrent-build corruption and is not that.
+# ours, while extracting framework libs the fork does not even use.
+#
+# THREE different causes produce that same signature, which is why one is so
+# easily mistaken for another:
+#
+#   1. the disk is full                       -> this guard's floor
+#   2. two device builds ran at once          -> check.sh's firmware lock
+#   3. something mutated the cache mid-build  -> the exclusions in prune below
+#
+# All three arrive minutes into a run, from inside the espressif32 builder,
+# naming no file of ours. Anyone debugging one is looking at three
+# indistinguishable candidates and needs to be told the other two exist.
 
 # Trim the cache to this. Big enough that a warm tree stays warm; small enough
 # that thirty trees cannot fill a disk between releases.
@@ -77,9 +87,28 @@ cache_guard_prune() {
   [ "$now_kb" -le "$target_kb" ] && return 0
   echo "  cache is $(cache_guard_size_gb "$dir")GB, over the ${CACHE_CAP_GB}GB cap -- trimming oldest first"
 
-  # Oldest first, by mtime. -print0/-r0 so a path with a space cannot split.
-  # The .lock directories are skipped: one of them is how we got here.
-  find "$dir" -type f ! -name '*.lock' -print0 2>/dev/null \
+  # Oldest first, by mtime. -print0 so a path with a space cannot split.
+  #
+  # What is EXCLUDED matters more than what is deleted. The cache directory
+  # holds two unrelated kinds of thing:
+  #
+  #   * content-addressed object files -- disposable, that is the whole point
+  #   * SCons and PlatformIO STATE at the root: .sconsign*.dblite (523MB here),
+  #     lock directories, and anything else dotted.
+  #
+  # The state is not cache. .sconsign*.dblite is the signature database every
+  # build reads and REWRITES, and a running build holds it open for its whole
+  # run -- so deleting it mid-build produces
+  #     FileNotFoundError: '.sconsign314.tmp' -> '.sconsign314.dblite'
+  # as SCons renames its temp file into place and finds the target gone. Losing
+  # it outside a build is quieter and worse: every tree cold-rebuilds and
+  # nothing says why.
+  #
+  # Holding the firmware lock does NOT make this safe. That lock serialises
+  # DEVICE builds only; the native simulator build runs unlocked in every tree
+  # and uses the same SCons database. So the exclusion has to be structural,
+  # not a timing argument.
+  find "$dir" -maxdepth 1 -name '.*' -prune -o -type f ! -name '*.lock' -print0 2>/dev/null \
     | xargs -0 stat -f '%m %z %N' 2>/dev/null \
     | sort -n \
     | while IFS=' ' read -r _mtime bytes path; do
@@ -92,14 +121,15 @@ cache_guard_prune() {
 
   # Empty directories left behind cost inodes and slow every later find.
   #
-  # Two exclusions, and both were found by the test rather than by thinking:
+  # Three exclusions now, none of them found by thinking:
   # -mindepth 1 keeps the cache ROOT, and -name '*.lock' keeps the build locks.
   # A lock is an EMPTY DIRECTORY by construction -- that is how mkdir gives an
   # atomic mutex -- so an unqualified empty-dir sweep deletes the very lock the
   # caller is holding, and the next tree's mkdir then succeeds while a device
   # build is already running. That is the collision the lock exists to prevent,
   # reintroduced by the cleanup meant to be harmless.
-  find "$dir" -mindepth 1 -type d -empty ! -name '*.lock' -delete 2>/dev/null
+  find "$dir" -mindepth 1 -name '.*' -prune -o -type d -empty ! -name '*.lock' -print0 2>/dev/null \
+    | xargs -0 rmdir 2>/dev/null || true
   echo "  cache now $(cache_guard_size_gb "$dir")GB, $(cache_guard_avail_gb)GB free"
 }
 

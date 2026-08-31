@@ -25,6 +25,21 @@ that works is a cap on SIZE, evicting oldest-first.
 package caches, not `build_cache_dir`. Its dry run offered 962 MB, none of it
 the 66 GB.
 
+## Three causes, one signature
+
+The reason this is hard to debug is that **three unrelated failures look
+identical**: an error minutes into a run, from inside the espressif32 builder,
+naming no file of ours.
+
+| Cause | What stops it |
+| --- | --- |
+| The disk is full | this guard's `AVAIL_FLOOR_GB` |
+| Two device builds ran at once | `check.sh`'s firmware lock |
+| Something mutated the cache mid-build | the prune's exclusions |
+
+Anyone debugging one of these is looking at three indistinguishable candidates,
+so all three belong in the same place.
+
 ## How it fails
 
 Never as a disk warning. `[Errno 28] No space left on device` arrives from
@@ -59,6 +74,33 @@ of ours -- the same illegible shape the guard exists to prevent.
 
 When trimming cannot get the disk above the floor it refuses, and says so in a
 sentence about the disk, with the two commands worth running.
+
+## Never delete SCons state
+
+The cache directory holds two unrelated kinds of thing, and only one of them is
+cache:
+
+- **content-addressed object files** -- disposable, that is the point
+- **SCons and PlatformIO state at the root**: `.sconsign*.dblite`, lock
+  directories, anything dotted
+
+`.sconsign314.dblite` is the signature database every build reads and rewrites,
+and it was **523 MB** in the real cache -- old, large, and therefore first in
+line for an oldest-first sweep. Deleting it mid-build gives
+
+```
+FileNotFoundError: [Errno 2] No such file or directory:
+  '.pio-cache/.sconsign314.tmp' -> '.pio-cache/.sconsign314.dblite'
+```
+
+as SCons renames its temp file into place and finds the target gone. Deleting it
+*between* builds is quieter and worse: every tree cold-rebuilds and nothing says
+why.
+
+**Holding the firmware lock does not make this safe**, which is why the
+exclusion is structural rather than a timing argument. That lock serialises
+*device* builds only; the native simulator build runs unlocked in every tree and
+uses the same database.
 
 ## Two bugs the tests found, both about locks
 

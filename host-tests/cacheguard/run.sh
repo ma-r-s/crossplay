@@ -96,5 +96,38 @@ n1=$(find "$big" -type f | wc -l | tr -d ' ')
 n2=$(find "$big" -type f | wc -l | tr -d ' ')
 check "--status is read-only" "$n2" "$n1"
 
+# SCons state must survive a prune, however old and however large.
+#
+# .sconsign*.dblite is the signature database every build reads and REWRITES,
+# and a running build holds it open for its whole run. Deleting it mid-build
+# gives FileNotFoundError renaming .sconsign314.tmp onto it; deleting it between
+# builds is quieter and worse, because every tree cold-rebuilds and nothing says
+# why. It is 523MB in the real cache, so an oldest-first sweep would reach it.
+state="$WORK/state"
+mkdir -p "$state"
+i=0
+while [ $i -lt 40 ]; do
+  f="$state/obj$(printf '%02d' $i).o"
+  dd if=/dev/zero of="$f" bs=1048576 count=1 2>/dev/null
+  touch -t "$(date -v-${i}d +%Y%m%d%H%M 2>/dev/null || date -d "-${i} days" +%Y%m%d%H%M)" "$f"
+  i=$((i + 1))
+done
+# Deliberately the OLDEST and among the largest, so an unqualified sweep takes
+# it first. That is exactly the real cache's shape.
+dd if=/dev/zero of="$state/.sconsign314.dblite" bs=1048576 count=5 2>/dev/null
+touch -t "$(date -v-400d +%Y%m%d%H%M 2>/dev/null || date -d '-400 days' +%Y%m%d%H%M)" "$state/.sconsign314.dblite"
+mkdir -p "$state/.cache-meta"
+touch -t "$(date -v-400d +%Y%m%d%H%M 2>/dev/null || date -d '-400 days' +%Y%m%d%H%M)" "$state/.cache-meta"
+
+CACHE_CAP_GB=0.005 AVAIL_FLOOR_GB=0 "$GUARD" --prune "$state" >/dev/null 2>&1
+check "sconsign database survives a deep prune" \
+  "$([ -f "$state/.sconsign314.dblite" ] && echo yes || echo no)" "yes"
+check "sconsign keeps its bytes" \
+  "$(wc -c < "$state/.sconsign314.dblite" | tr -d ' ')" "5242880"
+check "dot-directories at the root survive" \
+  "$([ -d "$state/.cache-meta" ] && echo yes || echo no)" "yes"
+check "the prune still did its job" \
+  "$([ "$(find "$state" -name '*.o' | wc -l | tr -d ' ')" -lt 40 ] && echo yes || echo no)" "yes"
+
 echo "$checks checks, $failures failed"
 [ "$failures" -eq 0 ]
