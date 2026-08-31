@@ -106,5 +106,46 @@ reset_tree
 env -u CHECK_BUILD_RELEASE_ENVS "$TOOL" --base refs/heads/does-not-exist >/dev/null 2>&1
 [ $? -eq 0 ] && ok "unresolvable base -> builds run" || bad "unresolvable base -> skipped"
 
+# The unlocked-build guard's own suite. It runs inside pio, so a bug in it
+# fails every device build in the workspace rather than one.
+echo
+if python3 "$HERE/test_build_lock.py"; then :; else FAIL=$((FAIL+1)); fi
+
+# --device-only: the mirror question. Host-green is NO evidence for code the
+# simulator target never compiles, so such a branch keeps its device build even
+# when the workspace is otherwise landing on host-green.
+dev() {
+  local label="$1" expect="$2" rc
+  env -u CHECK_BUILD_RELEASE_ENVS "$TOOL" --device-only >/dev/null 2>&1; rc=$?
+  if [ "$expect" = "yes" ]; then
+    [ "$rc" -eq 0 ] && ok "$label -> device gate required" || bad "$label -> would land on host-green, must not"
+  else
+    [ "$rc" -eq 1 ] && ok "$label -> host-green is enough" || bad "$label -> demanded a device gate needlessly"
+  fi
+}
+
+echo
+echo "device-build-needed --device-only"
+
+reset_tree; echo edit >> docs/a.md; q git add -A; q git commit -m d
+dev "docs only" no
+reset_tree; echo x > freeink-sdk; q git add -A; q git commit -m s
+dev "the freeink-sdk pointer" yes
+reset_tree; echo edit >> platformio.ini; q git add -A; q git commit -m p
+dev "platformio.ini" yes
+
+# An ordinary app-layer source file: the host target compiles it, so host-green
+# is real evidence and it can land without the lock.
+reset_tree; printf 'int f(){return 1;}\n' > src/plain.cpp; q git add -A; q git commit -m a
+dev "a plain src/ file the host target compiles" no
+
+# The same file once it reaches for something the host target does not have.
+reset_tree; printf '#include <esp_sleep.h>\nint f(){return 1;}\n' > src/plain.cpp
+q git add -A; q git commit -m e
+dev "a src/ file including an ESP-IDF header" yes
+reset_tree; printf '#if FREEINK_DEVICE_X4\nint f(){return 1;}\n#endif\n' > src/plain.cpp
+q git add -A; q git commit -m g
+dev "a src/ file behind a FREEINK_DEVICE_ guard" yes
+
 echo "$((PASS+FAIL)) checks, $FAIL failed"
 [ "$FAIL" -eq 0 ]

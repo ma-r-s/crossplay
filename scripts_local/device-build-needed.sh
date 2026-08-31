@@ -25,15 +25,41 @@ set -uo pipefail
 
 BASE_REF="origin/xteink"
 QUIET=""
+# --range asks the same question about somebody else's commits rather than
+# ours: "do the commits this tree is MISSING touch a device image?" The
+# allowlist below is the only correct answer to that, and copying it into a
+# second script is how two spellings of one rule start disagreeing.
+RANGE=""
+DEVICE_ONLY=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --base)  BASE_REF="${2:-}"; [ -n "$BASE_REF" ] || { echo "--base needs a ref" >&2; exit 0; }; shift 2 ;;
+    --range) RANGE="${2:-}"; [ -n "$RANGE" ] || { echo "--range needs A..B" >&2; exit 0; }; shift 2 ;;
+    --device-only) DEVICE_ONLY=1; shift ;;
     --quiet) QUIET=1; shift ;;
     *)       echo "unknown option: $1" >&2; exit 0 ;;
   esac
 done
 
 say() { [ -n "$QUIET" ] || echo "$@"; }
+
+# Paths that cannot reach a device image. Anything not matched here means the
+# builds run. The device image is built from src/, lib/, freeink-sdk/,
+# platformio*.ini, partitions.csv and the pre/post scripts in scripts/ -- and
+# scripts/build_html.py and scripts/gen_i18n.py were each read to confirm they
+# generate only from src/ and lib/ rather than from site/ or docs/.
+#
+# Defined up here rather than beside its first use because --range answers
+# before the merge-base work below, and a function called above its definition
+# is a runtime error, not a syntax one.
+inert() {
+  case "$1" in
+    docs/*|site/*|host-tests/*|server/*|tools_local/*|scripts_local/*) return 0 ;;
+    .github/*|.githooks/*|.skills/*|bin/*|nix/*)                       return 0 ;;
+    *.md|LICENSE|.gitignore|.clang-format|.clangd|requirements.txt)    return 0 ;;
+    *) return 1 ;;
+  esac
+}
 
 # A release gate builds the images it is about to publish, whatever the diff
 # says. Skipping there would mean tagging binaries nothing in this run built.
@@ -44,6 +70,36 @@ fi
 
 # Everything below is fail-safe: any step that cannot answer exits 0.
 git rev-parse --git-dir >/dev/null 2>&1 || { say "device builds: needed (not a git tree)"; exit 0; }
+
+if [ -n "$RANGE" ]; then
+  RANGE_A="${RANGE%%..*}"
+  RANGE_B="${RANGE##*..}"
+  if [ "$RANGE_A" = "$RANGE" ] || [ -z "$RANGE_A" ] || [ -z "$RANGE_B" ]; then
+    say "device builds: needed (cannot read range $RANGE)"
+    exit 0
+  fi
+  RANGE_CHANGED="$(git diff --name-only "$RANGE_A" "$RANGE_B" 2>/dev/null | sed 's/ -> /\n/' | sed '/^$/d' | sort -u)" || RANGE_CHANGED=""
+  if ! git rev-parse -q --verify "$RANGE_A" >/dev/null 2>&1 || ! git rev-parse -q --verify "$RANGE_B" >/dev/null 2>&1; then
+    say "device builds: needed (cannot resolve one end of $RANGE)"
+    exit 0
+  fi
+  if [ -z "$RANGE_CHANGED" ]; then
+    say "device builds: not needed (nothing changed in $RANGE)"
+    exit 1
+  fi
+  WHY=""
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    if ! inert "$path"; then WHY="$path"; break; fi
+  done <<< "$RANGE_CHANGED"
+  if [ -n "$WHY" ]; then
+    say "device builds: needed ($WHY can reach a device image)"
+    exit 0
+  fi
+  COUNT="$(printf '%s\n' "$RANGE_CHANGED" | grep -c '' || true)"
+  say "device builds: not needed ($COUNT changed path(s) in $RANGE, none of which reach a device image)"
+  exit 1
+fi
 
 BASE="$(git merge-base "$BASE_REF" HEAD 2>/dev/null)" || BASE=""
 if [ -z "$BASE" ]; then
@@ -66,19 +122,32 @@ if [ -z "$CHANGED" ]; then
   exit 1
 fi
 
-# Paths that cannot reach a device image. Anything not matched here means the
-# builds run. The device image is built from src/, lib/, freeink-sdk/,
-# platformio*.ini, partitions.csv and the pre/post scripts in scripts/ -- and
-# scripts/build_html.py and scripts/gen_i18n.py were each read to confirm they
-# generate only from src/ and lib/ rather than from site/ or docs/.
-inert() {
-  case "$1" in
-    docs/*|site/*|host-tests/*|server/*|tools_local/*|scripts_local/*) return 0 ;;
-    .github/*|.githooks/*|.skills/*|bin/*|nix/*)                       return 0 ;;
-    *.md|LICENSE|.gitignore|.clang-format|.clangd|requirements.txt)    return 0 ;;
-    *) return 1 ;;
-  esac
-}
+if [ -n "$DEVICE_ONLY" ]; then
+  # The MIRROR question: not "can this change a device image" but "can the host
+  # gate see it at all". The simulator target does not compile what sits behind
+  # FREEINK_DEVICE_* guards, what calls ESP-IDF directly, or the SDK driver
+  # layer, so for such a branch a green host gate is not weak evidence, it is
+  # NO evidence. Conservative by construction, same direction as everything
+  # else here: anything it cannot rule out keeps its device build.
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    case "$path" in
+      freeink-sdk|platformio*.ini|partitions.csv)
+        say "device gate required before landing ($path is not compiled by the host target)"
+        exit 0 ;;
+    esac
+    case "$path" in
+      src/*|lib/*)
+        [ -f "$path" ] || continue
+        if grep -qE 'FREEINK_DEVICE_|esp_[a-z_]+\(|#include <esp|driver/' "$path" 2>/dev/null; then
+          say "device gate required before landing ($path contains code the host target does not compile)"
+          exit 0
+        fi ;;
+    esac
+  done <<< "$CHANGED"
+  say "host-green is sufficient (nothing here is invisible to the host target)"
+  exit 1
+fi
 
 WHY=""
 while IFS= read -r path; do
