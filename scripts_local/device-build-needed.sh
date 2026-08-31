@@ -61,13 +61,6 @@ inert() {
   esac
 }
 
-# A release gate builds the images it is about to publish, whatever the diff
-# says. Skipping there would mean tagging binaries nothing in this run built.
-if [ -n "${CHECK_BUILD_RELEASE_ENVS:-}" ]; then
-  say "device builds: needed (release envs requested)"
-  exit 0
-fi
-
 # Everything below is fail-safe: any step that cannot answer exits 0.
 git rev-parse --git-dir >/dev/null 2>&1 || { say "device builds: needed (not a git tree)"; exit 0; }
 
@@ -112,6 +105,25 @@ if [ -n "$RANGE" ]; then
   COUNT="$(printf '%s\n' "$RANGE_CHANGED" | grep -c '' || true)"
   say "device builds: not needed ($COUNT changed path(s) in $RANGE, none of which reach a device image)"
   exit 1
+fi
+
+# A release gate builds the images it is about to publish, whatever the diff
+# says: skipping there would mean tagging binaries nothing in this run built.
+#
+# It sits BELOW --range and --device-only on purpose. Those ask different
+# questions -- "do the commits I am missing touch firmware?" and "can the host
+# gate see this at all?" -- and neither is answered by "this run happens to be
+# building release images". While this check was above them, `--committed`
+# exports CHECK_BUILD_RELEASE_ENVS, so every staleness check inside a committed
+# gate reported FIRMWARE no matter what the commits touched, and the inert case
+# could never fire. host-tests/freshness caught it; nothing else could have,
+# because the suite passes standalone and only fails where it actually runs.
+# --device-only cannot be moved above this the way --range was: it walks
+# $CHANGED, which is computed below. So the guard is on the MODE rather than on
+# the position.
+if [ -z "$DEVICE_ONLY" ] && [ -n "${CHECK_BUILD_RELEASE_ENVS:-}" ]; then
+  say "device builds: needed (release envs requested)"
+  exit 0
 fi
 
 BASE="$(git merge-base "$BASE_REF" HEAD 2>/dev/null)" || BASE=""

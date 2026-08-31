@@ -183,5 +183,37 @@ reset_tree; printf '#if FREEINK_DEVICE_X4\nint f(){return 1;}\n#endif\n' > src/p
 q git add -A; q git commit -m g
 dev "a src/ file behind a FREEINK_DEVICE_ guard" yes
 
+# CHECK_BUILD_RELEASE_ENVS must not answer for the other two modes. --committed
+# exports it, so while its short-circuit sat above them, every --range staleness
+# check inside a committed gate reported FIRMWARE whatever the commits touched,
+# and --device-only would have demanded a device gate for a docs change. The
+# variable means "this run builds release images"; it does not mean "the commits
+# you are asking about touch firmware" or "the host target cannot see this".
+echo
+echo "CHECK_BUILD_RELEASE_ENVS does not answer for --range or --device-only"
+
+reset_tree; echo edit >> docs/a.md; q git add -A; q git commit -m d
+if CHECK_BUILD_RELEASE_ENVS=1 "$TOOL" --device-only >/dev/null 2>&1; then
+  bad "--device-only demanded a device gate for docs, because release envs were requested"
+else
+  ok "--device-only ignores CHECK_BUILD_RELEASE_ENVS"
+fi
+if CHECK_BUILD_RELEASE_ENVS=1 "$TOOL" >/dev/null 2>&1; then
+  ok "the DEFAULT question still honours CHECK_BUILD_RELEASE_ENVS"
+else
+  bad "the default question stopped building for a release gate"
+fi
+
+reset_tree
+q git checkout -q -b relside
+echo edit >> docs/a.md; q git add -A; q git commit -m "docs on the far side"
+q git checkout -q "$MAIN"
+if CHECK_BUILD_RELEASE_ENVS=1 "$TOOL" --range "$MAIN..relside" >/dev/null 2>&1; then
+  bad "--range called a docs-only range firmware, because release envs were requested"
+else
+  ok "--range ignores CHECK_BUILD_RELEASE_ENVS"
+fi
+q git checkout -q "$MAIN"
+
 echo "$((PASS+FAIL)) checks, $FAIL failed"
 [ "$FAIL" -eq 0 ]
