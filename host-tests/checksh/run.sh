@@ -630,11 +630,16 @@ if [ -s "$WORK/subwire.sh" ] && [ -s "$WORK/verdict.sh" ] &&
     *) : ;;
   esac
 
+  # And it must not CONTAIN the clean phrase either. Front-loading fixed the
+  # human skimmer and left every machine reader exactly where it was: a
+  # qualified verdict carrying its own unqualified form as a substring is
+  # matched by every grep written before the qualifier existed, and each one
+  # fails in the direction of "it passed". Old patterns must find nothing here.
+  # This assertion is what keeps that true when someone rewords the line later.
   checks=$((checks + 1))
-  before="${lead%%all green*}"
-  case "$before" in
-    *DRIFTED*|*behind*) : ;;
-    *) failed=$((failed + 1)); echo "FAIL checksh  the qualifier does not appear BEFORE 'all green': $lead" ;;
+  case "$lead" in
+    *"all green"*) failed=$((failed + 1)); echo "FAIL checksh  a qualified verdict still CONTAINS 'all green', so every pre-existing grep matches it and fails open: $lead" ;;
+    *) : ;;
   esac
 
   checks=$((checks + 1))

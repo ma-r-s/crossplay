@@ -698,11 +698,15 @@ echo
 if [ "$FAILED" -eq 0 ]; then
   QUALIFIER="$(qualifier_text)"
   if [ -n "$QUALIFIER" ]; then
-    # The qualifier leads. It used to trail "all green -- BUT ...", which put it
-    # on the verdict line where it belongs and still lost: a reader greps
-    # `all green|SOMETHING FAILED`, the pattern matched, and they acted on the
-    # first three words. Front-loading costs nothing and defeats exactly that.
-    echo "NOT WHAT SHIPS ($QUALIFIER) -- suites all green, but not on the code that ships. logs in $LOGS"
+    # The qualifier leads AND the clean phrase is absent. Both halves were paid
+    # for: trailing it ("all green -- BUT ...") lost to a reader who greps
+    # `all green|SOMETHING FAILED` and acted on the first three words, and
+    # front-loading alone still left the line CONTAINING "all green", so every
+    # grep written before the qualifier existed went on matching it and failing
+    # OPEN. A qualified verdict that contains its own unqualified form is
+    # matched by all of them. Old patterns must find nothing here and fail
+    # closed, so this line says "suites passed" instead.
+    echo "VERDICT WITHHELD ($QUALIFIER) -- suites passed, but not on the code that ships. logs in $LOGS"
   else
     echo "all green. logs in $LOGS"
   fi
