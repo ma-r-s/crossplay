@@ -139,6 +139,25 @@ path. PlatformIO runs pre-scripts *after* its own call (main.py line 160, then
 build dir gets its own, and 298 objects still land in the shared cache -- the
 saving is kept and the race is gone.
 
+### The simulator build is NOT safe to run in parallel
+
+The workspace notes say device builds are serialised by the firmware lock while
+"the simulator build stays parallel; it touches none of that". **That is wrong,
+and it is the reason this fix has to cover the simulator env.** The simulator
+build touches no ESP32 framework, but it uses the same SCons signature database
+as everything else, so two trees building it at once race on the same file:
+
+```
+FileNotFoundError: .pio-cache/.sconsign314.tmp -> .pio-cache/.sconsign314.dblite
+  (SCons dblite.py _os_replace, at SConsign.write())
+```
+
+Observed on 2026-08-31 on a simulator build that **compiled and linked
+successfully and then died at the end**, with 37Gi free and the cache intact.
+Clean on retry. That makes it the most frequently hit of the five causes, since
+the simulator build is the one everybody runs constantly and the one the
+documented model calls safe.
+
 It is wired into **both** `[base]` in `platformio.ini` and the simulator env in
 `platformio.sim.ini`. The simulator does not extend `base`, which is exactly the
 gap that made the first version of this look like it did nothing: the script

@@ -108,6 +108,14 @@ cache_guard_prune() {
   # DEVICE builds only; the native simulator build runs unlocked in every tree
   # and uses the same SCons database. So the exclusion has to be structural,
   # not a timing argument.
+  # Progress every ~2GB. Trimming a content-addressed cache is hundreds of
+  # thousands of small unlinks and a large sweep runs for minutes; silence for
+  # that long is the exact signature this workspace keeps misreading as a wedge,
+  # and this is the branch that exists to stop failures being ambiguous. It
+  # costs one printf per 2GB and turns "still working" into evidence.
+  start_kb="$now_kb"
+  next_report=$(( now_kb - 2097152 ))
+  removed=0
   find "$dir" -maxdepth 1 -name '.*' -prune -o -type f ! -name '*.lock' -print0 2>/dev/null \
     | xargs -0 stat -f '%m %z %N' 2>/dev/null \
     | sort -n \
@@ -115,9 +123,16 @@ cache_guard_prune() {
         [ "$now_kb" -le "$target_kb" ] && break
         rm -f "$path" 2>/dev/null || continue
         now_kb=$(( now_kb - (bytes / 1024) - 1 ))
-        printf '%s\n' "$now_kb" > "$dir/.guard-progress"
+        removed=$(( removed + 1 ))
+        if [ "$now_kb" -le "$next_report" ]; then
+          printf '    trimmed %sGB so far (%s files), %sGB left to go, %sGB free\n' \
+            "$(awk -v a="$start_kb" -v b="$now_kb" 'BEGIN{printf "%.1f",(a-b)/1048576}')" \
+            "$removed" \
+            "$(awk -v a="$now_kb" -v b="$target_kb" 'BEGIN{printf "%.1f",(a-b)/1048576}')" \
+            "$(cache_guard_avail_gb)"
+          next_report=$(( now_kb - 2097152 ))
+        fi
       done
-  rm -f "$dir/.guard-progress"
 
   # Empty directories left behind cost inodes and slow every later find.
   #
