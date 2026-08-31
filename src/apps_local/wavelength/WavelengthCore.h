@@ -159,6 +159,29 @@ struct Session {
   int averageTenths() const;
 };
 
+// How far off a round was, bucketed for the front door's ornament. Distance
+// rather than points, because the question the table asks itself between rounds
+// is "are we getting closer", and points fold the end-call into that.
+inline constexpr int kBucketCount = 5;  // exact, 1, 2, 3-5, wider
+
+int bucketFor(int guess, int target);
+
+// The record that survives between sessions. Small on purpose: it is what the
+// front door draws, and a menu that is byte-identical on every device is
+// wallpaper rather than ornament.
+struct Record {
+  uint16_t rounds = 0;
+  uint16_t points = 0;
+  uint16_t buckets[kBucketCount] = {};
+  uint16_t bestRoundTenths = 0;  // best single-session average, in tenths
+
+  void add(int guess, int target, Call call);
+  int averageTenths() const;
+  // The tallest bucket, so the ornament can scale to what is actually there
+  // rather than to a guessed maximum.
+  uint16_t peak() const;
+};
+
 // What a table that is genuinely communicating averages, in tenths, for the
 // front door to sit next to its own average. A score with nothing beside it
 // means nothing: nobody can tell whether 19 points is good.

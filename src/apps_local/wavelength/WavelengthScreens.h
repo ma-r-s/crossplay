@@ -42,6 +42,11 @@ enum : fui::ActionId {
   ActionCallTop = 9,
   ActionCallBottom = 10,
   ActionNextRound = 11,
+  ActionStartRound = 12,
+  ActionHowTo = 13,
+  ActionEndSession = 14,
+  ActionKeepPlaying = 15,
+  ActionNewSession = 16,
 };
 
 struct Spectrum {
@@ -86,6 +91,21 @@ struct RevealModel {
   int total = 0;
 };
 
+struct MenuModel {
+  // Read, never owned: the activity holds the record and the save file.
+  const wavelength::Record* record = nullptr;
+  bool sessionInProgress = false;
+  int sessionRound = 1;
+  int sessionTotal = 0;
+};
+
+struct SummaryModel {
+  const wavelength::Record* record = nullptr;
+  int rounds = 0;
+  int total = 0;
+  int averageTenths = 0;
+};
+
 struct PassModel {
   int roundNumber = 1;
   int total = 0;
@@ -97,6 +117,8 @@ struct PassModel {
 // separate bugs in this fork came from breaking that.
 fui::Rect peekPadRect(int16_t screenW, int16_t screenH);
 
+void renderMenu(toybox::Screen& screen, const MenuModel& model);
+void renderSummary(toybox::Screen& screen, const SummaryModel& model);
 void renderPassLeft(toybox::Screen& screen, const PassModel& model);
 void renderPick(toybox::Screen& screen, const PickModel& model);
 void renderPeek(toybox::Screen& screen, const PeekModel& model);

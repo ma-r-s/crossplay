@@ -111,4 +111,34 @@ int Session::averageTenths() const {
   return (total * 10 + scoredRounds / 2) / scoredRounds;
 }
 
+int bucketFor(const int guess, const int target) {
+  if (!inRange(guess) || !inRange(target)) return kBucketCount - 1;
+  const int d = absDiff(guess, target);
+  if (d == 0) return 0;
+  if (d == 1) return 1;
+  if (d == 2) return 2;
+  if (d <= 5) return 3;
+  return 4;
+}
+
+void Record::add(const int guess, const int target, const Call call) {
+  if (rounds < UINT16_MAX) ++rounds;
+  const int gained = scoreRound(guess, target, call);
+  if (points + gained <= UINT16_MAX) points = static_cast<uint16_t>(points + gained);
+  const int b = bucketFor(guess, target);
+  if (buckets[b] < UINT16_MAX) ++buckets[b];
+}
+
+int Record::averageTenths() const {
+  if (rounds == 0) return 0;
+  return (points * 10 + rounds / 2) / rounds;
+}
+
+uint16_t Record::peak() const {
+  uint16_t top = 0;
+  for (const uint16_t b : buckets)
+    if (b > top) top = b;
+  return top;
+}
+
 }  // namespace wavelength

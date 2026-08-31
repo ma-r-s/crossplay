@@ -1,7 +1,10 @@
 #include "WavelengthActivity.h"
 
 #include <Arduino.h>
+#include <HalStorage.h>
 #include <Memory.h>
+
+#include <cstring>
 
 #include "../../components/UITheme.h"
 #include "../Shelf.h"
@@ -11,6 +14,23 @@
 
 namespace fui = freeink::ui;
 namespace wl = wavelength;
+
+namespace {
+
+constexpr char kSavePath[] = "/.crosspoint/wavelength.sav";
+constexpr uint8_t kSaveVersion = 1;
+
+// Everything the front door draws plus the seen set, so a spectrum somebody
+// remembers the target of does not come back next week.
+struct SaveState {
+  uint16_t rounds;
+  uint16_t points;
+  uint16_t buckets[wavelength::kBucketCount];
+  uint16_t bestRoundTenths;
+  uint32_t deck[wavelength::kSeenWords];
+};
+
+}  // namespace
 
 std::unique_ptr<Activity> WavelengthActivity::create(GfxRenderer& renderer, MappedInputManager& mappedInput) {
   return makeUniqueNoThrow<WavelengthActivity>(renderer, mappedInput);
@@ -22,14 +42,68 @@ void WavelengthActivity::onEnter() {
   deck = wl::Deck(wl::kPairCountEn);
   rng = wl::Rng(static_cast<uint32_t>(millis()));
   session = wl::Session{};
-  view = View::PassLeft;
+  record = wl::Record{};
+  sessionStarted = false;
+  if (!loadState()) {
+    deck.forgetSeen();
+    record = wl::Record{};
+  }
+  view = View::Menu;
   practiceRound = session.isPractice();
   guess = wl::kSlots / 2;
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
   requestUpdate();
 }
 
-void WavelengthActivity::onExit() { Activity::onExit(); }
+void WavelengthActivity::onExit() {
+  flushSave();
+  Activity::onExit();
+}
+
+bool WavelengthActivity::loadState() {
+  if (!Storage.exists(kSavePath)) return false;
+  HalFile file;
+  if (!Storage.openFileForRead("WAVE", kSavePath, file)) return false;
+  uint8_t version = 0;
+  if (file.read(&version, 1) != 1 || version != kSaveVersion) return false;
+  SaveState state{};
+  if (file.read(reinterpret_cast<uint8_t*>(&state), sizeof(state)) != sizeof(state)) return false;
+
+  record = wl::Record{};
+  record.rounds = state.rounds;
+  record.points = state.points;
+  std::memcpy(record.buckets, state.buckets, sizeof(record.buckets));
+  record.bestRoundTenths = state.bestRoundTenths;
+
+  // The seen set is clamped against the deck as it is NOW. A build with fewer
+  // pairs must not carry marks for indices that no longer exist.
+  deck.forgetSeen();
+  for (int i = 0; i < wl::kPairCountEn && i < wl::kMaxPairs; ++i)
+    if (state.deck[i / 32] & (1u << (i % 32))) deck.markSeen(i);
+  return true;
+}
+
+void WavelengthActivity::saveState() {
+  SaveState state{};
+  state.rounds = record.rounds;
+  state.points = record.points;
+  std::memcpy(state.buckets, record.buckets, sizeof(state.buckets));
+  state.bestRoundTenths = record.bestRoundTenths;
+  for (int i = 0; i < wl::kPairCountEn && i < wl::kMaxPairs; ++i)
+    if (deck.isSeen(i)) state.deck[i / 32] |= (1u << (i % 32));
+
+  HalFile file;
+  if (!Storage.openFileForWrite("WAVE", kSavePath, file)) return;
+  const uint8_t version = kSaveVersion;
+  file.write(&version, 1);
+  file.write(reinterpret_cast<const uint8_t*>(&state), sizeof(state));
+}
+
+void WavelengthActivity::flushSave() {
+  if (!dirty) return;
+  dirty = false;
+  saveState();
+}
 
 wavelengthui::Spectrum WavelengthActivity::spectrumAt(const int index) const {
   wavelengthui::Spectrum s;
@@ -62,6 +136,7 @@ void WavelengthActivity::choose(const int which) {
   if (which >= dealt) return;
   spectrum = choice[which];
   deck.markSeen(spectrum);  // the one passed over goes back in the pool
+  dirty = true;
   target = wl::drawTarget(rng);
   practiceRound = session.isPractice();
   go(View::Peek);
@@ -78,7 +153,16 @@ void WavelengthActivity::lockIn() { go(View::Call); }
 
 void WavelengthActivity::makeCall(const wl::Call call) {
   callWasRight = wl::endCallCorrect(guess, target, call);
+  const bool wasPractice = session.isPractice();
   lastPoints = session.record(guess, target, call);
+  // The practice round is played in full and simply does not count, in the
+  // record as well as in the session.
+  if (!wasPractice) {
+    record.add(guess, target, call);
+    const int avg = session.averageTenths();
+    if (avg > record.bestRoundTenths) record.bestRoundTenths = static_cast<uint16_t>(avg);
+    dirty = true;
+  }
   flashOnNextPaint = true;  // the reveal is the payoff
   go(View::Reveal);
 }
@@ -119,6 +203,28 @@ void WavelengthActivity::routeAction(const int action) {
       practiceRound = session.isPractice();
       go(View::PassLeft);
       break;
+    case wavelengthui::ActionStartRound:
+      sessionStarted = true;
+      practiceRound = session.isPractice();
+      go(View::PassLeft);
+      break;
+    case wavelengthui::ActionEndSession:
+      flushSave();
+      go(View::Summary);
+      break;
+    case wavelengthui::ActionKeepPlaying:
+      go(View::PassLeft);
+      break;
+    case wavelengthui::ActionNewSession:
+      // The session resets; the record and the seen set do not. Those are the
+      // table's history and the reason the front door is worth looking at.
+      session = wl::Session{};
+      sessionStarted = false;
+      practiceRound = true;
+      guess = wl::kSlots / 2;
+      flushSave();
+      go(View::Menu);
+      break;
     default:
       break;
   }
@@ -132,8 +238,11 @@ void WavelengthActivity::loop() {
       // easy axis and the deck's strangest cards would never be played.
       flashOnNextPaint = true;
       go(View::PassLeft);
+    } else if (view != View::Menu) {
+      go(View::Menu);
     } else {
       // See src/apps_local/Shelf.h: no app names its own destination.
+      flushSave();
       shelf::leave(renderer, mappedInput);
     }
     return;
@@ -254,13 +363,31 @@ void WavelengthActivity::render(RenderLock&&) {
       wavelengthui::renderReveal(screen, model);
       break;
     }
-    case View::PassLeft:
-    default: {
+    case View::Summary: {
+      wavelengthui::SummaryModel model;
+      model.record = &record;
+      model.rounds = session.scoredRounds;
+      model.total = session.total;
+      model.averageTenths = session.averageTenths();
+      wavelengthui::renderSummary(screen, model);
+      break;
+    }
+    case View::PassLeft: {
       wavelengthui::PassModel model;
       model.roundNumber = session.round;
       model.total = session.total;
       model.practice = session.isPractice();
       wavelengthui::renderPassLeft(screen, model);
+      break;
+    }
+    case View::Menu:
+    default: {
+      wavelengthui::MenuModel model;
+      model.record = &record;
+      model.sessionInProgress = sessionStarted && session.round > 1;
+      model.sessionRound = session.round;
+      model.sessionTotal = session.total;
+      wavelengthui::renderMenu(screen, model);
       break;
     }
   }

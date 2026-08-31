@@ -30,15 +30,17 @@ class WavelengthActivity final : public Activity {
   // touches the glass, and a device that sleeps mid-argument has to be woken by
   // somebody who then sees the screen. INSIDER only suppressed sleep while its
   // clock ran; this game has no clock and needs it anyway.
-  bool preventAutoSleep() override { return view != View::PassLeft; }
+  bool preventAutoSleep() override { return committed(view) || view == View::PassLeft; }
 
  private:
   // The round, in the order the device is passed. Everything from Peek onward
   // is committed: backing out abandons the round and passes left, which is what
   // stops a clue-giver quietly re-dealing until an easy axis turns up.
-  enum class View : uint8_t { PassLeft, Pick, Peek, Clue, Dial, Call, Reveal };
+  enum class View : uint8_t { Menu, PassLeft, Pick, Peek, Clue, Dial, Call, Reveal, Summary };
 
-  static bool committed(const View v) { return v != View::PassLeft && v != View::Pick; }
+  static bool committed(const View v) {
+    return v != View::Menu && v != View::PassLeft && v != View::Pick && v != View::Summary;
+  }
 
   void go(View next);
   void deal();
@@ -52,8 +54,15 @@ class WavelengthActivity final : public Activity {
   wavelength::Deck deck;
   wavelength::Rng rng;
   wavelength::Session session;
+  wavelength::Record record;
 
-  View view = View::PassLeft;
+  bool loadState();
+  void saveState();
+  void flushSave();
+  bool dirty = false;
+  bool sessionStarted = false;
+
+  View view = View::Menu;
   int choice[2] = {-1, -1};
   int dealt = 0;
   int spectrum = 0;

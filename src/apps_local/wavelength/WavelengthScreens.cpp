@@ -494,4 +494,151 @@ void renderReveal(toybox::Screen& screen, const RevealModel& model) {
   action(screen, footer(screen, 62, toybox::kMargin), "NEXT ROUND", ActionNextRound);
 }
 
+namespace {
+
+// The ornament: how far off this table has been, every round it has ever
+// played, as a row of marks per bucket.
+//
+// It is made of the game's own material (marks on a scale) and it carries the
+// group's own data, so a screenshot of it is different on every device. That is
+// the test the design language sets for anything decorative: a fixed pattern
+// would be wallpaper by the third day. It is also the one thing on the front
+// door that rewards coming back, because it is the only place you can see
+// whether the table is actually getting better.
+void ornament(toybox::Screen& screen, const fui::Rect& box, const wavelength::Record& record) {
+  static const char* kLabels[wavelength::kBucketCount] = {"0", "1", "2", "3-5", "X"};
+  toybox::bracket(screen, box, 14, toybox::kFrame);
+
+  const int16_t rowH = static_cast<int16_t>((box.height - 20) / wavelength::kBucketCount);
+  const int16_t markW = 13;
+  const int16_t gap = 6;
+  const int16_t left = static_cast<int16_t>(box.x + 70);
+  const int16_t room = static_cast<int16_t>(box.x + box.width - 14 - left);
+  const int maxMarks = room / (markW + gap);
+  const uint16_t peak = record.peak();
+
+  for (int i = 0; i < wavelength::kBucketCount; ++i) {
+    const int16_t y = static_cast<int16_t>(box.y + 10 + i * rowH);
+    caps(screen, fui::makeRect(static_cast<int16_t>(box.x + 12), y, 52, rowH), kLabels[i], toybox::kSmallFont,
+         fui::TextAlign::Left);
+    // Scaled to the tallest bucket rather than to a guessed maximum, so the row
+    // fills the space it has however many rounds have been played.
+    int marks = 0;
+    if (peak > 0) {
+      marks = (record.buckets[i] * maxMarks + peak - 1) / peak;
+      if (record.buckets[i] > 0 && marks == 0) marks = 1;
+    }
+    for (int m = 0; m < marks; ++m) {
+      const fui::Rect mark = fui::makeRect(static_cast<int16_t>(left + m * (markW + gap)),
+                                           static_cast<int16_t>(y + rowH / 2 - markW / 2), markW, markW);
+      // The miss bucket is dithered rather than solid: it is the one row you
+      // want to be short, and solid ink would make it the loudest thing here.
+      if (i == wavelength::kBucketCount - 1)
+        dither(screen, mark, fui::Color::DarkGray);
+      else
+        fill(screen, mark);
+    }
+  }
+}
+
+}  // namespace
+
+void renderMenu(toybox::Screen& screen, const MenuModel& model) {
+  toybox::absoluteChrome(screen);
+  const int16_t w = screen.device().screen().width;
+  const int16_t inner = static_cast<int16_t>(w - 2 * toybox::kMargin);
+  const wavelength::Record blank;
+  const wavelength::Record& rec = model.record ? *model.record : blank;
+
+  // The headline is also the hit target, so the commonest tap is on the largest
+  // thing on the screen and needs no button of its own.
+  const fui::Rect headline = fui::makeRect(toybox::kMargin, 14, inner, toybox::kDisplayCut.lineHeight);
+  // The display cut, not the huge one: WAVELENGTH is ten characters and the
+  // huge cut truncated it to WAVELE. The headline is still the loudest thing
+  // here because nothing else on the screen is near its size.
+  caps(screen, headline, model.sessionInProgress ? "CARRY ON" : "WAVELENGTH", toybox::kBodyFont, fui::TextAlign::Left);
+  screen.frame().hit(fui::makeRect(headline.x, headline.y, headline.width, static_cast<int16_t>(headline.height + 40)),
+                     ActionStartRound);
+
+  char state[40];
+  if (model.sessionInProgress) {
+    snprintf(state, sizeof(state), "ROUND %d, %d POINTS SO FAR", model.sessionRound, model.sessionTotal);
+  } else {
+    snprintf(state, sizeof(state), "%s", rec.rounds ? "READY WHEN YOU ARE" : "NOBODY HAS PLAYED YET");
+  }
+  caps(screen, fui::makeRect(toybox::kMargin, 150, inner, toybox::kButtonCut.lineHeight), state, toybox::kSmallFont,
+       fui::TextAlign::Left);
+
+  fill(screen, fui::makeRect(toybox::kMargin, 190, inner, toybox::kRule));
+
+  char left[24];
+  char right[24];
+  snprintf(left, sizeof(left), "%d ROUNDS", rec.rounds);
+  snprintf(right, sizeof(right), "AVG %d.%d", rec.averageTenths() / 10, rec.averageTenths() % 10);
+  caps(screen, fui::makeRect(toybox::kMargin, 200, inner, toybox::kButtonCut.lineHeight), left, toybox::kSmallFont,
+       fui::TextAlign::Left);
+  caps(screen, fui::makeRect(toybox::kMargin, 200, inner, toybox::kButtonCut.lineHeight), right, toybox::kSmallFont,
+       fui::TextAlign::Right);
+
+  caps(screen, fui::makeRect(toybox::kMargin, 246, inner, toybox::kButtonCut.lineHeight), "HOW FAR OFF YOU HAVE BEEN",
+       toybox::kSmallFont, fui::TextAlign::Left);
+  ornament(screen, fui::makeRect(toybox::kMargin, 284, inner, 210), rec);
+
+  action(screen, fui::makeRect(toybox::kMargin, 530, inner, 66), model.sessionInProgress ? "NEXT ROUND" : "START",
+         ActionStartRound);
+  action(screen, fui::makeRect(toybox::kMargin, 612, inner, 54), "HOW TO PLAY", ActionHowTo);
+  // A control that cannot act dims rather than disappearing, so the layout does
+  // not jump and you can still see what it would have done.
+  fui::ButtonProps end;
+  end.label = "END SESSION";
+  end.text = toybox::buttonText(screen.theme());
+  end.action = model.sessionInProgress ? ActionEndSession : fui::NO_ACTION;
+  if (!model.sessionInProgress) end.styles = toybox::disabledStepperStyles();
+  screen.button(end, fui::makeRect(toybox::kMargin, 674, inner, 54));
+}
+
+void renderSummary(toybox::Screen& screen, const SummaryModel& model) {
+  toybox::absoluteChrome(screen);
+  const int16_t w = screen.device().screen().width;
+  const int16_t inner = static_cast<int16_t>(w - 2 * toybox::kMargin);
+  const wavelength::Record blank;
+  const wavelength::Record& rec = model.record ? *model.record : blank;
+
+  char total[12];
+  snprintf(total, sizeof(total), "%d", model.total);
+  caps(screen, fui::makeRect(toybox::kMargin, 14, inner, toybox::kHugeCut.lineHeight), total, toybox::kDisplayFont,
+       fui::TextAlign::Left);
+
+  char line[40];
+  snprintf(line, sizeof(line), "POINTS IN %d ROUNDS", model.rounds);
+  caps(screen, fui::makeRect(toybox::kMargin, 150, inner, toybox::kDisplayCut.lineHeight), line, toybox::kBodyFont,
+       fui::TextAlign::Left);
+
+  fill(screen, fui::makeRect(toybox::kMargin, 228, inner, toybox::kRule));
+
+  // The average sits next to what a table that is genuinely communicating gets.
+  // A number with nothing beside it means nothing: nobody can tell whether 19
+  // points is good.
+  char avg[16];
+  snprintf(avg, sizeof(avg), "%d.%d", model.averageTenths / 10, model.averageTenths % 10);
+  caps(screen, fui::makeRect(toybox::kMargin, 240, inner, toybox::kDisplayCut.lineHeight), "THIS SESSION",
+       toybox::kSmallFont, fui::TextAlign::Left);
+  caps(screen, fui::makeRect(toybox::kMargin, 240, inner, toybox::kDisplayCut.lineHeight), avg, toybox::kBodyFont,
+       fui::TextAlign::Right);
+
+  char good[16];
+  snprintf(good, sizeof(good), "%d.%d", wavelength::kGoodTableTenths / 10, wavelength::kGoodTableTenths % 10);
+  caps(screen, fui::makeRect(toybox::kMargin, 306, inner, toybox::kButtonCut.lineHeight), "A GOOD TABLE",
+       toybox::kSmallFont, fui::TextAlign::Left);
+  caps(screen, fui::makeRect(toybox::kMargin, 306, inner, toybox::kButtonCut.lineHeight), good, toybox::kSmallFont,
+       fui::TextAlign::Right);
+
+  caps(screen, fui::makeRect(toybox::kMargin, 356, inner, toybox::kButtonCut.lineHeight), "HOW FAR OFF YOU HAVE BEEN",
+       toybox::kSmallFont, fui::TextAlign::Left);
+  ornament(screen, fui::makeRect(toybox::kMargin, 394, inner, 210), rec);
+
+  action(screen, fui::makeRect(toybox::kMargin, 630, inner, 62), "KEEP PLAYING", ActionKeepPlaying);
+  action(screen, fui::makeRect(toybox::kMargin, 710, inner, 54), "NEW SESSION", ActionNewSession);
+}
+
 }  // namespace wavelengthui
