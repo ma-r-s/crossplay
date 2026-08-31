@@ -381,6 +381,22 @@ if [ "${1:-}" != "--tests" ]; then
         fi
       done
       trap 'rmdir "$FW_LOCK" 2>/dev/null' EXIT INT TERM
+
+      # The object cache is trimmed HERE and nowhere else: holding the firmware
+      # lock is the only moment no other tree is reading those objects. Pruning
+      # outside it deletes inputs from under somebody's running build, which
+      # surfaces as a link error naming no file of ours -- the same shape as the
+      # failure the guard exists to make legible.
+      #
+      # It also refuses to start when trimming cannot get the disk above the
+      # floor, so a full disk arrives as a sentence about the disk rather than
+      # as [Errno 28] from inside the espressif32 builder twenty minutes later.
+      # shellcheck source=scripts_local/cache-guard.sh
+      . "$REPO/scripts_local/cache-guard.sh"
+      if ! cache_guard_check "$PLATFORMIO_BUILD_CACHE_DIR"; then
+        rmdir "$FW_LOCK" 2>/dev/null
+        exit 1
+      fi
     fi
     if pio run -e "$env" > "$LOGS/$env.log" 2>&1; then
       # The native build reports no RAM/Flash. Say "ok" rather than printing
