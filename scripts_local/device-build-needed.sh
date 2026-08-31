@@ -16,6 +16,20 @@
 # top-level directory that feeds them. Unknown must mean build, always.
 #
 #   scripts_local/device-build-needed.sh [--base <ref>] [--quiet]
+#   scripts_local/device-build-needed.sh --device-only [--base <ref>] [--quiet]
+#
+# --device-only answers the MIRROR question: does this change touch code the
+# host gate cannot see at all? The simulator target does not compile what sits
+# behind FREEINK_DEVICE_* guards, what calls ESP-IDF directly, or anything in
+# the SDK driver layer. For such a branch a green host gate is not weak
+# evidence, it is NO evidence -- so it must keep its device build BEFORE
+# landing, even when the workspace is otherwise landing on host-green.
+#
+# app/sdkbump is the case: a submodule bump carrying 69 upstream commits of
+# display driver, e-ink init and touch mirroring. Its host suites were green
+# before either device build had run, and that green meant almost nothing.
+#
+# Both directions live here so they cannot drift apart.
 #
 # Exit 0: device builds are needed (also the answer whenever anything is
 #         uncertain -- an unresolvable base, a git that will not answer, a
@@ -25,9 +39,11 @@ set -uo pipefail
 
 BASE_REF="origin/xteink"
 QUIET=""
+DEVICE_ONLY=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --base)  BASE_REF="${2:-}"; [ -n "$BASE_REF" ] || { echo "--base needs a ref" >&2; exit 0; }; shift 2 ;;
+    --device-only) DEVICE_ONLY=1; shift ;;
     --quiet) QUIET=1; shift ;;
     *)       echo "unknown option: $1" >&2; exit 0 ;;
   esac
@@ -63,6 +79,31 @@ CHANGED="$(
 
 if [ -z "$CHANGED" ]; then
   say "device builds: not needed (no changes against $BASE_REF)"
+  exit 1
+fi
+
+if [ -n "$DEVICE_ONLY" ]; then
+  # Conservative by construction, same direction as the path gate: anything we
+  # cannot rule out keeps its device build. A file is device-only if the host
+  # target never compiles it, which we detect from the markers rather than from
+  # a maintained list of filenames.
+  while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    case "$path" in
+      freeink-sdk|platformio*.ini|partitions.csv)
+        say "device gate required before landing ($path is not compiled by the host target)"
+        exit 0 ;;
+    esac
+    case "$path" in
+      src/*|lib/*)
+        [ -f "$path" ] || continue
+        if grep -qE 'FREEINK_DEVICE_|esp_[a-z_]+\(|#include <esp|driver/' "$path" 2>/dev/null; then
+          say "device gate required before landing ($path contains code the host target does not compile)"
+          exit 0
+        fi ;;
+    esac
+  done <<< "$CHANGED"
+  say "host-green is sufficient (nothing here is invisible to the host target)"
   exit 1
 fi
 
