@@ -36,6 +36,18 @@ void caps(toybox::Screen& screen, const fui::Rect& box, const char* text, const 
   screen.target().text(toybox::inkCentred(box, cutFor(font)), text, textStyle(font, align, colour));
 }
 
+// An end word at the largest cut it fits in, stepping down rather than being
+// truncated. The retail deck runs from HOT to UNDERRATED LETTER OF THE ALPHABET,
+// and 54 of its 252 pairs are too wide for the display cut, so this is the
+// difference between a legible deck and a fifth of it silently ending mid-word.
+// The design language's rule: walk the cuts down, never break a word.
+void endWord(toybox::Screen& screen, const fui::Rect& box, const char* text, const fui::TextAlign align) {
+  fui::TextStyle big = textStyle(toybox::kBodyFont, align);
+  const int16_t measured = screen.target().measureText(toybox::kBodyFont, text, big).width;
+  const fui::FontId slot = measured <= box.width ? toybox::kBodyFont : toybox::kSmallFont;
+  caps(screen, box, text, slot, align);
+}
+
 void fill(toybox::Screen& screen, const fui::Rect& box, const fui::Color colour = fui::Color::Black) {
   screen.target().fill(box, fui::Paint::solid(colour));
 }
@@ -174,10 +186,10 @@ void renderDial(toybox::Screen& screen, const DialModel& model) {
   // never larger. Measured against the shipped 240-pair deck, 119 of the 478
   // end words are wider than the panel at the large cut, and it reads as
   // perfectly fine with any short example word.
-  caps(screen, g.topWord, model.spectrum.top, toybox::kBodyFont, fui::TextAlign::Left);
+  endWord(screen, g.topWord, model.spectrum.top, fui::TextAlign::Left);
   fill(screen, fui::makeRect(g.topWord.x, static_cast<int16_t>(g.topWord.y + g.topWord.height + 4), g.topWord.width,
                              toybox::kRule));
-  caps(screen, g.bottomWord, model.spectrum.bottom, toybox::kBodyFont, fui::TextAlign::Left);
+  endWord(screen, g.bottomWord, model.spectrum.bottom, fui::TextAlign::Left);
 
   drawScale(screen, g);
   drawMarker(screen, g, model.guess);
@@ -247,15 +259,15 @@ void endsStacked(toybox::Screen& screen, const Spectrum& spectrum, const int16_t
   const int16_t w = screen.device().screen().width;
   const fui::Rect band = fui::makeRect(toybox::kMargin, top, static_cast<int16_t>(w - 2 * toybox::kMargin),
                                        toybox::kDisplayCut.lineHeight);
-  caps(screen, band, spectrum.top, toybox::kBodyFont, fui::TextAlign::Center);
+  endWord(screen, band, spectrum.top, fui::TextAlign::Center);
   const int16_t spineTop = static_cast<int16_t>(top + toybox::kDisplayCut.lineHeight + 16);
   const int16_t spineBottom = static_cast<int16_t>(bottom - 16);
   for (int16_t y = spineTop; y + 10 < spineBottom; y = static_cast<int16_t>(y + 22))
     fill(screen, fui::makeRect(static_cast<int16_t>(w / 2 - 4), y, 8, 10));
-  caps(screen,
-       fui::makeRect(toybox::kMargin, bottom, static_cast<int16_t>(w - 2 * toybox::kMargin),
-                     toybox::kDisplayCut.lineHeight),
-       spectrum.bottom, toybox::kBodyFont, fui::TextAlign::Center);
+  endWord(screen,
+          fui::makeRect(toybox::kMargin, bottom, static_cast<int16_t>(w - 2 * toybox::kMargin),
+                        toybox::kDisplayCut.lineHeight),
+          spectrum.bottom, fui::TextAlign::Center);
 }
 
 }  // namespace
@@ -305,18 +317,18 @@ void renderPick(toybox::Screen& screen, const PickModel& model) {
     const Spectrum& s = i == 0 ? model.first : model.second;
     const fui::Rect card = fui::makeRect(toybox::kMargin, static_cast<int16_t>(120 + i * (cardH + 24)), inner, cardH);
     outline(screen, card, toybox::kFrame);
-    caps(screen,
-         fui::makeRect(static_cast<int16_t>(card.x + pad), static_cast<int16_t>(card.y + pad),
-                       static_cast<int16_t>(card.width - 2 * pad), toybox::kDisplayCut.lineHeight),
-         s.top, toybox::kBodyFont, fui::TextAlign::Left);
+    endWord(screen,
+            fui::makeRect(static_cast<int16_t>(card.x + pad), static_cast<int16_t>(card.y + pad),
+                          static_cast<int16_t>(card.width - 2 * pad), toybox::kDisplayCut.lineHeight),
+            s.top, fui::TextAlign::Left);
     for (int d = 0; d < 7; ++d)
       fill(screen, fui::makeRect(static_cast<int16_t>(card.x + pad + d * 26),
                                  static_cast<int16_t>(card.y + card.height / 2 - 2), 15, 4));
-    caps(screen,
-         fui::makeRect(static_cast<int16_t>(card.x + pad),
-                       static_cast<int16_t>(card.y + card.height - pad - toybox::kDisplayCut.lineHeight),
-                       static_cast<int16_t>(card.width - 2 * pad), toybox::kDisplayCut.lineHeight),
-         s.bottom, toybox::kBodyFont, fui::TextAlign::Left);
+    endWord(screen,
+            fui::makeRect(static_cast<int16_t>(card.x + pad),
+                          static_cast<int16_t>(card.y + card.height - pad - toybox::kDisplayCut.lineHeight),
+                          static_cast<int16_t>(card.width - 2 * pad), toybox::kDisplayCut.lineHeight),
+            s.bottom, fui::TextAlign::Left);
     screen.frame().hit(card, i == 0 ? ActionPickFirst : ActionPickSecond);
   }
 
@@ -334,10 +346,10 @@ void renderPeek(toybox::Screen& screen, const PeekModel& model) {
   toybox::absoluteChrome(screen);
   const Geometry g = layout(screen);
 
-  caps(screen, g.topWord, model.spectrum.top, toybox::kBodyFont, fui::TextAlign::Left);
+  endWord(screen, g.topWord, model.spectrum.top, fui::TextAlign::Left);
   fill(screen, fui::makeRect(g.topWord.x, static_cast<int16_t>(g.topWord.y + g.topWord.height + 4), g.topWord.width,
                              toybox::kRule));
-  caps(screen, g.bottomWord, model.spectrum.bottom, toybox::kBodyFont, fui::TextAlign::Left);
+  endWord(screen, g.bottomWord, model.spectrum.bottom, fui::TextAlign::Left);
 
   drawScale(screen, g);
   if (model.revealed) {
@@ -409,11 +421,7 @@ void renderCall(toybox::Screen& screen, const CallModel& model) {
   // The buttons carry this round's own end words and sit in the strip's own
   // order. Not higher and lower: those are the most seat-dependent words
   // available, and the device is lying flat between people.
-  char top[24];
-  char bottom[24];
-  snprintf(top, sizeof(top), "NEARER %s", model.spectrum.top);
-  snprintf(bottom, sizeof(bottom), "NEARER %s", model.spectrum.bottom);
-  action(screen, fui::makeRect(toybox::kMargin, 140, inner, 200), top, ActionCallTop);
+  action(screen, fui::makeRect(toybox::kMargin, 140, inner, 200), model.spectrum.top, ActionCallTop);
   // The locked number sits BETWEEN the two ends, in the strip's own order, so
   // the screen is a picture of the question rather than two buttons and a
   // floating caption pointing at nothing.
@@ -421,7 +429,7 @@ void renderCall(toybox::Screen& screen, const CallModel& model) {
   snprintf(lockedNum, sizeof(lockedNum), "%d", model.guess);
   caps(screen, fui::makeRect(toybox::kMargin, 360, inner, toybox::kDisplayCut.lineHeight), lockedNum, toybox::kBodyFont,
        fui::TextAlign::Center);
-  action(screen, fui::makeRect(toybox::kMargin, 450, inner, 200), bottom, ActionCallBottom);
+  action(screen, fui::makeRect(toybox::kMargin, 450, inner, 200), model.spectrum.bottom, ActionCallBottom);
 
   caps(screen, fui::makeRect(toybox::kMargin, 668, inner, toybox::kButtonCut.lineHeight),
        "WHICH SIDE IS THE TARGET ON?", toybox::kSmallFont, fui::TextAlign::Center);

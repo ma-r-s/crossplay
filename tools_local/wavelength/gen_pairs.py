@@ -35,7 +35,12 @@ HERE = Path(__file__).resolve().parent
 PANEL_W = 480
 MARGIN = 16
 LIMIT = PANEL_W - 2 * MARGIN
+# End words are drawn at the display cut where they fit and step down to the
+# small cut where they do not, so the refusal below is measured against the
+# SMALLEST cut in that ladder: a pair only has to be impossible at 14 to be
+# rejected. 198 of the retail deck's 252 pairs fit at 30 and the rest step down.
 DISPLAY_CUT = "toybox_30"
+FALLBACK_CUT = "toybox_14"
 
 
 def glyph_advances(cut: str) -> dict:
@@ -93,8 +98,10 @@ def load(path: Path):
 
 def main() -> int:
     check_only = "--check" in sys.argv
-    advances = glyph_advances(DISPLAY_CUT)
+    advances = glyph_advances(FALLBACK_CUT)
+    big = glyph_advances(DISPLAY_CUT)
     pairs = load(HERE / "pairs_en.txt")
+    stepped = sum(1 for t, b in pairs if max(width(t, big), width(b, big)) > LIMIT)
 
     too_wide = []
     widest = ("", 0.0)
@@ -112,11 +119,14 @@ def main() -> int:
             sys.exit(f"duplicate pair: {pair[0]} | {pair[1]}")
         seen.add(pair)
 
-    print(f'{len(pairs)} pairs, widest "{widest[0]}" at {widest[1]:.0f}px of {LIMIT}px')
+    print(
+        f'{len(pairs)} pairs, widest "{widest[0]}" at {widest[1]:.0f}px of {LIMIT}px '
+        f"at the fallback cut; {stepped} pairs step down from the display cut"
+    )
     if too_wide:
         for word, w in too_wide:
             print(f"  TOO WIDE: {word!r} is {w:.0f}px", file=sys.stderr)
-        sys.exit(f"{len(too_wide)} end word(s) wider than the panel at the display cut")
+        sys.exit(f"{len(too_wide)} end word(s) do not fit even at the fallback cut")
 
     if check_only:
         return 0
