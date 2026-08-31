@@ -135,21 +135,16 @@ void drawGuessFrame(toybox::Screen& screen, const Geometry& g, const int guess) 
           toybox::kFrame);
 }
 
-// The scale alone, with no guess on it. Split from the marker so a screen that
-// has no guess yet simply does not call for one: passing a sentinel slot drew a
-// phantom marker at the foot of the strip on two of the three arrangements,
-// because each drew its marker unconditionally.
+// The scale. Twenty rungs with no container: every fifth runs the full width
+// and carries its number, the rest are inset. Nothing large repaints, which is
+// the fork's one rule about black, and it is the only arrangement of the three
+// with no filled area to ghost.
+//
+// Split from the marker so a screen with no guess yet simply does not ask for
+// one. Passing a sentinel slot instead drew a phantom marker at the foot of the
+// strip, because the marker used to be drawn unconditionally.
 void drawScale(toybox::Screen& screen, const Geometry& g) {
   const fui::Rect& b = g.board;
-
-#if WAVELENGTH_VARIANT == 1
-  outline(screen, b, toybox::kFrame);
-  for (int i = 1; i < kSlots; ++i)
-    fill(screen, fui::makeRect(static_cast<int16_t>(b.x + toybox::kFrame), slotTop(g, i),
-                               static_cast<int16_t>(b.width - 2 * toybox::kFrame), toybox::kHairline));
-  for (int k = 5; k <= kSlots; k += 5) slotNumber(screen, g, k, static_cast<int16_t>(b.x - 10));
-
-#elif WAVELENGTH_VARIANT == 2
   for (int j = 1; j <= kSlots; ++j) {
     const bool major = (j % 5) == 0;
     const int16_t y = static_cast<int16_t>(slotTop(g, j) + g.slot / 2 - toybox::kRule / 2);
@@ -158,54 +153,15 @@ void drawScale(toybox::Screen& screen, const Geometry& g) {
          fui::makeRect(static_cast<int16_t>(b.x + inset), y, static_cast<int16_t>(b.width - inset), toybox::kRule));
     if (major) slotNumber(screen, g, j, static_cast<int16_t>(b.x - 20));
   }
-
-#else
-  outline(screen, b, toybox::kFrame);
-  for (int m = 5; m <= kSlots; m += 5) {
-    fill(screen, fui::makeRect(static_cast<int16_t>(b.x - 16), static_cast<int16_t>(slotTop(g, m) + g.slot / 2 - 1), 9,
-                               toybox::kRule));
-    slotNumber(screen, g, m, static_cast<int16_t>(b.x - 22));
-  }
-#endif
 }
-
-// The guess, in whichever way this arrangement expresses one.
+// The guess: a fader bar overhanging both edges of the strip, so it cannot be
+// mistaken for a rung and can be seen from across a table where the 4mm tick
+// numerals cannot.
 void drawMarker(toybox::Screen& screen, const Geometry& g, const int guess) {
   if (guess < 1 || guess > kSlots) return;
-  const fui::Rect& b = g.board;
-
-#if WAVELENGTH_VARIANT == 1
-  // A filled cell that overhangs its slot, so the knocked-out number clears: a
-  // slot gives 24px and the button cut's ink is 18, which leaves nothing.
-  const int16_t mh = static_cast<int16_t>(g.slot + 10);
-  const int16_t my = static_cast<int16_t>(slotTop(g, guess) + g.slot / 2 - mh / 2);
-  const fui::Rect cell = fui::makeRect(static_cast<int16_t>(b.x + toybox::kFrame), my,
-                                       static_cast<int16_t>(b.width - 2 * toybox::kFrame), mh);
-  fill(screen, cell);
-  char buf[4];
-  buf[0] = guess >= 10 ? static_cast<char>('0' + guess / 10) : ' ';
-  buf[1] = static_cast<char>('0' + guess % 10);
-  buf[2] = '\0';
-  caps(screen, cell, buf, toybox::kSmallFont, fui::TextAlign::Center, fui::Color::White);
-
-#elif WAVELENGTH_VARIANT == 2
-  // A fader bar, overhanging both edges so it cannot be mistaken for a rung.
-  const int16_t my = static_cast<int16_t>(slotTop(g, guess) + g.slot / 2 - 5);
-  fill(screen, fui::makeRect(static_cast<int16_t>(b.x - 14), my, static_cast<int16_t>(b.width + 28), 10));
-
-#else
-  // A dithered fill to a solid reading edge, so the guess reads as a level.
-  const int16_t top = slotTop(g, guess);
-  dither(
-      screen,
-      fui::makeRect(static_cast<int16_t>(b.x + toybox::kFrame), top, static_cast<int16_t>(b.width - 2 * toybox::kFrame),
-                    static_cast<int16_t>(b.y + b.height - top - toybox::kFrame)),
-      fui::Color::DarkGray);
-  fill(screen, fui::makeRect(static_cast<int16_t>(b.x + toybox::kFrame), top,
-                             static_cast<int16_t>(b.width - 2 * toybox::kFrame), 6));
-#endif
+  const int16_t y = static_cast<int16_t>(slotTop(g, guess) + g.slot / 2 - 5);
+  fill(screen, fui::makeRect(static_cast<int16_t>(g.board.x - 14), y, static_cast<int16_t>(g.board.width + 28), 10));
 }
-
 }  // namespace
 
 void renderDial(toybox::Screen& screen, const DialModel& model) {

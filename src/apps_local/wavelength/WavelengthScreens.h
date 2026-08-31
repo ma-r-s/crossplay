@@ -14,17 +14,12 @@
 #include "../ui/ToyboxScreen.h"
 #include "WavelengthCore.h"
 
-// Three arrangements of the one surface that matters, per the fork's rule that
-// a new screen is chosen from renders rather than from prose. Built behind the
-// macro, shot side by side, and the losers deleted in the same commit that
-// picks a winner.
-//
-//   1  THE COLUMN  a contained ladder of cells; the guess is a filled cell
-//   2  THE LADDER  no container, twenty rungs; the guess is a fader bar
-//   3  THE TROUGH  one outlined trough; the guess is the top of a dithered fill
-#ifndef WAVELENGTH_VARIANT
-#define WAVELENGTH_VARIANT 2
-#endif
+// The board is a ladder: twenty rungs, no container, the guess a heavy bar.
+// Chosen from three arrangements rendered side by side rather than argued
+// about; the column read as a barcode and the trough put a large dithered area
+// on a surface that repaints on every step. The other two are deleted rather
+// than left behind a macro, because a variant macro that survives is a second
+// design nobody maintains.
 
 namespace wavelengthui {
 
