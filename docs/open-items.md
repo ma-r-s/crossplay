@@ -112,8 +112,8 @@ the SUM and per-branch figures do not add:
 
 | env                 | bytes     | new slot (8,323,072) | old slot (6,553,600)   |
 | ------------------- | --------- | -------------------- | ---------------------- |
-| `gh_release_x4pro`  | 6,599,690 | 79.3%, 1.65MB spare  | **46,090 bytes OVER**  |
-| `gh_release_sticky` | 6,549,699 | 78.7%, 1.69MB spare  | 3,901 bytes under      |
+| `gh_release_x4pro`  | 6,599,674 | 79.3%, 1.65MB spare  | **46,074 bytes OVER**  |
+| `gh_release_sticky` | 6,549,683 | 78.7%, 1.69MB spare  | 3,917 bytes under      |
 
 **Re-measure rather than quoting these.** They were 6,560,918 and 7,318 over
 earlier the same night, before five branches landed. A figure like this rots
