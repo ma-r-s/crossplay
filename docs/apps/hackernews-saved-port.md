@@ -73,8 +73,21 @@ just the Activity -- and add only the saved parts to them:
    `library_.save(readerUrl_, readerTitle_, document_)` and open is
    `library_.readArticle(a, document_)` then `showDocument(...)`.
 3. `tools_local/toybox/icons.txt` gains `saved = bookmark`. Both sides only append, so
-   keep both and run `./tools_local/toybox/gen_toybox_icons.sh`. Never hand-merge
-   `ToyboxIcons.h`; it is generated. Correct output is 24 icons x 2 sizes.
+   keep both.
+
+   **Do NOT run `gen_toybox_icons.sh` for this.** icons.txt's own header
+   warns that `icon_yahtzee_32` and `icon_connectfour_32` match no SVG in
+   the vendored Lucide pin, so their source was never committed and a
+   straight regeneration drops Yahtzee and Connect Four from the shelf.
+   Splice `icon_saved_32` out of `85d776dd`'s `ToyboxIcons.h` instead,
+   append it at the end, and bump the `Icons: N` count in the header
+   comment. Then verify all four symbols are present -- the two you added
+   and the two you must not lose -- because nothing else will tell you.
+
+   The same applies to merges. Resolving a keep-both conflict in that file
+   hunk by hunk interleaves the two icons and leaves a bitmap array
+   dangling, which surfaces as a syntax error in whichever game includes
+   the header first. Take one side wholesale and re-splice.
 
 Two behaviours worth keeping from the original, both easy to miss:
 
@@ -82,6 +95,26 @@ Two behaviours worth keeping from the original, both easy to miss:
   the front page.
 - Removing the article you are currently reading drops you back to the list,
   because the reader is otherwise left on something no longer in it.
+
+## What the storage half gets wrong, found by using Mario's own file
+
+`parseSavedIndex` decides how many columns a version-1 row has from the
+version header: version 1 "carried an Instapaper bookmark id and a
+have-we-got-the-text flag". **Mario's version-1 library has four columns,
+not six.** So it read his title out of a field past the end of the row, got
+an empty one, and discarded the entry as damage -- his shelf came up empty.
+
+Both shapes exist in the wild, on his card. The parser counts the row's
+columns now rather than trusting the header, and there is an assertion built
+from the shape of his real file.
+
+The reason this survived sixty passing assertions is worth more than the fix:
+they were written from the same assumption as the parser, so they could not
+falsify it. They were evidence of internal consistency dressed as evidence of
+correctness, and the "60 host assertions" reassurance above was the thing that
+hid it. It was found by copying `.crosspoint/hn/saved.tsv` off his card onto
+the test SD card instead of writing a fixture. Do that before trusting any
+format code here.
 
 ## Verifying
 

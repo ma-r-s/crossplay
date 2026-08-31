@@ -307,3 +307,6 @@ cat_tricky  = puzzle            # the one list with nothing you can point at
 # News owns it, and two apps that both read as "a page of text" is the one
 # thing a 62px row cannot disambiguate).
 instapaper  = bookmark
+
+# Hacker News: the reader's band mark for a saved article.
+saved       = bookmark

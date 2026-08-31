@@ -66,6 +66,11 @@ void HackerNewsActivity::onEnter() {
   Activity::onEnter();
   toybox::ensureFonts(renderer);
 
+  // Read the shelf before anything network happens: SAVED is the half of this
+  // app that works with no connection at all, and it should be right the
+  // moment the app opens rather than after a fetch nobody asked for.
+  library_.load();
+
   phase_ = Phase::Connecting;
   WiFi.mode(WIFI_STA);
   startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
@@ -149,6 +154,14 @@ void HackerNewsActivity::loop() {
     if (phase_ == Phase::List || phase_ == Phase::Connecting) {
       shelf::leave(renderer, mappedInput);
     } else {
+      // An article opened out of the library goes back to the library. Landing
+      // on the front page instead loses the shelf you were working through,
+      // and there is no way back to it but two more taps.
+      if (readingSaved_) {
+        showingSaved_ = true;
+        buildSavedRows();
+      }
+      readingSaved_ = false;
       phase_ = Phase::List;
       requestUpdate();
     }
@@ -207,8 +220,13 @@ void HackerNewsActivity::loop() {
 
   switch (event.action) {
     case hnui::ActionOpenStory:
-      selected_ = event.value;
-      request(Pending::Article, "OPENING");
+      if (showingSaved_) {
+        // Off the card, so no network and no busy screen.
+        openSavedArticle(event.value);
+      } else {
+        selected_ = event.value;
+        request(Pending::Article, "OPENING");
+      }
       break;
     case hnui::ActionPagePrev:
       turnPage(-1);
@@ -228,6 +246,24 @@ void HackerNewsActivity::loop() {
     case hnui::ActionNotice:
       // The notice's only button is always the way onward to the comments.
       request(Pending::Comments, "FETCHING THE THREAD");
+      break;
+    case hnui::ActionSave:
+      saveCurrentArticle();
+      break;
+    case hnui::ActionUnsave:
+      unsaveCurrentArticle();
+      break;
+    case hnui::ActionShowSaved:
+      showingSaved_ = true;
+      topIndex_ = 0;
+      buildSavedRows();
+      requestUpdate();
+      break;
+    case hnui::ActionShowFrontPage:
+      showingSaved_ = false;
+      topIndex_ = 0;
+      rowsFitted_ = false;
+      requestUpdate();
       break;
     default:
       break;
@@ -315,6 +351,11 @@ bool HackerNewsActivity::fetchArticle() {
   if (story == nullptr) return false;
 
   articleAvailable_ = false;
+  // The library's key. Held from the fetch rather than derived later, because
+  // by the time the reader asks whether this article is saved the story it came
+  // from may no longer be the selected one.
+  readerUrl_ = story->url;
+  readingSaved_ = false;
 
   // A story that is its own text (Ask HN, Show HN with a body) has no article
   // to fetch and no link to judge. Its words live with its comments.
@@ -453,6 +494,67 @@ void HackerNewsActivity::showDocument(const char* title, const bool comments) {
   visibleLines_ = 0;
 }
 
+void HackerNewsActivity::saveCurrentArticle() {
+  // Only an article is worth saving: a thread is a conversation that keeps
+  // moving, and the words on screen are the article's.
+  if (readingComments_ || readerUrl_.empty() || document_.empty()) return;
+  if (!library_.save(readerUrl_, readerTitle_, document_)) {
+    showNotice("NOT SAVED", "The card would not take it. There may be no room left.", false);
+  }
+  requestUpdate();
+}
+
+void HackerNewsActivity::unsaveCurrentArticle() {
+  if (readerUrl_.empty()) return;
+  library_.remove(readerUrl_);
+  // Removing what you are reading leaves the reader on something the shelf no
+  // longer holds, so step back to the list rather than showing an article that
+  // is gone.
+  if (readingSaved_) {
+    showingSaved_ = true;
+    buildSavedRows();
+    readingSaved_ = false;
+    phase_ = Phase::List;
+  }
+  requestUpdate();
+}
+
+void HackerNewsActivity::openSavedArticle(const int index) {
+  const auto& saved = library_.articles();
+  if (index < 0 || index >= static_cast<int>(saved.size())) return;
+  const hn::SavedArticle& article = saved[static_cast<size_t>(index)];
+  if (!library_.readArticle(article, document_)) {
+    showNotice("NOT THERE", "That article is in the list but its text is missing from the card.", false);
+    requestUpdate();
+    return;
+  }
+  readerUrl_ = article.url;
+  // Set AFTER showDocument, which does not know about the library: showDocument
+  // is shared with the front-page path and clearing this there would make every
+  // saved article return to the wrong shelf.
+  showDocument(article.title.c_str(), false);
+  readingSaved_ = true;
+  articleAvailable_ = true;
+  requestUpdate();
+}
+
+void HackerNewsActivity::buildSavedRows() {
+  const auto& saved = library_.articles();
+  rowTitles_.clear();
+  rowLabels_.clear();
+  rowValues_.clear();
+  rows_.clear();
+  rowTitles_.reserve(saved.size());
+  rowValues_.reserve(saved.size());
+  for (const hn::SavedArticle& article : saved) {
+    rowTitles_.push_back(article.title);
+    rowValues_.push_back(std::string());
+  }
+  // Left unfitted on purpose: render() fits labels to the row width it can
+  // only measure with a draw target, the same way the front page does.
+  rowsFitted_ = false;
+}
+
 void HackerNewsActivity::turnPage(const int delta) {
   if (phase_ != Phase::Reading || visibleLines_ == 0) return;
   const uint32_t span = visibleLines_;
@@ -545,17 +647,28 @@ void HackerNewsActivity::render(RenderLock&&) {
       // cursor visible -- and that cursor is gone. Paging owns the view now, so
       // deriving it here would fight the page keys. It only needs clamping.
       if (visibleRows_ > 0) {
-        const int maxTop = static_cast<int>(stories_.size()) - visibleRows_;
+        // Against the rows actually drawn, not against stories_: on the saved
+        // shelf those are different lengths, and clamping to the wrong one
+        // scrolls past the end or refuses to scroll at all.
+        const int maxTop = static_cast<int>(rows_.size()) - visibleRows_;
         if (topIndex_ > maxTop) topIndex_ = maxTop < 0 ? 0 : maxTop;
         if (topIndex_ < 0) topIndex_ = 0;
       }
       hnui::ListModel model;
       model.items = rows_.empty() ? nullptr : rows_.data();
       model.count = static_cast<int>(rows_.size());
-      model.selected = selected_;
+      model.selected = showingSaved_ ? -1 : selected_;
       model.topIndex = topIndex_;
+      model.showingSaved = showingSaved_;
+      if (showingSaved_) {
+        model.title = "SAVED";
+        if (rows_.empty()) {
+          model.emptyHeadline = "NOTHING SAVED YET";
+          model.emptyMessage = "Open an article and tap the mark in the top corner to keep it here.";
+        }
+      }
       hnui::buildList(screen, model);
-      what = "HN front page";
+      what = showingSaved_ ? "HN saved" : "HN front page";
       break;
     }
 
@@ -587,6 +700,10 @@ void HackerNewsActivity::render(RenderLock&&) {
       model.swapAvailable = readingComments_ ? articleAvailable_ : true;
       model.canPagePrev = topLine_ > 0;
       model.canPageNext = lineCount_ > topLine_ + visibleLines_;
+      // A thread has nothing to save but the article it hangs off, so the mark
+      // is absent there rather than offering to save the wrong thing.
+      model.canSave = !readingComments_ && !readerUrl_.empty();
+      model.saved = model.canSave && library_.contains(readerUrl_);
       hnui::buildReader(screen, model);
       what = "HN reader";
       break;

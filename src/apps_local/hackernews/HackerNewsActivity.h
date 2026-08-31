@@ -31,6 +31,7 @@
 #include "../../activities/Activity.h"
 #include "../ui/ToyboxScreen.h"
 #include "HackerNewsCore.h"
+#include "HackerNewsLibrary.h"
 #include "HackerNewsScreens.h"
 
 class HackerNewsActivity final : public Activity {
@@ -70,6 +71,12 @@ class HackerNewsActivity final : public Activity {
   // Reading state, shared by an article and a thread because they are the same
   // object once the words are extracted.
   void showDocument(const char* title, bool comments);
+  // The saved shelf. save/unsave act on whatever the reader currently holds;
+  // openSavedArticle restores one from the card without going near the network.
+  void saveCurrentArticle();
+  void unsaveCurrentArticle();
+  void openSavedArticle(int index);
+  void buildSavedRows();
   void repage();
   void turnPage(int delta);
   void showNotice(const char* headline, const char* message, bool unreadable);
@@ -86,7 +93,17 @@ class HackerNewsActivity final : public Activity {
   // The flattened document the reader draws, and where in it we are.
   std::string document_;
   std::string readerTitle_;
+  // The article's own URL, which is the library's key. Held because the reader
+  // has to be able to say whether what it is showing is saved, and a title is
+  // not unique.
+  std::string readerUrl_;
   bool readingComments_ = false;
+  // Which half of the library the list is showing.
+  bool showingSaved_ = false;
+  // Whether the reader was opened out of the library rather than off the front
+  // page. Back honours it: a saved article returns to the shelf it came from.
+  bool readingSaved_ = false;
+  hn::Library library_;
   bool articleAvailable_ = false;
   uint32_t topLine_ = 0;
   uint32_t lineCount_ = 0;

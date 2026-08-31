@@ -2,6 +2,7 @@
 
 #include <FreeInkUIIcon.h>
 
+#include "../ui/ToyboxIcons.h"
 #include "../ui/ToyboxText.h"
 
 namespace hnui {
@@ -26,9 +27,17 @@ constexpr int kFooterHeight = toybox::kPillHeight;
 // pin (paperOnTheBand) against exactly this until the fix landed. The games'
 // toyboxChrome copies had the right slot all along; jaipur paid for it first.
 void chrome(toybox::Screen& screen, const char* title, const char* rightLabel,
-            const fui::TextStyle* titleText = nullptr) {
+            const fui::TextStyle* titleText = nullptr, const bool showSave = false, const bool saved = false) {
   fui::HeaderProps header;
   header.title = title;
+  if (showSave) {
+    // Filled means it is on the device, outlined means it can be. The mark is
+    // the control, so there is no second button to find.
+    header.trailingIcon = fui::bitmapFromIcon(icon_saved_32);
+    header.trailingAction = saved ? ActionUnsave : ActionSave;
+    header.trailingStyles = saved ? toybox::invertedStyles() : toybox::rowStyles();
+    header.trailingRadius = toybox::kPillRadius / 2;
+  }
   header.rightLabel = rightLabel;
   header.borderEdges = fui::EdgesNone;
   if (titleText != nullptr) header.titleText = *titleText;
@@ -60,8 +69,14 @@ std::string fitLines(const fui::DrawTarget& target, const char* text, const int1
 // --- The front page ------------------------------------------------------
 
 fui::Rect listBand(const fui::DeviceContext& device) {
+  // The segment row lives at the bottom, so the rows stop above it -- the same
+  // shape the reader's footer already has. Reserved here rather than at the
+  // draw site because the Activity counts the rows that fit in this exact
+  // rect: leaving it full-height drew rows underneath the segments and paged
+  // by a count the screen never showed.
+  const int bottom = toybox::kMargin + kFooterHeight + toybox::kGutter;
   return fui::makeRect(toybox::kMargin, kBodyTop, static_cast<int16_t>(device.width - 2 * toybox::kMargin),
-                       static_cast<int16_t>(device.height - toybox::kMargin - kBodyTop));
+                       static_cast<int16_t>(device.height - bottom - kBodyTop));
 }
 
 int16_t listRowHeight(const fui::DrawTarget& target, const fui::ThemeTokens& tokens) {
@@ -96,8 +111,45 @@ int16_t listTitleWidth(const fui::DrawTarget& target, const fui::DeviceContext& 
 void buildList(toybox::Screen& screen, const ListModel& model) {
   chrome(screen, model.title, nullptr);
 
+  // The two halves of the library, as a pair of segments rather than a toggle:
+  // each names where it goes, so the one you are already in is simply inert.
+  //
+  // takeBottom rather than absolute coordinates: it removes the strip from the
+  // content flow, so the list below cannot draw rows into it. Positioning the
+  // segments absolutely left them underneath the list, which both hid them and
+  // gave the rows the taps meant for them.
+  {
+    const fui::Rect strip = screen.takeBottom(kFooterHeight, toybox::kGutter);
+    const int16_t y = strip.y;
+    const int16_t half = static_cast<int16_t>((strip.width - toybox::kGutter) / 2);
+    const auto segment = [&screen, y, half](const char* label, const fui::ActionId action, const int16_t x,
+                                            const bool here) {
+      fui::ButtonProps button;
+      button.label = label;
+      // Inert where you already are, rather than absent: a segment that
+      // disappears moves its neighbour, and the pair is the map.
+      button.action = here ? fui::NO_ACTION : action;
+      // Filled is where you are, outlined is where you can go. Both must be
+      // set: leaving the other to the default drew two filled segments, which
+      // says "both" and so says nothing.
+      button.styles = here ? toybox::invertedStyles() : toybox::rowStyles();
+      screen.button(button, fui::makeRect(x, y, half, kFooterHeight));
+    };
+    segment("FRONT PAGE", ActionShowFrontPage, strip.x, !model.showingSaved);
+    segment("SAVED", ActionShowSaved, static_cast<int16_t>(strip.x + half + toybox::kGutter), model.showingSaved);
+  }
+
   if (model.count <= 0) {
-    screen.centeredText("NOTHING TO READ", screen.theme().bodyText);
+    // An empty SAVED shelf is the ordinary state of a new device, so it gets a
+    // sentence rather than a blank panel that reads as a fault.
+    if (model.emptyHeadline != nullptr) {
+      screen.centeredText(model.emptyHeadline, screen.theme().titleText);
+      if (model.emptyMessage != nullptr) {
+        screen.centeredText(model.emptyMessage, screen.theme().smallText);
+      }
+    } else {
+      screen.centeredText("NOTHING TO READ", screen.theme().bodyText);
+    }
     return;
   }
 
@@ -144,7 +196,7 @@ void buildReader(toybox::Screen& screen, const ReaderModel& model) {
           : 0;
   const int16_t room = static_cast<int16_t>(screen.device().width - 2 * toybox::kMargin - labelWidth);
   const std::string headline = fitLines(screen.target(), model.title, room, 1, bandTitle);
-  chrome(screen, headline.c_str(), model.pageLabel, &bandTitle);
+  chrome(screen, headline.c_str(), model.pageLabel, &bandTitle, model.canSave, model.saved);
 
   const fui::DeviceContext& device = screen.device();
 
