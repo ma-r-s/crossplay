@@ -325,6 +325,29 @@ if [ "$(seeded_loop "$dead_pid tree" "1")" != "waited" ]; then
   echo "FAIL checksh  the lock was reclaimed from a dead holder while a device build was still running"
 fi
 
+# A lock with NO owner file is held, never abandoned. It belongs to a tree whose
+# check.sh predates the owner file and took it with a plain mkdir; such a holder
+# cannot say whether it is alive, so it must be assumed to be. Deciding by
+# builds_alive instead is not safe, and this is the exact gap: a --committed run
+# builds four device envs in sequence and between them NO pio exists, so a
+# waiter landing in that window would take a live holder's lock. Observed on
+# 2026-08-31 -- an empty x4pro.lock held by a live pre-owner-file check.sh while
+# another tree waited on it. FAKE_DEVICE_BUILD is "" here precisely because that
+# is the dangerous case: nothing is building at this instant, and the lock must
+# STILL be respected.
+checks=$((checks + 1))
+if [ "$(seeded_loop "" "")" != "waited" ]; then
+  failed=$((failed + 1))
+  echo "FAIL checksh  an ownerless lock was reclaimed -- an older check.sh holding it would have been robbed"
+fi
+
+# And with a build running, for the same reason and by a different route.
+checks=$((checks + 1))
+if [ "$(seeded_loop "" "1")" != "waited" ]; then
+  failed=$((failed + 1))
+  echo "FAIL checksh  an ownerless lock was reclaimed while a device build was running"
+fi
+
 kill "$live_pid" 2>/dev/null; wait "$live_pid" 2>/dev/null
 
 # --- the probe must actually RUN, not merely be present --------------------
