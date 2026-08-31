@@ -31,18 +31,32 @@ The reason this is hard to debug is that **three unrelated failures look
 identical**: an error minutes into a run, from inside the espressif32 builder,
 naming no file of ours.
 
-| Cause | What stops it |
-| --- | --- |
-| The disk is full | this guard's `AVAIL_FLOOR_GB` |
-| Two **device** builds ran at once | `check.sh`'s firmware lock |
-| **Any two builds raced on the SCons database** | a per-tree `.sconsign` |
-| Something mutated the cache mid-build | the prune's exclusions |
+| Cause | What stops it | Fixed? |
+| --- | --- | --- |
+| The disk is full | this guard's `AVAIL_FLOOR_GB` | **yes** |
+| Two **device** builds at once | `check.sh`'s firmware lock | yes, unless bypassed |
+| Any two builds racing the SCons database | a per-tree `.sconsign` | **yes** |
+| Two builds racing shared `~/.platformio` | nothing but convention | **no** |
+| The lock removed by the 900s stale path | nothing | **no** |
 
-The third row is the one that has been misdiagnosed. It is **not** limited to
-device builds and **the firmware lock never prevented it**: that lock serialises
-device envs only, while the host and simulator builds run unlocked in every tree
-and wrote the same signature database. Five sessions gating at once is an
-ordinary evening here.
+**Only two of the five are actually fixed**, and that is the point of the column.
+"Retry with the workspace quiet" is currently the advice for all five, and it
+cures some of them only by accident -- retrying eventually wins a race.
+
+The two that are not fixed:
+
+**The shared `~/.platformio` framework.** Every device build reaches into it and
+it cannot be sharded (it is 10GB). A build that loses the race reports framework
+headers missing -- `Arduino.h`, `HWCDC.h`, `esp32-hal.h` -- **which are present
+on disk the moment you look**. Nothing prevents this except everyone going
+through `check.sh` rather than a raw `pio run`, and the lock only helps if it is
+actually taken.
+
+**The lock's own stale path.** `check.sh` removes a lock held longer than 900
+seconds, with no check that the holder is still alive. That fires most readily
+when the machine is loaded, which is exactly when a second concurrent build does
+the most damage. Checking whether the holder's pid still exists would turn a
+guess into a fact.
 
 Its signature is the same as the rest, so the standing advice -- "retry with the
 workspace quiet" -- appeared to work, because retrying eventually wins the race.
