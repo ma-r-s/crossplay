@@ -423,7 +423,14 @@ if [ "${1:-}" != "--tests" ]; then
         sleep 2
         waited=$((waited + 2))
       done
-      printf '%s %s\n' "$$" "${REPO##*/}" > "$FW_LOCK/owner"
+      # ${REPO:-$PWD}, never a bare ${REPO}: this loop is lifted out and run by
+      # host-tests/checksh, where REPO does not exist. Bash 4.4+ (every Linux
+      # CI runner) aborts on the unset expansion under `set -u` and the lock is
+      # then acquired but never owned or released; macOS bash 3.2 silently
+      # substitutes empty and the tests pass. That gap is exactly how this
+      # arrived red on CI and green here.
+      owner_tree="${REPO:-$PWD}"
+      printf '%s %s\n' "$$" "${owner_tree##*/}" > "$FW_LOCK/owner"
       # rm -rf, not rmdir: the owner file makes the directory non-empty, and an
       # rmdir that silently fails would leak the lock to every other tree.
       # Same rule on the way out: a run that died after its lock was reclaimed
