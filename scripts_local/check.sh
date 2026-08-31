@@ -395,7 +395,27 @@ if [ "${1:-}" != "--tests" ]; then
         else
           builds_alive=0
         fi
-        if [ -n "$owner_pid" ] && kill -0 "$owner_pid" 2>/dev/null; then
+        if [ ! -e "$FW_LOCK/owner" ]; then
+          # A lock with no owner file is HELD, never abandoned. It was taken by
+          # a tree whose check.sh predates the owner file, with a plain mkdir,
+          # and such a holder cannot tell us whether it is alive -- so assume it
+          # is. Treating it as dead and falling through to the builds_alive test
+          # is not safe: a --committed run builds four device envs in sequence,
+          # and between them no `pio run` exists at all, so a waiter landing in
+          # that gap would reclaim a live holder's lock and both would then race
+          # ~/.platformio. Seen on 2026-08-31, an empty x4pro.lock held by a
+          # live pre-owner-file check.sh while another tree waited on it.
+          #
+          # The cost is that a genuinely dead ownerless lock never self-clears.
+          # That is the pre-owner-file status quo, and it is the right way round:
+          # waiting too long is a delay, reclaiming too early is two concurrent
+          # builds and an error naming no file of ours.
+          [ $(( waited % 60 )) -eq 0 ] && {
+            echo "  lock has no owner file: an older check.sh holds it, and this cannot self-clear." >&2
+            echo "  waiting (${waited}s). If nothing is really building, remove it by hand:" >&2
+            echo "    rm -rf $FW_LOCK" >&2
+          }
+        elif [ -n "$owner_pid" ] && kill -0 "$owner_pid" 2>/dev/null; then
           # Holder alive. Not stale at any age; a 40-minute release gate is
           # working, not hung.
           [ $(( waited % 30 )) -eq 0 ] &&
