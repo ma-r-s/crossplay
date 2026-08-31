@@ -316,3 +316,16 @@ one path and not its twin.
 
 Move Study onto BridgeHttp the week `app/studyradio` merges. It is a delete and
 five call sites.
+
+## `!exists && !mkdir` wants to be a helper
+
+Five callers now spell the same guard by hand: `StudyActivity`,
+`ScreenshotUtil`, `BookmarkFile`, `FontInstaller`, and (as of 2026-08-31)
+`TriviaActivity`. SdFat's `mkdir` returns **false for a directory that already
+exists**, so a caller that treats false as failure works exactly once and then
+reports a full card forever.
+
+Trivia invented its own spelling and shipped the bug. Four independent
+rediscoveries of one idiom is the signal: a `Storage.ensureDir(path)` would mean
+the sixth caller inherits the contract instead of inventing it. Not urgent, but
+the next one will get it wrong the same way.
