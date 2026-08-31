@@ -86,7 +86,7 @@ def main(path):
     # the panel truncates silently: an overflowing clue photographs fine and
     # simply stops mid-sentence, so this is measured in pixels, never characters
     over = [r for r in rows
-            if not textfit.fits(r['q'], 448, 583, 'notosans_18_regular')]
+            if not textfit.fits(r['q'], 448, 583, 'reading_serif_14')]
     check('no clue overflows its box (measured)', not over,
           f'{len(over)} overflow, e.g. {over[0]["q"][:50] if over else ""}')
 

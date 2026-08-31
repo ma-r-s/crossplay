@@ -15,7 +15,7 @@ import textfit
 # truncated on the panel: the device must never be handed text that cannot fit.
 # Capping on CHARACTERS cannot express this -- two 24-character strings differ
 # by 69 pixels in the same face -- so the cap is measured, in pixels.
-CLUE_FONT = 'notosans_18_regular'
+CLUE_FONT = 'reading_serif_14'   # the body slot of toybox::readingChromeFaces()
 CLUE_WIDTH = 448          # 480 minus 16px margins
 CLUE_HEIGHT = 583         # 800 minus an 89px header and a 128px footer
 

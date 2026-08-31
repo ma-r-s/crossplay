@@ -1,0 +1,62 @@
+#pragma once
+
+// TRIVIA: 50,000 questions on the card, two ways to play them.
+//
+// The activity is the thin layer: it owns the pack files, the round and the
+// input. The format and the round logic are in TriviaCore.h (freestanding) and
+// the drawing is in TriviaScreens.cpp (freestanding). See docs/apps/trivia.md.
+
+#include <memory>
+
+#include "../../activities/Activity.h"
+#include "../ui/ToyboxScreen.h"
+#include "TriviaCore.h"
+#include "TriviaScreens.h"
+
+class TriviaActivity final : public Activity {
+ public:
+  TriviaActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
+      : Activity("Trivia", renderer, mappedInput) {}
+  ~TriviaActivity() override = default;
+
+  static std::unique_ptr<Activity> create(GfxRenderer& renderer, MappedInputManager& mappedInput);
+
+  void onEnter() override;
+  void onExit() override;
+  void loop() override;
+  void render(RenderLock&&) override;
+
+ private:
+  enum class View : uint8_t { Menu, Quizmaster, Solo, NoPack };
+
+  bool openPack();
+  bool ensureState(uint32_t count);
+  void go(View next);
+  void deal();
+  void routeAction(int action, int value);
+
+  View view_ = View::Menu;
+  int selected_ = -1;
+  int difficulty_ = 0;              // 0 = any
+
+  trivia::Pack pack_;
+  trivia::PackState state_;
+  trivia::Question question_;
+  trivia::Choices choices_;
+  trivia::Rng rng_{1};
+  trivia::Chooser chooser_;
+  trivia::Score score_;
+
+  uint32_t current_ = 0;
+  bool haveQuestion_ = false;
+  bool revealed_ = false;
+  int chosen_ = -1;
+
+  // Which of the three arrangements to draw. A simulator-only override exists
+  // for the render sheet; see onEnter.
+  triviaui::QuestionLayout layout_ = triviaui::QuestionLayout::Card;
+
+  bool flashOnNextPaint_ = false;
+  bool interactionsReady_ = false;
+  toybox::Interactions interactions_;
+};

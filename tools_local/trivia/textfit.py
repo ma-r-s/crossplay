@@ -14,12 +14,22 @@ a hand-rolled version come out 16x too wide.
 """
 import functools, pathlib, re
 
-BUILTIN = pathlib.Path(__file__).resolve().parents[2] / "lib/EpdFont/builtinFonts"
+_REPO = pathlib.Path(__file__).resolve().parents[2]
+# Two font trees. The builtin faces are upstream's; the fork's own cuts (the
+# reading serif an app's prose is actually set in) live under apps_local.
+FONT_DIRS = (_REPO / "src/apps_local/ui/fonts", _REPO / "lib/EpdFont/builtinFonts")
+
+def _font_path(name):
+    for d in FONT_DIRS:
+        p = d / f"{name}.h"
+        if p.exists():
+            return p
+    raise FileNotFoundError(f"no font header for {name} in {[str(d) for d in FONT_DIRS]}")
 
 @functools.lru_cache(maxsize=8)
 def font(name):
     """Codepoint -> advance in pixels, plus the ascender."""
-    text = (BUILTIN / f"{name}.h").read_text(errors="replace")
+    text = _font_path(name).read_text(errors="replace")
     glyphs = []
     block = re.search(r"Glyphs\[\] = \{(.*?)\n\};", text, re.S)
     for row in re.finditer(r"\{\s*(\d+),\s*(\d+),\s*(\d+),", block.group(1)):
