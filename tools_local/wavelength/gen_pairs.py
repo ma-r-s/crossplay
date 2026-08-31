@@ -9,18 +9,16 @@ word is wider than the panel is rejected here, measured against the real font
 tables, so an overlong word cannot reach the device and get silently truncated
 into a word that simply stops.
 
-A CHARACTER COUNT IS NOT A WIDTH, which is why the cap is in pixels. Every end
-word in the deck obeys a 13-character limit and SOBREVALORADO still overflows
-the display cut, while thirteen narrow letters would not come close.
+A CHARACTER COUNT IS NOT A WIDTH, which is why the cap is in pixels. LIVED IN
+and GROWN-UP are both eight characters and differ by 70px at the display cut,
+195 against 265. A length limit set anywhere between those either rejects a word
+that fits or admits one that does not.
 
 advanceX in the generated cuts is 12.4 FIXED POINT: sixteenths of a pixel.
 Reading it as pixels makes every string come out sixteen times too wide, which
 looks like a catastrophe rather than a units bug.
 
-Spanish is not emitted yet. Jersey is subset to ASCII and a codepoint with no
-glyph draws as NOTHING on this device, so an accented capital becomes a hole in
-the middle of a word. See tools_local/toybox/gen_toybox_fonts.sh for the seven
-glyphs it needs and why regenerating the cuts is not currently safe.
+English only. Spanish was dropped on 2026-08-30.
 """
 
 import re
