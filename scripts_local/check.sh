@@ -26,6 +26,7 @@ TAG="$(printf '%s' "$REPO" | shasum | cut -c1-8)"
 LOGS="${TMPDIR:-/tmp}/xteink-check-$TAG"
 mkdir -p "$LOGS"
 FAILED=0
+SUBMODULE_DRIFT=""
 
 # --ignore-submodules=untracked: the icon tools drop a __pycache__/ inside
 # freeink-sdk, which is untracked content in a submodule and not your work.
@@ -182,6 +183,29 @@ if [ -d "$REPO/.githooks" ] && [ -z "$(git -C "$REPO" config core.hooksPath || t
   echo "note: .githooks exists but core.hooksPath is unset, so NO repo hook runs here."
   echo "      enable per clone with: git config core.hooksPath .githooks"
   echo
+fi
+
+# A tree can be checked out at submodules its own commit does not describe, and
+# then every suite and every build passes while describing nothing. See
+# scripts_local/submodule_state.sh. Uninitialised stops the gate here rather
+# than twenty minutes later inside a compiler error naming no file of ours;
+# drift is allowed to run (an SDK bump in progress is legitimate work) but
+# QUALIFIES THE VERDICT, because a note above a green line is a note that gets
+# read past -- which is how this arrived.
+SUB_STATE="$REPO/scripts_local/submodule_state.sh"
+if [ -x "$SUB_STATE" ]; then
+  SUB_OUT="$("$SUB_STATE" "$REPO" 2>&1)" && SUB_RC=0 || SUB_RC=$?
+  if [ -n "$SUB_OUT" ]; then
+    echo "$SUB_OUT" | sed 's/^/  /'
+    echo
+  fi
+  case "$SUB_RC" in
+    2|4)
+      echo "refusing to gate a tree whose submodules are not the ones it describes."
+      exit 1
+      ;;
+    3) SUBMODULE_DRIFT=1 ;;
+  esac
 fi
 
 DIRTY="$(dirty_count)"
@@ -552,7 +576,11 @@ fi
 
 echo
 if [ "$FAILED" -eq 0 ]; then
-  echo "all green. logs in $LOGS"
+  if [ -n "$SUBMODULE_DRIFT" ]; then
+    echo "all green -- BUT ON DRIFTED SUBMODULES, so it describes no commit. logs in $LOGS"
+  else
+    echo "all green. logs in $LOGS"
+  fi
 else
   echo "SOMETHING FAILED. logs in $LOGS"
 fi
