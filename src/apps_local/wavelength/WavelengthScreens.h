@@ -39,14 +39,75 @@ enum : fui::ActionId {
   ActionStepTowardTop = 1,
   ActionStepTowardBottom = 2,
   ActionLock = 3,
+  ActionReady = 4,
+  ActionPickFirst = 5,
+  ActionPickSecond = 6,
+  ActionPeekPad = 7,
+  ActionClueGiven = 8,
+  ActionCallTop = 9,
+  ActionCallBottom = 10,
+  ActionNextRound = 11,
+};
+
+struct Spectrum {
+  const char* top = "CHARMING";
+  const char* bottom = "ANNOYING";
 };
 
 struct DialModel {
-  const char* topWord = "CHARMING";
-  const char* bottomWord = "ANNOYING";
+  Spectrum spectrum;
   int guess = 10;
 };
 
+struct PickModel {
+  Spectrum first;
+  Spectrum second;
+  bool onlyOne = false;  // the deck has a single unseen pair left
+};
+
+struct PeekModel {
+  Spectrum spectrum;
+  int target = 10;
+  bool revealed = false;  // true only while a thumb is on the pad
+};
+
+struct ClueModel {
+  Spectrum spectrum;
+};
+
+struct CallModel {
+  Spectrum spectrum;
+  int guess = 10;
+};
+
+struct RevealModel {
+  Spectrum spectrum;
+  int guess = 10;
+  int target = 10;
+  int points = 0;
+  bool callWasRight = false;
+  bool practice = false;
+  int roundNumber = 1;
+  int total = 0;
+};
+
+struct PassModel {
+  int roundNumber = 1;
+  int total = 0;
+  bool practice = false;
+};
+
+// The hold-to-reveal pad, so the activity tests a held finger against the very
+// rect that drew it rather than recomputing the geometry a second time. Three
+// separate bugs in this fork came from breaking that.
+fui::Rect peekPadRect(int16_t screenW, int16_t screenH);
+
+void renderPassLeft(toybox::Screen& screen, const PassModel& model);
+void renderPick(toybox::Screen& screen, const PickModel& model);
+void renderPeek(toybox::Screen& screen, const PeekModel& model);
+void renderClue(toybox::Screen& screen, const ClueModel& model);
 void renderDial(toybox::Screen& screen, const DialModel& model);
+void renderCall(toybox::Screen& screen, const CallModel& model);
+void renderReveal(toybox::Screen& screen, const RevealModel& model);
 
 }  // namespace wavelengthui
