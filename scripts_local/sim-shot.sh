@@ -60,8 +60,28 @@ echo "full log: $LOG"
 # reads exactly like a note.
 if grep -q "No glyph for codepoint" "$LOG"; then
   echo
-  echo "FAILED: text overflowed and was truncated with a glyph the font does not have."
-  grep -n "No glyph for codepoint" "$LOG" | sed 's/^/  /' | head -10
-  echo "  Measure the offending string: tools_local/forehead/measure.py <cut> '<text>'"
+  # WHICH codepoint decides what this means, and the two causes want opposite
+  # fixes. 8230 is U+2026, the ellipsis the SDK truncates with -- that is the
+  # overflow case. Anything else is a character reaching drawText that the face
+  # cannot draw at all, which is usually unsanitised text from outside: a
+  # newline (10) out of a network feed, or an accented letter out of a filename.
+  # Pointing the second case at measure.py sends the reader hunting a width
+  # problem that does not exist.
+  if grep -q "No glyph for codepoint 8230" "$LOG"; then
+    echo "FAILED: text OVERFLOWED and was truncated with U+2026, which this face"
+    echo "        does not carry, so the sentence just stops and looks deliberate."
+    grep -n "No glyph for codepoint 8230" "$LOG" | sed "s/^/  /" | head -6
+    echo "  Measure it with tools_local/forehead/measure.py <cut> <text>"
+    echo "  then shorten the string, drop a cut, or widen the box."
+  fi
+  if grep "No glyph for codepoint" "$LOG" | grep -qv "codepoint 8230"; then
+    echo "FAILED: a character reached drawText that this face cannot draw at all."
+    echo "        NOT an overflow. measure.py will not explain this one."
+    grep -n "No glyph for codepoint" "$LOG" | grep -v "codepoint 8230" | sed "s/^/  /" | head -6
+    echo "  Codepoint 10 is a newline; anything above 126 is outside Jersey ASCII."
+    echo "  Both usually mean text from OUTSIDE the firmware -- a network feed, a"
+    echo "  filename, an SD card -- reaching the rasteriser unsanitised. Sanitise"
+    echo "  it at the boundary it came in through, not at the draw call."
+  fi
   exit 1
 fi
