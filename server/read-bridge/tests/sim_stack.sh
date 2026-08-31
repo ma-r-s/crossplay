@@ -25,6 +25,12 @@
 #   * A FAILED claim also returns HTTP 200; the bridge answers a "Not found"
 #     page rather than an error status, because the page is for a person. Check
 #     the body, never the status.
+#
+# The run has two phases, and the second is the one that covers the WRITE path:
+# it reads an article, pages through it, archives it, and syncs again. Nothing
+# else in this repo proves that a press on the device reaches the account --
+# the bridge suites drive archive with curl, and would pass against a firmware
+# that never queued the intent or dropped it on the next index write.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -128,13 +134,28 @@ SIMLOG="$REPO/qa-artifacts/sim.log"
 MARKER="stack-$$"
 rm -f "$SIMLOG"
 
+# Phase one: pair and sync. Phase two: read, page, archive, sync again.
+# Every coordinate is the middle of a control the screens draw from constants
+# (240 is the panel's centre, 756 the footer row, 152 the first queue row).
+INPUT="$(printf '%s' \
+  '1500:TAP:240,756;'   `# SYNC, which starts pairing               ` \
+  '3200:ENTER;'         `# pick the simulator Wi-Fi                 ` \
+  '16000:TAP:240,700;'  `# YES, PAIR IT                             ` \
+  '34000:TAP:240,756;'  `# BACK TO THE LIST, off the sync verdict   ` \
+  '38000:TAP:240,152;'  `# open the newest article                  ` \
+  '42000:TAP:430,756;'  `# a page forward                           ` \
+  '45000:TAP:430,756;'  `# and another                              ` \
+  '48000:TAP:240,756;'  `# ARCHIVE                                  ` \
+  '52000:TAP:240,756;'  `# SYNC again, sending the intent up        ` \
+  '70000:QUIT')"
+
 echo "driving the simulator ..."
 (
   cd "$REPO"
   READ_BRIDGE_URL="http://127.0.0.1:$BRIDGE_PORT" CROSSPLAY_AUTOSTART=INSTAPAPER \
     ./scripts_local/sim-shot.sh \
-      '1500:TAP:240,756;3200:ENTER;16000:TAP:240,700;34000:QUIT' \
-      '14000:./qa-artifacts/stack-confirm.bmp;30000:./qa-artifacts/stack-verdict.bmp' \
+      "$INPUT" \
+      '14000:./qa-artifacts/stack-confirm.bmp;30000:./qa-artifacts/stack-verdict.bmp;46000:./qa-artifacts/stack-reader.bmp;62000:./qa-artifacts/stack-second.bmp' \
       > "$WORK/simshot.log" 2>&1
 ) &
 SIM_PID=$!
@@ -184,20 +205,62 @@ fail() { echo "  FAIL $1"; FAILED=1; }
 CARD="$REPO/fs_agent/.crosspoint/instapaper"
 [ -f "$CARD/.bridge" ] && say "the pairing token is on the card" || fail "no .bridge on the card"
 [ -f "$CARD/index.tsv" ] && say "the index is on the card" || fail "no index.tsv on the card"
+# Everything here is asserted at the END of the run, so the numbers are the
+# ones phase two leaves behind: three articles arrived and one was archived.
+# Asserting three rows here was wrong and the run said so -- the count is
+# checked long after the archive that removed one.
+#
+# That all three DID arrive is still proved, by a chain rather than a count:
+# the card started empty, so 503 can only have been opened, paged and archived
+# if it was downloaded, and the progress it pushed up says it was read.
 COUNT="$(grep -c '^[0-9]' "$CARD/index.tsv" 2>/dev/null || echo 0)"
 COUNT="${COUNT//[^0-9]/}"
-[ "$COUNT" -eq 3 ] && say "three articles in the index" || fail "index holds $COUNT rows, expected 3"
+[ "$COUNT" -eq 2 ] && say "the two unarchived articles are in the index" \
+  || fail "index holds $COUNT rows, expected 2 after archiving one of three"
 # find, not ls: under `set -o pipefail` an `ls` that matches nothing fails the
 # whole substitution and kills the script -- which is how the "no .part files"
 # check below, the one that PASSES by matching nothing, silently ended the run
 # three assertions early and still looked like a clean finish.
 FILES="$(find "$CARD" -maxdepth 1 -name 'a*.txt' | wc -l | tr -d ' ')"
-[ "$FILES" -eq 3 ] && say "three article files downloaded" || fail "$FILES article files, expected 3"
+[ "$FILES" -eq 2 ] && say "and both have their text on the card" || fail "$FILES article files, expected 2"
+for id in 501 502; do
+  if [ -s "$CARD/a$id.txt" ]; then :; else fail "a$id.txt is missing or empty"; fi
+done
 # A .part left behind means a download was never committed, and the row it
 # belongs to would open nothing.
 PARTS="$(find "$CARD" -maxdepth 1 -name '*.part' | wc -l | tr -d ' ')"
 [ "$PARTS" -eq 0 ] && say "no half-written downloads left behind" || fail "$PARTS .part files remain"
 if grep -q "INSTA] paired" "$SIMLOG"; then say "the reader confirmed the pairing"; else fail "the reader never confirmed"; fi
+
+# --- phase two: did a press on the device reach the account? ---------------
+#
+# 503 is the newest bookmark, so it is the row the reader opened. Archiving it
+# has to move it out of `unread` on Instapaper's side, take its row off the
+# card, and take its text with it.
+REMOTE="$(curl -sS "http://127.0.0.1:$FAKE_PORT/_test/state")"
+FOLDER="$(printf '%s' "$REMOTE" | "$PY" -c '
+import json,sys
+s=json.load(sys.stdin)
+b=[x for x in s["bookmarks"] if x["bookmark_id"]==503]
+print(b[0].get("folder","?") if b else "missing")')"
+[ "$FOLDER" = "archive" ] && say "ARCHIVE on the reader archived it on Instapaper" \
+  || fail "bookmark 503 is in folder '$FOLDER', expected archive"
+
+PROGRESS="$(printf '%s' "$REMOTE" | "$PY" -c '
+import json,sys
+s=json.load(sys.stdin)
+b=[x for x in s["bookmarks"] if x["bookmark_id"]==503]
+print(b[0].get("progress",0) if b else 0)')"
+# Paged twice before archiving, so this must be past the first screen and not
+# the 0.0 a device that never banked its position would send.
+"$PY" -c "import sys; sys.exit(0 if float('$PROGRESS') > 0.0 else 1)" \
+  && say "the reading position reached Instapaper ($PROGRESS)" \
+  || fail "reading position came through as $PROGRESS"
+
+LEFT="$(grep -c '^[0-9]' "$CARD/index.tsv" 2>/dev/null || echo 0)"
+LEFT="${LEFT//[^0-9]/}"
+[ "$LEFT" -eq 2 ] && say "the archived row is off the card" || fail "index holds $LEFT rows after archiving, expected 2"
+[ ! -f "$CARD/a503.txt" ] && say "and its text was deleted with it" || fail "a503.txt is still on the card"
 # A glyph the cut does not carry draws as NOTHING, so this is the only way an
 # overflowing line announces itself. See the font-cuts memory.
 if grep -q "No glyph" "$SIMLOG"; then fail "something drew a glyph these cuts do not have"; else say "no missing glyphs in anything drawn"; fi
