@@ -159,7 +159,8 @@ void TriviaActivity::showNotice(const char* headline, const char* body, const ch
 // this blocks, and without it Back could not cancel a multi-minute download.
 void TriviaActivity::runPackDownload() {
   if (!Storage.mkdir(kDir)) {
-    showNotice("NO ROOM", "Could not create /trivia on the card. Is the card in, and writable?");
+    showNotice("NO ROOM", "Could not create /trivia on the card. Is the card in, and writable?", "TRY AGAIN",
+               triviaui::ActionGetPack);
     return;
   }
 
@@ -195,19 +196,26 @@ void TriviaActivity::runPackDownload() {
   const auto err = HttpDownloader::downloadToFile(kPackUrl, kPartPath, progress, &downloadCancel_);
   if (err != HttpDownloader::OK) {
     Storage.remove(kPartPath);
+    // Every one of these offers TRY AGAIN. A screen that reports a failure and
+    // gives you nothing to press is a dead end -- the user's only way out is to
+    // leave the app, and nothing on screen says so. Get Books shipped exactly
+    // that and Mario found it on the device.
     if (err == HttpDownloader::ABORTED) {
-      showNotice("STOPPED", "Download stopped. Nothing was kept.");
+      showNotice("STOPPED", "Download stopped. Nothing was kept.", "TRY AGAIN", triviaui::ActionGetPack);
     } else if (err == HttpDownloader::FILE_ERROR) {
-      showNotice("CARD TROUBLE", "The card would not take the file. Nothing was kept.");
+      showNotice("CARD TROUBLE", "The card would not take the file. Nothing was kept.", "TRY AGAIN",
+                 triviaui::ActionGetPack);
     } else {
-      showNotice("NO ANSWER", "The download did not answer. The card is unchanged; try again later.");
+      showNotice("NO ANSWER", "The download did not answer. The card is unchanged.", "TRY AGAIN",
+                 triviaui::ActionGetPack);
     }
     return;
   }
 
   Storage.remove(kPackPath);  // a half pack from an earlier era must not block the rename
   if (!Storage.rename(kPartPath, kPackPath)) {
-    showNotice("CARD TROUBLE", "Downloaded, but the card refused the final rename. Try again.");
+    showNotice("CARD TROUBLE", "Downloaded, but the card refused the final rename.", "TRY AGAIN",
+               triviaui::ActionGetPack);
     return;
   }
 
@@ -216,7 +224,7 @@ void TriviaActivity::runPackDownload() {
   // seen -- the right trade against reading a stale byte for a question it
   // does not describe.
   if (!openPack()) {
-    showNotice("BAD PACK", "Downloaded, but the pack did not open. Try again later.");
+    showNotice("BAD PACK", "Downloaded, but the pack did not open.", "TRY AGAIN", triviaui::ActionGetPack);
     return;
   }
   char body[96];
