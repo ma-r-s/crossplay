@@ -618,6 +618,25 @@ if [ -s "$WORK/subwire.sh" ] && [ -s "$WORK/verdict.sh" ] &&
     *) failed=$((failed + 1)); echo "FAIL checksh  the verdict drops one of two reasons: $both" ;;
   esac
 
+  # The qualifier must LEAD. Trailing it after "all green" put it on the right
+  # line and still lost to a real reader on 2026-08-31: they grep
+  # `all green|SOMETHING FAILED`, the line matched, and they acted on its first
+  # three words. A qualified verdict must not open with the words a skimmer is
+  # looking for.
+  checks=$((checks + 1))
+  lead="$(verdict 1 'behind origin')"
+  case "$lead" in
+    "all green"*) failed=$((failed + 1)); echo "FAIL checksh  a qualified verdict still OPENS with 'all green': $lead" ;;
+    *) : ;;
+  esac
+
+  checks=$((checks + 1))
+  before="${lead%%all green*}"
+  case "$before" in
+    *DRIFTED*|*behind*) : ;;
+    *) failed=$((failed + 1)); echo "FAIL checksh  the qualifier does not appear BEFORE 'all green': $lead" ;;
+  esac
+
   checks=$((checks + 1))
   plain="$(verdict '' '')"
   case "$plain" in

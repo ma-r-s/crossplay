@@ -664,7 +664,11 @@ echo
 if [ "$FAILED" -eq 0 ]; then
   QUALIFIER="$(qualifier_text)"
   if [ -n "$QUALIFIER" ]; then
-    echo "all green -- BUT $QUALIFIER, so it does not describe what ships. logs in $LOGS"
+    # The qualifier leads. It used to trail "all green -- BUT ...", which put it
+    # on the verdict line where it belongs and still lost: a reader greps
+    # `all green|SOMETHING FAILED`, the pattern matched, and they acted on the
+    # first three words. Front-loading costs nothing and defeats exactly that.
+    echo "NOT WHAT SHIPS ($QUALIFIER) -- suites all green, but not on the code that ships. logs in $LOGS"
   else
     echo "all green. logs in $LOGS"
   fi
