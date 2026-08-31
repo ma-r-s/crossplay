@@ -18,6 +18,22 @@ void utf8TruncateChars(std::string& str, size_t numChars);
 // stored in NFD (e.g. some EPUB chapter titles) otherwise renders broken.
 std::string utf8ComposeNfc(const std::string& in);
 
+// Collapse every run of ASCII whitespace to a single space, and trim the ends.
+//
+// Text that arrives as markup carries the line breaks and indentation of the
+// document it came in: a pretty-printed OPDS feed puts a newline and two spaces
+// inside every <title>. The device fonts have no glyph for a newline, so it
+// reaches the rasteriser as codepoint 10 and is logged as a missing glyph --
+// visible only in a log, until somebody wires that log line to a failing gate.
+//
+// Collapsing rather than DELETING is the whole point, and is the bug this
+// replaced: removing newlines outright turns "call me\nIshmael" into
+// "call meIshmael", joining the words either side of the break.
+//
+// UTF-8 safe by construction: all six ASCII whitespace bytes are below 0x80, so
+// none of them can ever appear inside a multi-byte sequence.
+std::string utf8CollapseWhitespace(const std::string& in);
+
 // Truncate a raw char buffer to the last complete UTF-8 codepoint boundary.
 // Returns the new length (<= len). If the buffer ends mid-sequence, the
 // incomplete trailing bytes are excluded.

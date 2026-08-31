@@ -178,3 +178,32 @@ void utf8TruncateChars(std::string& str, const size_t numChars) {
     utf8RemoveLastChar(str);
   }
 }
+
+namespace {
+// Spelled out rather than std::isspace: isspace takes an int whose value must
+// be representable as unsigned char, its answer depends on the locale, and
+// neither property is worth inheriting in a function that runs over bytes from
+// the network.
+bool isAsciiSpace(const unsigned char c) {
+  return c == ' ' || c == '\t' || c == '\n' || c == '\v' || c == '\f' || c == '\r';
+}
+}  // namespace
+
+std::string utf8CollapseWhitespace(const std::string& in) {
+  std::string out;
+  out.reserve(in.size());
+  // A run of whitespace becomes one space only once something follows it, which
+  // is what trims both ends without a second pass: a leading run never sets
+  // this (out is empty), and a trailing run is simply never flushed.
+  bool pendingSpace = false;
+  for (const char ch : in) {
+    if (isAsciiSpace(static_cast<unsigned char>(ch))) {
+      pendingSpace = !out.empty();
+      continue;
+    }
+    if (pendingSpace) out.push_back(' ');
+    pendingSpace = false;
+    out.push_back(ch);
+  }
+  return out;
+}
