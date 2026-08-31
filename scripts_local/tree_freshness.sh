@@ -24,6 +24,21 @@
 # behind by definition, and a guard that refuses that would be switched off
 # within the day.
 #
+# IF THIS BECOMES NOISE, and it might: a qualifier that is always on is one
+# people scroll past, which is the failure it exists to prevent. During a
+# landing storm every tree is behind within minutes -- on 2026-08-31 origin
+# moved eleven times in an evening -- and that is the storm, not the guard.
+# Measured over that night it fired on three runs of five, and both quiet ones
+# were the runs where origin had been merged immediately before starting.
+#
+# So the trigger for revisiting is BOTH halves: it still fires on nearly every
+# run once the batch has drained, AND merging first does not clear it. If
+# merging first clears it, the guard is reporting a real property of how the
+# work is sequenced and the fix is upstream of the guard entirely. If it does
+# need changing, make the INERT case (exit 3) quieter rather than making the
+# guard measure differently -- gate start is the only honest measuring point,
+# and a run that goes in current and comes out behind has not measured wrongly.
+#
 #   scripts_local/tree_freshness.sh [--fetch] [--ref origin/xteink] [repo]
 #
 # Exit: 0 up to date (or nothing to compare against)

@@ -503,6 +503,7 @@ print('\n'.join(lines[start:end + 1]))
 PY
 }
 
+lift '-x "$MERGE_STATE"' >"$WORK/mergewire.sh" 2>/dev/null
 lift '-x "$SUB_STATE"' >"$WORK/subwire.sh" 2>/dev/null
 lift '-x "$FRESH"'     >"$WORK/freshwire.sh" 2>/dev/null
 lift 'QUALIFIER'       >"$WORK/verdict.sh" 2>/dev/null
@@ -519,6 +520,43 @@ if [ -s "$WORK/subwire.sh" ] && [ -s "$WORK/verdict.sh" ] &&
     } > "$WORK/subrepo/scripts_local/submodule_state.sh"
     chmod +x "$WORK/subrepo/scripts_local/submodule_state.sh"
   }
+
+  # ---- merge-state wiring: a conflicted tree must not be gated at all ----
+  #
+  # This one STOPS the run. A tree with markers in it cannot report anything
+  # meaningful, and the suites will not notice, because they do not read every
+  # file: markers in platformio.ini gated all green on 2026-08-31 since --tests
+  # never parses it. Both refusal codes must stop it.
+  if [ -s "$WORK/mergewire.sh" ]; then
+    merge_stub() {  # exit_code
+      rm -rf "$WORK/mrepo"
+      mkdir -p "$WORK/mrepo/scripts_local"
+      { echo '#!/bin/bash'
+        [ "$1" -ne 0 ] && echo "echo 'conflicted: platformio.ini'"
+        echo "exit $1"
+      } > "$WORK/mrepo/scripts_local/merge_state.sh"
+      chmod +x "$WORK/mrepo/scripts_local/merge_state.sh"
+    }
+    for code in 2 3; do
+      checks=$((checks + 1))
+      merge_stub "$code"
+      if ( set +e; REPO="$WORK/mrepo"; . "$WORK/mergewire.sh"; exit 0 ) >/dev/null 2>&1; then
+        failed=$((failed + 1))
+        echo "FAIL checksh  merge_state exit $code did not stop the gate; a conflicted tree would be reported on"
+      fi
+    done
+    checks=$((checks + 1))
+    merge_stub 0
+    clean_merge="$( set +e; REPO="$WORK/mrepo"; . "$WORK/mergewire.sh"; echo "CONTINUED" )"
+    case "$clean_merge" in
+      "CONTINUED") : ;;
+      *) failed=$((failed + 1)); echo "FAIL checksh  a clean tree was stopped or spoke: $clean_merge" ;;
+    esac
+  else
+    checks=$((checks + 1))
+    failed=$((failed + 1))
+    echo "FAIL checksh  could not lift the merge-state wiring out of check.sh"
+  fi
 
   # Uninitialised (2) must stop the gate. Twenty minutes later, inside a
   # compiler error naming no file of ours, is the alternative.
