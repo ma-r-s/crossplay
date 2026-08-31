@@ -557,6 +557,40 @@ if [ "${1:-}" != "--tests" ]; then
       # Same rule on the way out: a run that died after its lock was reclaimed
       # must not delete the reclaimer's.
       trap 'o="$(cat "$FW_LOCK/owner" 2>/dev/null || true)"; [ "${o%% *}" = "$$" ] && rm -rf "$FW_LOCK"; true' EXIT INT TERM
+
+      # The object cache is trimmed HERE and nowhere else: holding the firmware
+      # lock is the only moment no other tree is reading those objects. Pruning
+      # outside it deletes inputs from under somebody's running build, which
+      # surfaces as a link error naming no file of ours -- the same shape as the
+      # failure the guard exists to make legible.
+      #
+      # It also refuses to start when trimming cannot get the disk above the
+      # floor, so a full disk arrives as a sentence about the disk rather than
+      # as [Errno 28] from inside the espressif32 builder twenty minutes later.
+      #
+      # No manual lock removal on the failure path: the EXIT trap above already
+      # removes it, and only if this run still owns it. Deleting it here as well
+      # would take a lock a reclaimer had legitimately acquired in between.
+      # Sourced only if it resolves, for the same reason the owner line uses
+      # ${REPO:-$PWD}: host-tests/checksh lifts this loop out and runs its text
+      # in a temp directory where scripts_local/ does not exist. An
+      # unconditional source dies there under `set -e`, taking the owner line
+      # with it -- so the lock gets acquired and never owned, and the tests
+      # report exactly that. The guard is a safety check, not a build step;
+      # skipping it in a harness costs nothing.
+      # REPO, not ${REPO:-$PWD}: host-tests/checksh lifts this loop out and runs
+      # it with REPO deliberately unset, and the guard must not fire there. It
+      # would prune the REAL shared cache from inside a unit test -- 66GB of
+      # another session's build inputs -- and an early exit from it takes the
+      # rest of the loop with it, which is how this was found.
+      _guard="${REPO:-}/scripts_local/cache-guard.sh"
+      if [ -n "${REPO:-}" ] && [ -r "$_guard" ]; then
+        # shellcheck source=scripts_local/cache-guard.sh
+        . "$_guard"
+        if ! cache_guard_check "$PLATFORMIO_BUILD_CACHE_DIR"; then
+          exit 1
+        fi
+      fi
     fi
     if pio run -e "$env" > "$LOGS/$env.log" 2>&1; then
       # The native build reports no RAM/Flash. Say "ok" rather than printing
