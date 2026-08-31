@@ -34,8 +34,21 @@ naming no file of ours.
 | Cause | What stops it |
 | --- | --- |
 | The disk is full | this guard's `AVAIL_FLOOR_GB` |
-| Two device builds ran at once | `check.sh`'s firmware lock |
+| Two **device** builds ran at once | `check.sh`'s firmware lock |
+| **Any two builds raced on the SCons database** | a per-tree `.sconsign` |
 | Something mutated the cache mid-build | the prune's exclusions |
+
+The third row is the one that has been misdiagnosed. It is **not** limited to
+device builds and **the firmware lock never prevented it**: that lock serialises
+device envs only, while the host and simulator builds run unlocked in every tree
+and wrote the same signature database. Five sessions gating at once is an
+ordinary evening here.
+
+Its signature is the same as the rest, so the standing advice -- "retry with the
+workspace quiet" -- appeared to work, because retrying eventually wins the race.
+The tell that it IS the race: `xteink-bf`'s gate failed on `gh_release_sticky`
+with `x4pro` green, and the retry failed on `gh_release_x4pro` with `sticky`
+green. Same commit, opposite envs. Nothing about the code distinguishes them.
 
 Anyone debugging one of these is looking at three indistinguishable candidates,
 so all three belong in the same place.
@@ -74,6 +87,37 @@ of ours -- the same illegible shape the guard exists to prevent.
 
 When trimming cannot get the disk above the floor it refuses, and says so in a
 sentence about the disk, with the two commands worth running.
+
+## The signature database is per-tree now
+
+PlatformIO conflates two unrelated things, in `builder/main.py`:
+
+```python
+env.SConsignFile(os.path.join(
+    "$BUILD_CACHE_DIR" if env.subst("$BUILD_CACHE_DIR") else "$BUILD_DIR",
+    ".sconsign%d%d" % (sys.version_info[0], sys.version_info[1])))
+```
+
+With no build cache dir the database lives in `BUILD_DIR`, per-tree and private.
+**Setting a shared `BUILD_CACHE_DIR` moves it into the shared directory too.** So
+sharing the object cache -- which this workspace wants, because it makes a new
+tree mostly cache hits -- forces sharing the signature database, which races.
+
+`scripts_local/sconsign_per_tree.py` calls `SConsignFile` again with a per-tree
+path. PlatformIO runs pre-scripts *after* its own call (main.py line 160, then
+167), so ours wins. Measured: the shared cache dir gets **no** `.sconsign`, the
+build dir gets its own, and 298 objects still land in the shared cache -- the
+saving is kept and the race is gone.
+
+It is wired into **both** `[base]` in `platformio.ini` and the simulator env in
+`platformio.sim.ini`. The simulator does not extend `base`, which is exactly the
+gap that made the first version of this look like it did nothing: the script
+never ran, and the build passed anyway.
+
+One INI trap it cost an attempt to find: **a continuation line starting with `;`
+inside a multi-line value is part of the VALUE, not a comment.** PlatformIO then
+skips the whole list silently and the build still succeeds. Comments go above
+the key.
 
 ## Never delete SCons state
 
