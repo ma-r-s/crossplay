@@ -173,7 +173,16 @@ void TriviaActivity::onWifiChosen(const bool connected) {
 }
 
 void TriviaActivity::runPackDownload() {
-  if (!Storage.mkdir(kDir)) {
+  // exists() first, because SdFat's mkdir returns FALSE for a directory that
+  // is already there. Treating that as failure meant the second attempt at a
+  // download could never succeed: the first one creates /trivia, and every run
+  // after it reports NO ROOM on a card with gigabytes free.
+  //
+  // Found on hardware and invisible in the simulator, whose SD is an ordinary
+  // host directory where mkdir on an existing path succeeds. Every other
+  // caller in this fork already does it this way -- StudyActivity, ScreenshotUtil,
+  // BookmarkFile -- and this was the one that invented its own.
+  if (!Storage.exists(kDir) && !Storage.mkdir(kDir)) {
     showNotice("NO ROOM", "Could not create /trivia on the card. Is the card in, and writable?", "TRY AGAIN",
                triviaui::ActionGetPack);
     return;

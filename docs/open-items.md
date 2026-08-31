@@ -272,3 +272,16 @@ without waiting on upstream; Free-Ink/freeink-sdk#59 carries them upstream.
 
 **Done looks like:** the PR merged, `.gitmodules` pointing back at
 Free-Ink/freeink-sdk, and the submodule pinned to the upstream hash.
+
+## `!exists && !mkdir` wants to be a helper
+
+Five callers now spell the same guard by hand: `StudyActivity`,
+`ScreenshotUtil`, `BookmarkFile`, `FontInstaller`, and (as of 2026-08-31)
+`TriviaActivity`. SdFat's `mkdir` returns **false for a directory that already
+exists**, so a caller that treats false as failure works exactly once and then
+reports a full card forever.
+
+Trivia invented its own spelling and shipped the bug. Four independent
+rediscoveries of one idiom is the signal: a `Storage.ensureDir(path)` would mean
+the sixth caller inherits the contract instead of inventing it. Not urgent, but
+the next one will get it wrong the same way.
