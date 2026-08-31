@@ -346,6 +346,21 @@ rather than printing it into the trace and exiting 0. That is a better gate than
 any table of strings could be, because it needs no table: it sees whatever the
 app actually drew.
 
+**What it cannot see, which matters as much as what it can.** The gate fires
+only for text the renderer ACTUALLY DREW and truncated. An overflow that depends
+on data the app has not got yet -- a pack not downloaded, an empty state nobody
+reached, a name nobody has typed that long -- draws nothing, truncates nothing,
+and passes. The shelf-wide sweep that found the XKCD bug visited each app's
+OPENING screen; "every app is clean" means every app's first screen is clean and
+no more than that.
+
+So the gate is a backstop, not a proof. Where a length is known before the
+device sees it -- a generated word list, a downloaded content pack -- cap it at
+BUILD time against the measured cut, so the device is never handed a string that
+cannot fit and the gate has nothing left to find. That is what
+`gen_forehead_words.py` does with `MAX_ENTRY_PX`, and it is the reason the
+generator refuses rather than the panel revealing.
+
 When it fires, measure the string:
 
 ```bash
