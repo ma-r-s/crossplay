@@ -157,13 +157,24 @@ def slug(name):
 
     The whole path, not the last component: 'Spanish::Food' and 'Travel::Food'
     are different decks, and giving them the same directory would silently wire
-    one deck's reviews to the other's cards. Capped at 31 characters because
-    that is the device's name buffer.
+    one deck's reviews to the other's cards.
+
+    MUST match bridge/decks.py slugify(). Both put decks in /study/<slug>/ on
+    the same card, and a reader cannot tell which route a folder arrived by, so
+    where the two disagree the same deck lands in two directories and is
+    studied twice with two separate histories. They had drifted: this capped at
+    31 where the service caps at 40, and this reduced every name without Latin
+    letters to the single directory "deck", so two Chinese decks shared one
+    folder and one review log.
     """
+    import hashlib
     import re
 
-    flat = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "deck"
-    return flat[:31].rstrip("-")
+    flat = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    if flat and len(flat) <= 40:
+        return flat
+    stamp = hashlib.sha1(name.encode("utf-8")).hexdigest()[:8]
+    return f"{flat[:31]}-{stamp}" if flat else f"deck-{stamp}"
 
 
 def find_deck_dir(card):

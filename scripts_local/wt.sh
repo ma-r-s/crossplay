@@ -37,8 +37,13 @@ die() {
   exit 1
 }
 
+# The base is origin/xteink, never the local branch. firmware-next's local
+# xteink carries a train's unpushed commits for the whole bump-to-push window,
+# so branching from it silently adopts somebody else's release in progress. On
+# 2026-08-30 a tree cut that way gated another session's unpushed release notes
+# and reported that session's failure as its own discovery.
 cmd_new() {
-  local name="${1:-}" from="xteink"
+  local name="${1:-}" from=""
   [ -n "$name" ] || die "usage: wt.sh new <name> [--from <branch>]"
   shift
   while [ $# -gt 0 ]; do
@@ -56,6 +61,13 @@ cmd_new() {
   [ -e "$dir" ] && die "$dir already exists"
   git -C "$INTEGRATION" show-ref --verify --quiet "refs/heads/$branch" &&
     die "branch $branch already exists (drop the old worktree first, or pick another name)"
+
+  # Fetch before reading origin/xteink: a stale remote ref bases the tree on
+  # work that landed hours ago, which is the same bug one indirection further.
+  if [ -z "$from" ]; then
+    git -C "$INTEGRATION" fetch origin --quiet 2>/dev/null || true
+    from="origin/xteink"
+  fi
 
   mkdir -p "$WT_ROOT"
   echo "creating $dir on $branch (from $from)"
@@ -103,9 +115,12 @@ cmd_list() {
     # ignore the column. sync.sh and check.sh do the same.
     dirty="$(git -C "$d" status --porcelain --ignore-submodules=untracked 2>/dev/null | grep -c '' || true)"
     [ "$dirty" -eq 0 ] && dirty="clean" || dirty="$dirty files"
-    ahead="$(git -C "$d" rev-list --count xteink.."$branch" 2>/dev/null || echo 0)"
+    # Against origin/xteink, not the local branch, for the reason in cmd_new:
+    # during a train the local branch is ahead of what everyone else can see,
+    # so every tree's count reads high and the column stops meaning anything.
+    ahead="$(git -C "$d" rev-list --count origin/xteink.."$branch" 2>/dev/null || echo 0)"
     state=""
-    [ "$ahead" != "0" ] && state="$ahead commit(s) ahead of xteink"
+    [ "$ahead" != "0" ] && state="$ahead commit(s) ahead of origin/xteink"
     # A simulator running out of this tree means somebody is using it.
     pgrep -f "^$d/.pio/build/simulator_x4_pro/program" >/dev/null 2>&1 &&
       state="${state:+$state, }sim running"
@@ -124,7 +139,7 @@ cmd_drop() {
   # not a small mistake.
   local unmerged dirty
   dirty="$(git -C "$dir" status --porcelain --ignore-submodules=untracked | grep -c '' | tr -d ' ')"
-  unmerged="$(git -C "$INTEGRATION" rev-list --count xteink.."$branch" 2>/dev/null || echo 0)"
+  unmerged="$(git -C "$INTEGRATION" rev-list --count origin/xteink.."$branch" 2>/dev/null || echo 0)"
   if [ "$dirty" != "0" ] || [ "$unmerged" != "0" ]; then
     echo "refusing to drop $name:" >&2
     [ "$dirty" != "0" ] && echo "  $dirty uncommitted file(s)" >&2

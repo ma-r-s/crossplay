@@ -26,6 +26,7 @@ TAG="$(printf '%s' "$REPO" | shasum | cut -c1-8)"
 LOGS="${TMPDIR:-/tmp}/xteink-check-$TAG"
 mkdir -p "$LOGS"
 FAILED=0
+SUBMODULE_DRIFT=""
 
 # --ignore-submodules=untracked: the icon tools drop a __pycache__/ inside
 # freeink-sdk, which is untracked content in a submodule and not your work.
@@ -173,6 +174,40 @@ if [ -z "${LINKPLAY_BASE_PORT:-}" ]; then
   export LINKPLAY_BASE_PORT=$(( 46000 + SLICE * 16 ))
 fi
 
+# The repo ships hooks in .githooks -- a pre-commit formatter and a pre-push
+# guard against publishing another session's unpushed release. Git only runs
+# them when core.hooksPath points there, and that is a per-clone step nobody
+# on this machine had done, so both sat inert while everyone assumed they were
+# covered. A guard nobody enabled is not a guard; say so where it will be read.
+if [ -d "$REPO/.githooks" ] && [ -z "$(git -C "$REPO" config core.hooksPath || true)" ]; then
+  echo "note: .githooks exists but core.hooksPath is unset, so NO repo hook runs here."
+  echo "      enable per clone with: git config core.hooksPath .githooks"
+  echo
+fi
+
+# A tree can be checked out at submodules its own commit does not describe, and
+# then every suite and every build passes while describing nothing. See
+# scripts_local/submodule_state.sh. Uninitialised stops the gate here rather
+# than twenty minutes later inside a compiler error naming no file of ours;
+# drift is allowed to run (an SDK bump in progress is legitimate work) but
+# QUALIFIES THE VERDICT, because a note above a green line is a note that gets
+# read past -- which is how this arrived.
+SUB_STATE="$REPO/scripts_local/submodule_state.sh"
+if [ -x "$SUB_STATE" ]; then
+  SUB_OUT="$("$SUB_STATE" "$REPO" 2>&1)" && SUB_RC=0 || SUB_RC=$?
+  if [ -n "$SUB_OUT" ]; then
+    echo "$SUB_OUT" | sed 's/^/  /'
+    echo
+  fi
+  case "$SUB_RC" in
+    2|4)
+      echo "refusing to gate a tree whose submodules are not the ones it describes."
+      exit 1
+      ;;
+    3) SUBMODULE_DRIFT=1 ;;
+  esac
+fi
+
 DIRTY="$(dirty_count)"
 if [ "$DIRTY" -ne 0 ]; then
   echo "note: verifying your working tree, which has $DIRTY uncommitted file(s)."
@@ -269,6 +304,7 @@ if [ -n "$STUDY_PY" ]; then
               "tools_local/study/test_fsrs.py" \
               "tools_local/study/test_web_glue.py" \
               "tools_local/study/test_web_glue.py --from-zip" \
+              "tools_local/study/test_slug_parity.py" \
               "tools_local/study/test_font_parity.py"; do
     step="$(echo "$args" | sed 's|tools_local/study/||')"
     # One log per step: a failing step's output used to be overwritten by the
@@ -286,36 +322,55 @@ else
   echo "  installer    SKIPPED: no .venv-study -- the page's Python suite did NOT run"
 fi
 
-# The sync bridge server suite. Its venv is not committed; uv rebuilds it in
-# a --committed trial worktree (warm uv cache makes that cheap). A missing
+# The sync bridge server suites. Their venvs are not committed; uv rebuilds them
+# in a --committed trial worktree (warm uv cache makes that cheap). A missing
 # toolchain FAILS rather than skips: a bridge change riding a green gate whose
 # bridge suite never ran is exactly the silence check.sh exists to prevent.
-BRIDGE_DIR="$REPO/server/study-bridge"
-if [ -d "$BRIDGE_DIR" ]; then
+#
+# Two services now, so this is a loop rather than a block. Each entry is
+#   <directory> <label> <port offset within the tree's slice> <suites...>
+# and the offsets are picked apart from each other AND from the link suite,
+# which owns LINKPLAY_BASE_PORT+0..7 (LinkRadio.cpp, kSlots). readbridge takes
+# 8..11 because its harness derives a fake-service port from the base; study
+# takes 12. Sharing an offset would only bite when two trees gate at once,
+# which is exactly when nobody is looking.
+for entry in \
+  "server/study-bridge:bridge:12:tests/test_engine.py tests/test_api.py" \
+  "server/read-bridge:readbridge:8:tests/test_oauth.py tests/test_article.py tests/test_engine.py tests/test_api.py"
+do
+  BRIDGE_DIR="$REPO/${entry%%:*}"
+  rest="${entry#*:}"
+  BRIDGE_LABEL="${rest%%:*}"
+  rest="${rest#*:}"
+  BRIDGE_OFFSET="${rest%%:*}"
+  BRIDGE_SUITES="${rest#*:}"
+  [ -d "$BRIDGE_DIR" ] || continue
+
   BRIDGE_PY="$BRIDGE_DIR/.venv/bin/python"
   if [ ! -x "$BRIDGE_PY" ] && command -v uv > /dev/null 2>&1; then
     (cd "$BRIDGE_DIR" && uv venv .venv --quiet \
       && uv pip install --python .venv/bin/python --quiet -r requirements.txt) \
-      > "$LOGS/bridge-venv.log" 2>&1 || true
+      > "$LOGS/$BRIDGE_LABEL-venv.log" 2>&1 || true
   fi
   if [ -x "$BRIDGE_PY" ]; then
     # Ports ride the tree's own slice, same reason as LINKPLAY_BASE_PORT:
-    # two trees' gates must not share a sync-server port.
-    export BRIDGE_TEST_PORT=$(( LINKPLAY_BASE_PORT + 12 ))
-    for t in tests/test_engine.py tests/test_api.py; do
-      if (cd "$BRIDGE_DIR" && "$BRIDGE_PY" "$t") > "$LOGS/bridge-$(basename "$t").log" 2>&1; then
-        printf "  %-12s ok (%s)\n" "bridge" "$(basename "$t")"
+    # two trees' gates must not share a test server's port.
+    export BRIDGE_TEST_PORT=$(( LINKPLAY_BASE_PORT + BRIDGE_OFFSET ))
+    for t in $BRIDGE_SUITES; do
+      log="$LOGS/$BRIDGE_LABEL-$(basename "$t").log"
+      if (cd "$BRIDGE_DIR" && "$BRIDGE_PY" "$t") > "$log" 2>&1; then
+        printf "  %-12s ok (%s)\n" "$BRIDGE_LABEL" "$(basename "$t")"
       else
-        printf "  %-12s FAILED (%s)\n" "bridge" "$(basename "$t")"
-        tail -5 "$LOGS/bridge-$(basename "$t").log" | sed 's/^/      /'
+        printf "  %-12s FAILED (%s)\n" "$BRIDGE_LABEL" "$(basename "$t")"
+        tail -5 "$log" | sed 's/^/      /'
         FAILED=1
       fi
     done
   else
-    printf "  %-12s FAILED (no venv and uv could not build one)\n" "bridge"
+    printf "  %-12s FAILED (no venv and uv could not build one)\n" "$BRIDGE_LABEL"
     FAILED=1
   fi
-fi
+done
 
 if [ -n "$STUDY_PY" ] && [ -f tools_local/site/precompress.py ]; then
   if (cd "$REPO" && $STUDY_PY tools_local/site/precompress.py --check) > "$LOGS/precompress.log" 2>&1; then
@@ -394,7 +449,27 @@ if [ "${1:-}" != "--tests" ]; then
         else
           builds_alive=0
         fi
-        if [ -n "$owner_pid" ] && kill -0 "$owner_pid" 2>/dev/null; then
+        if [ ! -e "$FW_LOCK/owner" ]; then
+          # A lock with no owner file is HELD, never abandoned. It was taken by
+          # a tree whose check.sh predates the owner file, with a plain mkdir,
+          # and such a holder cannot tell us whether it is alive -- so assume it
+          # is. Treating it as dead and falling through to the builds_alive test
+          # is not safe: a --committed run builds four device envs in sequence,
+          # and between them no `pio run` exists at all, so a waiter landing in
+          # that gap would reclaim a live holder's lock and both would then race
+          # ~/.platformio. Seen on 2026-08-31, an empty x4pro.lock held by a
+          # live pre-owner-file check.sh while another tree waited on it.
+          #
+          # The cost is that a genuinely dead ownerless lock never self-clears.
+          # That is the pre-owner-file status quo, and it is the right way round:
+          # waiting too long is a delay, reclaiming too early is two concurrent
+          # builds and an error naming no file of ours.
+          [ $(( waited % 60 )) -eq 0 ] && {
+            echo "  lock has no owner file: an older check.sh holds it, and this cannot self-clear." >&2
+            echo "  waiting (${waited}s). If nothing is really building, remove it by hand:" >&2
+            echo "    rm -rf $FW_LOCK" >&2
+          }
+        elif [ -n "$owner_pid" ] && kill -0 "$owner_pid" 2>/dev/null; then
           # Holder alive. Not stale at any age; a 40-minute release gate is
           # working, not hung.
           [ $(( waited % 30 )) -eq 0 ] &&
@@ -575,7 +650,11 @@ fi
 
 echo
 if [ "$FAILED" -eq 0 ]; then
-  echo "all green. logs in $LOGS"
+  if [ -n "$SUBMODULE_DRIFT" ]; then
+    echo "all green -- BUT ON DRIFTED SUBMODULES, so it describes no commit. logs in $LOGS"
+  else
+    echo "all green. logs in $LOGS"
+  fi
 else
   echo "SOMETHING FAILED. logs in $LOGS"
 fi

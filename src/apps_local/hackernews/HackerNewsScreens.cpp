@@ -2,6 +2,8 @@
 
 #include <FreeInkUIIcon.h>
 
+#include "../ui/ToyboxText.h"
+
 namespace hnui {
 namespace {
 
@@ -48,78 +50,11 @@ void chrome(toybox::Screen& screen, const char* title, const char* rightLabel,
 
 std::string fitLines(const fui::DrawTarget& target, const char* text, const int16_t width, const int lines,
                      const fui::TextStyle& style) {
-  if (text == nullptr || width <= 0 || lines <= 0) return std::string();
-
-  const std::string whole(text);
-  const auto fits = [&target, &style, width](const std::string& run) {
-    return target.measureText(style.font, run.c_str(), style).width <= width;
-  };
-
-  // Greedy word wrap, the same shape the component uses when it draws this.
-  // Walk the words; when a line will not take another, start the next one. If
-  // the lines run out with words still to come, the title has to be cut.
-  //
-  // The last line is tracked separately from the text as a whole, and that is
-  // the whole trick. The first version appended the ellipsis to the entire
-  // string and then measured *that* against one line's width, so every headline
-  // long enough to wrap was trimmed back until all of it fitted on line one:
-  // the front page came out as "In Memory of My...", "Show HN: Simple...",
-  // "I am retiring from...". Only the last line has to make room.
-  std::string line;          // the line being filled
-  size_t lineStart = 0;      // where it begins in `whole`
-  size_t consumed = 0;       // end of the last word that fitted anywhere
-  size_t lastLineStart = 0;  // where the final drawn line begins
-  int lineNumber = 1;
-  bool overflowed = false;
-
-  size_t i = 0;
-  while (i <= whole.size()) {
-    const size_t space = whole.find(' ', i);
-    const size_t end = space == std::string::npos ? whole.size() : space;
-    const std::string word = whole.substr(i, end - i);
-    const std::string candidate = line.empty() ? word : line + " " + word;
-
-    if (fits(candidate)) {
-      line = candidate;
-      consumed = end;
-      lastLineStart = lineStart;
-    } else if (lineNumber < lines) {
-      ++lineNumber;
-      lineStart = i;
-      line = word;
-      // A single word wider than the line has nowhere to go, so let it be cut
-      // rather than looping forever looking for a break that cannot exist.
-      if (fits(word)) {
-        consumed = end;
-        lastLineStart = lineStart;
-      }
-    } else {
-      overflowed = true;
-      break;
-    }
-
-    if (end == whole.size()) break;
-    i = end + 1;
-  }
-
-  if (!overflowed && consumed >= whole.size()) return whole;
-
-  // Cut on a word boundary and say so. A title that stops mid-word reads as a
-  // rendering fault; one that ends in an ellipsis reads as a long title, which
-  // is what it is. Design language: shrink to fit, never break a word.
-  std::string kept = whole.substr(0, consumed);
-  while (!kept.empty() && kept.back() == ' ') kept.pop_back();
-  if (lastLineStart > kept.size()) lastLineStart = 0;
-
-  // Give back whole words from the final line until the ellipsis fits beside
-  // it. Measured against that line alone, never against the paragraph.
-  static constexpr const char* kEllipsis = "...";
-  while (kept.size() > lastLineStart && !fits(kept.substr(lastLineStart) + kEllipsis)) {
-    const size_t space = kept.rfind(' ');
-    if (space == std::string::npos || space < lastLineStart) break;
-    kept.resize(space);
-  }
-  return kept + kEllipsis;
+  // Moved to src/apps_local/ui/ToyboxText.h when a second app needed it. Kept
+  // as a wrapper rather than deleted: this name is what the header promises
+  // and what host-tests/ui asserts against, and a rename would have been a
+  // second change riding an extraction.
+  return toybox::fitLines(target, text, width, lines, style);
 }
 
 // --- The front page ------------------------------------------------------
