@@ -73,6 +73,16 @@ def run(project, environ):
         os.environ.update(saved)
 
 
+def _workspace_above(start):
+    """Mirror of the guard's marker walk, for asserting the fixture is honest."""
+    d = os.path.abspath(start)
+    while d != "/":
+        if os.path.exists(os.path.join(d, ".xteink-workspace")):
+            return d
+        d = os.path.dirname(d)
+    return None
+
+
 def case(label, expect_allowed, project, environ):
     allowed = run(project, environ)
     if allowed == expect_allowed:
@@ -133,6 +143,16 @@ def main():
     with open(os.path.join(alt, "x4pro.lock", "owner"), "w") as f:
         f.write("%d elsewhere\n" % os.getpid())
     case("honours PLATFORMIO_BUILD_CACHE_DIR", False, tree,
+         {"PLATFORMIO_BUILD_CACHE_DIR": alt})
+
+    # A --committed trial worktree lives under TMPDIR with NO .xteink-workspace
+    # above it, so a marker-only test would no-op for every --committed build --
+    # which is precisely the release-gate builds. check.sh exports the inherited
+    # cache dir there, and that must be enough on its own.
+    trial = os.path.join(work, "xteink-committed-abc123")
+    os.makedirs(trial)
+    assert _workspace_above(trial) is None, "fixture is wrong: marker found above the trial dir"
+    case("--committed trial worktree, no marker above it", False, trial,
          {"PLATFORMIO_BUILD_CACHE_DIR": alt})
 
     print("%d checks, %d failed" % (PASS + FAIL, FAIL))

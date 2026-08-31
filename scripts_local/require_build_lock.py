@@ -18,6 +18,16 @@ be routed around within the hour.
 
 Silent no-op outside Mario's multi-tree workspace: CI checks out a single tree
 with no .xteink-workspace marker above it, and there is nothing there to race.
+
+WHAT THIS DOES NOT DO, so nobody assumes coverage it does not have: the check
+runs ONCE, at build start. A raw `pio run` that starts during a quiet window and
+a check.sh that takes the lock a moment later still race, and neither sees the
+other. This NARROWS the unlocked-build hole; it does not close it. A hole
+believed closed stops being looked at.
+
+`_alive()` also says true for a recycled pid, so a dead owner whose number was
+reused would refuse a legitimate build. Vanishingly rare, and the override
+exists for it.
 """
 
 import os
@@ -53,15 +63,21 @@ def check():
     if os.environ.get("XTEINK_ALLOW_UNLOCKED_BUILD"):
         return
 
-    project = env.subst("$PROJECT_DIR")  # noqa: F821
-    ws = _workspace(project)
-    if ws is None:
-        return  # a standalone clone or CI; no siblings to race
+    # PLATFORMIO_BUILD_CACHE_DIR first, and not merely as a default for the
+    # marker walk. A --committed run builds in a trial worktree under TMPDIR,
+    # where there is NO .xteink-workspace above it -- so a marker-only test
+    # no-ops for every --committed build, which is exactly the release-gate
+    # builds. check.sh exports the inherited cache dir precisely because its own
+    # marker walk dead-ends there, and that env var is the honest signal that we
+    # are inside the shared workspace. CI sets neither, so CI stays untouched.
+    cache = os.environ.get("PLATFORMIO_BUILD_CACHE_DIR")
+    if not cache:
+        ws = _workspace(env.subst("$PROJECT_DIR"))  # noqa: F821
+        if ws is None:
+            return  # a standalone clone or CI; no siblings to race
+        cache = os.path.join(ws, ".pio-cache")
 
-    lock = os.path.join(
-        os.environ.get("PLATFORMIO_BUILD_CACHE_DIR", os.path.join(ws, ".pio-cache")),
-        "x4pro.lock",
-    )
+    lock = os.path.join(cache, "x4pro.lock")
     owner_file = os.path.join(lock, "owner")
     if not os.path.isdir(lock):
         return  # nobody is building
