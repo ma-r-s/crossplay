@@ -18,6 +18,7 @@
 #include <HalStorage.h>
 
 #include <memory>
+#include <vector>
 
 #include "../../activities/Activity.h"
 #include "StudyDeck.h"
@@ -60,7 +61,7 @@ class StudyActivity final : public Activity {
   // whatever sentence the flow is on, the pairing QR, and the on-device
   // "Paired to <account> -- confirm?" gate (which closes both directions of
   // the pairing race; see docs/apps/study-sync-bridge-plan.md).
-  enum class View : uint8_t { Deck, Card, Image, NoDeck, SyncFlow, PairQr, PairConfirm };
+  enum class View : uint8_t { Deck, Card, Image, NoDeck, SyncFlow, PairQr, PairConfirm, DeckPicker };
   enum class Face : uint8_t { Question, Answer };
 
   bool openDeck();
@@ -169,14 +170,21 @@ class StudyActivity final : public Activity {
   // cell on the answer side, so the two faces divide the same bar the same way.
   static constexpr int kUndoSlots = 4;
 
-  // Every deck on the card, discovered at onEnter. Eight is not a limit anyone
-  // will meet: it is one SD card full of separate study subjects.
-  static constexpr int kMaxDecks = 8;
-  char deckNames_[kMaxDecks][32] = {};
+  // Every deck on the card, discovered at onEnter. Sixteen, not eight: nothing
+  // removes a deck folder, so a card accumulates every deck ever chosen, and
+  // eight slots were reachable by changing your mind once about five decks.
+  // Past the cap a deck is invisible AND unreachable to the sync, so its
+  // reviews are never sent. 16 x 48 bytes is 768.
+  static constexpr int kMaxDecks = 16;
+  char deckNames_[kMaxDecks][48] = {};
   int deckCount_ = 0;
+  // Deck folders on the card beyond the kMaxDecks this reader can hold. They
+  // are invisible everywhere else, including to the sync, so the number has to
+  // reach the screen.
+  int decksOverCap_ = 0;
   int deckIndex_ = 0;
   // The open deck's directory, /study/<name>; empty until a deck is open.
-  char deckDir_[48] = "";
+  char deckDir_[64] = "";  // "/study/" + a 40-char slug, with room to spare
 
   int currentIndex_ = -1;
   int today_ = 0;
@@ -211,19 +219,31 @@ class StudyActivity final : public Activity {
   void onSyncWifi(bool connected);
   void runSyncFlow();
   bool runPairing();
+  // Blocking, like the rest of the flow: paints the picker and pumps input
+  // until the user confirms or leaves. False means the sync should stop.
+  bool runDeckPicker();
+  std::vector<study::StudySync::DeckChoice> deckChoices_;
+  studyui::DeckPickerModel picker_;
+  std::vector<studyui::DeckPickerModel::Row> pickerRows_;
   bool buildPayloads(std::vector<study::DeckPayload>& out);
   bool applyManifests(const std::vector<study::DeckManifest>& manifests, std::string& message, int& decksUpdated);
   // Paint the flow model now (requestUpdateAndWait); flowStage() marks every
   // stage before `stage` done, `stage` active, and swaps the caption.
   void showFlow();
   void flowStage(studyui::SyncStage stage, const char* caption);
+  // describeQueue makes the footer say what is waiting to study. It cannot be
+  // passed in as text: the flow closed the deck for heap, so the counts are
+  // zero until endSyncSession reopens it, and an argument is evaluated before
+  // the call. Composed inside, after the reopen, it tells the truth.
   void endSyncSession(studyui::SyncVerdictKind kind, studyui::SyncSafety safety, const char* title, const char* body,
-                      const char* whatNow = nullptr);
+                      const char* whatNow = nullptr, bool describeQueue = false);
   void syncTimeIfNeeded();
   void drainInput();
   // The radio is up and a stranger is mid-pairing: sleeping here would read
   // as a crash. The result screen (syncBusy_ false) may sleep normally.
-  bool preventAutoSleep() override { return syncBusy_ || view_ == View::PairQr || view_ == View::PairConfirm; }
+  bool preventAutoSleep() override {
+    return syncBusy_ || view_ == View::PairQr || view_ == View::PairConfirm || view_ == View::DeckPicker;
+  }
 
   study::StudySync sync_;
   study::BridgeState bridge_;
@@ -231,9 +251,28 @@ class StudyActivity final : public Activity {
   bool syncBusy_ = false;
   bool wifiActivated_ = false;
   studyui::SyncFlowModel flow_;
+  bool secondPass_ = false;
+  // A runtime request for the deck picker; never persisted, so cancelling it
+  // cannot leave the reader stuck answering the question on every sync.
+  bool pickerRequested_ = false;
+  // Cards waiting in the card's OTHER decks, refreshed with the queue rather
+  // than per render: "ALL CLEAR" on the open deck was read as "nothing to
+  // study today" while another deck held work.
+  int countWaitingIn(const char* dirName) const;
+  int otherWaiting_ = 0;
   // What the pairing screens draw; only meaningful in the PairQr/PairConfirm
   // views. The confirm tap target is registered by render() here so the poll
   // loop and the drawing agree on one rectangle.
+  // The empty-card screen's sync door, registered by render() so the tap
+  // test and the pixels cannot drift apart.
+  int16_t noDeckSyncX_ = 0;
+  int16_t noDeckSyncY_ = 0;
+  int16_t noDeckSyncW_ = 0;
+  int16_t noDeckSyncH_ = 0;
+  // The second door on an empty card, drawn only once decks have been chosen.
+  // Zero height means it is not on screen and cannot be tapped.
+  int16_t noDeckPickY_ = 0;
+  int16_t noDeckPickH_ = 0;
   std::string pairCode_;
   std::string pairUsername_;
   // The confirm tap target (Rect is only forward-declared here).

@@ -9,6 +9,7 @@
 #include <cstring>
 #include <ctime>
 
+#include "../../DevMode.h"
 #include "../../SilentRestart.h"
 #include "../../activities/network/WifiSelectionActivity.h"
 #include "../../components/UITheme.h"
@@ -164,8 +165,28 @@ void StudyActivity::onEnter() {
 #if !defined(FREEINK_NET_WOLFSSL)
 void StudyActivity::applySyncFlowPreview(const char* state) {
   if (std::strcmp(state, "pairqr") == 0) {
-    pairCode_ = "K7Q2FD";
+    pairCode_ = "GAS7V3AY";  // real codes are 8 characters; a shorter stand-in hides overflow
     view_ = View::PairQr;
+    return;
+  }
+  if (std::strcmp(state, "picker") == 0) {
+    static const char* kNames[] = {"Mandarin: Vocabulary", "GRE Vocab List", "Kanji N5", "Default"};
+    static const int kCards[] = {5001, 1992, 812, 0};
+    pickerRows_.clear();
+    for (int i = 0; i < 4; ++i) {
+      studyui::DeckPickerModel::Row row;
+      row.name = kNames[i];
+      row.cards = kCards[i];
+      row.chosen = i == 0;
+      pickerRows_.push_back(row);
+    }
+    picker_ = studyui::DeckPickerModel{};
+    picker_.rows = pickerRows_.data();
+    picker_.count = static_cast<int>(pickerRows_.size());
+    picker_.maxChosen = study::kMaxChosenDecks;
+    picker_.chosenCount = 1;
+    picker_.withheld = true;
+    view_ = View::DeckPicker;
     return;
   }
   if (std::strcmp(state, "pairconfirm") == 0) {
@@ -183,24 +204,36 @@ void StudyActivity::applySyncFlowPreview(const char* state) {
     m.stages[2] = studyui::SyncStageState::Active;
     std::snprintf(m.caption, sizeof(m.caption), "This first time can take a while. It keeps working if you leave.");
     m.safety = studyui::SyncSafety::ReviewsSafe;
+    m.leaveSafe = true;  // the preview must wear what the flow actually sets
+    std::snprintf(m.facts[static_cast<int>(studyui::SyncStage::Build)], sizeof(m.facts[0]), "1m15s");
     previewFlowSet_ = true;
   } else if (std::strcmp(state, "success") == 0) {
     m.verdict = studyui::SyncVerdictKind::Success;
     std::snprintf(m.title, sizeof(m.title), "SYNCED");
     std::snprintf(m.body, sizeof(m.body), "This reader and your Anki are up to date.");
-    std::snprintf(m.factLines[0], sizeof(m.factLines[0]), "142 REVIEWS SENT");
+    std::snprintf(m.factLines[0], sizeof(m.factLines[0]), "142 SENT, 3 HAD NO CARD IN ANKI");
     std::snprintf(m.factLines[1], sizeof(m.factLines[1]), "2 DECKS UPDATED");
     std::snprintf(m.factLines[2], sizeof(m.factLines[2]), "LAST SYNC 20:15");
     m.factCount = 3;
     m.safety = studyui::SyncSafety::ReviewsSafe;
+    previewFlowSet_ = true;
+  } else if (std::strcmp(state, "partway") == 0) {
+    m.verdict = studyui::SyncVerdictKind::Neutral;
+    for (int i = 0; i < 4; ++i) m.stages[i] = studyui::SyncStageState::Done;
+    std::snprintf(m.title, sizeof(m.title), "PART WAY");
+    std::snprintf(m.body, sizeof(m.body), "Mandarin: Vocabulary could not be built. Everything else is up to date.");
+    std::snprintf(m.whatNow, sizeof(m.whatNow), "Choose your decks again to drop it, or fix it in Anki.");
+    std::snprintf(m.factLines[0], sizeof(m.factLines[0]), "142 SENT, 3 HAD NO CARD IN ANKI");
+    m.factCount = 1;
+    m.safety = studyui::SyncSafety::ReviewsSafePartialDecks;
     previewFlowSet_ = true;
   } else if (std::strcmp(state, "erroracked") == 0) {
     m.verdict = studyui::SyncVerdictKind::Error;
     for (int i = 0; i < 2; ++i) m.stages[i] = studyui::SyncStageState::Done;
     m.stages[2] = studyui::SyncStageState::Active;
     std::snprintf(m.title, sizeof(m.title), "NOT SYNCED");
-    std::snprintf(m.body, sizeof(m.body), "The bridge could not reach AnkiWeb. This is usually brief.");
-    std::snprintf(m.whatNow, sizeof(m.whatNow), "Press SYNC again in a few minutes.");
+    std::snprintf(m.body, sizeof(m.body), "The sync service could not reach AnkiWeb. This is usually brief.");
+    std::snprintf(m.whatNow, sizeof(m.whatNow), "The service may be busy. Try again in a few minutes.");
     m.safety = studyui::SyncSafety::ReviewsSafe;
     previewFlowSet_ = true;
   }
@@ -280,7 +313,7 @@ void StudyActivity::switchDeck() {
 }
 
 void StudyActivity::onExit() {
-  if (wifiActivated_ && WiFi.getMode() != WIFI_MODE_NULL) {
+  if (wifiActivated_ && !devmode::holdsRadio() && WiFi.getMode() != WIFI_MODE_NULL) {
     WiFi.disconnect(false);
     delay(30);
     silentRestart();  // on touch boards: stops SNTP and the radio in place
@@ -309,24 +342,54 @@ bool StudyActivity::findDeckDirs() {
   // in FAT order, which changes when files do, and a switcher that reshuffles
   // itself between sessions would make "the next deck" mean nothing.
   deckCount_ = 0;
+  decksOverCap_ = 0;
   HalFile root = Storage.open(kStudyRoot);
   if (!root.isOpen() || !root.isDirectory()) return false;
-  while (deckCount_ < kMaxDecks) {
+  // Keep counting past the cap. A deck beyond it is invisible in the switcher
+  // AND unreachable to buildPayloads, so its reviews are never sent while the
+  // door reports nothing outstanding. Nothing deletes a deck folder, so a card
+  // grows past eight simply by changing your mind, and the user has to be told
+  // which decks to remove.
+  for (;;) {
     HalFile entry = root.openNextFile();
     if (!entry.isOpen()) break;
     if (!entry.isDirectory()) continue;
-    char name[32];
+    // 48: the service slugifies deck names up to 40 characters, so a 32-byte
+    // buffer truncated real Anki names ("AnkiDroid Japanese Core 2000 Step
+    // 01"), the meta probe then missed, and the deck was skipped silently --
+    // downloaded to the card and invisible on it.
+    char name[48];
     entry.getName(name, sizeof(name));
     if (std::strcmp(name, kFontsDirName) == 0) continue;
     char probe[96];
     std::snprintf(probe, sizeof(probe), "%s/%s/meta.dat", kStudyRoot, name);
     if (!Storage.exists(probe)) continue;
+    if (deckCount_ >= kMaxDecks) {
+      // Full. Keep the alphabetically-first set rather than whichever eight
+      // the filesystem happened to hand back: truncating before the sort meant
+      // FAT order decided, which is creation order, so the decks dropped were
+      // always the ones just chosen -- the worst possible choice and an
+      // invisible one. Deterministic is not fair, but it is explicable, and
+      // the same decks survive on every boot.
+      int worst = 0;
+      for (int i = 1; i < deckCount_; ++i) {
+        if (std::strcmp(deckNames_[i], deckNames_[worst]) > 0) worst = i;
+      }
+      ++decksOverCap_;
+      if (std::strcmp(name, deckNames_[worst]) >= 0) continue;
+      std::snprintf(deckNames_[worst], sizeof(deckNames_[0]), "%s", name);
+      continue;
+    }
     std::snprintf(deckNames_[deckCount_], sizeof(deckNames_[0]), "%s", name);
     ++deckCount_;
   }
+  if (decksOverCap_ > 0) {
+    LOG_ERR("STUDY", "%d deck folder(s) past the %d this reader holds; their reviews cannot be sent", decksOverCap_,
+            kMaxDecks);
+  }
   for (int i = 1; i < deckCount_; ++i) {
     for (int j = i; j > 0 && std::strcmp(deckNames_[j], deckNames_[j - 1]) < 0; --j) {
-      char swap[32];
+      char swap[sizeof(deckNames_[0])];
       std::memcpy(swap, deckNames_[j], sizeof(swap));
       std::memcpy(deckNames_[j], deckNames_[j - 1], sizeof(swap));
       std::memcpy(deckNames_[j - 1], swap, sizeof(swap));
@@ -336,7 +399,7 @@ bool StudyActivity::findDeckDirs() {
   // Reopen whatever was open last time. A device that greets you with a deck
   // you were not studying feels like someone else's.
   deckIndex_ = 0;
-  char last[32] = "";
+  char last[sizeof(deckNames_[0])] = "";
   HalFile lastFile;
   char lastPath[64];
   std::snprintf(lastPath, sizeof(lastPath), "%s/.last", kStudyRoot);
@@ -489,6 +552,11 @@ void StudyActivity::buildQueue() {
       }
     }
   }
+  otherWaiting_ = 0;
+  for (int i = 0; i < deckCount_; ++i) {
+    if (i == deckIndex_) continue;
+    otherWaiting_ += countWaitingIn(deckNames_[i]);
+  }
   LOG_INF("STUDY", "Queue: %d of %d due, %d new (day %d, minute %d)", queueCount_, dueTotal_, newTotal_, today_,
           minute);
 }
@@ -585,9 +653,29 @@ bool StudyActivity::persist(const int index, const study::CardState& card, const
   // revlog.dat is append-only and never rewritten: it is what deck_to_anki.py
   // replays back into the collection, and what FSRS optimisation would retrain
   // from. See docs/apps/study-deck-format.md.
-  if (revlogFile_.isOpen()) {
+  if (!revlogFile_.isOpen()) {
+    // The one file in a deck that has to be CREATED rather than opened, so on
+    // a full or failing card it is the one that fails while the others open.
+    // Logging that and continuing gave a whole working study session whose
+    // every answer went nowhere: cards.dat advanced, the next build overwrote
+    // it with the server's copy, and the sync said SYNCED with NONE NEW.
+    // Failing here lights the banner the deck screen already has.
+    LOG_ERR("STUDY", "no review log open; refusing to answer a card into nothing");
+    return false;
+  }
+  {
     uint8_t record[32] = {};
-    const int64_t nowMs = static_cast<int64_t>(time(nullptr)) * 1000;
+    const int64_t nowS = static_cast<int64_t>(time(nullptr));
+    if (nowS < study::kClockFloor) {
+      // No clock yet (a flat battery clears the RTC; the first sync sets it).
+      // A review logged now is stamped near the epoch, and deck_to_anki
+      // replays that straight into the real collection as the card's last
+      // review. Refusing the record loses one answer; writing it corrupts
+      // the user's own scheduling history.
+      LOG_ERR("STUDY", "clock is not set; not logging this review");
+      return false;
+    }
+    const int64_t nowMs = nowS * 1000;
     const int16_t elapsed = static_cast<int16_t>(card.lastReviewDay < 0 ? 0 : today_ - card.lastReviewDay);
     const int32_t interval = outcome.intervalDays > 0 ? outcome.intervalDays : -outcome.delayMinutes * 60;
     std::memcpy(record, &card.ankiCardId, 8);
@@ -598,7 +686,19 @@ bool StudyActivity::persist(const int index, const study::CardState& card, const
     std::memcpy(record + 20, &interval, 4);
     // tookMs is left zero: nothing here times the user, and inventing a
     // plausible number would poison the data Anki reimports.
-    const uint32_t at = static_cast<uint32_t>(revlogFile_.size());
+    // Append on the record grid, never after a half-written tail. A power cut
+    // or an unclean eject can leave revlog.dat a non-multiple of the record
+    // size; appending at that length puts every later record off-grid, so the
+    // reviews either side of the seam are unreadable by anything that walks
+    // the file in strides -- the device's own stats, its unsent count, and the
+    // bridge's parser alike. Overwriting the partial tail loses only the
+    // record that was already incomplete.
+    uint32_t at = static_cast<uint32_t>(revlogFile_.size());
+    const uint32_t stray = at % study::kRevlogRecordBytes;
+    if (stray != 0) {
+      LOG_ERR("STUDY", "revlog.dat ends %u bytes into a record; overwriting the partial tail", stray);
+      at -= stray;
+    }
     if (!revlogFile_.seekSet(at) || revlogFile_.write(record, sizeof(record)) != sizeof(record)) {
       LOG_ERR("STUDY", "Failed to append to revlog.dat");
       ok = false;
@@ -745,6 +845,13 @@ void StudyActivity::undo() {
 void StudyActivity::loop() {
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     if (view_ == View::SyncFlow) {
+      view_ = deckCount_ > 0 ? View::Deck : View::NoDeck;
+      requestUpdate();
+      return;
+    }
+    if (view_ == View::DeckPicker) {
+      // The picker's own loop owns Back while a sync is running; reaching
+      // here means it is on screen with no flow behind it.
       view_ = View::Deck;
       requestUpdate();
       return;
@@ -759,6 +866,11 @@ void StudyActivity::loop() {
       // screen. The session state stays; the next START REVIEWING re-scans
       // anyway. Flush so a wall-charger yank right after costs nothing.
       flushWrites();
+      // Re-read what this session just wrote. Without these the deck screen
+      // redraws its session-start counts over an empty history panel, which
+      // reads as "the answers you just gave were thrown away".
+      buildQueue();
+      refreshStats();
       view_ = View::Deck;
       requestUpdate();
       return;
@@ -793,8 +905,48 @@ void StudyActivity::loop() {
     return;
   }
   if (view_ == View::SyncFlow) {
-    view_ = View::Deck;
+    if (interactionsReady_) {
+      fui::InputSnapshot input;
+      input.touchReleased = true;
+      input.touchX = static_cast<int16_t>(tapX);
+      input.touchY = static_cast<int16_t>(tapY);
+      const fui::ActionEvent event = interactions_.route(input);
+      if (event.action == studyui::ActionSyncVerdict && event.value == 1) {
+        beginSync();
+        return;
+      }
+    }
+    // Back to whatever a fresh open would show: a reader with no decks yet
+    // must not land on a deck screen announcing ALL CLEAR over nothing, with
+    // the installer QR it still needs nowhere in sight.
+    view_ = deckCount_ > 0 ? View::Deck : View::NoDeck;
     requestUpdate();
+    return;
+  }
+  if (view_ == View::NoDeck) {
+    if (tapX >= noDeckSyncX_ && tapX < noDeckSyncX_ + noDeckSyncW_ && tapY >= noDeckSyncY_ &&
+        tapY < noDeckSyncY_ + noDeckSyncH_) {
+      // A paired reader with an empty card is offered CHOOSE DECKS, so the
+      // tap has to actually reopen the question; without this it ran a plain
+      // sync that answered DECKS UP TO DATE over an empty card, forever.
+      // Only ask which decks when that is genuinely open: a reader whose decks
+      // are already chosen and merely missing wants them fetched, and being
+      // asked to re-pick them is the screen contradicting its own button.
+      study::BridgeState onCard;
+      pickerRequested_ = !(study::loadBridgeState(onCard) && onCard.choseDecks);
+      beginSync();
+      return;
+    }
+    // The way out when the chosen decks are the problem. A deck the service
+    // cannot build -- a cloze deck is the ordinary case, and nothing warns
+    // about it beforehand -- leaves a card with nothing on it, and the door
+    // above only re-runs the same failing build. Without this the only escape
+    // was unpairing from a browser.
+    if (noDeckPickH_ > 0 && tapX >= noDeckSyncX_ && tapX < noDeckSyncX_ + noDeckSyncW_ && tapY >= noDeckPickY_ &&
+        tapY < noDeckPickY_ + noDeckPickH_) {
+      pickerRequested_ = true;
+      beginSync();
+    }
     return;
   }
   if (view_ != View::Card) return;
@@ -1125,16 +1277,146 @@ void StudyActivity::refreshStats() {
   }
 }
 
+namespace {
+// Used by both the deck model (how much is waiting to send) and the sync
+// flow (is a font already the right size), so it lives above both.
+// Reviews between two offsets that have not been undone. A voided record is
+// struck out in place rather than removed (revlog.dat is append-only), so a
+// byte count over-reports by exactly the undos it contains.
+// Both callers hold a different handle: the payload builder has the deck's
+// ByteSource, the ack writer has a HalFile. One shim keeps a single hash.
+inline bool readChunk(study::ByteSource& source, uint32_t at, uint8_t* out, uint32_t len) {
+  return source.read(at, out, len);
+}
+inline bool readChunk(HalFile& file, uint32_t at, uint8_t* out, uint32_t len) {
+  if (!file.seekSet(at)) return false;
+  return file.read(out, len) == static_cast<int>(len);
+}
+
+// FNV-1a over the first `length` bytes. Cheap, allocation-free, and only has
+// to distinguish one review log from another -- not resist an adversary.
+template <typename Source>
+uint64_t hashPrefix(Source& source, const uint32_t length) {
+  uint64_t hash = 1469598103934665603ULL;
+  uint8_t chunk[256];
+  uint32_t at = 0;
+  while (at < length) {
+    const uint32_t want = (length - at) < sizeof(chunk) ? (length - at) : sizeof(chunk);
+    if (!readChunk(source, at, chunk, want)) return 0;
+    for (uint32_t i = 0; i < want; ++i) {
+      hash ^= chunk[i];
+      hash *= 1099511628211ULL;
+    }
+    at += want;
+  }
+  return hash == 0 ? 1 : hash;
+}
+
+int countLiveRecords(const char* path, const uint32_t from, const uint32_t to) {
+  HalFile file;
+  if (!Storage.openFileForRead("STUDY", path, file)) return 0;
+  int live = 0;
+  uint8_t record[study::kRevlogRecordBytes];
+  for (uint32_t at = from; at + study::kRevlogRecordBytes <= to; at += study::kRevlogRecordBytes) {
+    if (!file.seekSet(at)) break;
+    if (file.read(record, sizeof(record)) != static_cast<int>(sizeof(record))) break;
+    if ((record[study::kRevlogFlagsOffset] & study::kRevlogVoided) == 0) ++live;
+  }
+  return live;
+}
+
+int64_t localFileSize(const char* path) {
+  HalFile file;
+  if (!Storage.openFileForRead("STUDY", path, file)) return -1;
+  return static_cast<int64_t>(file.size());
+}
+}  // namespace
+
+// Cards waiting in a deck this reader holds but does not have open. Streams
+// cards.dat with the same fixed offsets buildQueue() uses rather than opening
+// the deck, so the whole pass is one sequential read and no allocation. All
+// decks on a card come from one Anki collection through one bridge, so the
+// open deck's day number applies to them too.
+int StudyActivity::countWaitingIn(const char* dirName) const {
+  char path[96];
+  std::snprintf(path, sizeof(path), "%s/%s/cards.dat", kStudyRoot, dirName);
+  HalFile file;
+  if (!Storage.openFileForRead("STUDY", path, file)) return 0;
+  const uint32_t size = static_cast<uint32_t>(file.size());
+  const int records = static_cast<int>(size / study::kCardRecordSize);
+  int waiting = 0;
+  constexpr int kChunk = 64;
+  uint8_t buffer[kChunk * study::kCardRecordSize];
+  for (int base = 0; base < records; base += kChunk) {
+    const int count = (records - base) < kChunk ? (records - base) : kChunk;
+    if (!file.seekSet(static_cast<uint32_t>(base) * study::kCardRecordSize)) break;
+    if (file.read(buffer, static_cast<size_t>(count) * study::kCardRecordSize) !=
+        static_cast<int>(count * study::kCardRecordSize)) {
+      break;
+    }
+    for (int i = 0; i < count; ++i) {
+      const uint8_t* record = buffer + i * study::kCardRecordSize;
+      const uint8_t state = record[28];
+      if (state == static_cast<uint8_t>(study::State::Suspended)) continue;
+      if (state == static_cast<uint8_t>(study::State::New)) {
+        ++waiting;
+        continue;
+      }
+      int32_t dueDay = 0;
+      std::memcpy(&dueDay, record + 16, sizeof(dueDay));
+      if (dueDay <= today_) ++waiting;
+    }
+  }
+  return waiting;
+}
+
 void StudyActivity::buildDeckModel(studyui::DeckModel& out) const {
   {
     study::BridgeState bridge;
-    if (!study::loadBridgeState(bridge)) {
+    out.paired = study::loadBridgeState(bridge);
+    // How much this reader is holding that AnkiWeb has not seen: revlog.dat
+    // past the acked offset, in whole records. Nothing syncs on its own, so
+    // without this a finished session sits on the card indefinitely while the
+    // screen says DONE and the door says LAST SYNC, and the user reasonably
+    // assumes their answers are in Anki.
+    int unsent = 0;
+    if (out.paired) {
+      for (int i = 0; i < deckCount_; ++i) {
+        char path[96];
+        std::snprintf(path, sizeof(path), "%s/%s/revlog.dat", kStudyRoot, deckNames_[i]);
+        const int64_t size = localFileSize(path);
+        if (size <= 0) continue;
+        const uint32_t acked = bridge.ackFor(deckNames_[i]);
+        if (static_cast<uint32_t>(size) > acked) {
+          // Only reviews that still stand: an undone one is struck out in
+          // place, and counting it made the door promise to send something
+          // that no longer exists.
+          unsent += countLiveRecords(path, acked, static_cast<uint32_t>(size));
+        }
+      }
+    }
+    out.otherWaiting = otherWaiting_;
+    if (!out.paired) {
       std::snprintf(out.syncSubtitle, sizeof(out.syncSubtitle), "NOT PAIRED YET");
+    } else if (unsent > 0) {
+      std::snprintf(out.syncSubtitle, sizeof(out.syncSubtitle), "%d TO SEND", unsent);
     } else if (bridge.lastSyncAt > 0) {
       struct tm parts;
       const time_t at = static_cast<time_t>(bridge.lastSyncAt);
       localtime_r(&at, &parts);
-      std::snprintf(out.syncSubtitle, sizeof(out.syncSubtitle), "LAST SYNC %02d:%02d", parts.tm_hour, parts.tm_min);
+      // A bare clock time reads as "this morning" three days later, so only
+      // today gets a clock; anything older gets its date.
+      const time_t nowT = time(nullptr);
+      struct tm now;
+      localtime_r(&nowT, &now);
+      if (parts.tm_yday == now.tm_yday && parts.tm_year == now.tm_year) {
+        std::snprintf(out.syncSubtitle, sizeof(out.syncSubtitle), "LAST SYNC %02d:%02d", parts.tm_hour, parts.tm_min);
+      } else {
+        static const char* kMonths[] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+                                        "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
+        std::snprintf(out.syncSubtitle, sizeof(out.syncSubtitle), "LAST SYNC %d %s", parts.tm_mday,
+                      kMonths[parts.tm_mon % 12]);
+      }
     } else {
       std::snprintf(out.syncSubtitle, sizeof(out.syncSubtitle), "PAIRED");
     }
@@ -1154,6 +1436,8 @@ void StudyActivity::buildDeckModel(studyui::DeckModel& out) const {
   out.deckCount = deckCount_;
   out.sessionOver = (queueCount_ - queuePos_) + learningCount_ == 0;
   out.writeFailed = writeFailed_;
+  out.clockUnset = time(nullptr) < study::kClockFloor;
+  out.decksOverCap = decksOverCap_;
 }
 
 void StudyActivity::routeAction(const fui::ActionEvent& event) {
@@ -1168,6 +1452,15 @@ void StudyActivity::routeAction(const fui::ActionEvent& event) {
   }
   if (event.value == 3) {
     switchDeck();
+    return;
+  }
+  if (event.value == 4) {
+    // Ask for the picker at RUNTIME rather than by clearing the persisted
+    // flag. Clearing it wrote the request to the card, so cancelling the
+    // picker left it cleared and every later plain SYNC was hijacked into
+    // the question, with no way back. A cancel must leave nothing behind.
+    pickerRequested_ = true;
+    beginSync();
     return;
   }
   // Re-scan rather than resuming a stale queue: a session can end, the user can
@@ -1230,6 +1523,21 @@ void StudyActivity::render(RenderLock&&) {
     confirmW_ = layout.pill.width;
     confirmH_ = layout.pill.height;
     const auto labels = mappedInput.mapLabels("Cancel", "", "", "Confirm");
+    GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+    renderer.displayBuffer();
+    return;
+  }
+
+  if (view_ == View::DeckPicker) {
+    fui::GfxRendererTarget target = toybox::makeTarget(renderer);
+    const fui::InputSnapshot noInput{};
+    interactionsReady_ = false;
+    toybox::Frame frame(target, target.deviceContext(), noInput, interactions_);
+    toybox::Screen screen(frame);
+    studyui::buildDeckPicker(screen, picker_);
+    interactionsReady_ = true;
+    toybox::reportOverflow(interactions_, "Study deck picker");
+    const auto labels = mappedInput.mapLabels("Back", "", "", "");
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     renderer.displayBuffer();
     return;
@@ -1343,17 +1651,64 @@ void StudyActivity::render(RenderLock&&) {
     // chosen from three rendered variants (the numbered-steps arrangement
     // collapsed into overlaps on screen; the prose-first one buried the code).
     constexpr const char* kInstallerUrl = "https://crossplay.ma-r-s.com/study";
+    // Two ways in, and the screen has to hold both without either crowding the
+    // other: the installer QR for a computer, and the sync door for a reader
+    // that only has wi-fi. The door is anchored to the bottom and the QR block
+    // sized from what is left, so neither can overlap the other.
+    noDeckSyncH_ = 56;
+    noDeckSyncW_ = static_cast<int16_t>(width - 120);
+    noDeckSyncX_ = 60;
+    noDeckSyncY_ = static_cast<int16_t>(height - kFooterHeight - noDeckSyncH_ - 24);
+
+    study::BridgeState pairedState;
+    const bool paired = study::loadBridgeState(pairedState);
     UITheme::drawCenteredWrappedText(renderer, Rect{0, bodyTop + 16, width, 56}, kReadingFontId,
-                                     "Bring your Anki decks", 1);
-    const int16_t qrSide = 264;
-    QrUtils::drawQrCode(renderer, Rect{static_cast<int16_t>((width - qrSide) / 2), bodyTop + 92, qrSide, qrSide},
-                        kInstallerUrl);
-    UITheme::drawCenteredWrappedText(renderer, Rect{0, bodyTop + 92 + qrSide + 18, width, 40}, kSmallFontId,
-                                     "crossplay.ma-r-s.com/study", 1);
-    UITheme::drawCenteredWrappedText(renderer, Rect{20, bodyTop + 92 + qrSide + 66, width - 40, 240}, kMeaningFontId,
-                                     "Scan the code, drop your Anki export on the page, and it writes "
-                                     "the deck straight onto this card.",
-                                     5);
+                                     !paired                  ? "Bring your Anki decks"
+                                     : pairedState.choseDecks ? "Get your decks back"
+                                                              : "Choose your decks",
+                                     1);
+    const int16_t qrSide = 208;
+    const int16_t qrTop = static_cast<int16_t>(bodyTop + 88);
+    // The QR is the from-a-computer route. Once paired, the heading above it
+    // asks about choosing decks -- which that page cannot do -- so it would be
+    // the largest thing on screen pointing at the wrong answer.
+    if (!paired) {
+      QrUtils::drawQrCode(renderer, Rect{static_cast<int16_t>((width - qrSide) / 2), qrTop, qrSide, qrSide},
+                          kInstallerUrl);
+      // Height 40, not 32: drawCenteredWrappedText draws nothing at all when
+      // the box is shorter than the font's line box, and it fails silently.
+      UITheme::drawCenteredWrappedText(renderer, Rect{0, static_cast<int16_t>(qrTop + qrSide + 8), width, 40},
+                                       kSmallFontId, "crossplay.ma-r-s.com/study", 1);
+    }
+    // Paired, the words are all there is, so they get the QR's room: at 96px
+    // this box fitted two lines of a three-line sentence and dropped the rest
+    // in silence.
+    const int16_t bodyBoxTop = static_cast<int16_t>(paired ? qrTop + 8 : qrTop + qrSide + 48);
+    UITheme::drawCenteredWrappedText(
+        renderer, Rect{24, bodyBoxTop, width - 48, static_cast<int16_t>(paired ? 200 : 96)}, kMeaningFontId,
+        !paired                  ? "Scan it to add a deck from a computer."
+        : pairedState.choseDecks ? "Your decks are chosen but not on this card yet."
+                                 : "Your Anki account is connected. Pick the decks it keeps.",
+        paired ? 4 : 3);
+
+    noDeckPickH_ = paired && pairedState.choseDecks ? noDeckSyncH_ : 0;
+    if (noDeckPickH_ > 0) {
+      noDeckPickY_ = static_cast<int16_t>(noDeckSyncY_ - noDeckPickH_ - 12);
+      renderer.drawRoundedRect(noDeckSyncX_, noDeckPickY_, noDeckSyncW_, noDeckPickH_, toybox::kHairline,
+                               noDeckPickH_ / 2, true);
+      const char* pick = "CHOOSE OTHER DECKS";
+      const int pickWidth = renderer.getTextWidth(toybox::kUiFontId, pick);
+      toybox::drawCapsCentered(renderer, toybox::kUiFontId, noDeckSyncX_ + (noDeckSyncW_ - pickWidth) / 2, noDeckPickY_,
+                               noDeckPickH_, pick, true);
+    }
+    renderer.drawRoundedRect(noDeckSyncX_, noDeckSyncY_, noDeckSyncW_, noDeckSyncH_, toybox::kHairline,
+                             noDeckSyncH_ / 2, true);
+    {
+      const char* label = !paired ? "SYNC WITH ANKI" : pairedState.choseDecks ? "GET MY DECKS" : "CHOOSE DECKS";
+      const int labelWidth = renderer.getTextWidth(toybox::kUiFontId, label);
+      toybox::drawCapsCentered(renderer, toybox::kUiFontId, noDeckSyncX_ + (noDeckSyncW_ - labelWidth) / 2,
+                               noDeckSyncY_, noDeckSyncH_, label, true);
+    }
   }
 
   const auto labels = mappedInput.mapLabels("Back", "", "", "");
@@ -1399,15 +1754,30 @@ void StudyActivity::beginSync() {
   // SdFat handle was a LoadProhibited panic (caught on hardware, backtrace
   // folded into onExit by ICF). closeDeck() inside the flow flushes
   // everything through the ordinary path moments later.
-  WiFi.mode(WIFI_STA);
-  wifiActivated_ = true;
+  // Ownership means "this app raised the radio", not "this app wants it".
+  // Developer Mode (and anything else already associated) leaves Wi-Fi up;
+  // Study simply uses it and must not put it down afterwards. Set
+  // unconditionally, this flag made every sync tear down a connection it did
+  // not own -- which on a dev-mode device drops the flashing route mid-session
+  // and looks like a crash. ClockSyncActivity is the same shape.
+  const bool alreadyUp = WiFi.status() == WL_CONNECTED;
+  if (!alreadyUp) WiFi.mode(WIFI_STA);
+  wifiActivated_ = !alreadyUp;
+  if (alreadyUp) {
+    onSyncWifi(true);
+    return;
+  }
   startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
                          [this](const ActivityResult& result) { onSyncWifi(!result.isCancelled); });
 }
 
 void StudyActivity::onSyncWifi(const bool connected) {
   if (!connected) {
-    view_ = View::Deck;
+    // The same guard the two other ways out of the flow carry. Without it,
+    // backing out of the wi-fi list on a card with no decks landed on a deck
+    // screen for a deck that does not exist -- ALL CLEAR, 0 CARDS -- and took
+    // the pairing QR the user still needs off the screen with it.
+    view_ = deckCount_ > 0 ? View::Deck : View::NoDeck;
     requestUpdate();
     return;
   }
@@ -1424,7 +1794,7 @@ void StudyActivity::onSyncWifi(const bool connected) {
 void StudyActivity::syncTimeIfNeeded() {
   // Certificate dates are validated on the bridge connection, so the clock
   // must be sane before the first handshake. Same dance as KOSync.
-  if (time(nullptr) > 1700000000) return;
+  if (time(nullptr) > study::kClockFloor) return;
   if (esp_sntp_enabled()) esp_sntp_stop();
   esp_sntp_setoperatingmode(ESP_SNTP_OPMODE_POLL);
   esp_sntp_setservername(0, "pool.ntp.org");
@@ -1435,19 +1805,29 @@ void StudyActivity::syncTimeIfNeeded() {
 }
 
 void StudyActivity::endSyncSession(const studyui::SyncVerdictKind kind, const studyui::SyncSafety safety,
-                                   const char* title, const char* body, const char* whatNow) {
+                                   const char* title, const char* body, const char* whatNow, const bool describeQueue) {
   syncBusy_ = false;
   // Radio down while the user reads the result (on touch boards silentRestart
-  // stops SNTP and the radio in place rather than rebooting).
-  WiFi.disconnect(false);
-  delay(30);
-  silentRestart();
+  // stops SNTP and the radio in place rather than rebooting) -- but only what
+  // this app raised. Not ours to put down if Developer Mode brought it up.
+  if (wifiActivated_ && !devmode::holdsRadio()) {
+    WiFi.disconnect(false);
+    delay(30);
+    silentRestart();
+  }
   wifiActivated_ = false;
   // The flow closed the deck for heap; put the app back together before the
   // result screen, so Back lands on a live deck.
   if (deckCount_ > 0 && deckDir_[0] == '\0') {
     openDeckAt(deckIndex_);
     beginDeckSession();
+  }
+  char waiting[64] = "";
+  if (describeQueue && deckCount_ > 0) {
+    std::snprintf(waiting, sizeof(waiting), "%s",
+                  (dueTotal_ + newTotal_ + otherWaiting_) > 0 ? "Your decks are in Study, ready to review."
+                                                              : "Your decks are in Study. Nothing is due right now.");
+    whatNow = waiting;
   }
   flow_.verdict = kind;
   flow_.safety = safety;
@@ -1460,6 +1840,114 @@ void StudyActivity::endSyncSession(const studyui::SyncVerdictKind kind, const st
   showFlow();
 }
 
+bool StudyActivity::runDeckPicker() {
+  std::string message;
+  // No flowStage() here: the picker opens AFTER a completed pass, and rewinding
+  // the ladder to CONNECT erased three finished stages -- which reads as a
+  // failed sync retrying itself.
+  std::snprintf(flow_.caption, sizeof(flow_.caption), "Reading your Anki decks.");
+  showFlow();
+  if (!sync_.listDecks(bridge_, deckChoices_, message)) {
+    if (sync_.unpaired) {
+      bridge_ = study::BridgeState{};
+      Storage.remove("/study/.bridge");
+      endSyncSession(studyui::SyncVerdictKind::Error, studyui::SyncSafety::NothingSent, "NOT PAIRED", message.c_str(),
+                     "Pair it again to keep syncing.");
+      return false;
+    }
+    endSyncSession(studyui::SyncVerdictKind::Error, studyui::SyncSafety::NothingSent, "NOT SYNCED", message.c_str(),
+                   "The service may be busy. Try again in a few minutes.");
+    return false;
+  }
+  if (deckChoices_.empty()) {
+    endSyncSession(studyui::SyncVerdictKind::Neutral, studyui::SyncSafety::NothingSent, "NO DECKS",
+                   "This Anki account has no decks yet. Add one in Anki, then sync.");
+    return false;
+  }
+
+  pickerRows_.clear();
+  pickerRows_.reserve(deckChoices_.size());
+  for (const auto& choice : deckChoices_) {
+    studyui::DeckPickerModel::Row row;
+    row.name = choice.name.c_str();
+    row.cards = choice.cards;
+    row.chosen = choice.chosen;
+    pickerRows_.push_back(row);
+  }
+  picker_ = studyui::DeckPickerModel{};
+  picker_.rows = pickerRows_.data();
+  picker_.count = static_cast<int>(pickerRows_.size());
+  picker_.maxChosen = study::kMaxChosenDecks;
+  for (const auto& row : pickerRows_) picker_.chosenCount += row.chosen ? 1 : 0;
+  picker_.atCap = picker_.chosenCount >= picker_.maxChosen;
+  picker_.withheld = sync_.decksWithheld;
+
+  LOG_INF("STUDYSYNC", "picker: %d decks offered, %d already chosen", picker_.count, picker_.chosenCount);
+  view_ = View::DeckPicker;
+  requestUpdateAndWait();
+  drainInput();
+
+  for (;;) {
+    delay(50);
+    mappedInput.update();
+    if (mappedInput.wasReleased(MappedInputManager::Button::Back) || mappedInput.wasHomeGesture()) {
+      // Nothing died here: the pass completed and the user stopped at the
+      // question afterwards, so no stage should wear the "died here" mark.
+      for (int i = 0; i < studyui::kSyncStageCount; ++i) {
+        if (flow_.stages[i] == studyui::SyncStageState::Active) flow_.stages[i] = studyui::SyncStageState::Done;
+      }
+      // Not NothingSent: a full pass has already run and its acks are
+      // durable, so claiming nothing was sent is false in the reassuring
+      // direction -- the one direction this line must never be wrong in.
+      endSyncSession(studyui::SyncVerdictKind::Neutral, flow_.safety, "STOPPED",
+                     deckCount_ > 0 ? "Your decks are unchanged. Change them any time from DECKS FROM ANKI."
+                                    : "Nothing was changed. Choose your decks whenever you are ready.");
+      return false;
+    }
+    int tapX = 0;
+    int tapY = 0;
+    if (!mappedInput.wasScreenTapped(tapX, tapY) || !interactionsReady_) continue;
+
+    fui::InputSnapshot input;
+    input.touchReleased = true;
+    input.touchX = static_cast<int16_t>(tapX);
+    input.touchY = static_cast<int16_t>(tapY);
+    const fui::ActionEvent event = interactions_.route(input);
+    if (event.action == studyui::ActionPickDeck) {
+      if (event.value < 0) {
+        // Page: the list shows what fits and the pager moves the window.
+        picker_.topIndex += picker_.visibleRows;
+        if (picker_.topIndex >= picker_.count) picker_.topIndex = 0;
+      } else {
+        studyui::DeckPickerModel::Row& row = pickerRows_[event.value];
+        if (!row.chosen && picker_.chosenCount >= picker_.maxChosen) {
+          picker_.atCap = true;  // say why nothing happened
+        } else {
+          row.chosen = !row.chosen;
+          picker_.chosenCount += row.chosen ? 1 : -1;
+          picker_.atCap = picker_.chosenCount >= picker_.maxChosen;
+        }
+      }
+      requestUpdateAndWait();
+      continue;
+    }
+    if (event.action == studyui::ActionPickDone && picker_.chosenCount > 0) break;
+  }
+
+  std::vector<std::string> chosen;
+  for (size_t i = 0; i < pickerRows_.size(); ++i) {
+    if (pickerRows_[i].chosen) chosen.push_back(deckChoices_[i].name);
+  }
+  LOG_INF("STUDYSYNC", "picker: chose %d deck(s)", static_cast<int>(chosen.size()));
+  flowStage(studyui::SyncStage::Connect, "Saving your choice.");
+  if (!sync_.chooseDecks(bridge_, chosen, message)) {
+    endSyncSession(studyui::SyncVerdictKind::Error, studyui::SyncSafety::NothingSent, "NOT SYNCED", message.c_str(),
+                   "The service may be busy. Try again in a few minutes.");
+    return false;
+  }
+  return true;
+}
+
 bool StudyActivity::runPairing() {
   std::string message;
   study::StudySync::PairStart pair;
@@ -1467,7 +1955,7 @@ bool StudyActivity::runPairing() {
   flowStage(studyui::SyncStage::Connect, "Getting a pairing code.");
   if (!sync_.pairStart(pair, message)) {
     endSyncSession(studyui::SyncVerdictKind::Error, studyui::SyncSafety::NothingSent, "NOT PAIRED", message.c_str(),
-                   "Press SYNC to try again.");
+                   "Try again when you are ready.");
     return false;
   }
   pairCode_ = pair.code;
@@ -1494,7 +1982,7 @@ bool StudyActivity::runPairing() {
       const int result = sync_.pairPoll(pair.pollToken, username, token, message);
       if (result < 0) {
         endSyncSession(studyui::SyncVerdictKind::Error, studyui::SyncSafety::NothingSent, "NOT PAIRED", message.c_str(),
-                       "Press SYNC to try again.");
+                       "Try again when you are ready.");
         return false;
       }
       if (result == 1) break;
@@ -1560,7 +2048,30 @@ bool StudyActivity::buildPayloads(std::vector<study::DeckPayload>& out) {
     if (Storage.openFileForRead("STUDYSYNC", path, revlog)) {
       const uint32_t size = revlog.size();
       uint32_t ack = bridge_.ackFor(deckNames_[i]);
-      if (ack > size) ack = 0;  // the file was replaced under us; resend all
+      // An offset is only meaningful against the file it was measured on.
+      // A bare `ack > size` check misses the case that matters: delete a deck
+      // folder (which the app's own repair path invites), let it re-download
+      // WITHOUT its review log, and a fresh revlog grows back to exactly or
+      // past the old offset -- after which every review before that offset is
+      // skipped for good and the reader still reports SYNCED. Tag the file by
+      // its first record and resend everything when the tag changes.
+      // Verify the bytes the ack claims were already sent, rather than
+      // trusting the number alone. An offset cannot tell a log that grew from
+      // one that was replaced, rolled back to an older copy, or left
+      // half-updated by a failed sync; a checksum of [0, ack) can, and it
+      // collapses the whole family of "the marker and the file disagree"
+      // failures into one harmless resend that the service dedupes.
+      const uint64_t knownHash = bridge_.ackHashFor(deckNames_[i]);
+      if (ack > size) {
+        LOG_INF("STUDYSYNC", "%s: the log is shorter than the ack; resending the whole log", deckNames_[i]);
+        ack = 0;
+      } else if (ack > 0) {
+        const uint64_t actual = hashPrefix(revlog, ack);
+        if (knownHash == 0 || actual != knownHash) {
+          LOG_INF("STUDYSYNC", "%s: the sent-so-far bytes do not match; resending the whole log", deckNames_[i]);
+          ack = 0;
+        }
+      }
       payload.revlogOffset = ack;
       if (size > ack) {
         payload.revlogTail.resize(size - ack);
@@ -1571,7 +2082,21 @@ bool StudyActivity::buildPayloads(std::vector<study::DeckPayload>& out) {
         }
       }
     } else {
+      // No review log on the card at all: the deck folder was removed and
+      // came back without one (a deck download never carries a review log).
+      // The stored offset now points into a file that no longer exists, and
+      // leaving it meant the reviews written into the NEXT log were skipped
+      // whenever it grew back to the same length -- which it does, because
+      // the first card offered after a restore is usually the same most-due
+      // card, so even the first-record tag matched. Forget both here, where
+      // the absence is known.
       payload.revlogOffset = 0;
+      if (bridge_.ackFor(deckNames_[i]) != 0 || bridge_.ackHashFor(deckNames_[i]) != 0) {
+        LOG_INF("STUDYSYNC", "%s: review log is gone; forgetting its ack", deckNames_[i]);
+        bridge_.setAck(deckNames_[i], 0);
+        bridge_.setAckHash(deckNames_[i], 0);
+        study::saveBridgeState(bridge_);
+      }
     }
 
     std::snprintf(path, sizeof(path), "%s/%s/cards.dat", kStudyRoot, deckNames_[i]);
@@ -1588,23 +2113,20 @@ bool StudyActivity::buildPayloads(std::vector<study::DeckPayload>& out) {
   return true;
 }
 
-namespace {
-int64_t localFileSize(const char* path) {
-  HalFile file;
-  if (!Storage.openFileForRead("STUDYSYNC", path, file)) return -1;
-  return static_cast<int64_t>(file.size());
-}
-}  // namespace
-
 bool StudyActivity::applyManifests(const std::vector<study::DeckManifest>& manifests, std::string& message,
                                    int& decksUpdated) {
   decksUpdated = 0;
   for (const auto& deck : manifests) {
-    // A repeated buildId means the card already holds this exact build;
-    // downloading it again would only heat the room.
-    if (deck.buildId == bridge_.buildFor(deck.slug.c_str())) continue;
     char dir[96];
     std::snprintf(dir, sizeof(dir), "%s/%s", kStudyRoot, deck.slug.c_str());
+    // A repeated buildId means the card already holds this exact build --
+    // but only if it still does. Trusting the cache blind meant a deck the
+    // user deleted (or a download that never finished) was never fetched
+    // again, while every sync went on reporting DECKS UP TO DATE forever.
+    char cardsPath[128];
+    std::snprintf(cardsPath, sizeof(cardsPath), "%s/cards.dat", dir);
+    const bool onCard = Storage.exists(dir) && Storage.exists(cardsPath);
+    if (onCard && deck.buildId == bridge_.buildFor(deck.slug.c_str())) continue;
     if (!Storage.exists(dir)) Storage.mkdir(dir);
 
     // Two passes: every needed file lands as .part first, then the batch
@@ -1666,11 +2188,75 @@ void StudyActivity::runSyncFlow() {
   LOG_INF("STUDYSYNC", "flow: ntp");
   syncTimeIfNeeded();
   LOG_INF("STUDYSYNC", "flow: state");
-  if (!study::loadBridgeState(bridge_)) {
+  const bool freshPairing = !study::loadBridgeState(bridge_);
+  // Forget any marker whose deck is not on the card. An ack is a byte offset
+  // into a review log; if the folder is gone the log is gone, and the offset
+  // now points into whatever the next sync downloads. Doing it here rather
+  // than in buildPayloads is what makes it deterministic: the losing case is
+  // a deck RESTORED by this very sync, which buildPayloads never sees because
+  // it only walks decks already present.
+  {
+    bool forgot = false;
+    for (int i = 0; i < bridge_.deckCount; ++i) {
+      if (bridge_.ackOffsets[i] == 0 && bridge_.ackHashes[i] == 0) continue;
+      // Keyed on what this reader can OPEN, not on what is present. Nothing
+      // deletes a deck folder, so a card accumulates them, and the openable
+      // set is the alphabetically-first kMaxDecks of a growing list: a deck
+      // can fall out of that window while still sitting on the card, and its
+      // slot was then held forever against a deck the reader actually uses.
+      bool openable = false;
+      for (int j = 0; j < deckCount_ && !openable; ++j) {
+        openable = std::strcmp(deckNames_[j], bridge_.deckDirs[i]) == 0;
+      }
+      if (openable) continue;
+      LOG_INF("STUDYSYNC", "%s: not open to this reader; releasing its slot", bridge_.deckDirs[i]);
+      // Release the whole slot, not just the marker. There are kMaxSyncDecks
+      // of them, one per openable deck, and
+      // every setter silently no-ops when they are full, so decks left
+      // behind by two changes of mind cost the current decks their build id
+      // and their ack: a full re-download and a full revlog resend on every
+      // sync, with nothing on screen to explain the wait.
+      for (int j = i + 1; j < bridge_.deckCount; ++j) {
+        std::snprintf(bridge_.deckDirs[j - 1], sizeof(bridge_.deckDirs[0]), "%s", bridge_.deckDirs[j]);
+        std::snprintf(bridge_.lastBuilds[j - 1], sizeof(bridge_.lastBuilds[0]), "%s", bridge_.lastBuilds[j]);
+        bridge_.ackOffsets[j - 1] = bridge_.ackOffsets[j];
+        bridge_.ackHashes[j - 1] = bridge_.ackHashes[j];
+      }
+      --bridge_.deckCount;
+      --i;  // the slot now holds the next deck
+      forgot = true;
+    }
+    if (forgot) study::saveBridgeState(bridge_);
+  }
+  if (freshPairing) {
     if (!runPairing()) return;  // runPairing already ended the session
   }
+  // An explicit "choose again" is answered first, before any pass that can
+  // fail. It used to be read only after the build, so a chosen deck the
+  // bridge could not build -- an empty one, a cloze-only one, one renamed
+  // away in Anki -- ended the sync in an error before the request was ever
+  // seen, and the door that sets the request was the only way out of that
+  // state. The mirror this needs already exists: choseDecks means a cycle
+  // has run.
+  if (pickerRequested_ && bridge_.choseDecks) {
+    if (!runDeckPicker()) {
+      pickerRequested_ = false;  // a cancel leaves no request behind
+      return;                    // runDeckPicker already ended the session
+    }
+    pickerRequested_ = false;
+    secondPass_ = true;  // what follows fetches what was just chosen
+  }
+  // A reader that has never chosen decks would sync forever against an empty
+  // manifest: the bridge builds only chosen decks and a new account has none.
+  // Ask on the first sync after pairing, and any time the account still has
+  // nothing chosen.
+  // ...but it cannot be asked yet on a FIRST sync. The bridge only mirrors
+  // the collection during a sync cycle, so before one has run its deck list
+  // is empty and the question would offer nothing. The order that works is:
+  // sync once (which mirrors), then ask, then sync again to build what was
+  // chosen. runSyncPass() below is that pass, and it runs twice at most.
 
-  flowStage(studyui::SyncStage::Send, "Packing this card's reviews.");
+  flowStage(studyui::SyncStage::Send, secondPass_ ? "Fetching the decks you chose." : "Packing this card's reviews.");
   closeDeck();  // frees the fonts and file handles; TLS wants the heap
   std::vector<study::DeckPayload> payloads;
   if (!buildPayloads(payloads)) {
@@ -1678,9 +2264,16 @@ void StudyActivity::runSyncFlow() {
                    "Could not read the card. Nothing was sent.");
     return;
   }
-  uint32_t reviewBytes = 0;
-  for (const auto& p : payloads) reviewBytes += p.revlogTail.size();
-  const int reviewCount = static_cast<int>(reviewBytes / study::kRevlogRecordBytes);
+  // Count what will actually land: the tail carries undone reviews too, and
+  // the bridge drops them, so a byte count made the verdict claim it had sent
+  // reviews the server correctly refused.
+  int reviewCount = 0;
+  for (const auto& payload : payloads) {
+    for (size_t at = 0; at + study::kRevlogRecordBytes <= payload.revlogTail.size(); at += study::kRevlogRecordBytes) {
+      const uint8_t flags = static_cast<uint8_t>(payload.revlogTail[at + study::kRevlogFlagsOffset]);
+      if ((flags & study::kRevlogVoided) == 0) ++reviewCount;
+    }
+  }
 
   std::string job;
   std::string message;
@@ -1693,26 +2286,43 @@ void StudyActivity::runSyncFlow() {
       bridge_ = study::BridgeState{};
       Storage.remove("/study/.bridge");
       endSyncSession(studyui::SyncVerdictKind::Error, studyui::SyncSafety::NothingSent, "NOT PAIRED",
-                     "This reader was unpaired on the bridge.", "Press SYNC to pair it again.");
+                     "This reader was unpaired on the bridge.", "Pair it again to keep syncing.");
       return;
     }
-    endSyncSession(studyui::SyncVerdictKind::Error, studyui::SyncSafety::NothingSent, "NOT SYNCED", message.c_str(),
-                   "Press SYNC again in a few minutes.");
+    endSyncSession(studyui::SyncVerdictKind::Error, studyui::SyncSafety::NothingSent, "NOT SYNCED", message.c_str());
     return;
   }
   payloads.clear();
   payloads.shrink_to_fit();
   // The ack is valid the moment the POST answered: the reviews are durable in
   // the bridge's journal even if everything after this fails.
-  for (const auto& ack : acks) bridge_.setAck(ack.first.c_str(), ack.second);
+  for (const auto& ack : acks) {
+    bridge_.setAck(ack.first.c_str(), ack.second);
+    // Record what those bytes were, so the next sync can tell this log from a
+    // different one that happens to be the same length.
+    char logPath[96];
+    std::snprintf(logPath, sizeof(logPath), "%s/%s/revlog.dat", kStudyRoot, ack.first.c_str());
+    HalFile file;
+    uint64_t hash = 0;
+    if (ack.second > 0 && Storage.openFileForRead("STUDY", logPath, file)) {
+      hash = hashPrefix(file, ack.second);
+    }
+    bridge_.setAckHash(ack.first.c_str(), hash);
+  }
   study::saveBridgeState(bridge_);
+  // The bridge owns the job from here, so leaving is safe even on a first
+  // sync with no reviews to send; the reviews line is added on top only when
+  // there were reviews. leaveSafe was declared and read but never assigned,
+  // which removed the footer from every screen instead of adding it to more.
+  flow_.leaveSafe = true;
+  if (reviewCount > 0) flow_.safety = studyui::SyncSafety::ReviewsSafe;
   if (reviewCount > 0) {
     std::snprintf(flow_.facts[static_cast<int>(studyui::SyncStage::Send)], sizeof(flow_.facts[0]), "%d SENT",
                   reviewCount);
   } else {
     std::snprintf(flow_.facts[static_cast<int>(studyui::SyncStage::Send)], sizeof(flow_.facts[0]), "NONE NEW");
   }
-  flowStage(studyui::SyncStage::Build, nullptr);
+  flowStage(studyui::SyncStage::Build, "Your decks are being built on the sync service.");
 
   const uint32_t started = millis();
   bool preparing = false;
@@ -1729,8 +2339,11 @@ void StudyActivity::runSyncFlow() {
       }
     }
     if (leave) {
-      endSyncSession(studyui::SyncVerdictKind::Neutral, studyui::SyncSafety::ReviewsSafe, "STOPPED",
-                     "Your reviews are safely sent. The bridge keeps working; sync again later for the updated decks.");
+      endSyncSession(studyui::SyncVerdictKind::Neutral,
+                     reviewCount > 0 ? studyui::SyncSafety::ReviewsSafe : studyui::SyncSafety::None, "STOPPED",
+                     reviewCount > 0
+                         ? "Your reviews are safely sent. The sync keeps running; sync again for the updated decks."
+                         : "The sync keeps running. Sync again later to pick up the decks.");
       return;
     }
     manifests.clear();
@@ -1739,15 +2352,28 @@ void StudyActivity::runSyncFlow() {
     if (status == "done") break;
     if (status == "error" || status == "frozen") {
       endSyncSession(studyui::SyncVerdictKind::Error, studyui::SyncSafety::ReviewsSafe, "NOT SYNCED", message.c_str(),
-                     "Press SYNC again in a few minutes.");
+                     "The service may be busy. Try again in a few minutes.");
       return;
     }
     if (status.empty() && ++transportBlips >= 5) {
       endSyncSession(studyui::SyncVerdictKind::Error, studyui::SyncSafety::ReviewsSafe, "NOT SYNCED", message.c_str(),
-                     "Press SYNC again in a few minutes.");
+                     "The service may be busy. Try again in a few minutes.");
       return;
     }
     if (!status.empty()) transportBlips = 0;
+    const uint32_t elapsed = (millis() - started) / 1000;
+    char clock[16];
+    if (elapsed < 60) {
+      std::snprintf(clock, sizeof(clock), "%us", static_cast<unsigned>(elapsed / 5 * 5));
+    } else {
+      std::snprintf(clock, sizeof(clock), "%um%02us", static_cast<unsigned>(elapsed / 60),
+                    static_cast<unsigned>((elapsed % 60) / 5 * 5));
+    }
+    char* buildFact = flow_.facts[static_cast<int>(studyui::SyncStage::Build)];
+    if (std::strcmp(buildFact, clock) != 0) {
+      std::snprintf(buildFact, sizeof(flow_.facts[0]), "%s", clock);
+      showFlow();
+    }
     if (!preparing && millis() - started > 30000) {
       // The first sync of a big collection is minutes, not seconds. Say so
       // once, and make leaving safe -- the job keeps running on the bridge.
@@ -1762,7 +2388,7 @@ void StudyActivity::runSyncFlow() {
   }
 
   flowStage(studyui::SyncStage::Download, nullptr);
-  flow_.safety = studyui::SyncSafety::ReviewsSafe;
+  if (reviewCount > 0) flow_.safety = studyui::SyncSafety::ReviewsSafe;
   int decksUpdated = 0;
   if (!applyManifests(manifests, message, decksUpdated)) {
     const studyui::SyncSafety safety =
@@ -1770,19 +2396,86 @@ void StudyActivity::runSyncFlow() {
     const bool stopped = message.rfind("Stopped.", 0) == 0;
     endSyncSession(stopped ? studyui::SyncVerdictKind::Neutral : studyui::SyncVerdictKind::Error, safety,
                    stopped ? "STOPPED" : "NOT SYNCED", message.c_str(),
-                   stopped ? "Sync again to finish." : "Press SYNC again in a few minutes.");
+                   stopped ? "Sync again to finish." : "The service may be busy. Try again in a few minutes.");
     return;
   }
   bridge_.lastSyncAt = static_cast<int64_t>(time(nullptr));
   study::saveBridgeState(bridge_);
   findDeckDirs();  // the bridge may have delivered a deck this card never had
+  if (!sync_.failedDecks.empty()) {
+    // The rest of the sync worked, so the reviews are away and the other
+    // decks are current; saying SYNCED anyway would send the user looking
+    // for a deck that was never built. Anki refuses to convert a deck with
+    // no cards of its own and a deck of cloze notes, and a deck renamed on
+    // the desktop side is simply gone.
+    char detail[192];
+    const size_t failed = sync_.failedDecks.size();
+    const bool others = decksUpdated > 0 || deckCount_ > static_cast<int>(failed);
+    if (failed == 1) {
+      std::snprintf(detail, sizeof(detail), "%s could not be built.%s", sync_.failedDecks.front().c_str(),
+                    others ? " Everything else is up to date." : "");
+    } else {
+      std::snprintf(detail, sizeof(detail), "%u decks could not be built, starting with %s.%s",
+                    static_cast<unsigned>(failed), sync_.failedDecks.front().c_str(),
+                    others ? " Everything else is up to date." : "");
+    }
+    // The dropped-review count belongs here most of all: a deck deleted on
+    // the desktop fails to build AND leaves every review of it with no card
+    // to land on, so this verdict is the one that hides the biggest loss.
+    flow_.factCount = 0;
+    if (sync_.reviewsMissing > 0) {
+      std::snprintf(flow_.factLines[flow_.factCount++], sizeof(flow_.factLines[0]), "%d SENT, %d HAD NO CARD IN ANKI",
+                    reviewCount, sync_.reviewsMissing);
+    } else if (reviewCount > 0) {
+      std::snprintf(flow_.factLines[flow_.factCount++], sizeof(flow_.factLines[0]), "%d REVIEW%s SENT", reviewCount,
+                    reviewCount == 1 ? "" : "S");
+    }
+    endSyncSession(studyui::SyncVerdictKind::Neutral, studyui::SyncSafety::ReviewsSafePartialDecks, "PART WAY", detail,
+                   "Choose your decks again to drop it, or fix it in Anki.");
+    return;
+  }
+
+  // The mirror exists now, so the question can finally be answered. Ask once,
+  // then run the flow again: this second pass is the one that builds and
+  // downloads what was chosen. Without the re-run the user would choose decks
+  // and be told SYNCED with nothing on the card.
+  if (!bridge_.choseDecks || pickerRequested_) {
+    if (!runDeckPicker()) {
+      pickerRequested_ = false;  // a cancel leaves no request behind
+      return;                    // runDeckPicker already ended the session
+    }
+    pickerRequested_ = false;
+    bridge_.choseDecks = true;
+    study::saveBridgeState(bridge_);
+    syncBusy_ = false;
+    // The second pass is the one that fetches what was just chosen. Say so,
+    // or four filled bars emptying and starting again reads as a retry after
+    // a failure.
+    secondPass_ = true;
+    runSyncFlow();
+    return;
+  }
+  secondPass_ = false;
 
   flow_.factCount = 0;
   if (reviewCount > 0) {
-    std::snprintf(flow_.factLines[flow_.factCount++], sizeof(flow_.factLines[0]), "%d REVIEWS SENT", reviewCount);
+    // Corrected in place rather than added as a fourth line: there is room for
+    // three, and the line that needs fixing is this one. "40 SENT" beside a
+    // silent drop of 3 is the claim that misleads.
+    if (sync_.reviewsMissing > 0) {
+      std::snprintf(flow_.factLines[flow_.factCount++], sizeof(flow_.factLines[0]), "%d SENT, %d HAD NO CARD IN ANKI",
+                    reviewCount, sync_.reviewsMissing);
+    } else {
+      std::snprintf(flow_.factLines[flow_.factCount++], sizeof(flow_.factLines[0]), "%d REVIEW%s SENT", reviewCount,
+                    reviewCount == 1 ? "" : "S");
+    }
   }
   if (decksUpdated > 0) {
-    std::snprintf(flow_.factLines[flow_.factCount++], sizeof(flow_.factLines[0]), "%d DECK%s UPDATED", decksUpdated,
+    // Sending reviews moves the deck's fingerprint, so the bridge rebuilds it
+    // and the reader fetches it back. Calling that UPDATED made every
+    // review-only sync announce a change the user had not made.
+    std::snprintf(flow_.factLines[flow_.factCount++], sizeof(flow_.factLines[0]),
+                  reviewCount > 0 ? "%d DECK%s REBUILT WITH YOUR ANSWERS" : "%d DECK%s UPDATED", decksUpdated,
                   decksUpdated == 1 ? "" : "S");
   } else {
     std::snprintf(flow_.factLines[flow_.factCount++], sizeof(flow_.factLines[0]), "DECKS UP TO DATE");
@@ -1792,6 +2485,7 @@ void StudyActivity::runSyncFlow() {
   localtime_r(&now, &local);
   std::snprintf(flow_.factLines[flow_.factCount++], sizeof(flow_.factLines[0]), "LAST SYNC %02d:%02d", local.tm_hour,
                 local.tm_min);
-  endSyncSession(studyui::SyncVerdictKind::Success, studyui::SyncSafety::ReviewsSafe, "SYNCED",
-                 "This reader and your Anki are up to date.");
+  endSyncSession(studyui::SyncVerdictKind::Success,
+                 reviewCount > 0 ? studyui::SyncSafety::ReviewsSafe : studyui::SyncSafety::None, "SYNCED",
+                 "This reader and your Anki are up to date.", nullptr, /*describeQueue=*/true);
 }

@@ -241,6 +241,118 @@ async def run(tmp):
         rows = desktop.db.all("select id from revlog where cid = ?", card_id)
         ok(any(r0[0] == ms for r0 in rows), "desktop should see the device review")
 
+        # --- A card pulled into a filtered deck still belongs to its home deck.
+        did_home = desktop.decks.id("Filtered Source")
+        n_f = desktop.new_note(nt)
+        n_f["Front"], n_f["Back"] = "borrowed", "BORROWED"
+        desktop.add_note(n_f, did_home)
+        dyn = desktop.decks.new_filtered("Custom Study Session")
+        desktop.sched.rebuild_filtered_deck(dyn)
+        moved = desktop.db.scalar("select count(*) from cards where odid != 0")
+        ok(moved >= 1, f"the filtered deck should have borrowed a card, got {moved}")
+        desktop.sync_collection(auth, sync_media=False)
+        r = await web.post("/api/sync", headers=dev, content=struct.pack("<I", len(empty_header)) + empty_header)
+        jf = r.json()["job"]
+        for _ in range(600):
+            await asyncio.sleep(0.1)
+            if (await web.get("/api/sync/status", headers=dev, params={"job": jf})).json()["status"] in (
+                "done",
+                "error",
+                "frozen",
+            ):
+                break
+        seen = {d["name"]: d["cards"] for d in (await web.get("/api/decks", headers=dev)).json()["decks"]}
+        ok(
+            "Custom Study Session" not in seen,
+            f"a filtered deck must not be offered as a choice, got {sorted(seen)}",
+        )
+        ok(
+            seen.get("Filtered Source") == 1,
+            f"a borrowed card still counts for its home deck, got {seen.get('Filtered Source')}",
+        )
+
+        # --- A review whose card is gone is counted, not silently dropped.
+        gone = struct.pack(d2a.REVLOG_RECORD, 999999999999, ms + 1, 3, 0, 0, 1, 0, 0)
+        header = json.dumps(
+            {
+                "decks": [
+                    {
+                        "slug": "default",
+                        "revlogOffset": 0,
+                        "revlogLen": len(gone),
+                        "cardsLen": 0,
+                    }
+                ]
+            }
+        ).encode()
+        r = await web.post(
+            "/api/sync",
+            headers=dev,
+            content=struct.pack("<I", len(header)) + header + gone,
+        )
+        jm = r.json()["job"]
+        for _ in range(600):
+            await asyncio.sleep(0.1)
+            st_m = (await web.get("/api/sync/status", headers=dev, params={"job": jm})).json()
+            if st_m["status"] in ("done", "error", "frozen"):
+                break
+        ok(
+            st_m["summary"].get("missing") == 1,
+            f"a review for an absent card must be counted missing, got {st_m['summary'].get('missing')}",
+        )
+
+        # --- A parent deck reports its subdecks' cards, or the reader hides it.
+        parent = desktop.decks.id("Shared::Level 1")
+        note = desktop.new_note(nt)
+        note["Front"], note["Back"] = "sub", "SUB"
+        desktop.add_note(note, parent)
+        desktop.sync_collection(auth, sync_media=False)
+        r = await web.post("/api/sync", headers=dev, content=struct.pack("<I", len(empty_header)) + empty_header)
+        j2 = r.json()["job"]
+        for _ in range(600):
+            await asyncio.sleep(0.1)
+            if (await web.get("/api/sync/status", headers=dev, params={"job": j2})).json()["status"] in (
+                "done",
+                "error",
+                "frozen",
+            ):
+                break
+        listed = {d["name"]: d["cards"] for d in (await web.get("/api/decks", headers=dev)).json()["decks"]}
+        ok("Shared" in listed, f"the parent deck should be listed, got {sorted(listed)}")
+        ok(
+            listed.get("Shared") == 1,
+            f"a parent's count must include its subdecks, got {listed.get('Shared')}",
+        )
+
+        # --- A deck the converter refuses costs only itself.
+        desktop.decks.id("Empty Parent")  # created with no cards of its own
+        desktop.sync_collection(auth, sync_media=False)
+        r = await web.post(
+            "/api/decks/choose", headers=dev, json={"decks": ["Default", "Empty Parent"]}
+        )
+        ok(r.status_code == 200, "choosing an unbuildable deck should be accepted")
+        body = struct.pack("<I", len(empty_header)) + empty_header
+        r = await web.post("/api/sync", headers=dev, content=body)
+        job = r.json()["job"]
+        for _ in range(600):
+            await asyncio.sleep(0.1)
+            r = await web.get("/api/sync/status", headers=dev, params={"job": job})
+            if r.json()["status"] in ("done", "error", "frozen"):
+                break
+        status = r.json()
+        ok(
+            status["status"] == "done",
+            f"one unbuildable deck must not fail the sync, got {status}",
+        )
+        ok(
+            status["summary"]["failedDecks"] == ["Empty Parent"],
+            f"the failed deck should be named, got {status['summary'].get('failedDecks')}",
+        )
+        ok(
+            any(m["deck"] == "Default" for m in status["summary"]["manifests"]),
+            "the buildable deck should still be built",
+        )
+
         # --- Revocation kills the token.
         th = __import__("bridge.pairing", fromlist=["token_hash"]).token_hash(token)
         store_mod.revoke_device(st.uid, th)

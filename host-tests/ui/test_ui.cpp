@@ -86,6 +86,20 @@ class FakeTarget final : public fui::DrawTarget {
   // exactly the kind of state a screenshot will not happen to contain.
   std::vector<fui::Paint> fillPaints;
   std::vector<Blit> blits;
+  // Outlines and marks, which used to be dropped on the floor. "Does this look
+  // like a button" is a question about a BORDER, so a target that records only
+  // text and fills cannot be asked it -- and that is why the forehead start
+  // control shipped as a bare headline that three rounds of tests called fine.
+  struct Stroke {
+    fui::Rect rect;
+    uint8_t width;
+  };
+  std::vector<Stroke> strokes;
+  struct Triangle {
+    fui::Point a, b, c;
+    fui::Color color;
+  };
+  std::vector<Triangle> triangles;
 
   // A fixed cell, but not a fixed LINE. A layout that reserves a constant
   // number of pixels for wrapped text is correct at one metric and wrong at
@@ -106,9 +120,14 @@ class FakeTarget final : public fui::DrawTarget {
       fillPaints.push_back(paint);
     }
   }
-  void stroke(const fui::Rect, const fui::Paint, const uint8_t, const uint8_t = 0, const uint8_t = 0xFF) override {}
+  void stroke(const fui::Rect rect, const fui::Paint paint, const uint8_t width, const uint8_t = 0,
+              const uint8_t = 0xFF) override {
+    if (paint.kind != fui::PaintKind::None) strokes.push_back(Stroke{rect, width});
+  }
   void line(const fui::Point, const fui::Point, const uint8_t, const fui::Paint) override {}
-  void triangle(const fui::Point, const fui::Point, const fui::Point, const fui::Paint) override {}
+  void triangle(const fui::Point a, const fui::Point b, const fui::Point c, const fui::Paint paint) override {
+    triangles.push_back(Triangle{a, b, c, paint.color});
+  }
   void text(const fui::Rect rect, const char* text, const fui::TextStyle style) override {
     if (text != nullptr) texts.push_back(TextRun{rect, text, style.color, style});
   }
@@ -162,6 +181,29 @@ class FakeTarget final : public fui::DrawTarget {
     for (const auto& run : texts) {
       // cppcheck-suppress useStlAlgorithm
       if (run.text == needle) return true;
+    }
+    return false;
+  }
+
+  bool outlined(const fui::Rect rect) const {
+    for (const auto& s : strokes) {
+      if (s.width == 0) continue;  // a zero-width stroke draws nothing
+      if (s.rect.x == rect.x && s.rect.y == rect.y && s.rect.width == rect.width && s.rect.height == rect.height) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool triangleInside(const fui::Rect rect, const fui::Color color = fui::Color::Black) const {
+    for (const auto& tri : triangles) {
+      if (tri.color != color) continue;
+      const fui::Point pts[3] = {tri.a, tri.b, tri.c};
+      bool all = true;
+      for (const auto& p : pts) {
+        if (p.x < rect.x || p.x > rect.x + rect.width || p.y < rect.y || p.y > rect.y + rect.height) all = false;
+      }
+      if (all) return true;
     }
     return false;
   }
@@ -4711,7 +4753,6 @@ void testTheSudokuFrontDoorNeverSharesInkBetweenTwoLines() {
   }
 }
 
-
 // --- FOREHEAD ---------------------------------------------------------------
 
 namespace {
@@ -4866,7 +4907,90 @@ void testTheForeheadCardNeverDrawsPastItsBox() {
   }
 }
 
-void testTheForeheadHeadlineIsTheStartButton() {
+void buildForeheadSettings(Rendered& out, const foreheadui::SettingsModel& model) {
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, device(), noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  foreheadui::buildSettings(screen, model);
+}
+
+void testTheForeheadPagingWraps() {
+  // Forward off the end returns to the first page, back off the front reaches
+  // the last. The complaint that produced this was a key that stopped
+  // answering on the last page, which on a 0.3s panel is indistinguishable
+  // from a key that was not registered at all.
+  CHECK(foreheadui::pageAfter(0, 1, 3) == 1);
+  CHECK(foreheadui::pageAfter(2, 1, 3) == 0);
+  CHECK(foreheadui::pageAfter(0, -1, 3) == 2);
+  CHECK(foreheadui::pageAfter(1, -1, 3) == 0);
+  // One page: every key is a no-op, and specifically not an index of 1 into a
+  // one-page screen.
+  CHECK(foreheadui::pageAfter(0, 1, 1) == 0);
+  CHECK(foreheadui::pageAfter(0, -1, 1) == 0);
+  // Never out of range, in either direction, for any real page count.
+  for (int pages = 1; pages <= 12; ++pages) {
+    for (int page = 0; page < pages; ++page) {
+      for (const int step : {1, -1}) {
+        const int next = foreheadui::pageAfter(page, step, pages);
+        CHECK(next >= 0);
+        CHECK(next < pages);
+      }
+    }
+    // And it is a CYCLE: stepping forward `pages` times comes home, which a
+    // clamp would also satisfy at the end but not on the way there.
+    int walk = 0;
+    for (int i = 0; i < pages; ++i) walk = foreheadui::pageAfter(walk, 1, pages);
+    CHECK(walk == 0);
+  }
+  // A screen with nothing on it does not page to a negative index.
+  CHECK(foreheadui::pageAfter(0, 1, 0) == 0);
+}
+
+void testTheForeheadResetSaysWhatItDestroysAndAsksFirst() {
+  Rendered armed;
+  foreheadui::SettingsModel model;
+  model.anythingToClear = true;
+  model.roundSeconds = 90;
+  buildForeheadSettings(armed, model);
+  // The row enumerates what "everything" means before it is tapped. All three
+  // things, because the reset also drops the chosen category and the round
+  // length: a row promising only scores that also moves you back to the first
+  // list is a surprise found later, on a different screen.
+  CHECK(armed.target.drew("SCORES WORDS AND SETTINGS"));
+  CHECK(armed.target.drew("90 SECONDS"));
+  CHECK(!armed.target.drew("TAP AGAIN TO CONFIRM"));
+
+  // Offered means TAPPABLE. Without this the row could be made permanently
+  // inert and the suite would not notice -- proved by mutation: forcing
+  // enabled=false left 0 failures before this line existed.
+  const fui::ActionEvent hit = armed.tap(240, 220);
+  CHECK(hit.action == foreheadui::ActionSettingsRow);
+  CHECK(hit.value == static_cast<int>(foreheadui::SettingRow::Reset));
+
+  Rendered asking;
+  model.confirmingReset = true;
+  buildForeheadSettings(asking, model);
+  // The LABEL changes, not only the subtitle: an armed destructive action
+  // that looks almost identical to an unarmed one is one you can arm by
+  // accident and never notice.
+  CHECK(asking.target.drew("TAP AGAIN TO WIPE"));
+  CHECK(asking.target.drew("THIS CANNOT BE UNDONE"));
+  CHECK(!asking.target.drew("RESET EVERYTHING"));
+  // Still tappable while armed, or the confirmation could never be given.
+  CHECK(asking.tap(240, 220).action == foreheadui::ActionSettingsRow);
+
+  // With nothing to clear the row is not offered at all, so the one
+  // irreversible control on the device cannot be armed by a player who has
+  // never played -- and cannot be armed twice by one who just used it.
+  Rendered fresh;
+  foreheadui::SettingsModel blank;
+  blank.anythingToClear = false;
+  buildForeheadSettings(fresh, blank);
+  CHECK(fresh.target.drew("NOTHING TO CLEAR YET"));
+  CHECK(fresh.tap(240, 220).action != foreheadui::ActionSettingsRow);
+}
+
+void testTheForeheadStartControlLooksLikeAButton() {
   Rendered out;
   forehead::Record record;
   record.push(0, 11);
@@ -4875,18 +4999,45 @@ void testTheForeheadHeadlineIsTheStartButton() {
   model.record = &record;
   buildForeheadMenu(out, model);
 
-  // The most common action is the largest thing on the screen and needs no
-  // button: tapping the category name opens the ready card.
-  CHECK(out.tap(200, 150).action == foreheadui::ActionReady);
-  // And it says so, because nothing else on this screen offers to play: the
-  // three doors below are CATEGORY, ROUND and HOW TO PLAY, none of which reads
-  // as "start".
-  CHECK(out.target.find("TAP TO PLAY") != nullptr);
+  // The thing that starts the game is a BOX with a play mark in it. It used to
+  // be the category name with "TAP TO PLAY" under it and no border at all,
+  // which read as a heading on a screen whose three real controls are bordered
+  // rows -- so the one element that was tappable was the only one that did not
+  // look it.
+  //
+  // Asserted as geometry rather than as a caption, because a caption is what it
+  // had: the old screen SAID "TAP TO PLAY" in words and still nobody tapped it.
+  CHECK(!out.target.strokes.empty());
+  fui::Rect box{};
+  for (const auto& s : out.target.strokes) {
+    if (s.width == 0) continue;
+    if (s.rect.height >= 100 && s.rect.width >= 300) box = s.rect;
+  }
+  CHECK(box.width > 0);
+  // Drawn AND visible. A zero-width border and a white-on-white triangle both
+  // used to pass this: the target threw the stroke width away and never read
+  // the triangle's colour back, so the two things the test is named for were
+  // the two things it could not see.
+  CHECK(out.target.outlined(box));
+  CHECK(out.target.triangleInside(box, fui::Color::Black));
+  CHECK(!out.target.triangleInside(box, fui::Color::White));
+
+  // The border is the tap target, not a decoration drawn near one. Corners
+  // included: a box you can only press in the middle is worse than no box,
+  // because it teaches the wrong edge.
+  const int midX = box.x + box.width / 2;
+  const int midY = box.y + box.height / 2;
+  CHECK(out.tap(midX, midY).action == foreheadui::ActionReady);
+  CHECK(out.tap(box.x + 4, box.y + 4).action == foreheadui::ActionReady);
+  CHECK(out.tap(box.x + box.width - 4, box.y + box.height - 4).action == foreheadui::ActionReady);
+  // And it does not swallow the screen: below the box is the record line, which
+  // is not a control at all.
+  CHECK(out.tap(midX, box.y + box.height + 30).action != foreheadui::ActionReady);
+
   // The state band says ONE thing. It used to append the category best, which
   // is the same number the record line below already prints under its own
   // label, so the screen said it twice.
-  const FakeTarget::TextRun* best = out.target.find("TAP TO PLAY   BEST HERE 11");
-  CHECK(best == nullptr);
+  CHECK(out.target.find("TAP TO PLAY   BEST HERE 11") == nullptr);
 
   Rendered doors;
   buildForeheadMenu(doors, model);
@@ -4954,7 +5105,9 @@ int main() {
   testTheForeheadKeyLabelsSitOnTheEdgesTheyAct();
   testTheForeheadRoundIgnoresTapsWhereFingersGrip();
   testTheForeheadCardNeverDrawsPastItsBox();
-  testTheForeheadHeadlineIsTheStartButton();
+  testTheForeheadPagingWraps();
+  testTheForeheadResetSaysWhatItDestroysAndAsksFirst();
+  testTheForeheadStartControlLooksLikeAButton();
   testTheForeheadPickerReportsAbsoluteCategories();
   testTheForeheadResultsMarkTheUnansweredCardApart();
   testToyBattleShell();

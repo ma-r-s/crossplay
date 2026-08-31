@@ -29,19 +29,21 @@ forehead on every single card. A key does not move the device at all.
 | `Button::Up` (GPIO0)   | bottom edge  | GOT IT | tilt down        |
 | `Button::Down` (GPIO7) | top edge     | PASS   | tilt up          |
 
-The rotation is worth following once, because it is the one fact in this app
-the simulator cannot check. `docs/buttons.md`: GPIO0 is the key on the physical
-LEFT in portrait and GPIO7 the one on the physical RIGHT.
+**Confirmed on hardware on 2026-08-30**, by playing it. It was derived rather
+than measured for two days, and the derivation held -- but follow the rotation
+once anyway, because the next app to use these keys in landscape needs the
+reasoning and not the answer. `docs/buttons.md`: GPIO0 is the key on the
+physical LEFT in portrait and GPIO7 the one on the physical RIGHT.
 `rotateCoordinates()` in `GfxRenderer.cpp` maps portrait logical _y_ onto panel
 _x_, which is a quarter turn anticlockwise -- so the portrait right edge becomes
 the landscape **top** and the portrait left edge becomes the landscape
 **bottom**.
 
-**If that is backwards on a real unit, the fix is two lines**: `kGotItKey` and
-`kPassKey` at the top of `ForeheadActivity.cpp`. It is deliberately not
-configurable. A settings row for it would be a permanent apology for never
-having checked, and the screen labels its own edges, so a wrong mapping is
-obvious inside the first three seconds of the first round rather than subtle.
+It is deliberately not configurable, and now that a person has played it that
+stays true: a settings row for this would be a permanent apology for never
+having checked. The screen labels its own edges, so a wrong mapping would have
+been obvious inside the first three seconds of the first round -- which is
+exactly how it got confirmed.
 
 ### Touch is there, but not as two halves
 
@@ -108,10 +110,10 @@ one moment in the game that has earned it.
 
 ## 3. Two orientations, and the turn teaches itself
 
-| Screen                          | Orientation |
-| ------------------------------- | ----------- |
-| front door, picker, how to play | portrait    |
-| ready card, round, results      | landscape   |
+| Screen                                    | Orientation |
+| ----------------------------------------- | ----------- |
+| front door, picker, settings, how to play | portrait    |
+| ready card, round, results                | landscape   |
 
 Portrait for what you hold in your hand, landscape for what you hold against
 your head -- and landscape because the word gets 800px instead of 480.
@@ -168,23 +170,91 @@ as large. Deliberately not done: see the note at the end of this file.
 
 ## 5. The words
 
-**2722 entries across 17 categories**, in flash as a `constexpr` table.
+**2460 entries across 17 categories**, in flash as a `constexpr` table.
 
-Written for this fork rather than lifted: entry lists are generated from
-`tools_local/forehead/words/*.txt` by `gen_forehead_words.py`, in the same shape
-as Insider's. Edit a `.txt`, run the script, commit both -- the generated header
-is committed because a checkout has to build without Python.
+Generated from `tools_local/forehead/words/*.txt` by `gen_forehead_words.py`, in
+the same shape as Insider's. Edit a `.txt`, run the script, commit both -- the
+generated header is committed because a checkout has to build without Python.
 
-The generator refuses three things, all of which fail silently at 220ppi:
+### The lists are read, not remembered
+
+The first version of these lists was written from memory, and it had a
+structural fault that no amount of reviewing it against itself would have found:
+**there was no easy tier at all.** Measured against published, play-tested
+charades and party-word lists, ACT IT OUT was missing all fifteen of the easy
+words; FOOD was missing BREAD, APPLE, CHEESE, EGG, RICE and MILK; ANIMALS was
+missing DOG, COW, PIG, BIRD, FISH and BEAR. Every list started at the difficulty
+a published list reaches halfway down. A game whose easiest word is PORCUPINE is
+not a hard game, it is a game nobody finishes a round of.
+
+`tools_local/forehead/sources/` holds what was read and what was done with it:
+`published.py` is the transcribed source material, `curate.py` the fixes, cuts
+and additions applied on top, and `README.md` names the sources.
+
+Recorded there too: **frequency filtering was tried and rejected.** Scoring
+entries by corpus frequency to find the too-obscure ones flagged ALLIGATOR,
+PENGUIN, BROOM, CRAYON and TOOTHBRUSH -- five words every six-year-old mimes on
+demand. Word frequency measures how often a word is written down, and this game
+is about what is easy to act out. Nobody should spend an evening rediscovering
+that.
+
+### What the generator refuses
+
+Four things, all of which fail silently at 220ppi:
 
 - **Non-ASCII.** Toybox's face is subset to ASCII and a glyph the font does not
   have draws as **nothing** -- no box, no fallback, no log line. A curly
   apostrophe pasted from a web page produces a card with a hole in it. This one
   is not hypothetical: it caught `SÉANCE` on the first run.
-- **Anything over 22 characters**, which is what the card ladder is tuned
-  against.
+- **Anything too wide in PIXELS**, measured against the real font tables rather
+  than counted in characters. Entries are checked against the 276px results
+  column, titles against the 280px the picker row leaves beside its value, hints
+  against the 760px of the landscape ready card. A character cap is what this
+  used to be, and it cannot work: "HOLD IT ON YOUR FOREHEAD" and "EASY ONES FOR
+  SMALL ONES" are both 24 characters and differ by 69 pixels. `measure.py` will
+  tell you what any string costs at any cut.
 - **A duplicate inside one list**, which defeats the no-repeat deck silently:
   the mask marks one index and the other is still in the bag.
+- **A NEAR duplicate**: one answer written two ways. A plural beside its
+  singular (GRAPE/GRAPES), a word order beside its reverse (DOG BARKING/BARKING
+  DOG), a title with and without its article (LION KING/THE LION KING), two
+  spellings of one word (DONUT/DOUGHNUT). The deck deals each pair as two cards
+  and the room has one answer for both, so the holder who says the other one is
+  marked wrong.
+
+  Every pair of this shape that shipped was **manufactured by the curation
+  step**, whose "is it already there" test was an exact string match: it added
+  the variant of a word that was already present, and the exact-duplicate check
+  above waved it through. Subsets are deliberately NOT refused -- TABLE TENNIS
+  and TENNIS are two sports -- and `dupes.py` reports those for a human instead.
+- **A category with fewer than `kMaxCards` entries**, covered below.
+
+### Two traps in the curation script
+
+`curate.py`'s tables are written as `"""WORD WORD WORD""".split()`, which is readable and
+correct for single words and **shreds anything with a space in it**.
+`"SITTING DOWN STANDING UP"` became four entries, and `act.txt` shipped
+containing the cards `DOWN` and `UP`. The same line hit `food` (`ICE CREAM` ->
+`ICE`, `CREAM`) and `house` (`LIGHT SWITCH` -> `LIGHT`, `SWITCH`): six junk
+cards from one habit. Multi-word entries go in an explicit list, appended with
+`+[...]`, where a space cannot be mistaken for a separator.
+
+The other one: `ADD` runs **after** `FIX`, so an added entry is exempt from
+every correction in the file -- and since `ADD` re-adds the uncorrected spelling
+on every run, the list ends up holding both forms. That is how `SCOOBY DOO` and
+`SCOOBY-DOO` both shipped, in two categories, out of the very table meant to
+remove duplicates. Additions go through `FIX` now, and running `curate.py`
+twice is a no-op, which is the property that proves it.
+
+### A name that does not fit is dropped, not shortened
+
+The pixel cap is mirrored into `curate.py`, so an entry too wide for the
+results column fails where it is **written** rather than one step later at
+generation. That matters because of what happens at the later point: faced with
+`CHRISTOPHER COLUMBUS` at 280px against a 276px column, the fix applied once in
+this repo was to shorten it to `COLUMBUS`, which trades an overflow for a city
+in Ohio. `PIRATES OF CARIBBEAN` and `JACK AND BEANSTALK` are the same mistake
+already made. If the real name does not fit, the entry goes.
 
 A word appearing in **two** categories is fine and often right -- CLAPPING is
 both an action and a sound -- so those are reported and allowed. Only one
@@ -249,18 +319,82 @@ core is about cards rather than seconds.
 ./host-tests/forehead/run.sh
 ```
 
-407k checks. Three kinds, and the third is the one worth copying:
+355k checks. Three kinds, and the third is the one worth copying:
 
 1. Hand-built states for each rule.
 2. Deck soaks. The interesting deck bug is the **last card of a lap** --
    rejection sampling on positions would expect ~189 draws to find the one card
    left, and a spot check reaches that case roughly never. There is a test that
    sets up exactly it, for 200 seeds.
-3. An exhaustive pass over all 2722 entries and all 17 slices: ASCII, length,
+3. An exhaustive pass over all 2460 entries and all 17 slices: ASCII, length,
    case, no doubled spaces, slices tile the array with no gap or overlap, no
    duplicate within a list, every list bigger than `kMaxCards`. The generator
    already refuses bad content, but **the generator is not what ships** -- the
    committed header is, and a hand-edit would sail past a script nobody re-ran.
+
+### The overflow gate is the simulator, not a test
+
+Every text overflow this app has had was invisible in a screenshot. The SDK
+truncates with U+2026, and **the Toybox cuts do not all carry it**: `toybox_10`
+has the ellipsis, and 14, 20, 30, 44 and 64 do not. A glyph the face lacks draws
+as nothing, so at every cut this app uses, an overflowing line does not clip --
+it **stops**, at a plausible-looking place. Two shipped that way: a settings row
+that read `RE` and a first run whose only sentence ran off the side.
+
+That asymmetry is also the gate's coverage. At the 10px cut an overflow ends in
+a visible `...` and the renderer logs nothing, so the gate is silent there -- and
+does not need to be loud, because a human can see it. At 14 and above the
+failure is invisible to a human and the gate is the only thing that sees it.
+FOREHEAD draws at 14 and above throughout; `kTileCut` (10) is used by SEA SALT,
+SUDOKU and TOY BATTLE.
+
+The renderer logs `No glyph for codepoint 8230` every time, on every screen, for
+computed boxes as well as fixed ones. `sim-shot.sh` now **fails** on that line
+rather than printing it into the trace and exiting 0. That is a better gate than
+any table of strings could be, because it needs no table: it sees whatever the
+app actually drew.
+
+**What it cannot see, which matters as much as what it can.** The gate fires
+only for text the renderer ACTUALLY DREW and truncated. An overflow that depends
+on data the app has not got yet -- a pack not downloaded, an empty state nobody
+reached, a name nobody has typed that long -- draws nothing, truncates nothing,
+and passes. The shelf-wide sweep that found the XKCD bug visited each app's
+OPENING screen; "every app is clean" means every app's first screen is clean and
+no more than that.
+
+A worked example, found by a peer within an hour of the gate landing: GET BOOKS
+logs `No glyph for codepoint 10` -- a raw newline out of an OPDS feed reaching
+`drawText` while it renders book titles. Two things follow. It is NOT the
+truncation case, so the width tooling explains nothing about it (the gate says
+so itself now, and splits its advice by codepoint). And the shelf sweep could
+never have found it: Get Books needs Wi-Fi and a seeded `opds.json` before it
+reaches that screen at all. Every network-fed app has that shape.
+
+So the gate is a backstop, not a proof. Where a length is known before the
+device sees it -- a generated word list, a downloaded content pack -- cap it at
+BUILD time against the measured cut, so the device is never handed a string that
+cannot fit and the gate has nothing left to find. That is what
+`gen_forehead_words.py` does with `MAX_ENTRY_PX`, and it is the reason the
+generator refuses rather than the panel revealing.
+
+When it fires, measure the string:
+
+```bash
+tools_local/forehead/measure.py 20 'RESET EVERYTHING'   # 309px
+```
+
+### The simulator takes taps in PORTRAIT coordinates, always
+
+A trap that cost a tester most of a session: `sim-shot.sh` SCALES taps from the
+portrait 480x800 frame onto whatever is on screen -- it does not rotate them. So
+on the landscape round and results screens,
+
+    portrait_x = landscape_x * 0.6
+    portrait_y = landscape_y * 1.667
+
+PLAY AGAIN is `TAP:123,727` and DONE is `TAP:357,727`, not the coordinates you
+read off the landscape screenshot. Tapped in landscape coordinates both look
+DEAD, which is exactly what got reported before the scaling was worked out.
 
 ### Rendering it
 

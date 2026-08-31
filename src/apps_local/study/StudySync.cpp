@@ -97,7 +97,7 @@ int request(const char* method, const std::string& path, const std::string& toke
   const int status = body ? http.sendRequest(method, body, bodyLen) : http.sendRequest(method, std::string());
   if (status <= 0) {
     LOG_ERR("STUDYSYNC", "%s %s failed: %d", method, path.c_str(), status);
-    message = "Could not reach the sync service. Check the WiFi and try again.";
+    message = "Could not reach the sync service. Check Wi-Fi and try again.";
     http.end();
 #if defined(CROSSPOINT_DEV_SERIAL_BRIDGE)
     // Dev-build self-diagnosis, never a fallback: retry the same request
@@ -206,7 +206,7 @@ int request(const char* method, const std::string& path, const std::string& toke
   }
   remove(bodyPath);
   remove(outPath);
-  if (status == 0) message = "Could not reach the sync service. Check the WiFi and try again.";
+  if (status == 0) message = "Could not reach the sync service. Check Wi-Fi and try again.";
   return status;
 }
 
@@ -248,6 +248,26 @@ uint32_t BridgeState::ackFor(const char* dir) const {
     if (std::strcmp(deckDirs[i], dir) == 0) return ackOffsets[i];
   }
   return 0;
+}
+
+uint64_t BridgeState::ackHashFor(const char* dir) const {
+  for (int i = 0; i < deckCount; ++i) {
+    if (std::strcmp(deckDirs[i], dir) == 0) return ackHashes[i];
+  }
+  return 0;
+}
+
+void BridgeState::setAckHash(const char* dir, const uint64_t hash) {
+  for (int i = 0; i < deckCount; ++i) {
+    if (std::strcmp(deckDirs[i], dir) == 0) {
+      ackHashes[i] = hash;
+      return;
+    }
+  }
+  if (deckCount >= kMaxSyncDecks) return;
+  std::snprintf(deckDirs[deckCount], sizeof(deckDirs[0]), "%s", dir);
+  ackHashes[deckCount] = hash;
+  ++deckCount;
 }
 
 void BridgeState::setAck(const char* dir, uint32_t offset) {
@@ -292,7 +312,11 @@ bool loadBridgeState(BridgeState& out) {
   if (deserializeJson(doc, raw) != DeserializationError::Ok) return false;
   out.token = doc["token"] | "";
   out.lastSyncAt = doc["lastSyncAt"] | static_cast<int64_t>(0);
+  out.choseDecks = doc["choseDecks"] | false;
   out.paired = !out.token.empty();
+  for (JsonPair kv : doc["ackhashes"].as<JsonObject>()) {
+    out.setAckHash(kv.key().c_str(), kv.value().as<uint64_t>());
+  }
   for (JsonPair kv : doc["acks"].as<JsonObject>()) {
     out.setAck(kv.key().c_str(), kv.value().as<uint32_t>());
   }
@@ -306,20 +330,41 @@ bool saveBridgeState(const BridgeState& state) {
   JsonDocument doc;
   doc["token"] = state.token;
   if (state.lastSyncAt > 0) doc["lastSyncAt"] = state.lastSyncAt;
+  if (state.choseDecks) doc["choseDecks"] = true;
   JsonObject acks = doc["acks"].to<JsonObject>();
   for (int i = 0; i < state.deckCount; ++i) acks[state.deckDirs[i]] = state.ackOffsets[i];
+  JsonObject hashes = doc["ackhashes"].to<JsonObject>();
+  for (int i = 0; i < state.deckCount; ++i) {
+    if (state.ackHashes[i] != 0) hashes[state.deckDirs[i]] = state.ackHashes[i];
+  }
   JsonObject builds = doc["builds"].to<JsonObject>();
   for (int i = 0; i < state.deckCount; ++i) {
     if (state.lastBuilds[i][0] != '\0') builds[state.deckDirs[i]] = state.lastBuilds[i];
   }
   std::string raw;
   serializeJson(doc, raw);
-  HalFile file;
-  if (!Storage.openFileForWrite("STUDYSYNC", kBridgeStatePath, file)) {
-    LOG_ERR("STUDYSYNC", "cannot write %s", kBridgeStatePath);
+  // Write beside it and rename. Opening the real path truncates first, so a
+  // power cut mid-write left an unparseable .bridge, which reads exactly like
+  // a device that was never paired: the next sync walked the user through
+  // pairing again for no reason they could see.
+  const std::string tempPath = std::string(kBridgeStatePath) + ".part";
+  {
+    HalFile file;
+    if (!Storage.openFileForWrite("STUDYSYNC", tempPath.c_str(), file)) {
+      LOG_ERR("STUDYSYNC", "cannot write %s", tempPath.c_str());
+      return false;
+    }
+    if (file.write(reinterpret_cast<const uint8_t*>(raw.data()), raw.size()) != static_cast<int>(raw.size())) {
+      LOG_ERR("STUDYSYNC", "short write to %s", tempPath.c_str());
+      return false;
+    }
+  }
+  Storage.remove(kBridgeStatePath);
+  if (!Storage.rename(tempPath.c_str(), kBridgeStatePath)) {
+    LOG_ERR("STUDYSYNC", "cannot rename %s into place", tempPath.c_str());
     return false;
   }
-  return file.write(reinterpret_cast<const uint8_t*>(raw.data()), raw.size()) == static_cast<int>(raw.size());
+  return true;
 }
 
 std::string StudySync::pairUrl(const std::string& code) {
@@ -380,6 +425,71 @@ void StudySync::pairAbandon(const std::string& pollToken, const std::string& dev
   std::string message;
   request("POST", "/api/pair/abandon", "", reinterpret_cast<const uint8_t*>(body.data()), body.size(), response,
           message);
+}
+
+bool StudySync::listDecks(const BridgeState& state, std::vector<DeckChoice>& out, std::string& message) {
+  decksWithheld = false;
+  out.clear();
+  std::string response;
+  const int status = request("GET", "/api/decks", state.token, nullptr, 0, response, message);
+  if (status == 0) return false;
+  if (status == 401) {
+    unpaired = true;
+    message = "This reader was unpaired on the bridge.";
+    return false;
+  }
+  if (status != 200) {
+    if (!takeServerError(response, message)) message = "The sync service could not list your decks.";
+    return false;
+  }
+  JsonDocument doc;
+  if (deserializeJson(doc, response) != DeserializationError::Ok || !doc["decks"].is<JsonArray>()) {
+    message = "The sync service answered something unexpected.";
+    return false;
+  }
+  for (JsonVariant chosen : doc["chosen"].as<JsonArray>()) {
+    (void)chosen;  // presence handled per deck below
+  }
+  for (JsonObject deck : doc["decks"].as<JsonArray>()) {
+    DeckChoice choice;
+    choice.name = deck["name"] | "";
+    choice.cards = deck["cards"] | 0;
+    if (choice.name.empty()) continue;
+    for (JsonVariant chosen : doc["chosen"].as<JsonArray>()) {
+      if (choice.name == (chosen.as<const char*>() ? chosen.as<const char*>() : "")) choice.chosen = true;
+    }
+    out.push_back(std::move(choice));
+    if (out.size() >= kMaxOfferedDecks) {
+      // The account can hold more decks than the picker can list. Saying so
+      // is the difference between "my deck is not here" and "my deck is not
+      // on this page", which the user cannot tell apart otherwise.
+      decksWithheld = true;
+      break;
+    }
+  }
+  return true;
+}
+
+bool StudySync::chooseDecks(const BridgeState& state, const std::vector<std::string>& names, std::string& message) {
+  JsonDocument doc;
+  JsonArray arr = doc["decks"].to<JsonArray>();
+  for (const auto& name : names) arr.add(name);
+  std::string body;
+  serializeJson(doc, body);
+  std::string response;
+  const int status = request("POST", "/api/decks/choose", state.token, reinterpret_cast<const uint8_t*>(body.data()),
+                             body.size(), response, message);
+  if (status == 0) return false;
+  if (status == 401) {
+    unpaired = true;
+    message = "This reader was unpaired on the bridge.";
+    return false;
+  }
+  if (status != 200) {
+    if (!takeServerError(response, message)) message = "The sync service would not save that choice.";
+    return false;
+  }
+  return true;
 }
 
 bool StudySync::syncStart(const BridgeState& state, const std::vector<DeckPayload>& decks, std::string& jobId,
@@ -446,9 +556,15 @@ std::string StudySync::syncStatus(const BridgeState& state, const std::string& j
     return "";
   }
   const std::string jobStatus = doc["status"].as<const char*>();
+  failedDecks.clear();
+  reviewsMissing = doc["summary"]["missing"] | 0;
   if (jobStatus == "error" || jobStatus == "frozen") {
     message = doc["message"] | "Syncing hit a problem on the bridge. Try again in a while.";
   } else if (jobStatus == "done") {
+    for (JsonVariant name : doc["summary"]["failedDecks"].as<JsonArray>()) {
+      const char* text = name.as<const char*>();
+      if (text && *text) failedDecks.push_back(text);
+    }
     for (JsonObject m : doc["summary"]["manifests"].as<JsonArray>()) {
       DeckManifest deck;
       deck.slug = m["slug"] | "";

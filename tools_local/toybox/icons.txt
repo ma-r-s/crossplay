@@ -266,6 +266,7 @@ getbooks    = library-big
 # is the multiplayer mark and must never be echoed), `lightbulb` (says "idea",
 # which is every puzzle in the folder).
 forehead = hourglass
+trivia   = brain            # the one thing every question is asking you for
 
 # The category marks, 32px, drawn in the picker's rows the way the shelf draws
 # an app's. They have to separate from EACH OTHER rather than from the shelf,

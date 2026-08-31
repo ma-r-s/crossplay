@@ -174,63 +174,38 @@ jobs:
             devices next to each other find one another with nothing to type --
             and they do not have to be the same device.
 
-            ### What is new in 1.8.0
+            ### What is new in 1.11.0
 
-            **A new game: Forehead.** Hold the device against your forehead
-            with the screen facing out. You cannot see it; everybody else can,
-            and they shout clues until you get the word. Press the **bottom**
-            key when you get one and the **top** key to give up, and keep going
-            until the clock runs out.
+            **A trivia game, with fifty thousand questions.** They come off
+            forty-two years of Jeopardy!, and they are not on the device: the
+            app fetches a 6MB pack the first time you open it, and it lives on
+            the card next to your books.
 
-            It is the phone game everyone has played, and the two page keys
-            turn out to be better than the tilt they replace: a tilt has to be
-            big enough to detect and small enough not to lose your grip, it
-            fires when you stumble, and it takes the screen off your forehead
-            on every single card. A key moves nothing.
+            Two ways to play, because they are different evenings. **QUIZMASTER**
+            puts one question on the panel and nothing else. You read it out,
+            the table argues, and a tap turns the answer over. **SOLO** gives you
+            four options and keeps score.
 
-            **Seventeen word lists, 2722 words**, and none of them repeats until
-            you have seen every word in it -- the device remembers across
-            evenings. Animals, Act It Out, Make A Sound, Food & Drink, Movies,
-            Famous People, Music, Jobs, Sports, Household, Places, Nature,
-            Science, Myths, Storybook, For Kids and Tricky. Act It Out and Make
-            A Sound are the two that ruin friendships.
+            The four options are not lifted from anywhere; they are built. A
+            Jeopardy clue says what its answer is -- "this country", "this
+            metal" -- so the wrong answers are drawn from the same kind of
+            thing and matched for length. Published trivia sets leak the answer
+            through option length between 32% and 38% of the time against a 25%
+            baseline, which is to say you can win them without knowing anything.
+            This one measures 6%.
 
-            Turn the device sideways when it asks. The round is played in
-            landscape so the word is as big as the panel can make it, and the
-            screen labels its own two edges so the room can call out which key
-            to press. Rounds are 30, 60, 90 or 120 seconds. The results screen
-            lists every word with what happened to it, including the one you
-            were still holding when time ran out -- which counts as neither,
-            and says so instead of quietly going against you.
+            Questions are graded 1 to 5. Jeopardy doubled its clue values in
+            2001, so the difficulty is normalised across the whole run rather
+            than read off the board.
 
-            **The BEZEL ruler has left Apps.** It was a measuring instrument
-            rather than an app: it existed to measure how much of the panel
-            this device's glass covers, that measurement is done, and it had
-            been sitting on the Apps list ever since. Nothing else changes on
-            that screen.
+            **A question that turns out to be wrong can be flagged as you play**,
+            and never comes back. Fifty thousand questions cannot be checked by
+            anybody; the few hundred you actually see can be, and that is the
+            only curation that scales.
 
-            ### Still true from 1.6.0, if you have not flashed over USB since
-
-            **The two app slots grew from 6.25MB to 7.94MB, and the partition
-            table is only written by a USB flash.** Check for updates writes the
-            application and nothing else, so a device installed before 1.6.0
-            keeps its old 6.25MB slots no matter how many times it updates over
-            Wi-Fi. Everything keeps working. What happens eventually is that an
-            application grows past 6.25MB, and that device says the firmware is
-            too large and declines the update -- with that reason, before
-            downloading it, rather than failing halfway.
-
-            **This release still fits, with 52KB to spare**, and that is the
-            first time the margin has been worth printing: 1.8.0 is 6,500,522
-            bytes against the old 6,553,600-byte slot. It is the tightest a
-            release has been. If you are on an old table, this one installs
-            over Wi-Fi like any other -- but the next release that adds a
-            typeface may not, and you would rather do the USB flash below at
-            your convenience than the first time an update refuses itself. If you would rather not
-            meet that months from now, flash
-            `crossplay-1.6.1-x4pro-full.bin` over USB once, exactly as a first
-            install. Your SD card is untouched: books, reading positions, saves
-            and fonts are files on it, not in the firmware.
+            Special editions are left out on purpose -- Tournament of Champions,
+            Teen, College, Celebrity -- because their difficulty is set for a
+            different room than yours.
 
             ### The short way: press Install
 

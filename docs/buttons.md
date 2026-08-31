@@ -96,6 +96,11 @@ only a button" still holds and the two halves of the round screen are tappable
 reach the keys and would answer their own card. The touch targets are bands
 across the middle of each half instead. See [apps/forehead.md](apps/forehead.md).
 
+Its landscape key mapping -- `Button::Up` is the BOTTOM key and `Button::Down`
+the TOP one, once the panel is turned counter-clockwise -- was **confirmed on
+hardware on 2026-08-30**. Reuse it rather than re-deriving it: it is the same
+rotation for any app that turns the panel this way.
+
 Worth knowing before writing another landscape app: `ScreenUp` / `ScreenDown`
 look like exactly the right API for a rotated screen and are a trap here. In
 `LandscapeCounterClockwise`, `mapScreenDirection()` resolves them to

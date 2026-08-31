@@ -29,6 +29,7 @@
 #include "study/StudyActivity.h"
 #include "sudoku/SudokuActivity.h"
 #include "toybattle/ToyBattleActivity.h"
+#include "trivia/TriviaActivity.h"
 #include "ui/ToyboxIcons.h"
 #include "wavelength/WavelengthActivity.h"
 #include "xkcd/XkcdActivity.h"
@@ -57,6 +58,7 @@ constexpr shelf::Item kGames[] = {
     {"SUDOKU", &icon_sudoku_32, &SudokuActivity::create},
     {"TOY BATTLE", &icon_toybattle_32, &ToyBattleActivity::create},
     {"FOREHEAD", &icon_forehead_32, &ForeheadActivity::create},
+    {"TRIVIA", &icon_trivia_32, &TriviaActivity::create},
     {"WAVELENGTH", &icon_wavelength_32, &WavelengthActivity::create},
 };
 constexpr shelf::Item kApps[] = {
