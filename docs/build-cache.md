@@ -37,13 +37,14 @@ naming no file of ours.
 | Two **device** builds at once | `check.sh`'s firmware lock | yes, unless bypassed |
 | Any two builds racing the SCons database | a per-tree `.sconsign` | **yes** |
 | Two builds racing shared `~/.platformio` | nothing but convention | **no** |
-| The lock removed by the 900s stale path | nothing | **no** |
+| The lock removed by the 900s stale path | `app/locklive`'s liveness check | **yes** |
 
-**Only two of the five are actually fixed**, and that is the point of the column.
-"Retry with the workspace quiet" is currently the advice for all five, and it
-cures some of them only by accident -- retrying eventually wins a race.
+**Four of the five are fixed; one is protected only by convention**, and that
+distinction matters more than fixed-versus-not. "Retry with the workspace quiet"
+is the folk advice for all five and cures some of them only by accident --
+retrying eventually wins a race.
 
-The two that are not fixed:
+The one that is not fixed:
 
 **The shared `~/.platformio` framework.** Every device build reaches into it and
 it cannot be sharded (it is 10GB). A build that loses the race reports framework
@@ -52,11 +53,26 @@ on disk the moment you look**. Nothing prevents this except everyone going
 through `check.sh` rather than a raw `pio run`, and the lock only helps if it is
 actually taken.
 
-**The lock's own stale path.** `check.sh` removes a lock held longer than 900
-seconds, with no check that the holder is still alive. That fires most readily
-when the machine is loaded, which is exactly when a second concurrent build does
-the most damage. Checking whether the holder's pid still exists would turn a
-guess into a fact.
+### Fixed elsewhere: the lock's own stale path
+
+`check.sh` used to remove a lock held longer than 900 seconds with no check that
+the holder was still alive -- firing most readily when the machine is loaded,
+which is exactly when a second concurrent build does the most damage. Fixed on
+**`app/locklive`** (`7b1fd824`, plus ownership guards on the delete paths): the
+lock records its holder's pid and the waiter uses `kill -0` on **that pid**, so
+the decision never rests on matching a command shape. This workspace has already
+had a `pkill -f` on a command-line shape kill a sibling session's release train,
+because two sessions had identical wrapper idioms.
+
+**A macOS trap worth knowing if you touch that code**: `pgrep -c` does not
+exist in BSD pgrep. It exits 2 with a usage message, so the common
+`N=$(pgrep -c -f "..." || echo 0)` yields a **silent constant zero**. For a
+liveness check that is the dangerous direction: a probe that always answers
+"holder is dead" turns the timer into an unconditional lock break, strictly
+worse than the bug it replaces. Use `pgrep -f "..." | wc -l`, or better
+`kill -0 "$PID"`, and assert in a test that the probe finds a known-live
+process -- which is the only check that catches "never ran" rather than
+"answered wrong".
 
 Its signature is the same as the rest, so the standing advice -- "retry with the
 workspace quiet" -- appeared to work, because retrying eventually wins the race.
