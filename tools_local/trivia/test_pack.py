@@ -6,7 +6,10 @@ mattering. Encoding them here means a corpus refresh cannot quietly break one.
 
     python3 tools_local/trivia/test_pack.py <pack.jsonl>
 """
-import collections, json, re, sys
+import collections, json, os, re, sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import textfit
 
 FAILURES = []
 CHECKS = 0
@@ -32,8 +35,12 @@ def main(path):
     check('difficulty is 1-5', all(1 <= r['d'] <= 5 for r in rows))
 
     # screen fit -- 480x800, and the clue must be readable aloud
-    bad_len = [r for r in rows if not (30 <= len(r['q']) <= 140)]
-    check('clue length within 30-140 chars', not bad_len, f'{len(bad_len)} outside')
+    # No upper CHARACTER bound: it is the wrong unit. Two 24-character strings
+    # differ by 69 pixels in the same face, so a character cap both rejects
+    # clues that fit and passes clues that overflow. The real bound is the
+    # measured one below. Only a lower bound survives, for substance.
+    short = [r for r in rows if len(r['q']) < 30]
+    check('no trivially short clue', not short, f'{len(short)} under 30 chars')
     bad_ans = [r for r in rows if not (0 < len(r['a']) <= 25)]
     check('answer at most 25 chars', not bad_ans, f'{len(bad_ans)} too long')
 
@@ -75,6 +82,13 @@ def main(path):
     lo, hi = min(spread.values()), max(spread.values())
     check('difficulty reasonably spread', hi <= lo * 2.5,
           f'{dict(sorted(spread.items()))}')
+
+    # the panel truncates silently: an overflowing clue photographs fine and
+    # simply stops mid-sentence, so this is measured in pixels, never characters
+    over = [r for r in rows
+            if not textfit.fits(r['q'], 448, 583, 'notosans_18_regular')]
+    check('no clue overflows its box (measured)', not over,
+          f'{len(over)} overflow, e.g. {over[0]["q"][:50] if over else ""}')
 
     # solo multiple choice: the generated options must not leak the answer
     mc = [r for r in rows if r.get('w')]

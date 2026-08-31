@@ -8,6 +8,17 @@ The device never sees this script; it reads the finished pack from the SD card.
 """
 import argparse, collections, csv, hashlib, json, math, os, random, re, sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import textfit
+
+# The clue box, from the app's layout. A clue is rejected here rather than
+# truncated on the panel: the device must never be handed text that cannot fit.
+# Capping on CHARACTERS cannot express this -- two 24-character strings differ
+# by 69 pixels in the same face -- so the cap is measured, in pixels.
+CLUE_FONT = 'notosans_18_regular'
+CLUE_WIDTH = 448          # 480 minus 16px margins
+CLUE_HEIGHT = 583         # 800 minus an 89px header and a 128px footer
+
 csv.field_size_limit(10**7)
 
 # --- clue text hygiene -------------------------------------------------------
@@ -214,7 +225,9 @@ def build(src, keep_events=False):
         if not DEMO.search(clue):           drop['category-dependent'] += 1; continue
         if TIMEROT.search(clue):            drop['time-rotted'] += 1; continue
         if ADULT.search(clue):              drop['adult'] += 1; continue
-        if not (30 <= len(clue) <= 140):    drop['clue length'] += 1; continue
+        if len(clue) < 30:                  drop['clue too short'] += 1; continue
+        if not textfit.fits(clue, CLUE_WIDTH, CLUE_HEIGHT, CLUE_FONT):
+            drop['clue overflows its box'] += 1; continue
         if clue.count('"') % 2 or clue.count('(') != clue.count(')'):
             drop['unbalanced punctuation'] += 1; continue
 

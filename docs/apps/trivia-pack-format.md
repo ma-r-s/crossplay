@@ -72,6 +72,26 @@ comparable across the 42 seasons. The builder doubles pre-2001 values, halves
 Double Jeopardy to the round-one scale, and calls Final Jeopardy tier 5. The
 result is an even spread; raw values would not be.
 
+## The clue cap is measured in pixels, not characters
+
+A clue is rejected at build time if its **wrapped height** exceeds the clue box
+(448 x 583 px at `notosans_18_regular`), so the device is never handed text it
+cannot draw. This matters because the panel truncates silently: an overflowing
+line ends in U+2026, Jersey has no glyph for it, and the sentence just stops --
+photographing as a perfectly reasonable clue that happens to end early.
+
+**A character cap cannot express this, and gets it wrong in both directions.**
+Measured on this corpus: 8 clues under 140 characters overflow the box, and 36
+clues over 140 characters fit comfortably (the longest is 275 characters and
+uses 451 px of the 583 available, because it is song lyrics with short words).
+Two 24-character strings can differ by 69 pixels in the same face.
+
+`tools_local/trivia/textfit.py` reads advances out of the generated font header,
+where they are 12.4 fixed point -- sixteenths of a pixel, which is the detail
+that makes a hand-rolled measurement come out 16x too wide. `test_pack.py`
+re-checks the same bound, so a font change or a new season cannot quietly
+reintroduce an overflow.
+
 ## Building it
 
 ```bash
