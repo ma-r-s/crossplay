@@ -297,6 +297,14 @@ void ActivityManager::popActivity() {
 
 bool ActivityManager::preventAutoSleep() const { return currentActivity && currentActivity->preventAutoSleep(); }
 
+const char* ActivityManager::currentActivityName() const {
+  // A replacement that has been requested but not yet swapped in counts as the
+  // current one: replaceActivity() defers the swap to the top of the next loop,
+  // and a caller asking right after requesting one means the one it requested.
+  if (pendingActivity) return pendingActivity->name.c_str();
+  return currentActivity ? currentActivity->name.c_str() : "";
+}
+
 bool ActivityManager::isReaderActivity() const {
   return std::any_of(stackActivities.begin(), stackActivities.end(),
                      [](const auto& activity) { return activity->isReaderActivity(); }) ||

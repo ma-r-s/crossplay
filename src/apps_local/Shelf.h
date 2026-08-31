@@ -93,8 +93,25 @@ int folderCount();
 void openFolder(int index, GfxRenderer& renderer, MappedInputManager& mappedInput);
 
 // Open item `item` of folder `folder`, and remember which folder it came from
-// so leave() can undo it.
-void openItem(int folder, int item, GfxRenderer& renderer, MappedInputManager& mappedInput);
+// so leave() can undo it. False if the item could not be created, in which case
+// nothing was replaced and the caller still owns the screen.
+bool openItem(int folder, int item, GfxRenderer& renderer, MappedInputManager& mappedInput);
+
+// Record, on the way into deep sleep, whether a shelf item is what the user is
+// looking at. `currentActivityName` is the name of the activity on screen; an
+// item counts as open only when that is the activity the item launched, so
+// leaving a game by the Home gesture -- which never passes through leave() --
+// does not leave a stale claim behind.
+//
+// Wake from deep sleep is a chip reset, so nothing survives it that was not
+// written to the card first. This is the write.
+void rememberForWake(const char* currentActivityName);
+
+// Reopen whatever rememberForWake() recorded, and say whether it did. False
+// when the device was not in a shelf item when it slept, and when the item has
+// been renamed or removed by a firmware update since -- the caller goes Home,
+// which is where every wake used to land.
+bool resumeFromWake(GfxRenderer& renderer, MappedInputManager& mappedInput);
 
 // Open PLAYER, the one screen in the fork that is not a game and not a folder.
 //

@@ -104,10 +104,10 @@ in 1b are compared on a shelf that works:
   `everyItemHasAnIcon()`.
 - Give the folder a touch route past the fold. What that route is depends on 1b,
   so this lands with the winner.
-- Persist `lastItem` / `lastFolder`. Today they are plain `.bss`
-  (`Shelf.cpp:86`) and `main.cpp:301` states that wake from deep sleep is a chip
-  reset, so every time the device sleeps the shelf forgets which game you were
-  playing. `APP_STATE.saveToFile()` already runs on the sleep path.
+- ~~Persist `lastItem` / `lastFolder`.~~ Done: they live in
+  `/.crosspoint/shelf.cfg`, and the item that was open at sleep is persisted
+  beside them so wake reopens the game rather than landing on Home. See
+  [shelf.md](shelf.md), "Wake comes back into the app, not to Home".
 
 ## Phase 1b: the shape
 

@@ -102,6 +102,13 @@ class ActivityManager {
 
   bool preventAutoSleep() const;
   bool isReaderActivity() const;
+
+  // The name of the activity on screen, or "" when there is none. A
+  // replacement requested but not yet swapped in counts as the current one, so
+  // a caller that just asked for one reads back what it asked for. Pushed
+  // sub-screens report their own name, not the one underneath.
+  const char* currentActivityName() const;
+
   bool handleForcedRefresh();
   bool skipLoopDelay() const;
   ScreenshotInfo getScreenshotInfo() const;
