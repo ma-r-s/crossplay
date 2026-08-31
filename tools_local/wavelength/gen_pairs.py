@@ -1,0 +1,170 @@
+#!/usr/bin/env python3
+"""Turn the WAVELENGTH spectrum decks into the generated header.
+
+    tools_local/wavelength/gen_pairs.py            # writes the header
+    tools_local/wavelength/gen_pairs.py --check    # verifies, writes nothing
+
+THE POINT OF THIS SCRIPT IS THE REFUSAL, not the formatting. A pair whose end
+word is wider than the panel is rejected here, measured against the real font
+tables, so an overlong word cannot reach the device and get silently truncated
+into a word that simply stops.
+
+A CHARACTER COUNT IS NOT A WIDTH, which is why the cap is in pixels. LIVED IN
+and GROWN-UP are both eight characters and differ by 70px at the display cut,
+195 against 265. A length limit set anywhere between those either rejects a word
+that fits or admits one that does not.
+
+advanceX in the generated cuts is 12.4 FIXED POINT: sixteenths of a pixel.
+Reading it as pixels makes every string come out sixteen times too wide, which
+looks like a catastrophe rather than a units bug.
+
+English only. Spanish was dropped on 2026-08-30.
+"""
+
+import re
+import sys
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[2]
+CUTS = REPO / "src/apps_local/ui/fonts"
+HERE = Path(__file__).resolve().parent
+
+# Content width: the panel less the margin each side. Deck words are drawn at
+# the display cut and never larger; measured against the real deck, a quarter of
+# the end words are wider than this at the large cut.
+PANEL_W = 480
+MARGIN = 16
+LIMIT = PANEL_W - 2 * MARGIN
+# End words are drawn at the display cut where they fit and step down to the
+# small cut where they do not, so the refusal below is measured against the
+# SMALLEST cut in that ladder: a pair only has to be impossible at 14 to be
+# rejected. 198 of the retail deck's 252 pairs fit at 30 and the rest step down.
+DISPLAY_CUT = "toybox_30"
+FALLBACK_CUT = "toybox_14"
+
+
+def glyph_advances(cut: str) -> dict:
+    """Codepoint -> advance in whole pixels, from the generated header."""
+    text = (CUTS / f"{cut}.h").read_text(encoding="utf-8")
+
+    glyphs = re.search(rf"EpdGlyph {cut}Glyphs\[\]\s*=\s*{{(.*?)}};", text, re.S)
+    intervals = re.search(
+        rf"EpdUnicodeInterval {cut}Intervals\[\]\s*=\s*{{(.*?)}};", text, re.S
+    )
+    if not glyphs or not intervals:
+        sys.exit(f"{cut}: could not find the glyph or interval table")
+
+    # width, height, advanceX, left, top, dataLength, dataOffset
+    rows = re.findall(r"\{([^}]*)\}", glyphs.group(1))
+    advances = [int(r.split(",")[2]) for r in rows]
+
+    out = {}
+    for first, last, offset in re.findall(
+        r"\{\s*(0x[0-9A-Fa-f]+|\d+)\s*,\s*(0x[0-9A-Fa-f]+|\d+)\s*,\s*(0x[0-9A-Fa-f]+|\d+)\s*\}",
+        intervals.group(1),
+    ):
+        lo, hi, base = int(first, 0), int(last, 0), int(offset, 0)
+        for i, cp in enumerate(range(lo, hi + 1)):
+            idx = base + i
+            if idx < len(advances):
+                out[cp] = advances[idx] / 16.0  # 12.4 fixed point
+    return out
+
+
+def width(text: str, advances: dict) -> float:
+    total = 0.0
+    for ch in text:
+        cp = ord(ch)
+        if cp not in advances:
+            sys.exit(
+                f"no glyph for U+{cp:04X} ({ch!r}) in {DISPLAY_CUT}: it would draw as nothing"
+            )
+        total += advances[cp]
+    return total
+
+
+def load(path: Path):
+    pairs = []
+    for lineno, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = [p.strip() for p in line.split("|")]
+        if len(parts) != 2 or not all(parts):
+            sys.exit(f"{path.name}:{lineno}: expected 'TOP | BOTTOM', got {raw!r}")
+        pairs.append((parts[0], parts[1]))
+    return pairs
+
+
+def main() -> int:
+    check_only = "--check" in sys.argv
+    advances = glyph_advances(FALLBACK_CUT)
+    big = glyph_advances(DISPLAY_CUT)
+    pairs = load(HERE / "pairs_en.txt")
+    stepped = sum(1 for t, b in pairs if max(width(t, big), width(b, big)) > LIMIT)
+
+    too_wide = []
+    widest = ("", 0.0)
+    for top, bottom in pairs:
+        for word in (top, bottom):
+            w = width(word, advances)
+            if w > widest[1]:
+                widest = (word, w)
+            if w > LIMIT:
+                too_wide.append((word, w))
+
+    seen = set()
+    for pair in pairs:
+        if pair in seen:
+            sys.exit(f"duplicate pair: {pair[0]} | {pair[1]}")
+        seen.add(pair)
+
+    print(
+        f'{len(pairs)} pairs, widest "{widest[0]}" at {widest[1]:.0f}px of {LIMIT}px '
+        f"at the fallback cut; {stepped} pairs step down from the display cut"
+    )
+    if too_wide:
+        for word, w in too_wide:
+            print(f"  TOO WIDE: {word!r} is {w:.0f}px", file=sys.stderr)
+        sys.exit(f"{len(too_wide)} end word(s) do not fit even at the fallback cut")
+
+    if check_only:
+        return 0
+
+    out = [
+        "#pragma once",
+        "",
+        "// GENERATED by tools_local/wavelength/gen_pairs.py -- do not edit.",
+        "// Source: tools_local/wavelength/pairs_en.txt",
+        "//",
+        "// Every end word is measured against the display cut's real advances at",
+        "// generation time and refused if it would not fit the panel, so nothing here",
+        "// can be truncated into a word that simply stops.",
+        "",
+        "namespace wavelength {",
+        "",
+        "struct Pair {",
+        "  const char* top;",
+        "  const char* bottom;",
+        "};",
+        "",
+        "inline constexpr Pair kPairsEn[] = {",
+    ]
+    for top, bottom in pairs:
+        out.append(f'    {{"{top}", "{bottom}"}},')
+    out += [
+        "};",
+        "",
+        f"inline constexpr int kPairCountEn = {len(pairs)};",
+        "",
+        "}  // namespace wavelength",
+        "",
+    ]
+    dest = REPO / "src/apps_local/wavelength/WavelengthPairs.h"
+    dest.write_text("\n".join(out), encoding="utf-8")
+    print(f"wrote {dest.relative_to(REPO)}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

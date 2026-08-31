@@ -19,6 +19,7 @@
 #include "forehead/ForeheadActivity.h"
 #include "hackernews/HackerNewsActivity.h"
 #include "insider/InsiderActivity.h"
+#include "instapaper/InstapaperActivity.h"
 #include "jaipur/JaipurActivity.h"
 #include "knucklebones/KnucklebonesActivity.h"
 #include "minesweeper/MinesweeperActivity.h"
@@ -31,6 +32,7 @@
 #include "toybattle/ToyBattleActivity.h"
 #include "trivia/TriviaActivity.h"
 #include "ui/ToyboxIcons.h"
+#include "wavelength/WavelengthActivity.h"
 #include "xkcd/XkcdActivity.h"
 #include "yahtzee/YahtzeeActivity.h"
 
@@ -58,12 +60,14 @@ constexpr shelf::Item kGames[] = {
     {"TOY BATTLE", &icon_toybattle_32, &ToyBattleActivity::create},
     {"FOREHEAD", &icon_forehead_32, &ForeheadActivity::create},
     {"TRIVIA", &icon_trivia_32, &TriviaActivity::create},
+    {"WAVELENGTH", &icon_wavelength_32, &WavelengthActivity::create},
 };
 constexpr shelf::Item kApps[] = {
     {"STUDY", &icon_study_32, &StudyActivity::create},
     {"HACKER NEWS", &icon_hackernews_32, &HackerNewsActivity::create},
     {"XKCD", &icon_xkcd_32, &XkcdActivity::create},
     {"GET BOOKS", &icon_getbooks_32, &OpdsBookBrowserActivity::create},
+    {"INSTAPAPER", &icon_instapaper_32, &InstapaperActivity::create},
 };
 
 // The two rows Home grows, in reading order. Titles are Title Case because

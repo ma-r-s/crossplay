@@ -26,6 +26,7 @@ TAG="$(printf '%s' "$REPO" | shasum | cut -c1-8)"
 LOGS="${TMPDIR:-/tmp}/xteink-check-$TAG"
 mkdir -p "$LOGS"
 FAILED=0
+SUBMODULE_DRIFT=""
 
 # --ignore-submodules=untracked: the icon tools drop a __pycache__/ inside
 # freeink-sdk, which is untracked content in a submodule and not your work.
@@ -173,6 +174,40 @@ if [ -z "${LINKPLAY_BASE_PORT:-}" ]; then
   export LINKPLAY_BASE_PORT=$(( 46000 + SLICE * 16 ))
 fi
 
+# The repo ships hooks in .githooks -- a pre-commit formatter and a pre-push
+# guard against publishing another session's unpushed release. Git only runs
+# them when core.hooksPath points there, and that is a per-clone step nobody
+# on this machine had done, so both sat inert while everyone assumed they were
+# covered. A guard nobody enabled is not a guard; say so where it will be read.
+if [ -d "$REPO/.githooks" ] && [ -z "$(git -C "$REPO" config core.hooksPath || true)" ]; then
+  echo "note: .githooks exists but core.hooksPath is unset, so NO repo hook runs here."
+  echo "      enable per clone with: git config core.hooksPath .githooks"
+  echo
+fi
+
+# A tree can be checked out at submodules its own commit does not describe, and
+# then every suite and every build passes while describing nothing. See
+# scripts_local/submodule_state.sh. Uninitialised stops the gate here rather
+# than twenty minutes later inside a compiler error naming no file of ours;
+# drift is allowed to run (an SDK bump in progress is legitimate work) but
+# QUALIFIES THE VERDICT, because a note above a green line is a note that gets
+# read past -- which is how this arrived.
+SUB_STATE="$REPO/scripts_local/submodule_state.sh"
+if [ -x "$SUB_STATE" ]; then
+  SUB_OUT="$("$SUB_STATE" "$REPO" 2>&1)" && SUB_RC=0 || SUB_RC=$?
+  if [ -n "$SUB_OUT" ]; then
+    echo "$SUB_OUT" | sed 's/^/  /'
+    echo
+  fi
+  case "$SUB_RC" in
+    2|4)
+      echo "refusing to gate a tree whose submodules are not the ones it describes."
+      exit 1
+      ;;
+    3) SUBMODULE_DRIFT=1 ;;
+  esac
+fi
+
 DIRTY="$(dirty_count)"
 if [ "$DIRTY" -ne 0 ]; then
   echo "note: verifying your working tree, which has $DIRTY uncommitted file(s)."
@@ -287,36 +322,55 @@ else
   echo "  installer    SKIPPED: no .venv-study -- the page's Python suite did NOT run"
 fi
 
-# The sync bridge server suite. Its venv is not committed; uv rebuilds it in
-# a --committed trial worktree (warm uv cache makes that cheap). A missing
+# The sync bridge server suites. Their venvs are not committed; uv rebuilds them
+# in a --committed trial worktree (warm uv cache makes that cheap). A missing
 # toolchain FAILS rather than skips: a bridge change riding a green gate whose
 # bridge suite never ran is exactly the silence check.sh exists to prevent.
-BRIDGE_DIR="$REPO/server/study-bridge"
-if [ -d "$BRIDGE_DIR" ]; then
+#
+# Two services now, so this is a loop rather than a block. Each entry is
+#   <directory> <label> <port offset within the tree's slice> <suites...>
+# and the offsets are picked apart from each other AND from the link suite,
+# which owns LINKPLAY_BASE_PORT+0..7 (LinkRadio.cpp, kSlots). readbridge takes
+# 8..11 because its harness derives a fake-service port from the base; study
+# takes 12. Sharing an offset would only bite when two trees gate at once,
+# which is exactly when nobody is looking.
+for entry in \
+  "server/study-bridge:bridge:12:tests/test_engine.py tests/test_api.py" \
+  "server/read-bridge:readbridge:8:tests/test_oauth.py tests/test_article.py tests/test_engine.py tests/test_api.py"
+do
+  BRIDGE_DIR="$REPO/${entry%%:*}"
+  rest="${entry#*:}"
+  BRIDGE_LABEL="${rest%%:*}"
+  rest="${rest#*:}"
+  BRIDGE_OFFSET="${rest%%:*}"
+  BRIDGE_SUITES="${rest#*:}"
+  [ -d "$BRIDGE_DIR" ] || continue
+
   BRIDGE_PY="$BRIDGE_DIR/.venv/bin/python"
   if [ ! -x "$BRIDGE_PY" ] && command -v uv > /dev/null 2>&1; then
     (cd "$BRIDGE_DIR" && uv venv .venv --quiet \
       && uv pip install --python .venv/bin/python --quiet -r requirements.txt) \
-      > "$LOGS/bridge-venv.log" 2>&1 || true
+      > "$LOGS/$BRIDGE_LABEL-venv.log" 2>&1 || true
   fi
   if [ -x "$BRIDGE_PY" ]; then
     # Ports ride the tree's own slice, same reason as LINKPLAY_BASE_PORT:
-    # two trees' gates must not share a sync-server port.
-    export BRIDGE_TEST_PORT=$(( LINKPLAY_BASE_PORT + 12 ))
-    for t in tests/test_engine.py tests/test_api.py; do
-      if (cd "$BRIDGE_DIR" && "$BRIDGE_PY" "$t") > "$LOGS/bridge-$(basename "$t").log" 2>&1; then
-        printf "  %-12s ok (%s)\n" "bridge" "$(basename "$t")"
+    # two trees' gates must not share a test server's port.
+    export BRIDGE_TEST_PORT=$(( LINKPLAY_BASE_PORT + BRIDGE_OFFSET ))
+    for t in $BRIDGE_SUITES; do
+      log="$LOGS/$BRIDGE_LABEL-$(basename "$t").log"
+      if (cd "$BRIDGE_DIR" && "$BRIDGE_PY" "$t") > "$log" 2>&1; then
+        printf "  %-12s ok (%s)\n" "$BRIDGE_LABEL" "$(basename "$t")"
       else
-        printf "  %-12s FAILED (%s)\n" "bridge" "$(basename "$t")"
-        tail -5 "$LOGS/bridge-$(basename "$t").log" | sed 's/^/      /'
+        printf "  %-12s FAILED (%s)\n" "$BRIDGE_LABEL" "$(basename "$t")"
+        tail -5 "$log" | sed 's/^/      /'
         FAILED=1
       fi
     done
   else
-    printf "  %-12s FAILED (no venv and uv could not build one)\n" "bridge"
+    printf "  %-12s FAILED (no venv and uv could not build one)\n" "$BRIDGE_LABEL"
     FAILED=1
   fi
-fi
+done
 
 if [ -n "$STUDY_PY" ] && [ -f tools_local/site/precompress.py ]; then
   if (cd "$REPO" && $STUDY_PY tools_local/site/precompress.py --check) > "$LOGS/precompress.log" 2>&1; then
@@ -457,6 +511,40 @@ if [ "${1:-}" != "--tests" ]; then
       # Same rule on the way out: a run that died after its lock was reclaimed
       # must not delete the reclaimer's.
       trap 'o="$(cat "$FW_LOCK/owner" 2>/dev/null || true)"; [ "${o%% *}" = "$$" ] && rm -rf "$FW_LOCK"; true' EXIT INT TERM
+
+      # The object cache is trimmed HERE and nowhere else: holding the firmware
+      # lock is the only moment no other tree is reading those objects. Pruning
+      # outside it deletes inputs from under somebody's running build, which
+      # surfaces as a link error naming no file of ours -- the same shape as the
+      # failure the guard exists to make legible.
+      #
+      # It also refuses to start when trimming cannot get the disk above the
+      # floor, so a full disk arrives as a sentence about the disk rather than
+      # as [Errno 28] from inside the espressif32 builder twenty minutes later.
+      #
+      # No manual lock removal on the failure path: the EXIT trap above already
+      # removes it, and only if this run still owns it. Deleting it here as well
+      # would take a lock a reclaimer had legitimately acquired in between.
+      # Sourced only if it resolves, for the same reason the owner line uses
+      # ${REPO:-$PWD}: host-tests/checksh lifts this loop out and runs its text
+      # in a temp directory where scripts_local/ does not exist. An
+      # unconditional source dies there under `set -e`, taking the owner line
+      # with it -- so the lock gets acquired and never owned, and the tests
+      # report exactly that. The guard is a safety check, not a build step;
+      # skipping it in a harness costs nothing.
+      # REPO, not ${REPO:-$PWD}: host-tests/checksh lifts this loop out and runs
+      # it with REPO deliberately unset, and the guard must not fire there. It
+      # would prune the REAL shared cache from inside a unit test -- 66GB of
+      # another session's build inputs -- and an early exit from it takes the
+      # rest of the loop with it, which is how this was found.
+      _guard="${REPO:-}/scripts_local/cache-guard.sh"
+      if [ -n "${REPO:-}" ] && [ -r "$_guard" ]; then
+        # shellcheck source=scripts_local/cache-guard.sh
+        . "$_guard"
+        if ! cache_guard_check "$PLATFORMIO_BUILD_CACHE_DIR"; then
+          exit 1
+        fi
+      fi
     fi
     if pio run -e "$env" > "$LOGS/$env.log" 2>&1; then
       # The native build reports no RAM/Flash. Say "ok" rather than printing
@@ -562,7 +650,11 @@ fi
 
 echo
 if [ "$FAILED" -eq 0 ]; then
-  echo "all green. logs in $LOGS"
+  if [ -n "$SUBMODULE_DRIFT" ]; then
+    echo "all green -- BUT ON DRIFTED SUBMODULES, so it describes no commit. logs in $LOGS"
+  else
+    echo "all green. logs in $LOGS"
+  fi
 else
   echo "SOMETHING FAILED. logs in $LOGS"
 fi

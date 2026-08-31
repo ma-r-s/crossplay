@@ -22,6 +22,7 @@
 #include "../../src/apps_local/forehead/ForeheadScreens.h"
 #include "../../src/apps_local/hackernews/HackerNewsScreens.h"
 #include "../../src/apps_local/insider/InsiderScreens.h"
+#include "../../src/apps_local/instapaper/InstapaperScreens.h"
 #include "../../src/apps_local/knucklebones/KnucklebonesScreens.h"
 #include "../../src/apps_local/link/LinkScreens.h"
 #include "../../src/apps_local/minesweeper/MinesweeperScreens.h"
@@ -35,6 +36,7 @@
 #include "../../src/apps_local/toybattle/ToyBattleMenus.h"
 #include "../../src/apps_local/toybattle/ToyBattleScreens.h"
 #include "../../src/apps_local/ui/ToyboxIcons.h"
+#include "../../src/apps_local/ui/ToyboxText.h"
 
 namespace fui = freeink::ui;
 
@@ -5089,6 +5091,185 @@ void testTheForeheadResultsMarkTheUnansweredCardApart() {
   CHECK(out.target.find("WORD") != nullptr);
 }
 
+// --- Instapaper ------------------------------------------------------------
+
+void buildInstaQueue(Rendered& out, const instapaperui::QueueModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  instapaperui::buildQueue(screen, model);
+}
+
+void buildInstaReader(Rendered& out, const instapaperui::ReaderModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  instapaperui::buildReader(screen, model);
+}
+
+instapaperui::ReaderModel instaArticleModel() {
+  instapaperui::ReaderModel model;
+  model.title = "What the panel does with a long article";
+  model.text = "Some words that go on for a while and wrap onto more than one line of the panel.";
+  model.pageLabel = "1 / 3";
+  model.canPagePrev = false;
+  model.canPageNext = true;
+  return model;
+}
+
+// An empty queue still has to offer the door. It is the one moment a reader
+// certainly wants to pull, and a control that appears only once there is
+// something to do teaches nobody where it lives.
+void testTheEmptyQueueStillOffersSync() {
+  Rendered out;
+  const instapaperui::QueueModel model;
+  buildInstaQueue(out, model);
+
+  CHECK(drewText(out, "NOTHING TO READ"));
+  const fui::DeviceContext ctx = device();
+  const fui::ActionEvent event = out.tap(ctx.width / 2, ctx.height - toybox::kMargin - toybox::kPillHeight / 2);
+  CHECK(event.action == instapaperui::ActionSync);
+}
+
+void testTappingAQueueRowOpensThatArticle() {
+  Rendered out;
+  fui::ListItem rows[3];
+  const char* titles[3] = {"First article", "Second article", "Third article"};
+  for (int i = 0; i < 3; ++i) {
+    rows[i] = fui::ListItem{};
+    rows[i].label = titles[i];
+    rows[i].subtitle = "6 min . example.com";
+    rows[i].value = "";
+    rows[i].actionValue = static_cast<int16_t>(i);
+  }
+  instapaperui::QueueModel model;
+  model.items = rows;
+  model.count = 3;
+  model.lastSync = "SYNCED 14:32";
+  buildInstaQueue(out, model);
+
+  CHECK(drewText(out, "Second article"));
+  CHECK(!out.interactions.overflowed());
+
+  const fui::Rect band = instapaperui::queueBand(device());
+  const int16_t rowH = instapaperui::queueRowHeight(out.target, toybox::themeTokens());
+  // The middle of the second row, computed from the same numbers the builder
+  // handed the component.
+  const fui::ActionEvent event = out.tap(band.x + band.width / 2, band.y + rowH + rowH / 2);
+  CHECK(event.action == instapaperui::ActionOpenArticle);
+  CHECK(event.value == 1);
+}
+
+// The row's title gets one line, because a subtitle collapses the title band
+// to one line and a wrapping label would draw straight through the subtitle.
+// So the width the Activity fits against has to be the width the component
+// draws into, and it has to leave room for the value.
+void testTheQueueTitleWidthLeavesRoomForThePosition() {
+  Rendered out;
+  const fui::Rect band = instapaperui::queueBand(device());
+  const int16_t titleWidth = instapaperui::queueTitleWidth(out.target, device(), toybox::themeTokens());
+  CHECK(titleWidth > 0);
+  CHECK(titleWidth < band.width);
+}
+
+void testTheReaderPagesAndArchives() {
+  Rendered out;
+  buildInstaReader(out, instaArticleModel());
+
+  const fui::DeviceContext ctx = device();
+  const int16_t footerY = static_cast<int16_t>(ctx.height - toybox::kMargin - toybox::kPillHeight / 2);
+  bool sawNext = false;
+  bool sawArchive = false;
+  for (int x = toybox::kMargin; x < ctx.width - toybox::kMargin; x += 8) {
+    const fui::ActionEvent event = out.tap(x, footerY);
+    if (event.action == instapaperui::ActionPageNext) sawNext = true;
+    if (event.action == instapaperui::ActionArchive) sawArchive = true;
+    // The first page cannot go back, and a dimmed control must be DEAD rather
+    // than merely grey: this is the assertion that a disabled button is not
+    // still routing.
+    CHECK(event.action != instapaperui::ActionPagePrev);
+  }
+  CHECK(sawNext);
+  CHECK(sawArchive);
+}
+
+// ARCHIVE is the only control here that changes anything outside this screen,
+// and it is live on every page including the last. A reader who finishes an
+// article should not have to page backwards to put it away.
+void testArchiveIsLiveOnTheLastPage() {
+  Rendered out;
+  instapaperui::ReaderModel model = instaArticleModel();
+  model.canPagePrev = true;
+  model.canPageNext = false;
+  buildInstaReader(out, model);
+
+  const fui::DeviceContext ctx = device();
+  const int16_t footerY = static_cast<int16_t>(ctx.height - toybox::kMargin - toybox::kPillHeight / 2);
+  bool sawArchive = false;
+  for (int x = toybox::kMargin; x < ctx.width - toybox::kMargin; x += 8) {
+    const fui::ActionEvent event = out.tap(x, footerY);
+    if (event.action == instapaperui::ActionArchive) sawArchive = true;
+    CHECK(event.action != instapaperui::ActionPageNext);
+  }
+  CHECK(sawArchive);
+}
+
+// A title wider than the band must be cut on a word and marked, never clipped
+// mid-word: a word broken in half reads as a rendering fault.
+void testALongTitleIsEllipsisedRatherThanClipped() {
+  Rendered out;
+  instapaperui::ReaderModel model = instaArticleModel();
+  model.title =
+      "An extremely long article title that could not possibly fit across the header band of this panel at any cut";
+  buildInstaReader(out, model);
+  CHECK(drewText(out, "..."));
+}
+
+void testTheReaderTextGoesInTheReaderBody() {
+  Rendered out;
+  buildInstaReader(out, instaArticleModel());
+  const fui::Rect body = instapaperui::readerBody(device());
+  bool drewInside = false;
+  for (const auto& run : out.target.texts) {
+    if (run.text.find("Some words") == std::string::npos) continue;
+    drewInside = run.rect.y >= body.y && run.rect.bottom() <= body.bottom();
+  }
+  CHECK(drewInside);
+}
+
+// One unbreakable token wider than its box. The word-boundary rule has nothing
+// to work with, and before this it returned the ellipsis and nothing else --
+// which is how the Instapaper pairing screen came to ask "IS THIS YOU?" over a
+// row reading "...". Half an address beats none of one.
+void testFitLinesCutsAnUnbreakableTokenRatherThanVanishing() {
+  Rendered out;
+  const fui::TextStyle style = toybox::themeTokens().bodyText;
+  const std::string fitted = toybox::fitLines(out.target, "mario@averylongdomainnameindeed.example.com", 80, 1, style);
+  CHECK(fitted.size() > 3);
+  CHECK(fitted.rfind("...") == fitted.size() - 3);
+  CHECK(fitted.compare(0, 5, "mario") == 0);
+  // And it still fits, which is the whole point of cutting it.
+  CHECK(out.target.measureText(style.font, fitted.c_str(), style).width <= 80);
+
+  // A box too narrow for even one character plus the mark gives back nothing
+  // rather than a bare ellipsis, so a caller drawing it shows an empty row
+  // instead of a row that looks like it lost its content.
+  CHECK(toybox::fitLines(out.target, "mario@example.com", 4, 1, style).empty());
+
+  // The ordinary case is untouched: a sentence wide enough for several words
+  // still breaks between them and never mid-word. Width chosen to hold more
+  // than one word, or this would assert nothing.
+  const std::string sentence = toybox::fitLines(out.target, "one two three four five six seven", 240, 1, style);
+  CHECK(sentence.find(' ') != std::string::npos);
+  CHECK(sentence.find("...") != std::string::npos);
+  // The cut lands on a boundary: the character before the mark is not a
+  // fragment of a word that continues.
+  const std::string kept = sentence.substr(0, sentence.size() - 3);
+  CHECK(std::string("one two three four five six seven").compare(0, kept.size(), kept) == 0);
+}
+
 int main() {
   testTheSeaSaltCardYouTapIsTheCardTheRulesGet();
   testTheSeaSaltChromeIsTappableAndTheCallPillIsEarned();
@@ -5210,6 +5391,15 @@ int main() {
 
   testMurdleGridResolvesEveryCellItDrew();
   testTheCellYouTapIsTheCellTheRulesGet();
+
+  testTheEmptyQueueStillOffersSync();
+  testTappingAQueueRowOpensThatArticle();
+  testTheQueueTitleWidthLeavesRoomForThePosition();
+  testTheReaderPagesAndArchives();
+  testArchiveIsLiveOnTheLastPage();
+  testALongTitleIsEllipsisedRatherThanClipped();
+  testTheReaderTextGoesInTheReaderBody();
+  testFitLinesCutsAnUnbreakableTokenRatherThanVanishing();
 
   testInkCentredPutsTheInkInTheMiddleOfAnyBox();
   testAShortBoxIsWhatMakesTheCorrectionNecessary();
