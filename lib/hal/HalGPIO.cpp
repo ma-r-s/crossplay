@@ -148,6 +148,20 @@ void HalGPIO::begin() {
   _deviceType = DeviceType::X4;
 #endif
   inputMgr.begin();
+
+  // InputManager::begin() returns void, and the touch probe inside it can fail
+  // silently: if the GT911 answers on neither candidate I2C address the SDK
+  // sets touchDataEnabled = false and says so only under TOUCH_PROBE_DEBUG,
+  // which no build defines. On the X4 Pro that is the whole input surface --
+  // four of its six logical buttons are unassigned pins -- so the device boots,
+  // draws every screen correctly, and ignores every finger, which is
+  // indistinguishable from nobody touching it.
+  //
+  // The board profile says whether this unit HAS a touch controller; the probe
+  // says whether it answered. Disagreement is hardware that did not come up.
+  if (BoardConfig::hasTouch() && !inputMgr.hasTouch()) {
+    LOG_ERR("GPIO", "touch controller did not answer; taps will do nothing on this boot");
+  }
 }
 
 void HalGPIO::update() {
