@@ -32,7 +32,7 @@ passing the device back to the clue-giver for the reveal.
 | #   | Screen          | What it is for                                                 |
 | --- | --------------- | -------------------------------------------------------------- |
 | 1   | MENU            | Front door. Headline is the hit target. Record and ornament.   |
-| 2   | PASS LEFT       | No names, no seats, no turn order to remember.                 |
+| 2   | PASS THE DEVICE | No names, no seats, no turn order to remember.                 |
 | 3   | PICK ONE        | Two spectra, chosen before the target is drawn.                |
 | 4   | YOUR TARGET     | Hold to reveal. The band shows only while a thumb is down.     |
 | 5   | SAY IT OUT LOUD | Both ends large, target confirmed hidden.                      |
@@ -63,7 +63,7 @@ playing properly.
 So Back opens a pause carrying the scoring table, `RESUME THE ROUND`, and an
 explicit `ABANDON THIS ROUND` that says what it costs. Back out of the pause
 resumes: the safe direction is the default. **Abandons are counted and shown** on
-the next PASS LEFT and on the end screen, because the board is public in this
+the next pass screen and on the end screen, because the board is public in this
 game and so is walking away from a target you did not like.
 
 ## Moving the marker
@@ -112,9 +112,10 @@ by accident:
   touched is satisfied by the very tap that reveals nothing. It means the band
   was on the panel for 400ms.
 - **A control that cannot act must not look like one that can.** Until the
-  target has been seen the footer dims to LOOK FIRST, using the same
-  `disabledStepperStyles()` the front door uses for END SESSION, and a bare tap
-  on either hold control relabels it PRESS AND HOLD IT. Drawn solid black and
+  target has been seen the footer dims to SEE THE NUMBER FIRST, using the same
+  `disabledStepperStyles()` the front door uses for the end-of-session button,
+  and a bare tap on either hold control relabels it HOLD IT DOWN TO SEE (or TO
+  LOCK). Drawn solid black and
   silent, it read as a dead device: a cold player tapped both controls twice
   each and stopped playing. A difference of KIND, not degree -- a subtler cue
   gets rationalised away inside twenty minutes.
@@ -182,7 +183,7 @@ characters and differ by 70px at the display cut.
 
 **A double tap crosses screens.** Consecutive footers land 6-7px apart, so the
 second tap of a pair hits the next screen's button: it skipped SAY IT OUT LOUD
-with the clue-giver still holding the device, and skipped PASS LEFT entirely,
+with the clue-giver still holding the device, and skipped the pass screen entirely,
 which is the only screen telling the table to change hands -- so the same person
 gave two clues running with the score still counting. Taps within `kSettleMs`
 (500ms, about one refresh) of a view change are swallowed. People double-tap
@@ -192,7 +193,41 @@ spend.
 **Abandoning announces itself.** Back from a committed screen passes left, but
 silently it looked identical to a normal pass, so a clue-giver who disliked
 their target could back out and redraw with nobody at the table any the wiser.
-The next PASS LEFT says LAST ROUND WAS ABANDONED.
+The next pass screen says `1 ROUND ABANDONED SO FAR`, in the same count shape
+the pause screen uses, so the second abandon does not read as a different event
+from the first.
+
+## The words, fixed 2026-09-01
+
+The app had **four names for two roles**, **four for one scoring event** and
+**three for the movable marker**, which is how a table ends up arguing about
+what the screen means rather than about the clue. One name each, everywhere:
+
+| Thing                          | The name   | What it replaced                                       |
+| ------------------------------ | ---------- | ------------------------------------------------------ |
+| The player who sees the number | CLUE-GIVER | THE GIVER, ONE OF YOU, THE NEXT PLAYER                 |
+| Everyone else                  | GUESSERS   | EVERYONE ELSE (as a role), YOU                         |
+| The end-of-round bet           | SIDE CALL  | RIGHT SIDE, CALL RIGHT, RIGHT ANSWER, CALLS WHICH SIDE |
+| The bar the table moves        | THE GUESS  | THE MARK, YOUR GUESS                                   |
+| The hidden number              | THE NUMBER | THE TARGET (outside the side-call screen)              |
+
+Two consequences worth keeping:
+
+- **The verdict words are the scoring table's own** -- EXACT, ONE OFF, TWO OFF,
+  MISS. The old set (TELEPATHIC / CLOSE / WARM / MISS) was a second vocabulary
+  that contradicted the first: WARM sat below CLOSE with no COLD anywhere, so
+  reading the two together says two off beats one off.
+- **The front door and the end screen count the same way.** `ROUND 7, 8 POINTS`
+  against `8 POINTS IN 5 ROUNDS` one tap away described one evening with two
+  numbers, because the first counted the round about to start. The round about
+  to start is on the BUTTON now (`PLAY ROUND 7`), where it is an instruction.
+
+**The side-call screen was deliberately left alone** (`IS THE TARGET NEARER`,
+`NOTHING IS ABOVE 20.`, `THE ONLY WAY LEFT.`, `GUESSERS DECIDE. NOT THE GIVER.`,
+`RIGHT ANSWER IS WORTH ONE POINT.`). Those are the worst strings in the app AND
+the screen leaves co-op if the shelve work in `wavelength-teams.md` lands, so
+fixing them may be work thrown away. THE GIVER and RIGHT ANSWER therefore still
+exist, on that screen only.
 
 ## What the tests can and cannot prove
 

@@ -34,6 +34,7 @@ from gen_pairs import glyph_advances, width  # noqa: E402
 
 ACTIVITY = REPO / "src/apps_local/wavelength/WavelengthActivity.cpp"
 SCREENS = REPO / "src/apps_local/wavelength/WavelengthScreens.cpp"
+CORE = REPO / "src/apps_local/wavelength/WavelengthCore.h"
 
 # Toybox font ids to the generated cut each one registers, from ToyboxFonts.cpp.
 FACE_OF_ID = {
@@ -73,6 +74,10 @@ NAMED_RECTS = {
     "g.topWord": CONTENT_WIDTH,  # makeRect(m, m, w - 2m, wordBox)
     "g.bottomWord": CONTENT_WIDTH,
 }
+# Every OTHER named rect is resolved from its own declaration by
+# declared_rects(), not listed here. A width copied into this file is a fact
+# about the screens kept somewhere the screens cannot update, and this app has
+# already paid for one of those.
 
 # Draws whose rect is a computed variable rather than an inline makeRect. The
 # parser cannot see their width, so they are counted and capped rather than
@@ -116,6 +121,76 @@ def box_width(expr):
         return None
 
 
+def max_round_points():
+    """The most one round can pay, READ FROM THE RULES rather than typed here.
+
+    The reveal's own figure is "+%d" with no word in it for the reachable-value
+    rule below to key on, so it would otherwise be measured at 65535 -- a false
+    alarm about a number no round can score. Reading the two constants keeps the
+    bound true if the scoring ever changes, which it has: an exact lock paid 6
+    until v1.12.3 while every screen in the app said 5.
+    """
+    src = CORE.read_text(encoding="utf-8")
+
+    def constant(name):
+        m = re.search(rf"constexpr int {name}\s*=\s*(\d+)", src)
+        if not m:
+            raise SystemExit(f"no {name} in WavelengthCore.h -- read the rules and fix this script")
+        return int(m.group(1))
+
+    return constant("kPointsExact") + constant("kPointsEndCall")
+
+
+def split_args(text):
+    """Split a call's arguments on top-level commas, ignoring nested parens."""
+    args = []
+    depth = 0
+    current = ""
+    for ch in text:
+        if ch == "(" or ch == "<":
+            depth += 1
+        elif ch == ")" or ch == ">":
+            depth -= 1
+        if ch == "," and depth == 0:
+            args.append(current)
+            current = ""
+        else:
+            current += ch
+    args.append(current)
+    return args
+
+
+def declared_rects(flat):
+    """Named rect -> width in pixels, read from each `fui::Rect NAME = makeRect`.
+
+    A name declared twice with two widths maps to None, which reports the draw
+    as unmeasured rather than measuring it against whichever declaration this
+    parser happened to see last.
+    """
+    out = {}
+    decls = []
+    for m in re.finditer(r"fui::Rect (\w+) =\s*fui::makeRect\((.*?)\);", flat):
+        name, args = m.group(1), split_args(m.group(2))
+        if len(args) == 4:
+            decls.append((name, args[2]))
+    # Two passes, because a rect may be sized from one declared above it
+    # (`label.width`). Substituting those is what keeps a stacked pair of labels
+    # measurable without either width being written down twice.
+    for _ in range(2):
+        for name, expr in decls:
+            resolved = expr
+            for other, value in out.items():
+                resolved = resolved.replace(f"{other}.width", str(value))
+            wide = box_width(resolved)
+            if wide is None:
+                continue
+            if name in out and out[name] != wide:
+                out[name] = None
+            else:
+                out[name] = wide
+    return {k: v for k, v in out.items() if v is not None}
+
+
 def resolved_faces():
     """The app's three slots, read from the Faces literal the activity binds."""
     src = ACTIVITY.read_text(encoding="utf-8")
@@ -141,6 +216,8 @@ def strings_with_slots(src):
     catches anything.
     """
     flat = re.sub(r"\n\s+", " ", src)
+    named_rects = dict(NAMED_RECTS)
+    named_rects.update(declared_rects(flat))
     w = r"((?:static_cast<int16_t>\((?:[^()]|\([^()]*\))*\)|[\w.]+))"
     inline = r"caps\(screen,\s*fui::makeRect\([^,]+,\s*[^,]+,\s*" + w + r",[^)]*\),\s*"
     named = r"caps\(screen,\s*([\w.]+),\s*"
@@ -156,10 +233,16 @@ def strings_with_slots(src):
             out.append((text, slot, wide))
 
     for m in re.finditer(named + r'"([^"]*)",\s*toybox::(k\w+Font)', flat):
-        seen.add(m.start())
         rect_name, text, slot = m.groups()
-        if text and rect_name in NAMED_RECTS:
-            out.append((text, slot, NAMED_RECTS[rect_name]))
+        # Only a name this table can resolve counts as covered. Marking every
+        # named rect seen was a hole with the shape of the bug this gate exists
+        # to catch: the draw vanished from both columns of the report and read
+        # as measured.
+        if rect_name not in named_rects:
+            continue
+        seen.add(m.start())
+        if text:
+            out.append((text, slot, named_rects[rect_name]))
 
     slot_of = {}
     box_of = {}
@@ -175,11 +258,12 @@ def strings_with_slots(src):
         slot_of[buf] = slot
         box_of[buf] = wide
     for m in re.finditer(named + r"([a-zA-Z]\w*),\s*toybox::(k\w+Font)", flat):
-        seen.add(m.start())
         rect_name, buf, slot = m.groups()
-        if rect_name in NAMED_RECTS:
-            slot_of[buf] = slot
-            box_of[buf] = NAMED_RECTS[rect_name]
+        if rect_name not in named_rects:
+            continue
+        seen.add(m.start())
+        slot_of[buf] = slot
+        box_of[buf] = named_rects[rect_name]
 
     sizes = dict(re.findall(r"char (\w+)\[(\d+)\]", flat))
     for m in re.finditer(r'snprintf\((\w+),\s*sizeof\(\1\),\s*"([^"]+)"', flat):
@@ -195,7 +279,10 @@ def strings_with_slots(src):
         # TENTHS REMAINDER, so the second is always one digit. Every false alarm
         # this gate has raised came from worst-representable standing in for
         # worst-reachable.
-        wide = "20" if re.search(r"LOCK|TARGET|GUESS", fmt) else "65535"
+        if fmt == "+%d":
+            wide = str(max_round_points())
+        else:
+            wide = "20" if re.search(r"LOCK|TARGET|NUMBER|GUESS", fmt) else "65535"
         plural = re.search(r"\w%s", fmt) is not None
         text = fmt.replace("%s", "S" if plural else "ABOVE")
         text = text.replace("%d.%d", wide + ".9").replace("%d", wide)

@@ -107,6 +107,10 @@ struct MenuModel {
   bool sessionInProgress = false;
   int sessionRound = 1;
   int sessionTotal = 0;
+  // SCORED rounds, which is what the end screen counts. The front door used to
+  // count the round about to start instead, so the two screens described one
+  // session with two different numbers a single tap apart.
+  int sessionScored = 0;
 };
 
 struct SummaryModel {
