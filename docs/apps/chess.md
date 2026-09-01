@@ -91,6 +91,37 @@ hands over a slot and stays out, the same split the board screen uses.
 row cannot describe a position from two games ago -- which it did, when three
 routes each kept their own copy of the bookkeeping.
 
+**A game ends four ways, and two of them are facts about the GAME rather than
+the board.** Checkmate and stalemate are read off the position, so any code
+holding a `Position` can find them. Threefold repetition and the fifty-move rule
+cannot be: they need the history behind the position. `refreshLegalMoves()` owns
+all four and is the only writer of `gameOver`, which is why `takeBack()` no
+longer clears that flag itself.
+
+The repetition window is the key of every position since the last capture or
+pawn move, and it is bounded by the halfmove clock for correctness, not for
+speed: a position from before an irreversible move belongs to a game that can no
+longer be reached, and counting it would draw a live game. Every transition
+pushes one key -- your move, the engine's, and the opponent's arriving over the
+radio -- so a path that changes the board without pushing is a silent bug.
+
+**A resumed game cannot look behind its own start.** The save holds the position
+and the SAN move sheet, never the per-ply undo data, so `undoableFrom` marks
+where real history begins. Take-back stops there rather than unmaking a
+zero-initialised `Move`, which moved nothing, wiped castling rights and deleted
+a row from the sheet. Repetition starts counting from the resumed position for
+the same reason: keys we do not have cannot be compared, and guessing would end
+a live game in a draw that never happened.
+
+**The engine must never be handed the live board.** `search()` makes and unmakes
+thousands of moves on whatever `Position` it is given, and the render task reads
+`position` from another core. `playEngineMove()` therefore searches a copy. The
+one-pass deferral in `handleSquareActivated()` reads like it prevents this and
+does not: `requestUpdate()` only notifies the render task, so the repaint it
+asks for is still in flight when the search begins. This is invisible in the
+simulator, where a depth-4 search finishes in under 150ms; on the device it was
+half a second of a wrong position.
+
 **`update()` runs before every early return in `loop()`.** The settings overlay
 returns from that function, so a match that only ticked when no overlay was open
 would die whenever somebody opened one for ten seconds.
