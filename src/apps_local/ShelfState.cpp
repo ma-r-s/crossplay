@@ -60,7 +60,7 @@ bool parseState(const char* text, const int folderCount, const int* itemLimits, 
   readTitleLine(cursor, title);
 
   out.lastFolder = folderValue < 0 || folderValue >= folderCount ? -1 : static_cast<int>(folderValue);
-  for (int i = 0; i < folderCount; ++i) out.lastItem[i] = items[i];
+  for (int i = 0; i < folderCount; ++i) out.resumeRow[i] = items[i];
   std::memcpy(out.openTitle, title, sizeof(title));
   return true;
 }
@@ -72,7 +72,7 @@ size_t formatState(const State& state, const int folderCount, char* out, const s
   if (used < 0 || static_cast<size_t>(used) >= outSize) return 0;
 
   for (int i = 0; i < folderCount; ++i) {
-    const int written = std::snprintf(out + used, outSize - static_cast<size_t>(used), " %d", state.lastItem[i]);
+    const int written = std::snprintf(out + used, outSize - static_cast<size_t>(used), " %d", state.resumeRow[i]);
     if (written < 0 || static_cast<size_t>(used + written) >= outSize) return 0;
     used += written;
   }

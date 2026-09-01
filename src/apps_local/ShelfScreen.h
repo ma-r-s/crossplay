@@ -103,6 +103,35 @@ int pageFor(int selected, int rowsPerPage);
 // token set it does not have in loop()).
 int pageCountFor(int itemCount, int rowsPerPage);
 
+// The row that stands for `page`: its first one.
+//
+// A folder remembers the page it was left on, and it remembers it as a ROW,
+// because a row survives things a page number does not. Rows per page is a
+// property of the panel and the chrome -- the player bar costs one, the page bar
+// costs another -- so a stored page number means a different set of games the
+// first time a token moves, silently. A stored row is the same game either way,
+// and pageFor() puts it back on whichever page now holds it.
+//
+// pageFor(rowForPage(p, n), n) == p for every page of every folder, which is the
+// property that makes "come back to the page I was on" true rather than likely.
+int rowForPage(int page, int rowsPerPage);
+
+// The row a folder actually resumes on, given what it remembered and how many
+// items it holds NOW.
+//
+// The two disagree when the registry has shrunk since: a game removed by a
+// firmware update, and a card that outlives the firmware that wrote it. When
+// the remembered row is past the end this pins it to the LAST row, so the
+// folder opens on its LAST page.
+//
+// Last rather than first, deliberately. What was remembered was "near the end of
+// this folder", and the nearest surviving place to that is the end, not the top;
+// falling back to page one would throw away the only thing that was stored.
+// Naming it here rather than leaving it to a clamp because a clamp that cannot
+// produce the last page is exactly what made this area unpredictable before, and
+// an unnamed rule cannot be tested.
+int resumeRowFor(int rememberedRow, int itemCount);
+
 // The page one step of `delta` away, wrapping at both ends. The one place a
 // page key, a swipe and a pip tap all agree on what "next" means, so no route
 // can move by a different amount than another -- one input, one page, and the

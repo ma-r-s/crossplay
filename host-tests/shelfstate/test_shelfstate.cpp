@@ -5,11 +5,11 @@
 // it must do, what a half-written file must do. A test derived from the
 // parser's own assumptions cannot falsify them.
 
-#include "ShelfState.h"
-
 #include <cstdio>
 #include <cstring>
 #include <string>
+
+#include "ShelfState.h"
 
 namespace {
 
@@ -47,8 +47,8 @@ void aOneLineFileHasNoResumeTitle() {
   const shelf::State s = parsed("0 14 1\n", ok);
   check(ok, "one-line file parses");
   checkEqual(s.lastFolder, 0, "one-line file keeps its folder");
-  checkEqual(s.lastItem[0], 14, "one-line file keeps row 0");
-  checkEqual(s.lastItem[1], 1, "one-line file keeps row 1");
+  checkEqual(s.resumeRow[0], 14, "one-line file keeps row 0");
+  checkEqual(s.resumeRow[1], 1, "one-line file keeps row 1");
   checkEqual(s.openTitle, "", "a file written before wake could resume resumes nothing");
 }
 
@@ -64,7 +64,7 @@ void theSecondLineIsTheOpenItem() {
   bool ok = false;
   const shelf::State s = parsed("0 14 1\nSUDOKU\n", ok);
   check(ok, "two-line file parses");
-  checkEqual(s.lastItem[0], 14, "the position still parses with a title after it");
+  checkEqual(s.resumeRow[0], 14, "the position still parses with a title after it");
   checkEqual(s.openTitle, "SUDOKU", "the second line is the open item");
 }
 
@@ -102,13 +102,13 @@ void anOverlongTitleIsDroppedNotTruncated() {
 void aHalfWrittenFileLeavesTheCallerAlone() {
   shelf::State state;
   state.lastFolder = 1;
-  state.lastItem[0] = 9;
+  state.resumeRow[0] = 9;
   std::snprintf(state.openTitle, sizeof(state.openTitle), "%s", "CHESS");
 
   // Only two of the three numbers a two-folder registry needs.
   check(!shelf::parseState("0 14", kFolders, kLimits, state), "a half-written line is rejected");
   checkEqual(state.lastFolder, 1, "a rejected parse does not touch the folder");
-  checkEqual(state.lastItem[0], 9, "a rejected parse does not touch the rows");
+  checkEqual(state.resumeRow[0], 9, "a rejected parse does not touch the rows");
   checkEqual(state.openTitle, "CHESS", "a rejected parse does not touch the title");
 
   check(!shelf::parseState("", kFolders, kLimits, state), "an empty file is rejected");
@@ -119,11 +119,14 @@ void rowsAreClampedToTheRegistryAsItStandsNow() {
   bool ok = false;
   // Written when GAMES had more rows than it has now.
   const shelf::State s = parsed("0 99 99\n", ok);
-  checkEqual(s.lastItem[0], 16, "a row past the end of GAMES clamps to its last row");
-  checkEqual(s.lastItem[1], 3, "a row past the end of APPS clamps to its last row");
+  // The LAST row, not the first: the row stands for the page the folder was left
+  // on, and a folder that shrank under you is nearer its end than its top. Same
+  // rule as shelfui::resumeRowFor, which is what turns this row into that page.
+  checkEqual(s.resumeRow[0], 16, "a row past the end of GAMES clamps to its last row");
+  checkEqual(s.resumeRow[1], 3, "a row past the end of APPS clamps to its last row");
 
   const shelf::State negative = parsed("0 -5 -5\n", ok);
-  checkEqual(negative.lastItem[0], 0, "a negative row clamps to the top");
+  checkEqual(negative.resumeRow[0], 0, "a negative row clamps to the top");
 }
 
 void anImpossibleFolderMeansNoFolder() {
@@ -135,8 +138,8 @@ void anImpossibleFolderMeansNoFolder() {
 void formattingWithNoOpenItemMatchesTheOldFormat() {
   shelf::State s;
   s.lastFolder = 0;
-  s.lastItem[0] = 14;
-  s.lastItem[1] = 1;
+  s.resumeRow[0] = 14;
+  s.resumeRow[1] = 1;
 
   char out[96] = {};
   const size_t used = shelf::formatState(s, kFolders, out, sizeof(out));
@@ -149,8 +152,8 @@ void formattingWithNoOpenItemMatchesTheOldFormat() {
 void formattingAndParsingRoundTrip() {
   shelf::State s;
   s.lastFolder = 1;
-  s.lastItem[0] = 3;
-  s.lastItem[1] = 2;
+  s.resumeRow[0] = 3;
+  s.resumeRow[1] = 2;
   std::snprintf(s.openTitle, sizeof(s.openTitle), "%s", "HACKER NEWS");
 
   char out[96] = {};
@@ -160,16 +163,16 @@ void formattingAndParsingRoundTrip() {
   const shelf::State back = parsed(out, ok);
   check(ok, "what formatState wrote, parseState reads");
   checkEqual(back.lastFolder, 1, "round trip keeps the folder");
-  checkEqual(back.lastItem[0], 3, "round trip keeps row 0");
-  checkEqual(back.lastItem[1], 2, "round trip keeps row 1");
+  checkEqual(back.resumeRow[0], 3, "round trip keeps row 0");
+  checkEqual(back.resumeRow[1], 2, "round trip keeps row 1");
   checkEqual(back.openTitle, "HACKER NEWS", "round trip keeps the open item");
 }
 
 void formattingRefusesRatherThanTruncating() {
   shelf::State s;
   s.lastFolder = 1;
-  s.lastItem[0] = 3;
-  s.lastItem[1] = 2;
+  s.resumeRow[0] = 3;
+  s.resumeRow[1] = 2;
   std::snprintf(s.openTitle, sizeof(s.openTitle), "%s", "KNUCKLEBONES");
 
   // Room for the position but not the title. A truncated write would leave a

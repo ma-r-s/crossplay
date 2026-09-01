@@ -30,11 +30,12 @@ class ShelfFolderActivity final : public Activity {
   // Fills the two arrays with one page of the folder, starting at `first`.
   void buildPage(int first, int count);
 
-  // Show `page`, and stop marking the row the shelf resumed on. Every route
-  // that changes page goes through here -- the two side keys, a horizontal
-  // swipe, a tap on a page mark -- so no two of them can disagree about where a
-  // step lands or about what the screen says afterwards. Returns false when
-  // there is nowhere to go, which is a folder of one page.
+  // Show `page`, remember it, and stop marking the row the shelf resumed on.
+  // Every route that changes page goes through here -- the two side keys, a
+  // horizontal swipe, a tap on a page mark -- so no two of them can disagree
+  // about where a step lands, about what the screen says afterwards, or about
+  // whether the folder comes back here. Returns false when there is nowhere to
+  // go, which is a folder of one page.
   bool showPage(int page);
 
   // One screen's worth of rows, not one folder's worth of items.
@@ -57,15 +58,21 @@ class ShelfFolderActivity final : public Activity {
   // from page to page and a tap opens whatever it hits. It is drawn as a
   // selection only on arrival, and only to say why the list did not start at the
   // top; see showingResumedRow below and docs/buttons.md.
+  //
+  // It is also what outlives this activity, through shelf::rememberRowIn: the
+  // folder comes back to the page this row is on. Both things that leave a
+  // folder standing somewhere write it -- opening a game, and turning the page
+  // -- so browsing to page three and walking out to read a book comes back to
+  // page three, which is the case that used to come back to page one.
   int selected = 0;
   // Whether the row the shelf resumed on is still being shown as such.
   //
-  // The shelf reopens a folder on the page of the game you last opened, which
-  // is a page other than the first often enough that it has to say so: three
-  // cold testers each read the restored page as a fresh list, tapped the row
-  // they wanted from page one, and got its neighbour two pages down. The
-  // remembered row is drawn selected on arrival, which is the only thing on
-  // screen that explains why the list did not start at the top.
+  // The shelf reopens a folder where it was left, which is a page other than the
+  // first often enough that it has to say so: three cold testers each read the
+  // restored page as a fresh list, tapped the row they wanted from page one, and
+  // got its neighbour two pages down. The remembered row is drawn selected on
+  // arrival, which is the only thing on screen that explains why the list did
+  // not start at the top.
   //
   // It is a landmark, not a cursor: there is no Confirm on this device, so
   // nothing can act on it, and the first page change clears it -- after that
@@ -75,9 +82,10 @@ class ShelfFolderActivity final : public Activity {
   // How many rows a page holds, from the last render. Cached rather than derived
   // in loop() because it is a property of the screen's geometry and not of the
   // selection, so no input can make it disagree with what was drawn. The page
-  // itself is deliberately not stored: that one would drift the moment a button
-  // moved the cursor. A tap can only arrive after a render, which is what makes
-  // this safe -- interactionsReady says so.
+  // number itself is deliberately kept in no member: that one would drift the
+  // moment a button moved the cursor, and it is not what is written down either.
+  // A tap can only arrive after a render, which is what makes this safe --
+  // interactionsReady says so.
   int rowsPerPage = 1;
 
   toybox::Interactions interactions;

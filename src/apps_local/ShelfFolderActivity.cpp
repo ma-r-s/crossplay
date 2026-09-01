@@ -36,17 +36,16 @@ void ShelfFolderActivity::buildPage(const int first, const int count) {
 void ShelfFolderActivity::onEnter() {
   Activity::onEnter();
   toybox::ensureFonts(renderer);
-  // Land on whatever was opened last. This activity is destroyed the moment it
-  // launches something, so the selection cannot survive in a member.
-  //
-  // Landing on it is not the same as *showing* it. A row drawn inverted on
-  // arrival reads as "this is what you are about to do", and on a panel driven
-  // by touch you are not about to do it -- you are about to tap something else.
-  // So the cursor exists from the first frame and is only drawn once a button
-  // moves it, which is the only input that needs to see where it is.
-  selected = shelf::lastItemIn(folder);
+  // Land where the folder was left standing: on the game that was opened from
+  // it, or on the first row of the page it was showing when it was walked out
+  // of. This activity is destroyed the moment it launches something and again
+  // the moment you leave, so neither can survive in a member.
   itemCount = shelf::folders()[folder].count;
-  if (selected >= itemCount) selected = itemCount > 0 ? itemCount - 1 : 0;
+  // resumeRowFor is the whole answer to "the folder shrank since": it pins a row
+  // past the end to the last one, so the folder opens on its last page rather
+  // than dropping the memory and opening on its first. Named there rather than
+  // clamped here, so it is one rule with one test instead of an `if`.
+  selected = shelfui::resumeRowFor(shelf::resumeRowIn(folder), itemCount);
   // Only when there is something to explain. Row zero is the top of page one,
   // which is where an unvisited folder opens anyway, so marking it would be
   // furniture on the one screen that needs none.
@@ -57,16 +56,22 @@ void ShelfFolderActivity::onEnter() {
 }
 
 bool ShelfFolderActivity::showPage(const int page) {
-  const int landing = page * rowsPerPage;
+  const int landing = shelfui::rowForPage(page, rowsPerPage);
   // Which page a step actually landed on, because "it moved by two" and "it
   // started somewhere else" look identical from outside and cost three cold
   // testers an evening between them.
   LOG_DBG("SHELF", "Page %d -> %d of %d (row %d of %d)", shelfui::pageFor(selected, rowsPerPage), page,
           shelfui::pageCountFor(itemCount, rowsPerPage), landing, itemCount);
   if (landing < 0 || landing >= itemCount) return false;
-  // The page is DERIVED from the selection and stored nowhere, so changing page
-  // means moving the selection onto it. It lands on the page's first row.
+  // Within this screen the page is DERIVED from the selection and held nowhere
+  // else, so changing page means moving the selection onto the page's first row.
   selected = landing;
+  // And that row is what the folder comes back to. Written here rather than on
+  // the way out because there is no way out to hook: Back destroys this
+  // activity, and the idle timeout deep-sleeps wherever you happen to be, with
+  // wake a chip reset. Paging is a deliberate act a handful of times a session,
+  // and the write is twenty bytes beside a full-panel repaint.
+  shelf::rememberRowIn(folder, landing);
   showingResumedRow = false;
   requestUpdate();
   return true;
@@ -162,14 +167,16 @@ void ShelfFolderActivity::render(RenderLock&&) {
   // Keep the selection on screen. The list is virtualized, so a selection below
   // the fold would otherwise be styled on a row that is never drawn.
   //
-  // The page is derived from the selection rather than stored beside it. Two
-  // facts that must agree are one fact stored once: a page member would drift
-  // the moment a button moved the cursor off it, and the screen would style a
-  // row it was not showing -- which is the bug the icons had, in a second place.
+  // The page is derived from the selection rather than held beside it in a
+  // member. Two facts that must agree are one fact stored once: a page member
+  // would drift the moment a button moved the cursor off it, and the screen
+  // would style a row it was not showing -- which is the bug the icons had, in a
+  // second place. What crosses a reboot is that same one fact, the row; see
+  // shelfui::rowForPage for why a row and not a page number.
   const shelfui::Paging paging = shelfui::pagingFor(device, tokens, self.showsDeviceName, itemCount);
   rowsPerPage = paging.rowsPerPage;
   const int page = shelfui::pageFor(selected, rowsPerPage);
-  const int first = page * rowsPerPage;
+  const int first = shelfui::rowForPage(page, rowsPerPage);
   // Short on the last page, which is the whole reason the screen is handed a
   // slice rather than the folder plus an offset. See MenuModel::items.
   const int onThisPage = itemCount - first < rowsPerPage ? itemCount - first : rowsPerPage;
