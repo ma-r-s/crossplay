@@ -105,8 +105,7 @@ void buildQueue(toybox::Screen& screen, const QueueModel& model) {
   // An empty lastSync passes nullptr, not "": the header styles its right
   // label only when there is one, and an empty string would still reserve the
   // room that pushed the title off the band.
-  chrome(screen, "INSTAPAPER",
-         model.lastSync != nullptr && model.lastSync[0] != '\0' ? model.lastSync : nullptr);
+  chrome(screen, "INSTAPAPER", model.lastSync != nullptr && model.lastSync[0] != '\0' ? model.lastSync : nullptr);
 
   const fui::DeviceContext& device = screen.device();
   const int16_t width = static_cast<int16_t>(device.width - 2 * toybox::kMargin);
@@ -116,10 +115,54 @@ void buildQueue(toybox::Screen& screen, const QueueModel& model) {
   // including on an empty queue -- an empty queue is precisely when a reader
   // wants to pull, and a screen whose only control appears once there is
   // something to do teaches nobody where it lives.
-  fui::ButtonProps sync;
-  sync.label = "SYNC";
-  sync.action = ActionSync;
-  screen.button(sync, fui::makeRect(toybox::kMargin, footerY, width, kFooterHeight));
+  //
+  // PUT BACK shares the bar only while there is something to undo, and it is both
+  // halves of what an archive was missing: the acknowledgement that one
+  // happened, and the way back from one nobody meant. It sits on the left, so
+  // SYNC keeps the side of the bar a thumb reaches for, and it is outlined
+  // rather than filled so the two are not one control with two labels.
+  if (model.canUndoArchive) {
+    // "PUT BACK", not "UNDO", and not "UNDO ARCHIVE". The long one does not fit
+    // half this bar at the reading cut and drew "UNDO A..." -- this cut does
+    // carry an ellipsis, unlike the Toybox cuts, so it was at least visibly
+    // cut rather than silently short. The short one sits
+    // beside SYNC where it can be read as undoing the sync. This says what it
+    // does to the row that just vanished, in the words the app already uses for
+    // archiving ("puts the article away").
+    //
+    // The LABEL gives way, not the box. A cap only decides which way an
+    // overflow goes, it does not stop one, and no host test can see it happen:
+    // the suite's target has its own font metrics and thinks every one of these
+    // fits. So the short label is there for the cut where the first does not,
+    // and whatever is drawn, the box holds it.
+    const fui::TextStyle& buttonLabel = screen.theme().bodyText;
+    const int16_t undoRoom = static_cast<int16_t>((width - toybox::kGutter) / 2);
+    const char* undoLabel = "PUT BACK";
+    int16_t undoWidth = static_cast<int16_t>(
+        screen.target().measureText(buttonLabel.font, undoLabel, buttonLabel).width + toybox::kMargin * 2);
+    if (undoWidth > undoRoom) {
+      undoLabel = "BACK";
+      undoWidth = static_cast<int16_t>(screen.target().measureText(buttonLabel.font, undoLabel, buttonLabel).width +
+                                       toybox::kMargin * 2);
+    }
+    if (undoWidth > undoRoom) undoWidth = undoRoom;
+    fui::ButtonProps undo;
+    undo.label = undoLabel;
+    undo.action = ActionUndoArchive;
+    undo.styles = toybox::rowStyles();
+    screen.button(undo, fui::makeRect(toybox::kMargin, footerY, undoWidth, kFooterHeight));
+
+    fui::ButtonProps sync;
+    sync.label = "SYNC";
+    sync.action = ActionSync;
+    screen.button(sync, fui::makeRect(static_cast<int16_t>(toybox::kMargin + undoWidth + toybox::kGutter), footerY,
+                                      static_cast<int16_t>(width - undoWidth - toybox::kGutter), kFooterHeight));
+  } else {
+    fui::ButtonProps sync;
+    sync.label = "SYNC";
+    sync.action = ActionSync;
+    screen.button(sync, fui::makeRect(toybox::kMargin, footerY, width, kFooterHeight));
+  }
 
   if (model.count <= 0) {
     // Both boxes ASK the target for their line height rather than carrying a
@@ -134,11 +177,10 @@ void buildQueue(toybox::Screen& screen, const QueueModel& model) {
     const int16_t top = static_cast<int16_t>(kBodyTop + toybox::kMargin * 2);
     screen.target().text(fui::makeRect(toybox::kMargin, top, width, headlineH), "NOTHING TO READ",
                          plain(toybox::kDisplayFont, fui::TextAlign::Center));
-    screen.target().text(
-        fui::makeRect(toybox::kMargin, static_cast<int16_t>(top + headlineH + toybox::kGutter), width,
-                      static_cast<int16_t>(bodyH * 2)),
-        "Save something to Instapaper, then sync.",
-        plain(toybox::kUiFont, fui::TextAlign::Center, fui::Color::DarkGray, 2));
+    screen.target().text(fui::makeRect(toybox::kMargin, static_cast<int16_t>(top + headlineH + toybox::kGutter), width,
+                                       static_cast<int16_t>(bodyH * 2)),
+                         "Save something to Instapaper, then sync.",
+                         plain(toybox::kUiFont, fui::TextAlign::Center, fui::Color::DarkGray, 2));
     return;
   }
 
@@ -188,21 +230,50 @@ void buildReader(toybox::Screen& screen, const ReaderModel& model) {
 
   const fui::DeviceContext& device = screen.device();
 
-  // Three controls across the bottom: back a page, archive, forward a page.
-  // Each button registers the rect it was drawn into, so a control cannot be
-  // live anywhere its pixels are not. The wide middle is the deliberate one --
-  // it is the only control here that changes anything outside this screen, and
-  // it is the one a thumb finds without aiming.
+  // Three controls across the bottom: archive, then back a page and forward a
+  // page. Each button registers the rect it was drawn into, so a control
+  // cannot be live anywhere its pixels are not.
+  //
+  // The ORDER is the safety, and it used to be the opposite of this. ARCHIVE
+  // was the wide middle -- the one control here that changes anything outside
+  // this screen, sitting in the easiest place on the panel to hit, directly
+  // between the two things a reader taps on every page. A miss while paging
+  // took the article away.
+  //
+  // So the two page controls take the middle and the right, where a thumb
+  // rests and where a miss costs a page turn; ARCHIVE is pushed to the far
+  // left, held to the width its own word needs instead of the widest box on
+  // the bar, outlined rather than filled so it does not read as one of the
+  // pair, and separated from them by three gutters rather than one. Page
+  // FORWARD, the tap a reader makes most, ends up as far from it as the panel
+  // allows. What is left of a mis-tap after all that is undone from the
+  // queue, which is the half of this that does not depend on aim.
   const int16_t footerY = static_cast<int16_t>(device.height - toybox::kMargin - kFooterHeight);
   const int16_t usable = static_cast<int16_t>(device.width - 2 * toybox::kMargin);
-  const int16_t arrow = static_cast<int16_t>((usable - 2 * toybox::kGutter) / 4);
-  const int16_t middle = static_cast<int16_t>(usable - 2 * arrow - 2 * toybox::kGutter);
+  const int16_t moat = static_cast<int16_t>(toybox::kGutter * 3);
+  // Measured, not chosen. Screen::button() draws an unstyled label in
+  // bodyText, which under this app's reading faces is a serif cut wide enough
+  // that "ARCHIVE" needs most of a third of the bar -- so a box picked as a
+  // fraction is a box that either wastes room or eats the word.
+  const fui::TextStyle& buttonLabel = screen.theme().bodyText;
+  // The cap is not a fraction of the bar; it is whatever leaves both page
+  // controls a box a thumb can still hit. Stating it that way means the
+  // constraint stays true if the reading cut changes under it, which a chosen
+  // fraction would not.
+  const int16_t arrowFloor = static_cast<int16_t>(fui::ButtonProps{}.minTouchSize);
+  const int16_t archiveCap = static_cast<int16_t>(usable - moat - toybox::kGutter - 2 * arrowFloor);
+  const int16_t archiveWanted = static_cast<int16_t>(
+      screen.target().measureText(buttonLabel.font, "ARCHIVE", buttonLabel).width + toybox::kMargin * 2);
+  const int16_t archiveWidth = archiveWanted > archiveCap ? archiveCap : archiveWanted;
+  const int16_t arrow = static_cast<int16_t>((usable - archiveWidth - moat - toybox::kGutter) / 2);
 
   const auto footerButton = [&screen, footerY](const char* label, const fui::ActionId action, const int16_t x,
-                                               const int16_t width, const bool enabled) {
+                                               const int16_t width, const bool enabled,
+                                               const fui::StyleSet* styles = nullptr) {
     fui::ButtonProps button;
     button.label = label;
     button.action = enabled ? action : fui::NO_ACTION;
+    if (styles != nullptr) button.styles = *styles;
     // Dimmed rather than removed: a control that vanishes moves its
     // neighbours, and on e-ink that costs a repaint of the whole bar.
     if (!enabled) button.styles = toybox::disabledButtonStyles();
@@ -210,10 +281,11 @@ void buildReader(toybox::Screen& screen, const ReaderModel& model) {
   };
 
   const int16_t left = toybox::kMargin;
-  footerButton("<", ActionPagePrev, left, arrow, model.canPagePrev);
-  footerButton("ARCHIVE", ActionArchive, static_cast<int16_t>(left + arrow + toybox::kGutter), middle, true);
-  footerButton(">", ActionPageNext, static_cast<int16_t>(left + arrow + middle + 2 * toybox::kGutter), arrow,
-               model.canPageNext);
+  const fui::StyleSet quiet = toybox::rowStyles();
+  footerButton("ARCHIVE", ActionArchive, left, archiveWidth, true, &quiet);
+  const int16_t prevX = static_cast<int16_t>(left + archiveWidth + moat);
+  footerButton("<", ActionPagePrev, prevX, arrow, model.canPagePrev);
+  footerButton(">", ActionPageNext, static_cast<int16_t>(prevX + arrow + toybox::kGutter), arrow, model.canPageNext);
 
   // Drawn into readerBody() rather than into the Screen's running content
   // rect, because the Activity counts the lines that fit in this exact rect to
@@ -313,10 +385,9 @@ fui::Rect buildPairQr(toybox::Screen& screen, const char* code) {
   // "read.crossplay.ma-r-s.com/pai" with the renderer's U+2026 invisible
   // because this cut has no glyph for it. A reader would have typed an address
   // that does not exist and had no way to see why.
-  screen.target().text(
-      fui::makeRect(body.x, codeY + 48 + toybox::kMargin, body.width, 116),
-      "Sign in at read.crossplay.ma-r-s.com/pair, then scan this code.",
-      plain(toybox::kUiFont, fui::TextAlign::Center, fui::Color::DarkGray, 3));
+  screen.target().text(fui::makeRect(body.x, codeY + 48 + toybox::kMargin, body.width, 116),
+                       "Sign in at read.crossplay.ma-r-s.com/pair, then scan this code.",
+                       plain(toybox::kUiFont, fui::TextAlign::Center, fui::Color::DarkGray, 3));
   // Overflow is invisible in these cuts: the renderer appends U+2026 and the
   // face has no glyph for it, so a line too long simply stops mid-word rather
   // than showing it was cut. Every string on this screen is short for that

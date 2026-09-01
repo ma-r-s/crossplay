@@ -268,6 +268,86 @@ void testVisibleHidesPendingArchives() {
   CHECK(rows[0]->id == 101);
 }
 
+// --- The pager -------------------------------------------------------------
+//
+// Numbers chosen so the last page OVERLAPS: 36 lines in a 17-line viewport is
+// three pages whose tops are 0, 17 and 19, and 19 is not a multiple of 17.
+// That overlap is the whole bug -- dividing by the span put the last page at
+// 19/17+1 = 2, so a three-page article ended on "2 / 3" and 3/3 could not be
+// reached from anywhere.
+
+void testTheLastPageIsTheLastPage() {
+  CHECK(instapaper::pagesFor(0, 17, 36).count == 3);
+  CHECK(instapaper::pagesFor(0, 17, 36).page == 1);
+  CHECK(instapaper::pagesFor(17, 17, 36).page == 2);
+  // The clamped final position, which is where a second page turn lands.
+  CHECK(instapaper::maxTopLine(17, 36) == 19);
+  CHECK(instapaper::pagesFor(19, 17, 36).page == 3);
+  CHECK(instapaper::pagesFor(19, 17, 36).count == 3);
+}
+
+void testAShortArticleIsOnePage() {
+  CHECK(instapaper::pagesFor(0, 17, 10).page == 1);
+  CHECK(instapaper::pagesFor(0, 17, 10).count == 1);
+  // An exact fit is one page too, not two: the viewport already holds it all.
+  CHECK(instapaper::pagesFor(0, 17, 17).count == 1);
+  CHECK(instapaper::pagesFor(0, 17, 17).page == 1);
+}
+
+// Nothing measured yet, and nothing to measure. Neither may print "1 / 0" or
+// divide by zero on the way there.
+void testThePagerSurvivesNothingToShow() {
+  CHECK(instapaper::pagesFor(0, 0, 0).page == 1);
+  CHECK(instapaper::pagesFor(0, 0, 0).count == 1);
+  CHECK(instapaper::pagesFor(5, 17, 0).count == 1);
+  CHECK(instapaper::pagesFor(0, 0, 40).count == 1);
+}
+
+// Every page turn must be reachable and the last one must stop, or paging past
+// the end reads as a frozen panel.
+void testPagingWalksToTheEndAndStops() {
+  const uint32_t span = 17;
+  const uint32_t lines = 36;
+  uint32_t top = 0;
+  top = instapaper::turnedTopLine(top, span, lines, 1);
+  CHECK(top == 17);
+  top = instapaper::turnedTopLine(top, span, lines, 1);
+  CHECK(top == 19);
+  top = instapaper::turnedTopLine(top, span, lines, 1);
+  CHECK(top == 19);
+  top = instapaper::turnedTopLine(top, span, lines, -1);
+  CHECK(top == 2);
+  top = instapaper::turnedTopLine(top, span, lines, -1);
+  CHECK(top == 0);
+  top = instapaper::turnedTopLine(top, span, lines, -1);
+  CHECK(top == 0);
+}
+
+// Reaching the end is 1.0, not "the top of the last page over the length" --
+// which for somebody who just read the last word would report about 53%.
+void testProgressCountsTheEndAsFinished() {
+  CHECK(instapaper::progressFor(19, 17, 36) == 1.0f);
+  CHECK(instapaper::progressFor(0, 17, 10) == 1.0f);
+  const float middle = instapaper::progressFor(17, 17, 36);
+  CHECK(middle > 0.46f && middle < 0.48f);
+  CHECK(instapaper::progressFor(0, 17, 36) == 0.0f);
+}
+
+// A finished article reopens on its LAST page, like a half-read one reopens on
+// the page it was left on. It used to reopen at the top, and nothing on the
+// screen said why that one behaved differently.
+void testAFinishedArticleReopensAtItsEnd() {
+  CHECK(instapaper::topLineFor(1.0f, 17, 36) == 19);
+  CHECK(instapaper::topLineFor(0.0f, 17, 36) == 0);
+  // Leaving a page and reopening lands on the same line, which is the only
+  // reason a position may be stored as a fraction at all.
+  CHECK(instapaper::topLineFor(instapaper::progressFor(17, 17, 36), 17, 36) == 17);
+  // Anything past the end is clamped rather than trusted: the value comes off
+  // the card and off the wire.
+  CHECK(instapaper::topLineFor(2.0f, 17, 36) == 19);
+  CHECK(instapaper::topLineFor(1.0f, 17, 10) == 0);
+}
+
 }  // namespace
 
 int main() {
@@ -283,6 +363,12 @@ int main() {
   testMergeUnconfirmedArchiveStaysPending();
   testMergeCap();
   testVisibleHidesPendingArchives();
+  testTheLastPageIsTheLastPage();
+  testAShortArticleIsOnePage();
+  testThePagerSurvivesNothingToShow();
+  testPagingWalksToTheEndAndStops();
+  testProgressCountsTheEndAsFinished();
+  testAFinishedArticleReopensAtItsEnd();
   std::printf("%d checks, %d failed\n", checksRun, checksFailed);
   return checksFailed == 0 ? 0 : 1;
 }

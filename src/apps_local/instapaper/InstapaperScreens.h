@@ -42,6 +42,7 @@ enum : fui::ActionId {
   ActionArchive = 324,
   ActionNotice = 325,
   ActionPairConfirm = 326,
+  ActionUndoArchive = 327,
 };
 
 // --- The queue -----------------------------------------------------------
@@ -57,6 +58,9 @@ struct QueueModel {
   // Drawn on the band, right-aligned: "SYNCED 14:32" or "NEVER SYNCED". The
   // one fact a reader wants before deciding whether to pull again.
   const char* lastSync = "";
+  // An archive is on the card and has not gone up yet, so it can still be
+  // taken back. The footer splits to offer it; see buildQueue.
+  bool canUndoArchive = false;
 };
 
 void buildQueue(toybox::Screen& screen, const QueueModel& model);

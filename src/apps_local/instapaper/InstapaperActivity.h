@@ -85,6 +85,7 @@ class InstapaperActivity final : public Activity {
   void openArticle(int64_t id);
   void closeArticle();
   void archiveCurrent();
+  void undoArchive();
   void turnPage(int delta);
   void showNotice(const char* headline, std::string message, bool unreadable = false);
   void showQueue();
@@ -112,6 +113,11 @@ class InstapaperActivity final : public Activity {
   size_t downloadIndex_ = 0;
   int downloaded_ = 0;
   int downloadFailures_ = 0;
+  // Reading positions this sync PUT UP, counted where they are put up -- the
+  // verdict screen has no other way to know. Archives are not counted here:
+  // the summary comes back saying which ones the service really took, and that
+  // is the honest number to say out loud.
+  int sentPositions_ = 0;
   bool cancelDownload_ = false;
   char busyDetail_[48] = "";
 
@@ -123,6 +129,12 @@ class InstapaperActivity final : public Activity {
   uint32_t lineCount_ = 0;
   uint16_t visibleLines_ = 0;
   char pageLabel_[16] = "";
+
+  // The article ARCHIVE was last pressed on, while it can still be taken back:
+  // until the next sync carries the intent up, until another article is
+  // opened, or until the app is left. In memory only -- an offer to undo
+  // something the reader no longer remembers doing is not a kindness.
+  int64_t undoArchiveId_ = 0;
 
   std::string noticeHeadline_;
   std::string noticeMessage_;
@@ -136,7 +148,6 @@ class InstapaperActivity final : public Activity {
   std::vector<std::string> rowValues_;
   std::vector<freeink::ui::ListItem> rows_;
   bool rowsFitted_ = false;
-  int selected_ = 0;
   int topIndex_ = 0;
   int visibleRows_ = 0;
   char lastSyncLabel_[24] = "";
