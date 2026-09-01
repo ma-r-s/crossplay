@@ -47,7 +47,11 @@
 # so they show wildly different percentages while having the SAME space free.
 # Read the Avail column; a percentage here is meaningless in both directions.
 cache_guard_avail_gb() {
-  df -g / 2>/dev/null | awk 'NR==2 {print $4}'
+  # -Pk, not -g. `df -g` is BSD-only; GNU df rejects it, 2>/dev/null ate the
+  # error, and this returned EMPTY on Linux -- which then compared as an empty
+  # string in the floor check. -P is POSIX and pins the column layout, -k the
+  # unit, so the same expression reads correctly on both.
+  df -Pk / 2>/dev/null | awk 'NR==2 {printf "%d", $4/1048576}'
 }
 
 # KB internally, GB only at the edges. Integer GB truncation is lossy in
@@ -57,6 +61,27 @@ cache_guard_size_kb() {
   [ -d "$1" ] || { echo 0; return; }
   du -sk "$1" 2>/dev/null | awk '{print $1}'
 }
+
+# mtime, size and path for a NUL-separated list on stdin.
+#
+# BSD and GNU stat spell this differently, and the BSD form is not merely
+# unsupported on Linux -- `stat -f` there means "display FILESYSTEM status", so
+# it consumes the flag, fails on the format, and 2>/dev/null swallows it. The
+# pipeline then yields nothing, the deletion loop never runs a single
+# iteration, and the prune deletes NOTHING while having already printed
+# "trimming oldest first". A cache guard that silently stops guarding is worse
+# than no cache guard, because the disk fills anyway and the log says it did
+# not. host-tests/cacheguard caught it in CI and never could have here.
+#
+# Detected by `stat --version`, which GNU has and BSD does not. Not by trying a
+# format string: GNU stat -f accepts several of the same letters and prints "?"
+# rather than failing, so the probe would pass and the parse would still be
+# wrong.
+if stat --version >/dev/null 2>&1; then
+  cache_guard_stat_stream() { xargs -0 stat -c '%Y %s %n' 2>/dev/null; }
+else
+  cache_guard_stat_stream() { xargs -0 stat -f '%m %z %N' 2>/dev/null; }
+fi
 
 cache_guard_size_gb() {
   kb=$(cache_guard_size_kb "$1")
@@ -128,7 +153,7 @@ cache_guard_prune() {
   # this script documents, reintroduced by its own cleanup. -maxdepth used to
   # hide that by never descending at all.
   find "$dir" \( -path "$dir/.*" -o -name '*.lock' \) -prune -o -type f -print0 2>/dev/null \
-    | xargs -0 stat -f '%m %z %N' 2>/dev/null \
+    | cache_guard_stat_stream \
     | sort -n \
     | while IFS=' ' read -r _mtime bytes path; do
         [ "$now_kb" -le "$target_kb" ] && break
