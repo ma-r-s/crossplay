@@ -81,6 +81,29 @@ and a clean compile says nothing about headroom. Re-measure flash after any
 merge you intend to ship, and see the flash-budget notes for why an image that
 fits here can still be un-installable on an older device.
 
+**Reproduce the failure where it fails, BEFORE you believe the fix.** This is
+the positive form of the rule and the only one on this page you can act on
+rather than merely avoid. `host-tests/cacheguard` was red in CI and green here,
+three checks, for as long as the cache cap had existed. The cause was one line:
+`stat -f '%m %z %N'` is BSD, and on GNU `-f` means `--file-system`, so the flag
+is consumed, the format is not a filesystem format, `2>/dev/null` eats the
+complaint, the pipeline yields nothing, the deletion loop runs zero iterations,
+and the prune deletes NOTHING -- having already printed `trimming oldest
+first`. On Linux the guard announced it was guarding and let the disk fill.
+
+You do not need the other operating system to reproduce that. A stub named
+`stat` early on `PATH`, answering `--version` the way GNU does and implementing
+`-c` on top of the real BSD `stat` so the values stay genuine, reproduces CI's
+three failures verbatim on this machine.
+
+**And the stub is itself a thing that can fail silently.** The first version of
+that one passed the mutation: it fell through to the real BSD `stat` for `-f`,
+so it never emulated the half that breaks. The old, broken line sailed through
+a harness built to catch it. A surviving mutant is either a missing test or a
+broken harness, and assuming the first is how a green run gets recorded for a
+fix nobody exercised. When a mutation survives, suspect your harness before you
+conclude the test has a gap.
+
 ## A check that fails silently is worse than one that fails loudly
 
 **In a shell harness, `set -o pipefail` turns "matched nothing" into "the
