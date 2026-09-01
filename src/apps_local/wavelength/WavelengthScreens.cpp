@@ -625,24 +625,22 @@ void renderReveal(toybox::Screen& screen, const RevealModel& model) {
   char pointsLine[20];
   snprintf(roundLine, sizeof(roundLine), "ROUND %d", model.roundNumber);
   snprintf(pointsLine, sizeof(pointsLine), "%d POINT%s", model.total, model.total == 1 ? "" : "S");
+  const int16_t totalsTop = static_cast<int16_t>(rowTop + 3 * (rowH + 6) + 10);
   if (model.practice) {
     static const char* kScore[][2] = {{"EXACT", "5"}, {"ONE OFF", "3"}, {"TWO OFF", "1"}, {"RIGHT SIDE", "+1"}};
-    const int16_t tTop = static_cast<int16_t>(rowTop + 3 * (rowH + 6) + 10);
     for (int i = 0; i < 4; ++i) {
-      const int16_t y = static_cast<int16_t>(tTop + i * rowH);
+      const int16_t y = static_cast<int16_t>(totalsTop + i * rowH);
       caps(screen, fui::makeRect(g.right.x, y, g.right.width, rowH), kScore[i][0], toybox::kSmallFont,
            fui::TextAlign::Left);
       caps(screen, fui::makeRect(g.right.x, y, g.right.width, rowH), kScore[i][1], toybox::kSmallFont,
            fui::TextAlign::Right);
     }
-    return;
+  } else {
+    caps(screen, fui::makeRect(g.right.x, totalsTop, g.right.width, rowH), roundLine, toybox::kSmallFont,
+         fui::TextAlign::Center);
+    caps(screen, fui::makeRect(g.right.x, static_cast<int16_t>(totalsTop + rowH), g.right.width, rowH), pointsLine,
+         toybox::kSmallFont, fui::TextAlign::Center);
   }
-
-  const int16_t totalsTop = static_cast<int16_t>(rowTop + 3 * (rowH + 6) + 10);
-  caps(screen, fui::makeRect(g.right.x, totalsTop, g.right.width, rowH), roundLine, toybox::kSmallFont,
-       fui::TextAlign::Center);
-  caps(screen, fui::makeRect(g.right.x, static_cast<int16_t>(totalsTop + rowH), g.right.width, rowH), pointsLine,
-       toybox::kSmallFont, fui::TextAlign::Center);
 
   action(screen, footer(screen, 62, toybox::kMargin), "NEXT ROUND", ActionNextRound);
 }

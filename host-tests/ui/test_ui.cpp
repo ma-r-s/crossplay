@@ -5248,6 +5248,32 @@ void testTheReaderTextGoesInTheReaderBody() {
 // one layout is how a tap zone drifts away from the marker it is meant to sit
 // under, and neither copy looks wrong on its own -- so this asserts they agree
 // with each other over every point on the panel rather than trusting either.
+// Every reachable WAVELENGTH screen must offer a way onward that is not the
+// hardware Back key. A practice reveal once lost its NEXT ROUND button to an
+// early return and looked entirely finished without it: a cold table tried
+// fourteen different gestures and sixteen seconds of waiting on the first round
+// of the very first session.
+void testWavelengthEveryRevealOffersAWayOn() {
+  for (const bool practice : {false, true}) {
+    Rendered out;
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    wavelengthui::RevealModel model;
+    model.spectrum = wavelengthui::Spectrum{"HOT", "COLD"};
+    model.practice = practice;
+    model.guess = 7;
+    model.target = 9;
+    wavelengthui::renderReveal(screen, model);
+    bool found = false;
+    for (const FakeTarget::TextRun& run : out.target.texts)
+      if (run.text == "NEXT ROUND") found = true;
+    if (!found) std::printf("  reveal with practice=%d has no way forward\n", static_cast<int>(practice));
+    CHECK(found);
+  }
+}
+
 void testWavelengthStripHitTestsAgree() {
   const int16_t w = 480;
   const int16_t h = 800;
@@ -5447,6 +5473,7 @@ int main() {
   testArchiveIsLiveOnTheLastPage();
   testALongTitleIsEllipsisedRatherThanClipped();
   testTheReaderTextGoesInTheReaderBody();
+  testWavelengthEveryRevealOffersAWayOn();
   testWavelengthStripHitTestsAgree();
   testWavelengthEverySlotIsTappable();
   testFitLinesCutsAnUnbreakableTokenRatherThanVanishing();
