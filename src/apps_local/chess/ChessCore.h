@@ -141,4 +141,28 @@ void moveToString(const Move& move, char* out);
 // and the check/mate suffix depends on what happens after.
 void moveToSan(const Position& position, const Move& move, char* out);
 
+// A 64-bit fingerprint of everything that makes two positions the same move
+// for move: the pieces, the side to move, the castling rights and the en
+// passant square. Repetition is the only caller, and it hashes once per ply,
+// so there is no incremental update to be had -- which is why this is FNV-1a
+// over the struct rather than a Zobrist table nothing would update in place.
+//
+// The en passant square is included as it stands. Strictly, two positions are
+// the same when the same moves are available, so an en passant square no pawn
+// can actually capture towards should not tell them apart. Including it raw
+// can therefore MISS a repetition; it can never invent one, and a draw that is
+// not there is the only error worth avoiding here.
+uint64_t positionKey(const Position& position);
+
+// How many times the last key in `keys` already appears, itself included,
+// looking back at most `window` entries. Threefold repetition is this
+// returning 3 or more.
+//
+// `window` is the halfmove clock: a pawn move or a capture is irreversible, so
+// no position before the last one can ever come back, and the clock counts
+// exactly those plies. That is a correctness bound rather than an
+// optimisation. Without it a position from before a capture -- unreachable
+// now, and reached by a different game -- would be counted as a repetition.
+int repetitionCount(const uint64_t* keys, int count, int window);
+
 }  // namespace chess
