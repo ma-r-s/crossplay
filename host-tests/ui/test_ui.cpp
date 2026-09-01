@@ -5315,6 +5315,30 @@ void testTriviaOptionsCarryTheirIndex() {
 // no footer action before an answer, no header target, and the app is
 // touch-only, so Back did nothing and only the HOME key escaped -- which also
 // meant there was no way to finish deliberately and see a score.
+// With no question at the chosen difficulty the clue carries the message and
+// there are no options -- so no option boxes, and nothing tappable that would
+// score a question that is not there. Found by looking at a render, not by a
+// suite: four empty boxes draw exactly like four real ones.
+void testTriviaDrawsNoOptionsWithoutAQuestion() {
+  triviaui::ChoiceModel model;
+  model.clue = "No multiple-choice question available at this difficulty.";
+  // option[] left null, which is what the activity passes in this state.
+
+  Rendered out;
+  buildChoice(out, model);
+
+  CHECK(out.target.drew("No multiple-choice question available at this difficulty."));
+  // The way out is still offered; it is the only control that should exist here.
+  CHECK(out.target.drew("END"));
+
+  // Nothing in the option band answers a tap. The boxes sat above the footer,
+  // so probe the band rather than one point.
+  for (int y = 430; y <= 700; y += 30) {
+    const fui::ActionEvent event = out.tap(240, y);
+    CHECK(event.action != triviaui::ActionOption);
+  }
+}
+
 void testTriviaAlwaysOffersAWayOut() {
   triviaui::ChoiceModel model;
   model.clue = "Which one?";
@@ -5361,6 +5385,7 @@ void testTriviaAlwaysOffersAWayOut() {
 int main() {
   testTriviaOptionsCarryTheirIndex();
   testTriviaAlwaysOffersAWayOut();
+  testTriviaDrawsNoOptionsWithoutAQuestion();
   testTheSeaSaltCardYouTapIsTheCardTheRulesGet();
   testTheSeaSaltChromeIsTappableAndTheCallPillIsEarned();
   testTheSeaSaltCallChoiceSaysWhatEachWordCosts();
