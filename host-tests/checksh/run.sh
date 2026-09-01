@@ -529,6 +529,266 @@ elif [ -z "$label" ] || [ "$label" = "$owner_line" ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# The build-SCOPING wiring.
+#
+# check.sh ran four cross-compiled builds for every change, including changes to
+# site/index.html that cannot alter one byte of the result -- ten minutes,
+# behind a workspace-wide lock, four times in one day.
+#
+# scripts_local/device-build-needed.sh owns the RULE and host-tests/gatepath
+# owns its tests. What is tested HERE is the wiring: that check.sh acts on the
+# answer, that it acts on it in only one direction, and that it says so.
+#
+# The dangerous direction is not "it built when it needn't have". It is "it
+# skipped when it must not", which is silent by construction: a skipped build
+# and a build that was never asked for look identical from outside. So every
+# case below is written from the skip's point of view, and the fail-safe cases
+# (a tool that is missing, that crashes, that is not executable) matter more
+# than the happy ones -- each is a way the wiring could quietly stop asking.
+# ---------------------------------------------------------------------------
+
+SCOPE_TOOL="$HERE/../../scripts_local/device-build-needed.sh"
+
+# A pio that builds nothing and records which env it was asked for.
+scope_stub_pio() {
+  cat >"$WORK/bin/pio" <<'STUB'
+#!/bin/bash
+echo "$3" >>"$LOCK_TRACE"
+exit 0
+STUB
+  chmod +x "$WORK/bin/pio"
+}
+
+# A throwaway repo with an origin/xteink to diff against, carrying the REAL
+# rule rather than a stub of it: a stub would test that check.sh can read an
+# exit code, which is not the thing that can hurt anybody.
+#
+# Built ONCE and reset per case. Building it per case cost 70s of every gate
+# run in the workspace, which is a strange price to pay for a change whose
+# entire purpose is making the gate cheaper.
+scope_fixture_once() {
+  rm -rf "$WORK/scoperepo" "$WORK/scopeorigin.git"
+  (
+    git init -q --bare -b xteink "$WORK/scopeorigin.git"
+    git clone -q "$WORK/scopeorigin.git" "$WORK/scoperepo"
+    cd "$WORK/scoperepo" || exit 1
+    git config user.email t@t; git config user.name t
+    mkdir -p src lib site docs scripts_local
+    echo x > src/main.cpp; echo x > lib/thing.h
+    echo x > site/index.html; echo x > site/styles.css; echo x > docs/a.md
+    echo x > scripts_local/check.sh
+    cp "$SCOPE_TOOL" scripts_local/device-build-needed.sh
+    chmod +x scripts_local/device-build-needed.sh
+    git add -A; git commit -qm base; git push -q -u origin xteink
+  ) >/dev/null 2>&1
+}
+
+# `reset --hard` also restores the rule itself, which the fail-safe cases below
+# deliberately break in the working tree.
+scope_fixture() {  # $@ = files to change on top of the base commit
+  (
+    cd "$WORK/scoperepo" || exit 1
+    git checkout -q xteink
+    git reset -q --hard origin/xteink
+    git clean -fdq
+    chmod +x scripts_local/device-build-needed.sh
+    for f in "$@"; do mkdir -p "$(dirname "$f")"; echo change >> "$f"; done
+    [ $# -gt 0 ] && { git add -A; git commit -qm change; }
+  ) >/dev/null 2>&1
+}
+
+# Runs the lifted loop against that fixture and returns the envs pio was asked
+# to build. Its stdout is kept, because "did it say so" is half of what is
+# being tested.
+scope_loop() {  # $1 = CHECK_BUILD_RELEASE_ENVS, $2 = CHECK_FORCE_DEVICE_BUILDS
+  rm -f "$WORK/trace"; rm -rf "$WORK/lockdir"; mkdir -p "$WORK/lockdir" "$WORK/logs"
+  (
+    export PATH="$WORK/bin:$PATH"
+    export FW_LOCK="$WORK/lockdir/x4pro.lock"
+    export LOCK_TRACE="$WORK/trace"
+    export LOGS="$WORK/logs"
+    export CHECK_BUILD_RELEASE_ENVS="$1"
+    export CHECK_FORCE_DEVICE_BUILDS="$2"
+    export REPO="$WORK/scoperepo"
+    cd "$REPO" || exit 1
+    FAILED=0
+    # shellcheck disable=SC1090
+    . "$WORK/loop.sh"
+  ) >"$WORK/scopeout" 2>&1
+  grep -vE '^simulator' "$WORK/trace" 2>/dev/null | tr '\n' ' ' | sed 's/ *$//'
+}
+
+scope_expected() {  # $1 = CHECK_BUILD_RELEASE_ENVS
+  if [ -n "$1" ]; then printf 'x4pro sticky gh_release_x4pro gh_release_sticky'
+  else printf 'x4pro sticky'; fi
+}
+
+# label, skip|build, CHECK_BUILD_RELEASE_ENVS, files...
+scope_case() {
+  local label="$1" expect="$2" rel="$3"; shift 3
+  scope_fixture "$@"
+  local devs; devs="$(scope_loop "$rel" "")"
+  checks=$((checks + 1))
+  if [ "$expect" = "skip" ]; then
+    if [ -n "$devs" ]; then
+      failed=$((failed + 1))
+      echo "FAIL checksh  scope/$label: device builds RAN for a change that cannot reach an image ($devs)"
+    elif ! grep -q "DEVICE BUILDS SKIPPED" "$WORK/scopeout"; then
+      failed=$((failed + 1))
+      echo "FAIL checksh  scope/$label: four builds were skipped SILENTLY -- nothing in the output says so"
+    else
+      # Naming them is the point. "some builds were skipped" is the shape of
+      # message this project has been bitten by twice.
+      local missing="" e
+      for e in $(scope_expected "$rel"); do
+        grep -q "$e" "$WORK/scopeout" || missing="$missing $e"
+      done
+      if [ -n "$missing" ]; then
+        failed=$((failed + 1))
+        echo "FAIL checksh  scope/$label: the skip banner does not name what it skipped:$missing"
+      fi
+    fi
+  else
+    if [ "$devs" != "$(scope_expected "$rel")" ]; then
+      failed=$((failed + 1))
+      echo "FAIL checksh  scope/$label: expected [$(scope_expected "$rel")], ran [$devs]"
+    fi
+  fi
+}
+
+if [ ! -x "$SCOPE_TOOL" ] || [ ! -s "$WORK/loop.sh" ]; then
+  checks=$((checks + 1)); failed=$((failed + 1))
+  echo "FAIL checksh  cannot reach $SCOPE_TOOL or the lifted loop; the scoping wiring is UNTESTED"
+else
+  scope_stub_pio
+  scope_fixture_once
+
+  # 1. The case this exists for. Both modes, because --committed is the mode
+  #    that hurts and it is the mode with an extra two builds to skip.
+  scope_case "site-only diff"             skip  ""  site/index.html site/styles.css
+  scope_case "site-only, --committed"     skip  "1" site/index.html site/styles.css
+
+  # 2. Firmware still builds everything.
+  scope_case "a src/ diff"                build ""  src/main.cpp
+  scope_case "a src/ diff, --committed"   build "1" src/main.cpp
+
+  # 3. The mixed diff. One firmware path among many inert ones, and the case
+  #    most likely to be got wrong, because the inert paths are the majority
+  #    and an implementation that asks "are any of these inert" passes 1 and 2
+  #    and ships this broken.
+  scope_case "mixed: site + docs + src"   build "1" site/index.html docs/a.md src/main.cpp
+  scope_case "mixed the other order"      build "1" src/main.cpp site/styles.css
+
+  # 4. A path the rule has never heard of. This is what stops the allowlist
+  #    going stale the day somebody adds a source root.
+  scope_case "an unclassified new path"   build "1" brandnew/thing.c
+
+  # 5. The gate's own machinery. A change to check.sh that broke the build loop
+  #    must not be verified by a run that skipped the build loop.
+  scope_case "scripts_local/check.sh"     build "1" scripts_local/check.sh
+
+  # ---- the run must say what it DECIDED, in all three directions ----------
+  #
+  # Not symmetry. "The gate did not skip", "the gate asked and was told to
+  # build" and "the gate never asked at all" are three different states with
+  # one appearance, and the third is the dangerous one. Expecting a skip and
+  # not getting one had no diagnostic whatsoever until this: the first live
+  # test of this feature lost time to a base ref that was not what the tester
+  # assumed, and the log said nothing either way.
+
+  scope_says() {  # $1 = label, $2 = substring the output must contain
+    checks=$((checks + 1))
+    grep -q "$2" "$WORK/scopeout" || { failed=$((failed + 1))
+      echo "FAIL checksh  scope/$1: the run never said '$2'"
+      sed 's/^/       /' "$WORK/scopeout" | head -6; }
+  }
+
+  scope_fixture src/main.cpp
+  scope_loop "1" "" >/dev/null
+  scope_says "a firmware diff names its reason" "device builds: needed"
+  scope_says "and names the path that forced it" "src/main.cpp"
+
+  scope_fixture site/index.html
+  rm -f "$WORK/scoperepo/scripts_local/device-build-needed.sh"
+  scope_loop "1" "" >/dev/null
+  scope_says "no rule present says so out loud" "no usable rule"
+
+  scope_fixture site/index.html
+  scope_loop "1" "1" >/dev/null
+  scope_says "the override says the diff was not consulted" "forced"
+
+  # ---- fail-safe: only exit code 1 may skip -------------------------------
+  #
+  # The tool documents 0 as "needed, and ALSO the answer whenever anything is
+  # uncertain". Written as `if ! tool; then skip`, every one of these becomes a
+  # silent skip of four builds, and nothing downstream would ever notice.
+  scope_broken() {  # $1 = label, $2 = body of the replacement tool
+    scope_fixture site/index.html
+    printf '%s\n' '#!/bin/bash' "$2" > "$WORK/scoperepo/scripts_local/device-build-needed.sh"
+    chmod +x "$WORK/scoperepo/scripts_local/device-build-needed.sh"
+    local devs; devs="$(scope_loop "1" "")"
+    checks=$((checks + 1))
+    if [ "$devs" != "$(scope_expected 1)" ]; then
+      failed=$((failed + 1))
+      echo "FAIL checksh  scope/$1: an inert diff SKIPPED the builds on a tool that did not say 1 (ran [$devs])"
+    fi
+  }
+  scope_broken "a tool that crashes (exit 2)"   'echo boom >&2; exit 2'
+  scope_broken "a tool that exits 127"          'exit 127'
+  scope_broken "a tool with a syntax error"     'if then fi'
+  scope_broken "a tool that says nothing (0)"   'exit 0'
+
+  # A tool that is not there at all, and one that is not executable.
+  scope_fixture site/index.html
+  rm -f "$WORK/scoperepo/scripts_local/device-build-needed.sh"
+  devs="$(scope_loop "1" "")"
+  checks=$((checks + 1))
+  [ "$devs" = "$(scope_expected 1)" ] || { failed=$((failed + 1))
+    echo "FAIL checksh  scope/missing tool: an inert diff skipped the builds with no rule present (ran [$devs])"; }
+
+  scope_fixture site/index.html
+  chmod -x "$WORK/scoperepo/scripts_local/device-build-needed.sh"
+  devs="$(scope_loop "1" "")"
+  checks=$((checks + 1))
+  [ "$devs" = "$(scope_expected 1)" ] || { failed=$((failed + 1))
+    echo "FAIL checksh  scope/non-executable tool: an inert diff skipped the builds (ran [$devs])"; }
+
+  # The escape hatch, so a skip is never something a human cannot overrule.
+  scope_fixture site/index.html
+  devs="$(scope_loop "1" "1")"
+  checks=$((checks + 1))
+  [ "$devs" = "$(scope_expected 1)" ] || { failed=$((failed + 1))
+    echo "FAIL checksh  scope/CHECK_FORCE_DEVICE_BUILDS: the override did not force the builds (ran [$devs])"; }
+
+  # ---- and the test must be able to SEE the bug it was written for ---------
+  #
+  # Turn `-eq 1` into `-ne 0` -- the single plausible way to write this wrong,
+  # and the way that reads more naturally in shell -- and the fail-safe cases
+  # above have to go red. A check that cannot fail against the code it replaced
+  # is not evidence of anything.
+  checks=$((checks + 1))
+  sed 's/\[ "\$_scope_rc" -eq 1 \]/[ "$_scope_rc" -ne 0 ]/' "$WORK/loop.sh" >"$WORK/loop-unsafe.sh"
+  if cmp -s "$WORK/loop.sh" "$WORK/loop-unsafe.sh"; then
+    failed=$((failed + 1))
+    echo "FAIL checksh  could not reintroduce the fail-open exit test; the fail-safe cases prove nothing"
+  else
+    cp "$WORK/loop.sh" "$WORK/loop-scopegood.sh"; cp "$WORK/loop-unsafe.sh" "$WORK/loop.sh"
+    scope_fixture site/index.html
+    printf '%s\n' '#!/bin/bash' 'exit 2' > "$WORK/scoperepo/scripts_local/device-build-needed.sh"
+    chmod +x "$WORK/scoperepo/scripts_local/device-build-needed.sh"
+    unsafe_devs="$(scope_loop "1" "")"
+    cp "$WORK/loop-scopegood.sh" "$WORK/loop.sh"
+    if [ -n "$unsafe_devs" ]; then
+      failed=$((failed + 1))
+      echo "FAIL checksh  a crashing rule still built with -ne 0, so the fail-safe assertions are not testing anything"
+    fi
+  fi
+
+  # Leave the shared stub as the other sections expect to find it.
+  scope_stub_pio
+fi
+
+# ---------------------------------------------------------------------------
 # The submodule-state wiring (2026-08-31).
 #
 # The probe itself is covered by host-tests/submodules. What is covered HERE is
@@ -707,8 +967,8 @@ if [ -s "$WORK/subwire.sh" ] && [ -s "$WORK/verdict.sh" ] &&
   esac
 
   # ---- the verdict line, driven through the real composition function ----
-  verdict() {  # SUBMODULE_DRIFT, TREE_STALE
-    ( set +e; SUBMODULE_DRIFT="$1"; TREE_STALE="$2"; LOGS=/tmp/x
+  verdict() {  # SUBMODULE_DRIFT, TREE_STALE, DEVICE_BUILDS_SKIPPED
+    ( set +e; SUBMODULE_DRIFT="$1"; TREE_STALE="$2"; DEVICE_BUILDS_SKIPPED="${3:-}"; LOGS=/tmp/x
       . "$WORK/qualifier.sh"; . "$WORK/verdict.sh" )
   }
 
@@ -744,6 +1004,64 @@ if [ -s "$WORK/subwire.sh" ] && [ -s "$WORK/verdict.sh" ] &&
   case "$lead" in
     "all green"*) failed=$((failed + 1)); echo "FAIL checksh  a qualified verdict still OPENS with 'all green': $lead" ;;
     *) : ;;
+  esac
+
+  # ---- and the THIRD verdict: green, but over less ground -------------------
+  #
+  # A run that skipped four device builds is not withheld -- it is honestly
+  # green for what it covered -- but it did not cover what a full run covers,
+  # and a reader must be able to tell the two apart AT A GLANCE without knowing
+  # the diff. So it gets its own line rather than a footnote.
+  scoped="$(verdict '' '' 'x4pro sticky gh_release_x4pro gh_release_sticky')"
+
+  checks=$((checks + 1))
+  case "$scoped" in
+    *"all green"*) failed=$((failed + 1)); echo "FAIL checksh  a run that skipped four builds still says 'all green', so every grep written before this matches it and fails OPEN: $scoped" ;;
+    *) : ;;
+  esac
+
+  checks=$((checks + 1))
+  case "$scoped" in
+    *SKIPPED*) : ;;
+    *) failed=$((failed + 1)); echo "FAIL checksh  the verdict of a scoped run does not say anything was skipped: $scoped" ;;
+  esac
+
+  # Naming them, not just admitting to them.
+  checks=$((checks + 1))
+  scoped_missing=""
+  for e in x4pro sticky gh_release_x4pro gh_release_sticky; do
+    case "$scoped" in *"$e"*) : ;; *) scoped_missing="$scoped_missing $e" ;; esac
+  done
+  [ -z "$scoped_missing" ] || { failed=$((failed + 1))
+    echo "FAIL checksh  the scoped verdict does not name what it skipped:$scoped_missing"; }
+
+  # A full clean run must still be distinguishable from it, which is the whole
+  # point: the two lines cannot both be greppable as the same thing.
+  checks=$((checks + 1))
+  clean="$(verdict '' '' '')"
+  if [ "$clean" = "$scoped" ]; then
+    failed=$((failed + 1))
+    echo "FAIL checksh  a scoped run and a full run print the SAME verdict; nobody can tell them apart"
+  fi
+  checks=$((checks + 1))
+  case "$clean" in
+    "all green"*) : ;;
+    *) failed=$((failed + 1)); echo "FAIL checksh  a full clean run lost its unqualified verdict: $clean" ;;
+  esac
+
+  # Two reasons are not one reason. Drift is the stronger statement and wins
+  # the line, but the skip must still be ON it -- otherwise whoever fixes the
+  # drift gets a rerun that looks clean and is still missing four builds.
+  checks=$((checks + 1))
+  bothways="$(verdict 1 'behind origin' 'x4pro sticky')"
+  case "$bothways" in
+    *DRIFTED*) : ;;
+    *) failed=$((failed + 1)); echo "FAIL checksh  a scoped run swallowed the drift qualifier: $bothways" ;;
+  esac
+  checks=$((checks + 1))
+  case "$bothways" in
+    *SKIPPED*) : ;;
+    *) failed=$((failed + 1)); echo "FAIL checksh  a withheld verdict hid the fact that four builds also did not run: $bothways" ;;
   esac
 
   # And it must not CONTAIN the clean phrase either. Front-loading fixed the

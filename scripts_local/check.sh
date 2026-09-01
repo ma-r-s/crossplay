@@ -483,6 +483,72 @@ if [ "${1:-}" != "--tests" ]; then
   # compile the release-path serial code at all.
   [ -n "${CHECK_BUILD_RELEASE_ENVS:-}" ] && BUILD_ENVS="$BUILD_ENVS gh_release_x4pro gh_release_sticky"
 
+  # ---- do these four builds need to run for THIS change at all? ------------
+  #
+  # Four cross-compiled builds, behind a workspace-wide lock, about ten
+  # minutes -- and for a change to site/index.html and site/styles.css not one
+  # byte of the result can differ. That happened four times in one day, and one
+  # session cherry-picked a site-only change through a throwaway worktree to
+  # avoid paying it.
+  #
+  # The dependency runs ONE WAY and only one direction of saving exists.
+  # site/emulator/ is a wasm build of the firmware, so firmware changes can
+  # change the site -- which is what the staleness gate at the foot of this
+  # file is for, and it is untouched by this. The reverse is never true, so
+  # this is only ever allowed to drop DEVICE envs.
+  #
+  # scripts_local/device-build-needed.sh owns the rule and host-tests/gatepath
+  # owns its tests; this is only the wiring. The rule is an allowlist of paths
+  # that CANNOT reach a device image, so anything it has never heard of builds.
+  #
+  # ONLY exit code 1 skips, and that is the whole safety of the wiring. The
+  # tool documents 0 as "needed -- and also the answer whenever anything is
+  # uncertain", so writing this as `if ! tool; then skip` would turn a missing
+  # file, a syntax error, or a 127 into a silent skip of every device build.
+  # That is the one failure here nobody would ever see: a skipped build and a
+  # passed build print differently, but a skipped build and a build that was
+  # never asked for do not.
+  #
+  # The simulator env is never dropped. It is the fast native build everyone
+  # waits on, it takes no lock, and it is what the wasm artifact comes from.
+  DEVICE_BUILDS_SKIPPED=""
+  _scope="${REPO:-}/scripts_local/device-build-needed.sh"
+  _dev_envs="$(printf '%s\n' $BUILD_ENVS | grep -v '^simulator' | tr '\n' ' ' | sed 's/ *$//')"
+  if [ -n "${CHECK_FORCE_DEVICE_BUILDS:-}" ]; then
+    echo "device builds: forced (CHECK_FORCE_DEVICE_BUILDS is set); the diff was not consulted"
+  elif [ -n "${REPO:-}" ] && [ -x "$_scope" ]; then
+    # --build-loop, not the default question: --committed exports
+    # CHECK_BUILD_RELEASE_ENVS a few hundred lines above, and the default
+    # question answers "needed" whenever it is set. Asking it here would mean
+    # this never fires in the one mode it was written for. See the tool.
+    SCOPE_WHY="$("$_scope" --build-loop 2>&1)" && _scope_rc=0 || _scope_rc=$?
+    if [ "$_scope_rc" -eq 1 ] && [ -n "$_dev_envs" ]; then
+      DEVICE_BUILDS_SKIPPED="$_dev_envs"
+      BUILD_ENVS="$(printf '%s\n' $BUILD_ENVS | grep '^simulator' | tr '\n' ' ' | sed 's/ *$//')"
+      echo
+      echo "DEVICE BUILDS SKIPPED -- $SCOPE_WHY"
+      echo "  did not run: $DEVICE_BUILDS_SKIPPED"
+      echo "  every host suite ran, and so did the simulator build."
+      echo "  the device images this commit would produce are the ones its base"
+      echo "  already produced, because nothing here can reach one."
+      echo "  run them anyway with: CHECK_FORCE_DEVICE_BUILDS=1 $0 ${1:-}"
+      echo
+    else
+      # Say why they are RUNNING, too, and not for symmetry. Expecting a skip
+      # and not getting one is the state with no diagnostic at all: the rule
+      # names the ONE path that made it answer "build", and without this line
+      # the only way to get that name is to re-run the tool by hand in the
+      # trial worktree, which is what happened the first time this was tested
+      # -- the base ref was not what the tester assumed, and the log said
+      # nothing either way.
+      echo "${SCOPE_WHY:-device builds: needed (the rule exited $_scope_rc without a reason)}"
+    fi
+  else
+    # And the third state, which is the one that most needs saying. A gate that
+    # never asked looks exactly like a gate that asked and was told yes.
+    echo "device builds: needed (no usable rule at ${_scope:-<no repo>}; nothing was skipped)"
+  fi
+
   # Every env here except the native simulator reaches into the shared
   # ~/.platformio, so the lock must SPAN from the first of them to the last.
   # Both ends are derived from the list rather than named, because naming them
@@ -834,7 +900,21 @@ fi
 
 echo
 if [ "$FAILED" -eq 0 ]; then
+  # SCOPE_NOTE: a withheld verdict is the stronger statement and wins the line,
+  # but it must still SAY that four builds did not run. Two reasons to distrust
+  # a result are not one reason, and whoever fixes the drift would otherwise get
+  # a clean-looking rerun that is still missing the builds.
+  #
+  # These two assignments are CONTIGUOUS, with no comment between them, and that
+  # is load-bearing rather than tidy: host-tests/checksh lifts this block by
+  # walking UP from the `if` over adjacent assignment lines, to carry down the
+  # values the block reads but does not make. Anything in between -- a comment,
+  # a `[ ... ] && NAME=` -- stops that walk, drops QUALIFIER= out of the lift,
+  # and fails the suite with "unbound variable": a broken extraction wearing the
+  # costume of a broken verdict. That is not hypothetical; it is what this
+  # change did on its first two attempts.
   QUALIFIER="$(qualifier_text)"
+  SCOPE_NOTE="${DEVICE_BUILDS_SKIPPED:+ DEVICE BUILDS ALSO SKIPPED ($DEVICE_BUILDS_SKIPPED).}"
   if [ -n "$QUALIFIER" ]; then
     # The qualifier leads AND the clean phrase is absent. Both halves were paid
     # for: trailing it ("all green -- BUT ...") lost to a reader who greps
@@ -844,7 +924,18 @@ if [ "$FAILED" -eq 0 ]; then
     # OPEN. A qualified verdict that contains its own unqualified form is
     # matched by all of them. Old patterns must find nothing here and fail
     # closed, so this line says "suites passed" instead.
-    echo "VERDICT WITHHELD ($QUALIFIER) -- suites passed, but not on the code that ships. logs in $LOGS"
+    echo "VERDICT WITHHELD ($QUALIFIER) -- suites passed, but not on the code that ships.${SCOPE_NOTE} logs in $LOGS"
+  elif [ -n "${DEVICE_BUILDS_SKIPPED:-}" ]; then
+    # A THIRD verdict, not a footnote under the second. This run is not
+    # withheld -- it is honestly green for everything it covered -- but it did
+    # not cover the same ground a full run covers, and a reader must be able to
+    # tell which of the two they are looking at without knowing the diff.
+    #
+    # It must not contain the string "all green", for the reason spelled out
+    # above: every grep written before this line existed matches that phrase
+    # and would fail OPEN on a run that skipped four builds. Anything looking
+    # for the unqualified form finds nothing here and has to read the line.
+    echo "HOST GREEN, DEVICE BUILDS SKIPPED ($DEVICE_BUILDS_SKIPPED) -- nothing in this diff reaches a device image, so none was built. logs in $LOGS"
   else
     echo "all green. logs in $LOGS"
   fi
