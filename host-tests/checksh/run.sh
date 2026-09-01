@@ -562,7 +562,11 @@ STUB
 # A throwaway repo with an origin/xteink to diff against, carrying the REAL
 # rule rather than a stub of it: a stub would test that check.sh can read an
 # exit code, which is not the thing that can hurt anybody.
-scope_fixture() {  # $@ = files to change on top of the base commit
+#
+# Built ONCE and reset per case. Building it per case cost 70s of every gate
+# run in the workspace, which is a strange price to pay for a change whose
+# entire purpose is making the gate cheaper.
+scope_fixture_once() {
   rm -rf "$WORK/scoperepo" "$WORK/scopeorigin.git"
   (
     git init -q --bare -b xteink "$WORK/scopeorigin.git"
@@ -576,6 +580,18 @@ scope_fixture() {  # $@ = files to change on top of the base commit
     cp "$SCOPE_TOOL" scripts_local/device-build-needed.sh
     chmod +x scripts_local/device-build-needed.sh
     git add -A; git commit -qm base; git push -q -u origin xteink
+  ) >/dev/null 2>&1
+}
+
+# `reset --hard` also restores the rule itself, which the fail-safe cases below
+# deliberately break in the working tree.
+scope_fixture() {  # $@ = files to change on top of the base commit
+  (
+    cd "$WORK/scoperepo" || exit 1
+    git checkout -q xteink
+    git reset -q --hard origin/xteink
+    git clean -fdq
+    chmod +x scripts_local/device-build-needed.sh
     for f in "$@"; do mkdir -p "$(dirname "$f")"; echo change >> "$f"; done
     [ $# -gt 0 ] && { git add -A; git commit -qm change; }
   ) >/dev/null 2>&1
@@ -645,6 +661,7 @@ if [ ! -x "$SCOPE_TOOL" ] || [ ! -s "$WORK/loop.sh" ]; then
   echo "FAIL checksh  cannot reach $SCOPE_TOOL or the lifted loop; the scoping wiring is UNTESTED"
 else
   scope_stub_pio
+  scope_fixture_once
 
   # 1. The case this exists for. Both modes, because --committed is the mode
   #    that hurts and it is the mode with an extra two builds to skip.
