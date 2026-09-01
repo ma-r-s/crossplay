@@ -175,7 +175,43 @@ jobs:
             devices next to each other find one another with nothing to type --
             and they do not have to be the same device.
 
-            ### What is new in 1.12.3
+            ### What is new in 1.12.4
+
+            **The games list comes back to the page you left it on.** It used to
+            reopen on whichever page held the game you last played, which is a
+            different thing and looked like a fault: browse to page two, go read
+            a book, come back, and you were somewhere else. It now remembers the
+            page.
+
+            **No row is highlighted any more.** A folder used to open with one
+            game or app marked, and on APPS that was whichever app you opened
+            last -- forever. There is no key on this device that can move a
+            highlight or open one, so it was a cursor for something that does
+            not exist, and it read as one.
+
+            **WAVELENGTH says one thing per name.** It had four names for two
+            roles, four for one scoring event and three for the guess bar. It is
+            now CLUE-GIVER, GUESSERS, SIDE CALL and the guess, everywhere. The
+            front door and the end-of-session summary also used to report the
+            same session with different numbers -- one counted the round about
+            to start, the other left out the practice round -- and they now
+            agree.
+
+            **The read-later app's ARCHIVE has moved and can be undone.** It sat
+            between the two page-turn buttons with no confirmation and no way
+            back. It is now at the far left, out of the way of paging, and PUT
+            BACK appears next to SYNC after you use it. A sync that uploads
+            something now says what it sent instead of reporting only what came
+            down, the last page of an article no longer says it is the
+            second-to-last, and an article you finished reopens where you left
+            it rather than at page one.
+
+            **Hacker News' bookmark was backwards.** The bright chip meant NOT
+            saved. It now says SAVE and SAVED in words, a story whose page will
+            not load can be kept by its discussion instead, and a swipe pages
+            the list.
+
+            ### What was new in 1.12.3
 
             **The games list stopped opening the wrong game.** Reaching page 2
             or 3 was unreliable and about two attempts in three landed in a game
