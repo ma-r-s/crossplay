@@ -177,6 +177,19 @@ jobs:
 
             ### What is new in 1.12.5
 
+            **Trivia's wrong answers no longer give the game away**, its em
+            dashes render as hyphens instead of vanishing mid-word, the front
+            door was rebuilt, and it now tracks how far through the pack you
+            are. Your difficulty setting also survives leaving the app.
+
+            **If you have used Trivia before, delete `/trivia/pack.dat` from the
+            SD card.** The questions live in that file, not in the firmware, and
+            the app keeps whichever pack is already there -- so updating alone
+            leaves you on the old questions. Delete it and the app fetches the
+            new one on the next run.
+
+            ### What is new in 1.12.5
+
             **A WAVELENGTH round in progress now survives leaving the app.**
             Pressing the home key mid-round used to destroy the round, the
             hidden number and the whole session's score, with no warning and no

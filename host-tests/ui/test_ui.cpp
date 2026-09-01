@@ -6333,6 +6333,10 @@ void testTriviaDrawsNoOptionsWithoutAQuestion() {
   buildChoice(out, model);
 
   CHECK(out.target.drew("No multiple-choice question available at this difficulty."));
+  // No question means no difficulty meter. Five pips beside that message
+  // described a question that was not there, filled from a default rather than
+  // from anything the player had set.
+  CHECK(!out.target.drew("DIFFICULTY"));
   // The way out is still offered; it is the only control that should exist here.
   CHECK(out.target.drew("END"));
 

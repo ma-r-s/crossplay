@@ -118,9 +118,24 @@ class PackState {
   bool seen(const uint32_t i) const { return (flags(i) & kSeen) != 0; }
   bool flagged(const uint32_t i) const { return (flags(i) & kFlagged) != 0; }
 
+  // How many questions have been served, out of count(). Counted once when the
+  // state file is opened and kept up to date by setFlag, because the answer is
+  // wanted on the front door every time it draws and a rescan there would read
+  // the whole file per paint.
+  uint32_t seenCount() const { return seenCount_; }
+  // How many a player has rejected. Counted in the same pass as seenCount --
+  // one scan of the file answers both, and the flag screen wants to say how
+  // many so the action has a visible effect.
+  uint32_t flaggedCount() const { return flaggedCount_; }
+  uint32_t count() const { return count_; }
+
  private:
+  void scanCounts();
+
   WritableByteSource* source_ = nullptr;
   uint32_t count_ = 0;
+  uint32_t seenCount_ = 0;
+  uint32_t flaggedCount_ = 0;
 };
 
 // Deterministic, seedable, and ours -- so a host test can assert an exact

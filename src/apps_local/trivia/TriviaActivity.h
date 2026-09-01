@@ -27,6 +27,10 @@ class TriviaActivity final : public Activity {
 
  private:
   enum class View : uint8_t { Menu, Quizmaster, Solo, Notice };
+  // Which mode the HIDDEN notice came from. deal() decides whether it needs a
+  // multiple-choice question by reading view_, so the notice has to put the
+  // mode back before dealing or Quizmaster would start demanding distractors.
+  View flagReturn_ = View::Menu;
 
   bool openPack();
   void onWifiChosen(bool connected);

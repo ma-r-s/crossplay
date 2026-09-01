@@ -28,6 +28,10 @@ constexpr const char* kPartPath = "/trivia/pack.dat.part";
 // xkcd archive; see docs/apps/trivia-pack-format.md.
 constexpr const char* kPackUrl = "https://github.com/ma-r-s/crossplay/releases/download/trivia-pack/pack.dat";
 constexpr const char* kStatePath = "/trivia/pack.state";
+// One byte: the difficulty filter. It lived only in the activity, which is
+// deleted on exit, so leaving Trivia and coming back silently put a player who
+// had chosen Level 4 back on "Any" with nothing on screen to say so.
+constexpr const char* kPrefsPath = "/trivia/prefs";
 
 // A ByteSource over a HalFile. Every read seeks first: an index entry and the
 // record it points at are in different places, so sequential reads are the
@@ -116,11 +120,33 @@ bool TriviaActivity::openPack() {
   return true;
 }
 
+namespace {
+
+int loadDifficulty() {
+  HalFile f = Storage.open(kPrefsPath, O_RDONLY);
+  if (!f.isOpen() || f.size() < 1) return 0;
+  uint8_t b = 0;
+  if (f.read(&b, 1) != 1) return 0;
+  // A file written by a future build, or a corrupt byte, must not select a
+  // difficulty that filters every question out of the pack.
+  return (b <= trivia::kDifficulties) ? static_cast<int>(b) : 0;
+}
+
+void saveDifficulty(const int difficulty) {
+  HalFile f;
+  if (!Storage.openFileForWrite("TRIVIA", kPrefsPath, f)) return;
+  const uint8_t b = static_cast<uint8_t>(difficulty);
+  f.write(&b, 1);
+}
+
+}  // namespace
+
 void TriviaActivity::onEnter() {
   Activity::onEnter();
   toybox::ensureFonts(renderer);
 
   rng_.seed(static_cast<uint32_t>(millis()) | 1u);
+  difficulty_ = loadDifficulty();
 
   if (openPack()) {
     view_ = View::Menu;
@@ -370,6 +396,7 @@ void TriviaActivity::routeAction(const int action, const int value) {
         deal();
       } else {
         difficulty_ = (difficulty_ + 1) % (trivia::kDifficulties + 1);
+        saveDifficulty(difficulty_);
         requestUpdate();
       }
       break;
@@ -403,6 +430,9 @@ void TriviaActivity::routeAction(const int action, const int value) {
       requestUpdate();
       break;
     case triviaui::ActionNext:
+      // From the HIDDEN notice, put the mode back first: deal() reads view_ to
+      // decide whether it needs a question with distractors.
+      if (view_ == View::Notice) go(flagReturn_);
       deal();
       break;
     case triviaui::ActionOption:
@@ -418,7 +448,15 @@ void TriviaActivity::routeAction(const int action, const int value) {
       if (haveQuestion_) {
         state_.setFlag(current_, trivia::kFlagged);
         LOG_INF("TRIVIA", "Flagged question %u", static_cast<unsigned>(current_));
-        deal();
+        // Say what happened. Before this the question simply changed, which is
+        // exactly what NEXT does, so a cold tester could not tell the button
+        // had any effect at all and stopped pressing it.
+        flagReturn_ = view_;
+        char body[160];
+        std::snprintf(body, sizeof(body),
+                      "That question will not come back. %u hidden so far.",
+                      static_cast<unsigned>(state_.flaggedCount()));
+        showNotice("HIDDEN", body, "NEXT QUESTION", triviaui::ActionNext);
       }
       break;
     default:
@@ -483,6 +521,7 @@ void TriviaActivity::render(RenderLock&&) {
       model.selected = selected_;
       model.difficulty = difficulty_;
       model.packCount = pack_.count();
+      model.seenCount = state_.seenCount();
       triviaui::buildMenu(screen, model);
       break;
     }

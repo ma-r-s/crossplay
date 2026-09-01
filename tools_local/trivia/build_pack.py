@@ -120,6 +120,27 @@ TYPE_SYN = {'nation': 'country', 'capital': 'city', 'town': 'city', 'author': 'w
             'tune': 'song', 'veggie': 'vegetable'}
 TYPE_RX = re.compile(r"\bthis\s+((?:[a-z][\w'-]*\s+){0,3}?)([a-z][\w-]{2,})(?:'s)?\b")
 
+# Jersey and the reading serif have no glyph for U+2014, and a missing glyph
+# draws NOTHING -- so "great--now on" reached the panel as "greatnow on", a
+# non-word, with only a log line to say why. Normalised at BUILD time rather
+# than at read time: the device should not carry a codepoint it cannot draw.
+DASHES = str.maketrans({'\u2014': '-', '\u2013': '-'})
+
+
+def dedash(items):
+    """Em and en dashes to a plain hyphen, across every text field."""
+    n = 0
+    for x in items:
+        for k in ('q', 'a'):
+            if k in x and ('\u2014' in x[k] or '\u2013' in x[k]):
+                x[k] = x[k].translate(DASHES)
+                n += 1
+        for k in ('alt', 'w'):
+            if k in x:
+                x[k] = [v.translate(DASHES) for v in x[k]]
+    return n
+
+
 def answer_type(clue):
     m = TYPE_RX.search(clue)
     if not m:
@@ -134,32 +155,60 @@ def answer_type(clue):
 MIN_TYPE_POOL = 25      # below this a type cannot supply plausible distractors
 DISTRACTORS = 6         # stored; the device picks 3, so a replay differs
 
+# A band around the answer's length, so the answer never stands out by being the
+# longest or shortest option -- a tell that needs no knowledge at all.
+LEN_RATIO = 0.55
+LEN_FLOOR = 2
+
+
+def eligible(answer, candidate):
+    la, lc = len(answer), len(candidate)
+    return max(LEN_FLOOR, la * LEN_RATIO) <= lc <= la / LEN_RATIO
+
+
+def choose_distractors(answers_by_type, item, type_, used, rng):
+    """Six wrong options for one question, or [] if the type cannot supply them.
+
+    This used to sort the type pool by |len(candidate) - len(answer)| and keep
+    the nearest 40. For a five-letter country that is always about the same five
+    five-letter countries, so Japan/India/Spain/China recurred question after
+    question and the answer became the option you had not seen before. Every
+    Australia clue in the shipped pack drew the identical three options.
+
+    Two changes fix it. Candidates come from the WHOLE type pool inside a length
+    BAND rather than from a nearest-N sort, and they are taken LEAST-USED FIRST
+    so the pool spreads across the type instead of collapsing onto whichever few
+    answers sit near a common length. The second half is the one that matters:
+    widening alone still favours the popular short answers.
+    """
+    pool = answers_by_type.get(type_)
+    if not pool or len(pool) < MIN_TYPE_POOL:
+        return []
+    lower = item['a'].lower()
+    cands = [c for c in pool if c.lower() != lower and eligible(item['a'], c)]
+    if len(cands) < 3:
+        return []
+    rng.shuffle(cands)
+    cands.sort(key=lambda c: used[c.lower()])
+    picks = cands[:DISTRACTORS]
+    for c in picks:
+        used[c.lower()] += 1
+    return picks
+
+
 def add_distractors(pack, rng):
-    by = collections.defaultdict(list)
+    by = collections.defaultdict(set)
     for x in pack:
         if x.get('t'):
-            by[x['t']].append(x)
+            by[x['t']].add(x['a'])
+    by = {t: sorted(v) for t, v in by.items()}
+    used = collections.Counter()
     for x in pack:
-        t = x.get('t')
-        if not t or len(by[t]) < MIN_TYPE_POOL:
-            x.pop('t', None)
-            continue
-        L = len(x['a'])
-        pool = sorted((y for y in by[t] if y['a'].lower() != x['a'].lower()),
-                      key=lambda y: abs(len(y['a']) - L))[:40]
-        seen, picks = {x['a'].lower()}, []
-        for c in rng.sample(pool, len(pool)):
-            if c['a'].lower() in seen:
-                continue
-            seen.add(c['a'].lower())
-            picks.append(c['a'])
-            if len(picks) == DISTRACTORS:
-                break
+        picks = choose_distractors(by, x, x.get('t'), used, rng)
         if len(picks) >= 3:
             x['w'] = picks
         else:
             x.pop('t', None)
-    return pack
 
 # --- rejection rules ---------------------------------------------------------
 EVENT = re.compile(r'(Teen|College|Kids|Celebrity|Tournament of Champions|Battle of the Decades'
@@ -296,6 +345,7 @@ def main():
         pack = pack[:a.limit]
     # distractors are drawn from the SHIPPED slice, so an option is never an
     # answer the player could not otherwise meet
+    dedash(pack)
     add_distractors(pack, random.Random(20260830))
 
     with open(a.out, 'w', encoding='utf-8') as f:
