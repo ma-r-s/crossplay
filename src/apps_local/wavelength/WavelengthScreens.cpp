@@ -426,12 +426,11 @@ void renderPause(toybox::Screen& screen, const PauseModel& model) {
   // of words and figures beside a RESUME button were read as a scoreboard; and
   // RIGHT SIDE was a fourth name for the end call, which the two screens that
   // ask for it call something else again.
-  static const char* kScore[][2] = {
-      {"EXACT", "5"}, {"ONE OFF", "3"}, {"TWO OFF", "1"}, {"FURTHER OFF", "0"}, {"SIDE CALL RIGHT", "+1"}};
+  static const char* kScore[][2] = {{"EXACT", "5"}, {"ONE OFF", "3"}, {"TWO OFF", "1"}, {"FURTHER OFF", "0"}};
   const int16_t lineH = toybox::kButtonCut.lineHeight;
   caps(screen, fui::makeRect(toybox::kMargin, 150, inner, lineH), "POINTS FOR THE ROUND", toybox::kSmallFont,
        fui::TextAlign::Left);
-  for (int i = 0; i < 5; ++i) {
+  for (size_t i = 0; i < sizeof(kScore) / sizeof(kScore[0]); ++i) {
     const int16_t y = static_cast<int16_t>(179 + i * lineH);
     caps(screen, fui::makeRect(toybox::kMargin, y, inner, lineH), kScore[i][0], toybox::kSmallFont,
          fui::TextAlign::Left);
@@ -707,8 +706,7 @@ void renderCall(toybox::Screen& screen, const CallModel& model) {
     caps(screen, fui::makeRect(toybox::kMargin, 500, inner, toybox::kButtonCut.lineHeight), "THE ONLY WAY LEFT.",
          toybox::kSmallFont, fui::TextAlign::Center);
     caps(screen, fui::makeRect(toybox::kMargin, 704, inner, toybox::kButtonCut.lineHeight),
-         model.practice ? "PRACTICE ROUND. NOTHING SCORES." : "THE SIDE CALL IS WORTH ONE POINT.", toybox::kSmallFont,
-         fui::TextAlign::Center);
+         "PRACTICE ROUND. NOTHING SCORES.", toybox::kSmallFont, fui::TextAlign::Center);
     return;
   }
 
@@ -730,8 +728,7 @@ void renderCall(toybox::Screen& screen, const CallModel& model) {
   caps(screen, fui::makeRect(toybox::kMargin, 668, inner, toybox::kButtonCut.lineHeight),
        "THE CLUE-GIVER STAYS OUT OF THIS.", toybox::kSmallFont, fui::TextAlign::Center);
   caps(screen, fui::makeRect(toybox::kMargin, 704, inner, toybox::kButtonCut.lineHeight),
-       model.practice ? "PRACTICE ROUND. NOTHING SCORES." : "THE SIDE CALL IS WORTH ONE POINT.", toybox::kSmallFont,
-       fui::TextAlign::Center);
+       "PRACTICE ROUND. NOTHING SCORES.", toybox::kSmallFont, fui::TextAlign::Center);
 }
 
 void renderReveal(toybox::Screen& screen, const RevealModel& model) {
@@ -815,17 +812,19 @@ void renderReveal(toybox::Screen& screen, const RevealModel& model) {
   // did or did not add underneath. CALL RIGHT was a third name for the same
   // event and showed no arithmetic at all.
   const int16_t callTop = static_cast<int16_t>(rowTop + 2 * (rowH + 6));
-  caps(screen, fui::makeRect(g.right.x, callTop, g.right.width, rowH), "SIDE CALL", toybox::kSmallFont,
-       fui::TextAlign::Center);
-  // The figure is the point this round actually paid, so the practice round --
-  // which pays nothing, however the call went -- shows no figure rather than a
-  // +1 the total above it does not contain.
-  const char* callLine = miss == 0            ? "NOT NEEDED"
-                         : model.practice     ? (model.callWasRight ? "RIGHT" : "WRONG")
-                         : model.callWasRight ? "RIGHT  +1"
-                                              : "WRONG  +0";
-  caps(screen, fui::makeRect(g.right.x, static_cast<int16_t>(callTop + rowH), g.right.width, rowH), callLine,
-       toybox::kSmallFont, fui::TextAlign::Center);
+  if (model.showCall) {
+    caps(screen, fui::makeRect(g.right.x, callTop, g.right.width, rowH), "SIDE CALL", toybox::kSmallFont,
+         fui::TextAlign::Center);
+    // The figure is the point this round actually paid, so the practice round --
+    // which pays nothing, however the call went -- shows no figure rather than a
+    // +1 the total above it does not contain.
+    const char* callLine = miss == 0            ? "NOT NEEDED"
+                           : model.practice     ? (model.callWasRight ? "RIGHT" : "WRONG")
+                           : model.callWasRight ? "RIGHT  +1"
+                                                : "WRONG  +0";
+    caps(screen, fui::makeRect(g.right.x, static_cast<int16_t>(callTop + rowH), g.right.width, rowH), callLine,
+         toybox::kSmallFont, fui::TextAlign::Center);
+  }
 
   // Two lines, not one. "ROUND 5   15 POINTS" measures 228px in a 224px column
   // and the S was being clipped off POINTS -- four pixels, and it read as a typo
@@ -839,13 +838,12 @@ void renderReveal(toybox::Screen& screen, const RevealModel& model) {
     // The round designed to teach the scoring says what it is, in the same
     // words and the same order as HOW TO PLAY and the pause screen. The heading
     // takes two lines because this column is 224px wide and the phrase is 261.
-    static const char* kScore[][2] = {
-        {"EXACT", "5"}, {"ONE OFF", "3"}, {"TWO OFF", "1"}, {"FURTHER OFF", "0"}, {"SIDE CALL RIGHT", "+1"}};
+    static const char* kScore[][2] = {{"EXACT", "5"}, {"ONE OFF", "3"}, {"TWO OFF", "1"}, {"FURTHER OFF", "0"}};
     caps(screen, fui::makeRect(g.right.x, totalsTop, g.right.width, rowH), "POINTS FOR", toybox::kSmallFont,
          fui::TextAlign::Left);
     caps(screen, fui::makeRect(g.right.x, static_cast<int16_t>(totalsTop + rowH), g.right.width, rowH), "THE ROUND",
          toybox::kSmallFont, fui::TextAlign::Left);
-    for (int i = 0; i < 5; ++i) {
+    for (size_t i = 0; i < sizeof(kScore) / sizeof(kScore[0]); ++i) {
       const int16_t y = static_cast<int16_t>(totalsTop + (i + 2) * rowH);
       caps(screen, fui::makeRect(g.right.x, y, g.right.width, rowH), kScore[i][0], toybox::kSmallFont,
            fui::TextAlign::Left);
@@ -944,7 +942,7 @@ void renderHowTo(toybox::Screen& screen) {
       "ONE CLUE THAT SITS THERE.",
       "",
       "THE GUESSERS MOVE THE GUESS,",
-      "LOCK IT, AND MAKE THE SIDE CALL.",
+      "AND LOCK IT IN.",
       "",
       "3 OR MORE PLAYERS. ONE SCORE",
       "FOR THE WHOLE TABLE. THE DEVICE",
@@ -966,11 +964,14 @@ void renderHowTo(toybox::Screen& screen) {
   // Headed, and one shape of figure per column: five rows of bare words and
   // numbers under a rule are a list of something, and nobody could tell what.
   static const char* kScore[][2] = {
-      {"EXACT", "5"}, {"ONE OFF", "3"}, {"TWO OFF", "1"}, {"FURTHER OFF", "0"}, {"SIDE CALL RIGHT", "+1"},
+      {"EXACT", "5"},
+      {"ONE OFF", "3"},
+      {"TWO OFF", "1"},
+      {"FURTHER OFF", "0"},
   };
   caps(screen, fui::makeRect(toybox::kMargin, tableTop, inner, lineH), "POINTS FOR THE ROUND", toybox::kSmallFont,
        fui::TextAlign::Left);
-  for (int i = 0; i < 5; ++i) {
+  for (size_t i = 0; i < sizeof(kScore) / sizeof(kScore[0]); ++i) {
     const int16_t y = static_cast<int16_t>(tableTop + (i + 1) * lineH);
     caps(screen, fui::makeRect(toybox::kMargin, y, inner, lineH), kScore[i][0], toybox::kSmallFont,
          fui::TextAlign::Left);
@@ -1167,7 +1168,7 @@ void renderSummary(toybox::Screen& screen, const SummaryModel& model) {
   // two lines above it say what that costs and what it does not, and it is
   // drawn as an outline rather than as a third solid bar the thumb finds by
   // reflex. Same shape the pause screen uses for ABANDON THIS ROUND.
-  caps(screen, fui::makeRect(toybox::kMargin, 676, inner, lineH), "THIS CLEARS THE SCORE ABOVE.", toybox::kSmallFont,
+  caps(screen, fui::makeRect(toybox::kMargin, 676, inner, lineH), "ENDING CLEARS THIS SCORE.", toybox::kSmallFont,
        fui::TextAlign::Left);
   caps(screen, fui::makeRect(toybox::kMargin, 705, inner, lineH), "THE ALL-TIME RECORD IS KEPT.", toybox::kSmallFont,
        fui::TextAlign::Left);

@@ -31,6 +31,10 @@ class WavelengthActivity final : public Activity {
   // touches the glass, and a device that sleeps mid-argument has to be woken by
   // somebody who then sees the screen. INSIDER only suppressed sleep while its
   // clock ran; this game has no clock and needs it anyway.
+  // Co-op for now. Teams mode is a designed feature, not a flag to flip: see
+  // docs/apps/wavelength-teams.md for the four questions it must answer first.
+  static constexpr wavelength::Mode kMode = wavelength::Mode::CoOp;
+
   bool preventAutoSleep() override {
     return committed(view) || view == View::PassLeft || view == View::Pick || view == View::Paused;
   }
@@ -105,6 +109,7 @@ class WavelengthActivity final : public Activity {
   bool practiceRound = true;
   bool peeking = false;
   uint32_t lockHoldStartMs = 0;
+  uint32_t confirmHoldStartMs = 0;
   bool hasPeeked = false;
   bool abandoned = false;
   int abandonedCount = 0;

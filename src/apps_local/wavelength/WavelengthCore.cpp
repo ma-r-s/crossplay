@@ -29,8 +29,9 @@ bool endCallCorrect(const int guess, const int target, const Call call) {
   return target > guess ? call == Call::TowardTop : call == Call::TowardBottom;
 }
 
-int scoreRound(const int guess, const int target, const Call call) {
-  return scoreForGuess(guess, target) + (endCallCorrect(guess, target, call) ? kPointsEndCall : 0);
+int scoreRound(const int guess, const int target, const Call call, const Mode mode) {
+  const int bonus = (mode == Mode::Teams && endCallCorrect(guess, target, call)) ? kPointsEndCall : 0;
+  return scoreForGuess(guess, target) + bonus;
 }
 
 Deck::Deck(const int pairCount) : pairCount_(pairCount < 0 ? 0 : pairCount), seen_{} {
@@ -95,9 +96,9 @@ int Deck::dealChoice(Rng& rng, int out[2]) const {
   return 2;
 }
 
-int Session::record(const int guess, const int target, const Call call) {
+int Session::record(const int guess, const int target, const Call call, const Mode mode) {
   const bool practice = isPractice();
-  const int points = practice ? 0 : scoreRound(guess, target, call);
+  const int points = practice ? 0 : scoreRound(guess, target, call, mode);
   if (!practice) {
     total += points;
     ++scoredRounds;
@@ -121,9 +122,9 @@ int bucketFor(const int guess, const int target) {
   return 4;
 }
 
-void Record::add(const int guess, const int target, const Call call) {
+void Record::add(const int guess, const int target, const Call call, const Mode mode) {
   if (rounds < UINT16_MAX) ++rounds;
-  const int gained = scoreRound(guess, target, call);
+  const int gained = scoreRound(guess, target, call, mode);
   if (points + gained <= UINT16_MAX) points = static_cast<uint16_t>(points + gained);
   const int b = bucketFor(guess, target);
   if (buckets[b] < UINT16_MAX) ++buckets[b];

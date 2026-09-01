@@ -51,6 +51,22 @@ inline constexpr int kPracticeRounds = 1;
 // is the one word that means different things to different seats.
 enum class Call : uint8_t { TowardTop, TowardBottom };
 
+// Which game is being played.
+//
+// The end-call is the OPPOSING TEAM'S bet in the physical game: one team's
+// psychic clues, that team places the marker, and the other team profits from
+// their imprecision. Co-op has no opposing team, so it has nobody to make that
+// bet -- asking the players who just settled on a number whether the answer is
+// somewhere else is a question with no owner, and if they had an opinion they
+// would have moved the marker.
+//
+// So co-op does not ask it and does not score it, and its ceiling is
+// kPointsExact. Teams keeps it, because there it is the whole point. The
+// mechanic is SHELVED rather than deleted: every rule below still holds for
+// both modes and the tests exercise both, so teams mode has a live
+// configuration to switch on rather than a deleted one to rebuild.
+enum class Mode : uint8_t { CoOp, Teams };
+
 // xorshift32. Small, freestanding, and above all seedable, which is what lets a
 // test replay an exact deal. The device seeds it from millis().
 class Rng {
@@ -109,8 +125,10 @@ int scoreForGuess(int guess, int target);
 // the result before the reveal.
 bool endCallCorrect(int guess, int target, Call call);
 
-// The whole round, guess and call together.
-int scoreRound(int guess, int target, Call call);
+// The whole round. `call` is READ ONLY in Mode::Teams; co-op scores on distance
+// alone and testCoOpNeverConsultsTheCall asserts that by construction rather
+// than by inspection.
+int scoreRound(int guess, int target, Call call, Mode mode);
 
 // The most pairs a deck may hold. Raising it costs one word of RAM per 32.
 inline constexpr int kMaxPairs = 640;
@@ -158,7 +176,7 @@ struct Session {
 
   // Records a finished round and moves to the next. Returns the points it
   // actually added, which is zero on the practice round however well it went.
-  int record(int guess, int target, Call call);
+  int record(int guess, int target, Call call, Mode mode);
 
   // Points per scored round, in tenths so the caller needs no float. Zero
   // before any round has scored.
@@ -181,7 +199,7 @@ struct Record {
   uint16_t buckets[kBucketCount] = {};
   uint16_t bestRoundTenths = 0;  // best single-session average, in tenths
 
-  void add(int guess, int target, Call call);
+  void add(int guess, int target, Call call, Mode mode);
   int averageTenths() const;
   // The tallest bucket, so the ornament can scale to what is actually there
   // rather than to a guessed maximum.

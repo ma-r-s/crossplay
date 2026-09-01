@@ -247,16 +247,24 @@ void WavelengthActivity::step(const int delta) {
   requestUpdate();
 }
 
-void WavelengthActivity::lockIn() { go(View::Call); }
+void WavelengthActivity::lockIn() {
+  if (kMode == wl::Mode::Teams) {
+    go(View::Call);
+    return;
+  }
+  // The call value is never read in co-op; testCoOpNeverConsultsTheCall proves
+  // that by scoring every position both ways and requiring the same answer.
+  makeCall(wl::Call::TowardTop);
+}
 
 void WavelengthActivity::makeCall(const wl::Call call) {
   callWasRight = wl::endCallCorrect(guess, target, call);
   const bool wasPractice = session.isPractice();
-  lastPoints = session.record(guess, target, call);
+  lastPoints = session.record(guess, target, call, kMode);
   // The practice round is played in full and simply does not count, in the
   // record as well as in the session.
   if (!wasPractice) {
-    record.add(guess, target, call);
+    record.add(guess, target, call, kMode);
     const int avg = session.averageTenths();
     if (avg > record.bestRoundTenths) record.bestRoundTenths = static_cast<uint16_t>(avg);
   }
@@ -486,9 +494,16 @@ void WavelengthActivity::loop() {
       step(-1);
       return;
     }
-    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-      lockIn();
-      return;
+    if (mappedInput.isPressed(MappedInputManager::Button::Confirm)) {
+      const uint32_t now = millis();
+      if (confirmHoldStartMs == 0) confirmHoldStartMs = now;
+      if (now - confirmHoldStartMs >= static_cast<uint32_t>(wavelengthui::kLockHoldMs)) {
+        confirmHoldStartMs = 0;
+        lockIn();
+        return;
+      }
+    } else {
+      confirmHoldStartMs = 0;
     }
   }
 
@@ -580,6 +595,7 @@ void WavelengthActivity::render(RenderLock&&) {
       model.target = target;
       model.points = lastPoints;
       model.callWasRight = callWasRight;
+      model.showCall = kMode == wl::Mode::Teams;
       model.practice = practiceRound;
       model.roundNumber = session.round - 1;
       model.total = session.total;
