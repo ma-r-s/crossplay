@@ -76,6 +76,17 @@ class WavelengthActivity final : public Activity {
   uint32_t stepHoldStartMs = 0;
   uint32_t lastRepeatMs = 0;
   bool hasPeeked = false;
+  bool nudgeHold = false;
+  uint32_t peekStartMs = 0;
+  // How long the band must actually have been on the panel before the clue
+  // screen will open. Longer than a tap and longer than one refresh, so it
+  // means "was seen" rather than "was touched".
+  static constexpr uint32_t kSeenMs = 400;
+  uint32_t viewEnteredMs = 0;
+  // How long after a screen change a tap is treated as aimed at the previous
+  // screen. Roughly one panel refresh: until then the new screen is not
+  // actually visible, so nobody can have meant to press it.
+  static constexpr uint32_t kSettleMs = 500;
 
   // A full refresh is spent deliberately: on the reveal, which is the payoff,
   // and on hiding the peek, where a partial refresh could leave a ghost of the

@@ -117,6 +117,8 @@ wavelengthui::Spectrum WavelengthActivity::spectrumAt(const int index) const {
 void WavelengthActivity::go(const View next) {
   view = next;
   peeking = false;
+  nudgeHold = false;
+  viewEnteredMs = millis();
   requestUpdate();
 }
 
@@ -245,16 +247,18 @@ void WavelengthActivity::routeAction(const int action) {
 
 void WavelengthActivity::loop() {
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-    if (committed(view)) {
+    if (view == View::Reveal) {
+      // Checked BEFORE committed(), which is true here: the reveal is
+      // committed for the purpose of not sleeping, and must not be for the
+      // purpose of backing out. Back went FORWARD into the next round, which
+      // is the one direction a back gesture must never go.
+      go(View::Menu);
+    } else if (committed(view)) {
       // Abandoning costs the clue-giver their turn, which is the whole point:
       // if backing out re-dealt for the same person, they could hunt for an
       // easy axis and the deck's strangest cards would never be played.
       flashOnNextPaint = true;
       go(View::PassLeft);
-    } else if (view == View::Reveal) {
-      // Not a synonym for NEXT ROUND: back went FORWARD here, which is the one
-      // direction a back gesture must never go.
-      go(View::Menu);
     } else if (view != View::Menu) {
       go(View::Menu);
     } else {
@@ -275,10 +279,16 @@ void WavelengthActivity::loop() {
     const fui::Rect pad = wavelengthui::peekPadRect(static_cast<int16_t>(renderer.getScreenWidth()),
                                                     static_cast<int16_t>(renderer.getScreenHeight()));
     const bool onPad = held && hx >= pad.x && hx < pad.x + pad.width && hy >= pad.y && hy < pad.y + pad.height;
+    if (onPad) {
+      if (peekStartMs == 0) peekStartMs = millis();
+      if (millis() - peekStartMs >= kSeenMs) hasPeeked = true;
+    } else {
+      peekStartMs = 0;
+    }
     if (onPad != peeking) {
       const bool hiding = peeking && !onPad;
       peeking = onPad;
-      if (onPad) hasPeeked = true;
+      if (onPad) nudgeHold = false;
       // A full refresh on the way DOWN, so no ghost of the band survives it.
       if (hiding) flashOnNextPaint = true;
       requestUpdate();
@@ -287,6 +297,41 @@ void WavelengthActivity::loop() {
     // screen, because a tap is a touch-down before it is a release: the hold
     // check fired first and the button underneath never saw the release, so
     // the peek could be entered and never left.
+  }
+
+  if (view == View::Dial) {
+    int tx = 0;
+    int ty = 0;
+    if (mappedInput.wasScreenTapped(tx, ty)) {
+      const int slot = wavelengthui::dialSlotAt(static_cast<int16_t>(renderer.getScreenWidth()),
+                                                static_cast<int16_t>(renderer.getScreenHeight()),
+                                                static_cast<int16_t>(tx), static_cast<int16_t>(ty));
+      if (slot != 0) {
+        if (slot != guess) {
+          guess = slot;
+          requestUpdate();
+        }
+        return;
+      }
+    }
+  }
+
+  // A bare tap on a control that only answers to a hold says so, rather than
+  // going silent. Silence on these two reads as a broken button: a cold player
+  // tapped both, twice each, and concluded the device had died.
+  {
+    int tx = 0;
+    int ty = 0;
+    if ((view == View::Peek || view == View::Dial) && mappedInput.wasScreenTapped(tx, ty)) {
+      const int16_t w = static_cast<int16_t>(renderer.getScreenWidth());
+      const int16_t h = static_cast<int16_t>(renderer.getScreenHeight());
+      const fui::Rect r = view == View::Peek ? wavelengthui::peekPadRect(w, h) : wavelengthui::lockBarRect(w, h);
+      if (tx >= r.x && tx < r.x + r.width && ty >= r.y && ty < r.y + r.height && !nudgeHold) {
+        nudgeHold = true;
+        requestUpdate();
+        return;
+      }
+    }
   }
 
   // HOLD TO LOCK means hold. Tracked against the same rect the screen drew, and
@@ -354,6 +399,15 @@ void WavelengthActivity::loop() {
     }
   }
 
+  // The panel takes about half a second to show a new screen, so a tap landing
+  // inside that window was aimed at the screen BEFORE it. Swallowing those is
+  // what stops a double tap from crossing a screen boundary.
+  if (millis() - viewEnteredMs < kSettleMs) {
+    int sx = 0;
+    int sy = 0;
+    if (mappedInput.wasScreenTapped(sx, sy)) return;
+  }
+
   fui::InputSnapshot input;
   int tapX = 0;
   int tapY = 0;
@@ -399,6 +453,8 @@ void WavelengthActivity::render(RenderLock&&) {
       model.spectrum = current;
       model.target = target;
       model.revealed = peeking;
+      model.everRevealed = hasPeeked;
+      model.nudgeHold = nudgeHold;
       wavelengthui::renderPeek(screen, model);
       break;
     }
@@ -412,6 +468,7 @@ void WavelengthActivity::render(RenderLock&&) {
       wavelengthui::DialModel model;
       model.spectrum = current;
       model.guess = guess;
+      model.nudgeHold = nudgeHold;
       wavelengthui::renderDial(screen, model);
       break;
     }
@@ -419,6 +476,7 @@ void WavelengthActivity::render(RenderLock&&) {
       wavelengthui::CallModel model;
       model.spectrum = current;
       model.guess = guess;
+      model.practice = practiceRound;
       wavelengthui::renderCall(screen, model);
       break;
     }
