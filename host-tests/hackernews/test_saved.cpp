@@ -223,6 +223,51 @@ void testUnknownVersionIsLeftAlone() {
   CHECK(!hn::parseSavedIndex("hnsaved x\n", parsed));
 }
 
+// Keeping the conversation, which is the only thing there is to keep when the
+// linked page will not render here. The property that matters is that a thread
+// is a SECOND entry rather than the article's: sharing a key would mean saving
+// the discussion silently replaced the article, and the reader's mark would
+// then say the article was kept when the thread was.
+void testAThreadIsItsOwnEntry() {
+  CHECK_EQ(hn::savedThreadUrl(45123001), "https://news.ycombinator.com/item?id=45123001");
+  // Stable, because it is the library key and a re-save has to land on the same
+  // row rather than growing a duplicate.
+  CHECK_EQ(hn::savedThreadUrl(7), hn::savedThreadUrl(7));
+  CHECK(hn::savedThreadUrl(7) != hn::savedThreadUrl(8));
+
+  // The whole point: an article and its discussion are two names on the card.
+  const std::string article = "https://playaphone.com/";
+  CHECK(hn::savedIdFor(hn::savedThreadUrl(45123001)) != hn::savedIdFor(article));
+
+  // And the shelf can tell them apart, in FRONT, where a headline cut to the
+  // row width still shows it.
+  CHECK_EQ(hn::savedThreadTitle("Playa Phone"), "Comments: Playa Phone");
+  CHECK(hn::savedThreadTitle("Playa Phone").rfind("Comments: ", 0) == 0);
+
+  // Both together in one index, surviving the round trip as two rows.
+  std::vector<hn::SavedArticle> shelf{
+      make("Playa Phone", article.c_str()),
+      make(hn::savedThreadTitle("Playa Phone").c_str(), hn::savedThreadUrl(45123001).c_str()),
+  };
+  std::vector<hn::SavedArticle> parsed;
+  CHECK(hn::parseSavedIndex(hn::serializeSavedIndex(shelf), parsed));
+  CHECK_EQ(std::to_string(parsed.size()), "2");
+  if (parsed.size() == 2) {
+    CHECK(parsed[0].id != parsed[1].id);
+    CHECK_EQ(parsed[1].title, "Comments: Playa Phone");
+    CHECK_EQ(parsed[1].url, "https://news.ycombinator.com/item?id=45123001");
+  }
+}
+
+// A post with no link of its own -- an Ask HN, a Show HN with a body -- is its
+// own text, so Story::url is empty and Library::save refuses an empty URL.
+// Before the item page became the thread's key, those could not be kept by any
+// route at all.
+void testAPostWithNoLinkStillHasAKey() {
+  CHECK(!hn::savedThreadUrl(45123001).empty());
+  CHECK(!hn::savedIdFor(hn::savedThreadUrl(45123001)).empty());
+}
+
 void testWeWriteTheCurrentVersion() {
   // What we write must be what we read, or the next boot migrates its own
   // output. The round trip below would pass even if both were wrong, so the
@@ -243,6 +288,8 @@ int main() {
   testVersionOneStillOpens();
   testUnknownVersionIsLeftAlone();
   testWeWriteTheCurrentVersion();
+  testAThreadIsItsOwnEntry();
+  testAPostWithNoLinkStillHasAKey();
 
   std::printf("%d checks, %d failed\n", checksRun, checksFailed);
   return checksFailed == 0 ? 0 : 1;

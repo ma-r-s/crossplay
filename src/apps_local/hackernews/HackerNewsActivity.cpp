@@ -13,6 +13,7 @@
 #include "../../components/UITheme.h"
 #include "../../network/HttpDownloader.h"
 #include "../Shelf.h"
+#include "../ShelfScreen.h"
 #include "../ui/Toybox.h"
 #include "../ui/ToyboxFonts.h"
 #include "../ui/ToyboxIcons.h"
@@ -204,15 +205,27 @@ void HackerNewsActivity::loop() {
     return;
   }
 
+  // A vertical swipe pages whatever is on screen, and it is the first thing a
+  // hand reaches for on a touch panel showing a scrollbar: a cold tester swiped
+  // the story list, got a byte-identical screen, and read the list as stuck.
+  //
+  // Up carries the page upwards to the next one, the way the content moves
+  // under a finger, and the same way round in the list and in the reader --
+  // learn it once. Back is a LEFT-EDGE swipe and has already returned above, so
+  // nothing here can swallow it.
+  const MappedInputManager::SwipeDir swipe = mappedInput.wasSwipe();
+  const bool swipeNext = swipe == MappedInputManager::SwipeDir::Up;
+  const bool swipePrev = swipe == MappedInputManager::SwipeDir::Down;
+
   // Physical page keys do the same thing the footer arrows do, through the same
   // function. Two paths would drift, and the drift is invisible until somebody
   // uses the input you did not test.
   if (phase_ == Phase::Reading) {
-    if (mappedInput.wasReleased(MappedInputManager::Button::PageForward)) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::PageForward) || swipeNext) {
       turnPage(1);
       return;
     }
-    if (mappedInput.wasReleased(MappedInputManager::Button::PageBack)) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::PageBack) || swipePrev) {
       turnPage(-1);
       return;
     }
@@ -229,18 +242,10 @@ void HackerNewsActivity::loop() {
   // Paging moves the VIEW, not a selection: `selected_` is now only ever set by
   // tapping a story, which is the thing that opens it. Rows stay tappable, so a
   // button is never the only route.
-  const bool next = mappedInput.wasReleased(MappedInputManager::Button::Down);
-  const bool prev = mappedInput.wasReleased(MappedInputManager::Button::Up);
-  if (phase_ == Phase::List && !stories_.empty() && (next || prev)) {
-    const int count = static_cast<int>(stories_.size());
-    const int perPage = visibleRows_;
-    if (perPage > 0) {
-      const int pages = (count + perPage - 1) / perPage;
-      const int page = topIndex_ / perPage;
-      // Wraps: a page key that stops working at the last page reads as broken.
-      topIndex_ = ((page + (next ? 1 : pages - 1)) % pages) * perPage;
-      requestUpdate();
-    }
+  const bool next = mappedInput.wasReleased(MappedInputManager::Button::Down) || swipeNext;
+  const bool prev = mappedInput.wasReleased(MappedInputManager::Button::Up) || swipePrev;
+  if (phase_ == Phase::List && (next || prev)) {
+    pageList(next ? 1 : -1);
     return;
   }
 
@@ -393,7 +398,7 @@ bool HackerNewsActivity::fetchArticle() {
   if (!hn::urlCanBeArticle(story->url)) {
     showNotice("NOT READABLE HERE",
                "That link is a PDF, a video, or a page that only a browser can open. There is no article text to bring "
-               "back. The conversation is still here.",
+               "back. The conversation is still here, and you can keep that for later.",
                true);
     return true;
   }
@@ -425,7 +430,7 @@ bool HackerNewsActivity::fetchArticle() {
     LOG_INF("HN", "gate rejected %s (%d prose chars)", story->url.c_str(), hn::proseChars(extracted.body));
     showNotice("NOT READABLE HERE",
                "That page came back with no article in it. Whatever is there needs a browser to see. The conversation "
-               "is still here.",
+               "is still here, and you can keep that for later.",
                true);
     return true;
   }
@@ -444,6 +449,15 @@ bool HackerNewsActivity::fetchArticle() {
 bool HackerNewsActivity::fetchComments() {
   const hn::Story* story = currentStory();
   if (story == nullptr) return false;
+
+  // The thread's own key in the library, taken here for the reason the
+  // article's is taken in fetchArticle: by the time the reader asks whether
+  // what it is showing has been kept, the selected story may have moved on.
+  // Hacker News's item page rather than the story's link, so an article and its
+  // discussion are two entries and neither can overwrite the other -- and so a
+  // post with no link of its own still has a key.
+  readerUrl_ = hn::savedThreadUrl(story->id);
+  readingSaved_ = false;
 
   std::vector<hn::Comment> comments;
   hn::CommentScanner scanner(comments, {});
@@ -519,10 +533,16 @@ void HackerNewsActivity::showDocument(const char* title, const bool comments) {
 }
 
 void HackerNewsActivity::saveCurrentArticle() {
-  // Only an article is worth saving: a thread is a conversation that keeps
-  // moving, and the words on screen are the article's.
-  if (readingComments_ || readerUrl_.empty() || document_.empty()) return;
-  if (!library_.save(readerUrl_, readerTitle_, document_)) {
+  // Whatever is on the page, keyed by whatever it is. A thread used to be
+  // refused here on the grounds that a conversation keeps moving -- but the
+  // stories worth taking on a train are exactly the ones whose page will not
+  // render, and for those the conversation is all there is. Refusing it meant
+  // the only stories that could not be kept were the ones with most reason to
+  // be. What is written to the card is the words that are on screen, which is a
+  // snapshot either way.
+  if (readerUrl_.empty() || document_.empty()) return;
+  const std::string title = readingComments_ ? hn::savedThreadTitle(readerTitle_) : readerTitle_;
+  if (!library_.save(readerUrl_, title, document_)) {
     showNotice("NOT SAVED", "The card would not take it. There may be no room left.", false);
   }
   // The shelf gained a row while the view did not change, which is the one
@@ -562,6 +582,21 @@ void HackerNewsActivity::openSavedArticle(const int index) {
   showDocument(article.title.c_str(), false);
   readingSaved_ = true;
   articleAvailable_ = true;
+  requestUpdate();
+}
+
+void HackerNewsActivity::pageList(const int delta) {
+  // The rows the last paint DREW, not the stories the last fetch returned. The
+  // saved shelf draws a different number of rows from the front page, so
+  // paging it by stories_.size() moved topIndex_ somewhere the paint then
+  // clamped back -- a key that did nothing on the shelf, or jumped.
+  const int count = static_cast<int>(listItems_.size());
+  if (count <= 0 || visibleRows_ <= 0) return;
+  const int pages = shelfui::pageCountFor(count, visibleRows_);
+  // A list that fits on one page has nowhere to step to. Moving it anyway would
+  // be a page turn that changed nothing, which reads as a dead input.
+  if (pages <= 1) return;
+  topIndex_ = shelfui::pageStep(shelfui::pageFor(topIndex_, visibleRows_), pages, delta) * visibleRows_;
   requestUpdate();
 }
 
@@ -669,11 +704,24 @@ void HackerNewsActivity::render(RenderLock&&) {
       // cursor visible -- and that cursor is gone. Paging owns the view now, so
       // deriving it here would fight the page keys. It only needs clamping.
       if (visibleRows_ > 0) {
-        // Against the rows actually drawn, not against stories_: on the saved
-        // shelf those are different lengths, and clamping to the wrong one
-        // scrolls past the end or refuses to scroll at all.
-        const int maxTop = static_cast<int>(listItems_.size()) - visibleRows_;
-        if (topIndex_ > maxTop) topIndex_ = maxTop < 0 ? 0 : maxTop;
+        // Onto a PAGE BOUNDARY, not onto the last screenful of rows. Against
+        // the rows actually drawn, too, not against stories_: on the saved
+        // shelf those are different lengths.
+        //
+        // Clamping to `count - visibleRows_` looks like the same thing and is
+        // not, whenever the last page is a short one: it rewrites topIndex_ to
+        // a value the pager could never have produced, and the next step back
+        // is computed from that. A 14-row shelf pages 0, 6, 12; the old clamp
+        // stored 8 instead of 12, so forward, forward, back left the shelf on
+        // page ONE.
+        //
+        // The list component still fills its last page from `count - visible`
+        // for DRAWING, which is its own behaviour and every list in the fork
+        // shares it. The difference is that the page we are on is now ours to
+        // remember rather than something read back out of the paint.
+        const int pages = shelfui::pageCountFor(static_cast<int>(listItems_.size()), visibleRows_);
+        const int maxTop = pages > 0 ? (pages - 1) * visibleRows_ : 0;
+        if (topIndex_ > maxTop) topIndex_ = maxTop;
         if (topIndex_ < 0) topIndex_ = 0;
       }
       const bool saved = view_ == hn::ListView::Saved;
@@ -694,8 +742,13 @@ void HackerNewsActivity::render(RenderLock&&) {
           // Measured there: the original wording is 915px, and the replacement
           // that measured a comfortable 345px in ubuntu_10 -- a face this
           // screen never uses -- is 511.8px and shipped cut as "Tap the mark on
-          // an article to ke". This is 399.3px, 80.7px of margin.
-          model.emptyMessage = "Keep an article: tap its mark.";
+          // an article to ke". The line below is shorter than the 399.3px one
+          // it replaces and was checked by rendering this screen.
+          //
+          // It names the control by its LABEL rather than calling it a mark:
+          // the chip carries the word SAVE now, and a screen that sends you
+          // looking for a "mark" is sending you looking for the wrong thing.
+          model.emptyMessage = "Tap SAVE while you read.";
         }
       }
       hnui::buildList(screen, model);
@@ -737,9 +790,11 @@ void HackerNewsActivity::render(RenderLock&&) {
       model.swapAvailable = readingSaved_ ? false : (readingComments_ ? articleAvailable_ : true);
       model.canPagePrev = topLine_ > 0;
       model.canPageNext = lineCount_ > topLine_ + visibleLines_;
-      // A thread has nothing to save but the article it hangs off, so the mark
-      // is absent there rather than offering to save the wrong thing.
-      model.canSave = !readingComments_ && !readerUrl_.empty();
+      // Over whatever is on the page. readerUrl_ is the key for the piece being
+      // read -- the story's link for an article, Hacker News's item page for a
+      // thread -- so the mark can never claim one was kept because the other
+      // was. Empty only until the first fetch has answered.
+      model.canSave = !readerUrl_.empty();
       model.saved = model.canSave && library_.contains(readerUrl_);
       hnui::buildReader(screen, model);
       what = "HN reader";

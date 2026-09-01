@@ -2107,6 +2107,106 @@ void testHnNotice() {
   }
 }
 
+// The save mark, identified by being the only bitmap the reader draws and NOT
+// by its pointer: ToyboxIcons.h declares every icon `static` at namespace
+// scope, so this file's `icon_saved_32.bits` is a different array from the
+// screen builder's and a pointer comparison silently never matches.
+const FakeTarget::Blit* saveMarkIn(const Rendered& out) {
+  return out.target.blits.size() == 1 ? &out.target.blits[0] : nullptr;
+}
+
+// Whether a solid paper fill sits under `rect`. The chip is that fill, and
+// nothing else on this screen paints one.
+bool paperChipUnder(const Rendered& out, const fui::Rect& rect) {
+  for (size_t i = 0; i < out.target.fills.size(); ++i) {
+    const fui::Paint& paint = out.target.fillPaints[i];
+    if (paint.kind != fui::PaintKind::Solid || paint.color != fui::Color::White) continue;
+    const fui::Rect& fill = out.target.fills[i];
+    if (fill.x <= rect.x && fill.y <= rect.y && fill.x + fill.width >= rect.x + rect.width &&
+        fill.y + fill.height >= rect.y + rect.height) {
+      return true;
+    }
+  }
+  return false;
+}
+
+fui::ActionEvent tapTheMark(Rendered& out, const fui::Rect& mark) {
+  return out.tap(mark.x + mark.width / 2, mark.y + mark.height / 2);
+}
+
+// The thing about this mark that a screenshot cannot tell you: the header band
+// is SOLID BLACK, so the two ordinary style sets swap weights on it. A black
+// fill IS the band and disappears; a white fill is the loudest thing on the
+// screen. Styled "filled means saved" out of those, the mark reads backwards --
+// which is exactly how two cold testers read it, one of them removing an
+// article they believed they had just kept.
+//
+// So the claim under test is about WEIGHT, not about which style was passed:
+// the state carrying the paper-coloured chip has to be the saved one.
+void testHnSaveMarkIsLoudestWhenSaved() {
+  Rendered kept;
+  hnui::ReaderModel model = articleModel();
+  model.canSave = true;
+  model.saved = true;
+  buildHnReader(kept, model);
+
+  const FakeTarget::Blit* keptMark = saveMarkIn(kept);
+  CHECK(keptMark != nullptr);
+  if (keptMark != nullptr) {
+    // On the device: a paper chip with the bookmark knocked out of it.
+    CHECK(paperChipUnder(kept, keptMark->rect));
+    CHECK(keptMark->color == fui::Color::Black);
+    CHECK(tapTheMark(kept, keptMark->rect).action == hnui::ActionUnsave);
+  }
+  // The glyph is one 1-bpp mask and never fills, so the chip was the only thing
+  // that ever changed and nothing said what a tap had just done. A word does.
+  CHECK(kept.target.drew("SAVED"));
+  CHECK(!kept.target.drew("SAVE"));
+
+  Rendered offer;
+  model.saved = false;
+  buildHnReader(offer, model);
+
+  const FakeTarget::Blit* offerMark = saveMarkIn(offer);
+  CHECK(offerMark != nullptr);
+  if (offerMark != nullptr) {
+    // The quiet state. A paper chip here is the bug: it outshouts the kept one.
+    CHECK(!paperChipUnder(offer, offerMark->rect));
+    // Drawn in paper so it is visible AT ALL on a black band -- the same trap
+    // that made the page label invisible for two renders.
+    CHECK(offerMark->color == fui::Color::White);
+    CHECK(tapTheMark(offer, offerMark->rect).action == hnui::ActionSave);
+  }
+  CHECK(offer.target.drew("SAVE"));
+  CHECK(!offer.target.drew("SAVED"));
+}
+
+// A thread carries the mark too. The stories worth keeping for a train are the
+// ones whose page will not render here, and for those the conversation is the
+// only thing there is to keep.
+void testHnAThreadCanBeKept() {
+  Rendered out;
+  hnui::ReaderModel model = articleModel();
+  model.showingComments = true;
+  model.canSave = true;
+  model.saved = false;
+  buildHnReader(out, model);
+
+  const FakeTarget::Blit* mark = saveMarkIn(out);
+  CHECK(mark != nullptr);
+  if (mark != nullptr) CHECK(tapTheMark(out, mark->rect).action == hnui::ActionSave);
+
+  // And a reader with nothing to key an entry by draws no mark at all, rather
+  // than offering a control that cannot work.
+  Rendered none;
+  hnui::ReaderModel unkeyed = articleModel();
+  unkeyed.canSave = false;
+  buildHnReader(none, unkeyed);
+  CHECK(saveMarkIn(none) == nullptr);
+  CHECK(!none.target.drew("SAVE"));
+  CHECK(!none.target.drew("SAVED"));
+}
+
 void testHnReaderShowsWhereYouAre() {
   Rendered out;
   hnui::ReaderModel model = articleModel();
@@ -2227,6 +2327,33 @@ void testHnList() {
   toybox::Screen emptyScreen(emptyFrame, toybox::themeTokens());
   hnui::buildList(emptyScreen, none);
   CHECK(drewText(empty, "NOTHING TO READ"));
+
+  // An empty SAVED shelf is the ordinary state of a new device, and both lines
+  // of it have to be IN INK. The display cut's token colour is paper because it
+  // is otherwise only ever set on the black band, so a headline taken straight
+  // from the theme lands white on white paper and the shelf answers with one
+  // small sentence and an expanse of nothing.
+  Rendered shelf;
+  hnui::ListModel nothingSaved;
+  nothingSaved.title = "SAVED";
+  nothingSaved.showingSaved = true;
+  nothingSaved.emptyHeadline = "NOTHING SAVED YET";
+  nothingSaved.emptyMessage = "Tap SAVE while you read.";
+  toybox::Frame shelfFrame(shelf.target, ctx, noInput, shelf.interactions);
+  toybox::Screen shelfScreen(shelfFrame, toybox::themeTokens());
+  hnui::buildList(shelfScreen, nothingSaved);
+  const FakeTarget::TextRun* headline = shelf.target.find("NOTHING SAVED YET");
+  CHECK(headline != nullptr);
+  if (headline != nullptr) CHECK(headline->color == fui::Color::Black);
+  const FakeTarget::TextRun* line = shelf.target.find("Tap SAVE while you read.");
+  CHECK(line != nullptr);
+  if (line != nullptr) CHECK(line->color == fui::Color::Black);
+  // And they must not be drawn ON each other. centeredText centres in the
+  // content rect and consumes nothing, so two calls land on the same y: the
+  // headline was painted over the sentence for as long as it was invisible.
+  if (headline != nullptr && line != nullptr) {
+    CHECK(headline->rect.y + headline->rect.height <= line->rect.y);
+  }
 }
 
 // --- the study deck screen -------------------------------------------------
@@ -5844,6 +5971,8 @@ int main() {
   testHnList();
   testHnFitLines();
   testHnReaderShowsWhereYouAre();
+  testHnSaveMarkIsLoudestWhenSaved();
+  testHnAThreadCanBeKept();
   testTheColumnYouTapIsTheColumnTheRulesGet();
   testRowZeroIsDrawnAtTheBottom();
   testTheConnectFourGridKeepsOffTheChrome();

@@ -82,6 +82,14 @@ class HackerNewsActivity final : public Activity {
   void openSavedArticle(int index);
   void repage();
   void turnPage(int delta);
+  // One page of story rows, in either direction, wrapping at both ends.
+  //
+  // The one place the side keys and a swipe agree on what a page is, through
+  // the same arithmetic the shelf pages by. It counts the rows that were DRAWN
+  // rather than the stories that were fetched: the saved shelf is a different
+  // length from the front page, and paging it by the front page's count either
+  // did nothing or jumped to wherever the paint clamped it back to.
+  void pageList(int delta);
   void showNotice(const char* headline, const char* message, bool unreadable);
 
   const hn::Story* currentStory() const;
