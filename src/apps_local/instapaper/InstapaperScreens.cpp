@@ -122,10 +122,21 @@ void buildQueue(toybox::Screen& screen, const QueueModel& model) {
   screen.button(sync, fui::makeRect(toybox::kMargin, footerY, width, kFooterHeight));
 
   if (model.count <= 0) {
-    screen.target().text(fui::makeRect(toybox::kMargin, kBodyTop + toybox::kMargin * 2, width, 40), "NOTHING TO READ",
+    // Both boxes ASK the target for their line height rather than carrying a
+    // number. The first version hardcoded a 40px box and put the sentence 48px
+    // below it; the display cut's advanceY is 63, so the headline overflowed
+    // its box by 23px and the sentence began 15px INSIDE its glyphs. On the
+    // panel the two lines touched. The simulator never showed it because this
+    // screen -- the one a new user meets first -- had never been rendered:
+    // the host test asserts the words are present, not where they land.
+    const int16_t headlineH = screen.target().lineHeight(toybox::kDisplayFont);
+    const int16_t bodyH = screen.target().lineHeight(toybox::kUiFont);
+    const int16_t top = static_cast<int16_t>(kBodyTop + toybox::kMargin * 2);
+    screen.target().text(fui::makeRect(toybox::kMargin, top, width, headlineH), "NOTHING TO READ",
                          plain(toybox::kDisplayFont, fui::TextAlign::Center));
     screen.target().text(
-        fui::makeRect(toybox::kMargin, kBodyTop + toybox::kMargin * 2 + 48, width, 60),
+        fui::makeRect(toybox::kMargin, static_cast<int16_t>(top + headlineH + toybox::kGutter), width,
+                      static_cast<int16_t>(bodyH * 2)),
         "Save something to Instapaper, then sync.",
         plain(toybox::kUiFont, fui::TextAlign::Center, fui::Color::DarkGray, 2));
     return;
