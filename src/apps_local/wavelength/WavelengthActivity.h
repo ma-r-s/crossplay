@@ -36,10 +36,10 @@ class WavelengthActivity final : public Activity {
   // The round, in the order the device is passed. Everything from Peek onward
   // is committed: backing out abandons the round and passes left, which is what
   // stops a clue-giver quietly re-dealing until an easy axis turns up.
-  enum class View : uint8_t { Menu, PassLeft, Pick, Peek, Clue, Dial, Call, Reveal, Summary };
+  enum class View : uint8_t { Menu, HowTo, PassLeft, Pick, Peek, Clue, Dial, Call, Reveal, Summary };
 
   static bool committed(const View v) {
-    return v != View::Menu && v != View::PassLeft && v != View::Pick && v != View::Summary;
+    return v != View::Menu && v != View::HowTo && v != View::PassLeft && v != View::Pick && v != View::Summary;
   }
 
   void go(View next);
@@ -72,6 +72,7 @@ class WavelengthActivity final : public Activity {
   bool callWasRight = false;
   bool practiceRound = true;
   bool peeking = false;
+  uint32_t lockHoldStartMs = 0;
 
   // A full refresh is spent deliberately: on the reveal, which is the payoff,
   // and on hiding the peek, where a partial refresh could leave a ghost of the

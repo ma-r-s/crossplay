@@ -208,6 +208,12 @@ void WavelengthActivity::routeAction(const int action) {
       practiceRound = session.isPractice();
       go(View::PassLeft);
       break;
+    case wavelengthui::ActionHowTo:
+      go(View::HowTo);
+      break;
+    case wavelengthui::ActionBackToMenu:
+      go(View::Menu);
+      break;
     case wavelengthui::ActionEndSession:
       flushSave();
       go(View::Summary);
@@ -269,6 +275,29 @@ void WavelengthActivity::loop() {
     // screen, because a tap is a touch-down before it is a release: the hold
     // check fired first and the button underneath never saw the release, so
     // the peek could be entered and never left.
+  }
+
+  // HOLD TO LOCK means hold. Tracked against the same rect the screen drew, and
+  // reset the moment the finger leaves it, so sliding off cancels rather than
+  // committing. Shipped in v1.12.0 as a tap, which was the label lying.
+  if (view == View::Dial) {
+    int hx = 0;
+    int hy = 0;
+    const fui::Rect bar = wavelengthui::lockBarRect(static_cast<int16_t>(renderer.getScreenWidth()),
+                                                    static_cast<int16_t>(renderer.getScreenHeight()));
+    const bool onBar = mappedInput.isScreenTouchHeld(hx, hy) && hx >= bar.x && hx < bar.x + bar.width && hy >= bar.y &&
+                       hy < bar.y + bar.height;
+    if (onBar) {
+      const uint32_t now = millis();
+      if (lockHoldStartMs == 0) lockHoldStartMs = now;
+      if (now - lockHoldStartMs >= static_cast<uint32_t>(wavelengthui::kLockHoldMs)) {
+        lockHoldStartMs = 0;
+        lockIn();
+        return;
+      }
+    } else {
+      lockHoldStartMs = 0;
+    }
   }
 
   if (view == View::Dial) {
@@ -363,6 +392,9 @@ void WavelengthActivity::render(RenderLock&&) {
       wavelengthui::renderReveal(screen, model);
       break;
     }
+    case View::HowTo:
+      wavelengthui::renderHowTo(screen);
+      break;
     case View::Summary: {
       wavelengthui::SummaryModel model;
       model.record = &record;

@@ -189,8 +189,10 @@ void renderDial(toybox::Screen& screen, const DialModel& model) {
   endWord(screen, g.topWord, model.spectrum.top, fui::TextAlign::Left);
   fill(screen, fui::makeRect(g.topWord.x, static_cast<int16_t>(g.topWord.y + g.topWord.height + 4), g.topWord.width,
                              toybox::kRule));
-  endWord(screen, g.bottomWord, model.spectrum.bottom, fui::TextAlign::Left);
-
+  // NOT g.bottomWord: that rect sits under this screen's two stacked buttons and
+  // was painted over by them, so the second pole was invisible on the one screen
+  // where the clue is actually composed. It goes in the right-hand column
+  // instead, under the target, where nothing overlaps it.
   drawScale(screen, g);
   drawMarker(screen, g, model.guess);
 
@@ -228,11 +230,13 @@ void renderDial(toybox::Screen& screen, const DialModel& model) {
                                    static_cast<int16_t>(g.board.y + g.board.height - markerY - g.slot)),
                      ActionStepTowardBottom);
 
+  // Deliberately NOT given an action. A tap must not commit: the activity
+  // watches for a sustained hold on this exact rect instead, so the label is
+  // true and a stray touch on a device lying flat cannot end the round.
   fui::ButtonProps lock;
   lock.label = "HOLD TO LOCK";
   lock.text = toybox::buttonText(screen.theme());
-  lock.action = ActionLock;
-  screen.button(lock, g.lock);
+  screen.button(lock, lockBarRect(screen.device().screen().width, screen.device().screen().height));
 }
 
 namespace {
@@ -337,6 +341,11 @@ void renderPick(toybox::Screen& screen, const PickModel& model) {
        fui::TextAlign::Center);
 }
 
+fui::Rect lockBarRect(const int16_t screenW, const int16_t screenH) {
+  return fui::makeRect(toybox::kMargin, static_cast<int16_t>(screenH - toybox::kMargin - 62),
+                       static_cast<int16_t>(screenW - 2 * toybox::kMargin), 62);
+}
+
 fui::Rect peekPadRect(const int16_t screenW, const int16_t screenH) {
   return fui::makeRect(toybox::kMargin, static_cast<int16_t>(screenH - 84 - 58),
                        static_cast<int16_t>(screenW - 2 * toybox::kMargin), 58);
@@ -362,7 +371,25 @@ void renderPeek(toybox::Screen& screen, const PeekModel& model) {
          toybox::kSmallFont, fui::TextAlign::Center);
   }
 
-  const int16_t textTop = static_cast<int16_t>(g.right.y + toybox::kButtonCut.lineHeight + 20);
+  // Both poles, in ONE size. Sizing each independently rendered ADVENTURE MOVIE
+  // at half the cap height of ACTION MOVIE on the same card, which reads as a
+  // title with a subtitle rather than as two ends of one scale.
+  const fui::TextStyle probe = textStyle(toybox::kBodyFont, fui::TextAlign::Center);
+  const int16_t wTop = screen.target().measureText(toybox::kBodyFont, model.spectrum.top, probe).width;
+  const int16_t wBot = screen.target().measureText(toybox::kBodyFont, model.spectrum.bottom, probe).width;
+  const fui::FontId poleFont =
+      (wTop <= g.right.width && wBot <= g.right.width) ? toybox::kBodyFont : toybox::kSmallFont;
+  const int16_t poleTop = static_cast<int16_t>(g.right.y + toybox::kButtonCut.lineHeight + 16);
+  caps(screen, fui::makeRect(g.right.x, poleTop, g.right.width, toybox::kDisplayCut.lineHeight), model.spectrum.top,
+       poleFont, fui::TextAlign::Center);
+  caps(screen,
+       fui::makeRect(g.right.x, static_cast<int16_t>(poleTop + 44), g.right.width, toybox::kButtonCut.lineHeight),
+       "DOWN TO", toybox::kSmallFont, fui::TextAlign::Center);
+  caps(screen,
+       fui::makeRect(g.right.x, static_cast<int16_t>(poleTop + 76), g.right.width, toybox::kDisplayCut.lineHeight),
+       model.spectrum.bottom, poleFont, fui::TextAlign::Center);
+
+  const int16_t textTop = static_cast<int16_t>(poleTop + 152);
   const char* lines[] = {"SAY ONE THING", "THAT SITS", "EXACTLY THERE", "", "ONLY ONE.", "DO NOT ADD TO IT."};
   for (int i = 0; i < 6; ++i) {
     if (!lines[i][0]) continue;
@@ -542,6 +569,64 @@ void ornament(toybox::Screen& screen, const fui::Rect& box, const wavelength::Re
 }
 
 }  // namespace
+
+// The rules, reachable at last. A cold play-tester could not learn the scoring
+// from the device at all: they reverse-engineered it from four reveals, and the
+// practice round -- the one round whose job is to teach -- replaces the verdict
+// word with PRACTICE, so you never see CLOSE or TELEPATHIC during the round
+// designed to explain them. This screen says the numbers out loud.
+void renderHowTo(toybox::Screen& screen) {
+  toybox::absoluteChrome(screen);
+  const int16_t w = screen.device().screen().width;
+  const int16_t inner = static_cast<int16_t>(w - 2 * toybox::kMargin);
+
+  caps(screen, fui::makeRect(toybox::kMargin, 14, inner, toybox::kDisplayCut.lineHeight), "HOW TO PLAY",
+       toybox::kBodyFont, fui::TextAlign::Left);
+  fill(screen, fui::makeRect(toybox::kMargin, 88, inner, toybox::kRule));
+
+  static const char* kLines[] = {
+      "ONE OF YOU SEES A HIDDEN",
+      "NUMBER ON THE STRIP.",
+      "",
+      "THEY SAY ONE CLUE THAT",
+      "SITS EXACTLY THERE.",
+      "",
+      "EVERYONE ELSE ARGUES,",
+      "MOVES THE MARK, LOCKS IT,",
+      "THEN CALLS WHICH SIDE",
+      "THE TARGET IS ON.",
+      "",
+      "YOU ARE GUESSING WHERE",
+      "THEY PUT IT, NOT WHERE",
+      "YOU WOULD.",
+  };
+  const int16_t lineH = toybox::kButtonCut.lineHeight;
+  for (int i = 0; i < static_cast<int>(sizeof(kLines) / sizeof(kLines[0])); ++i) {
+    if (!kLines[i][0]) continue;
+    caps(screen, fui::makeRect(toybox::kMargin, static_cast<int16_t>(104 + i * lineH), inner, lineH), kLines[i],
+         toybox::kSmallFont, fui::TextAlign::Left);
+  }
+
+  const int16_t tableTop = 552;
+  fill(screen, fui::makeRect(toybox::kMargin, static_cast<int16_t>(tableTop - 14), inner, toybox::kRule));
+  static const char* kScore[][2] = {
+      {"EXACT", "5"},
+      {"ONE OFF", "3"},
+      {"TWO OFF", "1"},
+      {"RIGHT SIDE", "+1"},
+  };
+  for (int i = 0; i < 4; ++i) {
+    const int16_t y = static_cast<int16_t>(tableTop + i * lineH);
+    caps(screen, fui::makeRect(toybox::kMargin, y, inner, lineH), kScore[i][0], toybox::kSmallFont,
+         fui::TextAlign::Left);
+    caps(screen, fui::makeRect(toybox::kMargin, y, inner, lineH), kScore[i][1], toybox::kSmallFont,
+         fui::TextAlign::Right);
+  }
+  caps(screen, fui::makeRect(toybox::kMargin, static_cast<int16_t>(tableTop + 4 * lineH + 10), inner, lineH),
+       "ROUND ONE IS PRACTICE.", toybox::kSmallFont, fui::TextAlign::Left);
+
+  action(screen, lockBarRect(w, screen.device().screen().height), "BACK", ActionBackToMenu);
+}
 
 void renderMenu(toybox::Screen& screen, const MenuModel& model) {
   toybox::absoluteChrome(screen);

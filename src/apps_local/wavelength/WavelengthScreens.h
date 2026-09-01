@@ -47,6 +47,7 @@ enum : fui::ActionId {
   ActionEndSession = 14,
   ActionKeepPlaying = 15,
   ActionNewSession = 16,
+  ActionBackToMenu = 17,
 };
 
 struct Spectrum {
@@ -117,6 +118,18 @@ struct PassModel {
 // separate bugs in this fork came from breaking that.
 fui::Rect peekPadRect(int16_t screenW, int16_t screenH);
 
+// The LOCK bar, exposed for the same reason: the activity tests a held finger
+// against the very rect that drew it. This button says HOLD and must mean it.
+// It shipped in v1.12.0 as a plain tap, so a brush of a sleeve ended the round
+// while a deliberate four-second press did nothing -- the exact inverse of its
+// own label, on a bar under everyone's thumb with the device flat on a table.
+fui::Rect lockBarRect(int16_t screenW, int16_t screenH);
+
+// How long the bar must be held. Long enough that a stray touch cannot commit,
+// short enough that nobody wonders whether it is broken.
+inline constexpr int kLockHoldMs = 600;
+
+void renderHowTo(toybox::Screen& screen);
 void renderMenu(toybox::Screen& screen, const MenuModel& model);
 void renderSummary(toybox::Screen& screen, const SummaryModel& model);
 void renderPassLeft(toybox::Screen& screen, const PassModel& model);
