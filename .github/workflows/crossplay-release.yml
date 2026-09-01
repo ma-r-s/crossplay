@@ -175,7 +175,55 @@ jobs:
             devices next to each other find one another with nothing to type --
             and they do not have to be the same device.
 
-            ### What is new in 1.12.2
+            ### What is new in 1.12.3
+
+            **The games list stopped opening the wrong game.** Reaching page 2
+            or 3 was unreliable and about two attempts in three landed in a game
+            you had not chosen. The cause was not the key: the folder reopens on
+            the page holding the game you played last, and nothing said so. It
+            now marks the row it resumed on, a swipe turns the page, and the
+            page dots look like the controls they always were.
+
+            **Hacker News could open a different article than the one you
+            tapped.** Switching to SAVED and back left the front page drawing
+            your saved list under the front-page heading, so a tap opened
+            whatever sat at that position in the other list. With nothing saved
+            the same fault read as "nothing to read", which is why it went
+            unnoticed. Backing out of the Wi-Fi picker also threw you out of the
+            app; on a device that has never joined a network that made the
+            saved-articles shelf unreachable.
+
+            **Trivia stopped asking you the same question twelve times.** Within
+            one round nearly every answer was the same, because the chooser
+            walked forward through a pack stored in category order. It now
+            starts from a fresh point each time. Quizmaster also gained an exit;
+            it had none.
+
+            **An exact guess in WAVELENGTH now pays 5, not 6**, which is what
+            every screen already said. Records set before this update were
+            scored on the old ceiling and have deliberately been left alone. The
+            round can also be paused now -- Back opens a screen carrying the
+            scoring table, so "how many points is one off?" no longer costs you
+            the round -- and abandoning a round is counted and shown to the
+            table instead of being silent.
+
+            **Murdle no longer takes away marks you made.** On a full grid, one
+            tap could rewrite up to three other squares, two of them answers,
+            with no undo. A tap now writes its own square and no other, and the
+            crosses the grid worked out for you are drawn lighter than your own.
+
+            **Jaipur's running score was crediting the camel bonus only to
+            you**, so the strip could say you were ahead while you were behind.
+
+            **Connections draws all sixteen tiles at one size.** A word too long
+            for its tile used to shrink alone, in a grid whose whole premise is
+            that the sixteen are comparable.
+
+            **Get Books says what it is doing while it downloads**, instead of
+            showing a still screen that was indistinguishable from a hang, and
+            it no longer loses a book's title when saving it to the card.
+
+            ### What was new in 1.12.2
 
             **Trivia asks whether there is room before it downloads.** The
             question pack is about 6 MB, and until now the app wrote it without
