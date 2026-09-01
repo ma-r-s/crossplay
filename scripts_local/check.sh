@@ -378,10 +378,93 @@ if [ "${1:-}" != "--tests" ]; then
       # both then raced ~/.platformio. Seen 2026-08-31: the thief died on
       # `ComponentManager/.../index.lock: File exists`, an error naming no file
       # of ours. The lock now records its holder's pid so a waiter can ask.
+      # Take a ticket BEFORE waiting, and only take the lock when we are the
+      # head of the queue. Whoever wins the next `mkdir` is not good enough:
+      # a session with an armed watcher fires the instant the machine goes
+      # quiet, in the gap between one run releasing and a human-paced waiter
+      # noticing, and wins every round. That starved one tree for fifty minutes
+      # on 2026-08-31 while it read the loss as bad luck.
+      #
+      # Fairness cannot be enforced by the party that wants to be fair. The
+      # ordering therefore has to be a fact on disk that a jumper must read,
+      # not an etiquette a jumper can decline to read.
+      #
+      # The filename is the pid, so creating a ticket is atomic with no counter
+      # and no second mutex. A counter would need its own lock, and a waiter
+      # dying while holding THAT is this same liveness problem one level down,
+      # with nothing underneath to catch it.
+      FW_QUEUE="$FW_LOCK.queue"
+      mkdir -p "$FW_QUEUE" 2>/dev/null || true
+      : > "$FW_QUEUE/$$.ticket" 2>/dev/null || true
+      # If the ticket could not be written -- read-only parent, a queue dir we
+      # cannot create -- fall back to the unqueued race rather than waiting for
+      # a head we can never become. Checked by existence, not by the exit
+      # status of the redirect: the failure we care about is "no ticket", and
+      # asking the question that way cannot report success for a second reason.
+      if [ -e "$FW_QUEUE/$$.ticket" ]; then FW_QUEUED=1; else FW_QUEUED=0; fi
+      # Drop the ticket however we leave: on acquire below, and here for a
+      # waiter that is killed while queued. A phantom head blocks everyone.
+      #
+      # INT/TERM must clean up AND EXIT. A bash trap that only cleans up
+      # RESUMES the shell -- it replaces the default terminate -- so a handler
+      # without an exit makes a queued run unkillable, and `kill` on a waiter
+      # silently does nothing. `exit` re-enters the EXIT trap, so cleanup still
+      # happens exactly once.
+      trap 'rm -f "$FW_QUEUE/$$.ticket" 2>/dev/null; true' EXIT
+      trap 'rm -f "$FW_QUEUE/$$.ticket" 2>/dev/null; exit 143' INT TERM
+
+      # The head of the queue: oldest live ticket, ties broken by pid so that
+      # every waiter computes the SAME answer. What prevents starvation is a
+      # total order everyone agrees on, not true arrival time -- a tie means two
+      # waiters arrived in the same fraction of a second, and either answer is
+      # fair. Dead tickets are removed by whoever notices, so a waiter that dies
+      # cannot block the queue.
+      queue_head() {
+        [ "$FW_QUEUED" = 1 ] || { printf '%s' "$$"; return 0; }
+        local t pid best_pid="" best_key=""
+        for t in "$FW_QUEUE"/*.ticket; do
+          [ -e "$t" ] || continue
+          pid="${t##*/}"; pid="${pid%.ticket}"
+          if ! kill -0 "$pid" 2>/dev/null; then
+            rm -f "$t" 2>/dev/null
+            continue
+          fi
+          # %Fm is the fractional mtime; pid pads to a fixed width so the string
+          # compare orders numerically on the tiebreak.
+          # Validate the OUTPUT, never the exit status. BSD `stat -f` is a
+          # format string; GNU `stat -f` is --file-system and can SUCCEED here
+          # with something that is not a timestamp at all, so an `||` chain
+          # keyed on exit status never reaches the GNU form. host-tests run on
+          # ubuntu in CI and on macOS locally, so both spellings are live.
+          local key
+          key="$(stat -f '%Fm' "$t" 2>/dev/null)"
+          case "$key" in '' | *[!0-9.]*) key="$(stat -c '%.9Y' "$t" 2>/dev/null)" ;; esac
+          case "$key" in '' | *[!0-9.]*) key=0 ;; esac
+          key="$key $(printf '%012d' "$pid")"
+          if [ -z "$best_key" ] || [ "$key" \< "$best_key" ]; then
+            best_key="$key"; best_pid="$pid"
+          fi
+        done
+        printf '%s' "$best_pid"
+      }
+
       waited=0
-      while ! mkdir "$FW_LOCK" 2>/dev/null; do
+      while [ "$(queue_head)" != "$$" ] || ! mkdir "$FW_LOCK" 2>/dev/null; do
         owner="$(cat "$FW_LOCK/owner" 2>/dev/null || true)"
         owner_pid="${owner%% *}"
+
+        # Ahead of us in the queue and the lock is free or not ours to judge:
+        # say so and wait. Reporting our position is what makes a stuck queue
+        # legible to a human, which matters because `kill -0` cannot tell a
+        # live head from a WEDGED one -- a head that is alive but no longer
+        # polling blocks everybody, and no cheap probe catches that.
+        if [ "$(queue_head)" != "$$" ]; then
+          [ $(( waited % 30 )) -eq 0 ] &&
+            echo "  queued for the firmware lock behind pid $(queue_head) (${waited}s) ..."
+          sleep 2
+          waited=$((waited + 2))
+          continue
+        fi
         # Match the resolved pio path, not the bare words: a shell whose command
         # line merely MENTIONS "pio run" (a waiter, a probe, a heredoc) is not a
         # build, and on this workspace one usually does. Simulator builds are
@@ -390,6 +473,18 @@ if [ "${1:-}" != "--tests" ]; then
         # elsewhere must not stop us reclaiming an abandoned lock.
         # And never `pgrep -c` here: macOS pgrep has no -c, so it exits 2 and
         # any `|| echo 0` fallback reports "no builds" forever.
+        #
+        # This is the ONE pattern probe left in this file, and it is safe for
+        # two reasons that stop holding the moment either changes. It matches
+        # the pio BINARY PATH, so it looks at the actual builder rather than at
+        # a wrapper that may not carry the flag naming it -- a lock holder's
+        # command line is bare `check.sh`, because --committed lives on the
+        # OUTER shell while the lock is taken by the re-exec inside the trial
+        # worktree, so `pgrep -f "check.sh --committed"` reports NOT FOUND for a
+        # live holder. And it is used only as a BRAKE: a wrong answer here makes
+        # a waiter wait longer, never reclaim sooner. Do not reuse it in the
+        # reclaiming direction, and do not key it on a flag. Liveness that can
+        # authorise a reclaim is `kill -0` on a pid, nowhere else.
         if pgrep -fl "[b]in/pio run" 2>/dev/null | grep -v -- "-e simulator" | grep -q .; then
           builds_alive=1
         else
@@ -452,11 +547,22 @@ if [ "${1:-}" != "--tests" ]; then
       # arrived red on CI and green here.
       owner_tree="${REPO:-$PWD}"
       printf '%s %s\n' "$$" "${owner_tree##*/}" > "$FW_LOCK/owner"
+      # Give up the ticket at the moment of acquisition, not at exit. A holder
+      # that keeps its ticket stays head of the queue while it builds, so it
+      # wins the next round too, and a session running back-to-back gates holds
+      # the head position indefinitely -- the same starvation this queue exists
+      # to remove, reintroduced by the queue.
+      rm -f "$FW_QUEUE/$$.ticket" 2>/dev/null || true
       # rm -rf, not rmdir: the owner file makes the directory non-empty, and an
       # rmdir that silently fails would leak the lock to every other tree.
       # Same rule on the way out: a run that died after its lock was reclaimed
-      # must not delete the reclaimer's.
-      trap 'o="$(cat "$FW_LOCK/owner" 2>/dev/null || true)"; [ "${o%% *}" = "$$" ] && rm -rf "$FW_LOCK"; true' EXIT INT TERM
+      # must not delete the reclaimer's. The ticket goes too, in case we are
+      # killed between re-queuing and acquiring.
+      # Same split as the queue trap above, and for the same reason: a holder
+      # whose TERM handler does not exit keeps building and keeps the lock,
+      # so `kill` on a running gate appears to do nothing.
+      trap 'rm -f "$FW_QUEUE/$$.ticket" 2>/dev/null; o="$(cat "$FW_LOCK/owner" 2>/dev/null || true)"; [ "${o%% *}" = "$$" ] && rm -rf "$FW_LOCK"; true' EXIT
+      trap 'rm -f "$FW_QUEUE/$$.ticket" 2>/dev/null; o="$(cat "$FW_LOCK/owner" 2>/dev/null || true)"; [ "${o%% *}" = "$$" ] && rm -rf "$FW_LOCK"; exit 143' INT TERM
     fi
     if pio run -e "$env" > "$LOGS/$env.log" 2>&1; then
       # The native build reports no RAM/Flash. Say "ok" rather than printing
