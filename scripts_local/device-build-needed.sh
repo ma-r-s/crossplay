@@ -61,8 +61,9 @@ say() { [ -n "$QUIET" ] || echo "$@"; }
 # generate only from src/ and lib/ rather than from site/ or docs/.
 #
 # A cold audit re-derived this list from platformio.ini upwards rather than
-# checking the list it was given, and moved four entries. Three came OFF, all of
-# them cases it could not rule out rather than cases it disproved:
+# checking the list it was given. It independently reached the scripts_local/
+# conclusion below, and moved three more entries OFF -- all of them cases it
+# could not RULE OUT rather than cases it disproved:
 #
 #   nix/            flake.nix pins PlatformIO Core and redirects
 #                   PLATFORMIO_CORE_DIR, so which `pio` and which toolchain runs
