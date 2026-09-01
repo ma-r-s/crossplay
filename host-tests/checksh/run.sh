@@ -350,6 +350,84 @@ fi
 
 kill "$live_pid" 2>/dev/null; wait "$live_pid" 2>/dev/null
 
+# --- the lock is granted in queue order, not to whoever wins the mkdir ------
+#
+# A polite waiter cannot out-wait an automated one. A session with an armed
+# watcher fires the instant the machine goes quiet -- in the gap between one run
+# releasing and a human-paced waiter noticing -- and wins every round. That
+# starved one tree for fifty minutes on 2026-08-31 while it read the loss as bad
+# luck among human-paced sessions.
+#
+# So these assert ORDER, against a FREE lock. That is the whole point: winning
+# the mkdir is no longer sufficient, and a test that seeds a held lock would
+# pass for the old reason.
+queued_loop() {  # $1 = foreign ticket pid ("" = none)
+  rm -f "$WORK/trace"; rm -rf "$WORK/lockdir"; mkdir -p "$WORK/lockdir" "$WORK/logs"
+  mkdir -p "$WORK/lockdir/x4pro.lock.queue"
+  # Created BEFORE ours and given an older mtime, so it is unambiguously ahead
+  # in the queue rather than relying on sub-second timing.
+  if [ -n "$1" ]; then
+    : > "$WORK/lockdir/x4pro.lock.queue/$1.ticket"
+    touch -t 202001010000 "$WORK/lockdir/x4pro.lock.queue/$1.ticket"
+  fi
+  (
+    export PATH="$WORK/bin:$PATH"
+    export FW_LOCK="$WORK/lockdir/x4pro.lock"
+    export LOCK_TRACE="$WORK/trace"
+    export LOGS="$WORK/logs"
+    export CHECK_BUILD_RELEASE_ENVS=""
+    export FAKE_DEVICE_BUILD=""
+    FAILED=0
+    # shellcheck disable=SC1090
+    . "$WORK/loop.sh"
+  ) >/dev/null 2>&1 &
+  local pid=$! waited=0
+  while [ "$waited" -lt 10 ]; do
+    grep -qvE '^simulator' "$WORK/trace" 2>/dev/null && break
+    sleep 1; waited=$((waited + 1))
+  done
+  kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+  if grep -qvE '^simulator' "$WORK/trace" 2>/dev/null; then echo proceeded; else echo waited; fi
+}
+
+sleep 45 & queue_holder=$!
+
+# A live waiter ahead of us owns the lock's turn even though the lock is FREE.
+# Without the queue this proceeds, because mkdir succeeds.
+checks=$((checks + 1))
+if [ "$(queued_loop "$queue_holder")" != "waited" ]; then
+  failed=$((failed + 1))
+  echo "FAIL checksh  the lock was taken out of queue order -- an armed watcher would starve everyone again"
+fi
+
+kill "$queue_holder" 2>/dev/null; wait "$queue_holder" 2>/dev/null
+
+# A ticket whose owner is gone must not hold the queue. Same liveness rule as
+# the lock itself: a waiter that dies cannot block the ones behind it.
+( : ) & dead_ticket=$!; wait "$dead_ticket" 2>/dev/null
+checks=$((checks + 1))
+if [ "$(queued_loop "$dead_ticket")" != "proceeded" ]; then
+  failed=$((failed + 1))
+  echo "FAIL checksh  a dead waiter's ticket blocked the queue"
+fi
+
+# An empty queue must not stop anybody: with no ticket ahead, proceed.
+checks=$((checks + 1))
+if [ "$(queued_loop "")" != "proceeded" ]; then
+  failed=$((failed + 1))
+  echo "FAIL checksh  a waiter with an empty queue ahead of it did not proceed"
+fi
+
+# The ticket must be surrendered AT ACQUISITION, not at exit. A holder that
+# keeps its ticket stays head of the queue while it builds and wins the next
+# round too, so a session running back-to-back gates holds the head position
+# for ever -- this queue's own starvation mode, introduced by the queue.
+checks=$((checks + 1))
+if ls "$WORK/lockdir/x4pro.lock.queue"/*.ticket >/dev/null 2>&1; then
+  failed=$((failed + 1))
+  echo "FAIL checksh  a ticket outlived the acquisition that consumed it -- the holder stays queue head"
+fi
+
 # --- the probe must actually RUN, not merely be present --------------------
 #
 # Both of tonight's lock incidents were the same shape and neither was a wrong
