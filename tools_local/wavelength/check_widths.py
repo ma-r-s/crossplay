@@ -65,13 +65,23 @@ RIGHT_WIDTH = PANEL_WIDTH - MARGIN - RIGHT_X
 
 BOX_WIDTH = {"inner": CONTENT_WIDTH, "g.right.width": RIGHT_WIDTH}
 
+# Draws whose rect is passed as a named Geometry member rather than built
+# inline. Resolving them is better than widening the ratchet: the dial's two end
+# words are the most-looked-at strings in the app and were invisible to this
+# gate the moment they stopped being built inline.
+NAMED_RECTS = {
+    "g.topWord": CONTENT_WIDTH,  # makeRect(m, m, w - 2m, wordBox)
+    "g.bottomWord": CONTENT_WIDTH,
+}
+
 # Draws whose rect is a computed variable rather than an inline makeRect. The
 # parser cannot see their width, so they are counted and capped rather than
 # ignored: raising this number is a decision, and lowering it is progress.
-# The four draws whose rect is a named local (box, numeral, label, capsule).
-# A ratchet, not a budget: lowering it is progress, raising it is a decision
-# somebody has to justify in a diff.
-MAX_UNREACHED = 4
+# Every draw is resolved. A ratchet, not a budget: raising it is a decision
+# somebody has to justify in a diff, and at zero any new unreadable rect fails
+# the gate the moment it is written rather than quietly leaving a string
+# unmeasured.
+MAX_UNREACHED = 0
 WIDTH_RE = r"((?:static_cast<int16_t>\([^()]*(?:\([^()]*\)[^()]*)*\)|[\w.]+))"
 
 
@@ -122,56 +132,86 @@ def resolved_faces():
 
 
 def strings_with_slots(src):
-    """Every literal and format string, paired with the slot and box it uses.
+    """Every measurable string with its slot and box, plus the draws missed.
 
-    Returns (measurable, total_caps_calls). The difference between them is the
-    important number: a gate that silently narrows its own scope reports clean
-    for the strings it stopped looking at. This file's own first version
-    measured only full-width boxes and passed a 271px string into a 224px
-    column within the hour; its second dropped two draws when the parser got
-    stricter, and said nothing.
+    Returns (measurable, unresolved_descriptions). Coverage is computed from the
+    MATCH OFFSETS of the resolvers themselves rather than from a second, looser
+    regex counting "sites": counting two ways gave two answers that disagreed by
+    five, and a gate whose own arithmetic is wrong gets ignored long before it
+    catches anything.
     """
     flat = re.sub(r"\n\s+", " ", src)
-    # A width may be a bare symbol or a static_cast expression with one level of
-    # nested parentheses.
     w = r"((?:static_cast<int16_t>\((?:[^()]|\([^()]*\))*\)|[\w.]+))"
-    rect = r"caps\(screen,\s*fui::makeRect\([^,]+,\s*[^,]+,\s*" + w + r",[^)]*\),\s*"
+    inline = r"caps\(screen,\s*fui::makeRect\([^,]+,\s*[^,]+,\s*" + w + r",[^)]*\),\s*"
+    named = r"caps\(screen,\s*([\w.]+),\s*"
     out = []
+    seen = set()
 
-    for m in re.finditer(rect + r'"([^"]*)",\s*toybox::(k\w+Font)', flat):
+    for m in re.finditer(inline + r'"([^"]*)",\s*toybox::(k\w+Font)', flat):
+        seen.add(m.start())
         box, text, slot = m.groups()
         wide = box_width(box)
         if text and wide:
             out.append((text, slot, wide))
 
+    for m in re.finditer(named + r'"([^"]*)",\s*toybox::(k\w+Font)', flat):
+        seen.add(m.start())
+        rect_name, text, slot = m.groups()
+        if text and rect_name in NAMED_RECTS:
+            out.append((text, slot, NAMED_RECTS[rect_name]))
+
     slot_of = {}
     box_of = {}
-    for m in re.finditer(rect + r"([a-zA-Z]\w*),\s*toybox::(k\w+Font)", flat):
+    for m in re.finditer(inline + r"([a-zA-Z]\w*),\s*toybox::(k\w+Font)", flat):
+        seen.add(m.start())
         box, buf, slot = m.groups()
         wide = box_width(box)
-        if wide is None:
-            continue
-        slot_of[buf] = slot
-        box_of[buf] = wide
+        if wide is not None:
+            slot_of[buf] = slot
+            box_of[buf] = wide
+    for m in re.finditer(named + r"([a-zA-Z]\w*),\s*toybox::(k\w+Font)", flat):
+        seen.add(m.start())
+        rect_name, buf, slot = m.groups()
+        if rect_name in NAMED_RECTS:
+            slot_of[buf] = slot
+            box_of[buf] = NAMED_RECTS[rect_name]
 
     for m in re.finditer(r'snprintf\((\w+),\s*sizeof\(\1\),\s*"([^"]+)"', flat):
         buf, fmt = m.groups()
         slot = slot_of.get(buf)
         if slot is None:
             continue
-        # Worst REACHABLE value, not worst representable. Guess and target are
-        # clamped to the strip; rounds and points are uint16_t. Measuring an
-        # unreachable 65535 reports a bug that cannot happen.
+        # Worst REACHABLE value. Guess and target are clamped to the strip;
+        # rounds and points are uint16_t; and a "%d.%d" pair is a value and its
+        # TENTHS REMAINDER, so the second is always one digit. Every false alarm
+        # this gate has raised came from worst-representable standing in for
+        # worst-reachable.
         wide = "20" if re.search(r"LOCK|TARGET|GUESS", fmt) else "65535"
-        # A %s glued to a word is a plural suffix, not a word.
         plural = re.search(r"\w%s", fmt) is not None
-        text = fmt.replace("%s", "S" if plural else "ABOVE").replace("%d", wide)
+        text = fmt.replace("%s", "S" if plural else "ABOVE")
+        text = text.replace("%d.%d", wide + ".9").replace("%d", wide)
         out.append((text, slot, box_of.get(buf, CONTENT_WIDTH)))
 
-    sites = re.findall(
-        r'caps\(screen,\s*[^;]{0,160}?,\s*(?:"[^"]*"|[a-zA-Z]\w*),\s*toybox::k\w+Font', flat
-    )
-    return out, len(sites)
+    # Anything the resolvers did not touch. Deck words are excluded by name:
+    # they are runtime content and gen_pairs.py refuses an overlong pair before
+    # it can ever reach the device.
+    unresolved = []
+    for m in re.finditer(
+        r'caps\(screen,\s*([^;]{0,120}?),\s*(?:"([^"]*)"|([\w.]+)),\s*toybox::k\w+Font', flat
+    ):
+        if m.start() in seen:
+            continue
+        text = m.group(2) if m.group(2) is not None else m.group(3)
+        if text and text.startswith("model.spectrum."):
+            continue
+        unresolved.append(f"{text[:30]!r} in rect {m.group(1)[:50]}")
+    return out, unresolved
+
+
+def deck_draw_count(src):
+    """Draws whose text is a deck word, measured by gen_pairs.py instead."""
+    flat = re.sub(r"\n\s+", " ", src)
+    return len(re.findall(r"caps\(screen,[^;]{0,160}?,\s*model\.spectrum\.\w+,", flat))
 
 
 def main():
@@ -182,7 +222,9 @@ def main():
         + ", ".join(f"{s} -> {f}" for s, f in faces.items())
     )
 
-    measured, total_calls = strings_with_slots(SCREENS.read_text(encoding="utf-8"))
+    source = SCREENS.read_text(encoding="utf-8")
+    measured, unresolved = strings_with_slots(source)
+    deck_draws = deck_draw_count(source)
     bad = []
     checked = 0
     for text, slot, box in measured:
@@ -200,13 +242,20 @@ def main():
         return 1
     # A draw this parser cannot resolve is invisible to the gate, and invisible
     # reads exactly like safe. Report the shortfall rather than the successes.
-    unreached = total_calls - checked
-    print(f"  {checked} strings measured against their own box, none overflow")
+    unreached = len(unresolved)
+    print(
+        f"  {checked} strings measured against their own box, none overflow"
+        f"  (+{deck_draws} deck-word draws, gated by gen_pairs.py)"
+    )
     if unreached > MAX_UNREACHED:
-        print(f"  BUT {unreached} of {total_calls} draw sites were not resolved and are UNMEASURED.")
+        print(f"  BUT {unreached} draw sites are UNMEASURED:")
+        for line in unresolved:
+            print(f"    {line}")
         print("  Either extend this parser or give the draw an inline fui::makeRect it can read.")
         return 1
-    print(f"  {unreached} of {total_calls} draw sites use a named rect this parser cannot read (ratchet {MAX_UNREACHED})")
+    print(f"  {unreached} draw sites use a rect this parser cannot read (ratchet {MAX_UNREACHED})")
+    for line in unresolved:
+        print(f"    {line}")
     return 0
 
 
