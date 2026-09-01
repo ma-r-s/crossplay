@@ -522,8 +522,24 @@ void StudyActivity::buildQueue() {
       if (study::Scheduler::isDue(probe, today_, minute)) ++dueSeen;
     }
   }
-  dueTotal_ = dueSeen;
-  newTotal_ = newSeen;
+  // What the deck screen promises has to be what a session will actually
+  // give you, so the same daily limits the queue enforces are applied here.
+  // Uncapped, home advertised every available card while the queue handed out
+  // only the day's allowance: a deck with 10 due and 23 new under a 20/day
+  // limit said 33 TO GO and then finished after 30, and three cards the user
+  // was promised vanished with no explanation. For a flashcard app that reads
+  // as losing their work, which is the one thing it cannot look like.
+  //
+  // Anki's own deck list shows the capped counts for the same reason, and this
+  // app follows Anki's scheduling semantics everywhere else.
+  const int dueCap = deck_.meta().reviewsPerDay;
+  const int newCap = deck_.meta().newPerDay;
+  dueTotal_ = dueSeen < dueCap ? dueSeen : dueCap;
+  newTotal_ = newSeen < newCap ? newSeen : newCap;
+  // The queue itself is bounded too, and reviews are taken before new, so a
+  // backlog past the queue's size eats into what new cards can be promised.
+  if (dueTotal_ > kMaxQueue) dueTotal_ = kMaxQueue;
+  if (dueTotal_ + newTotal_ > kMaxQueue) newTotal_ = kMaxQueue - dueTotal_;
 
   // Now fill the queue itself. Reviews before new is Anki's order and the one
   // that matters: new cards first means the backlog never shrinks.
