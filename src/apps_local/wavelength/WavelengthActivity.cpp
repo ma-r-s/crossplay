@@ -511,6 +511,7 @@ void WavelengthActivity::render(RenderLock&&) {
       model.sessionInProgress = sessionStarted && session.round > 1;
       model.sessionRound = session.round;
       model.sessionTotal = session.total;
+      model.sessionScored = session.scoredRounds;
       wavelengthui::renderMenu(screen, model);
       break;
     }

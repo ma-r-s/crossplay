@@ -119,8 +119,11 @@ void slotNumber(toybox::Screen& screen, const Geometry& g, const int slot, const
   buf[0] = slot >= 10 ? static_cast<char>('0' + slot / 10) : ' ';
   buf[1] = static_cast<char>('0' + slot % 10);
   buf[2] = '\0';
-  const fui::Rect box = fui::makeRect(static_cast<int16_t>(rightEdge - 40), slotTop(g, slot), 40, g.slot);
-  caps(screen, box, buf, toybox::kSmallFont, fui::TextAlign::Right);
+  // Named rather than inline, and named uniquely: check_widths.py resolves a
+  // rect by name, so a second `box` of another width would make both of them
+  // unmeasurable.
+  const fui::Rect slotBox = fui::makeRect(static_cast<int16_t>(rightEdge - 40), slotTop(g, slot), 40, g.slot);
+  caps(screen, slotBox, buf, toybox::kSmallFont, fui::TextAlign::Right);
 }
 
 // The scoring band, five slots wide and clipped at the ends. Bracketed rather
@@ -245,20 +248,20 @@ void renderDial(toybox::Screen& screen, const DialModel& model) {
                              static_cast<int16_t>(g.right.width - 40), toybox::kRule));
 
   const int16_t hintY = static_cast<int16_t>(labelBottom + 30);
-  caps(screen, fui::makeRect(g.right.x, hintY, g.right.width, toybox::kButtonCut.lineHeight), "TAP A SLOT",
+  caps(screen, fui::makeRect(g.right.x, hintY, g.right.width, toybox::kButtonCut.lineHeight), "TAP THE SCALE",
        toybox::kSmallFont, fui::TextAlign::Center);
   caps(screen,
        fui::makeRect(g.right.x, static_cast<int16_t>(hintY + toybox::kButtonCut.lineHeight), g.right.width,
                      toybox::kButtonCut.lineHeight),
-       "ON THE STRIP", toybox::kSmallFont, fui::TextAlign::Center);
+       "TO MOVE THE BAR", toybox::kSmallFont, fui::TextAlign::Center);
   caps(screen,
        fui::makeRect(g.right.x, static_cast<int16_t>(hintY + 2 * toybox::kButtonCut.lineHeight + 14), g.right.width,
                      toybox::kButtonCut.lineHeight),
-       "KEYS NUDGE", toybox::kSmallFont, fui::TextAlign::Center);
+       "SIDE BUTTONS", toybox::kSmallFont, fui::TextAlign::Center);
   caps(screen,
        fui::makeRect(g.right.x, static_cast<int16_t>(hintY + 3 * toybox::kButtonCut.lineHeight + 14), g.right.width,
                      toybox::kButtonCut.lineHeight),
-       "IT BY ONE", toybox::kSmallFont, fui::TextAlign::Center);
+       "MOVE IT ONE", toybox::kSmallFont, fui::TextAlign::Center);
   caps(screen,
        fui::makeRect(g.right.x, static_cast<int16_t>(hintY + 5 * toybox::kButtonCut.lineHeight + 24), g.right.width,
                      toybox::kButtonCut.lineHeight),
@@ -267,12 +270,19 @@ void renderDial(toybox::Screen& screen, const DialModel& model) {
        fui::makeRect(g.right.x, static_cast<int16_t>(hintY + 6 * toybox::kButtonCut.lineHeight + 24), g.right.width,
                      toybox::kButtonCut.lineHeight),
        "ONLY", toybox::kSmallFont, fui::TextAlign::Center);
+  // The only screen that says what the hardware key does, on the only screen
+  // the pause can be reached from. Nothing in the app named Back at all, so the
+  // scoring table behind it might as well not have existed.
+  caps(screen,
+       fui::makeRect(g.right.x, static_cast<int16_t>(hintY + 8 * toybox::kButtonCut.lineHeight + 24), g.right.width,
+                     toybox::kButtonCut.lineHeight),
+       "BACK PAUSES", toybox::kSmallFont, fui::TextAlign::Center);
 
   // Deliberately NOT given an action. A tap must not commit: the activity
   // watches for a sustained hold on this exact rect instead, so the label is
   // true and a stray touch on a device lying flat cannot end the round.
   fui::ButtonProps lock;
-  lock.label = model.nudgeHold ? "PRESS AND HOLD IT" : "HOLD TO LOCK";
+  lock.label = model.nudgeHold ? "HOLD IT DOWN TO LOCK" : "HOLD TO LOCK";
   lock.text = toybox::buttonText(screen.theme());
   screen.button(lock, lockBarRect(screen.device().screen().width, screen.device().screen().height));
 }
@@ -382,30 +392,39 @@ void renderPause(toybox::Screen& screen, const PauseModel& model) {
   // The scoring table lives here as well as on the practice reveal, because
   // "how many points is one off again?" is asked mid-round and used to cost the
   // round to answer.
-  static const char* kScore[][2] = {{"EXACT", "5"}, {"ONE OFF", "3"}, {"TWO OFF", "1"}, {"RIGHT SIDE", "+1"}};
+  // A table with a heading and one shape of number in it. Unheaded, five rows
+  // of words and figures beside a RESUME button were read as a scoreboard; and
+  // RIGHT SIDE was a fourth name for the end call, which the two screens that
+  // ask for it call something else again.
+  static const char* kScore[][2] = {
+      {"EXACT", "5"}, {"ONE OFF", "3"}, {"TWO OFF", "1"}, {"FURTHER OFF", "0"}, {"SIDE CALL RIGHT", "+1"}};
   const int16_t lineH = toybox::kButtonCut.lineHeight;
-  for (int i = 0; i < 4; ++i) {
-    const int16_t y = static_cast<int16_t>(150 + i * lineH);
+  caps(screen, fui::makeRect(toybox::kMargin, 150, inner, lineH), "POINTS FOR THE ROUND", toybox::kSmallFont,
+       fui::TextAlign::Left);
+  for (int i = 0; i < 5; ++i) {
+    const int16_t y = static_cast<int16_t>(179 + i * lineH);
     caps(screen, fui::makeRect(toybox::kMargin, y, inner, lineH), kScore[i][0], toybox::kSmallFont,
          fui::TextAlign::Left);
     caps(screen, fui::makeRect(toybox::kMargin, y, inner, lineH), kScore[i][1], toybox::kSmallFont,
          fui::TextAlign::Right);
   }
 
-  action(screen, fui::makeRect(toybox::kMargin, 320, inner, 72), "RESUME THE ROUND", ActionResume);
+  action(screen, fui::makeRect(toybox::kMargin, 340, inner, 72), "RESUME THE ROUND", ActionResume);
 
   fill(screen, fui::makeRect(toybox::kMargin, 440, inner, toybox::kRule));
-  caps(screen, fui::makeRect(toybox::kMargin, 458, inner, lineH), "ABANDONING DEALS A NEW TARGET", toybox::kSmallFont,
+  caps(screen, fui::makeRect(toybox::kMargin, 458, inner, lineH), "THIS ROUND IS SCRAPPED. THE NEXT",
+       toybox::kSmallFont, fui::TextAlign::Left);
+  caps(screen, fui::makeRect(toybox::kMargin, 487, inner, lineH), "PLAYER GETS A NEW NUMBER, AND", toybox::kSmallFont,
        fui::TextAlign::Left);
-  caps(screen, fui::makeRect(toybox::kMargin, 492, inner, lineH), "TO THE NEXT PLAYER. THE TABLE", toybox::kSmallFont,
-       fui::TextAlign::Left);
-  caps(screen, fui::makeRect(toybox::kMargin, 526, inner, lineH), "IS TOLD IT HAPPENED.", toybox::kSmallFont,
+  caps(screen, fui::makeRect(toybox::kMargin, 516, inner, lineH), "THE PASS SCREEN SAYS SO.", toybox::kSmallFont,
        fui::TextAlign::Left);
   if (model.abandoned > 0) {
+    // A COUNT, not an instruction: "1 ABANDON THIS SESSION" sat directly above a
+    // button reading ABANDON THIS ROUND and read as a command to press it.
     char abandonLine[40];
-    snprintf(abandonLine, sizeof(abandonLine), "%d ABANDON%s THIS SESSION", model.abandoned,
+    snprintf(abandonLine, sizeof(abandonLine), "%d ROUND%s ABANDONED SO FAR", model.abandoned,
              model.abandoned == 1 ? "" : "S");
-    caps(screen, fui::makeRect(toybox::kMargin, 566, inner, lineH), abandonLine, toybox::kSmallFont,
+    caps(screen, fui::makeRect(toybox::kMargin, 556, inner, lineH), abandonLine, toybox::kSmallFont,
          fui::TextAlign::Left);
   }
 
@@ -419,23 +438,29 @@ void renderPassLeft(toybox::Screen& screen, const PassModel& model) {
 
   // Centred on the whole panel, not on a body below a header: this screen has
   // one message and anything else reads as having slipped.
-  caps(screen, fui::makeRect(toybox::kMargin, 200, inner, toybox::kHugeCut.lineHeight), "PASS", toybox::kDisplayFont,
-       fui::TextAlign::Center);
-  caps(screen, fui::makeRect(toybox::kMargin, 320, inner, toybox::kHugeCut.lineHeight), "LEFT", toybox::kDisplayFont,
-       fui::TextAlign::Center);
-  fill(screen, fui::makeRect(90, 470, static_cast<int16_t>(w - 180), toybox::kRule));
-  caps(screen, fui::makeRect(toybox::kMargin, 490, inner, toybox::kDisplayCut.lineHeight), "EVERYONE ELSE,",
+  // The object being passed is NAMED, and so is what taking it makes you. This
+  // is the first instruction anyone in the game receives, and PASS LEFT alone
+  // said neither -- before the app had mentioned that there are two roles at
+  // all. The pole word stays huge; the sentence around it does not need to be.
+  caps(screen, fui::makeRect(toybox::kMargin, 170, inner, toybox::kDisplayCut.lineHeight), "PASS THE DEVICE",
        toybox::kBodyFont, fui::TextAlign::Center);
-  caps(screen, fui::makeRect(toybox::kMargin, 530, inner, toybox::kDisplayCut.lineHeight), "LOOK AWAY.",
+  caps(screen, fui::makeRect(toybox::kMargin, 245, inner, toybox::kHugeCut.lineHeight), "LEFT", toybox::kDisplayFont,
+       fui::TextAlign::Center);
+  fill(screen, fui::makeRect(90, 400, static_cast<int16_t>(w - 180), toybox::kRule));
+  caps(screen, fui::makeRect(toybox::kMargin, 416, inner, toybox::kButtonCut.lineHeight),
+       "WHOEVER TAKES IT GIVES THE CLUE.", toybox::kSmallFont, fui::TextAlign::Center);
+  caps(screen, fui::makeRect(toybox::kMargin, 470, inner, toybox::kDisplayCut.lineHeight), "EVERYONE ELSE,",
+       toybox::kBodyFont, fui::TextAlign::Center);
+  caps(screen, fui::makeRect(toybox::kMargin, 533, inner, toybox::kDisplayCut.lineHeight), "LOOK AWAY.",
        toybox::kBodyFont, fui::TextAlign::Center);
 
   if (model.abandoned) {
+    // One shape for one fact, first time and every time after: the old screen
+    // said LAST ROUND WAS ABANDONED once and then started counting, so the
+    // second abandon looked like a different event from the first.
     char note[44];
-    if (model.abandonedCount > 1) {
-      snprintf(note, sizeof(note), "%d ABANDONS THIS SESSION", model.abandonedCount);
-    } else {
-      snprintf(note, sizeof(note), "LAST ROUND WAS ABANDONED");
-    }
+    snprintf(note, sizeof(note), "%d ROUND%s ABANDONED SO FAR", model.abandonedCount,
+             model.abandonedCount == 1 ? "" : "S");
     caps(screen, fui::makeRect(toybox::kMargin, 120, inner, toybox::kButtonCut.lineHeight), note, toybox::kSmallFont,
          fui::TextAlign::Center);
   }
@@ -448,14 +473,16 @@ void renderPassLeft(toybox::Screen& screen, const PassModel& model) {
   }
   // In the BODY slot, not the small one. This was the smallest type on the
   // screen and a tester played an entire careful round without registering it.
-  caps(screen, fui::makeRect(toybox::kMargin, 596, inner, toybox::kDisplayCut.lineHeight), line,
+  caps(screen, fui::makeRect(toybox::kMargin, 625, inner, toybox::kDisplayCut.lineHeight), line,
        model.practice ? toybox::kBodyFont : toybox::kSmallFont, fui::TextAlign::Center);
   if (model.practice) {
-    caps(screen, fui::makeRect(toybox::kMargin, 662, inner, toybox::kButtonCut.lineHeight), "THIS ONE DOES NOT COUNT",
+    caps(screen, fui::makeRect(toybox::kMargin, 690, inner, toybox::kButtonCut.lineHeight), "THIS ONE DOES NOT COUNT",
          toybox::kSmallFont, fui::TextAlign::Center);
   }
 
-  action(screen, footer(screen, 62, toybox::kMargin), "I HAVE IT", ActionReady);
+  // I HAVE IT was read as "I have a clue", so the person who had just READ one
+  // pressed it and the device never moved.
+  action(screen, footer(screen, 62, toybox::kMargin), "I HAVE THE DEVICE", ActionReady);
 }
 
 void renderPick(toybox::Screen& screen, const PickModel& model) {
@@ -466,7 +493,7 @@ void renderPick(toybox::Screen& screen, const PickModel& model) {
 
   caps(screen, fui::makeRect(toybox::kMargin, 14, inner, toybox::kDisplayCut.lineHeight), "PICK ONE", toybox::kBodyFont,
        fui::TextAlign::Left);
-  caps(screen, fui::makeRect(toybox::kMargin, 84, inner, toybox::kButtonCut.lineHeight), "THE TARGET IS NOT DRAWN YET.",
+  caps(screen, fui::makeRect(toybox::kMargin, 84, inner, toybox::kButtonCut.lineHeight), "THE NUMBER IS NOT DRAWN YET.",
        toybox::kSmallFont, fui::TextAlign::Left);
 
   const int16_t cardH = 250;
@@ -546,7 +573,15 @@ void renderPeek(toybox::Screen& screen, const PeekModel& model) {
          toybox::kDisplayFont, fui::TextAlign::Center);
   }
 
-  const int16_t textTop = static_cast<int16_t>(g.right.y + toybox::kHugeCut.lineHeight + 10);
+  // The number is LABELLED, because its twin on the guess screen is and this
+  // one was not: a bare numeral beside a strip is read as a score by anyone who
+  // has not been told what it is. The row is reserved whether or not a thumb is
+  // down, so the lines below do not jump when the band appears.
+  const fui::Rect numberLabel = fui::makeRect(g.right.x, static_cast<int16_t>(g.right.y + toybox::kHugeCut.lineHeight),
+                                              g.right.width, toybox::kButtonCut.lineHeight);
+  if (model.revealed) caps(screen, numberLabel, "THE NUMBER", toybox::kSmallFont, fui::TextAlign::Center);
+
+  const int16_t textTop = static_cast<int16_t>(numberLabel.y + numberLabel.height + 28);
   static const char* kLines[] = {
       "SAY ONE THING", "THAT SITS",        "EXACTLY THERE", "", "TWO EITHER SIDE", "STILL SCORES", "",
       "ONLY ONE.",     "DO NOT ADD TO IT."};
@@ -561,7 +596,7 @@ void renderPeek(toybox::Screen& screen, const PeekModel& model) {
   fui::ButtonProps hold;
   // A tap here does nothing by design, and drawn the same either way that reads
   // as a dead button rather than as the wrong gesture.
-  hold.label = model.revealed ? "HOLDING" : (model.nudgeHold ? "PRESS AND HOLD IT" : "HOLD TO SEE");
+  hold.label = model.revealed ? "KEEP HOLDING" : (model.nudgeHold ? "HOLD IT DOWN TO SEE" : "HOLD TO SEE THE NUMBER");
   hold.text = toybox::buttonText(screen.theme());
   hold.action = ActionPeekPad;
   screen.button(hold, padRect);
@@ -570,7 +605,7 @@ void renderPeek(toybox::Screen& screen, const PeekModel& model) {
   // look like it can. The same dimming the front door uses for END SESSION: a
   // control that cannot act dims rather than disappearing.
   fui::ButtonProps done;
-  done.label = model.everRevealed ? "I HAVE MY CLUE" : "LOOK FIRST";
+  done.label = model.everRevealed ? "I HAVE MY CLUE" : "SEE THE NUMBER FIRST";
   done.text = toybox::buttonText(screen.theme());
   done.action = model.everRevealed ? static_cast<fui::ActionId>(ActionClueGiven) : fui::NO_ACTION;
   if (!model.everRevealed) done.styles = toybox::disabledStepperStyles();
@@ -584,11 +619,15 @@ void renderClue(toybox::Screen& screen, const ClueModel& model) {
 
   caps(screen, fui::makeRect(toybox::kMargin, 14, inner, toybox::kDisplayCut.lineHeight), "SAY IT OUT LOUD",
        toybox::kBodyFont, fui::TextAlign::Center);
-  caps(screen, fui::makeRect(toybox::kMargin, 84, inner, toybox::kButtonCut.lineHeight), "TARGET HIDDEN",
+  // The all-clear, said as one: TARGET HIDDEN read as a warning that something
+  // was wrong, on the one screen whose job is to tell the table it may look.
+  caps(screen, fui::makeRect(toybox::kMargin, 78, inner, toybox::kButtonCut.lineHeight), "THE NUMBER IS HIDDEN NOW.",
        toybox::kSmallFont, fui::TextAlign::Center);
-  fill(screen, fui::makeRect(60, 108, static_cast<int16_t>(w - 120), toybox::kRule));
+  caps(screen, fui::makeRect(toybox::kMargin, 107, inner, toybox::kButtonCut.lineHeight), "EVERYONE CAN LOOK.",
+       toybox::kSmallFont, fui::TextAlign::Center);
+  fill(screen, fui::makeRect(60, 140, static_cast<int16_t>(w - 120), toybox::kRule));
 
-  endsStacked(screen, model.spectrum, 150, 470);
+  endsStacked(screen, model.spectrum, 160, 470);
 
   fill(screen, fui::makeRect(60, 580, static_cast<int16_t>(w - 120), toybox::kRule));
   caps(screen, fui::makeRect(toybox::kMargin, 598, inner, toybox::kButtonCut.lineHeight), "ONE CLUE. TAKE YOUR TIME.",
@@ -662,15 +701,21 @@ void renderReveal(toybox::Screen& screen, const RevealModel& model) {
   const Geometry g = layout(screen, 150);
 
   // The verdict is the one place the design language says to spend solid black:
-  // it repaints once, on a full refresh, as the payoff. Set in the display cut
-  // rather than the large one because TELEPATHIC measures 456px there against
-  // 448px of content width, so the best outcome in the game would overflow its
-  // own capsule while every lesser one fitted.
+  // it repaints once, on a full refresh, as the payoff. It is set in the
+  // display cut rather than the large one because the capsule has to hold the
+  // longest of these words across the full content width, and the set it
+  // replaced had one (TELEPATHIC) that did not fit even here.
+  //
+  // The words are the SCORING TABLE'S OWN, because the old set was a second
+  // vocabulary that contradicted the first: WARM sat below CLOSE with no COLD
+  // anywhere, so a table that read the two together concluded that two off beat
+  // one off. And PRACTICE was not a verdict shape at all on the one round whose
+  // job is to teach what the verdicts are.
   const int miss = model.guess > model.target ? model.guess - model.target : model.target - model.guess;
-  const char* verdict = model.practice ? "PRACTICE"
-                        : miss == 0    ? "TELEPATHIC"
-                        : miss == 1    ? "CLOSE"
-                        : miss == 2    ? "WARM"
+  const char* verdict = model.practice ? "NO SCORE"
+                        : miss == 0    ? "EXACT"
+                        : miss == 1    ? "ONE OFF"
+                        : miss == 2    ? "TWO OFF"
                                        : "MISS";
   const fui::Rect capsule = fui::makeRect(toybox::kMargin, 16, inner, 76);
   fill(screen, capsule);
@@ -683,21 +728,30 @@ void renderReveal(toybox::Screen& screen, const RevealModel& model) {
   drawGuessFrame(screen, g, model.guess);
   caps(screen, g.bottomWord, model.spectrum.bottom, toybox::kSmallFont, fui::TextAlign::Left);
 
-  char line[48];
-  if (model.practice) {
-    snprintf(line, sizeof(line), "NOT SCORED");
-  } else {
-    snprintf(line, sizeof(line), "+%d", model.points);
-  }
-  caps(screen, fui::makeRect(g.right.x, g.right.y, g.right.width, toybox::kHugeCut.lineHeight), line,
-       model.practice ? toybox::kSmallFont : toybox::kDisplayFont, fui::TextAlign::Center);
+  // Every round shows the figure it scored, the practice round included: it
+  // scores +0, which is a number in the same place and the same size as every
+  // other round's. NOT SCORED, set at a quarter of that size because the phrase
+  // would not fit, read as the screen having failed rather than as a round that
+  // counts for nothing.
+  // Named for its column, not for its line: check_widths.py resolves a buffer's
+  // box by name across the whole file, and a second `line` drawn into a
+  // different width leaves BOTH of them unmeasured.
+  char scored[48];
+  snprintf(scored, sizeof(scored), "+%d", model.points);
+  caps(screen, fui::makeRect(g.right.x, g.right.y, g.right.width, toybox::kHugeCut.lineHeight), scored,
+       toybox::kDisplayFont, fui::TextAlign::Center);
+  // And the figure is labelled. MISS printed beside +1 is a contradiction until
+  // you know the +1 is the side call's and the verdict is the guess's.
+  const fui::Rect caption = fui::makeRect(g.right.x, static_cast<int16_t>(g.right.y + toybox::kHugeCut.lineHeight),
+                                          g.right.width, toybox::kButtonCut.lineHeight);
+  caps(screen, caption, model.practice ? "PRACTICE ROUND" : "THIS ROUND", toybox::kSmallFont, fui::TextAlign::Center);
 
-  const int16_t rowTop = static_cast<int16_t>(g.right.y + toybox::kHugeCut.lineHeight + 10);
+  const int16_t rowTop = static_cast<int16_t>(caption.y + caption.height + 6);
   const int16_t rowH = toybox::kButtonCut.lineHeight;
   char guessRow[20];
   char targetRow[20];
   snprintf(guessRow, sizeof(guessRow), "GUESS  %d", model.guess);
-  snprintf(targetRow, sizeof(targetRow), "TARGET %d", model.target);
+  snprintf(targetRow, sizeof(targetRow), "NUMBER %d", model.target);
   const int16_t swatchX = static_cast<int16_t>(g.right.x + 6);
   const int16_t swatchW = 26;
   outline(screen, fui::makeRect(swatchX, static_cast<int16_t>(rowTop + rowH / 2 - 6), swatchW, 12), 3);
@@ -710,9 +764,21 @@ void renderReveal(toybox::Screen& screen, const RevealModel& model) {
        fui::makeRect(static_cast<int16_t>(swatchX + swatchW + 8), static_cast<int16_t>(rowTop + rowH + 6),
                      static_cast<int16_t>(g.right.width - swatchW - 14), rowH),
        targetRow, toybox::kSmallFont, fui::TextAlign::Left);
-  caps(screen, fui::makeRect(g.right.x, static_cast<int16_t>(rowTop + 2 * (rowH + 6)), g.right.width, rowH),
-       miss == 0 ? "EXACT. NO CALL." : (model.callWasRight ? "CALL RIGHT" : "CALL WRONG"), toybox::kSmallFont,
+  // The side call, in the name the scoring table gives it, with the point it
+  // did or did not add underneath. CALL RIGHT was a third name for the same
+  // event and showed no arithmetic at all.
+  const int16_t callTop = static_cast<int16_t>(rowTop + 2 * (rowH + 6));
+  caps(screen, fui::makeRect(g.right.x, callTop, g.right.width, rowH), "SIDE CALL", toybox::kSmallFont,
        fui::TextAlign::Center);
+  // The figure is the point this round actually paid, so the practice round --
+  // which pays nothing, however the call went -- shows no figure rather than a
+  // +1 the total above it does not contain.
+  const char* callLine = miss == 0            ? "NOT NEEDED"
+                         : model.practice     ? (model.callWasRight ? "RIGHT" : "WRONG")
+                         : model.callWasRight ? "RIGHT  +1"
+                                              : "WRONG  +0";
+  caps(screen, fui::makeRect(g.right.x, static_cast<int16_t>(callTop + rowH), g.right.width, rowH), callLine,
+       toybox::kSmallFont, fui::TextAlign::Center);
 
   // Two lines, not one. "ROUND 5   15 POINTS" measures 228px in a 224px column
   // and the S was being clipped off POINTS -- four pixels, and it read as a typo
@@ -721,11 +787,19 @@ void renderReveal(toybox::Screen& screen, const RevealModel& model) {
   char pointsLine[20];
   snprintf(roundLine, sizeof(roundLine), "ROUND %d", model.roundNumber);
   snprintf(pointsLine, sizeof(pointsLine), "%d POINT%s", model.total, model.total == 1 ? "" : "S");
-  const int16_t totalsTop = static_cast<int16_t>(rowTop + 3 * (rowH + 6) + 10);
+  const int16_t totalsTop = static_cast<int16_t>(callTop + 2 * rowH + 10);
   if (model.practice) {
-    static const char* kScore[][2] = {{"EXACT", "5"}, {"ONE OFF", "3"}, {"TWO OFF", "1"}, {"RIGHT SIDE", "+1"}};
-    for (int i = 0; i < 4; ++i) {
-      const int16_t y = static_cast<int16_t>(totalsTop + i * rowH);
+    // The round designed to teach the scoring says what it is, in the same
+    // words and the same order as HOW TO PLAY and the pause screen. The heading
+    // takes two lines because this column is 224px wide and the phrase is 261.
+    static const char* kScore[][2] = {
+        {"EXACT", "5"}, {"ONE OFF", "3"}, {"TWO OFF", "1"}, {"FURTHER OFF", "0"}, {"SIDE CALL RIGHT", "+1"}};
+    caps(screen, fui::makeRect(g.right.x, totalsTop, g.right.width, rowH), "POINTS FOR", toybox::kSmallFont,
+         fui::TextAlign::Left);
+    caps(screen, fui::makeRect(g.right.x, static_cast<int16_t>(totalsTop + rowH), g.right.width, rowH), "THE ROUND",
+         toybox::kSmallFont, fui::TextAlign::Left);
+    for (int i = 0; i < 5; ++i) {
+      const int16_t y = static_cast<int16_t>(totalsTop + (i + 2) * rowH);
       caps(screen, fui::makeRect(g.right.x, y, g.right.width, rowH), kScore[i][0], toybox::kSmallFont,
            fui::TextAlign::Left);
       caps(screen, fui::makeRect(g.right.x, y, g.right.width, rowH), kScore[i][1], toybox::kSmallFont,
@@ -812,21 +886,25 @@ void renderHowTo(toybox::Screen& screen) {
        toybox::kBodyFont, fui::TextAlign::Left);
   fill(screen, fui::makeRect(toybox::kMargin, 88, inner, toybox::kRule));
 
+  // The two roles are NAMED here and named the same everywhere else, the range
+  // of the number is stated, and the three facts a table cannot start without
+  // are on the screen: how many play, that the score is one score, and that the
+  // device moves. None of that was written down anywhere in the app.
   static const char* kLines[] = {
-      "ONE OF YOU SEES A HIDDEN",
-      "NUMBER ON THE STRIP.",
+      "THE CLUE-GIVER SEES A HIDDEN",
+      "NUMBER FROM 1 TO 20, AND SAYS",
+      "ONE CLUE THAT SITS THERE.",
       "",
-      "THEY SAY ONE CLUE THAT",
-      "SITS EXACTLY THERE.",
+      "THE GUESSERS MOVE THE GUESS,",
+      "LOCK IT, AND MAKE THE SIDE CALL.",
       "",
-      "EVERYONE ELSE ARGUES,",
-      "MOVES THE MARK, LOCKS IT,",
-      "THEN CALLS WHICH SIDE",
-      "THE TARGET IS ON.",
+      "3 OR MORE PLAYERS. ONE SCORE",
+      "FOR THE WHOLE TABLE. THE DEVICE",
+      "PASSES LEFT EACH ROUND.",
+      "ROUND ONE IS PRACTICE.",
       "",
-      "THE NUMBER IS RANDOM.",
-      "YOU ARE READING THEIR CLUE,",
-      "NOT THEIR TASTE.",
+      "GUESS WHERE THEIR WORDS SIT, NOT",
+      "WHAT THEY REALLY THINK.",
   };
   const int16_t lineH = toybox::kButtonCut.lineHeight;
   for (int i = 0; i < static_cast<int>(sizeof(kLines) / sizeof(kLines[0])); ++i) {
@@ -835,23 +913,22 @@ void renderHowTo(toybox::Screen& screen) {
          toybox::kSmallFont, fui::TextAlign::Left);
   }
 
-  const int16_t tableTop = 552;
+  const int16_t tableTop = 529;
   fill(screen, fui::makeRect(toybox::kMargin, static_cast<int16_t>(tableTop - 14), inner, toybox::kRule));
+  // Headed, and one shape of figure per column: five rows of bare words and
+  // numbers under a rule are a list of something, and nobody could tell what.
   static const char* kScore[][2] = {
-      {"EXACT", "5"},
-      {"ONE OFF", "3"},
-      {"TWO OFF", "1"},
-      {"RIGHT SIDE", "+1"},
+      {"EXACT", "5"}, {"ONE OFF", "3"}, {"TWO OFF", "1"}, {"FURTHER OFF", "0"}, {"SIDE CALL RIGHT", "+1"},
   };
-  for (int i = 0; i < 4; ++i) {
-    const int16_t y = static_cast<int16_t>(tableTop + i * lineH);
+  caps(screen, fui::makeRect(toybox::kMargin, tableTop, inner, lineH), "POINTS FOR THE ROUND", toybox::kSmallFont,
+       fui::TextAlign::Left);
+  for (int i = 0; i < 5; ++i) {
+    const int16_t y = static_cast<int16_t>(tableTop + (i + 1) * lineH);
     caps(screen, fui::makeRect(toybox::kMargin, y, inner, lineH), kScore[i][0], toybox::kSmallFont,
          fui::TextAlign::Left);
     caps(screen, fui::makeRect(toybox::kMargin, y, inner, lineH), kScore[i][1], toybox::kSmallFont,
          fui::TextAlign::Right);
   }
-  caps(screen, fui::makeRect(toybox::kMargin, static_cast<int16_t>(tableTop + 4 * lineH + 10), inner, lineH),
-       "ROUND ONE IS PRACTICE.", toybox::kSmallFont, fui::TextAlign::Left);
 
   action(screen, lockBarRect(w, screen.device().screen().height), "BACK", ActionBackToMenu);
 }
@@ -869,47 +946,68 @@ void renderMenu(toybox::Screen& screen, const MenuModel& model) {
   // The display cut, not the huge one: WAVELENGTH is ten characters and the
   // huge cut truncated it to WAVELE. The headline is still the loudest thing
   // here because nothing else on the screen is near its size.
-  caps(screen, headline, model.sessionInProgress ? "CARRY ON" : "WAVELENGTH", toybox::kBodyFont, fui::TextAlign::Left);
+  //
+  // And it is the GAME'S NAME whatever the session is doing. CARRY ON took the
+  // title slot the moment a round had been played, so the app you had opened
+  // stopped naming itself and the state was said twice: once where the name
+  // belongs and again in the row below.
+  caps(screen, headline, "WAVELENGTH", toybox::kBodyFont, fui::TextAlign::Left);
   screen.frame().hit(fui::makeRect(headline.x, headline.y, headline.width, static_cast<int16_t>(headline.height + 40)),
                      ActionStartRound);
 
-  char state[40];
+  // The session said ONCE, in the summary's own words and counted the summary's
+  // own way. ROUND 7, 8 POINTS here against 8 POINTS IN 5 ROUNDS one tap away
+  // described the same evening with two different numbers, because this one
+  // counted the round about to start and that one excluded the practice round.
+  // The round about to start is on the button now, where it is an instruction
+  // rather than a total.
+  char state[48];
   if (model.sessionInProgress) {
-    snprintf(state, sizeof(state), "ROUND %d, %d POINT%s", model.sessionRound, model.sessionTotal,
-             model.sessionTotal == 1 ? "" : "S");
+    snprintf(state, sizeof(state), "%d POINT%s IN %d ROUND%s", model.sessionTotal, model.sessionTotal == 1 ? "" : "S",
+             model.sessionScored, model.sessionScored == 1 ? "" : "S");
     caps(screen, fui::makeRect(toybox::kMargin, 150, inner, toybox::kButtonCut.lineHeight), "THIS SESSION",
          toybox::kSmallFont, fui::TextAlign::Left);
     caps(screen, fui::makeRect(toybox::kMargin, 150, inner, toybox::kButtonCut.lineHeight), state, toybox::kSmallFont,
          fui::TextAlign::Right);
   } else {
-    snprintf(state, sizeof(state), "%s", rec.rounds ? "READY WHEN YOU ARE" : "NOBODY HAS PLAYED YET");
-    caps(screen, fui::makeRect(toybox::kMargin, 150, inner, toybox::kButtonCut.lineHeight), state, toybox::kSmallFont,
-         fui::TextAlign::Left);
+    caps(screen, fui::makeRect(toybox::kMargin, 150, inner, toybox::kButtonCut.lineHeight),
+         "NO SESSION RUNNING. TAP START.", toybox::kSmallFont, fui::TextAlign::Left);
   }
 
   fill(screen, fui::makeRect(toybox::kMargin, 190, inner, toybox::kRule));
 
-  char left[24];
-  char right[48];
-  snprintf(left, sizeof(left), "ALL TIME");
-  snprintf(right, sizeof(right), "%d ROUND%s   %d.%d PTS/ROUND", rec.rounds, rec.rounds == 1 ? "" : "S",
-           rec.averageTenths() / 10, rec.averageTenths() % 10);
-  caps(screen, fui::makeRect(toybox::kMargin, 200, inner, toybox::kButtonCut.lineHeight), left, toybox::kSmallFont,
-       fui::TextAlign::Left);
-  caps(screen, fui::makeRect(toybox::kMargin, 200, inner, toybox::kButtonCut.lineHeight), right, toybox::kSmallFont,
+  // Two labelled rows rather than one line carrying three numbers and an
+  // abbreviation. ALL TIME  5 ROUNDS  1.6 PTS/ROUND was one string in a
+  // 24-character buffer, so the D of ROUND was cut off by the buffer rather
+  // than by the panel -- and even whole, nothing said which number was which.
+  char rounds[12];
+  char perRound[12];
+  snprintf(rounds, sizeof(rounds), "%d", rec.rounds);
+  snprintf(perRound, sizeof(perRound), "%d.%d", rec.averageTenths() / 10, rec.averageTenths() % 10);
+  caps(screen, fui::makeRect(toybox::kMargin, 200, inner, toybox::kButtonCut.lineHeight), "ROUNDS ALL TIME",
+       toybox::kSmallFont, fui::TextAlign::Left);
+  caps(screen, fui::makeRect(toybox::kMargin, 200, inner, toybox::kButtonCut.lineHeight), rounds, toybox::kSmallFont,
+       fui::TextAlign::Right);
+  caps(screen, fui::makeRect(toybox::kMargin, 229, inner, toybox::kButtonCut.lineHeight), "POINTS PER ROUND",
+       toybox::kSmallFont, fui::TextAlign::Left);
+  caps(screen, fui::makeRect(toybox::kMargin, 229, inner, toybox::kButtonCut.lineHeight), perRound, toybox::kSmallFont,
        fui::TextAlign::Right);
 
-  caps(screen, fui::makeRect(toybox::kMargin, 246, inner, toybox::kButtonCut.lineHeight), "HOW FAR OFF, ALL TIME",
+  caps(screen, fui::makeRect(toybox::kMargin, 262, inner, toybox::kButtonCut.lineHeight), "HOW FAR OFF, ALL TIME",
        toybox::kSmallFont, fui::TextAlign::Left);
-  ornament(screen, fui::makeRect(toybox::kMargin, 284, inner, 210), rec);
+  ornament(screen, fui::makeRect(toybox::kMargin, 296, inner, 210), rec);
 
-  action(screen, fui::makeRect(toybox::kMargin, 530, inner, 66), model.sessionInProgress ? "NEXT ROUND" : "START",
+  char play[24];
+  snprintf(play, sizeof(play), "PLAY ROUND %d", model.sessionRound);
+  action(screen, fui::makeRect(toybox::kMargin, 530, inner, 66), model.sessionInProgress ? play : "START",
          ActionStartRound);
   action(screen, fui::makeRect(toybox::kMargin, 612, inner, 54), "HOW TO PLAY", ActionHowTo);
   // A control that cannot act dims rather than disappearing, so the layout does
   // not jump and you can still see what it would have done.
+  // What it does, not what it stops: END SESSION under NOBODY HAS PLAYED YET
+  // reads as a way out of the app rather than as the way to the score.
   fui::ButtonProps end;
-  end.label = "END SESSION";
+  end.label = "FINISH AND SEE THE SCORE";
   end.text = toybox::buttonText(screen.theme());
   end.action = model.sessionInProgress ? static_cast<fui::ActionId>(ActionEndSession) : fui::NO_ACTION;
   if (!model.sessionInProgress) end.styles = toybox::disabledStepperStyles();
@@ -931,7 +1029,7 @@ void renderSummary(toybox::Screen& screen, const SummaryModel& model) {
   // "POINTS IN 11 ROUNDS" measures 498px of 448 at the display cut and was cut
   // mid-word. Split, which also gives the number the hierarchy it deserves.
   char line[48];
-  snprintf(line, sizeof(line), "IN %d ROUND%s", model.rounds, model.rounds == 1 ? "" : "S");
+  snprintf(line, sizeof(line), "IN %d SCORED ROUND%s", model.rounds, model.rounds == 1 ? "" : "S");
   caps(screen, fui::makeRect(toybox::kMargin, 150, inner, toybox::kDisplayCut.lineHeight),
        model.total == 1 ? "POINT" : "POINTS", toybox::kBodyFont, fui::TextAlign::Left);
   caps(screen, fui::makeRect(toybox::kMargin, 214, inner, toybox::kButtonCut.lineHeight), line, toybox::kSmallFont,
@@ -969,8 +1067,10 @@ void renderSummary(toybox::Screen& screen, const SummaryModel& model) {
        toybox::kSmallFont, fui::TextAlign::Left);
   ornament(screen, fui::makeRect(toybox::kMargin, 414, inner, 210), rec);
 
-  action(screen, fui::makeRect(toybox::kMargin, 630, inner, 62), "KEEP PLAYING", ActionKeepPlaying);
-  action(screen, fui::makeRect(toybox::kMargin, 710, inner, 54), "NEW SESSION", ActionNewSession);
+  // NEW SESSION is the destructive one and read as the neutral one: it clears
+  // the score this screen is showing. Say so on the button.
+  action(screen, fui::makeRect(toybox::kMargin, 630, inner, 62), "BACK TO THE GAME", ActionKeepPlaying);
+  action(screen, fui::makeRect(toybox::kMargin, 710, inner, 54), "START OVER (CLEARS THIS SCORE)", ActionNewSession);
 }
 
 }  // namespace wavelengthui

@@ -5304,6 +5304,159 @@ void testWavelengthNothingIsDrawnThroughAnything() {
          m.averageTenths = 27;
          wavelengthui::renderSummary(screen, m);
        }},
+      // Every screen the 2026-09-01 wording pass re-laid out. Two screens were
+      // covered here and eight were not, which is why a rule through a label
+      // had to be found by looking at a render.
+      {"how to play",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::renderHowTo(screen);
+       }},
+      {"menu, no session",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::MenuModel m;
+         wavelengthui::renderMenu(screen, m);
+       }},
+      {"menu, session running",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::MenuModel m;
+         m.sessionInProgress = true;
+         m.sessionRound = 7;
+         m.sessionTotal = 8;
+         m.sessionScored = 5;
+         wavelengthui::renderMenu(screen, m);
+       }},
+      {"pause",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::PauseModel m;
+         m.roundNumber = 4;
+         m.total = 11;
+         m.abandoned = 2;
+         wavelengthui::renderPause(screen, m);
+       }},
+      {"pass, abandoned",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::PassModel m;
+         m.roundNumber = 4;
+         m.total = 11;
+         m.abandoned = true;
+         m.abandonedCount = 2;
+         wavelengthui::renderPassLeft(screen, m);
+       }},
+      {"pass, practice",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::PassModel m;
+         m.practice = true;
+         wavelengthui::renderPassLeft(screen, m);
+       }},
+      {"clue",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::ClueModel m;
+         m.spectrum = wavelengthui::Spectrum{"HOT", "COLD"};
+         wavelengthui::renderClue(screen, m);
+       }},
+      {"peek, revealed",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::PeekModel m;
+         m.spectrum = wavelengthui::Spectrum{"HOT", "COLD"};
+         m.target = 14;
+         m.revealed = true;
+         m.everRevealed = true;
+         wavelengthui::renderPeek(screen, m);
+       }},
+      {"reveal, scored",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::RevealModel m;
+         m.spectrum = wavelengthui::Spectrum{"HOT", "COLD"};
+         m.guess = 12;
+         m.target = 13;
+         m.points = 4;
+         m.callWasRight = true;
+         m.roundNumber = 4;
+         m.total = 11;
+         wavelengthui::renderReveal(screen, m);
+       }},
+      // EXACT and TWO OFF depend on a random target and did not come up in
+      // twenty-five driven rounds, so the only place their layout is exercised
+      // is here: EXACT also takes the side call's NOT NEEDED branch.
+      {"reveal, exact",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::RevealModel m;
+         m.spectrum = wavelengthui::Spectrum{"HOT", "COLD"};
+         m.guess = 9;
+         m.target = 9;
+         m.points = wavelength::kPointsExact;
+         m.roundNumber = 6;
+         m.total = 17;
+         wavelengthui::renderReveal(screen, m);
+       }},
+      {"reveal, two off",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::RevealModel m;
+         m.spectrum = wavelengthui::Spectrum{"HOT", "COLD"};
+         m.guess = 9;
+         m.target = 11;
+         m.points = wavelength::kPointsOffByTwo;
+         m.roundNumber = 7;
+         m.total = 18;
+         wavelengthui::renderReveal(screen, m);
+       }},
+      {"reveal, practice",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::RevealModel m;
+         m.spectrum = wavelengthui::Spectrum{"HOT", "COLD"};
+         m.guess = 6;
+         m.target = 9;
+         m.practice = true;
+         wavelengthui::renderReveal(screen, m);
+       }},
   };
 
   for (const Case& c : kCases) {
