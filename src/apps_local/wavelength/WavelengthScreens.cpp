@@ -380,6 +380,57 @@ void endsStacked(toybox::Screen& screen, const Spectrum& spectrum, const int16_t
 
 }  // namespace
 
+void renderPause(toybox::Screen& screen, const PauseModel& model) {
+  toybox::absoluteChrome(screen);
+  const int16_t w = screen.device().screen().width;
+  const int16_t inner = static_cast<int16_t>(w - 2 * toybox::kMargin);
+
+  caps(screen, fui::makeRect(toybox::kMargin, 14, inner, toybox::kDisplayCut.lineHeight), "PAUSED", toybox::kBodyFont,
+       fui::TextAlign::Left);
+
+  char line[40];
+  if (model.practice) {
+    snprintf(line, sizeof(line), "PRACTICE ROUND");
+  } else {
+    snprintf(line, sizeof(line), "ROUND %d   %d POINT%s", model.roundNumber, model.total, model.total == 1 ? "" : "S");
+  }
+  caps(screen, fui::makeRect(toybox::kMargin, 88, inner, toybox::kButtonCut.lineHeight), line, toybox::kSmallFont,
+       fui::TextAlign::Left);
+  fill(screen, fui::makeRect(toybox::kMargin, 126, inner, toybox::kRule));
+
+  // The scoring table lives here as well as on the practice reveal, because
+  // "how many points is one off again?" is asked mid-round and used to cost the
+  // round to answer.
+  static const char* kScore[][2] = {{"EXACT", "5"}, {"ONE OFF", "3"}, {"TWO OFF", "1"}, {"RIGHT SIDE", "+1"}};
+  const int16_t lineH = toybox::kButtonCut.lineHeight;
+  for (int i = 0; i < 4; ++i) {
+    const int16_t y = static_cast<int16_t>(150 + i * lineH);
+    caps(screen, fui::makeRect(toybox::kMargin, y, inner, lineH), kScore[i][0], toybox::kSmallFont,
+         fui::TextAlign::Left);
+    caps(screen, fui::makeRect(toybox::kMargin, y, inner, lineH), kScore[i][1], toybox::kSmallFont,
+         fui::TextAlign::Right);
+  }
+
+  action(screen, fui::makeRect(toybox::kMargin, 320, inner, 72), "RESUME THE ROUND", ActionResume);
+
+  fill(screen, fui::makeRect(toybox::kMargin, 440, inner, toybox::kRule));
+  caps(screen, fui::makeRect(toybox::kMargin, 458, inner, lineH), "ABANDONING DEALS A NEW TARGET", toybox::kSmallFont,
+       fui::TextAlign::Left);
+  caps(screen, fui::makeRect(toybox::kMargin, 492, inner, lineH), "TO THE NEXT PLAYER. THE TABLE", toybox::kSmallFont,
+       fui::TextAlign::Left);
+  caps(screen, fui::makeRect(toybox::kMargin, 526, inner, lineH), "IS TOLD IT HAPPENED.", toybox::kSmallFont,
+       fui::TextAlign::Left);
+  if (model.abandoned > 0) {
+    char abandonLine[40];
+    snprintf(abandonLine, sizeof(abandonLine), "%d ABANDON%s THIS SESSION", model.abandoned,
+             model.abandoned == 1 ? "" : "S");
+    caps(screen, fui::makeRect(toybox::kMargin, 566, inner, lineH), abandonLine, toybox::kSmallFont,
+         fui::TextAlign::Left);
+  }
+
+  action(screen, footer(screen, 62, toybox::kMargin), "ABANDON THIS ROUND", ActionAbandon);
+}
+
 void renderPassLeft(toybox::Screen& screen, const PassModel& model) {
   toybox::absoluteChrome(screen);
   const int16_t w = screen.device().screen().width;
@@ -398,8 +449,14 @@ void renderPassLeft(toybox::Screen& screen, const PassModel& model) {
        toybox::kBodyFont, fui::TextAlign::Center);
 
   if (model.abandoned) {
-    caps(screen, fui::makeRect(toybox::kMargin, 120, inner, toybox::kButtonCut.lineHeight), "LAST ROUND WAS ABANDONED",
-         toybox::kSmallFont, fui::TextAlign::Center);
+    char note[44];
+    if (model.abandonedCount > 1) {
+      snprintf(note, sizeof(note), "%d ABANDONS THIS SESSION", model.abandonedCount);
+    } else {
+      snprintf(note, sizeof(note), "LAST ROUND WAS ABANDONED");
+    }
+    caps(screen, fui::makeRect(toybox::kMargin, 120, inner, toybox::kButtonCut.lineHeight), note, toybox::kSmallFont,
+         fui::TextAlign::Center);
   }
 
   char line[40];
@@ -911,6 +968,12 @@ void renderSummary(toybox::Screen& screen, const SummaryModel& model) {
 
   char good[16];
   snprintf(good, sizeof(good), "%d.%d", wavelength::kGoodTableTenths / 10, wavelength::kGoodTableTenths % 10);
+  if (model.abandoned > 0) {
+    char ab[40];
+    snprintf(ab, sizeof(ab), "%d ABANDONED", model.abandoned);
+    caps(screen, fui::makeRect(toybox::kMargin, 214, inner, toybox::kButtonCut.lineHeight), ab, toybox::kSmallFont,
+         fui::TextAlign::Right);
+  }
   caps(screen, fui::makeRect(toybox::kMargin, 332, inner, toybox::kButtonCut.lineHeight), "A GOOD TABLE",
        toybox::kSmallFont, fui::TextAlign::Left);
   caps(screen, fui::makeRect(toybox::kMargin, 332, inner, toybox::kButtonCut.lineHeight), good, toybox::kSmallFont,

@@ -221,6 +221,15 @@ void WavelengthActivity::routeAction(const int action) {
     case wavelengthui::ActionHowTo:
       go(View::HowTo);
       break;
+    case wavelengthui::ActionResume:
+      go(pausedFrom);
+      break;
+    case wavelengthui::ActionAbandon:
+      flashOnNextPaint = true;
+      ++abandonedCount;
+      go(View::PassLeft);
+      abandoned = true;
+      break;
     case wavelengthui::ActionBackToMenu:
       go(View::Menu);
       break;
@@ -235,6 +244,7 @@ void WavelengthActivity::routeAction(const int action) {
       // The session resets; the record and the seen set do not. Those are the
       // table's history and the reason the front door is worth looking at.
       session = wl::Session{};
+      abandonedCount = 0;
       sessionStarted = false;
       practiceRound = true;
       guess = wl::kSlots / 2;
@@ -254,13 +264,12 @@ void WavelengthActivity::loop() {
       // purpose of backing out. Back went FORWARD into the next round, which
       // is the one direction a back gesture must never go.
       go(View::Menu);
+    } else if (view == View::Paused) {
+      // Back out of the pause resumes. The safe direction is the default.
+      go(pausedFrom);
     } else if (committed(view)) {
-      // Abandoning costs the clue-giver their turn, which is the whole point:
-      // if backing out re-dealt for the same person, they could hunt for an
-      // easy axis and the deck's strangest cards would never be played.
-      flashOnNextPaint = true;
-      go(View::PassLeft);
-      abandoned = true;
+      pausedFrom = view;
+      go(View::Paused);
     } else if (view != View::Menu) {
       go(View::Menu);
     } else {
@@ -498,12 +507,22 @@ void WavelengthActivity::render(RenderLock&&) {
     case View::HowTo:
       wavelengthui::renderHowTo(screen);
       break;
+    case View::Paused: {
+      wavelengthui::PauseModel model;
+      model.roundNumber = session.round;
+      model.total = session.total;
+      model.practice = practiceRound;
+      model.abandoned = abandonedCount;
+      wavelengthui::renderPause(screen, model);
+      break;
+    }
     case View::Summary: {
       wavelengthui::SummaryModel model;
       model.record = &record;
       model.rounds = session.scoredRounds;
       model.total = session.total;
       model.averageTenths = session.averageTenths();
+      model.abandoned = abandonedCount;
       wavelengthui::renderSummary(screen, model);
       break;
     }
@@ -513,6 +532,7 @@ void WavelengthActivity::render(RenderLock&&) {
       model.total = session.total;
       model.practice = session.isPractice();
       model.abandoned = abandoned;
+      model.abandonedCount = abandonedCount;
       wavelengthui::renderPassLeft(screen, model);
       break;
     }

@@ -30,16 +30,19 @@ class WavelengthActivity final : public Activity {
   // touches the glass, and a device that sleeps mid-argument has to be woken by
   // somebody who then sees the screen. INSIDER only suppressed sleep while its
   // clock ran; this game has no clock and needs it anyway.
-  bool preventAutoSleep() override { return committed(view) || view == View::PassLeft || view == View::Pick; }
+  bool preventAutoSleep() override {
+    return committed(view) || view == View::PassLeft || view == View::Pick || view == View::Paused;
+  }
 
  private:
   // The round, in the order the device is passed. Everything from Peek onward
   // is committed: backing out abandons the round and passes left, which is what
   // stops a clue-giver quietly re-dealing until an easy axis turns up.
-  enum class View : uint8_t { Menu, HowTo, PassLeft, Pick, Peek, Clue, Dial, Call, Reveal, Summary };
+  enum class View : uint8_t { Menu, HowTo, PassLeft, Pick, Peek, Clue, Dial, Call, Reveal, Summary, Paused };
 
   static bool committed(const View v) {
-    return v != View::Menu && v != View::HowTo && v != View::PassLeft && v != View::Pick && v != View::Summary;
+    return v != View::Menu && v != View::HowTo && v != View::PassLeft && v != View::Pick && v != View::Summary &&
+           v != View::Paused;
   }
 
   void go(View next);
@@ -77,6 +80,8 @@ class WavelengthActivity final : public Activity {
   uint32_t lastRepeatMs = 0;
   bool hasPeeked = false;
   bool abandoned = false;
+  int abandonedCount = 0;
+  View pausedFrom = View::Dial;
   bool nudgeHold = false;
   uint32_t peekStartMs = 0;
   // How long the band must actually have been on the panel before the clue

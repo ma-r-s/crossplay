@@ -146,6 +146,7 @@ def strings_with_slots(src):
     named = r"caps\(screen,\s*([\w.]+),\s*"
     out = []
     seen = set()
+    unresolved_names = []
 
     for m in re.finditer(inline + r'"([^"]*)",\s*toybox::(k\w+Font)', flat):
         seen.add(m.start())
@@ -162,13 +163,17 @@ def strings_with_slots(src):
 
     slot_of = {}
     box_of = {}
+    collisions = set()
     for m in re.finditer(inline + r"([a-zA-Z]\w*),\s*toybox::(k\w+Font)", flat):
         seen.add(m.start())
         box, buf, slot = m.groups()
         wide = box_width(box)
-        if wide is not None:
-            slot_of[buf] = slot
-            box_of[buf] = wide
+        if wide is None:
+            continue
+        if buf in box_of and box_of[buf] != wide:
+            collisions.add(buf)
+        slot_of[buf] = slot
+        box_of[buf] = wide
     for m in re.finditer(named + r"([a-zA-Z]\w*),\s*toybox::(k\w+Font)", flat):
         seen.add(m.start())
         rect_name, buf, slot = m.groups()
@@ -180,6 +185,9 @@ def strings_with_slots(src):
         buf, fmt = m.groups()
         slot = slot_of.get(buf)
         if slot is None:
+            continue
+        if buf in collisions:
+            unresolved_names.append(f"buffer {buf!r} is drawn into boxes of different widths -- rename one")
             continue
         # Worst REACHABLE value. Guess and target are clamped to the strip;
         # rounds and points are uint16_t; and a "%d.%d" pair is a value and its
@@ -195,7 +203,7 @@ def strings_with_slots(src):
     # Anything the resolvers did not touch. Deck words are excluded by name:
     # they are runtime content and gen_pairs.py refuses an overlong pair before
     # it can ever reach the device.
-    unresolved = []
+    unresolved = list(unresolved_names)
     for m in re.finditer(
         r'caps\(screen,\s*([^;]{0,120}?),\s*(?:"([^"]*)"|([\w.]+)),\s*toybox::k\w+Font', flat
     ):

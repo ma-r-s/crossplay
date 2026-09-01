@@ -48,6 +48,8 @@ enum : fui::ActionId {
   ActionKeepPlaying = 15,
   ActionNewSession = 16,
   ActionBackToMenu = 17,
+  ActionResume = 18,
+  ActionAbandon = 19,
 };
 
 struct Spectrum {
@@ -112,6 +114,21 @@ struct SummaryModel {
   int rounds = 0;
   int total = 0;
   int averageTenths = 0;
+  // Shown because an abandon is free and invisible otherwise. The board is
+  // public in this game; so is walking away from a target you did not like.
+  int abandoned = 0;
+};
+
+// The pause, reached by Back from any screen inside a round. It exists because
+// Back USED to abandon silently, which was three faults at once: no on-screen
+// way out of a round, no way to check the scoring without destroying the round
+// to reach it, and a clue-giver who could re-deal until they liked their target
+// while the game had just told everyone else to look away.
+struct PauseModel {
+  int roundNumber = 1;
+  int total = 0;
+  bool practice = false;
+  int abandoned = 0;
 };
 
 struct PassModel {
@@ -122,6 +139,7 @@ struct PassModel {
   // it looks exactly like a normal pass, so a clue-giver who did not like their
   // target could abandon and redraw with nobody at the table any the wiser.
   bool abandoned = false;
+  int abandonedCount = 0;
 };
 
 // The hold-to-reveal pad, so the activity tests a held finger against the very
@@ -161,6 +179,7 @@ inline constexpr int kStepRepeatEveryMs = 180;
 void renderHowTo(toybox::Screen& screen);
 void renderMenu(toybox::Screen& screen, const MenuModel& model);
 void renderSummary(toybox::Screen& screen, const SummaryModel& model);
+void renderPause(toybox::Screen& screen, const PauseModel& model);
 void renderPassLeft(toybox::Screen& screen, const PassModel& model);
 void renderPick(toybox::Screen& screen, const PickModel& model);
 void renderPeek(toybox::Screen& screen, const PeekModel& model);
