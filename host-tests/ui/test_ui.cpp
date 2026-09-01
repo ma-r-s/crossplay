@@ -26,7 +26,6 @@
 #include "../../src/apps_local/knucklebones/KnucklebonesScreens.h"
 #include "../../src/apps_local/link/LinkScreens.h"
 #include "../../src/apps_local/minesweeper/MinesweeperScreens.h"
-#include "../../src/apps_local/trivia/TriviaScreens.h"
 #include "../../src/apps_local/murdle/MurdleScreens.h"
 #include "../../src/apps_local/murdle/MurdleText.h"
 #include "../../src/apps_local/player/PlayerAvatar.h"
@@ -36,6 +35,7 @@
 #include "../../src/apps_local/sudoku/SudokuScreens.h"
 #include "../../src/apps_local/toybattle/ToyBattleMenus.h"
 #include "../../src/apps_local/toybattle/ToyBattleScreens.h"
+#include "../../src/apps_local/trivia/TriviaScreens.h"
 #include "../../src/apps_local/ui/ToyboxIcons.h"
 #include "../../src/apps_local/ui/ToyboxText.h"
 #include "../../src/apps_local/wavelength/WavelengthScreens.h"
@@ -709,6 +709,56 @@ void testConnectionsWonBoard() {
   renderConnectionsBoard(screen, game);
   CHECK(screen.target.drew("WET WEATHER"));
   CHECK(!screen.target.drew("HAIL"));
+}
+
+// Sixteen tiles, one size.
+//
+// A word too long for its tile used to be set a quarter smaller than the
+// fifteen beside it, each tile sized against its own word. On a board whose
+// premise is sixteen interchangeable candidates a size difference reads as
+// significance that is not there, and roughly three boards in five of the
+// published archive contain such a word.
+//
+// This target answers a flat ten pixels a character for every cut, so it cannot
+// say WHICH cut a board should pick -- only the real face at draw time can, and
+// that is what the simulator shots are for. What it can say is the invariant
+// that regressed: whatever cut the board picks, every tile is set in it.
+void testConnectionsTilesShareOneSize() {
+  connections::Puzzle puzzle = connectionsPuzzle();
+  // Eleven characters is 110 against the 105px a tile gives its word, so this
+  // one cannot fit and the other fifteen can. Under per-tile sizing that was
+  // enough to set it in a different cut.
+  std::snprintf(puzzle.groups[0].members[0], sizeof(puzzle.groups[0].members[0]), "%s", "DECORATIONS");
+  connections::Game game;
+  game.start(puzzle, 5);
+  CHECK(game.tileCount() == 16);
+
+  Rendered screen;
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(screen.target, ctx, noInput, screen.interactions);
+  toybox::Screen built(frame, toybox::themeTokens());
+  connectionsui::BoardModel model;
+  model.game = &game;
+  model.date = game.puzzle().date;
+  const connectionsui::BoardLayout layout = connectionsui::buildBoardChrome(built, model);
+  // Everything after this index is the tile pass, which is the only text the
+  // board sizes for itself; the chrome above speaks the fork's voice.
+  const size_t chromeRuns = screen.target.texts.size();
+  connectionsui::buildBoardTiles(built, model, layout);
+  CHECK(screen.target.texts.size() > chromeRuns);
+
+  const fui::FontId cut = screen.target.texts[chromeRuns].style.font;
+  bool oneSize = true;
+  for (size_t i = chromeRuns; i < screen.target.texts.size(); ++i) {
+    if (screen.target.texts[i].style.font != cut) oneSize = false;
+  }
+  CHECK(oneSize);
+  // And the fifteen that fit are still whole words, not casualties of the
+  // sixteenth: shrinking the board must not start breaking them across lines.
+  CHECK(screen.target.drew("RACECAR"));
+  CHECK(screen.target.drew("OPTION"));
+  CHECK(screen.target.drew("SLEET"));
 }
 
 // Every date in the fullest possible month has to be reachable.
@@ -5378,8 +5428,7 @@ void testTriviaOptionsCarryTheirIndex() {
     const FakeTarget::TextRun* run = out.target.find(kLabels[i]);
     CHECK(run != nullptr);
     if (run == nullptr) continue;
-    const fui::ActionEvent event =
-        out.tap(run->rect.x + run->rect.width / 2, run->rect.y + run->rect.height / 2);
+    const fui::ActionEvent event = out.tap(run->rect.x + run->rect.width / 2, run->rect.y + run->rect.height / 2);
     CHECK(event.action == triviaui::ActionOption);
     CHECK(event.value == i);
   }
@@ -5430,8 +5479,7 @@ void testTriviaAlwaysOffersAWayOut() {
     CHECK(end != nullptr);
     if (end != nullptr) {
       unanswered = end->rect;
-      const fui::ActionEvent event = out.tap(end->rect.x + end->rect.width / 2,
-                                             end->rect.y + end->rect.height / 2);
+      const fui::ActionEvent event = out.tap(end->rect.x + end->rect.width / 2, end->rect.y + end->rect.height / 2);
       CHECK(event.action == triviaui::ActionQuit);
     }
   }
@@ -5449,8 +5497,7 @@ void testTriviaAlwaysOffersAWayOut() {
       // when the question is answered would be its own bug.
       CHECK(end->rect.x == unanswered.x);
       CHECK(end->rect.y == unanswered.y);
-      const fui::ActionEvent event = out.tap(end->rect.x + end->rect.width / 2,
-                                             end->rect.y + end->rect.height / 2);
+      const fui::ActionEvent event = out.tap(end->rect.x + end->rect.width / 2, end->rect.y + end->rect.height / 2);
       CHECK(event.action == triviaui::ActionQuit);
     }
   }
@@ -5509,6 +5556,7 @@ int main() {
   testBoardChrome();
   testConnectionsLostBoard();
   testConnectionsWonBoard();
+  testConnectionsTilesShareOneSize();
   testConnectionsCalendarEveryDayIsReachable();
   testConnectionsMenuOrnamentOpensArchive();
   testConnectionsHowToFitsOnePage();

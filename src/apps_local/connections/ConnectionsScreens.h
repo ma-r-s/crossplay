@@ -30,12 +30,17 @@ enum : fui::ActionId {
   ActionHowTo = 13,
 };
 
-
 // Grid geometry. Tighter margins than the rest of Toybox on purpose: a tile's
 // content is a word that cannot be abbreviated, so every pixel of width buys
-// characters. Measured against the whole published archive -- at this width
-// 96% of 18255 words set on one line, and the 1.4% that do not are broken
-// across lines rather than truncated.
+// characters.
+//
+// Counted by setting every word of the published archive (1143 puzzles, 18288
+// words) in the real serif face against the 105px a tile gives it: 89% fit one
+// line at the tile cut and 97% at the small cut. Per BOARD that is 62% holding
+// at least one word the tile cut cannot take -- which is why the cut is chosen
+// once for the whole board and not per tile (see chooseTileCut), and why 62%
+// of boards therefore set at the small cut. Sixteen tiles at one size is the
+// point of the layout; sixteen at two sizes says one of them matters more.
 constexpr int kGridMargin = 12;
 constexpr int kTileGap = 4;
 constexpr int kTilePad = 3;
