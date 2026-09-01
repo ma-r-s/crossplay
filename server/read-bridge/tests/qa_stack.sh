@@ -136,10 +136,21 @@ PYEOF
   # on Home and the taps below, which start at the app's own SYNC control, open
   # whatever the shelf happens to have under them.
   READ_BRIDGE_URL="$(url)" CROSSPLAY_AUTOSTART=INSTAPAPER "$REPO/scripts_local/sim-shot.sh" \
-    '1500:TAP:240,756;3200:ENTER;26000:TAP:240,700;34000:TAP:240,700;70000:QUIT' > /dev/null 2>&1 &
+    '1500:TAP:240,756;3200:ENTER;16000:TAP:240,700;22000:TAP:240,700;28000:TAP:240,700;34000:TAP:240,700;40000:TAP:240,700;46000:TAP:240,700;52000:TAP:240,700;58000:TAP:240,700;90000:QUIT' > /dev/null 2>&1 &
   SIMPID=$!
 
-  # Two confirm taps, not one. The gate only appears after the claim lands,
+  # Tap the gate on a CADENCE rather than at a guessed moment. The gate
+  # appears only once the claim lands, and the claim waits on a poll for the
+  # code, so its instant is not knowable when this string is written. Eight
+  # taps six seconds apart cover the whole window: the ones before the gate
+  # land on the QR screen and the ones after land on the verdict, both inert.
+  #
+  # The two-tap version failed three times in a row, and the printed manual
+  # fallback could not have rescued it -- a NEW simulator shows a NEW pairing
+  # code, so a claim made for the old one has nothing left to confirm. That
+  # instruction read like a thirty-second manual step and could not succeed
+  # however carefully it was followed, which is the exact failure this harness
+  # exists to prevent, built into the harness. The gate only appears after the claim lands,
   # and the claim happens while this script is still polling for the code -- so
   # its moment is not fixed. A single tap at a guessed millisecond fired before
   # the gate existed, the claim succeeded, and the device stored nothing: a
@@ -186,14 +197,27 @@ PYEOF
     #
     # Finish it by hand rather than guessing again -- the stack stays up:
     echo
-    echo "SERVERS UP, SIGNED IN, BUT THE DEVICE IS NOT PAIRED YET."
-    echo "The confirm gate needs one tap. Run this, and tap YES when it appears:"
+    echo "SERVERS UP AND SIGNED IN, BUT THE DEVICE IS NOT PAIRED."
     echo
-    echo "  ./server/read-bridge/tests/qa_shot.sh \\"
-    echo "    '1500:TAP:240,756;3200:ENTER;20000:TAP:240,700;60000:QUIT' \\"
-    echo "    '18000:./qa-artifacts/gate.png'"
+    echo "DO NOT try to finish this by hand with another qa_shot.sh run."
+    echo "A new simulator shows a NEW pairing code, so the claim this script"
+    echo "already made is for a code the device is no longer displaying, and"
+    echo "the confirm gate would have nothing to confirm. An earlier version"
+    echo "of this message told you to do exactly that; it read like a thirty-"
+    echo "second manual step and could not succeed however carefully it was"
+    echo "followed."
     echo
-    echo "Then: qa_stack.sh status  -- it will say whether .bridge appeared."
+    echo "The automated pairing is UNSOLVED. Confirmed failing across five"
+    echo "runs with two-tap and eight-tap cadences, so the cause is not the"
+    echo "moment of the tap. Until it is understood:"
+    echo
+    echo "  - the PROTOCOL is provable now: server/read-bridge/tests/sim_stack.sh"
+    echo "    pairs, syncs, reads, archives and syncs again, and passes."
+    echo "  - a PERSON-DRIVEN session is blocked on this, and saying so is the"
+    echo "    honest state rather than handing over a device that may or may"
+    echo "    not be signed in."
+    echo
+    echo "The servers are still up. qa_stack.sh down stops them."
     exit 2
   fi
 
