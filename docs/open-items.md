@@ -339,3 +339,68 @@ Trivia invented its own spelling and shipped the bug. Four independent
 rediscoveries of one idiom is the signal: a `Storage.ensureDir(path)` would mean
 the sixth caller inherits the contract instead of inventing it. Not urgent, but
 the next one will get it wrong the same way.
+
+## One physical press produces both edges, and the child eats only the first
+
+`WifiSelectionActivity` finishes on `wasPressed(Back)`. Most parents act on
+`wasReleased(Back)`. A single press of the button therefore fires **twice**
+across the boundary:
+
+- **press** -- the picker returns, the parent's result handler runs, the parent
+  decides what to show;
+- **release** -- the parent's own `loop()` reads the very same press, sees the
+  state the result handler just set, and acts on it again.
+
+Hacker News is where this was found. Cancelling the Wi-Fi picker is supposed to
+fall back to saved articles; the fallback runs correctly on the press and is
+undone by the release, which reaches `shelf::leave()` milliseconds later. The
+app exits. The code that shows the saved list is right, is reached, and never
+survives.
+
+**That is why it resisted two fixes.** The first attempt fixed one of the two
+routes to the decision (`onWifiChosen`, not `loop()`) -- the fork's own
+fix-the-twin lesson, arriving in the middle of fixing something else, and
+invisible precisely because the route that was fixed worked. The second routed
+both through one function and still failed, because neither route was ever the
+cause.
+
+### Who is exposed
+
+Grep over-counts badly. `wasReleased(Back)` appears in 54 files; the condition
+is narrower:
+
+> reads Back with `wasReleased` **in a path reachable immediately after a
+> `wasPressed` child returns** -- in practice, in `loop()`.
+
+Ten activities start a `wasPressed` child and read Back with `wasReleased`
+somewhere. Eight of those read it in `loop()` and are exposed:
+
+`HackerNewsActivity`, `StudyActivity`, `InstapaperActivity`,
+`ConnectionsActivity`, `XkcdActivity`, `KOReaderSyncActivity`,
+`CrossPointWebServerActivity`, `OpdsBookBrowserActivity`.
+
+`TriviaActivity` is **not**, and the reason is instructive: its `loop()` opens
+with `if (!input.touchReleased || !interactionsReady_) return;`, so a stray Back
+release has no reader at all. Its one `wasReleased(Back)` sits inside a download
+callback that a cancelled picker never starts. That immunity is an accident of
+being touch-only, not a design -- Trivia inherits this bug the day it grows
+button handling in `loop()`, which it nearly did on 2026-08-31.
+
+`SettingsActivity` has no `loop()` and was not classified.
+
+### Why no fix is attached
+
+The eleven `wasPressed` finishers above are not wrong, and neither are the
+fifty-four `wasReleased` readers. What is missing is that **the boundary does
+not consume the edge it was ended on**. Whatever swallows that release belongs
+in the Activity boundary, once, not as eight local guards -- a per-app
+workaround for a framework input convention is how a convention acquires eight
+different patches and no fix.
+
+**Repro:** seed `fs_agent/.crosspoint/hn/saved.tsv` with one article, then
+`CROSSPLAY_AUTOSTART="HACKER NEWS" ./scripts_local/sim-shot.sh '4000:BACK;12000:QUIT'`.
+`Entering activity: ShelfFolder` in the trace is the failure; the saved list is
+the pass.
+
+**8134c60a is merged and does not work.** It reads as a fix in the log. It is
+not one.
