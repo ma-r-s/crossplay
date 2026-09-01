@@ -56,10 +56,6 @@ void fill(toybox::Screen& screen, const fui::Rect& box, const fui::Color colour 
   screen.target().fill(box, fui::Paint::solid(colour));
 }
 
-void dither(toybox::Screen& screen, const fui::Rect& box, const fui::Color shade) {
-  screen.target().fill(box, fui::Paint::dither(shade));
-}
-
 // An outline drawn as four fills. The renderer has no stroke, and an inset
 // frame would eat the cells it surrounds.
 void outline(toybox::Screen& screen, const fui::Rect& box, const int16_t weight) {
@@ -351,6 +347,35 @@ void action(toybox::Screen& screen, const fui::Rect& box, const char* label, con
   screen.button(props, box);
 }
 
+// A control that ends something, drawn as an outline rather than a solid bar.
+//
+// There is no red on a 1-bit panel, so the only thing "destructive" can look
+// like here is DIFFERENT from the buttons your thumb lands on by default. Every
+// other button in this app is solid black; this one is the page's colour with a
+// heavy frame round it, which is the same difference in KIND the peek's dimmed
+// footer uses. It reads as a door rather than as the next step.
+void endingAction(toybox::Screen& screen, const fui::Rect& box, const char* label, const fui::ActionId id) {
+  fui::StyleSet styles;
+  styles.explicitlySet = true;
+  styles.normal.background = fui::Paint::solid(fui::Color::White);
+  styles.normal.foreground = fui::Paint::solid(fui::Color::Black);
+  styles.normal.border = fui::Paint::solid(fui::Color::Black);
+  styles.normal.borderWidth = toybox::kFrame;
+  styles.selected = styles.normal;
+  styles.focused = styles.normal;
+  styles.active = styles.normal;
+  styles.disabled = styles.normal;
+
+  fui::ButtonProps props;
+  props.label = label;
+  fui::TextStyle text = toybox::buttonText(screen.theme());
+  text.color = fui::Color::Black;
+  props.text = text;
+  props.styles = styles;
+  props.action = id;
+  screen.button(props, box);
+}
+
 // The two ends stacked with a dotted spine between them, which is the shape of
 // the strip without being the strip: this screen must not show a position.
 void endsStacked(toybox::Screen& screen, const Spectrum& spectrum, const int16_t top, const int16_t bottom) {
@@ -582,15 +607,19 @@ void renderPeek(toybox::Screen& screen, const PeekModel& model) {
   if (model.revealed) caps(screen, numberLabel, "THE NUMBER", toybox::kSmallFont, fui::TextAlign::Center);
 
   const int16_t textTop = static_cast<int16_t>(numberLabel.y + numberLabel.height + 28);
-  static const char* kLines[] = {
+  // Named for its column, not `kLines`: HOW TO PLAY has a table of its own by
+  // that name, drawn into twice this width, and check_widths.py resolves a
+  // table by name across the whole file. Two tables sharing one name measured
+  // this 224px column's strings against 448 and reported clean.
+  static const char* kAdvice[] = {
       "SAY ONE THING", "THAT SITS",        "EXACTLY THERE", "", "TWO EITHER SIDE", "STILL SCORES", "",
       "ONLY ONE.",     "DO NOT ADD TO IT."};
   for (int i = 0; i < 9; ++i) {
-    if (!kLines[i][0]) continue;
+    if (!kAdvice[i][0]) continue;
     caps(screen,
          fui::makeRect(g.right.x, static_cast<int16_t>(textTop + i * toybox::kButtonCut.lineHeight), g.right.width,
                        toybox::kButtonCut.lineHeight),
-         kLines[i], toybox::kSmallFont, fui::TextAlign::Center);
+         kAdvice[i], toybox::kSmallFont, fui::TextAlign::Center);
   }
 
   fui::ButtonProps hold;
@@ -649,8 +678,11 @@ void renderCall(toybox::Screen& screen, const CallModel& model) {
   snprintf(locked, sizeof(locked), "YOU LOCKED %d", model.guess);
   caps(screen, fui::makeRect(toybox::kMargin, 14, inner, toybox::kDisplayCut.lineHeight), locked, toybox::kBodyFont,
        fui::TextAlign::Center);
-  caps(screen, fui::makeRect(toybox::kMargin, 84, inner, toybox::kButtonCut.lineHeight), "IS THE TARGET NEARER",
-       toybox::kSmallFont, fui::TextAlign::Center);
+  // The one screen that said TARGET, on a device where every other screen
+  // calls it THE NUMBER, and the one screen that asks for the side call
+  // without ever using the words the rules and the scoring table both use.
+  caps(screen, fui::makeRect(toybox::kMargin, 84, inner, toybox::kButtonCut.lineHeight),
+       "SIDE CALL: IS THE NUMBER NEARER", toybox::kSmallFont, fui::TextAlign::Center);
 
   // The buttons carry this round's own end words and sit in the strip's own
   // order. Not higher and lower: those are the most seat-dependent words
@@ -670,7 +702,7 @@ void renderCall(toybox::Screen& screen, const CallModel& model) {
     caps(screen, fui::makeRect(toybox::kMargin, 500, inner, toybox::kButtonCut.lineHeight), "THE ONLY WAY LEFT.",
          toybox::kSmallFont, fui::TextAlign::Center);
     caps(screen, fui::makeRect(toybox::kMargin, 704, inner, toybox::kButtonCut.lineHeight),
-         model.practice ? "PRACTICE ROUND. NOTHING SCORES." : "RIGHT ANSWER IS WORTH ONE POINT.", toybox::kSmallFont,
+         model.practice ? "PRACTICE ROUND. NOTHING SCORES." : "THE SIDE CALL IS WORTH ONE POINT.", toybox::kSmallFont,
          fui::TextAlign::Center);
     return;
   }
@@ -687,10 +719,13 @@ void renderCall(toybox::Screen& screen, const CallModel& model) {
        fui::TextAlign::Center);
   endButton(screen, fui::makeRect(toybox::kMargin, 450, inner, 200), model.spectrum.bottom, ActionCallBottom, btnSlot);
 
+  // THE GIVER was one of the four names for this role that the wording pass
+  // killed everywhere except here. CLUE-GIVER costs 60px more, which is why
+  // the sentence is the negative half: it is the half that prevents the fault.
   caps(screen, fui::makeRect(toybox::kMargin, 668, inner, toybox::kButtonCut.lineHeight),
-       "GUESSERS DECIDE. NOT THE GIVER.", toybox::kSmallFont, fui::TextAlign::Center);
+       "THE CLUE-GIVER STAYS OUT OF THIS.", toybox::kSmallFont, fui::TextAlign::Center);
   caps(screen, fui::makeRect(toybox::kMargin, 704, inner, toybox::kButtonCut.lineHeight),
-       model.practice ? "PRACTICE ROUND. NOTHING SCORES." : "RIGHT ANSWER IS WORTH ONE POINT.", toybox::kSmallFont,
+       model.practice ? "PRACTICE ROUND. NOTHING SCORES." : "THE SIDE CALL IS WORTH ONE POINT.", toybox::kSmallFont,
        fui::TextAlign::Center);
 }
 
@@ -711,12 +746,19 @@ void renderReveal(toybox::Screen& screen, const RevealModel& model) {
   // anywhere, so a table that read the two together concluded that two off beat
   // one off. And PRACTICE was not a verdict shape at all on the one round whose
   // job is to teach what the verdicts are.
+  //
+  // The banner says HOW FAR OFF THE GUESS WAS, at every distance. It used to
+  // collapse everything past two into MISS, which is a ROUND verdict, and the
+  // round it sat on had often scored: a seven-off guess with a right side call
+  // printed MISS beside +1, and there is no reading of those two together that
+  // agrees. A distance beside +1 is a fact and an arithmetic instead, in the
+  // same shape as the ONE OFF and TWO OFF the scoring table already uses.
+  static const char* kDistance[kSlots] = {
+      "EXACT",        "ONE OFF",     "TWO OFF",     "THREE OFF",     "FOUR OFF",     "FIVE OFF",    "SIX OFF",
+      "SEVEN OFF",    "EIGHT OFF",   "NINE OFF",    "TEN OFF",       "ELEVEN OFF",   "TWELVE OFF",  "THIRTEEN OFF",
+      "FOURTEEN OFF", "FIFTEEN OFF", "SIXTEEN OFF", "SEVENTEEN OFF", "EIGHTEEN OFF", "NINETEEN OFF"};
   const int miss = model.guess > model.target ? model.guess - model.target : model.target - model.guess;
-  const char* verdict = model.practice ? "NO SCORE"
-                        : miss == 0    ? "EXACT"
-                        : miss == 1    ? "ONE OFF"
-                        : miss == 2    ? "TWO OFF"
-                                       : "MISS";
+  const char* verdict = model.practice ? "NO SCORE" : kDistance[miss < kSlots ? miss : kSlots - 1];
   const fui::Rect capsule = fui::makeRect(toybox::kMargin, 16, inner, 76);
   fill(screen, capsule);
   caps(screen, capsule, verdict, toybox::kBodyFont, fui::TextAlign::Center, fui::Color::White);
@@ -856,12 +898,13 @@ void ornament(toybox::Screen& screen, const fui::Rect& box, const wavelength::Re
     for (int m = 0; m < marks; ++m) {
       const fui::Rect mark = fui::makeRect(static_cast<int16_t>(left + m * (markW + gap)),
                                            static_cast<int16_t>(y + rowH / 2 - markW / 2), markW, markW);
-      // The miss bucket is dithered rather than solid: it is the one row you
-      // want to be short, and solid ink would make it the loudest thing here.
-      if (i == wavelength::kBucketCount - 1)
-        dither(screen, mark, fui::Color::DarkGray);
-      else
-        fill(screen, mark);
+      // ONE MATERIAL FOR EVERY ROW. The 6+ row used to be dithered, on the
+      // argument that it is the row you want to be short and solid ink would
+      // make it the loudest thing here. What it actually produced was a chart
+      // with two fills and no legend: a cold tester guessed at the rule twice
+      // and was wrong twice, and the faintest marks on the page were the row
+      // that says most about how the table is doing.
+      fill(screen, mark);
     }
     char count[8];
     snprintf(count, sizeof(count), "%u", static_cast<unsigned>(record.buckets[i]));
@@ -990,11 +1033,19 @@ void renderMenu(toybox::Screen& screen, const MenuModel& model) {
        fui::TextAlign::Right);
   caps(screen, fui::makeRect(toybox::kMargin, 229, inner, toybox::kButtonCut.lineHeight), "POINTS PER ROUND",
        toybox::kSmallFont, fui::TextAlign::Left);
-  caps(screen, fui::makeRect(toybox::kMargin, 229, inner, toybox::kButtonCut.lineHeight), perRound, toybox::kSmallFont,
-       fui::TextAlign::Right);
+  // An average over no rounds is not 0.0, it is nothing, and 0.0 is the one
+  // reading that says the table is bad at this. Same rule the score sheet
+  // follows one tap away.
+  caps(screen, fui::makeRect(toybox::kMargin, 229, inner, toybox::kButtonCut.lineHeight),
+       rec.rounds > 0 ? perRound : "--", toybox::kSmallFont, fui::TextAlign::Right);
 
+  // The chart has two columns and used to name neither: rows of marks, a
+  // number beside them, and no unit on either. Distances down the left, the
+  // rounds that landed there down the right.
   caps(screen, fui::makeRect(toybox::kMargin, 262, inner, toybox::kButtonCut.lineHeight), "HOW FAR OFF, ALL TIME",
        toybox::kSmallFont, fui::TextAlign::Left);
+  caps(screen, fui::makeRect(toybox::kMargin, 262, inner, toybox::kButtonCut.lineHeight), "ROUNDS", toybox::kSmallFont,
+       fui::TextAlign::Right);
   ornament(screen, fui::makeRect(toybox::kMargin, 296, inner, 210), rec);
 
   char play[24];
@@ -1004,10 +1055,15 @@ void renderMenu(toybox::Screen& screen, const MenuModel& model) {
   action(screen, fui::makeRect(toybox::kMargin, 612, inner, 54), "HOW TO PLAY", ActionHowTo);
   // A control that cannot act dims rather than disappearing, so the layout does
   // not jump and you can still see what it would have done.
-  // What it does, not what it stops: END SESSION under NOBODY HAS PLAYED YET
-  // reads as a way out of the app rather than as the way to the score.
+  //
+  // FINISH AND SEE THE SCORE did not finish anything. It opens the score
+  // sheet, whose own first button walks straight back into the next round with
+  // the session intact -- so the word FINISH described neither the button nor
+  // the screen it opens, and the only control that actually ends a session was
+  // the one labelled START OVER. Say what it does: it shows the score, and the
+  // evening carries on.
   fui::ButtonProps end;
-  end.label = "FINISH AND SEE THE SCORE";
+  end.label = "SEE THE SCORE SO FAR";
   end.text = toybox::buttonText(screen.theme());
   end.action = model.sessionInProgress ? static_cast<fui::ActionId>(ActionEndSession) : fui::NO_ACTION;
   if (!model.sessionInProgress) end.styles = toybox::disabledStepperStyles();
@@ -1018,6 +1074,7 @@ void renderSummary(toybox::Screen& screen, const SummaryModel& model) {
   toybox::absoluteChrome(screen);
   const int16_t w = screen.device().screen().width;
   const int16_t inner = static_cast<int16_t>(w - 2 * toybox::kMargin);
+  const int16_t lineH = toybox::kButtonCut.lineHeight;
   const wavelength::Record blank;
   const wavelength::Record& rec = model.record ? *model.record : blank;
 
@@ -1032,45 +1089,80 @@ void renderSummary(toybox::Screen& screen, const SummaryModel& model) {
   snprintf(line, sizeof(line), "IN %d SCORED ROUND%s", model.rounds, model.rounds == 1 ? "" : "S");
   caps(screen, fui::makeRect(toybox::kMargin, 150, inner, toybox::kDisplayCut.lineHeight),
        model.total == 1 ? "POINT" : "POINTS", toybox::kBodyFont, fui::TextAlign::Left);
-  caps(screen, fui::makeRect(toybox::kMargin, 214, inner, toybox::kButtonCut.lineHeight), line, toybox::kSmallFont,
-       fui::TextAlign::Left);
-
-  fill(screen, fui::makeRect(toybox::kMargin, 252, inner, toybox::kRule));
-
-  // The average sits next to what a table that is genuinely communicating gets.
-  // A number with nothing beside it means nothing: nobody can tell whether 19
-  // points is good.
-  char avg[16];
-  snprintf(avg, sizeof(avg), "%d.%d", model.averageTenths / 10, model.averageTenths % 10);
-  caps(screen, fui::makeRect(toybox::kMargin, 262, inner, toybox::kDisplayCut.lineHeight), "THIS SESSION",
+  caps(screen, fui::makeRect(toybox::kMargin, 214, inner, lineH), model.rounds > 0 ? line : "NO SCORED ROUNDS YET",
        toybox::kSmallFont, fui::TextAlign::Left);
-  caps(screen, fui::makeRect(toybox::kMargin, 262, inner, toybox::kDisplayCut.lineHeight), avg, toybox::kBodyFont,
-       fui::TextAlign::Right);
 
-  char good[16];
-  snprintf(good, sizeof(good), "%d.%d", wavelength::kGoodTableTenths / 10, wavelength::kGoodTableTenths % 10);
   if (model.abandoned > 0) {
     char ab[40];
     snprintf(ab, sizeof(ab), "%d ABANDONED", model.abandoned);
-    caps(screen, fui::makeRect(toybox::kMargin, 214, inner, toybox::kButtonCut.lineHeight), ab, toybox::kSmallFont,
-         fui::TextAlign::Right);
+    caps(screen, fui::makeRect(toybox::kMargin, 214, inner, lineH), ab, toybox::kSmallFont, fui::TextAlign::Right);
   }
-  caps(screen, fui::makeRect(toybox::kMargin, 332, inner, toybox::kButtonCut.lineHeight), "A GOOD TABLE",
-       toybox::kSmallFont, fui::TextAlign::Left);
-  caps(screen, fui::makeRect(toybox::kMargin, 332, inner, toybox::kButtonCut.lineHeight), good, toybox::kSmallFont,
-       fui::TextAlign::Right);
+
+  fill(screen, fui::makeRect(toybox::kMargin, 252, inner, toybox::kRule));
+
+  // The average sits next to what a table that is genuinely communicating
+  // gets. A number with nothing beside it means nothing: nobody can tell
+  // whether 19 points is good.
+  //
+  // And the pair is HEADED, because 2.5 with no unit is not a benchmark, it is
+  // a loose number: A GOOD TABLE 2.5 gave no clue whether that was points,
+  // slots or rounds, and nothing anywhere else on the device said either.
+  if (model.rounds > 0) {
+    char avg[16];
+    char good[16];
+    snprintf(avg, sizeof(avg), "%d.%d", model.averageTenths / 10, model.averageTenths % 10);
+    snprintf(good, sizeof(good), "%d.%d", wavelength::kGoodTableTenths / 10, wavelength::kGoodTableTenths % 10);
+    caps(screen, fui::makeRect(toybox::kMargin, 262, inner, lineH), "POINTS PER ROUND", toybox::kSmallFont,
+         fui::TextAlign::Left);
+    caps(screen, fui::makeRect(toybox::kMargin, 296, inner, toybox::kDisplayCut.lineHeight), "THIS SESSION",
+         toybox::kSmallFont, fui::TextAlign::Left);
+    caps(screen, fui::makeRect(toybox::kMargin, 296, inner, toybox::kDisplayCut.lineHeight), avg, toybox::kBodyFont,
+         fui::TextAlign::Right);
+    caps(screen, fui::makeRect(toybox::kMargin, 364, inner, lineH), "A GOOD TABLE", toybox::kSmallFont,
+         fui::TextAlign::Left);
+    caps(screen, fui::makeRect(toybox::kMargin, 364, inner, lineH), good, toybox::kSmallFont, fui::TextAlign::Right);
+  } else {
+    // A table that has played only the practice round was being scored 0.0
+    // against a benchmark of 2.5 -- an average over no rounds, presented as a
+    // verdict on the one round the game itself refuses to count.
+    caps(screen, fui::makeRect(toybox::kMargin, 262, inner, lineH), "ONLY THE PRACTICE ROUND SO FAR,",
+         toybox::kSmallFont, fui::TextAlign::Left);
+    caps(screen, fui::makeRect(toybox::kMargin, 296, inner, lineH), "AND IT DOES NOT SCORE.", toybox::kSmallFont,
+         fui::TextAlign::Left);
+    caps(screen, fui::makeRect(toybox::kMargin, 340, inner, lineH), "PLAY ONE THAT DOES AND THE", toybox::kSmallFont,
+         fui::TextAlign::Left);
+    caps(screen, fui::makeRect(toybox::kMargin, 369, inner, lineH), "AVERAGE APPEARS HERE.", toybox::kSmallFont,
+         fui::TextAlign::Left);
+  }
 
   // ALL TIME, said on the chart itself. Sitting under a THIS SESSION heading it
   // was read as this session's, and a player counted the tally marks to catch
-  // it: 0 POINTS IN 0 ROUNDS above thirteen marks.
-  caps(screen, fui::makeRect(toybox::kMargin, 380, inner, toybox::kButtonCut.lineHeight), "HOW FAR OFF, ALL TIME",
-       toybox::kSmallFont, fui::TextAlign::Left);
-  ornament(screen, fui::makeRect(toybox::kMargin, 414, inner, 210), rec);
+  // it: 0 POINTS IN 0 ROUNDS above thirteen marks. Both columns are named for
+  // the same reason: distance down the left, rounds down the right.
+  caps(screen, fui::makeRect(toybox::kMargin, 404, inner, lineH), "HOW FAR OFF, ALL TIME", toybox::kSmallFont,
+       fui::TextAlign::Left);
+  caps(screen, fui::makeRect(toybox::kMargin, 404, inner, lineH), "ROUNDS", toybox::kSmallFont, fui::TextAlign::Right);
+  ornament(screen, fui::makeRect(toybox::kMargin, 434, inner, 168), rec);
 
-  // NEW SESSION is the destructive one and read as the neutral one: it clears
-  // the score this screen is showing. Say so on the button.
-  action(screen, fui::makeRect(toybox::kMargin, 630, inner, 62), "BACK TO THE GAME", ActionKeepPlaying);
-  action(screen, fui::makeRect(toybox::kMargin, 710, inner, 54), "START OVER (CLEARS THIS SCORE)", ActionNewSession);
+  // This screen is a look at the score, not the end of anything, so its first
+  // button says where it actually goes -- and says it in the front door's own
+  // words, because BACK TO THE GAME described a return and this is the next
+  // round starting.
+  char play[24];
+  snprintf(play, sizeof(play), "PLAY ROUND %d", model.nextRound);
+  action(screen, fui::makeRect(toybox::kMargin, 612, inner, 58), play, ActionKeepPlaying);
+
+  // The only control in the app that ends a session, and it used to be called
+  // START OVER -- a name for beginning something, on the button that ends it,
+  // with the cost in a parenthesis nobody reads. It says what it does now, the
+  // two lines above it say what that costs and what it does not, and it is
+  // drawn as an outline rather than as a third solid bar the thumb finds by
+  // reflex. Same shape the pause screen uses for ABANDON THIS ROUND.
+  caps(screen, fui::makeRect(toybox::kMargin, 676, inner, lineH), "THIS CLEARS THE SCORE ABOVE.", toybox::kSmallFont,
+       fui::TextAlign::Left);
+  caps(screen, fui::makeRect(toybox::kMargin, 705, inner, lineH), "THE ALL-TIME RECORD IS KEPT.", toybox::kSmallFont,
+       fui::TextAlign::Left);
+  endingAction(screen, fui::makeRect(toybox::kMargin, 736, inner, 54), "END THE SESSION", ActionNewSession);
 }
 
 }  // namespace wavelengthui

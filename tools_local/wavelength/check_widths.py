@@ -101,7 +101,22 @@ SYMBOLS = {
 }
 
 
-def box_width(expr):
+def local_constants(flat):
+    """`const int16_t NAME = <number>;` from the screens themselves.
+
+    Listing them in SYMBOLS would be a fact about the screens kept where the
+    screens cannot update it, which is the mistake this file's header warns
+    about. Read them instead: without `swatchW` the reveal's two swatch rows
+    resolved to no width at all and fell back to the full 448, which is more
+    than twice the column they are actually drawn in.
+    """
+    return {
+        name: int(value)
+        for name, value in re.findall(r"const int16_t (\w+) = (\d+);", flat)
+    }
+
+
+def box_width(expr, extra=None):
     """A rect's width in pixels, or None if this parser cannot read it.
 
     None is a FAILURE, never a skip: an unreadable width means the string is
@@ -111,7 +126,9 @@ def box_width(expr):
     m = re.fullmatch(r"static_cast<int16_t>\((.*)\)", expr)
     if m:
         expr = m.group(1)
-    for name, value in sorted(SYMBOLS.items(), key=lambda kv: -len(kv[0])):
+    symbols = dict(SYMBOLS)
+    symbols.update(extra or {})
+    for name, value in sorted(symbols.items(), key=lambda kv: -len(kv[0])):
         expr = expr.replace(name, str(value))
     if not re.fullmatch(r"[\d\s+\-*/()]+", expr):
         return None
@@ -206,6 +223,67 @@ def resolved_faces():
     return {slot: FACE_OF_ID[i] for slot, i in zip(slots, ids)}
 
 
+def literal_tables(flat):
+    """Named `const char*` variables and tables, mapped to every string they can be.
+
+    A draw whose text is an EXPRESSION -- a ternary, or an index into a table of
+    words -- was invisible to every resolver below: not a literal, not a
+    buffer, and not matched by the unresolved sweep either, so it appeared in
+    neither column of the report. The reveal's verdict and the two scoring
+    tables were all unmeasured that way. Which branch the expression takes at
+    runtime does not matter; what has to fit is the widest one it can take.
+    """
+    decl = r'(?:static\s+)?const char\* (\w+)(?:\[[^\]]*\])* =\s*(.*?);'
+    out = {}
+    for m in re.finditer(decl, flat):
+        name, strings = m.group(1), set(re.findall(r'"([^"]*)"', m.group(2)))
+        # A name declared twice with different words maps to None, exactly as a
+        # rect declared twice does: measuring against whichever declaration this
+        # parser happened to see last is how a 448px line got checked against a
+        # 224px column and passed.
+        if name in out and out[name] is not None and out[name] != strings:
+            out[name] = None
+        elif name not in out:
+            out[name] = strings
+    # A variable built out of another inherits its strings, which is what the
+    # reveal's `verdict = practice ? "NO SCORE" : kDistance[...]` needs.
+    for _ in range(2):
+        for m in re.finditer(decl, flat):
+            name, expr = m.group(1), m.group(2)
+            if out.get(name) is None:
+                continue
+            for other, strings in out.items():
+                if other != name and strings and re.search(rf"\b{other}\b", expr):
+                    out[name] |= strings
+    return {k: v for k, v in out.items() if v is not None}
+
+
+def literals_in(expr, tables):
+    """Every string a text argument can evaluate to, or an empty set."""
+    found = set(re.findall(r'"([^"]*)"', expr))
+    for name in re.findall(r"\b([A-Za-z_]\w*)\b", expr):
+        found |= tables.get(name, set())
+    return found
+
+
+def slot_strings():
+    """Every string a hand-built slot buffer can hold, as the code builds it.
+
+    Three draws fill a `char buf[4]` a digit at a time rather than through
+    snprintf -- the two tick columns and the big numeral -- so there is no
+    format string for the resolver below to key on and all three were silently
+    unmeasured. What they hold is a SLOT, and the strip has twenty of them,
+    right-aligned in two columns with a leading space under ten.
+    """
+    slots = int(re.search(r"constexpr int kSlots = (\d+)", CORE.read_text(encoding="utf-8")).group(1))
+    return [f"{n:2d}" for n in range(1, slots + 1)]
+
+
+def hand_built_slot_buffers(flat):
+    """Buffer names filled with `buf[1] = '0' + <something> % 10`."""
+    return {m.group(1) for m in re.finditer(r"(\w+)\[1\] = static_cast<char>\('0' \+ [\w.]+ % 10\)", flat)}
+
+
 def strings_with_slots(src):
     """Every measurable string with its slot and box, plus the draws missed.
 
@@ -214,22 +292,32 @@ def strings_with_slots(src):
     regex counting "sites": counting two ways gave two answers that disagreed by
     five, and a gate whose own arithmetic is wrong gets ignored long before it
     catches anything.
+
+    UNDERSTOOD IS NOT MEASURED, and conflating the two hid the reveal's verdict
+    for a whole app. The buffer pass marks a site the moment it recognises the
+    SHAPE `caps(rect, identifier, slot)`; if that identifier turns out to have
+    no snprintf behind it -- a `const char*` picked out of a table of words --
+    nothing ever measures it, and it is missing from the overflow column and
+    from the unmeasured column at the same time. So sites go into `measured`
+    only when a width was actually checked, and the sweep at the end reports
+    everything else.
     """
     flat = re.sub(r"\n\s+", " ", src)
+    consts = local_constants(flat)
     named_rects = dict(NAMED_RECTS)
     named_rects.update(declared_rects(flat))
     w = r"((?:static_cast<int16_t>\((?:[^()]|\([^()]*\))*\)|[\w.]+))"
     inline = r"caps\(screen,\s*fui::makeRect\([^,]+,\s*[^,]+,\s*" + w + r",[^)]*\),\s*"
     named = r"caps\(screen,\s*([\w.]+),\s*"
     out = []
-    seen = set()
+    measured = set()
     unresolved_names = []
 
     for m in re.finditer(inline + r'"([^"]*)",\s*toybox::(k\w+Font)', flat):
-        seen.add(m.start())
         box, text, slot = m.groups()
-        wide = box_width(box)
+        wide = box_width(box, consts)
         if text and wide:
+            measured.add(m.start())
             out.append((text, slot, wide))
 
     for m in re.finditer(named + r'"([^"]*)",\s*toybox::(k\w+Font)', flat):
@@ -240,30 +328,31 @@ def strings_with_slots(src):
         # as measured.
         if rect_name not in named_rects:
             continue
-        seen.add(m.start())
         if text:
+            measured.add(m.start())
             out.append((text, slot, named_rects[rect_name]))
 
     slot_of = {}
     box_of = {}
+    sites_of = {}
     collisions = set()
     for m in re.finditer(inline + r"([a-zA-Z]\w*),\s*toybox::(k\w+Font)", flat):
-        seen.add(m.start())
         box, buf, slot = m.groups()
-        wide = box_width(box)
+        wide = box_width(box, consts)
         if wide is None:
             continue
         if buf in box_of and box_of[buf] != wide:
             collisions.add(buf)
         slot_of[buf] = slot
         box_of[buf] = wide
+        sites_of.setdefault(buf, []).append(m.start())
     for m in re.finditer(named + r"([a-zA-Z]\w*),\s*toybox::(k\w+Font)", flat):
         rect_name, buf, slot = m.groups()
         if rect_name not in named_rects:
             continue
-        seen.add(m.start())
         slot_of[buf] = slot
         box_of[buf] = named_rects[rect_name]
+        sites_of.setdefault(buf, []).append(m.start())
 
     sizes = dict(re.findall(r"char (\w+)\[(\d+)\]", flat))
     for m in re.finditer(r'snprintf\((\w+),\s*sizeof\(\1\),\s*"([^"]+)"', flat):
@@ -286,6 +375,7 @@ def strings_with_slots(src):
         plural = re.search(r"\w%s", fmt) is not None
         text = fmt.replace("%s", "S" if plural else "ABOVE")
         text = text.replace("%d.%d", wide + ".9").replace("%d", wide)
+        measured.update(sites_of.get(buf, ()))
         out.append((text, slot, box_of.get(buf, CONTENT_WIDTH)))
         cap = sizes.get(buf)
         if cap is not None and len(text) + 1 > int(cap):
@@ -293,19 +383,53 @@ def strings_with_slots(src):
                 f"char {buf}[{cap}] cannot hold {len(text) + 1} bytes of {text!r} -- snprintf will truncate it silently"
             )
 
+    for buf in hand_built_slot_buffers(flat) & set(slot_of):
+        measured.update(sites_of.get(buf, ()))
+        for text in slot_strings():
+            out.append((text, slot_of[buf], box_of.get(buf, CONTENT_WIDTH)))
+
+    # Text arguments that are expressions rather than one literal or one
+    # buffer. Every string the expression can evaluate to is measured, because
+    # the widest branch is the one that decides whether the line fits.
+    tables = literal_tables(flat)
+    expr = r"([^,]+),\s*toybox::(k\w+Font)"
+    for pattern, resolve_box in (
+        (inline + expr, lambda b: box_width(b, consts)),
+        (named + expr, named_rects.get),
+    ):
+        for m in re.finditer(pattern, flat):
+            if m.start() in measured:
+                continue
+            box, text, slot = m.groups()
+            wide = resolve_box(box)
+            if wide is None:
+                continue
+            found = literals_in(text, tables)
+            if not found:
+                continue
+            measured.add(m.start())
+            for literal in sorted(found):
+                if literal:
+                    out.append((literal, slot, wide))
+
     # Anything the resolvers did not touch. Deck words are excluded by name:
     # they are runtime content and gen_pairs.py refuses an overlong pair before
     # it can ever reach the device.
+    #
+    # The sweep takes the text argument as a whole expression rather than as a
+    # literal or a bare identifier. It used to demand one of those two shapes,
+    # so a draw it could not resolve did not appear here EITHER -- the exact
+    # shape of hole this file exists to close.
     unresolved = list(unresolved_names)
-    for m in re.finditer(
-        r'caps\(screen,\s*([^;]{0,120}?),\s*(?:"([^"]*)"|([\w.]+)),\s*toybox::k\w+Font', flat
-    ):
-        if m.start() in seen:
+    for m in re.finditer(r"caps\(screen,\s*([^;]{0,160}?),\s*([^,]+),\s*toybox::k\w+Font", flat):
+        if m.start() in measured:
             continue
-        text = m.group(2) if m.group(2) is not None else m.group(3)
-        if text and text.startswith("model.spectrum."):
+        text = m.group(2).strip()
+        # Deck words, however they reach the draw: `endWord()` takes one as a
+        # `const char* word` parameter, so the name is all there is to go on.
+        if text.startswith("model.spectrum.") or text == "word":
             continue
-        unresolved.append(f"{text[:30]!r} in rect {m.group(1)[:50]}")
+        unresolved.append(f"{text[:40]!r} in rect {m.group(1)[:50]}")
     return out, unresolved
 
 
