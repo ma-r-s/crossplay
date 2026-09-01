@@ -678,12 +678,15 @@ void HackerNewsActivity::render(RenderLock&&) {
         model.title = "SAVED";
         if (rows_.empty()) {
           model.emptyHeadline = "NOTHING SAVED YET";
-          // Measured, not guessed: centeredText does not wrap, and the old
-          // wording was 620.6px against a 480px panel, so it cut mid-word to
-          // "Open an article and tap the mar" -- in the ONLY place the app
-          // says how to save anything. This is 345px in the 10pt face and
-          // 415px in the 12pt, so it survives a face change too.
-          model.emptyMessage = "Tap the mark on an article to keep it.";
+          // MEASURE IN THE FACE THE CALL SITE RESOLVES TO, not the one its name
+          // suggests. centeredText does not wrap, and this draws with
+          // theme().smallText -> kUiFont -> FONT_SLOT_BODY, which under
+          // readingFaces() is kReadingFontId: notoserif_14, not a UI face.
+          // Measured there: the original wording is 915px, and the replacement
+          // that measured a comfortable 345px in ubuntu_10 -- a face this
+          // screen never uses -- is 511.8px and shipped cut as "Tap the mark on
+          // an article to ke". This is 399.3px, 80.7px of margin.
+          model.emptyMessage = "Keep an article: tap its mark.";
         }
       }
       hnui::buildList(screen, model);

@@ -26,6 +26,7 @@
 #include "../../src/apps_local/knucklebones/KnucklebonesScreens.h"
 #include "../../src/apps_local/link/LinkScreens.h"
 #include "../../src/apps_local/minesweeper/MinesweeperScreens.h"
+#include "../../src/apps_local/trivia/TriviaScreens.h"
 #include "../../src/apps_local/murdle/MurdleScreens.h"
 #include "../../src/apps_local/murdle/MurdleText.h"
 #include "../../src/apps_local/player/PlayerAvatar.h"
@@ -296,6 +297,14 @@ void buildBoard(Rendered& out, const chessui::BoardModel& model) {
   toybox::Frame frame(out.target, ctx, noInput, out.interactions);
   toybox::Screen screen(frame, toybox::themeTokens());
   chessui::buildBoardChrome(screen, model);
+}
+
+void buildChoice(Rendered& out, const triviaui::ChoiceModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  triviaui::buildChoice(screen, model);
 }
 
 void buildLink(Rendered& out, const linkui::LinkModel& model) {
@@ -5248,6 +5257,32 @@ void testTheReaderTextGoesInTheReaderBody() {
 // one layout is how a tap zone drifts away from the marker it is meant to sit
 // under, and neither copy looks wrong on its own -- so this asserts they agree
 // with each other over every point on the panel rather than trusting either.
+// Every reachable WAVELENGTH screen must offer a way onward that is not the
+// hardware Back key. A practice reveal once lost its NEXT ROUND button to an
+// early return and looked entirely finished without it: a cold table tried
+// fourteen different gestures and sixteen seconds of waiting on the first round
+// of the very first session.
+void testWavelengthEveryRevealOffersAWayOn() {
+  for (const bool practice : {false, true}) {
+    Rendered out;
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    wavelengthui::RevealModel model;
+    model.spectrum = wavelengthui::Spectrum{"HOT", "COLD"};
+    model.practice = practice;
+    model.guess = 7;
+    model.target = 9;
+    wavelengthui::renderReveal(screen, model);
+    bool found = false;
+    for (const FakeTarget::TextRun& run : out.target.texts)
+      if (run.text == "NEXT ROUND") found = true;
+    if (!found) std::printf("  reveal with practice=%d has no way forward\n", static_cast<int>(practice));
+    CHECK(found);
+  }
+}
+
 void testWavelengthStripHitTestsAgree() {
   const int16_t w = 480;
   const int16_t h = 800;
@@ -5318,7 +5353,113 @@ void testFitLinesCutsAnUnbreakableTokenRatherThanVanishing() {
   CHECK(std::string("one two three four five six seven").compare(0, kept.size(), kept) == 0);
 }
 
+// --- trivia ------------------------------------------------------------------
+
+// Every option must register its OWN index. Frame::hit's value parameter
+// defaults to 0, so all four boxes reported option 1: solo scoring was decided
+// by whether the answer happened to land in the top slot, and a cold tester
+// measured 3/12 across twelve questions, which is chance. It shipped in v1.12.0.
+//
+// Nothing caught it because nothing in this repo had ever tapped a solo option
+// -- shoot-trivia.sh taps QUIZMASTER and REVEAL, and no host suite compiled
+// these screens at all until now. Taps are routed against the table the paint
+// produced, so this fails if the index is dropped again.
+void testTriviaOptionsCarryTheirIndex() {
+  triviaui::ChoiceModel model;
+  model.clue = "Which one?";
+  static const char* kLabels[trivia::kOptions] = {"ALPHA", "BRAVO", "CHARLIE", "DELTA"};
+  for (int i = 0; i < trivia::kOptions; ++i) model.option[i] = kLabels[i];
+  model.correct = 2;
+
+  Rendered out;
+  buildChoice(out, model);
+
+  for (int i = 0; i < trivia::kOptions; ++i) {
+    const FakeTarget::TextRun* run = out.target.find(kLabels[i]);
+    CHECK(run != nullptr);
+    if (run == nullptr) continue;
+    const fui::ActionEvent event =
+        out.tap(run->rect.x + run->rect.width / 2, run->rect.y + run->rect.height / 2);
+    CHECK(event.action == triviaui::ActionOption);
+    CHECK(event.value == i);
+  }
+}
+
+// The way out, in both states and in the SAME place. Solo had no exit at all:
+// no footer action before an answer, no header target, and the app is
+// touch-only, so Back did nothing and only the HOME key escaped -- which also
+// meant there was no way to finish deliberately and see a score.
+// With no question at the chosen difficulty the clue carries the message and
+// there are no options -- so no option boxes, and nothing tappable that would
+// score a question that is not there. Found by looking at a render, not by a
+// suite: four empty boxes draw exactly like four real ones.
+void testTriviaDrawsNoOptionsWithoutAQuestion() {
+  triviaui::ChoiceModel model;
+  model.clue = "No multiple-choice question available at this difficulty.";
+  // option[] left null, which is what the activity passes in this state.
+
+  Rendered out;
+  buildChoice(out, model);
+
+  CHECK(out.target.drew("No multiple-choice question available at this difficulty."));
+  // The way out is still offered; it is the only control that should exist here.
+  CHECK(out.target.drew("END"));
+
+  // Nothing in the option band answers a tap. The boxes sat above the footer,
+  // so probe the band rather than one point.
+  for (int y = 430; y <= 700; y += 30) {
+    const fui::ActionEvent event = out.tap(240, y);
+    CHECK(event.action != triviaui::ActionOption);
+  }
+}
+
+void testTriviaAlwaysOffersAWayOut() {
+  triviaui::ChoiceModel model;
+  model.clue = "Which one?";
+  static const char* kLabels[trivia::kOptions] = {"ALPHA", "BRAVO", "CHARLIE", "DELTA"};
+  for (int i = 0; i < trivia::kOptions; ++i) model.option[i] = kLabels[i];
+  model.correct = 2;
+
+  fui::Rect unanswered{};
+  {
+    Rendered out;
+    buildChoice(out, model);
+    CHECK(out.target.drew("END"));
+    CHECK(!out.target.drew("NEXT"));  // nothing to advance to yet
+    const FakeTarget::TextRun* end = out.target.find("END");
+    CHECK(end != nullptr);
+    if (end != nullptr) {
+      unanswered = end->rect;
+      const fui::ActionEvent event = out.tap(end->rect.x + end->rect.width / 2,
+                                             end->rect.y + end->rect.height / 2);
+      CHECK(event.action == triviaui::ActionQuit);
+    }
+  }
+
+  model.chosen = 0;
+  {
+    Rendered out;
+    buildChoice(out, model);
+    CHECK(out.target.drew("END"));
+    CHECK(out.target.drew("NEXT"));
+    const FakeTarget::TextRun* end = out.target.find("END");
+    CHECK(end != nullptr);
+    if (end != nullptr) {
+      // Same place with NEXT beside it. A way out that moves under the finger
+      // when the question is answered would be its own bug.
+      CHECK(end->rect.x == unanswered.x);
+      CHECK(end->rect.y == unanswered.y);
+      const fui::ActionEvent event = out.tap(end->rect.x + end->rect.width / 2,
+                                             end->rect.y + end->rect.height / 2);
+      CHECK(event.action == triviaui::ActionQuit);
+    }
+  }
+}
+
 int main() {
+  testTriviaOptionsCarryTheirIndex();
+  testTriviaAlwaysOffersAWayOut();
+  testTriviaDrawsNoOptionsWithoutAQuestion();
   testTheSeaSaltCardYouTapIsTheCardTheRulesGet();
   testTheSeaSaltChromeIsTappableAndTheCallPillIsEarned();
   testTheSeaSaltCallChoiceSaysWhatEachWordCosts();
@@ -5447,6 +5588,7 @@ int main() {
   testArchiveIsLiveOnTheLastPage();
   testALongTitleIsEllipsisedRatherThanClipped();
   testTheReaderTextGoesInTheReaderBody();
+  testWavelengthEveryRevealOffersAWayOn();
   testWavelengthStripHitTestsAgree();
   testWavelengthEverySlotIsTappable();
   testFitLinesCutsAnUnbreakableTokenRatherThanVanishing();

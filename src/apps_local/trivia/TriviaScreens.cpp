@@ -83,6 +83,14 @@ void drawDifficulty(toybox::Screen& screen, const int16_t x, const int16_t y, co
       screen.target().stroke(pip, fui::Paint::solid(fui::Color::Black), static_cast<uint8_t>(1));
     }
   }
+
+  // Say what the pips ARE. Unlabelled, five of them filled to N reads as
+  // "question N of 5" -- a cold tester was certain of that reading and chased a
+  // phantom auto-advance bug for two rounds before doubting it. Filled-of-five
+  // is the universal shape for progress, so the meter has to name itself.
+  const fui::Rect box{static_cast<int16_t>(x + trivia::kDifficulties * (kPip + kGap) + 6),
+                      static_cast<int16_t>(y - 5), 220, static_cast<int16_t>(kPip + 10)};
+  drawLabel(screen, box, "DIFFICULTY", toybox::kSmallFont, fui::TextAlign::Left, toybox::kButtonCut);
 }
 
 int16_t footerTop(const toybox::Screen& screen) {
@@ -203,7 +211,22 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   items[1].subtitle = "Four options, scored";
   items[1].actionValue = 1;
   items[2].label = "DIFFICULTY";
-  items[2].subtitle = model.difficulty == 0 ? "Any difficulty" : "One level only";
+  // Five distinct levels all read "One level only", so the setting looked stuck:
+  // the label could not distinguish the states the taps were moving through. A
+  // cold tester tapped nine times and reported it as a one-way door -- it cycles
+  // correctly and always did, but nothing on screen said so.
+  //
+  // Derived rather than written out. "of 5" as a literal would rot the day
+  // kDifficulties changes, and would still compile. Static because ListItem
+  // holds a borrowed pointer and the list is drawn before this returns.
+  static char difficultyLine[28];
+  if (model.difficulty == 0) {
+    std::snprintf(difficultyLine, sizeof(difficultyLine), "%s", "Any difficulty");
+  } else {
+    std::snprintf(difficultyLine, sizeof(difficultyLine), "Level %d of %d", model.difficulty,
+                  trivia::kDifficulties);
+  }
+  items[2].subtitle = difficultyLine;
   items[2].actionValue = 2;
 
   list.items = items;
@@ -244,42 +267,50 @@ void buildChoice(toybox::Screen& screen, const ChoiceModel& model) {
                       clueHeight},
             model.clue, fui::TextAlign::Left);
 
-  int16_t y = static_cast<int16_t>(footerTop(screen) - optionsHeight);
-  for (int i = 0; i < trivia::kOptions; ++i) {
-    const fui::Rect box{static_cast<int16_t>(body.x + kMargin), y, static_cast<int16_t>(body.width - kMargin * 2), 62};
-    const bool isCorrect = model.chosen >= 0 && i == model.correct;
-    const bool isWrongPick = model.chosen == i && i != model.correct;
+  // No question at this difficulty: the clue carries the message and there are
+  // no options. Four empty boxes were still drawn under it, and they still
+  // registered taps -- a hit region does not care that its label is empty, so
+  // the screen offered four blank controls that scored a question that was not
+  // there. Keyed on the option itself, like `answer` in the model, rather than
+  // on a second flag that can disagree with it.
+  if (model.option[0] != nullptr) {
+    int16_t y = static_cast<int16_t>(footerTop(screen) - optionsHeight);
+    for (int i = 0; i < trivia::kOptions; ++i) {
+      const fui::Rect box{static_cast<int16_t>(body.x + kMargin), y, static_cast<int16_t>(body.width - kMargin * 2), 62};
+      const bool isCorrect = model.chosen >= 0 && i == model.correct;
+      const bool isWrongPick = model.chosen == i && i != model.correct;
 
-    if (isCorrect) {
-      screen.target().fill(box, fui::Paint::solid(fui::Color::Black));
-    } else {
-      screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), static_cast<uint8_t>(isWrongPick ? 3 : 1));
-    }
-    drawLabel(screen, box, model.option[i] != nullptr ? model.option[i] : "", toybox::kSmallFont,
-              fui::TextAlign::Center, toybox::kButtonCut, isCorrect ? fui::Color::White : fui::Color::Black);
-
-      // The player's own pick, marked so it cannot be missed. Until now the only
-      // difference was a 3px stroke against a 1px one, and a cold tester read
-      // that as a leftover focus ring and trained themselves to ignore it -- so
-      // when the solid box was not where they had tapped, they could not tell
-      // whether they had mis-tapped, misremembered, or been scored wrongly.
-      // That ambiguity is what makes someone quietly conclude they are bad at
-      // trivia instead of reporting a bug. White on the correct box, which is
-      // already solid black; black on any other.
-      if (model.chosen == i) {
-        const fui::Rect tab{static_cast<int16_t>(box.x + 5), static_cast<int16_t>(box.y + 5), 7,
-                            static_cast<int16_t>(box.height - 10)};
-        screen.target().fill(tab, fui::Paint::solid(isCorrect ? fui::Color::White : fui::Color::Black));
+      if (isCorrect) {
+        screen.target().fill(box, fui::Paint::solid(fui::Color::Black));
+      } else {
+        screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), static_cast<uint8_t>(isWrongPick ? 3 : 1));
       }
+      drawLabel(screen, box, model.option[i] != nullptr ? model.option[i] : "", toybox::kSmallFont,
+                fui::TextAlign::Center, toybox::kButtonCut, isCorrect ? fui::Color::White : fui::Color::Black);
 
-      // The index MUST be passed. Frame::hit's value parameter defaults to 0,
-      // so all four options registered as option 1 -- and the handler, which
-      // reads value correctly, scored the top slot wherever the finger landed.
-      // Solo play was decided entirely by whether the answer happened to be
-      // first: 3/12 measured, which is chance. Buttons were unaffected, which
-      // is why every check passed.
-    if (model.chosen < 0) screen.frame().hit(box, ActionOption, static_cast<int16_t>(i));
-    y = static_cast<int16_t>(y + 70);
+        // The player's own pick, marked so it cannot be missed. Until now the only
+        // difference was a 3px stroke against a 1px one, and a cold tester read
+        // that as a leftover focus ring and trained themselves to ignore it -- so
+        // when the solid box was not where they had tapped, they could not tell
+        // whether they had mis-tapped, misremembered, or been scored wrongly.
+        // That ambiguity is what makes someone quietly conclude they are bad at
+        // trivia instead of reporting a bug. White on the correct box, which is
+        // already solid black; black on any other.
+        if (model.chosen == i) {
+          const fui::Rect tab{static_cast<int16_t>(box.x + 5), static_cast<int16_t>(box.y + 5), 7,
+                              static_cast<int16_t>(box.height - 10)};
+          screen.target().fill(tab, fui::Paint::solid(isCorrect ? fui::Color::White : fui::Color::Black));
+        }
+
+        // The index MUST be passed. Frame::hit's value parameter defaults to 0,
+        // so all four options registered as option 1 -- and the handler, which
+        // reads value correctly, scored the top slot wherever the finger landed.
+        // Solo play was decided entirely by whether the answer happened to be
+        // first: 3/12 measured, which is chance. Buttons were unaffected, which
+        // is why every check passed.
+      if (model.chosen < 0) screen.frame().hit(box, ActionOption, static_cast<int16_t>(i));
+      y = static_cast<int16_t>(y + 70);
+    }
   }
 
   // END is present BEFORE an answer too. Solo had no way out at all: no footer
