@@ -195,10 +195,8 @@ void renderDial(toybox::Screen& screen, const DialModel& model) {
   endWord(screen, g.topWord, model.spectrum.top, fui::TextAlign::Left);
   fill(screen, fui::makeRect(g.topWord.x, static_cast<int16_t>(g.topWord.y + g.topWord.height + 4), g.topWord.width,
                              toybox::kRule));
-  // NOT g.bottomWord: that rect sits under this screen's two stacked buttons and
-  // was painted over by them, so the second pole was invisible on the one screen
-  // where the clue is actually composed. It goes in the right-hand column
-  // instead, under the target, where nothing overlaps it.
+  endWord(screen, g.bottomWord, model.spectrum.bottom, fui::TextAlign::Left);
+
   drawScale(screen, g);
   drawMarker(screen, g, model.guess);
 
@@ -230,9 +228,11 @@ void renderDial(toybox::Screen& screen, const DialModel& model) {
   // same shape as murdleui::cellAt: a slot per interaction would spend twenty of
   // the screen's twenty-four and leave the rest drawing but dead.
   const int16_t markerY = slotTop(g, model.guess);
-  screen.frame().hit(fui::makeRect(g.board.x, g.board.y, g.board.width, static_cast<int16_t>(markerY - g.board.y)),
+  const int16_t zoneX = toybox::kMargin;
+  const int16_t zoneW = static_cast<int16_t>(screen.device().screen().width - 2 * toybox::kMargin);
+  screen.frame().hit(fui::makeRect(zoneX, g.board.y, zoneW, static_cast<int16_t>(markerY - g.board.y)),
                      ActionStepTowardTop);
-  screen.frame().hit(fui::makeRect(g.board.x, static_cast<int16_t>(markerY + g.slot), g.board.width,
+  screen.frame().hit(fui::makeRect(zoneX, static_cast<int16_t>(markerY + g.slot), zoneW,
                                    static_cast<int16_t>(g.board.y + g.board.height - markerY - g.slot)),
                      ActionStepTowardBottom);
 
