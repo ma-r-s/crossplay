@@ -47,6 +47,18 @@ std::string savedIdFor(const std::string_view url) {
   return std::string(out);
 }
 
+std::string savedThreadUrl(const uint32_t storyId) {
+  char url[64];
+  std::snprintf(url, sizeof(url), "https://news.ycombinator.com/item?id=%lu", static_cast<unsigned long>(storyId));
+  return std::string(url);
+}
+
+std::string savedThreadTitle(const std::string_view storyTitle) {
+  std::string title = "Comments: ";
+  title.append(storyTitle);
+  return title;
+}
+
 std::string sanitizeField(const std::string_view text) {
   std::string out;
   out.reserve(text.size());

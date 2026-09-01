@@ -37,6 +37,25 @@ struct SavedArticle {
 // be once an entry in the middle is removed.
 std::string savedIdFor(std::string_view url);
 
+// --- Keeping the conversation --------------------------------------------
+//
+// A thread is saved the same way an article is, under its OWN key: Hacker
+// News's canonical item page. Not the story's link, because these are two
+// different pieces of reading and sharing a key would make them one entry --
+// saving the thread would silently replace the article, and the reader's mark
+// would claim the article was kept when the discussion was.
+//
+// It also gives the pieces with no link of their own a key at all. An Ask HN
+// post is its own text, `Story::url` is empty, and an empty URL is what
+// Library::save refuses: those posts could not be kept by any route.
+std::string savedThreadUrl(uint32_t storyId);
+
+// What the shelf row says for a saved thread. Two rows carrying one headline,
+// one the article and one the discussion, are the same row as far as anyone
+// reading the shelf is concerned -- so the discussion says so, in front, where
+// a headline cut to the row width still shows it.
+std::string savedThreadTitle(std::string_view storyTitle);
+
 // The index as it is written to the card. One header line carrying a format
 // version, then one tab-separated line per article.
 //

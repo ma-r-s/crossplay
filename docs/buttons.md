@@ -129,11 +129,20 @@ are page keys. **Up and Down page. Nothing else is a button, because nothing
 else is a button.**
 
 **And paging by button is never the only route.** The page marks stay tappable,
-and a horizontal swipe steps a page too -- it is the first thing every hand
-reaches for on a touch panel showing a page indicator, and three cold testers
-tried it before anything else. Not because touch is better, but because the
+and a swipe steps a page too -- it is the first thing every hand reaches for on
+a touch panel showing a page indicator or a scrollbar. Three cold testers tried
+it on the shelf before anything else, and a fourth tried it on Hacker News's
+story list and reported the list broken when nothing moved. Not because touch
+is better, but because the
 moment a button is the only way to reach something we have two input models
 again, and the invisible one wins arguments it should not.
+
+**The swipe follows the axis the content moves on.** The shelf's pages slide
+sideways, so it takes a horizontal swipe: left for the next page. A story list
+and a reader both move DOWN the content, so they take a vertical one: up for
+the next page, the way the page moves under the finger. One rule per app, never
+two, and the same rule in an app's list as in its reader -- learn it once. Back
+is a left-EDGE swipe, so it never collides with either.
 
 ---
 
@@ -164,8 +173,9 @@ job the case does not imply, that decision comes back.
 
 ## 6. What this changes
 
-1. **Up/Down page wherever there are pages**: the shelf folder, and HOW TO PLAY
-   in every game. Behaviour only; nothing is drawn or removed.
+1. **Up/Down page wherever there are pages**: the shelf folder, HOW TO PLAY in
+   every game, and Hacker News's story list and reader. Behaviour only; nothing
+   is drawn or removed.
 2. **design-language.md is wrong and gets corrected.** It says "Keep the
    physical buttons for Back and system functions", and on this device there is
    no physical Back button. The corrected rule is the one in section 4.
