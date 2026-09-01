@@ -81,6 +81,18 @@ and a clean compile says nothing about headroom. Re-measure flash after any
 merge you intend to ship, and see the flash-budget notes for why an image that
 fits here can still be un-installable on an older device.
 
+**A filter is a hypothesis about what the failure will look like.** Grepping a
+device log for `Frontlight|LIGHT|Device:` missed the loudest line in it --
+ESP-IDF's `E (723) ledc: requested frequency 25000 ... can not be achieved`,
+which contains none of those tokens and names the repair outright. The filter
+was reasonable and it was wrong, and a filter that is wrong is indistinguishable
+from a log that says nothing. Read the window unfiltered ONCE before narrowing
+it; the line you did not predict is the one worth having.
+
+The same applies to a `grep` over a codebase, a suite run against a subset, and
+a screenshot taken at the moment you expected the bug -- every one of them
+decides its own scope from an assumption about the answer.
+
 ## A check that fails silently is worse than one that fails loudly
 
 **In a shell harness, `set -o pipefail` turns "matched nothing" into "the
