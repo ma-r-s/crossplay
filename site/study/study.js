@@ -428,10 +428,19 @@ worker.onmessage = function (event) {
     // What the package carried that the reader cannot use. Silence here read
     // as "nothing was lost" for a deck whose answers were all photographs.
     if (opened && opened.pictures > 0 && !result.imagesPacked) {
+      // States the fact and not the consequence. The page knows how many
+      // picture FILES the package carries; it does not know how many CARDS
+      // reference one, because the packer reports that only as prose in the
+      // log. The old wording asserted "cards ... arrive blank" for a deck
+      // where the log said 0 packed, 0 unreadable and 33 cards without one --
+      // three numbers that cannot produce a blank card between them. A reader
+      // comparing the two had no way to tell which was lying.
       notes.push(
         opened.pictures +
-          " picture(s) in this deck are not carried over; cards whose answer" +
-          " was only a picture arrive blank.",
+          (opened.pictures === 1 ? " picture is" : " pictures are") +
+          " in the package and not carried over. A card whose answer was ONLY" +
+          " a picture would arrive blank; the images line in the log below" +
+          " says how many cards actually use one.",
       );
     }
     if (opened && opened.audio > 0) {
@@ -439,15 +448,18 @@ worker.onmessage = function (event) {
         opened.audio + " sound(s) are dropped: the reader has no speaker.",
       );
     }
+    // Everything above is true of the DECK and stays true whatever font is
+    // chosen next: cards that stay behind, pictures not carried over, sounds
+    // dropped. Everything describeProblems adds is about the chosen font and
+    // is rebuilt with it. Split them by where they came from rather than by
+    // matching their words -- an allowlist of substrings kept "sound(s)" and
+    // "picture(s)" and silently dropped the cards-stay-behind line, so a user
+    // who picked a font before reading the summary was never told a card had
+    // been left out of their deck at all. A disclosure about lost data cannot
+    // depend on an unrelated choice.
+    permanentNotes = notes.slice();
     describeProblems(result.problems).forEach(function (line) {
       notes.push(line);
-    });
-
-    // Audio and pictures are gone from the deck whatever happens next, so
-    // these lines must survive a font rebuild. One that erased itself two
-    // seconds later is a warning nobody reads.
-    permanentNotes = notes.filter(function (line) {
-      return line.indexOf("sound(s)") >= 0 || line.indexOf("picture(s)") >= 0;
     });
     var notice = $("skipNotice");
     notice.textContent = notes.join(" ");
