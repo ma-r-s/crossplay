@@ -188,8 +188,6 @@ jobs:
             leaves you on the old questions. Delete it and the app fetches the
             new one on the next run.
 
-            ### What is new in 1.12.5
-
             **A WAVELENGTH round in progress now survives leaving the app.**
             Pressing the home key mid-round used to destroy the round, the
             hidden number and the whole session's score, with no warning and no
