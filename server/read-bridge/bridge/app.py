@@ -24,6 +24,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
 from . import accounts, engine, jobs, pairing, store
+from .ratelimit import Window
 
 log = logging.getLogger("bridge.app")
 
@@ -33,22 +34,6 @@ app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 # {id, hash, progress, progressAt} is a few kilobytes; the cap is four orders
 # of magnitude above that and exists only to bound a hostile client.
 MAX_SYNC_BODY = 256 * 1024
-
-
-class Window:
-    def __init__(self, limit: int, per_s: int):
-        self.limit, self.per_s = limit, per_s
-        self.hits: dict[str, list[float]] = {}
-
-    def allow(self, key: str) -> bool:
-        now = time.time()
-        hits = [t for t in self.hits.get(key, []) if t > now - self.per_s]
-        if len(hits) >= self.limit:
-            self.hits[key] = hits
-            return False
-        hits.append(now)
-        self.hits[key] = hits
-        return True
 
 
 LOGIN_IP = Window(5, 300)

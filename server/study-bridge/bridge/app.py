@@ -28,6 +28,7 @@ from fastapi import Depends, FastAPI, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
 from . import accounts, decks, engine, jobs, pairing, store, wire
+from .ratelimit import Window
 from .journal import Journal
 
 log = logging.getLogger("bridge.app")
@@ -40,22 +41,6 @@ MAX_SYNC_BODY = 8 * 1024 * 1024  # revlog tails + cards.dat; a 5k-card deck is ~
 
 
 # ---------------------------------------------------------------- rate limits
-class Window:
-    def __init__(self, limit: int, per_s: int):
-        self.limit, self.per_s = limit, per_s
-        self.hits: dict[str, list[float]] = {}
-
-    def allow(self, key: str) -> bool:
-        now = time.time()
-        hits = [t for t in self.hits.get(key, []) if t > now - self.per_s]
-        if len(hits) >= self.limit:
-            self.hits[key] = hits
-            return False
-        hits.append(now)
-        self.hits[key] = hits
-        return True
-
-
 LOGIN_IP = Window(5, 300)  # 5 attempts / 5 min / IP
 LOGIN_USER = Window(3, 900)  # 3 attempts / 15 min / username
 PAIR_IP = Window(10, 300)
