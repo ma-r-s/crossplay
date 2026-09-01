@@ -502,5 +502,41 @@ shipping on a test that could not tell a fix from a no-op.
 **Before concluding that hardware is the only route, try a `SWIPE` token aimed
 at the left edge.** It at least drives the mechanism that ships. Nobody has.
 
+### Measured, after a challenge that the probe was confounded
+
+The objection: `leaveOrShowSaved()` calls `shelf::leave()` outright on an EMPTY
+saved library, so on a fresh card Hacker News exits for a correct reason and the
+probe cannot tell the bug from right behaviour. That would have made this
+ticket's evidence worthless.
+
+**It does not apply, and the re-run says so twice over:**
+
+```
+[399]  [INF] [HN] library: 1 saved     <- non-empty; the empty branch is not taken
+[399]  Entering activity: WifiSelection
+[4038] Exiting activity: WifiSelection <- on the PRESS  (scheduled t=4000)
+[4091] Exiting activity: HackerNews    <- on the RELEASE (t=4000 + 80ms hold)
+[4225] Entering activity: ShelfFolder
+```
+
+`seed_fs()` only `mkdir`s; it never clears the card, so a seeded
+`fs_agent/.crosspoint/hn/saved.tsv` survives a run. The library loads with one
+article, so the guard takes the SAVED branch -- and the app leaves anyway.
+
+The **53ms gap is the whole argument**. A confounded exit happens inside the
+result handler, in the same millisecond as the child's. This one lands 11ms
+after the scripted release edge (`namedButton` holds for 80ms by default), a
+separate frame later. That is the release-edge mechanism, measured rather than
+argued.
+
+### One caution for anyone re-running this
+
+`sim-shot.sh` ends with `bmp_to_png` over the output directory, which converts
+**whatever BMPs are already there**. Run it with no screenshot script and the
+PNGs are rewritten with a fresh mtime and stale content: on this re-run the
+`.png` files were stamped 03:25 while their `.bmp` sources were from 02:53.
+A right filename is not a fresh file. Trust the trace, or delete the directory
+first.
+
 **8134c60a is merged and does not work.** It reads as a fix in the log. It is
 not one.
