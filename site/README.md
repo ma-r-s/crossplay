@@ -250,9 +250,18 @@ It is checked in because Vercel does not have Emscripten.
 `assets/shots/` is generated, not drawn. Every screenshot is the real firmware
 running in the simulator against a seeded SD card, captured with
 `scripts_local/sim-shot.sh` and downsampled from the simulator's 2x output to
-native panel pixels (480x800, or 800x480 for the two landscape apps). Regenerate
-them rather than editing them, and never retouch one: the claim the page makes
-is that this is what the device shows.
+native panel pixels: 480x800, or 800x480 for the landscape ones. Regenerate them
+rather than editing them, and never retouch one: the claim the page makes is
+that this is what the device shows.
+
+**The downsample is the step that gets skipped**, because skipping it looks like
+nothing. `index.html` declares the 1x width and height, so a 2x file has the
+right aspect and the card renders perfectly at four times the bytes -- on a page
+that lazy-loads two dozen of them. The `shoot-*.sh` scripts copy the simulator's
+output straight across, and on 2026-09-01 all four shots they produce (trivia,
+wavelength, toybattle, forehead) were 2x. `host-tests/site/page_structure.py`
+now compares every shot against the size the page declares, so the next one
+fails the site suite instead of shipping.
 
 `assets/fonts/` is Jersey 25 and Instrument Serif, the two faces the device
 itself draws, converted to woff2. Both are SIL OFL and their licences ship
