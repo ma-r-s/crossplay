@@ -1436,6 +1436,49 @@ void testAPageStepMovesExactlyOnePage() {
   }
 }
 
+// The shelf's own step STOPS at both ends, and that is the fix for a wrong game
+// being launched twice by two different testers.
+//
+// Every page of a folder draws its rows at the same eight screen positions, so
+// a page arrived at by accident is indistinguishable from the page that was
+// wanted until something opens. Walking forward off the last page is the step
+// nobody ever means; with a wrap it silently rehomes you two pages back, and the
+// next tap opens the game that happens to sit in that row instead.
+void testTheShelfStepStopsAtBothEnds() {
+  CHECK(shelfui::pageStepClamped(0, 3, 1) == 1);
+  CHECK(shelfui::pageStepClamped(1, 3, 1) == 2);
+  CHECK(shelfui::pageStepClamped(1, 3, -1) == 0);
+  // The two that a wrap gets wrong, and the whole reason this exists.
+  CHECK(shelfui::pageStepClamped(2, 3, 1) == 2);
+  CHECK(shelfui::pageStepClamped(0, 3, -1) == 0);
+  // A folder that fits has nowhere to step to at all.
+  CHECK(shelfui::pageStepClamped(0, 1, 1) == 0);
+  CHECK(shelfui::pageStepClamped(0, 1, -1) == 0);
+
+  // The property, not five examples of it: a step lands on a real page, moves by
+  // at most one, and moves by exactly one unless it was already at that end.
+  // Written as a property because the failure it guards is arithmetic that only
+  // misbehaves at the two rows nobody writes an example for.
+  for (int pages = 2; pages <= 6; ++pages) {
+    for (int from = 0; from < pages; ++from) {
+      const int forward = shelfui::pageStepClamped(from, pages, 1);
+      const int back = shelfui::pageStepClamped(from, pages, -1);
+      CHECK(forward >= 0 && forward < pages);
+      CHECK(back >= 0 && back < pages);
+      CHECK(forward == (from == pages - 1 ? from : from + 1));
+      CHECK(back == (from == 0 ? from : from - 1));
+      // Never around the horn. A wrap satisfies every line above except these.
+      CHECK(forward >= from);
+      CHECK(back <= from);
+    }
+  }
+
+  // A stored row that outlived its folder still lands on a page that exists, so
+  // a step from it cannot walk off either end.
+  CHECK(shelfui::pageStepClamped(9, 3, 1) == 2);
+  CHECK(shelfui::pageStepClamped(-4, 3, -1) == 0);
+}
+
 // A folder comes back to the page it was left on, and it is a ROW that carries
 // that across the reboot.
 //
@@ -1542,12 +1585,18 @@ void testThePageMarksReadAsAControl() {
   const fui::Rect band = shelfui::listBand(device(), true, true);
 
   // Probed, not recomputed, so the test cannot make the builder's arithmetic
-  // mistake twice.
+  // mistake twice. Both edges of the strip, because the ink has to sit ON the
+  // strip the taps land in: ink outside it promises a hit where there is none,
+  // and that is the half a screenshot cannot show.
   int barY = -1;
-  for (int y = band.y + band.height; y < 800 && barY < 0; ++y) {
-    if (menu.tap(device().width / 2, y).action == shelfui::ActionGoToPage) barY = y;
+  int barBottom = -1;
+  for (int y = band.y + band.height; y < 800; ++y) {
+    if (menu.tap(device().width / 2, y).action != shelfui::ActionGoToPage) continue;
+    if (barY < 0) barY = y;
+    barBottom = y;
   }
   CHECK(barY > 0);
+  CHECK(barBottom > barY);
 
   int firstHit = -1;
   int lastHit = -1;
@@ -1558,22 +1607,78 @@ void testThePageMarksReadAsAControl() {
   }
   CHECK(firstHit > 0);
 
-  // An outline crossing the tap strip that holds every page target. A pip is a
-  // stroke too, so "something was stroked down there" would pass against the
-  // exact drawing this replaced; spanning the whole cluster is what a pip
-  // cannot do.
-  bool framed = false;
-  for (const auto& outline : menu.target.strokes) {
-    if (outline.rect.y > barY) continue;
-    if (outline.rect.y + outline.rect.height < barY) continue;
-    if (outline.rect.x > firstHit) continue;
-    if (outline.rect.x + outline.rect.width < lastHit) continue;
-    // And it stays a cluster: a frame as wide as the list is the bar of slabs
-    // the marks were deliberately rewritten not to be.
-    CHECK(outline.rect.width < band.width);
-    framed = true;
+  // It stays a cluster: ink as wide as the list is the bar of slabs the marks
+  // were deliberately rewritten not to be.
+  CHECK(lastHit - firstHit < band.width);
+
+  const int pitch = (lastHit - firstHit + 1) / model.pageCount;
+  CHECK(pitch > 20);
+
+  // Every page carries a box of ink filling most of its own cell, and the
+  // current one is FILLED where the others are outlined. Ten pixels of ink in a
+  // forty-four pixel cell -- what this replaced, and what a cold tester called
+  // "the size of a full stop" -- passes "something was drawn down there" and
+  // fails the width check here.
+  for (int p = 0; p < model.pageCount; ++p) {
+    const int left = firstHit + p * pitch;
+    const int right = left + pitch - 1;
+    const auto ownCell = [&](const fui::Rect& r) {
+      if (r.y < barY || r.y + r.height - 1 > barBottom) return false;
+      if (r.x < left || r.x + r.width - 1 > right) return false;
+      return r.width * 2 >= pitch;
+    };
+    int filled = 0;
+    int outlined = 0;
+    for (const auto& r : menu.target.fills) {
+      if (ownCell(r)) ++filled;
+    }
+    for (const auto& s : menu.target.strokes) {
+      if (s.width > 0 && ownCell(s.rect)) ++outlined;
+    }
+    // Asserted as a pair, both ways round: a mutant that filled every cell says
+    // you are on all three pages, and one that outlined every cell says you are
+    // on none. Either reads as a control and answers nothing.
+    CHECK(filled == (p == model.page ? 1 : 0));
+    CHECK(outlined == (p == model.page ? 0 : 1));
+
+    // And it says which page it is, in words. This is the whole reason the
+    // marks changed: the folder resumes on the page it was left on, so the row
+    // in position two is a different game on each visit, and "which page is
+    // this" has to be answerable before any tap is safe.
+    char number[8];
+    std::snprintf(number, sizeof(number), "%d", p + 1);
+    CHECK(menu.target.drew(number));
   }
-  CHECK(framed);
+
+  // Said twice, and the second time in the header, where the eye already is
+  // while it is on the rows. The bar sits at the bottom of an 800px panel; a
+  // cold tester did not misread it, they never looked at it.
+  //
+  // Composed rather than written out, so the strings cannot go stale the first
+  // time a game is added and the folder gains a page.
+  char onFirst[12];
+  char onSecond[12];
+  std::snprintf(onFirst, sizeof(onFirst), "1/%d", model.pageCount);
+  std::snprintf(onSecond, sizeof(onSecond), "2/%d", model.pageCount);
+  CHECK(menu.target.drew(onFirst));
+
+  // The count moves with the page. A header that always says 1/N is worse than
+  // no header at all.
+  shelfui::MenuModel second = model;
+  second.page = 1;
+  Rendered later;
+  buildShelf(later, second);
+  CHECK(later.target.drew(onSecond));
+  CHECK(!later.target.drew(onFirst));
+
+  // A folder that fits draws no bar and no counter: "1/1" is furniture.
+  shelfui::MenuModel lone = model;
+  lone.count = 3;
+  lone.page = 0;
+  lone.pageCount = 1;
+  Rendered single;
+  buildShelf(single, lone);
+  CHECK(!single.target.drew("1/1"));
 }
 
 // A row on a restored page opens ITS OWN game, not the game at that position on
@@ -6368,6 +6473,7 @@ int main() {
   testShelfIconsFollowTheRowsWhenTheListScrolls();
   testTheShelfPagesWhenAFolderOverflows();
   testAPageStepMovesExactlyOnePage();
+  testTheShelfStepStopsAtBothEnds();
   testAFolderComesBackToThePageItWasLeftOn();
   testThePageMarksReadAsAControl();
   testARowOnARestoredPageOpensItsOwnGame();

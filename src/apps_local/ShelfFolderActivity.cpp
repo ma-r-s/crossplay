@@ -105,24 +105,66 @@ void ShelfFolderActivity::loop() {
   //
   // The page marks stay tappable. A button must never be the only route to
   // something, or the invisible input model wins arguments it should not.
-  const bool keyNext = mappedInput.wasReleased(MappedInputManager::Button::Down);
-  const bool keyPrev = mappedInput.wasReleased(MappedInputManager::Button::Up);
+  //
+  // Left and Right page as well. They are PIN_UNASSIGNED on both target boards
+  // and can never fire there, but the simulator and the browser emulator wire
+  // all six keys to the arrow keys, and on Home every arrow moves the cursor.
+  // One level in, two of the four did nothing, which is the only place a person
+  // meets these keys at all.
+  const bool keyNext = mappedInput.wasReleased(MappedInputManager::Button::Down) ||
+                       mappedInput.wasReleased(MappedInputManager::Button::Right);
+  const bool keyPrev = mappedInput.wasReleased(MappedInputManager::Button::Up) ||
+                       mappedInput.wasReleased(MappedInputManager::Button::Left);
 
-  // And a horizontal swipe pages too, which is the first thing every hand
-  // reaches for on a touch panel showing a page indicator. Left carries the
-  // list leftwards to the next page, matching the reader's own swipe page
-  // turns; Back is a left-edge swipe and has already returned above, so a
-  // rightward swipe reaching here is a page and not an exit.
+  // And a VERTICAL swipe pages, both ways: up carries the list upwards to the
+  // next page, the way the content moves under a finger, which is the same way
+  // round as Hacker News's story list and the reader. Learn it once.
+  //
+  // Vertical because it is the only axis Back does not own. Back is a
+  // left-to-right swipe anchored in the left 25% of the panel (120px of 480),
+  // so on the horizontal axis the backward page turn and the exit are the SAME
+  // visible gesture separated by an invisible boundary -- and this list paged
+  // sideways for exactly that reason until a cold tester swiped back from page
+  // two and landed on Home. A gesture whose meaning flips on a line nothing
+  // draws cannot be made discoverable; it can only be moved off that axis. So
+  // the horizontal axis carries Back and nothing else here, and the whole
+  // paired step lives where it is symmetrical.
+  //
+  // One band is consumed above this activity and cannot be had: a down-swipe
+  // STARTING in the top 14% (y <= 112) is the light-panel gesture, taken by
+  // ActivityManager before any activity sees it. That band is the header, and
+  // the list starts at 112, so a swipe that starts on a row is never eaten.
+  //
+  // The bottom edge is free on the X4 Pro and is not free on the Sticky. The
+  // Home gesture is a bottom-edge UP swipe only where the board has no home
+  // key (`MappedInputManager::wasHomeGesture`); the X4 Pro's profile carries
+  // `hasHomeKey = true` for the capacitive key under the panel, so its Home
+  // gesture is that key and an up-swipe from the bottom pages here. The Sticky
+  // has no such key, so on that board an up-swipe starting below y=688 goes
+  // Home instead. What sits below 688 on this screen is the page bar and the
+  // player bar, so the cost is a swipe begun on chrome.
   const MappedInputManager::SwipeDir swipe = mappedInput.wasSwipe();
-  const bool next = keyNext || swipe == MappedInputManager::SwipeDir::Left;
-  const bool prev = keyPrev || swipe == MappedInputManager::SwipeDir::Right;
+  const bool next = keyNext || swipe == MappedInputManager::SwipeDir::Up;
+  const bool prev = keyPrev || swipe == MappedInputManager::SwipeDir::Down;
 
   if (itemCount > 0 && (next || prev)) {
     // A folder that fits on one page has no page to step to, and moving the
     // resumed row to the top instead would be a step that changed something
     // without going anywhere.
     const int pages = shelfui::pageCountFor(itemCount, rowsPerPage);
-    if (pages > 1) showPage(shelfui::pageStep(shelfui::pageFor(selected, rowsPerPage), pages, next ? 1 : -1));
+    if (pages > 1) {
+      const int from = shelfui::pageFor(selected, rowsPerPage);
+      const int to = shelfui::pageStepClamped(from, pages, next ? 1 : -1);
+      // Nothing happens at the ends, and nothing repaints either: a full-panel
+      // refresh that redraws the same eight rows is half a second of blink
+      // saying a step was taken when none was. What says so instead is the page
+      // bar, which reads 3 of 1 2 3.
+      if (to != from) {
+        showPage(to);
+      } else {
+        LOG_DBG("SHELF", "Page %d of %d is an end; step refused", from, pages);
+      }
+    }
     return;
   }
 

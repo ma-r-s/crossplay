@@ -56,18 +56,52 @@ beside the fun ones, and needs no explanation.
 
 ## Pages, not scrolling
 
-A folder that does not fit is drawn a page at a time, with a row of pips above
-the footer, framed so they read as the control they are. Tapping a pip goes
-straight to that page; a horizontal swipe steps one page; the two side keys step
-one page. All three go through `ShelfFolderActivity::showPage`, so no route can
-move by a different amount than another.
+A folder that does not fit is drawn a page at a time, with a row of numbered
+marks above the footer and the page beside the folder's name in the header.
+Tapping a mark goes straight to that page; a **vertical** swipe steps one page;
+the two side keys step one page. All three go through
+`ShelfFolderActivity::showPage`, so no route can move by a different amount than
+another.
 
 **The reason is touch, not taste.** The list component's 3px overflow track is
 drawn but not tappable, so before paging existed every row past the ninth could
 be reached only with the physical buttons, on a device whose games are
 touch-only on purpose. Scrolling was not worse-looking; it was unreachable.
 
-Five things follow, and each was got wrong once:
+### The axis is vertical, because Back owns the horizontal one
+
+Up is the next page, down is the previous one, the way the content moves under
+a finger. A horizontal swipe pages nothing.
+
+This list paged sideways first, and sideways cannot be symmetrical on this
+device. Back is a left-to-right swipe anchored in the left 25% of the panel
+(`EDGE_SWIPE_SIDE_FRAC`, 120px of 480), and it is the only way out of all
+seventeen apps because the X4 Pro has no Back button. So on the horizontal axis
+the backward page turn and the exit are **the same visible gesture separated by
+an invisible line**: past 120px it paged, inside it you were on Home. A gesture
+whose meaning flips on a boundary nothing draws cannot be made discoverable. It
+can only be moved off that axis.
+
+What that cost a cold tester, in order: they swiped back from page two, landed
+on Home, concluded that back meant exit, and from then on tried to reach an
+earlier page by going forward until it came round. Which it did, onto a page
+they did not notice, whose second row was a different game.
+
+So the horizontal axis carries Back and nothing else here, and the whole paired
+step lives where it is symmetrical. Three things fall out of that:
+
+- It is the axis `docs/buttons.md` already prescribes for content that
+  continues downward, and the same way round as Hacker News's story list and
+  the reader. Learn it once.
+- It is the first thing a hand tries on a vertical list. The tester swiped
+  vertically before anything else, got a byte-identical screen, and read the
+  list as fixed in place.
+- **A right-to-left swipe now does nothing**, and that is the price. It used to
+  page forward, and a dead gesture is its own documented failure mode here. It
+  is paid because keeping it would leave the forward step with a mirror image
+  that exits, which is the asymmetry the tester reported in the first place.
+
+Seven things follow, and each was got wrong once:
 
 - **The page is derived from the selection, never held beside it.** Two facts
   that must agree are one fact stored once. A page member drifts the moment a
@@ -93,11 +127,48 @@ Five things follow, and each was got wrong once:
   Touch has to stay complete. The iOS home screen resolves the same tension the
   same way.
 
-  They carry a hairline frame, drawn on exactly the strip the targets occupy.
-  Ten pixels of ink with air around them read as decoration: two cold testers
-  found the taps by accident and used them as their only reliable route, and a
-  third never tried them and reported that the list could not be paged at all.
-  An indicator that is also the reliable control has to look like a control.
+  **Each mark is its page's NUMBER, in a box of its own: outlined for a page you
+  are not on, filled for the one you are.** That is the same language as the
+  rows above it, which is what makes an indicator read as the control it also
+  is -- two cold testers found the taps by accident and used them as their only
+  reliable route, and a third never tried them and reported that the list could
+  not be paged at all. A single hairline capsule around the whole cluster did
+  that job first and cannot do this one: a filled cell inside a capsule of that
+  radius pokes out through the curve at the two ends.
+
+  They were 10px squares, and a fourth cold tester called them "the size of a
+  full stop". At that size the only thing saying where you are is the difference
+  between a filled square and an outlined one, which is smaller than the ink of
+  one letter, at the bottom of an 800px panel, while the eyes are on the rows.
+
+- **The page is said twice, and the second time in the header.** `GAMES 2/3`,
+  right-aligned beside the folder mark. The bar answers the same question and
+  answers it out of the fovea; the header is the first thing read on the screen.
+  That matters here more than on any other list, because the folder resumes on
+  the page it was left on, so **the row in position two is a different game on
+  each visit** -- which makes "which page is this" the question that has to be
+  answered before any tap is safe. A cold tester did not misread the bar. They
+  never looked at it, tapped row two expecting TRIVIA, and got CHECKERS.
+
+- **Nothing wraps.** Forward from the last page and back from the first do
+  nothing at all, and nothing repaints either: a full-panel refresh that redraws
+  the same eight rows is half a second of blink saying a step was taken when
+  none was. `shelfui::pageStepClamped` is the shelf's step;
+  `shelfui::pageStep` still wraps and Hacker News's story list still uses it.
+
+  A wrap is only safe where the user can see where it put them. Every page draws
+  its rows at the same eight screen positions, so a page arrived at by accident
+  is indistinguishable from the page that was wanted until something opens --
+  and walking forward off the last page is the one step nobody ever means. It
+  was reached by a tester who wanted the PREVIOUS page, could not find a
+  backward gesture, and pressed on hoping to come round.
+
+  The old argument for the wrap was that a key which stops at the end reads as
+  broken. That argument needed the indicator to be unreadable. The bar now says
+  `3` of `1 2 3` and the header says `3/3`, so a step that does nothing is the
+  screen telling the truth. The far page is still one tap on the bar, which is
+  the same one tap the wrap cost, and is the whole reason the bar carries marks
+  rather than arrows.
 
 - **A folder reopens where it was left, which is the page you were ON.** Not the
   page holding the game you last launched. Those are the same thing until you
@@ -120,7 +191,7 @@ Five things follow, and each was got wrong once:
   is what made this area unpredictable before.
 
 - **No row is ever marked.** A restored page says which page it is with the
-  pips, and with nothing else. An inverted row was tried as a landmark
+  marks and the header, and with nothing else. An inverted row was tried as a landmark
   explaining why the list had not opened at the top, and it has been removed:
   navigation here is touch, the two side keys page, and `frontButtonConfirm` is
   an unassigned pin -- so a highlighted row is a cursor that nothing can move and
@@ -137,7 +208,7 @@ Five things follow, and each was got wrong once:
   folder still reopens on the page it was left on. What went away is drawing that
   row.
 
-Pips rather than prev/next arrows because arrows are up to `pageCount - 1` taps
+Marks rather than prev/next arrows because arrows are up to `pageCount - 1` taps
 to the far end and say nothing about where you are. A right chevron was the
 obvious glyph for "next" and is exactly what could not be used: on this device a
 right chevron already means "opens", and it is the only affordance the player
@@ -277,7 +348,9 @@ game put it on the first. If you touch that bookkeeping, drive it:
 
 # Browsed and walked away without opening anything: the page you were reading.
 # This is the half that was wrong, and the half a launch-only test cannot see.
-./scripts_local/sim-shot.sh '2500:TAP:240,650;4500:SWIPE:400,400,80,400;7000:BACK;9000:TAP:240,650;12000:QUIT' \
+# The swipe is VERTICAL: a sideways one pages nothing here, so the horizontal
+# version of this line passes by never leaving page one.
+./scripts_local/sim-shot.sh '2500:TAP:240,650;4500:SWIPE:240,600,240,300;7000:BACK;9000:TAP:240,650;12000:QUIT' \
                             '11000:qa-artifacts/returned.bmp'
 ```
 

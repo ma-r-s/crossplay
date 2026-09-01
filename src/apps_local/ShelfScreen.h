@@ -75,13 +75,22 @@ struct MenuModel {
   // Which page is showing, and how many there are. A pageCount of 1 draws no
   // page bar at all, so a folder that fits keeps every row it has.
   //
-  // The bar is pips rather than prev/next arrows, and that is not decoration.
-  // Arrows are up to pageCount-1 taps to reach the far end; pips are always one,
-  // which matters most on the panel that is slowest to redraw. They also say
-  // where you are, which arrows do not. A right chevron was the obvious glyph
-  // for "next" and is exactly what could not be used: on this device a right
-  // chevron already means "opens", and it is the only affordance the player bar
-  // has.
+  // The bar is marks rather than prev/next arrows, and that is not decoration.
+  // Arrows are up to pageCount-1 taps to reach the far end; a mark is always
+  // one, which matters most on the panel that is slowest to redraw. They also
+  // say where you are, which arrows do not. A right chevron was the obvious
+  // glyph for "next" and is exactly what could not be used: on this device a
+  // right chevron already means "opens", and it is the only affordance the
+  // player bar has.
+  //
+  // Each mark carries its page NUMBER, and the current one is a filled slab.
+  // They were 10px squares, filled for here and outlined for elsewhere, and a
+  // cold tester called them "the size of a full stop": at that size the
+  // difference between the two states is the only thing saying where you are,
+  // and it is smaller than the ink of one letter. The list resumes on the page
+  // it was left on, so the row in position two is a different game on each
+  // visit -- which makes "which page is this" the one question the screen has
+  // to answer before any tap is safe.
   int page = 0;
   int pageCount = 1;
 };
@@ -141,8 +150,24 @@ int resumeRowFor(int rememberedRow, int itemCount);
 // same page whichever input it was.
 //
 // Wraps because there is no cursor to run off the end of, and a page key that
-// stops working at the last page reads as a broken key.
+// stops working at the last page reads as a broken key. That argument holds
+// where the screen has no legible page indicator to explain the stop; the shelf
+// has one and takes pageStepClamped instead. Kept because Hacker News's story
+// list steps through this.
 int pageStep(int page, int pageCount, int delta);
+
+// The same step, STOPPING at both ends rather than wrapping.
+//
+// A wrap is only safe when the user can see where it put them. Every page of a
+// folder draws its rows at the same eight screen positions, so a page arrived at
+// by accident looks exactly like the page that was wanted, and the next tap
+// opens a different game. A cold tester walked forward off the last page and
+// launched CHECKERS believing it was TRIVIA -- forward from the last page is the
+// one step nobody ever means, so it is the one step that does nothing.
+//
+// The far page stays one tap away on the page bar, which is the same one tap the
+// wrap cost and is why the bar carries marks rather than arrows.
+int pageStepClamped(int page, int pageCount, int delta);
 
 // The body rect the list occupies. `hasPages` is what the page bar costs it, and
 // it is a separate argument rather than derived because pagingFor has to ask

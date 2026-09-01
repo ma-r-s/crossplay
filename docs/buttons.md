@@ -137,12 +137,34 @@ is better, but because the
 moment a button is the only way to reach something we have two input models
 again, and the invisible one wins arguments it should not.
 
-**The swipe follows the axis the content moves on.** The shelf's pages slide
-sideways, so it takes a horizontal swipe: left for the next page. A story list
-and a reader both move DOWN the content, so they take a vertical one: up for
-the next page, the way the page moves under the finger. One rule per app, never
-two, and the same rule in an app's list as in its reader -- learn it once. Back
-is a left-EDGE swipe, so it never collides with either.
+**Paging is VERTICAL, everywhere.** Up for the next page, the way the page
+moves under the finger; down for the previous one. One rule per app, never two,
+and the same rule in an app's list as in its reader -- learn it once.
+
+That used to read "the swipe follows the axis the content moves on", with the
+shelf taking a horizontal swipe because its pages slide sideways, and it ended
+with the line "Back is a left-EDGE swipe, so it never collides with either."
+**That last sentence is false on the horizontal axis, and the shelf paid for
+it.** Back is a left-to-RIGHT swipe anchored in the left 25% of the width
+(`EDGE_SWIPE_SIDE_FRAC`, 120px of 480), which is the same visible gesture as a
+horizontal page-BACK and differs from it only by where the finger started.
+Nothing draws that boundary, so on the shelf a cold tester swiping back from
+page two landed on Home, concluded that back meant exit, and went forward until
+the pages came round -- onto a page they had not noticed, whose second row was
+a different game.
+
+So a horizontal paging axis cannot be symmetrical while Back owns left-to-right,
+and a one-way axis is the asymmetry that was reported. The vertical axis
+collides with nothing: it is orthogonal to Back, which is why the story list and
+the reader never had this problem. The shelf moved onto it, and nothing in
+`apps_local` pages sideways now.
+
+Two vertical bands are consumed above the activity and are worth knowing before
+using them for anything: a down-swipe starting in the top 14% is the light-panel
+gesture, and an up-swipe starting in the bottom 14% is the Home gesture **on
+boards with no home key**. The X4 Pro has a capacitive home key
+(`BoardConfig` `hasHomeKey = true`), so its bottom edge is free and its Home
+gesture is the key; the Sticky has no key and does spend that band.
 
 ---
 
@@ -175,7 +197,11 @@ job the case does not imply, that decision comes back.
 
 1. **Up/Down page wherever there are pages**: the shelf folder, HOW TO PLAY in
    every game, and Hacker News's story list and reader. Behaviour only; nothing
-   is drawn or removed.
+   is drawn or removed. The shelf takes Left/Right too, which are
+   `PIN_UNASSIGNED` on both target boards and exist only in the simulator and
+   the browser emulator -- where all six keys are wired to the arrow keys, and
+   where every arrow moves a cursor on Home. Two of the four doing nothing one
+   level in is the only place a person meets these keys at all.
 2. **design-language.md is wrong and gets corrected.** It says "Keep the
    physical buttons for Back and system functions", and on this device there is
    no physical Back button. The corrected rule is the one in section 4.
