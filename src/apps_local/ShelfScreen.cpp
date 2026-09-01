@@ -53,6 +53,16 @@ int pageCountFor(const int itemCount, const int rowsPerPage) {
   return (itemCount + rowsPerPage - 1) / rowsPerPage;
 }
 
+int rowForPage(const int page, const int rowsPerPage) {
+  if (rowsPerPage <= 0 || page <= 0) return 0;
+  return page * rowsPerPage;
+}
+
+int resumeRowFor(const int rememberedRow, const int itemCount) {
+  if (itemCount <= 0 || rememberedRow <= 0) return 0;
+  return rememberedRow >= itemCount ? itemCount - 1 : rememberedRow;
+}
+
 int pageStep(const int page, const int pageCount, const int delta) {
   if (pageCount <= 1) return 0;
   // Modulo of a negative left operand is negative in C++, so the step is

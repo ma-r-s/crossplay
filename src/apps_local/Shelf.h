@@ -146,11 +146,25 @@ void leave(GfxRenderer& renderer, MappedInputManager& mappedInput);
 // exist; this is how leaving GAMES puts the cursor back on GAMES.
 int lastFolderOnHome();
 
-// Which row of folder `index` was opened last, or 0 if nothing has been. A
-// folder is destroyed when it launches something, so without this you come back
-// from the third game with the cursor on the first. Home has the same problem
-// and the same answer; see lastFolderOnHome().
-int lastItemIn(int index);
+// The row folder `index` should reopen on -- which is to say the PAGE it should
+// reopen on, since the page is the row's. 0 if it has never been left anywhere.
+//
+// A folder is destroyed when it launches something and again when you walk out
+// of it, so without this you come back from the third game with the cursor on
+// the first, and you come back from a book to page one of a folder you had
+// paged to the end of. Home has the same problem and the same answer; see
+// lastFolderOnHome().
+int resumeRowIn(int index);
+
+// Remember that folder `index` is standing on `row`, so that is where it comes
+// back. openItem() does this with the row it opened; the folder itself does it
+// with the first row of every page it turns to, which is what makes leaving a
+// folder WITHOUT opening anything come back to the page you were reading.
+//
+// Written when the page turns rather than on the way out, because there is no
+// reliable way out to hook: the idle timeout deep-sleeps wherever you are, and
+// wake is a chip reset. The write is ~20 bytes beside a full e-ink repaint.
+void rememberRowIn(int index, int row);
 
 // The icon for folder row `index`, for the Home seam to draw. Null-safe.
 const freeink::Icon* folderMark(int index);

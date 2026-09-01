@@ -67,11 +67,16 @@ drawn but not tappable, so before paging existed every row past the ninth could
 be reached only with the physical buttons, on a device whose games are
 touch-only on purpose. Scrolling was not worse-looking; it was unreachable.
 
-Four things follow, and each was got wrong once:
+Five things follow, and each was got wrong once:
 
-- **The page is derived from the selection, never stored.** Two facts that must
-  agree are one fact stored once. A page member drifts the moment a button moves
-  the cursor off it, and then the screen styles a row it is not showing.
+- **The page is derived from the selection, never held beside it.** Two facts
+  that must agree are one fact stored once. A page member drifts the moment a
+  button moves the cursor off it, and then the screen styles a row it is not
+  showing. What crosses a reboot is that same single fact: the row. A page is
+  written down as the row it starts at (`shelfui::rowForPage`), never as a page
+  number -- rows per page is a property of the panel and the chrome, so a stored
+  page number would mean a different set of games the first time a token moves,
+  silently, while a stored row is the same game either way.
 - **The screen is handed a slice, not the folder plus an offset.** The list
   component clamps `topIndex` to `count - visible` so its last screen is always
   full (`list.h:164`), which is right for scrolling and wrong for paging: page
@@ -93,16 +98,38 @@ Four things follow, and each was got wrong once:
   found the taps by accident and used them as their only reliable route, and a
   third never tried them and reported that the list could not be paged at all.
   An indicator that is also the reliable control has to look like a control.
-- **A restored page has to say what restored it.** The folder reopens on the
-  page of the game you last opened -- `lastItem` in `shelf.cfg`, read by
-  `onEnter` -- and that row is drawn selected on arrival. Without the mark the
-  restored page is indistinguishable from page one, and the whole difference is
-  three pips nobody reads: three cold testers each tapped the row they wanted
-  from page one and got its neighbour two pages down, and each concluded the
-  pager was broken and nondeterministic. It is neither; the start page is a
-  saved value and was invisible. The mark is a landmark and not a cursor --
-  there is no Confirm on this device, so nothing can act on it -- and the first
-  page change clears it, because after that `selected` is only the page carrier.
+- **A folder reopens where it was left, which is the page you were ON.** Not the
+  page holding the game you last launched. Those are the same thing until you
+  browse and walk away, and browsing and walking away is most of what a shelf is
+  for: paging to three and then leaving to read a book used to come back to page
+  one. `resumeRow` in `shelf.cfg` is the stored fact, written by the two things
+  that leave a folder standing somewhere -- opening an item (that item's row) and
+  turning the page (the new page's first row) -- and read by `onEnter`.
+
+  Written when the page turns rather than on the way out, because there is no way
+  out to hook: Back destroys the activity and the idle timeout deep-sleeps
+  wherever you happen to be, with wake a chip reset. Twenty bytes beside a
+  full-panel repaint.
+
+  **A folder that shrank under you opens on its LAST page**, never back at the
+  top. A game removed by a firmware update leaves a card pointing past the end,
+  and what was remembered was "near the end of this folder" -- the nearest
+  surviving place to that is the end. `shelfui::resumeRowFor` is that rule, named
+  rather than left to a clamp, because a clamp that cannot produce the last page
+  is what made this area unpredictable before.
+- **A restored page has to say what restored it.** The resumed row is drawn
+  selected on arrival. Without the mark the restored page is indistinguishable
+  from page one, and the whole difference is three pips nobody reads: three cold
+  testers each tapped the row they wanted from page one and got its neighbour two
+  pages down, and each concluded the pager was broken and nondeterministic. It is
+  neither; the start page is a saved value and was invisible. The mark is a
+  landmark and not a cursor -- there is no Confirm on this device, so nothing can
+  act on it -- and the first page change clears it, because after that `selected`
+  is only the page carrier.
+
+  The mark was necessary and was not sufficient. It shipped, and Mario still hit
+  the folder opening somewhere he had not left it, because the value it was
+  faithfully explaining was the wrong value.
 
 Pips rather than prev/next arrows because arrows are up to `pageCount - 1` taps
 to the far end and say nothing about where you are. A right chevron was the
@@ -219,8 +246,13 @@ drawn" is not the same as asserting "the control is not there".
 activities, so it pulls in `ActivityManager` and cannot be built freestanding.
 
 Its whole job is four facts -- which folder is open, which folder Home should
-select, which row each folder should select, and which item was open when the
+select, which page each folder should reopen on, and which item was open when the
 device went to sleep -- and those are verified in the simulator instead.
+
+The arithmetic underneath the third one is not in that exception:
+`shelfui::rowForPage` and `shelfui::resumeRowFor` are pure and live in the `ui`
+suite, where the round trip (a page stored as a row comes back as the same page)
+and the shrunken-folder rule are properties rather than examples.
 
 The last three of those outlive a reboot, in `/.crosspoint/shelf.cfg` beside
 `player.cfg`. They are plain `.bss` otherwise, and `main.cpp` deep-sleeps on the
@@ -233,11 +265,19 @@ leaving a folder put the cursor on Browse Files, and returning from the third
 game put it on the first. If you touch that bookkeeping, drive it:
 
 ```bash
-./scripts/sim-shot.sh '2500:DOWN;2700:DOWN;2900:DOWN;3100:DOWN;4000:ENTER;5000:DOWN;5200:DOWN;5400:DOWN;6200:ENTER;10000:BACK;13000:QUIT' \
-                      '12000:qa-artifacts/returned.bmp'
+# Opened a game and came back: the row you opened, on its page.
+./scripts_local/sim-shot.sh '2500:TAP:240,650;4500:TAP:285,687;7000:TAP:240,275;12000:BACK;15000:QUIT' \
+                            '14000:qa-artifacts/returned.bmp'
+
+# Browsed and walked away without opening anything: the page you were reading.
+# This is the half that was wrong, and the half a launch-only test cannot see.
+./scripts_local/sim-shot.sh '2500:TAP:240,650;4500:SWIPE:400,400,80,400;7000:BACK;9000:TAP:240,650;12000:QUIT' \
+                            '11000:qa-artifacts/returned.bmp'
 ```
 
-The cursor should come back on the row you opened.
+Both must come back on the page they left, and the first must come back on the
+row it opened. Drive both: they were the same behaviour for as long as the stored
+value was the launched item, so a run that only launches passes either way.
 
 ## Wake comes back into the app, not to Home
 

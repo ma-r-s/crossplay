@@ -1385,6 +1385,80 @@ void testAPageStepMovesExactlyOnePage() {
   }
 }
 
+// A folder comes back to the page it was left on, and it is a ROW that carries
+// that across the reboot.
+//
+// Mario, on the device, after the restored page had been made visible: "if I
+// navigate to page two and then leave to read a book and then come back, I
+// should still be taken to page two." What was stored was the page holding the
+// game he last LAUNCHED, which is the same page right up until he browses and
+// walks away, and browsing and walking away is most of what a shelf is for.
+//
+// Asserted as arithmetic because the activity that writes the row cannot be
+// built here -- it needs the ActivityManager. What can be pinned down here is
+// the pair of rules that make the stored row mean a page at all: that a page
+// round-trips through the row that stands for it, and what happens when the page
+// it stood for is gone.
+void testAFolderComesBackToThePageItWasLeftOn() {
+  // A page is stored as its first row, and comes back as the same page. Every
+  // page of every plausible folder, not three examples: a stored row that
+  // reopened one page out is the original bug wearing different clothes.
+  for (int rows = 1; rows <= 12; ++rows) {
+    for (int page = 0; page < 9; ++page) {
+      CHECK(shelfui::pageFor(shelfui::rowForPage(page, rows), rows) == page);
+    }
+  }
+  // The first row of page one is the top of the list, which is where a folder
+  // nobody has left anywhere opens: an unvisited folder needs no stored value to
+  // behave, and page zero must not be a special case anywhere else either.
+  CHECK(shelfui::rowForPage(0, 9) == 0);
+
+  // A row inside the folder is where it says it is.
+  CHECK(shelfui::resumeRowFor(0, 19) == 0);
+  CHECK(shelfui::resumeRowFor(13, 19) == 13);
+  CHECK(shelfui::resumeRowFor(18, 19) == 18);
+
+  // A row past the end lands on the LAST page, never back at the top. This is
+  // the removed-game case: the card outlives the firmware that wrote it, so the
+  // folder can be shorter than it was, and page one throws away the one thing
+  // that was remembered.
+  for (int count = 1; count <= 24; ++count) {
+    for (int rows = 1; rows <= 10; ++rows) {
+      const int last = shelfui::pageCountFor(count, rows) - 1;
+      for (int stored = count; stored < count + 30; ++stored) {
+        const int row = shelfui::resumeRowFor(stored, count);
+        CHECK(row == count - 1);
+        CHECK(shelfui::pageFor(row, rows) == last);
+      }
+    }
+  }
+
+  // And the shrink is a real one, not a folder that collapsed to a single page:
+  // nineteen games remembered at the end, two removed, still the last page and
+  // still not page one. A "fix" that reset an out-of-range row to the top passes
+  // every check above this one and fails these two.
+  constexpr int kWas = 19;
+  constexpr int kNow = 17;
+  const shelfui::Paging paging = shelfui::pagingFor(device(), toybox::themeTokens(), true, kNow);
+  CHECK(paging.pageCount > 1);
+  const int resumed = shelfui::pageFor(shelfui::resumeRowFor(kWas - 1, kNow), paging.rowsPerPage);
+  CHECK(resumed == paging.pageCount - 1);
+  CHECK(resumed != 0);
+
+  // An empty folder has one page and it is page one. There is no such folder in
+  // the registry today, and the arithmetic must not divide by it if there ever
+  // is: a folder that shrank to nothing is the limit of the case above.
+  CHECK(shelfui::resumeRowFor(7, 0) == 0);
+  CHECK(shelfui::pageFor(shelfui::resumeRowFor(7, 0), 9) == 0);
+  CHECK(shelfui::pageCountFor(0, 9) == 1);
+
+  // A corrupt or negative row is the top, which is also what an unwritten file
+  // gives. Nothing here may go below zero and index off the front of a page.
+  CHECK(shelfui::resumeRowFor(-4, 19) == 0);
+  CHECK(shelfui::rowForPage(-1, 9) == 0);
+  CHECK(shelfui::resumeRowFor(5, -1) == 0);
+}
+
 // The marks are a control, and a control has to look like one.
 //
 // They were always tappable and always the reliable way to page; two cold
@@ -6105,6 +6179,7 @@ int main() {
   testShelfIconsFollowTheRowsWhenTheListScrolls();
   testTheShelfPagesWhenAFolderOverflows();
   testAPageStepMovesExactlyOnePage();
+  testAFolderComesBackToThePageItWasLeftOn();
   testThePageMarksReadAsAControl();
   testTheResumedRowIsMarkedSoTheRestoredPageExplainsItself();
   testAFolderWithoutADeviceNameHasNoFooter();
