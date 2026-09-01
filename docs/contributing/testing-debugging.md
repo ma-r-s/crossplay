@@ -93,6 +93,13 @@ The same applies to a `grep` over a codebase, a suite run against a subset, and
 a screenshot taken at the moment you expected the bug -- every one of them
 decides its own scope from an assumption about the answer.
 
+And the reason it keeps happening, which is the part worth internalising:
+**narrowing feels like rigour.** A grep with four tokens in it looks more
+careful than `cat`, and it is less careful, because it has silently answered
+the question it was meant to ask. The person who wrote that filter was
+investigating the very fault it hid, and still built it from the subsystem's
+name rather than from what the failure would say.
+
 ## A check that fails silently is worse than one that fails loudly
 
 **In a shell harness, `set -o pipefail` turns "matched nothing" into "the
