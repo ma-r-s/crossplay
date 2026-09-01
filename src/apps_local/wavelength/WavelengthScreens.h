@@ -118,6 +118,10 @@ struct PassModel {
   int roundNumber = 1;
   int total = 0;
   bool practice = false;
+  // Set when the previous round was backed out of rather than played. Silent,
+  // it looks exactly like a normal pass, so a clue-giver who did not like their
+  // target could abandon and redraw with nobody at the table any the wiser.
+  bool abandoned = false;
 };
 
 // The hold-to-reveal pad, so the activity tests a held finger against the very

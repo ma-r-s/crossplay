@@ -141,6 +141,7 @@ void WavelengthActivity::choose(const int which) {
   dirty = true;
   target = wl::drawTarget(rng);
   hasPeeked = false;
+  abandoned = false;
   guess = wl::kSlots / 2;
   practiceRound = session.isPractice();
   go(View::Peek);
@@ -259,6 +260,7 @@ void WavelengthActivity::loop() {
       // easy axis and the deck's strangest cards would never be played.
       flashOnNextPaint = true;
       go(View::PassLeft);
+      abandoned = true;
     } else if (view != View::Menu) {
       go(View::Menu);
     } else {
@@ -510,6 +512,7 @@ void WavelengthActivity::render(RenderLock&&) {
       model.roundNumber = session.round;
       model.total = session.total;
       model.practice = session.isPractice();
+      model.abandoned = abandoned;
       wavelengthui::renderPassLeft(screen, model);
       break;
     }

@@ -30,7 +30,7 @@ class WavelengthActivity final : public Activity {
   // touches the glass, and a device that sleeps mid-argument has to be woken by
   // somebody who then sees the screen. INSIDER only suppressed sleep while its
   // clock ran; this game has no clock and needs it anyway.
-  bool preventAutoSleep() override { return committed(view) || view == View::PassLeft; }
+  bool preventAutoSleep() override { return committed(view) || view == View::PassLeft || view == View::Pick; }
 
  private:
   // The round, in the order the device is passed. Everything from Peek onward
@@ -76,6 +76,7 @@ class WavelengthActivity final : public Activity {
   uint32_t stepHoldStartMs = 0;
   uint32_t lastRepeatMs = 0;
   bool hasPeeked = false;
+  bool abandoned = false;
   bool nudgeHold = false;
   uint32_t peekStartMs = 0;
   // How long the band must actually have been on the panel before the clue

@@ -350,6 +350,11 @@ void renderPassLeft(toybox::Screen& screen, const PassModel& model) {
   caps(screen, fui::makeRect(toybox::kMargin, 530, inner, toybox::kDisplayCut.lineHeight), "LOOK AWAY.",
        toybox::kBodyFont, fui::TextAlign::Center);
 
+  if (model.abandoned) {
+    caps(screen, fui::makeRect(toybox::kMargin, 120, inner, toybox::kButtonCut.lineHeight), "LAST ROUND WAS ABANDONED",
+         toybox::kSmallFont, fui::TextAlign::Center);
+  }
+
   char line[40];
   if (model.practice) {
     snprintf(line, sizeof(line), "PRACTICE ROUND");
@@ -476,7 +481,7 @@ void renderPeek(toybox::Screen& screen, const PeekModel& model) {
   fui::ButtonProps done;
   done.label = model.everRevealed ? "I HAVE MY CLUE" : "LOOK FIRST";
   done.text = toybox::buttonText(screen.theme());
-  done.action = model.everRevealed ? ActionClueGiven : fui::NO_ACTION;
+  done.action = model.everRevealed ? static_cast<fui::ActionId>(ActionClueGiven) : fui::NO_ACTION;
   if (!model.everRevealed) done.styles = toybox::disabledStepperStyles();
   screen.button(done, footer(screen, 58, toybox::kMargin));
 }
@@ -799,7 +804,7 @@ void renderMenu(toybox::Screen& screen, const MenuModel& model) {
   fui::ButtonProps end;
   end.label = "END SESSION";
   end.text = toybox::buttonText(screen.theme());
-  end.action = model.sessionInProgress ? ActionEndSession : fui::NO_ACTION;
+  end.action = model.sessionInProgress ? static_cast<fui::ActionId>(ActionEndSession) : fui::NO_ACTION;
   if (!model.sessionInProgress) end.styles = toybox::disabledStepperStyles();
   screen.button(end, fui::makeRect(toybox::kMargin, 674, inner, 54));
 }
