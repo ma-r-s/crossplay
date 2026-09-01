@@ -207,7 +207,14 @@ fi
 # --no-renames reports the pair as a delete plus an add, so BOTH endpoints are
 # classified and the old path forces the build. The `sed 's/ -> /\n/'` below
 # was already there for the same hazard in `git status --porcelain`, whose
-# rename format DOES carry an arrow -- so the author had seen this coming and
+# rename format DOES carry an arrow -- and that naive first-occurrence split is
+# safe for a structural reason worth writing down, because it looks unsafe: a
+# path containing the literal " -> " makes git quote the endpoint
+# UNCONDITIONALLY, regardless of core.quotePath, and a quoted fragment begins
+# with a `"` that no inert() pattern can match. So a mangled split always leaves
+# at least one fragment that falls through to "needed". A review tried
+# core.quotePath, spaces, quotes, embedded newlines and non-ASCII against it and
+# could not hide a firmware path -- so the author had seen this coming and
 # the fix simply never reached the committed half, which is the half
 # --committed uses exclusively (its trial worktree is a clean checkout, so
 # `git status` there is empty by construction).
@@ -228,25 +235,70 @@ if [ -n "$DEVICE_ONLY" ]; then
   # gate see it at all". The simulator target does not compile what sits behind
   # FREEINK_DEVICE_* guards, what calls ESP-IDF directly, or the SDK driver
   # layer, so for such a branch a green host gate is not weak evidence, it is
-  # NO evidence. Conservative by construction, same direction as everything
-  # else here: anything it cannot rule out keeps its device build.
+  # NO evidence.
+  #
+  # THIS WAS A DENYLIST UNTIL 2026-09-01, while its comment claimed it was
+  # "conservative by construction... anything it cannot rule out keeps its
+  # device build". That sentence described the behaviour below; the code did
+  # the opposite. It demanded a device gate ONLY for freeink-sdk,
+  # platformio*.ini, partitions.csv, and src|lib files carrying an ESP-IDF
+  # marker -- and answered "host-green is sufficient" for EVERYTHING else, with
+  # no crafted input required:
+  #
+  #   scripts_local/require_build_lock.py  runs INSIDE every device build
+  #   scripts_local/check.sh               the gate's own machinery
+  #   scripts/build_html.py                a pre: generator, runs in the build
+  #   nix/flake.nix                        pins which pio and which toolchain
+  #   brandnew/x.c                         a new top-level directory
+  #   deleting src/main.cpp                `[ -f ]` failed, so it was skipped
+  #
+  # That is not plumbing: docs/contributing/landing-and-integration.md points
+  # humans at this exact command as the bar for landing on host-green. Someone
+  # editing build infrastructure was told it was safe to land, and no device
+  # build ever confirmed the edit. The comment being right is precisely why
+  # nobody read the code.
+  #
+  # It is an ALLOWLIST now, and it delegates the first question to inert()
+  # rather than restating it -- one spelling of the rule, for the reason this
+  # file keeps repeating. Three ways to be sufficient, and unknown is not one:
+  #
+  #   1. inert()      cannot reach a device image, so no device build could
+  #                   report anything about it either way.
+  #   2. src/ or lib/ WITH the file present and free of device-only markers:
+  #                   the host target really does compile it.
+  #   3. nothing else.
   while IFS= read -r path; do
     [ -n "$path" ] || continue
+
+    inert "$path" && continue
+
     case "$path" in
       freeink-sdk|platformio*.ini|partitions.csv)
         say "device gate required before landing ($path is not compiled by the host target)"
         exit 0 ;;
     esac
+
     case "$path" in
       src/*|lib/*)
-        [ -f "$path" ] || continue
+        # A deleted or renamed-away file cannot be inspected, and "I could not
+        # look" must never read as "I looked and it was fine". The old code
+        # `continue`d here, so removing a translation unit landed on host-green.
+        if [ ! -f "$path" ]; then
+          say "device gate required before landing ($path is gone from the tree; nothing here can be inspected)"
+          exit 0
+        fi
         if grep -qE 'FREEINK_DEVICE_|esp_[a-z_]+\(|#include <esp|driver/' "$path" 2>/dev/null; then
           say "device gate required before landing ($path contains code the host target does not compile)"
           exit 0
-        fi ;;
+        fi
+        continue ;;
     esac
+
+    # Unknown. The entire point of the shape.
+    say "device gate required before landing ($path is not covered by the host target)"
+    exit 0
   done <<< "$CHANGED"
-  say "host-green is sufficient (nothing here is invisible to the host target)"
+  say "host-green is sufficient (every changed path is inert or compiled by the host target)"
   exit 1
 fi
 

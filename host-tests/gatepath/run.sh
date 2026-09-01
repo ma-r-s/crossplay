@@ -256,6 +256,40 @@ dev "platformio.ini" yes
 reset_tree; printf 'int f(){return 1;}\n' > src/plain.cpp; q git add -A; q git commit -m a
 dev "a plain src/ file the host target compiles" no
 
+# --device-only WAS A DENYLIST until 2026-09-01, and this suite could not see
+# it: the six cases above are docs/, freeink-sdk, platformio.ini and three
+# src/* shapes, which are exactly the paths the old code named. Every fixture
+# agreed with the code's own assumption about where the answer would be, so the
+# whole "everything else falls through to host-green" half was untested.
+#
+# These are that half. Each one is a real edit somebody makes, and each one was
+# told "host-green is sufficient" by the documented landing command.
+reset_tree; echo edit >> scripts_local/require_build_lock.py; q git add -A; q git commit -m d1
+dev "scripts_local/ (it runs INSIDE the device build)" yes
+reset_tree; echo edit >> scripts_local/check.sh; q git add -A; q git commit -m d2
+dev "scripts_local/check.sh (the gate's own machinery)" yes
+reset_tree; echo edit >> scripts/build_html.py; q git add -A; q git commit -m d3
+dev "scripts/ (a pre: generator that runs in the build)" yes
+reset_tree; echo edit >> nix/flake.nix; q git add -A; q git commit -m d4
+dev "nix/ (pins which pio and which toolchain)" yes
+reset_tree; mkdir -p unheardof; echo x > unheardof/x.c; q git add -A; q git commit -m d5
+dev "an unrecognised top-level directory" yes
+
+# "I could not look" must never read as "I looked and it was fine". The old
+# code did `[ -f "$path" ] || continue`, so REMOVING a translation unit from
+# the image landed on host-green.
+reset_tree; q git rm -q src/main.cpp; q git commit -m d6
+dev "deleting a src/ file" yes
+reset_tree; q git mv src/main.cpp docs/main.cpp; q git commit -m d7
+dev "git mv a src/ file out of src/" yes
+
+# And the directions that must NOT regress into paranoia: an inert path still
+# lands on host-green, whatever else is true of it.
+reset_tree; echo edit >> .github/workflows/ci.yml; q git add -A; q git commit -m d8
+dev ".github/ (a local device build says nothing about it)" no
+reset_tree; echo edit >> scripts_local/README.md; q git add -A; q git commit -m d9
+dev "scripts_local/README.md (prose is still prose)" no
+
 # The same file once it reaches for something the host target does not have.
 reset_tree; printf '#include <esp_sleep.h>\nint f(){return 1;}\n' > src/plain.cpp
 q git add -A; q git commit -m e
