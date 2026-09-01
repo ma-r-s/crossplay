@@ -1980,6 +1980,22 @@ bool drewText(const Rendered& out, const char* needle) {
   return false;
 }
 
+// Present is not the same as legible. drewText() sees the string the builder
+// HANDED the renderer, and the renderer is what shortens it -- so a button
+// whose box is too narrow for its own label passes every "did it draw?" check
+// while the panel says "UNDO A...". This asks the target to measure the run it
+// recorded against the rect it was given, which is the one comparison the
+// truncation is decided by.
+bool drewLabelWhole(const Rendered& out, const char* needle) {
+  bool found = false;
+  for (const auto& run : out.target.texts) {
+    if (run.text != needle) continue;
+    found = true;
+    if (out.target.measureText(run.style.font, run.text.c_str(), run.style).width > run.rect.width) return false;
+  }
+  return found;
+}
+
 void testHnReaderFooter() {
   Rendered out;
   hnui::ReaderModel model = articleModel();
@@ -5436,6 +5452,105 @@ void testArchiveIsLiveOnTheLastPage() {
   CHECK(sawArchive);
 }
 
+// ARCHIVE is the one control in this app that changes anything outside the
+// screen it is on, and it used to be the WIDE MIDDLE of the reader's footer --
+// the easiest target on the panel, directly between the two controls a reader
+// taps on every page. A miss while paging took the article away, silently.
+//
+// This asserts the geometry that fixes it, over every pixel of the bar rather
+// than over three sampled points: no archive pixel may sit between two page
+// pixels, and the two families may not touch.
+void testArchiveIsNotBetweenThePageControls() {
+  Rendered out;
+  instapaperui::ReaderModel model = instaArticleModel();
+  model.canPagePrev = true;
+  model.canPageNext = true;
+  buildInstaReader(out, model);
+
+  const fui::DeviceContext ctx = device();
+  const int16_t footerY = static_cast<int16_t>(ctx.height - toybox::kMargin - toybox::kPillHeight / 2);
+  int archiveLeft = ctx.width;
+  int archiveRight = -1;
+  int pageLeft = ctx.width;
+  int archivePixels = 0;
+  int prevPixels = 0;
+  int nextPixels = 0;
+  for (int x = 0; x < ctx.width; ++x) {
+    const fui::ActionEvent event = out.tap(x, footerY);
+    if (event.action == instapaperui::ActionArchive) {
+      ++archivePixels;
+      if (x < archiveLeft) archiveLeft = x;
+      archiveRight = x;
+    }
+    if (event.action == instapaperui::ActionPagePrev) ++prevPixels;
+    if (event.action == instapaperui::ActionPageNext) ++nextPixels;
+    if ((event.action == instapaperui::ActionPagePrev || event.action == instapaperui::ActionPageNext) &&
+        x < pageLeft) {
+      pageLeft = x;
+    }
+  }
+  CHECK(archivePixels > 0);
+  CHECK(prevPixels > 0);
+  CHECK(nextPixels > 0);
+  // Every archive pixel is left of every page pixel.
+  CHECK(archiveRight < pageLeft);
+  // And the two do not touch: a thumb that misses a page control has a gap to
+  // cross before it reaches the destructive one.
+  CHECK(pageLeft - archiveRight > toybox::kGutter);
+  // And the word survives whole. Its box is sized from the label rather than
+  // as a fraction of the bar, because a fraction is a number nobody re-checks
+  // when the reading face changes under it.
+  CHECK(drewLabelWhole(out, "ARCHIVE"));
+  CHECK(archiveLeft >= 0);
+  // And the page controls keep a box a thumb can hit, which is the constraint
+  // the archive box is capped BY rather than a second number about it.
+  CHECK(prevPixels >= fui::ButtonProps{}.minTouchSize);
+  CHECK(nextPixels >= fui::ButtonProps{}.minTouchSize);
+}
+
+// The undo lives on the queue and only while there is something to undo. It is
+// what makes a mis-tapped archive recoverable without charging every
+// deliberate archive a confirmation tap.
+void testTheQueueOffersUndoOnlyAfterAnArchive() {
+  fui::ListItem row{};
+  row.label = "Something to read";
+  row.subtitle = "6 min . example.com";
+  row.value = "";
+  row.actionValue = 0;
+
+  const fui::DeviceContext ctx = device();
+  const int16_t footerY = static_cast<int16_t>(ctx.height - toybox::kMargin - toybox::kPillHeight / 2);
+
+  Rendered quiet;
+  instapaperui::QueueModel model;
+  model.items = &row;
+  model.count = 1;
+  buildInstaQueue(quiet, model);
+  CHECK(!drewText(quiet, "PUT BACK"));
+  for (int x = toybox::kMargin; x < ctx.width - toybox::kMargin; x += 8) {
+    CHECK(quiet.tap(x, footerY).action != instapaperui::ActionUndoArchive);
+  }
+
+  Rendered offered;
+  model.canUndoArchive = true;
+  buildInstaQueue(offered, model);
+  // Either label is fine -- the builder drops to the short one at a cut where
+  // the long one will not fit -- but whichever it drew has to fit its box.
+  CHECK(drewLabelWhole(offered, "PUT BACK") || drewLabelWhole(offered, "BACK"));
+  bool sawUndo = false;
+  bool sawSync = false;
+  for (int x = toybox::kMargin; x < ctx.width - toybox::kMargin; x += 4) {
+    const fui::ActionId action = offered.tap(x, footerY).action;
+    if (action == instapaperui::ActionUndoArchive) sawUndo = true;
+    if (action == instapaperui::ActionSync) sawSync = true;
+  }
+  // Both, because an undo that took the whole bar would cost the reader the
+  // control they came to this screen for.
+  CHECK(sawUndo);
+  CHECK(sawSync);
+  CHECK(!offered.interactions.overflowed());
+}
+
 // A title wider than the band must be cut on a word and marked, never clipped
 // mid-word: a word broken in half reads as a rendering fault.
 void testALongTitleIsEllipsisedRatherThanClipped() {
@@ -5797,6 +5912,8 @@ int main() {
   testTheQueueTitleWidthLeavesRoomForThePosition();
   testTheReaderPagesAndArchives();
   testArchiveIsLiveOnTheLastPage();
+  testArchiveIsNotBetweenThePageControls();
+  testTheQueueOffersUndoOnlyAfterAnArchive();
   testALongTitleIsEllipsisedRatherThanClipped();
   testTheReaderTextGoesInTheReaderBody();
   testWavelengthEveryRevealOffersAWayOn();
