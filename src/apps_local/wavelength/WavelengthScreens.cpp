@@ -236,11 +236,15 @@ void renderDial(toybox::Screen& screen, const DialModel& model) {
 
   const fui::Rect label = fui::makeRect(g.right.x, static_cast<int16_t>(numeral.y + numeral.height + 6), g.right.width,
                                         toybox::kButtonCut.lineHeight);
-  caps(screen, label, "YOUR GUESS", toybox::kSmallFont, fui::TextAlign::Center);
-  fill(screen, fui::makeRect(static_cast<int16_t>(g.right.x + 20), static_cast<int16_t>(label.y + label.height + 14),
+  caps(screen, label, "ONE GUESS", toybox::kSmallFont, fui::TextAlign::Center);
+  const fui::Rect label2 =
+      fui::makeRect(label.x, static_cast<int16_t>(label.y + label.height), label.width, toybox::kButtonCut.lineHeight);
+  caps(screen, label2, "FOR THE TABLE", toybox::kSmallFont, fui::TextAlign::Center);
+  const int16_t labelBottom = static_cast<int16_t>(label2.y + label2.height);
+  fill(screen, fui::makeRect(static_cast<int16_t>(g.right.x + 20), static_cast<int16_t>(labelBottom + 14),
                              static_cast<int16_t>(g.right.width - 40), toybox::kRule));
 
-  const int16_t hintY = static_cast<int16_t>(label.y + label.height + 30);
+  const int16_t hintY = static_cast<int16_t>(labelBottom + 30);
   caps(screen, fui::makeRect(g.right.x, hintY, g.right.width, toybox::kButtonCut.lineHeight), "TAP A SLOT",
        toybox::kSmallFont, fui::TextAlign::Center);
   caps(screen,
@@ -543,8 +547,10 @@ void renderPeek(toybox::Screen& screen, const PeekModel& model) {
   }
 
   const int16_t textTop = static_cast<int16_t>(g.right.y + toybox::kHugeCut.lineHeight + 10);
-  static const char* kLines[] = {"SAY ONE THING", "THAT SITS", "EXACTLY THERE", "", "ONLY ONE.", "DO NOT ADD TO IT."};
-  for (int i = 0; i < 6; ++i) {
+  static const char* kLines[] = {
+      "SAY ONE THING", "THAT SITS",        "EXACTLY THERE", "", "TWO EITHER SIDE", "STILL SCORES", "",
+      "ONLY ONE.",     "DO NOT ADD TO IT."};
+  for (int i = 0; i < 9; ++i) {
     if (!kLines[i][0]) continue;
     caps(screen,
          fui::makeRect(g.right.x, static_cast<int16_t>(textTop + i * toybox::kButtonCut.lineHeight), g.right.width,

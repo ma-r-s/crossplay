@@ -5252,6 +5252,84 @@ void testTheReaderTextGoesInTheReaderBody() {
 // early return and looked entirely finished without it: a cold table tried
 // fourteen different gestures and sixteen seconds of waiting on the first round
 // of the very first session.
+// Nothing is drawn through anything else. Three separate times this app moved
+// or added one element and did not check what it landed on: a large session
+// average composited into a small reference number on the end screen, and a
+// hairline rule struck straight through the label under the guess. Both looked
+// completely finished in code and were only visible in a render.
+//
+// Two checks, because the two failures have different shapes: no two pieces of
+// text may overlap, and a RULE -- a fill thin enough to be a hairline -- may not
+// cross any text. Thick fills are buttons and legitimately sit under their own
+// labels, so they are excluded rather than special-cased away.
+void testWavelengthNothingIsDrawnThroughAnything() {
+  const auto inkOf = [](const FakeTarget::TextRun& run) {
+    const int16_t measured = static_cast<int16_t>(run.text.size() * 10);
+    const int16_t w = measured < run.rect.width ? measured : run.rect.width;
+    int16_t x = run.rect.x;
+    if (run.style.align == fui::TextAlign::Right)
+      x = static_cast<int16_t>(run.rect.x + run.rect.width - w);
+    else if (run.style.align == fui::TextAlign::Center)
+      x = static_cast<int16_t>(run.rect.x + (run.rect.width - w) / 2);
+    return fui::Rect{x, run.rect.y, w, run.rect.height};
+  };
+  const auto overlaps = [](const fui::Rect& a, const fui::Rect& b) {
+    return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+  };
+  struct Case {
+    const char* name;
+    void (*build)(Rendered&);
+  };
+  static const Case kCases[] = {
+      {"dial",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::DialModel m;
+         m.spectrum = wavelengthui::Spectrum{"HOT", "COLD"};
+         m.guess = 13;
+         wavelengthui::renderDial(screen, m);
+       }},
+      {"summary",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::SummaryModel m;
+         m.rounds = 7;
+         m.total = 19;
+         m.averageTenths = 27;
+         wavelengthui::renderSummary(screen, m);
+       }},
+  };
+
+  for (const Case& c : kCases) {
+    Rendered out;
+    c.build(out);
+    const auto& texts = out.target.texts;
+    for (size_t i = 0; i < texts.size(); ++i) {
+      for (size_t j = i + 1; j < texts.size(); ++j) {
+        if (!overlaps(inkOf(texts[i]), inkOf(texts[j]))) continue;
+        std::printf("  %s: %s overlaps %s\n", c.name, texts[i].text.c_str(), texts[j].text.c_str());
+        CHECK(false);
+        return;
+      }
+    }
+    for (const fui::Rect& f : out.target.fills) {
+      if (f.height > toybox::kRule) continue;  // a rule, not a button
+      for (const FakeTarget::TextRun& t : texts) {
+        if (!overlaps(f, inkOf(t))) continue;
+        std::printf("  %s: a rule is drawn through %s\n", c.name, t.text.c_str());
+        CHECK(false);
+        return;
+      }
+    }
+  }
+}
+
 void testWavelengthEveryRevealOffersAWayOn() {
   for (const bool practice : {false, true}) {
     Rendered out;
@@ -5509,6 +5587,7 @@ int main() {
   testALongTitleIsEllipsisedRatherThanClipped();
   testTheReaderTextGoesInTheReaderBody();
   testWavelengthSpectrumEndsShareOneSize();
+  testWavelengthNothingIsDrawnThroughAnything();
   testWavelengthEveryRevealOffersAWayOn();
   testWavelengthEverySlotIsTappable();
   testFitLinesCutsAnUnbreakableTokenRatherThanVanishing();
