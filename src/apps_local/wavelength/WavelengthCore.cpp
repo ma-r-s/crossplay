@@ -25,7 +25,7 @@ int scoreForGuess(const int guess, const int target) {
 
 bool endCallCorrect(const int guess, const int target, const Call call) {
   if (!inRange(guess) || !inRange(target)) return false;
-  if (target == guess) return true;  // see the header: keeps scoring monotone
+  if (target == guess) return false;  // no side to be on; pays nothing
   return target > guess ? call == Call::TowardTop : call == Call::TowardBottom;
 }
 

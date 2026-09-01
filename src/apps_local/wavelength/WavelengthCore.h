@@ -95,12 +95,18 @@ int scoreForGuess(int guess, int target);
 
 // Was the end-call right?
 //
-// The call is made before the reveal, so a table that locked exactly on the
-// target cannot have called either way correctly. It counts as correct anyway,
-// which is invisible at the table and keeps the scoring monotone: a perfect
-// round always pays kPointsExact + kPointsEndCall and can never be beaten by a
-// worse one. Without it the best outcome of the night could score less than an
-// off-by-one, and there would be no answer when somebody asked why.
+// An exact lock has no side, so it is neither right nor wrong and pays nothing.
+// A perfect round is still unbeatable without the bonus, because the best a
+// non-exact round can reach is kPointsOffByOne + kPointsEndCall = 4 against
+// kPointsExact = 5; testPerfectRoundIsUnbeatable asserts that exhaustively.
+//
+// It used to count as correct, justified by a monotonicity argument that was
+// arithmetically false, and it made an exact lock pay 6 while every screen in
+// the app said 5. A player doing the arithmetic caught it.
+//
+// The call is still ASKED on an exact lock, and must be: the device knows the
+// guess is exact and the table does not, so skipping the question would leak
+// the result before the reveal.
 bool endCallCorrect(int guess, int target, Call call);
 
 // The whole round, guess and call together.

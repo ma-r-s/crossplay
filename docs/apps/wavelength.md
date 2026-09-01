@@ -41,17 +41,51 @@ passing the device back to the clue-giver for the reveal.
 | 8   | REVEAL          | Full refresh. Band, guess, points, verdict.                    |
 | 9   | SESSION         | Totals against a reference, and the ornament again.            |
 
-Back unwinds to the menu, except from the peek onward, where it **abandons the
-round and passes left**, and on the reveal, where it also returns to the menu.
+Back unwinds to the menu, except inside a round, where it opens the **pause**,
+and on the reveal, where it returns to the menu.
 Back must never be a synonym for the forward button beside it: on the reveal it
 once dealt the next round, which reads as working right up until somebody wanted
 to look at the last screen again. That is deliberate: if backing out re-dealt for the
 same person, a clue-giver could quietly hunt for an easy axis, and the deck's
 strangest cards would never be played.
 
+## The pause, and why abandoning is counted
+
+Back used to abandon the round silently, which was three faults wearing one
+gesture. There was no on-screen way out of a round at all; the scoring table
+lived only on the practice reveal, so "how many points is one off again?" cost
+the round to answer; and **the clue-giver could re-deal until they liked their
+target**. That last one is worse than a cheat: the screen before it has just
+told everyone else to look away, so the game itself clears the room, and a
+re-deal that preserves the round number and the score is indistinguishable from
+playing properly.
+
+So Back opens a pause carrying the scoring table, `RESUME THE ROUND`, and an
+explicit `ABANDON THIS ROUND` that says what it costs. Back out of the pause
+resumes: the safe direction is the default. **Abandons are counted and shown** on
+the next PASS LEFT and on the end screen, because the board is public in this
+game and so is walking away from a target you did not like.
+
 ## Moving the marker
 
-**A tap places the marker on the slot tapped.** A cold player tapped near the
+**A tap places the marker on the slot tapped**, the keys nudge it by one, and
+`ENTER` locks. Nothing else moves it: hold-to-sweep was deleted rather than
+repaired, because dragging 17 to 3 landed on 12 and dragging back landed on 10
+(the position is sampled on touch-down), and tap-to-place already saves the
+nineteen taps it was added for. A broken gesture earning nothing is a deletion.
+
+**The hit test stops where the strip's column stops**, and a tap one slot past
+either end clamps to that end. Full-width zones meant that pointing at the
+screen mid-argument changed the answer, and a tap just under slot 1 that did
+nothing read as a dead device.
+
+**Bounding one of two input paths fixes nothing.** The screen also registered
+two full-width step regions from the original design, so after the hit test was
+bounded the mark still moved. Two paths to one control, one fixed, looks exactly
+like a fix that worked. They are gone; so is `dialDirectionAt`, which the sweep
+had left used by nothing but its own test.
+
+ A cold player tapped near the
 top of the strip expecting to jump there, moved one slot, and faced ten refreshes
 to cross the board. A held finger sweeps the marker along under it and stops
 where the finger stops. It is a sweep, not a runaway repeat,

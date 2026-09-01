@@ -5463,15 +5463,92 @@ void testTheReaderTextGoesInTheReaderBody() {
 // to work with, and before this it returned the ellipsis and nothing else --
 // which is how the Instapaper pairing screen came to ask "IS THIS YOU?" over a
 // row reading "...". Half an address beats none of one.
-// The strip's two hit tests each re-derive layout()'s arithmetic. Two copies of
-// one layout is how a tap zone drifts away from the marker it is meant to sit
-// under, and neither copy looks wrong on its own -- so this asserts they agree
-// with each other over every point on the panel rather than trusting either.
+// A tap places the marker, so every slot on the strip must be reachable by one.
+// A rounding error at either end silently makes slot 1 or slot 20 untappable,
+// and those are the two the deck's clearest clues point at.
 // Every reachable WAVELENGTH screen must offer a way onward that is not the
 // hardware Back key. A practice reveal once lost its NEXT ROUND button to an
 // early return and looked entirely finished without it: a cold table tried
 // fourteen different gestures and sixteen seconds of waiting on the first round
 // of the very first session.
+// Nothing is drawn through anything else. Three separate times this app moved
+// or added one element and did not check what it landed on: a large session
+// average composited into a small reference number on the end screen, and a
+// hairline rule struck straight through the label under the guess. Both looked
+// completely finished in code and were only visible in a render.
+//
+// Two checks, because the two failures have different shapes: no two pieces of
+// text may overlap, and a RULE -- a fill thin enough to be a hairline -- may not
+// cross any text. Thick fills are buttons and legitimately sit under their own
+// labels, so they are excluded rather than special-cased away.
+void testWavelengthNothingIsDrawnThroughAnything() {
+  const auto inkOf = [](const FakeTarget::TextRun& run) {
+    const int16_t measured = static_cast<int16_t>(run.text.size() * 10);
+    const int16_t w = measured < run.rect.width ? measured : run.rect.width;
+    int16_t x = run.rect.x;
+    if (run.style.align == fui::TextAlign::Right)
+      x = static_cast<int16_t>(run.rect.x + run.rect.width - w);
+    else if (run.style.align == fui::TextAlign::Center)
+      x = static_cast<int16_t>(run.rect.x + (run.rect.width - w) / 2);
+    return fui::Rect{x, run.rect.y, w, run.rect.height};
+  };
+  const auto overlaps = [](const fui::Rect& a, const fui::Rect& b) {
+    return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+  };
+  struct Case {
+    const char* name;
+    void (*build)(Rendered&);
+  };
+  static const Case kCases[] = {
+      {"dial",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::DialModel m;
+         m.spectrum = wavelengthui::Spectrum{"HOT", "COLD"};
+         m.guess = 13;
+         wavelengthui::renderDial(screen, m);
+       }},
+      {"summary",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::SummaryModel m;
+         m.rounds = 7;
+         m.total = 19;
+         m.averageTenths = 27;
+         wavelengthui::renderSummary(screen, m);
+       }},
+  };
+
+  for (const Case& c : kCases) {
+    Rendered out;
+    c.build(out);
+    const auto& texts = out.target.texts;
+    for (size_t i = 0; i < texts.size(); ++i) {
+      for (size_t j = i + 1; j < texts.size(); ++j) {
+        if (!overlaps(inkOf(texts[i]), inkOf(texts[j]))) continue;
+        std::printf("  %s: %s overlaps %s\n", c.name, texts[i].text.c_str(), texts[j].text.c_str());
+        CHECK(false);
+        return;
+      }
+    }
+    for (const fui::Rect& f : out.target.fills) {
+      if (f.height > toybox::kRule) continue;  // a rule, not a button
+      for (const FakeTarget::TextRun& t : texts) {
+        if (!overlaps(f, inkOf(t))) continue;
+        std::printf("  %s: a rule is drawn through %s\n", c.name, t.text.c_str());
+        CHECK(false);
+        return;
+      }
+    }
+  }
+}
+
 void testWavelengthEveryRevealOffersAWayOn() {
   for (const bool practice : {false, true}) {
     Rendered out;
@@ -5493,46 +5570,82 @@ void testWavelengthEveryRevealOffersAWayOn() {
   }
 }
 
-void testWavelengthStripHitTestsAgree() {
-  const int16_t w = 480;
-  const int16_t h = 800;
-  int checked = 0;
-  for (int guess = 1; guess <= wavelength::kSlots; ++guess) {
-    for (int16_t y = 0; y < h; y = static_cast<int16_t>(y + 3)) {
-      const int slot = wavelengthui::dialSlotAt(w, h, 240, y);
-      const int dir = wavelengthui::dialDirectionAt(w, h, guess, 240, y);
-      if (slot == 0) {
-        // Off the board for one must be off the board for the other.
-        CHECK(dir == 0);
-        continue;
-      }
-      const int expected = slot > guess ? 1 : (slot < guess ? -1 : 0);
-      if (dir != expected) {
-        std::printf("  slot %d guess %d y %d: direction %d, expected %d\n", slot, guess, static_cast<int>(y), dir,
-                    expected);
-        CHECK(false);
-        return;
-      }
-      ++checked;
+// The two ends of one spectrum are a single object and must be set at a single
+// size. Sized independently, the longer pole dropped a whole cut: PHYSICAL
+// ACTIVITY printed at half the height of MENTAL ACTIVITY in the same card, and
+// a cold table read the pair as a heading with a subheading rather than as two
+// ends of a scale.
+void testWavelengthSpectrumEndsShareOneSize() {
+  const struct {
+    const char* top;
+    const char* bottom;
+  } kPairs[] = {
+      {"MENTAL ACTIVITY", "PHYSICAL ACTIVITY"},
+      {"HOT", "UNDERRATED LETTER OF THE ALPHABET"},
+      {"MOVIE THAT GODZILLA WOULD IMPROVE", "COLD"},
+      {"LOUD", "QUIET"},
+  };
+  for (const auto& pair : kPairs) {
+    Rendered out;
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    wavelengthui::PickModel model;
+    model.first = wavelengthui::Spectrum{pair.top, pair.bottom};
+    model.second = wavelengthui::Spectrum{"NEAR", "FAR"};
+    wavelengthui::renderPick(screen, model);
+
+    fui::FontId topFont = 0;
+    fui::FontId bottomFont = 0;
+    for (const FakeTarget::TextRun& run : out.target.texts) {
+      if (run.text == pair.top) topFont = run.style.font;
+      if (run.text == pair.bottom) bottomFont = run.style.font;
     }
+    if (topFont != bottomFont)
+      std::printf("  %s / %s drawn in different slots (%d vs %d)\n", pair.top, pair.bottom, static_cast<int>(topFont),
+                  static_cast<int>(bottomFont));
+    CHECK(topFont == bottomFont);
   }
-  CHECK(checked > 3000);
 }
 
-// A tap places the marker, so every slot on the strip must be reachable by one.
-// A rounding error at either end silently makes slot 1 or slot 20 untappable,
-// and those are the two the deck's clearest clues point at.
 void testWavelengthEverySlotIsTappable() {
   const int16_t w = 480;
   const int16_t h = 800;
   bool seen[wavelength::kSlots + 1] = {};
   for (int16_t y = 0; y < h; ++y) {
-    const int slot = wavelengthui::dialSlotAt(w, h, 240, y);
+    const int slot = wavelengthui::dialSlotAt(w, h, 140, y);
     if (slot >= 1 && slot <= wavelength::kSlots) seen[slot] = true;
   }
   for (int i = 1; i <= wavelength::kSlots; ++i) {
     if (!seen[i]) std::printf("  slot %d cannot be tapped\n", i);
     CHECK(seen[i]);
+  }
+
+  // One slot of overshoot at either end clamps to that end rather than being
+  // ignored. Beyond that it is off the board and must stay inert.
+  bool sawTop = false;
+  bool sawBottom = false;
+  bool clampedFarAway = false;
+  for (int16_t y = 0; y < h; ++y) {
+    const int slot = wavelengthui::dialSlotAt(w, h, 140, y);
+    if (slot == wavelength::kSlots) sawTop = true;
+    if (slot == 1) sawBottom = true;
+  }
+  CHECK(sawTop);
+  CHECK(sawBottom);
+  if (wavelengthui::dialSlotAt(w, h, 140, 0) != 0) clampedFarAway = true;
+  if (wavelengthui::dialSlotAt(w, h, 140, static_cast<int16_t>(h - 1)) != 0) clampedFarAway = true;
+  if (clampedFarAway) std::printf("  a tap far off the board still moves the mark\n");
+  CHECK(!clampedFarAway);
+
+  // And the other half: the instruction column is not part of the board.
+  for (int16_t y = 0; y < h; ++y) {
+    if (wavelengthui::dialSlotAt(w, h, 300, y) != 0) {
+      std::printf("  tapping the instruction column at y=%d moves the mark\n", static_cast<int>(y));
+      CHECK(false);
+      return;
+    }
   }
 }
 
@@ -5799,8 +5912,9 @@ int main() {
   testArchiveIsLiveOnTheLastPage();
   testALongTitleIsEllipsisedRatherThanClipped();
   testTheReaderTextGoesInTheReaderBody();
+  testWavelengthSpectrumEndsShareOneSize();
+  testWavelengthNothingIsDrawnThroughAnything();
   testWavelengthEveryRevealOffersAWayOn();
-  testWavelengthStripHitTestsAgree();
   testWavelengthEverySlotIsTappable();
   testFitLinesCutsAnUnbreakableTokenRatherThanVanishing();
 

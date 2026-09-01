@@ -167,6 +167,7 @@ void WavelengthActivity::makeCall(const wl::Call call) {
     const int avg = session.averageTenths();
     if (avg > record.bestRoundTenths) record.bestRoundTenths = static_cast<uint16_t>(avg);
     dirty = true;
+    flushSave();
   }
   flashOnNextPaint = true;  // the reveal is the payoff
   go(View::Reveal);
@@ -194,12 +195,6 @@ void WavelengthActivity::routeAction(const int action) {
       // five.
       go(view == View::Peek ? View::Clue : View::Dial);
       break;
-    case wavelengthui::ActionStepTowardTop:
-      step(1);
-      break;
-    case wavelengthui::ActionStepTowardBottom:
-      step(-1);
-      break;
     case wavelengthui::ActionLock:
       lockIn();
       break;
@@ -221,6 +216,15 @@ void WavelengthActivity::routeAction(const int action) {
     case wavelengthui::ActionHowTo:
       go(View::HowTo);
       break;
+    case wavelengthui::ActionResume:
+      go(pausedFrom);
+      break;
+    case wavelengthui::ActionAbandon:
+      flashOnNextPaint = true;
+      ++abandonedCount;
+      go(View::PassLeft);
+      abandoned = true;
+      break;
     case wavelengthui::ActionBackToMenu:
       go(View::Menu);
       break;
@@ -235,6 +239,7 @@ void WavelengthActivity::routeAction(const int action) {
       // The session resets; the record and the seen set do not. Those are the
       // table's history and the reason the front door is worth looking at.
       session = wl::Session{};
+      abandonedCount = 0;
       sessionStarted = false;
       practiceRound = true;
       guess = wl::kSlots / 2;
@@ -254,13 +259,12 @@ void WavelengthActivity::loop() {
       // purpose of backing out. Back went FORWARD into the next round, which
       // is the one direction a back gesture must never go.
       go(View::Menu);
+    } else if (view == View::Paused) {
+      // Back out of the pause resumes. The safe direction is the default.
+      go(pausedFrom);
     } else if (committed(view)) {
-      // Abandoning costs the clue-giver their turn, which is the whole point:
-      // if backing out re-dealt for the same person, they could hunt for an
-      // easy axis and the deck's strangest cards would never be played.
-      flashOnNextPaint = true;
-      go(View::PassLeft);
-      abandoned = true;
+      pausedFrom = view;
+      go(View::Paused);
     } else if (view != View::Menu) {
       go(View::Menu);
     } else {
@@ -359,37 +363,6 @@ void WavelengthActivity::loop() {
     }
   }
 
-  // A held finger keeps stepping. Crossing the strip was up to nineteen separate
-  // taps on a slow panel, which three cold testers each called out as the
-  // game's pacing problem.
-  if (view == View::Dial) {
-    int rx = 0;
-    int ry = 0;
-    if (mappedInput.isScreenTouchHeld(rx, ry)) {
-      const int dir = wavelengthui::dialDirectionAt(static_cast<int16_t>(renderer.getScreenWidth()),
-                                                    static_cast<int16_t>(renderer.getScreenHeight()), guess,
-                                                    static_cast<int16_t>(rx), static_cast<int16_t>(ry));
-      if (dir != 0) {
-        const uint32_t now = millis();
-        if (stepHoldStartMs == 0) {
-          stepHoldStartMs = now;
-          lastRepeatMs = 0;
-        } else if (now - stepHoldStartMs >= static_cast<uint32_t>(wavelengthui::kStepRepeatFirstMs)) {
-          if (lastRepeatMs == 0 || now - lastRepeatMs >= static_cast<uint32_t>(wavelengthui::kStepRepeatEveryMs)) {
-            lastRepeatMs = now;
-            step(dir);
-            return;
-          }
-        }
-      } else {
-        stepHoldStartMs = 0;
-      }
-    } else {
-      stepHoldStartMs = 0;
-      lastRepeatMs = 0;
-    }
-  }
-
   if (view == View::Dial) {
     if (mappedInput.wasReleased(MappedInputManager::Button::Up)) {
       step(1);
@@ -397,6 +370,10 @@ void WavelengthActivity::loop() {
     }
     if (mappedInput.wasReleased(MappedInputManager::Button::Down)) {
       step(-1);
+      return;
+    }
+    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+      lockIn();
       return;
     }
   }
@@ -498,12 +475,22 @@ void WavelengthActivity::render(RenderLock&&) {
     case View::HowTo:
       wavelengthui::renderHowTo(screen);
       break;
+    case View::Paused: {
+      wavelengthui::PauseModel model;
+      model.roundNumber = session.round;
+      model.total = session.total;
+      model.practice = practiceRound;
+      model.abandoned = abandonedCount;
+      wavelengthui::renderPause(screen, model);
+      break;
+    }
     case View::Summary: {
       wavelengthui::SummaryModel model;
       model.record = &record;
       model.rounds = session.scoredRounds;
       model.total = session.total;
       model.averageTenths = session.averageTenths();
+      model.abandoned = abandonedCount;
       wavelengthui::renderSummary(screen, model);
       break;
     }
@@ -513,6 +500,7 @@ void WavelengthActivity::render(RenderLock&&) {
       model.total = session.total;
       model.practice = session.isPractice();
       model.abandoned = abandoned;
+      model.abandonedCount = abandonedCount;
       wavelengthui::renderPassLeft(screen, model);
       break;
     }
