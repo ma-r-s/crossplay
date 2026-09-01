@@ -99,26 +99,39 @@ void drawAction(toybox::Screen& screen, const char* label, const fui::ActionId a
   screen.frame().hit(box, action);
 }
 
-// The primary action, plus a narrower outlined one beside it. The secondary is
-// outlined rather than filled because it is the rarer choice and the black you
-// can afford is inversely proportional to how often you want it pressed.
+constexpr int16_t kAsideWidth = 132;
+constexpr int16_t kAsideGap = 12;
+
+// The narrow outlined box at the right of the footer. Outlined rather than
+// filled because it is the rarer choice, and the black you can afford is
+// inversely proportional to how often you want it pressed.
+//
+// Split out so it can be drawn WITHOUT a primary beside it, and so both callers
+// derive the same x. A way out that moves under the finger when the question is
+// answered would be its own bug.
+void drawAsideAction(toybox::Screen& screen, const char* label, const fui::ActionId action) {
+  const fui::Rect body = screen.body();
+  const int16_t full = static_cast<int16_t>(body.width - kMargin * 2);
+  const fui::Rect aside{static_cast<int16_t>(body.x + kMargin + full - kAsideWidth),
+                        static_cast<int16_t>(footerTop(screen) + 16), kAsideWidth, 64};
+  screen.target().stroke(aside, fui::Paint::solid(fui::Color::Black), 2);
+  drawLabel(screen, aside, label, toybox::kSmallFont, fui::TextAlign::Center, toybox::kButtonCut);
+  screen.frame().hit(aside, action);
+}
+
+// The primary action, plus the narrower outlined one beside it.
 void drawActionPair(toybox::Screen& screen, const char* primary, const fui::ActionId primaryAction,
                     const char* secondary, const fui::ActionId secondaryAction) {
   const fui::Rect body = screen.body();
-  const int16_t top = static_cast<int16_t>(footerTop(screen) + 16);
   const int16_t full = static_cast<int16_t>(body.width - kMargin * 2);
-  const int16_t narrow = 132;
-  const int16_t wide = static_cast<int16_t>(full - narrow - 12);
+  const int16_t wide = static_cast<int16_t>(full - kAsideWidth - kAsideGap);
 
-  const fui::Rect main{static_cast<int16_t>(body.x + kMargin), top, wide, 64};
+  const fui::Rect main{static_cast<int16_t>(body.x + kMargin), static_cast<int16_t>(footerTop(screen) + 16), wide, 64};
   screen.target().fill(main, fui::Paint::solid(fui::Color::Black));
   drawLabel(screen, main, primary, toybox::kSmallFont, fui::TextAlign::Center, toybox::kButtonCut, fui::Color::White);
   screen.frame().hit(main, primaryAction);
 
-  const fui::Rect aside{static_cast<int16_t>(body.x + kMargin + wide + 12), top, narrow, 64};
-  screen.target().stroke(aside, fui::Paint::solid(fui::Color::Black), 2);
-  drawLabel(screen, aside, secondary, toybox::kSmallFont, fui::TextAlign::Center, toybox::kButtonCut);
-  screen.frame().hit(aside, secondaryAction);
+  drawAsideAction(screen, secondary, secondaryAction);
 }
 
 // ---------------------------------------------------------------------------
@@ -244,11 +257,40 @@ void buildChoice(toybox::Screen& screen, const ChoiceModel& model) {
     }
     drawLabel(screen, box, model.option[i] != nullptr ? model.option[i] : "", toybox::kSmallFont,
               fui::TextAlign::Center, toybox::kButtonCut, isCorrect ? fui::Color::White : fui::Color::Black);
-    if (model.chosen < 0) screen.frame().hit(box, ActionOption);
+
+      // The player's own pick, marked so it cannot be missed. Until now the only
+      // difference was a 3px stroke against a 1px one, and a cold tester read
+      // that as a leftover focus ring and trained themselves to ignore it -- so
+      // when the solid box was not where they had tapped, they could not tell
+      // whether they had mis-tapped, misremembered, or been scored wrongly.
+      // That ambiguity is what makes someone quietly conclude they are bad at
+      // trivia instead of reporting a bug. White on the correct box, which is
+      // already solid black; black on any other.
+      if (model.chosen == i) {
+        const fui::Rect tab{static_cast<int16_t>(box.x + 5), static_cast<int16_t>(box.y + 5), 7,
+                            static_cast<int16_t>(box.height - 10)};
+        screen.target().fill(tab, fui::Paint::solid(isCorrect ? fui::Color::White : fui::Color::Black));
+      }
+
+      // The index MUST be passed. Frame::hit's value parameter defaults to 0,
+      // so all four options registered as option 1 -- and the handler, which
+      // reads value correctly, scored the top slot wherever the finger landed.
+      // Solo play was decided entirely by whether the answer happened to be
+      // first: 3/12 measured, which is chance. Buttons were unaffected, which
+      // is why every check passed.
+    if (model.chosen < 0) screen.frame().hit(box, ActionOption, static_cast<int16_t>(i));
     y = static_cast<int16_t>(y + 70);
   }
 
-  if (model.chosen >= 0) drawAction(screen, "NEXT", ActionNext);
+  // END is present BEFORE an answer too. Solo had no way out at all: no footer
+  // action, no header target, and this app is touch-only, so Back did nothing.
+  // A cold tester could escape only with the HOME key, which also meant there
+  // was no way to finish deliberately and see a score. One omission, not two.
+  if (model.chosen >= 0) {
+    drawActionPair(screen, "NEXT", ActionNext, "END", ActionQuit);
+  } else {
+    drawAsideAction(screen, "END", ActionQuit);
+  }
 }
 
 }  // namespace triviaui
