@@ -117,6 +117,8 @@ wavelengthui::Spectrum WavelengthActivity::spectrumAt(const int index) const {
 void WavelengthActivity::go(const View next) {
   view = next;
   peeking = false;
+  nudgeHold = false;
+  viewEnteredMs = millis();
   requestUpdate();
 }
 
@@ -138,6 +140,9 @@ void WavelengthActivity::choose(const int which) {
   deck.markSeen(spectrum);  // the one passed over goes back in the pool
   dirty = true;
   target = wl::drawTarget(rng);
+  hasPeeked = false;
+  abandoned = false;
+  guess = wl::kSlots / 2;
   practiceRound = session.isPractice();
   go(View::Peek);
 }
@@ -179,6 +184,11 @@ void WavelengthActivity::routeAction(const int action) {
       choose(1);
       break;
     case wavelengthui::ActionClueGiven:
+      // A quick TAP on the peek pad reveals nothing, so a player who taps
+      // instead of holding could walk off this screen never having seen the
+      // target and invent a clue from nothing. They only find out at the
+      // reveal. Refuse to leave until they have actually looked.
+      if (view == View::Peek && !hasPeeked) return;
       // The peek is one-way. Once the clue screen is passed there is no route
       // back to the target, or someone swipes back to it as a joke on round
       // five.
@@ -208,6 +218,12 @@ void WavelengthActivity::routeAction(const int action) {
       practiceRound = session.isPractice();
       go(View::PassLeft);
       break;
+    case wavelengthui::ActionHowTo:
+      go(View::HowTo);
+      break;
+    case wavelengthui::ActionBackToMenu:
+      go(View::Menu);
+      break;
     case wavelengthui::ActionEndSession:
       flushSave();
       go(View::Summary);
@@ -232,12 +248,19 @@ void WavelengthActivity::routeAction(const int action) {
 
 void WavelengthActivity::loop() {
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-    if (committed(view)) {
+    if (view == View::Reveal) {
+      // Checked BEFORE committed(), which is true here: the reveal is
+      // committed for the purpose of not sleeping, and must not be for the
+      // purpose of backing out. Back went FORWARD into the next round, which
+      // is the one direction a back gesture must never go.
+      go(View::Menu);
+    } else if (committed(view)) {
       // Abandoning costs the clue-giver their turn, which is the whole point:
       // if backing out re-dealt for the same person, they could hunt for an
       // easy axis and the deck's strangest cards would never be played.
       flashOnNextPaint = true;
       go(View::PassLeft);
+      abandoned = true;
     } else if (view != View::Menu) {
       go(View::Menu);
     } else {
@@ -258,9 +281,16 @@ void WavelengthActivity::loop() {
     const fui::Rect pad = wavelengthui::peekPadRect(static_cast<int16_t>(renderer.getScreenWidth()),
                                                     static_cast<int16_t>(renderer.getScreenHeight()));
     const bool onPad = held && hx >= pad.x && hx < pad.x + pad.width && hy >= pad.y && hy < pad.y + pad.height;
+    if (onPad) {
+      if (peekStartMs == 0) peekStartMs = millis();
+      if (millis() - peekStartMs >= kSeenMs) hasPeeked = true;
+    } else {
+      peekStartMs = 0;
+    }
     if (onPad != peeking) {
       const bool hiding = peeking && !onPad;
       peeking = onPad;
+      if (onPad) nudgeHold = false;
       // A full refresh on the way DOWN, so no ghost of the band survives it.
       if (hiding) flashOnNextPaint = true;
       requestUpdate();
@@ -272,6 +302,95 @@ void WavelengthActivity::loop() {
   }
 
   if (view == View::Dial) {
+    int tx = 0;
+    int ty = 0;
+    if (mappedInput.wasScreenTapped(tx, ty)) {
+      const int slot = wavelengthui::dialSlotAt(static_cast<int16_t>(renderer.getScreenWidth()),
+                                                static_cast<int16_t>(renderer.getScreenHeight()),
+                                                static_cast<int16_t>(tx), static_cast<int16_t>(ty));
+      if (slot != 0) {
+        if (slot != guess) {
+          guess = slot;
+          requestUpdate();
+        }
+        return;
+      }
+    }
+  }
+
+  // A bare tap on a control that only answers to a hold says so, rather than
+  // going silent. Silence on these two reads as a broken button: a cold player
+  // tapped both, twice each, and concluded the device had died.
+  {
+    int tx = 0;
+    int ty = 0;
+    if ((view == View::Peek || view == View::Dial) && mappedInput.wasScreenTapped(tx, ty)) {
+      const int16_t w = static_cast<int16_t>(renderer.getScreenWidth());
+      const int16_t h = static_cast<int16_t>(renderer.getScreenHeight());
+      const fui::Rect r = view == View::Peek ? wavelengthui::peekPadRect(w, h) : wavelengthui::lockBarRect(w, h);
+      if (tx >= r.x && tx < r.x + r.width && ty >= r.y && ty < r.y + r.height && !nudgeHold) {
+        nudgeHold = true;
+        requestUpdate();
+        return;
+      }
+    }
+  }
+
+  // HOLD TO LOCK means hold. Tracked against the same rect the screen drew, and
+  // reset the moment the finger leaves it, so sliding off cancels rather than
+  // committing. Shipped in v1.12.0 as a tap, which was the label lying.
+  if (view == View::Dial) {
+    int hx = 0;
+    int hy = 0;
+    const fui::Rect bar = wavelengthui::lockBarRect(static_cast<int16_t>(renderer.getScreenWidth()),
+                                                    static_cast<int16_t>(renderer.getScreenHeight()));
+    const bool onBar = mappedInput.isScreenTouchHeld(hx, hy) && hx >= bar.x && hx < bar.x + bar.width && hy >= bar.y &&
+                       hy < bar.y + bar.height;
+    if (onBar) {
+      const uint32_t now = millis();
+      if (lockHoldStartMs == 0) lockHoldStartMs = now;
+      if (now - lockHoldStartMs >= static_cast<uint32_t>(wavelengthui::kLockHoldMs)) {
+        lockHoldStartMs = 0;
+        lockIn();
+        return;
+      }
+    } else {
+      lockHoldStartMs = 0;
+    }
+  }
+
+  // A held finger keeps stepping. Crossing the strip was up to nineteen separate
+  // taps on a slow panel, which three cold testers each called out as the
+  // game's pacing problem.
+  if (view == View::Dial) {
+    int rx = 0;
+    int ry = 0;
+    if (mappedInput.isScreenTouchHeld(rx, ry)) {
+      const int dir = wavelengthui::dialDirectionAt(static_cast<int16_t>(renderer.getScreenWidth()),
+                                                    static_cast<int16_t>(renderer.getScreenHeight()), guess,
+                                                    static_cast<int16_t>(rx), static_cast<int16_t>(ry));
+      if (dir != 0) {
+        const uint32_t now = millis();
+        if (stepHoldStartMs == 0) {
+          stepHoldStartMs = now;
+          lastRepeatMs = 0;
+        } else if (now - stepHoldStartMs >= static_cast<uint32_t>(wavelengthui::kStepRepeatFirstMs)) {
+          if (lastRepeatMs == 0 || now - lastRepeatMs >= static_cast<uint32_t>(wavelengthui::kStepRepeatEveryMs)) {
+            lastRepeatMs = now;
+            step(dir);
+            return;
+          }
+        }
+      } else {
+        stepHoldStartMs = 0;
+      }
+    } else {
+      stepHoldStartMs = 0;
+      lastRepeatMs = 0;
+    }
+  }
+
+  if (view == View::Dial) {
     if (mappedInput.wasReleased(MappedInputManager::Button::Up)) {
       step(1);
       return;
@@ -280,6 +399,15 @@ void WavelengthActivity::loop() {
       step(-1);
       return;
     }
+  }
+
+  // The panel takes about half a second to show a new screen, so a tap landing
+  // inside that window was aimed at the screen BEFORE it. Swallowing those is
+  // what stops a double tap from crossing a screen boundary.
+  if (millis() - viewEnteredMs < kSettleMs) {
+    int sx = 0;
+    int sy = 0;
+    if (mappedInput.wasScreenTapped(sx, sy)) return;
   }
 
   fui::InputSnapshot input;
@@ -327,6 +455,8 @@ void WavelengthActivity::render(RenderLock&&) {
       model.spectrum = current;
       model.target = target;
       model.revealed = peeking;
+      model.everRevealed = hasPeeked;
+      model.nudgeHold = nudgeHold;
       wavelengthui::renderPeek(screen, model);
       break;
     }
@@ -340,6 +470,7 @@ void WavelengthActivity::render(RenderLock&&) {
       wavelengthui::DialModel model;
       model.spectrum = current;
       model.guess = guess;
+      model.nudgeHold = nudgeHold;
       wavelengthui::renderDial(screen, model);
       break;
     }
@@ -347,6 +478,7 @@ void WavelengthActivity::render(RenderLock&&) {
       wavelengthui::CallModel model;
       model.spectrum = current;
       model.guess = guess;
+      model.practice = practiceRound;
       wavelengthui::renderCall(screen, model);
       break;
     }
@@ -363,6 +495,9 @@ void WavelengthActivity::render(RenderLock&&) {
       wavelengthui::renderReveal(screen, model);
       break;
     }
+    case View::HowTo:
+      wavelengthui::renderHowTo(screen);
+      break;
     case View::Summary: {
       wavelengthui::SummaryModel model;
       model.record = &record;
@@ -377,6 +512,7 @@ void WavelengthActivity::render(RenderLock&&) {
       model.roundNumber = session.round;
       model.total = session.total;
       model.practice = session.isPractice();
+      model.abandoned = abandoned;
       wavelengthui::renderPassLeft(screen, model);
       break;
     }

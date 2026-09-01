@@ -37,6 +37,7 @@
 #include "../../src/apps_local/toybattle/ToyBattleScreens.h"
 #include "../../src/apps_local/ui/ToyboxIcons.h"
 #include "../../src/apps_local/ui/ToyboxText.h"
+#include "../../src/apps_local/wavelength/WavelengthScreens.h"
 
 namespace fui = freeink::ui;
 
@@ -5243,6 +5244,53 @@ void testTheReaderTextGoesInTheReaderBody() {
 // to work with, and before this it returned the ellipsis and nothing else --
 // which is how the Instapaper pairing screen came to ask "IS THIS YOU?" over a
 // row reading "...". Half an address beats none of one.
+// The strip's two hit tests each re-derive layout()'s arithmetic. Two copies of
+// one layout is how a tap zone drifts away from the marker it is meant to sit
+// under, and neither copy looks wrong on its own -- so this asserts they agree
+// with each other over every point on the panel rather than trusting either.
+void testWavelengthStripHitTestsAgree() {
+  const int16_t w = 480;
+  const int16_t h = 800;
+  int checked = 0;
+  for (int guess = 1; guess <= wavelength::kSlots; ++guess) {
+    for (int16_t y = 0; y < h; y = static_cast<int16_t>(y + 3)) {
+      const int slot = wavelengthui::dialSlotAt(w, h, 240, y);
+      const int dir = wavelengthui::dialDirectionAt(w, h, guess, 240, y);
+      if (slot == 0) {
+        // Off the board for one must be off the board for the other.
+        CHECK(dir == 0);
+        continue;
+      }
+      const int expected = slot > guess ? 1 : (slot < guess ? -1 : 0);
+      if (dir != expected) {
+        std::printf("  slot %d guess %d y %d: direction %d, expected %d\n", slot, guess, static_cast<int>(y), dir,
+                    expected);
+        CHECK(false);
+        return;
+      }
+      ++checked;
+    }
+  }
+  CHECK(checked > 3000);
+}
+
+// A tap places the marker, so every slot on the strip must be reachable by one.
+// A rounding error at either end silently makes slot 1 or slot 20 untappable,
+// and those are the two the deck's clearest clues point at.
+void testWavelengthEverySlotIsTappable() {
+  const int16_t w = 480;
+  const int16_t h = 800;
+  bool seen[wavelength::kSlots + 1] = {};
+  for (int16_t y = 0; y < h; ++y) {
+    const int slot = wavelengthui::dialSlotAt(w, h, 240, y);
+    if (slot >= 1 && slot <= wavelength::kSlots) seen[slot] = true;
+  }
+  for (int i = 1; i <= wavelength::kSlots; ++i) {
+    if (!seen[i]) std::printf("  slot %d cannot be tapped\n", i);
+    CHECK(seen[i]);
+  }
+}
+
 void testFitLinesCutsAnUnbreakableTokenRatherThanVanishing() {
   Rendered out;
   const fui::TextStyle style = toybox::themeTokens().bodyText;
@@ -5399,6 +5447,8 @@ int main() {
   testArchiveIsLiveOnTheLastPage();
   testALongTitleIsEllipsisedRatherThanClipped();
   testTheReaderTextGoesInTheReaderBody();
+  testWavelengthStripHitTestsAgree();
+  testWavelengthEverySlotIsTappable();
   testFitLinesCutsAnUnbreakableTokenRatherThanVanishing();
 
   testInkCentredPutsTheInkInTheMiddleOfAnyBox();
