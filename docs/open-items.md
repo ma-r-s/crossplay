@@ -479,9 +479,21 @@ for a reason worth more than the fix: `InputManager::wasPressed()` is
 `return pressedEvents & (1 << i)`, a **pure read that does not consume**, so a
 drain built from reads is a no-op. `StudyActivity::drainInput()` works because
 of the `update()` in it, not despite it. Absorbing the edge with two spaced
-`update()` calls also changed nothing, because in a **dev build every input read
-consults the injector first** (`DEV_INPUT` in `HalGPIO.cpp`, compiled out of
-release envs) -- and `gpio.update()` cannot clear an edge the injector owns.
+`update()` calls also changed nothing.
+
+The reason first given for that was the dev-build input injector (`DEV_INPUT` in
+`lib/hal/HalGPIO.cpp`) outranking `gpio.update()`. **That explanation is wrong
+and was propagated before it was checked.** `DEV_INPUT` is real, but it is not
+in the simulator's path at all: the sim env sets `lib_ignore = hal` and the
+pinned `simulator` lib dep ships a `HalGPIO.h` that shadows ours. A sim build
+contains exactly one `HalGPIO.o`, from `lib539/simulator/`, and none from
+`lib/hal`.
+
+The conclusion survives and the mechanism does not. The simulator still tests
+different code, for a simpler reason: **it does not run `InputManager` at all.**
+Its latch clears in `beginFrame()` rather than `update()`, deliberately, so an
+edge survives every `update()` within a frame. The `touchReleasedEvent` trace
+above is correct about the **device** and is not what runs in the simulator.
 
 So the simulator exercises a mechanism that presents identically to the real one
 and is not it. A framework change touching eight apps came one green run from
