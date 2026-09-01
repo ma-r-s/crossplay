@@ -100,6 +100,15 @@ the question it was meant to ask. The person who wrote that filter was
 investigating the very fault it hid, and still built it from the subsystem's
 name rather than from what the failure would say.
 
+**And a summary is a filter over the source.** Everything above is one shape at
+different scales: a grep is a filter over a log, a suite is a filter over the
+behaviour, a gate is a filter over the languages, and a handoff note is a filter
+over the code. Each drops what its author judged unimportant, and the thing it
+drops is exactly what the next person needed -- which is why claims that travel
+through a summary change shape, and why the fix is always the same one. Re-read
+at the source before you act on it, especially when the summary came from
+someone careful. A careful summary is a better filter, not an absent one.
+
 ## A check that fails silently is worse than one that fails loudly
 
 **In a shell harness, `set -o pipefail` turns "matched nothing" into "the
