@@ -175,15 +175,28 @@ jobs:
             devices next to each other find one another with nothing to type --
             and they do not have to be the same device.
 
-            ### What is new in 1.12.0
+            ### What is new in 1.12.1
 
-            **Read it later, on the reader.** A new **Instapaper** app: your
+            **The front light works again on the X4 Pro.** If you installed
+            1.11.1 or 1.12.0, the light stopped turning on: the panel opened,
+            the sun filled in, the setting remembered you had asked, and
+            nothing lit up. The PWM frequency for the light moved to a value
+            its clock cannot actually produce, so the channels were never
+            started and every brightness change went nowhere. Install this and
+            the light comes back with nothing else to do.
+
+            Nothing else changed. Everything below is from 1.12.0.
+
+            ### From 1.12.0
+
+            **Read it later, on the reader.** An **Instapaper** app: your
             unread queue, the article text, page turns, and archiving from the
             device. It syncs through a small service of its own, the same shape
             as the Anki bridge.
 
             **Wavelength.** The spectrum party game, on one device passed round
-            a table. Give the clue, argue, turn the dial, reveal.
+            a table. Give the clue, argue, turn the dial, reveal. It wants a
+            dark room, which is the other reason the light above matters.
 
             **Hacker News saved articles work again.** The storage half had been
             shipping for three weeks with nothing calling it, and it would not
