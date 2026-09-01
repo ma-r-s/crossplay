@@ -367,6 +367,14 @@ void TriviaActivity::routeAction(const int action, const int value) {
       }
       break;
     case triviaui::ActionQuit: {
+      // Quizmaster keeps no score -- it is a person reading to a room, and
+      // score_ belongs to solo. Ending there returns to the menu rather than
+      // reporting a total that was never counted, or worse, a stale one left
+      // over from an earlier solo round.
+      if (view_ == View::Quizmaster) {
+        go(View::Menu);
+        break;
+      }
       // Ending the round IS the summary. The two findings -- "cannot leave the
       // quiz" and "no final score" -- were one omission: with no deliberate way
       // to stop, there was no moment at which a score could be shown, so the

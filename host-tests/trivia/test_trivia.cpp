@@ -226,6 +226,46 @@ void testState() {
 }
 
 // --- chooser --------------------------------------------------------------
+// Consecutive draws must not be ADJACENT RECORDS. The chooser used to walk
+// forward from the previous pick, and the pack is built from a Jeopardy archive
+// ordered by game and then category -- so a real round served twelve "this
+// country" clues answering Italy every time, with the same four distractors. A
+// player who knew the first answer got the other eleven free.
+//
+// Asserted as a property of the sequence rather than of one draw: with a fresh
+// random start each call, adjacency happens at chance (about 1 in count) and
+// cannot be the rule. Walking forward makes EVERY gap exactly 1.
+void testChooserDoesNotServeNeighbours() {
+  constexpr int kCount = 200;
+  const auto items = sampleItems(kCount);
+  MemorySource packSrc(buildPack(items));
+  MemorySource stateSrc(std::vector<uint8_t>(kCount, 0));
+  Pack pack;
+  PackState state;
+  CHECK(pack.open(packSrc));
+  CHECK(state.open(stateSrc, kCount));
+
+  Rng rng(11);
+  Chooser chooser;
+  chooser.begin(pack, state, rng);
+
+  constexpr int kDraws = 40;
+  uint32_t previous = 0;
+  int adjacent = 0;
+  for (int i = 0; i < kDraws; ++i) {
+    uint32_t idx = 0;
+    CHECK(chooser.next(idx, false, 0));
+    if (i > 0 && idx == (previous + 1) % kCount) ++adjacent;
+    previous = idx;
+    state.setFlag(idx, kSeen);
+  }
+
+  // Forward-walking scores 39 here. Chance is well under one. Three leaves room
+  // for the scan stepping over a seen record onto its neighbour without letting
+  // the old behaviour through.
+  CHECK(adjacent <= 3);
+}
+
 void testChooser() {
   const auto items = sampleItems(60);
   MemorySource packSrc(buildPack(items));
@@ -430,6 +470,7 @@ int main() {
   testRejectsBadFiles();
   testState();
   testChooser();
+  testChooserDoesNotServeNeighbours();
   testChoices();
   testAnswerMatching();
   testRngIsDeterministic();

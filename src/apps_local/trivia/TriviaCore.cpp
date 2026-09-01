@@ -143,12 +143,24 @@ void Chooser::begin(const Pack& pack, PackState& state, Rng& rng) {
   pack_ = &pack;
   state_ = &state;
   rng_ = &rng;
-  cursor_ = pack.count() > 0 ? rng.below(pack.count()) : 0;
 }
 
 bool Chooser::next(uint32_t& indexOut, const bool requireChoice, const int difficulty) {
   if (pack_ == nullptr || state_ == nullptr || pack_->count() == 0) return false;
   const uint32_t count = pack_->count();
+
+  // A FRESH random start on every call, not a cursor walked forward from the
+  // last pick. Walking forward made consecutive questions ADJACENT RECORDS, and
+  // the pack is built from a Jeopardy archive ordered by game and then category
+  // -- so a round served twelve "this country" clues whose answer was Italy
+  // every single time, with the same China/Japan/India/Spain distractors. A
+  // player who knew the first answer got the other eleven free; one who did not
+  // scored chance. Either way the round was decided by question one.
+  //
+  // The forward scan stays, because it is how the filters below are satisfied:
+  // it steps over flagged, seen, unreadable and wrong-difficulty records to the
+  // next usable one. What changed is only where it starts.
+  const uint32_t start = rng_->below(count);
 
   // Two passes: prefer unseen, then allow seen. Without the second pass the app
   // simply stops once the pack is exhausted, which is a dead end rather than an
@@ -156,7 +168,7 @@ bool Chooser::next(uint32_t& indexOut, const bool requireChoice, const int diffi
   // handed round a bar reaches it faster than anyone expects.
   for (int pass = 0; pass < 2; ++pass) {
     for (uint32_t step = 0; step < count; ++step) {
-      const uint32_t i = (cursor_ + step) % count;
+      const uint32_t i = (start + step) % count;
       const uint8_t flags = state_->flags(i);
       if ((flags & kFlagged) != 0) continue;  // a player rejected it
       if (pass == 0 && (flags & kSeen) != 0) continue;
@@ -164,7 +176,6 @@ bool Chooser::next(uint32_t& indexOut, const bool requireChoice, const int diffi
       if (!pack_->read(i, q)) continue;  // torn record, skip
       if (requireChoice && !q.playableAsChoice()) continue;
       if (difficulty != 0 && q.difficulty() != difficulty) continue;
-      cursor_ = (i + 1) % count;
       indexOut = i;
       return true;
     }
