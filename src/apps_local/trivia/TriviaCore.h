@@ -180,4 +180,27 @@ struct Score {
   void reset() { asked = right = 0; }
 };
 
+// Whether the card has room for a pack download, kept HERE rather than in the
+// activity so it can be tested: TriviaActivity includes WiFi.h and cannot be
+// built on the host at all, so any decision left inside it is untestable by
+// construction.
+enum class Room : uint8_t { Ok, Unknown, TooSmall };
+
+// The floor the card must clear, NOT the pack's size. The pack is ~6.2MB today
+// and grows whenever questions are added, and its true size arrives only with
+// the server's Content-Length -- after the point where refusing is still free.
+// So this is a deliberate over-estimate with room for a larger pack and for the
+// FAT to record it. Raise it if the pack approaches it; never pin it to the
+// current byte count.
+constexpr uint64_t kPackFreeFloorBytes = 12ull * 1024 * 1024;
+
+// queryOk mirrors HalStorage::freeBytes()'s return exactly: false means the card
+// COULD NOT ANSWER, never that it is full. The two are different facts and the
+// caller must not collapse them -- deriving free space from total minus used
+// reports a failed query as an empty card, which is the trap this replaces.
+constexpr Room roomFor(const bool queryOk, const uint64_t freeBytes, const uint64_t floorBytes) {
+  if (!queryOk) return Room::Unknown;
+  return freeBytes < floorBytes ? Room::TooSmall : Room::Ok;
+}
+
 }  // namespace trivia

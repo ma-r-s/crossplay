@@ -5,6 +5,8 @@
 #include <Memory.h>
 #include <WiFi.h>
 
+#include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
@@ -187,6 +189,41 @@ void TriviaActivity::runPackDownload() {
                triviaui::ActionGetPack);
     return;
   }
+
+  // Ask the card how much room is left BEFORE writing ~6MB to it, because this
+  // app is not the only thing on the card. A card filled by a trivia pack is a
+  // card where Study's review log cannot be written, and that failure loses
+  // answers rather than refusing -- the cost of overfilling lands on a different
+  // app, silently, later.
+  //
+  // The decision itself lives in TriviaCore so it can be tested: this file
+  // includes WiFi.h and cannot be built on the host at all.
+  uint64_t freeNow = 0;
+  const bool queryOk = Storage.freeBytes(freeNow);
+  switch (trivia::roomFor(queryOk, freeNow, trivia::kPackFreeFloorBytes)) {
+    case trivia::Room::Unknown:
+      // NOT the same screen as NO ROOM: freeBytes() returns false for "could not
+      // answer" and never for "full". Saying the card is full when we do not know
+      // that would be the same conflation the HAL call exists to prevent.
+      showNotice("CAN'T TELL",
+                 "The card would not say how much room is left, so nothing was written. It may need re-seating.",
+                 "TRY AGAIN", triviaui::ActionGetPack);
+      return;
+    case trivia::Room::TooSmall: {
+      // Local buffer: showNotice snprintf()s body INTO noticeBody_, so passing
+      // noticeBody_ as the body argument would be an overlapping self-copy.
+      char body[160];
+      std::snprintf(body, sizeof(body),
+                    "The questions need about %u MB free and the card has %u MB. Nothing was written.",
+                    static_cast<unsigned>(trivia::kPackFreeFloorBytes >> 20),
+                    static_cast<unsigned>(freeNow >> 20));
+      showNotice("NO ROOM", body, "TRY AGAIN", triviaui::ActionGetPack);
+      return;
+    }
+    case trivia::Room::Ok:
+      break;
+  }
+
 
   g_packFile.close();
   g_stateFile.close();

@@ -389,6 +389,40 @@ void testRngIsDeterministic() {
   CHECK(Rng(0).next() != 0);  // a zero seed must not lock the generator
 }
 
+// The card-room decision. It lives in TriviaCore precisely so it can be tested:
+// TriviaActivity includes WiFi.h and cannot be built on the host at all, so the
+// same logic inside the activity would be untestable by construction.
+void testRoomFor() {
+  using trivia::Room;
+  const uint64_t floor = trivia::kPackFreeFloorBytes;
+
+  // A failed query is UNKNOWN, whatever byte count came back with it. This is
+  // the whole point: sdUsedBytes() reports a failed walk as 0 used, so a caller
+  // deriving free space would see an EMPTY card and write. Zero free plus a
+  // failed query must never read as Ok, and must never read as TooSmall either
+  // -- "we could not tell" is not "it is full".
+  CHECK(trivia::roomFor(false, 0, floor) == Room::Unknown);
+  CHECK(trivia::roomFor(false, floor * 4, floor) == Room::Unknown);
+  CHECK(trivia::roomFor(false, floor - 1, floor) == Room::Unknown);
+
+  // A successful query decides on the number alone.
+  CHECK(trivia::roomFor(true, floor, floor) == Room::Ok);          // exactly the floor fits
+  CHECK(trivia::roomFor(true, floor + 1, floor) == Room::Ok);
+  CHECK(trivia::roomFor(true, floor - 1, floor) == Room::TooSmall);
+  CHECK(trivia::roomFor(true, 0, floor) == Room::TooSmall);        // a genuinely empty-of-room card
+
+  // The floor must leave real headroom above today's pack, or it is not a floor
+  // at all -- it is the pack size wearing a different name, and the next pack
+  // that grows past it fills the card silently.
+  constexpr uint64_t kPackTodayBytes = 6510000;  // ~6.21MB, measured 2026-08-31
+  CHECK(floor > kPackTodayBytes);
+  CHECK(floor - kPackTodayBytes > 1024u * 1024u);
+
+  // 64-bit throughout: a 64GB card's free space overflows uint32 and must not
+  // wrap into TooSmall.
+  CHECK(trivia::roomFor(true, 64ull * 1024 * 1024 * 1024, floor) == Room::Ok);
+}
+
 }  // namespace
 
 int main() {
@@ -399,6 +433,7 @@ int main() {
   testChoices();
   testAnswerMatching();
   testRngIsDeterministic();
+  testRoomFor();
   std::printf("%d checks, %d failed\n", checks, failures);
   return failures == 0 ? 0 : 1;
 }
