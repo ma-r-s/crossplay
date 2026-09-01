@@ -191,6 +191,13 @@ struct Game {
   // 5 rupees to strictly more camels; equal camels means nobody takes it.
   int camelTokenSeat() const;
   int score(int seat) const;
+  // What `viewer` may honestly total for `seat` mid-round, which is what the
+  // running strip prints. Goods tokens and the camel token are face up, so they
+  // count for either seat; bonus tokens are face down, so only your own are in
+  // here and theirs are shown as a "+N?" count beside this number.
+  // `visibleScore(s, s) == score(s)`, and the two seats differ only by that
+  // hidden bonus, never by who the viewer is.
+  int visibleScore(int viewer, int seat) const;
   // Who takes the seal: rupees, then bonus tokens, then goods tokens, then
   // camels. -1 when all four tie, which is a genuine draw.
   int roundWinner() const;

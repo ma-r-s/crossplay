@@ -47,6 +47,39 @@ python3 scripts/debugging_monitor.py
 - [User Guide troubleshooting section](../../USER_GUIDE.md#7-troubleshooting-issues--escaping-bootloop)
 - [Webserver troubleshooting](../troubleshooting.md)
 
+## The gate skips device builds it cannot learn anything from
+
+`check.sh` ran four cross-compiled builds -- `x4pro`, `sticky`,
+`gh_release_x4pro`, `gh_release_sticky` -- for every change, behind a
+workspace-wide lock, taking about ten minutes. It ran them for a change to
+`site/index.html` exactly as for a change to `src/`. Since `app/gatescope` it
+asks `scripts_local/device-build-needed.sh --build-loop` first, and drops the
+four when nothing in the diff can reach a device image.
+
+Three things about it are worth knowing before you trust or debug it:
+
+**The saving is only available in one direction.** `site/emulator/` is a wasm
+build of the firmware, so a firmware change genuinely can change the site --
+which is what the staleness gate at the foot of `check.sh` is for. The reverse
+is never true, so the scoping is only ever allowed to drop DEVICE envs. The
+simulator build always runs.
+
+**The rule is an allowlist of paths that cannot reach an image, and anything
+unrecognised builds.** A new top-level directory means "build", not "skip".
+`scripts_local/` is deliberately NOT on that list: two of its files are `pre:`
+extra_scripts in `platformio.ini` and run inside every device build, and the
+rest is the gate's own machinery -- a change to `check.sh` that broke the build
+loop must not be verified by a run that skipped the build loop.
+
+**A scoped run does not print `all green`.** It prints
+`HOST GREEN, DEVICE BUILDS SKIPPED (...)` and names every env it dropped, so a
+grep written before this existed finds nothing and fails closed rather than
+open. Override it with `CHECK_FORCE_DEVICE_BUILDS=1`.
+
+Its rule is tested by `host-tests/gatepath/`; the wiring that acts on the rule
+is tested by `host-tests/checksh/`, including every way the rule could fail
+(missing, crashing, non-executable) without the wiring noticing.
+
 ## The environment a check runs in is part of the check
 
 Three failures in one night, all the same shape: something was true where the
@@ -80,6 +113,34 @@ brings a whole new app in makes every size measurement taken before it stale,
 and a clean compile says nothing about headroom. Re-measure flash after any
 merge you intend to ship, and see the flash-budget notes for why an image that
 fits here can still be un-installable on an older device.
+
+**A filter is a hypothesis about what the failure will look like.** Grepping a
+device log for `Frontlight|LIGHT|Device:` missed the loudest line in it --
+ESP-IDF's `E (723) ledc: requested frequency 25000 ... can not be achieved`,
+which contains none of those tokens and names the repair outright. The filter
+was reasonable and it was wrong, and a filter that is wrong is indistinguishable
+from a log that says nothing. Read the window unfiltered ONCE before narrowing
+it; the line you did not predict is the one worth having.
+
+The same applies to a `grep` over a codebase, a suite run against a subset, and
+a screenshot taken at the moment you expected the bug -- every one of them
+decides its own scope from an assumption about the answer.
+
+And the reason it keeps happening, which is the part worth internalising:
+**narrowing feels like rigour.** A grep with four tokens in it looks more
+careful than `cat`, and it is less careful, because it has silently answered
+the question it was meant to ask. The person who wrote that filter was
+investigating the very fault it hid, and still built it from the subsystem's
+name rather than from what the failure would say.
+
+**And a summary is a filter over the source.** Everything above is one shape at
+different scales: a grep is a filter over a log, a suite is a filter over the
+behaviour, a gate is a filter over the languages, and a handoff note is a filter
+over the code. Each drops what its author judged unimportant, and the thing it
+drops is exactly what the next person needed -- which is why claims that travel
+through a summary change shape, and why the fix is always the same one. Re-read
+at the source before you act on it, especially when the summary came from
+someone careful. A careful summary is a better filter, not an absent one.
 
 ## A check that fails silently is worse than one that fails loudly
 

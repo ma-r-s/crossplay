@@ -548,4 +548,31 @@ void accusationLine(const Puzzle& p, const uint8_t picks[kMaxCats], char* out, c
                 placeOf(p, picks[static_cast<int>(Cat::Location)]).phrase, tail);
 }
 
+void blockedLine(const Puzzle& p, const int catA, const int itemA, const int catB, const int itemB,
+                 const murdle::TapResult& result, char* out, const int cap) {
+  out[0] = '\0';
+  if (!result.blocked()) return;
+  // Name the ticks rather than the rule. "One suspect, one weapon" is something
+  // the player already knows; WHICH of their own marks is in the way is the
+  // thing they cannot see, and on a finished grid it is two squares away from
+  // where they tapped.
+  constexpr int kPair = 48;  // two labels and a slash, with room to spare
+  char first[kPair];
+  char second[kPair];
+  first[0] = '\0';
+  second[0] = '\0';
+  if (result.sameRow != murdle::kNoBlocker) {
+    std::snprintf(first, kPair, "%s/%s", label(p, catA, itemA), label(p, catB, result.sameRow));
+  }
+  if (result.sameCol != murdle::kNoBlocker) {
+    char* into = first[0] == '\0' ? first : second;
+    std::snprintf(into, kPair, "%s/%s", label(p, catA, result.sameCol), label(p, catB, itemB));
+  }
+  if (second[0] == '\0') {
+    std::snprintf(out, static_cast<size_t>(cap), "ALREADY TICKED: %s. CLEAR IT TO TICK HERE.", first);
+    return;
+  }
+  std::snprintf(out, static_cast<size_t>(cap), "ALREADY TICKED: %s AND %s. CLEAR THEM TO TICK HERE.", first, second);
+}
+
 }  // namespace murdletext

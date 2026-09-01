@@ -47,6 +47,9 @@ enum : fui::ActionId {
   ActionEndSession = 14,
   ActionKeepPlaying = 15,
   ActionNewSession = 16,
+  ActionBackToMenu = 17,
+  ActionResume = 18,
+  ActionAbandon = 19,
 };
 
 struct Spectrum {
@@ -57,6 +60,7 @@ struct Spectrum {
 struct DialModel {
   Spectrum spectrum;
   int guess = 10;
+  bool nudgeHold = false;
 };
 
 struct PickModel {
@@ -69,6 +73,11 @@ struct PeekModel {
   Spectrum spectrum;
   int target = 10;
   bool revealed = false;  // true only while a thumb is on the pad
+  bool everRevealed = false;
+  // Set when a bare tap lands on a control that only answers to a hold. Without
+  // it the pad is silent on a tap, which reads as a broken button rather than
+  // as the wrong gesture: a cold player tapped twice, gave up, and got stuck.
+  bool nudgeHold = false;
 };
 
 struct ClueModel {
@@ -78,6 +87,7 @@ struct ClueModel {
 struct CallModel {
   Spectrum spectrum;
   int guess = 10;
+  bool practice = false;
 };
 
 struct RevealModel {
@@ -97,6 +107,10 @@ struct MenuModel {
   bool sessionInProgress = false;
   int sessionRound = 1;
   int sessionTotal = 0;
+  // SCORED rounds, which is what the end screen counts. The front door used to
+  // count the round about to start instead, so the two screens described one
+  // session with two different numbers a single tap apart.
+  int sessionScored = 0;
 };
 
 struct SummaryModel {
@@ -104,12 +118,32 @@ struct SummaryModel {
   int rounds = 0;
   int total = 0;
   int averageTenths = 0;
+  // Shown because an abandon is free and invisible otherwise. The board is
+  // public in this game; so is walking away from a target you did not like.
+  int abandoned = 0;
+};
+
+// The pause, reached by Back from any screen inside a round. It exists because
+// Back USED to abandon silently, which was three faults at once: no on-screen
+// way out of a round, no way to check the scoring without destroying the round
+// to reach it, and a clue-giver who could re-deal until they liked their target
+// while the game had just told everyone else to look away.
+struct PauseModel {
+  int roundNumber = 1;
+  int total = 0;
+  bool practice = false;
+  int abandoned = 0;
 };
 
 struct PassModel {
   int roundNumber = 1;
   int total = 0;
   bool practice = false;
+  // Set when the previous round was backed out of rather than played. Silent,
+  // it looks exactly like a normal pass, so a clue-giver who did not like their
+  // target could abandon and redraw with nobody at the table any the wiser.
+  bool abandoned = false;
+  int abandonedCount = 0;
 };
 
 // The hold-to-reveal pad, so the activity tests a held finger against the very
@@ -117,8 +151,35 @@ struct PassModel {
 // separate bugs in this fork came from breaking that.
 fui::Rect peekPadRect(int16_t screenW, int16_t screenH);
 
+// The LOCK bar, exposed for the same reason: the activity tests a held finger
+// against the very rect that drew it. This button says HOLD and must mean it.
+// It shipped in v1.12.0 as a plain tap, so a brush of a sleeve ended the round
+// while a deliberate four-second press did nothing -- the exact inverse of its
+// own label, on a bar under everyone's thumb with the device flat on a table.
+fui::Rect lockBarRect(int16_t screenW, int16_t screenH);
+
+// How long the bar must be held. Long enough that a stray touch cannot commit,
+// short enough that nobody wonders whether it is broken.
+inline constexpr int kLockHoldMs = 600;
+
+// Which way a finger held at (x,y) on the dial is asking the marker to move:
+// +1 toward the top pole, -1 toward the bottom, 0 for neither. Lives here so
+// the activity's repeat and the screen's drawing share one geometry rather
+// than computing it twice, which is how three separate bugs started.
+// Which slot a point on the strip falls in, or 0 if it is off the board. A tap
+// PLACES the marker: a cold player tapped near the top expecting to jump there
+// and moved one slot, then had to tap nine more times on a panel that repaints
+// between each.
+int dialSlotAt(int16_t screenW, int16_t screenH, int16_t x, int16_t y);
+
+// A held finger keeps stepping. Design said so from the start and the code
+// never did it: three cold testers all reported that crossing the strip is
+// nine to nineteen separate taps on a screen that repaints slowly.
+
+void renderHowTo(toybox::Screen& screen);
 void renderMenu(toybox::Screen& screen, const MenuModel& model);
 void renderSummary(toybox::Screen& screen, const SummaryModel& model);
+void renderPause(toybox::Screen& screen, const PauseModel& model);
 void renderPassLeft(toybox::Screen& screen, const PassModel& model);
 void renderPick(toybox::Screen& screen, const PickModel& model);
 void renderPeek(toybox::Screen& screen, const PeekModel& model);

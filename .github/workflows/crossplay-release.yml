@@ -175,56 +175,119 @@ jobs:
             devices next to each other find one another with nothing to type --
             and they do not have to be the same device.
 
-            ### What is new in 1.12.1
+            ### What is new in 1.12.4
+
+            **The games list comes back to the page you left it on.** It used to
+            reopen on whichever page held the game you last played, which is a
+            different thing and looked like a fault: browse to page two, go read
+            a book, come back, and you were somewhere else. It now remembers the
+            page.
+
+            **No row is highlighted any more.** A folder used to open with one
+            game or app marked, and on APPS that was whichever app you opened
+            last -- forever. There is no key on this device that can move a
+            highlight or open one, so it was a cursor for something that does
+            not exist, and it read as one.
+
+            **WAVELENGTH says one thing per name.** It had four names for two
+            roles, four for one scoring event and three for the guess bar. It is
+            now CLUE-GIVER, GUESSERS, SIDE CALL and the guess, everywhere. The
+            front door and the end-of-session summary also used to report the
+            same session with different numbers -- one counted the round about
+            to start, the other left out the practice round -- and they now
+            agree.
+
+            **The read-later app's ARCHIVE has moved and can be undone.** It sat
+            between the two page-turn buttons with no confirmation and no way
+            back. It is now at the far left, out of the way of paging, and PUT
+            BACK appears next to SYNC after you use it. A sync that uploads
+            something now says what it sent instead of reporting only what came
+            down, the last page of an article no longer says it is the
+            second-to-last, and an article you finished reopens where you left
+            it rather than at page one.
+
+            **Hacker News' bookmark was backwards.** The bright chip meant NOT
+            saved. It now says SAVE and SAVED in words, a story whose page will
+            not load can be kept by its discussion instead, and a swipe pages
+            the list.
+
+            ### What was new in 1.12.3
+
+            **The games list stopped opening the wrong game.** Reaching page 2
+            or 3 was unreliable and about two attempts in three landed in a game
+            you had not chosen. The cause was not the key: the folder reopens on
+            the page holding the game you played last, and nothing said so. It
+            now marks the row it resumed on, a swipe turns the page, and the
+            page dots look like the controls they always were.
+
+            **Hacker News could open a different article than the one you
+            tapped.** Switching to SAVED and back left the front page drawing
+            your saved list under the front-page heading, so a tap opened
+            whatever sat at that position in the other list. With nothing saved
+            the same fault read as "nothing to read", which is why it went
+            unnoticed. Backing out of the Wi-Fi picker also threw you out of the
+            app; on a device that has never joined a network that made the
+            saved-articles shelf unreachable.
+
+            **Trivia stopped asking you the same question twelve times.** Within
+            one round nearly every answer was the same, because the chooser
+            walked forward through a pack stored in category order. It now
+            starts from a fresh point each time. Quizmaster also gained an exit;
+            it had none.
+
+            **An exact guess in WAVELENGTH now pays 5, not 6**, which is what
+            every screen already said. Records set before this update were
+            scored on the old ceiling and have deliberately been left alone. The
+            round can also be paused now -- Back opens a screen carrying the
+            scoring table, so "how many points is one off?" no longer costs you
+            the round -- and abandoning a round is counted and shown to the
+            table instead of being silent.
+
+            **Murdle no longer takes away marks you made.** On a full grid, one
+            tap could rewrite up to three other squares, two of them answers,
+            with no undo. A tap now writes its own square and no other, and the
+            crosses the grid worked out for you are drawn lighter than your own.
+
+            **Jaipur's running score was crediting the camel bonus only to
+            you**, so the strip could say you were ahead while you were behind.
+
+            **Connections draws all sixteen tiles at one size.** A word too long
+            for its tile used to shrink alone, in a grid whose whole premise is
+            that the sixteen are comparable.
+
+            **Get Books says what it is doing while it downloads**, instead of
+            showing a still screen that was indistinguishable from a hang, and
+            it no longer loses a book's title when saving it to the card.
+
+            ### What was new in 1.12.2
+
+            **Trivia asks whether there is room before it downloads.** The
+            question pack is about 6 MB, and until now the app wrote it without
+            checking. On a nearly full card that fails somewhere in the middle,
+            and the app that suffers is not Trivia: it is Study, whose review
+            log then cannot be written, and which loses answers rather than
+            refusing. Trivia now checks first and stops with a message instead,
+            and it tells you the two cases apart. If the card is genuinely too
+            small it says how much it needs and how much you have. If the card
+            would not answer at all it says that instead, rather than pretending
+            to know.
+
+            **A frontlight that fails to start now says so.** It could not
+            before, which is most of why 1.11.1 and 1.12.0 shipped with a light
+            that would not turn on: the firmware reported success either way.
+
+            ### From 1.12.1
 
             **The front light works again on the X4 Pro.** If you installed
             1.11.1 or 1.12.0, the light stopped turning on: the panel opened,
-            the sun filled in, the setting remembered you had asked, and
-            nothing lit up. The PWM frequency for the light moved to a value
-            its clock cannot actually produce, so the channels were never
-            started and every brightness change went nowhere.
+            the sun filled in, the setting remembered you had asked, and nothing
+            lit up.
 
             **After updating, open the light panel and both switch it on and
             raise the brightness.** Those two settings live on the SD card, not
-            in the firmware, and saving them never broke -- so if you spent last
-            night trying to get the light to respond, the card may have kept the
-            switch off and the slider near the bottom from those attempts. A
-            working light at 3% in a lit room looks exactly like a broken one,
-            and we would rather you turned a dial than concluded this did not
-            work.
-
-            Nothing else changed. Everything below is from 1.12.0.
-
-            ### From 1.12.0
-
-            **Read it later, on the reader.** An **Instapaper** app: your
-            unread queue, the article text, page turns, and archiving from the
-            device. It syncs through a small service of its own, the same shape
-            as the Anki bridge.
-
-            **Wavelength.** The spectrum party game, on one device passed round
-            a table. Give the clue, argue, turn the dial, reveal. It wants a
-            dark room, which is the other reason the light above matters.
-
-            **Hacker News saved articles work again.** The storage half had been
-            shipping for three weeks with nothing calling it, and it would not
-            have opened an existing library even if something had -- a
-            version-1 index was read with a version-2 column count, so every
-            saved story was discarded as damage. Save a story, read it back with
-            no network.
-
-            **Trivia: two fixes that made it unusable on a device.** GET THE
-            QUESTIONS entered the TLS stack with the radio down and panicked the
-            device. And the first successful download created its own folder,
-            after which every later attempt reported "NO ROOM" on a card with
-            gigabytes free.
-
-            **Sleep returns you to your game**, not to Home.
-
-            **Book text from a catalog no longer arrives with its markup
-            showing**, and a Study deck installed from the website and one
-            synced from the service now agree on where it lives -- before, one
-            deck could land in two folders with two separate review histories.
+            in the firmware, so if you spent a while trying to get the light to
+            respond, the card may have kept the switch off and the slider near
+            the bottom from those attempts.
 
             ### If you have not plugged your X4 Pro into a computer since August
 

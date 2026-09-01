@@ -56,7 +56,10 @@ enum : fui::ActionId {
 struct ListModel {
   const char* title = "HACKER NEWS";
   // Which half of the library is on screen. Same filled-means-here language as
-  // the reader's mark, so there is one idea to learn rather than two.
+  // the reader's mark, so there is one idea to learn rather than two -- filled
+  // in the opposite ink, because the segments sit on paper and the mark sits on
+  // the black band. Copying the ink instead of the idea is what made the mark
+  // read backwards; see bandFilledStyles().
   bool showingSaved = false;
   // Drawn instead of rows when the list is empty. An empty SAVED shelf on a new
   // device is the normal case, and a blank panel reads as a fault.
@@ -123,9 +126,15 @@ struct ReaderModel {
   bool swapAvailable = true;
   bool canPagePrev = false;
   bool canPageNext = false;
-  // The band's save mark: absent on a thread (there is nothing to save but the
-  // article), outlined when it can be saved, filled once it is on the device --
-  // and tapping a filled one removes it again.
+  // The band's save mark, over whatever the reader is holding: the article on
+  // an article, the thread on a thread. Outlined and reading SAVE while it can
+  // be kept, filled and reading SAVED once it is on the device -- and tapping a
+  // filled one removes it again.
+  //
+  // A thread is savable because of what it is for. A story whose page will not
+  // render here is exactly the one worth taking on a train, and offering it no
+  // mark at all meant the only stories that could not be kept were the ones
+  // with the most reason to be.
   bool canSave = false;
   bool saved = false;
 };

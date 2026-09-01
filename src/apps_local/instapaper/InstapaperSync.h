@@ -30,7 +30,7 @@
 
 namespace instapaper {
 
-constexpr char kBridgeHost[] = "read.ma-r-s.com";
+constexpr char kBridgeHost[] = "read.crossplay.ma-r-s.com";
 
 // What one finished sync did. Every field here ends up in a sentence on the
 // verdict screen; nothing is carried that nobody says out loud.

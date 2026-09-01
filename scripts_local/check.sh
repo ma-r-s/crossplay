@@ -409,7 +409,7 @@ fi
 # which is exactly when nobody is looking.
 for entry in \
   "server/study-bridge:bridge:12:tests/test_engine.py tests/test_api.py tests/test_window.py" \
-  "server/read-bridge:readbridge:8:tests/test_oauth.py tests/test_article.py tests/test_engine.py tests/test_api.py tests/test_window.py"
+  "server/read-bridge:readbridge:8:tests/test_oauth.py tests/test_article.py tests/test_window.py tests/test_lockout.py tests/test_engine.py tests/test_api.py"
 do
   BRIDGE_DIR="$REPO/${entry%%:*}"
   rest="${entry#*:}"
@@ -483,6 +483,72 @@ if [ "${1:-}" != "--tests" ]; then
   # compile the release-path serial code at all.
   [ -n "${CHECK_BUILD_RELEASE_ENVS:-}" ] && BUILD_ENVS="$BUILD_ENVS gh_release_x4pro gh_release_sticky"
 
+  # ---- do these four builds need to run for THIS change at all? ------------
+  #
+  # Four cross-compiled builds, behind a workspace-wide lock, about ten
+  # minutes -- and for a change to site/index.html and site/styles.css not one
+  # byte of the result can differ. That happened four times in one day, and one
+  # session cherry-picked a site-only change through a throwaway worktree to
+  # avoid paying it.
+  #
+  # The dependency runs ONE WAY and only one direction of saving exists.
+  # site/emulator/ is a wasm build of the firmware, so firmware changes can
+  # change the site -- which is what the staleness gate at the foot of this
+  # file is for, and it is untouched by this. The reverse is never true, so
+  # this is only ever allowed to drop DEVICE envs.
+  #
+  # scripts_local/device-build-needed.sh owns the rule and host-tests/gatepath
+  # owns its tests; this is only the wiring. The rule is an allowlist of paths
+  # that CANNOT reach a device image, so anything it has never heard of builds.
+  #
+  # ONLY exit code 1 skips, and that is the whole safety of the wiring. The
+  # tool documents 0 as "needed -- and also the answer whenever anything is
+  # uncertain", so writing this as `if ! tool; then skip` would turn a missing
+  # file, a syntax error, or a 127 into a silent skip of every device build.
+  # That is the one failure here nobody would ever see: a skipped build and a
+  # passed build print differently, but a skipped build and a build that was
+  # never asked for do not.
+  #
+  # The simulator env is never dropped. It is the fast native build everyone
+  # waits on, it takes no lock, and it is what the wasm artifact comes from.
+  DEVICE_BUILDS_SKIPPED=""
+  _scope="${REPO:-}/scripts_local/device-build-needed.sh"
+  _dev_envs="$(printf '%s\n' $BUILD_ENVS | grep -v '^simulator' | tr '\n' ' ' | sed 's/ *$//')"
+  if [ -n "${CHECK_FORCE_DEVICE_BUILDS:-}" ]; then
+    echo "device builds: forced (CHECK_FORCE_DEVICE_BUILDS is set); the diff was not consulted"
+  elif [ -n "${REPO:-}" ] && [ -x "$_scope" ]; then
+    # --build-loop, not the default question: --committed exports
+    # CHECK_BUILD_RELEASE_ENVS a few hundred lines above, and the default
+    # question answers "needed" whenever it is set. Asking it here would mean
+    # this never fires in the one mode it was written for. See the tool.
+    SCOPE_WHY="$("$_scope" --build-loop 2>&1)" && _scope_rc=0 || _scope_rc=$?
+    if [ "$_scope_rc" -eq 1 ] && [ -n "$_dev_envs" ]; then
+      DEVICE_BUILDS_SKIPPED="$_dev_envs"
+      BUILD_ENVS="$(printf '%s\n' $BUILD_ENVS | grep '^simulator' | tr '\n' ' ' | sed 's/ *$//')"
+      echo
+      echo "DEVICE BUILDS SKIPPED -- $SCOPE_WHY"
+      echo "  did not run: $DEVICE_BUILDS_SKIPPED"
+      echo "  every host suite ran, and so did the simulator build."
+      echo "  the device images this commit would produce are the ones its base"
+      echo "  already produced, because nothing here can reach one."
+      echo "  run them anyway with: CHECK_FORCE_DEVICE_BUILDS=1 $0 ${1:-}"
+      echo
+    else
+      # Say why they are RUNNING, too, and not for symmetry. Expecting a skip
+      # and not getting one is the state with no diagnostic at all: the rule
+      # names the ONE path that made it answer "build", and without this line
+      # the only way to get that name is to re-run the tool by hand in the
+      # trial worktree, which is what happened the first time this was tested
+      # -- the base ref was not what the tester assumed, and the log said
+      # nothing either way.
+      echo "${SCOPE_WHY:-device builds: needed (the rule exited $_scope_rc without a reason)}"
+    fi
+  else
+    # And the third state, which is the one that most needs saying. A gate that
+    # never asked looks exactly like a gate that asked and was told yes.
+    echo "device builds: needed (no usable rule at ${_scope:-<no repo>}; nothing was skipped)"
+  fi
+
   # Every env here except the native simulator reaches into the shared
   # ~/.platformio, so the lock must SPAN from the first of them to the last.
   # Both ends are derived from the list rather than named, because naming them
@@ -505,10 +571,93 @@ if [ "${1:-}" != "--tests" ]; then
       # both then raced ~/.platformio. Seen 2026-08-31: the thief died on
       # `ComponentManager/.../index.lock: File exists`, an error naming no file
       # of ours. The lock now records its holder's pid so a waiter can ask.
+      # Take a ticket BEFORE waiting, and only take the lock when we are the
+      # head of the queue. Whoever wins the next `mkdir` is not good enough:
+      # a session with an armed watcher fires the instant the machine goes
+      # quiet, in the gap between one run releasing and a human-paced waiter
+      # noticing, and wins every round. That starved one tree for fifty minutes
+      # on 2026-08-31 while it read the loss as bad luck.
+      #
+      # Fairness cannot be enforced by the party that wants to be fair. The
+      # ordering therefore has to be a fact on disk that a jumper must read,
+      # not an etiquette a jumper can decline to read.
+      #
+      # The filename is the pid, so creating a ticket is atomic with no counter
+      # and no second mutex. A counter would need its own lock, and a waiter
+      # dying while holding THAT is this same liveness problem one level down,
+      # with nothing underneath to catch it.
+      FW_QUEUE="$FW_LOCK.queue"
+      mkdir -p "$FW_QUEUE" 2>/dev/null || true
+      : > "$FW_QUEUE/$$.ticket" 2>/dev/null || true
+      # If the ticket could not be written -- read-only parent, a queue dir we
+      # cannot create -- fall back to the unqueued race rather than waiting for
+      # a head we can never become. Checked by existence, not by the exit
+      # status of the redirect: the failure we care about is "no ticket", and
+      # asking the question that way cannot report success for a second reason.
+      if [ -e "$FW_QUEUE/$$.ticket" ]; then FW_QUEUED=1; else FW_QUEUED=0; fi
+      # Drop the ticket however we leave: on acquire below, and here for a
+      # waiter that is killed while queued. A phantom head blocks everyone.
+      #
+      # INT/TERM must clean up AND EXIT. A bash trap that only cleans up
+      # RESUMES the shell -- it replaces the default terminate -- so a handler
+      # without an exit makes a queued run unkillable, and `kill` on a waiter
+      # silently does nothing. `exit` re-enters the EXIT trap, so cleanup still
+      # happens exactly once.
+      trap 'rm -f "$FW_QUEUE/$$.ticket" 2>/dev/null; true' EXIT
+      trap 'rm -f "$FW_QUEUE/$$.ticket" 2>/dev/null; exit 143' INT TERM
+
+      # The head of the queue: oldest live ticket, ties broken by pid so that
+      # every waiter computes the SAME answer. What prevents starvation is a
+      # total order everyone agrees on, not true arrival time -- a tie means two
+      # waiters arrived in the same fraction of a second, and either answer is
+      # fair. Dead tickets are removed by whoever notices, so a waiter that dies
+      # cannot block the queue.
+      queue_head() {
+        [ "$FW_QUEUED" = 1 ] || { printf '%s' "$$"; return 0; }
+        local t pid best_pid="" best_key=""
+        for t in "$FW_QUEUE"/*.ticket; do
+          [ -e "$t" ] || continue
+          pid="${t##*/}"; pid="${pid%.ticket}"
+          if ! kill -0 "$pid" 2>/dev/null; then
+            rm -f "$t" 2>/dev/null
+            continue
+          fi
+          # %Fm is the fractional mtime; pid pads to a fixed width so the string
+          # compare orders numerically on the tiebreak.
+          # Validate the OUTPUT, never the exit status. BSD `stat -f` is a
+          # format string; GNU `stat -f` is --file-system and can SUCCEED here
+          # with something that is not a timestamp at all, so an `||` chain
+          # keyed on exit status never reaches the GNU form. host-tests run on
+          # ubuntu in CI and on macOS locally, so both spellings are live.
+          local key
+          key="$(stat -f '%Fm' "$t" 2>/dev/null)"
+          case "$key" in '' | *[!0-9.]*) key="$(stat -c '%.9Y' "$t" 2>/dev/null)" ;; esac
+          case "$key" in '' | *[!0-9.]*) key=0 ;; esac
+          key="$key $(printf '%012d' "$pid")"
+          if [ -z "$best_key" ] || [ "$key" \< "$best_key" ]; then
+            best_key="$key"; best_pid="$pid"
+          fi
+        done
+        printf '%s' "$best_pid"
+      }
+
       waited=0
-      while ! mkdir "$FW_LOCK" 2>/dev/null; do
+      while [ "$(queue_head)" != "$$" ] || ! mkdir "$FW_LOCK" 2>/dev/null; do
         owner="$(cat "$FW_LOCK/owner" 2>/dev/null || true)"
         owner_pid="${owner%% *}"
+
+        # Ahead of us in the queue and the lock is free or not ours to judge:
+        # say so and wait. Reporting our position is what makes a stuck queue
+        # legible to a human, which matters because `kill -0` cannot tell a
+        # live head from a WEDGED one -- a head that is alive but no longer
+        # polling blocks everybody, and no cheap probe catches that.
+        if [ "$(queue_head)" != "$$" ]; then
+          [ $(( waited % 30 )) -eq 0 ] &&
+            echo "  queued for the firmware lock behind pid $(queue_head) (${waited}s) ..."
+          sleep 2
+          waited=$((waited + 2))
+          continue
+        fi
         # Match the resolved pio path, not the bare words: a shell whose command
         # line merely MENTIONS "pio run" (a waiter, a probe, a heredoc) is not a
         # build, and on this workspace one usually does. Simulator builds are
@@ -517,6 +666,18 @@ if [ "${1:-}" != "--tests" ]; then
         # elsewhere must not stop us reclaiming an abandoned lock.
         # And never `pgrep -c` here: macOS pgrep has no -c, so it exits 2 and
         # any `|| echo 0` fallback reports "no builds" forever.
+        #
+        # This is the ONE pattern probe left in this file, and it is safe for
+        # two reasons that stop holding the moment either changes. It matches
+        # the pio BINARY PATH, so it looks at the actual builder rather than at
+        # a wrapper that may not carry the flag naming it -- a lock holder's
+        # command line is bare `check.sh`, because --committed lives on the
+        # OUTER shell while the lock is taken by the re-exec inside the trial
+        # worktree, so `pgrep -f "check.sh --committed"` reports NOT FOUND for a
+        # live holder. And it is used only as a BRAKE: a wrong answer here makes
+        # a waiter wait longer, never reclaim sooner. Do not reuse it in the
+        # reclaiming direction, and do not key it on a flag. Liveness that can
+        # authorise a reclaim is `kill -0` on a pid, nowhere else.
         if pgrep -fl "[b]in/pio run" 2>/dev/null | grep -v -- "-e simulator" | grep -q .; then
           builds_alive=1
         else
@@ -584,11 +745,22 @@ if [ "${1:-}" != "--tests" ]; then
       # is the only place a raw `pio run` cannot skip -- would see a live
       # stranger holding the lock and refuse our own device builds.
       export XTEINK_FW_LOCK_OWNER="$$"
+      # Give up the ticket at the moment of acquisition, not at exit. A holder
+      # that keeps its ticket stays head of the queue while it builds, so it
+      # wins the next round too, and a session running back-to-back gates holds
+      # the head position indefinitely -- the same starvation this queue exists
+      # to remove, reintroduced by the queue.
+      rm -f "$FW_QUEUE/$$.ticket" 2>/dev/null || true
       # rm -rf, not rmdir: the owner file makes the directory non-empty, and an
       # rmdir that silently fails would leak the lock to every other tree.
       # Same rule on the way out: a run that died after its lock was reclaimed
-      # must not delete the reclaimer's.
-      trap 'o="$(cat "$FW_LOCK/owner" 2>/dev/null || true)"; [ "${o%% *}" = "$$" ] && rm -rf "$FW_LOCK"; true' EXIT INT TERM
+      # must not delete the reclaimer's. The ticket goes too, in case we are
+      # killed between re-queuing and acquiring.
+      # Same split as the queue trap above, and for the same reason: a holder
+      # whose TERM handler does not exit keeps building and keeps the lock,
+      # so `kill` on a running gate appears to do nothing.
+      trap 'rm -f "$FW_QUEUE/$$.ticket" 2>/dev/null; o="$(cat "$FW_LOCK/owner" 2>/dev/null || true)"; [ "${o%% *}" = "$$" ] && rm -rf "$FW_LOCK"; true' EXIT
+      trap 'rm -f "$FW_QUEUE/$$.ticket" 2>/dev/null; o="$(cat "$FW_LOCK/owner" 2>/dev/null || true)"; [ "${o%% *}" = "$$" ] && rm -rf "$FW_LOCK"; exit 143' INT TERM
 
       # The object cache is trimmed HERE and nowhere else: holding the firmware
       # lock is the only moment no other tree is reading those objects. Pruning
@@ -728,7 +900,21 @@ fi
 
 echo
 if [ "$FAILED" -eq 0 ]; then
+  # SCOPE_NOTE: a withheld verdict is the stronger statement and wins the line,
+  # but it must still SAY that four builds did not run. Two reasons to distrust
+  # a result are not one reason, and whoever fixes the drift would otherwise get
+  # a clean-looking rerun that is still missing the builds.
+  #
+  # These two assignments are CONTIGUOUS, with no comment between them, and that
+  # is load-bearing rather than tidy: host-tests/checksh lifts this block by
+  # walking UP from the `if` over adjacent assignment lines, to carry down the
+  # values the block reads but does not make. Anything in between -- a comment,
+  # a `[ ... ] && NAME=` -- stops that walk, drops QUALIFIER= out of the lift,
+  # and fails the suite with "unbound variable": a broken extraction wearing the
+  # costume of a broken verdict. That is not hypothetical; it is what this
+  # change did on its first two attempts.
   QUALIFIER="$(qualifier_text)"
+  SCOPE_NOTE="${DEVICE_BUILDS_SKIPPED:+ DEVICE BUILDS ALSO SKIPPED ($DEVICE_BUILDS_SKIPPED).}"
   if [ -n "$QUALIFIER" ]; then
     # The qualifier leads AND the clean phrase is absent. Both halves were paid
     # for: trailing it ("all green -- BUT ...") lost to a reader who greps
@@ -738,7 +924,18 @@ if [ "$FAILED" -eq 0 ]; then
     # OPEN. A qualified verdict that contains its own unqualified form is
     # matched by all of them. Old patterns must find nothing here and fail
     # closed, so this line says "suites passed" instead.
-    echo "VERDICT WITHHELD ($QUALIFIER) -- suites passed, but not on the code that ships. logs in $LOGS"
+    echo "VERDICT WITHHELD ($QUALIFIER) -- suites passed, but not on the code that ships.${SCOPE_NOTE} logs in $LOGS"
+  elif [ -n "${DEVICE_BUILDS_SKIPPED:-}" ]; then
+    # A THIRD verdict, not a footnote under the second. This run is not
+    # withheld -- it is honestly green for everything it covered -- but it did
+    # not cover the same ground a full run covers, and a reader must be able to
+    # tell which of the two they are looking at without knowing the diff.
+    #
+    # It must not contain the string "all green", for the reason spelled out
+    # above: every grep written before this line existed matches that phrase
+    # and would fail OPEN on a run that skipped four builds. Anything looking
+    # for the unqualified form finds nothing here and has to read the line.
+    echo "HOST GREEN, DEVICE BUILDS SKIPPED ($DEVICE_BUILDS_SKIPPED) -- nothing in this diff reaches a device image, so none was built. logs in $LOGS"
   else
     echo "all green. logs in $LOGS"
   fi

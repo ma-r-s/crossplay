@@ -428,10 +428,19 @@ worker.onmessage = function (event) {
     // What the package carried that the reader cannot use. Silence here read
     // as "nothing was lost" for a deck whose answers were all photographs.
     if (opened && opened.pictures > 0 && !result.imagesPacked) {
+      // States the fact and not the consequence. The page knows how many
+      // picture FILES the package carries; it does not know how many CARDS
+      // reference one, because the packer reports that only as prose in the
+      // log. The old wording asserted "cards ... arrive blank" for a deck
+      // where the log said 0 packed, 0 unreadable and 33 cards without one --
+      // three numbers that cannot produce a blank card between them. A reader
+      // comparing the two had no way to tell which was lying.
       notes.push(
         opened.pictures +
-          " picture(s) in this deck are not carried over; cards whose answer" +
-          " was only a picture arrive blank.",
+          (opened.pictures === 1 ? " picture is" : " pictures are") +
+          " in the package and not carried over. A card whose answer was ONLY" +
+          " a picture would arrive blank; the images line in the log below" +
+          " says how many cards actually use one.",
       );
     }
     if (opened && opened.audio > 0) {
@@ -439,15 +448,18 @@ worker.onmessage = function (event) {
         opened.audio + " sound(s) are dropped: the reader has no speaker.",
       );
     }
+    // Everything above is true of the DECK and stays true whatever font is
+    // chosen next: cards that stay behind, pictures not carried over, sounds
+    // dropped. Everything describeProblems adds is about the chosen font and
+    // is rebuilt with it. Split them by where they came from rather than by
+    // matching their words -- an allowlist of substrings kept "sound(s)" and
+    // "picture(s)" and silently dropped the cards-stay-behind line, so a user
+    // who picked a font before reading the summary was never told a card had
+    // been left out of their deck at all. A disclosure about lost data cannot
+    // depend on an unrelated choice.
+    permanentNotes = notes.slice();
     describeProblems(result.problems).forEach(function (line) {
       notes.push(line);
-    });
-
-    // Audio and pictures are gone from the deck whatever happens next, so
-    // these lines must survive a font rebuild. One that erased itself two
-    // seconds later is a warning nobody reads.
-    permanentNotes = notes.filter(function (line) {
-      return line.indexOf("sound(s)") >= 0 || line.indexOf("picture(s)") >= 0;
     });
     var notice = $("skipNotice");
     notice.textContent = notes.join(" ");
@@ -701,6 +713,14 @@ worker.onmessage = function (event) {
     if (result.checkFailed || fontProblems.length) {
       verdict.textContent = "Converted, but read this first:";
       verdict.className = "study-verdict is-bad";
+    } else if (permanentNotes.length) {
+      // "Every card renders." sat three lines above "1 card stays behind:
+      // cloze cards have a hole in the question", on the same screen. Both
+      // were true of different sets and the pair reads as the page
+      // contradicting itself, which costs more trust than the skipped card
+      // costs anything.
+      verdict.textContent = "Every card that converted renders.";
+      verdict.className = "study-verdict is-good";
     } else {
       verdict.textContent = "Every card renders.";
       verdict.className = "study-verdict is-good";
@@ -878,7 +898,24 @@ worker.onmessage = function (event) {
     try {
       root = await window.showDirectoryPicker({ mode: "readwrite" });
     } catch (e) {
-      return; // user cancelled the picker
+      // Only AbortError is the user closing the picker. Everything else is the
+      // call failing -- and treating them alike made this button a silent
+      // no-op: the API is present, the branch is taken, the call rejects, and
+      // nothing appears. No dialog, no text, not even a console line. A person
+      // clicks it, waits a minute, clicks again, and has no reason to connect
+      // it to the zip sentence in the paragraph above.
+      if (e && e.name === "AbortError") {
+        setWriteStatus("Left the card untouched.");
+        return;
+      }
+      console.error("showDirectoryPicker failed", e);
+      setWriteStatus(
+        "This browser would not open a folder picker (" +
+          ((e && e.name) || "unknown error") +
+          "). Use the zip button instead -- it unpacks at the card's root and " +
+          "produces exactly the same thing.",
+      );
+      return;
     }
     var slug = converted.slug;
     try {
@@ -981,11 +1018,19 @@ worker.onmessage = function (event) {
     status.textContent = "";
     status.appendChild(
       document.createTextNode(
-        "Look in your Downloads folder for " +
+        // Says what it KNOWS, not where the file went. The page cannot see the
+        // filesystem: it asked for this name and size, and the browser may
+        // have renamed it, put it elsewhere, or left an older download of the
+        // same name sitting there. Asserting the name and folder sent a
+        // returning user to a three-week-old zip that matched the description
+        // exactly, and they shipped it believing they had followed the page.
+        "Your browser has been sent a deck named " +
           name +
           " (" +
           Math.max(1, Math.round(buffer.byteLength / 1024)) +
-          " KB). Unpack it at the ROOT of the SD card, so it creates study/" +
+          " KB), saved wherever it puts downloads. Check the timestamp is from " +
+          "just now -- an older download of the same name may still be there. " +
+          "Unpack it at the ROOT of the SD card, so it creates study/" +
           converted.slug +
           "/. Then: Apps > STUDY. Nothing there? ",
       ),

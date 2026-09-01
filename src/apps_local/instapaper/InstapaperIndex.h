@@ -16,6 +16,19 @@
 // saved a second copy on every tap. One unbumped integer, two bugs, and
 // neither of them looks like a format problem from the outside.
 //
+// And the sharper half of that lesson, learned when the same feature was
+// finally ported: a version number tells you what the writer INTENDED, not
+// what is on the card. Mario's real version-1 library turned out to have four
+// columns where the parser assumed six, so it read his titles out of fields
+// past the end of the row, got empty ones, discarded every entry as damage,
+// and showed him an empty shelf. Sixty passing assertions could not catch it
+// because they were written from the parser's own assumption.
+//
+// So if a column is ever added here: bump kVersion AND decide the old row's
+// shape by counting its tabs, not by trusting the header. Today there is
+// exactly one shape and one writer, which is the only reason this file can
+// get away with reading a fixed column order.
+//
 // Tab-separated rather than JSON for the reason the Hacker News library gives:
 // this file is the thing that has to survive. It is readable in any editor,
 // recoverable by hand, and needs no parser to inspect. The free-form field --
@@ -118,5 +131,46 @@ void sortForQueue(std::vector<Article>& articles);
 // Hiding a pending archive immediately is the difference between "it worked"
 // and "did I press it?", and it costs nothing -- the intent is durable.
 std::vector<const Article*> visible(const std::vector<Article>& articles);
+
+// --- The pager -----------------------------------------------------------
+//
+// A reading position and a page number are the same fact seen twice:
+// `progress` IS the top of the viewport over the article's length. These four
+// functions are the only place that conversion is spelled, so the position
+// sent to Instapaper, the line a reopened article starts on and the label in
+// the header band cannot drift apart -- and so all of it is testable here
+// rather than only inside a render pass.
+
+// The furthest the viewport top can go. The last page overlaps the one before
+// it rather than running off the end, which is why it is not a multiple of
+// `visibleLines` and why every function below has to know that.
+uint32_t maxTopLine(uint32_t visibleLines, uint32_t lineCount);
+
+// Where a page turn lands. `delta` is pages, positive forward.
+uint32_t turnedTopLine(uint32_t topLine, uint32_t visibleLines, uint32_t lineCount, int delta);
+
+// Where a stored reading position puts the viewport top. A finished article
+// (progress 1.0) resumes on its last page like any other: the position means
+// the same thing at either end of the range, and dropping it for the one
+// value that says "you got to the end" is the difference nothing on screen
+// explains.
+uint32_t topLineFor(float progress, uint32_t visibleLines, uint32_t lineCount);
+
+// Instapaper's definition, back out again. Reaching the end is 1.0 rather
+// than topLine/lineCount, which for somebody who just read the last word
+// would report about 90%.
+float progressFor(uint32_t topLine, uint32_t visibleLines, uint32_t lineCount);
+
+struct Pages {
+  uint32_t page = 1;   // 1-based
+  uint32_t count = 1;  // never 0, so "n / 0" cannot be drawn
+};
+
+// The header band's label. `page` is derived from where the viewport IS, not
+// from how many turns it took: the final position is clamped to maxTopLine()
+// and so is not a multiple of the span, and plain division lands one page
+// early there -- which is how the last page of a three-page article printed
+// "2 / 3" and 3/3 was never seen at all.
+Pages pagesFor(uint32_t topLine, uint32_t visibleLines, uint32_t lineCount);
 
 }  // namespace instapaper

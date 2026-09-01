@@ -1,4 +1,3 @@
-#include "DevMode.h"
 #include "XkcdActivity.h"
 
 #include <HalStorage.h>
@@ -16,6 +15,7 @@
 #include "../Shelf.h"
 #include "../ui/Toybox.h"
 #include "../ui/ToyboxTheme.h"
+#include "DevMode.h"
 
 namespace fui = freeink::ui;
 
@@ -369,7 +369,11 @@ void XkcdActivity::openComicAt(const int position) {
 void XkcdActivity::showNotice(const char* headline, const char* detail, const char* actionLabel,
                               const fui::ActionId action) {
   snprintf(noticeHead_, sizeof(noticeHead_), "%s", headline);
-  snprintf(noticeBody_, sizeof(noticeBody_), "%s", detail);
+  // See TriviaActivity::showNotice: passing the current body back in is an
+  // overlapping self-copy, and aliasing means "keep it".
+  if (detail != noticeBody_) {
+    snprintf(noticeBody_, sizeof(noticeBody_), "%s", detail);
+  }
   noticeAction_ = actionLabel;
   noticeActionId_ = action;
   view_ = View::Notice;

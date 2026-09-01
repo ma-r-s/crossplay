@@ -167,5 +167,24 @@ else
   while IFS= read -r line; do echo "      $line"; done <<< "$shelf_missing"
 fi
 
+# -- the page's own structure --------------------------------------------------
+#
+# Everything above compares two files. These two faults live inside index.html
+# alone, and both reached the live page: a card missing its </article>, which
+# swallowed the next card into its own grid cell, and shots stored at twice the
+# size the page declares. Neither breaks a build, a render or a link, and the
+# coverage check above passes straight through both. Status checked as well as
+# output, for the reason spelled out in the block before this one.
+if page_bad="$(python3 "$HERE/page_structure.py" "$ROOT" 2>&1)"; then
+  if [ -z "$page_bad" ]; then
+    ok
+  else
+    while IFS= read -r line; do bad "$line"; done <<< "$page_bad"
+  fi
+else
+  bad "page_structure.py could not run, so index.html went unchecked:"
+  while IFS= read -r line; do echo "      $line"; done <<< "$page_bad"
+fi
+
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]

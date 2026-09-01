@@ -13,3 +13,5 @@ SRC=../../src/apps_local/wavelength
 "${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror -O2 -I$SRC \
   test_wavelength.cpp $SRC/WavelengthCore.cpp -o "$BUILD_DIR/test_wavelength"
 "$BUILD_DIR/test_wavelength"
+
+uv run --quiet python ../../tools_local/wavelength/check_widths.py

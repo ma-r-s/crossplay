@@ -54,8 +54,6 @@ class OpdsBookBrowserActivity final : public Activity, private UiAppHost {
   std::string feedSubtitle;
   // The "Preparing" tick, for the stretch before the server sends any bytes.
   static constexpr uint32_t WAIT_TICK_MS = 2000;
-  uint32_t waitTickMs = 0;
-  uint8_t waitDots = 0;
   // Resolved once per server from an OpenSearch description document and
   // reused while navigating, since subfeeds rarely repeat the search link.
   std::string resolvedDescriptionUrl;

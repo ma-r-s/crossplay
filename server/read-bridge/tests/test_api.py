@@ -284,6 +284,29 @@ async def run(tmp, state_file):
         remote = (await fakec.get("/_test/state")).json()
         ok("delete_was_called" not in remote, "the bridge never called bookmarks/delete")
 
+        # --- the sign-in backoff, on the real HTTP surface.
+        #
+        # Last, because it deliberately locks the account it uses. The design
+        # made per-username exponential lockout a precondition for opening
+        # registration to everyone, so this is that condition being exercised
+        # rather than merely existing: enough wrong passwords and the CORRECT
+        # one is refused too, which is the only version that stops an attacker
+        # who happens to guess right.
+        from bridge.ratelimit import Lockout
+
+        # From a FRESH visitor IP. The per-IP window is 5 per 5 minutes and this
+        # suite has already spent that budget on the sign-in checks above, so
+        # without this the IP limiter answers first and the username lockout is
+        # never reached -- the test would pass on the wrong mechanism. The
+        # header is the real one: client_ip() reads cf-connecting-ip, because
+        # behind the tunnel the socket peer is always cloudflared.
+        visitor = {"CF-Connecting-IP": "203.0.113.7"}
+        for _ in range(Lockout.FREE_FAILURES + 1):
+            await client.post("/login", data={"username": USER, "password": "wrong"}, headers=visitor)
+        r = await client.post("/login", data={"username": USER, "password": PW}, headers=visitor)
+        ok("Slow down" in r.text, "a locked-out account is refused even with the right password")
+        ok("Try again in" in r.text, "and is told roughly how long to wait")
+
     print(f"{checks} checks, {failures} failed")
     return 1 if failures else 0
 

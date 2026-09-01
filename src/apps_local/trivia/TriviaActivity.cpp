@@ -170,7 +170,14 @@ void TriviaActivity::onExit() {
 void TriviaActivity::showNotice(const char* headline, const char* body, const char* actionLabel,
                                 const freeink::ui::ActionId action) {
   std::snprintf(noticeHead_, sizeof(noticeHead_), "%s", headline);
-  std::snprintf(noticeBody_, sizeof(noticeBody_), "%s", body);
+  // Guarded because the natural call is the dangerous one: reading the current
+  // body, deciding to keep it, and passing it straight back makes this an
+  // snprintf of a buffer onto itself, which is undefined behaviour for
+  // overlapping copies. Aliasing means "leave it as it is", so skipping is
+  // also the right answer semantically, not merely the safe one.
+  if (body != noticeBody_) {
+    std::snprintf(noticeBody_, sizeof(noticeBody_), "%s", body);
+  }
   noticeAction_ = actionLabel;
   noticeActionId_ = action;
   view_ = View::Notice;

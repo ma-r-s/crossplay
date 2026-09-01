@@ -59,6 +59,8 @@ mkdir -p "$BUILD_DIR"
   ../../src/apps_local/player/PlayerScreen.cpp \
   ../../src/apps_local/study/StudyScreens.cpp \
   ../../src/apps_local/sudoku/SudokuCore.cpp \
+  ../../src/apps_local/wavelength/WavelengthCore.cpp \
+  ../../src/apps_local/wavelength/WavelengthScreens.cpp \
   ../../src/apps_local/sudoku/SudokuScreens.cpp \
   ../../src/apps_local/xkcd/XkcdScreens.cpp \
   test_ui.cpp -o "$BUILD_DIR/test_ui"

@@ -135,6 +135,25 @@ void putChar(char* out, const char c) {
 // ---------------------------------------------------------------------------
 // The grid
 
+// "Ruled out", in two weights.
+//
+// A bar, not a cross: the draw target has fills and strokes and no diagonal, so
+// an X would have to be a bitmap, and a bar reads as ruled out just as clearly.
+//
+// The two weights are the whole of the answer to "which of these marks are
+// mine?". The board crosses out a whole row and column the moment a tick goes
+// in, and until now it drew those in the player's own hand -- identical bars,
+// no legend, nothing to tell a conclusion from an offer. HOW TO SOLVE names
+// both. The heavy one is theirs and only they can take it away; the light one
+// is the board's working, and it comes and goes with the tick behind it.
+void drawCross(toybox::Screen& screen, const fui::Rect& cell, const int16_t size, const bool derived) {
+  const int16_t barW = static_cast<int16_t>(size * 5 / 9);
+  const int16_t barH = derived ? static_cast<int16_t>(2) : static_cast<int16_t>(4);
+  screen.target().fill(fui::makeRect(static_cast<int16_t>(cell.x + (size - barW) / 2),
+                                     static_cast<int16_t>(cell.y + size / 2 - barH / 2), barW, barH),
+                       fui::Paint::solid(fui::Color::Black));
+}
+
 GridLayout layoutGrid(toybox::Screen& screen, const Puzzle& puzzle, const fui::Rect& area) {
   GridLayout layout;
   layout.groups = puzzle.shape.cats - 1;
@@ -235,13 +254,7 @@ void drawGrid(toybox::Screen& screen, const Puzzle& puzzle, const Marks& marks, 
 
           const Mark mark = marks.shown(g.rowCat[r], ir, g.colCat[c], ic);
           if (mark == Mark::No) {
-            // A bar, not a cross. The draw target has fills and strokes and no
-            // diagonal, so an X would have to be a bitmap; a bar reads as
-            // "ruled out" just as clearly and costs nothing.
-            const int16_t barW = static_cast<int16_t>(g.cell * 5 / 9);
-            target.fill(fui::makeRect(static_cast<int16_t>(cell.x + (g.cell - barW) / 2),
-                                      static_cast<int16_t>(cell.y + g.cell / 2 - 2), barW, 4),
-                        ink);
+            drawCross(screen, cell, g.cell, marks.derived(g.rowCat[r], ir, g.colCat[c], ic));
           } else if (mark == Mark::Yes) {
             const int16_t inset = static_cast<int16_t>(g.cell / 4);
             target.fill(
@@ -651,6 +664,17 @@ CaseReport buildCase(toybox::Screen& screen, const CaseModel& model) {
   fui::Rect body = screen.body();
 
   if (model.face == Face::Grid) {
+    // The notice comes out of the grid's own room rather than the key's. The
+    // key is what the message's names have to be looked up in, so squeezing it
+    // to make space for the message would take away the thing the message
+    // sends you to -- and the grid is width-bound at three categories, so at
+    // this tier it does not shrink at all.
+    if (model.notice != nullptr && model.notice[0] != '\0') {
+      const int16_t used =
+          paragraph(screen, styled(toybox::kTileFont, fui::TextAlign::Center), model.notice, body, true);
+      body = fui::makeRect(body.x, static_cast<int16_t>(body.y + used + 8), body.width,
+                           static_cast<int16_t>(body.height - used - 8));
+    }
     layout = layoutGrid(screen, puzzle, body);
     drawGrid(screen, puzzle, *model.marks, layout);
     screen.frame().hit(fui::makeRect(static_cast<int16_t>(layout.originX - layout.gutter),
@@ -1110,7 +1134,9 @@ constexpr Beat kBeats[] = {
     {"EVERYONE HAS A PLACE",
      "Each suspect carried one weapon and was in one place, and no two of them share. One of them did it."},
     {"THE GRID IS YOUR PENCIL",
-     "Every pair of things meets in one square. Tap once to rule it out, again to lock it in."},
+     "Every pair of things meets in one square. Tap once to rule it out, again to lock it in. Locking one rules out "
+     "the rest of its row and column in a lighter mark. The grid only ever takes back marks it made itself; yours "
+     "stay until you clear them."},
     {"THE CLUES DO THE REST",
      "Read one, mark what it rules out, tap its number to tick it off. Clues never lie, unless the case says a "
      "suspect is speaking."},
@@ -1138,6 +1164,7 @@ void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
   const fui::TextStyle heading = styled(toybox::kUiFont, fui::TextAlign::Left);
   const fui::TextStyle small = styled(toybox::kTileFont, fui::TextAlign::Left);
   const int16_t headH = target.lineHeight(toybox::kUiFont);
+  const int16_t lineH = target.lineHeight(toybox::kTileFont);
 
   int16_t y = body.y;
   for (int i = 0; i < kBeatCount; ++i) {
@@ -1147,30 +1174,39 @@ void buildHowTo(toybox::Screen& screen, const HowToModel& model) {
         y + paragraph(screen, small, kBeats[i].body,
                       fui::makeRect(body.x, y, body.width, static_cast<int16_t>(body.bottom() - y)), true));
 
-    // The three states of a square, drawn with the same marks the grid uses
+    // The four states of a square, drawn with the same marks the grid uses
     // rather than described. Sits under the beat that introduces them.
+    //
+    // Two by two rather than four across, because "IT WAS THEM" measures wider
+    // than a quarter of this screen and would have stopped mid-word with
+    // nothing to show for it -- this face has no ellipsis glyph.
     if (i == 1) {
       y = static_cast<int16_t>(y + 10);
-      constexpr int16_t kDemo = 44;
-      const char* names[3] = {"NOT SURE", "RULED OUT", "IT WAS THEM"};
-      for (int c = 0; c < 3; ++c) {
-        const int16_t x = static_cast<int16_t>(body.x + c * (body.width / 3));
-        const fui::Rect cell = fui::makeRect(x, y, kDemo, kDemo);
+      constexpr int16_t kDemo = 40;
+      // The two crosses share the bottom row: telling them apart is the whole
+      // reason this went from three swatches to four, and a comparison reads
+      // where the things being compared are side by side.
+      const char* names[4] = {"NOT SURE", "IT WAS THEM", "YOU RULED OUT", "GRID RULED OUT"};
+      const int16_t colW = static_cast<int16_t>(body.width / 2);
+      const int16_t rowH = static_cast<int16_t>(kDemo + 10);
+      for (int c = 0; c < 4; ++c) {
+        const int16_t x = static_cast<int16_t>(body.x + (c % 2) * colW);
+        const int16_t top = static_cast<int16_t>(y + (c / 2) * rowH);
+        const fui::Rect cell = fui::makeRect(x, top, kDemo, kDemo);
         target.stroke(cell, fui::Paint::solid(fui::Color::Black), toybox::kHairline);
-        if (c == 1) {
-          target.fill(fui::makeRect(static_cast<int16_t>(x + kDemo * 2 / 9), static_cast<int16_t>(y + kDemo / 2 - 2),
-                                    static_cast<int16_t>(kDemo * 5 / 9), 4),
-                      fui::Paint::solid(fui::Color::Black));
-        } else if (c == 2) {
+        if (c == 2 || c == 3) {
+          drawCross(screen, cell, kDemo, c == 3);
+        } else if (c == 1) {
           const int16_t inset = static_cast<int16_t>(kDemo / 4);
-          target.fill(fui::makeRect(static_cast<int16_t>(x + inset), static_cast<int16_t>(y + inset),
+          target.fill(fui::makeRect(static_cast<int16_t>(x + inset), static_cast<int16_t>(top + inset),
                                     static_cast<int16_t>(kDemo - inset * 2), static_cast<int16_t>(kDemo - inset * 2)),
                       fui::Paint::solid(fui::Color::Black), 3);
         }
-        target.text(fui::makeRect(x, static_cast<int16_t>(y + kDemo + 4), static_cast<int16_t>(body.width / 3 - 8), 20),
+        target.text(fui::makeRect(static_cast<int16_t>(x + kDemo + 8), static_cast<int16_t>(top + (kDemo - lineH) / 2),
+                                  static_cast<int16_t>(colW - kDemo - 12), lineH),
                     names[c], small);
       }
-      y = static_cast<int16_t>(y + kDemo + 26);
+      y = static_cast<int16_t>(y + rowH * 2 + 6);
     }
     y = static_cast<int16_t>(y + 16);
   }

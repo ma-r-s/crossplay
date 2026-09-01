@@ -1,8 +1,17 @@
 # WAVELENGTH spectrum pairs.
 #
 # The retail deck by CMYK (designers Alex Hague, Justin Vickers, Wolfgang
-# Warsch). Mario obtained the publisher's agreement to use it; see
-# docs/apps/wavelength.md for the record of that.
+# Warsch), used with the publisher's permission.
+#
+# PERMISSION: on 2026-08-31 Mario stated that CMYK granted permission for these
+# pairs, given in a Reddit exchange. That is his testimony, recorded on his say
+# so; the exchange itself is not archived anywhere in this repository, and no
+# link is cited here because inventing one would be worse than saying this
+# plainly. If the thread is still reachable, a link belongs in
+# docs/apps/wavelength.md.
+#
+# THE TRANSCRIPTION IS A SEPARATE CLAIM AND IS STILL UNCHECKED. Permission to
+# use CMYK's cards is not evidence that these 252 lines ARE CMYK's cards.
 #
 # Transcribed via github.com/heybenchen/wavelength (wordlist.ts), which carries
 # no licence file and no provenance note of its own, so treat this file as a

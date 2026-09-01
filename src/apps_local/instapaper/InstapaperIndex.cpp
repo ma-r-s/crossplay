@@ -113,7 +113,8 @@ bool parseIndex(const std::string_view text, std::vector<Article>& out) {
 
   while (pos < text.size()) {
     const size_t lineEnd = text.find('\n', pos);
-    const std::string_view row = text.substr(pos, lineEnd == std::string_view::npos ? std::string_view::npos : lineEnd - pos);
+    const std::string_view row =
+        text.substr(pos, lineEnd == std::string_view::npos ? std::string_view::npos : lineEnd - pos);
     pos = lineEnd == std::string_view::npos ? text.size() : lineEnd + 1;
     if (row.empty()) continue;
 
@@ -157,6 +158,42 @@ std::vector<const Article*> visible(const std::vector<Article>& articles) {
     if (a.archivePending) continue;
     out.push_back(&a);
   }
+  return out;
+}
+
+uint32_t maxTopLine(const uint32_t visibleLines, const uint32_t lineCount) {
+  return lineCount > visibleLines ? lineCount - visibleLines : 0;
+}
+
+uint32_t turnedTopLine(const uint32_t topLine, const uint32_t visibleLines, const uint32_t lineCount, const int delta) {
+  if (visibleLines == 0) return topLine;
+  const uint32_t ceiling = maxTopLine(visibleLines, lineCount);
+  if (delta > 0) return topLine + visibleLines > ceiling ? ceiling : topLine + visibleLines;
+  return topLine > visibleLines ? topLine - visibleLines : 0;
+}
+
+uint32_t topLineFor(const float progress, const uint32_t visibleLines, const uint32_t lineCount) {
+  if (!(progress > 0.0f) || lineCount == 0 || visibleLines == 0) return 0;
+  const uint32_t ceiling = maxTopLine(visibleLines, lineCount);
+  const float clamped = progress > 1.0f ? 1.0f : progress;
+  const uint32_t wanted = static_cast<uint32_t>(clamped * static_cast<float>(lineCount));
+  return wanted > ceiling ? ceiling : wanted;
+}
+
+float progressFor(const uint32_t topLine, const uint32_t visibleLines, const uint32_t lineCount) {
+  if (lineCount == 0) return 0.0f;
+  if (topLine + visibleLines >= lineCount) return 1.0f;
+  return static_cast<float>(topLine) / static_cast<float>(lineCount);
+}
+
+Pages pagesFor(const uint32_t topLine, const uint32_t visibleLines, const uint32_t lineCount) {
+  Pages out;
+  if (visibleLines == 0 || lineCount == 0) return out;
+  out.count = (lineCount + visibleLines - 1) / visibleLines;
+  if (out.count == 0) out.count = 1;
+  out.page = topLine + visibleLines >= lineCount ? out.count : topLine / visibleLines + 1;
+  if (out.page > out.count) out.page = out.count;
+  if (out.page == 0) out.page = 1;
   return out;
 }
 

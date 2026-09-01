@@ -32,9 +32,12 @@ q git init --bare -b xteink "$WORK/origin.git"
 q git clone "$WORK/origin.git" "$WORK/repo"
 cdd "$WORK/repo"
 q git config user.email t@t; q git config user.name t
-mkdir -p src lib docs site scripts host-tests tools_local
+mkdir -p src lib docs site scripts host-tests tools_local scripts_local nix .github/workflows
 echo x > src/main.cpp; echo x > lib/thing.h; echo x > docs/a.md
 echo x > site/index.html; echo x > scripts/build_html.py; echo x > platformio.ini
+echo x > scripts_local/require_build_lock.py; echo x > scripts_local/check.sh
+echo x > scripts_local/README.md; echo x > nix/flake.nix; echo x > requirements.txt
+echo x > .gitignore; echo x > .github/workflows/ci.yml
 q git add -A; q git commit -m base
 q git push -u origin xteink
 
@@ -73,6 +76,44 @@ reset_tree; echo edit >> lib/thing.h;    q git add -A; q git commit -m l; needed
 reset_tree; echo edit >> platformio.ini; q git add -A; q git commit -m p; needed "platformio.ini" yes
 reset_tree; echo edit >> scripts/build_html.py; q git add -A; q git commit -m b; needed "scripts/ (a pre-build generator)" yes
 
+# scripts_local/ is NOT inert, and these are the two reasons, tested separately
+# because they would be fixed separately.
+#
+# 1. Two of its files are `pre:` extra_scripts in platformio.ini
+#    (require_build_lock.py, sconsign_per_tree.py). They RUN INSIDE every device
+#    build and a bad edit fails it.
+reset_tree; echo edit >> scripts_local/require_build_lock.py; q git add -A; q git commit -m rbl
+needed "scripts_local/ (a pre: extra_script that runs inside the build)" yes
+
+# 2. The rest is the gate's own machinery. A change to check.sh that broke the
+#    build loop would be masked by a run that skipped the build loop -- the one
+#    place a wrong "inert" cannot be caught later by anything downstream. This
+#    case is also what makes THIS suite's own verification honest: the commit
+#    that wired the rule into check.sh had to run all four builds to land.
+reset_tree; echo edit >> scripts_local/check.sh; q git add -A; q git commit -m gate
+needed "scripts_local/check.sh (the gate verifying itself)" yes
+
+# ...but a .md under it still falls to the *.md branch, with no special case.
+reset_tree; echo edit >> scripts_local/README.md; q git add -A; q git commit -m rdm
+needed "scripts_local/README.md (prose is still prose)" no
+
+# Three the cold audit could not RULE OUT, so they build. nix/flake.nix pins
+# PlatformIO Core and the toolchain root; requirements.txt is installed into
+# that venv; .gitignore decides what a --committed trial worktree even contains.
+reset_tree; echo edit >> nix/flake.nix;      q git add -A; q git commit -m nx
+needed "nix/ (pins which pio and which toolchain build)" yes
+reset_tree; echo edit >> requirements.txt;   q git add -A; q git commit -m rq
+needed "requirements.txt" yes
+reset_tree; echo edit >> .gitignore;         q git add -A; q git commit -m gi
+needed ".gitignore (decides what --committed materialises)" yes
+
+# .github/ stays inert on a narrower argument than the others: it CAN break a
+# device build, but only the ones CI runs. check.sh's four run on this machine,
+# and compiling x4pro here says nothing about a workflow file -- so skipping
+# them loses no verification that running them would have provided.
+reset_tree; echo edit >> .github/workflows/ci.yml; q git add -A; q git commit -m gh
+needed ".github/ (breaks CI builds, not the local four)" no
+
 # The mixed case: one firmware path among many inert ones must still build.
 reset_tree
 echo edit >> docs/a.md; echo edit >> site/index.html; echo edit >> src/main.cpp
@@ -83,6 +124,34 @@ q git add -A; q git commit -m mixed; needed "docs + site + one src file" yes
 # A rule that skipped device builds for it would be worse than no rule.
 reset_tree; echo x > freeink-sdk; q git add -A; q git commit -m sdk
 needed "the freeink-sdk pointer" yes
+
+# RENAMES, which is the one shape of change that was invisible to this rule and
+# to this suite at the same time. Every fixture above builds its diff with
+# `echo >> file`, so nothing here could ever have caught it.
+#
+# `git diff --name-only` runs rename detection by DEFAULT and collapses a
+# detected rename to the NEW path only, with no arrow to split on. So moving a
+# compiled file OUT of src/ presented as a single inert path and skipped every
+# device build -- for a commit that removes a translation unit from the image.
+# The tool passes --no-renames now, which reports the pair as a delete plus an
+# add so both endpoints get classified.
+reset_tree; q git mv src/main.cpp docs/main.cpp; q git commit -m mv1
+needed "git mv src/main.cpp -> docs/ (the OLD path is the firmware one)" yes
+
+# The same move applied to a file that runs INSIDE every device build. This
+# commit breaks the build for the whole workspace, and the rule called it inert.
+reset_tree; q git mv scripts_local/require_build_lock.py docs/rbl.py.old; q git commit -m mv2
+needed "git mv a pre: extra_script out of scripts_local/" yes
+
+# And the direction that must NOT regress into paranoia: a rename with both
+# ends inert is still inert.
+reset_tree; q git mv docs/a.md docs/renamed.md; q git commit -m mv3
+needed "git mv docs/a.md -> docs/renamed.md (both ends inert)" no
+
+# Uncommitted renames were already handled, by splitting the arrow in
+# `git status --porcelain`. Asserted so the two halves cannot drift apart.
+reset_tree; q git mv src/main.cpp docs/main.cpp
+needed "an UNCOMMITTED git mv out of src/" yes
 
 # The case the allowlist direction exists for. A directory the rule has never
 # heard of must build, not skip -- this is what stops the rule going stale the
@@ -160,6 +229,18 @@ else
 fi
 q git checkout -q "$MAIN"
 
+# --range had the same rename blind spot, from the same construction.
+reset_tree
+q git checkout -q -b mvside
+q git mv src/main.cpp docs/main.cpp; q git commit -m "move src out on the side branch"
+q git checkout -q "$MAIN"
+if env -u CHECK_BUILD_RELEASE_ENVS "$TOOL" --range "$MAIN..mvside" >/dev/null 2>&1; then
+  ok "--range sees a rename's old path too"
+else
+  bad "--range called a src/ file leaving src/ inert"
+fi
+q git checkout -q "$MAIN"
+
 echo
 echo "device-build-needed --device-only"
 
@@ -174,6 +255,40 @@ dev "platformio.ini" yes
 # is real evidence and it can land without the lock.
 reset_tree; printf 'int f(){return 1;}\n' > src/plain.cpp; q git add -A; q git commit -m a
 dev "a plain src/ file the host target compiles" no
+
+# --device-only WAS A DENYLIST until 2026-09-01, and this suite could not see
+# it: the six cases above are docs/, freeink-sdk, platformio.ini and three
+# src/* shapes, which are exactly the paths the old code named. Every fixture
+# agreed with the code's own assumption about where the answer would be, so the
+# whole "everything else falls through to host-green" half was untested.
+#
+# These are that half. Each one is a real edit somebody makes, and each one was
+# told "host-green is sufficient" by the documented landing command.
+reset_tree; echo edit >> scripts_local/require_build_lock.py; q git add -A; q git commit -m d1
+dev "scripts_local/ (it runs INSIDE the device build)" yes
+reset_tree; echo edit >> scripts_local/check.sh; q git add -A; q git commit -m d2
+dev "scripts_local/check.sh (the gate's own machinery)" yes
+reset_tree; echo edit >> scripts/build_html.py; q git add -A; q git commit -m d3
+dev "scripts/ (a pre: generator that runs in the build)" yes
+reset_tree; echo edit >> nix/flake.nix; q git add -A; q git commit -m d4
+dev "nix/ (pins which pio and which toolchain)" yes
+reset_tree; mkdir -p unheardof; echo x > unheardof/x.c; q git add -A; q git commit -m d5
+dev "an unrecognised top-level directory" yes
+
+# "I could not look" must never read as "I looked and it was fine". The old
+# code did `[ -f "$path" ] || continue`, so REMOVING a translation unit from
+# the image landed on host-green.
+reset_tree; q git rm -q src/main.cpp; q git commit -m d6
+dev "deleting a src/ file" yes
+reset_tree; q git mv src/main.cpp docs/main.cpp; q git commit -m d7
+dev "git mv a src/ file out of src/" yes
+
+# And the directions that must NOT regress into paranoia: an inert path still
+# lands on host-green, whatever else is true of it.
+reset_tree; echo edit >> .github/workflows/ci.yml; q git add -A; q git commit -m d8
+dev ".github/ (a local device build says nothing about it)" no
+reset_tree; echo edit >> scripts_local/README.md; q git add -A; q git commit -m d9
+dev "scripts_local/README.md (prose is still prose)" no
 
 # The same file once it reaches for something the host target does not have.
 reset_tree; printf '#include <esp_sleep.h>\nint f(){return 1;}\n' > src/plain.cpp
@@ -215,5 +330,50 @@ else
 fi
 q git checkout -q "$MAIN"
 
+# --build-loop: the one caller that is not an observer of the build.
+#
+# check.sh exports CHECK_BUILD_RELEASE_ENVS under --committed and then asks this
+# tool whether to run the envs it was about to run. Honouring the variable there
+# means the answer is always "needed", so the skip could never fire in the one
+# mode it exists for -- a question whose answer is derived from the asker's own
+# intent. The variable still answers for everyone else, asserted above.
+echo
+echo "device-build-needed --build-loop"
+
+loop() {  # label, expect yes|no, value for CHECK_BUILD_RELEASE_ENVS
+  local label="$1" expect="$2" rc
+  if [ -n "$3" ]; then
+    CHECK_BUILD_RELEASE_ENVS="$3" "$TOOL" --build-loop >/dev/null 2>&1; rc=$?
+  else
+    env -u CHECK_BUILD_RELEASE_ENVS "$TOOL" --build-loop >/dev/null 2>&1; rc=$?
+  fi
+  if [ "$expect" = "yes" ]; then
+    [ "$rc" -eq 0 ] && ok "$label -> builds run" || bad "$label -> SKIPPED, must not"
+  else
+    [ "$rc" -eq 1 ] && ok "$label -> builds skipped" || bad "$label -> ran, expected skip"
+  fi
+}
+
+reset_tree; echo edit >> site/index.html; q git add -A; q git commit -m s
+loop "site only, no release envs" no ""
+loop "site only, release envs set (this is --committed)" no "1"
+
+# And the direction that must NEVER be lost: the exemption is only about that
+# one variable. Everything else still answers exactly as the default does.
+reset_tree; echo edit >> src/main.cpp; q git add -A; q git commit -m c
+loop "src/, release envs set" yes "1"
+loop "src/, no release envs" yes ""
+
+reset_tree
+echo edit >> site/index.html; echo edit >> src/main.cpp; q git add -A; q git commit -m mx
+loop "the mixed diff, release envs set" yes "1"
+
+reset_tree; mkdir -p brandnew; echo x > brandnew/x.c; q git add -A; q git commit -m bn
+loop "an unrecognised top-level directory" yes "1"
+
+reset_tree; echo edit >> scripts_local/check.sh; q git add -A; q git commit -m sl
+loop "scripts_local/check.sh -- the gate cannot skip its own builds" yes "1"
+
+reset_tree
 echo "$((PASS+FAIL)) checks, $FAIL failed"
 [ "$FAIL" -eq 0 ]

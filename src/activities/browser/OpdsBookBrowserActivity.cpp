@@ -42,6 +42,11 @@ constexpr fui::ActionId ACTION_SETTINGS = 4;
 constexpr fui::ActionId ACTION_CANCEL = 3;
 constexpr int DOWNLOAD_PROGRESS_STEP_PERCENT = 5;
 constexpr unsigned long DOWNLOAD_PROGRESS_MIN_UPDATE_MS = 5000;
+// While no bytes have arrived there is no bar to advance, so the only thing
+// that can say "alive" is the tick -- and at the 5s bar interval it reads as a
+// still screen. abortPoll() calls the progress callback every 50ms throughout
+// the wait, so the repaint is available; it was simply never asked for.
+constexpr unsigned long DOWNLOAD_WAIT_UPDATE_MS = 1000;
 
 }  // namespace
 
@@ -205,19 +210,11 @@ void OpdsBookBrowserActivity::loop() {
   }
 
   if (state == BrowserState::DOWNLOADING) {
-    // Nothing is downloading yet: the server is still fetching the book from
-    // the catalog and converting it, which takes tens of seconds and sends no
-    // bytes at all. With no bytes there is no total, so there is no bar to
-    // draw -- and a still screen reading "Downloading" for half a minute is
-    // indistinguishable from a hang. A slow tick says the device is alive.
-    if (downloadTotal == 0) {
-      const uint32_t now = millis();
-      if (now - waitTickMs >= WAIT_TICK_MS) {
-        waitTickMs = now;
-        waitDots = static_cast<uint8_t>((waitDots + 1) % 4);
-        requestUpdate();
-      }
-    }
+    // Nothing to do here: this function does not run during a download at all.
+    // downloadBook() blocks inside the result handler that ActivityManager's
+    // own loop() invokes, so the activity's loop() cannot be re-entered until
+    // the transfer returns. Anything the wait needs must be driven from the
+    // progress callback or computed when the screen is built.
     return;
   }
 
@@ -387,8 +384,17 @@ void OpdsBookBrowserActivity::buildDownloadScreen(UiScreen& screen) {
   if (downloadTotal == 0) {
     // "Preparing" rather than "Downloading", because nothing is downloading
     // yet and saying so is what makes the wait feel broken.
+    // Derived from elapsed time HERE rather than from a counter advanced in
+    // loop(), because loop() is exactly what the download blocks: downloadBook()
+    // runs inside the result handler ActivityManager::loop() invokes, so this
+    // activity's loop() cannot run again until the transfer returns. The tick
+    // that lived there could never fire during the wait it was written for, and
+    // the screen redrew an unchanging frame every 5s -- spending e-ink refreshes
+    // to say nothing. Computed at build time, the dots advance for whoever
+    // triggers the repaint.
+    const uint8_t dots = static_cast<uint8_t>((millis() / WAIT_TICK_MS) % 4);
     char waiting[64];
-    snprintf(waiting, sizeof(waiting), "%s%.*s", tr(STR_PREPARING_BOOK), waitDots, "...");
+    snprintf(waiting, sizeof(waiting), "%s%.*s", tr(STR_PREPARING_BOOK), dots, "...");
     screen.target().text(screen.takeTop(lh, gap), waiting, centered);
   } else {
     screen.target().text(screen.takeTop(lh, gap), tr(STR_DOWNLOADING), centered);
@@ -651,8 +657,6 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book) {
   state = BrowserState::DOWNLOADING;
   statusMessage = book.title;
   downloadProgress = downloadTotal = 0;
-  waitTickMs = millis();
-  waitDots = 0;
   cancelDownload = false;
   goHomeAfterCancel = false;
   requestUpdate(true);
@@ -705,7 +709,7 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book) {
         const unsigned long now = millis();
         if (percent >= 100 || lastRenderedPercent < 0 ||
             percent >= lastRenderedPercent + DOWNLOAD_PROGRESS_STEP_PERCENT ||
-            now - lastProgressUpdateMs >= DOWNLOAD_PROGRESS_MIN_UPDATE_MS) {
+            now - lastProgressUpdateMs >= (total > 0 ? DOWNLOAD_PROGRESS_MIN_UPDATE_MS : DOWNLOAD_WAIT_UPDATE_MS)) {
           lastRenderedPercent = percent;
           lastProgressUpdateMs = now;
           requestUpdate(true);

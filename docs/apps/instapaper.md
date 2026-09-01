@@ -10,7 +10,7 @@ network is for syncing, not for reading.
 
 1. Open **Apps > INSTAPAPER** and press **SYNC**. The device shows a code and
    a QR.
-2. On a phone or a laptop, sign in at **read.ma-r-s.com** with your Instapaper
+2. On a phone or a laptop, sign in at **read.crossplay.ma-r-s.com** with your Instapaper
    account, then scan the QR (or type the code).
 3. The device asks **IS THIS YOU?** and shows the account name. Press the pill
    only if the name is yours.
@@ -25,15 +25,27 @@ The code lasts five minutes. Press SYNC again for a fresh one.
 
 The queue lists your unread articles, newest first. Each row shows the title,
 how long it takes to read, and where it came from. A row that has been started
-shows how far in you are.
+shows how far in you are: that is the point you would resume at, which is one
+page behind the last page you looked at.
 
-- Tap a row to open it. The side keys turn pages, so do the arrows.
+The two side keys page the LIST when the queue is longer than the screen. They
+do nothing on a queue that already fits, because there is nowhere to page to.
+Articles are opened by tapping; there is no cursor, and no key to move one --
+the X4 Pro has no Confirm button.
+
+- Tap a row to open it. The side keys turn pages, so do the two arrows at the
+  bottom right.
 - **ARCHIVE** puts the article away -- it leaves your unread list everywhere,
-  the same as archiving it in any other Instapaper client. It is reversible
-  from the Instapaper website or app.
+  the same as archiving it in any other Instapaper client. It sits at the
+  bottom LEFT, away from the page arrows, so a miss while paging turns a page
+  instead.
+- **PUT BACK** appears beside SYNC once you archive something, and takes it
+  back. It is there until the next sync carries the archive up, or until you
+  open another article. After that, undo it from the Instapaper website or app.
 - **BACK** leaves the article where you are. Your position syncs up on the next
   SYNC, so the phone picks up where the reader left off, and the other way
-  round.
+  round. An article you read to the end reopens on its last page, not at the
+  top.
 
 The reader holds the newest 120 articles. Older ones stay in your account; they
 are simply not on the card.
@@ -46,8 +58,12 @@ Both directions, in one press:
 - **Down**: new articles, changed titles, anything archived or deleted
   elsewhere, and how far you read on another device.
 
-A sync takes seconds. The first one on a large queue prepares 25 articles and
-says how many more are coming; press SYNC again for the rest.
+A sync takes seconds. It ends on a screen that says what went each way: what
+it sent up (archives, reading positions) and what came down. A sync with
+nothing to send says only what came down.
+
+The first one on a large queue prepares 25 articles and says how many more are
+coming; press SYNC again for the rest.
 
 ## When something is not right
 
@@ -62,7 +78,7 @@ login. Nothing is wrong with the reader.
 **"NOT ON THE CARD"** -- the article's text did not finish downloading. Sync
 again; it is picked up automatically.
 
-**"This reader was unpaired"** -- somebody removed it on read.ma-r-s.com, or
+**"This reader was unpaired"** -- somebody removed it on read.crossplay.ma-r-s.com, or
 the account was reconnected. Press SYNC and pair again.
 
 ## What it will not do

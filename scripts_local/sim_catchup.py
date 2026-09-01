@@ -240,3 +240,56 @@ patch(
     "HalPowerManager::IDLE_POWER_SAVING_MS (mirrors lib/hal)",
     marker="IDLE_POWER_SAVING_MS",
 )
+
+
+# -- the seam, checked rather than remembered -------------------------------
+#
+# lib/hal/HalStorage.h declares one surface; the simulator ships a SECOND
+# implementation of the same class, and platformio.sim.ini's `lib_ignore = hal`
+# means a library's own headers shadow ours. Nothing in lib/hal says so. Add a
+# method there and the device gets it, the simulator does not, and the build
+# stays green until some app calls it -- at which point the error names a file
+# that app never touched. That is how freeBytes shipped (2026-08-31); Trivia
+# found it by being the first caller.
+#
+# The knowledge lived in two places neither reachable from the file you edit.
+# Now the two surfaces are compared here, after the patches above have run,
+# which is the one moment both exist in their final form. Divergence is zero
+# today, so this cannot go red on anything but a real one.
+def _public_methods(path):
+    import re
+
+    text = path.read_text()
+    m = re.search(r"class HalStorage\b.*?public:(.*?)(?:\n\s*private:|\n\};)", text, re.S)
+    body = m.group(1) if m else text
+    names = set()
+    for hit in re.finditer(r"^\s*(?:static\s+)?[A-Za-z_][\w:<>,\s\*&]*?\b(\w+)\s*\(", body, re.M):
+        name = hit.group(1)
+        if name not in ("if", "for", "while", "return", "HalStorage"):
+            names.add(name)
+    return names
+
+
+_ours = pathlib.Path(env.subst("$PROJECT_DIR")) / "lib" / "hal" / "HalStorage.h"  # noqa: F821
+_theirs = src / "HalStorage.h"
+if _ours.exists() and _theirs.exists():
+    _mine, _sim = _public_methods(_ours), _public_methods(_theirs)
+    if not _mine or not _sim:
+        # A parity check that parsed nothing reports parity forever. That is the
+        # failure this whole file keeps meeting, so it is loud rather than quiet.
+        raise SystemExit(
+            "[sim-catchup] HalStorage parity check parsed "
+            f"{len(_mine)} of ours and {len(_sim)} of theirs -- it is not "
+            "checking anything. Fix the parser before trusting a green build."
+        )
+    _missing = sorted(_mine - _sim)
+    if _missing:
+        raise SystemExit(
+            "[sim-catchup] lib/hal/HalStorage.h declares methods the simulator's "
+            f"HalStorage does not have: {', '.join(_missing)}.\n"
+            "  The simulator ships its own HalStorage and shadows lib/hal, so a "
+            "fork-only method needs a patch() above -- see freeBytes for the "
+            "shape.\n"
+            "  Without one this builds green and breaks the first app that calls it."
+        )
+    print(f"[sim-catchup] HalStorage parity: {len(_mine)} methods, both sides agree")

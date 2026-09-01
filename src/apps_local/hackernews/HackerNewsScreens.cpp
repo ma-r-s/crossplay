@@ -16,6 +16,48 @@ constexpr int kBodyTop = toybox::kHeaderHeight + toybox::kGutter * 3;
 // The reader's footer: one row of three controls.
 constexpr int kFooterHeight = toybox::kPillHeight;
 
+// A control that sits ON the header band, where the ordinary pair of styles is
+// upside down.
+//
+// toybox::invertedStyles() is a solid black fill: on paper it is the loud one,
+// on this band it IS the band, so "filled" disappears and only the knocked-out
+// glyph is left. rowStyles() is a white fill with a black hairline: on the band
+// the hairline vanishes and the white fill is the loudest thing on the screen.
+// A mark styled "filled means saved" out of those two therefore reads exactly
+// backwards, and two cold testers read it backwards -- one of them removed an
+// article believing they had just kept it.
+//
+// So the band gets its own pair, the same idea re-derived against black ground:
+// present is the white chip, absent is the outline drawn in paper.
+fui::StyleSet bandFilledStyles() {
+  fui::StyleSet styles;
+  styles.explicitlySet = true;
+  styles.normal.background = fui::Paint::solid(fui::Color::White);
+  styles.normal.foreground = fui::Paint::solid(fui::Color::Black);
+  styles.selected = styles.normal;
+  styles.focused = styles.normal;
+  styles.active = styles.normal;
+  styles.disabled = styles.normal;
+  return styles;
+}
+
+fui::StyleSet bandOutlineStyles() {
+  fui::StyleSet styles;
+  styles.explicitlySet = true;
+  // The band's own black, so the chip is a shape drawn in its outline rather
+  // than a second ground. The border has to be PAPER: a black hairline on a
+  // black band is the invisible half of the bug above.
+  styles.normal.background = fui::Paint::solid(fui::Color::Black);
+  styles.normal.foreground = fui::Paint::solid(fui::Color::White);
+  styles.normal.border = fui::Paint::solid(fui::Color::White);
+  styles.normal.borderWidth = toybox::kHairline;
+  styles.selected = styles.normal;
+  styles.focused = styles.normal;
+  styles.active = styles.normal;
+  styles.disabled = styles.normal;
+  return styles;
+}
+
 // Header band, rule, and the page margin. Every screen here opens with this.
 //
 // `rightLabel` is drawn in paper, not ink. The band is solid black and the
@@ -31,11 +73,15 @@ void chrome(toybox::Screen& screen, const char* title, const char* rightLabel,
   fui::HeaderProps header;
   header.title = title;
   if (showSave) {
-    // Filled means it is on the device, outlined means it can be. The mark is
-    // the control, so there is no second button to find.
+    // The chip is filled once the piece is on the device, and it says so in a
+    // word. The mark alone cannot: this icon is one 1-bpp mask, so the glyph
+    // never fills and the only thing that ever changed was the chip behind it.
+    // A verb for what a tap will do, a past tense for what it did -- which is
+    // also the confirmation the screen owed anyone who just tapped it.
     header.trailingIcon = fui::bitmapFromIcon(icon_saved_32);
+    header.trailingLabel = saved ? "SAVED" : "SAVE";
     header.trailingAction = saved ? ActionUnsave : ActionSave;
-    header.trailingStyles = saved ? toybox::invertedStyles() : toybox::rowStyles();
+    header.trailingStyles = saved ? bandFilledStyles() : bandOutlineStyles();
     header.trailingRadius = toybox::kPillRadius / 2;
   }
   header.rightLabel = rightLabel;
@@ -143,9 +189,41 @@ void buildList(toybox::Screen& screen, const ListModel& model) {
     // An empty SAVED shelf is the ordinary state of a new device, so it gets a
     // sentence rather than a blank panel that reads as a fault.
     if (model.emptyHeadline != nullptr) {
-      screen.centeredText(model.emptyHeadline, screen.theme().titleText);
-      if (model.emptyMessage != nullptr) {
-        screen.centeredText(model.emptyMessage, screen.theme().smallText);
+      // OFF THE BAND, SO IT HAS TO BE INK. The display cut is otherwise only
+      // ever set on the header band, so its token colour is paper -- and taken
+      // as given here it painted NOTHING SAVED YET white on white paper. Same
+      // trap as the page label that went missing on the band, one screen along
+      // and the other way up.
+      //
+      // And the invisible half was hiding the visible one: centeredText centres
+      // in the content rect and CONSUMES NOTHING, so two calls draw at the same
+      // y. The headline was painted over the sentence all along and no one
+      // could see it happening. So the pair is laid out as a block, the way
+      // buildNotice stacks its own, and centred as a block.
+      fui::TextStyle headline = screen.theme().titleText;
+      headline.color = fui::Color::Black;
+      headline.align = fui::TextAlign::Center;
+      const fui::Rect body = screen.body();
+      // Measured rather than assumed. buildNotice below records what the
+      // display cut costs -- about fourteen characters across this panel -- so
+      // a headline of any length is one that wraps, and that screen already
+      // reserves two lines for it.
+      const int16_t lh = screen.target().lineHeight(headline.font);
+      const int16_t width = screen.target().measureText(headline.font, model.emptyHeadline, headline).width;
+      headline.maxLines = width > body.width ? 2 : 1;
+      const int16_t headlineH = static_cast<int16_t>(lh * headline.maxLines);
+
+      fui::TextStyle message = screen.theme().smallText;
+      message.align = fui::TextAlign::Center;
+      const bool hasMessage = model.emptyMessage != nullptr;
+      const int16_t messageH = hasMessage ? screen.target().lineHeight(message.font) : 0;
+      const int16_t gap = hasMessage ? toybox::kGutter : 0;
+
+      int16_t y = static_cast<int16_t>(body.y + (body.height - headlineH - gap - messageH) / 2);
+      screen.target().text(fui::makeRect(body.x, y, body.width, headlineH), model.emptyHeadline, headline);
+      if (hasMessage) {
+        y = static_cast<int16_t>(y + headlineH + gap);
+        screen.target().text(fui::makeRect(body.x, y, body.width, messageH), model.emptyMessage, message);
       }
     } else {
       screen.centeredText("NOTHING TO READ", screen.theme().bodyText);

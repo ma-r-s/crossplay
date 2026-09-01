@@ -339,3 +339,156 @@ Trivia invented its own spelling and shipped the bug. Four independent
 rediscoveries of one idiom is the signal: a `Storage.ensureDir(path)` would mean
 the sixth caller inherits the contract instead of inventing it. Not urgent, but
 the next one will get it wrong the same way.
+
+## One physical press produces both edges, and the child eats only the first
+
+`WifiSelectionActivity` finishes on `wasPressed(Back)`. Most parents act on
+`wasReleased(Back)`. A single press of the button therefore fires **twice**
+across the boundary:
+
+- **press** -- the picker returns, the parent's result handler runs, the parent
+  decides what to show;
+- **release** -- the parent's own `loop()` reads the very same press, sees the
+  state the result handler just set, and acts on it again.
+
+Hacker News is where this was found. Cancelling the Wi-Fi picker is supposed to
+fall back to saved articles; the fallback runs correctly on the press and is
+undone by the release, which reaches `shelf::leave()` milliseconds later. The
+app exits. The code that shows the saved list is right, is reached, and never
+survives.
+
+**That is why it resisted two fixes.** The first attempt fixed one of the two
+routes to the decision (`onWifiChosen`, not `loop()`) -- the fork's own
+fix-the-twin lesson, arriving in the middle of fixing something else, and
+invisible precisely because the route that was fixed worked. The second routed
+both through one function and still failed, because neither route was ever the
+cause.
+
+### Who is exposed
+
+Grep over-counts badly. `wasReleased(Back)` appears in 54 files; the condition
+is narrower:
+
+> reads Back with `wasReleased` **in a path reachable immediately after a
+> `wasPressed` child returns** -- in practice, in `loop()`.
+
+Ten activities start a `wasPressed` child and read Back with `wasReleased`
+somewhere. Eight of those read it in `loop()` and are exposed:
+
+`HackerNewsActivity`, `StudyActivity`, `InstapaperActivity`,
+`ConnectionsActivity`, `XkcdActivity`, `KOReaderSyncActivity`,
+`CrossPointWebServerActivity`, `OpdsBookBrowserActivity`.
+
+`TriviaActivity` is **not**, and the reason is instructive: its `loop()` opens
+with `if (!input.touchReleased || !interactionsReady_) return;`, so a stray Back
+release has no reader at all. Its one `wasReleased(Back)` sits inside a download
+callback that a cancelled picker never starts. That immunity is an accident of
+being touch-only, not a design -- Trivia inherits this bug the day it grows
+button handling in `loop()`, which it nearly did on 2026-08-31.
+
+`SettingsActivity` has no `loop()` and was not classified.
+
+### Why no fix is attached
+
+The eleven `wasPressed` finishers above are not wrong, and neither are the
+fifty-four `wasReleased` readers. What is missing is that **the boundary does
+not consume the edge it was ended on**. Whatever swallows that release belongs
+in the Activity boundary, once, not as eight local guards -- a per-app
+workaround for a framework input convention is how a convention acquires eight
+different patches and no fix.
+
+**Repro:** seed `fs_agent/.crosspoint/hn/saved.tsv` with one article, then
+`CROSSPLAY_AUTOSTART="HACKER NEWS" ./scripts_local/sim-shot.sh '4000:BACK;12000:QUIT'`.
+`Entering activity: ShelfFolder` in the trace is the failure; the saved list is
+the pass.
+
+### The swipe is a second mechanism wearing the same symptom
+
+Everything above was traced with a **physical button**: `sim-shot.sh`'s `BACK`
+token resolves to `HalGPIO::BTN_BACK` (`namedButton()`, in the simulator lib
+dep's `HalGPIO.cpp`). The script vocabulary has a separate `SWIPE` token that
+goes through TouchDown/TouchUp, and it was never used here.
+
+**On the X4 Pro, Back is normally the left-edge swipe** -- four of the six
+logical buttons are unassigned pins -- so the untested path is the common one.
+And it does not fail for the reason the button fails:
+
+```
+MappedInputManager.cpp:303  wasPressed:   if (button == Back && wasBackGesture()) return true;
+MappedInputManager.cpp:311  wasReleased:  if (button == Back && wasBackGesture()) return true;
+```
+
+For a swipe, `wasPressed(Back)` and `wasReleased(Back)` are **the same
+function**. No press edge, no release edge: one `wasEdgeSwipe(Left)` condition
+that both spellings return in the same frame. The child's `wasPressed` and the
+parent's `wasReleased` are not two halves of one press -- they are two reads of
+one latch.
+
+    button:  one press, two edges; child eats the first, parent reads the second
+    swipe:   one latch, two readers, both true at once
+
+A fix that drains `pressedEvents` addresses the button and **cannot touch the
+swipe**. Any boundary fix has to consume the gesture as well, or it repairs the
+path few people use and leaves the path most people use.
+
+### Where the swipe latch lives, and why it is the same shape as the button
+
+Followed to the bottom. `wasBackGesture()` -> `wasEdgeSwipe(Left)` ->
+`decodeSwipe()` -> `gpio.wasSwipe()` -> `InputManager::wasSwipe()`
+(`freeink-sdk/libs/hardware/InputManager/src/InputManager.cpp:604`), which is:
+
+```cpp
+bool InputManager::wasSwipe(...) const {
+  if (!touchReleasedEvent || touchSuppressed || touchMultiContactSequence) return false;
+  ...
+  return true;   // consumes nothing
+}
+```
+
+The latch is **`touchReleasedEvent`**, and it is written in exactly one place
+outside the touch handlers: `InputManager::update()` (line 466), in the same
+block that zeroes `pressedEvents` and `releasedEvents`, commented there as
+"one-shot touch coord events, cleared each update()".
+
+So both mechanisms have the **same root shape** -- a `const`, non-consuming read
+of a one-shot flag that only `update()` clears. That is the unifying fact, and
+it is what makes a single boundary fix possible at all:
+
+|        | flag                  | readers per frame | edges |
+|--------|-----------------------|-------------------|-------|
+| button | `pressedEvents` bit   | any number        | two   |
+| swipe  | `touchReleasedEvent`  | any number        | one   |
+
+The button gets away with it for one frame per edge; the swipe has no second
+edge to hide behind, so every reader in that frame sees the same true.
+
+**What this rules out.** A drain that clears only `pressedEvents` cannot fix
+the swipe -- the boundary must clear the touch one-shots too, which today means
+going through `update()`. And `update()` is precisely what a dev build's
+injector outranks. So a correct fix and an untestable fix are currently the
+same fix.
+
+That is the shape of the remaining problem. It is not "find where the latch
+clears" any more; it is "give the boundary a way to consume a one-shot that
+does not route through the one call the injector overrides".
+
+### And the simulator cannot settle it
+
+An attempted framework drain at `ActivityManager`'s pop did not fix the repro,
+for a reason worth more than the fix: `InputManager::wasPressed()` is
+`return pressedEvents & (1 << i)`, a **pure read that does not consume**, so a
+drain built from reads is a no-op. `StudyActivity::drainInput()` works because
+of the `update()` in it, not despite it. Absorbing the edge with two spaced
+`update()` calls also changed nothing, because in a **dev build every input read
+consults the injector first** (`DEV_INPUT` in `HalGPIO.cpp`, compiled out of
+release envs) -- and `gpio.update()` cannot clear an edge the injector owns.
+
+So the simulator exercises a mechanism that presents identically to the real one
+and is not it. A framework change touching eight apps came one green run from
+shipping on a test that could not tell a fix from a no-op.
+
+**Before concluding that hardware is the only route, try a `SWIPE` token aimed
+at the left edge.** It at least drives the mechanism that ships. Nobody has.
+
+**8134c60a is merged and does not work.** It reads as a fix in the log. It is
+not one.
