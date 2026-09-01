@@ -151,7 +151,6 @@ class Chooser {
   const Pack* pack_ = nullptr;
   PackState* state_ = nullptr;
   Rng* rng_ = nullptr;
-  uint32_t cursor_ = 0;
 };
 
 // Lays out the four options for solo mode: the answer plus three distractors,

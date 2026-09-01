@@ -127,6 +127,30 @@ void drawAsideAction(toybox::Screen& screen, const char* label, const fui::Actio
   screen.frame().hit(aside, action);
 }
 
+// Primary, plus TWO narrower outlined ones. Quizmaster needs three: advance,
+// reject the question, and leave. Widths derive from the same constants as the
+// pair so the right-hand control lines up across every screen in the app.
+void drawActionTrio(toybox::Screen& screen, const char* primary, const fui::ActionId primaryAction,
+                    const char* second, const fui::ActionId secondAction, const char* third,
+                    const fui::ActionId thirdAction) {
+  const fui::Rect body = screen.body();
+  const int16_t top = static_cast<int16_t>(footerTop(screen) + 16);
+  const int16_t full = static_cast<int16_t>(body.width - kMargin * 2);
+  const int16_t wide = static_cast<int16_t>(full - 2 * kAsideWidth - 2 * kAsideGap);
+
+  const fui::Rect main{static_cast<int16_t>(body.x + kMargin), top, wide, 64};
+  screen.target().fill(main, fui::Paint::solid(fui::Color::Black));
+  drawLabel(screen, main, primary, toybox::kSmallFont, fui::TextAlign::Center, toybox::kButtonCut, fui::Color::White);
+  screen.frame().hit(main, primaryAction);
+
+  const fui::Rect middle{static_cast<int16_t>(main.x + wide + kAsideGap), top, kAsideWidth, 64};
+  screen.target().stroke(middle, fui::Paint::solid(fui::Color::Black), 2);
+  drawLabel(screen, middle, second, toybox::kSmallFont, fui::TextAlign::Center, toybox::kButtonCut);
+  screen.frame().hit(middle, secondAction);
+
+  drawAsideAction(screen, third, thirdAction);
+}
+
 // The primary action, plus the narrower outlined one beside it.
 void drawActionPair(toybox::Screen& screen, const char* primary, const fui::ActionId primaryAction,
                     const char* secondary, const fui::ActionId secondaryAction) {
@@ -168,9 +192,14 @@ void questionCard(toybox::Screen& screen, const QuestionModel& model) {
               toybox::kDisplayFont, fui::TextAlign::Center, toybox::kLargeCut);
     // FLAG is only offered once the answer is showing: you cannot judge a
     // question bad until you have seen what it claims the answer is.
-    drawActionPair(screen, "NEXT", ActionNext, "FLAG", ActionFlag);
+    // END in both states, and in the same place as solo's. Quizmaster had no
+    // exit at all: a stranger read questions aloud to a room and the only way
+    // out was the HOME key, which drops out of the app. On a handheld with a
+    // physical Back button, pressing it and getting nothing is the worst
+    // available outcome -- and this app is touch-only, so Back gets nothing.
+    drawActionTrio(screen, "NEXT", ActionNext, "FLAG", ActionFlag, "END", ActionQuit);
   } else {
-    drawAction(screen, "REVEAL", ActionReveal);
+    drawActionPair(screen, "REVEAL", ActionReveal, "END", ActionQuit);
   }
 }
 
