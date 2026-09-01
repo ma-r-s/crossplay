@@ -22,6 +22,30 @@ by an attacker with many addresses, by construction and by their own docstring.
 Open it when BOTH are true: the review is approved, and the Cloudflare rules
 exist.
 
+## Status: deployed 2026-08-31, NOT yet public
+
+Steps 1-3 are done. `/srv/readbridge` holds the service, the container is
+healthy, the firewall is installed and enabled, and the isolation test passes
+with every private probe timing out and egress to instapaper.com working.
+
+What remains is step 4 and it is the only thing between here and a working
+sync: no `CLOUDFLARE_TUNNEL_TOKEN`, so `readbridge-cloudflared` has been
+STOPPED rather than left crash-looping, and nothing is published on the host.
+The service is reachable only from inside the pi. That is the correct state to
+be in while the hostname is still being sequenced.
+
+**A THING THE FIRST DEPLOY GOT WRONG, so the next one does not.** `deploy.sh`
+ships the service and starts it; it does NOT install the firewall. The
+container came up unconfined and the isolation test caught it reaching the
+host's SSH, Immich, the router and a tailnet peer. Install the unit BEFORE or
+immediately after the first `docker compose up`, and never treat a green deploy
+as an isolated one:
+
+    ssh orange 'sudo /srv/readbridge/scripts/firewall.sh'
+    # then the systemd unit, so it survives a reboot, modelled on
+    # getbooks-firewall.service and ankibridge-firewall.service
+    ssh orange 'sudo systemctl enable --now readbridge-firewall.service'
+
 ## 1. Secrets on the pi, and only there
 
 `/srv/readbridge/.env`, mode 600. `deploy.sh` excludes it in both directions,
