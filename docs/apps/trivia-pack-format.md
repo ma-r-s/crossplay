@@ -46,6 +46,14 @@ Each record:
                 (2 + alt_count + wrong_count) times: question, answer, each
                 alternate, then each distractor
 
+**Every record must fit `kMaxRecordBytes` (448), and one that does not is
+REJECTED, not truncated.** Measured on the pack built 2026-09-01: largest
+record **398** bytes, at most 2 alternates, 6 distractors, answer 25 chars. The
+comment at `TriviaCore.h:37` still says 358, which was true of an earlier pack
+-- check this by measuring, never by reading it. Re-measure after any change to
+the option picker: longer options push the record up and the failure is silent
+questions, not an error.
+
 **The index is never resident.** 195 KB of offsets for a 50k pack is RAM the
 device does not have. Entry `i` and its successor are one 8-byte read at
 `16 + 4*i`, then the record itself is a second seek. Two seeks, two reads, and
@@ -112,19 +120,71 @@ complete, so a torn download leaves the card exactly as it was.
 
 ## Solo multiple choice
 
-15,932 of the 50,000 carry precomputed distractors. The rest are quizmaster-only,
+15,959 of the 50,000 carry precomputed distractors. The rest are quizmaster-only,
 which is why both modes exist rather than one.
 
 **The type comes from the clue itself.** A Jeopardy clue names what its answer
 is -- "this **country**", "this **writer**", "this **metal**" -- so distractors
-are drawn from questions of the same type. 104 types have a pool of 25 or more,
-which is what makes an option plausible instead of absurd.
+are drawn from questions of the same type. `tools_local/trivia/distractors.py`
+owns that; `build_pack.py` and `redistract.py` both import it, because the
+version that shipped and the version that got fixed were once two copies.
+
+**The type is the HEAD of the phrase, not the first word after "this".** That
+one line is where a cold player's 70% came from: "this **musical** river" typed
+as `musical` and drew the Lion King, a piano and the Beatles against the Danube;
+"this **large** rodent" typed as `large` and drew two lakes and the Spanish
+Armada against a porcupine; "this **country** squire" typed as `country`, which
+is how FDR came to be a wrong answer to a question about Egypt.
+
+A word may only be a head if the corpus uses it bare -- "this river" on its own
+-- which is a thing an adjective is never used as. Words before the head are
+kept as modifiers rather than thrown away, so "this African country" draws
+African countries and "this state capital" draws state capitals. When the head
+cannot be identified the question loses its options and becomes
+quizmaster-only: **a bad option set is worse than no solo question**, because it
+teaches the player the pool rather than the answer.
+
+**Four other things an option may not do**, each of them something a player
+could use without knowing the fact:
+
+| Rule | The set it removes |
+| --- | --- |
+| same period | Antananarivo's island offered against the landlocked Czech Republic; the USSR for an 1818 event; Zaire for 2010 |
+| same place | "the financial hub of **Switzerland**" answered Zurich, against Stockholm, Charlotte and Boulder |
+| same capitalisation | `ear / sun / Nose / head`, and `Casey at the Bat / Fencing / bullfighting / Softball` -- three one way, the answer the other |
+| no twins | "van Gogh" beside "Van Gogh"; "Egypt" beside "ancient Egypt". 486 sets shipped with one |
+
+Periods come from a table of names with a birthday plus, for people and works,
+the years the corpus's own clues put them in. Places come from the clues too: a
+city's clues name its country, so an option can be required to be in the region
+the question named.
+
+**An answer needs two clues to join a big pool.** One clue is usually the one
+clue that typed wrongly -- FDR reached the country pool through a quoted speech,
+coal through "this industry the country's", Israel and a lost state called
+Franklin reached the US state pool -- and least-used-first then PREFERRED them,
+because nothing had used them yet.
+
+**A wrong option should still cost you something.** The best set in the shipped
+pack offered the Thames against the Rhine for a clue about a river reaching the
+North Sea: wrong, but wrong in a way you have to know something to reject.
+Spreading a pool loses those by construction, because the good near-miss is
+always a popular answer and least-used-first puts popular last. So the picker
+counts salient names -- capitalised runs the corpus uses often enough to be a
+subject -- and prefers a candidate that shares one with the clue. That is what
+puts Germany and Belgium in front of Suriname for a question about the North
+Sea, and Iraq and Jordan in front of Chile for one about Ramses.
 
 **Distractors are length-matched on purpose.** The longest option being the
 correct one is the tell every published corpus leaks: measured at 31.7% for The
 Trivia API, 35.0% for OpenTriviaQA and 38.0% for OpenTDB, against a 25% baseline.
-Matching lengths puts this pack at **6.1%** -- below chance, so option length
+Matching lengths puts this pack at **14.5%** -- below chance, so option length
 carries no information at all. `test_pack.py` fails the build above 15%.
+
+**Measured, not inspected.** `tools_local/trivia/audit_options.py` deals option
+sets the way the device does and counts the four faults above; it prints what it
+cannot see, and that list is longer than the numbers. Run it on both packs
+before and after any change here.
 
 Six distractors are stored and the device picks three, so replaying a question
 does not give the same four options. The device shuffles; nothing about stored

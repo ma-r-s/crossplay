@@ -11,6 +11,35 @@ to age.
 
 Ordered by what would embarrass the project soonest, not by effort.
 
+## Trivia's wrong answers are fixed for the faults anyone can count
+
+Added 2026-09-01. `tools_local/trivia/distractors.py` rewrote the option picker
+after a cold player answered 30 of 42 four-option sets without knowing the
+fact. Measured with `audit_options.py`, over 400 dealt sets: options of another
+kind 12.5% -> 1.2%, case tells 8.0% -> 0.0%, anachronisms 11.2% -> 2.5%, region
+leaks 15.5% -> 4.5%, twins 2.0% -> 0.0%.
+
+**What is still open, in the order it will be noticed:**
+
+- **The region leak is 5%, not 0.** When a clue names the country the answer is
+  in, every option is required to be in it -- but only where the corpus says
+  where a place IS, and only when the clue names the place outright. "the Swiss
+  city" and "the Kremlin" are invisible to it.
+- **Nothing measures whether a wrong option is FAIR.** Four real rivers is what
+  the picker is for; no counter can tell a hard set from an unfair one. The
+  42-set human read is still the only instrument that found the problem, and it
+  is the one to repeat after any change here.
+- **The sampler is blind outside its 90 families.** Four fabrics, four dances,
+  four card games read clean whatever is in them. It prints its own coverage on
+  every run; read that before quoting a number above it.
+- **Two thirds of clues name no year**, so the anachronism rate is over the
+  dated third only, and half the period rule is a hand-written table of names
+  with a birthday. An entity nobody wrote down is never flagged.
+- **The new pack is built but NOT published.** Mario authorises the
+  `trivia-pack` prerelease himself. And **a device that already has
+  `/trivia/pack.dat` never re-downloads**, so publishing does not reach an
+  existing install; the file has to be deleted.
+
 ## Someone has now run this on a physical device, once
 
 Updated 2026-08-14. A tester flashed v1.2.1 to an X4 Pro and played most of the

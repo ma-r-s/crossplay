@@ -395,6 +395,19 @@ else
   echo "  installer    SKIPPED: no .venv-study -- the page's Python suite did NOT run"
 fi
 
+# The trivia option-picker. Standard library only, so it never skips: the pack
+# it guards is a published release asset, and the last regression in it (option
+# sets that told you the answer without the question) shipped and stayed
+# shipped because nothing ran between the edit and the upload.
+if (cd "$REPO" && python3 tools_local/trivia/test_distractors.py) \
+    > "$LOGS/trivia-distractors.log" 2>&1; then
+  printf "  %-12s ok\n" "trivia"
+else
+  printf "  %-12s FAILED\n" "trivia"
+  tail -8 "$LOGS/trivia-distractors.log" | sed 's/^/      /'
+  FAILED=1
+fi
+
 # The sync bridge server suites. Their venvs are not committed; uv rebuilds them
 # in a --committed trial worktree (warm uv cache makes that cheap). A missing
 # toolchain FAILS rather than skips: a bridge change riding a green gate whose

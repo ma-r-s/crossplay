@@ -9,6 +9,7 @@ The device never sees this script; it reads the finished pack from the SD card.
 import argparse, collections, csv, hashlib, json, math, os, random, re, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import distractors
 import textfit
 
 # The clue box, from the app's layout. A clue is rejected here rather than
@@ -105,20 +106,9 @@ def expand_abbrev(s):
         s = rx.sub(full, s)
     return re.sub(r'\s+', ' ', s).strip()
 
-# --- answer type, for solo multiple choice ----------------------------------
-# A Jeopardy clue names the answer's type: "this country", "this author".
-# Distractors are drawn from the same type AND length-matched, because the
-# longest-option tell is the defect every published corpus leaks (measured at
-# 31-38% against a 25% baseline). Precomputed here so the device never scans.
-TYPE_STOP = {'many', 'one', 'the', 'future', 'largest', 'smallest', 'other', 'same', 'type',
-             'kind', 'word', 'term', 'name', 'number', 'first', 'last', 'group', 'form', 'part',
-             'way', 'thing', 'item', 'list', 'phrase', 'title', 'little', 'new', 'old', 'famous',
-             'great', 'well', 'only', 'sort', 'next'}
-TYPE_SYN = {'nation': 'country', 'capital': 'city', 'town': 'city', 'author': 'writer',
-            'novelist': 'writer', 'singer': 'musician', 'composer': 'musician',
-            'band': 'musician', 'actress': 'actor', 'flick': 'film', 'movie': 'film',
-            'tune': 'song', 'veggie': 'vegetable'}
-TYPE_RX = re.compile(r"\bthis\s+((?:[a-z][\w'-]*\s+){0,3}?)([a-z][\w-]{2,})(?:'s)?\b")
+# Answer types and option selection live in distractors.py, which
+# redistract.py also imports. They were duplicated here once; the copy in this
+# file was the one that shipped, and the fix landed on the other one.
 
 # Jersey and the reading serif have no glyph for U+2014, and a missing glyph
 # draws NOTHING -- so "great--now on" reached the panel as "greatnow on", a
@@ -140,75 +130,6 @@ def dedash(items):
                 x[k] = [v.translate(DASHES) for v in x[k]]
     return n
 
-
-def answer_type(clue):
-    m = TYPE_RX.search(clue)
-    if not m:
-        return None
-    w = m.group(2).lower().strip("'")
-    if w.endswith('s') and not w.endswith('ss'):
-        w = w[:-1]
-    if w in TYPE_STOP:
-        return None
-    return TYPE_SYN.get(w, w)
-
-MIN_TYPE_POOL = 25      # below this a type cannot supply plausible distractors
-DISTRACTORS = 6         # stored; the device picks 3, so a replay differs
-
-# A band around the answer's length, so the answer never stands out by being the
-# longest or shortest option -- a tell that needs no knowledge at all.
-LEN_RATIO = 0.55
-LEN_FLOOR = 2
-
-
-def eligible(answer, candidate):
-    la, lc = len(answer), len(candidate)
-    return max(LEN_FLOOR, la * LEN_RATIO) <= lc <= la / LEN_RATIO
-
-
-def choose_distractors(answers_by_type, item, type_, used, rng):
-    """Six wrong options for one question, or [] if the type cannot supply them.
-
-    This used to sort the type pool by |len(candidate) - len(answer)| and keep
-    the nearest 40. For a five-letter country that is always about the same five
-    five-letter countries, so Japan/India/Spain/China recurred question after
-    question and the answer became the option you had not seen before. Every
-    Australia clue in the shipped pack drew the identical three options.
-
-    Two changes fix it. Candidates come from the WHOLE type pool inside a length
-    BAND rather than from a nearest-N sort, and they are taken LEAST-USED FIRST
-    so the pool spreads across the type instead of collapsing onto whichever few
-    answers sit near a common length. The second half is the one that matters:
-    widening alone still favours the popular short answers.
-    """
-    pool = answers_by_type.get(type_)
-    if not pool or len(pool) < MIN_TYPE_POOL:
-        return []
-    lower = item['a'].lower()
-    cands = [c for c in pool if c.lower() != lower and eligible(item['a'], c)]
-    if len(cands) < 3:
-        return []
-    rng.shuffle(cands)
-    cands.sort(key=lambda c: used[c.lower()])
-    picks = cands[:DISTRACTORS]
-    for c in picks:
-        used[c.lower()] += 1
-    return picks
-
-
-def add_distractors(pack, rng):
-    by = collections.defaultdict(set)
-    for x in pack:
-        if x.get('t'):
-            by[x['t']].add(x['a'])
-    by = {t: sorted(v) for t, v in by.items()}
-    used = collections.Counter()
-    for x in pack:
-        picks = choose_distractors(by, x, x.get('t'), used, rng)
-        if len(picks) >= 3:
-            x['w'] = picks
-        else:
-            x.pop('t', None)
 
 # --- rejection rules ---------------------------------------------------------
 EVENT = re.compile(r'(Teen|College|Kids|Celebrity|Tournament of Champions|Battle of the Decades'
@@ -298,9 +219,6 @@ def build(src, keep_events=False):
         score = round(2.0 * math.log1p(af) + math.log1p(cf) - (0.6 if ev else 0), 3)
         item = {'id': hashlib.sha1(k.encode()).hexdigest()[:12],
                 'q': clue, 'a': primary, 'd': d, 'y': int(r['air_date'][:4]), 'g': score}
-        t = answer_type(clue)
-        if t:
-            item['t'] = t
         if accepts:
             item['alt'] = accepts
         if ev:
@@ -346,7 +264,7 @@ def main():
     # distractors are drawn from the SHIPPED slice, so an option is never an
     # answer the player could not otherwise meet
     dedash(pack)
-    add_distractors(pack, random.Random(20260830))
+    distractors.redistract(pack, random.Random(20260901))
 
     with open(a.out, 'w', encoding='utf-8') as f:
         for x in pack:
