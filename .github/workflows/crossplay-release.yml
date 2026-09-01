@@ -175,56 +175,35 @@ jobs:
             devices next to each other find one another with nothing to type --
             and they do not have to be the same device.
 
-            ### What is new in 1.12.1
+            ### What is new in 1.12.2
+
+            **Trivia asks whether there is room before it downloads.** The
+            question pack is about 6 MB, and until now the app wrote it without
+            checking. On a nearly full card that fails somewhere in the middle,
+            and the app that suffers is not Trivia: it is Study, whose review
+            log then cannot be written, and which loses answers rather than
+            refusing. Trivia now checks first and stops with a message instead,
+            and it tells you the two cases apart. If the card is genuinely too
+            small it says how much it needs and how much you have. If the card
+            would not answer at all it says that instead, rather than pretending
+            to know.
+
+            **A frontlight that fails to start now says so.** It could not
+            before, which is most of why 1.11.1 and 1.12.0 shipped with a light
+            that would not turn on: the firmware reported success either way.
+
+            ### From 1.12.1
 
             **The front light works again on the X4 Pro.** If you installed
             1.11.1 or 1.12.0, the light stopped turning on: the panel opened,
-            the sun filled in, the setting remembered you had asked, and
-            nothing lit up. The PWM frequency for the light moved to a value
-            its clock cannot actually produce, so the channels were never
-            started and every brightness change went nowhere.
+            the sun filled in, the setting remembered you had asked, and nothing
+            lit up.
 
             **After updating, open the light panel and both switch it on and
             raise the brightness.** Those two settings live on the SD card, not
-            in the firmware, and saving them never broke -- so if you spent last
-            night trying to get the light to respond, the card may have kept the
-            switch off and the slider near the bottom from those attempts. A
-            working light at 3% in a lit room looks exactly like a broken one,
-            and we would rather you turned a dial than concluded this did not
-            work.
-
-            Nothing else changed. Everything below is from 1.12.0.
-
-            ### From 1.12.0
-
-            **Read it later, on the reader.** An **Instapaper** app: your
-            unread queue, the article text, page turns, and archiving from the
-            device. It syncs through a small service of its own, the same shape
-            as the Anki bridge.
-
-            **Wavelength.** The spectrum party game, on one device passed round
-            a table. Give the clue, argue, turn the dial, reveal. It wants a
-            dark room, which is the other reason the light above matters.
-
-            **Hacker News saved articles work again.** The storage half had been
-            shipping for three weeks with nothing calling it, and it would not
-            have opened an existing library even if something had -- a
-            version-1 index was read with a version-2 column count, so every
-            saved story was discarded as damage. Save a story, read it back with
-            no network.
-
-            **Trivia: two fixes that made it unusable on a device.** GET THE
-            QUESTIONS entered the TLS stack with the radio down and panicked the
-            device. And the first successful download created its own folder,
-            after which every later attempt reported "NO ROOM" on a card with
-            gigabytes free.
-
-            **Sleep returns you to your game**, not to Home.
-
-            **Book text from a catalog no longer arrives with its markup
-            showing**, and a Study deck installed from the website and one
-            synced from the service now agree on where it lives -- before, one
-            deck could land in two folders with two separate review histories.
+            in the firmware, so if you spent a while trying to get the light to
+            respond, the card may have kept the switch off and the slider near
+            the bottom from those attempts.
 
             ### If you have not plugged your X4 Pro into a computer since August
 
