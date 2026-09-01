@@ -513,13 +513,15 @@ if [ "${1:-}" != "--tests" ]; then
   # waits on, it takes no lock, and it is what the wasm artifact comes from.
   DEVICE_BUILDS_SKIPPED=""
   _scope="${REPO:-}/scripts_local/device-build-needed.sh"
-  if [ -n "${REPO:-}" ] && [ -x "$_scope" ] && [ -z "${CHECK_FORCE_DEVICE_BUILDS:-}" ]; then
+  _dev_envs="$(printf '%s\n' $BUILD_ENVS | grep -v '^simulator' | tr '\n' ' ' | sed 's/ *$//')"
+  if [ -n "${CHECK_FORCE_DEVICE_BUILDS:-}" ]; then
+    echo "device builds: forced (CHECK_FORCE_DEVICE_BUILDS is set); the diff was not consulted"
+  elif [ -n "${REPO:-}" ] && [ -x "$_scope" ]; then
     # --build-loop, not the default question: --committed exports
     # CHECK_BUILD_RELEASE_ENVS a few hundred lines above, and the default
     # question answers "needed" whenever it is set. Asking it here would mean
     # this never fires in the one mode it was written for. See the tool.
     SCOPE_WHY="$("$_scope" --build-loop 2>&1)" && _scope_rc=0 || _scope_rc=$?
-    _dev_envs="$(printf '%s\n' $BUILD_ENVS | grep -v '^simulator' | tr '\n' ' ' | sed 's/ *$//')"
     if [ "$_scope_rc" -eq 1 ] && [ -n "$_dev_envs" ]; then
       DEVICE_BUILDS_SKIPPED="$_dev_envs"
       BUILD_ENVS="$(printf '%s\n' $BUILD_ENVS | grep '^simulator' | tr '\n' ' ' | sed 's/ *$//')"
@@ -531,7 +533,20 @@ if [ "${1:-}" != "--tests" ]; then
       echo "  already produced, because nothing here can reach one."
       echo "  run them anyway with: CHECK_FORCE_DEVICE_BUILDS=1 $0 ${1:-}"
       echo
+    else
+      # Say why they are RUNNING, too, and not for symmetry. Expecting a skip
+      # and not getting one is the state with no diagnostic at all: the rule
+      # names the ONE path that made it answer "build", and without this line
+      # the only way to get that name is to re-run the tool by hand in the
+      # trial worktree, which is what happened the first time this was tested
+      # -- the base ref was not what the tester assumed, and the log said
+      # nothing either way.
+      echo "${SCOPE_WHY:-device builds: needed (the rule exited $_scope_rc without a reason)}"
     fi
+  else
+    # And the third state, which is the one that most needs saying. A gate that
+    # never asked looks exactly like a gate that asked and was told yes.
+    echo "device builds: needed (no usable rule at ${_scope:-<no repo>}; nothing was skipped)"
   fi
 
   # Every env here except the native simulator reaches into the shared

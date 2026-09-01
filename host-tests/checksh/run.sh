@@ -687,6 +687,36 @@ else
   #    must not be verified by a run that skipped the build loop.
   scope_case "scripts_local/check.sh"     build "1" scripts_local/check.sh
 
+  # ---- the run must say what it DECIDED, in all three directions ----------
+  #
+  # Not symmetry. "The gate did not skip", "the gate asked and was told to
+  # build" and "the gate never asked at all" are three different states with
+  # one appearance, and the third is the dangerous one. Expecting a skip and
+  # not getting one had no diagnostic whatsoever until this: the first live
+  # test of this feature lost time to a base ref that was not what the tester
+  # assumed, and the log said nothing either way.
+
+  scope_says() {  # $1 = label, $2 = substring the output must contain
+    checks=$((checks + 1))
+    grep -q "$2" "$WORK/scopeout" || { failed=$((failed + 1))
+      echo "FAIL checksh  scope/$1: the run never said '$2'"
+      sed 's/^/       /' "$WORK/scopeout" | head -6; }
+  }
+
+  scope_fixture src/main.cpp
+  scope_loop "1" "" >/dev/null
+  scope_says "a firmware diff names its reason" "device builds: needed"
+  scope_says "and names the path that forced it" "src/main.cpp"
+
+  scope_fixture site/index.html
+  rm -f "$WORK/scoperepo/scripts_local/device-build-needed.sh"
+  scope_loop "1" "" >/dev/null
+  scope_says "no rule present says so out loud" "no usable rule"
+
+  scope_fixture site/index.html
+  scope_loop "1" "1" >/dev/null
+  scope_says "the override says the diff was not consulted" "forced"
+
   # ---- fail-safe: only exit code 1 may skip -------------------------------
   #
   # The tool documents 0 as "needed, and ALSO the answer whenever anything is
