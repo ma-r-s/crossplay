@@ -502,6 +502,37 @@ shipping on a test that could not tell a fix from a no-op.
 **Before concluding that hardware is the only route, try a `SWIPE` token aimed
 at the left edge.** It at least drives the mechanism that ships. Nobody has.
 
+### The eight apps share a SEAM, not a symptom
+
+Do not scan for "the app exits" as the signature. What the stray release does
+depends on state the result handler happened to set before it arrives, so the
+same defect wears a different face in each app.
+
+Get Books is the worked example (found by another session, verified here in
+source). Its handler sets state away from the value the Back reader tests:
+
+```cpp
+// onWifiSelectionComplete(false), OpdsBookBrowserActivity.cpp:885
+state = BrowserState::ERROR;
+
+// the stray release then lands here, at :202
+state == BrowserState::CHECK_WIFI ? onGoHome() : navigateBack();
+```
+
+So the release reaches `navigateBack()` rather than `onGoHome()`. Had the
+handler left `state` alone, Get Books would behave exactly like Hacker News.
+
+**And `navigateBack()` is itself state-dependent, which sharpens the point
+rather than softening it.** With `navigationHistory` empty it calls `onGoHome()`
+anyway (:636), so at the root of a catalog the symptom is identical to HN's
+ejection; deeper in, it silently eats one level of back navigation. The same
+stray edge in the same app presents two different ways depending on how far the
+reader had browsed.
+
+That is why a symptom-based sweep will under-report. The seam is
+`startActivityForResult` returning across a `wasPressed`/`wasReleased` mismatch;
+everything downstream of it is local accident.
+
 ### Measured, after a challenge that the probe was confounded
 
 The objection: `leaveOrShowSaved()` calls `shelf::leave()` outright on an EMPTY
