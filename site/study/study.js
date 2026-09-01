@@ -701,6 +701,14 @@ worker.onmessage = function (event) {
     if (result.checkFailed || fontProblems.length) {
       verdict.textContent = "Converted, but read this first:";
       verdict.className = "study-verdict is-bad";
+    } else if (permanentNotes.length) {
+      // "Every card renders." sat three lines above "1 card stays behind:
+      // cloze cards have a hole in the question", on the same screen. Both
+      // were true of different sets and the pair reads as the page
+      // contradicting itself, which costs more trust than the skipped card
+      // costs anything.
+      verdict.textContent = "Every card that converted renders.";
+      verdict.className = "study-verdict is-good";
     } else {
       verdict.textContent = "Every card renders.";
       verdict.className = "study-verdict is-good";
@@ -878,7 +886,24 @@ worker.onmessage = function (event) {
     try {
       root = await window.showDirectoryPicker({ mode: "readwrite" });
     } catch (e) {
-      return; // user cancelled the picker
+      // Only AbortError is the user closing the picker. Everything else is the
+      // call failing -- and treating them alike made this button a silent
+      // no-op: the API is present, the branch is taken, the call rejects, and
+      // nothing appears. No dialog, no text, not even a console line. A person
+      // clicks it, waits a minute, clicks again, and has no reason to connect
+      // it to the zip sentence in the paragraph above.
+      if (e && e.name === "AbortError") {
+        setWriteStatus("Left the card untouched.");
+        return;
+      }
+      console.error("showDirectoryPicker failed", e);
+      setWriteStatus(
+        "This browser would not open a folder picker (" +
+          ((e && e.name) || "unknown error") +
+          "). Use the zip button instead -- it unpacks at the card's root and " +
+          "produces exactly the same thing.",
+      );
+      return;
     }
     var slug = converted.slug;
     try {
@@ -981,11 +1006,19 @@ worker.onmessage = function (event) {
     status.textContent = "";
     status.appendChild(
       document.createTextNode(
-        "Look in your Downloads folder for " +
+        // Says what it KNOWS, not where the file went. The page cannot see the
+        // filesystem: it asked for this name and size, and the browser may
+        // have renamed it, put it elsewhere, or left an older download of the
+        // same name sitting there. Asserting the name and folder sent a
+        // returning user to a three-week-old zip that matched the description
+        // exactly, and they shipped it believing they had followed the page.
+        "Your browser has been sent a deck named " +
           name +
           " (" +
           Math.max(1, Math.round(buffer.byteLength / 1024)) +
-          " KB). Unpack it at the ROOT of the SD card, so it creates study/" +
+          " KB), saved wherever it puts downloads. Check the timestamp is from " +
+          "just now -- an older download of the same name may still be there. " +
+          "Unpack it at the ROOT of the SD card, so it creates study/" +
           converted.slug +
           "/. Then: Apps > STUDY. Nothing there? ",
       ),
