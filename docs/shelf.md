@@ -98,6 +98,7 @@ Five things follow, and each was got wrong once:
   found the taps by accident and used them as their only reliable route, and a
   third never tried them and reported that the list could not be paged at all.
   An indicator that is also the reliable control has to look like a control.
+
 - **A folder reopens where it was left, which is the page you were ON.** Not the
   page holding the game you last launched. Those are the same thing until you
   browse and walk away, and browsing and walking away is most of what a shelf is
@@ -117,19 +118,24 @@ Five things follow, and each was got wrong once:
   surviving place to that is the end. `shelfui::resumeRowFor` is that rule, named
   rather than left to a clamp, because a clamp that cannot produce the last page
   is what made this area unpredictable before.
-- **A restored page has to say what restored it.** The resumed row is drawn
-  selected on arrival. Without the mark the restored page is indistinguishable
-  from page one, and the whole difference is three pips nobody reads: three cold
-  testers each tapped the row they wanted from page one and got its neighbour two
-  pages down, and each concluded the pager was broken and nondeterministic. It is
-  neither; the start page is a saved value and was invisible. The mark is a
-  landmark and not a cursor -- there is no Confirm on this device, so nothing can
-  act on it -- and the first page change clears it, because after that `selected`
-  is only the page carrier.
 
-  The mark was necessary and was not sufficient. It shipped, and Mario still hit
-  the folder opening somewhere he had not left it, because the value it was
-  faithfully explaining was the wrong value.
+- **No row is ever marked.** A restored page says which page it is with the
+  pips, and with nothing else. An inverted row was tried as a landmark
+  explaining why the list had not opened at the top, and it has been removed:
+  navigation here is touch, the two side keys page, and `frontButtonConfirm` is
+  an unassigned pin -- so a highlighted row is a cursor that nothing can move and
+  nothing can open. That is the same reason the Instapaper reading list dropped
+  its own inverted row.
+
+  It did not read as a landmark either. `resumeRow` is written by opening an
+  item, so a folder that fits on one page wore a permanent highlight on whichever
+  app was used most: APPS came back marked INSTAPAPER every time, for a value
+  that was correct and had nothing to explain, on a list that was already showing
+  its first row at the top. A mark that is right and unreadable is furniture.
+
+  The page-resume itself is untouched, because it was never the problem: the
+  folder still reopens on the page it was left on. What went away is drawing that
+  row.
 
 Pips rather than prev/next arrows because arrows are up to `pageCount - 1` taps
 to the far end and say nothing about where you are. A right chevron was the

@@ -8,9 +8,9 @@
 namespace shelfui {
 
 // The footer holds the device's name and is the way into changing it, so the
-// list has to stop above it. Shared with the builder, or the scroll maths would
-// think it has a row's more room than it does and style a selection on a row
-// that is never drawn.
+// list has to stop above it. Shared with the builder, or the paging maths would
+// think it has a row's more room than it does and put a row on a page that
+// cannot draw it.
 //
 // A row's height rather than a pill's: it carries a 48px face now, and a pill
 // would leave two pixels of air above and below it.
@@ -234,7 +234,10 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   // Always zero: this list is exactly one page, so it never overflows its band
   // and has nothing to scroll. See MenuModel::items.
   list.topIndex = 0;
-  list.selectedIndex = static_cast<int16_t>(model.selected);
+  // Never a marked row; see MenuModel for why. Set rather than left to the
+  // component's default so a change to that default cannot put a cursor back on
+  // a screen that has nothing to move it.
+  list.selectedIndex = -1;
   list.action = ActionOpen;
 
   const fui::Rect rows = listBand(screen.device(), model.playerName != nullptr, model.pageCount > 1);
@@ -245,7 +248,8 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   if (model.icons != nullptr) {
     for (int i = 0; i < model.count; ++i) {
       if (model.icons[i] == nullptr) continue;
-      toybox::iconAtRowRight(screen, rows, i, 0, *model.icons[i], i == model.selected);
+      // Never inverted: no row is ever the selected one, so every icon is ink.
+      toybox::iconAtRowRight(screen, rows, i, 0, *model.icons[i], false);
     }
   }
 }

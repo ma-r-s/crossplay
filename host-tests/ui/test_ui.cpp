@@ -1177,7 +1177,6 @@ void checkShelfIconsSitOnTheirRows(const int page) {
   model.items = items + first;
   model.icons = palette + first;
   model.count = onThisPage;
-  model.selected = 0;
 
   Rendered menu;
   buildShelf(menu, model);
@@ -1224,6 +1223,60 @@ void checkShelfIconsSitOnTheirRows(const int page) {
   }
 
   CHECK(paired == onThisPage);
+}
+
+// No row of a shelf folder is ever marked.
+//
+// The X4 Pro has two physical keys, both of which PAGE, and `frontButtonConfirm`
+// resolves to an unassigned pin -- so an inverted row is a cursor that nothing
+// can move and nothing can act on. It shipped as a landmark explaining why a
+// restored folder did not open on page one, and it was read as a cursor
+// instead: the row it marked was the last app opened, so APPS wore a permanent
+// highlight on whichever app was used most.
+//
+// Asserted as ink rather than as a field so it survives the field: a selected
+// row draws its label paper-on-black, so every label being ink is the property
+// that actually matters, whatever the model grows later. The icons are checked
+// the same way, because they are drawn by this fork rather than by the list
+// component and used to invert on their own.
+void testShelfFolderMarksNoRow() {
+  constexpr int kCount = 5;
+  const freeink::Icon* const palette[kCount] = {&icon_study_32, &icon_hackernews_32, &icon_xkcd_32, &icon_games_32,
+                                                &icon_apps_32};
+  const char* titles[kCount] = {"STUDY", "HACKER NEWS", "XKCD", "GET BOOKS", "INSTAPAPER"};
+  fui::ListItem items[kCount] = {};
+  for (int i = 0; i < kCount; ++i) {
+    items[i].label = titles[i];
+    items[i].actionValue = static_cast<int16_t>(i);
+  }
+
+  shelfui::MenuModel model;
+  model.title = "APPS";
+  model.items = items;
+  model.icons = palette;
+  model.count = kCount;
+
+  Rendered menu;
+  buildShelf(menu, model);
+
+  // Every row label present, and every one of them ink. White here would be a
+  // row drawn inverted, which is the mark under test.
+  int checked = 0;
+  for (int i = 0; i < kCount; ++i) {
+    const FakeTarget::TextRun* row = menu.target.find(titles[i]);
+    CHECK(row != nullptr);
+    if (row == nullptr) continue;
+    CHECK(row->color == fui::Color::Black);
+    ++checked;
+  }
+  CHECK(checked == kCount);
+
+  // And the icons, which invert separately from the label.
+  for (int i = 0; i < kCount; ++i) {
+    for (const auto& blit : menu.target.blits) {
+      if (blit.data == palette[i]->bits) CHECK(blit.color == fui::Color::Black);
+    }
+  }
 }
 
 void testShelfIconsFollowTheRowsWhenTheListScrolls() {
@@ -1278,7 +1331,6 @@ void testTheShelfPagesWhenAFolderOverflows() {
     model.playerName = "SPIKY GRIM BEARD";
     model.items = items + first;
     model.count = onThisPage;
-    model.selected = 0;
     model.page = page;
     model.pageCount = paging.pageCount;
 
@@ -1297,7 +1349,6 @@ void testTheShelfPagesWhenAFolderOverflows() {
   model.playerName = "SPIKY GRIM BEARD";
   model.items = items;
   model.count = paging.rowsPerPage;
-  model.selected = 0;
   model.page = 0;
   model.pageCount = paging.pageCount;
 
@@ -1483,7 +1534,6 @@ void testThePageMarksReadAsAControl() {
   model.playerName = "SPIKY GRIM BEARD";
   model.items = items;
   model.count = paging.rowsPerPage;
-  model.selected = -1;
   model.page = 0;
   model.pageCount = paging.pageCount;
 
@@ -1526,11 +1576,14 @@ void testThePageMarksReadAsAControl() {
   CHECK(framed);
 }
 
-// The folder reopens on the page of the game you last opened, so it has to say
-// which row that was. Three cold testers read the restored page as a fresh list
-// and tapped the row they wanted from page one; the games they got -- Checkers,
-// Battleship, Forehead -- are that same row two pages away.
-void testTheResumedRowIsMarkedSoTheRestoredPageExplainsItself() {
+// A row on a restored page opens ITS OWN game, not the game at that position on
+// page one.
+//
+// The screen is handed one page as a slice, so the row a tap lands on is
+// page-relative while the game it stands for is absolute. Kept as its own test
+// because every other shelf tap test runs on page one, where the two are the
+// same number and an off-by-a-page cannot show.
+void testARowOnARestoredPageOpensItsOwnGame() {
   fui::ListItem items[3] = {};
   const char* titles[3] = {"MURDLE", "CHECKERS", "CONNECT FOUR"};
   for (int i = 0; i < 3; ++i) {
@@ -1545,40 +1598,22 @@ void testTheResumedRowIsMarkedSoTheRestoredPageExplainsItself() {
   model.count = 3;
   model.page = 1;
   model.pageCount = 3;
-  // Page-relative: the activity hands the row's offset within the page it drew.
-  model.selected = 1;
 
-  Rendered marked;
-  buildShelf(marked, model);
+  Rendered menu;
+  buildShelf(menu, model);
 
-  // The mark is a filled row, so the ink under the label flips. Asserted
-  // through the label's own colour rather than by counting fills: a fill of the
-  // right size in the wrong place would pass a count and leave the row looking
-  // like every other one.
-  bool resumedIsPaper = false;
-  bool neighbourIsPaper = false;
-  for (const auto& run : marked.target.texts) {
-    if (run.text == "CHECKERS" && run.color == fui::Color::White) resumedIsPaper = true;
-    if (run.text == "MURDLE" && run.color == fui::Color::White) neighbourIsPaper = true;
-  }
-  CHECK(resumedIsPaper);
-  CHECK(!neighbourIsPaper);
-
-  // And it is still the thing you can open: a landmark that stopped answering
-  // taps would trade one silent failure for another.
   const int rowY = toybox::kHeaderHeight + toybox::kGutter * 3 + toybox::kRowHeight + toybox::kRowHeight / 2;
-  const fui::ActionEvent hit = marked.tap(240, rowY);
+  const fui::ActionEvent hit = menu.tap(240, rowY);
   CHECK(hit.action == shelfui::ActionOpen);
   CHECK(hit.value == 9);
 
-  // Once a page has been turned the row is only a page carrier, and -1 is how
-  // the activity says so: nothing is marked, because nothing needs explaining.
-  shelfui::MenuModel paged = model;
-  paged.selected = -1;
-  Rendered plain;
-  buildShelf(plain, paged);
-  for (const auto& run : plain.target.texts) {
-    if (run.text == "CHECKERS") CHECK(run.color != fui::Color::White);
+  // And nothing on a restored page is marked. This is the page the mark used to
+  // live on -- it existed to explain why the list had not opened at the top --
+  // so it is the page where a reintroduced cursor would show first.
+  for (const auto& run : menu.target.texts) {
+    for (const char* title : titles) {
+      if (run.text == title) CHECK(run.color == fui::Color::Black);
+    }
   }
 }
 
@@ -6329,12 +6364,13 @@ int main() {
   testTheResultNamesTheOutcomeFromYourSeat();
   testTheCheckersHowToPagesAndEnds();
   testShelfFolderDrawsItsOwnNameAndRows();
+  testShelfFolderMarksNoRow();
   testShelfIconsFollowTheRowsWhenTheListScrolls();
   testTheShelfPagesWhenAFolderOverflows();
   testAPageStepMovesExactlyOnePage();
   testAFolderComesBackToThePageItWasLeftOn();
   testThePageMarksReadAsAControl();
-  testTheResumedRowIsMarkedSoTheRestoredPageExplainsItself();
+  testARowOnARestoredPageOpensItsOwnGame();
   testAFolderWithoutADeviceNameHasNoFooter();
   testTheShelfFooterIsADoorWithAFaceOnIt();
   testPlayerOffersThreeSeparateWords();

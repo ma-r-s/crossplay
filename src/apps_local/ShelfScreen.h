@@ -51,8 +51,11 @@ struct MenuModel {
   // it is rather than which row.
   const fui::ListItem* items = nullptr;
   int count = 0;
-  // Page-relative, matching `items`. -1 draws no cursor at all.
-  int selected = 0;
+  // There is no selection field, and that is the design. Navigation here is
+  // touch: the two side keys page, and `frontButtonConfirm` is an unassigned
+  // pin, so nothing can move an inverted row and nothing can act on one. Which
+  // page you are on is said by the pips, which is a fact about the list rather
+  // than a cursor over it.
   // This device's name, shown to anyone it plays with. It lives here rather
   // than inside any game because it belongs to the device: a DS asked once and
   // every game used it.
@@ -93,8 +96,8 @@ Paging pagingFor(const fui::DeviceContext& device, const fui::ThemeTokens& token
 // that always starts in the same place is one a thumb can learn.
 //
 // Split out from the builder so the activity can keep the value it owns, and so
-// a test can check that a selection below the fold actually brings its page into
-// view rather than being styled on a row that is never drawn.
+// a test can check that a row below the fold actually brings its page into view
+// rather than being asked for on a page that does not hold it.
 int pageFor(int selected, int rowsPerPage);
 
 // How many pages `itemCount` rows need. Beside pageFor because it is the same

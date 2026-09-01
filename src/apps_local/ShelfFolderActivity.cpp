@@ -46,10 +46,6 @@ void ShelfFolderActivity::onEnter() {
   // than dropping the memory and opening on its first. Named there rather than
   // clamped here, so it is one rule with one test instead of an `if`.
   selected = shelfui::resumeRowFor(shelf::resumeRowIn(folder), itemCount);
-  // Only when there is something to explain. Row zero is the top of page one,
-  // which is where an unvisited folder opens anyway, so marking it would be
-  // furniture on the one screen that needs none.
-  showingResumedRow = selected > 0;
   // The page itself is built in render(), which is the only place that knows how
   // many rows fit.
   requestUpdate();
@@ -72,7 +68,6 @@ bool ShelfFolderActivity::showPage(const int page) {
   // wake a chip reset. Paging is a deliberate act a handful of times a session,
   // and the write is twenty bytes beside a full-panel repaint.
   shelf::rememberRowIn(folder, landing);
-  showingResumedRow = false;
   requestUpdate();
   return true;
 }
@@ -198,13 +193,6 @@ void ShelfFolderActivity::render(RenderLock&&) {
   model.items = items;
   model.icons = icons;
   model.count = onThisPage;
-  // Page-relative, because the model is one page. The row is always on the page
-  // being drawn: the page is derived from it.
-  //
-  // Drawn only while it is the row the shelf resumed on, which is what tells
-  // you why the list did not open at the top. Once any page change has
-  // happened, `selected` is just the page carrier and -1 draws no cursor.
-  model.selected = showingResumedRow ? selected - first : -1;
   model.playerName = self.showsDeviceName ? player::name() : nullptr;
   model.page = page;
   model.pageCount = paging.pageCount;
