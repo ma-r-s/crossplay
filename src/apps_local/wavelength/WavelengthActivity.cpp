@@ -3,8 +3,7 @@
 #include <Arduino.h>
 #include <HalStorage.h>
 #include <Memory.h>
-
-#include <cstring>
+#include <esp_random.h>
 
 #include "../../components/UITheme.h"
 #include "../Shelf.h"
@@ -18,17 +17,12 @@ namespace wl = wavelength;
 namespace {
 
 constexpr char kSavePath[] = "/.crosspoint/wavelength.sav";
-constexpr uint8_t kSaveVersion = 1;
-
-// Everything the front door draws plus the seen set, so a spectrum somebody
-// remembers the target of does not come back next week.
-struct SaveState {
-  uint16_t rounds;
-  uint16_t points;
-  uint16_t buckets[wavelength::kBucketCount];
-  uint16_t bestRoundTenths;
-  uint32_t deck[wavelength::kSeenWords];
-};
+// Written first, renamed over the real file only once the bytes are down.
+// openFileForWrite carries O_TRUNC, so writing in place empties the file at
+// open: power lost in that window leaves nothing, and this app now writes on
+// every screen change and every move of the marker rather than once a round.
+// Trading one loss mode for a fifteen-times-more-likely one is not a fix.
+constexpr char kSaveTmpPath[] = "/.crosspoint/wavelength.tmp";
 
 }  // namespace
 
@@ -40,69 +34,163 @@ void WavelengthActivity::onEnter() {
   Activity::onEnter();
   toybox::ensureFonts(renderer);
   deck = wl::Deck(wl::kPairCountEn);
-  rng = wl::Rng(static_cast<uint32_t>(millis()));
+  // The hardware RNG, not millis(). A wake from deep sleep is a chip reset, so
+  // millis() is small and near-constant at exactly the moment a session now
+  // resumes across one -- which would correlate the targets a device draws
+  // from one power cycle to the next. The seed has to survive nothing, so it
+  // may as well come from the one source that is actually unpredictable.
+  rng = wl::Rng(esp_random());
   session = wl::Session{};
   record = wl::Record{};
   sessionStarted = false;
-  if (!loadState()) {
-    deck.forgetSeen();
-    record = wl::Record{};
-  }
   view = View::Menu;
-  practiceRound = session.isPractice();
   guess = wl::kSlots / 2;
+  practiceRound = session.isPractice();
+  loadState();
+  viewEnteredMs = millis();
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
   requestUpdate();
 }
 
 void WavelengthActivity::onExit() {
-  flushSave();
+  saveState();
   Activity::onExit();
 }
 
-bool WavelengthActivity::loadState() {
-  if (!Storage.exists(kSavePath)) return false;
+bool WavelengthActivity::resumable(const View v, const wl::Saved& saved) const {
+  switch (v) {
+    // The five screens of a live round all draw this round's spectrum, and the
+    // last four of them are meaningless without the number behind them.
+    case View::Peek:
+    case View::Clue:
+    case View::Dial:
+    case View::Call:
+    case View::Reveal:
+      return saved.spectrum >= 0 && saved.spectrum < wl::kPairCountEn && saved.target >= 1 &&
+             saved.target <= wl::kSlots && saved.guess >= 1 && saved.guess <= wl::kSlots;
+    // The choice is dealt but nothing is drawn yet, so what has to survive is
+    // the pair of spectra on offer rather than a number.
+    case View::Pick:
+      // BOTH offered pairs, not just the first. The screen draws the second
+      // whenever `dealt` says two, so validating one of them leaves the other
+      // free to render the placeholder spectrum and be chosen.
+      return saved.dealt > 0 && saved.choice[0] >= 0 && saved.choice[0] < wl::kPairCountEn &&
+             (saved.dealt < 2 || (saved.choice[1] >= 0 && saved.choice[1] < wl::kPairCountEn));
+    // The pause is only as resumable as the screen underneath it.
+    case View::Paused:
+      return saved.resumeScreen < kViewCount && saved.resumeScreen != static_cast<uint8_t>(View::Paused) &&
+             resumable(static_cast<View>(saved.resumeScreen), saved);
+    case View::PassLeft:
+    case View::Menu:
+      return true;
+    // HOW TO PLAY and the score sheet are each one tap from the front door and
+    // neither is a position anybody is in the middle of. Coming back to the
+    // front door with the session intact is what they resume to.
+    case View::HowTo:
+    case View::Summary:
+    default:
+      return false;
+  }
+}
+
+void WavelengthActivity::loadState() {
+  if (!Storage.exists(kSavePath)) return;
   HalFile file;
-  if (!Storage.openFileForRead("WAVE", kSavePath, file)) return false;
-  uint8_t version = 0;
-  if (file.read(&version, 1) != 1 || version != kSaveVersion) return false;
-  SaveState state{};
-  if (file.read(reinterpret_cast<uint8_t*>(&state), sizeof(state)) != sizeof(state)) return false;
+  if (!Storage.openFileForRead("WAVE", kSavePath, file)) return;
+  uint8_t bytes[wl::kSaveBytes] = {};
+  const int read = file.read(bytes, sizeof(bytes));
+  wl::Saved saved;
+  if (read <= 0 || !wl::unpack(bytes, static_cast<size_t>(read), saved)) {
+    LOG_ERR("WAVE", "%s is not a save this build reads; starting fresh", kSavePath);
+    return;
+  }
 
-  record = wl::Record{};
-  record.rounds = state.rounds;
-  record.points = state.points;
-  std::memcpy(record.buckets, state.buckets, sizeof(record.buckets));
-  record.bestRoundTenths = state.bestRoundTenths;
-
+  record = saved.record;
   // The seen set is clamped against the deck as it is NOW. A build with fewer
   // pairs must not carry marks for indices that no longer exist.
   deck.forgetSeen();
   for (int i = 0; i < wl::kPairCountEn && i < wl::kMaxPairs; ++i)
-    if (state.deck[i / 32] & (1u << (i % 32))) deck.markSeen(i);
-  return true;
+    if (saved.seen[i / 32] & (1u << (i % 32))) deck.markSeen(i);
+
+  session = saved.session;
+  sessionStarted = saved.sessionStarted;
+  abandonedCount = saved.abandoned;
+
+  const View wanted = saved.screen < kViewCount ? static_cast<View>(saved.screen) : View::Menu;
+  if (!resumable(wanted, saved)) {
+    // The evening survives even when the screen does not: the score, the round
+    // number and the seen deck are still the table's, and the front door shows
+    // them.
+    view = View::Menu;
+    practiceRound = session.isPractice();
+    return;
+  }
+
+  view = wanted;
+  pausedFrom = saved.resumeScreen < kViewCount ? static_cast<View>(saved.resumeScreen) : View::Dial;
+  spectrum = saved.spectrum;
+  choice[0] = saved.choice[0];
+  choice[1] = saved.choice[1];
+  dealt = saved.dealt;
+  target = saved.target;
+  guess = saved.guess >= 1 ? saved.guess : wl::kSlots / 2;
+  lastPoints = saved.lastPoints;
+  hasPeeked = saved.hasPeeked;
+  practiceRound = saved.practiceRound;
+  callWasRight = saved.callWasRight;
+  abandoned = saved.abandonedRound;
+  // A resumed round arrives over whatever the shelf left on the panel, and one
+  // of the screens it can arrive on is the peek. Spend the full refresh: a
+  // partial one there could leave a ghost of the only secret in the game, which
+  // is the same reason hiding the band costs one.
+  flashOnNextPaint = true;
+  LOG_INF("WAVE", "Resuming round %d on screen %u", session.round, static_cast<unsigned>(saved.screen));
 }
 
 void WavelengthActivity::saveState() {
-  SaveState state{};
-  state.rounds = record.rounds;
-  state.points = record.points;
-  std::memcpy(state.buckets, record.buckets, sizeof(state.buckets));
-  state.bestRoundTenths = record.bestRoundTenths;
+  wl::Saved saved;
+  saved.record = record;
   for (int i = 0; i < wl::kPairCountEn && i < wl::kMaxPairs; ++i)
-    if (deck.isSeen(i)) state.deck[i / 32] |= (1u << (i % 32));
+    if (deck.isSeen(i)) saved.seen[i / 32] |= (1u << (i % 32));
 
+  saved.session = session;
+  saved.sessionStarted = sessionStarted;
+  saved.abandoned = static_cast<uint16_t>(abandonedCount);
+
+  saved.screen = static_cast<uint8_t>(view);
+  saved.resumeScreen = static_cast<uint8_t>(pausedFrom);
+  saved.spectrum = static_cast<int16_t>(spectrum);
+  saved.choice[0] = static_cast<int16_t>(choice[0]);
+  saved.choice[1] = static_cast<int16_t>(choice[1]);
+  saved.dealt = static_cast<uint8_t>(dealt);
+  saved.target = static_cast<uint8_t>(target);
+  saved.guess = static_cast<uint8_t>(guess);
+  saved.lastPoints = static_cast<uint8_t>(lastPoints);
+  saved.hasPeeked = hasPeeked;
+  saved.practiceRound = practiceRound;
+  saved.callWasRight = callWasRight;
+  saved.abandonedRound = abandoned;
+
+  uint8_t bytes[wl::kSaveBytes] = {};
+  const size_t written = wl::pack(saved, bytes, sizeof(bytes));
+  if (written == 0) return;
+
+  // Temp, flush, release, then rename. The old file survives intact until the
+  // new one is complete on the card, so the worst a power cut can cost is the
+  // one screen being written -- which is what the doc claims and what writing
+  // in place did not deliver.
   HalFile file;
-  if (!Storage.openFileForWrite("WAVE", kSavePath, file)) return;
-  const uint8_t version = kSaveVersion;
-  file.write(&version, 1);
-  file.write(reinterpret_cast<const uint8_t*>(&state), sizeof(state));
-}
-
-void WavelengthActivity::flushSave() {
-  if (!dirty) return;
-  dirty = false;
-  saveState();
+  if (!Storage.openFileForWrite("WAVE", kSaveTmpPath, file)) return;
+  const bool ok = file.write(bytes, written) == static_cast<int>(written);
+  file.flush();
+  file = HalFile{};
+  if (!ok) {
+    LOG_ERR("WAVE", "Short write to %s; the previous save is left alone", kSaveTmpPath);
+    Storage.remove(kSaveTmpPath);
+    return;
+  }
+  Storage.remove(kSavePath);
+  Storage.rename(kSaveTmpPath, kSavePath);
 }
 
 wavelengthui::Spectrum WavelengthActivity::spectrumAt(const int index) const {
@@ -119,6 +207,11 @@ void WavelengthActivity::go(const View next) {
   peeking = false;
   nudgeHold = false;
   viewEnteredMs = millis();
+  // Every screen change is a position worth coming back to, so the card is
+  // written here rather than on the way out. A round survives the Home key and
+  // survives the chip reset that a deep sleep really is, and the ~120 bytes
+  // cost nothing beside the panel repaint this same call is about to order.
+  saveState();
   requestUpdate();
 }
 
@@ -138,7 +231,6 @@ void WavelengthActivity::choose(const int which) {
   if (which >= dealt) return;
   spectrum = choice[which];
   deck.markSeen(spectrum);  // the one passed over goes back in the pool
-  dirty = true;
   target = wl::drawTarget(rng);
   hasPeeked = false;
   abandoned = false;
@@ -151,6 +243,7 @@ void WavelengthActivity::step(const int delta) {
   const int next = guess + delta;
   if (next < 1 || next > wl::kSlots) return;
   guess = next;
+  saveState();
   requestUpdate();
 }
 
@@ -166,8 +259,6 @@ void WavelengthActivity::makeCall(const wl::Call call) {
     record.add(guess, target, call);
     const int avg = session.averageTenths();
     if (avg > record.bestRoundTenths) record.bestRoundTenths = static_cast<uint16_t>(avg);
-    dirty = true;
-    flushSave();
   }
   flashOnNextPaint = true;  // the reveal is the payoff
   go(View::Reveal);
@@ -206,11 +297,17 @@ void WavelengthActivity::routeAction(const int action) {
       break;
     case wavelengthui::ActionNextRound:
       practiceRound = session.isPractice();
+      // A round that was PLAYED is not an abandoned one. The flag used to be
+      // cleared only by the next deal, so walking out to the front door and
+      // back put the abandon note on a pass screen that had earned none -- and
+      // it survives a power cycle now.
+      abandoned = false;
       go(View::PassLeft);
       break;
     case wavelengthui::ActionStartRound:
       sessionStarted = true;
       practiceRound = session.isPractice();
+      abandoned = false;
       go(View::PassLeft);
       break;
     case wavelengthui::ActionHowTo:
@@ -222,17 +319,20 @@ void WavelengthActivity::routeAction(const int action) {
     case wavelengthui::ActionAbandon:
       flashOnNextPaint = true;
       ++abandonedCount;
-      go(View::PassLeft);
+      // Set BEFORE go(), which is what writes the card: the pass screen has to
+      // announce the abandon, and a resume that lost the flag would show a
+      // normal pass instead -- exactly the silence the count exists to break.
       abandoned = true;
+      go(View::PassLeft);
       break;
     case wavelengthui::ActionBackToMenu:
       go(View::Menu);
       break;
     case wavelengthui::ActionEndSession:
-      flushSave();
       go(View::Summary);
       break;
     case wavelengthui::ActionKeepPlaying:
+      abandoned = false;
       go(View::PassLeft);
       break;
     case wavelengthui::ActionNewSession:
@@ -243,7 +343,20 @@ void WavelengthActivity::routeAction(const int action) {
       sessionStarted = false;
       practiceRound = true;
       guess = wl::kSlots / 2;
-      flushSave();
+      // And the round in flight goes with it. A round that outlived the
+      // session it belonged to would resume onto a board whose score had been
+      // cleared out from under it -- persistence causing its own bug, which is
+      // the failure this whole mechanism is one wrong line away from.
+      spectrum = -1;
+      target = 0;
+      dealt = 0;
+      choice[0] = -1;
+      choice[1] = -1;
+      hasPeeked = false;
+      abandoned = false;
+      lastPoints = 0;
+      callWasRight = false;
+      pausedFrom = View::Dial;
       go(View::Menu);
       break;
     default:
@@ -269,7 +382,7 @@ void WavelengthActivity::loop() {
       go(View::Menu);
     } else {
       // See src/apps_local/Shelf.h: no app names its own destination.
-      flushSave();
+      saveState();
       shelf::leave(renderer, mappedInput);
     }
     return;
@@ -315,6 +428,7 @@ void WavelengthActivity::loop() {
       if (slot != 0) {
         if (slot != guess) {
           guess = slot;
+          saveState();
           requestUpdate();
         }
         return;
@@ -491,6 +605,7 @@ void WavelengthActivity::render(RenderLock&&) {
       model.total = session.total;
       model.averageTenths = session.averageTenths();
       model.abandoned = abandonedCount;
+      model.nextRound = session.round;
       wavelengthui::renderSummary(screen, model);
       break;
     }

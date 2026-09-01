@@ -9,6 +9,7 @@
 #include <cstdlib>
 
 #include "WavelengthCore.h"
+#include "WavelengthSave.h"
 
 namespace {
 
@@ -229,6 +230,159 @@ void testDeckSpread() {
   }
 }
 
+// The save file, which is where a round in progress now lives.
+//
+// This is the layer the Home key and deep sleep both go through, and neither
+// of them asks first: Home destroys the activity and deep sleep resets the
+// chip. Before these, a live round, its hidden number and the session score
+// were all lost to one keypress beside Back, and the only instrument that
+// could see it was a person playing.
+
+Saved liveRound() {
+  Saved s;
+  s.record.rounds = 41;
+  s.record.points = 118;
+  s.record.buckets[0] = 9;
+  s.record.buckets[4] = 5;
+  s.record.bestRoundTenths = 34;
+  s.seen[0] = 0xDEADBEEFu;
+  s.seen[kSeenWords - 1] = 0x0000CAFEu;
+  s.session.round = 6;
+  s.session.total = 17;
+  s.session.scoredRounds = 4;
+  s.sessionStarted = true;
+  s.abandoned = 2;
+  s.screen = 6;  // the dial
+  s.resumeScreen = 6;
+  s.spectrum = 137;
+  s.choice[0] = 137;
+  s.choice[1] = 91;
+  s.dealt = 2;
+  s.target = 14;
+  s.guess = 17;
+  s.lastPoints = 3;
+  s.hasPeeked = true;
+  s.practiceRound = false;
+  s.callWasRight = true;
+  s.abandonedRound = false;
+  return s;
+}
+
+void testSaveRoundTrip() {
+  const Saved in = liveRound();
+  uint8_t bytes[kSaveBytes] = {};
+  checkEq(static_cast<int>(pack(in, bytes, sizeof(bytes))), static_cast<int>(kSaveBytes), "pack fills the file");
+
+  Saved out;
+  check(unpack(bytes, kSaveBytes, out), "the file it just wrote reads back");
+
+  // The all-time record and the deck, which version 1 already carried.
+  checkEq(out.record.rounds, in.record.rounds, "rounds survive");
+  checkEq(out.record.points, in.record.points, "points survive");
+  checkEq(out.record.buckets[0], in.record.buckets[0], "an exact bucket survives");
+  checkEq(out.record.buckets[4], in.record.buckets[4], "the wide bucket survives");
+  checkEq(out.record.bestRoundTenths, in.record.bestRoundTenths, "the best average survives");
+  check(out.seen[0] == in.seen[0], "the first deck word survives");
+  check(out.seen[kSeenWords - 1] == in.seen[kSeenWords - 1], "the last deck word survives");
+
+  // The evening.
+  checkEq(out.session.round, in.session.round, "the round number survives");
+  checkEq(out.session.total, in.session.total, "the session score survives");
+  checkEq(out.session.scoredRounds, in.session.scoredRounds, "the scored count survives");
+  check(out.sessionStarted, "the session is still running");
+  checkEq(out.abandoned, in.abandoned, "the abandon count survives");
+
+  // The round itself. Every one of these was thrown away by the Home key.
+  checkEq(out.screen, in.screen, "the screen survives");
+  checkEq(out.resumeScreen, in.resumeScreen, "what the pause resumes to survives");
+  checkEq(out.spectrum, in.spectrum, "the spectrum survives");
+  checkEq(out.choice[0], in.choice[0], "the first offered pair survives");
+  checkEq(out.choice[1], in.choice[1], "the second offered pair survives");
+  checkEq(out.dealt, in.dealt, "how many were dealt survives");
+  checkEq(out.target, in.target, "THE HIDDEN NUMBER survives");
+  checkEq(out.guess, in.guess, "the marker survives");
+  checkEq(out.lastPoints, in.lastPoints, "the last round's points survive");
+  check(out.hasPeeked, "having seen the number survives");
+  check(!out.practiceRound, "not being the practice round survives");
+  check(out.callWasRight, "the side call survives");
+}
+
+void testVersionOneStillLoads() {
+  // A card written by any build up to v1.12.4: the record and the deck, and
+  // nothing after them. It must keep its year of rounds rather than being
+  // rejected wholesale, which is what a bare version check would have done.
+  const Saved in = liveRound();
+  uint8_t bytes[kSaveBytes] = {};
+  pack(in, bytes, sizeof(bytes));
+  bytes[0] = kSaveVersionLegacy;
+
+  Saved out;
+  check(unpack(bytes, kLegacyBytes, out), "a version 1 file loads");
+  checkEq(out.record.rounds, in.record.rounds, "version 1 keeps its rounds");
+  check(out.seen[0] == in.seen[0], "version 1 keeps its deck");
+  checkEq(out.session.round, 1, "version 1 has no session to resume");
+  checkEq(out.screen, 0, "version 1 opens the front door");
+}
+
+void testTruncatedFileKeepsTheRecord() {
+  // A write interrupted by the battery, or an older tail. Same rule: the
+  // history is still good, the round is not.
+  const Saved in = liveRound();
+  uint8_t bytes[kSaveBytes] = {};
+  pack(in, bytes, sizeof(bytes));
+
+  Saved out;
+  check(unpack(bytes, kSaveBytes - 4, out), "a short version 2 file still loads");
+  checkEq(out.record.points, in.record.points, "the record survives a short read");
+  checkEq(out.screen, 0, "a short read resumes nothing");
+}
+
+void testGarbageIsRefused() {
+  uint8_t bytes[kSaveBytes] = {};
+  Saved out;
+  bytes[0] = 99;
+  check(!unpack(bytes, kSaveBytes, out), "an unknown version is refused");
+  check(!unpack(bytes, 3, out), "a file too short to hold a record is refused");
+  check(!unpack(nullptr, kSaveBytes, out), "no file at all is refused");
+}
+
+void testImpossibleSlotDropsTheRound() {
+  // A half-written tail must not put the game on a screen describing a slot
+  // the strip does not have.
+  Saved in = liveRound();
+  in.target = kSlots + 7;
+  uint8_t bytes[kSaveBytes] = {};
+  pack(in, bytes, sizeof(bytes));
+
+  Saved out;
+  check(unpack(bytes, kSaveBytes, out), "the file still loads");
+  checkEq(out.screen, 0, "an impossible number drops the round");
+  checkEq(out.target, 0, "and the number with it");
+  checkEq(out.record.rounds, in.record.rounds, "but not the record");
+}
+
+void testEndedSessionResumesNothing() {
+  // Persistence that outlives a finished session is its own bug: the round
+  // would come back onto a board whose score had been cleared. START OVER
+  // clears the round, and this is the shape of what it writes.
+  Saved in = liveRound();
+  in.session = Session{};
+  in.sessionStarted = false;
+  in.abandoned = 0;
+  in.clearRound();
+  uint8_t bytes[kSaveBytes] = {};
+  pack(in, bytes, sizeof(bytes));
+
+  Saved out;
+  check(unpack(bytes, kSaveBytes, out), "the cleared file loads");
+  checkEq(out.screen, 0, "nothing to resume");
+  checkEq(out.session.round, 1, "back to round one");
+  checkEq(out.session.total, 0, "with no score");
+  check(!out.sessionStarted, "and no session running");
+  checkEq(out.record.rounds, in.record.rounds, "the all-time record is NOT cleared");
+  check(out.seen[0] == in.seen[0], "and neither is the seen deck");
+}
+
 }  // namespace
 
 int main() {
@@ -245,6 +399,12 @@ int main() {
   testDeckNeverRepeats();
   testDeckEndgame();
   testDeckSpread();
+  testSaveRoundTrip();
+  testVersionOneStillLoads();
+  testTruncatedFileKeepsTheRecord();
+  testGarbageIsRefused();
+  testImpossibleSlotDropsTheRound();
+  testEndedSessionResumesNothing();
   std::printf("%d checks, %d failed\n", checks, failures);
   return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

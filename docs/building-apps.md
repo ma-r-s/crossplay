@@ -661,6 +661,48 @@ because discovery is the thing under test. Screenshots get `-a`/`-b` suffixes;
 `SIM_LINK_INPUT_B` drives the second device differently, which is how you check
 what one shows when the other walks away.
 
+**Save at every position, not at the door.** `onExit()` is more reliable than it
+looks -- the Home gesture and deep sleep both replace the activity, and
+`replaceActivity()` runs the outgoing `onExit()` first -- but writing only there
+still loses everything to a panic, a watchdog reset or a flat battery, and it
+makes what survives depend on which fields that one function happens to
+serialise. WAVELENGTH shipped an `onExit()` that dutifully wrote the all-time
+record and nothing about the round in progress, so a cold tester pressed Home
+one key from Back and lost the round, the hidden number and the session score.
+Fixing `onExit()` would not have helped; the round had never been written down.
+
+The shape that works, and it is worth copying:
+
+- **A freestanding `pack()` / `unpack()` module beside the rules**, taking no
+  renderer and no storage, so the round-trip is host-testable. See
+  `src/apps_local/wavelength/WavelengthSave.{h,cpp}` and its tests in
+  `host-tests/wavelength/`. Version the file and make `unpack` accept the older
+  version rather than rejecting it, or an upgrade throws away a year of record.
+- **Write on every state change**, not on the way out: the screen change and the
+  cursor move both. It is around a hundred bytes beside a panel repaint that
+  costs a hundred times more.
+- **Write to a temp file and rename**, and do it BEFORE you raise the write
+  frequency. `Storage.openFileForWrite()` carries `O_TRUNC`, so writing in
+  place empties the file at open: power lost in that window leaves nothing at
+  all, and going from one write a game to fifteen a round multiplies that
+  window by fifteen. Write to `<name>.tmp`, `flush()`, release the handle,
+  check the byte count, then `remove` + `rename`. `ConnectionsActivity::
+  saveResult()` is the reference. Without this the frequent-write rule above
+  trades a small loss mode for a total one, which is worse than what it fixed.
+- **Refuse to resume what the file cannot support.** A screen number is only
+  meaningful with the state behind it, so validate before restoring and fall
+  back to your front door with the session intact rather than to a half-drawn
+  board.
+- **Ask what a resumed screen SHOWS.** If your app has a secret, the resume must
+  not land on the screen that displays it.
+- **Clear the in-progress state when the game genuinely ends.** State that
+  outlives the thing it belonged to is its own bug, and it is the one this
+  mechanism introduces.
+
+Chess reached the first half of this on its own and says so at the call site: it
+saves on the completed move rather than the completed game. TOY BATTLE and
+JAIPUR still write only in `onExit()` and on the way out to their own menus.
+
 **A match is not your saved game.** This is the one that bit hardest: three
 separate defects, all the same shape. Two rules, and each wants a different
 mechanism:

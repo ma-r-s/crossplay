@@ -121,6 +121,10 @@ struct SummaryModel {
   // Shown because an abandon is free and invisible otherwise. The board is
   // public in this game; so is walking away from a target you did not like.
   int abandoned = 0;
+  // What the continue button plays. This screen is a look at the score with
+  // the evening still running, and saying which round comes next is what makes
+  // that unambiguous -- in the same words the front door's own button uses.
+  int nextRound = 1;
 };
 
 // The pause, reached by Back from any screen inside a round. It exists because

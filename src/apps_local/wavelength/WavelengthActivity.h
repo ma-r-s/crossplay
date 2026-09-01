@@ -10,6 +10,7 @@
 
 #include "../../activities/Activity.h"
 #include "WavelengthCore.h"
+#include "WavelengthSave.h"
 #include "WavelengthScreens.h"
 
 class WavelengthActivity final : public Activity {
@@ -38,7 +39,30 @@ class WavelengthActivity final : public Activity {
   // The round, in the order the device is passed. Everything from Peek onward
   // is committed: backing out abandons the round and passes left, which is what
   // stops a clue-giver quietly re-dealing until an easy axis turns up.
-  enum class View : uint8_t { Menu, HowTo, PassLeft, Pick, Peek, Clue, Dial, Call, Reveal, Summary, Paused };
+  //
+  // These values are WRITTEN TO THE CARD, so reordering them makes an old save
+  // resume onto a different screen. Append; do not renumber. Menu is 0 because
+  // that is also what an empty save block means.
+  enum class View : uint8_t {
+    Menu,
+    HowTo,
+    PassLeft,
+    Pick,
+    Peek,
+    Clue,
+    Dial,
+    Call,
+    Reveal,
+    Summary,
+    Paused,
+    // Not a screen, and it stays last. A load has to know whether the screen
+    // number on the card is one this build has, and written as a literal that
+    // was a derived fact kept where the enum could not update it: append a
+    // screen and every save written on it would silently resume to the front
+    // door instead.
+    Count,
+  };
+  static constexpr uint8_t kViewCount = static_cast<uint8_t>(View::Count);
 
   static bool committed(const View v) {
     return v != View::Menu && v != View::HowTo && v != View::PassLeft && v != View::Pick && v != View::Summary &&
@@ -59,10 +83,15 @@ class WavelengthActivity final : public Activity {
   wavelength::Session session;
   wavelength::Record record;
 
-  bool loadState();
+  // The card is written at every point the game reaches a new position, not on
+  // the way out of the app. Home destroys the activity and deep sleep resets
+  // the chip, so anything only written by onExit() is a round the table loses.
+  void loadState();
   void saveState();
-  void flushSave();
-  bool dirty = false;
+  // Whether a saved screen can be resumed onto, given what the save actually
+  // carries. A round screen with no spectrum behind it is a corrupt file, not
+  // a game.
+  bool resumable(View v, const wavelength::Saved& saved) const;
   bool sessionStarted = false;
 
   View view = View::Menu;
@@ -76,8 +105,6 @@ class WavelengthActivity final : public Activity {
   bool practiceRound = true;
   bool peeking = false;
   uint32_t lockHoldStartMs = 0;
-  uint32_t stepHoldStartMs = 0;
-  uint32_t lastRepeatMs = 0;
   bool hasPeeked = false;
   bool abandoned = false;
   int abandonedCount = 0;
