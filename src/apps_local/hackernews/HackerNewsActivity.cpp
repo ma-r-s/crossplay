@@ -143,6 +143,20 @@ void HackerNewsActivity::request(const Pending what, const char* busyMessage) {
 void HackerNewsActivity::loop() {
   namespace fui = freeink::ui;
 
+  // A Back RELEASE only means "go back" if this activity also saw the PRESS.
+  //
+  // WifiSelectionActivity acts on the press and every branch here acts on the
+  // release, so one physical Back used to do two things: the picker cancelled
+  // at the press, handed control back, and 77ms later the release arrived at an
+  // activity that had never seen its other half and read it as "leave the
+  // list". The app shut on the way to the one screen that works with no
+  // network, so with no remembered Wi-Fi the saved shelf could not be reached
+  // at all.
+  //
+  // Recorded before every early return below, so a fetch or a page key landing
+  // on the same frame as the press cannot swallow it and leave Back dead.
+  if (mappedInput.wasPressed(MappedInputManager::Button::Back)) backPressSeen_ = true;
+
   // The deferred fetch, one pass after the screen that announces it. Taken
   // before anything else so a queued fetch cannot be starved by input.
   if (pending_ != Pending::None) {
@@ -169,7 +183,8 @@ void HackerNewsActivity::loop() {
     return;
   }
 
-  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+  if (backPressSeen_ && mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    backPressSeen_ = false;
     // Back walks out one layer at a time and never names where it lands; the
     // shelf owns the last step. See docs/shelf.md.
     if (phase_ == Phase::Connecting) {

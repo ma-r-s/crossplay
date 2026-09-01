@@ -125,6 +125,10 @@ class HackerNewsActivity final : public Activity {
   bool rowsFitted_ = false;
   std::vector<freeink::ui::ListItem> rows_;
 
+  // Whether the Back press that a release belongs to arrived while this
+  // activity was on top. See loop(): the Wi-Fi picker cancels on the press.
+  bool backPressSeen_ = false;
+
   Phase phase_ = Phase::Connecting;
   Pending pending_ = Pending::None;
   const char* busyMessage_ = "";
