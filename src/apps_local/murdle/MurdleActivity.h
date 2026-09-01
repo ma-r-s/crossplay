@@ -114,6 +114,9 @@ class MurdleActivity final : public Activity {
   int page = 0;
   uint32_t struck = 0;
   int wrongAccusations = 0;
+  // What the grid last refused to do, and why. Not saved: it is about the tap
+  // just made, so it goes the moment anything else happens.
+  char notice[96] = {};
 
   int solvedCount = 0;
   int wrongCount = 0;

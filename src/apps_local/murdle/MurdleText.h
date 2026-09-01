@@ -45,6 +45,13 @@ void accusationLine(const murdle::Puzzle& puzzle, const uint8_t picks[murdle::kM
 // The name of a category, for a heading.
 const char* categoryName(int cat);
 
+// "ALREADY TICKED: SPADE/FARM AND PAN/GARDEN. CLEAR THEM TO TICK HERE." -- what
+// the grid says when a tap could only have been honoured by deleting a tick the
+// player made. Empty when the tap was not blocked. Names the squares rather
+// than restating the rule: the rule is obvious and the squares are not.
+void blockedLine(const murdle::Puzzle& puzzle, int catA, int itemA, int catB, int itemB,
+                 const murdle::TapResult& result, char* out, int cap);
+
 // One distinct letter per item of a category, for the grid's axes, plus a
 // terminating null. A 34px column header cannot hold a word and this renderer
 // does not rotate type, so the axes carry letters and the legend carries the

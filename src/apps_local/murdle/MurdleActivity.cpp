@@ -124,6 +124,7 @@ void MurdleActivity::onExit() {
 
 void MurdleActivity::goToMenu() {
   view = View::Menu;
+  notice[0] = '\0';
   flushSave();
   requestUpdate();
 }
@@ -315,15 +316,22 @@ void MurdleActivity::handleGridTap(const int x, const int y) {
   const int itemA = cell.itemA;
   const int itemB = cell.itemB;
 
-  // One call. The three-state cycle, the unseating of a conflicting tick, and
-  // the disappearance of every cross that tick was casting are all one write to
-  // one cell -- see Marks::tap. There is nothing here to keep in step.
-  marks.tap(catA, itemA, catB, itemB);
-  dirty = true;
+  // One call, and it writes at most the cell that was tapped -- see Marks::tap.
+  // When it writes nothing it says which of the player's own ticks stood in the
+  // way, and that has to reach the screen: a tap that changes nothing and says
+  // nothing is a tap that looks lost, on a panel that takes a second to answer.
+  const murdle::TapResult result = marks.tap(catA, itemA, catB, itemB);
+  if (result.changed) {
+    notice[0] = '\0';
+    dirty = true;
+  } else {
+    murdletext::blockedLine(puzzle, catA, itemA, catB, itemB, result, notice, sizeof(notice));
+  }
   requestUpdate();
 }
 
 void MurdleActivity::handleClueTap(const int y) {
+  notice[0] = '\0';
   const ui::ClueLayout layout = ui::lastClueLayout();
   for (int i = 0; i < layout.count; ++i) {
     if (y < layout.top[i] || y >= layout.top[i + 1]) continue;
@@ -356,6 +364,9 @@ void MurdleActivity::submitAccusation() {
 void MurdleActivity::recordVerdict(const int outcome) { record = (record << 2) | static_cast<uint32_t>(outcome & 3); }
 
 void MurdleActivity::routeAction(const int action, const int value) {
+  // Anything that is not a grid tap has moved the player on, so whatever the
+  // grid last refused has stopped being the thing in front of them.
+  notice[0] = '\0';
   switch (action) {
     case ui::ActionPlay:
       openCase();
@@ -486,6 +497,7 @@ void MurdleActivity::render(RenderLock&&) {
       model.struck = struck;
       model.caseNumber = caseNumber;
       model.solved = solved;
+      model.notice = notice;
       const ui::CaseReport report = ui::buildCase(screen, model);
       gridLayout = report.grid;
       // The builder clamps the page against a count only it can compute, so
