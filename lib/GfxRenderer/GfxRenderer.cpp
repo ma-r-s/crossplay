@@ -1751,8 +1751,31 @@ std::string GfxRenderer::truncatedText(const int fontId, const char* text, const
   if (!text || maxWidth <= 0) return "";
 
   std::string item = text;
-  // U+2026 HORIZONTAL ELLIPSIS (UTF-8: 0xE2 0x80 0xA6)
+  // U+2026 HORIZONTAL ELLIPSIS (UTF-8: 0xE2 0x80 0xA6), or three periods when
+  // the resolved face cannot draw it.
+  //
+  // A glyph the face lacks draws as NOTHING -- renderCharImpl logs and returns
+  // -- so the truncation marker vanishes and a cut sentence is indistinguishable
+  // from one that fits. Of the six Toybox cuts only toybox_10 covers U+2026, so
+  // every heading above 10px truncated silently: that is one app's pairing
+  // address losing its last character, another's only instruction for its own
+  // save feature ending mid-word, and a headline reading "POINTS IN 0 ROUN".
+  //
+  // Chosen HERE rather than at draw time because the marker's width feeds the
+  // fitting loop below. Falling back while rendering would measure one narrow
+  // glyph and then draw three periods, overflowing the box the truncation
+  // exists to respect.
+  //
+  // Asked of the RESOLVED face, not of `fontId`. resolveTextFontId reroutes CJK
+  // strings to a fallback font, and getTextWidth below resolves the same way --
+  // so querying the slot id would ask one face whether the marker is drawable
+  // while a different face draws it. A slot's name is not its face.
   const char* ellipsis = "\xe2\x80\xa6";
+  const int markerFontId = resolveTextFontId(fontId, item.c_str(), style);
+  const auto fontIt = fontMap.find(markerFontId);
+  if (fontIt == fontMap.end() || !fontIt->second.hasCodepoint(0x2026, style)) {
+    ellipsis = "...";
+  }
   int textWidth = getTextWidth(fontId, item.c_str(), style);
   if (textWidth <= maxWidth) {
     // Text fits, return as is
