@@ -105,8 +105,7 @@ void HackerNewsActivity::leaveOrShowSaved() {
   // and a first attempt at this fixed only onWifiChosen, so the app still
   // walked out to the shelf and every saved article stayed unreachable.
   if (!library_.articles().empty()) {
-    showingSaved_ = true;
-    buildSavedRows();
+    view_ = hn::ListView::Saved;
     phase_ = Phase::List;
     requestUpdate();
     return;
@@ -143,6 +142,20 @@ void HackerNewsActivity::request(const Pending what, const char* busyMessage) {
 void HackerNewsActivity::loop() {
   namespace fui = freeink::ui;
 
+  // A Back RELEASE only means "go back" if this activity also saw the PRESS.
+  //
+  // WifiSelectionActivity acts on the press and every branch here acts on the
+  // release, so one physical Back used to do two things: the picker cancelled
+  // at the press, handed control back, and 77ms later the release arrived at an
+  // activity that had never seen its other half and read it as "leave the
+  // list". The app shut on the way to the one screen that works with no
+  // network, so with no remembered Wi-Fi the saved shelf could not be reached
+  // at all.
+  //
+  // Recorded before every early return below, so a fetch or a page key landing
+  // on the same frame as the press cannot swallow it and leave Back dead.
+  if (mappedInput.wasPressed(MappedInputManager::Button::Back)) backPressSeen_ = true;
+
   // The deferred fetch, one pass after the screen that announces it. Taken
   // before anything else so a queued fetch cannot be starved by input.
   if (pending_ != Pending::None) {
@@ -169,7 +182,8 @@ void HackerNewsActivity::loop() {
     return;
   }
 
-  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+  if (backPressSeen_ && mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    backPressSeen_ = false;
     // Back walks out one layer at a time and never names where it lands; the
     // shelf owns the last step. See docs/shelf.md.
     if (phase_ == Phase::Connecting) {
@@ -181,8 +195,7 @@ void HackerNewsActivity::loop() {
       // on the front page instead loses the shelf you were working through,
       // and there is no way back to it but two more taps.
       if (readingSaved_) {
-        showingSaved_ = true;
-        buildSavedRows();
+        view_ = hn::ListView::Saved;
       }
       readingSaved_ = false;
       phase_ = Phase::List;
@@ -243,7 +256,7 @@ void HackerNewsActivity::loop() {
 
   switch (event.action) {
     case hnui::ActionOpenStory:
-      if (showingSaved_) {
+      if (view_ == hn::ListView::Saved) {
         // Off the card, so no network and no busy screen.
         openSavedArticle(event.value);
       } else {
@@ -277,15 +290,16 @@ void HackerNewsActivity::loop() {
       unsaveCurrentArticle();
       break;
     case hnui::ActionShowSaved:
-      showingSaved_ = true;
+      view_ = hn::ListView::Saved;
       topIndex_ = 0;
-      buildSavedRows();
       requestUpdate();
       break;
     case hnui::ActionShowFrontPage:
-      showingSaved_ = false;
+      // Nothing is rebuilt here, and that is the point: this case used to set
+      // the flag and leave the other shelf's titles on screen. The paint sees
+      // the view changed and sources the rows again.
+      view_ = hn::ListView::FrontPage;
       topIndex_ = 0;
-      rowsFitted_ = false;
       requestUpdate();
       break;
     default:
@@ -324,14 +338,8 @@ bool HackerNewsActivity::fetchFrontPage() {
   }
 
   stories_.clear();
-  rowTitles_.clear();
-  rowValues_.clear();
-  rows_.clear();
   const JsonArrayConst hits = doc["hits"].as<JsonArrayConst>();
   stories_.reserve(kMaxStories);
-  rowTitles_.reserve(kMaxStories);
-  rowValues_.reserve(kMaxStories);
-  rows_.reserve(kMaxStories);
 
   for (JsonObjectConst hit : hits) {
     if (static_cast<int>(stories_.size()) >= kMaxStories) break;
@@ -348,19 +356,12 @@ bool HackerNewsActivity::fetchFrontPage() {
     stories_.push_back(std::move(story));
   }
 
-  for (const hn::Story& story : stories_) {
-    // The bare comment count. The list is already HN's own ranking, so points
-    // would be restating the order; how much discussion a story drew is the
-    // thing the order does not tell you, and it is what decides whether to open
-    // the thread. Spelled out it cost ten characters of every headline.
-    char count[16];
-    std::snprintf(count, sizeof(count), "%d", story.commentCount);
-    rowTitles_.push_back(story.title);
-    rowValues_.push_back(count);
-  }
-  // The rows themselves are assembled at paint time, because fitting a headline
-  // to its width needs a draw target and there is none here.
-  rowsFitted_ = false;
+  // The rows are assembled at paint time, because fitting a headline to its
+  // width needs a draw target and there is none here. Invalidated rather than
+  // built: the view has not changed, so nothing else would notice that the
+  // stories under it have.
+  view_ = hn::ListView::FrontPage;
+  rows_.invalidate();
 
   LOG_INF("HN", "front page: %d stories", static_cast<int>(stories_.size()));
   selected_ = 0;
@@ -524,18 +525,21 @@ void HackerNewsActivity::saveCurrentArticle() {
   if (!library_.save(readerUrl_, readerTitle_, document_)) {
     showNotice("NOT SAVED", "The card would not take it. There may be no room left.", false);
   }
+  // The shelf gained a row while the view did not change, which is the one
+  // staleness rowsStale() cannot see on its own.
+  rows_.invalidate();
   requestUpdate();
 }
 
 void HackerNewsActivity::unsaveCurrentArticle() {
   if (readerUrl_.empty()) return;
   library_.remove(readerUrl_);
+  rows_.invalidate();
   // Removing what you are reading leaves the reader on something the shelf no
   // longer holds, so step back to the list rather than showing an article that
   // is gone.
   if (readingSaved_) {
-    showingSaved_ = true;
-    buildSavedRows();
+    view_ = hn::ListView::Saved;
     readingSaved_ = false;
     phase_ = Phase::List;
   }
@@ -559,23 +563,6 @@ void HackerNewsActivity::openSavedArticle(const int index) {
   readingSaved_ = true;
   articleAvailable_ = true;
   requestUpdate();
-}
-
-void HackerNewsActivity::buildSavedRows() {
-  const auto& saved = library_.articles();
-  rowTitles_.clear();
-  rowLabels_.clear();
-  rowValues_.clear();
-  rows_.clear();
-  rowTitles_.reserve(saved.size());
-  rowValues_.reserve(saved.size());
-  for (const hn::SavedArticle& article : saved) {
-    rowTitles_.push_back(article.title);
-    rowValues_.push_back(std::string());
-  }
-  // Left unfitted on purpose: render() fits labels to the row width it can
-  // only measure with a draw target, the same way the front page does.
-  rowsFitted_ = false;
 }
 
 void HackerNewsActivity::turnPage(const int delta) {
@@ -630,31 +617,43 @@ void HackerNewsActivity::render(RenderLock&&) {
     }
 
     case Phase::List: {
-      if (!rowsFitted_) {
+      // THE ONE PLACE THE ROWS AND THE VIEW ARE RECONCILED. Every path that
+      // changes which shelf is showing now only sets view_; this notices. The
+      // bug that made it so was a path that set the flag and forgot the rows,
+      // and the screen it produced -- one shelf's headlines over the other
+      // shelf's indices -- looked entirely correct.
+      //
+      // Safe to source here despite render() and loop() being separate tasks:
+      // a fetch that rewrites stories_ leaves phase_ at Busy, so this case is
+      // not the one drawing while that happens.
+      if (hn::rowsStale(rows_, view_)) {
+        hn::buildRows(rows_, view_, stories_, library_.articles());
+      }
+      if (!rows_.fitted) {
         // Fit each headline to the width the component will actually give it,
         // breaking between words and marking what was dropped. Done once per
-        // fetch rather than per paint: the answer only changes when the stories
+        // rebuild rather than per paint: the answer only changes when the rows
         // or the fonts do.
-        rowLabels_.clear();
-        rowLabels_.reserve(stories_.size());
-        rows_.clear();
-        rows_.reserve(stories_.size());
+        rows_.labels.clear();
+        rows_.labels.reserve(rows_.size());
+        listItems_.clear();
+        listItems_.reserve(rows_.size());
         fui::TextStyle titleStyle = tokens.bodyText;
         titleStyle.maxLines = 2;
         const int16_t titleWidth = hnui::listTitleWidth(target, device, tokens);
-        for (const std::string& title : rowTitles_) {
-          rowLabels_.push_back(hnui::fitLines(target, title.c_str(), titleWidth, 2, titleStyle));
+        for (const std::string& title : rows_.titles) {
+          rows_.labels.push_back(hnui::fitLines(target, title.c_str(), titleWidth, 2, titleStyle));
         }
-        // A second pass, because a push_back into rowLabels_ can reallocate and
+        // A second pass, because a push_back into labels can reallocate and
         // ListItem holds pointers rather than copies.
-        for (size_t i = 0; i < rowLabels_.size(); ++i) {
+        for (size_t i = 0; i < rows_.labels.size(); ++i) {
           fui::ListItem row;
-          row.label = rowLabels_[i].c_str();
-          row.value = rowValues_[i].c_str();
+          row.label = rows_.labels[i].c_str();
+          row.value = rows_.values[i].c_str();
           row.actionValue = static_cast<int16_t>(i);
-          rows_.push_back(row);
+          listItems_.push_back(row);
         }
-        rowsFitted_ = true;
+        rows_.fitted = true;
       }
 
       // The same row height the list will draw with, from the same function.
@@ -673,19 +672,20 @@ void HackerNewsActivity::render(RenderLock&&) {
         // Against the rows actually drawn, not against stories_: on the saved
         // shelf those are different lengths, and clamping to the wrong one
         // scrolls past the end or refuses to scroll at all.
-        const int maxTop = static_cast<int>(rows_.size()) - visibleRows_;
+        const int maxTop = static_cast<int>(listItems_.size()) - visibleRows_;
         if (topIndex_ > maxTop) topIndex_ = maxTop < 0 ? 0 : maxTop;
         if (topIndex_ < 0) topIndex_ = 0;
       }
+      const bool saved = view_ == hn::ListView::Saved;
       hnui::ListModel model;
-      model.items = rows_.empty() ? nullptr : rows_.data();
-      model.count = static_cast<int>(rows_.size());
-      model.selected = showingSaved_ ? -1 : selected_;
+      model.items = listItems_.empty() ? nullptr : listItems_.data();
+      model.count = static_cast<int>(listItems_.size());
+      model.selected = saved ? -1 : selected_;
       model.topIndex = topIndex_;
-      model.showingSaved = showingSaved_;
-      if (showingSaved_) {
+      model.showingSaved = saved;
+      if (saved) {
         model.title = "SAVED";
-        if (rows_.empty()) {
+        if (listItems_.empty()) {
           model.emptyHeadline = "NOTHING SAVED YET";
           // MEASURE IN THE FACE THE CALL SITE RESOLVES TO, not the one its name
           // suggests. centeredText does not wrap, and this draws with
@@ -699,7 +699,7 @@ void HackerNewsActivity::render(RenderLock&&) {
         }
       }
       hnui::buildList(screen, model);
-      what = showingSaved_ ? "HN saved" : "HN front page";
+      what = saved ? "HN saved" : "HN front page";
       break;
     }
 

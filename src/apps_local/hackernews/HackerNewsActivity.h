@@ -32,6 +32,7 @@
 #include "../ui/ToyboxScreen.h"
 #include "HackerNewsCore.h"
 #include "HackerNewsLibrary.h"
+#include "HackerNewsRows.h"
 #include "HackerNewsScreens.h"
 
 class HackerNewsActivity final : public Activity {
@@ -79,7 +80,6 @@ class HackerNewsActivity final : public Activity {
   void saveCurrentArticle();
   void unsaveCurrentArticle();
   void openSavedArticle(int index);
-  void buildSavedRows();
   void repage();
   void turnPage(int delta);
   void showNotice(const char* headline, const char* message, bool unreadable);
@@ -101,8 +101,10 @@ class HackerNewsActivity final : public Activity {
   // not unique.
   std::string readerUrl_;
   bool readingComments_ = false;
-  // Which half of the library the list is showing.
-  bool showingSaved_ = false;
+  // Which half of the library the list is showing. Stored as the same type the
+  // rows record themselves as built for, so the two cannot drift: see
+  // HackerNewsRows.h for the bug that cost.
+  hn::ListView view_ = hn::ListView::FrontPage;
   // Whether the reader was opened out of the library rather than off the front
   // page. Back honours it: a saved article returns to the shelf it came from.
   bool readingSaved_ = false;
@@ -117,13 +119,16 @@ class HackerNewsActivity final : public Activity {
   std::string noticeMessage_;
   bool noticeUnreadable_ = false;
 
-  // Row labels, owned here because fui::ListItem holds pointers rather than
-  // copies. Parallel to stories_ and rebuilt with it.
-  std::vector<std::string> rowTitles_;  // as Hacker News wrote them
-  std::vector<std::string> rowLabels_;  // fitted to the row, ellipsised
-  std::vector<std::string> rowValues_;  // the comment count
-  bool rowsFitted_ = false;
-  std::vector<freeink::ui::ListItem> rows_;
+  // The strings the list draws, owned here because fui::ListItem holds pointers
+  // rather than copies, and tagged with the shelf they came from.
+  hn::Rows rows_;
+  // Rebuilt from rows_.labels whenever those are refitted, for the same
+  // pointer-stability reason.
+  std::vector<freeink::ui::ListItem> listItems_;
+
+  // Whether the Back press that a release belongs to arrived while this
+  // activity was on top. See loop(): the Wi-Fi picker cancels on the press.
+  bool backPressSeen_ = false;
 
   Phase phase_ = Phase::Connecting;
   Pending pending_ = Pending::None;

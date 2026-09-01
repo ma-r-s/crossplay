@@ -28,3 +28,11 @@ mkdir -p "$BUILD_DIR"
   ../../src/apps_local/hackernews/HackerNewsSaved.cpp \
   test_saved.cpp -o "$BUILD_DIR/test_saved"
 "$BUILD_DIR/test_saved"
+
+# The list's rows. Its own binary for the reason the others are: it must build
+# with nothing but the standard library, and the bug it exists to prevent -- one
+# shelf's titles over another shelf's indices -- lives entirely in plain data.
+"${CXX:-c++}" -std=c++17 -O2 -Wall -Wextra -Werror \
+  ../../src/apps_local/hackernews/HackerNewsRows.cpp \
+  test_rows.cpp -o "$BUILD_DIR/test_rows"
+"$BUILD_DIR/test_rows"
