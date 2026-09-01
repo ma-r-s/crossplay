@@ -681,6 +681,14 @@ The shape that works, and it is worth copying:
 - **Write on every state change**, not on the way out: the screen change and the
   cursor move both. It is around a hundred bytes beside a panel repaint that
   costs a hundred times more.
+- **Write to a temp file and rename**, and do it BEFORE you raise the write
+  frequency. `Storage.openFileForWrite()` carries `O_TRUNC`, so writing in
+  place empties the file at open: power lost in that window leaves nothing at
+  all, and going from one write a game to fifteen a round multiplies that
+  window by fifteen. Write to `<name>.tmp`, `flush()`, release the handle,
+  check the byte count, then `remove` + `rename`. `ConnectionsActivity::
+  saveResult()` is the reference. Without this the frequent-write rule above
+  trades a small loss mode for a total one, which is worse than what it fixed.
 - **Refuse to resume what the file cannot support.** A screen number is only
   meaningful with the state behind it, so validate before restoring and fall
   back to your front door with the session intact rather than to a half-drawn

@@ -354,6 +354,11 @@ void action(toybox::Screen& screen, const fui::Rect& box, const char* label, con
 // other button in this app is solid black; this one is the page's colour with a
 // heavy frame round it, which is the same difference in KIND the peek's dimmed
 // footer uses. It reads as a door rather than as the next step.
+//
+// Both controls that destroy something use it, and there are exactly two:
+// ending the session and abandoning a round. ABANDON THIS ROUND was a solid
+// black bar identical in weight to I HAVE THE DEVICE and NEXT ROUND on the
+// screens either side of it, sitting exactly where the thumb rests.
 void endingAction(toybox::Screen& screen, const fui::Rect& box, const char* label, const fui::ActionId id) {
   fui::StyleSet styles;
   styles.explicitlySet = true;
@@ -453,7 +458,7 @@ void renderPause(toybox::Screen& screen, const PauseModel& model) {
          fui::TextAlign::Left);
   }
 
-  action(screen, footer(screen, 62, toybox::kMargin), "ABANDON THIS ROUND", ActionAbandon);
+  endingAction(screen, footer(screen, 62, toybox::kMargin), "ABANDON THIS ROUND", ActionAbandon);
 }
 
 void renderPassLeft(toybox::Screen& screen, const PassModel& model) {
@@ -1142,6 +1147,10 @@ void renderSummary(toybox::Screen& screen, const SummaryModel& model) {
   caps(screen, fui::makeRect(toybox::kMargin, 404, inner, lineH), "HOW FAR OFF, ALL TIME", toybox::kSmallFont,
        fui::TextAlign::Left);
   caps(screen, fui::makeRect(toybox::kMargin, 404, inner, lineH), "ROUNDS", toybox::kSmallFont, fui::TextAlign::Right);
+  // 168 is a FLOOR, not a preference. ornament() gives each bucket
+  // (height - 20) / kBucketCount, which at 168 is 29 -- exactly the button
+  // cut's line height, so the row labels have zero slack. A sixth bucket or a
+  // larger cut collides here silently; give it more height, not less.
   ornament(screen, fui::makeRect(toybox::kMargin, 434, inner, 168), rec);
 
   // This screen is a look at the score, not the end of anything, so its first

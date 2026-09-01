@@ -84,6 +84,17 @@ watchdog reset or a flat battery costs one screen rather than an evening. Chess
 reached the same place first and says so at the call site -- it saves on the
 completed move rather than the completed game.
 
+**And it writes through a temp file, because raising the frequency without that
+made things worse.** `Storage.openFileForWrite()` carries `O_TRUNC`, so writing
+in place empties the save at open: power lost in that window used to leave a
+zero-byte file, which loads as no record, no deck and no session, and the next
+write makes that permanent. Going from one write a round to fifteen multiplied
+that window by fifteen. The save now goes to `wavelength.tmp`, is flushed and
+released, has its byte count checked, and only then replaces the real file --
+so the previous save survives every failure. A cold reviewer found this: the
+paragraph above was claiming the change reduced battery exposure while the code
+had increased it.
+
 **Two games in this fork still write only at the door.** TOY BATTLE and JAIPUR
 both save in `onExit()` and when you walk out to their own menu, and nowhere
 else; Toy Battle's `saveGame()` comment says outright that "the one that matters
@@ -128,11 +139,16 @@ Obfuscating the byte would be theatre: the mask would sit in the same file and
 this source is public.
 
 **The route that did need engineering is the in-app one.** Resume never lands on
-a screen that draws the number while the game says it is hidden. The peek is
-the only screen that draws it, and the only saved screen that can BE the peek is
-one where the clue has not been given yet, because the peek is one-way and
-nothing later can go back to it. Resuming into the peek shows the strip with no
-band; the number still costs a 400ms hold.
+a screen that draws the number while the game says it is hidden.
+
+Two screens draw it, not one. The REVEAL draws it outright, and resuming there
+is correct: by that point the number is public and the whole screen is about it.
+The PEEK draws it only while `revealed` is true, which needs a live touch-hold,
+so a resume into the peek shows a bare strip and the number still costs a 400ms
+hold. And the only saved screen that can BE the peek is one where the clue has
+not been given yet: `View::Peek` is set by `choose()` and by resuming a pause
+taken on it, the peek is one-way, and `pausedFrom` is only ever assigned the
+view the Back key was pressed on. Nothing later in a round can reach it.
 
 The one thing this does open, and it is small: a clue-giver who leaves at the
 peek screen and hands the device on lets the next person hold the pad. At that
@@ -176,18 +192,11 @@ bounded the mark still moved. Two paths to one control, one fixed, looks exactly
 like a fix that worked. They are gone; so is `dialDirectionAt`, which the sweep
 had left used by nothing but its own test.
 
- A cold player tapped near the
-top of the strip expecting to jump there, moved one slot, and faced ten refreshes
-to cross the board. A held finger sweeps the marker along under it and stops
-where the finger stops. It is a sweep, not a runaway repeat,
-which matters on a panel that repaints between steps.
-
-`dialSlotAt()` and `dialDirectionAt()` each re-derive `layout()`'s arithmetic,
-and two copies of one layout is how a tap zone drifts away from the marker it
-sits under. Neither copy looks wrong alone, so `host-tests/ui` asserts them
-against **each other** over every point on the panel, plus that every slot is
-reachable by a tap: a rounding error at either end silently makes slot 1 or 20
-untappable, and those are the two the deck's clearest clues point at.
+`dialSlotAt()` re-derives `layout()`'s arithmetic, and two copies of one layout
+is how a tap zone drifts away from the marker it sits under. So `host-tests/ui`
+asserts it against the layout over every point on the panel, plus that every
+slot is reachable by a tap: a rounding error at either end silently makes slot 1
+or 20 untappable, and those are the two the deck's clearest clues point at.
 
 The marker resets to the middle of the strip each round. Carrying the last
 round's slot over reads as a suggestion, and the device is the one participant

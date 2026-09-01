@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <HalStorage.h>
 #include <Memory.h>
+#include <esp_random.h>
 
 #include "../../components/UITheme.h"
 #include "../Shelf.h"
@@ -16,6 +17,12 @@ namespace wl = wavelength;
 namespace {
 
 constexpr char kSavePath[] = "/.crosspoint/wavelength.sav";
+// Written first, renamed over the real file only once the bytes are down.
+// openFileForWrite carries O_TRUNC, so writing in place empties the file at
+// open: power lost in that window leaves nothing, and this app now writes on
+// every screen change and every move of the marker rather than once a round.
+// Trading one loss mode for a fifteen-times-more-likely one is not a fix.
+constexpr char kSaveTmpPath[] = "/.crosspoint/wavelength.tmp";
 
 }  // namespace
 
@@ -27,7 +34,12 @@ void WavelengthActivity::onEnter() {
   Activity::onEnter();
   toybox::ensureFonts(renderer);
   deck = wl::Deck(wl::kPairCountEn);
-  rng = wl::Rng(static_cast<uint32_t>(millis()));
+  // The hardware RNG, not millis(). A wake from deep sleep is a chip reset, so
+  // millis() is small and near-constant at exactly the moment a session now
+  // resumes across one -- which would correlate the targets a device draws
+  // from one power cycle to the next. The seed has to survive nothing, so it
+  // may as well come from the one source that is actually unpredictable.
+  rng = wl::Rng(esp_random());
   session = wl::Session{};
   record = wl::Record{};
   sessionStarted = false;
@@ -59,7 +71,11 @@ bool WavelengthActivity::resumable(const View v, const wl::Saved& saved) const {
     // The choice is dealt but nothing is drawn yet, so what has to survive is
     // the pair of spectra on offer rather than a number.
     case View::Pick:
-      return saved.dealt > 0 && saved.choice[0] >= 0 && saved.choice[0] < wl::kPairCountEn;
+      // BOTH offered pairs, not just the first. The screen draws the second
+      // whenever `dealt` says two, so validating one of them leaves the other
+      // free to render the placeholder spectrum and be chosen.
+      return saved.dealt > 0 && saved.choice[0] >= 0 && saved.choice[0] < wl::kPairCountEn &&
+             (saved.dealt < 2 || (saved.choice[1] >= 0 && saved.choice[1] < wl::kPairCountEn));
     // The pause is only as resumable as the screen underneath it.
     case View::Paused:
       return saved.resumeScreen < kViewCount && saved.resumeScreen != static_cast<uint8_t>(View::Paused) &&
@@ -159,9 +175,22 @@ void WavelengthActivity::saveState() {
   const size_t written = wl::pack(saved, bytes, sizeof(bytes));
   if (written == 0) return;
 
+  // Temp, flush, release, then rename. The old file survives intact until the
+  // new one is complete on the card, so the worst a power cut can cost is the
+  // one screen being written -- which is what the doc claims and what writing
+  // in place did not deliver.
   HalFile file;
-  if (!Storage.openFileForWrite("WAVE", kSavePath, file)) return;
-  file.write(bytes, written);
+  if (!Storage.openFileForWrite("WAVE", kSaveTmpPath, file)) return;
+  const bool ok = file.write(bytes, written) == static_cast<int>(written);
+  file.flush();
+  file = HalFile{};
+  if (!ok) {
+    LOG_ERR("WAVE", "Short write to %s; the previous save is left alone", kSaveTmpPath);
+    Storage.remove(kSaveTmpPath);
+    return;
+  }
+  Storage.remove(kSavePath);
+  Storage.rename(kSaveTmpPath, kSavePath);
 }
 
 wavelengthui::Spectrum WavelengthActivity::spectrumAt(const int index) const {
@@ -268,11 +297,17 @@ void WavelengthActivity::routeAction(const int action) {
       break;
     case wavelengthui::ActionNextRound:
       practiceRound = session.isPractice();
+      // A round that was PLAYED is not an abandoned one. The flag used to be
+      // cleared only by the next deal, so walking out to the front door and
+      // back put the abandon note on a pass screen that had earned none -- and
+      // it survives a power cycle now.
+      abandoned = false;
       go(View::PassLeft);
       break;
     case wavelengthui::ActionStartRound:
       sessionStarted = true;
       practiceRound = session.isPractice();
+      abandoned = false;
       go(View::PassLeft);
       break;
     case wavelengthui::ActionHowTo:
@@ -297,6 +332,7 @@ void WavelengthActivity::routeAction(const int action) {
       go(View::Summary);
       break;
     case wavelengthui::ActionKeepPlaying:
+      abandoned = false;
       go(View::PassLeft);
       break;
     case wavelengthui::ActionNewSession:
