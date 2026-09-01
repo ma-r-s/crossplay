@@ -5253,6 +5253,45 @@ void testTheReaderTextGoesInTheReaderBody() {
 // early return and looked entirely finished without it: a cold table tried
 // fourteen different gestures and sixteen seconds of waiting on the first round
 // of the very first session.
+// The two ends of one spectrum are a single object and must be set at a single
+// size. Sized independently, the longer pole dropped a whole cut: PHYSICAL
+// ACTIVITY printed at half the height of MENTAL ACTIVITY in the same card, and
+// a cold table read the pair as a heading with a subheading rather than as two
+// ends of a scale.
+void testWavelengthSpectrumEndsShareOneSize() {
+  const struct {
+    const char* top;
+    const char* bottom;
+  } kPairs[] = {
+      {"MENTAL ACTIVITY", "PHYSICAL ACTIVITY"},
+      {"HOT", "UNDERRATED LETTER OF THE ALPHABET"},
+      {"MOVIE THAT GODZILLA WOULD IMPROVE", "COLD"},
+      {"LOUD", "QUIET"},
+  };
+  for (const auto& pair : kPairs) {
+    Rendered out;
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    wavelengthui::PickModel model;
+    model.first = wavelengthui::Spectrum{pair.top, pair.bottom};
+    model.second = wavelengthui::Spectrum{"NEAR", "FAR"};
+    wavelengthui::renderPick(screen, model);
+
+    fui::FontId topFont = 0;
+    fui::FontId bottomFont = 0;
+    for (const FakeTarget::TextRun& run : out.target.texts) {
+      if (run.text == pair.top) topFont = run.style.font;
+      if (run.text == pair.bottom) bottomFont = run.style.font;
+    }
+    if (topFont != bottomFont)
+      std::printf("  %s / %s drawn in different slots (%d vs %d)\n", pair.top, pair.bottom, static_cast<int>(topFont),
+                  static_cast<int>(bottomFont));
+    CHECK(topFont == bottomFont);
+  }
+}
+
 void testWavelengthEveryRevealOffersAWayOn() {
   for (const bool practice : {false, true}) {
     Rendered out;
@@ -5473,6 +5512,7 @@ int main() {
   testArchiveIsLiveOnTheLastPage();
   testALongTitleIsEllipsisedRatherThanClipped();
   testTheReaderTextGoesInTheReaderBody();
+  testWavelengthSpectrumEndsShareOneSize();
   testWavelengthEveryRevealOffersAWayOn();
   testWavelengthStripHitTestsAgree();
   testWavelengthEverySlotIsTappable();

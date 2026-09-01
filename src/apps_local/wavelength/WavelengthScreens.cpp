@@ -51,6 +51,13 @@ void endWord(toybox::Screen& screen, const fui::Rect& box, const char* text, con
   caps(screen, box, text, slot, align, colour);
 }
 
+fui::FontId pairSlot(toybox::Screen& screen, const int16_t width, const char* a, const char* b) {
+  const fui::TextStyle big = textStyle(toybox::kBodyFont, fui::TextAlign::Center);
+  const int16_t wa = screen.target().measureText(toybox::kBodyFont, a, big).width;
+  const int16_t wb = screen.target().measureText(toybox::kBodyFont, b, big).width;
+  return (wa <= width && wb <= width) ? toybox::kBodyFont : toybox::kSmallFont;
+}
+
 void fill(toybox::Screen& screen, const fui::Rect& box, const fui::Color colour = fui::Color::Black) {
   screen.target().fill(box, fui::Paint::solid(colour));
 }
@@ -363,15 +370,16 @@ void endsStacked(toybox::Screen& screen, const Spectrum& spectrum, const int16_t
   const int16_t w = screen.device().screen().width;
   const fui::Rect band = fui::makeRect(toybox::kMargin, top, static_cast<int16_t>(w - 2 * toybox::kMargin),
                                        toybox::kDisplayCut.lineHeight);
-  endWord(screen, band, spectrum.top, fui::TextAlign::Center);
+  const fui::FontId slot = pairSlot(screen, band.width, spectrum.top, spectrum.bottom);
+  caps(screen, band, spectrum.top, slot, fui::TextAlign::Center);
   const int16_t spineTop = static_cast<int16_t>(top + toybox::kDisplayCut.lineHeight + 16);
   const int16_t spineBottom = static_cast<int16_t>(bottom - 16);
   for (int16_t y = spineTop; y + 10 < spineBottom; y = static_cast<int16_t>(y + 22))
     fill(screen, fui::makeRect(static_cast<int16_t>(w / 2 - 4), y, 8, 10));
-  endWord(screen,
-          fui::makeRect(toybox::kMargin, bottom, static_cast<int16_t>(w - 2 * toybox::kMargin),
-                        toybox::kDisplayCut.lineHeight),
-          spectrum.bottom, fui::TextAlign::Center);
+  caps(screen,
+       fui::makeRect(toybox::kMargin, bottom, static_cast<int16_t>(w - 2 * toybox::kMargin),
+                     toybox::kDisplayCut.lineHeight),
+       spectrum.bottom, slot, fui::TextAlign::Center);
 }
 
 }  // namespace
@@ -435,18 +443,20 @@ void renderPick(toybox::Screen& screen, const PickModel& model) {
     // Full card width, not the inset: at 22px a side a 33-character deck word
     // does not fit even at the small cut, and MOVIE THAT GODZILLA WOULD IMPROVE
     // was being chopped mid-word.
-    endWord(screen,
-            fui::makeRect(static_cast<int16_t>(card.x + toybox::kFrame + 4), static_cast<int16_t>(card.y + pad),
-                          static_cast<int16_t>(card.width - 2 * (toybox::kFrame + 4)), toybox::kDisplayCut.lineHeight),
-            s.top, fui::TextAlign::Left);
+    const int16_t cardInner = static_cast<int16_t>(card.width - 2 * (toybox::kFrame + 4));
+    const int16_t cardX = static_cast<int16_t>(card.x + toybox::kFrame + 4);
+    // Both ends at ONE size: sized separately, the longer pole dropped a whole
+    // cut and the card read as a heading with a subheading under it.
+    const fui::FontId cardSlot = pairSlot(screen, cardInner, s.top, s.bottom);
+    caps(screen, fui::makeRect(cardX, static_cast<int16_t>(card.y + pad), cardInner, toybox::kDisplayCut.lineHeight),
+         s.top, cardSlot, fui::TextAlign::Left);
     for (int d = 0; d < 7; ++d)
       fill(screen, fui::makeRect(static_cast<int16_t>(card.x + pad + d * 26),
                                  static_cast<int16_t>(card.y + card.height / 2 - 2), 15, 4));
-    endWord(screen,
-            fui::makeRect(static_cast<int16_t>(card.x + toybox::kFrame + 4),
-                          static_cast<int16_t>(card.y + card.height - pad - toybox::kDisplayCut.lineHeight),
-                          static_cast<int16_t>(card.width - 2 * (toybox::kFrame + 4)), toybox::kDisplayCut.lineHeight),
-            s.bottom, fui::TextAlign::Left);
+    caps(screen,
+         fui::makeRect(cardX, static_cast<int16_t>(card.y + card.height - pad - toybox::kDisplayCut.lineHeight),
+                       cardInner, toybox::kDisplayCut.lineHeight),
+         s.bottom, cardSlot, fui::TextAlign::Left);
     screen.frame().hit(card, i == 0 ? ActionPickFirst : ActionPickSecond);
   }
 
