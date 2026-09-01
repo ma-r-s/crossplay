@@ -6,9 +6,11 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <string>
 
 #include "../activities/ActivityManager.h"
 #include "ShelfFolderActivity.h"
+#include "ShelfState.h"
 #include "activities/browser/OpdsBookBrowserActivity.h"
 #include "battleship/BattleshipActivity.h"
 #include "checkers/CheckersActivity.h"
@@ -32,6 +34,7 @@
 #include "toybattle/ToyBattleActivity.h"
 #include "trivia/TriviaActivity.h"
 #include "ui/ToyboxIcons.h"
+#include "wavelength/WavelengthActivity.h"
 #include "xkcd/XkcdActivity.h"
 #include "yahtzee/YahtzeeActivity.h"
 
@@ -59,6 +62,7 @@ constexpr shelf::Item kGames[] = {
     {"TOY BATTLE", &icon_toybattle_32, &ToyBattleActivity::create},
     {"FOREHEAD", &icon_forehead_32, &ForeheadActivity::create},
     {"TRIVIA", &icon_trivia_32, &TriviaActivity::create},
+    {"WAVELENGTH", &icon_wavelength_32, &WavelengthActivity::create},
 };
 constexpr shelf::Item kApps[] = {
     {"STUDY", &icon_study_32, &StudyActivity::create},
@@ -112,75 +116,95 @@ constexpr char kStatePath[] = "/.crosspoint/shelf.cfg";
 // -1 means "nothing is open below Home", which is what a folder itself sees.
 int openFolderIndex = -1;
 
-// Which shelf row Home should land on when you come back out. CrossPoint
-// restores Home's selection by matching the departing activity's name against
-// its own HomeMenuItem list, which cannot know about ours, so without this you
-// leave GAMES and the cursor is sitting on Browse Files.
-int lastFolder = -1;
-
-// Per folder, the row that was opened last. Sized by the table so a third
-// folder needs no thought here.
-int lastItem[kFolderCount] = {};
-
-// Both of the above survive the device going to sleep, which they did not
-// before. `main.cpp` deep-sleeps on the idle timeout and says of it that wake is
+// The remembered position, mirroring /.crosspoint/shelf.cfg:
+//
+// - `lastFolder`: which shelf row Home should land on when you come back out.
+//   CrossPoint restores Home's selection by matching the departing activity's
+//   name against its own HomeMenuItem list, which cannot know about ours, so
+//   without this you leave GAMES and the cursor is sitting on Browse Files.
+// - `lastItem`: per folder, the row that was opened last.
+// - `openTitle`: the item that was open when the device went to sleep, which is
+//   what wake reopens instead of dropping you on Home.
+//
+// All of it survives the device going to sleep, which none of it did before.
+// `main.cpp` deep-sleeps on the idle timeout and says of it that wake is
 // effectively a chip reset, so every time Mario put the device down and came
-// back the shelf had forgotten which game he was playing. That was invisible
-// while a folder held eight games and all eight were on screen. Now that the
-// folder pages, forgetting also means landing on page one, so the game he plays
-// most is behind a tap he should not have to make.
+// back the shelf had forgotten which game he was playing.
 //
 // Written next to the reader's own state rather than into CrossPointState,
 // which is upstream's file: a fork-local fact belongs in a fork-local file, and
 // player.cfg already established the pattern.
+shelf::State state;
 bool stateLoaded = false;
 
+// The Activity that the open item launched, by name. `openFolderIndex` alone
+// cannot answer "is that item still what is on screen": the Home gesture leaves
+// an app without going through leave(), so a sleep from Home would otherwise
+// record the game you left ten minutes ago as still open. A pushed sub-screen
+// (the frontlight panel) also fails this check, and falls back to Home the way
+// every wake used to.
+std::string openActivityName;
+
+// A title that does not fit the state file cannot be resumed, and would fail
+// silently at the write. Caught at compile time instead, next to the icon and
+// mark checks, so a long-titled new game does not build.
+constexpr bool everyTitleFitsTheStateFile() {
+  for (const auto& folder : kFolders) {
+    for (int i = 0; i < folder.count; ++i) {
+      if (shelf::constexprLength(folder.items[i].title) > shelf::MAX_ITEM_TITLE) return false;
+    }
+  }
+  return true;
+}
+static_assert(everyTitleFitsTheStateFile(), "shelf item titles must fit shelf::MAX_ITEM_TITLE; see ShelfState.h");
+static_assert(kFolderCount <= shelf::MAX_FOLDERS, "raise shelf::MAX_FOLDERS in ShelfState.h");
+
+// Row limits as the registry stands now, for parseState's clamp.
+const int* itemLimits() {
+  static int limits[shelf::MAX_FOLDERS] = {};
+  for (int i = 0; i < kFolderCount; ++i) limits[i] = kFolders[i].count - 1;
+  return limits;
+}
+
+// The folder and row of the item with this title, case-insensitively. The one
+// place a title is turned back into a row, shared by wake and by the
+// autostart environment variable.
+bool findItemByTitle(const char* title, int& folder, int& item) {
+  for (int f = 0; f < kFolderCount; ++f) {
+    for (int i = 0; i < kFolders[f].count; ++i) {
+      if (strcasecmp(kFolders[f].items[i].title, title) == 0) {
+        folder = f;
+        item = i;
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+// The parse and the format live in ShelfState.cpp, where a host test can reach
+// them without a card: the file has to survive a truncated write, a file
+// written before wake could resume, and a game renamed since it was written.
 void loadState() {
   stateLoaded = true;
 #if defined(ARDUINO_ARCH_ESP32) || defined(SIMULATOR)
   if (!Storage.exists(kStatePath)) return;
-  char buffer[64] = {};
+  char buffer[96] = {};
   if (Storage.readFileToBuffer(kStatePath, buffer, sizeof(buffer)) == 0) return;
-
-  // Parsed into locals and committed only if the whole line is good, so a
-  // truncated or corrupt file leaves the defaults rather than half of them. The
-  // worst this can cost is starting at the top, which is why it fails quietly
-  // instead of logging: there is nothing for anyone to do about it.
-  char* cursor = buffer;
-  char* next = nullptr;
-  const long folderValue = strtol(cursor, &next, 10);
-  if (next == cursor) return;
-  cursor = next;
-
-  int items[kFolderCount] = {};
-  for (int i = 0; i < kFolderCount; ++i) {
-    const long value = strtol(cursor, &next, 10);
-    if (next == cursor) return;
-    cursor = next;
-    // Clamped against the registry as it is now, not as it was when written. A
-    // game removed since the last boot would otherwise select a row that no
-    // longer exists.
-    const int limit = kFolders[i].count - 1;
-    items[i] = value < 0 ? 0 : (value > limit ? (limit > 0 ? limit : 0) : static_cast<int>(value));
-  }
-
-  lastFolder = folderValue < 0 || folderValue >= kFolderCount ? -1 : static_cast<int>(folderValue);
-  for (int i = 0; i < kFolderCount; ++i) lastItem[i] = items[i];
+  // Fails quietly: the worst a corrupt file can cost is starting at the top,
+  // and there is nothing for anyone to do about it.
+  shelf::parseState(buffer, kFolderCount, itemLimits(), state);
 #endif
 }
 
 void saveState() {
 #if defined(ARDUINO_ARCH_ESP32) || defined(SIMULATOR)
-  char line[64];
-  int used = snprintf(line, sizeof(line), "%d", lastFolder);
-  for (int i = 0; i < kFolderCount && used > 0 && used < static_cast<int>(sizeof(line)); ++i) {
-    used += snprintf(line + used, sizeof(line) - used, " %d", lastItem[i]);
-  }
-  if (used <= 0 || used >= static_cast<int>(sizeof(line))) {
+  char line[96];
+  const size_t used = shelf::formatState(state, kFolderCount, line, sizeof(line));
+  if (used == 0) {
     LOG_ERR("SHELF", "State line did not fit %d bytes", static_cast<int>(sizeof(line)));
     return;
   }
-  snprintf(line + used, sizeof(line) - used, "\n");
   Storage.writeFile(kStatePath, String(line));
 #endif
 }
@@ -200,9 +224,20 @@ void ensureLoaded() {
 // would be a write per navigation for no gain.
 void saveIfChanged(const int folder, const int item) {
   ensureLoaded();
-  if (lastFolder == folder && (folder < 0 || lastItem[folder] == item)) return;
-  lastFolder = folder;
-  if (folder >= 0) lastItem[folder] = item;
+  if (state.lastFolder == folder && (folder < 0 || state.lastItem[folder] == item)) return;
+  state.lastFolder = folder;
+  if (folder >= 0) state.lastItem[folder] = item;
+  saveState();
+}
+
+// The item wake should reopen, or none. Kept separate from saveIfChanged
+// because the two facts change on different events: the position changes as you
+// navigate, this changes when an item opens, closes, or is left behind.
+void setOpenTitle(const char* title) {
+  ensureLoaded();
+  const char* wanted = title == nullptr ? "" : title;
+  if (strcmp(state.openTitle, wanted) == 0) return;
+  snprintf(state.openTitle, sizeof(state.openTitle), "%s", wanted);
   saveState();
 }
 
@@ -215,6 +250,12 @@ bool replaceWith(std::unique_ptr<Activity> activity, const char* what) {
     return false;
   }
   activityManager.replaceActivity(std::move(activity));
+  // Read back from the activity itself rather than written down beside the
+  // registry: a table mapping titles to activity names would be a second copy
+  // of a fact the activity already carries, and would rot the first time one is
+  // renamed. Asked after the request, because Activity::name is not ours to
+  // read directly.
+  openActivityName = activityManager.currentActivityName();
   return true;
 }
 
@@ -236,28 +277,33 @@ void openFolder(const int index, GfxRenderer& renderer, MappedInputManager& mapp
   // some route that did not go through leave().
   openFolderIndex = -1;
   ensureLoaded();
-  saveIfChanged(index, lastItem[index]);
+  saveIfChanged(index, state.lastItem[index]);
+  setOpenTitle(nullptr);
   replaceWith(ShelfFolderActivity::create(renderer, mappedInput, index), kFolders[index].title);
 }
 
-void openItem(const int folder, const int item, GfxRenderer& renderer, MappedInputManager& mappedInput) {
+bool openItem(const int folder, const int item, GfxRenderer& renderer, MappedInputManager& mappedInput) {
   if (folder < 0 || folder >= kFolderCount) {
     LOG_ERR("SHELF", "Bad folder index: %d", folder);
-    return;
+    return false;
   }
   const Folder& parent = kFolders[folder];
   if (item < 0 || item >= parent.count) {
     LOG_ERR("SHELF", "Bad item index %d in %s", item, parent.title);
-    return;
+    return false;
   }
 
   // Recorded before the launch, not after: replaceActivity destroys the caller,
   // so there is no "after" to run in.
   openFolderIndex = folder;
   saveIfChanged(folder, item);
+  setOpenTitle(parent.items[item].title);
   if (!replaceWith(parent.items[item].create(renderer, mappedInput), parent.items[item].title)) {
     openFolderIndex = -1;
+    setOpenTitle(nullptr);
+    return false;
   }
+  return true;
 }
 
 void autostartFromEnv(GfxRenderer& renderer, MappedInputManager& mappedInput) {
@@ -272,23 +318,54 @@ void autostartFromEnv(GfxRenderer& renderer, MappedInputManager& mappedInput) {
     return;
   }
   consumed = true;
-  for (int folder = 0; folder < kFolderCount; ++folder) {
-    for (int item = 0; item < kFolders[folder].count; ++item) {
-      if (strcasecmp(kFolders[folder].items[item].title, wanted) == 0) {
-        LOG_INF("SHELF", "Autostart into %s", kFolders[folder].items[item].title);
-        openItem(folder, item, renderer, mappedInput);
-        return;
-      }
-    }
+  int folder = -1;
+  int item = -1;
+  if (!findItemByTitle(wanted, folder, item)) {
+    LOG_ERR("SHELF", "Autostart: no item titled '%s'", wanted);
+    return;
   }
-  LOG_ERR("SHELF", "Autostart: no item titled '%s'", wanted);
+  LOG_INF("SHELF", "Autostart into %s", kFolders[folder].items[item].title);
+  openItem(folder, item, renderer, mappedInput);
+}
+
+void rememberForWake(const char* currentActivityName) {
+  ensureLoaded();
+  if (state.openTitle[0] == '\0') return;
+  // An item is only still open if the activity it launched is the one on
+  // screen. Leaving a game by the Home gesture never passes through leave(),
+  // so without this a sleep taken on Home would resume into the game you left.
+  const char* onScreen = currentActivityName == nullptr ? "" : currentActivityName;
+  if (openActivityName.empty() || openActivityName != onScreen) {
+    LOG_DBG("SHELF", "Sleeping on %s, not %s: nothing to resume", onScreen, state.openTitle);
+    setOpenTitle(nullptr);
+  }
+}
+
+bool resumeFromWake(GfxRenderer& renderer, MappedInputManager& mappedInput) {
+  ensureLoaded();
+  if (state.openTitle[0] == '\0') return false;
+
+  int folder = -1;
+  int item = -1;
+  if (!findItemByTitle(state.openTitle, folder, item)) {
+    // The card outlives firmware updates, so the item may have been renamed or
+    // removed since it was written. Home, and forget it.
+    LOG_INF("SHELF", "Wake: nothing titled '%s' any more", state.openTitle);
+    setOpenTitle(nullptr);
+    return false;
+  }
+
+  LOG_INF("SHELF", "Wake: resuming %s", kFolders[folder].items[item].title);
+  return openItem(folder, item, renderer, mappedInput);
 }
 
 void openPlayer(GfxRenderer& renderer, MappedInputManager& mappedInput) {
   // Only the folder footer offers it, and only a folder that shows the name, so
   // lastFolder is the folder we are standing in. Recorded before the launch for
   // the same reason openItem does it: replaceActivity destroys the caller.
-  openFolderIndex = lastFolder;
+  ensureLoaded();
+  openFolderIndex = state.lastFolder;
+  setOpenTitle(nullptr);
   if (!replaceWith(PlayerActivity::create(renderer, mappedInput), "Player")) {
     openFolderIndex = -1;
   }
@@ -304,12 +381,12 @@ void leave(GfxRenderer& renderer, MappedInputManager& mappedInput) {
 
 int lastFolderOnHome() {
   ensureLoaded();
-  return lastFolder;
+  return state.lastFolder;
 }
 
 int lastItemIn(const int index) {
   ensureLoaded();
-  return index >= 0 && index < kFolderCount ? lastItem[index] : 0;
+  return index >= 0 && index < kFolderCount ? state.lastItem[index] : 0;
 }
 
 const freeink::Icon* folderMark(const int index) {

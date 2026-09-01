@@ -450,5 +450,248 @@ elif [ -z "$label" ] || [ "$label" = "$owner_line" ]; then
   echo "FAIL checksh  the lock owner carries no tree label ('$owner_line'); a waiter cannot say who holds it"
 fi
 
+# ---------------------------------------------------------------------------
+# The submodule-state wiring (2026-08-31).
+#
+# The probe itself is covered by host-tests/submodules. What is covered HERE is
+# the part that decided nothing tonight: check.sh's reaction to it. A gate ran
+# fully green on a tree whose freeink-sdk was checked out at an unlanded
+# upstream merge, and the existing "uncommitted file(s)" note was read straight
+# past. So uninitialised must STOP the run, and drift must reach the verdict
+# line -- a warning printed 400 lines above "all green" is a warning nobody
+# reads.
+lift() {  # substring that appears on the opening `if` line
+  python3 - "$CHECK" "$1" <<'PY'
+import re
+import sys
+lines = open(sys.argv[1]).read().splitlines()
+needle = sys.argv[2]
+start = next(i for i, l in enumerate(lines)
+             if l.strip().startswith('if ') and needle in l)
+# Carry down the assignments the block reads but does not make: lifting
+# `if [ -x "$SUB_STATE" ]` without the SUB_STATE= line above it produces an
+# unbound-variable failure that looks like the block refusing, not like a
+# broken extraction.
+top = start
+while top > 0 and re.match(r"^\s*[A-Za-z_][A-Za-z0-9_]*=", lines[top - 1]):
+    top -= 1
+depth, end = 0, None
+for i in range(start, len(lines)):
+    head = lines[i].strip()
+    if head.startswith('if '):
+        depth += 1
+    if head == 'fi':
+        depth -= 1
+        if depth == 0:
+            end = i
+            break
+if end is None:
+    raise SystemExit('unbalanced block')
+print("\n".join(lines[top:end + 1]))
+PY
+}
+
+# A shell function, start line to its closing brace at column 0.
+lift_fn() {  # function name
+  python3 - "$CHECK" "$1" <<'PY'
+import sys
+lines = open(sys.argv[1]).read().splitlines()
+name = sys.argv[2]
+start = next(i for i, l in enumerate(lines) if l.startswith(name + '() {'))
+end = next(i for i in range(start + 1, len(lines)) if lines[i] == '}')
+print('\n'.join(lines[start:end + 1]))
+PY
+}
+
+lift '-x "$MERGE_STATE"' >"$WORK/mergewire.sh" 2>/dev/null
+lift '-x "$SUB_STATE"' >"$WORK/subwire.sh" 2>/dev/null
+lift '-x "$FRESH"'     >"$WORK/freshwire.sh" 2>/dev/null
+lift 'QUALIFIER'       >"$WORK/verdict.sh" 2>/dev/null
+lift_fn qualifier_text >"$WORK/qualifier.sh" 2>/dev/null
+if [ -s "$WORK/subwire.sh" ] && [ -s "$WORK/verdict.sh" ] &&
+   [ -s "$WORK/freshwire.sh" ] && [ -s "$WORK/qualifier.sh" ]; then
+  # A repo whose probe we control, so each verdict can be driven on demand.
+  stub_repo() {  # exit_code, message
+    rm -rf "$WORK/subrepo"
+    mkdir -p "$WORK/subrepo/scripts_local"
+    { echo '#!/bin/bash'
+      [ -n "$2" ] && echo "echo '$2'"
+      echo "exit $1"
+    } > "$WORK/subrepo/scripts_local/submodule_state.sh"
+    chmod +x "$WORK/subrepo/scripts_local/submodule_state.sh"
+  }
+
+  # ---- merge-state wiring: a conflicted tree must not be gated at all ----
+  #
+  # This one STOPS the run. A tree with markers in it cannot report anything
+  # meaningful, and the suites will not notice, because they do not read every
+  # file: markers in platformio.ini gated all green on 2026-08-31 since --tests
+  # never parses it. Both refusal codes must stop it.
+  if [ -s "$WORK/mergewire.sh" ]; then
+    merge_stub() {  # exit_code
+      rm -rf "$WORK/mrepo"
+      mkdir -p "$WORK/mrepo/scripts_local"
+      { echo '#!/bin/bash'
+        [ "$1" -ne 0 ] && echo "echo 'conflicted: platformio.ini'"
+        echo "exit $1"
+      } > "$WORK/mrepo/scripts_local/merge_state.sh"
+      chmod +x "$WORK/mrepo/scripts_local/merge_state.sh"
+    }
+    for code in 2 3; do
+      checks=$((checks + 1))
+      merge_stub "$code"
+      if ( set +e; REPO="$WORK/mrepo"; . "$WORK/mergewire.sh"; exit 0 ) >/dev/null 2>&1; then
+        failed=$((failed + 1))
+        echo "FAIL checksh  merge_state exit $code did not stop the gate; a conflicted tree would be reported on"
+      fi
+    done
+    checks=$((checks + 1))
+    merge_stub 0
+    clean_merge="$( set +e; REPO="$WORK/mrepo"; . "$WORK/mergewire.sh"; echo "CONTINUED" )"
+    case "$clean_merge" in
+      "CONTINUED") : ;;
+      *) failed=$((failed + 1)); echo "FAIL checksh  a clean tree was stopped or spoke: $clean_merge" ;;
+    esac
+  else
+    checks=$((checks + 1))
+    failed=$((failed + 1))
+    echo "FAIL checksh  could not lift the merge-state wiring out of check.sh"
+  fi
+
+  # Uninitialised (2) must stop the gate. Twenty minutes later, inside a
+  # compiler error naming no file of ours, is the alternative.
+  checks=$((checks + 1))
+  stub_repo 2 "submodule sdk is NOT INITIALISED."
+  if ( set +e; REPO="$WORK/subrepo"; SUBMODULE_DRIFT=""; . "$WORK/subwire.sh"; exit 0 ) >/dev/null 2>&1; then
+    failed=$((failed + 1))
+    echo "FAIL checksh  an uninitialised submodule did not stop the gate"
+  fi
+
+  # Drift (3) must NOT stop the gate -- an SDK bump in progress is real work --
+  # but must set the flag that qualifies the verdict.
+  checks=$((checks + 1))
+  stub_repo 3 "submodule sdk is CHECKED OUT AT A DIFFERENT COMMIT"
+  drift_out="$( set +e; REPO="$WORK/subrepo"; SUBMODULE_DRIFT=""; . "$WORK/subwire.sh"; echo "FLAG=[$SUBMODULE_DRIFT]" 2>/dev/null )"
+  case "$drift_out" in
+    *"FLAG=[]"*) failed=$((failed + 1)); echo "FAIL checksh  drift ran but set no flag; the verdict would read as unqualified green" ;;
+    *"FLAG=["*)  : ;;
+    *)           failed=$((failed + 1)); echo "FAIL checksh  drift stopped the gate; an SDK bump in progress cannot be gated at all" ;;
+  esac
+
+  # A healthy tree stays silent and unflagged.
+  checks=$((checks + 1))
+  stub_repo 0 ""
+  clean_out="$( set +e; REPO="$WORK/subrepo"; SUBMODULE_DRIFT=""; . "$WORK/subwire.sh"; echo "FLAG=[$SUBMODULE_DRIFT]" )"
+  case "$clean_out" in
+    "FLAG=[]") : ;;
+    *) failed=$((failed + 1)); echo "FAIL checksh  a healthy tree was not silent+unflagged: $clean_out" ;;
+  esac
+
+  # ---- freshness wiring: behind origin must reach the verdict ----
+  #
+  # An armed watcher fired --committed on 26-commit-stale code because it was
+  # written before the merge-first rule existed. Being behind never STOPS the
+  # gate (unlike an uninitialised submodule, working behind origin is ordinary
+  # mid-work) but it must change what the last line claims.
+  fresh_stub() {  # exit_code, message
+    rm -rf "$WORK/subrepo"
+    mkdir -p "$WORK/subrepo/scripts_local"
+    { echo '#!/bin/bash'
+      [ -n "$2" ] && echo "echo '$2'"
+      echo "exit $1"
+    } > "$WORK/subrepo/scripts_local/tree_freshness.sh"
+    chmod +x "$WORK/subrepo/scripts_local/tree_freshness.sh"
+  }
+  run_fresh() {  # exit_code -> prints FLAG=[...]
+    # A healthy probe says nothing at all, so the stub must not either: a
+    # message on the silent path would make this assert the wrong thing.
+    if [ "$1" -eq 0 ]; then fresh_stub 0 ""; else fresh_stub "$1" "behind by something"; fi
+    ( set +e; REPO="$WORK/subrepo"; TREE_STALE=""; . "$WORK/freshwire.sh"; echo "FLAG=[$TREE_STALE]" ) 2>/dev/null
+  }
+
+  checks=$((checks + 1))
+  case "$(run_fresh 3)" in
+    *"FLAG=[]"*) failed=$((failed + 1)); echo "FAIL checksh  behind-by-inert set no flag, so the verdict reads as unqualified green" ;;
+    *"FLAG=["*)  : ;;
+    *)           failed=$((failed + 1)); echo "FAIL checksh  behind-by-inert stopped the gate; being behind is ordinary mid-work" ;;
+  esac
+
+  checks=$((checks + 1))
+  case "$(run_fresh 4)" in
+    *FIRMWARE*) : ;;
+    *) failed=$((failed + 1)); echo "FAIL checksh  behind-on-firmware is not distinguished from behind-by-anything: $(run_fresh 4)" ;;
+  esac
+
+  checks=$((checks + 1))
+  case "$(run_fresh 0)" in
+    "FLAG=[]") : ;;
+    *) failed=$((failed + 1)); echo "FAIL checksh  an up-to-date tree was flagged stale: $(run_fresh 0)" ;;
+  esac
+
+  # ---- the verdict line, driven through the real composition function ----
+  verdict() {  # SUBMODULE_DRIFT, TREE_STALE
+    ( set +e; SUBMODULE_DRIFT="$1"; TREE_STALE="$2"; LOGS=/tmp/x
+      . "$WORK/qualifier.sh"; . "$WORK/verdict.sh" )
+  }
+
+  checks=$((checks + 1))
+  case "$(verdict 1 '')" in
+    *DRIFTED*) : ;;
+    *) failed=$((failed + 1)); echo "FAIL checksh  the verdict does not mention drift when drifted: $(verdict 1 '')" ;;
+  esac
+
+  checks=$((checks + 1))
+  case "$(verdict '' 'behind origin')" in
+    *"behind origin"*) : ;;
+    *) failed=$((failed + 1)); echo "FAIL checksh  the verdict does not mention staleness when stale: $(verdict '' 'behind origin')" ;;
+  esac
+
+  # Both at once. Either one silently swallowing the other is the bug here:
+  # a stale tree ON drifted submodules must not report only half of why its
+  # green means nothing.
+  checks=$((checks + 1))
+  both="$(verdict 1 'behind origin')"
+  case "$both" in
+    *DRIFTED*"behind origin"*) : ;;
+    *) failed=$((failed + 1)); echo "FAIL checksh  the verdict drops one of two reasons: $both" ;;
+  esac
+
+  # The qualifier must LEAD. Trailing it after "all green" put it on the right
+  # line and still lost to a real reader on 2026-08-31: they grep
+  # `all green|SOMETHING FAILED`, the line matched, and they acted on its first
+  # three words. A qualified verdict must not open with the words a skimmer is
+  # looking for.
+  checks=$((checks + 1))
+  lead="$(verdict 1 'behind origin')"
+  case "$lead" in
+    "all green"*) failed=$((failed + 1)); echo "FAIL checksh  a qualified verdict still OPENS with 'all green': $lead" ;;
+    *) : ;;
+  esac
+
+  # And it must not CONTAIN the clean phrase either. Front-loading fixed the
+  # human skimmer and left every machine reader exactly where it was: a
+  # qualified verdict carrying its own unqualified form as a substring is
+  # matched by every grep written before the qualifier existed, and each one
+  # fails in the direction of "it passed". Old patterns must find nothing here.
+  # This assertion is what keeps that true when someone rewords the line later.
+  checks=$((checks + 1))
+  case "$lead" in
+    *"all green"*) failed=$((failed + 1)); echo "FAIL checksh  a qualified verdict still CONTAINS 'all green', so every pre-existing grep matches it and fails open: $lead" ;;
+    *) : ;;
+  esac
+
+  checks=$((checks + 1))
+  plain="$(verdict '' '')"
+  case "$plain" in
+    *DRIFTED*|*behind*) failed=$((failed + 1)); echo "FAIL checksh  a clean tree's verdict claims a problem: $plain" ;;
+    *"all green"*) : ;;
+    *) failed=$((failed + 1)); echo "FAIL checksh  a clean tree lost its 'all green' verdict: $plain" ;;
+  esac
+else
+  checks=$((checks + 1))
+  failed=$((failed + 1))
+  echo "FAIL checksh  could not lift the submodule wiring, freshness wiring, verdict or qualifier out of check.sh"
+fi
+
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]

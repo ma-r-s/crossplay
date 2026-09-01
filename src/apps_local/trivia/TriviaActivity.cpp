@@ -3,10 +3,12 @@
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <WiFi.h>
 
 #include <cstdlib>
 #include <cstring>
 
+#include "../../activities/network/WifiSelectionActivity.h"
 #include "../../components/UITheme.h"
 #include "../../network/HttpDownloader.h"
 #include "../ui/ToyboxFonts.h"
@@ -157,8 +159,30 @@ void TriviaActivity::showNotice(const char* headline, const char* body, const ch
 // through requestUpdateAndWait(). The input pump in the progress callback is
 // the sanctioned exception to the one-pump rule -- nothing else pumps while
 // this blocks, and without it Back could not cancel a multi-minute download.
+void TriviaActivity::onWifiChosen(const bool connected) {
+  if (!connected) {
+    // Cancelling the picker is a decision, not a failure: say what did not
+    // happen and leave the button that starts it again.
+    showNotice("NO WIFI", "The pack needs WiFi to download. The card is unchanged.", "TRY AGAIN",
+               triviaui::ActionGetPack);
+    return;
+  }
+  // Queued rather than run here: the download blocks for minutes, and this is
+  // the result handler of the activity that is still unwinding.
+  downloadQueued_ = true;
+}
+
 void TriviaActivity::runPackDownload() {
-  if (!Storage.mkdir(kDir)) {
+  // exists() first, because SdFat's mkdir returns FALSE for a directory that
+  // is already there. Treating that as failure meant the second attempt at a
+  // download could never succeed: the first one creates /trivia, and every run
+  // after it reports NO ROOM on a card with gigabytes free.
+  //
+  // Found on hardware and invisible in the simulator, whose SD is an ordinary
+  // host directory where mkdir on an existing path succeeds. Every other
+  // caller in this fork already does it this way -- StudyActivity, ScreenshotUtil,
+  // BookmarkFile -- and this was the one that invented its own.
+  if (!Storage.exists(kDir) && !Storage.mkdir(kDir)) {
     showNotice("NO ROOM", "Could not create /trivia on the card. Is the card in, and writable?", "TRY AGAIN",
                triviaui::ActionGetPack);
     return;
@@ -266,7 +290,14 @@ void TriviaActivity::deal() {
 void TriviaActivity::routeAction(const int action, const int value) {
   switch (action) {
     case triviaui::ActionGetPack:
-      downloadQueued_ = true;
+      // The radio first. Entering the TLS stack with WiFi never started is not
+      // a failed download, it is a panic: the socket layer takes a mutex that
+      // does not exist yet and FreeRTOS asserts on the null handle
+      // (xQueueSemaphoreTake, queue.c:1709). The notice this button sits under
+      // has always said "connect to WiFi and fetch one"; nothing did.
+      WiFi.mode(WIFI_STA);
+      startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
+                             [this](const ActivityResult& result) { onWifiChosen(!result.isCancelled); });
       break;
     case triviaui::ActionMenuRow:
       if (view_ == View::Notice) {  // the READY notice's PLAY button

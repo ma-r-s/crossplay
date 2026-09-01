@@ -20,6 +20,9 @@ class HalFrontlight {
   uint8_t brightness() const { return lastBrightness; }
   uint8_t warmth() const { return manager.colorTemperature(); }
   bool isOn() const { return lit; }
+  // False when the board has a frontlight that failed to configure, so a
+  // caller can tell "off" from "cannot be turned on".
+  bool isReady() const { return ready; }
 
  private:
   HalFrontlight() = default;
@@ -29,6 +32,9 @@ class HalFrontlight {
   // toggling back on restores it.
   uint8_t lastBrightness = 60;
   bool lit = false;
+  // Did the SDK actually bring the channels up. False means every setter below
+  // is accepted and drives nothing; see begin().
+  bool ready = false;
 
   static HalFrontlight instance;
 };

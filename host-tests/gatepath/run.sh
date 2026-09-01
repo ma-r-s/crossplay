@@ -58,7 +58,8 @@ needed() {
   fi
 }
 
-reset_tree() { q git reset --hard origin/xteink; q git clean -fdq; }
+reset_tree() { q git checkout -q "$MAIN" 2>/dev/null; q git reset --hard origin/xteink; q git clean -fdq; }
+MAIN="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo xteink)"
 
 echo "device-build-needed"
 
@@ -105,6 +106,114 @@ CHECK_BUILD_RELEASE_ENVS=1 "$TOOL" >/dev/null 2>&1
 reset_tree
 env -u CHECK_BUILD_RELEASE_ENVS "$TOOL" --base refs/heads/does-not-exist >/dev/null 2>&1
 [ $? -eq 0 ] && ok "unresolvable base -> builds run" || bad "unresolvable base -> skipped"
+
+# The unlocked-build guard's own suite. It runs inside pio, so a bug in it
+# fails every device build in the workspace rather than one.
+echo
+if python3 "$HERE/test_build_lock.py"; then :; else FAIL=$((FAIL+1)); fi
+
+# --device-only: the mirror question. Host-green is NO evidence for code the
+# simulator target never compiles, so such a branch keeps its device build even
+# when the workspace is otherwise landing on host-green.
+dev() {
+  local label="$1" expect="$2" rc
+  env -u CHECK_BUILD_RELEASE_ENVS "$TOOL" --device-only >/dev/null 2>&1; rc=$?
+  if [ "$expect" = "yes" ]; then
+    [ "$rc" -eq 0 ] && ok "$label -> device gate required" || bad "$label -> would land on host-green, must not"
+  else
+    [ "$rc" -eq 1 ] && ok "$label -> host-green is enough" || bad "$label -> demanded a device gate needlessly"
+  fi
+}
+
+# --range must answer about the commits B ADDS, not about the difference between
+# two tips. `git diff A B` is symmetric, so a caller asking "do the commits I am
+# MISSING touch firmware?" would get back ITS OWN firmware changes. The case
+# below is built so a symmetric implementation gives the opposite answer: the
+# side branch changes src/, the range's other end changes only docs/.
+echo
+echo "device-build-needed --range"
+
+reset_tree
+q git checkout -q -b sidebranch
+printf 'int f(){return 2;}\n' > src/plain.cpp
+q git add -A; q git commit -m "firmware only on this side"
+q git checkout -q "$MAIN"
+echo inert >> docs/a.md
+q git add -A; q git commit -m "docs only on the other side"
+out="$(env -u CHECK_BUILD_RELEASE_ENVS "$TOOL" --range "sidebranch..$MAIN" 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ]; then
+  ok "--range ignores the OTHER side's firmware changes"
+else
+  bad "--range saw the other side's firmware: $out"
+fi
+
+# And it must still see firmware that the range genuinely adds.
+q git checkout -q sidebranch
+q git checkout -q "$MAIN"
+printf '#include <esp_sleep.h>\n' > src/added.cpp
+q git add -A; q git commit -m "firmware added by this side"
+out="$(env -u CHECK_BUILD_RELEASE_ENVS "$TOOL" --range "sidebranch..$MAIN" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ]; then
+  ok "--range still sees firmware the range really adds"
+else
+  bad "--range missed firmware it should have seen: $out"
+fi
+q git checkout -q "$MAIN"
+
+echo
+echo "device-build-needed --device-only"
+
+reset_tree; echo edit >> docs/a.md; q git add -A; q git commit -m d
+dev "docs only" no
+reset_tree; echo x > freeink-sdk; q git add -A; q git commit -m s
+dev "the freeink-sdk pointer" yes
+reset_tree; echo edit >> platformio.ini; q git add -A; q git commit -m p
+dev "platformio.ini" yes
+
+# An ordinary app-layer source file: the host target compiles it, so host-green
+# is real evidence and it can land without the lock.
+reset_tree; printf 'int f(){return 1;}\n' > src/plain.cpp; q git add -A; q git commit -m a
+dev "a plain src/ file the host target compiles" no
+
+# The same file once it reaches for something the host target does not have.
+reset_tree; printf '#include <esp_sleep.h>\nint f(){return 1;}\n' > src/plain.cpp
+q git add -A; q git commit -m e
+dev "a src/ file including an ESP-IDF header" yes
+reset_tree; printf '#if FREEINK_DEVICE_X4\nint f(){return 1;}\n#endif\n' > src/plain.cpp
+q git add -A; q git commit -m g
+dev "a src/ file behind a FREEINK_DEVICE_ guard" yes
+
+# CHECK_BUILD_RELEASE_ENVS must not answer for the other two modes. --committed
+# exports it, so while its short-circuit sat above them, every --range staleness
+# check inside a committed gate reported FIRMWARE whatever the commits touched,
+# and --device-only would have demanded a device gate for a docs change. The
+# variable means "this run builds release images"; it does not mean "the commits
+# you are asking about touch firmware" or "the host target cannot see this".
+echo
+echo "CHECK_BUILD_RELEASE_ENVS does not answer for --range or --device-only"
+
+reset_tree; echo edit >> docs/a.md; q git add -A; q git commit -m d
+if CHECK_BUILD_RELEASE_ENVS=1 "$TOOL" --device-only >/dev/null 2>&1; then
+  bad "--device-only demanded a device gate for docs, because release envs were requested"
+else
+  ok "--device-only ignores CHECK_BUILD_RELEASE_ENVS"
+fi
+if CHECK_BUILD_RELEASE_ENVS=1 "$TOOL" >/dev/null 2>&1; then
+  ok "the DEFAULT question still honours CHECK_BUILD_RELEASE_ENVS"
+else
+  bad "the default question stopped building for a release gate"
+fi
+
+reset_tree
+q git checkout -q -b relside
+echo edit >> docs/a.md; q git add -A; q git commit -m "docs on the far side"
+q git checkout -q "$MAIN"
+if CHECK_BUILD_RELEASE_ENVS=1 "$TOOL" --range "$MAIN..relside" >/dev/null 2>&1; then
+  bad "--range called a docs-only range firmware, because release envs were requested"
+else
+  ok "--range ignores CHECK_BUILD_RELEASE_ENVS"
+fi
+q git checkout -q "$MAIN"
 
 echo "$((PASS+FAIL)) checks, $FAIL failed"
 [ "$FAIL" -eq 0 ]

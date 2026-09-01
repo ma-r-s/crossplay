@@ -171,6 +171,29 @@ void testVersionOneStillOpens() {
   std::vector<hn::SavedArticle> parsed;
   CHECK(hn::parseSavedIndex(v1, parsed));
   CHECK(parsed.size() == 2);
+
+  // A version-1 library with FOUR columns rather than six. This is not
+  // hypothetical: it is the shape of Mario's own saved.tsv, written by the
+  // build this feature shipped in, and it is the file the feature exists to
+  // open. Deciding the column count from the version header alone read the
+  // title out of a field past the end of the row, produced an empty title,
+  // and discarded the entry as damage -- so his shelf came up empty while
+  // every assertion in this file passed, because they were all written from
+  // the same assumption as the parser.
+  {
+    const std::string urlC = "https://blog.google/company-news/inside-google/message-ceo/next";
+    std::string flat = "hnsaved 1\n";
+    flat += hn::savedIdFor(urlC) + "\t1785960335\tChanges at Google DeepMind\t" + urlC + "\n";
+
+    std::vector<hn::SavedArticle> four;
+    CHECK(hn::parseSavedIndex(flat, four));
+    CHECK(four.size() == 1);
+    if (four.size() == 1) {
+      CHECK_EQ(four[0].title, "Changes at Google DeepMind");
+      CHECK_EQ(four[0].url, urlC);
+      CHECK(four[0].savedAt == 1785960335);
+    }
+  }
   if (parsed.size() == 2) {
     CHECK_EQ(parsed[0].title, "Cloudflare OS: an open platform");
     CHECK_EQ(parsed[0].url, urlA);

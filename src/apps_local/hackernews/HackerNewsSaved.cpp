@@ -86,13 +86,23 @@ std::string serializeSavedIndex(const std::vector<SavedArticle>& articles) {
   return out;
 }
 
+// How many tab-separated columns a row actually has.
+int countFields(const std::string_view row) {
+  int n = 1;
+  for (const char c : row) {
+    if (c == '\t') ++n;
+  }
+  return n;
+}
+
 bool parseSavedIndex(const std::string_view text, std::vector<SavedArticle>& out) {
   out.clear();
   if (text.compare(0, sizeof(kMagic) - 1, kMagic) != 0) return false;
 
   size_t i = text.find('\n');
   const std::string_view header = text.substr(0, i == std::string_view::npos ? text.size() : i);
-  const int version = static_cast<int>(std::strtol(std::string(header.substr(sizeof(kMagic) - 1)).c_str(), nullptr, 10));
+  const int version =
+      static_cast<int>(std::strtol(std::string(header.substr(sizeof(kMagic) - 1)).c_str(), nullptr, 10));
   // A version from the future is not something to guess at: a library written
   // by a newer build is left exactly as it is rather than half-read and then
   // overwritten with whatever survived.
@@ -111,10 +121,17 @@ bool parseSavedIndex(const std::string_view text, std::vector<SavedArticle>& out
     SavedArticle article;
     article.id = field(row, cursor);
     article.savedAt = toUint(field(row, cursor));
-    // Version 1 carried an Instapaper bookmark id and a have-we-got-the-text
-    // flag here. Skipped rather than rejected, so a library saved before those
-    // columns went away still opens.
-    if (version == 1) {
+    // Version 1 SOMETIMES carried an Instapaper bookmark id and a
+    // have-we-got-the-text flag here, and sometimes did not: Mario's own
+    // library, written 2026-08-05 by the build this feature shipped in, is
+    // version 1 with four columns. Deciding from the version alone read his
+    // title out of a field past the end of the row, got an empty one, and
+    // discarded every entry as damage -- so the shelf came up empty for the
+    // one person who had anything on it.
+    //
+    // So count the row rather than trusting the header. Six columns means the
+    // two legacy ones are present; four means they never were.
+    if (version == 1 && countFields(row) >= 6) {
       field(row, cursor);
       field(row, cursor);
     }

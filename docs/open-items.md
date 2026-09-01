@@ -104,19 +104,54 @@ is fast, wire it through the HAL and acknowledge taps the way every e-reader
 does. If `displayWindow` is experimental because it does not work, say so here
 and instead reduce how many taps a game needs.
 
-## Flash is at 96.6% and every new screen costs some
+## The image no longer fits the OLD partition table, so early installs cannot OTA
 
-6,331,054 bytes of 6,553,600 after Sudoku, which cost 25KB for a whole game
-(a technique ladder is cheap: it is code and almost no data). About 222KB left.
+Measured 2026-08-31 on `xteink` at the end of the v1.12.0 batch, from a full
+`--committed` run rather than added across branches -- flash is a property of
+the SUM and per-branch figures do not add:
 
-Nothing is broken and no single change caused it, which is exactly why it is
-worth writing down: the failure mode is a build that does not fit, arriving
-without warning, on whichever app happens to be next.
+| env                 | bytes     | new slot (8,323,072) | old slot (6,553,600)   |
+| ------------------- | --------- | -------------------- | ---------------------- |
+| `gh_release_x4pro`  | 6,599,674 | 79.3%, 1.65MB spare  | **46,074 bytes OVER**  |
+| `gh_release_sticky` | 6,549,683 | 78.7%, 1.69MB spare  | 3,917 bytes under      |
 
-**Done looks like:** a measurement of what actually occupies the binary (fonts
-are the first suspect -- 80+ global `EpdFont` objects, though those are flash
-constants by design), and either headroom recovered or a written ceiling on how
-many more apps fit.
+**Re-measure rather than quoting these.** They were 6,560,918 and 7,318 over
+earlier the same night, before five branches landed. A figure like this rots
+within hours during a batch, and the previous version of this section asserted
+one of them as current for long enough that a scope decision was nearly made
+from it.
+
+The Sticky's 3,901 bytes is 0.06% of the slot. It fits today and one modest
+feature takes it over, and nothing measures that automatically.
+
+So on flash headroom the fork is comfortable, and the old "96.6% and every new
+screen costs some" framing this section used to carry was measuring against a
+ceiling that no longer applies to new installs.
+
+**What it does mean:** the partition table is written by a USB flash and NEVER
+by an OTA, so a device installed before v1.5.3 keeps 6.25MB slots for life. Any
+such device cannot receive this build over the air -- the write has nowhere to
+go. It crossed by 0.1%, which is the awkward part: a small trim would restore
+it, and every future app pushes it further away.
+
+**It already fails legibly, which was checked rather than assumed.**
+`OtaUpdater.cpp:164` compares the release's stated size against the partition
+BEFORE downloading and returns `TOO_LARGE_ERROR`, so the device does not erase
+its spare slot and grind through 6MB first;
+`OtaUpdateActivity.cpp:196` shows `STR_FIRMWARE_TOO_LARGE`, "Firmware too large
+for partition". Someone built this for exactly this day.
+
+The gap left is one sentence of wording: that message says what went wrong and
+not what to do about it, and the remedy (reflash once over USB, which rewrites
+the table and moves the device to 7.94MB slots permanently) currently exists
+only in a log line the user never sees.
+
+**Undecided, and a product call rather than a code one:** trim back under
+6,553,600 so every existing device stays updatable over the air, or accept the
+split and point affected users at a one-time USB reflash.
+
+**Done looks like:** the decision made and written here; and, either way, that
+string naming the remedy.
 
 ## The 1.6.0rc merge moved the reader's controls under a real user's hands
 
@@ -291,3 +326,16 @@ one path and not its twin.
 
 Move Study onto BridgeHttp the week `app/studyradio` merges. It is a delete and
 five call sites.
+
+## `!exists && !mkdir` wants to be a helper
+
+Five callers now spell the same guard by hand: `StudyActivity`,
+`ScreenshotUtil`, `BookmarkFile`, `FontInstaller`, and (as of 2026-08-31)
+`TriviaActivity`. SdFat's `mkdir` returns **false for a directory that already
+exists**, so a caller that treats false as failure works exactly once and then
+reports a full card forever.
+
+Trivia invented its own spelling and shipped the bug. Four independent
+rediscoveries of one idiom is the signal: a `Storage.ensureDir(path)` would mean
+the sixth caller inherits the contract instead of inventing it. Not urgent, but
+the next one will get it wrong the same way.
