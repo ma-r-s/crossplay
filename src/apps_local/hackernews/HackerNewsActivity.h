@@ -62,6 +62,9 @@ class HackerNewsActivity final : public Activity {
   enum class Pending : uint8_t { None, FrontPage, Article, Comments };
 
   void onWifiChosen(bool connected);
+  // Leaving the app when nothing is saved, showing the saved shelf when
+  // something is. One decision with two callers, because it has two.
+  void leaveOrShowSaved();
   void request(Pending what, const char* busyMessage);
 
   bool fetchFrontPage();
