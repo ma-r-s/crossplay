@@ -36,19 +36,54 @@ passing the device back to the clue-giver for the reveal.
 | 3   | PICK ONE        | Two spectra, chosen before the target is drawn.                |
 | 4   | YOUR TARGET     | Hold to reveal. The band shows only while a thumb is down.     |
 | 5   | SAY IT OUT LOUD | Both ends large, target confirmed hidden.                      |
-| 6   | DIAL            | Flat on the table. Keys or taps step the marker. Hold to lock. |
+| 6   | DIAL            | Flat on the table. Tap or hold to move. Hold the bar to lock.  |
 | 7   | WHICH WAY       | The end-call, worth one point.                                 |
 | 8   | REVEAL          | Full refresh. Band, guess, points, verdict.                    |
 | 9   | SESSION         | Totals against a reference, and the ornament again.            |
 
 Back unwinds to the menu, except from the peek onward, where it **abandons the
-round and passes left**. That is deliberate: if backing out re-dealt for the
+round and passes left**, and on the reveal, where it also returns to the menu.
+Back must never be a synonym for the forward button beside it: on the reveal it
+once dealt the next round, which reads as working right up until somebody wanted
+to look at the last screen again. That is deliberate: if backing out re-dealt for the
 same person, a clue-giver could quietly hunt for an easy axis, and the deck's
 strangest cards would never be played.
+
+## Moving the marker
+
+A tap above or below the marker steps it one slot; **a held finger walks it to
+the row under the finger and stops there**. It is a slide, not a runaway repeat,
+which matters on a panel that repaints between steps: without it, crossing the
+strip was up to nineteen separate taps and every cold tester named that as the
+game's pacing problem. `dialDirectionAt()` mirrors `layout()`'s arithmetic to
+decide the direction, so the two must move together.
+
+The marker resets to the middle of the strip each round. Carrying the last
+round's slot over reads as a suggestion, and the device is the one participant
+that cannot have an opinion about the answer.
+
+## What stops the clue-giver
+
+Three things, because the clue-giver is the only player who can break the game
+by accident:
+
+- **The peek cannot be skipped.** A tap on the pad reveals nothing, so I HAVE MY
+  CLUE refuses to leave until a thumb has actually been held down. Otherwise a
+  player invents a clue from nothing and finds out at the reveal.
+- **The peek is one-way.** No route back to the target once the clue is passed.
+- **The clue screen says `YOU DO NOT TOUCH IT AGAIN.`** Nothing else on the
+  device stops the one person who knows the answer from dialling it in, and the
+  device is about to hand them the strip and the scoring end-call.
 
 ## Scoring
 
 Exact 5, off by one 3, off by two 1, nothing beyond. A correct end-call adds 1.
+
+**At slot 1 and slot 20 there is only one end-call.** Nothing sits above 20, so
+calling toward the top there cannot be right and cannot be argued for: it is a
+strictly dominated option, which is a trap rather than a decision. Those two
+screens offer the answer that exists and say why.
+
 Round one is a practice round and does not score, because every table's first
 round is a zero and that is the worst place to land a discouraging number.
 
@@ -96,6 +131,14 @@ A character count is not a width. `LIVED IN` and `GROWN-UP` are both eight
 characters and differ by 70px at the display cut.
 
 ## Traps, all of them paid for
+
+**Every string on a button is a width, not a label.** The end words on the
+end-call were plain button labels, set at one fixed size, and the deck's four
+longest (UNDERRATED LETTER OF THE ALPHABET at 444px against about 440px of
+button interior) would have been ellipsised into a different word. `endButton()`
+steps the cut ladder the way `endWord()` does. The same measurement caught
+`PRACTICE. NOT SCORED.` at 570px of 448 within a minute of it being promoted to
+a larger slot for emphasis.
 
 **A slot is not a cut, and this app hit it three times.** The font slot decides
 how big the ink is; `CutMetrics` only decides where it is centred. Passing a
