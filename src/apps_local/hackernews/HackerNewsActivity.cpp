@@ -94,24 +94,31 @@ void HackerNewsActivity::onExit() {
   Storage.remove(kFrontPageTmp);
 }
 
+void HackerNewsActivity::leaveOrShowSaved() {
+  // Backing out of the Wi-Fi picker is not the same as wanting out of the app:
+  // the saved shelf is the half that works with no connection at all, and
+  // onEnter loads it before anything network happens for exactly that reason.
+  //
+  // THIS EXISTS AS A FUNCTION BECAUSE THE DECISION HAS TWO CALLERS. Leaving the
+  // picker arrives here by two routes -- the child activity reporting a cancel,
+  // and loop() seeing that same Back release while phase_ is still Connecting --
+  // and a first attempt at this fixed only onWifiChosen, so the app still
+  // walked out to the shelf and every saved article stayed unreachable.
+  if (!library_.articles().empty()) {
+    showingSaved_ = true;
+    buildSavedRows();
+    phase_ = Phase::List;
+    requestUpdate();
+    return;
+  }
+  // Nothing saved: without a network there is genuinely nothing to show, so
+  // leaving is still the honest answer.
+  shelf::leave(renderer, mappedInput);
+}
+
 void HackerNewsActivity::onWifiChosen(const bool connected) {
   if (!connected) {
-    // Backing out of the picker is not the same as wanting out of the app. The
-    // saved shelf is the half that works with no connection at all -- onEnter
-    // loads it before anything network happens for exactly that reason -- and
-    // routing this to shelf::leave() put the picker in front of it as a door
-    // that needs a network to open. On a train, that made every saved article
-    // unreachable: the text is on the card, and there was no way to it.
-    if (!library_.articles().empty()) {
-      showingSaved_ = true;
-      buildSavedRows();
-      phase_ = Phase::List;
-      requestUpdate();
-      return;
-    }
-    // Nothing saved: there is genuinely nothing to show without a network, so
-    // leaving is still the honest answer.
-    shelf::leave(renderer, mappedInput);
+    leaveOrShowSaved();
     return;
   }
   request(Pending::FrontPage, "FETCHING THE FRONT PAGE");
@@ -165,7 +172,9 @@ void HackerNewsActivity::loop() {
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     // Back walks out one layer at a time and never names where it lands; the
     // shelf owns the last step. See docs/shelf.md.
-    if (phase_ == Phase::List || phase_ == Phase::Connecting) {
+    if (phase_ == Phase::Connecting) {
+      leaveOrShowSaved();
+    } else if (phase_ == Phase::List) {
       shelf::leave(renderer, mappedInput);
     } else {
       // An article opened out of the library goes back to the library. Landing
