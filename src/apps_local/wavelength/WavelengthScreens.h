@@ -168,13 +168,9 @@ inline constexpr int kLockHoldMs = 600;
 // between each.
 int dialSlotAt(int16_t screenW, int16_t screenH, int16_t x, int16_t y);
 
-int dialDirectionAt(int16_t screenW, int16_t screenH, int guess, int16_t x, int16_t y);
-
 // A held finger keeps stepping. Design said so from the start and the code
 // never did it: three cold testers all reported that crossing the strip is
 // nine to nineteen separate taps on a screen that repaints slowly.
-inline constexpr int kStepRepeatFirstMs = 450;
-inline constexpr int kStepRepeatEveryMs = 180;
 
 void renderHowTo(toybox::Screen& screen);
 void renderMenu(toybox::Screen& screen, const MenuModel& model);

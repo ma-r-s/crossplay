@@ -187,33 +187,22 @@ void drawMarker(toybox::Screen& screen, const Geometry& g, const int guess) {
 }  // namespace
 
 int dialSlotAt(const int16_t screenW, const int16_t screenH, const int16_t x, const int16_t y) {
-  if (x < toybox::kMargin || x >= screenW - toybox::kMargin) return 0;
+  const int16_t boardW = static_cast<int16_t>(screenW * 5 / 16);
+  const int16_t rightEdge = static_cast<int16_t>(toybox::kMargin + 48 + boardW + 13);
+  if (x < toybox::kMargin || x >= rightEdge) return 0;
   const int16_t wordBox = toybox::kDisplayCut.lineHeight;
   const int16_t lockY = static_cast<int16_t>(screenH - toybox::kMargin - 62);
   const int16_t bottomWordY = static_cast<int16_t>(lockY - 10 - wordBox);
   const int16_t boardTop = static_cast<int16_t>(toybox::kMargin + wordBox + 18);
   const int16_t slot = static_cast<int16_t>((bottomWordY - 10 - boardTop) / kSlots);
-  if (slot <= 0 || y < boardTop || y >= boardTop + slot * kSlots) return 0;
+  if (slot <= 0) return 0;
+  const int16_t boardBottom = static_cast<int16_t>(boardTop + slot * kSlots);
+  if (y < boardTop - slot || y >= boardBottom + slot) return 0;
+  if (y < boardTop) return kSlots;
+  if (y >= boardBottom) return 1;
   const int row = (y - boardTop) / slot;
   const int result = kSlots - row;
-  return result < 1 || result > kSlots ? 0 : result;
-}
-
-int dialDirectionAt(const int16_t screenW, const int16_t screenH, const int guess, const int16_t x, const int16_t y) {
-  if (guess < 1 || guess > kSlots) return 0;
-  if (x < toybox::kMargin || x >= screenW - toybox::kMargin) return 0;
-  // Mirrors layout()'s arithmetic for the dial, which is the only screen using
-  // the default geometry.
-  const int16_t wordBox = toybox::kDisplayCut.lineHeight;
-  const int16_t lockY = static_cast<int16_t>(screenH - toybox::kMargin - 62);
-  const int16_t bottomWordY = static_cast<int16_t>(lockY - 10 - wordBox);
-  const int16_t boardTop = static_cast<int16_t>(toybox::kMargin + wordBox + 18);
-  const int16_t slot = static_cast<int16_t>((bottomWordY - 10 - boardTop) / kSlots);
-  const int16_t markerY = static_cast<int16_t>(boardTop + (kSlots - guess) * slot);
-  if (y < boardTop || y >= boardTop + slot * kSlots) return 0;
-  if (y < markerY) return 1;
-  if (y >= markerY + slot) return -1;
-  return 0;  // the marker's own row commits to nothing
+  return result < 1 ? 1 : (result > kSlots ? kSlots : result);
 }
 
 void renderDial(toybox::Screen& screen, const DialModel& model) {
@@ -261,11 +250,11 @@ void renderDial(toybox::Screen& screen, const DialModel& model) {
   caps(screen,
        fui::makeRect(g.right.x, static_cast<int16_t>(hintY + 2 * toybox::kButtonCut.lineHeight + 14), g.right.width,
                      toybox::kButtonCut.lineHeight),
-       "OR HOLD", toybox::kSmallFont, fui::TextAlign::Center);
+       "KEYS NUDGE", toybox::kSmallFont, fui::TextAlign::Center);
   caps(screen,
        fui::makeRect(g.right.x, static_cast<int16_t>(hintY + 3 * toybox::kButtonCut.lineHeight + 14), g.right.width,
                      toybox::kButtonCut.lineHeight),
-       "A SLOT", toybox::kSmallFont, fui::TextAlign::Center);
+       "IT BY ONE", toybox::kSmallFont, fui::TextAlign::Center);
   caps(screen,
        fui::makeRect(g.right.x, static_cast<int16_t>(hintY + 5 * toybox::kButtonCut.lineHeight + 24), g.right.width,
                      toybox::kButtonCut.lineHeight),
@@ -274,18 +263,6 @@ void renderDial(toybox::Screen& screen, const DialModel& model) {
        fui::makeRect(g.right.x, static_cast<int16_t>(hintY + 6 * toybox::kButtonCut.lineHeight + 24), g.right.width,
                      toybox::kButtonCut.lineHeight),
        "ONLY", toybox::kSmallFont, fui::TextAlign::Center);
-
-  // Two hit regions, not twenty. Geometry resolves which half was tapped, the
-  // same shape as murdleui::cellAt: a slot per interaction would spend twenty of
-  // the screen's twenty-four and leave the rest drawing but dead.
-  const int16_t markerY = slotTop(g, model.guess);
-  const int16_t zoneX = toybox::kMargin;
-  const int16_t zoneW = static_cast<int16_t>(screen.device().screen().width - 2 * toybox::kMargin);
-  screen.frame().hit(fui::makeRect(zoneX, g.board.y, zoneW, static_cast<int16_t>(markerY - g.board.y)),
-                     ActionStepTowardTop);
-  screen.frame().hit(fui::makeRect(zoneX, static_cast<int16_t>(markerY + g.slot), zoneW,
-                                   static_cast<int16_t>(g.board.y + g.board.height - markerY - g.slot)),
-                     ActionStepTowardBottom);
 
   // Deliberately NOT given an action. A tap must not commit: the activity
   // watches for a sustained hold on this exact rect instead, so the label is

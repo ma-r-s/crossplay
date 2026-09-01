@@ -194,12 +194,6 @@ void WavelengthActivity::routeAction(const int action) {
       // five.
       go(view == View::Peek ? View::Clue : View::Dial);
       break;
-    case wavelengthui::ActionStepTowardTop:
-      step(1);
-      break;
-    case wavelengthui::ActionStepTowardBottom:
-      step(-1);
-      break;
     case wavelengthui::ActionLock:
       lockIn();
       break;
@@ -368,37 +362,6 @@ void WavelengthActivity::loop() {
     }
   }
 
-  // A held finger keeps stepping. Crossing the strip was up to nineteen separate
-  // taps on a slow panel, which three cold testers each called out as the
-  // game's pacing problem.
-  if (view == View::Dial) {
-    int rx = 0;
-    int ry = 0;
-    if (mappedInput.isScreenTouchHeld(rx, ry)) {
-      const int dir = wavelengthui::dialDirectionAt(static_cast<int16_t>(renderer.getScreenWidth()),
-                                                    static_cast<int16_t>(renderer.getScreenHeight()), guess,
-                                                    static_cast<int16_t>(rx), static_cast<int16_t>(ry));
-      if (dir != 0) {
-        const uint32_t now = millis();
-        if (stepHoldStartMs == 0) {
-          stepHoldStartMs = now;
-          lastRepeatMs = 0;
-        } else if (now - stepHoldStartMs >= static_cast<uint32_t>(wavelengthui::kStepRepeatFirstMs)) {
-          if (lastRepeatMs == 0 || now - lastRepeatMs >= static_cast<uint32_t>(wavelengthui::kStepRepeatEveryMs)) {
-            lastRepeatMs = now;
-            step(dir);
-            return;
-          }
-        }
-      } else {
-        stepHoldStartMs = 0;
-      }
-    } else {
-      stepHoldStartMs = 0;
-      lastRepeatMs = 0;
-    }
-  }
-
   if (view == View::Dial) {
     if (mappedInput.wasReleased(MappedInputManager::Button::Up)) {
       step(1);
@@ -406,6 +369,10 @@ void WavelengthActivity::loop() {
     }
     if (mappedInput.wasReleased(MappedInputManager::Button::Down)) {
       step(-1);
+      return;
+    }
+    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+      lockIn();
       return;
     }
   }

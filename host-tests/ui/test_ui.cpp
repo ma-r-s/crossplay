@@ -5244,15 +5244,35 @@ void testTheReaderTextGoesInTheReaderBody() {
 // to work with, and before this it returned the ellipsis and nothing else --
 // which is how the Instapaper pairing screen came to ask "IS THIS YOU?" over a
 // row reading "...". Half an address beats none of one.
-// The strip's two hit tests each re-derive layout()'s arithmetic. Two copies of
-// one layout is how a tap zone drifts away from the marker it is meant to sit
-// under, and neither copy looks wrong on its own -- so this asserts they agree
-// with each other over every point on the panel rather than trusting either.
+// A tap places the marker, so every slot on the strip must be reachable by one.
+// A rounding error at either end silently makes slot 1 or slot 20 untappable,
+// and those are the two the deck's clearest clues point at.
 // Every reachable WAVELENGTH screen must offer a way onward that is not the
 // hardware Back key. A practice reveal once lost its NEXT ROUND button to an
 // early return and looked entirely finished without it: a cold table tried
 // fourteen different gestures and sixteen seconds of waiting on the first round
 // of the very first session.
+void testWavelengthEveryRevealOffersAWayOn() {
+  for (const bool practice : {false, true}) {
+    Rendered out;
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    wavelengthui::RevealModel model;
+    model.spectrum = wavelengthui::Spectrum{"HOT", "COLD"};
+    model.practice = practice;
+    model.guess = 7;
+    model.target = 9;
+    wavelengthui::renderReveal(screen, model);
+    bool found = false;
+    for (const FakeTarget::TextRun& run : out.target.texts)
+      if (run.text == "NEXT ROUND") found = true;
+    if (!found) std::printf("  reveal with practice=%d has no way forward\n", static_cast<int>(practice));
+    CHECK(found);
+  }
+}
+
 // The two ends of one spectrum are a single object and must be set at a single
 // size. Sized independently, the longer pole dropped a whole cut: PHYSICAL
 // ACTIVITY printed at half the height of MENTAL ACTIVITY in the same card, and
@@ -5292,67 +5312,43 @@ void testWavelengthSpectrumEndsShareOneSize() {
   }
 }
 
-void testWavelengthEveryRevealOffersAWayOn() {
-  for (const bool practice : {false, true}) {
-    Rendered out;
-    const fui::DeviceContext ctx = device();
-    const fui::InputSnapshot noInput{};
-    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
-    toybox::Screen screen(frame, toybox::themeTokens());
-    wavelengthui::RevealModel model;
-    model.spectrum = wavelengthui::Spectrum{"HOT", "COLD"};
-    model.practice = practice;
-    model.guess = 7;
-    model.target = 9;
-    wavelengthui::renderReveal(screen, model);
-    bool found = false;
-    for (const FakeTarget::TextRun& run : out.target.texts)
-      if (run.text == "NEXT ROUND") found = true;
-    if (!found) std::printf("  reveal with practice=%d has no way forward\n", static_cast<int>(practice));
-    CHECK(found);
-  }
-}
-
-void testWavelengthStripHitTestsAgree() {
-  const int16_t w = 480;
-  const int16_t h = 800;
-  int checked = 0;
-  for (int guess = 1; guess <= wavelength::kSlots; ++guess) {
-    for (int16_t y = 0; y < h; y = static_cast<int16_t>(y + 3)) {
-      const int slot = wavelengthui::dialSlotAt(w, h, 240, y);
-      const int dir = wavelengthui::dialDirectionAt(w, h, guess, 240, y);
-      if (slot == 0) {
-        // Off the board for one must be off the board for the other.
-        CHECK(dir == 0);
-        continue;
-      }
-      const int expected = slot > guess ? 1 : (slot < guess ? -1 : 0);
-      if (dir != expected) {
-        std::printf("  slot %d guess %d y %d: direction %d, expected %d\n", slot, guess, static_cast<int>(y), dir,
-                    expected);
-        CHECK(false);
-        return;
-      }
-      ++checked;
-    }
-  }
-  CHECK(checked > 3000);
-}
-
-// A tap places the marker, so every slot on the strip must be reachable by one.
-// A rounding error at either end silently makes slot 1 or slot 20 untappable,
-// and those are the two the deck's clearest clues point at.
 void testWavelengthEverySlotIsTappable() {
   const int16_t w = 480;
   const int16_t h = 800;
   bool seen[wavelength::kSlots + 1] = {};
   for (int16_t y = 0; y < h; ++y) {
-    const int slot = wavelengthui::dialSlotAt(w, h, 240, y);
+    const int slot = wavelengthui::dialSlotAt(w, h, 140, y);
     if (slot >= 1 && slot <= wavelength::kSlots) seen[slot] = true;
   }
   for (int i = 1; i <= wavelength::kSlots; ++i) {
     if (!seen[i]) std::printf("  slot %d cannot be tapped\n", i);
     CHECK(seen[i]);
+  }
+
+  // One slot of overshoot at either end clamps to that end rather than being
+  // ignored. Beyond that it is off the board and must stay inert.
+  bool sawTop = false;
+  bool sawBottom = false;
+  bool clampedFarAway = false;
+  for (int16_t y = 0; y < h; ++y) {
+    const int slot = wavelengthui::dialSlotAt(w, h, 140, y);
+    if (slot == wavelength::kSlots) sawTop = true;
+    if (slot == 1) sawBottom = true;
+  }
+  CHECK(sawTop);
+  CHECK(sawBottom);
+  if (wavelengthui::dialSlotAt(w, h, 140, 0) != 0) clampedFarAway = true;
+  if (wavelengthui::dialSlotAt(w, h, 140, static_cast<int16_t>(h - 1)) != 0) clampedFarAway = true;
+  if (clampedFarAway) std::printf("  a tap far off the board still moves the mark\n");
+  CHECK(!clampedFarAway);
+
+  // And the other half: the instruction column is not part of the board.
+  for (int16_t y = 0; y < h; ++y) {
+    if (wavelengthui::dialSlotAt(w, h, 300, y) != 0) {
+      std::printf("  tapping the instruction column at y=%d moves the mark\n", static_cast<int>(y));
+      CHECK(false);
+      return;
+    }
   }
 }
 
@@ -5514,7 +5510,6 @@ int main() {
   testTheReaderTextGoesInTheReaderBody();
   testWavelengthSpectrumEndsShareOneSize();
   testWavelengthEveryRevealOffersAWayOn();
-  testWavelengthStripHitTestsAgree();
   testWavelengthEverySlotIsTappable();
   testFitLinesCutsAnUnbreakableTokenRatherThanVanishing();
 
