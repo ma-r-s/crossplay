@@ -11,8 +11,8 @@
 #include "../Shelf.h"
 #include "../ui/Toybox.h"
 #include "../ui/ToyboxFonts.h"
-#include "../ui/ToyboxSeed.h"
 #include "../ui/ToyboxIcons.h"
+#include "../ui/ToyboxSeed.h"
 #include "../ui/ToyboxTheme.h"
 #include "JaipurArt.h"
 #include "JaipurGoods.h"
@@ -178,7 +178,6 @@ void describeLastMove(const jaipur::Game& game, const int viewer, char* out, con
     std::snprintf(out + used, size - used, " + BONUS");
   }
 }
-
 
 bool hits(const Rect& box, const int x, const int y) {
   return x >= box.x && x < box.x + box.width && y >= box.y && y < box.y + box.height;
@@ -603,8 +602,7 @@ void JaipurActivity::drawHandCounter(const Rect& box, const int good, const int 
   // Centred in what the count leaves, rather than hung off the bottom edge.
   const freeink::Icon& mark = goodIcon(good, MarkSize::Hand);
   const int zoneTop = box.y + 6 + countBand;
-  blitIcon(renderer, mark, box.x + (box.width - mark.w) / 2,
-           zoneTop + (box.y + box.height - zoneTop - mark.h) / 2);
+  blitIcon(renderer, mark, box.x + (box.width - mark.w) / 2, zoneTop + (box.y + box.height - zoneTop - mark.h) / 2);
 }
 
 void JaipurActivity::drawPile(const Rect& box, const int good) const {
@@ -709,17 +707,22 @@ void JaipurActivity::drawTheirSide(const Rect& box) const {
 
 void JaipurActivity::drawScoreStrip(const Rect& box) const {
   const int them = 1 - seat;
-  // Your own score is exact: you drew your bonus tokens and you may look at
-  // them. Theirs is what is face up plus a count of what is not, because a
-  // bonus token's value is printed on the back.
+  // Both columns are the same quantity read from the same side of the table:
+  // everything you can honestly know about that seat. Your own score is exact,
+  // because you drew your bonus tokens and you may look at them. Theirs is what
+  // is face up plus a count of what is not, because a bonus token's value is
+  // printed on the back. Camels are face up for both, so the 5 rupee token
+  // counts wherever the herds say it sits.
   char line[80];
+  const int yours = game.visibleScore(seat, seat);
+  const int theirs = game.visibleScore(seat, them);
   const int theirBonusCount = game.bonusTokenCount(them);
   if (theirBonusCount > 0) {
     std::snprintf(line, sizeof(line), "SEALS %d-%d   YOU %d   THEM %d+%d?   DECK %d", game.seals[seat],
-                  game.seals[them], game.score(seat), game.goodsRupees(them), theirBonusCount, game.deckRemaining());
+                  game.seals[them], yours, theirs, theirBonusCount, game.deckRemaining());
   } else {
     std::snprintf(line, sizeof(line), "SEALS %d-%d   YOU %d   THEM %d   DECK %d", game.seals[seat], game.seals[them],
-                  game.score(seat), game.goodsRupees(them), game.deckRemaining());
+                  yours, theirs, game.deckRemaining());
   }
   const int font = fittedFont(renderer, line, box.width);
   toybox::drawCapsCentered(renderer, font, box.x, box.y, box.height, line, true);
@@ -883,7 +886,6 @@ void JaipurActivity::drawRoundSurface(const Rect& body) const {
   }
 }
 
-
 // The menu's table: every good, what the market is offering of it, and what it
 // pays right now.
 //
@@ -1006,7 +1008,6 @@ void JaipurActivity::drawResultArt(const Rect& slot) const {
     toybox::drawCapsCentered(renderer, toybox::kDisplayFontId, colCx[c] - tw / 2, y, 44, total, true);
   }
 }
-
 
 // --- the game you left ------------------------------------------------------
 
