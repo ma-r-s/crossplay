@@ -69,5 +69,25 @@ problem and was a missing hash. Expect to spend time here rather than none.
 
 ## 6. Later: open it
 
-Submit the app for review; when approved, set `READ_ALLOWLIST=*` and add the
-Cloudflare rate-limiting rules in the same sitting. Not before.
+The app is **submitted for review** (pressed 2026-08-31). When approval lands,
+set `READ_ALLOWLIST=*` and add the Cloudflare rate-limiting rules IN THE SAME
+SITTING. Not before, and not one without the other -- an open allowlist without
+those rules is the credential-stuffing oracle this ordering exists to avoid.
+
+## Before any of it: can this machine even reach the pi?
+
+    ssh orange 'echo up'                          # the deploy path
+    curl -sS https://sync.ma-r-s.com/healthz      # is the pi serving at all?
+
+Those answer different questions and on 2026-08-31 they disagreed, which sent
+one session to the wrong conclusion. The Anki bridge answered 200 -- the box
+was up, cloudflared was up, it was serving the public internet -- while `ssh
+orange` could not resolve, because this machine had no route to it under that
+name: no `~/.ssh/config` entry, and `known_hosts` holding 192.168.68.x,
+192.168.1.x and tailscale 100.x addresses while the machine sat on
+192.168.20.0/24.
+
+So: a failing `ssh` says nothing about the pi. Check the tunnel before
+concluding anything about the box, and note that `read.ma-r-s.com` failing with
+a DNS error rather than a connection error means step 4 has not been done --
+not that anything is broken.
