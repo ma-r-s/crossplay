@@ -161,6 +161,17 @@ and then on a space, balanced across two lines. Hyphenating a single word inside
 a tile was the first thing Mario rejected on sight, and he was right: a word
 split in half is unreadable in a way that a smaller word never is.
 
+**A grid of equals shrinks together.** The rule above sizes one text against one
+box, and applied per box it breaks a grid: sixteen Connections tiles that mean
+"compare these against each other" were each sized against their own word, so a
+long one came out a quarter smaller than the fifteen beside it and read as the
+odd one out. On a set of interchangeable candidates, size is not available as a
+property of a member. Measure the whole set, pick the largest cut the WIDEST of
+them fits, and set them all in it (`connectionsui::chooseTileCut`). It costs the
+board a size step on 62% of the published archive, and it is still cheaper than
+one tile claiming to matter more. This does not apply where the boxes are not
+peers -- a header and its subtitle are meant to differ.
+
 **A name inside a sentence is a short name.** When the device name grew from two
 words to three, chess's status capsule went from "CALM FINCH'S MOVE" to "SHAGGY
 SLEEPY GOATEE'S MOVE" -- and what the component dropped was "MOVE", the one word

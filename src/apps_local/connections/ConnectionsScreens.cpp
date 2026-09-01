@@ -41,8 +41,65 @@ void toyboxChrome(toybox::Screen& screen, const char* title, const char* rightLa
   }
 }
 
+// The word's share of a tile. Both the sizing pass and the draw pass have to
+// inset identically or the board is sized against a width it is not drawn in,
+// so the insets are written once.
+constexpr fui::Insets kTileTextInsets{2, kTilePad, 2, kTilePad};
+
+// The cuts a tile's word may be set in.
+//
+// NOT "largest first": which of these two slots holds the bigger face is a
+// property of the caller's binding, not of the slots. On the board they are the
+// 20px and 15px serif cuts in that order only because ConnectionsActivity
+// rebinds FONT_SLOT_BODY to kSerifSmallFontId immediately before the tile pass
+// (View::Board in ConnectionsActivity.cpp). Every other Connections screen
+// takes serifMenuFaces(), where the two slots are the other way round -- small
+// holds the 15px cut and body the 20px -- so an order-dependent ladder would
+// step UP there. chooseTileCut() therefore asks each face for its line height
+// instead of trusting this array's order, and the rebind above can change
+// without silently inverting the result.
+constexpr fui::FontId kTileCuts[2] = {toybox::kTileFont, toybox::kBodyFont};
+
+// One size for all sixteen tiles: the largest cut whose WIDEST word still fits
+// a tile, or the smallest cut when none of them does.
+//
+// Sizing each tile against its own word made a long word set a quarter smaller
+// than the fifteen beside it, and on a board whose whole premise is sixteen
+// interchangeable candidates a size difference reads as significance that is
+// not there. Measured at draw time against the real face, for the reason
+// murdleui's drawLegend gives (MurdleScreens.cpp): the host tests' draw
+// target answers a flat ten pixels a character and would call any of this fine.
+fui::FontId chooseTileCut(toybox::Screen& screen, const char* const* words, const int count, const int innerWidth) {
+  fui::TextStyle probe;
+  probe.align = fui::TextAlign::Center;
+  probe.maxLines = 1;
+
+  fui::FontId smallest = kTileCuts[0];
+  int16_t smallestHeight = 0;
+  fui::FontId fitting = kTileCuts[0];
+  int16_t fittingHeight = -1;
+
+  for (const fui::FontId cut : kTileCuts) {
+    const int16_t height = screen.target().lineHeight(cut);
+    if (smallestHeight == 0 || height < smallestHeight) {
+      smallestHeight = height;
+      smallest = cut;
+    }
+    bool fits = true;
+    for (int i = 0; i < count && fits; ++i) {
+      fits = screen.target().measureText(cut, words[i], probe).width <= innerWidth;
+    }
+    if (fits && height > fittingHeight) {
+      fittingHeight = height;
+      fitting = cut;
+    }
+  }
+  return fittingHeight >= 0 ? fitting : smallest;
+}
+
 // Lays a tile's word out over up to three centred lines, breaking inside a word
-// when it has to.
+// when it has to. The cut is decided for the whole board by chooseTileCut() and
+// handed in, so the split below is the only per-tile decision left.
 //
 // Not the target's own multi-line text(): that delegates to the renderer's
 // wrappedText(), which only ever breaks at a space and then ellipsises. A tile
@@ -52,29 +109,20 @@ void toyboxChrome(toybox::Screen& screen, const char* title, const char* rightLa
 //
 // Each emitted line is drawn as its own single-line run, so it is measured
 // before it is drawn and can never be the thing that overflows.
-void drawTileText(toybox::Screen& screen, const fui::Rect& box, const char* word, const bool inverted) {
-  const fui::Rect inner = box.inset(fui::Insets{2, kTilePad, 2, kTilePad});
+void drawTileText(toybox::Screen& screen, const fui::Rect& box, const char* word, const bool inverted,
+                  const fui::FontId cut) {
+  const fui::Rect inner = box.inset(kTileTextInsets);
 
   fui::TextStyle style;
   style.align = fui::TextAlign::Center;
   style.maxLines = 1;
   style.color = inverted ? fui::Color::White : fui::Color::Black;
-
-  // Shrink to fit, never break. A word is the tile's whole content, so splitting
-  // it across lines makes it a different word to read; setting it smaller does
-  // not. Two cuts of the same face, largest first.
-  const fui::FontId cuts[2] = {toybox::kTileFont, toybox::kBodyFont};
-  style.font = cuts[1];
-  for (const fui::FontId cut : cuts) {
-    if (screen.target().measureText(cut, word, style).width <= inner.width) {
-      style.font = cut;
-      break;
-    }
-  }
+  style.font = cut;
 
   const int16_t lineHeight = screen.target().lineHeight(style.font);
   if (screen.target().measureText(style.font, word, style).width > inner.width) {
-    // Nothing fits, even at the smaller cut: JOHANNESBURGER is fourteen letters
+    // Too wide even at the board's cut, which chooseTileCut() has already
+    // dropped to the smallest available: JOHANNESBURGER is fourteen letters
     // with nowhere to break. Only here is the word split, and it is split into
     // halves rather than filled greedily, because "JOHANNESBURGE / R" orphans a
     // letter and reads as a bug. The renderer's own wrapper is no use for this:
@@ -87,15 +135,15 @@ void drawTileText(toybox::Screen& screen, const fui::Rect& box, const char* word
     int parts = 2;
     while (parts < 3 && screen.target().measureText(style.font, word, style).width / parts > inner.width) ++parts;
     if (parts == 3) {
-      int cut[4] = {0, length / 3, (2 * length) / 3, length};
+      int bound[4] = {0, length / 3, (2 * length) / 3, length};
       for (int i = 1; i < 3; ++i) {
         for (int slack = 0; slack <= 4; ++slack) {
-          if (cut[i] - slack > cut[i - 1] && word[cut[i] - slack] == ' ') {
-            cut[i] -= slack;
+          if (bound[i] - slack > bound[i - 1] && word[bound[i] - slack] == ' ') {
+            bound[i] -= slack;
             break;
           }
-          if (cut[i] + slack < cut[i + 1] && word[cut[i] + slack] == ' ') {
-            cut[i] += slack;
+          if (bound[i] + slack < bound[i + 1] && word[bound[i] + slack] == ' ') {
+            bound[i] += slack;
             break;
           }
         }
@@ -103,8 +151,8 @@ void drawTileText(toybox::Screen& screen, const fui::Rect& box, const char* word
       const int top3 = inner.y + (inner.height - lineHeight * 3) / 2;
       for (int i = 0; i < 3; ++i) {
         char part[connections::kMaxWordLen + 2] = {};
-        const int span = cut[i + 1] - cut[i];
-        std::memcpy(part, word + cut[i], static_cast<size_t>(span));
+        const int span = bound[i + 1] - bound[i];
+        std::memcpy(part, word + bound[i], static_cast<size_t>(span));
         part[span] = '\0';
         const char* text = part[0] == ' ' ? part + 1 : part;
         screen.target().text(fui::makeRect(inner.x, top3 + i * lineHeight, inner.width, lineHeight), text, style);
@@ -234,7 +282,19 @@ void buildBoardTiles(toybox::Screen& screen, const BoardModel& model, const Boar
   if (game.result() == connections::Result::Lost) return;
 
   // Tiles fill the rows the solved groups have not taken.
-  for (int i = 0; i < game.tileCount(); ++i) {
+  const int tiles = game.tileCount();
+  if (tiles <= 0) return;
+
+  // Every tile on the board is set in one cut, chosen against the widest word
+  // still on it. Solving a group can therefore hand the rest of the board a
+  // larger cut, which is right: the tiles you are still comparing stay
+  // interchangeable, and the set only ever gets easier to read.
+  const char* words[connections::kTiles];
+  for (int i = 0; i < tiles; ++i) words[i] = game.tileWord(i);
+  const int16_t innerWidth = fui::makeRect(0, 0, kTileWidth, rowHeight).inset(kTileTextInsets).width;
+  const fui::FontId cut = chooseTileCut(screen, words, tiles, innerWidth);
+
+  for (int i = 0; i < tiles; ++i) {
     const int col = i % 4;
     const int row = revealed + i / 4;
     const fui::Rect box = fui::makeRect(grid.x + col * (kTileWidth + kTileGap), blockTop + row * (rowHeight + kTileGap),
@@ -248,7 +308,7 @@ void buildBoardTiles(toybox::Screen& screen, const BoardModel& model, const Boar
       screen.target().fill(box, fui::Paint::solid(fui::Color::White));
       screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), toybox::kHairline);
     }
-    drawTileText(screen, box, game.tileWord(i), chosen);
+    drawTileText(screen, box, game.tileWord(i), chosen, cut);
   }
 }
 
