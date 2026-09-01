@@ -18,25 +18,39 @@ Measured with `tools_local/trivia/audit_options.py`, which deals 400 sets the
 way the device does (the answer plus three of the six stored distractors) and
 counts what could be used:
 
-| | shipped pack | rebuilt |
-| --- | --- | --- |
-| an option of another kind | 12.5% | **1.2%** |
-| options not capitalised alike | 8.0% | **0.0%** |
-| an option out of its own time | 11.2% | **2.5%** |
-| a region named, one option in it | 15.5% | **4.5%** |
-| two options that are one thing | 2.0% | **0.0%** |
-| answer is the longest option (chance 25%) | 13.5% | 14.2% |
-| playable as multiple choice | 14,388 | **15,959** |
+| | shipped pack | rebuilt | how it was counted |
+| --- | --- | --- | --- |
+| two options that are one thing | 5.3% | **0.0%** | every stored set |
+| options not capitalised alike | 9.9% | **0.0%** | every stored set |
+| a region named, one option in it | 15.5% | **5.5%** | 400 dealt sets |
+| an option of another kind | 12.8% | **1.0%** | 400 dealt sets, see caveat |
+| an option out of its own time | 2.2% | 1.8% | 400 dealt sets, independent half only |
+| answer is the longest option (chance 25%) | 13.5% | 13.5% | 400 dealt sets |
+| playable as multiple choice | 14,388 | **18,485** | |
 
-Three samples, not one lucky draw. Seeds 1/2/3: kind 12.5/8.8/10.5 ->
-1.2/0.5/1.2, case 8.0/6.5/4.8 -> 0.0/0.0/0.0, period 11.2/11.8/11.2 ->
-2.5/1.2/1.0, region 15.5/14.8/12.0 -> 4.5/7.0/5.5, twins 2.0/1.5/1.0 ->
-0.0/0.0/0.0.
+Seeds 1/2/3, so none of it is one lucky draw: kind 12.8/9.0/10.8 -> 1.0/2.2/1.5,
+region 15.5/14.8/12.0 -> 5.5/5.2/5.0, period 2.2/1.8/2.8 -> 1.8/2.2/1.5.
 
-Over the subset each check can actually score, the two that dominate move
-21.9% -> 2.2% (kind) and 38.5% -> 7.5% (period). Coverage went UP, not down:
-the questions lost to stricter typing are outnumbered by the ones a correct
-head noun made typeable for the first time.
+**Two of these numbers do not mean what they look like, and a cold review of
+the sampler is what established that.**
+
+- **The period row is flat, and that is the honest reading.** The check had two
+  halves and one of them was literally the picker's own `existed()` table, so
+  it went 36 -> 0 by construction and cannot fail. Adding the halves together
+  turned a tautology into a 38.5% -> 5.6% headline. The shared half is now
+  printed on its own line and excluded; what is left moved 2.2% -> 1.8%, which
+  is noise. **The anachronisms this fix removes are the ones somebody wrote
+  into a table.**
+- **The kind row is largely circular.** The sampler's rule agrees with the
+  picker's head noun 99.8% of the time, and 73% of options are certified "right
+  kind" by the same corpus token that put them in the pool. Two deliberately
+  wrong merges (queen into king, novel into film), each changing over ten
+  thousand option sets, moved this count by ZERO. Read it as "the
+  first-word-after-this mis-typing is gone" -- which it does prove, because
+  that mutant IS caught -- and not as "the options are the same kind of thing".
+
+The two rows counted exhaustively are the ones to trust without caveat, and the
+region row is the most independent of the sampled ones.
 
 **Read what the sampler cannot see.** It prints the list on every run and the
 list is longer than the numbers: it knows about 90 families of thing and

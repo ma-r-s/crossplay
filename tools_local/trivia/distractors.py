@@ -86,6 +86,22 @@ one two three four five six seven eight nine ten
 """.split()
 )
 
+# Present-tense verbs a clue puts straight after the head noun ("this country
+# DRIVE ...", "this state OBSERVE ..."). -ed/-ing/-s morphology cannot see them,
+# and _key gives up at the first lowercase non-head rather than walking past it,
+# so each one silently costs a question its options: 847 of them.
+BARE_VERBS = set(
+    """
+drive include observe contain feature offer produce provide serve mean cover span border
+house hold run lie sit stand link connect flow rise form name call use make take give get
+put say see know find come go want need seem look appear become remain stay keep let help
+show tell ask work play live die grow open close start begin end win lose beat meet join
+leave arrive reach cross pass follow lead carry bring send receive accept allow require
+mark celebrate honor honour separate divide surround face front adjoin rank measure weigh
+stretch extend total number range vary differ consist comprise
+""".split()
+)
+
 IRREGULAR_PAST = set(
     """
 became began brought bought built came chose cut drew drove fell felt flew found gave
@@ -100,7 +116,9 @@ stood stole struck swam taught thought threw told took wore won wrote lay dealt 
 MAX_PHRASE = 5
 
 _TOKEN = re.compile(r"[A-Za-z][A-Za-z'’-]*|\d+[a-z]*")
-_DEMO = re.compile(r"\b(?:this|these)\s+")
+# Case-insensitive: 6,067 clues OPEN with "This"/"These", and only 6 of them
+# were playable while this pattern was not.
+_DEMO = re.compile(r"\b(?:this|these)\s+", re.I)
 
 
 def phrases(clue):
@@ -129,7 +147,7 @@ def phrases(clue):
                 break
             raw = tm.group(0)
             low = raw.lower()
-            if low in FUNC_STOP or low in IRREGULAR_PAST:
+            if low in FUNC_STOP or low in IRREGULAR_PAST or low in BARE_VERBS:
                 closed = True
                 if low == "of" and toks:
                     nxt = _TOKEN.match(clue, tm.end() + 1)
@@ -204,6 +222,10 @@ TYPE_STOP = {
     "topic",
     "figure",
     "category",
+    # A celestial body and a celebrity share this word and no "of" tail
+    # separates them: the pool offered Sirius and the North Star against
+    # Michael Jordan.
+    "star",
     "answer",
     "question",
     "clue",
@@ -235,7 +257,6 @@ TYPE_SYN = {
     "violinist": "musician",
     "drummer": "musician",
     "rapper": "musician",
-    "band": "musician",
     "crooner": "musician",
     "actress": "actor",
     "comedian": "actor",
@@ -250,7 +271,6 @@ TYPE_SYN = {
     "strait": "channel",
     "gem": "gemstone",
     "gemstone": "gemstone",
-    "stone": "gemstone",
     "tsar": "czar",
     "monarch": "king",
     "sovereign": "king",
@@ -267,7 +287,6 @@ TYPE_SYN = {
     "conflict": "war",
     "battle": "battle",
     "college": "university",
-    "school": "university",
     "firm": "company",
     "corporation": "company",
     "business": "company",
@@ -276,6 +295,16 @@ TYPE_SYN = {
     "malady": "disease",
     "booze": "liquor",
     "spirit": "liquor",
+}
+
+# Lowercase modifiers that change WHAT KIND of thing is being asked for, so they
+# are kept even though the corpus never uses them as a bare type. Without
+# `vice`, "this vice president" and "this president" are one pool -- which is
+# how Agnew, Quayle and Aaron Burr came to be offered as presidents.
+MODIFIER_KEEP = {
+    "vice", "deputy", "assistant", "acting", "prime", "chief", "grand",
+    "former", "future", "fictional", "mythical", "imaginary", "legendary",
+    "ancient", "medieval", "modern", "female", "male",
 }
 
 IRREGULAR_PLURAL = {
@@ -413,9 +442,11 @@ class TypeIndex:
         """
         if word in self.heads:
             return False
+        if word in BARE_VERBS:
+            return True
         if len(word) >= 5 and (word.endswith("ed") or word.endswith("ing")):
             return True
-        if len(word) >= 4 and word.endswith("s"):
+        if len(word) >= 4 and word.endswith("s") and not word.endswith("ss"):
             stem = word[:-2] if word.endswith("es") else word[:-1]
             return stem not in self.heads and word[:-1] not in self.heads
         return False
@@ -458,7 +489,7 @@ class TypeIndex:
                 mods = {
                     w
                     for w, c, _p in cut[:i]
-                    if c or (self.head(w) and self.head(w) != h)
+                    if c or w in MODIFIER_KEEP or (self.head(w) and self.head(w) != h)
                 }
                 if of_ and of_ not in ("which", "whom", "course"):
                     mods = mods | {"of:" + of_}
@@ -825,7 +856,7 @@ YEAR_MARGIN = 60
 
 def years_in(clue):
     """Every year a clue names. B.C. is one bucket; nothing here needs finer."""
-    if _BC.search(clue):
+    if _bc_is_a_date(clue):
         return [-1000]
     out = [int(y) for y in _YEAR.findall(clue)]
     for c in _CENTURY.findall(clue):
@@ -835,6 +866,16 @@ def years_in(clue):
     return out
 
 
+def _bc_is_a_date(clue):
+    """B.C. is also British Columbia. Twelve clues about Victoria and Vancouver
+    dated themselves to 1000 BC and lost every option they had."""
+    m = _BC.search(clue)
+    if not m:
+        return False
+    before = clue[max(0, m.start() - 24) : m.start()]
+    return bool(re.search(r"\d\s*$|\bcentury\s*$", before))
+
+
 def clue_year(clue):
     """The earliest year the clue is set in, or None.
 
@@ -842,7 +883,7 @@ def clue_year(clue):
     that already existed in 1919. B.C. collapses to a single very old year,
     which is all any of these checks can use it for.
     """
-    if _BC.search(clue):
+    if _bc_is_a_date(clue):
         return -1000
     years = [int(y) for y in _YEAR.findall(clue)]
     for c in _CENTURY.findall(clue):
@@ -939,8 +980,8 @@ def display_case(s):
     """
     if not s or not s[0].isalpha() or not s[0].islower():
         return s
-    if any(c.isupper() for c in s[1:4]):
-        return s  # iPod, eBay, iMac
+    if " " not in s[:4] and any(c.isupper() for c in s[1:4]):
+        return s  # iPod, eBay, iMac -- but not "de Gaulle" or "du Maurier"
     if s[1:2] == ".":
         return s  # e.e. cummings
     return s[0].upper() + s[1:]
@@ -1019,11 +1060,23 @@ def choose(index, item, key, used, rng):
         # so a type too small to fill its own options gets none.
         return []
 
+    if odd_case(item['a']) or display_case(item['a'])[:1].islower():
+        # The spelling clues ("A 'bra' is supporting this state") want the
+        # shout -- it IS the question. They just cannot be multiple choice,
+        # because the answer is then the only option shaped like that, and
+        # display_case deliberately preserves it. neBRAska, monTANa and
+        # virGINia each shipped against six normally-spelled states: the tell
+        # this module claims to remove, in its worst direction. The same goes
+        # for a name that keeps its own lower-initial spelling -- iPod, or
+        # e.e. cummings against six capitalised poets.
+        return []
+
     clue = item['q']
     low = clue.lower()
     year = clue_year(clue)
     answer = item['a']
-    banned = {answer.lower()} | {a.lower() for a in item.get('alt', ())}
+    alts = tuple(item.get('alt', ()))
+    banned = {answer.lower()} | {a.lower() for a in alts}
 
     # The place rule. It only bites when the clue names the region the ANSWER is
     # in, because that is the only arrangement a player can exploit: "the
@@ -1074,7 +1127,7 @@ def choose(index, item, key, used, rng):
         key=lambda c: (
             abs(_words(c) - want) > 0,
             _plural(c) != plural,
-            not (topics & index.topic.get(c, ())),
+            not (topics & index.topic.get(c, frozenset())),
             used[c.lower()],
             -attest.get(c, 0),
         )
@@ -1082,7 +1135,9 @@ def choose(index, item, key, used, rng):
 
     picks = []
     for c in cands:
-        if twins(c, answer):
+        # Against the alternates too: the answer "Davis" also accepts
+        # "Jefferson Davis", so offering "Jefferson" offers half of it.
+        if twins(c, answer) or any(twins(c, a) for a in alts):
             continue
         if fold(c) and fold(c) in low:
             continue          # the clue says it, so it is visibly not the answer

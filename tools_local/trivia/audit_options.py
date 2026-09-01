@@ -368,6 +368,27 @@ def case_class(s):
     return "upper" if s[:1].isupper() else ("lower" if s[:1].islower() else "other")
 
 
+def exhaustive(items):
+    """The two faults that are cheap to check on EVERY stored option.
+
+    Sampling four of the seven has almost no power to find a fault that lives
+    in one pair: a pack with 1,081 twin sets scored 4 out of 400 on the sampled
+    version of this, and a pack with 11 mixed-case sets scored 0. Neither
+    number was wrong; both were useless.
+    """
+    twin = case = 0
+    for x in items:
+        opts = [x["a"]] + list(x.get("w", ()))
+        if len(opts) < 4:
+            continue
+        if len({case_class(o) for o in opts}) > 1:
+            case += 1
+        if any(distractors.twins(a, b)
+               for i, a in enumerate(opts) for b in opts[i + 1:]):
+            twin += 1
+    return twin, case
+
+
 def audit(path, n, seed):
     items = load(path)
     kinds = naive_kinds(items)
@@ -396,7 +417,14 @@ def audit(path, n, seed):
         if qfam is None or len(known) < 2:
             counts["type_unknown"] += 1
         else:
-            bad = [o for o in known[1:] if qfam not in kinds[o]]
+            # opts[1:], not known[1:]. The slice was meant to skip the ANSWER,
+            # but `known` is filtered, so whenever the answer's own kind was
+            # unknown the slice dropped a real distractor instead -- and the
+            # most exploitable arrangement of all, the answer being the only
+            # off-kind option, was unreachable by construction.
+            bad = [o for o in opts[1:] if kinds.get(o) and qfam not in kinds[o]]
+            if kinds.get(opts[0]) and qfam not in kinds[opts[0]]:
+                bad.append(opts[0] + " (the answer)")
             if bad:
                 counts["type"] += 1
                 examples["type"].append((x, opts, bad))
@@ -407,15 +435,20 @@ def audit(path, n, seed):
             counts["case"] += 1
             examples["case"].append((x, opts, []))
 
-        # (c) period
+        # (c) period. Split in two and reported separately, because one half
+        # is the picker's OWN table and function: distractors.existed() is what
+        # the picker filters with, so it can only ever report zero here. A
+        # metric that cannot fail is not a measurement, and quoting the two
+        # halves added together made a 36 -> 0 tautology look like a result.
         year = distractors.clue_year(x["q"])
         if year is None:
             counts["period_undated"] += 1
         else:
             off = []
+            shared = []
             for o in opts[1:]:
                 if not distractors.existed(o, year):
-                    off.append(o)
+                    shared.append(o)
                     continue
                 # Only things that stop existing. A planet, an element, a city
                 # and a country are all "wrong" by a median-year test whenever
@@ -426,6 +459,8 @@ def audit(path, n, seed):
                     med = medians.get(o)
                     if med is not None and abs(med - year) > 150:
                         off.append(o)
+            if shared:
+                counts["period_shared"] += 1
             if off:
                 counts["period"] += 1
                 examples["period"].append((x, opts, off))
@@ -448,6 +483,8 @@ def audit(path, n, seed):
             counts["twin"] += 1
             examples["twin"].append((x, opts, []))
 
+    counts["twin_all"], counts["case_all"] = exhaustive(mc)
+    counts["mc"] = len(mc)
     return counts, examples, kind_cover, len(mc), len(items)
 
 
@@ -466,13 +503,16 @@ def report(path, counts, cover, n_mc, n_all, examples, show):
     print(f"  type mismatch      {pct('type')}   an option of another kind")
     print(f"                              {share:>6} of the {measurable} it could score")
     print(f"  case mismatch      {pct('case')}   options not capitalised alike")
+    print(f"    every stored set  {counts['case_all']:5d}  {100 * counts['case_all'] / max(1, counts['mc']):5.2f}%   (exhaustive, not sampled)")
     dated = sets - counts["period_undated"]
     dshare = f"{100 * counts['period'] / dated:.1f}%" if dated else "n/a"
     print(f"  anachronism        {pct('period')}   an option out of its own time")
+    print(f"    of which shared    {counts['period_shared']:5d}          the picker's OWN table -- 0 by construction")
     print(f"                              {dshare:>6} of the {dated} clues that name a year")
     print(f"  region leak        {pct('region')}   one option in the place named")
     print(f"  answer is longest  {pct('longest')}   (chance is 25%)")
     print(f"  a twin in the set  {pct('twin')}   two options that are one thing")
+    print(f"    every stored set  {counts['twin_all']:5d}  {100 * counts['twin_all'] / max(1, counts['mc']):5.2f}%   (exhaustive, not sampled)")
     print()
     print(f"  kind known for     {100 * cover[0] / cover[1]:.1f}% of options")
     print(f"  no kind to compare {pct('type_unknown')}   type unmeasurable in these")
@@ -502,6 +542,22 @@ def main():
         report(p, counts, cover, n_mc, n_all, examples, show)
     print("""
 WHAT THIS SAMPLER CANNOT SEE
+
+  * ITS OWN CIRCULARITY, which a cold review measured and which is the first
+    thing to distrust here. The type rule agrees with the picker's own head
+    noun 99.8% of the time, and 73% of options are certified "right kind" by
+    the same corpus token that put them in the pool -- so two deliberately
+    wrong merges (queen into king, novel into film), each changing over 10,000
+    option sets, moved the type count by ZERO. Read the type number as "the
+    first-word-after-this mis-typing is gone", not as "the options are the same
+    kind of thing".
+  * A period fault its own table covers. Half the check was literally the
+    picker's `existed()`, so that half now reports 0 by construction and is
+    printed on its own line. Only the second line -- the corpus-derived one --
+    can move.
+  * A kind it has no word for beyond the 90 families in FAMILY, which collapse
+    to 20: a celestial star and a basketball star are one family, and so are a
+    rock band and a composer.
 
   * A kind it has no word for. The type check knows the 90-odd families in
     FAMILY above and nothing else, so an option set of four fabrics, four

@@ -13,7 +13,7 @@ works alone too, the way a flashcard does.
 **SOLO** adds four options and keeps score, because with nobody else in the room
 something has to judge you.
 
-They are not two skins on one mode. Only **15,959 of the 50,000** carry
+They are not two skins on one mode. Only **18,485 of the 50,000** carry
 distractors, so solo draws from under a third of the pack. The chooser is told
 `requireChoice` and skips the rest.
 

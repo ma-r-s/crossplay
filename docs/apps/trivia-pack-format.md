@@ -120,7 +120,7 @@ complete, so a torn download leaves the card exactly as it was.
 
 ## Solo multiple choice
 
-15,959 of the 50,000 carry precomputed distractors. The rest are quizmaster-only,
+18,485 of the 50,000 carry precomputed distractors. The rest are quizmaster-only,
 which is why both modes exist rather than one.
 
 **The type comes from the clue itself.** A Jeopardy clue names what its answer
@@ -149,9 +149,9 @@ could use without knowing the fact:
 
 | Rule | The set it removes |
 | --- | --- |
-| same period | Antananarivo's island offered against the landlocked Czech Republic; the USSR for an 1818 event; Zaire for 2010 |
+| same period | the USSR for an 1818 event, Zaire for 2010, the United States for 1499 -- but only for names somebody wrote into the table, which is why the measured period rate barely moves |
 | same place | "the financial hub of **Switzerland**" answered Zurich, against Stockholm, Charlotte and Boulder |
-| same capitalisation | `ear / sun / Nose / head`, and `Casey at the Bat / Fencing / bullfighting / Softball` -- three one way, the answer the other |
+| same capitalisation | `ear / sun / Nose / head`, and `Casey at the Bat / Fencing / bullfighting / Softball` -- three one way, the answer the other. A name that keeps its OWN spelling (`neBRAska`, `e.e. cummings`) cannot be normalised without losing the joke, so it becomes quizmaster-only instead |
 | no twins | "van Gogh" beside "Van Gogh"; "Egypt" beside "ancient Egypt". 486 sets shipped with one |
 
 Periods come from a table of names with a birthday plus, for people and works,
@@ -178,7 +178,7 @@ Sea, and Iraq and Jordan in front of Chile for one about Ramses.
 **Distractors are length-matched on purpose.** The longest option being the
 correct one is the tell every published corpus leaks: measured at 31.7% for The
 Trivia API, 35.0% for OpenTriviaQA and 38.0% for OpenTDB, against a 25% baseline.
-Matching lengths puts this pack at **14.5%** -- below chance, so option length
+Matching lengths puts this pack at **14.2%** -- below chance, so option length
 carries no information at all. `test_pack.py` fails the build above 15%.
 
 **Measured, not inspected.** `tools_local/trivia/audit_options.py` deals option

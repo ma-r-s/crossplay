@@ -11,30 +11,41 @@ to age.
 
 Ordered by what would embarrass the project soonest, not by effort.
 
-## Trivia's wrong answers are fixed for the faults anyone can count
+## Trivia's wrong answers: two faults closed, one only apparently
 
-Added 2026-09-01. `tools_local/trivia/distractors.py` rewrote the option picker
+Added 2026-09-01, revised the same evening after a cold review of the
+measurement. `tools_local/trivia/distractors.py` rewrote the option picker
 after a cold player answered 30 of 42 four-option sets without knowing the
-fact. Measured with `audit_options.py`, over 400 dealt sets: options of another
-kind 12.5% -> 1.2%, case tells 8.0% -> 0.0%, anachronisms 11.2% -> 2.5%, region
-leaks 15.5% -> 4.5%, twins 2.0% -> 0.0%.
+fact.
+
+**Closed, and counted on every stored option rather than sampled:** two options
+that are one thing 5.3% -> 0.0%, options not capitalised alike 9.9% -> 0.0%.
+**Improved, sampled:** a region named with only one option in it 15.5% -> 5.5%.
+Playable questions went 14,388 -> 18,485.
 
 **What is still open, in the order it will be noticed:**
 
-- **The region leak is 5%, not 0.** When a clue names the country the answer is
-  in, every option is required to be in it -- but only where the corpus says
-  where a place IS, and only when the clue names the place outright. "the Swiss
-  city" and "the Kremlin" are invisible to it.
+- **The anachronism fix only covers names somebody wrote down.** The check had
+  two halves; one WAS the picker's own `existed()` table, so it reported 0 by
+  construction, and adding it in made a tautology look like a 38.5% -> 5.6%
+  result. The corpus-derived half moved 2.2% -> 1.8%, which is noise. Julius
+  Caesar against Dorian Gray for a 46 B.C. clue is still shipped.
+- **The type number is mostly circular and must not be quoted as "the options
+  are the same kind".** The sampler agrees with the picker's own head noun
+  99.8% of the time, and two deliberately wrong merges each changing 10,000+
+  sets moved it by zero. It proves one thing: the first-word-after-"this"
+  mis-typing is gone.
+- **Homonym heads are not solved.** `state` was fixed by reading the `of` tail
+  (`state of matter`); `star` had no such tail and was struck out entirely,
+  which loses the celestial questions. `school`, `plant` and `organ` are the
+  same shape of problem.
+- **The region leak is 5%, not 0**, and its own gazetteer undercounts the new
+  pack about 28% against the old pack's 5% -- so the before/after is biased
+  toward the fix. It sees a country named outright, never "the Swiss city" or
+  "the Kremlin".
 - **Nothing measures whether a wrong option is FAIR.** Four real rivers is what
-  the picker is for; no counter can tell a hard set from an unfair one. The
-  42-set human read is still the only instrument that found the problem, and it
-  is the one to repeat after any change here.
-- **The sampler is blind outside its 90 families.** Four fabrics, four dances,
-  four card games read clean whatever is in them. It prints its own coverage on
-  every run; read that before quoting a number above it.
-- **Two thirds of clues name no year**, so the anachronism rate is over the
-  dated third only, and half the period rule is a hand-written table of names
-  with a birthday. An entity nobody wrote down is never flagged.
+  the picker is FOR. The 42-set human read is the only instrument that found
+  the problem and the one to repeat after any change here.
 - **The new pack is built but NOT published.** Mario authorises the
   `trivia-pack` prerelease himself. And **a device that already has
   `/trivia/pack.dat` never re-downloads**, so publishing does not reach an
