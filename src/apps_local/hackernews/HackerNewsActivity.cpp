@@ -96,7 +96,21 @@ void HackerNewsActivity::onExit() {
 
 void HackerNewsActivity::onWifiChosen(const bool connected) {
   if (!connected) {
-    // They backed out of the picker, so they wanted out of the app.
+    // Backing out of the picker is not the same as wanting out of the app. The
+    // saved shelf is the half that works with no connection at all -- onEnter
+    // loads it before anything network happens for exactly that reason -- and
+    // routing this to shelf::leave() put the picker in front of it as a door
+    // that needs a network to open. On a train, that made every saved article
+    // unreachable: the text is on the card, and there was no way to it.
+    if (!library_.articles().empty()) {
+      showingSaved_ = true;
+      buildSavedRows();
+      phase_ = Phase::List;
+      requestUpdate();
+      return;
+    }
+    // Nothing saved: there is genuinely nothing to show without a network, so
+    // leaving is still the honest answer.
     shelf::leave(renderer, mappedInput);
     return;
   }
@@ -664,7 +678,12 @@ void HackerNewsActivity::render(RenderLock&&) {
         model.title = "SAVED";
         if (rows_.empty()) {
           model.emptyHeadline = "NOTHING SAVED YET";
-          model.emptyMessage = "Open an article and tap the mark in the top corner to keep it here.";
+          // Measured, not guessed: centeredText does not wrap, and the old
+          // wording was 620.6px against a 480px panel, so it cut mid-word to
+          // "Open an article and tap the mar" -- in the ONLY place the app
+          // says how to save anything. This is 345px in the 10pt face and
+          // 415px in the 12pt, so it survives a face change too.
+          model.emptyMessage = "Tap the mark on an article to keep it.";
         }
       }
       hnui::buildList(screen, model);
@@ -697,7 +716,13 @@ void HackerNewsActivity::render(RenderLock&&) {
       model.showingComments = readingComments_;
       // Coming back to an article is only offered when there was one. Going to
       // the comments always is.
-      model.swapAvailable = readingComments_ ? articleAvailable_ : true;
+      // A saved article does not know its own thread: SavedArticle::id is
+      // derived from the URL so the shelf can name a file, not the HN item id
+      // the comments fetch needs. currentStory() would answer from stories_ --
+      // the FRONT PAGE list, at whatever index was last selected -- so tapping
+      // COMMENTS on a saved article served the front page's top thread instead.
+      // Wrong comments are worse than none, so the control is dimmed here.
+      model.swapAvailable = readingSaved_ ? false : (readingComments_ ? articleAvailable_ : true);
       model.canPagePrev = topLine_ > 0;
       model.canPageNext = lineCount_ > topLine_ + visibleLines_;
       // A thread has nothing to save but the article it hangs off, so the mark
