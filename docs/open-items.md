@@ -402,5 +402,56 @@ different patches and no fix.
 `Entering activity: ShelfFolder` in the trace is the failure; the saved list is
 the pass.
 
+### The swipe is a second mechanism wearing the same symptom
+
+Everything above was traced with a **physical button**: `sim-shot.sh`'s `BACK`
+token resolves to `HalGPIO::BTN_BACK` (`namedButton()`, in the simulator lib
+dep's `HalGPIO.cpp`). The script vocabulary has a separate `SWIPE` token that
+goes through TouchDown/TouchUp, and it was never used here.
+
+**On the X4 Pro, Back is normally the left-edge swipe** -- four of the six
+logical buttons are unassigned pins -- so the untested path is the common one.
+And it does not fail for the reason the button fails:
+
+```
+MappedInputManager.cpp:303  wasPressed:   if (button == Back && wasBackGesture()) return true;
+MappedInputManager.cpp:311  wasReleased:  if (button == Back && wasBackGesture()) return true;
+```
+
+For a swipe, `wasPressed(Back)` and `wasReleased(Back)` are **the same
+function**. No press edge, no release edge: one `wasEdgeSwipe(Left)` condition
+that both spellings return in the same frame. The child's `wasPressed` and the
+parent's `wasReleased` are not two halves of one press -- they are two reads of
+one latch.
+
+    button:  one press, two edges; child eats the first, parent reads the second
+    swipe:   one latch, two readers, both true at once
+
+A fix that drains `pressedEvents` addresses the button and **cannot touch the
+swipe**. Any boundary fix has to consume the gesture as well, or it repairs the
+path few people use and leaves the path most people use.
+
+Where the swipe latch is cleared is unfollowed: `wasBackGesture()` delegates to
+`wasEdgeSwipe(ScreenEdge::Left)`, below MappedInputManager. That is the next
+thing to read.
+
+### And the simulator cannot settle it
+
+An attempted framework drain at `ActivityManager`'s pop did not fix the repro,
+for a reason worth more than the fix: `InputManager::wasPressed()` is
+`return pressedEvents & (1 << i)`, a **pure read that does not consume**, so a
+drain built from reads is a no-op. `StudyActivity::drainInput()` works because
+of the `update()` in it, not despite it. Absorbing the edge with two spaced
+`update()` calls also changed nothing, because in a **dev build every input read
+consults the injector first** (`DEV_INPUT` in `HalGPIO.cpp`, compiled out of
+release envs) -- and `gpio.update()` cannot clear an edge the injector owns.
+
+So the simulator exercises a mechanism that presents identically to the real one
+and is not it. A framework change touching eight apps came one green run from
+shipping on a test that could not tell a fix from a no-op.
+
+**Before concluding that hardware is the only route, try a `SWIPE` token aimed
+at the left edge.** It at least drives the mechanism that ships. Nobody has.
+
 **8134c60a is merged and does not work.** It reads as a fix in the log. It is
 not one.
