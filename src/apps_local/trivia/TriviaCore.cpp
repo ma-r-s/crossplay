@@ -100,6 +100,25 @@ bool Pack::read(const uint32_t index, Question& out) const {
   return true;
 }
 
+// One chunked pass when the state file is opened, answering both counts. A byte
+// at a time would be 50,000 reads through the storage mutex; a 256-byte window
+// is 196 of them and the buffer is small enough for the stack.
+void PackState::scanCounts() {
+  seenCount_ = 0;
+  flaggedCount_ = 0;
+  if (source_ == nullptr) return;
+  uint8_t window[256];
+  for (uint32_t at = 0; at < count_;) {
+    const uint32_t want = (count_ - at) < sizeof(window) ? (count_ - at) : sizeof(window);
+    if (!source_->read(at, window, want)) break;
+    for (uint32_t i = 0; i < want; ++i) {
+      if ((window[i] & kSeen) != 0) ++seenCount_;
+      if ((window[i] & kFlagged) != 0) ++flaggedCount_;
+    }
+    at += want;
+  }
+}
+
 bool PackState::open(WritableByteSource& source, const uint32_t count) {
   source_ = nullptr;
   count_ = 0;
@@ -109,6 +128,9 @@ bool PackState::open(WritableByteSource& source, const uint32_t count) {
   if (source.size() < count) return false;
   source_ = &source;
   count_ = count;
+  // Counted here, not lazily: without this the totals start at zero every boot
+  // and report only the current session, which renders perfectly plausibly.
+  scanCounts();
   return true;
 }
 
@@ -129,6 +151,7 @@ bool PackState::setFlag(const uint32_t index, const uint8_t bit) {
   // Kept in step here rather than rescanned, and only when the bit is NEW --
   // the early return above means this cannot double-count a reflag.
   if ((bit & kSeen) != 0 && (byte & kSeen) == 0) ++seenCount_;
+  if ((bit & kFlagged) != 0 && (byte & kFlagged) == 0) ++flaggedCount_;
   return true;
 }
 

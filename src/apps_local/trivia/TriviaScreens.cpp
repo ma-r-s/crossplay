@@ -201,7 +201,7 @@ void questionCard(toybox::Screen& screen, const QuestionModel& model) {
     // out was the HOME key, which drops out of the app. On a handheld with a
     // physical Back button, pressing it and getting nothing is the worst
     // available outcome -- and this app is touch-only, so Back gets nothing.
-    drawActionTrio(screen, "NEXT", ActionNext, "FLAG", ActionFlag, "END", ActionQuit);
+    drawActionTrio(screen, "NEXT", ActionNext, "HIDE", ActionFlag, "END", ActionQuit);
   } else {
     drawActionPair(screen, "REVEAL", ActionReveal, "END", ActionQuit);
   }

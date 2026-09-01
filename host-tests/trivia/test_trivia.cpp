@@ -235,6 +235,39 @@ void testState() {
 // Asserted as a property of the sequence rather than of one draw: with a fresh
 // random start each call, adjacency happens at chance (about 1 in count) and
 // cannot be the rule. Walking forward makes EVERY gap exactly 1.
+// The counts must SURVIVE A REOPEN. They were maintained only in setFlag, so
+// every boot started at zero and the front door reported the current session
+// rather than the pack -- which renders perfectly plausibly and is why it took a
+// second pair of eyes on the file rather than on the screen.
+void testStateCountsSurviveReopen() {
+  constexpr int kCount = 64;
+  const auto items = sampleItems(kCount);
+  MemorySource packSrc(buildPack(items));
+  MemorySource stateSrc(std::vector<uint8_t>(kCount, 0));
+  Pack pack;
+  CHECK(pack.open(packSrc));
+
+  {
+    PackState state;
+    CHECK(state.open(stateSrc, kCount));
+    CHECK(state.seenCount() == 0);
+    CHECK(state.flaggedCount() == 0);
+    state.setFlag(3, kSeen);
+    state.setFlag(4, kSeen);
+    state.setFlag(4, kSeen);  // again: must not double-count
+    state.setFlag(9, kFlagged);
+    CHECK(state.seenCount() == 2);
+    CHECK(state.flaggedCount() == 1);
+  }
+
+  // A fresh PackState over the SAME bytes, as a reboot would build.
+  PackState reopened;
+  CHECK(reopened.open(stateSrc, kCount));
+  CHECK(reopened.seenCount() == 2);
+  CHECK(reopened.flaggedCount() == 1);
+  CHECK(reopened.count() == kCount);
+}
+
 void testChooserDoesNotServeNeighbours() {
   constexpr int kCount = 200;
   const auto items = sampleItems(kCount);
@@ -471,6 +504,7 @@ int main() {
   testState();
   testChooser();
   testChooserDoesNotServeNeighbours();
+  testStateCountsSurviveReopen();
   testChoices();
   testAnswerMatching();
   testRngIsDeterministic();

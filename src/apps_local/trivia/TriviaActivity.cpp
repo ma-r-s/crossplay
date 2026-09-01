@@ -423,6 +423,9 @@ void TriviaActivity::routeAction(const int action, const int value) {
       requestUpdate();
       break;
     case triviaui::ActionNext:
+      // From the HIDDEN notice, put the mode back first: deal() reads view_ to
+      // decide whether it needs a question with distractors.
+      if (view_ == View::Notice) go(flagReturn_);
       deal();
       break;
     case triviaui::ActionOption:
@@ -438,7 +441,15 @@ void TriviaActivity::routeAction(const int action, const int value) {
       if (haveQuestion_) {
         state_.setFlag(current_, trivia::kFlagged);
         LOG_INF("TRIVIA", "Flagged question %u", static_cast<unsigned>(current_));
-        deal();
+        // Say what happened. Before this the question simply changed, which is
+        // exactly what NEXT does, so a cold tester could not tell the button
+        // had any effect at all and stopped pressing it.
+        flagReturn_ = view_;
+        char body[160];
+        std::snprintf(body, sizeof(body),
+                      "That question will not come back. %u hidden so far.",
+                      static_cast<unsigned>(state_.flaggedCount()));
+        showNotice("HIDDEN", body, "NEXT QUESTION", triviaui::ActionNext);
       }
       break;
     default:
