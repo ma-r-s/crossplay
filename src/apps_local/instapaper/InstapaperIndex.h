@@ -16,6 +16,19 @@
 // saved a second copy on every tap. One unbumped integer, two bugs, and
 // neither of them looks like a format problem from the outside.
 //
+// And the sharper half of that lesson, learned when the same feature was
+// finally ported: a version number tells you what the writer INTENDED, not
+// what is on the card. Mario's real version-1 library turned out to have four
+// columns where the parser assumed six, so it read his titles out of fields
+// past the end of the row, got empty ones, discarded every entry as damage,
+// and showed him an empty shelf. Sixty passing assertions could not catch it
+// because they were written from the parser's own assumption.
+//
+// So if a column is ever added here: bump kVersion AND decide the old row's
+// shape by counting its tabs, not by trusting the header. Today there is
+// exactly one shape and one writer, which is the only reason this file can
+// get away with reading a fixed column order.
+//
 // Tab-separated rather than JSON for the reason the Hacker News library gives:
 // this file is the thing that has to survive. It is readable in any editor,
 // recoverable by hand, and needs no parser to inspect. The free-form field --

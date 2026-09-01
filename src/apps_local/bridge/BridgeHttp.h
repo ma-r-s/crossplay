@@ -33,7 +33,7 @@ namespace bridge {
 
 // Everything that differs between one bridge and another.
 struct Endpoint {
-  const char* host;  // "read.ma-r-s.com"
+  const char* host;  // "read.crossplay.ma-r-s.com"
   const char* tag;   // log tag
   // Simulator only: an env var that overrides the whole base URL, so a test
   // runs against a local bridge with a throwaway account. A real account must
