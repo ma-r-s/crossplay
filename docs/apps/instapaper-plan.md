@@ -300,5 +300,5 @@ If one of them is wrong, the failure is quiet: a stale row, a re-downloaded
 article, or a reading position that does not move.
 
 The other operational step, whenever it happens: a hostname for the service
-(the firmware constant says `read.ma-r-s.com`) added to the tunnel, the way
+(the firmware constant says `read.crossplay.ma-r-s.com`) added to the tunnel, the way
 `sync.ma-r-s.com` was.

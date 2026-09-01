@@ -53,13 +53,13 @@ work. Nonzero exit is a breach; do not continue.
 
 ## 4. The hostname
 
-`read.ma-r-s.com` into the tunnel, the way `sync.ma-r-s.com` was. The firmware
+`read.crossplay.ma-r-s.com` into the tunnel, the way `sync.ma-r-s.com` was. The firmware
 constant is `kBridgeHost` in `src/apps_local/instapaper/InstapaperSync.h`, and
 the device build has NO override -- it can only ever reach that one name.
 
 ## 5. Then, and only then, the thing nobody has run
 
-Sign in at `https://read.ma-r-s.com` with the owner's account, pair a reader,
+Sign in at `https://read.crossplay.ma-r-s.com` with the owner's account, pair a reader,
 and sync. That path has never executed: the wolfSSL handshake, the ~35KB heap
 floor it needs, certificate verification against Cloudflare's chain, and the
 four assumptions about Instapaper's API in `docs/apps/instapaper-plan.md`.
@@ -88,6 +88,6 @@ name: no `~/.ssh/config` entry, and `known_hosts` holding 192.168.68.x,
 192.168.20.0/24.
 
 So: a failing `ssh` says nothing about the pi. Check the tunnel before
-concluding anything about the box, and note that `read.ma-r-s.com` failing with
+concluding anything about the box, and note that `read.crossplay.ma-r-s.com` failing with
 a DNS error rather than a connection error means step 4 has not been done --
 not that anything is broken.
