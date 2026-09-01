@@ -19,10 +19,24 @@ things worth knowing before reading any code here:
 
 ## What it needs to run
 
-An **Instapaper OAuth consumer token**, which is a form on instapaper.com and
-a human review. Without `READ_CONSUMER_KEY` / `READ_CONSUMER_SECRET` the
-service starts, logs the reason loudly, and refuses sign-in with a sentence
-rather than crash-looping.
+An **Instapaper OAuth consumer token**, from instapaper.com. Without
+`READ_CONSUMER_KEY` / `READ_CONSUMER_SECRET` the service starts, logs the
+reason loudly, and refuses sign-in with a sentence rather than crash-looping.
+
+**Registration is instant; the human review gates OTHER PEOPLE only.** This
+file used to say the token itself waits on a review, and that was wrong in a
+way that cost real time: two sessions planned around a blocker that did not
+exist. A newly registered application is in **owner only** mode -- the keys
+work immediately for the account that registered them, and for nobody else
+until a separate "Submit for review" is approved.
+
+That distinction decides the deployment order, so it is worth stating as a
+rule rather than a fact: **`READ_ALLOWLIST` must stay the owner's address
+until the review is approved.** Opening it to `*` beforehand lets strangers
+reach the sign-in endpoint with credentials that CANNOT succeed -- Instapaper
+will refuse every one of them -- so it buys nothing and exposes the one
+endpoint that is a credential-stuffing oracle by construction. All risk, no
+capability. Open it when the review lands, and not before.
 
 ## Suites
 
