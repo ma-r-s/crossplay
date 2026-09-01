@@ -69,12 +69,17 @@ both encode decisions that would be easy to reverse by accident:
 Warsch), generated into `WavelengthPairs.h` by
 `tools_local/wavelength/gen_pairs.py` from `pairs_en.txt`.
 
-> **GAP: the permission record is missing.** Mario has the publisher's agreement
-> to use the deck, obtained in a Reddit exchange with CMYK. The exchange itself
-> is not recorded anywhere in this repo. **A link or screenshot belongs here**,
-> because on a public repository the permission is worth what the record of it
-> is worth, and a comment thread can vanish. Until then this file is the only
-> statement that consent exists, and it is second-hand.
+> **PERMISSION, on Mario's testimony.** On 2026-08-31 Mario stated that CMYK
+> granted permission to use these pairs, given in a Reddit exchange. The
+> exchange is not archived in this repository and no link is cited, because
+> inventing a citation would be worse than recording the provenance honestly. If
+> the thread is still reachable, put the link here and this paragraph can become
+> a reference instead of a testimony.
+>
+> **The transcription is a different claim and is still unchecked.** Permission
+> to use CMYK's cards is not evidence that these 252 lines ARE CMYK's cards.
+> Twenty pairs spot-checked against the physical box would settle it; nobody has
+> done that yet.
 
 The transcription came via `github.com/heybenchen/wavelength`, which carries no
 licence file and no provenance note, so treat `pairs_en.txt` as a working
