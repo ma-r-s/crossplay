@@ -50,6 +50,61 @@ FACE_OF_ID = {
 # simply stops.
 CONTENT_WIDTH = 448
 
+# The dial and reveal put text in a narrow right-hand column beside the strip,
+# and it is HALF the content width. The first version of this gate measured only
+# `inner` boxes and therefore said nothing about that column at all: it passed a
+# 271px string into 224px of it within an hour. An instrument whose scope came
+# from an assumption is the exact failure this file exists to prevent, so the
+# box widths are derived here from the same arithmetic layout() uses.
+PANEL_WIDTH = 480
+MARGIN = 16
+BOARD_W = PANEL_WIDTH * 5 // 16
+BOARD_X = MARGIN + 48
+RIGHT_X = BOARD_X + BOARD_W + 26
+RIGHT_WIDTH = PANEL_WIDTH - MARGIN - RIGHT_X
+
+BOX_WIDTH = {"inner": CONTENT_WIDTH, "g.right.width": RIGHT_WIDTH}
+
+# Draws whose rect is a computed variable rather than an inline makeRect. The
+# parser cannot see their width, so they are counted and capped rather than
+# ignored: raising this number is a decision, and lowering it is progress.
+# The four draws whose rect is a named local (box, numeral, label, capsule).
+# A ratchet, not a budget: lowering it is progress, raising it is a decision
+# somebody has to justify in a diff.
+MAX_UNREACHED = 4
+WIDTH_RE = r"((?:static_cast<int16_t>\([^()]*(?:\([^()]*\)[^()]*)*\)|[\w.]+))"
+
+
+# Symbols a width expression may be written in terms of, all from layout().
+SYMBOLS = {
+    "inner": CONTENT_WIDTH,
+    "g.right.width": RIGHT_WIDTH,
+    "g.board.width": BOARD_W,
+    "w": PANEL_WIDTH,
+    "toybox::kMargin": MARGIN,
+    "box.width": CONTENT_WIDTH,
+}
+
+
+def box_width(expr):
+    """A rect's width in pixels, or None if this parser cannot read it.
+
+    None is a FAILURE, never a skip: an unreadable width means the string is
+    unmeasured, and unmeasured is indistinguishable from safe in the output.
+    """
+    expr = expr.strip()
+    m = re.fullmatch(r"static_cast<int16_t>\((.*)\)", expr)
+    if m:
+        expr = m.group(1)
+    for name, value in sorted(SYMBOLS.items(), key=lambda kv: -len(kv[0])):
+        expr = expr.replace(name, str(value))
+    if not re.fullmatch(r"[\d\s+\-*/()]+", expr):
+        return None
+    try:
+        return int(eval(expr, {"__builtins__": {}}, {}))  # noqa: S307 -- digits and operators only
+    except Exception:
+        return None
+
 
 def resolved_faces():
     """The app's three slots, read from the Faces literal the activity binds."""
@@ -67,38 +122,56 @@ def resolved_faces():
 
 
 def strings_with_slots(src):
-    """Every literal and format string, paired with the slot it is drawn in."""
+    """Every literal and format string, paired with the slot and box it uses.
+
+    Returns (measurable, total_caps_calls). The difference between them is the
+    important number: a gate that silently narrows its own scope reports clean
+    for the strings it stopped looking at. This file's own first version
+    measured only full-width boxes and passed a 271px string into a 224px
+    column within the hour; its second dropped two draws when the parser got
+    stricter, and said nothing.
+    """
     flat = re.sub(r"\n\s+", " ", src)
+    # A width may be a bare symbol or a static_cast expression with one level of
+    # nested parentheses.
+    w = r"((?:static_cast<int16_t>\((?:[^()]|\([^()]*\))*\)|[\w.]+))"
+    rect = r"caps\(screen,\s*fui::makeRect\([^,]+,\s*[^,]+,\s*" + w + r",[^)]*\),\s*"
     out = []
-    for m in re.finditer(
-        r'caps\(screen,\s*fui::makeRect\([^,]+,\s*[^,]+,\s*(\w+),[^)]*\),\s*"([^"]*)",\s*toybox::(k\w+Font)',
-        flat,
-    ):
+
+    for m in re.finditer(rect + r'"([^"]*)",\s*toybox::(k\w+Font)', flat):
         box, text, slot = m.groups()
-        if text and box == "inner":
-            out.append((text, slot, CONTENT_WIDTH))
+        wide = box_width(box)
+        if text and wide:
+            out.append((text, slot, wide))
+
     slot_of = {}
-    for m in re.finditer(
-        r"caps\(screen,[^;]*?,\s*([a-zA-Z]\w*),\s*toybox::(k\w+Font)", flat
-    ):
-        slot_of[m.group(1)] = m.group(2)
+    box_of = {}
+    for m in re.finditer(rect + r"([a-zA-Z]\w*),\s*toybox::(k\w+Font)", flat):
+        box, buf, slot = m.groups()
+        wide = box_width(box)
+        if wide is None:
+            continue
+        slot_of[buf] = slot
+        box_of[buf] = wide
+
     for m in re.finditer(r'snprintf\((\w+),\s*sizeof\(\1\),\s*"([^"]+)"', flat):
         buf, fmt = m.groups()
         slot = slot_of.get(buf)
         if slot is None:
             continue
-        # Worst REACHABLE value, not worst representable. The guess and target
-        # are clamped to the strip; rounds and points are uint16_t. Measuring an
-        # unreachable 65535 reports a bug that cannot happen, which is its own
-        # kind of wrong.
+        # Worst REACHABLE value, not worst representable. Guess and target are
+        # clamped to the strip; rounds and points are uint16_t. Measuring an
+        # unreachable 65535 reports a bug that cannot happen.
         wide = "20" if re.search(r"LOCK|TARGET|GUESS", fmt) else "65535"
-        # A %s glued to the end of a word is a plural suffix, not a word.
-        # Substituting a word there invents an overflow that cannot happen,
-        # which is the same false alarm as measuring an unreachable 65535.
+        # A %s glued to a word is a plural suffix, not a word.
         plural = re.search(r"\w%s", fmt) is not None
         text = fmt.replace("%s", "S" if plural else "ABOVE").replace("%d", wide)
-        out.append((text, slot, CONTENT_WIDTH))
-    return out
+        out.append((text, slot, box_of.get(buf, CONTENT_WIDTH)))
+
+    sites = re.findall(
+        r'caps\(screen,\s*[^;]{0,160}?,\s*(?:"[^"]*"|[a-zA-Z]\w*),\s*toybox::k\w+Font', flat
+    )
+    return out, len(sites)
 
 
 def main():
@@ -109,9 +182,10 @@ def main():
         + ", ".join(f"{s} -> {f}" for s, f in faces.items())
     )
 
+    measured, total_calls = strings_with_slots(SCREENS.read_text(encoding="utf-8"))
     bad = []
     checked = 0
-    for text, slot, box in strings_with_slots(SCREENS.read_text(encoding="utf-8")):
+    for text, slot, box in measured:
         checked += 1
         px = width(text, advances[slot])
         if px > box:
@@ -124,7 +198,15 @@ def main():
             f"  {len(bad)} of {checked} strings would be truncated with no ellipsis glyph to show for it"
         )
         return 1
-    print(f"  {checked} strings measured, none overflow")
+    # A draw this parser cannot resolve is invisible to the gate, and invisible
+    # reads exactly like safe. Report the shortfall rather than the successes.
+    unreached = total_calls - checked
+    print(f"  {checked} strings measured against their own box, none overflow")
+    if unreached > MAX_UNREACHED:
+        print(f"  BUT {unreached} of {total_calls} draw sites were not resolved and are UNMEASURED.")
+        print("  Either extend this parser or give the draw an inline fui::makeRect it can read.")
+        return 1
+    print(f"  {unreached} of {total_calls} draw sites use a named rect this parser cannot read (ratchet {MAX_UNREACHED})")
     return 0
 
 
