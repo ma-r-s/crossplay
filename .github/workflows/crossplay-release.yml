@@ -182,8 +182,16 @@ jobs:
             the sun filled in, the setting remembered you had asked, and
             nothing lit up. The PWM frequency for the light moved to a value
             its clock cannot actually produce, so the channels were never
-            started and every brightness change went nowhere. Install this and
-            the light comes back with nothing else to do.
+            started and every brightness change went nowhere.
+
+            **After updating, open the light panel and both switch it on and
+            raise the brightness.** Those two settings live on the SD card, not
+            in the firmware, and saving them never broke -- so if you spent last
+            night trying to get the light to respond, the card may have kept the
+            switch off and the slider near the bottom from those attempts. A
+            working light at 3% in a lit room looks exactly like a broken one,
+            and we would rather you turned a dial than concluded this did not
+            work.
 
             Nothing else changed. Everything below is from 1.12.0.
 
