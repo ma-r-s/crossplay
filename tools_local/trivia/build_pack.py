@@ -120,6 +120,27 @@ TYPE_SYN = {'nation': 'country', 'capital': 'city', 'town': 'city', 'author': 'w
             'tune': 'song', 'veggie': 'vegetable'}
 TYPE_RX = re.compile(r"\bthis\s+((?:[a-z][\w'-]*\s+){0,3}?)([a-z][\w-]{2,})(?:'s)?\b")
 
+# Jersey and the reading serif have no glyph for U+2014, and a missing glyph
+# draws NOTHING -- so "great--now on" reached the panel as "greatnow on", a
+# non-word, with only a log line to say why. Normalised at BUILD time rather
+# than at read time: the device should not carry a codepoint it cannot draw.
+DASHES = str.maketrans({'\u2014': '-', '\u2013': '-'})
+
+
+def dedash(items):
+    """Em and en dashes to a plain hyphen, across every text field."""
+    n = 0
+    for x in items:
+        for k in ('q', 'a'):
+            if k in x and ('\u2014' in x[k] or '\u2013' in x[k]):
+                x[k] = x[k].translate(DASHES)
+                n += 1
+        for k in ('alt', 'w'):
+            if k in x:
+                x[k] = [v.translate(DASHES) for v in x[k]]
+    return n
+
+
 def answer_type(clue):
     m = TYPE_RX.search(clue)
     if not m:
@@ -324,6 +345,7 @@ def main():
         pack = pack[:a.limit]
     # distractors are drawn from the SHIPPED slice, so an option is never an
     # answer the player could not otherwise meet
+    dedash(pack)
     add_distractors(pack, random.Random(20260830))
 
     with open(a.out, 'w', encoding='utf-8') as f:

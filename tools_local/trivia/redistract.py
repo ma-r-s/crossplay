@@ -37,7 +37,7 @@ import pathlib
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import pack_format  # noqa: E402
-from build_pack import answer_type, choose_distractors  # noqa: E402
+from build_pack import answer_type, choose_distractors, dedash  # noqa: E402
 
 def load(path):
     pack = pack_format.open_pack(path)
@@ -100,10 +100,12 @@ def main():
         for w in x.get("w", []):
             before[w.lower()] += 1
 
+    dashed = dedash(items)
     kept, dropped, used = redistract(items, random.Random(20260901))
     size = pack_format.write(items, dst)
 
     print(f"  records            {len(items)}")
+    print(f"  dashes replaced    {dashed}")
     print(f"  with distractors   {kept}   (was {was_playable})")
     print(f"  quizmaster only    {dropped}")
     print(f"  distinct options   {len(used)}   (was {len(before)})")
