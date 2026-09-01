@@ -27,7 +27,12 @@ enum : fui::ActionId {
   ActionReveal = 2,   // quizmaster: turn the answer over
   ActionNext = 3,
   ActionFlag = 4,    // "this question is bad" -- the whole curation loop
-  ActionOption = 5,  // solo: ListItem carries which of the four
+  // Carries which of the four in the event VALUE. Frame::hit's value parameter
+  // defaults to 0, so a caller that forgets it makes every option read as the
+  // first one -- which shipped in v1.12.0 and made solo play a coin toss. This
+  // comment used to say "ListItem carries which of the four", describing an
+  // implementation that was not there.
+  ActionOption = 5,
   ActionQuit = 6,
   ActionDifficulty = 7,
   ActionGetPack = 8,  // fetch the question pack over WiFi
