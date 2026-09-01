@@ -1850,6 +1850,30 @@ std::string GfxRenderer::truncatedText(const int fontId, const char* text, const
   return item.empty() ? ellipsis : item + ellipsis;
 }
 
+namespace {
+
+// Byte offset of the first place a line may break inside `s` under the CJK
+// rules, or npos. Japanese and Chinese carry no spaces, so without this the
+// space walk below sees a whole sentence as one word and truncatedText eats it.
+size_t firstCjkBreakOffset(const std::string& s) {
+  const auto* ptr = reinterpret_cast<const unsigned char*>(s.c_str());
+  const auto* const start = ptr;
+  uint32_t left = utf8NextCodepoint(&ptr);
+  if (left == 0) return std::string::npos;
+  while (*ptr) {
+    const auto* const boundary = ptr;
+    const uint32_t right = utf8NextCodepoint(&ptr);
+    if (right == 0) break;
+    if (utf8HasCjkBreakOpportunity(left, right)) {
+      return static_cast<size_t>(boundary - start);
+    }
+    left = right;
+  }
+  return std::string::npos;
+}
+
+}  // namespace
+
 std::vector<std::string> GfxRenderer::wrappedText(const int fontId, const char* text, const int maxWidth,
                                                   const int maxLines, const EpdFontFamily::Style style) const {
   std::vector<std::string> lines;
@@ -1858,21 +1882,48 @@ std::vector<std::string> GfxRenderer::wrappedText(const int fontId, const char* 
 
   std::string remaining = text;
   std::string currentLine;
+  // A cut taken at a CJK boundary joins without a space; a space-delimited one keeps it.
+  bool joinTight = false;
 
   while (!remaining.empty()) {
     if (static_cast<int>(lines.size()) == maxLines - 1) {
       // Last available line: combine any word already started on this line with
       // the rest of the text, then let truncatedText fit it with an ellipsis.
-      std::string lastContent = currentLine.empty() ? remaining : currentLine + " " + remaining;
+      std::string lastContent = currentLine.empty() ? remaining : currentLine + (joinTight ? "" : " ") + remaining;
       lines.push_back(truncatedText(fontId, lastContent.c_str(), maxWidth, style));
       return lines;
     }
 
-    // Find next word
-    size_t spacePos = remaining.find(' ');
-    std::string word;
+    // A newline is a hard break: the caller asked for a line to end here, so
+    // close the current one without measuring anything.
+    const size_t nlPos = remaining.find('\n');
+    if (nlPos != std::string::npos) {
+      const std::string head = remaining.substr(0, nlPos);
+      if (!head.empty() || !currentLine.empty()) {
+        const std::string joined =
+            currentLine.empty() ? head : currentLine + (joinTight ? "" : " ") + head;
+        lines.push_back(getTextWidth(fontId, joined.c_str(), style) <= maxWidth
+                            ? joined
+                            : truncatedText(fontId, joined.c_str(), maxWidth, style));
+      }
+      remaining.erase(0, nlPos + 1);
+      currentLine.clear();
+      joinTight = false;
+      if (static_cast<int>(lines.size()) >= maxLines) return lines;
+      continue;
+    }
 
-    if (spacePos == std::string::npos) {
+    // Find next word
+    const size_t spacePos = remaining.find(' ');
+    const size_t cjkPos = firstCjkBreakOffset(remaining);
+    std::string word;
+    bool cutAtCjk = false;
+
+    if (cjkPos != std::string::npos && (spacePos == std::string::npos || cjkPos < spacePos)) {
+      word = remaining.substr(0, cjkPos);
+      remaining.erase(0, cjkPos);  // the boundary carries no character to drop
+      cutAtCjk = true;
+    } else if (spacePos == std::string::npos) {
       word = remaining;
       remaining.clear();
     } else {
@@ -1880,7 +1931,9 @@ std::vector<std::string> GfxRenderer::wrappedText(const int fontId, const char* 
       remaining.erase(0, spacePos + 1);
     }
 
-    std::string testLine = currentLine.empty() ? word : currentLine + " " + word;
+    const std::string separator = joinTight ? "" : " ";
+    joinTight = cutAtCjk;
+    std::string testLine = currentLine.empty() ? word : currentLine + separator + word;
 
     if (getTextWidth(fontId, testLine.c_str(), style) <= maxWidth) {
       currentLine = testLine;
