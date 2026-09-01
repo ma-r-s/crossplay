@@ -66,6 +66,51 @@ src = (
 # published since the pack was built -- the alternative was rewriting a 90MB
 # file to add 30KB. The simulator ships its own HalStorage, and a library's own
 # headers shadow ours, so it needs the same method.
+# lib/hal gained freeBytes so an app can refuse a large write instead of
+# discovering the card was full halfway through it. The simulator ships its own
+# HalStorage and a library's own headers shadow ours, so without this the
+# method exists on the device and NOT in the simulator -- and the build stays
+# green until some app actually calls it, at which point the error names a file
+# that app never touched. Trivia was the first caller and found exactly that.
+#
+# The implementation is real rather than a stub. The simulator's card is a host
+# directory, so statvfs is the honest answer, and its failure is a genuine
+# "could not answer" -- which means the Unknown branch, the one carrying the
+# whole safety argument, can actually be exercised here. A stub returning true
+# would make that branch permanently untestable.
+patch(
+    src / "HalStorage.h",
+    "  bool removeDir(const char *path);",
+    "  bool freeBytes(uint64_t &out);\n"
+    "  bool removeDir(const char *path);",
+    "HalStorage::freeBytes (header)",
+    marker="freeBytes",
+)
+
+patch(
+    src / "HalStorage.cpp",
+    "#include <sys/stat.h>",
+    "#include <sys/stat.h>\n#include <sys/statvfs.h>",
+    "HalStorage::freeBytes (statvfs include)",
+    marker="sys/statvfs.h",
+)
+
+patch(
+    src / "HalStorage.cpp",
+    "bool HalStorage::begin() {",
+    "bool HalStorage::freeBytes(uint64_t &out) {\n"
+    "  struct statvfs st {};\n"
+    "  if (statvfs(configuredStorageRoot().c_str(), &st) != 0) return false;\n"
+    "  out = static_cast<uint64_t>(st.f_bavail) *\n"
+    "        static_cast<uint64_t>(st.f_frsize);\n"
+    "  return true;\n"
+    "}\n"
+    "\n"
+    "bool HalStorage::begin() {",
+    "HalStorage::freeBytes (impl)",
+    marker="HalStorage::freeBytes",
+)
+
 patch(
     src / "HalStorage.h",
     "  bool removeDir(const char *path);",
