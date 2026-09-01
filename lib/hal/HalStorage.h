@@ -33,6 +33,21 @@ class HalStorage {
   HalFile open(const char* path, const oflag_t oflag = O_RDONLY);
   bool mkdir(const char* path, const bool pFlag = true);
   bool exists(const char* path);
+
+  // Free bytes on the card. Returns false, leaving `out` untouched, when the
+  // volume could not answer -- which is NOT the same as "no space".
+  //
+  // Every app on this fork that writes to the card has written blind, because
+  // nothing above SDCardManager surfaced this. Trivia declined to ship a
+  // 6.21MB download onto the one card holding a live Anki collection for
+  // exactly that reason. Ask before a large write, and treat false as unknown
+  // rather than as room: deriving it from sdTotalBytes() - sdUsedBytes()
+  // reports a FAILED query as an almost-empty card.
+  //
+  // Costs a FAT walk at most once per 20s (SDCardManager caches it); on FAT32
+  // without a valid FSInfo that walk is seconds, so ask once before a write
+  // rather than per chunk.
+  bool freeBytes(uint64_t& out);
   bool remove(const char* path);
   bool rename(const char* oldPath, const char* newPath);
   bool rmdir(const char* path);
