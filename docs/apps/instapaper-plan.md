@@ -221,7 +221,8 @@ same and that one has been through a critic round and a live deployment:
 Fernet at rest with the key in the environment; device tokens random 32 bytes
 stored only as hashes; per-IP and per-username rate limits on the login
 endpoint, which is a credential-stuffing oracle by construction; an
-allowlist that fails closed; sessions as sealed cookies, SameSite=Lax,
+an allowlist (now OPEN by Mario's decision -- see below); sessions as sealed
+cookies, SameSite=Lax,
 HttpOnly, CSRF on every state-changing form; its own container uid, its own
 pinned subnet, no host ports, cloudflared-only ingress, and the firewall unit
 that drops that subnet's traffic to every RFC1918 range.
@@ -229,6 +230,40 @@ that drops that subnet's traffic to every RFC1918 range.
 One addition specific to this service: **the token can delete bookmarks, and
 nothing in this design ever calls delete.** The endpoint is not wrapped, not
 proxied, and not reachable from the device protocol at all.
+
+### Opening registration, and what it required first
+
+The plan this copies said registration stays behind an allowlist "until
+aggressive per-IP and global caps plus per-username exponential lockout exist
+AND HAVE BEEN EXERCISED". When Mario opened both bridges, one of the three
+existed: a per-IP window. The global cap was on `/api/sync` and not on the
+endpoint that is a credential-stuffing oracle, the per-username limiter was
+flat rather than exponential, and none of it was tested.
+
+All three now hold. `GLOBAL_LOGIN` is a ceiling nothing can route around by
+having many addresses; `Lockout` (bridge/lockout.py) charges exponentially on
+FAILURES after two free ones, so a typo costs nothing and a sustained attack on
+one account costs time that doubles; `tests/test_lockout.py` and an end-to-end
+case in `tests/test_api.py` exercise both.
+
+Two things that fell out of building it and are worth keeping:
+
+- **The flat per-username window had to GO, not sit beside the lockout.** Both
+  keyed on the username, the flat one fired first, and its cruder message was
+  the only one a locked account ever saw. Two limiters on one key with the
+  weaker one winning is worse than either alone, because it hides which
+  mechanism is acting.
+- **A limiter test can pass on the wrong mechanism.** The end-to-end case only
+  reaches the lockout from a fresh visitor IP; from the suite's own address the
+  per-IP window answers first, and the assertion would have been green while
+  testing nothing it claimed to.
+
+**What none of this touches: distributed stuffing.** Per-IP and per-username
+counters are both defeated by having many of each, and no in-process limiter
+can help. That case needs a control in front of the service -- Cloudflare rate
+limiting, which is Mario's hands on a dashboard. It was already an open item;
+opening the allowlist is what turned it from prudent to load-bearing, and it is
+now the largest remaining gap in this service's security.
 
 ## The one thing that cannot be verified from here
 

@@ -24,6 +24,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
 from . import accounts, engine, jobs, pairing, store
+from .lockout import Lockout
 
 log = logging.getLogger("bridge.app")
 
@@ -52,7 +53,28 @@ class Window:
 
 
 LOGIN_IP = Window(5, 300)
-LOGIN_USER = Window(3, 900)
+# There is deliberately NO flat per-username Window beside LOGIN_LOCKOUT. There
+# was, and it shadowed the lockout completely: both key on the username, the
+# flat one fired first, and its cruder message was the only one a locked
+# account ever saw. Two limiters on one key, the weaker one winning, is worse
+# than either alone -- it hides which mechanism is acting. Exponential backoff
+# on FAILURES strictly dominates a flat cap on ATTEMPTS here, because an
+# unlimited number of SUCCESSFUL sign-ins is harmless: you already have the
+# password.
+# A GLOBAL ceiling on sign-in, which /api/sync has had from the start and the
+# endpoint that actually matters did not. Per-IP and per-username counters are
+# both defeated by having many of each; this one is not, because there is only
+# one of it.
+#
+# Set well above any plausible real rate -- a person signs in once and then
+# their reader syncs on a token -- so it is a backstop rather than a throttle.
+# It does mean a flood can deny sign-in to everyone while it lasts, which is
+# the accepted trade: a bounded oracle that is briefly unavailable beats an
+# unbounded one that is always up.
+GLOBAL_LOGIN = Window(30, 60)
+# And the per-username exponential backoff the design named as a precondition
+# for opening registration. Counts failures, not attempts.
+LOGIN_LOCKOUT = Lockout()
 PAIR_IP = Window(10, 300)
 SYNC_USER = Window(8, 300)
 GLOBAL_SYNC = Window(60, 60)
@@ -158,11 +180,25 @@ async def login(request: Request):
     # no password, and the docs say an empty one cannot be read as an error.
     password = str(form.get("password", ""))
     ip_addr = client_ip(request)
-    if not LOGIN_IP.allow(ip_addr) or not LOGIN_USER.allow(username.lower()):
+    key = username.lower()
+    if not LOGIN_IP.allow(ip_addr) or not GLOBAL_LOGIN.allow("all"):
         return page("Slow down", "<p>Too many attempts. Wait a few minutes.</p>")
+    # Checked before the exchange, so a locked-out username costs Instapaper
+    # nothing: the whole point is not to relay the attempt at all.
+    waiting = LOGIN_LOCKOUT.locked_for(key)
+    if waiting > 0:
+        return page(
+            "Slow down",
+            f"<p>Too many failed sign-ins for that account. Try again in"
+            f" {int(waiting // 60) + 1} minute(s).</p>",
+        )
     try:
         st = await asyncio.to_thread(accounts.login, username, password)
     except ValueError as e:
+        # A refusal is what an attacker is fishing for, so it is what the
+        # backoff counts. A bridge fault below is not the user's doing and does
+        # not penalise them.
+        LOGIN_LOCKOUT.record_failure(key)
         return page("Sign in failed", f"<p>{e}</p><p><a href=/>Try again</a></p>")
     except RuntimeError:
         log.exception("login blocked by configuration")
@@ -179,6 +215,7 @@ async def login(request: Request):
             "<p>The bridge hit a problem on its side; nothing about your"
             " account was stored. Try again in a minute.</p>",
         )
+    LOGIN_LOCKOUT.record_success(key)
     resp = RedirectResponse("/devices", status_code=303)
     resp.set_cookie(
         "read_session",
