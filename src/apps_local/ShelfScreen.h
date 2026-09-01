@@ -103,6 +103,15 @@ int pageFor(int selected, int rowsPerPage);
 // token set it does not have in loop()).
 int pageCountFor(int itemCount, int rowsPerPage);
 
+// The page one step of `delta` away, wrapping at both ends. The one place a
+// page key, a swipe and a pip tap all agree on what "next" means, so no route
+// can move by a different amount than another -- one input, one page, and the
+// same page whichever input it was.
+//
+// Wraps because there is no cursor to run off the end of, and a page key that
+// stops working at the last page reads as a broken key.
+int pageStep(int page, int pageCount, int delta);
+
 // The body rect the list occupies. `hasPages` is what the page bar costs it, and
 // it is a separate argument rather than derived because pagingFor has to ask
 // this question both ways round to resolve the circularity. Shared with the

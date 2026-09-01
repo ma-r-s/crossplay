@@ -26,7 +26,6 @@
 #include "../../src/apps_local/knucklebones/KnucklebonesScreens.h"
 #include "../../src/apps_local/link/LinkScreens.h"
 #include "../../src/apps_local/minesweeper/MinesweeperScreens.h"
-#include "../../src/apps_local/trivia/TriviaScreens.h"
 #include "../../src/apps_local/murdle/MurdleScreens.h"
 #include "../../src/apps_local/murdle/MurdleText.h"
 #include "../../src/apps_local/player/PlayerAvatar.h"
@@ -36,6 +35,7 @@
 #include "../../src/apps_local/sudoku/SudokuScreens.h"
 #include "../../src/apps_local/toybattle/ToyBattleMenus.h"
 #include "../../src/apps_local/toybattle/ToyBattleScreens.h"
+#include "../../src/apps_local/trivia/TriviaScreens.h"
 #include "../../src/apps_local/ui/ToyboxIcons.h"
 #include "../../src/apps_local/ui/ToyboxText.h"
 #include "../../src/apps_local/wavelength/WavelengthScreens.h"
@@ -1296,6 +1296,166 @@ void testTheShelfPagesWhenAFolderOverflows() {
   // A cluster, not the whole bar: it must leave the edges alone or it is the
   // control this was rewritten to stop being.
   CHECK(lastHit - firstHit < band.width - 2 * toybox::kMargin);
+}
+
+// One input, one page, and the same page whichever input it was.
+//
+// The shelf pages from three places -- the two side keys, a horizontal swipe and
+// a tap on a page mark -- and they used to do their own modular arithmetic each.
+// Asserted as arithmetic because arithmetic is the half a cold tester cannot
+// see: three of them reported a single press advancing two pages, and the press
+// was never the variable. Where the folder had OPENED was.
+void testAPageStepMovesExactlyOnePage() {
+  CHECK(shelfui::pageStep(0, 3, 1) == 1);
+  CHECK(shelfui::pageStep(1, 3, 1) == 2);
+  // Wraps, because there is no cursor to run off the end of.
+  CHECK(shelfui::pageStep(2, 3, 1) == 0);
+  CHECK(shelfui::pageStep(0, 3, -1) == 2);
+  CHECK(shelfui::pageStep(2, 3, -1) == 1);
+  CHECK(shelfui::pageStep(1, 3, -1) == 0);
+  // A folder that fits has nowhere to step to, and a key that quietly moved the
+  // resumed row to the top instead would be a step that changed something
+  // without going anywhere.
+  CHECK(shelfui::pageStep(0, 1, 1) == 0);
+  CHECK(shelfui::pageStep(0, 1, -1) == 0);
+
+  // The property, not three examples of it: from any page of any folder, a step
+  // moves by exactly one page and the opposite step undoes it. A guard that
+  // fixed a double advance by making the key dead passes every example above
+  // and fails the second line here.
+  for (int pages = 2; pages <= 6; ++pages) {
+    for (int from = 0; from < pages; ++from) {
+      const int forward = shelfui::pageStep(from, pages, 1);
+      const int back = shelfui::pageStep(from, pages, -1);
+      CHECK((forward - from + pages) % pages == 1);
+      CHECK((from - back + pages) % pages == 1);
+      CHECK(shelfui::pageStep(forward, pages, -1) == from);
+      CHECK(shelfui::pageStep(back, pages, 1) == from);
+    }
+  }
+}
+
+// The marks are a control, and a control has to look like one.
+//
+// They were always tappable and always the reliable way to page; two cold
+// testers found them by accident and a third never tried them, because ten
+// pixels of ink with air around them read as decoration. The frame is the
+// smallest thing here that reads as touchable, and it has to sit on exactly the
+// strip the taps land in or it promises a hit where there is none.
+void testThePageMarksReadAsAControl() {
+  constexpr int kCount = 20;
+  fui::ListItem items[kCount] = {};
+  for (int i = 0; i < kCount; ++i) {
+    items[i].label = "GAME";
+    items[i].actionValue = static_cast<int16_t>(i);
+  }
+
+  const fui::ThemeTokens& tokens = toybox::themeTokens();
+  const shelfui::Paging paging = shelfui::pagingFor(device(), tokens, true, kCount);
+  CHECK(paging.pageCount > 1);
+
+  shelfui::MenuModel model;
+  model.title = "GAMES";
+  model.playerName = "SPIKY GRIM BEARD";
+  model.items = items;
+  model.count = paging.rowsPerPage;
+  model.selected = -1;
+  model.page = 0;
+  model.pageCount = paging.pageCount;
+
+  Rendered menu;
+  buildShelf(menu, model);
+  const fui::Rect band = shelfui::listBand(device(), true, true);
+
+  // Probed, not recomputed, so the test cannot make the builder's arithmetic
+  // mistake twice.
+  int barY = -1;
+  for (int y = band.y + band.height; y < 800 && barY < 0; ++y) {
+    if (menu.tap(device().width / 2, y).action == shelfui::ActionGoToPage) barY = y;
+  }
+  CHECK(barY > 0);
+
+  int firstHit = -1;
+  int lastHit = -1;
+  for (int x = 0; x < device().width; ++x) {
+    if (menu.tap(x, barY).action != shelfui::ActionGoToPage) continue;
+    if (firstHit < 0) firstHit = x;
+    lastHit = x;
+  }
+  CHECK(firstHit > 0);
+
+  // An outline crossing the tap strip that holds every page target. A pip is a
+  // stroke too, so "something was stroked down there" would pass against the
+  // exact drawing this replaced; spanning the whole cluster is what a pip
+  // cannot do.
+  bool framed = false;
+  for (const auto& outline : menu.target.strokes) {
+    if (outline.rect.y > barY) continue;
+    if (outline.rect.y + outline.rect.height < barY) continue;
+    if (outline.rect.x > firstHit) continue;
+    if (outline.rect.x + outline.rect.width < lastHit) continue;
+    // And it stays a cluster: a frame as wide as the list is the bar of slabs
+    // the marks were deliberately rewritten not to be.
+    CHECK(outline.rect.width < band.width);
+    framed = true;
+  }
+  CHECK(framed);
+}
+
+// The folder reopens on the page of the game you last opened, so it has to say
+// which row that was. Three cold testers read the restored page as a fresh list
+// and tapped the row they wanted from page one; the games they got -- Checkers,
+// Battleship, Forehead -- are that same row two pages away.
+void testTheResumedRowIsMarkedSoTheRestoredPageExplainsItself() {
+  fui::ListItem items[3] = {};
+  const char* titles[3] = {"MURDLE", "CHECKERS", "CONNECT FOUR"};
+  for (int i = 0; i < 3; ++i) {
+    items[i].label = titles[i];
+    items[i].actionValue = static_cast<int16_t>(8 + i);
+  }
+
+  shelfui::MenuModel model;
+  model.title = "GAMES";
+  model.playerName = "SPIKY GRIM BEARD";
+  model.items = items;
+  model.count = 3;
+  model.page = 1;
+  model.pageCount = 3;
+  // Page-relative: the activity hands the row's offset within the page it drew.
+  model.selected = 1;
+
+  Rendered marked;
+  buildShelf(marked, model);
+
+  // The mark is a filled row, so the ink under the label flips. Asserted
+  // through the label's own colour rather than by counting fills: a fill of the
+  // right size in the wrong place would pass a count and leave the row looking
+  // like every other one.
+  bool resumedIsPaper = false;
+  bool neighbourIsPaper = false;
+  for (const auto& run : marked.target.texts) {
+    if (run.text == "CHECKERS" && run.color == fui::Color::White) resumedIsPaper = true;
+    if (run.text == "MURDLE" && run.color == fui::Color::White) neighbourIsPaper = true;
+  }
+  CHECK(resumedIsPaper);
+  CHECK(!neighbourIsPaper);
+
+  // And it is still the thing you can open: a landmark that stopped answering
+  // taps would trade one silent failure for another.
+  const int rowY = toybox::kHeaderHeight + toybox::kGutter * 3 + toybox::kRowHeight + toybox::kRowHeight / 2;
+  const fui::ActionEvent hit = marked.tap(240, rowY);
+  CHECK(hit.action == shelfui::ActionOpen);
+  CHECK(hit.value == 9);
+
+  // Once a page has been turned the row is only a page carrier, and -1 is how
+  // the activity says so: nothing is marked, because nothing needs explaining.
+  shelfui::MenuModel paged = model;
+  paged.selected = -1;
+  Rendered plain;
+  buildShelf(plain, paged);
+  for (const auto& run : plain.target.texts) {
+    if (run.text == "CHECKERS") CHECK(run.color != fui::Color::White);
+  }
 }
 
 void testAFolderWithoutADeviceNameHasNoFooter() {
@@ -5378,8 +5538,7 @@ void testTriviaOptionsCarryTheirIndex() {
     const FakeTarget::TextRun* run = out.target.find(kLabels[i]);
     CHECK(run != nullptr);
     if (run == nullptr) continue;
-    const fui::ActionEvent event =
-        out.tap(run->rect.x + run->rect.width / 2, run->rect.y + run->rect.height / 2);
+    const fui::ActionEvent event = out.tap(run->rect.x + run->rect.width / 2, run->rect.y + run->rect.height / 2);
     CHECK(event.action == triviaui::ActionOption);
     CHECK(event.value == i);
   }
@@ -5430,8 +5589,7 @@ void testTriviaAlwaysOffersAWayOut() {
     CHECK(end != nullptr);
     if (end != nullptr) {
       unanswered = end->rect;
-      const fui::ActionEvent event = out.tap(end->rect.x + end->rect.width / 2,
-                                             end->rect.y + end->rect.height / 2);
+      const fui::ActionEvent event = out.tap(end->rect.x + end->rect.width / 2, end->rect.y + end->rect.height / 2);
       CHECK(event.action == triviaui::ActionQuit);
     }
   }
@@ -5449,8 +5607,7 @@ void testTriviaAlwaysOffersAWayOut() {
       // when the question is answered would be its own bug.
       CHECK(end->rect.x == unanswered.x);
       CHECK(end->rect.y == unanswered.y);
-      const fui::ActionEvent event = out.tap(end->rect.x + end->rect.width / 2,
-                                             end->rect.y + end->rect.height / 2);
+      const fui::ActionEvent event = out.tap(end->rect.x + end->rect.width / 2, end->rect.y + end->rect.height / 2);
       CHECK(event.action == triviaui::ActionQuit);
     }
   }
@@ -5539,6 +5696,9 @@ int main() {
   testShelfFolderDrawsItsOwnNameAndRows();
   testShelfIconsFollowTheRowsWhenTheListScrolls();
   testTheShelfPagesWhenAFolderOverflows();
+  testAPageStepMovesExactlyOnePage();
+  testThePageMarksReadAsAControl();
+  testTheResumedRowIsMarkedSoTheRestoredPageExplainsItself();
   testAFolderWithoutADeviceNameHasNoFooter();
   testTheShelfFooterIsADoorWithAFaceOnIt();
   testPlayerOffersThreeSeparateWords();

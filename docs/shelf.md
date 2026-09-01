@@ -57,16 +57,17 @@ beside the fun ones, and needs no explanation.
 ## Pages, not scrolling
 
 A folder that does not fit is drawn a page at a time, with a row of pips above
-the footer. Tapping a pip goes straight to that page.
+the footer, framed so they read as the control they are. Tapping a pip goes
+straight to that page; a horizontal swipe steps one page; the two side keys step
+one page. All three go through `ShelfFolderActivity::showPage`, so no route can
+move by a different amount than another.
 
-**The reason is touch, not taste.** `ShelfFolderActivity` handles exactly one
-gesture, `wasScreenTapped`: there is no swipe anywhere in this fork, and the
-list component's 3px overflow track is drawn but not tappable. So before this,
-every row past the ninth could be reached only with the physical buttons, on a
-device whose games are touch-only on purpose. Scrolling was not worse-looking;
-it was unreachable.
+**The reason is touch, not taste.** The list component's 3px overflow track is
+drawn but not tappable, so before paging existed every row past the ninth could
+be reached only with the physical buttons, on a device whose games are
+touch-only on purpose. Scrolling was not worse-looking; it was unreachable.
 
-Three things follow, and each was got wrong once:
+Four things follow, and each was got wrong once:
 
 - **The page is derived from the selection, never stored.** Two facts that must
   agree are one fact stored once. A page member drifts the moment a button moves
@@ -86,6 +87,22 @@ Three things follow, and each was got wrong once:
   touch device, so a touch user cannot discover that Up and Down would page.
   Touch has to stay complete. The iOS home screen resolves the same tension the
   same way.
+
+  They carry a hairline frame, drawn on exactly the strip the targets occupy.
+  Ten pixels of ink with air around them read as decoration: two cold testers
+  found the taps by accident and used them as their only reliable route, and a
+  third never tried them and reported that the list could not be paged at all.
+  An indicator that is also the reliable control has to look like a control.
+- **A restored page has to say what restored it.** The folder reopens on the
+  page of the game you last opened -- `lastItem` in `shelf.cfg`, read by
+  `onEnter` -- and that row is drawn selected on arrival. Without the mark the
+  restored page is indistinguishable from page one, and the whole difference is
+  three pips nobody reads: three cold testers each tapped the row they wanted
+  from page one and got its neighbour two pages down, and each concluded the
+  pager was broken and nondeterministic. It is neither; the start page is a
+  saved value and was invisible. The mark is a landmark and not a cursor --
+  there is no Confirm on this device, so nothing can act on it -- and the first
+  page change clears it, because after that `selected` is only the page carrier.
 
 Pips rather than prev/next arrows because arrows are up to `pageCount - 1` taps
 to the far end and say nothing about where you are. A right chevron was the

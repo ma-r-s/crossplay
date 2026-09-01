@@ -128,10 +128,12 @@ On this hardware the rule is almost self-executing, because the only two buttons
 are page keys. **Up and Down page. Nothing else is a button, because nothing
 else is a button.**
 
-**And paging by button is never the only route.** The page marks stay tappable.
-Not because touch is better, but because the moment a button is the only way to
-reach something we have two input models again, and the invisible one wins
-arguments it should not.
+**And paging by button is never the only route.** The page marks stay tappable,
+and a horizontal swipe steps a page too -- it is the first thing every hand
+reaches for on a touch panel showing a page indicator, and three cold testers
+tried it before anything else. Not because touch is better, but because the
+moment a button is the only way to reach something we have two input models
+again, and the invisible one wins arguments it should not.
 
 ---
 

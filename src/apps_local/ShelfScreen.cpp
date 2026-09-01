@@ -53,6 +53,15 @@ int pageCountFor(const int itemCount, const int rowsPerPage) {
   return (itemCount + rowsPerPage - 1) / rowsPerPage;
 }
 
+int pageStep(const int page, const int pageCount, const int delta) {
+  if (pageCount <= 1) return 0;
+  // Modulo of a negative left operand is negative in C++, so the step is
+  // normalised into 0..pageCount-1 before it is added.
+  const int step = ((delta % pageCount) + pageCount) % pageCount;
+  const int from = page < 0 ? 0 : page % pageCount;
+  return (from + step) % pageCount;
+}
+
 void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   fui::HeaderProps header;
   header.title = model.title;
@@ -173,6 +182,18 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
     // how the component is told the blankness is deliberate.
     fui::StyleSet invisible;
     invisible.explicitlySet = true;
+
+    // A hairline capsule around the cluster, drawn on exactly the strip the
+    // targets occupy so the outline cannot promise a hit where there is none.
+    //
+    // The marks say where you are; without this nothing said they can be
+    // touched. Two cold testers found the taps by accident and used them as
+    // their only reliable route; a third never tried them and concluded the
+    // list could not be paged at all. A frame is the smallest thing in this
+    // design language that reads as a control, and it costs no layout: the bar
+    // was already this tall.
+    const fui::Rect cluster = fui::makeRect(clusterX, bar.y, static_cast<int16_t>(pitch * model.pageCount), bar.height);
+    screen.target().stroke(cluster, fui::Paint::solid(fui::Color::Black), 1, static_cast<uint8_t>(cluster.height / 2));
 
     for (int p = 0; p < model.pageCount; ++p) {
       const fui::Rect target =

@@ -47,9 +47,29 @@ void ShelfFolderActivity::onEnter() {
   selected = shelf::lastItemIn(folder);
   itemCount = shelf::folders()[folder].count;
   if (selected >= itemCount) selected = itemCount > 0 ? itemCount - 1 : 0;
+  // Only when there is something to explain. Row zero is the top of page one,
+  // which is where an unvisited folder opens anyway, so marking it would be
+  // furniture on the one screen that needs none.
+  showingResumedRow = selected > 0;
   // The page itself is built in render(), which is the only place that knows how
   // many rows fit.
   requestUpdate();
+}
+
+bool ShelfFolderActivity::showPage(const int page) {
+  const int landing = page * rowsPerPage;
+  // Which page a step actually landed on, because "it moved by two" and "it
+  // started somewhere else" look identical from outside and cost three cold
+  // testers an evening between them.
+  LOG_DBG("SHELF", "Page %d -> %d of %d (row %d of %d)", shelfui::pageFor(selected, rowsPerPage), page,
+          shelfui::pageCountFor(itemCount, rowsPerPage), landing, itemCount);
+  if (landing < 0 || landing >= itemCount) return false;
+  // The page is DERIVED from the selection and stored nowhere, so changing page
+  // means moving the selection onto it. It lands on the page's first row.
+  selected = landing;
+  showingResumedRow = false;
+  requestUpdate();
+  return true;
 }
 
 void ShelfFolderActivity::loop() {
@@ -85,24 +105,24 @@ void ShelfFolderActivity::loop() {
   //
   // The page marks stay tappable. A button must never be the only route to
   // something, or the invisible input model wins arguments it should not.
-  const bool next = mappedInput.wasReleased(MappedInputManager::Button::Down);
-  const bool prev = mappedInput.wasReleased(MappedInputManager::Button::Up);
+  const bool keyNext = mappedInput.wasReleased(MappedInputManager::Button::Down);
+  const bool keyPrev = mappedInput.wasReleased(MappedInputManager::Button::Up);
+
+  // And a horizontal swipe pages too, which is the first thing every hand
+  // reaches for on a touch panel showing a page indicator. Left carries the
+  // list leftwards to the next page, matching the reader's own swipe page
+  // turns; Back is a left-edge swipe and has already returned above, so a
+  // rightward swipe reaching here is a page and not an exit.
+  const MappedInputManager::SwipeDir swipe = mappedInput.wasSwipe();
+  const bool next = keyNext || swipe == MappedInputManager::SwipeDir::Left;
+  const bool prev = keyPrev || swipe == MappedInputManager::SwipeDir::Right;
 
   if (itemCount > 0 && (next || prev)) {
-    // Paging is moving the selection onto another page, because the page is
-    // DERIVED from the selection and stored nowhere. Same landing rule as
-    // tapping a page mark: the page's first row.
+    // A folder that fits on one page has no page to step to, and moving the
+    // resumed row to the top instead would be a step that changed something
+    // without going anywhere.
     const int pages = shelfui::pageCountFor(itemCount, rowsPerPage);
-    if (pages > 1) {
-      const int page = shelfui::pageFor(selected, rowsPerPage);
-      // Wraps, because there is no cursor to run off the end of and a page key
-      // that stops working at the last page reads as a broken key.
-      const int landing = ((page + (next ? 1 : pages - 1)) % pages) * rowsPerPage;
-      if (landing >= 0 && landing < itemCount) {
-        selected = landing;
-        requestUpdate();
-      }
-    }
+    if (pages > 1) showPage(shelfui::pageStep(shelfui::pageFor(selected, rowsPerPage), pages, next ? 1 : -1));
     return;
   }
 
@@ -115,18 +135,7 @@ void ShelfFolderActivity::loop() {
     return;
   }
   if (event.action == shelfui::ActionGoToPage) {
-    // The page follows the selection, so changing page means moving the
-    // selection onto that page rather than storing a page anywhere.
-    //
-    // It lands on the page's first row and the cursor stays hidden. Revealing it
-    // here would draw an inverted row on arrival, which reads as "this is what
-    // you are about to do" -- and someone who just tapped a pip is about to tap
-    // a game, not open whatever happens to be at the top.
-    const int landing = event.value * rowsPerPage;
-    if (landing >= 0 && landing < itemCount) {
-      selected = landing;
-      requestUpdate();
-    }
+    showPage(event.value);
     return;
   }
   if (event.action == shelfui::ActionOpenPlayer) {
@@ -182,13 +191,13 @@ void ShelfFolderActivity::render(RenderLock&&) {
   model.items = items;
   model.icons = icons;
   model.count = onThisPage;
-  // Page-relative, because the model is one page. The cursor is always on the
-  // page being drawn: the page is derived from it.
-  // Never styled as a selection. `selected` is where the shelf will return you
-  // to, and which page to show -- it is not a cursor, and drawing it inverted on
-  // arrival would say "this is what you are about to do" to someone who has
-  // just walked in.
-  model.selected = -1;
+  // Page-relative, because the model is one page. The row is always on the page
+  // being drawn: the page is derived from it.
+  //
+  // Drawn only while it is the row the shelf resumed on, which is what tells
+  // you why the list did not open at the top. Once any page change has
+  // happened, `selected` is just the page carrier and -1 draws no cursor.
+  model.selected = showingResumedRow ? selected - first : -1;
   model.playerName = self.showsDeviceName ? player::name() : nullptr;
   model.page = page;
   model.pageCount = paging.pageCount;
