@@ -431,9 +431,46 @@ A fix that drains `pressedEvents` addresses the button and **cannot touch the
 swipe**. Any boundary fix has to consume the gesture as well, or it repairs the
 path few people use and leaves the path most people use.
 
-Where the swipe latch is cleared is unfollowed: `wasBackGesture()` delegates to
-`wasEdgeSwipe(ScreenEdge::Left)`, below MappedInputManager. That is the next
-thing to read.
+### Where the swipe latch lives, and why it is the same shape as the button
+
+Followed to the bottom. `wasBackGesture()` -> `wasEdgeSwipe(Left)` ->
+`decodeSwipe()` -> `gpio.wasSwipe()` -> `InputManager::wasSwipe()`
+(`freeink-sdk/libs/hardware/InputManager/src/InputManager.cpp:604`), which is:
+
+```cpp
+bool InputManager::wasSwipe(...) const {
+  if (!touchReleasedEvent || touchSuppressed || touchMultiContactSequence) return false;
+  ...
+  return true;   // consumes nothing
+}
+```
+
+The latch is **`touchReleasedEvent`**, and it is written in exactly one place
+outside the touch handlers: `InputManager::update()` (line 466), in the same
+block that zeroes `pressedEvents` and `releasedEvents`, commented there as
+"one-shot touch coord events, cleared each update()".
+
+So both mechanisms have the **same root shape** -- a `const`, non-consuming read
+of a one-shot flag that only `update()` clears. That is the unifying fact, and
+it is what makes a single boundary fix possible at all:
+
+|        | flag                  | readers per frame | edges |
+|--------|-----------------------|-------------------|-------|
+| button | `pressedEvents` bit   | any number        | two   |
+| swipe  | `touchReleasedEvent`  | any number        | one   |
+
+The button gets away with it for one frame per edge; the swipe has no second
+edge to hide behind, so every reader in that frame sees the same true.
+
+**What this rules out.** A drain that clears only `pressedEvents` cannot fix
+the swipe -- the boundary must clear the touch one-shots too, which today means
+going through `update()`. And `update()` is precisely what a dev build's
+injector outranks. So a correct fix and an untestable fix are currently the
+same fix.
+
+That is the shape of the remaining problem. It is not "find where the latch
+clears" any more; it is "give the boundary a way to consume a one-shot that
+does not route through the one call the injector overrides".
 
 ### And the simulator cannot settle it
 
