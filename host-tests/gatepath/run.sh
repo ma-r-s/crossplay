@@ -32,9 +32,12 @@ q git init --bare -b xteink "$WORK/origin.git"
 q git clone "$WORK/origin.git" "$WORK/repo"
 cdd "$WORK/repo"
 q git config user.email t@t; q git config user.name t
-mkdir -p src lib docs site scripts host-tests tools_local
+mkdir -p src lib docs site scripts host-tests tools_local scripts_local nix .github/workflows
 echo x > src/main.cpp; echo x > lib/thing.h; echo x > docs/a.md
 echo x > site/index.html; echo x > scripts/build_html.py; echo x > platformio.ini
+echo x > scripts_local/require_build_lock.py; echo x > scripts_local/check.sh
+echo x > scripts_local/README.md; echo x > nix/flake.nix; echo x > requirements.txt
+echo x > .gitignore; echo x > .github/workflows/ci.yml
 q git add -A; q git commit -m base
 q git push -u origin xteink
 
@@ -72,6 +75,44 @@ reset_tree; echo edit >> src/main.cpp;   q git add -A; q git commit -m c; needed
 reset_tree; echo edit >> lib/thing.h;    q git add -A; q git commit -m l; needed "lib/" yes
 reset_tree; echo edit >> platformio.ini; q git add -A; q git commit -m p; needed "platformio.ini" yes
 reset_tree; echo edit >> scripts/build_html.py; q git add -A; q git commit -m b; needed "scripts/ (a pre-build generator)" yes
+
+# scripts_local/ is NOT inert, and these are the two reasons, tested separately
+# because they would be fixed separately.
+#
+# 1. Two of its files are `pre:` extra_scripts in platformio.ini
+#    (require_build_lock.py, sconsign_per_tree.py). They RUN INSIDE every device
+#    build and a bad edit fails it.
+reset_tree; echo edit >> scripts_local/require_build_lock.py; q git add -A; q git commit -m rbl
+needed "scripts_local/ (a pre: extra_script that runs inside the build)" yes
+
+# 2. The rest is the gate's own machinery. A change to check.sh that broke the
+#    build loop would be masked by a run that skipped the build loop -- the one
+#    place a wrong "inert" cannot be caught later by anything downstream. This
+#    case is also what makes THIS suite's own verification honest: the commit
+#    that wired the rule into check.sh had to run all four builds to land.
+reset_tree; echo edit >> scripts_local/check.sh; q git add -A; q git commit -m gate
+needed "scripts_local/check.sh (the gate verifying itself)" yes
+
+# ...but a .md under it still falls to the *.md branch, with no special case.
+reset_tree; echo edit >> scripts_local/README.md; q git add -A; q git commit -m rdm
+needed "scripts_local/README.md (prose is still prose)" no
+
+# Three the cold audit could not RULE OUT, so they build. nix/flake.nix pins
+# PlatformIO Core and the toolchain root; requirements.txt is installed into
+# that venv; .gitignore decides what a --committed trial worktree even contains.
+reset_tree; echo edit >> nix/flake.nix;      q git add -A; q git commit -m nx
+needed "nix/ (pins which pio and which toolchain build)" yes
+reset_tree; echo edit >> requirements.txt;   q git add -A; q git commit -m rq
+needed "requirements.txt" yes
+reset_tree; echo edit >> .gitignore;         q git add -A; q git commit -m gi
+needed ".gitignore (decides what --committed materialises)" yes
+
+# .github/ stays inert on a narrower argument than the others: it CAN break a
+# device build, but only the ones CI runs. check.sh's four run on this machine,
+# and compiling x4pro here says nothing about a workflow file -- so skipping
+# them loses no verification that running them would have provided.
+reset_tree; echo edit >> .github/workflows/ci.yml; q git add -A; q git commit -m gh
+needed ".github/ (breaks CI builds, not the local four)" no
 
 # The mixed case: one firmware path among many inert ones must still build.
 reset_tree
@@ -215,5 +256,50 @@ else
 fi
 q git checkout -q "$MAIN"
 
+# --build-loop: the one caller that is not an observer of the build.
+#
+# check.sh exports CHECK_BUILD_RELEASE_ENVS under --committed and then asks this
+# tool whether to run the envs it was about to run. Honouring the variable there
+# means the answer is always "needed", so the skip could never fire in the one
+# mode it exists for -- a question whose answer is derived from the asker's own
+# intent. The variable still answers for everyone else, asserted above.
+echo
+echo "device-build-needed --build-loop"
+
+loop() {  # label, expect yes|no, value for CHECK_BUILD_RELEASE_ENVS
+  local label="$1" expect="$2" rc
+  if [ -n "$3" ]; then
+    CHECK_BUILD_RELEASE_ENVS="$3" "$TOOL" --build-loop >/dev/null 2>&1; rc=$?
+  else
+    env -u CHECK_BUILD_RELEASE_ENVS "$TOOL" --build-loop >/dev/null 2>&1; rc=$?
+  fi
+  if [ "$expect" = "yes" ]; then
+    [ "$rc" -eq 0 ] && ok "$label -> builds run" || bad "$label -> SKIPPED, must not"
+  else
+    [ "$rc" -eq 1 ] && ok "$label -> builds skipped" || bad "$label -> ran, expected skip"
+  fi
+}
+
+reset_tree; echo edit >> site/index.html; q git add -A; q git commit -m s
+loop "site only, no release envs" no ""
+loop "site only, release envs set (this is --committed)" no "1"
+
+# And the direction that must NEVER be lost: the exemption is only about that
+# one variable. Everything else still answers exactly as the default does.
+reset_tree; echo edit >> src/main.cpp; q git add -A; q git commit -m c
+loop "src/, release envs set" yes "1"
+loop "src/, no release envs" yes ""
+
+reset_tree
+echo edit >> site/index.html; echo edit >> src/main.cpp; q git add -A; q git commit -m mx
+loop "the mixed diff, release envs set" yes "1"
+
+reset_tree; mkdir -p brandnew; echo x > brandnew/x.c; q git add -A; q git commit -m bn
+loop "an unrecognised top-level directory" yes "1"
+
+reset_tree; echo edit >> scripts_local/check.sh; q git add -A; q git commit -m sl
+loop "scripts_local/check.sh -- the gate cannot skip its own builds" yes "1"
+
+reset_tree
 echo "$((PASS+FAIL)) checks, $FAIL failed"
 [ "$FAIL" -eq 0 ]

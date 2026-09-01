@@ -47,6 +47,39 @@ python3 scripts/debugging_monitor.py
 - [User Guide troubleshooting section](../../USER_GUIDE.md#7-troubleshooting-issues--escaping-bootloop)
 - [Webserver troubleshooting](../troubleshooting.md)
 
+## The gate skips device builds it cannot learn anything from
+
+`check.sh` ran four cross-compiled builds -- `x4pro`, `sticky`,
+`gh_release_x4pro`, `gh_release_sticky` -- for every change, behind a
+workspace-wide lock, taking about ten minutes. It ran them for a change to
+`site/index.html` exactly as for a change to `src/`. Since `app/gatescope` it
+asks `scripts_local/device-build-needed.sh --build-loop` first, and drops the
+four when nothing in the diff can reach a device image.
+
+Three things about it are worth knowing before you trust or debug it:
+
+**The saving is only available in one direction.** `site/emulator/` is a wasm
+build of the firmware, so a firmware change genuinely can change the site --
+which is what the staleness gate at the foot of `check.sh` is for. The reverse
+is never true, so the scoping is only ever allowed to drop DEVICE envs. The
+simulator build always runs.
+
+**The rule is an allowlist of paths that cannot reach an image, and anything
+unrecognised builds.** A new top-level directory means "build", not "skip".
+`scripts_local/` is deliberately NOT on that list: two of its files are `pre:`
+extra_scripts in `platformio.ini` and run inside every device build, and the
+rest is the gate's own machinery -- a change to `check.sh` that broke the build
+loop must not be verified by a run that skipped the build loop.
+
+**A scoped run does not print `all green`.** It prints
+`HOST GREEN, DEVICE BUILDS SKIPPED (...)` and names every env it dropped, so a
+grep written before this existed finds nothing and fails closed rather than
+open. Override it with `CHECK_FORCE_DEVICE_BUILDS=1`.
+
+Its rule is tested by `host-tests/gatepath/`; the wiring that acts on the rule
+is tested by `host-tests/checksh/`, including every way the rule could fail
+(missing, crashing, non-executable) without the wiring noticing.
+
 ## The environment a check runs in is part of the check
 
 Three failures in one night, all the same shape: something was true where the

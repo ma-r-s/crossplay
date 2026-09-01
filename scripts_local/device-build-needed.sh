@@ -15,7 +15,7 @@
 # firmware paths would silently skip the builds the day somebody adds a new
 # top-level directory that feeds them. Unknown must mean build, always.
 #
-#   scripts_local/device-build-needed.sh [--base <ref>] [--quiet]
+#   scripts_local/device-build-needed.sh [--base <ref>] [--quiet] [--build-loop]
 #
 # Exit 0: device builds are needed (also the answer whenever anything is
 #         uncertain -- an unresolvable base, a git that will not answer, a
@@ -31,11 +31,22 @@ QUIET=""
 # second script is how two spellings of one rule start disagreeing.
 RANGE=""
 DEVICE_ONLY=""
+# --build-loop is the DEFAULT question asked by the one caller that is not an
+# observer of the build: check.sh's own loop, deciding whether to run the envs
+# it was about to run. For everyone else CHECK_BUILD_RELEASE_ENVS is evidence
+# ("some run is building release images, so answer conservatively"); for the
+# build loop it is that run's OWN intent, and a question whose answer is
+# derived from the asker's intent is circular. So this mode alone does not
+# consult it. Everything else about the answer -- the allowlist, the fail-safe
+# exits, the untracked-file handling -- is identical, because a second spelling
+# of the rule is how two spellings start disagreeing.
+BUILD_LOOP=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --base)  BASE_REF="${2:-}"; [ -n "$BASE_REF" ] || { echo "--base needs a ref" >&2; exit 0; }; shift 2 ;;
     --range) RANGE="${2:-}"; [ -n "$RANGE" ] || { echo "--range needs A..B" >&2; exit 0; }; shift 2 ;;
     --device-only) DEVICE_ONLY=1; shift ;;
+    --build-loop)  BUILD_LOOP=1; shift ;;
     --quiet) QUIET=1; shift ;;
     *)       echo "unknown option: $1" >&2; exit 0 ;;
   esac
@@ -49,14 +60,50 @@ say() { [ -n "$QUIET" ] || echo "$@"; }
 # scripts/build_html.py and scripts/gen_i18n.py were each read to confirm they
 # generate only from src/ and lib/ rather than from site/ or docs/.
 #
+# A cold audit re-derived this list from platformio.ini upwards rather than
+# checking the list it was given, and moved four entries. Three came OFF, all of
+# them cases it could not rule out rather than cases it disproved:
+#
+#   nix/            flake.nix pins PlatformIO Core and redirects
+#                   PLATFORMIO_CORE_DIR, so which `pio` and which toolchain runs
+#                   is decided there for anyone building through `nix develop`.
+#   requirements.txt installed into that same venv by flake.nix.
+#   .gitignore      inert for a build in the working tree, but --committed
+#                   materialises a trial worktree FROM GIT, and what is ignored
+#                   decides what was ever tracked and therefore what exists to
+#                   compile.
+#
+# None of the three is a proven hazard. All three are edited about once a
+# quarter, so the conservative answer costs nothing measurable and removes three
+# things nobody can reason about at 2am. That is the trade this whole file makes.
+#
+# .github/ STAYED, on a stronger argument than "cannot affect it" -- it can:
+# crossplay-ci.yml chooses the envs and injects -fstack-usage. But those builds
+# run in CI, and check.sh's four run HERE. Compiling x4pro locally tells you
+# nothing about a workflow file, so skipping loses no verification that running
+# would have provided. Inert for this question, not inert in general.
+#
 # Defined up here rather than beside its first use because --range answers
 # before the merge-base work below, and a function called above its definition
 # is a runtime error, not a syntax one.
+#
+# scripts_local/ IS NOT ON THIS LIST, and that is deliberate rather than an
+# oversight. Two of its files are `pre:` extra_scripts in platformio.ini --
+# require_build_lock.py and sconsign_per_tree.py -- so they RUN INSIDE every
+# device build and a bad edit to either fails it. The rest of the directory is
+# the gate's own machinery (check.sh, cache-guard.sh), and a change there that
+# broke the build loop would be masked by a run that skipped the build loop:
+# the one place a wrong "inert" cannot be caught later by anything. It was on
+# the list until this rule started deciding whether builds actually run; while
+# nothing consulted it for that, the mistake was invisible.
+#
+# A .md under scripts_local/ still falls to the `*.md` branch below and stays
+# inert, which is the right answer and needs no special case.
 inert() {
   case "$1" in
-    docs/*|site/*|host-tests/*|server/*|tools_local/*|scripts_local/*) return 0 ;;
-    .github/*|.githooks/*|.skills/*|bin/*|nix/*)                       return 0 ;;
-    *.md|LICENSE|.gitignore|.clang-format|.clangd|requirements.txt)    return 0 ;;
+    docs/*|site/*|host-tests/*|server/*|tools_local/*) return 0 ;;
+    .github/*|.githooks/*|.skills/*|bin/*)             return 0 ;;
+    *.md|LICENSE|.clang-format|.clangd)                return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -121,7 +168,18 @@ fi
 # --device-only cannot be moved above this the way --range was: it walks
 # $CHANGED, which is computed below. So the guard is on the MODE rather than on
 # the position.
-if [ -z "$DEVICE_ONLY" ] && [ -n "${CHECK_BUILD_RELEASE_ENVS:-}" ]; then
+#
+# --build-loop is exempt for a different reason, and the difference matters.
+# The premise here is "somebody requested release images, so build them". Under
+# check.sh --committed the somebody is check.sh, which set the variable itself
+# three hundred lines earlier -- so honouring it there means the build loop can
+# never skip anything, which is the entire point of asking. And the images are
+# not published by that run in any case: crossplay-release.yml builds
+# gh_release_x4pro and gh_release_sticky itself, after the tag
+# (.github/workflows/crossplay-release.yml:77-80). The --committed release
+# builds are a pre-flight for a typo, and a diff that cannot reach a device
+# image cannot have introduced one.
+if [ -z "$DEVICE_ONLY" ] && [ -z "$BUILD_LOOP" ] && [ -n "${CHECK_BUILD_RELEASE_ENVS:-}" ]; then
   say "device builds: needed (release envs requested)"
   exit 0
 fi
