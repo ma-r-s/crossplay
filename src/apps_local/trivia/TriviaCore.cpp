@@ -125,7 +125,11 @@ bool PackState::setFlag(const uint32_t index, const uint8_t bit) {
   const uint8_t updated = static_cast<uint8_t>(byte | bit);
   if (updated == byte) return true;  // already set, no write
   if (!source_->write(index, &updated, 1)) return false;
-  return source_->flush();
+  if (!source_->flush()) return false;
+  // Kept in step here rather than rescanned, and only when the bit is NEW --
+  // the early return above means this cannot double-count a reflag.
+  if ((bit & kSeen) != 0 && (byte & kSeen) == 0) ++seenCount_;
+  return true;
 }
 
 uint32_t Rng::next() {

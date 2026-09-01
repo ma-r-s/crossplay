@@ -476,6 +476,7 @@ void TriviaActivity::render(RenderLock&&) {
       model.selected = selected_;
       model.difficulty = difficulty_;
       model.packCount = pack_.count();
+      model.seenCount = state_.seenCount();
       triviaui::buildMenu(screen, model);
       break;
     }

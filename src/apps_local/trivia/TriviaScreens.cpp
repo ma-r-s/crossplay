@@ -73,6 +73,10 @@ void chrome(toybox::Screen& screen, const char* title, const char* rightLabel) {
 // Difficulty as five pips, filled to the level. A number would need a legend;
 // five marks need nothing, and they are the same idiom the shelf pages use.
 void drawDifficulty(toybox::Screen& screen, const int16_t x, const int16_t y, const int level) {
+  // No question, no meter. Drawing five empty pips beside a "no question at
+  // this difficulty" message described a question that was not there, and the
+  // filled count came from a default rather than from anything the player set.
+  if (level <= 0) return;
   constexpr int16_t kPip = 9;
   constexpr int16_t kGap = 7;
   for (int i = 0; i < trivia::kDifficulties; ++i) {
@@ -222,55 +226,104 @@ void buildNotice(toybox::Screen& screen, const NoticeModel& model) {
   if (model.actionLabel != nullptr) drawAction(screen, model.actionLabel, model.action);
 }
 
+// The front door. Three arrangements were rendered side by side before this one
+// was chosen: the shipped list plus a hole, an "on this card" panel filling that
+// hole with the pack's size, and a stated door with a paragraph of introduction.
+//
+// This won because the two modes ARE the decision, so they should be the screen.
+// The panel version duplicated itself -- the difficulty row and the panel both
+// said "Any difficulty" -- and the stated door spent a paragraph saying what the
+// two buttons already say, which you would read every time you opened the app.
+// See docs/apps/trivia.md.
+// "SEEN" rather than "ANSWERED", deliberately: the flag is set when a question
+// is SERVED, and Quizmaster serves questions that a room answers out loud and
+// the device never scores. Calling that "answered" would be a number the app
+// cannot actually stand behind.
+//
+// A count rather than a bar. At a few hundred of fifty thousand a bar is an
+// empty rectangle, which reads as broken rather than as early.
+void questionCount(char* out, const size_t n, const uint32_t count, const uint32_t seen) {
+  if (count == 0) {
+    out[0] = '\0';
+    return;
+  }
+  if (seen == 0) {
+    // "1 QUESTIONS ON THE CARD" was on the panel until now, and the
+    // one-question seed pack used for screenshots is exactly the case that
+    // exposes it.
+    std::snprintf(out, n, count == 1 ? "%u QUESTION ON THE CARD" : "%u QUESTIONS ON THE CARD",
+                  static_cast<unsigned>(count));
+    return;
+  }
+  std::snprintf(out, n, "%u OF %u SEEN", static_cast<unsigned>(seen), static_cast<unsigned>(count));
+}
+
+void difficultyLine(char* out, const size_t n, const int difficulty) {
+  if (difficulty == 0) {
+    std::snprintf(out, n, "%s", "Any difficulty");
+  } else {
+    // Derived: "of 5" as a literal would rot the day kDifficulties changes and
+    // would still compile.
+    std::snprintf(out, n, "Level %d of %d", difficulty, trivia::kDifficulties);
+  }
+}
+
+// One mode as a large tappable panel. The whole box is the hit region, so the
+// target is the thing you can see rather than the words inside it.
+void modeCard(toybox::Screen& screen, const fui::Rect& box, const char* title, const char* under,
+              const fui::ActionId action, const int16_t value, const bool filled) {
+  if (filled) {
+    screen.target().fill(box, fui::Paint::solid(fui::Color::Black));
+  } else {
+    screen.target().stroke(box, fui::Paint::solid(fui::Color::Black), 2);
+  }
+  const fui::Color ink = filled ? fui::Color::White : fui::Color::Black;
+  // Title and line CENTRED AS A GROUP, not pinned to the box's edges. Pinned, a
+  // tall card puts the name at the top and the line at the bottom with a hole
+  // between them, and reads as an empty panel with two captions.
+  const int16_t mid = static_cast<int16_t>(box.y + box.height / 2);
+  drawLabel(screen, fui::Rect{box.x, static_cast<int16_t>(mid - 44), box.width, 46}, title,
+            toybox::kDisplayFont, fui::TextAlign::Center, toybox::kLargeCut, ink);
+  drawLabel(screen, fui::Rect{box.x, static_cast<int16_t>(mid + 8), box.width, 34}, under,
+            toybox::kSmallFont, fui::TextAlign::Center, toybox::kButtonCut, ink);
+  screen.frame().hit(box, action, value);
+}
+
 void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   chrome(screen, "TRIVIA", nullptr);
   const fui::Rect body = screen.body();
+  char diff[28];
+  difficultyLine(diff, sizeof(diff), model.difficulty);
 
-  fui::ListProps list;
-  list.action = ActionMenuRow;
-  list.selectedIndex = model.selected;
+  const int16_t left = static_cast<int16_t>(body.x + kMargin);
+  const int16_t wide = static_cast<int16_t>(body.width - kMargin * 2);
 
-  fui::ListItem items[static_cast<int>(MenuRow::Count)];
-  items[0].label = "QUIZMASTER";
-  // Measured, not guessed: at the 20px UI cut these run off the panel and are
-  // truncated with an ellipsis Jersey has no glyph for, so the line just stops.
-  items[0].subtitle = "Read it out, argue, reveal";
-  items[0].actionValue = 0;
-  items[1].label = "SOLO";
-  items[1].subtitle = "Four options, scored";
-  items[1].actionValue = 1;
-  items[2].label = "DIFFICULTY";
-  // Five distinct levels all read "One level only", so the setting looked stuck:
-  // the label could not distinguish the states the taps were moving through. A
-  // cold tester tapped nine times and reported it as a one-way door -- it cycles
-  // correctly and always did, but nothing on screen said so.
-  //
-  // Derived rather than written out. "of 5" as a literal would rot the day
-  // kDifficulties changes, and would still compile. Static because ListItem
-  // holds a borrowed pointer and the list is drawn before this returns.
-  static char difficultyLine[28];
-  if (model.difficulty == 0) {
-    std::snprintf(difficultyLine, sizeof(difficultyLine), "%s", "Any difficulty");
-  } else {
-    std::snprintf(difficultyLine, sizeof(difficultyLine), "Level %d of %d", model.difficulty,
-                  trivia::kDifficulties);
-  }
-  items[2].subtitle = difficultyLine;
-  items[2].actionValue = 2;
+  // The cards take the room between the header and the difficulty row, which
+  // sits just above the footer rule. Derived from the panel rather than fixed,
+  // so the layout does not need re-tuning if the chrome changes height.
+  const int16_t top = static_cast<int16_t>(body.y + 24);
+  const int16_t diffH = 62;
+  const int16_t diffY = static_cast<int16_t>(footerTop(screen) - diffH - 18);
+  const int16_t cardH = static_cast<int16_t>((diffY - top - 16 - 20) / 2);
 
-  list.items = items;
-  list.count = static_cast<uint16_t>(MenuRow::Count);
-  screen.list(list);
+  modeCard(screen, fui::Rect{left, top, wide, cardH}, "QUIZMASTER", "Read it out, argue, reveal",
+           ActionMenuRow, 0, true);
+  modeCard(screen, fui::Rect{left, static_cast<int16_t>(top + cardH + 16), wide, cardH}, "SOLO",
+           "Four options, scored", ActionMenuRow, 1, false);
 
-  // A record line at the foot, so the front door is a page rather than three
-  // rows with a hole under them.
+  const fui::Rect diffBox{left, diffY, wide, diffH};
+  screen.target().stroke(diffBox, fui::Paint::solid(fui::Color::Black), 1);
+  drawLabel(screen, fui::Rect{static_cast<int16_t>(left + 16), diffBox.y, 200, diffH}, "DIFFICULTY",
+            toybox::kSmallFont, fui::TextAlign::Left, toybox::kButtonCut);
+  drawLabel(screen, fui::Rect{left, diffBox.y, static_cast<int16_t>(wide - 16), diffH}, diff,
+            toybox::kSmallFont, fui::TextAlign::Right, toybox::kButtonCut);
+  screen.frame().hit(diffBox, ActionMenuRow, 2);
+
   if (model.packCount > 0) {
-    char line[48];
-    std::snprintf(line, sizeof(line), "%u QUESTIONS ON THE CARD", static_cast<unsigned>(model.packCount));
-    const int16_t footY = static_cast<int16_t>(body.y + body.height - 72);
-    hairline(screen, footY);
-    drawLabel(screen, fui::Rect{body.x, static_cast<int16_t>(footY + 14), body.width, 44}, line, toybox::kSmallFont,
-              fui::TextAlign::Center, toybox::kButtonCut);
+    char count[48];
+    questionCount(count, sizeof(count), model.packCount, model.seenCount);
+    drawLabel(screen, fui::Rect{body.x, static_cast<int16_t>(footerTop(screen) + 20), body.width, 40}, count,
+              toybox::kSmallFont, fui::TextAlign::Center, toybox::kButtonCut);
   }
 }
 
