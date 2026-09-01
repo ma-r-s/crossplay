@@ -26,6 +26,7 @@
 #include "../../src/apps_local/knucklebones/KnucklebonesScreens.h"
 #include "../../src/apps_local/link/LinkScreens.h"
 #include "../../src/apps_local/minesweeper/MinesweeperScreens.h"
+#include "../../src/apps_local/trivia/TriviaScreens.h"
 #include "../../src/apps_local/murdle/MurdleScreens.h"
 #include "../../src/apps_local/murdle/MurdleText.h"
 #include "../../src/apps_local/player/PlayerAvatar.h"
@@ -295,6 +296,14 @@ void buildBoard(Rendered& out, const chessui::BoardModel& model) {
   toybox::Frame frame(out.target, ctx, noInput, out.interactions);
   toybox::Screen screen(frame, toybox::themeTokens());
   chessui::buildBoardChrome(screen, model);
+}
+
+void buildChoice(Rendered& out, const triviaui::ChoiceModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  triviaui::buildChoice(screen, model);
 }
 
 void buildLink(Rendered& out, const linkui::LinkModel& model) {
@@ -5270,7 +5279,88 @@ void testFitLinesCutsAnUnbreakableTokenRatherThanVanishing() {
   CHECK(std::string("one two three four five six seven").compare(0, kept.size(), kept) == 0);
 }
 
+// --- trivia ------------------------------------------------------------------
+
+// Every option must register its OWN index. Frame::hit's value parameter
+// defaults to 0, so all four boxes reported option 1: solo scoring was decided
+// by whether the answer happened to land in the top slot, and a cold tester
+// measured 3/12 across twelve questions, which is chance. It shipped in v1.12.0.
+//
+// Nothing caught it because nothing in this repo had ever tapped a solo option
+// -- shoot-trivia.sh taps QUIZMASTER and REVEAL, and no host suite compiled
+// these screens at all until now. Taps are routed against the table the paint
+// produced, so this fails if the index is dropped again.
+void testTriviaOptionsCarryTheirIndex() {
+  triviaui::ChoiceModel model;
+  model.clue = "Which one?";
+  static const char* kLabels[trivia::kOptions] = {"ALPHA", "BRAVO", "CHARLIE", "DELTA"};
+  for (int i = 0; i < trivia::kOptions; ++i) model.option[i] = kLabels[i];
+  model.correct = 2;
+
+  Rendered out;
+  buildChoice(out, model);
+
+  for (int i = 0; i < trivia::kOptions; ++i) {
+    const FakeTarget::TextRun* run = out.target.find(kLabels[i]);
+    CHECK(run != nullptr);
+    if (run == nullptr) continue;
+    const fui::ActionEvent event =
+        out.tap(run->rect.x + run->rect.width / 2, run->rect.y + run->rect.height / 2);
+    CHECK(event.action == triviaui::ActionOption);
+    CHECK(event.value == i);
+  }
+}
+
+// The way out, in both states and in the SAME place. Solo had no exit at all:
+// no footer action before an answer, no header target, and the app is
+// touch-only, so Back did nothing and only the HOME key escaped -- which also
+// meant there was no way to finish deliberately and see a score.
+void testTriviaAlwaysOffersAWayOut() {
+  triviaui::ChoiceModel model;
+  model.clue = "Which one?";
+  static const char* kLabels[trivia::kOptions] = {"ALPHA", "BRAVO", "CHARLIE", "DELTA"};
+  for (int i = 0; i < trivia::kOptions; ++i) model.option[i] = kLabels[i];
+  model.correct = 2;
+
+  fui::Rect unanswered{};
+  {
+    Rendered out;
+    buildChoice(out, model);
+    CHECK(out.target.drew("END"));
+    CHECK(!out.target.drew("NEXT"));  // nothing to advance to yet
+    const FakeTarget::TextRun* end = out.target.find("END");
+    CHECK(end != nullptr);
+    if (end != nullptr) {
+      unanswered = end->rect;
+      const fui::ActionEvent event = out.tap(end->rect.x + end->rect.width / 2,
+                                             end->rect.y + end->rect.height / 2);
+      CHECK(event.action == triviaui::ActionQuit);
+    }
+  }
+
+  model.chosen = 0;
+  {
+    Rendered out;
+    buildChoice(out, model);
+    CHECK(out.target.drew("END"));
+    CHECK(out.target.drew("NEXT"));
+    const FakeTarget::TextRun* end = out.target.find("END");
+    CHECK(end != nullptr);
+    if (end != nullptr) {
+      // Same place with NEXT beside it. A way out that moves under the finger
+      // when the question is answered would be its own bug.
+      CHECK(end->rect.x == unanswered.x);
+      CHECK(end->rect.y == unanswered.y);
+      const fui::ActionEvent event = out.tap(end->rect.x + end->rect.width / 2,
+                                             end->rect.y + end->rect.height / 2);
+      CHECK(event.action == triviaui::ActionQuit);
+    }
+  }
+}
+
 int main() {
+  testTriviaOptionsCarryTheirIndex();
+  testTriviaAlwaysOffersAWayOut();
   testTheSeaSaltCardYouTapIsTheCardTheRulesGet();
   testTheSeaSaltChromeIsTappableAndTheCallPillIsEarned();
   testTheSeaSaltCallChoiceSaysWhatEachWordCosts();
