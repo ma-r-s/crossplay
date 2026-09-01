@@ -175,7 +175,32 @@ jobs:
             devices next to each other find one another with nothing to type --
             and they do not have to be the same device.
 
-            ### What is new in 1.12.5
+            ### What is new in 1.12.6
+
+            **CHESS no longer flashes a wrong board while the computer is
+            thinking.** After you moved, the board showed a position that was
+            not yours and not the computer's for about half a second, then
+            settled on the real one. The engine was working on the very board
+            being drawn on screen, so what you were shown was the middle of its
+            search: pieces part-way through moves it was considering and would
+            take back. It now thinks on its own copy, so between your move and
+            its reply the board only ever shows the position you played.
+
+            **A game of CHESS can end in a draw.** Until now the only endings
+            were checkmate and stalemate, so a repeated position or a dead
+            drawn ending simply went on for ever. A position reached three
+            times is now a draw, and so is a hundred half-moves with no capture
+            and no pawn move. The board says which one it was rather than just
+            stopping.
+
+            **Taking back a move in a resumed game no longer damages the
+            board.** Leaving CHESS and coming back, then using TAKE BACK, moved
+            nothing, silently took away your right to castle and deleted a move
+            from the score sheet. The save file keeps the position and the
+            written moves but not what is needed to unwind them, so take-back
+            now stops at the point you resumed from instead of guessing.
+
+            ### What was new in 1.12.5
 
             **Trivia's wrong answers no longer give the game away**, its em
             dashes render as hyphens instead of vanishing mid-word, the front
