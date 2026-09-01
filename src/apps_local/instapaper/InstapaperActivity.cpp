@@ -735,6 +735,22 @@ void InstapaperActivity::render(RenderLock&&) {
         // been cut. Found by looking at the render; a build cannot see it and
         // neither can a log.
         //
+        // Measured afterwards, against a 448px band interior, and the numbers
+        // are worth keeping because they say how little room there is:
+        //
+        //   INSTAPAPER @toybox_30                        292.8px
+        //     + "SYNCED 14:32"                           487.6px  OVERFLOWS
+        //     + "NEVER SYNCED"                           511.4px  OVERFLOWS
+        //     + "14:32"                                  366.3px  fits, 82 spare
+        //
+        // The trap in taking that measurement: the right label draws with the
+        // theme's smallText, and ToyboxTokens sets smallText.font = kUiFont --
+        // the BODY slot, which under readingFaces() is reading_serif_14 and
+        // not the small cut it reads like. Measured in toybox_10 the same
+        // string comes to 110px and every combination "fits", which contradicts
+        // what the panel actually did. Measure in the face the call site
+        // RESOLVES, not the one its name suggests.
+        //
         // An empty label is right rather than a placeholder: a queue with
         // articles in it has synced by definition, so "never" only ever
         // appears beside an empty list that already says what to do.
