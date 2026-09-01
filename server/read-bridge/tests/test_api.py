@@ -292,7 +292,7 @@ async def run(tmp, state_file):
         # rather than merely existing: enough wrong passwords and the CORRECT
         # one is refused too, which is the only version that stops an attacker
         # who happens to guess right.
-        from bridge.lockout import Lockout
+        from bridge.ratelimit import Lockout
 
         # From a FRESH visitor IP. The per-IP window is 5 per 5 minutes and this
         # suite has already spent that budget on the sign-in checks above, so

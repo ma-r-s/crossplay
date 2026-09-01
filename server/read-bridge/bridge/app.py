@@ -24,7 +24,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
 from . import accounts, engine, jobs, pairing, store
-from .lockout import Lockout
+from .ratelimit import Lockout, Window
 
 log = logging.getLogger("bridge.app")
 
@@ -34,22 +34,6 @@ app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 # {id, hash, progress, progressAt} is a few kilobytes; the cap is four orders
 # of magnitude above that and exists only to bound a hostile client.
 MAX_SYNC_BODY = 256 * 1024
-
-
-class Window:
-    def __init__(self, limit: int, per_s: int):
-        self.limit, self.per_s = limit, per_s
-        self.hits: dict[str, list[float]] = {}
-
-    def allow(self, key: str) -> bool:
-        now = time.time()
-        hits = [t for t in self.hits.get(key, []) if t > now - self.per_s]
-        if len(hits) >= self.limit:
-            self.hits[key] = hits
-            return False
-        hits.append(now)
-        self.hits[key] = hits
-        return True
 
 
 LOGIN_IP = Window(5, 300)
@@ -76,7 +60,13 @@ GLOBAL_LOGIN = Window(30, 60)
 # for opening registration. Counts failures, not attempts.
 LOGIN_LOCKOUT = Lockout()
 PAIR_IP = Window(10, 300)
-SYNC_USER = Window(8, 300)
+# 6, matching the study bridge rather than the 8 that was here. There is an
+# argument that this service could allow more -- an Instapaper sync is a
+# handful of small calls where an Anki sync can move a collection and rebuild
+# fonts -- but that argument was not the reason it said 8; nobody made it, a
+# number was simply typed. One number to remember across two services beats a
+# difference nobody can account for.
+SYNC_USER = Window(6, 300)
 GLOBAL_SYNC = Window(60, 60)
 
 

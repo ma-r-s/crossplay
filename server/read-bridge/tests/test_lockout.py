@@ -18,7 +18,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from bridge.lockout import Lockout  # noqa: E402
+from bridge.ratelimit import Lockout  # noqa: E402
 
 checks = 0
 failures = 0

@@ -1,34 +1,65 @@
-"""Per-username backoff for the sign-in endpoint.
+"""Rate limiting: a sliding-window counter, and a failure-driven lockout.
 
-The design (docs/apps/instapaper-plan.md, and the Anki bridge's plan it copies)
-made three things the precondition for opening registration to everyone:
-aggressive per-IP caps, GLOBAL caps, and per-username EXPONENTIAL lockout. When
-the allowlist was opened, only the first existed -- login was guarded by a
-per-IP window and a flat per-username window, and the global cap was on /api/sync
-rather than on the endpoint that is a credential-stuffing oracle. This is the
-third one.
-
-What it is for, stated narrowly so nobody mistakes its reach: the sign-in
-endpoint exchanges a username and password with INSTAPAPER and reports whether
-they were accepted. That makes this service an oracle for someone else's
-credentials, running on Mario's hardware. A flat window lets an attacker probe
-one account at a fixed rate forever; doubling makes a sustained attack on any
-single account cost time that grows without bound, which is the whole trick.
-
-WHAT IT DOES NOT DO, and this matters more than what it does: it cannot touch
-DISTRIBUTED stuffing, where each attempt is a different username from a
-different address. Nothing in this process can -- per-IP and per-username
-counters are both defeated by having many of each. That case needs a control in
-front of the service (Cloudflare rate limiting), which is an open item and needs
-Mario's hands on a dashboard. Opening the allowlist is what turned that item
-from prudent to load-bearing.
-
-Lives beside Window conceptually; kept in its own module so it does not collide
-with the in-flight move of Window into bridge/ratelimit.py. Fold the two
-together when that lands.
+Its own module so it can be tested without importing the web application: the
+limiter has no business needing FastAPI (or, on the study side, the deck
+converter) to prove it counts correctly.
 """
 
 import time
+
+
+class Window:
+    """Sliding-window counter, keyed by IP or username.
+
+    A key's own entry is pruned when that key is seen again, which is enough
+    while the key space is a handful of invited users. These services are open,
+    so the key space is every address on the internet that ever touches them,
+    and a key seen ONCE and never again would live forever -- growth without
+    bound over time, fed by nothing more hostile than background scanning.
+    So stale keys are swept.
+    """
+
+    # Rare enough that the common path stays the dict lookup it always was,
+    # often enough that a stream of unique keys cannot outrun it: at most this
+    # many expired entries accumulate between sweeps.
+    SWEEP_EVERY = 256
+
+    def __init__(self, limit: int, per_s: float):
+        self.limit, self.per_s = limit, per_s
+        self.hits: dict[str, list[float]] = {}
+        self._calls_since_sweep = 0
+
+    def _sweep(self, now: float) -> None:
+        # A key whose NEWEST hit has expired can no longer deny anything, so it
+        # is pure residue. Rebuilt rather than mutated in place: deleting from
+        # a dict while iterating it raises. Note this bounds the dict by the
+        # keys seen within per_s, NOT by nothing -- a flood inside one window
+        # is still held, which is what makes the limiter work.
+        cutoff = now - self.per_s
+        self.hits = {k: v for k, v in self.hits.items() if v and v[-1] > cutoff}
+
+    def allow(self, key: str) -> bool:
+        now = time.time()
+        self._calls_since_sweep += 1
+        if self._calls_since_sweep >= self.SWEEP_EVERY:
+            self._calls_since_sweep = 0
+            self._sweep(now)
+        hits = [t for t in self.hits.get(key, []) if t > now - self.per_s]
+        if len(hits) >= self.limit:
+            self.hits[key] = hits
+            return False
+        hits.append(now)
+        self.hits[key] = hits
+        return True
+
+# ---------------------------------------------------------------------------
+# Failure-driven backoff, which is a different instrument from the counter
+# above and answers a different question. Window asks "is this key making too
+# many requests"; Lockout asks "is this key getting the password wrong". They
+# are both here because a service that is open to everyone needs both, and
+# because keeping them in one module is what made it obvious that the flat
+# per-username Window and this class were fighting over the same key.
+# ---------------------------------------------------------------------------
 
 
 class Lockout:
