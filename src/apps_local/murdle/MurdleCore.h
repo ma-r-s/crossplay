@@ -189,7 +189,8 @@ enum class Mark : uint8_t {
 // The player's board is `Marks`, below, and keeping them apart is the point.
 // They want opposite things from a write: the solver must never overrule itself,
 // because a rule that overwrites a decided cell is a rule that has gone wrong,
-// while the player must be free to change their mind about anything at any time.
+// while the player must be able to change their mind about any cell -- by
+// clearing it, which is a move the solver has no use for at all.
 // One class serving both carried a comment admitting it -- "put() refuses to
 // overwrite a decided cell, which is right for the solver and wrong here" -- and
 // that sentence was the shape of four separate bugs.
@@ -241,6 +242,24 @@ class Grid {
 // ---------------------------------------------------------------------------
 // The player's marks
 
+constexpr uint8_t kNoBlocker = 0xFF;
+
+// What one tap did, and what stopped it when it did nothing.
+//
+// A refusal has to name the ticks in the way or it is indistinguishable from a
+// screen that missed the tap -- which is the complaint this game gets anyway on
+// a panel that takes a second to answer.
+struct TapResult {
+  bool changed = false;
+  // Ticks in the way, as item indices inside the tapped block. Only set when
+  // `changed` is false; there can be one on each axis, and both have to go
+  // before this cell can be ticked.
+  uint8_t sameRow = kNoBlocker;  // a tick at (catA, itemA) x (catB, sameRow)
+  uint8_t sameCol = kNoBlocker;  // a tick at (catA, sameCol) x (catB, itemB)
+
+  bool blocked() const { return sameRow != kNoBlocker || sameCol != kNoBlocker; }
+};
+
 // WHAT THE PLAYER SAID, AND NOTHING ELSE. Everything the grid shows on top of
 // that is worked out on the way to the screen and never stored.
 //
@@ -265,6 +284,15 @@ class Grid {
 // Cost: shown() is O(items) rather than a lookup, so drawing a full 4x4 board
 // is about 400 extra comparisons. On a panel that takes a second to refresh
 // that is not a number worth optimising against a class of bug.
+//
+// THE ONE RULE ON TOP OF THAT: A TAP WRITES ITS OWN CELL AND NO OTHER. The
+// board withdraws marks it derived -- that is what deriving them is for -- and
+// never one the player entered. A tap that could only be honoured by taking a
+// tick away does nothing and reports what is in the way instead. Before that
+// rule, one tap on a finished grid unseated the two ticks that had crossed the
+// tapped cell out, and a third square went blank because those ticks were the
+// only thing crossing it: three cells the player never touched, two of them
+// answers, with nothing flagged and no way back.
 class Marks {
  public:
   void reset(Shape shape);
@@ -277,11 +305,28 @@ class Marks {
   // Yes marks, or blank. This is what the screen draws and what a tap reads.
   Mark shown(int catA, int itemA, int catB, int itemB) const;
 
+  // True when what shown() gives back here was worked out from the player's
+  // ticks rather than entered by them. The grid draws the two at different
+  // weights, so a player can tell which marks are their own -- and it is the
+  // reason a tap here can be refused when the same-looking one next to it is
+  // not.
+  bool derived(int catA, int itemA, int catB, int itemB) const;
+
   // The only move the player has. Cycles what they SEE: blank -> crossed ->
-  // ticked -> blank. Ticking clears any other tick in the same row or column,
-  // because one suspect cannot hold two weapons -- and that is the whole of the
-  // consistency logic, because the crosses were never written down.
-  void tap(int catA, int itemA, int catB, int itemB);
+  // ticked -> blank, writing the tapped cell and nothing else.
+  //
+  // One suspect cannot hold two weapons, so the ticked step is refused outright
+  // when a tick already stands in that row or column: honouring it would mean
+  // deleting that tick, and deleting the player's own marks is not something
+  // this board does. The move is still available -- clear the tick first, which
+  // is one tap on a cell the result names.
+  //
+  // One consequence, deliberate and cosmetic: a cross the player entered by
+  // hand in a row a tick already owns cannot be rubbed out until that tick
+  // moves, because the way back to blank runs through the ticked step. The
+  // square reads "ruled out" either way, which is what the tick says about it
+  // anyway, so nothing is hidden -- it just cannot be tidied away yet.
+  TapResult tap(int catA, int itemA, int catB, int itemB);
 
   // Restoring a save. Writes an assertion directly, no cycling.
   void enter(int catA, int itemA, int catB, int itemB, Mark mark);

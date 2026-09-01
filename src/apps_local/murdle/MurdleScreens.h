@@ -113,6 +113,11 @@ struct CaseModel {
   uint32_t struck = 0;  // one bit per clue, a reading aid only
   int caseNumber = 1;
   bool solved = false;
+  // One line above the grid, or null. The only thing that puts one there is a
+  // tap this board refused, and it has to say so: on a panel that takes a
+  // second to answer, a tap that changes nothing and says nothing is
+  // indistinguishable from a tap that was missed.
+  const char* notice = nullptr;
 };
 
 // What the case face turned out to be. The page count is in here rather than in

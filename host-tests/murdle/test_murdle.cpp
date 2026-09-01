@@ -165,8 +165,26 @@ void testRandomTappingKeepsTheGridHonest() {
       const int a = static_cast<int>(rng.below(static_cast<uint32_t>(cats)));
       int b = static_cast<int>(rng.below(static_cast<uint32_t>(cats - 1)));
       if (b >= a) ++b;
-      marks.tap(a, static_cast<int>(rng.below(static_cast<uint32_t>(items))), b,
-                static_cast<int>(rng.below(static_cast<uint32_t>(items))));
+      const int ta = static_cast<int>(rng.below(static_cast<uint32_t>(items)));
+      const int tb = static_cast<int>(rng.below(static_cast<uint32_t>(items)));
+
+      // 4. A tap writes its own cell and no other. Everything the board shows
+      //    beyond that is derived, so the only way for a tap to reach another
+      //    cell is to have deleted something the player entered -- which is how
+      //    one tap on a finished grid took two answers away and blanked a third.
+      Marks was = marks;
+      marks.tap(a, ta, b, tb);
+      for (int x = 0; x < cats; ++x) {
+        for (int y = x + 1; y < cats; ++y) {
+          for (int p = 0; p < items; ++p) {
+            for (int q = 0; q < items; ++q) {
+              const bool tapped = (x == a && y == b && p == ta && q == tb) || (x == b && y == a && p == tb && q == ta);
+              if (tapped) continue;
+              CHECK(marks.entered(x, p, y, q) == was.entered(x, p, y, q));
+            }
+          }
+        }
+      }
 
       for (int x = 0; x < cats; ++x) {
         for (int y = x + 1; y < cats; ++y) {
@@ -199,6 +217,121 @@ void testRandomTappingKeepsTheGridHonest() {
       }
     }
   }
+}
+
+// THE ONE THING A TAP MAY NOT DO: TAKE AWAY A MARK THE PLAYER MADE.
+//
+// A cold tester finished a case -- 27 of 27, every square right -- tapped one
+// false square, and watched three squares they had never touched change: two
+// locked-in answers became crosses and a third went blank. Nothing was flagged
+// and cycling the tapped square back did not bring any of them back.
+//
+// The board derives crosses from ticks, so unseating the two ticks that crossed
+// the tapped square out also un-derived the cross a third square was getting
+// from them. One tap, three cells, no undo. This rebuilds that exact board.
+void testATapNeverTakesAwayAMarkThePlayerMade() {
+  const Shape shape = shapeOf(Tier::Elementary);
+  Marks marks;
+  marks.reset(shape);
+
+  // A finished 3x3 block: weapon i is in place i. Every other square in it is
+  // crossed by those three ticks and by nothing else.
+  const int wCat = static_cast<int>(Cat::Weapon);
+  const int lCat = static_cast<int>(Cat::Location);
+  for (int i = 0; i < shape.items; ++i) marks.enter(wCat, i, lCat, i, Mark::Yes);
+
+  // Weapon 0 with place 1: shown crossed, and the cross is the board's own.
+  CHECK(marks.shown(wCat, 0, lCat, 1) == Mark::No);
+  CHECK(marks.derived(wCat, 0, lCat, 1));
+
+  const TapResult result = marks.tap(wCat, 0, lCat, 1);
+  CHECK(!result.changed);
+  CHECK(result.blocked());
+  CHECK(result.sameRow == 0);  // the tick at weapon 0 x place 0
+  CHECK(result.sameCol == 1);  // the tick at weapon 1 x place 1
+
+  // Every tick still stands, and so does every cross that followed from one.
+  for (int i = 0; i < shape.items; ++i) CHECK(marks.entered(wCat, i, lCat, i) == Mark::Yes);
+  CHECK(marks.entered(wCat, 0, lCat, 1) == Mark::Unknown);
+  CHECK(marks.shown(wCat, 1, lCat, 0) == Mark::No);
+  CHECK(marks.decided() == marks.cells() / (shape.cats * (shape.cats - 1) / 2));
+
+  // And the message names both of them rather than restating the rule.
+  Scratch scratch;
+  Puzzle puzzle;
+  CHECK(makeCase(Tier::Elementary, 12345u, scratch, puzzle));
+  char line[96];
+  murdletext::blockedLine(puzzle, wCat, 0, lCat, 1, result, line, sizeof(line));
+  CHECK(std::strstr(line, murdletext::label(puzzle, wCat, 0)) != nullptr);
+  CHECK(std::strstr(line, murdletext::label(puzzle, lCat, 0)) != nullptr);
+  CHECK(std::strstr(line, murdletext::label(puzzle, wCat, 1)) != nullptr);
+  CHECK(std::strstr(line, murdletext::label(puzzle, lCat, 1)) != nullptr);
+  CHECK(std::strstr(line, " AND ") != nullptr);
+
+  // One blocker on its own is named on its own.
+  Marks single;
+  single.reset(shape);
+  single.enter(wCat, 0, lCat, 0, Mark::Yes);
+  const TapResult one = single.tap(wCat, 0, lCat, 1);
+  CHECK(!one.changed);
+  CHECK(one.sameRow == 0);
+  CHECK(one.sameCol == kNoBlocker);
+  murdletext::blockedLine(puzzle, wCat, 0, lCat, 1, one, line, sizeof(line));
+  CHECK(std::strstr(line, " AND ") == nullptr);
+  CHECK(std::strlen(line) > 0);
+}
+
+// The other half of that guard, and the half a guard gets wrong: refusing taps
+// that were fine. A board this game cannot mark is worse than one that loses a
+// mark, and on a panel that takes a second to answer it presents identically --
+// as a screen that has stopped responding.
+void testOrdinaryMarkingStillWorks() {
+  const Shape shape = shapeOf(Tier::HardBoiled);
+  Marks marks;
+  marks.reset(shape);
+  const int sCat = static_cast<int>(Cat::Suspect);
+  const int wCat = static_cast<int>(Cat::Weapon);
+
+  // The whole cycle on an empty board, twice round.
+  for (int lap = 0; lap < 2; ++lap) {
+    CHECK(marks.tap(sCat, 1, wCat, 2).changed);
+    CHECK(marks.shown(sCat, 1, wCat, 2) == Mark::No);
+    CHECK(!marks.derived(sCat, 1, wCat, 2));
+    CHECK(marks.tap(sCat, 1, wCat, 2).changed);
+    CHECK(marks.shown(sCat, 1, wCat, 2) == Mark::Yes);
+    CHECK(marks.tap(sCat, 1, wCat, 2).changed);
+    CHECK(marks.shown(sCat, 1, wCat, 2) == Mark::Unknown);
+  }
+
+  // Moving a tick: clear the old one, then mark the new one. Three taps, all of
+  // which have to land.
+  CHECK(marks.tap(sCat, 0, wCat, 0).changed);
+  CHECK(marks.tap(sCat, 0, wCat, 0).changed);
+  CHECK(marks.shown(sCat, 0, wCat, 0) == Mark::Yes);
+  CHECK(marks.tap(sCat, 0, wCat, 0).changed);  // back to blank
+  CHECK(marks.tap(sCat, 0, wCat, 1).changed);
+  CHECK(marks.tap(sCat, 0, wCat, 1).changed);
+  CHECK(marks.shown(sCat, 0, wCat, 1) == Mark::Yes);
+  CHECK(marks.shown(sCat, 0, wCat, 0) == Mark::No);
+
+  // A cross the player entered by hand still ticks in one tap: the refusal is
+  // about ticks in the way, not about the square looking crossed.
+  Marks byHand;
+  byHand.reset(shape);
+  CHECK(byHand.tap(sCat, 3, wCat, 3).changed);
+  CHECK(byHand.entered(sCat, 3, wCat, 3) == Mark::No);
+  CHECK(byHand.tap(sCat, 3, wCat, 3).changed);
+  CHECK(byHand.shown(sCat, 3, wCat, 3) == Mark::Yes);
+
+  // A tick in ANOTHER block never blocks: the rule is per block, and reading it
+  // any wider would refuse most of the board once a few answers were in.
+  const int lCat = static_cast<int>(Cat::Location);
+  Marks wide;
+  wide.reset(shape);
+  wide.enter(sCat, 0, wCat, 0, Mark::Yes);
+  CHECK(wide.tap(sCat, 0, lCat, 1).changed);
+  CHECK(wide.tap(sCat, 0, lCat, 1).changed);
+  CHECK(wide.shown(sCat, 0, lCat, 1) == Mark::Yes);
 }
 
 // ---------------------------------------------------------------------------
@@ -1374,6 +1507,8 @@ int runTests() {
   testRngIsUnbiased();
   testGridIsOrderIndependent();
   testRandomTappingKeepsTheGridHonest();
+  testATapNeverTakesAwayAMarkThePlayerMade();
+  testOrdinaryMarkingStillWorks();
   testCastTableIsDrawable();
   testEveryNameIsOneWord();
   testEveryCaseHasSixteenDistinctInitials();
