@@ -24,6 +24,64 @@ ssh orange 'mkdir -p /srv/readbridge/data \
   && docker run --rm -v /srv/readbridge/data:/data alpine chown 10003:10003 /data'
 ssh orange 'cd /srv/readbridge && docker compose up -d --build'
 
-echo
-echo "Now verify the isolation, every deploy and not just firewall changes:"
-echo "  ssh orange 'bash -s' < $SRC/scripts/isolation_test.sh"
+# ---------------------------------------------------------------------------
+# ISOLATION IS PART OF DEPLOYING, NOT A STEP AFTERWARDS.
+#
+# This script used to end by PRINTING the isolation test as a suggestion. On
+# this service's first deploy that suggestion was followed and it failed: the
+# container was up, healthy, serving its pages, and reaching the host's SSH,
+# Immich, the router and a tailnet peer. Nothing about the deploy looked wrong,
+# because `docker compose up` had genuinely succeeded -- the firewall unit
+# simply did not exist yet for a service nobody had deployed before.
+#
+# The siblings all have one, which is exactly why the gap was invisible: it
+# only appears when a NEW service is added, and that is the moment when
+# somebody is least likely to know what is missing.
+#
+# So the script now installs the isolation and REFUSES TO REPORT SUCCESS until
+# the test passes. A deploy that cannot prove it is confined is a failed
+# deploy, whatever the containers say.
+# ---------------------------------------------------------------------------
+
+if ! ssh orange 'sudo -n true' 2>/dev/null; then
+  echo
+  echo "FAILED: no passwordless sudo on the pi, so the network isolation cannot"
+  echo "be installed or verified from here. The containers are RUNNING and"
+  echo "possibly UNCONFINED. Install it by hand before leaving this:"
+  echo "  ssh orange 'sudo /srv/readbridge/scripts/firewall.sh'"
+  exit 1
+fi
+
+echo "installing the network isolation ..."
+ssh orange 'sudo -n /srv/readbridge/scripts/firewall.sh' > /dev/null
+
+# Idempotent: writing the same unit twice is free, and a deploy to a rebuilt
+# box must not depend on somebody remembering this once, months ago.
+ssh orange 'sudo -n tee /etc/systemd/system/readbridge-firewall.service > /dev/null <<UNIT
+[Unit]
+Description=Network isolation for the readbridge containers
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/srv/readbridge/scripts/firewall.sh
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+sudo -n systemctl daemon-reload && sudo -n systemctl enable readbridge-firewall.service' > /dev/null
+
+echo "verifying it ..."
+if ssh orange 'bash -s' < "$SRC/scripts/isolation_test.sh"; then
+  echo
+  echo "deployed, and confined."
+else
+  echo
+  echo "FAILED: the containers are running but the isolation test did NOT pass."
+  echo "They may be able to reach the host and the LAN. Investigate before"
+  echo "leaving this; do not treat the running containers as a successful"
+  echo "deploy."
+  exit 1
+fi
