@@ -56,6 +56,19 @@ down() {
   for f in bridge.pid fake.pid; do
     [ -f "$STATE/$f" ] && { kill "$(cat "$STATE/$f")" 2>/dev/null || true; rm -f "$STATE/$f"; }
   done
+  # WAIT for the ports, do not just signal. kill returns the instant the signal
+  # is queued; uvicorn is still listening for another ~150ms. A `down && up`
+  # typed in one breath -- or scripted, which is how this was found -- then hits
+  # up's port guard and aborts before pairing is even attempted, and the message
+  # blames "another qa_stack" that does not exist.
+  for _ in $(seq 1 100); do
+    nc -z 127.0.0.1 "$FAKE_PORT" 2>/dev/null || nc -z 127.0.0.1 "$BRIDGE_PORT" 2>/dev/null || break
+    sleep 0.1
+  done
+  if nc -z 127.0.0.1 "$FAKE_PORT" 2>/dev/null || nc -z 127.0.0.1 "$BRIDGE_PORT" 2>/dev/null; then
+    echo "WARNING: $FAKE_PORT/$BRIDGE_PORT still answer after 10s. Something else"
+    echo "is on them -- an orphan from a killed shell, or another tree. 'up' will refuse."
+  fi
   echo "stopped. The card keeps its pairing, which is now useless -- the bridge"
   echo "that issued the token is gone, so 'up' pairs again from scratch."
 }
@@ -141,10 +154,10 @@ PYEOF
 
   # Two confirm taps, not one. The gate only appears after the claim lands,
   # and the claim happens while this script is still polling for the code -- so
-  # its moment is not fixed. A single tap at a guessed millisecond fired before
-  # the gate existed, the claim succeeded, and the device stored nothing: a
-  # pairing that looks accepted from the server side and never happened on the
-  # card. The second tap costs nothing on the verdict screen behind it.
+  # its moment is not fixed. The second tap costs nothing on the verdict screen
+  # behind it. This is insurance, not the fix: when this script paired zero
+  # times out of five, the cause was the claim going to a route that does not
+  # accept POST, and no tap schedule could have saved it.
 
   # sim-shot TRUNCATES sim.log when it starts and builds first, so a grep issued
   # too early reads the PREVIOUS run's code. The claim then returns 200 and
@@ -164,27 +177,33 @@ PYEOF
   CSRF="$(printf '%s' "$PAIR_PAGE" | grep -o "name=csrf value='[^']*'" | sed "s/.*'\(.*\)'/\1/" || true)"
   [ -n "$CSRF" ] || { kill $SIMPID 2>/dev/null || true; echo "FAIL: /pair came back signed out"; exit 1; }
 
-  # A FAILED claim also returns 200 -- the bridge answers a person-facing
-  # "Not found" page rather than an error status. Check the BODY, never the
-  # status. This is the trap that makes a broken setup look green.
-  CLAIM="$(curl -sS -H "Cookie: read_session=$SESSION" \
-    -d "code=$CODE&csrf=$CSRF" "$(url)/pair")"
-  if printf '%s' "$CLAIM" | grep -qi 'not found\|expired'; then
-    kill $SIMPID 2>/dev/null || true
-    echo "FAIL: the claim was refused. The page said:"
-    printf '%s' "$CLAIM" | grep -o '<p>[^<]*</p>' | head -2
-    exit 1
-  fi
+  # /api/pair/claim, which is what the form on /pair posts to. /pair itself has
+  # only a GET: posting to it is answered 405 {"detail":"Method Not Allowed"},
+  # no claim is recorded, and the device's poll still says pending.
+  #
+  # Assert what a SUCCESS says, never the absence of a failure. A refused claim
+  # answers 200 with a person-facing "Not found" page, and the 405 above is
+  # neither -- so a guard that greps for "not found|expired" passes on both and
+  # the run reports a claim that never happened.
+  CLAIM="$(curl -sS -H "Cookie: read_session=$SESSION" -X POST \
+    -d "code=$CODE&csrf=$CSRF" "$(url)/api/pair/claim")"
+  case "$CLAIM" in
+    *"confirm on the reader"*) echo "  claimed; waiting for the reader to confirm" ;;
+    *)
+      kill $SIMPID 2>/dev/null || true
+      echo "FAIL: the claim was refused. The bridge said:"
+      printf '%s' "$CLAIM" | grep -o '<title>[^<]*</title>\|<p>[^<]*</p>\|{.*}' | head -2
+      exit 1
+      ;;
+  esac
 
   wait $SIMPID 2>/dev/null || true
   if [ ! -f "$REPO/fs_agent/.crosspoint/instapaper/.bridge" ]; then
-    # NOT a server fault and not fatal: the servers are up and the account is
-    # signed in. What did not happen is the on-device confirm tap, whose moment
-    # depends on when the claim landed and so cannot be pinned to a fixed
-    # millisecond in a scripted run. sim_stack.sh gets away with a fixed 16000
-    # because it claims on its own schedule; here the claim waits on a poll.
-    #
-    # Finish it by hand rather than guessing again -- the stack stays up:
+    # The claim was accepted -- the check above asserts the success page -- so
+    # the servers are up and the account is signed in. What did not happen is
+    # the on-device confirm tap landing on the gate. Finish it by hand rather
+    # than guessing at a schedule; the stack stays up, so the code the reader
+    # shows on that run is claimable from the browser at $(url)/pair:
     echo
     echo "SERVERS UP, SIGNED IN, BUT THE DEVICE IS NOT PAIRED YET."
     echo "The confirm gate needs one tap. Run this, and tap YES when it appears:"
