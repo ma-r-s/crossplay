@@ -60,6 +60,45 @@ constexpr fui::Insets kTileTextInsets{2, kTilePad, 2, kTilePad};
 // without silently inverting the result.
 constexpr fui::FontId kTileCuts[2] = {toybox::kTileFont, toybox::kBodyFont};
 
+// TEMPORARY, for one decision. Two candidate rules for how a board picks its
+// cut, built side by side so they can be looked at rather than argued about
+// (docs/building-apps.md). The loser and this macro go in the same commit.
+//
+//   1  SHRINK. The largest cut whose widest word fits on ONE line. Every tile
+//      is one line and one size; 62% of the published archive's boards drop to
+//      the small cut because a single long word is on them.
+//   2  WRAP. The largest cut where every word can be LAID OUT at all, over up
+//      to kTileLines lines. 99.9% of boards keep the large cut, and the price
+//      is a long word setting on two or three lines beside one-line
+//      neighbours.
+#ifndef CONNECTIONS_VARIANT
+#define CONNECTIONS_VARIANT 1
+#endif
+
+// How many lines a tile will break a word over before it gives up. Shared by
+// the split fallback and by variant 2's fit test, which must agree about it:
+// the test exists precisely to ask "will the fallback manage this".
+constexpr int kTileLines = 3;
+
+// Whether `word` can be set in `cut` inside `innerWidth`.
+//
+// Variant 2 asks the same width/parts question the split fallback asks itself,
+// so it is exact about the fallback's own decision. It is NOT a promise that
+// every emitted line fits: the fallback cuts by character count, so a segment
+// of wide letters can still overflow and be ellipsised. That gap is visible in
+// a render and in nothing else, which is the reason for the side-by-side.
+bool tileWordFits(toybox::Screen& screen, const fui::FontId cut, const char* word, const int innerWidth) {
+  fui::TextStyle probe;
+  probe.align = fui::TextAlign::Center;
+  probe.maxLines = 1;
+  const int width = screen.target().measureText(cut, word, probe).width;
+#if CONNECTIONS_VARIANT == 2
+  return width <= innerWidth * kTileLines;
+#else
+  return width <= innerWidth;
+#endif
+}
+
 // One size for all sixteen tiles: the largest cut whose WIDEST word still fits
 // a tile, or the smallest cut when none of them does.
 //
@@ -70,10 +109,6 @@ constexpr fui::FontId kTileCuts[2] = {toybox::kTileFont, toybox::kBodyFont};
 // murdleui's drawLegend gives (MurdleScreens.cpp): the host tests' draw
 // target answers a flat ten pixels a character and would call any of this fine.
 fui::FontId chooseTileCut(toybox::Screen& screen, const char* const* words, const int count, const int innerWidth) {
-  fui::TextStyle probe;
-  probe.align = fui::TextAlign::Center;
-  probe.maxLines = 1;
-
   fui::FontId smallest = kTileCuts[0];
   int16_t smallestHeight = 0;
   fui::FontId fitting = kTileCuts[0];
@@ -87,7 +122,7 @@ fui::FontId chooseTileCut(toybox::Screen& screen, const char* const* words, cons
     }
     bool fits = true;
     for (int i = 0; i < count && fits; ++i) {
-      fits = screen.target().measureText(cut, words[i], probe).width <= innerWidth;
+      fits = tileWordFits(screen, cut, words[i], innerWidth);
     }
     if (fits && height > fittingHeight) {
       fittingHeight = height;
@@ -133,8 +168,10 @@ void drawTileText(toybox::Screen& screen, const fui::Rect& box, const char* word
     // measuring rather than by counting characters, because SMILING FACE WITH
     // SUNGLASSES is 28 characters and no two halves of it fit.
     int parts = 2;
-    while (parts < 3 && screen.target().measureText(style.font, word, style).width / parts > inner.width) ++parts;
-    if (parts == 3) {
+    while (parts < kTileLines && screen.target().measureText(style.font, word, style).width / parts > inner.width) {
+      ++parts;
+    }
+    if (parts == kTileLines) {
       int bound[4] = {0, length / 3, (2 * length) / 3, length};
       for (int i = 1; i < 3; ++i) {
         for (int slack = 0; slack <= 4; ++slack) {

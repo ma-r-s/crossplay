@@ -53,6 +53,10 @@ FONT = {
     "3": ("11111", "00010", "00100", "00010", "00001", "10001", "01110"),
     "4": ("00010", "00110", "01010", "10010", "11111", "00010", "00010"),
     "5": ("11111", "10000", "11110", "00001", "00001", "10001", "01110"),
+    "6": ("01110", "10000", "11110", "10001", "10001", "10001", "01110"),
+    "7": ("11111", "00001", "00010", "00100", "01000", "01000", "01000"),
+    "8": ("01110", "10001", "10001", "01110", "10001", "10001", "01110"),
+    "9": ("01110", "10001", "10001", "01111", "00001", "00001", "01110"),
     " ": ("00000",) * 7,
     "-": ("00000", "00000", "00000", "11111", "00000", "00000", "00000"),
     ".": ("00000", "00000", "00000", "00000", "00000", "01100", "01100"),
@@ -172,6 +176,10 @@ def write_png(path, width, height, rows):
 
 def draw_text(rows, x, y, text, scale, ink=(0, 0, 0)):
     for ch in text.upper():
+        # A caption that silently loses characters reads as a deliberate one:
+        # "8 MAY 2026" came out "MAY 202" for as long as 6-9 were missing here.
+        if ch not in FONT:
+            print(f"compose_shots: no glyph for {ch!r}, dropping it", file=sys.stderr)
         glyph = FONT.get(ch, FONT[" "])
         for gy, line in enumerate(glyph):
             for gx, bit in enumerate(line):
