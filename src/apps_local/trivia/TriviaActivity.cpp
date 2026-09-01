@@ -205,16 +205,28 @@ void TriviaActivity::runPackDownload() {
       // NOT the same screen as NO ROOM: freeBytes() returns false for "could not
       // answer" and never for "full". Saying the card is full when we do not know
       // that would be the same conflation the HAL call exists to prevent.
+      // The body must describe what the BUTTON does. The first version said the
+      // card "may need re-seating" beside a button marked TRY AGAIN: the
+      // instruction and the only available action were about different things,
+      // and it sent people to fiddle with hardware for a fault that is usually
+      // transient. Not asserting anything about the physical slot, which this
+      // code cannot know and nobody has checked.
       showNotice("CAN'T TELL",
-                 "The card would not say how much room is left, so nothing was written. It may need re-seating.",
+                 "The card did not answer when asked how much room is left, so nothing was written. "
+                 "Trying again usually works.",
                  "TRY AGAIN", triviaui::ActionGetPack);
       return;
     case trivia::Room::TooSmall: {
       // Local buffer: showNotice snprintf()s body INTO noticeBody_, so passing
       // noticeBody_ as the body argument would be an overlapping self-copy.
       char body[160];
+      // Says what would make the retry succeed. Reporting both numbers and then
+      // offering only TRY AGAIN told the user they were stuck while implying
+      // the button might help; it is the only action on screen, so the sentence
+      // has to name the thing that makes it work.
       std::snprintf(body, sizeof(body),
-                    "The questions need about %u MB free and the card has %u MB. Nothing was written.",
+                    "The questions need about %u MB free and the card has %u MB. "
+                    "Delete something from the card, then try again. Nothing was written.",
                     static_cast<unsigned>(trivia::kPackFreeFloorBytes >> 20),
                     static_cast<unsigned>(freeNow >> 20));
       showNotice("NO ROOM", body, "TRY AGAIN", triviaui::ActionGetPack);
