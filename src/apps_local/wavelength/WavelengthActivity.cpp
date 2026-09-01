@@ -138,6 +138,8 @@ void WavelengthActivity::choose(const int which) {
   deck.markSeen(spectrum);  // the one passed over goes back in the pool
   dirty = true;
   target = wl::drawTarget(rng);
+  hasPeeked = false;
+  guess = wl::kSlots / 2;
   practiceRound = session.isPractice();
   go(View::Peek);
 }
@@ -179,6 +181,11 @@ void WavelengthActivity::routeAction(const int action) {
       choose(1);
       break;
     case wavelengthui::ActionClueGiven:
+      // A quick TAP on the peek pad reveals nothing, so a player who taps
+      // instead of holding could walk off this screen never having seen the
+      // target and invent a clue from nothing. They only find out at the
+      // reveal. Refuse to leave until they have actually looked.
+      if (view == View::Peek && !hasPeeked) return;
       // The peek is one-way. Once the clue screen is passed there is no route
       // back to the target, or someone swipes back to it as a joke on round
       // five.
@@ -244,6 +251,10 @@ void WavelengthActivity::loop() {
       // easy axis and the deck's strangest cards would never be played.
       flashOnNextPaint = true;
       go(View::PassLeft);
+    } else if (view == View::Reveal) {
+      // Not a synonym for NEXT ROUND: back went FORWARD here, which is the one
+      // direction a back gesture must never go.
+      go(View::Menu);
     } else if (view != View::Menu) {
       go(View::Menu);
     } else {
@@ -267,6 +278,7 @@ void WavelengthActivity::loop() {
     if (onPad != peeking) {
       const bool hiding = peeking && !onPad;
       peeking = onPad;
+      if (onPad) hasPeeked = true;
       // A full refresh on the way DOWN, so no ghost of the band survives it.
       if (hiding) flashOnNextPaint = true;
       requestUpdate();
@@ -297,6 +309,37 @@ void WavelengthActivity::loop() {
       }
     } else {
       lockHoldStartMs = 0;
+    }
+  }
+
+  // A held finger keeps stepping. Crossing the strip was up to nineteen separate
+  // taps on a slow panel, which three cold testers each called out as the
+  // game's pacing problem.
+  if (view == View::Dial) {
+    int rx = 0;
+    int ry = 0;
+    if (mappedInput.isScreenTouchHeld(rx, ry)) {
+      const int dir = wavelengthui::dialDirectionAt(static_cast<int16_t>(renderer.getScreenWidth()),
+                                                    static_cast<int16_t>(renderer.getScreenHeight()), guess,
+                                                    static_cast<int16_t>(rx), static_cast<int16_t>(ry));
+      if (dir != 0) {
+        const uint32_t now = millis();
+        if (stepHoldStartMs == 0) {
+          stepHoldStartMs = now;
+          lastRepeatMs = 0;
+        } else if (now - stepHoldStartMs >= static_cast<uint32_t>(wavelengthui::kStepRepeatFirstMs)) {
+          if (lastRepeatMs == 0 || now - lastRepeatMs >= static_cast<uint32_t>(wavelengthui::kStepRepeatEveryMs)) {
+            lastRepeatMs = now;
+            step(dir);
+            return;
+          }
+        }
+      } else {
+        stepHoldStartMs = 0;
+      }
+    } else {
+      stepHoldStartMs = 0;
+      lastRepeatMs = 0;
     }
   }
 

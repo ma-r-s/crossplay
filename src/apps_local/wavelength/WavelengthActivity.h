@@ -73,6 +73,9 @@ class WavelengthActivity final : public Activity {
   bool practiceRound = true;
   bool peeking = false;
   uint32_t lockHoldStartMs = 0;
+  uint32_t stepHoldStartMs = 0;
+  uint32_t lastRepeatMs = 0;
+  bool hasPeeked = false;
 
   // A full refresh is spent deliberately: on the reveal, which is the payoff,
   // and on hiding the peek, where a partial refresh could leave a ghost of the

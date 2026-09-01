@@ -129,6 +129,18 @@ fui::Rect lockBarRect(int16_t screenW, int16_t screenH);
 // short enough that nobody wonders whether it is broken.
 inline constexpr int kLockHoldMs = 600;
 
+// Which way a finger held at (x,y) on the dial is asking the marker to move:
+// +1 toward the top pole, -1 toward the bottom, 0 for neither. Lives here so
+// the activity's repeat and the screen's drawing share one geometry rather
+// than computing it twice, which is how three separate bugs started.
+int dialDirectionAt(int16_t screenW, int16_t screenH, int guess, int16_t x, int16_t y);
+
+// A held finger keeps stepping. Design said so from the start and the code
+// never did it: three cold testers all reported that crossing the strip is
+// nine to nineteen separate taps on a screen that repaints slowly.
+inline constexpr int kStepRepeatFirstMs = 450;
+inline constexpr int kStepRepeatEveryMs = 180;
+
 void renderHowTo(toybox::Screen& screen);
 void renderMenu(toybox::Screen& screen, const MenuModel& model);
 void renderSummary(toybox::Screen& screen, const SummaryModel& model);
