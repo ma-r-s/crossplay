@@ -91,6 +91,8 @@ struct CallModel {
 };
 
 struct RevealModel {
+  // Co-op has no end-call, so the reveal must not report one.
+  bool showCall = false;
   Spectrum spectrum;
   int guess = 10;
   int target = 10;

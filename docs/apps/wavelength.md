@@ -32,14 +32,14 @@ passing the device back to the clue-giver for the reveal.
 | #   | Screen          | What it is for                                                 |
 | --- | --------------- | -------------------------------------------------------------- |
 | 1   | MENU            | Front door. Headline is the hit target. Record and ornament.   |
-| 2   | PASS THE DEVICE | No names, no seats, no turn order to remember.                 |
+| 2   | PASS LEFT       | No names, no seats, no turn order to remember.                 |
 | 3   | PICK ONE        | Two spectra, chosen before the target is drawn.                |
 | 4   | YOUR TARGET     | Hold to reveal. The band shows only while a thumb is down.     |
 | 5   | SAY IT OUT LOUD | Both ends large, target confirmed hidden.                      |
 | 6   | DIAL            | Flat on the table. Tap or hold to move. Hold the bar to lock.  |
 | 7   | WHICH WAY       | The end-call, worth one point.                                 |
 | 8   | REVEAL          | Full refresh. Band, guess, points, verdict.                    |
-| 9   | SESSION         | The score so far, and the only way to end the session.         |
+| 9   | SESSION         | Totals against a reference, and the ornament again.            |
 
 Back unwinds to the menu, except inside a round, where it opens the **pause**,
 and on the reveal, where it returns to the menu.
@@ -48,113 +48,6 @@ once dealt the next round, which reads as working right up until somebody wanted
 to look at the last screen again. That is deliberate: if backing out re-dealt for the
 same person, a clue-giver could quietly hunt for an easy axis, and the deck's
 strangest cards would never be played.
-
-## Leaving does not end the game
-
-**A game in progress survives leaving the app and survives a power cycle.**
-Home, the shelf, the idle timeout, a held power button, a flat battery: the
-round, the hidden number, the marker and the session score are all still there
-when WAVELENGTH is opened again.
-
-That is not how it started. A cold tester on the guess screen pressed **Home**,
-which sits one key from Back, walked back in through Games, and got NO SESSION
-RUNNING. TAP START. Back was carefully handled -- it opens the pause, and the
-guess screen advertises BACK PAUSES -- and Home was mentioned nowhere and
-protected by nothing. Sleep was the same fault by a different route: deep sleep
-on this chip is a chip reset, so the wake that says `[SHELF] Wake: resuming
-WAVELENGTH` was starting the app from nothing.
-
-**Persisted, not guarded.** A confirmation on the way out would have covered the
-Home key and nothing else: it cannot be shown to a device whose battery has
-gone, and the round is just as lost. And a device passed round a table gets put
-down mid-argument, which is the case the auto-sleep suppression already exists
-for.
-
-**`onExit()` was not the fault, and fixing it would not have helped.** It runs on
-both routes -- the Home gesture and the sleep both go through
-`replaceActivity()`, which runs the outgoing activity's `onExit()` before the
-new one enters -- and WAVELENGTH already called it. What it wrote was the
-all-time record and the seen deck, and nothing about the evening in progress.
-The round was not lost on the way out; it was never written down.
-
-**Written at every position anyway.** `go()` writes the card on every screen
-change and `step()` writes it on every move of the marker: about 120 bytes
-beside a panel repaint that costs a hundred times more, and it means a crash, a
-watchdog reset or a flat battery costs one screen rather than an evening. Chess
-reached the same place first and says so at the call site -- it saves on the
-completed move rather than the completed game.
-
-**And it writes through a temp file, because raising the frequency without that
-made things worse.** `Storage.openFileForWrite()` carries `O_TRUNC`, so writing
-in place empties the save at open: power lost in that window used to leave a
-zero-byte file, which loads as no record, no deck and no session, and the next
-write makes that permanent. Going from one write a round to fifteen multiplied
-that window by fifteen. The save now goes to `wavelength.tmp`, is flushed and
-released, has its byte count checked, and only then replaces the real file --
-so the previous save survives every failure. A cold reviewer found this: the
-paragraph above was claiming the change reduced battery exposure while the code
-had increased it.
-
-**Two games in this fork still write only at the door.** TOY BATTLE and JAIPUR
-both save in `onExit()` and when you walk out to their own menu, and nowhere
-else; Toy Battle's `saveGame()` comment says outright that "the one that matters
-is `onExit()`". That is enough for Home and for sleep, and it is not enough for
-a panic or a battery. If either gets revisited, the shape here is worth
-copying: a freestanding pack/unpack module beside the rules, host-tested, and a
-write at every state change rather than at the exit.
-
-**What comes back is where you were**, except HOW TO PLAY and the score sheet,
-which are each one tap from the front door and are not a position anybody is in
-the middle of. A screen whose round is missing from the file comes back as the
-front door with the session intact rather than as a half-drawn board.
-
-### The hidden number is on the card, in the clear
-
-It has to be. Re-drawing it on resume would break the clue already spoken out
-loud, and would hand the clue-giver the re-deal the pause screen exists to
-prevent.
-
-What protects it is where it lives, and here is exactly how far that goes,
-because a reassuring summary would be worse than none.
-
-- **The card in a reader** reads it, obviously. So does anything else on the
-  card, including the firmware.
-- **WebDAV cannot.** `WebDAVHandler::isProtectedPath()` rejects a path with a
-  dot in ANY segment, unconditionally.
-- **File Transfer will not list it.** The browser hides dot entries unless the
-  owner turns on Show Hidden Files in Settings.
-- **File Transfer WILL serve it to a direct URL, and that is a real hole.**
-  `handleDownload()` in `src/network/CrossPointWebServer.cpp` checks only the
-  LAST path segment, so `?path=/.crosspoint/wavelength.sav` passes the dot test
-  on `wavelength.sav` and streams the file. It is not this app's to fix -- it is
-  upstream's shared web server and it exposes every app's save file the same way
-  -- but it is the honest bound on the paragraph above.
-
-What that buys an actual cheat is small: File Transfer is an activity, so
-starting it takes the game off the panel in front of everybody, and the phone
-has to be on the same network and know the path. Anyone willing to do that in
-the middle of a round can look over the clue-giver's shoulder for less effort.
-
-Obfuscating the byte would be theatre: the mask would sit in the same file and
-this source is public.
-
-**The route that did need engineering is the in-app one.** Resume never lands on
-a screen that draws the number while the game says it is hidden.
-
-Two screens draw it, not one. The REVEAL draws it outright, and resuming there
-is correct: by that point the number is public and the whole screen is about it.
-The PEEK draws it only while `revealed` is true, which needs a live touch-hold,
-so a resume into the peek shows a bare strip and the number still costs a 400ms
-hold. And the only saved screen that can BE the peek is one where the clue has
-not been given yet: `View::Peek` is set by `choose()` and by resuming a pause
-taken on it, the peek is one-way, and `pausedFrom` is only ever assigned the
-view the Back key was pressed on. Nothing later in a round can reach it.
-
-The one thing this does open, and it is small: a clue-giver who leaves at the
-peek screen and hands the device on lets the next person hold the pad. At that
-point in the round the device has not left the clue-giver yet by the game's own
-model, and a guesser who looks has simply become the clue-giver and ruined their
-own round.
 
 ## The pause, and why abandoning is counted
 
@@ -170,7 +63,7 @@ playing properly.
 So Back opens a pause carrying the scoring table, `RESUME THE ROUND`, and an
 explicit `ABANDON THIS ROUND` that says what it costs. Back out of the pause
 resumes: the safe direction is the default. **Abandons are counted and shown** on
-the next pass screen and on the end screen, because the board is public in this
+the next PASS LEFT and on the end screen, because the board is public in this
 game and so is walking away from a target you did not like.
 
 ## Moving the marker
@@ -192,11 +85,18 @@ bounded the mark still moved. Two paths to one control, one fixed, looks exactly
 like a fix that worked. They are gone; so is `dialDirectionAt`, which the sweep
 had left used by nothing but its own test.
 
-`dialSlotAt()` re-derives `layout()`'s arithmetic, and two copies of one layout
-is how a tap zone drifts away from the marker it sits under. So `host-tests/ui`
-asserts it against the layout over every point on the panel, plus that every
-slot is reachable by a tap: a rounding error at either end silently makes slot 1
-or 20 untappable, and those are the two the deck's clearest clues point at.
+ A cold player tapped near the
+top of the strip expecting to jump there, moved one slot, and faced ten refreshes
+to cross the board. A held finger sweeps the marker along under it and stops
+where the finger stops. It is a sweep, not a runaway repeat,
+which matters on a panel that repaints between steps.
+
+`dialSlotAt()` and `dialDirectionAt()` each re-derive `layout()`'s arithmetic,
+and two copies of one layout is how a tap zone drifts away from the marker it
+sits under. Neither copy looks wrong alone, so `host-tests/ui` asserts them
+against **each other** over every point on the panel, plus that every slot is
+reachable by a tap: a rounding error at either end silently makes slot 1 or 20
+untappable, and those are the two the deck's clearest clues point at.
 
 The marker resets to the middle of the strip each round. Carrying the last
 round's slot over reads as a suggestion, and the device is the one participant
@@ -212,10 +112,9 @@ by accident:
   touched is satisfied by the very tap that reveals nothing. It means the band
   was on the panel for 400ms.
 - **A control that cannot act must not look like one that can.** Until the
-  target has been seen the footer dims to SEE THE NUMBER FIRST, using the same
-  `disabledStepperStyles()` the front door uses for the end-of-session button,
-  and a bare tap on either hold control relabels it HOLD IT DOWN TO SEE (or TO
-  LOCK). Drawn solid black and
+  target has been seen the footer dims to LOOK FIRST, using the same
+  `disabledStepperStyles()` the front door uses for END SESSION, and a bare tap
+  on either hold control relabels it PRESS AND HOLD IT. Drawn solid black and
   silent, it read as a dead device: a cold player tapped both controls twice
   each and stopped playing. A difference of KIND, not degree -- a subtler cue
   gets rationalised away inside twenty minutes.
@@ -249,9 +148,27 @@ both encode decisions that would be easy to reverse by accident:
 
 ## The deck
 
-252 pairs, the retail CMYK deck (designers Alex Hague, Justin Vickers, Wolfgang
+245 pairs, the retail CMYK deck (designers Alex Hague, Justin Vickers, Wolfgang
 Warsch), generated into `WavelengthPairs.h` by
 `tools_local/wavelength/gen_pairs.py` from `pairs_en.txt`.
+
+**SEVEN CARDS ARE DELIBERATELY REMOVED**, on Mario's instruction after cold
+players stalled on them, in three kinds:
+
+- **Synonyms**, where there is no thing that is maximally one and minimally the
+  other: `STRANGE/WEIRD`, `MANNERS/ETIQUETTE`, `PROHIBITED/ILLEGAL`.
+- **Same direction**, where both ends mean the same thing and one is just more
+  so, leaving the strip no opposition to run between: `TINY/SMALL`,
+  `IDENTICAL/SIMILAR`.
+- **Not a continuum**, where nothing sits between the ends:
+  `SLYTHERIN/GRYFFINDOR` (which also silently excludes two of the four houses)
+  and `TOCK/TICK` (no shared intuition to rate anything against).
+
+`HOMOGENOUS` was also corrected to `HOMOGENEOUS`: the card paired the biology
+spelling with the ordinary `HETEROGENEOUS`.
+
+So the count differs from retail BY DESIGN. If a future spot-check against the
+physical box finds 252, that is expected and not a transcription fault.
 
 > **PERMISSION, on Mario's testimony.** On 2026-08-31 Mario stated that CMYK
 > granted permission to use these pairs, given in a Reddit exchange. The
@@ -261,7 +178,7 @@ Warsch), generated into `WavelengthPairs.h` by
 > a reference instead of a testimony.
 >
 > **The transcription is a different claim and is still unchecked.** Permission
-> to use CMYK's cards is not evidence that these 252 lines ARE CMYK's cards.
+> to use CMYK's cards is not evidence that these lines ARE CMYK's cards.
 > Twenty pairs spot-checked against the physical box would settle it; nobody has
 > done that yet.
 
@@ -283,7 +200,7 @@ characters and differ by 70px at the display cut.
 
 **A double tap crosses screens.** Consecutive footers land 6-7px apart, so the
 second tap of a pair hits the next screen's button: it skipped SAY IT OUT LOUD
-with the clue-giver still holding the device, and skipped the pass screen entirely,
+with the clue-giver still holding the device, and skipped PASS LEFT entirely,
 which is the only screen telling the table to change hands -- so the same person
 gave two clues running with the score still counting. Taps within `kSettleMs`
 (500ms, about one refresh) of a view change are swallowed. People double-tap
@@ -293,126 +210,13 @@ spend.
 **Abandoning announces itself.** Back from a committed screen passes left, but
 silently it looked identical to a normal pass, so a clue-giver who disliked
 their target could back out and redraw with nobody at the table any the wiser.
-The next pass screen says `1 ROUND ABANDONED SO FAR`, in the same count shape
-the pause screen uses, so the second abandon does not read as a different event
-from the first.
-
-## The words, fixed 2026-09-01
-
-The app had **four names for two roles**, **four for one scoring event** and
-**three for the movable marker**, which is how a table ends up arguing about
-what the screen means rather than about the clue. One name each, everywhere:
-
-| Thing                          | The name   | What it replaced                                       |
-| ------------------------------ | ---------- | ------------------------------------------------------ |
-| The player who sees the number | CLUE-GIVER | THE GIVER, ONE OF YOU, THE NEXT PLAYER                 |
-| Everyone else                  | GUESSERS   | EVERYONE ELSE (as a role), YOU                         |
-| The end-of-round bet           | SIDE CALL  | RIGHT SIDE, CALL RIGHT, RIGHT ANSWER, CALLS WHICH SIDE |
-| The bar the table moves        | THE GUESS  | THE MARK, YOUR GUESS                                   |
-| The hidden number              | THE NUMBER | THE TARGET                                             |
-
-Two consequences worth keeping:
-
-- **The verdict words are the scoring table's own** -- EXACT, ONE OFF, TWO OFF,
-  and then the distance itself: THREE OFF, SEVEN OFF, NINETEEN OFF. The old set
-  (TELEPATHIC / CLOSE / WARM / MISS) was a second vocabulary that contradicted
-  the first: WARM sat below CLOSE with no COLD anywhere, so reading the two
-  together says two off beats one off.
-
-  **MISS is gone, and it was the last word doing that job.** The banner reports
-  the GUESS'S distance and the figure beside it is the ROUND'S points, so a
-  seven-off guess with a right side call printed MISS above +1 -- a verdict and
-  an arithmetic that cannot both be true. There is no reading of those two that
-  agrees, and a tester read it as a bug in the scoring. A distance is a fact
-  rather than a judgement, so SEVEN OFF beside +1 says what happened.
-- **The front door and the end screen count the same way.** `ROUND 7, 8 POINTS`
-  against `8 POINTS IN 5 ROUNDS` one tap away described one evening with two
-  numbers, because the first counted the round about to start. The round about
-  to start is on the BUTTON now (`PLAY ROUND 7`), where it is an instruction.
-
-**The side-call screen was the one exception, and it is fixed now.** It was left
-alone on the argument that the screen leaves co-op if the shelved work in
-`wavelength-teams.md` lands, so the words might be thrown away. What that
-actually bought was one screen saying TARGET where every other screen says THE
-NUMBER, and the only screen that ASKS for the side call never using the words
-the rules and the scoring table both use. It reads:
-
-| Was                               | Is                                 |
-| --------------------------------- | ---------------------------------- |
-| `IS THE TARGET NEARER`            | `SIDE CALL: IS THE NUMBER NEARER`  |
-| `GUESSERS DECIDE. NOT THE GIVER.` | `THE CLUE-GIVER STAYS OUT OF THIS.`|
-| `RIGHT ANSWER IS WORTH ONE POINT.`| `THE SIDE CALL IS WORTH ONE POINT.`|
-
-The second one is the negative half of the old sentence rather than both halves,
-because CLUE-GIVER measures 134px against GIVER's 64 and the whole sentence came
-to 458px of 448. The negative half is the one that prevents the fault.
-
-THE GIVER and RIGHT ANSWER no longer exist anywhere in the app.
-
-## The two buttons that said the opposite of what they did
-
-Both on the way to and from the score sheet, and between them they made the
-score sheet unreadable as a screen: nothing on it was called what it was.
-
-- **`FINISH AND SEE THE SCORE` did not finish anything.** It opens the score
-  sheet, whose own first button walks straight back into the next round with the
-  session intact. It is `SEE THE SCORE SO FAR` now.
-- **`START OVER (CLEARS THIS SCORE)` started nothing.** It is the only control
-  in the app that ends a session, and it returns to the front door. It is
-  `END THE SESSION` now, it is drawn as an outline rather than as a third solid
-  bar the thumb finds by reflex -- there is no red on a 1-bit panel, so
-  destructive can only look like DIFFERENT -- and the two lines above it say
-  what it costs and what it does not: `THIS CLEARS THE SCORE ABOVE.` /
-  `THE ALL-TIME RECORD IS KEPT.` Same shape the pause screen uses for
-  `ABANDON THIS ROUND`.
-- **`BACK TO THE GAME` described a return**, and what it does is start the next
-  round. It says `PLAY ROUND 3`, in the front door's own words, so the two
-  screens that offer the same thing offer it in the same sentence.
-
-## Three smaller things a cold table found
-
-- **The all-time chart had two fills and no legend.** The 6+ row was dithered on
-  the argument that it is the row you want to be short; what it produced was a
-  reader guessing at the rule twice, wrong both times, with the faintest marks
-  on the page on the row that says most about how the table is doing. One
-  material now, and both columns are named: `HOW FAR OFF, ALL TIME` on the left
-  and `ROUNDS` on the right, on the heading line the chart already had.
-- **`IN 0 SCORED ROUNDS` still printed an average.** A table that had played
-  only the practice round was scored 0.0 against a benchmark of 2.5 -- an
-  average over no rounds, presented as a verdict on the one round the game
-  itself refuses to count. It says so instead, and the front door's own
-  all-time average prints `--` rather than `0.0` before anything has scored.
-- **`A GOOD TABLE 2.5` had no unit and no explanation anywhere.** The pair is
-  headed `POINTS PER ROUND` now, which is the same phrase the front door uses
-  for the all-time figure.
+The next PASS LEFT says LAST ROUND WAS ABANDONED.
 
 ## What the tests can and cannot prove
 
-`host-tests/wavelength/` covers the rules exhaustively, gates every drawable
-string's WIDTH via `tools_local/wavelength/check_widths.py` against the real
-glyph tables, and round-trips the save file -- including a live round, a version
-1 card, a truncated one, an impossible slot and a session that has been ended.
-`WavelengthSave.cpp` is freestanding for exactly that reason: the round that
-survives the Home key is provable on a laptop.
-
-**UNDERSTOOD IS NOT MEASURED, and the width gate conflated the two.** It marked
-a draw covered the moment it recognised the SHAPE `caps(rect, identifier,
-slot)`. If that identifier had no `snprintf` behind it -- a `const char*` picked
-out of a table of words -- nothing ever measured it, and it was missing from the
-overflow column and from the unmeasured column at the same time. The reveal's
-verdict, both scoring tables, the peek's advice column and all three slot
-numerals were invisible that way: 69 strings were reported measured out of 220.
-Sites are recorded now only when a width was actually checked, expressions are
-expanded into every literal they can evaluate to, and the final sweep takes the
-text argument as a whole expression rather than demanding a literal or a bare
-name -- so a draw it cannot resolve is REPORTED rather than silently absent.
-
-Two source changes came out of that. The peek's advice table was renamed
-`kAdvice`, because HOW TO PLAY has a `kLines` of its own drawn into twice the
-width and the gate resolves a table by name across the whole file: two tables
-sharing one name measured the 224px column's strings against 448 and reported
-clean. And a name declared twice with different words now maps to nothing, the
-way a rect declared twice already did.
+`host-tests/wavelength/` covers the rules exhaustively and now also gates every
+drawable string's WIDTH, via `tools_local/wavelength/check_widths.py`, against
+the real glyph tables.
 
 **That gate cannot live in `host-tests/ui`.** `FakeTarget::measureText` returns
 ten pixels a character there, so an overflow assertion in that suite is a
@@ -441,7 +245,7 @@ how big the ink is; `CutMetrics` only decides where it is centred. Passing a
 mismatched pair is silent. It produced "NOT SCORED" rendered at 82px, a headline
 truncated to "WAVELE", and a line drawn straight through the one under it.
 `caps()` now derives the metrics from the slot so the two cannot disagree, and
-`endWord()` walks the cut ladder down because 54 of the deck's 252 pairs do not
+`endWord()` walks the cut ladder down because 54 of the deck's pairs do not
 fit at the display cut.
 
 **Do not pass a sentinel slot to mean "no marker".** It drew a phantom marker at

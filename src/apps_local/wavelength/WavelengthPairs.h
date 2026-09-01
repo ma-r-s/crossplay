@@ -148,7 +148,6 @@ inline constexpr Pair kPairsEn[] = {
     {"FORGIVEABLE", "UNFORGIVEABLE"},
     {"MASTERPIECE", "FAILURE"},
     {"HARMFUL", "HARMLESS"},
-    {"SLYTHERIN", "GRYFFINDOR"},
     {"HYGIENIC", "UNHYGIENIC"},
     {"GOOD MUSIC", "BAD MUSIC"},
     {"USEFUL", "USELESS"},
@@ -194,7 +193,6 @@ inline constexpr Pair kPairsEn[] = {
     {"SPICY", "MILD"},
     {"SACRILEGIOUS", "RELIGIOUS"},
     {"ART", "NOT ART"},
-    {"PROHIBITED", "ILLEGAL"},
     {"ELITIST", "POPULAR"},
     {"IN CONTROL", "OUT OF CONTROL"},
     {"LOUD", "QUIET"},
@@ -214,11 +212,9 @@ inline constexpr Pair kPairsEn[] = {
     {"FALSE", "TRUE"},
     {"AVANT GARDE", "OLD FASHIONED"},
     {"BEAUTIFUL WORD", "UGLY WORD"},
-    {"TINY", "SMALL"},
     {"NATURAL", "UNNATURAL"},
     {"PHONY PERSON", "GENUINE PERSON"},
     {"ORIGINAL", "DERIVATIVE"},
-    {"MANNERS", "ETIQUETTE"},
     {"SEXY COLOR", "UNSEXY COLOR"},
     {"BENEFITS EVERYONE", "BENEFITS YOU"},
     {"POWERFUL", "POWERLESS"},
@@ -234,13 +230,12 @@ inline constexpr Pair kPairsEn[] = {
     {"VERTICAL", "HORIZONTAL"},
     {"SCENTED", "UNSCENTED"},
     {"NOT HUGGABLE", "HUGGABLE"},
-    {"HOMOGENOUS", "HETEROGENEOUS"},
+    {"HOMOGENEOUS", "HETEROGENEOUS"},
     {"EXCLUSIVE", "INCLUSIVE"},
     {"GOOD DOG BREED", "BAD DOG BREED"},
     {"COMMERCE", "ART"},
     {"POP ICON", "ONE HIT WONDER"},
     {"GOOD ADVICE", "BAD ADVICE"},
-    {"TOCK", "TICK"},
     {"GOOD CANDY", "BAD CANDY"},
     {"RADICAL", "TRADITIONAL"},
     {"GOOD MOUTHFEEL", "BAD MOUTHFEEL"},
@@ -250,9 +245,7 @@ inline constexpr Pair kPairsEn[] = {
     {"ALWAYS ON TIME", "NEVER ON TIME"},
     {"WILL LIVE TO 100", "WON'T LIVE TO 100"},
     {"GOOD DISNEY CHARACTER", "BAD DISNEY CHARACTER"},
-    {"IDENTICAL", "SIMILAR"},
     {"GOOD PRESIDENT", "BAD PRESIDENT"},
-    {"STRANGE", "WEIRD"},
     {"INFAMOUS", "FAMOUS"},
     {"MOST POWERFUL GOD", "LEAST POWERFUL GOD"},
     {"FUN PERSON", "BORING PERSON"},
@@ -269,6 +262,6 @@ inline constexpr Pair kPairsEn[] = {
     {"OVERRATED GAME", "UNDERRATED GAME"},
 };
 
-inline constexpr int kPairCountEn = 252;
+inline constexpr int kPairCountEn = 245;
 
 }  // namespace wavelength
