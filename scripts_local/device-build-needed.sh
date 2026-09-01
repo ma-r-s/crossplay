@@ -136,7 +136,7 @@ if [ -n "$RANGE" ]; then
     say "device builds: needed (no merge base between the ends of $RANGE)"
     exit 0
   fi
-  RANGE_CHANGED="$(git diff --name-only "$RANGE_BASE" "$RANGE_B" 2>/dev/null | sed 's/ -> /\n/' | sed '/^$/d' | sort -u)" || RANGE_CHANGED=""
+  RANGE_CHANGED="$(git diff --name-only --no-renames "$RANGE_BASE" "$RANGE_B" 2>/dev/null | sed 's/ -> /\n/' | sed '/^$/d' | sort -u)" || RANGE_CHANGED=""
   if [ -z "$RANGE_CHANGED" ]; then
     say "device builds: not needed (nothing changed in $RANGE)"
     exit 1
@@ -194,8 +194,25 @@ fi
 # Committed work since the base, plus anything uncommitted, plus untracked --
 # a new file under src/ is untracked until it is added, and it is exactly the
 # case where skipping would be worst.
+# --no-renames on the diff, and it is the difference between a rule and a
+# hazard. `git diff --name-only` runs rename DETECTION by default and collapses
+# a detected rename to the NEW path only -- the old one never appears, with no
+# arrow to split on. So `git mv src/main.cpp docs/main.cpp` presented as one
+# inert path, and the rule cheerfully skipped every device build for a commit
+# that removed a compiled translation unit. `git mv
+# scripts_local/require_build_lock.py docs/x.py` did the same for a file that
+# runs INSIDE every device build; that commit breaks the build for the whole
+# workspace and this said it needed no verification.
+#
+# --no-renames reports the pair as a delete plus an add, so BOTH endpoints are
+# classified and the old path forces the build. The `sed 's/ -> /\n/'` below
+# was already there for the same hazard in `git status --porcelain`, whose
+# rename format DOES carry an arrow -- so the author had seen this coming and
+# the fix simply never reached the committed half, which is the half
+# --committed uses exclusively (its trial worktree is a clean checkout, so
+# `git status` there is empty by construction).
 CHANGED="$(
-  { git diff --name-only "$BASE" HEAD 2>/dev/null
+  { git diff --name-only --no-renames "$BASE" HEAD 2>/dev/null
     git status --porcelain --ignore-submodules=untracked 2>/dev/null | sed 's/^...//'
     git status --porcelain 2>/dev/null | grep '^??' | sed 's/^?? //'
   } | sed 's/ -> /\n/' | sed '/^$/d' | sort -u

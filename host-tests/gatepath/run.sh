@@ -125,6 +125,34 @@ q git add -A; q git commit -m mixed; needed "docs + site + one src file" yes
 reset_tree; echo x > freeink-sdk; q git add -A; q git commit -m sdk
 needed "the freeink-sdk pointer" yes
 
+# RENAMES, which is the one shape of change that was invisible to this rule and
+# to this suite at the same time. Every fixture above builds its diff with
+# `echo >> file`, so nothing here could ever have caught it.
+#
+# `git diff --name-only` runs rename detection by DEFAULT and collapses a
+# detected rename to the NEW path only, with no arrow to split on. So moving a
+# compiled file OUT of src/ presented as a single inert path and skipped every
+# device build -- for a commit that removes a translation unit from the image.
+# The tool passes --no-renames now, which reports the pair as a delete plus an
+# add so both endpoints get classified.
+reset_tree; q git mv src/main.cpp docs/main.cpp; q git commit -m mv1
+needed "git mv src/main.cpp -> docs/ (the OLD path is the firmware one)" yes
+
+# The same move applied to a file that runs INSIDE every device build. This
+# commit breaks the build for the whole workspace, and the rule called it inert.
+reset_tree; q git mv scripts_local/require_build_lock.py docs/rbl.py.old; q git commit -m mv2
+needed "git mv a pre: extra_script out of scripts_local/" yes
+
+# And the direction that must NOT regress into paranoia: a rename with both
+# ends inert is still inert.
+reset_tree; q git mv docs/a.md docs/renamed.md; q git commit -m mv3
+needed "git mv docs/a.md -> docs/renamed.md (both ends inert)" no
+
+# Uncommitted renames were already handled, by splitting the arrow in
+# `git status --porcelain`. Asserted so the two halves cannot drift apart.
+reset_tree; q git mv src/main.cpp docs/main.cpp
+needed "an UNCOMMITTED git mv out of src/" yes
+
 # The case the allowlist direction exists for. A directory the rule has never
 # heard of must build, not skip -- this is what stops the rule going stale the
 # day somebody adds a new source root.
@@ -198,6 +226,18 @@ if [ "$rc" -eq 0 ]; then
   ok "--range still sees firmware the range really adds"
 else
   bad "--range missed firmware it should have seen: $out"
+fi
+q git checkout -q "$MAIN"
+
+# --range had the same rename blind spot, from the same construction.
+reset_tree
+q git checkout -q -b mvside
+q git mv src/main.cpp docs/main.cpp; q git commit -m "move src out on the side branch"
+q git checkout -q "$MAIN"
+if env -u CHECK_BUILD_RELEASE_ENVS "$TOOL" --range "$MAIN..mvside" >/dev/null 2>&1; then
+  ok "--range sees a rename's old path too"
+else
+  bad "--range called a src/ file leaving src/ inert"
 fi
 q git checkout -q "$MAIN"
 
