@@ -677,7 +677,7 @@ void renderReveal(toybox::Screen& screen, const RevealModel& model) {
   drawGuessFrame(screen, g, model.guess);
   caps(screen, g.bottomWord, model.spectrum.bottom, toybox::kSmallFont, fui::TextAlign::Left);
 
-  char line[24];
+  char line[48];
   if (model.practice) {
     snprintf(line, sizeof(line), "NOT SCORED");
   } else {
@@ -884,7 +884,7 @@ void renderMenu(toybox::Screen& screen, const MenuModel& model) {
   fill(screen, fui::makeRect(toybox::kMargin, 190, inner, toybox::kRule));
 
   char left[24];
-  char right[24];
+  char right[48];
   snprintf(left, sizeof(left), "ALL TIME");
   snprintf(right, sizeof(right), "%d ROUND%s   %d.%d PTS/ROUND", rec.rounds, rec.rounds == 1 ? "" : "S",
            rec.averageTenths() / 10, rec.averageTenths() % 10);
@@ -924,7 +924,7 @@ void renderSummary(toybox::Screen& screen, const SummaryModel& model) {
 
   // "POINTS IN 11 ROUNDS" measures 498px of 448 at the display cut and was cut
   // mid-word. Split, which also gives the number the hierarchy it deserves.
-  char line[24];
+  char line[48];
   snprintf(line, sizeof(line), "IN %d ROUND%s", model.rounds, model.rounds == 1 ? "" : "S");
   caps(screen, fui::makeRect(toybox::kMargin, 150, inner, toybox::kDisplayCut.lineHeight),
        model.total == 1 ? "POINT" : "POINTS", toybox::kBodyFont, fui::TextAlign::Left);

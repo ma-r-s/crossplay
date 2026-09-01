@@ -181,6 +181,7 @@ def strings_with_slots(src):
             slot_of[buf] = slot
             box_of[buf] = NAMED_RECTS[rect_name]
 
+    sizes = dict(re.findall(r"char (\w+)\[(\d+)\]", flat))
     for m in re.finditer(r'snprintf\((\w+),\s*sizeof\(\1\),\s*"([^"]+)"', flat):
         buf, fmt = m.groups()
         slot = slot_of.get(buf)
@@ -199,6 +200,11 @@ def strings_with_slots(src):
         text = fmt.replace("%s", "S" if plural else "ABOVE")
         text = text.replace("%d.%d", wide + ".9").replace("%d", wide)
         out.append((text, slot, box_of.get(buf, CONTENT_WIDTH)))
+        cap = sizes.get(buf)
+        if cap is not None and len(text) + 1 > int(cap):
+            unresolved_names.append(
+                f"char {buf}[{cap}] cannot hold {len(text) + 1} bytes of {text!r} -- snprintf will truncate it silently"
+            )
 
     # Anything the resolvers did not touch. Deck words are excluded by name:
     # they are runtime content and gen_pairs.py refuses an overlong pair before

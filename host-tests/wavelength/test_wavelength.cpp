@@ -71,23 +71,27 @@ void testEndCall() {
   // Locked exactly: the call was made before the reveal and cannot have been
   // right either way, so it counts. This is the rule that keeps scoring
   // monotone; see testPerfectRoundIsUnbeatable.
-  check(endCallCorrect(10, 10, Call::TowardTop), "exact lock, called top, counts");
-  check(endCallCorrect(10, 10, Call::TowardBottom), "exact lock, called bottom, counts");
+  check(!endCallCorrect(10, 10, Call::TowardTop), "exact lock has no side, called top pays nothing");
+  check(!endCallCorrect(10, 10, Call::TowardBottom), "exact lock has no side, called bottom pays nothing");
+  // The number the screens promise. An exact lock is worth exactly this.
+  check(scoreRound(10, 10, Call::TowardTop) == kPointsExact, "an exact lock pays the table's EXACT");
+  check(scoreRound(10, 10, Call::TowardBottom) == kPointsExact, "and pays it whichever way it was called");
 }
 
 void testPerfectRoundIsUnbeatable() {
   // Exhaustive. A round that landed exactly must score strictly more than any
-  // round that did not, whichever way either called. Without the exact-lock
-  // rule above, an off-by-one with a correct call would beat a perfect round
-  // whose call could not be right, and nobody could explain why.
+  // round that did not, whichever way either called. This holds WITHOUT paying
+  // the call bonus on an exact lock: the best a non-exact round reaches is
+  // kPointsOffByOne + kPointsEndCall = 4, against kPointsExact = 5. The old
+  // code paid the bonus anyway and justified it with this property, which it
+  // never needed -- and that made an exact worth 6 while every screen said 5.
   const Call calls[] = {Call::TowardTop, Call::TowardBottom};
   for (int target = 1; target <= kSlots; ++target) {
     for (const Call perfectCall : calls) {
       const int perfect = scoreRound(target, target, perfectCall);
       for (int guess = 1; guess <= kSlots; ++guess) {
         if (guess == target) continue;
-        for (const Call call : calls)
-          check(perfect > scoreRound(guess, target, call), "a perfect round is unbeatable");
+        for (const Call call : calls) check(perfect > scoreRound(guess, target, call), "a perfect round is unbeatable");
       }
     }
   }
@@ -138,8 +142,8 @@ void testPracticeRound() {
   check(!s.isPractice(), "round two is real");
 
   const int real = s.record(10, 10, Call::TowardTop);
-  checkEq(real, kPointsExact + kPointsEndCall, "a perfect real round pays out");
-  checkEq(s.total, kPointsExact + kPointsEndCall, "the total moved");
+  checkEq(real, kPointsExact, "a perfect real round pays the table's EXACT, with no call bonus");
+  checkEq(s.total, kPointsExact, "the total moved");
   checkEq(s.scoredRounds, 1, "one scored round");
 }
 
@@ -148,9 +152,9 @@ void testAverage() {
   checkEq(s.averageTenths(), 0, "no average before any scored round");
   s.record(1, 20, Call::TowardTop);  // practice, ignored
   s.record(10, 10, Call::TowardTop);
-  checkEq(s.averageTenths(), 60, "one perfect round averages 6.0");
+  checkEq(s.averageTenths(), 50, "one perfect round averages 5.0");
   s.record(1, 20, Call::TowardBottom);  // wide of the mark and called wrong: 0
-  checkEq(s.averageTenths(), 30, "a scoreless round halves it to 3.0");
+  checkEq(s.averageTenths(), 25, "a scoreless round halves it to 2.5");
 }
 
 void testMissedRoundStillEarnsTheCall() {

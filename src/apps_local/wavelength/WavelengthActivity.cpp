@@ -167,6 +167,7 @@ void WavelengthActivity::makeCall(const wl::Call call) {
     const int avg = session.averageTenths();
     if (avg > record.bestRoundTenths) record.bestRoundTenths = static_cast<uint16_t>(avg);
     dirty = true;
+    flushSave();
   }
   flashOnNextPaint = true;  // the reveal is the payoff
   go(View::Reveal);
