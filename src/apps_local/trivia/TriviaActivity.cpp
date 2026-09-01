@@ -366,6 +366,23 @@ void TriviaActivity::routeAction(const int action, const int value) {
         requestUpdate();
       }
       break;
+    case triviaui::ActionQuit: {
+      // Ending the round IS the summary. The two findings -- "cannot leave the
+      // quiz" and "no final score" -- were one omission: with no deliberate way
+      // to stop, there was no moment at which a score could be shown, so the
+      // only exit (the HOME key) also threw the result away.
+      //
+      // Reuses the notice machinery, whose ActionMenuRow already returns to the
+      // menu from a Notice, rather than adding a fifth View for one screen.
+      char body[160];
+      if (score_.asked == 0) {
+        std::snprintf(body, sizeof(body), "%s", "No questions answered, so nothing to score.");
+      } else {
+        std::snprintf(body, sizeof(body), "You got %d of %d.", score_.right, score_.asked);
+      }
+      showNotice("ROUND OVER", body, "BACK TO MENU", triviaui::ActionMenuRow);
+      break;
+    }
     case triviaui::ActionReveal:
       revealed_ = true;
       requestUpdate();

@@ -99,26 +99,39 @@ void drawAction(toybox::Screen& screen, const char* label, const fui::ActionId a
   screen.frame().hit(box, action);
 }
 
-// The primary action, plus a narrower outlined one beside it. The secondary is
-// outlined rather than filled because it is the rarer choice and the black you
-// can afford is inversely proportional to how often you want it pressed.
+constexpr int16_t kAsideWidth = 132;
+constexpr int16_t kAsideGap = 12;
+
+// The narrow outlined box at the right of the footer. Outlined rather than
+// filled because it is the rarer choice, and the black you can afford is
+// inversely proportional to how often you want it pressed.
+//
+// Split out so it can be drawn WITHOUT a primary beside it, and so both callers
+// derive the same x. A way out that moves under the finger when the question is
+// answered would be its own bug.
+void drawAsideAction(toybox::Screen& screen, const char* label, const fui::ActionId action) {
+  const fui::Rect body = screen.body();
+  const int16_t full = static_cast<int16_t>(body.width - kMargin * 2);
+  const fui::Rect aside{static_cast<int16_t>(body.x + kMargin + full - kAsideWidth),
+                        static_cast<int16_t>(footerTop(screen) + 16), kAsideWidth, 64};
+  screen.target().stroke(aside, fui::Paint::solid(fui::Color::Black), 2);
+  drawLabel(screen, aside, label, toybox::kSmallFont, fui::TextAlign::Center, toybox::kButtonCut);
+  screen.frame().hit(aside, action);
+}
+
+// The primary action, plus the narrower outlined one beside it.
 void drawActionPair(toybox::Screen& screen, const char* primary, const fui::ActionId primaryAction,
                     const char* secondary, const fui::ActionId secondaryAction) {
   const fui::Rect body = screen.body();
-  const int16_t top = static_cast<int16_t>(footerTop(screen) + 16);
   const int16_t full = static_cast<int16_t>(body.width - kMargin * 2);
-  const int16_t narrow = 132;
-  const int16_t wide = static_cast<int16_t>(full - narrow - 12);
+  const int16_t wide = static_cast<int16_t>(full - kAsideWidth - kAsideGap);
 
-  const fui::Rect main{static_cast<int16_t>(body.x + kMargin), top, wide, 64};
+  const fui::Rect main{static_cast<int16_t>(body.x + kMargin), static_cast<int16_t>(footerTop(screen) + 16), wide, 64};
   screen.target().fill(main, fui::Paint::solid(fui::Color::Black));
   drawLabel(screen, main, primary, toybox::kSmallFont, fui::TextAlign::Center, toybox::kButtonCut, fui::Color::White);
   screen.frame().hit(main, primaryAction);
 
-  const fui::Rect aside{static_cast<int16_t>(body.x + kMargin + wide + 12), top, narrow, 64};
-  screen.target().stroke(aside, fui::Paint::solid(fui::Color::Black), 2);
-  drawLabel(screen, aside, secondary, toybox::kSmallFont, fui::TextAlign::Center, toybox::kButtonCut);
-  screen.frame().hit(aside, secondaryAction);
+  drawAsideAction(screen, secondary, secondaryAction);
 }
 
 // ---------------------------------------------------------------------------
@@ -269,7 +282,15 @@ void buildChoice(toybox::Screen& screen, const ChoiceModel& model) {
     y = static_cast<int16_t>(y + 70);
   }
 
-  if (model.chosen >= 0) drawAction(screen, "NEXT", ActionNext);
+  // END is present BEFORE an answer too. Solo had no way out at all: no footer
+  // action, no header target, and this app is touch-only, so Back did nothing.
+  // A cold tester could escape only with the HOME key, which also meant there
+  // was no way to finish deliberately and see a score. One omission, not two.
+  if (model.chosen >= 0) {
+    drawActionPair(screen, "NEXT", ActionNext, "END", ActionQuit);
+  } else {
+    drawAsideAction(screen, "END", ActionQuit);
+  }
 }
 
 }  // namespace triviaui
