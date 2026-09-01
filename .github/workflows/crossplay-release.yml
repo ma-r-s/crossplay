@@ -175,7 +175,41 @@ jobs:
             devices next to each other find one another with nothing to type --
             and they do not have to be the same device.
 
-            ### What is new in 1.12.6
+            ### What is new in 1.12.7
+
+            **WAVELENGTH no longer asks a question nobody can answer.** It used
+            to ask whether the number was nearer one end or the other, after the
+            table had already committed to a number. In the original game that
+            bet belongs to the opposing team; this version is co-operative and
+            has none, so the question had nobody to put it to. It is gone, and
+            the round scores on distance alone.
+
+            **The game now says who is doing what.** It opens by naming the role
+            rather than telling whoever just picked the device up to pass it on,
+            and it uses one word for each thing throughout instead of four names
+            for two roles.
+
+            **A round in progress survives being interrupted.** Pressing home,
+            or letting the device sleep, used to destroy the round, the hidden
+            number and the session's score. It comes back where you left it now,
+            with the number still hidden.
+
+            **Several ways to lose a round without being told are closed**,
+            including the one where lifting your thumb off HOLD TO LOCK pressed
+            the button underneath and dismissed the score before the table had
+            seen it. Locking a guess needs a deliberate hold, and the buttons
+            that end or continue a session say which is which.
+
+            **Seven spectrum cards a table cannot actually play were removed.**
+
+            **Trivia's wrong answers are built properly now.** The engine that
+            picks them was reading the wrong word as the subject of the
+            question, so "this musical river" drew from musicals rather than
+            rivers. **This changes nothing until the question pack itself is
+            republished** -- the questions live on the SD card, not in the
+            firmware.
+
+            ### What was new in 1.12.6
 
             **CHESS no longer flashes a wrong board while the computer is
             thinking.** After you moved, the board showed a position that was
