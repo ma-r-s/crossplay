@@ -13,20 +13,22 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-unsigned int uzlib_adler32(const void *data, unsigned int length, unsigned int prev_sum) {
+unsigned int uzlib_adler32(const void* data, unsigned int length, unsigned int prev_sum) {
   (void)data;
   (void)length;
   (void)prev_sum;
-  fprintf(stderr, "FAIL fontguard  uzlib_adler32 called: the font path now uses the checksummed uzlib entry point, "
-                  "which this suite stubs out. Link the real adler32.c/crc32.c.\n");
+  fprintf(stderr,
+          "FAIL fontguard  uzlib_adler32 called: the font path now uses the checksummed uzlib entry point, "
+          "which this suite stubs out. Link the real adler32.c/crc32.c.\n");
   abort();
 }
 
-unsigned int uzlib_crc32(const void *data, unsigned int length, unsigned int crc) {
+unsigned int uzlib_crc32(const void* data, unsigned int length, unsigned int crc) {
   (void)data;
   (void)length;
   (void)crc;
-  fprintf(stderr, "FAIL fontguard  uzlib_crc32 called: the font path now uses the checksummed uzlib entry point, "
-                  "which this suite stubs out. Link the real adler32.c/crc32.c.\n");
+  fprintf(stderr,
+          "FAIL fontguard  uzlib_crc32 called: the font path now uses the checksummed uzlib entry point, "
+          "which this suite stubs out. Link the real adler32.c/crc32.c.\n");
   abort();
 }

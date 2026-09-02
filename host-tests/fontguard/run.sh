@@ -12,11 +12,15 @@
 #   host-tests/fontguard/run.sh
 #
 # A GUARD PAGE IS THE INSTRUMENT. The fixtures mmap every array a malformed font
-# would walk off so it sits flush against a PROT_NONE page: a read of
+# would walk off so it sits flush against PROT_NONE pages: a read of
 # groups[groupCount] traps at the offending byte instead of returning whatever
-# followed it in memory. Without that, these tests PASS against the unfixed
-# decoder -- which is precisely why a read-only review could not settle whether
-# the out-of-bounds read was real.
+# followed it in memory.
+#
+# Precisely what that buys, measured rather than assumed: revert the fix, move
+# the guard away so the stray reads land in ordinary zeroed pages, and two of
+# the four malformed cases (corrupt-glyphtogroup, glyphtogroup-equals-groupcount)
+# PASS while the decoder walks off the array. The other two also fail on their
+# missed counts. So the guard is what makes half these cases discriminate at all.
 #
 # Deliberately NOT AddressSanitizer, which would otherwise be the obvious choice:
 # its runtime hangs in its own initialiser (get_dyld_hdr) on this machine's Apple

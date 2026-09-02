@@ -58,7 +58,15 @@ bool FontDecompressor::ensureCapacity(uint8_t*& buf, uint32_t& capacity, uint32_
 uint16_t FontDecompressor::getGroupIndex(const EpdFontData* fontData, uint32_t glyphIndex) {
   // O(1) path for frequency-grouped fonts with glyphToGroup mapping
   if (fontData->glyphToGroup != nullptr) {
-    return fontData->glyphToGroup[glyphIndex];
+    // Normalised to the SAME not-found sentinel the scan below returns, so this
+    // function has one postcondition -- a valid index, or exactly groupCount --
+    // and no caller has to know which path produced its answer. The raw value is
+    // a uint16_t straight out of the font's data with nothing else validating
+    // it; clamping here rather than at each call site is what stops the next
+    // caller forgetting, which is exactly how prewarmCache came to differ from
+    // getBitmap in the first place.
+    const uint16_t gi = fontData->glyphToGroup[glyphIndex];
+    return gi < fontData->groupCount ? gi : fontData->groupCount;
   }
 
   // Contiguous-group fonts: linear scan
@@ -338,8 +346,7 @@ int FontDecompressor::prewarmCache(const EpdFontData* fontData, const char* utf8
   // `128`s could. What one constant still cannot enforce is the width of the
   // counter that indexes them: widen the constant past what a uint8_t holds and
   // groupCount wraps, turning the cap check into an out-of-bounds WRITE.
-  static_assert(MAX_PAGE_GROUPS <= UINT8_MAX,
-                "groupCount is a uint8_t; widen it too before raising MAX_PAGE_GROUPS");
+  static_assert(MAX_PAGE_GROUPS <= UINT8_MAX, "groupCount is a uint8_t; widen it too before raising MAX_PAGE_GROUPS");
   uint16_t neededGroups[MAX_PAGE_GROUPS];
   uint8_t groupCount = 0;
   bool groupCapWarned = false;
@@ -354,28 +361,33 @@ int FontDecompressor::prewarmCache(const EpdFontData* fontData, const char* utf8
     totalBytes += fontData->glyph[neededGlyphs[i]].dataLength;
     uint16_t gi = getGroupIndex(fontData, neededGlyphs[i]);
 
-    // getGroupIndex() has two ways of naming a group that does not exist: the
-    // contiguous scan's not-found SENTINEL, which is groupCount itself, and a
-    // glyphToGroup entry, which is a uint16_t taken from the font file with
-    // nothing validating it. Either one indexes fontData->groups past its end
-    // below -- and the EpdFontGroup read from there goes on to size a malloc
-    // and to index the glyph array, so the damage does not stay local.
+    // getGroupIndex() promises a valid index or exactly groupCount, never more.
+    // Indexing groups[] with the sentinel reads past its end, and the
+    // EpdFontGroup read from there goes on to size a malloc and to index the
+    // glyph array, so the damage does not stay local. getBitmap() has always
+    // tested for this; prewarmCache() did not, and that asymmetry was the bug.
     //
-    // getBitmap() has always tested for exactly this. prewarmCache() did not,
-    // and that asymmetry is the whole bug: same function, same two sentinels,
-    // one caller checking and the other not.
+    // NOT reachable with any font this firmware can load today, and the guard is
+    // deliberate anyway. Every built-in font takes the contiguous path and its
+    // groups tile the glyph array exactly, so the sentinel never fires -- but
+    // that is a property of the generator's output, not of the format, and
+    // scripts/verify_compression.py does not check group coverage. Nothing in CI
+    // regenerates or re-verifies fonts either, so the day a regenerated cut left
+    // one glyph out of every group, this would be a wild read under every app
+    // that draws text rather than one glyph that fails to appear.
     //
     // Skipping is safe rather than lossy. The glyph keeps its page-buffer entry
     // with bufferOffset == UINT32_MAX, so getBitmap() finds it, falls through to
     // the hot-group path and declines it there -- the same answer it gives for a
-    // font that was never prewarmed at all. Nothing that could have been drawn
-    // stops being drawn: the check rejects only an index that is not a valid
-    // index into a groupCount-long array, which no renderable glyph has.
+    // font that was never prewarmed at all. The predicate here is identical to
+    // getBitmap's, evaluated by the same pure function on the same fontData, so
+    // the skipped set is a subset of what getBitmap refuses anyway: nothing that
+    // could have been drawn stops being drawn.
     if (gi >= fontData->groupCount) {
       ungrouped++;
       if (!ungroupedWarned) {
-        LOG_ERR("FDC", "Glyph %u names group %u but the font has %u; skipping (further ones silent)",
-                neededGlyphs[i], gi, fontData->groupCount);
+        LOG_ERR("FDC", "Glyph %u names group %u but the font has %u; skipping (further ones silent)", neededGlyphs[i],
+                gi, fontData->groupCount);
         ungroupedWarned = true;
       }
       continue;

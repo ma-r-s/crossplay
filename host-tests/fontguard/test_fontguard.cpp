@@ -6,9 +6,9 @@
 //   1. the not-found SENTINEL. The contiguous-group scan returns
 //      fontData->groupCount when no group claims the glyph -- one past the last
 //      valid index, by construction.
-//   2. a FILE-SUPPLIED index. The glyphToGroup fast path returns
-//      glyphToGroup[glyphIndex] verbatim: a uint16_t that came off the card
-//      with nothing checking it against groupCount.
+//   2. a FILE-SUPPLIED index, from the glyphToGroup fast path: a uint16_t taken
+//      from the font's own data. getGroupIndex now clamps it to the same
+//      sentinel; these tests hold that clamp in place.
 //
 // getBitmap() checks for both (`groupIndex >= fontData->groupCount` -> nullptr).
 // prewarmCache() did not: it stored the result straight into neededGroups and
@@ -16,19 +16,32 @@
 // there and handing its uncompressedSize to malloc and its firstGlyphIndex to
 // the glyph array.
 //
-// Reading the code cannot settle whether a font can actually do this, so this
-// suite BUILDS the fonts -- and puts a GUARD PAGE immediately after every array
-// a malformed font would make the decoder walk off. The arrays sit flush
-// against a PROT_NONE page, so a read of groups[groupCount] is not a value that
-// happens to follow in memory: it is a SIGSEGV at the exact offending byte.
+// NEITHER IS REACHABLE WITH A FONT THIS FIRMWARE CAN LOAD TODAY, and the point
+// of the suite is to keep it that way cheaply. Every built-in font takes the
+// contiguous path with groups that tile the glyph array exactly; no generator in
+// the tree emits glyphToGroup at all, so that path is anticipated rather than
+// live; and SD-card fonts zero groups/groupCount/glyphToGroup, so they never
+// enter the decompressor. What guards the sentinel today is therefore a property
+// of the font generator's output that no build step and no CI job checks.
+//
+// Reading the code cannot settle what the decoder DOES with such a font, so this
+// suite BUILDS them -- and puts a GUARD PAGE immediately after every array a
+// malformed font would make the decoder walk off. The arrays sit flush against a
+// PROT_NONE page, so a read of groups[groupCount] is not a value that happens to
+// follow in memory: it is a SIGSEGV at the exact offending byte.
 //
 // That instrument, rather than AddressSanitizer, for two reasons. ASan's
 // runtime hangs in its own init (get_dyld_hdr) on this machine's Apple clang 17
 // / Darwin 27 pairing, so the suite would never start; and mmap + mprotect
 // needs no sanitizer runtime at all, so this reads the same under CI's GCC.
-// Without the guard page these tests PASS against the unfixed decoder, quietly
-// returning whatever followed the array -- which is exactly why a read-only
-// review could not settle the question.
+//
+// What the guard buys, stated exactly rather than generously: with the fix
+// reverted and the guard moved away so the stray reads land in ordinary zeroed
+// pages, `corrupt-glyphtogroup` and `glyphtogroup-equals-groupcount` PASS
+// vacuously -- the decoder walks off the array and nothing notices. The other
+// two, `sentinel` and `all-ungrouped`, fail either way on their missed counts.
+// So the guard is what makes half these cases discriminate at all, and it is
+// the half a read-only review was least able to settle.
 //
 //   host-tests/fontguard/run.sh
 
@@ -61,23 +74,35 @@
 template <typename T>
 class GuardedArray {
  public:
+  // Several guard pages, not one. A stray index is a font's number, not a
+  // neighbouring byte: groups[99] on a 4KB-page CI box is already 1980 bytes
+  // past the end, and a slightly wilder value would clear a single page and land
+  // in whatever the allocator mapped next -- reading as a pass. Cheap insurance,
+  // since the mapping is never touched.
+  static constexpr size_t kGuardPages = 8;
+
   explicit GuardedArray(size_t count) : count_(count) {
     const size_t pageSize = static_cast<size_t>(sysconf(_SC_PAGESIZE));
     const size_t bytes = count * sizeof(T);
     const size_t dataPages = (bytes + pageSize - 1) / pageSize;
-    mapLen_ = (dataPages + 1) * pageSize;
+    mapLen_ = (dataPages + kGuardPages) * pageSize;
     base_ = static_cast<char*>(mmap(nullptr, mapLen_, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
     if (base_ == MAP_FAILED) {
       perror("mmap");
       abort();
     }
     char* const guard = base_ + dataPages * pageSize;
-    if (mprotect(guard, pageSize, PROT_NONE) != 0) {
+    if (mprotect(guard, kGuardPages * pageSize, PROT_NONE) != 0) {
       perror("mprotect");
       abort();
     }
     // Flush against the guard. sizeof(T) is a multiple of alignof(T) and the
     // page size is a multiple of both, so this stays correctly aligned.
+    //
+    // count == 0 puts ptr_ ON the guard, so every subscript traps. That is the
+    // right answer for a zero-length array, but a fixture that hit it would trap
+    // inside itself and read exactly like the bug under test, so no test builds
+    // one: buildFont's smallest group carries one member.
     ptr_ = reinterpret_cast<T*>(guard - bytes);
     for (size_t i = 0; i < count; i++) new (&ptr_[i]) T();
   }
@@ -179,8 +204,8 @@ struct Fixture {
 // A glyph named by no group is exactly the "belongs to no group" case.
 // mapped == true fills glyphToGroup (the O(1) path); false leaves it null so
 // getGroupIndex() falls back to the contiguous scan.
-static std::unique_ptr<Fixture> buildFont(uint32_t glyphCount,
-                                          const std::vector<std::vector<uint32_t>>& groupMembers, bool mapped) {
+static std::unique_ptr<Fixture> buildFont(uint32_t glyphCount, const std::vector<std::vector<uint32_t>>& groupMembers,
+                                          bool mapped) {
   auto f = std::make_unique<Fixture>();
 
   f->glyphs.resize(glyphCount);
@@ -199,10 +224,10 @@ static std::unique_ptr<Fixture> buildFont(uint32_t glyphCount,
       alignedGroup.push_back(glyphByte1(gi));
     }
     const std::vector<uint8_t> compressed = deflateStored(alignedGroup);
-    (*f->groups)[g] = EpdFontGroup{static_cast<uint32_t>(f->bitmap.size()), static_cast<uint32_t>(compressed.size()),
-                                static_cast<uint32_t>(alignedGroup.size()),
-                                static_cast<uint16_t>(groupMembers[g].size()),
-                                groupMembers[g].empty() ? 0u : groupMembers[g].front()};
+    (*f->groups)[g] =
+        EpdFontGroup{static_cast<uint32_t>(f->bitmap.size()), static_cast<uint32_t>(compressed.size()),
+                     static_cast<uint32_t>(alignedGroup.size()), static_cast<uint16_t>(groupMembers[g].size()),
+                     groupMembers[g].empty() ? 0u : groupMembers[g].front()};
     f->bitmap.insert(f->bitmap.end(), compressed.begin(), compressed.end());
   }
 

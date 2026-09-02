@@ -32,7 +32,12 @@ class FontDecompressor {
 
   // Pre-scan UTF-8 text and extract needed glyph bitmaps into a flat page buffer.
   // Each group is decompressed once into a temp buffer; only needed glyphs are kept.
-  // Returns the number of glyphs that couldn't be loaded (0 on full success).
+  // Returns a count of what could not be loaded; 0 means full success.
+  //
+  // That count MIXES UNITS and is only ever logged, never branched on: glyphs
+  // naming no valid group are counted one apiece, while a group that fails to
+  // allocate or decompress counts once for the group however many glyphs it
+  // would have served. Treat it as "was anything lost", not as a glyph total.
   int prewarmCache(const EpdFontData* fontData, const char* utf8Text);
 
   struct Stats {
