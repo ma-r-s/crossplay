@@ -24,7 +24,12 @@
 #include <vector>
 
 #include "../../src/apps_local/battleship/BattleshipScreens.h"
+#include "../../src/apps_local/forehead/ForeheadScreens.h"
+#include "../../src/apps_local/insider/InsiderScreens.h"
+#include "../../src/apps_local/instapaper/InstapaperScreens.h"
+#include "../../src/apps_local/trivia/TriviaScreens.h"
 #include "../../src/apps_local/link/LinkScreens.h"
+#include "../../src/apps_local/study/StudyScreens.h"
 #include "../../src/apps_local/minesweeper/MinesweeperScreens.h"
 #include "../../src/apps_local/sudoku/SudokuScreens.h"
 #include "../../src/apps_local/ui/ToyboxScreen.h"
@@ -329,6 +334,89 @@ void linkRematchScreen(Built& out) {
   build(out, false, [&](toybox::Screen& s) { linkui::buildLink(s, model); });
 }
 
+void studyDeck(Built& out) {
+  studyui::DeckModel model;
+  model.name = "SPANISH";
+  model.due = 12;
+  model.total = 400;
+  std::snprintf(model.syncSubtitle, sizeof(model.syncSubtitle), "NOT PAIRED YET");
+  build(out, false, [&](toybox::Screen& s) { studyui::buildDeck(s, model); });
+}
+
+void studySyncVerdict(Built& out) {
+  studyui::SyncFlowModel model;
+  model.verdict = studyui::SyncVerdictKind::Error;
+  std::snprintf(model.title, sizeof(model.title), "NO ANSWER");
+  std::snprintf(model.body, sizeof(model.body), "The bridge did not answer on this network.");
+  std::snprintf(model.whatNow, sizeof(model.whatNow), "TRY AGAIN");
+  build(out, false, [&](toybox::Screen& s) { studyui::buildSyncFlow(s, model); });
+}
+
+void instapaperQueue(Built& out) {
+  instapaperui::QueueModel model;
+  model.count = 0;
+  build(out, false, [&](toybox::Screen& s) { instapaperui::buildQueue(s, model); });
+}
+
+void instapaperNotice(Built& out) {
+  instapaperui::NoticeModel model;
+  model.headline = "SYNCED";
+  model.message = "3 did not arrive; sync again.";
+  model.actionLabel = "BACK TO THE LIST";
+  build(out, false, [&](toybox::Screen& s) { instapaperui::buildNotice(s, model); });
+}
+
+void insiderQuestions(Built& out) {
+  insiderui::QuestionsModel model;
+  model.secondsLeft = 3;
+  build(out, false, [&](toybox::Screen& s) { insiderui::buildQuestions(s, model); });
+}
+
+void insiderReveal(Built& out) {
+  insiderui::RevealModel model;
+  model.outcome = insider::Outcome::OutOfTime;
+  model.insiderSeat = 2;
+  model.accused = insider::kNoInsider;
+  model.word = "LIGHTHOUSE";
+  build(out, false, [&](toybox::Screen& s) { insiderui::buildReveal(s, model); });
+}
+
+void insiderVote(Built& out) {
+  insiderui::VoteModel model;
+  model.chosen = 2;
+  build(out, false, [&](toybox::Screen& s) { insiderui::buildVote(s, model); });
+}
+
+void triviaClue(Built& out) {
+  triviaui::QuestionModel model;
+  model.clue = "THIS CITY HOSTED THE 1992 SUMMER OLYMPICS";
+  model.answer = nullptr;
+  model.difficulty = 3;
+  model.asked = 4;
+  build(out, false, [&](toybox::Screen& s) { triviaui::buildQuestion(s, model); });
+}
+
+void triviaAnswer(Built& out) {
+  triviaui::QuestionModel model;
+  model.clue = "THIS CITY HOSTED THE 1992 SUMMER OLYMPICS";
+  model.answer = "BARCELONA";
+  model.difficulty = 3;
+  model.asked = 4;
+  build(out, false, [&](toybox::Screen& s) { triviaui::buildQuestion(s, model); });
+}
+
+void foreheadReady(Built& out) {
+  foreheadui::ReadyModel model;
+  build(out, true, [&](toybox::Screen& s) { foreheadui::buildReady(s, model); });
+}
+
+void foreheadPlay(Built& out) {
+  foreheadui::PlayModel model;
+  model.word = "LIGHTHOUSE";
+  model.secondsLeft = 58;
+  build(out, true, [&](toybox::Screen& s) { foreheadui::buildPlay(s, model); });
+}
+
 void linkRematch(Built& out) {
   linkui::LinkModel model;
   model.gameTitle = "TOY BATTLE";
@@ -358,6 +446,16 @@ const Probe kProbes[] = {
     {"sudoku: BOARD -> RESULT", false, sudokuBoard, sudokuResult, sudokuui::ActionSeeResult},
     {"battleship: game-over BOARD (PLAY AGAIN capsule) -> shared LINK screen", false, battleshipGameOverBoard,
      linkRematchScreen, bshipui::ActionPlayAgain},
+    {"insider: QUESTIONS (WE SAID THE WORD) -> REVEAL, on the 300s clock expiring", false, insiderQuestions,
+     insiderReveal, insiderui::ActionFoundWord},
+    {"insider: VOTE (confirm the accusation) -> REVEAL", false, insiderVote, insiderReveal,
+     insiderui::ActionConfirmVote},
+    {"forehead: READY (tap to start) -> PLAY (GOT / MISSED bands), landscape", true, foreheadReady, foreheadPlay,
+     foreheadui::ActionStart},
+    {"trivia: CLUE (REVEAL) -> ANSWER (NEXT / HIDE)", false, triviaClue, triviaAnswer, triviaui::ActionReveal},
+    {"study: DECK (SYNC door) -> SYNC VERDICT", false, studyDeck, studySyncVerdict, studyui::ActionSync},
+    {"instapaper: QUEUE (SYNC) -> NOTICE (the sync verdict)", false, instapaperQueue, instapaperNotice,
+     instapaperui::ActionSync},
 };
 
 }  // namespace
