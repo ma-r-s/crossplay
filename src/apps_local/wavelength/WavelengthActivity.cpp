@@ -373,6 +373,17 @@ void WavelengthActivity::routeAction(const int action) {
 }
 
 void WavelengthActivity::loop() {
+  if (awaitingRelease) {
+    int rx = 0;
+    int ry = 0;
+    if (mappedInput.isScreenTouchHeld(rx, ry)) return;
+    awaitingRelease = false;
+    int sx = 0;
+    int sy = 0;
+    mappedInput.wasScreenTapped(sx, sy);  // consume the release that ended the hold
+    return;
+  }
+
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     if (view == View::Reveal) {
       // Checked BEFORE committed(), which is true here: the reveal is
@@ -477,6 +488,7 @@ void WavelengthActivity::loop() {
       if (lockHoldStartMs == 0) lockHoldStartMs = now;
       if (now - lockHoldStartMs >= static_cast<uint32_t>(wavelengthui::kLockHoldMs)) {
         lockHoldStartMs = 0;
+        awaitingRelease = true;
         lockIn();
         return;
       }

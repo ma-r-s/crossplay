@@ -188,7 +188,8 @@ void drawMarker(toybox::Screen& screen, const Geometry& g, const int guess) {
 int dialSlotAt(const int16_t screenW, const int16_t screenH, const int16_t x, const int16_t y) {
   const int16_t boardW = static_cast<int16_t>(screenW * 5 / 16);
   const int16_t rightEdge = static_cast<int16_t>(toybox::kMargin + 48 + boardW + 13);
-  if (x < toybox::kMargin || x >= rightEdge) return 0;
+  const int16_t leftEdge = static_cast<int16_t>(toybox::kMargin + 24);
+  if (x < leftEdge || x >= rightEdge) return 0;
   const int16_t wordBox = toybox::kDisplayCut.lineHeight;
   const int16_t lockY = static_cast<int16_t>(screenH - toybox::kMargin - 62);
   const int16_t bottomWordY = static_cast<int16_t>(lockY - 10 - wordBox);
@@ -557,8 +558,9 @@ void renderPick(toybox::Screen& screen, const PickModel& model) {
 }
 
 fui::Rect lockBarRect(const int16_t screenW, const int16_t screenH) {
-  return fui::makeRect(toybox::kMargin, static_cast<int16_t>(screenH - toybox::kMargin - 62),
-                       static_cast<int16_t>(screenW - 2 * toybox::kMargin), 62);
+  const int16_t inset = static_cast<int16_t>(toybox::kMargin + 64);
+  return fui::makeRect(inset, static_cast<int16_t>(screenH - toybox::kMargin - 62),
+                       static_cast<int16_t>(screenW - 2 * inset), 62);
 }
 
 fui::Rect peekPadRect(const int16_t screenW, const int16_t screenH) {
@@ -637,12 +639,16 @@ void renderPeek(toybox::Screen& screen, const PeekModel& model) {
   // Until the target has actually been seen this cannot act, so it must not
   // look like it can. The same dimming the front door uses for END SESSION: a
   // control that cannot act dims rather than disappearing.
-  fui::ButtonProps done;
-  done.label = model.everRevealed ? "I HAVE MY CLUE" : "SEE THE NUMBER FIRST";
-  done.text = toybox::buttonText(screen.theme());
-  done.action = model.everRevealed ? static_cast<fui::ActionId>(ActionClueGiven) : fui::NO_ACTION;
-  if (!model.everRevealed) done.styles = toybox::disabledStepperStyles();
-  screen.button(done, footer(screen, 58, toybox::kMargin));
+  const fui::Rect doneBox = footer(screen, 58, toybox::kMargin);
+  if (model.everRevealed) {
+    action(screen, doneBox, "I HAVE MY CLUE", ActionClueGiven);
+  } else {
+    caps(
+        screen,
+        fui::makeRect(doneBox.x, static_cast<int16_t>(doneBox.y + (doneBox.height - toybox::kButtonCut.lineHeight) / 2),
+                      doneBox.width, toybox::kButtonCut.lineHeight),
+        "HOLD THE BAR ABOVE TO SEE IT", toybox::kSmallFont, fui::TextAlign::Center);
+  }
 }
 
 void renderClue(toybox::Screen& screen, const ClueModel& model) {
@@ -857,7 +863,7 @@ void renderReveal(toybox::Screen& screen, const RevealModel& model) {
          toybox::kSmallFont, fui::TextAlign::Center);
   }
 
-  action(screen, footer(screen, 62, toybox::kMargin), "NEXT ROUND", ActionNextRound);
+  action(screen, fui::makeRect(toybox::kMargin, 640, inner, 62), "NEXT ROUND", ActionNextRound);
 }
 
 namespace {

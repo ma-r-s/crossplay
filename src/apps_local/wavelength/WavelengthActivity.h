@@ -110,6 +110,10 @@ class WavelengthActivity final : public Activity {
   bool peeking = false;
   uint32_t lockHoldStartMs = 0;
   uint32_t confirmHoldStartMs = 0;
+  uint32_t wipeHoldStartMs = 0;
+  // Set when a HOLD fires an action. The finger is still down and the screen
+  // that replaces it puts a button under that finger, so releasing pressed it.
+  bool awaitingRelease = false;
   bool hasPeeked = false;
   bool abandoned = false;
   int abandonedCount = 0;
@@ -124,7 +128,7 @@ class WavelengthActivity final : public Activity {
   // How long after a screen change a tap is treated as aimed at the previous
   // screen. Roughly one panel refresh: until then the new screen is not
   // actually visible, so nobody can have meant to press it.
-  static constexpr uint32_t kSettleMs = 500;
+  static constexpr uint32_t kSettleMs = 1100;
 
   // A full refresh is spent deliberately: on the reveal, which is the payoff,
   // and on hiding the peek, where a partial refresh could leave a ghost of the
