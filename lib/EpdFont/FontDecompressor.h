@@ -9,6 +9,14 @@ class FontDecompressor {
   static constexpr uint16_t MAX_PAGE_GLYPHS = 512;
   static constexpr uint8_t MAX_PAGE_SLOTS = 4;  // One per font style (R/B/I/BI)
 
+  // Groups a single prewarm will hold in its page buffer. This sizes BOTH of
+  // prewarmCache's stack arrays (neededGroups, groupAlignedTracker) and caps
+  // the counter that indexes them, which is the point of it being one constant:
+  // the three used to be three separate `128` literals that had to agree by
+  // hand, and raising only the cap turned a bounds check into an out-of-bounds
+  // write into groupAlignedTracker.
+  static constexpr uint8_t MAX_PAGE_GROUPS = 128;
+
   FontDecompressor() = default;
   ~FontDecompressor();
 
