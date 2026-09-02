@@ -175,7 +175,33 @@ jobs:
             devices next to each other find one another with nothing to type --
             and they do not have to be the same device.
 
-            ### What is new in 1.12.7
+            ### What is new in 1.12.8
+
+            **WAVELENGTH's result screen no longer disappears behind the thumb
+            that earned it.** Locking a guess fired while your finger was still
+            down, the score drew underneath it, and lifting off landed on the
+            button occupying that exact spot, which moved the game on. The
+            reveal is the whole point of the round, so this was a round played
+            and never seen. Four testers watched their own score exist for
+            under a second and vanish.
+
+            **The device asks to be passed on again.** A quick second tap used
+            to skip past PASS THE DEVICE entirely, which let the same player
+            give two clues in a row without anyone noticing.
+
+            **The dial ignores taps outside it.** Touching the left margin used
+            to move the guess, so a stray thumb changed a number the table had
+            agreed on.
+
+            **A button that does nothing is no longer shown.** Two testers
+            tapped it in separate rounds, got no response, and concluded the
+            device had frozen.
+
+            All four were fixed once already and lost when two versions of the
+            game were reconciled. They are verified by name on the shipped
+            build this time, rather than assumed to have survived.
+
+            ### What WAS new in 1.12.7
 
             **WAVELENGTH no longer asks a question nobody can answer.** It used
             to ask whether the number was nearer one end or the other, after the
