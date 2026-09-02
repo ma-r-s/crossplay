@@ -6218,6 +6218,78 @@ void testWavelengthSpectrumEndsShareOneSize() {
   }
 }
 
+// Four fixes that a reconciliation silently dropped once and shipped. Each has
+// a test now rather than a claim in a release note, because a note is written
+// by whoever did the merge and these were lost by exactly that person checking
+// one place and assuming the rest.
+void testWavelengthTheFourThatWereDropped() {
+  const int16_t w = 480;
+  const int16_t h = 800;
+
+  // 1. THE RESULT MUST NOT DRAW A BUTTON WHERE THE FINGER ALREADY IS. The lock
+  // fires while the thumb is down, so the result appears under it; if its
+  // NEXT ROUND shares the lock bar's rect, releasing presses it and the round's
+  // whole payoff is gone before the table sees it.
+  const fui::Rect lockBar = wavelengthui::lockBarRect(w, h);
+  Rendered rev;
+  {
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(rev.target, ctx, noInput, rev.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    wavelengthui::RevealModel m;
+    m.spectrum = wavelengthui::Spectrum{"HOT", "COLD"};
+    m.guess = 13;
+    m.target = 10;
+    wavelengthui::renderReveal(screen, m);
+  }
+  bool clash = false;
+  for (const fui::Rect& f : rev.target.fills) {
+    if (f.height <= toybox::kRule) continue;
+    const bool overlapsLock = f.x < lockBar.x + lockBar.width && lockBar.x < f.x + f.width &&
+                              f.y < lockBar.y + lockBar.height && lockBar.y < f.y + f.height;
+    if (overlapsLock) clash = true;
+  }
+  if (clash) std::printf("  the reveal draws a button over the lock bar's rect\n");
+  CHECK(!clash);
+
+  // 2. THE LOCK BAR MUST NOT REACH THE BOTTOM CORNERS, where a thumb rests when
+  // a portrait slab is lifted off a table. It locked the guess at the untouched
+  // default with nobody having decided anything.
+  CHECK(lockBar.x > toybox::kMargin);
+  CHECK(lockBar.x + lockBar.width < w - toybox::kMargin);
+
+  // 3. THE STRIP'S LEFT GUTTER IS NOT THE STRIP. The numerals hang left of the
+  // board; a tap at x=25 moved the table's guess.
+  bool gutterLive = false;
+  for (int16_t y = 0; y < h; ++y)
+    if (wavelengthui::dialSlotAt(w, h, 25, y) != 0) gutterLive = true;
+  if (gutterLive) std::printf("  a tap in the numeral gutter moves the guess\n");
+  CHECK(!gutterLive);
+
+  // 4. BEFORE THE NUMBER HAS BEEN SEEN THERE IS NO SECOND BUTTON. A disabled
+  // one whose label is an imperative reads as the other way to do the thing;
+  // testers in two separate rounds tapped it and concluded the device had
+  // frozen. Exactly one filled control on that screen until it has been held.
+  Rendered peek;
+  {
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(peek.target, ctx, noInput, peek.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    wavelengthui::PeekModel m;
+    m.spectrum = wavelengthui::Spectrum{"HOT", "COLD"};
+    m.target = 8;
+    m.everRevealed = false;
+    wavelengthui::renderPeek(screen, m);
+  }
+  int wideBars = 0;
+  for (const fui::Rect& f : peek.target.fills)
+    if (f.height > 30 && f.width > 200) ++wideBars;
+  if (wideBars != 1) std::printf("  peek shows %d full-width bars before the number is seen, want 1\n", wideBars);
+  CHECK(wideBars == 1);
+}
+
 void testWavelengthEverySlotIsTappable() {
   const int16_t w = 480;
   const int16_t h = 800;
@@ -6535,6 +6607,7 @@ int main() {
   testWavelengthSpectrumEndsShareOneSize();
   testWavelengthNothingIsDrawnThroughAnything();
   testWavelengthEveryRevealOffersAWayOn();
+  testWavelengthTheFourThatWereDropped();
   testWavelengthEverySlotIsTappable();
   testFitLinesCutsAnUnbreakableTokenRatherThanVanishing();
 

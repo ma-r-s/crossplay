@@ -129,6 +129,9 @@ class WavelengthActivity final : public Activity {
   // screen. Roughly one panel refresh: until then the new screen is not
   // actually visible, so nobody can have meant to press it.
   static constexpr uint32_t kSettleMs = 1100;
+  static_assert(kSettleMs >= 1000,
+                "a settle shorter than a second is one panel refresh, and a realistic second tap "
+                "punches through to the next screen's button");
 
   // A full refresh is spent deliberately: on the reveal, which is the payoff,
   // and on hiding the peek, where a partial refresh could leave a ghost of the
