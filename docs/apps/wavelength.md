@@ -117,6 +117,24 @@ present used to compare against the whole file, and appending to the tail would
 have made every v2 card look truncated and silently dropped the session it was
 carrying.
 
+**Where the boot axis is inert, and it is a setting.** `Sleep Timeout` has a
+`Never` position, and Developer Mode inhibits sleep for as long as it is on. On
+a device left in either, the chip never resets on its own, so the boot never
+changes and a new group is dropped into the previous group's round exactly as
+before -- bounded by battery life rather than by days. That is not a regression,
+but it is the one configuration in which this fix does nothing.
+
+**And a chip reset is commoner than "the device slept".** Hacker News and Study
+call `silentRestart()` on touch boards, so WAVELENGTH, another app, WAVELENGTH
+is a new boot thirty seconds later and the same table is asked. So is a panic
+reboot. Every one of those errs on the safe side -- the question, never a silent
+adoption -- but the friction is real and is the half that surprises.
+
+**A firmware downgrade drops the record.** A build older than this one refuses a
+v3 card outright and starts from nothing, and its next write replaces the file.
+Older builds already did this to each other's formats; the bump makes it
+reachable again.
+
 ## Moving the marker
 
 **A tap places the marker on the slot tapped**, the keys nudge it by one, and

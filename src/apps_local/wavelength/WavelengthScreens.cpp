@@ -308,6 +308,10 @@ void renderDial(toybox::Screen& screen, const DialModel& model) {
   screen.button(lock, lockBarRect(screen.device().screen().width, screen.device().screen().height));
 }
 
+fui::Rect frontDoorPlayRect(const int16_t screenW) {
+  return fui::makeRect(toybox::kMargin, 530, static_cast<int16_t>(screenW - 2 * toybox::kMargin), 66);
+}
+
 namespace {
 
 // A full-width action at the foot of the panel, where a thumb rests.
@@ -1111,8 +1115,7 @@ void renderMenu(toybox::Screen& screen, const MenuModel& model) {
 
   char play[24];
   snprintf(play, sizeof(play), "PLAY ROUND %d", model.sessionRound);
-  action(screen, fui::makeRect(toybox::kMargin, 530, inner, 66), model.sessionInProgress ? play : "START",
-         ActionStartRound);
+  action(screen, frontDoorPlayRect(w), model.sessionInProgress ? play : "START", ActionStartRound);
   action(screen, fui::makeRect(toybox::kMargin, 612, inner, 54), "HOW TO PLAY", ActionHowTo);
   // A control that cannot act dims rather than disappearing, so the layout does
   // not jump and you can still see what it would have done.
@@ -1209,11 +1212,11 @@ void renderResume(toybox::Screen& screen, const ResumeModel& model) {
   caps(screen, fui::makeRect(toybox::kMargin, 439, inner, lineH), "AND THE SCORE ARE WAITING.", toybox::kSmallFont,
        fui::TextAlign::Left);
 
-  // The same rect as the front door's PLAY ROUND N, deliberately: see the note
-  // above the function.
+  // The front door's own button rect, shared rather than repeated: see
+  // frontDoorPlayRect. A blind tap aimed at PLAY ROUND N carries the round on.
   char play[24];
   snprintf(play, sizeof(play), "CARRY ON ROUND %d", model.roundNumber);
-  action(screen, fui::makeRect(toybox::kMargin, 530, inner, 66), play, ActionCarryOn);
+  action(screen, frontDoorPlayRect(w), play, ActionCarryOn);
 
   caps(screen, fui::makeRect(toybox::kMargin, 620, inner, lineH), "IF IT IS NOT, START A NEW GAME.", toybox::kSmallFont,
        fui::TextAlign::Left);

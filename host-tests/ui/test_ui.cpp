@@ -6548,32 +6548,6 @@ void testWavelengthNothingIsDrawnThroughAnything() {
          m.roundNumber = 12;
          wavelengthui::renderDial(screen, m);
        }},
-      {"resume",
-       [](Rendered& out) {
-         const fui::DeviceContext ctx = device();
-         const fui::InputSnapshot noInput{};
-         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
-         toybox::Screen screen(frame, toybox::themeTokens());
-         wavelengthui::ResumeModel m;
-         m.roundNumber = 12;
-         m.total = 137;
-         m.scored = 11;
-         m.roundInFlight = true;
-         m.minutesAgo = 6 * 24 * 60;
-         wavelengthui::renderResume(screen, m);
-       }},
-      {"resume, nothing optional",
-       [](Rendered& out) {
-         const fui::DeviceContext ctx = device();
-         const fui::InputSnapshot noInput{};
-         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
-         toybox::Screen screen(frame, toybox::themeTokens());
-         wavelengthui::ResumeModel m;
-         m.roundNumber = 2;
-         m.total = 0;
-         m.scored = 0;
-         wavelengthui::renderResume(screen, m);
-       }},
       {"summary",
        [](Rendered& out) {
          const fui::DeviceContext ctx = device();
@@ -6738,6 +6712,32 @@ void testWavelengthNothingIsDrawnThroughAnything() {
          m.target = 9;
          m.practice = true;
          wavelengthui::renderReveal(screen, m);
+       }},
+      {"resume",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::ResumeModel m;
+         m.roundNumber = 12;
+         m.total = 137;
+         m.scored = 11;
+         m.roundInFlight = true;
+         m.minutesAgo = 6 * 24 * 60;
+         wavelengthui::renderResume(screen, m);
+       }},
+      {"resume, nothing optional",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::ResumeModel m;
+         m.roundNumber = 2;
+         m.total = 0;
+         m.scored = 0;
+         wavelengthui::renderResume(screen, m);
        }},
   };
 
@@ -7019,17 +7019,32 @@ void testWavelengthAStaleGameIsOfferedNotTaken() {
   CHECK(freshPixels > 0);
   CHECK(!freshOverlapsAMenuControl);
 
-  // 4. AND THE BLIND TAP IS THE SAFE ANSWER. Everything that plays a round on
-  // the front door must, here, either carry that same round on or do nothing --
-  // never start a new one. A table coming back to a device it left mid-evening
-  // taps PLAY ROUND N without reading, and that tap has to be harmless.
+  // 4. AND THE BLIND TAP IS THE SAFE ANSWER. A table coming back to a device it
+  // left mid-evening taps PLAY ROUND N without reading, and that tap has to be
+  // harmless. Checked over the WHOLE of the shared rect in both directions,
+  // because sampling for an overlap is not the same property: a version of this
+  // screen with CARRY ON nudged 60px up still touched the front door's button
+  // and still passed, while a returning thumb would have hit dead paper.
+  const fui::Rect play = wavelengthui::frontDoorPlayRect(w);
+  bool sharedRectIsWholly = true;
+  for (int16_t x = play.x; x < play.x + play.width && sharedRectIsWholly; x = static_cast<int16_t>(x + 3))
+    for (int16_t y = play.y; y < play.y + play.height; y = static_cast<int16_t>(y + 3)) {
+      const fui::ActionId onMenu = menu.tap(x, y).action;
+      const fui::ActionId onAsk = ask.tap(x, y).action;
+      if (onMenu == wavelengthui::ActionStartRound && onAsk == wavelengthui::ActionCarryOn) continue;
+      std::printf("  (%d,%d) is not the shared primary button: menu says %d, the ask says %d\n", static_cast<int>(x),
+                  static_cast<int>(y), static_cast<int>(onMenu), static_cast<int>(onAsk));
+      sharedRectIsWholly = false;
+      break;
+    }
+  CHECK(sharedRectIsWholly);
+
+  // And nothing that plays a round on the front door may start a new one here.
   bool blindTapIsSafe = true;
-  int carriedPixels = 0;
   for (int16_t x = 0; x < w && blindTapIsSafe; x = static_cast<int16_t>(x + 2))
     for (int16_t y = 0; y < h; y = static_cast<int16_t>(y + 2)) {
       if (menu.tap(x, y).action != wavelengthui::ActionStartRound) continue;
       const fui::ActionId here = ask.tap(x, y).action;
-      if (here == wavelengthui::ActionCarryOn) ++carriedPixels;
       if (here == fui::NO_ACTION || here == wavelengthui::ActionCarryOn) continue;
       std::printf("  a blind PLAY ROUND tap at (%d,%d) does something else here (action %d)\n", static_cast<int>(x),
                   static_cast<int>(y), static_cast<int>(here));
@@ -7037,8 +7052,6 @@ void testWavelengthAStaleGameIsOfferedNotTaken() {
       break;
     }
   CHECK(blindTapIsSafe);
-  if (carriedPixels == 0) std::printf("  no front-door play pixel carries the round on; the safe answer moved\n");
-  CHECK(carriedPixels > 0);
 
   // 5. TWO ANSWERS AND NO THIRD. A screen with a way onward it did not mean to
   // offer is how a group leaves by a door nobody designed.

@@ -174,10 +174,12 @@ Resume resumeFor(const Saved& saved, const uint32_t bootId) {
       saved.sessionStarted || saved.screen != 0 || saved.session.round > 1 || saved.session.total > 0;
   if (!carryable) return Resume::Nothing;
 
-  // Zero on either side is "cannot know", never a match. It is what every v1
-  // and v2 card carries, and a caller that passed zero as the current boot
-  // would otherwise silently match all of them at once.
-  if (bootId == 0 || saved.bootId == 0) return Resume::Ask;
+  // Zero on the CARD is "cannot know", never a match: it is what every v1 and
+  // v2 card carries, and without this one guard a caller that also had no boot
+  // id would match all of them at once. Guarding the caller's side as well
+  // would read as symmetry and could not change an answer -- zero fails the
+  // equality below like any other mismatch -- so it is not written.
+  if (saved.bootId == 0) return Resume::Ask;
   return saved.bootId == bootId ? Resume::Carry : Resume::Ask;
 }
 

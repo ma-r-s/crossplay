@@ -445,7 +445,15 @@ void testAStaleSessionIsOfferedRatherThanTaken() {
   Saved older = populated();
   older.bootId = 0;  // every v1 and v2 card
   check(resumeFor(older, thisBoot) == Resume::Ask, "a card that cannot say which boot wrote it is offered");
-  check(resumeFor(live, 0) == Resume::Ask, "and a caller with no boot id of its own matches nothing");
+  // TWO ABSENCES ARE NOT A MATCH. Without the card-side zero guard this is
+  // 0 == 0, and every pre-v3 card in the world silently becomes this boot's.
+  // The earlier "a caller with no boot id" assertion was replaced by this one:
+  // it could not fail, because a zero caller against a real card boot is
+  // already an ordinary mismatch.
+  Saved neitherKnows = populated();
+  neitherKnows.bootId = 0;
+  check(resumeFor(neitherKnows, 0) == Resume::Ask,
+        "a card with no boot id and a caller with none are not the same boot");
 
   // Nothing to carry means no question. The ask must never appear over an
   // empty evening, or every launch on a fresh card opens with it.

@@ -210,6 +210,18 @@ fui::Rect peekPadRect(int16_t screenW, int16_t screenH);
 // from a second copy of a control's geometry.
 fui::Rect lockBarRect(int16_t screenW, int16_t screenH);
 
+// The front door's primary button -- PLAY ROUND N, and the CARRY ON on the
+// screen that asks whose game is on the card. ONE rect for both, because the
+// safety of that screen IS the coincidence: it stands in the front door's
+// place, so the blind tap a returning table makes has to land on the answer
+// that continues rather than the one that throws the evening away.
+//
+// Written twice as a literal, that guarantee held only until somebody nudged
+// one of them, and no render would look wrong. Exported for the same reason
+// lockBarRect is: the test measures the two screens against the very rect that
+// drew them.
+fui::Rect frontDoorPlayRect(int16_t screenW);
+
 // Which way a finger held at (x,y) on the dial is asking the marker to move:
 // +1 toward the top pole, -1 toward the bottom, 0 for neither. Lives here so
 // the activity's repeat and the screen's drawing share one geometry rather
