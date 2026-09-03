@@ -294,30 +294,32 @@ void EpubReaderActivity::loop() {
     return;
   }
 
-  constexpr unsigned long IDLE_PREWARM_DEBOUNCE_MS = 400;
-  if (section && !section->isBuilding() && !RenderLock::peek() && renderer.hasFrameBuffer() &&
-      lastRenderCompleteMs != 0 && millis() - lastRenderCompleteMs > IDLE_PREWARM_DEBOUNCE_MS &&
-      ESP.getFreeHeap() > RENDER_MIN_FREE_HEAP && ESP.getMaxAllocHeap() > BACKGROUND_BUILD_MIN_MAX_ALLOC &&
-      (idlePrewarmSpine != currentSpineIndex || idlePrewarmPage != section->currentPage)) {
-    RenderLock lock;
-    if (section && !section->isBuilding() &&
-        (idlePrewarmSpine != currentSpineIndex || idlePrewarmPage != section->currentPage)) {
-      idlePrewarmSpine = currentSpineIndex;
-      idlePrewarmPage = section->currentPage;
-      const int nextPage = section->currentPage + 1;
-      if (nextPage < static_cast<int>(section->pageCount)) {
-        if (const auto p = section->loadPage(nextPage)) {
-          if (auto* fcm = renderer.getFontCacheManager()) {
-            const auto t0 = millis();
-            auto scope = fcm->createPrewarmScope();
-            p->render(renderer, SETTINGS.getReaderFontId(), 0, 0);
-            scope.endScanAndPrewarm();
-            LOG_DBG("ERS", "Idle prewarm: page %d in %lums", nextPage, millis() - t0);
-          }
-        }
-      }
-    }
-  }
+  // There WAS an idle prewarm here: 400ms after each page landed, the reader
+  // loaded the next page, scanned it, and decompressed its glyphs so the turn
+  // would not have to. It could never work, and it was not free.
+  //
+  // A FontCacheManager::PrewarmScope clears the glyph cache when it is
+  // destroyed and again when the next one is constructed, so the warmed glyphs
+  // were gone before the turn that was meant to use them -- twice over. The
+  // simulator showed it plainly: every page was prewarmed twice, byte for byte
+  // identically ("45 glyphs in 2606 bytes" both times), 780ms apart. See
+  // host-tests/prewarmscope, which pins that lifetime so this cannot be
+  // reintroduced without the test saying why it will not help.
+  //
+  // The cost was a page load off the card, a full scan render and a full glyph
+  // decompression after every single page turn -- under RenderLock, so a reader
+  // who turned the page while it ran waited for it to finish first. Measured
+  // over a ten-turn reading session in the simulator (same SD image both runs,
+  // POSIX file operations counted by interposition): 19686 -> 18042 read()
+  // calls, 95894 -> 88966 bytes, and 45 -> 29 glyph prewarm passes. Roughly 164
+  // fewer card reads per page turn, and one and a half fewer decompression
+  // passes.
+  //
+  // Making it work is a different change: the cache would have to survive the
+  // scope AND the next render would have to recognise that what it holds is
+  // already this page's glyphs. That is a cache-lifetime redesign whose failure
+  // mode is a page drawn with missing glyphs, and nothing here can verify it
+  // without a device.
 
   if (section && !section->isBuilding() && section->isPartial() && !RenderLock::peek() && buildViewportWidth > 0 &&
       !partialRebuildStartFailed &&
@@ -1270,7 +1272,6 @@ void EpubReaderActivity::renderBook() {
     const auto start = millis();
     renderContents(std::move(p), orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft);
     LOG_DBG("ERS", "Rendered page in %dms", millis() - start);
-    lastRenderCompleteMs = millis();
   }
 
   if (currentSpineIndex != lastSavedSpineIndex || section->currentPage != lastSavedPage ||
