@@ -54,6 +54,17 @@ against the mirror alone (what the tests do). `board sync` copies the file
 store into Supabase once, ids kept, for the migration that already happened
 on 2026-09-03.
 
+## When the guard itself breaks
+
+It fails open, on purpose. Anything unexpected inside `guard.py` exits 0
+(Claude Code reads that as "no opinion") after appending one line to
+`<workspace>/.board/hook-errors.log`, so a check that did not run looks
+different from one that passed and the orchestrator can see it. A missing
+board, a missing switch file or unreadable input are also "no opinion". The
+only deliberate refusals are the exit-2 paths, and each ends with the exact
+command to run, the session id already filled in. A gate that locked every
+session out on its own bug would be worse than no gate.
+
 ## Tests
 
 `host-tests/bugflow/run.sh` drives every branch of the guard with fixture

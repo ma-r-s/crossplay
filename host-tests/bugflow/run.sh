@@ -155,6 +155,8 @@ E="$WORK/emu"; mkdir -p "$E/src" "$E/site/emulator"; ( cd "$E" && git init -q -b
 bash "$STALE" "$E" >/dev/null && ok "a newer source makes the emulator stale" || bad "stale not detected"
 ( cd "$E" && sleep 1 && echo w2 > site/emulator/crossplay.wasm && git add -A && git commit -qm "chore: emulator rebuilt" )
 bash "$STALE" "$E" >/dev/null && bad "a rebuilt emulator still reads stale" || ok "a rebuilt emulator reads fresh"
+bash "$STALE" --paths | grep -qx "src" && bash "$STALE" --paths | grep -qx "tools_local/wasm" && ok "--paths names the source list" || bad "--paths is missing sources"
+grep -q 'emulator-stale.sh' "$HERE/../../scripts_local/check.sh" && ok "check.sh asks the shared script" || bad "check.sh still carries its own staleness test"
 
 echo
 echo "$((PASS+FAIL)) checks, $FAIL failed"

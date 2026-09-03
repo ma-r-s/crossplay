@@ -8,11 +8,19 @@
 # otherwise. The source list is the guard's, in one place.
 #
 #   scripts_local/emulator-stale.sh [repo-dir]
+#   scripts_local/emulator-stale.sh --paths      # the source list itself
 set -uo pipefail
-cd "${1:-$(dirname "$0")/..}" || exit 2
 
 SOURCES=(src lib assets_local tools_local/wasm platformio.sim.ini freeink-sdk)
 ARTEFACT=site/emulator
+
+# --paths: print the source list, one per line, for callers that want to name
+# what moved (check.sh's message) without spelling the list a second time.
+if [ "${1:-}" = "--paths" ]; then
+  printf '%s\n' "${SOURCES[@]}"
+  exit 0
+fi
+cd "${1:-$(dirname "$0")/..}" || exit 2
 
 src_ts="$(git log -1 --format=%ct -- "${SOURCES[@]}" 2>/dev/null || echo 0)"
 art_ts="$(git log -1 --format=%ct -- "$ARTEFACT" 2>/dev/null || echo 0)"

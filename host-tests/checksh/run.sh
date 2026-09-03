@@ -62,6 +62,8 @@ build_repo() {  # artifact_epoch, source_epoch
     git init --quiet -b xteink
     git config user.email t@t; git config user.name t
     mkdir -p site/emulator src
+    # The gate asks scripts_local/emulator-stale.sh, so the fixture carries it.
+    mkdir -p scripts_local && cp "$HERE/../../scripts_local/emulator-stale.sh" scripts_local/
     stamp() {  # epoch, path, message
       echo x >"$2"
       git add -A
@@ -93,6 +95,7 @@ run_gate() {  # runs the gate in $WORK/repo, echoes "fired" or "silent"
     cd "$WORK/repo"
     FAILED=0
     DEPLOY_BRANCH=xteink
+    REPO="$WORK/repo"
     if [ -n "${CARRY:-}" ]; then
       export CHECK_OUTER_BRANCH="$CARRY"
     else
