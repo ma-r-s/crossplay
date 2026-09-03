@@ -94,4 +94,67 @@ class RevealGate {
   std::atomic<uint32_t> builtAt_{0};
 };
 
+// How long the PANEL itself was busy, as opposed to how long our code took.
+//
+// Added while chasing GitHub issue #7 ("page turning is slow"), where the one
+// number nobody could get was the split. A page turn is a single 4.2s wall
+// event on the user's device; the panel's own driver prints its refresh time
+// (772ms on the SSD1677 X4 Pro), so the remaining ~3.4s is ours -- but the
+// firmware never subtracted the two, and the only breakdown it had lived in
+// LOG_DBG lines that release builds (LOG_LEVEL=1) compile out entirely. So the
+// report arrived as "it feels slow" and no build a user can install could say
+// any more than that.
+//
+// It bills WALL time inside HalDisplay calls, not waveform time. That is the
+// honest unit: an async refresh that overlaps our rendering is billed only for
+// the wait that actually blocks us, which is what the user waits for too.
+//
+// depth_ makes a nested call count once rather than twice. Nothing nests
+// today, but a paint helper that grows a second display call inside an
+// existing span would otherwise double-bill it and report panel time larger
+// than the repaint that contains it -- a wrong number that still looks
+// plausible, which is the failure mode worth designing out rather than
+// commenting on.
+//
+// Timestamps in, no clock of its own: this header stays freestanding (see
+// above) and the accumulator stays testable with a fake clock rather than by
+// sleeping. host-tests/panelclock is that test.
+class PanelBusy {
+ public:
+  void reset() {
+    busyMs_ = 0;
+    depth_ = 0;
+    startedAt_ = 0;
+  }
+
+  void begin(uint32_t nowMs) {
+    if (depth_++ == 0) startedAt_ = nowMs;
+  }
+
+  // An end without a matching begin bills nothing. It cannot know when its span
+  // started, and guessing would attribute the whole repaint to the panel.
+  void end(uint32_t nowMs) {
+    if (depth_ == 0) return;
+    if (--depth_ == 0) busyMs_ += nowMs - startedAt_;
+  }
+
+  // Only complete spans are counted; a span still open at the time of the read
+  // has not been billed yet.
+  uint32_t busyMs() const { return busyMs_; }
+
+  bool inPanelCall() const { return depth_ != 0; }
+
+ private:
+  uint32_t busyMs_ = 0;
+  uint32_t startedAt_ = 0;
+  uint16_t depth_ = 0;
+};
+
+// One per firmware, like the paint counter above and for the same reason:
+// there is exactly one panel.
+inline PanelBusy& panelBusy() {
+  static PanelBusy busy;
+  return busy;
+}
+
 }  // namespace paintclock

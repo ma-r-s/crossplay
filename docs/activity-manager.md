@@ -470,3 +470,36 @@ void MyActivity::doNetworkStuff() {
   requestUpdate();
 }
 ```
+
+### Finding out why a screen was slow
+
+Every repaint is timed, and one that takes longer than 400 ms prints a single
+line on the serial cable. It is `LOG_INF`, so it survives release builds, which
+is the point: the whole reason GitHub issue #7 ("page turning is slow") sat
+unanswered is that the firmware's only timing breakdown was `LOG_DBG` and no
+build a user can install carries it.
+
+```
+[41230] [INF] [PERF] EpubReader repaint 4213ms: queued 12ms, panel 1544ms, ours 2657ms
+```
+
+- **queued** — how long the repaint waited between `requestUpdate()` and the
+  render task picking it up. Big here means the main loop was busy.
+- **panel** — wall time spent inside `HalDisplay`, summed across every call the
+  repaint made. An anti-aliased reader page drives the panel three times (the
+  B/W base, the grayscale planes, the cleanup), so this is not one waveform.
+  Big here means the e-ink hardware and its driver, not our code.
+- **ours** — everything else: layout, glyph decompression, the section cache,
+  the framebuffer. This includes time spent blocked on `RenderLock`, because a
+  background build holding the lock is time the user spends looking at the old
+  screen.
+
+The split comes from `paintclock::PanelBusy` in `lib/GfxRenderer/PaintClock.h`;
+every `GfxRenderer` entry point that reaches the panel wraps its `display.*`
+call in a `PanelSpan`. If you add a new one, wrap it too — an unwrapped call
+bills the panel's time to `ours` and points the next person at the wrong half.
+`host-tests/panelclock` covers the accumulator.
+
+The threshold is `ActivityManager::SLOW_REPAINT_MS`. It exists because
+`LOG_INF` also writes the sixteen-line RTC ring that `/api/dev/crash` reads: a
+line per repaint would erase every crash tail within seconds.

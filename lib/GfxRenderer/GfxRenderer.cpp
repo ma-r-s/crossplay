@@ -1701,12 +1701,30 @@ void GfxRenderer::invertScreen() const {
 // const, and because this firmware has exactly one GfxRenderer.
 namespace {
 bool deferredPaintPending = false;
+
+// Bills wall time spent inside HalDisplay to the panel rather than to us.
+//
+// Every entry point that reaches the panel wraps its display.* call in one of
+// these, so ActivityManager can print a repaint as "panel Xms, compute Yms".
+// Wrapping the call and not the whole method is deliberate: the coordinate
+// arithmetic in preconditionGrayscale() and writeGrayscalePlaneStrip() is our
+// cost, not the hardware's, and billing it to the panel would point the next
+// person at the driver.
+struct PanelSpan {
+  PanelSpan() { paintclock::panelBusy().begin(millis()); }
+  ~PanelSpan() { paintclock::panelBusy().end(millis()); }
+  PanelSpan(const PanelSpan&) = delete;
+  PanelSpan& operator=(const PanelSpan&) = delete;
+};
 }  // namespace
 
 void GfxRenderer::displayBuffer(const HalDisplay::RefreshMode refreshMode) const {
   auto elapsed = millis() - start_ms;
   LOG_DBG("GFX", "Time = %lu ms from clearScreen to displayBuffer", elapsed);
-  display.displayBuffer(refreshMode, fadingFix);
+  {
+    PanelSpan span;
+    display.displayBuffer(refreshMode, fadingFix);
+  }
   // The panel now shows this framebuffer. Counted HERE, after the waveform,
   // because that is the moment the user can see what they are touching --
   // see PaintClock.h and toybox::Interactions::route().
@@ -1717,18 +1735,27 @@ void GfxRenderer::displayBufferAsync(const HalDisplay::RefreshMode refreshMode) 
   // The async path has no turn-off-screen hook, which the sunlight fading fix
   // relies on; keep those users on the blocking path.
   if (fadingFix) {
-    display.displayBuffer(refreshMode, fadingFix);
+    {
+      PanelSpan span;
+      display.displayBuffer(refreshMode, fadingFix);
+    }
     paintclock::notePainted();
     return;
   }
-  display.displayBufferAsync(refreshMode);
+  {
+    PanelSpan span;
+    display.displayBufferAsync(refreshMode);
+  }
   // Deliberately NOT counted yet: the waveform is still running and the panel
   // still shows the previous image. waitRefreshComplete() is when it lands.
   deferredPaintPending = true;
 }
 
 void GfxRenderer::waitRefreshComplete() const {
-  display.waitRefreshComplete();
+  {
+    PanelSpan span;
+    display.waitRefreshComplete();
+  }
   // Only when one was actually outstanding. Counting an idle wait would open
   // the touch gate for a paint that never happened.
   if (deferredPaintPending) {
@@ -2262,14 +2289,20 @@ size_t GfxRenderer::getBufferSize() const { return frameBufferSize; }
 // void GfxRenderer::grayscaleRevert() const { display.grayscaleRevert(); }
 
 void GfxRenderer::displayGrayscaleBase(HalDisplay::RefreshMode fallback) const {
-  display.displayGrayscaleBase(fallback, fadingFix);
+  {
+    PanelSpan span;
+    display.displayGrayscaleBase(fallback, fadingFix);
+  }
   // The grayscale paths land pixels on the panel just like displayBuffer(),
   // so they count too. Missing one of these would be the bad direction: a
   // screen whose gate never opens is a screen that stops answering taps.
   paintclock::notePainted();
 }
 
-void GfxRenderer::preconditionGrayscale() const { display.preconditionGrayscale(); }
+void GfxRenderer::preconditionGrayscale() const {
+  PanelSpan span;
+  display.preconditionGrayscale();
+}
 
 void GfxRenderer::preconditionGrayscale(int x, int y, int w, int h) const {
   if (w <= 0 || h <= 0) return;
@@ -2285,22 +2318,33 @@ void GfxRenderer::preconditionGrayscale(int x, int y, int w, int h) const {
   if (x1 >= panelWidth) x1 = panelWidth - 1;
   if (y1 >= panelHeight) y1 = panelHeight - 1;
   if (x1 < x0 || y1 < y0) return;
+  PanelSpan span;
   display.preconditionGrayscale(static_cast<uint16_t>(x0), static_cast<uint16_t>(y0),
                                 static_cast<uint16_t>(x1 - x0 + 1), static_cast<uint16_t>(y1 - y0 + 1));
 }
 
-void GfxRenderer::copyGrayscaleLsbBuffers() const { display.copyGrayscaleLsbBuffers(frameBuffer); }
+void GfxRenderer::copyGrayscaleLsbBuffers() const {
+  PanelSpan span;
+  display.copyGrayscaleLsbBuffers(frameBuffer);
+}
 
-void GfxRenderer::copyGrayscaleMsbBuffers() const { display.copyGrayscaleMsbBuffers(frameBuffer); }
+void GfxRenderer::copyGrayscaleMsbBuffers() const {
+  PanelSpan span;
+  display.copyGrayscaleMsbBuffers(frameBuffer);
+}
 
 void GfxRenderer::displayGrayBuffer() const {
-  display.displayGrayBuffer(fadingFix);
+  {
+    PanelSpan span;
+    display.displayGrayBuffer(fadingFix);
+  }
   paintclock::notePainted();
 }
 
 void GfxRenderer::writeGrayscalePlaneStrip(bool lsbPlane, const uint8_t* scratch, int yStart, int numRows) const {
   // Guard the uint16_t casts below: a negative would wrap to a huge length.
   assert(yStart >= 0 && numRows > 0 && yStart <= static_cast<int>(panelHeight) - numRows);
+  PanelSpan span;
   display.writeGrayscalePlaneStrip(lsbPlane, scratch, static_cast<uint16_t>(yStart), static_cast<uint16_t>(numRows));
 }
 
@@ -2377,7 +2421,10 @@ void GfxRenderer::restoreBwBuffer() {
     memcpy(frameBuffer + offset, bwBufferChunks[i], chunkSize);
   }
 
-  display.cleanupGrayscaleBuffers(frameBuffer);
+  {
+    PanelSpan span;
+    display.cleanupGrayscaleBuffers(frameBuffer);
+  }
 
   freeBwBufferChunks();
   LOG_DBG("GFX", "Restored and freed BW buffer chunks");
@@ -2389,7 +2436,10 @@ void GfxRenderer::restoreBwBuffer() {
  */
 void GfxRenderer::cleanupGrayscaleWithFrameBuffer() const {
   if (frameBuffer) {
-    display.cleanupGrayscaleBuffers(frameBuffer);
+    {
+      PanelSpan span;
+      display.cleanupGrayscaleBuffers(frameBuffer);
+    }
   }
 }
 
