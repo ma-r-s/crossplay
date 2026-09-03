@@ -49,6 +49,11 @@ enum : fui::ActionId {
   // the mark is currently showing.
   ActionSave = 308,
   ActionUnsave = 309,
+  // The empty front page's own control. Its own action rather than reusing
+  // ActionShowFrontPage: that one only says which half of the library is on
+  // screen and must stay inert on the half you are already in, while this one
+  // is the only thing in the app that asks for the network by itself.
+  ActionLoadFrontPage = 311,
 };
 
 // --- The front page ------------------------------------------------------
@@ -65,6 +70,14 @@ struct ListModel {
   // device is the normal case, and a blank panel reads as a fault.
   const char* emptyHeadline = nullptr;
   const char* emptyMessage = nullptr;
+  // The way out of an empty front page, drawn under the two lines above. A
+  // labelled button rather than a hit rect over the text: an empty shelf and an
+  // unloaded front page are the same expanse of paper otherwise, and a live
+  // control drawn like a dead one is one the reader never tries. Both must be
+  // set or nothing is drawn -- an action with no label would be exactly that
+  // invisible control, and hn::emptyState decides them together.
+  const char* emptyActionLabel = nullptr;
+  fui::ActionId emptyAction = fui::NO_ACTION;
   // Built by the Activity, the way shelfui::MenuModel carries its rows: label
   // is the story, subtitle is "412 points, 88 comments", which is the only
   // metadata worth the ink.

@@ -63,9 +63,14 @@ class HackerNewsActivity final : public Activity {
   enum class Pending : uint8_t { None, FrontPage, Article, Comments };
 
   void onWifiChosen(bool connected);
-  // Leaving the app when nothing is saved, showing the saved shelf when
-  // something is. One decision with two callers, because it has two.
-  void leaveOrShowSaved();
+  // Runs `what` if the radio is already up, and otherwise raises the picker and
+  // runs it once it is. EVERY network action goes through here, so there is one
+  // place that decides when a connection is asked for -- and the app itself
+  // never asks. That is the whole feature: onEnter touches no radio, so a
+  // device that has never joined a network still opens on a list it can read,
+  // and the first tap that genuinely needs the network is what raises the
+  // picker.
+  void ensureConnected(Pending what, const char* busyMessage);
   void request(Pending what, const char* busyMessage);
 
   bool fetchFrontPage();
@@ -138,9 +143,22 @@ class HackerNewsActivity final : public Activity {
   // activity was on top. See loop(): the Wi-Fi picker cancels on the press.
   bool backPressSeen_ = false;
 
-  Phase phase_ = Phase::Connecting;
+  // Whether the front page was asked for and did not arrive. Distinct from
+  // "empty": never-fetched is an invitation and a failed fetch is an error, and
+  // one screen saying both is how a working app reads as a broken one.
+  bool frontPageFailed_ = false;
+
+  // Opens on the list, with the radio down. The picker is a consequence of a
+  // tap now, never of entering.
+  Phase phase_ = Phase::List;
   Pending pending_ = Pending::None;
   const char* busyMessage_ = "";
+  // What to fetch once the picker answers, and where to go if it does not.
+  // Declining to connect is not the same as wanting out of the app, so it lands
+  // back on whatever was on screen when the connection was asked for.
+  Pending afterConnect_ = Pending::None;
+  const char* afterConnectMessage_ = "";
+  Phase returnPhase_ = Phase::List;
 
   toybox::Interactions interactions_;
   bool interactionsReady_ = false;

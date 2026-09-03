@@ -204,26 +204,60 @@ void buildList(toybox::Screen& screen, const ListModel& model) {
       headline.color = fui::Color::Black;
       headline.align = fui::TextAlign::Center;
       const fui::Rect body = screen.body();
-      // Measured rather than assumed. buildNotice below records what the
-      // display cut costs -- about fourteen characters across this panel -- so
-      // a headline of any length is one that wraps, and that screen already
-      // reserves two lines for it.
-      const int16_t lh = screen.target().lineHeight(headline.font);
-      const int16_t width = screen.target().measureText(headline.font, model.emptyHeadline, headline).width;
-      headline.maxLines = width > body.width ? 2 : 1;
-      const int16_t headlineH = static_cast<int16_t>(lh * headline.maxLines);
+      // Both blocks reserve what the SDK's OWN WRAP will emit, never a
+      // single-line width divided by the column. Greedy wrapping breaks between
+      // words, so it does not fill a line to the edge: a sentence 2.6 columns
+      // wide needs THREE lines while the division says two, and the third is
+      // dropped with an ellipsis this cut is perfectly able to draw -- so the
+      // glyph gate stays quiet and the screenshot looks finished. That is how
+      // "Saved articles do ..." got as far as a render. measureWrappedText's
+      // own header warns against the estimate it replaces.
+      headline.maxLines = 2;
+      const int16_t headlineH =
+          fui::measureWrappedText(screen.target(), model.emptyHeadline, headline, body.width).height;
 
       fui::TextStyle message = screen.theme().smallText;
       message.align = fui::TextAlign::Center;
+      // A ceiling, not a target: the wrap emits what the sentence needs and the
+      // reservation follows it. Four lines is more than any wording here wants
+      // and still bounds a mistake.
+      message.maxLines = 4;
       const bool hasMessage = model.emptyMessage != nullptr;
-      const int16_t messageH = hasMessage ? screen.target().lineHeight(message.font) : 0;
+      const int16_t messageH =
+          hasMessage ? fui::measureWrappedText(screen.target(), model.emptyMessage, message, body.width).height : 0;
       const int16_t gap = hasMessage ? toybox::kGutter : 0;
 
-      int16_t y = static_cast<int16_t>(body.y + (body.height - headlineH - gap - messageH) / 2);
+      // The control, when there is one. Sized like every other pill in this app
+      // so it reads as a button rather than as a second heading.
+      const bool hasAction = model.emptyActionLabel != nullptr && model.emptyAction != fui::NO_ACTION;
+      const int16_t actionH = hasAction ? static_cast<int16_t>(kFooterHeight + toybox::kGutter * 2) : 0;
+
+      // Every element ADVANCES y as it is placed, and none of them advances for
+      // an element that was not drawn. The button used to step over messageH
+      // whether or not a message had been drawn, so a headline with no sentence
+      // under it would have had the control composited on top of it -- which is
+      // the standing trap on this screen (centeredText consumes nothing, and
+      // that is how the headline came to be painted over the sentence).
+      int16_t y = static_cast<int16_t>(body.y + (body.height - headlineH - gap - messageH - actionH) / 2);
       screen.target().text(fui::makeRect(body.x, y, body.width, headlineH), model.emptyHeadline, headline);
+      y = static_cast<int16_t>(y + headlineH);
       if (hasMessage) {
-        y = static_cast<int16_t>(y + headlineH + gap);
+        y = static_cast<int16_t>(y + gap);
         screen.target().text(fui::makeRect(body.x, y, body.width, messageH), model.emptyMessage, message);
+        y = static_cast<int16_t>(y + messageH);
+      }
+      if (hasAction) {
+        y = static_cast<int16_t>(y + toybox::kGutter * 2);
+        fui::ButtonProps button;
+        button.label = model.emptyActionLabel;
+        button.action = model.emptyAction;
+        button.styles = toybox::invertedStyles();
+        button.radius = static_cast<uint8_t>(toybox::kPillRadius);
+        // Narrower than the body and centred, so it cannot be mistaken for the
+        // full-width segment strip below it.
+        const int16_t width = static_cast<int16_t>(body.width * 3 / 4);
+        screen.button(button, fui::makeRect(static_cast<int16_t>(body.x + (body.width - width) / 2), y, width,
+                                            static_cast<int16_t>(kFooterHeight)));
       }
     } else {
       screen.centeredText("NOTHING TO READ", screen.theme().bodyText);

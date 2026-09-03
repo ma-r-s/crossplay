@@ -79,7 +79,27 @@ bool rowsStale(const Rows& rows, ListView view);
 // Fills `rows` from whichever shelf `view` names and marks them as built for
 // it. The other shelf's vector is ignored rather than required to be empty, so
 // a caller can pass both and let the view decide.
-void buildRows(Rows& rows, ListView view, const std::vector<Story>& stories,
-               const std::vector<SavedArticle>& saved);
+void buildRows(Rows& rows, ListView view, const std::vector<Story>& stories, const std::vector<SavedArticle>& saved);
+
+// What a list with no rows says, and whether it offers a way to fill itself.
+//
+// Three different screens, and collapsing any two of them is how a working app
+// reads as a broken one. An empty SAVED shelf is the ordinary state of a new
+// device and is COMPLETE: there is nothing to fetch and offering a button would
+// promise one. An unfetched front page is an invitation. A front page that was
+// asked for and did not arrive is an error, and both of those carry the control
+// that tries again.
+//
+// It lives here rather than in the screen because it is the app's whole answer
+// to having no network, and the screen cannot be asked what it would have said.
+struct EmptyState {
+  const char* headline = nullptr;
+  const char* message = nullptr;
+  // The label on the control that fetches the front page. nullptr means there
+  // is no control, which is the SAVED shelf's answer and only its answer.
+  const char* actionLabel = nullptr;
+};
+
+EmptyState emptyState(ListView view, bool frontPageFailed);
 
 }  // namespace hn

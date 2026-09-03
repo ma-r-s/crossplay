@@ -1527,7 +1527,6 @@ void testACapsuleThatWasDeadMidGameAlsoWaits() {
   CHECK(out.tap(300, capsuleY).action == chessui::ActionPlayAgain);
 }
 
-
 void testBattleshipStartMenu() {
   // A row that would do nothing is not drawn, exactly as in chess: with no
   // saved game there is nothing to continue, so the first row is NEW GAME.
@@ -3164,6 +3163,175 @@ void testHnList() {
   // headline was painted over the sentence for as long as it was invisible.
   if (headline != nullptr && line != nullptr) {
     CHECK(headline->rect.y + headline->rect.height <= line->rect.y);
+  }
+}
+
+// The empty front page is the screen a device that has never joined a network
+// opens on, so it is the one that has to carry a way onward. Text alone will
+// not do: an empty shelf and an unloaded front page are the same expanse of
+// paper, and a live control drawn like a dead one is one nobody tries.
+void testHnEmptyFrontPageOffersAWayOnward() {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+
+  Rendered cold;
+  hnui::ListModel model;
+  model.emptyHeadline = "NOT LOADED YET";
+  model.emptyMessage = "The front page needs a connection. Saved articles do not.";
+  model.emptyActionLabel = "LOAD";
+  model.emptyAction = hnui::ActionLoadFrontPage;
+  toybox::Frame coldFrame(cold.target, ctx, noInput, cold.interactions);
+  toybox::Screen coldScreen(coldFrame, toybox::themeTokens());
+  hnui::buildList(coldScreen, model);
+
+  CHECK(drewText(cold, "NOT LOADED YET"));
+  CHECK(drewText(cold, "LOAD"));
+
+  // The control is reachable by a finger, which is the only thing that makes it
+  // a control. Swept rather than tapped at one guessed point.
+  bool foundLoad = false;
+  for (int y = 0; y < ctx.height; ++y) {
+    if (cold.tap(240, y).action == hnui::ActionLoadFrontPage) foundLoad = true;
+  }
+  CHECK(foundLoad);
+
+  // It must not sit on the segment strip. The segments are the map between the
+  // two shelves, and a control stealing their taps would strand the reader on
+  // the half that needs the network. Swept across the panel rather than down one
+  // column, because the segments are half-width and the control is not.
+  int loadBottom = -1;
+  int savedTop = ctx.height;
+  bool foundSaved = false;
+  for (const int x : {60, 240, 380}) {
+    for (int y = 0; y < ctx.height; ++y) {
+      const fui::ActionEvent event = cold.tap(static_cast<int16_t>(x), static_cast<int16_t>(y));
+      if (event.action == hnui::ActionLoadFrontPage && y > loadBottom) loadBottom = y;
+      if (event.action == hnui::ActionShowSaved) {
+        foundSaved = true;
+        if (y < savedTop) savedTop = y;
+      }
+    }
+  }
+  CHECK(foundSaved);
+  CHECK(loadBottom >= 0);
+  CHECK(loadBottom < savedTop);
+  CHECK(!cold.interactions.overflowed());
+
+  // The same screen after a failed fetch is a DIFFERENT screen and still
+  // carries the control. This is where the app used to put a full-screen notice
+  // with no segments and no buttons, so a failed front page was a dead end with
+  // the offline shelf on the other side of it.
+  Rendered failed;
+  hnui::ListModel retry;
+  retry.emptyHeadline = "NO LUCK";
+  retry.emptyMessage = "Could not reach Hacker News. Saved articles still work.";
+  retry.emptyActionLabel = "TRY AGAIN";
+  retry.emptyAction = hnui::ActionLoadFrontPage;
+  toybox::Frame failedFrame(failed.target, ctx, noInput, failed.interactions);
+  toybox::Screen failedScreen(failedFrame, toybox::themeTokens());
+  hnui::buildList(failedScreen, retry);
+  CHECK(drewText(failed, "NO LUCK"));
+  bool foundRetry = false;
+  for (int y = 0; y < ctx.height; ++y) {
+    if (failed.tap(240, y).action == hnui::ActionLoadFrontPage) foundRetry = true;
+  }
+  CHECK(foundRetry);
+
+  // And the empty SAVED shelf carries NO such control: it is the half that
+  // needs no network, and the only thing a button there could do is fetch the
+  // other half.
+  Rendered shelf;
+  hnui::ListModel nothingSaved;
+  nothingSaved.title = "SAVED";
+  nothingSaved.showingSaved = true;
+  nothingSaved.emptyHeadline = "NOTHING SAVED YET";
+  nothingSaved.emptyMessage = "Tap SAVE while you read.";
+  toybox::Frame shelfFrame(shelf.target, ctx, noInput, shelf.interactions);
+  toybox::Screen shelfScreen(shelfFrame, toybox::themeTokens());
+  hnui::buildList(shelfScreen, nothingSaved);
+  for (int y = 0; y < ctx.height; ++y) {
+    CHECK(shelf.tap(240, y).action != hnui::ActionLoadFrontPage);
+  }
+}
+
+// The block stacks: headline, sentence, control, none of them on each other.
+// The sentence used to reserve one line however long it was, so the line that
+// has to explain what still works with no network was ellipsised at the panel
+// edge with nothing to say it had been.
+void testHnEmptyStateStacksWithoutOverlap() {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+
+  Rendered out;
+  hnui::ListModel model;
+  model.emptyHeadline = "NOT LOADED YET";
+  // Long enough to need two lines at every plausible cut, which is the case the
+  // single reserved line got wrong.
+  model.emptyMessage = "The front page needs a connection. Saved articles do not.";
+  model.emptyActionLabel = "LOAD";
+  model.emptyAction = hnui::ActionLoadFrontPage;
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  hnui::buildList(screen, model);
+
+  const FakeTarget::TextRun* headline = out.target.find("NOT LOADED YET");
+  const FakeTarget::TextRun* message = out.target.find(model.emptyMessage);
+  const FakeTarget::TextRun* label = out.target.find("LOAD");
+  CHECK(headline != nullptr);
+  CHECK(message != nullptr);
+  CHECK(label != nullptr);
+  if (headline != nullptr && message != nullptr) {
+    CHECK(headline->rect.y + headline->rect.height <= message->rect.y);
+  }
+  if (message != nullptr && label != nullptr) {
+    CHECK(message->rect.y + message->rect.height <= label->rect.y);
+  }
+  // The sentence is given the lines the SDK's own wrap will emit into it. A
+  // rect one line tall for a two-line sentence is a silent truncation: the SDK
+  // ellipsizes and logs nothing, which is how "Tap the mark on an article to
+  // ke" shipped -- and estimating the count from a single-line width divided by
+  // the column is one short whenever the wrap cannot fill a line, which is how
+  // "Saved articles do ..." reached a render on this very screen.
+  if (message != nullptr) {
+    const fui::Size wrapped =
+        fui::measureWrappedText(out.target, message->text.c_str(), message->style, message->rect.width);
+    CHECK(message->rect.height >= wrapped.height);
+  }
+  if (headline != nullptr) {
+    const fui::Size wrapped =
+        fui::measureWrappedText(out.target, headline->text.c_str(), headline->style, headline->rect.width);
+    CHECK(headline->rect.height >= wrapped.height);
+  }
+
+  // And with no sentence between them, the control still clears the headline by
+  // the gap it is supposed to sit below by. The stack used to step over the
+  // message's height whether or not a message had been drawn, so the button
+  // landed a bare gutter below the TOP of the headline -- the same compositing
+  // bug that already put this headline on top of its own sentence.
+  //
+  // Measured against the BUTTON'S HIT RECT and against the full intended
+  // clearance, not against "does it overlap". Overlap is not expressible here:
+  // FakeTarget's line height is smaller than the gutter, so the broken layout
+  // draws them apart on this target and on top of each other on the panel,
+  // where the display cut is more than twice as tall.
+  Rendered bare;
+  hnui::ListModel terse;
+  terse.emptyHeadline = "NOT LOADED YET";
+  terse.emptyMessage = nullptr;
+  terse.emptyActionLabel = "LOAD";
+  terse.emptyAction = hnui::ActionLoadFrontPage;
+  toybox::Frame bareFrame(bare.target, ctx, noInput, bare.interactions);
+  toybox::Screen bareScreen(bareFrame, toybox::themeTokens());
+  hnui::buildList(bareScreen, terse);
+  const FakeTarget::TextRun* bareHeadline = bare.target.find("NOT LOADED YET");
+  CHECK(bareHeadline != nullptr);
+  int buttonTop = ctx.height;
+  for (int y = 0; y < ctx.height; ++y) {
+    if (bare.tap(240, static_cast<int16_t>(y)).action == hnui::ActionLoadFrontPage && y < buttonTop) buttonTop = y;
+  }
+  CHECK(buttonTop < ctx.height);
+  if (bareHeadline != nullptr) {
+    CHECK(buttonTop >= bareHeadline->rect.y + bareHeadline->rect.height + toybox::kGutter * 2);
   }
 }
 
@@ -7275,6 +7443,8 @@ int main() {
   testHnReaderTextStaysInItsRect();
   testHnNotice();
   testHnList();
+  testHnEmptyFrontPageOffersAWayOnward();
+  testHnEmptyStateStacksWithoutOverlap();
   testHnFitLines();
   testHnReaderShowsWhereYouAre();
   testHnSaveMarkIsLoudestWhenSaved();

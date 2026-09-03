@@ -67,15 +67,19 @@ void HackerNewsActivity::onEnter() {
   Activity::onEnter();
   toybox::ensureFonts(renderer);
 
-  // Read the shelf before anything network happens: SAVED is the half of this
-  // app that works with no connection at all, and it should be right the
-  // moment the app opens rather than after a fetch nobody asked for.
+  // NOTHING TOUCHES THE RADIO HERE, and that is the feature.
+  //
+  // The picker used to come up before anything else, and backing out of it shut
+  // the app -- so the SAVED shelf, the half that exists precisely for having no
+  // network, could not be reached without one. That is the state every new
+  // device is in, and everyone on a train.
+  //
+  // So the list opens at once, offline or not, and the first thing that
+  // genuinely needs the network is what asks for it. See ensureConnected.
   library_.load();
-
-  phase_ = Phase::Connecting;
-  WiFi.mode(WIFI_STA);
-  startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
-                         [this](const ActivityResult& result) { onWifiChosen(!result.isCancelled); });
+  view_ = hn::ListView::FrontPage;
+  phase_ = Phase::List;
+  requestUpdate();
 }
 
 void HackerNewsActivity::onExit() {
@@ -95,33 +99,49 @@ void HackerNewsActivity::onExit() {
   Storage.remove(kFrontPageTmp);
 }
 
-void HackerNewsActivity::leaveOrShowSaved() {
-  // Backing out of the Wi-Fi picker is not the same as wanting out of the app:
-  // the saved shelf is the half that works with no connection at all, and
-  // onEnter loads it before anything network happens for exactly that reason.
+void HackerNewsActivity::ensureConnected(const Pending what, const char* busyMessage) {
+  // Asked of the radio every time rather than latched once.
   //
-  // THIS EXISTS AS A FUNCTION BECAUSE THE DECISION HAS TWO CALLERS. Leaving the
-  // picker arrives here by two routes -- the child activity reporting a cancel,
-  // and loop() seeing that same Back release while phase_ is still Connecting --
-  // and a first attempt at this fixed only onWifiChosen, so the app still
-  // walked out to the shelf and every saved article stayed unreachable.
-  if (!library_.articles().empty()) {
-    view_ = hn::ListView::Saved;
-    phase_ = Phase::List;
-    requestUpdate();
+  // A latch ("we connected earlier") is wrong in the direction that matters: an
+  // AP that drops while the reader is mid-article leaves the latch saying yes,
+  // the fetch fails, and the picker -- the one control that could fix it -- is
+  // never offered again. WL_CONNECTED is the honest question here because the
+  // question IS "will an HTTP GET work", not "who owns this radio"; ownership
+  // is a different question with a different answer (see devmode::holdsRadio in
+  // onExit, and the linkradio notes on why WiFi.status() cannot answer it).
+  if (WiFi.status() == WL_CONNECTED) {
+    request(what, busyMessage);
     return;
   }
-  // Nothing saved: without a network there is genuinely nothing to show, so
-  // leaving is still the honest answer.
-  shelf::leave(renderer, mappedInput);
+
+  // The picker's result decides whether the work ever happens, so the work is
+  // remembered and not requested: requesting first would run it against a radio
+  // that is not up.
+  afterConnect_ = what;
+  afterConnectMessage_ = busyMessage;
+  returnPhase_ = phase_;
+  phase_ = Phase::Connecting;
+  // Never seen when the picker paints promptly, and the only thing on the panel
+  // if it does not. A blank screen while the radio comes up reads as a crash.
+  busyMessage_ = "CONNECTING";
+  WiFi.mode(WIFI_STA);
+  startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
+                         [this](const ActivityResult& result) { onWifiChosen(!result.isCancelled); });
 }
 
 void HackerNewsActivity::onWifiChosen(const bool connected) {
   if (!connected) {
-    leaveOrShowSaved();
+    // Declining to connect is not wanting out of the app. Back to whatever was
+    // on screen when the connection was asked for -- which is a list whose
+    // SAVED half is still readable, or a reader still holding its article.
+    afterConnect_ = Pending::None;
+    phase_ = returnPhase_;
+    requestUpdate();
     return;
   }
-  request(Pending::FrontPage, "FETCHING THE FRONT PAGE");
+  const Pending what = afterConnect_;
+  afterConnect_ = Pending::None;
+  request(what, afterConnectMessage_);
 }
 
 // --- Scheduling the slow parts -------------------------------------------
@@ -177,7 +197,21 @@ void HackerNewsActivity::loop() {
         break;
     }
     if (!ok && phase_ == Phase::Busy) {
-      showNotice("NO LUCK", "Could not reach Hacker News. Check the network and try again.", false);
+      if (what == Pending::FrontPage) {
+        // Back to the list, not to a full-screen notice. The notice has no
+        // segments and no controls, so a failed front page used to be a screen
+        // with one way off it -- and the SAVED shelf, which does not need the
+        // network at all, was on the other side of that dead end.
+        //
+        // The list can always show this: a front-page fetch only ever runs
+        // while the list is empty, because the one control that starts it is
+        // the empty state's own.
+        frontPageFailed_ = true;
+        phase_ = Phase::List;
+        view_ = hn::ListView::FrontPage;
+      } else {
+        showNotice("NO LUCK", "Could not reach Hacker News. Check the network and try again.", false);
+      }
     }
     requestUpdate();
     return;
@@ -188,7 +222,13 @@ void HackerNewsActivity::loop() {
     // Back walks out one layer at a time and never names where it lands; the
     // shelf owns the last step. See docs/shelf.md.
     if (phase_ == Phase::Connecting) {
-      leaveOrShowSaved();
+      // The picker is on top or has just handed back; either way this is a
+      // cancelled connection and not a request to leave the app. Same landing
+      // as onWifiChosen(false), because it is the same decision arriving by the
+      // other of its two routes.
+      afterConnect_ = Pending::None;
+      phase_ = returnPhase_;
+      requestUpdate();
     } else if (phase_ == Phase::List) {
       shelf::leave(renderer, mappedInput);
     } else {
@@ -266,7 +306,7 @@ void HackerNewsActivity::loop() {
         openSavedArticle(event.value);
       } else {
         selected_ = event.value;
-        request(Pending::Article, "OPENING");
+        ensureConnected(Pending::Article, "OPENING");
       }
       break;
     case hnui::ActionPagePrev:
@@ -279,14 +319,14 @@ void HackerNewsActivity::loop() {
       // One action, and the model decides which way it points. Two would let
       // the label and the effect disagree.
       if (readingComments_) {
-        if (articleAvailable_) request(Pending::Article, "OPENING");
+        if (articleAvailable_) ensureConnected(Pending::Article, "OPENING");
       } else {
-        request(Pending::Comments, "FETCHING THE THREAD");
+        ensureConnected(Pending::Comments, "FETCHING THE THREAD");
       }
       break;
     case hnui::ActionNotice:
       // The notice's only button is always the way onward to the comments.
-      request(Pending::Comments, "FETCHING THE THREAD");
+      ensureConnected(Pending::Comments, "FETCHING THE THREAD");
       break;
     case hnui::ActionSave:
       saveCurrentArticle();
@@ -306,6 +346,13 @@ void HackerNewsActivity::loop() {
       view_ = hn::ListView::FrontPage;
       topIndex_ = 0;
       requestUpdate();
+      break;
+    case hnui::ActionLoadFrontPage:
+      // The only control in the app that asks for the network by itself, and
+      // the only route to a front-page fetch. Clearing the flag first so a
+      // second failure repaints the same error rather than a stale one.
+      frontPageFailed_ = false;
+      ensureConnected(Pending::FrontPage, "FETCHING THE FRONT PAGE");
       break;
     default:
       break;
@@ -372,6 +419,9 @@ bool HackerNewsActivity::fetchFrontPage() {
   selected_ = 0;
   topIndex_ = 0;
   phase_ = Phase::List;
+  // Cleared only where a front page actually arrived. Returning false here
+  // leaves loop() to set it again, so an empty answer still reads as a failure.
+  frontPageFailed_ = stories_.empty();
   return !stories_.empty();
 }
 
@@ -731,25 +781,23 @@ void HackerNewsActivity::render(RenderLock&&) {
       model.selected = saved ? -1 : selected_;
       model.topIndex = topIndex_;
       model.showingSaved = saved;
-      if (saved) {
-        model.title = "SAVED";
-        if (listItems_.empty()) {
-          model.emptyHeadline = "NOTHING SAVED YET";
-          // MEASURE IN THE FACE THE CALL SITE RESOLVES TO, not the one its name
-          // suggests. centeredText does not wrap, and this draws with
-          // theme().smallText -> kUiFont -> FONT_SLOT_BODY, which under
-          // readingFaces() is kReadingFontId: notoserif_14, not a UI face.
-          // Measured there: the original wording is 915px, and the replacement
-          // that measured a comfortable 345px in ubuntu_10 -- a face this
-          // screen never uses -- is 511.8px and shipped cut as "Tap the mark on
-          // an article to ke". The line below is shorter than the 399.3px one
-          // it replaces and was checked by rendering this screen.
-          //
-          // It names the control by its LABEL rather than calling it a mark:
-          // the chip carries the word SAVE now, and a screen that sends you
-          // looking for a "mark" is sending you looking for the wrong thing.
-          model.emptyMessage = "Tap SAVE while you read.";
-        }
+      if (saved) model.title = "SAVED";
+      if (listItems_.empty()) {
+        // Both shelves, from one place. An empty front page is now the ordinary
+        // opening screen -- the radio is down until something asks for it -- so
+        // it needs a sentence and a way onward exactly as the shelf does.
+        //
+        // MEASURE ANY WORDING HERE IN THE FACE THE CALL SITE RESOLVES TO, not
+        // the one its name suggests: theme().smallText -> kUiFont ->
+        // FONT_SLOT_BODY, which under readingFaces() is kReadingFontId,
+        // notoserif_14 and not a UI face. A message that measured a comfortable
+        // 345px in ubuntu_10 -- a face this screen never uses -- is 511.8px
+        // here and shipped cut as "Tap the mark on an article to ke".
+        const hn::EmptyState empty = hn::emptyState(view_, frontPageFailed_);
+        model.emptyHeadline = empty.headline;
+        model.emptyMessage = empty.message;
+        model.emptyActionLabel = empty.actionLabel;
+        if (empty.actionLabel != nullptr) model.emptyAction = hnui::ActionLoadFrontPage;
       }
       hnui::buildList(screen, model);
       what = saved ? "HN saved" : "HN front page";
