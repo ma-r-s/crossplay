@@ -181,6 +181,9 @@ class BattleshipActivity final : public linkplay::LinkActivity {
   uint8_t mySide = 0;
   uint32_t seed = 1;
 
+  // What a tap on the play surface means. See Activity::surfaceMeaning().
+  uint32_t surfaceMeaning() const override;
+
   View view = View::Menu;
   int startIndex = 0;
   bool hasSavedGame = false;

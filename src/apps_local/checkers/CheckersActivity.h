@@ -45,6 +45,9 @@ class CheckersActivity final : public linkplay::LinkActivity {
   void recordResult();
   void loadHistory();
 
+  // What a tap on the play surface means. See Activity::surfaceMeaning().
+  uint32_t surfaceMeaning() const override;
+
   checkers::Screen screen = checkers::Screen::Menu;
   checkers::Game game{};
   int howToPage = 0;

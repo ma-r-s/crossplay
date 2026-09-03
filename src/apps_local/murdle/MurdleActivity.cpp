@@ -288,6 +288,14 @@ void MurdleActivity::loop() {
   }
   if (!input.touchReleased || !interactionsReady) return;
 
+  // Asked BEFORE route(), because route() reports a tap it deliberately
+  // suppressed as a default-constructed event -- the same thing it reports for
+  // a tap that landed on nothing. The clue branch below reads "landed on
+  // nothing" as "strike a clue", so without this a tap the panel could not
+  // have shown would strike one, i.e. the reveal gate would CAUSE a wrong
+  // action rather than prevent one. See RevealedInteractions.h.
+  if (!interactions.routable()) return;
+
   const fui::ActionEvent hit = interactions.route(input);
   if (hit.action == ui::ActionGrid) {
     handleGridTap(tapX, tapY);
@@ -307,8 +315,29 @@ void MurdleActivity::loop() {
 // second piece of arithmetic: the rule that has caught the most bugs in this
 // fork is that a tappable region must be derived from the same values that
 // placed the pixels.
+// The grid and the clue list resolve a tap through gridLayout and the clue
+// layout, both written by render(). Those are NOT hashed here: surfaceMeaning()
+// is evaluated before render() runs, so reading them would mean stamping the
+// previous frame's layout and testing the new one, i.e. comparing against a
+// frame that was never on the panel. What DETERMINES those layouts is hashed
+// instead, and loop() owns all of it.
+//
+// puzzle.seed is the case identity. generateCase() replaces the puzzle a pass
+// after the tap that asked for it, which is the change here that does not
+// belong to the finger on the glass.
+uint32_t MurdleActivity::surfaceMeaning() const {
+  uint32_t meaning = paintclock::mixMeaning(paintclock::kMeaningSeed, static_cast<uint32_t>(view));
+  meaning = paintclock::mixMeaning(meaning, static_cast<uint32_t>(face));
+  meaning = paintclock::mixMeaning(meaning, (hasCase && !solved) ? 1u : 0u);
+  return paintclock::mixMeaning(meaning, puzzle.seed);
+}
+
 void MurdleActivity::handleGridTap(const int x, const int y) {
   if (!hasCase || solved) return;
+  // The grid registers as ONE rect, so route() has cleared the table but not
+  // the cell: which cell this pixel is comes from gridLayout, and that is the
+  // part nothing upstream gates.
+  if (!surfaceRevealed()) return;
   ui::GridCell cell;
   if (!ui::cellAt(gridLayout, x, y, cell)) return;
   const int catA = cell.catA;
@@ -331,6 +360,9 @@ void MurdleActivity::handleGridTap(const int x, const int y) {
 }
 
 void MurdleActivity::handleClueTap(const int y) {
+  // The clue list is longer than the interaction buffer and hands back bands
+  // instead of rects, so this is the same ungated geometry as the grid.
+  if (!surfaceRevealed()) return;
   notice[0] = '\0';
   const ui::ClueLayout layout = ui::lastClueLayout();
   for (int i = 0; i < layout.count; ++i) {

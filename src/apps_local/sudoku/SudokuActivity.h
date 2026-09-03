@@ -39,6 +39,9 @@ class SudokuActivity final : public Activity {
   void saveState();
   void tickClock();
 
+  // What a tap on the play surface means. See Activity::surfaceMeaning().
+  uint32_t surfaceMeaning() const override;
+
   sudoku::Screen screen = sudoku::Screen::Menu;
   sudoku::Game game{};
   sudoku::Record record{};

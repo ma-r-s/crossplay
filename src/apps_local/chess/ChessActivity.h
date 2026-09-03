@@ -218,6 +218,9 @@ class ChessActivity final : public linkplay::LinkActivity {
 
   int selectedSquare = -1;
   bool gameOver = false;
+  // What a tap on the play surface means. See Activity::surfaceMeaning().
+  uint32_t surfaceMeaning() const override;
+
   bool engineThinking = false;
 
   // Chess opens here. Multiplayer is a row on it rather than a saved setting,

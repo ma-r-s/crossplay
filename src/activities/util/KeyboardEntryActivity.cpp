@@ -152,6 +152,7 @@ void KeyboardEntryActivity::onEnter() {
   touchRouter.holdMs = TOUCH_LONG_PRESS_MS;
   touchRouter.overrideHoldMs = TOUCH_DEL_LONG_PRESS_MS;
   interactionsReady = false;
+  revealGate.arm();
   requestUpdate();
 }
 
@@ -506,8 +507,16 @@ void KeyboardEntryActivity::loop() {
   int tx = 0;
   int ty = 0;
 
+  // The keyboard is published before the panel shows it; until the first paint
+  // lands, a tap belongs to whatever screen is still on the glass. Ignore
+  // touch, not input: the branches below this one are the physical buttons and
+  // they stay live throughout. Nothing is suppressed at the InputManager level
+  // either -- suppressTouchContact() would also kill isTouchTapCandidate,
+  // isTouchHeldAt and wasSwipe, cancelling holds while the finger is down.
+  const bool revealed = revealGate.revealed();
+
   size_t touchedCursorPos = 0;
-  if (mappedInput.wasScreenTapped(tx, ty) && cursorPositionFromPoint(tx, ty, touchedCursorPos)) {
+  if (revealed && mappedInput.wasScreenTapped(tx, ty) && cursorPositionFromPoint(tx, ty, touchedCursorPos)) {
     cursorPos = std::min(touchedCursorPos, text.length());
     // The masked text field maps taps per byte; snap back to a boundary so
     // the cursor never lands inside a multi-byte character.
@@ -522,7 +531,7 @@ void KeyboardEntryActivity::loop() {
     return;
   }
 
-  if (!cursorMode && interactionsReady) {
+  if (!cursorMode && interactionsReady && revealed) {
     const bool pressedDown = mappedInput.wasScreenTouchDown(tx, ty);
     int tapX = 0;
     int tapY = 0;
@@ -972,6 +981,10 @@ void KeyboardEntryActivity::render(RenderLock&&) {
   }
   interactions.publish();
   interactionsReady = true;
+  // Measures from THIS build rather than the first, so a render that rebuilds
+  // before its single paint does not open the gate early. No-op once the first
+  // paint has landed.
+  revealGate.markBuilt();
 
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);

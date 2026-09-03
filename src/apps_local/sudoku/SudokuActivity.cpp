@@ -276,6 +276,26 @@ void SudokuActivity::saveState() {
 #endif
 }
 
+// Only two things move the pixel-to-effect map of the grid and the pad.
+//
+// `screen`, because the geometry is live only on the board while the panel may
+// still be showing the menu underneath it, and `generating`, because a puzzle
+// arriving an arbitrary number of passes later (see the generator poll in
+// loop()) makes a live grid appear with no tap at all -- the one change here
+// the player did not cause.
+//
+// `game.armed` is deliberately absent, and it is the whole reason this is not
+// simply "everything the hit-test reads". Picking a digit off the pad and
+// placing it in six cells is the app's core loop; the pad tap changes `armed`,
+// so hashing it would drop the very next cell tap every time -- including the
+// second half of picking a digit up off a clue. The cell contents are absent
+// for the same reason: they change on every entry, and gating consecutive
+// entries is the frozen-device failure. Neither moves which cell a pixel is.
+uint32_t SudokuActivity::surfaceMeaning() const {
+  const uint32_t withScreen = paintclock::mixMeaning(paintclock::kMeaningSeed, static_cast<uint32_t>(screen));
+  return paintclock::mixMeaning(withScreen, generating ? 1u : 0u);
+}
+
 void SudokuActivity::loop() {
   namespace fui = freeink::ui;
 
@@ -331,6 +351,14 @@ void SudokuActivity::loop() {
     int holdY = 0;
     int cell = 0;
     if (mappedInput.isScreenTouchHeld(holdX, holdY) && sudokuui::cellAt(device, holdX, holdY, cell)) {
+      if (!surfaceRevealed()) {
+        // Void the contact rather than leave its timer running against a grid
+        // the panel has not shown: the hold would otherwise fire the instant
+        // the gate opens, pencilling a cell the player never rested on.
+        holdCell = sk::kNoCell;
+        holdFired = false;
+        return;
+      }
       if (cell != holdCell) {
         // Moved to another cell, so the hold restarts there: dragging a finger
         // across the grid never pencils a cell you did not mean.
@@ -368,12 +396,16 @@ void SudokuActivity::loop() {
     int cell = 0;
     int digit = 0;
     if (sudokuui::cellAt(device, tapX, tapY, cell)) {
+      // Guarded inside the branch, so a tap that misses grid and pad still
+      // reaches route() and its own digest gate for the chrome.
+      if (!surfaceRevealed()) return;
       notice = nullptr;
       sk::tapCell(game, cell);
       requestUpdate();
       return;
     }
     if (sudokuui::padKeyAt(device, tapX, tapY, digit)) {
+      if (!surfaceRevealed()) return;
       notice = nullptr;
       game.armed = static_cast<uint8_t>(digit);
       requestUpdate();

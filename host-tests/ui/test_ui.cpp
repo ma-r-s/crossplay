@@ -1239,6 +1239,270 @@ void testTheRevealGateWaitsForOnePaintAndThenLatches() {
   CHECK(gate.revealed());
 }
 
+// The eight games that hit-test a board against GEOMETRY never reach route(),
+// so no table digest can see their taps -- and what such a tap MEANS is not in
+// the table either. MinesweeperScreens.cpp registers the FLAG capsule with an
+// identical rect, action, value and inputMask and flips only StateSelected,
+// which the digest ignores as paint, while that same mode bit decides whether
+// a grid tap digs or flags. paintclock::SurfaceGate is the decision those apps
+// make instead; this drives the object the firmware uses, not a restatement.
+void testTheSurfaceGateHoldsAChangedMeaningAndPassesAnUnchangedOne() {
+  PaintClockGuard clock;
+  paintclock::SurfaceGate gate;
+
+  // Before the first paint of all there is no shown frame to disagree with,
+  // so nothing is gated -- the boot splash window, and every other test here.
+  CHECK(gate.routable(0));
+  CHECK(gate.routable(12345));
+
+  // Minesweeper, DIG mode, on the panel.
+  const uint32_t dig = 0;
+  const uint32_t flag = 1;
+  gate.noteBuilt(dig);
+  paintclock::notePainted();
+  CHECK(gate.routable(dig));
+
+  // The FLAG capsule is tapped: flagMode flips and the board is rebuilt. The
+  // panel still reads DIG for the length of the refresh, so a grid tap in this
+  // window must NOT flag.
+  gate.noteBuilt(flag);
+  CHECK(!gate.routable(flag));
+
+  // The refresh completes. The panel now reads FLAG and the board is live.
+  paintclock::notePainted();
+  CHECK(gate.routable(flag));
+
+  // THE safety property, and the reason this is a digest rather than a
+  // suppression: a repaint that changed nothing still answers. Minesweeper
+  // holds a finger on a cell, requestUpdate() repaints the outline, and the
+  // LIFT of that same contact is what digs. Gating it would eat the move and
+  // read as a frozen device.
+  gate.noteBuilt(flag);
+  CHECK(gate.routable(flag));
+  gate.noteBuilt(flag);
+  CHECK(gate.routable(flag));
+
+  // Back to DIG on the panel, so the next block measures from a known frame.
+  paintclock::notePainted();
+  gate.noteBuilt(dig);
+  CHECK(!gate.routable(dig));
+  paintclock::notePainted();
+  CHECK(gate.routable(dig));
+
+  // A render that rebuilds several times before its single paint must measure
+  // from the frame the panel last SHOWED, not from an intermediate build the
+  // user never saw. Two builds, no paint between: the gate stays shut against
+  // the meaning that ends up built...
+  const uint32_t pencil = 2;
+  gate.noteBuilt(flag);
+  gate.noteBuilt(pencil);
+  CHECK(!gate.routable(pencil));
+  // ...and open against the one still on the glass, which is DIG and not the
+  // intermediate FLAG build. Taking the intermediate as "shown" is the bug
+  // this check exists to catch.
+  CHECK(gate.routable(dig));
+  CHECK(!gate.routable(flag));
+
+  paintclock::notePainted();
+  CHECK(gate.routable(pencil));
+}
+
+// Several small values fold into one meaning, and they must not collide when
+// they swap places: "selected e2, white to move" is not "selected d4, black to
+// move".
+void testMeaningsMixPositionally() {
+  const uint32_t a = paintclock::mixMeaning(paintclock::mixMeaning(paintclock::kMeaningSeed, 4), 7);
+  const uint32_t b = paintclock::mixMeaning(paintclock::mixMeaning(paintclock::kMeaningSeed, 7), 4);
+  CHECK(a != b);
+  const uint32_t again = paintclock::mixMeaning(paintclock::mixMeaning(paintclock::kMeaningSeed, 4), 7);
+  CHECK(a == again);
+}
+
+// OptionPopup and KeyboardEntryActivity hold their own buffers at their own
+// capacities (17 and 48) and opt into the SDK's double-buffered publish cycle,
+// which the 24-slot toybox screens do not. beginBuild() therefore has to
+// digest the PUBLISHED generation: by the time a publishing caller builds,
+// building_ has already flipped and data() is a rebuild from two generations
+// ago, which would be compared against as though the panel had shown it.
+void testAPublishingBufferDigestsWhatThePanelIsShowing() {
+  PaintClockGuard clock;
+  paintclock::RevealedInteractions<17> iact;
+  freeink::ui::InteractionBuffer<17>& raw = iact;
+
+  const auto slot = [](const freeink::ui::ActionId action, const int16_t value) {
+    freeink::ui::Interaction hit{};
+    hit.rect = fui::Rect{0, 0, 100, 40};
+    hit.action = action;
+    hit.value = value;
+    hit.inputMask = fui::InputTouch;
+    return hit;
+  };
+  const auto tap = [&iact]() {
+    fui::InputSnapshot in{};
+    in.touchReleased = true;
+    in.touchX = 10;
+    in.touchY = 10;
+    return iact.routePublished(in);
+  };
+
+  // A popup is shown and the panel catches up.
+  iact.beginBuild();
+  iact.beginPublishCycle();
+  raw.clear();
+  raw.addInteraction(slot(1, 3));
+  iact.publish();
+  paintclock::notePainted();
+  CHECK(iact.publishedRoutable());
+  CHECK(tap().value == 3);
+
+  // A second popup replaces it on the same object. Published, not yet painted:
+  // a finger resting where the first popup's row was must not select the
+  // second popup's row under it.
+  iact.beginBuild();
+  iact.beginPublishCycle();
+  raw.clear();
+  raw.addInteraction(slot(1, 9));
+  iact.publish();
+  CHECK(!iact.publishedRoutable());
+  CHECK(!tap());
+
+  paintclock::notePainted();
+  CHECK(iact.publishedRoutable());
+  CHECK(tap().value == 9);
+
+  // The touch-down highlight repaint: same options, only StateFocused moves,
+  // which the digest ignores. It must still answer, or every popup would
+  // highlight a row and then do nothing.
+  iact.beginBuild();
+  iact.beginPublishCycle();
+  raw.clear();
+  freeink::ui::Interaction focused = slot(1, 9);
+  focused.state = fui::StateFocused;
+  raw.addInteraction(focused);
+  iact.publish();
+  CHECK(iact.publishedRoutable());
+  CHECK(tap().value == 9);
+}
+
+// beginBuild() digests the PUBLISHED generation, not the one being built into.
+// The two are the same array for a caller that never publishes, and for one
+// that calls beginBuild() before beginPublishCycle() (which is what
+// OptionPopup does). They diverge for a caller that flips generations FIRST,
+// and then data() is the table from two generations ago -- compared against as
+// though the panel had shown it. This drives that order deliberately, because
+// nothing else in the suite can tell the two apart.
+void testBeginBuildDigestsThePublishedGenerationNotTheBuildingOne() {
+  PaintClockGuard clock;
+  paintclock::RevealedInteractions<17> iact;
+  freeink::ui::InteractionBuffer<17>& raw = iact;
+
+  const auto put = [&raw](const int16_t value) {
+    freeink::ui::Interaction hit{};
+    hit.rect = fui::Rect{0, 0, 100, 40};
+    hit.action = 1;
+    hit.value = value;
+    hit.inputMask = fui::InputTouch;
+    raw.clear();
+    raw.addInteraction(hit);
+  };
+
+  // Generation 1 ends up holding table A, generation 0 holding table B, and B
+  // is what the panel is showing.
+  iact.beginBuild();
+  iact.beginPublishCycle();
+  put(1);
+  iact.publish();
+  paintclock::notePainted();
+
+  iact.beginBuild();
+  iact.beginPublishCycle();
+  put(2);
+  iact.publish();
+  paintclock::notePainted();
+  CHECK(iact.publishedRoutable());
+
+  // Now the order that matters: flip generations FIRST, so data() is the stale
+  // A from two renders ago while publishedData() is still the B on the glass.
+  iact.beginPublishCycle();
+  iact.beginBuild();
+  put(1);
+  iact.publish();
+
+  // The panel shows B and the table is A, so this tap must be held. Digesting
+  // data() instead would have adopted the stale A as "shown", found the new
+  // table identical to it, and let the tap straight through.
+  CHECK(!iact.publishedRoutable());
+  paintclock::notePainted();
+  CHECK(iact.publishedRoutable());
+}
+
+// OptionPopup's real render sequence, through the SDK component it actually
+// calls. The hand-built test above proves the gate; this proves the thing a
+// hand-built table cannot -- that the touch-down HIGHLIGHT repaint produces a
+// byte-identical table. Get that wrong and every popup in the firmware lights
+// a row up and then refuses it, which is the frozen-device failure this whole
+// mechanism is shaped around, and no assertion on the gate alone would notice.
+void testAnOptionPopupHighlightRepaintStillAnswers() {
+  PaintClockGuard clock;
+  FakeTarget target;
+  paintclock::RevealedInteractions<17> interactions;
+
+  static const char* const kLabels[3] = {"ONE", "TWO", "THREE"};
+
+  // Mirrors OptionPopup::render(): beginBuild() before the publish cycle, the
+  // chrome guard rect first, the dialog after, publish() last.
+  const auto build = [&](const int selectedIndex, const uint8_t count) {
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    interactions.beginBuild();
+    interactions.beginPublishCycle();
+    fui::Frame<17> frame(target, ctx, noInput, interactions);
+
+    fui::DialogOption options[3];
+    for (uint8_t i = 0; i < count; ++i) {
+      options[i].label = kLabels[i];
+      options[i].action = 1;
+      options[i].value = static_cast<int16_t>(i);
+      options[i].state = (i == selectedIndex) ? fui::StateFocused : fui::StateNormal;
+    }
+
+    fui::OptionDialogProps props;
+    props.title = "PICK";
+    props.options = options;
+    props.optionCount = count;
+    props.verticalOptions = true;
+    props.inputMask = fui::InputTouch;
+    props.buttonHeight = 40;
+
+    const fui::Rect dialog = fui::centeredRect(ctx.screen(), fui::Size{300, 300});
+    frame.hit(dialog, 2, 0, fui::InputTouch);
+    fui::optionDialog(frame, dialog, props);
+    interactions.publish();
+  };
+
+  build(0, 3);
+  paintclock::notePainted();
+  CHECK(interactions.publishedRoutable());
+  const size_t slots = interactions.publishedCount();
+  CHECK(slots > 1);  // the guard plus at least one option, or this proves nothing
+
+  // The highlight moving is the ONLY change. optionDialog derives each option
+  // rect from geometry and the state only reaches Interaction::state, which the
+  // digest reads for StateDisabled and nothing else -- so the release of the
+  // contact that caused this repaint must still route.
+  build(1, 3);
+  CHECK(interactions.publishedRoutable());
+  CHECK(interactions.publishedCount() == slots);
+  build(2, 3);
+  CHECK(interactions.publishedRoutable());
+
+  // A different popup on the same object is a different table, and waits.
+  build(0, 2);
+  CHECK(!interactions.publishedRoutable());
+  paintclock::notePainted();
+  CHECK(interactions.publishedRoutable());
+}
+
 void testACapsuleThatWasDeadMidGameAlsoWaits() {
   PaintClockGuard clock;
   Rendered out;
@@ -6985,6 +7249,11 @@ int main() {
   testACapsuleThatWasDeadMidGameAlsoWaits();
   testAControlComingBackToLifeAlsoWaits();
   testTheRevealGateWaitsForOnePaintAndThenLatches();
+  testTheSurfaceGateHoldsAChangedMeaningAndPassesAnUnchangedOne();
+  testMeaningsMixPositionally();
+  testAPublishingBufferDigestsWhatThePanelIsShowing();
+  testBeginBuildDigestsThePublishedGenerationNotTheBuildingOne();
+  testAnOptionPopupHighlightRepaintStillAnswers();
   testAnOpponentWhoHasGoneTakesTheButtonWithThem();
   testRowModel();
   testSettingsOpenedFromTheMenuOffersOnlyPreferences();

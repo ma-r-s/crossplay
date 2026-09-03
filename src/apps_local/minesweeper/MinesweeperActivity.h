@@ -56,4 +56,8 @@ class MinesweeperActivity final : public Activity {
 
   toybox::Interactions interactions;
   bool interactionsReady = false;
+
+  // The grid is hit-tested against geometry and never reaches route(), so the
+  // table digest cannot see a cell tap. See Activity::surfaceMeaning().
+  uint32_t surfaceMeaning() const override;
 };

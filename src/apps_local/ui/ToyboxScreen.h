@@ -30,7 +30,7 @@
 #include <FreeInkUIIcon.h>
 #include <Icon.h>
 
-#include "../../../lib/GfxRenderer/PaintClock.h"
+#include "../../../lib/GfxRenderer/RevealedInteractions.h"
 #include "ToyboxTokens.h"
 
 namespace toybox {
@@ -46,175 +46,21 @@ constexpr size_t kMaxInteractions = 24;
 // The hit table, plus the one thing the SDK buffer cannot know: whether the
 // panel has actually SHOWN the table being routed against.
 //
-// The gap this closes. Building a screen and showing it are separated by a
-// whole panel refresh -- 0.3-2s; HalDisplay::HALF_REFRESH alone is 1720ms.
-// Every activity in this fork builds its table, publishes it, and only then
-// calls displayBuffer(), so for the length of a refresh the loop task routes
-// taps against a screen nobody can see yet. A finger still resting where the
-// PREVIOUS screen's button was gets read against the NEW screen's table.
+// The mechanism, its rule and the reasoning behind that rule now live in
+// lib/GfxRenderer/RevealedInteractions.h, because three different layers need
+// it and none of them can reach the others: these toybox screens, the shared
+// components built on a raw InteractionBuffer (src/components/OptionPopup.h,
+// src/activities/util/KeyboardEntryActivity), and the eight games that
+// hit-test a play surface against GEOMETRY rather than against a table. The
+// short version: a tap routes unless the table it would route against has
+// changed since the last one the panel showed and no paint has landed since,
+// and an UNCHANGED table always routes, which is what keeps touch alive.
 //
-// The sharp version of the failure is not "the screen changed", it is a rect
-// whose MEANING changed underneath a stationary finger. BattleshipScreens.cpp
-// registers one capsule as `gameOver ? ActionPlayAgain : (canFire ? ActionFire
-// : NO_ACTION)`: FIRE is tapped dozens of times a game and becomes PLAY AGAIN
-// the instant the last shot lands, while the panel still reads FIRE.
-// SeaSaltScreens.cpp and JaipurScreens.cpp share the shape and are worse,
-// because their button was live and benign every round beforehand, so the
-// player is trained onto that exact pixel. Making the action safe mid-game
-// (NO_ACTION, as chess does) does not help: this window is exactly where the
-// two tables disagree.
-//
-// The rule, and why it is this rule. A tap routes unless the table it would
-// route against has changed since the last one the panel showed, and no paint
-// has landed since that change. Three consequences, all deliberate:
-//
-//   * an UNCHANGED table always routes. That is what keeps touch-down feedback
-//     working. The in-scope cases are MinesweeperActivity.cpp:153-165 and
-//     SudokuActivity.cpp:333-341: a held contact moves the cell outline,
-//     requestUpdate() repaints, and the LIFT of that same contact is what
-//     digs or writes. Those repaints draw the outline straight to target()
-//     and register no interaction at all, so the table really is identical
-//     across them and nothing is gated. (WavelengthActivity.cpp:432-435
-//     records what the other answer costs: an early return there "ate every
-//     tap on this screen".) Suppressing the contact outright -- the obvious
-//     fix -- would have been far worse than eating a release, because
-//     InputManager::suppressTouchContact() also gates isTouchTapCandidate,
-//     isTouchHeldAt and wasSwipe, so it would cancel those holds WHILE the
-//     finger is still down.
-//   * the gate is held by a CHANGE, not by a timer, and it opens on the very
-//     next completed paint. There is no threshold to tune and no path where a
-//     slow refresh leaves input dead longer than the refresh itself.
-//   * before the first paint of all -- host tests, and the moment before the
-//     boot splash -- nothing is gated, because there is no shown table to
-//     disagree with.
-//
-// The digest deliberately covers rect, action, value and inputMask and NOT
-// state or focusOrder: a selection highlight changes how a row draws, never
-// what tapping it means, and gating on it would break the case above.
-//
-// What this does NOT cover, and the gap is worth knowing before assuming a
-// tap is safe: the eight apps that hit-test their play surface against
-// GEOMETRY rather than against this buffer, because an 80-cell board does not
-// fit 24 slots -- MinesweeperActivity.cpp:195, SudokuActivity.cpp:370,
-// ChessActivity.cpp:828, CheckersActivity.cpp:252, BattleshipActivity.cpp:758
-// and :915, MurdleActivity.cpp:313, DungeonActivity.cpp:110. Those taps never
-// reach route(), so nothing here gates them: tapping Minesweeper's FLAG
-// capsule flips flagMode and repaints, and during that paint a grid tap flags
-// instead of digging while the panel still reads DIG. Same bug class, not
-// reachable from here, and not to be papered over locally either.
-//
-// Nor does it cover, because nothing here can reach it: the two screens
-// built on a raw freeink::ui::InteractionBuffer rather than on this --
-// src/components/OptionPopup.h and src/activities/util/KeyboardEntryActivity
-// -- and the whole non-toybox FreeInkApp stack behind src/components/
-// UiAppHost.cpp, whose table lives in FreeInkApp's private interactions_ and
-// is not reachable to digest without changing the SDK.
-class Interactions {
- public:
-  using Buffer = freeink::ui::InteractionBuffer<kMaxInteractions>;
-
-  // Lets a toybox::Frame (and anything else wanting the raw SDK buffer) bind
-  // to this exactly as it did when Interactions was an alias for it. Every
-  // existing call site keeps compiling and keeps meaning what it meant.
-  operator Buffer&() { return buffer_; }                    // NOLINT(google-explicit-constructor)
-  operator const Buffer&() const { return buffer_; }        // NOLINT(google-explicit-constructor)
-
-  // Called by toybox::Frame's constructor, BEFORE the SDK Frame clears the
-  // buffer -- the table still in it at that moment is the one the panel has
-  // been showing. Only adopt it as "shown" when a paint has actually landed
-  // since the last build; otherwise the previous build never reached the
-  // panel and the table before IT is still what the user is looking at.
-  // Digests the PUBLISHED generation, which is by definition the one the panel
-  // has been showing. Today that is the same array as data() for every caller:
-  // no toybox activity opts into double buffering, so published_ and building_
-  // both stay pinned at 0. (The two places in the fork that DO publish --
-  // OptionPopup.h and KeyboardEntryActivity -- hold raw
-  // freeink::ui::InteractionBuffer, not this, and are not gated by any of
-  // this; see the note in the class comment.) It is written against
-  // publishedData() anyway because the day a screen here calls
-  // beginPublishCycle(), building_ has already been flipped by the time this
-  // runs and data() would silently become the wrong array -- a rebuild from
-  // two generations ago, compared against as though the panel had shown it.
-  void beginBuild() {
-    const uint32_t painted = paintclock::painted();
-    if (painted != builtAtPaint_) shownDigest_ = digestOf(buffer_.publishedData(), buffer_.publishedCount());
-    builtAtPaint_ = painted;
-  }
-
-  freeink::ui::ActionEvent route(const freeink::ui::InputSnapshot& input) {
-    if (!shown(buffer_.data(), buffer_.count())) return {};
-    return buffer_.route(input);
-  }
-
-  freeink::ui::ActionEvent routePublished(const freeink::ui::InputSnapshot& input) {
-    if (!shown(buffer_.publishedData(), buffer_.publishedCount())) return {};
-    return buffer_.routePublished(input);
-  }
-
-  // Straight forwarders: none of them decide anything, so none of them gate.
-  void publish() { buffer_.publish(); }
-  void beginPublishCycle() { buffer_.beginPublishCycle(); }
-  void clear() { buffer_.clear(); }
-  size_t count() const { return buffer_.count(); }
-  bool overflowed() const { return buffer_.overflowed(); }
-  const freeink::ui::Interaction* data() const { return buffer_.data(); }
-  size_t publishedCount() const { return buffer_.publishedCount(); }
-  bool publishedOverflowed() const { return buffer_.publishedOverflowed(); }
-  const freeink::ui::Interaction* publishedData() const { return buffer_.publishedData(); }
-  int16_t activeIndex() const { return buffer_.activeIndex(); }
-  int16_t focusedIndex() const { return buffer_.focusedIndex(); }
-  void setFocusedIndex(const int16_t index) { buffer_.setFocusedIndex(index); }
-
-  // For tests and for anyone reasoning about a dropped tap.
-  bool routable() const { return shown(buffer_.data(), buffer_.count()); }
-
- private:
-  static uint32_t digestOf(const freeink::ui::Interaction* slots, const size_t slotCount) {
-    // FNV-1a. Cheap, and collisions cost one wrongly-allowed tap in the window
-    // rather than anything durable.
-    uint32_t hash = 2166136261u;
-    const auto mix = [&hash](const uint32_t value) {
-      for (int byte = 0; byte < 4; ++byte) {
-        hash ^= (value >> (byte * 8)) & 0xFFu;
-        hash *= 16777619u;
-      }
-    };
-    mix(static_cast<uint32_t>(slotCount));
-    for (size_t i = 0; i < slotCount; ++i) {
-      const freeink::ui::Interaction& slot = slots[i];
-      mix(static_cast<uint32_t>(static_cast<uint16_t>(slot.rect.x)) |
-          (static_cast<uint32_t>(static_cast<uint16_t>(slot.rect.y)) << 16));
-      mix(static_cast<uint32_t>(static_cast<uint16_t>(slot.rect.width)) |
-          (static_cast<uint32_t>(static_cast<uint16_t>(slot.rect.height)) << 16));
-      mix(static_cast<uint32_t>(slot.action));
-      mix(static_cast<uint32_t>(static_cast<uint16_t>(slot.value)) |
-          (static_cast<uint32_t>(slot.inputMask) << 16));
-      // StateDisabled and ONLY StateDisabled. It looks like a cosmetic bit and
-      // is not one: InteractionBuffer::findTouch skips disabled entries
-      // outright, so flipping it changes what a tap DOES. DungeonScreens.cpp
-      // registers its NEXT button with an identical rect, action, value and
-      // inputMask and flips only this bit on model.moreToPlay, so a dead
-      // control becoming live would otherwise slip through the digest
-      // unchanged. The focus/active/flash bits stay excluded, because those
-      // really are only how a row draws.
-      mix(static_cast<uint32_t>(slot.state & freeink::ui::StateDisabled));
-    }
-    return hash;
-  }
-
-  bool shown(const freeink::ui::Interaction* slots, const size_t slotCount) const {
-    // Nothing has ever been painted: no shown table to disagree with.
-    if (paintclock::painted() == 0) return true;
-    // A paint landed since this table was built, so the panel is showing it.
-    if (paintclock::painted() != builtAtPaint_) return true;
-    // Still mid-paint. Safe only if the meaning did not move under the finger.
-    return digestOf(slots, slotCount) == shownDigest_;
-  }
-
-  Buffer buffer_;
-  uint32_t shownDigest_ = 0;
-  uint32_t builtAtPaint_ = 0;
-};
+// Still not covered from anywhere, because nothing outside the SDK can reach
+// it: the FreeInkApp stack's own table, which lives in FreeInkApp's private
+// interactions_. src/components/UiAppHost.cpp gates that stack at screen
+// ENTRY with a paintclock::RevealGate instead.
+using Interactions = paintclock::RevealedInteractions<kMaxInteractions>;
 
 namespace detail {
 // Storage for the two things every screen hands in as a temporary.

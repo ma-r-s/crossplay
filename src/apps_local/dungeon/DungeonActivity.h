@@ -49,6 +49,9 @@ class DungeonActivity final : public Activity {
   dungeon::Progress progress;
   dungeonui::Layout layout;
   dungeonui::PickerLayout pickerLayout;
+  // What a tap on the play surface means. See Activity::surfaceMeaning().
+  uint32_t surfaceMeaning() const override;
+
   View view = View::Menu;
   // The dungeon the map has picked out and PLAY would open. Not the same as the
   // one loaded in `board`: you can look around the map without disturbing the

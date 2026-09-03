@@ -114,6 +114,30 @@ void MinesweeperActivity::beginGame() {
   goTo(ms::Screen::Board);
 }
 
+// What a tap on the grid means. Two things decide it and neither is in the
+// interaction table.
+//
+// `screen`, because the grid geometry is only live on the board while the
+// panel may still be showing the menu -- whose PLAY row sits exactly where a
+// cell now is, so the tap that started the game would also dig.
+//
+// `flagMode`, because the FLAG capsule is registered with an identical rect,
+// action, value and inputMask and flips only StateSelected, which the digest
+// ignores as paint. The same cell digs or flags with nothing in the table to
+// say which, and that is the whole worked example.
+//
+// Deliberately NOT here: the board itself. Revealing a cell repaints, and
+// folding the position in would gate the next dig for a full refresh, which is
+// the frozen-device failure. A change to the board is also always the player's
+// own last tap -- there is no opponent here to move it underneath them.
+uint32_t MinesweeperActivity::surfaceMeaning() const {
+  const uint32_t withScreen = paintclock::mixMeaning(paintclock::kMeaningSeed, static_cast<uint32_t>(screen));
+  const uint32_t withMode = paintclock::mixMeaning(withScreen, flagMode ? 1u : 0u);
+  // The live/dead bit: a settled board keeps its pixels and stops accepting
+  // moves, so the surface changes meaning without moving.
+  return paintclock::mixMeaning(withMode, ms::over(game) ? 1u : 0u);
+}
+
 void MinesweeperActivity::loop() {
   namespace fui = freeink::ui;
 
@@ -151,6 +175,16 @@ void MinesweeperActivity::loop() {
     int column = 0;
     int row = 0;
     if (mappedInput.isScreenTouchHeld(hx, hy) && mineui::cellAt(device, hx, hy, column, row)) {
+      if (!surfaceRevealed()) {
+        // Void the contact instead of just ignoring it. Leaving the latch
+        // running would let the hold fire the instant the gate opens, planting
+        // a flag against a board the player had not seen yet -- the timer
+        // would already have expired against the screen underneath.
+        holdColumn = -1;
+        holdRow = -1;
+        holdFired = false;
+        return;
+      }
       if (column != holdColumn || row != holdRow) {
         // Moved to another cell: the hold starts again there, so sliding a
         // finger across the board never plants a flag you did not mean.
@@ -193,6 +227,10 @@ void MinesweeperActivity::loop() {
     int column = 0;
     int row = 0;
     if (mineui::cellAt(device, tapX, tapY, column, row)) {
+      // Guarded here rather than around the whole branch so a tap that misses
+      // the grid still reaches route(), which has its own digest gate for the
+      // chrome. See Activity::surfaceMeaning().
+      if (!surfaceRevealed()) return;
       // The rules decide legality, not the screen and not here.
       const bool changed = flagMode ? ms::toggleFlag(game, column, row) : ms::reveal(game, column, row);
       if (changed) requestUpdate();

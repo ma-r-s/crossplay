@@ -9,6 +9,7 @@
 
 #include "GfxRenderer.h"
 #include "MappedInputManager.h"
+#include "RevealedInteractions.h"
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
 
@@ -74,6 +75,14 @@ class OptionPopup {
       // Interactions are registered on the render task; only route once the
       // first render after show() has populated the table (uiReady handshake).
       if (uiReady) {
+        // Ask the gate BEFORE routing, not after. A suppressed tap comes back
+        // from routePublished() as a default-constructed event, which is
+        // indistinguishable from "landed on nothing" -- and landing on nothing
+        // is what the outside-tap branch below reads as DISMISS. Falling
+        // through would turn a tap the panel could not have shown into a
+        // dismissal, which is the gate causing a wrong action rather than
+        // preventing one.
+        if (!interactions.publishedRoutable()) return true;
         const freeink::ui::ActionEvent event = interactions.routePublished(snap);
         if (event && event.action == ACTION_OPTION) {
           // Tap released on an option: select it, fire, dismiss.
@@ -160,6 +169,10 @@ class OptionPopup {
     // publishedData() aren't currently reading, so the loop task never sees
     // this table mid-rebuild — see publish() below and
     // InteractionBuffer::beginPublishCycle().
+    // Before beginPublishCycle() and before the Frame's constructor clears:
+    // the table still published at this moment is the one the panel has been
+    // showing, and that is what the next tap is measured against.
+    interactions.beginBuild();
     interactions.beginPublishCycle();
     fui::Frame<INTERACTION_CAPACITY> frame(target, device, noInput, interactions);
 
@@ -241,6 +254,6 @@ class OptionPopup {
   std::function<void(int)> onSelectCallback;
   // Written by the render task (frame registration), routed by the loop task;
   // uiReady closes the rebuild window exactly like UiListActivity::uiReady.
-  mutable freeink::ui::InteractionBuffer<INTERACTION_CAPACITY> interactions;
+  mutable paintclock::RevealedInteractions<INTERACTION_CAPACITY> interactions;
   mutable std::atomic<bool> uiReady{false};
 };

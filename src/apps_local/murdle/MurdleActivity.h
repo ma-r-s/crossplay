@@ -102,6 +102,9 @@ class MurdleActivity final : public Activity {
   // cases on a device with 380KB of it.
   std::unique_ptr<murdle::Scratch> scratch;
 
+  // What a tap on the play surface means. See Activity::surfaceMeaning().
+  uint32_t surfaceMeaning() const override;
+
   View view = View::Menu;
   murdleui::Face face = murdleui::Face::Clues;
   murdleui::GridLayout gridLayout;

@@ -769,6 +769,29 @@ const char* ChessActivity::statusText() const {
   return engineToMove() ? "THINKING" : "YOUR MOVE";
 }
 
+// whiteAtBottom() is the reason this app cannot get away with a mode bit. In
+// Pass-and-Play it is position.whiteToMove, so the board turns 180 degrees on
+// every half-move and every pixel becomes a different square; a rematch flips
+// the player's colour and does the same. That is the pixel-to-square map, and
+// nothing else in the fork remaps this completely.
+//
+// The live/dead bit covers the changes that arrive without a tap: the engine
+// replying on the pass after your move, and a link opponent's move handing the
+// turn back through driveLink().
+//
+// selectedSquare is deliberately absent: select-then-move is every move in the
+// game, the select repaints, and hashing it would drop the destination tap.
+// The position is absent for the same reason -- it changes on every move and
+// does not move which square a pixel is, except through whiteAtBottom(), which
+// is hashed above precisely because it does.
+uint32_t ChessActivity::surfaceMeaning() const {
+  uint32_t meaning = paintclock::mixMeaning(paintclock::kMeaningSeed, showingMenu ? 1u : 0u);
+  meaning = paintclock::mixMeaning(meaning, showingSettings ? 1u : 0u);
+  meaning = paintclock::mixMeaning(meaning, whiteAtBottom() ? 1u : 0u);
+  const bool live = !gameOver && !engineThinking && !engineToMove() && !(linkPlaying() && !linkYourTurn());
+  return paintclock::mixMeaning(meaning, live ? 1u : 0u);
+}
+
 void ChessActivity::gameLoop() {
   if (showingMenu) {
     routeStartMenu();
@@ -827,6 +850,9 @@ void ChessActivity::gameLoop() {
     if (!gameOver) {
       const int square = squareAtPoint(touchX, touchY);
       if (square >= 0) {
+        // Sixty-four squares do not fit the interaction table, so this never
+        // reaches route(). See Activity::surfaceMeaning().
+        if (!surfaceRevealed()) return;
         handleSquareActivated(square);
       }
     }

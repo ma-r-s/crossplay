@@ -61,6 +61,12 @@ void ActivityManager::renderTaskLoop() {
       // resolving the output polarity here, per render, means menus, popups,
       // and every other activity revert to normal automatically.
       display.setInverted(SETTINGS.screenInverted != 0 && currentActivity->appliesNightMode());
+      // Stamp what a tap on the play surface will mean in the frame about to
+      // be built, before render() blocks in displayBuffer(). Taken here rather
+      // than inside each render() so a new screen cannot forget it; a no-op
+      // for every activity that does not override surfaceMeaning(). See
+      // Activity::surfaceMeaning().
+      currentActivity->noteSurfaceBuilt();
       currentActivity->render(std::move(lock));
     }
     // Notify any task blocked in requestUpdateAndWait() that the render is done.
