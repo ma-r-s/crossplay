@@ -73,6 +73,13 @@ class WifiSelectionActivity final : public Activity, private UiAppHost {
   std::string connectedIP;
   std::string connectionError;
 
+  // Why the last REMEMBERED network failed, kept for the network list to show.
+  // Auto-connect never reaches CONNECTION_FAILED -- handleAutoConnectFailure()
+  // returns before the state assignment that draws connectionError -- so
+  // without this the user waits seven seconds per saved network and is then
+  // handed a bare list with no reason on it anywhere.
+  std::string autoConnectError;
+
   // Password to potentially save (from keyboard or saved credentials)
   std::string enteredPassword;
 

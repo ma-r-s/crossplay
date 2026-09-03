@@ -37,7 +37,10 @@ networks or in hotspot mode when you control who is connected.
    order. Press **Back** to cancel or **Confirm** to stop auto-connect and show
    the network list.
 3. If the network list is shown, pick a 2.4 GHz Wi-Fi network from the scan
-   results.
+   results. When auto-connect gave up rather than being cancelled, the line
+   above the list says why the remembered network failed (not found, timed
+   out) instead of showing the MAC address, which moves to the right of the
+   same line.
 4. Enter the password if prompted.
 5. Save credentials if you want the reader to reconnect automatically next time.
 
