@@ -19,6 +19,8 @@ directory behind this same command line; nothing that calls `board` changes.
     board ask <id> --ask "..." --default "..."        orchestrator only (the hook enforces it)
     board answer <id> "<choice>" [--note "..."]
     board state <id> reported|triaged|working|review|merged|released|done|parked
+    board owner <app> [--session <sid>] [--tree wt/x]  who owns an app (lookup with no flags)
+    board route <id>                                   which session a card goes to
     board show <id> | board list [--open] | board inbox | board import <file.md>
 
 Session ids are the ones the SessionStart hook prints; nothing else identifies
@@ -139,6 +141,36 @@ class Store:
 
     def save_session(self, s):
         self.write(self.sessions / f"{s['session_id']}.json", s)
+
+
+def cmd_owner(st, a):
+    """Record, or look up, which session owns an app."""
+    p = st.dir / "owners.json"
+    with st._lock():
+        owners = st.read(p) or {}
+        if a.session or a.tree:
+            owners[a.app.lower()] = {
+                "session": norm_sid(a.session) if a.session else owners.get(a.app.lower(), {}).get("session"),
+                "tree": a.tree or owners.get(a.app.lower(), {}).get("tree"),
+                "since": now(),
+            }
+            st.write(p, owners)
+    o = owners.get(a.app.lower())
+    if o:
+        print(f"{a.app}: session {o.get('session')}  tree {o.get('tree')}")
+    else:
+        print(f"{a.app}: no owner")
+
+
+def cmd_route(st, a):
+    """Where a card goes: its app's owner, or nobody."""
+    c = st.card(a.id)
+    owners = st.read(st.dir / "owners.json") or {}
+    o = owners.get(str(c.get("from", "")).lower())
+    if o and o.get("session"):
+        print(f"#{c['id']} -> {c['from']} owner session {o['session']} (tree {o.get('tree')})")
+    else:
+        print(f"#{c['id']} -> {c['from']} has no owner; start a worker")
 
 
 def hist(c, what):
@@ -518,6 +550,8 @@ def main(argv=None):
     s.add_argument("--open", action="store_true")
     s.set_defaults(fn=cmd_list)
     sub.add_parser("inbox").set_defaults(fn=cmd_inbox)
+    s = sub.add_parser("owner"); s.add_argument("app"); s.add_argument("--session"); s.add_argument("--tree"); s.set_defaults(fn=cmd_owner)
+    s = sub.add_parser("route"); s.add_argument("id", type=int); s.set_defaults(fn=cmd_route)
     s = sub.add_parser("import")
     s.add_argument("file")
     s.add_argument("--kind", choices=["bug", "feature", "task"], default="task")

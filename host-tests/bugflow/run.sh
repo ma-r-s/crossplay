@@ -119,6 +119,10 @@ board import "$WORK/import2.md" >/dev/null
 board ask 4 --ask "use it once" --default "unverified" >/dev/null
 board inbox | grep -q "Since: proven end to end" && ok "inbox strips the since label" || bad "inbox repeats the since label"
 board inbox | grep -q "Since: Since" && bad "inbox doubled the label" || ok "no doubled label"
+board owner sudoku --session "$WORKER" --tree wt/x >/dev/null
+board route "$CID" | grep -q "owner session $WORKER" && ok "a card routes to its app's owner" || bad "route did not find the owner"
+board route 2 | grep -q "no owner" && ok "an app with no owner says so" || bad "no-owner case wrong"
+board owner sudoku | grep -q "session $WORKER" && ok "owner lookup without flags" || bad "owner lookup failed"
 board integrator --session "$WORKER" >/dev/null 2>&1 && bad "a second integrator claim succeeded" || ok "a held integration claim refuses a second claimant"
 board integrator --session "$WORKER" --release >/dev/null 2>&1 && bad "a stranger released the claim" || ok "only the holder releases the claim"
 board integrator --session "$INTEG" --release >/dev/null && ok "the holder releases the claim" || bad "holder cannot release"
