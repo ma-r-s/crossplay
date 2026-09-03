@@ -21,6 +21,7 @@ is a no-op. host-tests/bugflow/run.sh drives every branch below with fixture
 input, including the ones that must NOT block.
 """
 
+import datetime as dt
 import json
 import os
 import pathlib
@@ -188,7 +189,7 @@ def pretool(board, data):
             block(
                 "Refused: that file is in firmware-next, the integration tree. Work happens in "
                 "wt/<name>/ (./scripts/wt.sh new <name>). Only the session holding the integration "
-                f"claim edits here: {board_cmd(root)} integrator --session <your id>."
+                f"claim edits here: {board_cmd(root)} integrator --session {norm_sid(sid)}"
             )
         return
 
@@ -204,12 +205,13 @@ def pretool(board, data):
         ):
             block(
                 "Refused: that command writes into firmware-next, the integration tree. Reading it "
-                "is fine; changing it is the integrator's job. Work in wt/<name>/."
+                "is fine; changing it is the integrator's job. Work in wt/<name>/, or if you are "
+                f"integrating, claim the tree first: {board_cmd(root)} integrator --session {norm_sid(sid)}"
             )
         if re.search(r"board(\.py)?\s+ask\b", cmd) and not board.is_orchestrator(sid):
             block(
                 "Refused: only the orchestrator asks Mario. Record what you need on your card: "
-                f"{board_cmd(root)} block <card> --session <id> --need <desk|design|info|mario> --ask '...' --default '...'"
+                f"{board_cmd(root)} block <card> --session {norm_sid(sid)} --need <desk|design|info|mario> --ask '...' --default '...'"
             )
         return
 
@@ -230,7 +232,7 @@ def pretool(board, data):
         block(
             f"Refused: workers talk only to the orchestrator ({name or 'not named yet'}). A peer "
             "cannot resolve your blocker and cannot pass Mario's authority along. Message the "
-            f"orchestrator, or record the blocker on your card: {board_cmd(board.root)} block <card> --session <id> ..."
+            f"orchestrator, or record the blocker on your card: {board_cmd(board.root)} block <card> --session {norm_sid(sid)} --need <desk|design|info|mario> --ask '...' --default '...'"
         )
 
 
@@ -361,5 +363,33 @@ def main():
         session_start(board, data)
 
 
+
+def guarded_main():
+    """Fail open, on purpose, and leave a trail.
+
+    A hook that crashes on its own bug must not lock every session out of the
+    repository, so anything unexpected here exits 0 (Claude Code treats that as
+    "no opinion") after appending one line to <workspace>/.board/hook-errors.log,
+    where the orchestrator can see that a check did not run. The only deliberate
+    refusals are the exit-2 paths above, each of which names its remedy with the
+    session id already filled in. A missing board, a missing switch file, or
+    unreadable input are all "no opinion", never a block.
+    """
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception as e:  # noqa: BLE001 - the point is to never lock anyone out
+        try:
+            root = find_root()
+            if root is not None:
+                with open(root / ".board" / "hook-errors.log", "a") as f:
+                    f.write(f"{dt.datetime.now(dt.timezone.utc).isoformat()} {sys.argv[1:]} {type(e).__name__}: {e}\n")
+        except Exception:
+            pass
+        sys.stderr.write(f"[bugflow] the guard could not run ({type(e).__name__}); letting this through and logging it\n")
+        sys.exit(0)
+
+
 if __name__ == "__main__":
-    main()
+    guarded_main()
