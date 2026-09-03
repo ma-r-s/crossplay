@@ -194,6 +194,25 @@ inline void tapCell(Game& game, const int cell) {
   if (isSolved(game)) game.solvedFlag = 1;
 }
 
+// The two questions the front door asks, both DERIVED from the save rather
+// than latched beside it.
+//
+// `Puzzle` carries the level it was carved at, so "is the menu showing the
+// level you were playing" is a fact with an answer at any moment. A flag set on
+// every DIFFICULTY tap cannot represent COMING BACK: the row cycles
+// `(level + 1) % 4`, so four taps returned the menu to where it started with
+// the flag still set, and the door under a grid that was still on the screen
+// silently became the one that overwrites it.
+inline bool switchesLevel(const Game& game, const bool hasGame, const Level menuLevel) {
+  return hasGame && menuLevel != game.puzzle.level;
+}
+
+inline bool canResume(const Game& game, const bool hasGame, const Level menuLevel) {
+  // Three separate reasons the door starts fresh instead: nothing saved, the
+  // saved puzzle is finished, or the menu is pointed at another level.
+  return hasGame && game.solvedFlag == 0 && !switchesLevel(game, hasGame, menuLevel);
+}
+
 // A hold on a cell pencils the armed digit in, or rubs it out. Same split as
 // Minesweeper's tap-to-dig and hold-to-flag, deliberately: it is the one
 // two-gesture idiom this device already has, so it is the one a player has

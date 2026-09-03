@@ -45,7 +45,6 @@ void SudokuActivity::onEnter() {
   toybox::ensureFonts(renderer);
   screen = sk::Screen::Menu;
   menuSelected = -1;
-  levelChanged = false;
   notice = nullptr;
   lastTickMs = millis();
   // The only entropy that differs between two boots, and it enters here and
@@ -73,7 +72,6 @@ void SudokuActivity::beginGame() {
   generating = true;
   generateDeferred = true;
   generatingLevel = menuLevel;
-  levelChanged = false;
   resultRecorded = false;
   newBest = false;
   holdCell = sk::kNoCell;
@@ -227,6 +225,15 @@ void SudokuActivity::loadState() {
   game = restored;
   hasGame = savedHasGame;
   resultRecorded = game.solvedFlag != 0;
+
+  // The menu opens on the level of the puzzle it is offering to resume, which
+  // is a repair as much as a preference. `menuLevel` is a stored field and
+  // `puzzle.level` is re-derived from the clues above, so a card written while
+  // the player was merely BROWSING the difficulty row holds the two disagreeing
+  // -- and the door reads what they say, so it would offer NEW PUZZLE over a
+  // good grid. A level picked and never played is not worth carrying across a
+  // restart; a half-solved puzzle is.
+  if (hasGame && game.solvedFlag == 0) menuLevel = game.puzzle.level;
 #endif
 }
 
@@ -418,7 +425,10 @@ void SudokuActivity::loop() {
     case sudokuui::ActionPlay:
       // Resuming and starting are the same door, because the difference is a
       // fact about the save rather than a choice the player should have to make.
-      if (hasGame && !levelChanged && game.solvedFlag == 0) {
+      // Which one it is has exactly one definition, shared with the label the
+      // player read before tapping: a second copy of it here is how a door does
+      // something other than what it says.
+      if (sk::canResume(game, hasGame, menuLevel)) {
         goTo(sk::Screen::Board);
         return;
       }
@@ -432,7 +442,6 @@ void SudokuActivity::loop() {
           // setting that threw the grid away and jumped to a new one would
           // apply before the player had seen it change.
           menuLevel = nextLevel(menuLevel);
-          levelChanged = true;
           menuSelected = static_cast<int>(sudokuui::MenuRow::Level);
           requestUpdate();
           return;
@@ -500,7 +509,6 @@ void SudokuActivity::render(RenderLock&&) {
       model.hasGame = hasGame;
       model.game = game;
       model.record = record;
-      model.levelChanged = levelChanged;
       model.selected = menuSelected;
       sudokuui::buildMenu(surface, model);
       break;

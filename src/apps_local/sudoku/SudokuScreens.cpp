@@ -531,11 +531,14 @@ fui::Rect menuDoors(toybox::Screen& screen, const MenuModel& model, char* levelR
 void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   toyboxChrome(screen, "SUDOKU", sk::levelName(model.level));
 
-  const bool resuming = model.hasGame && !model.levelChanged && model.game.solvedFlag == 0;
+  // The same two predicates the tap runs, asked of the same three values, so
+  // the label the player reads and the door they get cannot come apart.
+  const bool switching = sk::switchesLevel(model.game, model.hasGame, model.level);
+  const bool resuming = sk::canResume(model.game, model.hasGame, model.level);
   const char* action = resuming ? "RESUME" : "NEW PUZZLE";
 
   char state[48];
-  if (model.levelChanged) {
+  if (switching) {
     std::snprintf(state, sizeof(state), "%s, STARTING FRESH", sk::levelName(model.level));
   } else if (resuming) {
     std::snprintf(state, sizeof(state), "%d LEFT", sk::emptyCount(model.game));

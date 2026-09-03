@@ -579,6 +579,100 @@ void testTheRecordOnlyTimesUnhintedSolves() {
   checkEq(sudoku::totalSolved(record), 3, "the total counts every level");
 }
 
+// ---------------------------------------------------------------------------
+// The front door under a saved grid.
+//
+// A data-loss bug shipped here, and its shape is why these are driven rather
+// than sampled. DIFFICULTY set a one-way latch that only entering the app or
+// starting a game cleared, and the row steps (level + 1) % 4 -- so FOUR taps
+// put the menu back on the saved puzzle's own level with the latch still set.
+// The grid was still drawn, cell for cell, and the door under it had quietly
+// become the one that overwrites it. No confirmation, no timing window: anyone
+// curious enough to look at what the levels were lost their puzzle.
+//
+// Every case below runs from every starting level, because the bug was
+// invisible from the one place anybody looks -- the level you started on.
+// ---------------------------------------------------------------------------
+
+// The menu row's own step. Kept identical to SudokuActivity's on purpose: a
+// test that walked the levels some other way would not be walking the taps.
+sudoku::Level nextMenuLevel(const sudoku::Level level) {
+  return static_cast<sudoku::Level>((static_cast<int>(level) + 1) % sudoku::kLevelCount);
+}
+
+sudoku::Game gameCarvedAt(const sudoku::Level level) {
+  sudoku::Game game;
+  game.puzzle.level = level;
+  return game;
+}
+
+void testCyclingTheLevelRowBackReadsAsResumeAgain() {
+  for (int i = 0; i < sudoku::kLevelCount; ++i) {
+    const auto saved = static_cast<sudoku::Level>(i);
+    const sudoku::Game game = gameCarvedAt(saved);
+    check(sudoku::canResume(game, true, saved), "the menu opens resumable on the saved puzzle's level");
+
+    sudoku::Level menu = saved;
+    for (int tap = 1; tap < sudoku::kLevelCount; ++tap) {
+      menu = nextMenuLevel(menu);
+      check(!sudoku::canResume(game, true, menu), "another level offers a new puzzle");
+      check(sudoku::switchesLevel(game, true, menu), "and the caption says it is starting fresh");
+    }
+
+    menu = nextMenuLevel(menu);
+    checkEq(static_cast<int>(menu), static_cast<int>(saved), "four taps return the row to where it started");
+    check(sudoku::canResume(game, true, menu), "and the door is RESUME again, not NEW PUZZLE");
+    check(!sudoku::switchesLevel(game, true, menu), "with nothing to start fresh from");
+  }
+}
+
+void testTheDoorIsHonestWithNoSaveAndWithAFinishedOne() {
+  // The empty card, and the reason `hasGame` cannot be dropped from the
+  // predicate: an unset Puzzle grades as Easy and so does an unset menu, so the
+  // two levels MATCH here. Only `hasGame` stands between a fresh card and
+  // RESUME over nothing at all.
+  const sudoku::Game none;
+  checkEq(static_cast<int>(none.puzzle.level), static_cast<int>(sudoku::Level::Easy),
+          "an unset puzzle default-grades as Easy");
+  for (int i = 0; i < sudoku::kLevelCount; ++i) {
+    const auto menu = static_cast<sudoku::Level>(i);
+    check(!sudoku::canResume(none, false, menu), "nothing saved is never resumable");
+    check(!sudoku::switchesLevel(none, false, menu), "and has no level to be switched away from");
+  }
+
+  // A finished grid stays on the panel wearing SOLVED; the menu's door is the
+  // one that replaces it. Resuming it would open a board with no move in it.
+  for (int i = 0; i < sudoku::kLevelCount; ++i) {
+    const auto saved = static_cast<sudoku::Level>(i);
+    sudoku::Game solved = gameCarvedAt(saved);
+    solved.solvedFlag = 1;
+    check(!sudoku::canResume(solved, true, saved), "a solved puzzle is not resumed");
+    check(!sudoku::switchesLevel(solved, true, saved), "and reads as solved rather than as a level change");
+    check(sudoku::switchesLevel(solved, true, nextMenuLevel(saved)), "picking another level after a solve does");
+  }
+}
+
+void testAPuzzleJustCarvedIsImmediatelyResumable() {
+  // The predicate reads `puzzle.level`, which the generator writes by GRADING
+  // rather than by copying the request. If those two ever came apart, the front
+  // door would offer NEW PUZZLE the instant a board was made -- over the board
+  // it had just made.
+  sudoku::Workspace work;
+  uint32_t rng = 0x51D0C0DEu;
+  int made = 0;
+  for (int i = 0; i < sudoku::kLevelCount; ++i) {
+    const auto level = static_cast<sudoku::Level>(i);
+    sudoku::Puzzle puzzle;
+    if (!sudoku::generate(puzzle, level, work, rng, kAttempts)) continue;
+    ++made;
+    sudoku::Game game;
+    sudoku::startGame(game, puzzle);
+    check(sudoku::canResume(game, true, level), "a puzzle just carved resumes at the level it was asked for");
+    check(!sudoku::switchesLevel(game, true, level), "and is not a level change");
+  }
+  checkEq(made, sudoku::kLevelCount, "one puzzle carved at every level");
+}
+
 // Every string that can land in the board's status capsule, against the width
 // that capsule actually has.
 //
@@ -656,6 +750,9 @@ int main() {
   testVisibleNotesHideWhatAPeerHasTaken();
   testClashesAreFoundAndSolvingIsRecognised();
   testTheRecordOnlyTimesUnhintedSolves();
+  testCyclingTheLevelRowBackReadsAsResumeAgain();
+  testTheDoorIsHonestWithNoSaveAndWithAFinishedOne();
+  testAPuzzleJustCarvedIsImmediatelyResumable();
   std::printf("Generation cost\n");
   reportGenerationCost();
 
