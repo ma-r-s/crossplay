@@ -1,0 +1,163 @@
+#!/bin/bash
+# The hooks that make the workspace rules physical, and the board they read.
+#
+# Every rule below is asserted in both directions: the thing that must be
+# refused is refused, and the thing that must be allowed is allowed. A guard
+# that blocks everything passes a one-sided test as easily as a guard that
+# blocks nothing, and this suite exists because the previous enforcement was
+# prose that nobody could test at all.
+#
+#   host-tests/bugflow/run.sh
+set -uo pipefail
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+GUARD="$HERE/../../scripts_local/hooks/guard.py"
+BOARD="$HERE/../../tools_local/board/board.py"
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+
+[ -f "$GUARD" ] || { echo "FAIL cannot find $GUARD"; exit 1; }
+[ -f "$BOARD" ] || { echo "FAIL cannot find $BOARD"; exit 1; }
+
+PASS=0; FAIL=0
+ok()  { PASS=$((PASS+1)); echo "  ok   $1"; }
+bad() { FAIL=$((FAIL+1)); echo "  FAIL $1"; }
+
+# A fake workspace: the two directories the root is recognised by, a worker
+# tree, and an armed board. Nothing here touches the real .board.
+ROOT="$WORK/ws"
+mkdir -p "$ROOT/firmware-next/src" "$ROOT/wt/x/src" "$ROOT/.board"
+export BOARD_ROOT="$ROOT"
+board() { python3 "$BOARD" "$@"; }
+
+WORKER="aaaa-worker"; ORCH="bbbb-orch"; INTEG="cccc-integ"
+
+# guard <mode> <json>  -> prints the exit code
+guard() { printf '%s' "$2" | python3 "$GUARD" "$1" >"$WORK/out" 2>"$WORK/err"; echo $?; }
+expect() { # expect <label> <want-exit> <mode> <json>
+  local got; got=$(guard "$3" "$4")
+  if [ "$got" = "$2" ]; then ok "$1"; else bad "$1 (exit $got, wanted $2; stderr: $(head -c 160 "$WORK/err"))"; fi
+}
+
+echo "hooks are inert until armed"
+expect "unarmed: firmware-next edit passes" 0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/firmware-next/src/a.cpp\"}}"
+touch "$ROOT/.board/enabled"
+board init >/dev/null
+board orchestrator --name Main --session "$ORCH" >/dev/null
+board integrator --session "$INTEG" >/dev/null
+
+echo "the guard fails open on its own trouble"
+printf 'not json' | python3 "$GUARD" pretool >/dev/null 2>&1; [ $? -eq 0 ] && ok "unreadable input is no opinion" || bad "unreadable input blocked"
+printf '{"session_id":"x","tool_name":"Bash","tool_input":{"command":"ls"}}' | BOARD_ROOT=/nonexistent python3 "$GUARD" pretool >/dev/null 2>&1; [ $? -eq 0 ] && ok "a missing board is no opinion" || bad "a missing board blocked"
+
+echo "the integration tree"
+expect "worker edit in firmware-next refused"   2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/firmware-next/src/a.cpp\"}}"
+grep -q "integrator --session $WORKER" "$WORK/err" && ok "the refusal carries the remedy with the session id filled in" || bad "refusal lacks the substituted remedy: $(head -c 200 "$WORK/err")"
+expect "worker write in firmware-next refused"  2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$ROOT/firmware-next/docs/x.md\"}}"
+expect "integrator edit in firmware-next allowed" 0 pretool "{\"session_id\":\"$INTEG\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/firmware-next/src/a.cpp\"}}"
+expect "worker edit in its own tree allowed"    0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/x/src/a.cpp\"}}"
+expect "worker bash write into firmware-next refused" 2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cd $ROOT/firmware-next && git merge app/x\"}}"
+expect "worker bash read of firmware-next allowed"    0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git -C $ROOT/firmware-next log --oneline -5\"}}"
+expect "reading the tree with 2>&1 is not a write"  0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cd $ROOT/firmware-next && git fetch -q origin 2>&1 | tail -3\"}}"
+expect "git log -C the tree to /dev/null is fine"   0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git -C $ROOT/firmware-next log --oneline -5 >/dev/null 2>&1\"}}"
+expect "a redirect into the tree is a write"        2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo x > $ROOT/firmware-next/docs/x.md\"}}"
+expect "a relative redirect after cd into the tree is a write" 2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cd $ROOT/firmware-next && cat a > docs/x.md\"}}"
+expect "cp into the tree is a write"                2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cp /tmp/a.h $ROOT/firmware-next/src/a.h\"}}"
+expect "a heredoc that merely mentions the tree is data" 0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"python3 - <<'EOF'\\ncmd = 'cd firmware-next && git merge app/x'\\nprint(cmd)\\nEOF\"}}"
+expect "cd out of the tree ends the tree context"   0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cd $ROOT/firmware-next && git status && cd $ROOT/wt/x && git commit -am x\"}}"
+expect "integrator bash merge allowed"          0 pretool "{\"session_id\":\"$INTEG\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cd $ROOT/firmware-next && git merge app/x\"}}"
+
+echo "the build lock"
+expect "raw pio run refused"                    2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cd wt/x && pio run -e x4pro\"}}"
+expect "check.sh allowed"                       0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cd wt/x && ./scripts_local/check.sh --tests\"}}"
+expect "pio in a word is not pio run"           0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"grep -rn 'pio run' docs\"}}"
+
+echo "who may talk to whom"
+expect "worker to orchestrator allowed"         0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"SendMessage\",\"tool_input\":{\"to\":\"Main\",\"message\":\"blocked\"}}"
+expect "worker to orchestrator with ref allowed" 0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"SendMessage\",\"tool_input\":{\"to\":\"Main [1a2b3c]\",\"message\":\"blocked\"}}"
+expect "worker to a peer refused"               2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"SendMessage\",\"tool_input\":{\"to\":\"xteink-ff\",\"message\":\"who owns 1.12.5\"}}"
+expect "worker to a peer via the app refused"   2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"mcp__ccd_session_mgmt__send_message\",\"tool_input\":{\"session_id\":\"local_dddd-peer\",\"message\":\"hi\"}}"
+expect "worker to orchestrator via the app allowed" 0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"mcp__ccd_session_mgmt__send_message\",\"tool_input\":{\"session_id\":\"local_$ORCH\",\"message\":\"hi\"}}"
+expect "orchestrator to anyone allowed"         0 pretool "{\"session_id\":\"$ORCH\",\"tool_name\":\"SendMessage\",\"tool_input\":{\"to\":\"xteink-ff\",\"message\":\"take it\"}}"
+expect "worker asking Mario refused"            2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"board ask 3 --ask 'ship?' --default hold\"}}"
+expect "orchestrator asking Mario allowed"      0 pretool "{\"session_id\":\"$ORCH\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"board ask 3 --ask 'ship?' --default hold\"}}"
+
+echo "ending a turn"
+T="$WORK/transcript.jsonl"
+mk_transcript() { # mk_transcript "<last assistant text>"
+  printf '{"type":"user","message":{"content":"go"}}\n' > "$T"
+  printf '{"type":"assistant","message":{"content":[{"type":"text","text":%s}]}}\n' "$(python3 -c 'import json,sys;print(json.dumps(sys.argv[1]))' "$1")" >> "$T"
+}
+mk_transcript "Fixed and gated. Want me to also port the picker fix, or leave it?"
+expect "hand-back with no card refused"          2 stop "{\"session_id\":\"$WORKER\",\"transcript_path\":\"$T\",\"stop_hook_active\":false}"
+grep -q "board.py bind" "$WORK/err" && ok "refusal tells it to bind" || bad "refusal does not tell it to bind"
+expect "stop_hook_active never loops"            0 stop "{\"session_id\":\"$WORKER\",\"transcript_path\":\"$T\",\"stop_hook_active\":true}"
+expect "orchestrator may hand back"              0 stop "{\"session_id\":\"$ORCH\",\"transcript_path\":\"$T\",\"stop_hook_active\":false}"
+mk_transcript "Fixed, gated, pushed. PR open; card moved to review."
+expect "a finished turn passes"                  0 stop "{\"session_id\":\"$WORKER\",\"transcript_path\":\"$T\",\"stop_hook_active\":false}"
+
+CID=$(board new "Sudoku loses the puzzle from the difficulty menu" --from sudoku --kind bug | sed 's/^#\([0-9]*\).*/\1/')
+board bind "$CID" --session "$WORKER" --tree wt/x --branch app/x >/dev/null
+mk_transcript "I cannot see the panel from here. Let me know when you have flashed it."
+expect "hand-back with a card but no blocker refused" 2 stop "{\"session_id\":\"$WORKER\",\"transcript_path\":\"$T\",\"stop_hook_active\":false}"
+grep -q "card #$CID" "$WORK/err" && ok "refusal names the card" || bad "refusal does not name the card"
+board block "$CID" --session "$WORKER" --need desk --ask "flash and look at the door" --default "stays unverified" >/dev/null
+expect "hand-back with a blocker recorded passes" 0 stop "{\"session_id\":\"$WORKER\",\"transcript_path\":\"$T\",\"stop_hook_active\":false}"
+
+echo "session start"
+guard session-start "{\"session_id\":\"$WORKER\",\"cwd\":\"$ROOT\"}" >/dev/null
+grep -q "session id is $WORKER" "$WORK/out" && ok "prints the session id" || bad "no session id printed"
+grep -q "orchestrator is: Main" "$WORK/out" && ok "names the orchestrator" || bad "does not name the orchestrator"
+grep -q "Your card: #$CID" "$WORK/out" && ok "names the bound card" || bad "does not name the bound card"
+grep -q "worker contract" "$WORK/out" && ok "prints the contract" || bad "does not print the contract"
+guard session-start "{\"session_id\":\"$ORCH\",\"cwd\":\"$ROOT\"}" >/dev/null
+grep -q "ORCHESTRATOR" "$WORK/out" && ok "the orchestrator is told it is one" || bad "orchestrator not told"
+
+echo "the board"
+board inbox | grep -q "Nothing needs you" && ok "inbox empty when nothing needs Mario" || bad "inbox not empty"
+board ask "$CID" --ask "Keep the latch or delete it?" --default "deleted" >/dev/null
+board inbox | grep -q "Need from you: Keep the latch" && ok "an ask reaches the inbox" || bad "ask missing from inbox"
+board inbox | grep -q "If you do nothing: deleted" && ok "the default is shown" || bad "default missing"
+board answer "$CID" "delete it" --note "less code" >/dev/null
+board inbox | grep -q "Nothing needs you" && ok "an answer clears the inbox" || bad "answer did not clear"
+board show "$CID" | grep -q "closed: delete it" && ok "the answer is on the card" || bad "answer not on card"
+board state "$CID" review >/dev/null
+board list | grep -q "review" && ok "state moves" || bad "state did not move"
+printf '## Trivia: play the new build\nbody one\n\n## Hacker News: keep anything?\nbody two\n' > "$WORK/import.md"
+board import "$WORK/import.md" | grep -q "imported 2 cards" && ok "import makes one card per heading" || bad "import failed"
+board list | grep -q "trivia" && ok "import derives the app from the heading" || bad "app not derived"
+printf '## Anki: a card with a labelled body\nYou were building: sync.\nSince then: proven end to end.\n' > "$WORK/import2.md"
+board import "$WORK/import2.md" >/dev/null
+board ask 4 --ask "use it once" --default "unverified" >/dev/null
+board inbox | grep -q "Since: proven end to end" && ok "inbox strips the since label" || bad "inbox repeats the since label"
+board inbox | grep -q "Since: Since" && bad "inbox doubled the label" || ok "no doubled label"
+board owner sudoku --session "$WORKER" --tree wt/x >/dev/null
+board route "$CID" | grep -q "owner session $WORKER" && ok "a card routes to its app's owner" || bad "route did not find the owner"
+board route 2 | grep -q "no owner" && ok "an app with no owner says so" || bad "no-owner case wrong"
+board owner sudoku | grep -q "session $WORKER" && ok "owner lookup without flags" || bad "owner lookup failed"
+cat > "$WORK/issues.json" <<'JSON'
+[{"number":7,"title":"sometimes Slow Reader (especially page turning)","body":"4.2 s per page turn","labels":[],"url":"https://github.com/ma-r-s/crossplay/issues/7","author":{"login":"gitlias"}},
+ {"number":9,"title":"Sudoku loses my puzzle","body":"","labels":[{"name":"bug"}],"url":"https://github.com/ma-r-s/crossplay/issues/9","author":{"login":"x"}}]
+JSON
+board issues --from-json "$WORK/issues.json" | grep -q "2 new card" && ok "open issues become cards" || bad "issues did not become cards"
+board issues --from-json "$WORK/issues.json" | grep -q "0 new card" && ok "a second sweep makes no duplicates" || bad "issues sweep duplicated cards"
+board list | grep -q "reader .*Slow Reader" && ok "an issue about page turns lands on the reader" || bad "reader issue not routed to reader"
+board list | grep -q "sudoku .*Sudoku loses my puzzle" && ok "an issue names its app from the owners" || bad "sudoku issue not routed to sudoku"
+board integrator --session "$WORKER" >/dev/null 2>&1 && bad "a second integrator claim succeeded" || ok "a held integration claim refuses a second claimant"
+board integrator --session "$WORKER" --release >/dev/null 2>&1 && bad "a stranger released the claim" || ok "only the holder releases the claim"
+board integrator --session "$INTEG" --release >/dev/null && ok "the holder releases the claim" || bad "holder cannot release"
+
+echo "emulator staleness, one answer for check.sh and CI"
+STALE="$HERE/../../scripts_local/emulator-stale.sh"
+E="$WORK/emu"; mkdir -p "$E/src" "$E/site/emulator"; ( cd "$E" && git init -q -b xteink && git config user.email t@t && git config user.name t \
+  && echo a > src/a.cpp && echo w > site/emulator/crossplay.wasm && git add -A && git commit -qm "both" \
+  && sleep 1 && echo b > src/a.cpp && git add -A && git commit -qm "source moved" )
+bash "$STALE" "$E" >/dev/null && ok "a newer source makes the emulator stale" || bad "stale not detected"
+( cd "$E" && sleep 1 && echo w2 > site/emulator/crossplay.wasm && git add -A && git commit -qm "chore: emulator rebuilt" )
+bash "$STALE" "$E" >/dev/null && bad "a rebuilt emulator still reads stale" || ok "a rebuilt emulator reads fresh"
+bash "$STALE" --paths | grep -qx "src" && bash "$STALE" --paths | grep -qx "tools_local/wasm" && ok "--paths names the source list" || bad "--paths is missing sources"
+grep -q 'emulator-stale.sh' "$HERE/../../scripts_local/check.sh" && ok "check.sh asks the shared script" || bad "check.sh still carries its own staleness test"
+
+echo
+echo "$((PASS+FAIL)) checks, $FAIL failed"
+[ "$FAIL" -eq 0 ]
