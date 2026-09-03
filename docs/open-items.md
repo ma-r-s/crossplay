@@ -580,6 +580,12 @@ saved library, so on a fresh card Hacker News exits for a correct reason and the
 probe cannot tell the bug from right behaviour. That would have made this
 ticket's evidence worthless.
 
+(`leaveOrShowSaved()` no longer exists -- `app/hnoffline` deleted it, along with
+the whole "the picker comes up on entry" shape it belonged to. The measurement
+below was taken against the code as it stood, and it is kept verbatim because
+what it measures is the SEAM, which is still there in the eight other apps. Read
+the function name as history, not as something to go and look at.)
+
 **It does not apply, and the re-run says so twice over:**
 
 ```
@@ -611,3 +617,14 @@ first.
 
 **8134c60a is merged and does not work.** It reads as a fix in the log. It is
 not one.
+
+**Superseded for Hacker News only, by `app/hnoffline`.** That branch does not
+patch `8134c60a`; it removes the situation the stray release landed in. The app
+no longer raises the picker on entry, so there is no result handler returning
+into a fresh `onEnter`, and `ensureConnected` clears its own `backPressSeen_`
+before pushing the picker -- so a press recorded before the picker cannot pair
+with a release that arrives after it. Hacker News is off the exposed list.
+
+The SEAM is untouched and the other apps still have it. Nothing above about
+`wasPressed`/`wasReleased`, the swipe latch, or why the simulator cannot settle
+it has changed.

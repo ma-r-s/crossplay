@@ -119,11 +119,35 @@ void HackerNewsActivity::ensureConnected(const Pending what, const char* busyMes
   // that is not up.
   afterConnect_ = what;
   afterConnectMessage_ = busyMessage;
-  returnPhase_ = phase_;
-  phase_ = Phase::Connecting;
-  // Never seen when the picker paints promptly, and the only thing on the panel
-  // if it does not. A blank screen while the radio comes up reads as a crash.
-  busyMessage_ = "CONNECTING";
+
+  // PHASE IS DELIBERATELY NOT TOUCHED HERE, and neither is busyMessage_.
+  //
+  // There was a Phase::Connecting with a "CONNECTING" screen and a comment
+  // saying it was what the panel showed if the picker did not paint promptly.
+  // It could never be drawn. pushActivity only sets pendingActivity; the swap
+  // happens at the bottom of the SAME ActivityManager::loop() pass this call
+  // returns into, so by the time the render task looks at currentActivity the
+  // picker is already it. And the picker's own onEnter asks for the only
+  // repaint in that frame. A slow picker leaves the PREVIOUS frame up, which is
+  // the list or the article that was on screen -- not a blank panel.
+  //
+  // Leaving phase_ alone is also what makes coming back free: whatever was on
+  // screen when the connection was asked for is still what phase_ says, so a
+  // cancelled picker needs a repaint and nothing else. The Phase this restored
+  // from went with it. And with no cross-task write here there is no phase_ or
+  // busyMessage_ for render() to catch mid-change, so no RenderLock is owed:
+  // afterConnect_ and afterConnectMessage_ are read by loop() only.
+  //
+  // The Back PRESS that may have been recorded this frame belongs to the screen
+  // that is about to stop being on top. Left set, it survives the picker and
+  // pairs with a RELEASE that arrives here afterwards: hold Back, tap something
+  // that needs the network, let go inside the picker (which reads only the
+  // press), cancel with a second Back, and that second release lands in loop()
+  // with phase_ back at List -- which is shelf::leave(), the app shutting on
+  // the way to the one screen that works with no network. Docs and this branch
+  // both say that can never happen; this line is why.
+  backPressSeen_ = false;
+
   WiFi.mode(WIFI_STA);
   startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
                          [this](const ActivityResult& result) { onWifiChosen(!result.isCancelled); });
@@ -134,8 +158,8 @@ void HackerNewsActivity::onWifiChosen(const bool connected) {
     // Declining to connect is not wanting out of the app. Back to whatever was
     // on screen when the connection was asked for -- which is a list whose
     // SAVED half is still readable, or a reader still holding its article.
+    // phase_ still says which, because raising the picker never changed it.
     afterConnect_ = Pending::None;
-    phase_ = returnPhase_;
     requestUpdate();
     return;
   }
@@ -147,6 +171,13 @@ void HackerNewsActivity::onWifiChosen(const bool connected) {
 // --- Scheduling the slow parts -------------------------------------------
 
 void HackerNewsActivity::request(const Pending what, const char* busyMessage) {
+  // Nothing to do is not a reason to show a busy screen. loop() clears pending_
+  // before it dispatches, so a Pending::None request would leave phase_ at Busy
+  // with no work queued to move it off again: a "FETCHING" panel that is not
+  // fetching and never stops, which is what a hang looks like. Unreachable
+  // today -- afterConnect_ is only ever set to real work -- and cheaper to make
+  // unrepresentable than to keep arguing.
+  if (what == Pending::None) return;
   {
     RenderLock lock(*this);
     phase_ = Phase::Busy;
@@ -198,19 +229,31 @@ void HackerNewsActivity::loop() {
     }
     if (!ok && phase_ == Phase::Busy) {
       if (what == Pending::FrontPage) {
-        // Back to the list, not to a full-screen notice. The notice has no
-        // segments and no controls, so a failed front page used to be a screen
-        // with one way off it -- and the SAVED shelf, which does not need the
-        // network at all, was on the other side of that dead end.
+        // Back to the list, where both segments are, rather than to a
+        // full-screen notice: the failure is drawn as the list's own empty
+        // state, so the SAVED shelf stays one tap away instead of being behind
+        // an error screen.
         //
-        // The list can always show this: a front-page fetch only ever runs
-        // while the list is empty, because the one control that starts it is
-        // the empty state's own.
+        // The list can always show this because the empty state is the only
+        // thing that draws it, and the LOAD/TRY AGAIN rect is only ever drawn
+        // on an empty one. The tap handler enforces that rather than assuming
+        // it; see ActionLoadFrontPage.
         frontPageFailed_ = true;
         phase_ = Phase::List;
         view_ = hn::ListView::FrontPage;
       } else {
-        showNotice("NO LUCK", "Could not reach Hacker News. Check the network and try again.", false);
+        // An ARTICLE or a THREAD that did not arrive, which is the more common
+        // failure by far: on a train, every tap on a cached front page comes
+        // here. It used to show this notice with no control at all -- no
+        // button, no segments, no route to SAVED -- so the fix three lines
+        // above went into one arm of this `if` and not into its twin, and the
+        // twin is the arm people actually reach.
+        //
+        // The notice keeps its shape (the reader is gone either way, and going
+        // straight back to the list would say nothing about why) but it now
+        // carries the control every notice carries, and the same sentence the
+        // list's own failure uses. Two screens, one fact, one promise.
+        showNotice(hn::kUnreachableHeadline, hn::kUnreachableMessage, false);
       }
     }
     requestUpdate();
@@ -221,26 +264,18 @@ void HackerNewsActivity::loop() {
     backPressSeen_ = false;
     // Back walks out one layer at a time and never names where it lands; the
     // shelf owns the last step. See docs/shelf.md.
-    if (phase_ == Phase::Connecting) {
-      // The picker is on top or has just handed back; either way this is a
-      // cancelled connection and not a request to leave the app. Same landing
-      // as onWifiChosen(false), because it is the same decision arriving by the
-      // other of its two routes.
-      afterConnect_ = Pending::None;
-      phase_ = returnPhase_;
-      requestUpdate();
-    } else if (phase_ == Phase::List) {
+    //
+    // There is no arm here for "the picker is up". There cannot be: only the
+    // TOP activity's loop() runs, so nothing sets backPressSeen_ while the
+    // picker is on top, and the result handler runs before this activity's next
+    // loop() pass either way. The arm that existed tested a Phase::Connecting
+    // that was never reachable from here, and the release it was written to
+    // catch is caught in ensureConnected instead, by not carrying the press
+    // across the picker at all.
+    if (phase_ == Phase::List) {
       shelf::leave(renderer, mappedInput);
     } else {
-      // An article opened out of the library goes back to the library. Landing
-      // on the front page instead loses the shelf you were working through,
-      // and there is no way back to it but two more taps.
-      if (readingSaved_) {
-        view_ = hn::ListView::Saved;
-      }
-      readingSaved_ = false;
-      phase_ = Phase::List;
-      requestUpdate();
+      returnToList();
     }
     return;
   }
@@ -325,8 +360,15 @@ void HackerNewsActivity::loop() {
       }
       break;
     case hnui::ActionNotice:
-      // The notice's only button is always the way onward to the comments.
+      // The unreadable notice's button, and the way onward to the comments.
       ensureConnected(Pending::Comments, "FETCHING THE THREAD");
+      break;
+    case hnui::ActionNoticeBack:
+      // Every other notice's button. The SAME function Back lands through, not
+      // a second copy of its three lines: a saved article's notice has to
+      // return to the SAVED shelf, and two routes to one landing is how one of
+      // them starts going somewhere else.
+      returnToList();
       break;
     case hnui::ActionSave:
       saveCurrentArticle();
@@ -349,8 +391,20 @@ void HackerNewsActivity::loop() {
       break;
     case hnui::ActionLoadFrontPage:
       // The only control in the app that asks for the network by itself, and
-      // the only route to a front-page fetch. Clearing the flag first so a
-      // second failure repaints the same error rather than a stale one.
+      // the only route to a front-page fetch.
+      //
+      // Guarded rather than argued. This rect is only ever DRAWN on an empty
+      // front page, and the failure landing in loop() relies on that: it puts
+      // the message in the list's empty state, which a list with rows in it
+      // does not draw. But interactionsReady_ is still true from the empty
+      // paint after a fetch has filled stories_ and asked for a repaint, so a
+      // tap landing in that window routes here against a list that is no longer
+      // empty -- and its failure would then be swallowed with nothing on
+      // screen to say so. Cheaper to make the invariant true than to keep
+      // asserting it in a comment.
+      if (view_ != hn::ListView::FrontPage || !stories_.empty()) break;
+      // Cleared first so a second failure repaints the same error rather than a
+      // stale one.
       frontPageFailed_ = false;
       ensureConnected(Pending::FrontPage, "FETCHING THE FRONT PAGE");
       break;
@@ -635,6 +689,18 @@ void HackerNewsActivity::openSavedArticle(const int index) {
   requestUpdate();
 }
 
+void HackerNewsActivity::returnToList() {
+  // An article opened out of the library goes back to the library. Landing on
+  // the front page instead loses the shelf you were working through, and there
+  // is no way back to it but two more taps.
+  if (readingSaved_) {
+    view_ = hn::ListView::Saved;
+  }
+  readingSaved_ = false;
+  phase_ = Phase::List;
+  requestUpdate();
+}
+
 void HackerNewsActivity::pageList(const int delta) {
   // The rows the last paint DREW, not the stories the last fetch returned. The
   // saved shelf draws a different number of rows from the front page, so
@@ -692,10 +758,11 @@ void HackerNewsActivity::render(RenderLock&&) {
   const char* what = "Hacker News";
 
   switch (phase_) {
-    case Phase::Connecting:
     case Phase::Busy: {
       hnui::NoticeModel model;
       model.headline = busyMessage_;
+      // No control, deliberately: there is nothing to decide while a fetch is
+      // in flight, and the next loop pass replaces this screen either way.
       hnui::buildNotice(screen, model);
       what = "HN busy";
       break;
@@ -854,7 +921,18 @@ void HackerNewsActivity::render(RenderLock&&) {
       model.headline = noticeHeadline_.c_str();
       model.message = noticeMessage_.c_str();
       model.mark = noticeUnreadable_ ? &icon_unreadable_32 : nullptr;
-      model.actionLabel = noticeUnreadable_ ? "READ THE COMMENTS" : nullptr;
+      // EVERY notice carries a control, and the rule for which lives in the
+      // screens layer where a host test can ask it directly. It used to be
+      // `unreadable ? "READ THE COMMENTS" : nullptr` written out here, so the
+      // four notices that are not about an unreadable link -- a failed article,
+      // a failed thread, a card that would not take a save, a saved file whose
+      // text has gone missing -- drew no button at all. This screen has no
+      // segments and nothing under it, so each was a dead end whose only exit
+      // is a left-edge swipe the screen never mentions, with the SAVED shelf on
+      // the far side of it.
+      const hnui::NoticeControl control = hnui::noticeControl(noticeUnreadable_);
+      model.actionLabel = control.label;
+      model.action = control.action;
       hnui::buildNotice(screen, model);
       what = "HN notice";
       break;

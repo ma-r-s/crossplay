@@ -356,6 +356,18 @@ void buildReader(toybox::Screen& screen, const ReaderModel& model) {
 
 // --- Notices -------------------------------------------------------------
 
+NoticeControl noticeControl(const bool unreadable) {
+  // An unreadable link is not a failure: the app reached Hacker News, judged the
+  // page, and is telling you so. The conversation is the thing still worth
+  // having, so the button goes onward to it.
+  if (unreadable) return {"READ THE COMMENTS", ActionNotice};
+  // Everything else is a failure, and the useful destination is the LIST --
+  // which carries both segments, so the SAVED shelf is one tap from it. Not
+  // "try again": the network has just been shown to be down, and the half of
+  // this app that does not need one is what the reader wants offered.
+  return {"BACK TO THE LIST", ActionNoticeBack};
+}
+
 void buildNotice(toybox::Screen& screen, const NoticeModel& model) {
   // The band says the app, always, and never repaints between notices. What a
   // particular notice is about goes in the headline below it, where a sentence
@@ -368,10 +380,16 @@ void buildNotice(toybox::Screen& screen, const NoticeModel& model) {
 
   // Bottom-anchored, and taken first so the body can never grow into it. The
   // lesser doors sit at the bottom, where a thumb rests.
-  if (model.actionLabel != nullptr) {
+  //
+  // The action comes from the model now. It used to be hard-wired to
+  // ActionNotice -- "read the comments" -- so the only notice that could carry
+  // a control was the one that wanted that particular one, and every failure
+  // screen drew none.
+  const bool hasAction = model.actionLabel != nullptr && model.action != fui::NO_ACTION;
+  if (hasAction) {
     fui::ButtonProps action;
     action.label = model.actionLabel;
-    action.action = ActionNotice;
+    action.action = model.action;
     screen.button(action, fui::makeRect(toybox::kMargin,
                                         static_cast<int16_t>(device.height - toybox::kMargin - toybox::kPillHeight),
                                         width, toybox::kPillHeight));
@@ -408,8 +426,7 @@ void buildNotice(toybox::Screen& screen, const NoticeModel& model) {
   if (model.message != nullptr && model.message[0] != '\0') {
     // Through textArea because it wraps and centeredText does not: the first
     // build of this screen showed "This link is not a page of tex" and stopped.
-    const int16_t reserved =
-        model.actionLabel != nullptr ? static_cast<int16_t>(toybox::kPillHeight + toybox::kGutter) : 0;
+    const int16_t reserved = hasAction ? static_cast<int16_t>(toybox::kPillHeight + toybox::kGutter) : 0;
     const int16_t bottom = static_cast<int16_t>(device.height - toybox::kMargin - reserved);
     fui::TextAreaProps message;
     message.text = model.message;

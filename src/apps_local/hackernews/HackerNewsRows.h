@@ -102,4 +102,18 @@ struct EmptyState {
 
 EmptyState emptyState(ListView view, bool frontPageFailed);
 
+// The one thing a dropped connection says, wherever it is discovered.
+//
+// It used to be two. The empty front page said the saved shelf still worked and
+// offered TRY AGAIN; a failed article, for the same dropped connection in the
+// same minute, said to check the network and offered nothing at all. Two
+// wordings and two promises for one fact is how one app reads as two broken
+// ones, so both screens take the sentence from here and neither can drift.
+//
+// The sentence names the SAVED shelf on purpose. It is the half that still
+// works with the radio down, it is the whole reason this app opens without one,
+// and it is the thing a reader on a train needs told at exactly this moment.
+constexpr const char* kUnreachableHeadline = "NO LUCK";
+constexpr const char* kUnreachableMessage = "Could not reach Hacker News. Saved articles still work.";
+
 }  // namespace hn

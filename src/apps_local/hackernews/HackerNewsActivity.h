@@ -50,12 +50,14 @@ class HackerNewsActivity final : public Activity {
 
  private:
   // What is on the screen right now.
+  // There is no Connecting phase. Raising the Wi-Fi picker leaves phase_ alone
+  // -- see ensureConnected for why one could never be drawn, and why not
+  // touching it is what makes coming back from a cancelled picker free.
   enum class Phase : uint8_t {
-    Connecting,  // the Wi-Fi picker is up as a child activity
-    Busy,        // a fetch is about to happen or is happening
-    List,        // the front page
-    Reading,     // an article or a thread
-    Notice,      // an error, or a link this device cannot read
+    Busy,     // a fetch is about to happen or is happening
+    List,     // the front page
+    Reading,  // an article or a thread
+    Notice,   // an error, or a link this device cannot read
   };
 
   // What the next loop pass should fetch. Set alongside a repaint request so
@@ -87,6 +89,11 @@ class HackerNewsActivity final : public Activity {
   void openSavedArticle(int index);
   void repage();
   void turnPage(int delta);
+  // Where every way off a reader or a notice lands, by both of its routes: the
+  // Back release and the notice's own button. One function because a saved
+  // article has to return to the SAVED shelf and the front page's to the front
+  // page, and two copies of that rule is how one of them starts disagreeing.
+  void returnToList();
   // One page of story rows, in either direction, wrapping at both ends.
   //
   // The one place the side keys and a swipe agree on what a page is, through
@@ -153,12 +160,11 @@ class HackerNewsActivity final : public Activity {
   Phase phase_ = Phase::List;
   Pending pending_ = Pending::None;
   const char* busyMessage_ = "";
-  // What to fetch once the picker answers, and where to go if it does not.
-  // Declining to connect is not the same as wanting out of the app, so it lands
-  // back on whatever was on screen when the connection was asked for.
+  // What to fetch once the picker answers. Where to go if it does not needs no
+  // field: declining to connect is not wanting out of the app, and phase_ still
+  // holds whatever was on screen because raising the picker never changed it.
   Pending afterConnect_ = Pending::None;
   const char* afterConnectMessage_ = "";
-  Phase returnPhase_ = Phase::List;
 
   toybox::Interactions interactions_;
   bool interactionsReady_ = false;

@@ -206,6 +206,23 @@ void testTheThreeEmptyScreensStayThree() {
   CHECK(std::string(cold.message) != std::string(failed.message));
   CHECK(std::string(shelfEmpty.headline) != std::string(cold.headline));
   CHECK(std::string(shelfEmpty.headline) != std::string(failed.headline));
+
+  // And the ONE that must not be different. A dropped connection is discovered
+  // in two places -- here, when the front page does not arrive, and in the
+  // reader, when an article or a thread does not -- and the two used to say
+  // different things about it. This screen promised the saved shelf still
+  // worked; the reader's notice said to check the network, and carried no
+  // control at all. Same minute, same dropped AP, two apps as far as the reader
+  // could tell. Both take the pair from hn::kUnreachable* now, and this is what
+  // stops this end of it drifting off again.
+  CHECK_EQ(std::string(failed.headline), std::string(hn::kUnreachableHeadline));
+  CHECK_EQ(std::string(failed.message), std::string(hn::kUnreachableMessage));
+
+  // The sentence names the SAVED shelf, and that is not decoration: it is the
+  // half that still works with the radio down, and the reason this app opens
+  // without one. A rewording that drops it takes the only useful thing this
+  // screen has to say with it.
+  CHECK(std::string(hn::kUnreachableMessage).find("Saved") != std::string::npos);
 }
 
 // The tap that raises the radio, and the one screen that must not offer it.

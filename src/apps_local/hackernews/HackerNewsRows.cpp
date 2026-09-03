@@ -56,8 +56,11 @@ EmptyState emptyState(const ListView view, const bool frontPageFailed) {
     return state;
   }
   if (frontPageFailed) {
-    state.headline = "NO LUCK";
-    state.message = "Could not reach Hacker News. Saved articles still work.";
+    // Taken from the shared pair rather than written here, so this screen and
+    // the reader's own failure notice cannot promise different things about the
+    // same dropped connection. See kUnreachableMessage.
+    state.headline = kUnreachableHeadline;
+    state.message = kUnreachableMessage;
     state.actionLabel = "TRY AGAIN";
     return state;
   }

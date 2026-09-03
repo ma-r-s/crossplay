@@ -2790,6 +2790,26 @@ bool drewLabelWhole(const Rendered& out, const char* needle) {
   return found;
 }
 
+// The height this text needs with the LINE CAP LIFTED, against the width it was
+// drawn into.
+//
+// Measuring with the run's own style is a tautology wherever the builder sized
+// the rect from that same call: the check restates the line it is guarding and
+// can only fail if that line disappears entirely. Worse, it is blind to the
+// mechanism it exists to catch. layoutText clamps to style.maxLines and
+// ellipsizes whatever is left over, so a wording that needs five lines under a
+// four-line cap is silently cut, the capped measure dutifully reports four, and
+// the reserved rect matches it exactly.
+//
+// style.maxLines saturates at layoutText's own MAX_LINES (16), so asking for 16
+// is asking for as many lines as the sentence takes. Comparing THAT against the
+// reserved rect is the comparison the truncation is actually decided by.
+int16_t uncappedWrappedHeight(const FakeTarget& target, const FakeTarget::TextRun& run) {
+  fui::TextStyle uncapped = run.style;
+  uncapped.maxLines = 16;
+  return fui::measureWrappedText(target, run.text.c_str(), uncapped, run.rect.width).height;
+}
+
 void testHnReaderFooter() {
   Rendered out;
   hnui::ReaderModel model = articleModel();
@@ -2880,7 +2900,10 @@ void testHnNotice() {
   model.headline = "NOT READABLE HERE";
   model.message = "This link is not a page of text.";
   model.mark = &icon_unreadable_32;
+  // Both halves of the control, because buildNotice now draws it only when both
+  // are set. A label with no action is a button that answers nothing.
   model.actionLabel = "READ THE COMMENTS";
+  model.action = hnui::ActionNotice;
   buildHnNotice(unreadable, model);
 
   CHECK(drewText(unreadable, "NOT READABLE HERE"));
@@ -2915,6 +2938,81 @@ void testHnNotice() {
   for (int y = 0; y < 800; y += 4) {
     CHECK(busy.tap(240, y).action != hnui::ActionNotice);
   }
+}
+
+// EVERY notice has a way off it, and the notice that is not about an unreadable
+// link is the one that did not.
+//
+// This screen has no segment strip and no list under it, so a notice with no
+// control is a full-screen dead end whose only exit is a left-edge swipe that
+// nothing on it mentions -- with the SAVED shelf, the half of this app that
+// needs no network, on the far side of it. A failed ARTICLE or THREAD fetch
+// showed exactly that, and it is the common failure: on a train every tap on a
+// cached front page lands there. The fix for a failed FRONT PAGE went into one
+// arm of the same `if` and not into its twin.
+void testHnEveryNoticeCarriesAWayOff() {
+  // The rule itself, asked directly. It cannot answer "no control": that is the
+  // whole reason it is a function rather than a ternary at the call site, where
+  // the nullptr half quietly covered four different failures.
+  for (const bool unreadable : {false, true}) {
+    const hnui::NoticeControl control = hnui::noticeControl(unreadable);
+    CHECK(control.label != nullptr);
+    CHECK(control.action != fui::NO_ACTION);
+  }
+  // And the two are DIFFERENT doors. A failure screen must not offer to fetch a
+  // thread over the network it has just reported down.
+  CHECK(hnui::noticeControl(false).action != hnui::noticeControl(true).action);
+
+  // Drawn, live, and legible. The failure notice as the Activity builds it: no
+  // mark, the same sentence the list's own failure shows, and the control the
+  // rule above hands out.
+  Rendered failure;
+  hnui::NoticeModel model;
+  model.headline = "NO LUCK";
+  model.message = "Could not reach Hacker News. Saved articles still work.";
+  const hnui::NoticeControl control = hnui::noticeControl(false);
+  model.actionLabel = control.label;
+  model.action = control.action;
+  buildHnNotice(failure, model);
+
+  // Two questions, and the first one is the one the bug was about: does ANY
+  // pixel on this screen answer a finger. Asked separately from "is it the
+  // right door" because a dead end fails the first and a mis-wired control
+  // fails only the second.
+  //
+  // The door is named by its literal id, never by control.action. Comparing a
+  // tap against control.action would make a revert that answers NO_ACTION pass
+  // vacuously: every blank pixel on the panel returns NO_ACTION, so the sweep
+  // would find its "door" in the margin. A test derived from the value under
+  // test cannot falsify it.
+  bool answersAFinger = false;
+  bool foundTheDoor = false;
+  for (int y = 0; y < 800; y += 4) {
+    for (int x = 0; x < 480; x += 8) {
+      const fui::ActionId action = failure.tap(x, y).action;
+      if (action != fui::NO_ACTION) answersAFinger = true;
+      if (action == hnui::ActionNoticeBack) foundTheDoor = true;
+    }
+  }
+  CHECK(answersAFinger);
+  CHECK(foundTheDoor);
+  // Present is not legible: a label wider than its pill is ellipsized by the
+  // renderer and drewText would still find it. Guarded so that a regression
+  // answering nullptr here reports as the named CHECKs above rather than as a
+  // segfault, which names nothing and cannot be counted.
+  if (control.label != nullptr) CHECK(drewLabelWhole(failure, control.label));
+
+  // The pairing rule, from the side that makes the control invisible rather
+  // than dead. A label with no action used to be drawable; it would paint a
+  // pill that answers nothing, which is worse than no pill at all because the
+  // reader tries it and concludes the screen is frozen.
+  Rendered orphan;
+  hnui::NoticeModel unpaired;
+  unpaired.headline = "NO LUCK";
+  unpaired.message = "Could not reach Hacker News. Saved articles still work.";
+  unpaired.actionLabel = "BACK TO THE LIST";
+  buildHnNotice(orphan, unpaired);
+  CHECK(!drewText(orphan, "BACK TO THE LIST"));
 }
 
 // The save mark, identified by being the only bitmap the reader draws and NOT
@@ -3185,7 +3283,12 @@ void testHnEmptyFrontPageOffersAWayOnward() {
   hnui::buildList(coldScreen, model);
 
   CHECK(drewText(cold, "NOT LOADED YET"));
-  CHECK(drewText(cold, "LOAD"));
+  // Whole, not merely present. drewText sees the string the builder HANDED the
+  // renderer and the renderer is what shortens it, so a pill too narrow for its
+  // own label passes every "did it draw?" check while the panel says "LO...".
+  // This control is the only way off the screen a device with no network opens
+  // on, so it is the last label in the app that can afford to be a guess.
+  CHECK(drewLabelWhole(cold, "LOAD"));
 
   // The control is reachable by a finger, which is the only thing that makes it
   // a control. Swept rather than tapped at one guessed point.
@@ -3231,6 +3334,7 @@ void testHnEmptyFrontPageOffersAWayOnward() {
   toybox::Screen failedScreen(failedFrame, toybox::themeTokens());
   hnui::buildList(failedScreen, retry);
   CHECK(drewText(failed, "NO LUCK"));
+  CHECK(drewLabelWhole(failed, "TRY AGAIN"));
   bool foundRetry = false;
   for (int y = 0; y < ctx.height; ++y) {
     if (failed.tap(240, y).action == hnui::ActionLoadFrontPage) foundRetry = true;
@@ -3292,15 +3396,19 @@ void testHnEmptyStateStacksWithoutOverlap() {
   // ke" shipped -- and estimating the count from a single-line width divided by
   // the column is one short whenever the wrap cannot fill a line, which is how
   // "Saved articles do ..." reached a render on this very screen.
+  //
+  // Measured with the CAP LIFTED, which is the only version of this check that
+  // can fail. See uncappedWrappedHeight: the builder reserves
+  // measureWrappedText(style) and this used to assert against
+  // measureWrappedText(style), so it restated the production expression and
+  // went green on the exact case it names -- a wording longer than maxLines,
+  // clipped and ellipsized, with the reserved rect matching the clipped
+  // measurement perfectly.
   if (message != nullptr) {
-    const fui::Size wrapped =
-        fui::measureWrappedText(out.target, message->text.c_str(), message->style, message->rect.width);
-    CHECK(message->rect.height >= wrapped.height);
+    CHECK(message->rect.height >= uncappedWrappedHeight(out.target, *message));
   }
   if (headline != nullptr) {
-    const fui::Size wrapped =
-        fui::measureWrappedText(out.target, headline->text.c_str(), headline->style, headline->rect.width);
-    CHECK(headline->rect.height >= wrapped.height);
+    CHECK(headline->rect.height >= uncappedWrappedHeight(out.target, *headline));
   }
 
   // And with no sentence between them, the control still clears the headline by
@@ -7442,6 +7550,7 @@ int main() {
   testHnReaderSwapLabelFollowsMode();
   testHnReaderTextStaysInItsRect();
   testHnNotice();
+  testHnEveryNoticeCarriesAWayOff();
   testHnList();
   testHnEmptyFrontPageOffersAWayOnward();
   testHnEmptyStateStacksWithoutOverlap();

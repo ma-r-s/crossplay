@@ -138,6 +138,37 @@ Three things about it that are NOT what `85d776dd` did, each deliberate:
   instead of the full-screen notice that had one way off it and the offline
   shelf on the other side of it.
 
+And the correction that came out of reviewing it, which is worth more than the
+three above because it is the shape of the mistake rather than a decision:
+
+- **The fix went into one arm of an `if` and not into its twin, and the twin was
+  the common path.** A failed FRONT PAGE landed correctly; a failed ARTICLE or
+  THREAD still showed a notice with no button, no segments and no route to
+  SAVED. On a train, tapping any story on a cached front page goes to the twin,
+  not to the arm that was fixed. The notice's control was
+  `unreadable ? "READ THE COMMENTS" : nullptr`, and that `nullptr` covered four
+  different failures.
+- So `hnui::noticeControl()` answers it now, and it CANNOT answer "none". The
+  rule is a function in the screens layer rather than a ternary at the call
+  site, so a new failure cannot be added without a way off its screen, and
+  `host-tests/ui` asks the question directly.
+- **One dropped connection, one sentence.** `hn::kUnreachableHeadline` and
+  `hn::kUnreachableMessage` are shared by the list's empty state and the
+  reader's notice. They used to say different things -- one promised the saved
+  shelf still worked, the other said to check the network -- for the same
+  dropped AP in the same minute.
+- **There is no `Phase::Connecting`.** It had a screen, a loop branch and a
+  comment claiming it was what the panel showed if the picker did not paint
+  promptly. None of it could run: `pushActivity` only sets `pendingActivity`,
+  and the swap happens at the bottom of the same `ActivityManager::loop()` pass,
+  so the picker is `currentActivity` before the render task ever looks. A slow
+  picker leaves the PREVIOUS frame up. Raising the picker now leaves `phase_`
+  alone, which is also what makes coming back from a cancelled one free.
+- **`ensureConnected` clears `backPressSeen_`.** The press belongs to the screen
+  that is about to stop being on top. Left set it survived the picker and paired
+  with a later release, which on `phase_ == List` is `shelf::leave()` -- the app
+  shutting on the way to the one screen that works with no network.
+
 `hn::emptyState` (in `HackerNewsRows`) owns the three empty screens so
 `host-tests/hackernews` can drive them; the drawing and its hit target are
 asserted in `host-tests/ui`.
