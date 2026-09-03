@@ -12,7 +12,8 @@
 <style>
   [hidden] { display: none !important; } /* styles.css styles buttons; the attribute must still win */
   /* One message at a time. What needs Mario, in three lines, with buttons.
-     Signed in by magic link; the board's row security decides who reads. */
+     A passphrase, typed once and remembered by this browser; every call to
+     the board goes through /api/inbox, which checks it. */
   .inbox { max-width: 34rem; margin: 0 auto; padding: 2rem var(--gutter) 5rem; }
   .top { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; border-bottom: 2px solid var(--ink); padding-bottom: 0.6rem; margin-bottom: 1.2rem; }
   .top h1 { font-family: var(--display); font-weight: 400; font-size: 2.6rem; margin: 0; line-height: 1; }
@@ -45,10 +46,10 @@
   summary small { font-family: var(--mono); font-size: 0.78rem; color: var(--muted); margin-left: 0.5rem; font-weight: 400; }
   .all { list-style: none; padding: 0; margin: 0.6rem 0 0; }
   .all li { display: flex; gap: 0.8rem; align-items: baseline; padding: 0.45rem 0; border-bottom: 1px solid var(--edge); font-size: 0.95rem; }
+  .all li.child { padding-left: 1.4rem; font-size: 0.9rem; }
   .all .st { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); min-width: 5.5rem; }
   .all .st.released, .all .st.done { color: var(--ink); }
   .all .app { color: var(--muted); font-size: 0.82rem; margin-left: auto; white-space: nowrap; }
-  .foot { margin-top: 2rem; font-size: 0.85rem; color: var(--muted); display: flex; justify-content: space-between; gap: 1rem; }
   .num-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); gap: 0.6rem; margin: 0.8rem 0; }
   .tile { border: 1px solid var(--edge); border-radius: 6px; padding: 0.6rem 0.8rem; }
   .tile b { display: block; font-family: var(--display); font-weight: 400; font-size: 2rem; line-height: 1; }
@@ -57,7 +58,7 @@
   table.nums th, table.nums td { text-align: left; padding: 0.3rem 0.4rem; border-bottom: 1px solid var(--edge); }
   table.nums td.n, table.nums th.n { text-align: right; }
   .nums-h { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0.9rem 0 0.2rem; }
-  .photo { max-width: 100%; border: 1px solid var(--edge); border-radius: 4px; margin-top: 0.6rem; }
+  .foot { margin-top: 2rem; font-size: 0.85rem; color: var(--muted); display: flex; justify-content: space-between; gap: 1rem; }
 </style>
 </head>
 <body>
@@ -68,10 +69,10 @@
   </div>
 
   <section class="login" id="inbox-login" hidden>
-    <label for="inbox-email">Sign in with a link to your email</label>
+    <label for="inbox-pass">Passphrase</label>
     <div class="answer">
-      <input type="email" id="inbox-email" autocomplete="email" placeholder="you@example.com">
-      <button class="btn primary" id="inbox-link">Send link</button>
+      <input type="password" id="inbox-pass" autocomplete="current-password" placeholder="the one from the workflow session">
+      <button class="btn primary" id="inbox-enter">Open</button>
     </div>
     <p class="status" id="inbox-login-status"></p>
   </section>
@@ -89,81 +90,46 @@
     <div id="inbox-numbers-body"></div>
   </details>
 
-  <p class="foot"><span>One message at a time. A tap is the whole answer.</span><button class="btn quiet" id="inbox-signout" hidden>Sign out</button></p>
+  <p class="foot"><span>One message at a time. A tap is the whole answer.</span><button class="btn quiet" id="inbox-signout" hidden>Forget passphrase</button></p>
 </main>
 
 <script>
 (function () {
   "use strict";
   var $ = function (id) { return document.getElementById(id); };
-  var KEY = "crossplay-inbox-session";
-  var cfg = null, session = null, later = {}, items = [], all = [];
+  var KEY = "crossplay-inbox-pass";
+  var pass = null, later = {}, items = [], all = [];
 
   function say(text, err) { var s = $("inbox-status"); s.textContent = text || ""; s.className = "status" + (err ? " err" : ""); }
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
-  function loadSession() { try { session = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) { session = null; } }
-  function saveSession(s) { session = s; try { if (s) localStorage.setItem(KEY, JSON.stringify(s)); else localStorage.removeItem(KEY); } catch (e) {} }
+  function loadPass() { try { pass = localStorage.getItem(KEY) || null; } catch (e) { pass = null; } }
+  function savePass(p) { pass = p; try { if (p) localStorage.setItem(KEY, p); else localStorage.removeItem(KEY); } catch (e) {} }
 
-  // A magic link lands here with the tokens in the fragment. Keep them, then
-  // drop them from the address bar.
-  function takeTokensFromHash() {
-    if (!location.hash || location.hash.indexOf("access_token=") < 0) return;
-    var h = new URLSearchParams(location.hash.slice(1));
-    saveSession({ access_token: h.get("access_token"), refresh_token: h.get("refresh_token"), expires_at: Date.now() + (parseInt(h.get("expires_in") || "3600", 10) * 1000) });
-    history.replaceState(null, "", location.pathname);
+  function api(op, extra) {
+    var body = Object.assign({ pass: pass, op: op }, extra || {});
+    return fetch("/api/inbox", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+      .then(function (r) { return r.json().then(function (j) { if (!r.ok) { var e = new Error(j && j.error || ("HTTP " + r.status)); e.status = r.status; throw e; } return j; }); });
   }
 
-  function authHeaders(json) {
-    var h = { apikey: cfg.anonKey, Authorization: "Bearer " + session.access_token };
-    if (json) h["Content-Type"] = "application/json";
-    return h;
-  }
-
-  function refresh() {
-    if (!session || !session.refresh_token) return Promise.reject(new Error("no session"));
-    return fetch(cfg.url + "/auth/v1/token?grant_type=refresh_token", {
-      method: "POST", headers: { apikey: cfg.anonKey, "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh_token: session.refresh_token })
-    }).then(function (r) { if (!r.ok) throw new Error("refresh failed"); return r.json(); })
-      .then(function (j) { saveSession({ access_token: j.access_token, refresh_token: j.refresh_token, expires_at: Date.now() + j.expires_in * 1000 }); });
-  }
-
-  function api(path, init, retried) {
-    init = init || {};
-    init.headers = Object.assign(authHeaders(!!init.body), init.headers || {});
-    return fetch(cfg.url + "/rest/v1/" + path, init).then(function (r) {
-      if (r.status === 401 && !retried) return refresh().then(function () { return api(path, init, true); });
-      if (!r.ok) return r.text().then(function (t) { throw new Error(t || ("HTTP " + r.status)); });
-      return r.status === 204 ? null : r.json();
-    });
-  }
-
-  function sendLink() {
-    var email = $("inbox-email").value.trim();
-    var st = $("inbox-login-status");
-    if (!email) { st.textContent = "Your email first."; return; }
-    $("inbox-link").disabled = true;
-    fetch(cfg.url + "/auth/v1/otp?redirect_to=" + encodeURIComponent(location.origin + location.pathname), {
-      method: "POST", headers: { apikey: cfg.anonKey, "Content-Type": "application/json" },
-      body: JSON.stringify({ email: email, create_user: true })
-    }).then(function (r) {
-      st.textContent = r.ok ? "Sent. Open the link on this device." : "Could not send the link. Try again in a minute.";
-    }).catch(function () { st.textContent = "Could not reach the board."; })
-      .finally(function () { $("inbox-link").disabled = false; });
+  function enter() {
+    var p = $("inbox-pass").value;
+    if (!p) { $("inbox-pass").focus(); return; }
+    $("inbox-enter").disabled = true;
+    savePass(p);
+    load().finally(function () { $("inbox-enter").disabled = false; });
   }
 
   function load() {
     say("Loading...");
-    return Promise.all([
-      api("inbox?select=*"),
-      api("cards?select=id,title,app,state,updated_at&order=id.desc")
-    ]).then(function (res) {
-      items = res[0] || []; all = res[1] || [];
+    return api("list").then(function (res) {
+      items = res.inbox || []; all = res.cards || [];
+      $("inbox-login").hidden = true;
       say("");
       render();
       loadNumbers();
     }).catch(function (err) {
-      if (/JWT|401|refresh|no session/i.test(err.message)) { saveSession(null); showLogin("Your link expired. Send a new one."); return; }
+      if (err.status === 401) { savePass(null); showLogin("That is not the passphrase."); return; }
+      if (err.status === 503) { showLogin("The inbox is not set up on this deployment."); return; }
       say("Could not read the board: " + err.message, true);
     });
   }
@@ -181,9 +147,7 @@
 
   function answer(m, choice, note) {
     say("Saving...");
-    var body = { open: false, answer_choice: choice, answer_note: note || "", answered_at: new Date().toISOString() };
-    api("blockers?card_id=eq." + m.card_id + "&n=eq." + m.n, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify(body) })
-      .then(function () { return api("history", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ card_id: m.card_id, what: "answered from the inbox: " + choice }) }); })
+    api("answer", { card_id: m.card_id, n: m.n, choice: choice, note: note || "" })
       .then(function () { items = items.filter(function (x) { return x.blocker_id !== m.blocker_id; }); say("Answered."); render(); })
       .catch(function (err) { say("Could not save that: " + err.message, true); });
   }
@@ -213,12 +177,17 @@
       $("inbox-default").addEventListener("click", function () { answer(m, m["default"] || "default", "took the default"); });
       $("inbox-later").addEventListener("click", function () { later[m.blocker_id] = true; render(); });
     }
+    // Everything: parents first, their children indented, in state order.
     var ul = $("inbox-all");
     var order = ["reported", "triaged", "working", "review", "merged", "released", "done", "parked"];
-    all.sort(function (a, b) { return order.indexOf(a.state) - order.indexOf(b.state) || b.id - a.id; });
-    ul.innerHTML = all.map(function (c) {
-      return '<li><span class="st ' + esc(c.state) + '">' + esc(c.state) + '</span><span>#' + c.id + ' ' + esc(c.title) + '</span><span class="app">' + esc(c.app) + '</span></li>';
-    }).join("");
+    var byId = {}; all.forEach(function (c) { byId[c.id] = c; });
+    var kids = {}; all.forEach(function (c) { if (c.parent && byId[c.parent]) (kids[c.parent] = kids[c.parent] || []).push(c); });
+    var tops = all.filter(function (c) { return !(c.parent && byId[c.parent]); });
+    tops.sort(function (a, b) { return order.indexOf(a.state) - order.indexOf(b.state) || b.id - a.id; });
+    var row = function (c, child) {
+      return '<li' + (child ? ' class="child"' : '') + '><span class="st ' + esc(c.state) + '">' + esc(c.state) + '</span><span>#' + c.id + ' ' + esc(c.title) + '</span><span class="app">' + esc(c.app) + '</span></li>';
+    };
+    ul.innerHTML = tops.map(function (c) { return row(c, false) + (kids[c.id] || []).map(function (k) { return row(k, true); }).join(""); }).join("");
     $("inbox-all-count").textContent = all.length + " cards";
     $("inbox-everything").hidden = false;
     $("inbox-signout").hidden = false;
@@ -226,7 +195,7 @@
 
   // Numbers: the four views over events, and GitHub's own download counts.
   // Every figure names its window, because a count without one reads as
-  // "always" (see the memory about denominators).
+  // "always".
   function loadNumbers() {
     var body = $("inbox-numbers-body");
     $("inbox-numbers").hidden = false;
@@ -237,28 +206,25 @@
         rows.map(function (r) { return '<tr>' + r.map(function (v, i) { return '<td' + (i ? ' class="n"' : '') + '>' + esc(v) + '</td>'; }).join('') + '</tr>'; }).join('') + '</table>';
     }
     Promise.all([
-      api("devices_by_version?select=*").catch(function () { return []; }),
-      api("daily_active_devices?select=*").catch(function () { return []; }),
-      api("service_users?select=*").catch(function () { return []; }),
-      api("error_fingerprints?select=service,message,count,last_seen,card_id&order=last_seen.desc&limit=20").catch(function () { return []; }),
+      api("numbers").catch(function () { return { byVersion: [], daily: [], services: [], errors: [] }; }),
       fetch("https://api.github.com/repos/ma-r-s/crossplay/releases?per_page=10").then(function (r) { return r.ok ? r.json() : []; }).catch(function () { return []; })
     ]).then(function (res) {
-      var byVersion = res[0], daily = res[1], services = res[2], errors = res[3], releases = res[4];
-      var devices7 = byVersion.reduce(function (a, r) { return a + (r.devices || 0); }, 0);
-      var today = daily.length ? daily[0].devices : 0;
+      var n = res[0], releases = res[1];
+      var devices7 = (n.byVersion || []).reduce(function (a, r) { return a + (r.devices || 0); }, 0);
+      var today = (n.daily || []).length ? n.daily[0].devices : 0;
       var h = '<div class="num-grid">' +
         '<div class="tile"><b>' + devices7 + '</b><span>devices heard from, 7 days</span></div>' +
         '<div class="tile"><b>' + today + '</b><span>devices today</span></div>' +
-        '<div class="tile"><b>' + errors.filter(function (e) { return e.card_id; }).length + '</b><span>distinct errors with a card</span></div>' +
+        '<div class="tile"><b>' + (n.errors || []).filter(function (e) { return e.card_id; }).length + '</b><span>distinct errors with a card</span></div>' +
         '</div>';
-      h += '<p class="nums-h">Devices by version, 7 days</p>' + tbl(["board", "version", "devices"], byVersion.map(function (r) { return [r.board, r.version, r.devices]; }));
-      h += '<p class="nums-h">Who uses each service, 7 days</p>' + tbl(["service", "devices", "events"], services.map(function (r) { return [r.service, r.devices_7d, r.events_7d]; }));
+      h += '<p class="nums-h">Devices by version, 7 days</p>' + tbl(["board", "version", "devices"], (n.byVersion || []).map(function (r) { return [r.board, r.version, r.devices]; }));
+      h += '<p class="nums-h">Who uses each service, 7 days</p>' + tbl(["service", "devices", "events"], (n.services || []).map(function (r) { return [r.service, r.devices_7d, r.events_7d]; }));
       h += '<p class="nums-h">Downloads per release, from GitHub, all time</p>' + tbl(["release", "published", "downloads"], releases.map(function (r) {
-        var n = (r.assets || []).filter(function (a) { return /firmware(-sticky)?\.bin$|-full\.bin$/.test(a.name); }).reduce(function (a, x) { return a + (x.download_count || 0); }, 0);
-        return [r.tag_name, (r.published_at || "").slice(0, 10), n];
+        var d = (r.assets || []).filter(function (a) { return /firmware(-sticky)?\.bin$|-full\.bin$/.test(a.name); }).reduce(function (a, x) { return a + (x.download_count || 0); }, 0);
+        return [r.tag_name, (r.published_at || "").slice(0, 10), d];
       }));
-      h += '<p class="nums-h">Errors seen, latest first</p>' + tbl(["service", "message", "times", "card"], errors.map(function (e) { return [e.service, (e.message || "").slice(0, 60), e.count, e.card_id ? "#" + e.card_id : ""]; }));
-      if (!byVersion.length && !services.length) h += '<p class="status">No events yet. Devices and services start posting once their owners wire the heartbeat and the events in docs/workflow/events.md.</p>';
+      h += '<p class="nums-h">Errors seen, latest first</p>' + tbl(["service", "message", "times", "card"], (n.errors || []).map(function (e) { return [e.service, (e.message || "").slice(0, 60), e.count, e.card_id ? "#" + e.card_id : ""]; }));
+      if (!(n.byVersion || []).length && !(n.services || []).length) h += '<p class="status">No events yet. Devices and services start posting once their owners wire the heartbeat and the events in docs/workflow/events.md.</p>';
       body.innerHTML = h;
     });
   }
@@ -270,21 +236,16 @@
     $("inbox-numbers").hidden = true;
     $("inbox-signout").hidden = true;
     $("inbox-count").textContent = "";
-    if (text) $("inbox-login-status").textContent = text;
+    $("inbox-login-status").textContent = text || "";
+    $("inbox-pass").focus();
   }
 
-  $("inbox-link").addEventListener("click", sendLink);
-  $("inbox-email").addEventListener("keydown", function (e) { if (e.key === "Enter") sendLink(); });
-  $("inbox-signout").addEventListener("click", function () { saveSession(null); showLogin(""); });
+  $("inbox-enter").addEventListener("click", enter);
+  $("inbox-pass").addEventListener("keydown", function (e) { if (e.key === "Enter") enter(); });
+  $("inbox-signout").addEventListener("click", function () { savePass(null); showLogin(""); });
 
-  fetch("/api/board-config").then(function (r) { if (!r.ok) throw new Error("no config"); return r.json(); })
-    .then(function (c) {
-      cfg = c;
-      takeTokensFromHash();
-      loadSession();
-      if (session && session.access_token) { $("inbox-login").hidden = true; load(); } else { showLogin(""); }
-    })
-    .catch(function () { say("The board is not set up on this deployment.", true); });
+  loadPass();
+  if (pass) load(); else showLogin("");
 })();
 </script>
 </body>
