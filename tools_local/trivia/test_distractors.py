@@ -189,6 +189,23 @@ def main():
     )
     check("New Guinea / Papua New Guinea", D.twins("New Guinea", "Papua New Guinea"))
     check("Spain / France are two things", not D.twins("Spain", "France"))
+    # A plural is the same answer, and so is the -ism form of a faith. Both
+    # shipped: "Eye" beside "Eyes" and "Hindu" beside "Hinduism", each a set
+    # where the option marked wrong is as right as the one marked right.
+    check("Eye / Eyes", D.twins("Eye", "Eyes"))
+    check("Bat / Bats", D.twins("Bat", "Bats"))
+    check("Potato / Potatoes", D.twins("Potato", "Potatoes"))
+    check("Bicycle / Bicycles", D.twins("Bicycle", "Bicycles"))
+    check("Earthquake / Earthquakes", D.twins("Earthquake", "Earthquakes"))
+    check("Hindu / Hinduism", D.twins("Hindu", "Hinduism"))
+    check("Shinto / Shintoism", D.twins("Shinto", "Shintoism"))
+    check("Islam / Islamic", D.twins("Islam", "Islamic"))
+    # and the stemming must not fuse two things a player tells apart
+    check("Austria / Australia stay apart", not D.twins("Austria", "Australia"))
+    check("Mars / Mercury stay apart", not D.twins("Mars", "Mercury"))
+    check("Iran / Iraq stay apart", not D.twins("Iran", "Iraq"))
+    check("Glass / Grass stay apart", not D.twins("Glass", "Grass"))
+    check("Buddha / Buddhism stay apart", not D.twins("Buddha", "Buddhism"))
 
     print("\nperiod")
     check(

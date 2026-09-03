@@ -925,6 +925,15 @@ _LEAD = re.compile(
 
 
 _FOLD_CACHE = {}
+_STEM_CACHE = {}
+
+# Endings that make one answer look like two. Plurals first ("Eye"/"Eyes"),
+# then the derivations that name a faith after its adherents
+# ("Hindu"/"Hinduism", "Islam"/"Islamic"). Reducing is the SAFE direction:
+# twins() only ever rejects a candidate, so over-merging costs one distractor
+# while under-merging ships a wrong option that is as right as the right one.
+_PLURAL = (("ies", "y"), ("es", ""), ("s", ""))
+_DERIV = ("ism", "ist", "ic")
 
 
 def fold(s):
@@ -946,6 +955,36 @@ def fold(s):
     return t
 
 
+def stems(folded):
+    """Every form a folded option can reduce to, varying only its head word.
+
+    Returned as a set rather than a single stem because no one stemmer is
+    right for both "potatoes" (drop "es") and "bicycles" (drop "s"); comparing
+    sets means the rule does not have to guess which. The three-character
+    floor keeps "epic" and "glass" whole.
+    """
+    hit = _STEM_CACHE.get(folded)
+    if hit is not None:
+        return hit
+    words = folded.split()
+    if not words:
+        out = frozenset((folded,))
+        _STEM_CACHE[folded] = out
+        return out
+    head, lead = words[-1], words[:-1]
+    forms = {head}
+    if not head.endswith("ss"):
+        for end, repl in _PLURAL:
+            if head.endswith(end) and len(head) - len(end) >= 3:
+                forms.add(head[: -len(end)] + repl)
+    for end in _DERIV:
+        if head.endswith(end) and len(head) - len(end) >= 3:
+            forms.add(head[: -len(end)])
+    out = frozenset(" ".join(lead + [f]) for f in forms)
+    _STEM_CACHE[folded] = out
+    return out
+
+
 def twins(a, b):
     """ONE implementation. There used to be a cached private copy for the hot
     loop, the public one got the suffix rule, and New Guinea shipped beside
@@ -954,6 +993,9 @@ def twins(a, b):
     if not fa or not fb:
         return a.lower() == b.lower()
     if fa == fb:
+        return True
+    # a plural, or a faith named after its adherents, is the same option twice
+    if stems(fa) & stems(fb):
         return True
     # one inside the other on word boundaries, at either end: "Congo" /
     # "Congo River", and "Elizabeth I" / "Queen Elizabeth I"
