@@ -155,6 +155,13 @@ const expect = (label, got, want) =>
     1,
   );
 
+  calls = [];
+  r = await call({ pass: "open sesame", op: "answer", card_id: 3, n: 1, choice: "needs-steps", note: "where is the tunnel token" });
+  expect("tell-me-how closes the ask", r.status, 200);
+  const bounce = calls.find((c) => c.method === "POST" && c.url.includes("/rest/v1/blockers"));
+  expect("and opens an info blocker for the owner", bounce ? JSON.parse(bounce.body).need : null, "info");
+  expect("carrying Mario's words", bounce ? JSON.parse(bounce.body).ask.includes("where is the tunnel token") : false, true);
+
   r = await call({ pass: "open sesame", op: "answer", card_id: 3 });
   expect("an answer without a choice is refused", r.status, 502);
   r = await call({ pass: "open sesame", op: "nonsense" });

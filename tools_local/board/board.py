@@ -22,7 +22,7 @@ file store so the hooks never need the network.
     board bind <id> --session <sid> [--tree wt/x] [--branch app/x]
     board block <id> --session <sid> --need desk|design|info|mario --ask "..." --default "..."
     board unblock <id> [--n N]
-    board ask <id> --ask "..." --default "..."        orchestrator only (the hook enforces it)
+    board ask <id> --ask "..." --default "..." [--steps "1. ...\n2. ..."]   orchestrator only; steps for a thing to do
     board answer <id> "<choice>" [--note "..."]
     board state <id> reported|triaged|working|review|merged|released|done|parked
     board owner <app> [--session <sid>] [--tree wt/x]  who owns an app (lookup with no flags)
@@ -286,6 +286,7 @@ class SupaStore:
                     "open": b["open"],
                     "created": b["created_at"],
                     "by": b.get("by_session"),
+                    "steps": b.get("steps"),
                     "answer": ans,
                 }
             )
@@ -365,6 +366,7 @@ class SupaStore:
                     "default": b.get("default", ""),
                     "open": b.get("open", True),
                     "by_session": b.get("by"),
+                    "steps": b.get("steps"),
                     "created_at": b.get("created") or now(),
                     "answer_choice": (b.get("answer") or {}).get("choice"),
                     "answer_note": (b.get("answer") or {}).get("note"),
@@ -401,7 +403,7 @@ class SupaStore:
             "POST", "history", {"card_id": cid, "what": what}, prefer="return=minimal"
         )
 
-    def add_blocker(self, cid, need, ask, default, by):
+    def add_blocker(self, cid, need, ask, default, by, steps=None):
         c = self.get_card(cid)
         n = 1 + max([b["n"] for b in c["blockers"]] + [0])
         self._req(
@@ -413,7 +415,7 @@ class SupaStore:
                 "need": need,
                 "ask": ask,
                 "default": default,
-                "by_session": by,
+                "by_session": by, "steps": steps,
             },
             prefer="return=minimal",
         )
@@ -611,10 +613,10 @@ def cmd_bind(st, a):
     print(f"#{c['id']} bound to {sid}")
 
 
-def _block(st, cid, need, ask, default, by):
+def _block(st, cid, need, ask, default, by, steps=None):
     c = st.get_card(cid)
     if isinstance(st, SupaStore):
-        n = st.add_blocker(cid, need, ask, default, by)
+        n = st.add_blocker(cid, need, ask, default, by, steps)
         st.add_history(cid, f"blocked ({need}): {ask}")
         if c.get("session"):
             st.mirror.save_card(st.get_card(cid))
@@ -628,7 +630,7 @@ def _block(st, cid, need, ask, default, by):
                 "default": default,
                 "open": True,
                 "created": now(),
-                "by": by,
+                "by": by, "steps": steps,
                 "answer": None,
             }
         )
@@ -639,13 +641,13 @@ def _block(st, cid, need, ask, default, by):
 
 def cmd_block(st, a):
     with st.lock():
-        c, n = _block(st, a.id, a.need, a.ask, a.default, norm_sid(a.session))
+        c, n = _block(st, a.id, a.need, a.ask, a.default, norm_sid(a.session), a.steps)
     print(f"#{c['id']} blocked on {a.need}: {a.ask}")
 
 
 def cmd_ask(st, a):
     with st.lock():
-        c, n = _block(st, a.id, "mario", a.ask, a.default, "orchestrator")
+        c, n = _block(st, a.id, "mario", a.ask, a.default, "orchestrator", a.steps)
     print(f"#{c['id']} asked Mario: {a.ask}")
 
 
@@ -816,6 +818,8 @@ def fmt_card(c, full=False):
         lines.append(
             f"  blocker {b['n']} [{b['need']}, {st_}] {b['ask']}  | if nothing: {b['default']}"
         )
+        if b.get("steps"):
+            lines.append("    how: " + " / ".join(l.strip() for l in str(b["steps"]).splitlines() if l.strip()))
     for h in c.get("history", [])[-6:]:
         lines.append(f"  {h['at']}  {h['what']}")
     return "\n".join(lines)
@@ -849,6 +853,10 @@ def cmd_inbox(st, a):
                     print(f"  Since: {since}")
                 print(f"  Need from you: {b['ask']}")
                 print(f"  If you do nothing: {b['default']}")
+                if b.get("steps"):
+                    for line in str(b["steps"]).splitlines():
+                        if line.strip():
+                            print(f"  How: {line.strip()}")
                 print(f"  Answer: board answer {c['id']} '<choice>'")
                 print()
     if not n:
@@ -1029,11 +1037,13 @@ def main(argv=None):
     s.add_argument("--need", choices=NEEDS, required=True)
     s.add_argument("--ask", required=True)
     s.add_argument("--default", required=True)
+    s.add_argument("--steps", help="numbered lines, one per line, for a thing Mario must do")
     s.set_defaults(fn=cmd_block)
     s = sub.add_parser("ask")
     s.add_argument("id", type=int)
     s.add_argument("--ask", required=True)
     s.add_argument("--default", required=True)
+    s.add_argument("--steps", help="numbered lines, one per line, for a thing Mario must do")
     s.set_defaults(fn=cmd_ask)
     s = sub.add_parser("unblock")
     s.add_argument("id", type=int)

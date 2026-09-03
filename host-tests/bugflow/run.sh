@@ -123,6 +123,12 @@ board inbox | grep -q "Nothing needs you" && ok "inbox empty when nothing needs 
 board ask "$CID" --ask "Keep the latch or delete it?" --default "deleted" >/dev/null
 board inbox | grep -q "Need from you: Keep the latch" && ok "an ask reaches the inbox" || bad "ask missing from inbox"
 board inbox | grep -q "If you do nothing: deleted" && ok "the default is shown" || bad "default missing"
+board answer "$CID" "keep" >/dev/null
+board ask "$CID" --ask "Flash it and look at the door" --default "unverified" --steps "1. Flash v1.12.10 over Wi-Fi
+2. Open Sudoku
+3. Tap DIFFICULTY four times" >/dev/null
+board inbox | grep -q "How: 2. Open Sudoku" && ok "an ask carries its steps into the inbox" || bad "steps missing from the inbox"
+board show "$CID" | grep -q "how: 1. Flash" && ok "show prints the steps" || bad "show lacks steps"
 board answer "$CID" "delete it" --note "less code" >/dev/null
 board inbox | grep -q "Nothing needs you" && ok "an answer clears the inbox" || bad "answer did not clear"
 board show "$CID" | grep -q "closed: delete it" && ok "the answer is on the card" || bad "answer not on card"
