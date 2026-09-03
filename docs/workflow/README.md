@@ -33,10 +33,26 @@ integrator`), and the card a session bound (`board bind`).
 
 ## What the store is
 
-v0 is JSON under `<workspace>/.board/`: `cards/<id>.json`,
-`sessions/<id>.json`, `orchestrator.json`, `integrator.json`. The web board
-replaces that directory behind the same command line. Nothing that calls
-`board` or reads the hooks' refusals changes when it does.
+The board is a Supabase project (`server/board/supabase/`: the schema and
+row security as migrations, `config.toml` for the auth addresses; apply
+with `supabase db push` or `psql -f` against the project, `supabase config
+push` for the auth part). Every session, hook and page reaches it in one of
+three ways:
+
+- `board` (the CLI) with the service key from `<workspace>/.board/supabase.env`,
+  which bypasses row security. That file is outside git and holds the
+  project ref, the database password, the anon key and the service key.
+- The site's `api/report.js` with the same service key from Vercel's
+  environment, for strangers' reports.
+- The inbox page (`site/inbox/`) as a signed-in user, by magic link. Row
+  security admits only the emails in `allowed_users`.
+
+The CLI mirrors claims, session bindings and bound cards into
+`<workspace>/.board/` as JSON, and the hooks read only that mirror, so a
+tool call never waits on the network. `BOARD_BACKEND=file` runs the CLI
+against the mirror alone (what the tests do). `board sync` copies the file
+store into Supabase once, ids kept, for the migration that already happened
+on 2026-09-03.
 
 ## Tests
 
