@@ -404,13 +404,52 @@
         els.doneText.textContent = meta.restart;
         els.done.hidden = false;
         setBusy(false);
+        tellBoard("info", null);
       })
       .catch(function (err) {
         progress(null);
         say(friendly(err), "bad");
         note("error: " + ((err && err.message) || String(err)));
         setBusy(false);
+        tellBoard("error", (err && err.message) || String(err));
       });
+  }
+
+  /* --- the board --------------------------------------------------------- */
+
+  // One site/install event per attempt, so the Numbers page can say how many
+  // installs the button did and how many failed on what. A failed install
+  // posts an error, which opens a card by the board's own rule; the message
+  // is the flasher's, with nothing about the person. Best effort throughout:
+  // no board, no key, no network, and the install itself is unaffected.
+  function tellBoard(level, message) {
+    if (typeof fetch !== "function") return;
+    fetch("/api/board-config")
+      .then(function (r) {
+        return r.ok ? r.json() : null;
+      })
+      .then(function (cfg) {
+        if (!cfg || !cfg.url || !cfg.anonKey) return;
+        var body = {
+          service: "site",
+          event: "install",
+          level: level,
+          version: state.tag ? String(state.tag).replace(/^v/, "") : null,
+          board: state.device || null,
+          props: message ? { message: String(message).slice(0, 300) } : {},
+        };
+        return fetch(cfg.url + "/rest/v1/events", {
+          method: "POST",
+          headers: {
+            apikey: cfg.anonKey,
+            Authorization: "Bearer " + cfg.anonKey,
+            "Content-Type": "application/json",
+            Prefer: "return=minimal",
+          },
+          body: JSON.stringify(body),
+        });
+      })
+      .catch(function () {});
   }
 
   /* --- wiring ------------------------------------------------------------ */
