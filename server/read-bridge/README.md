@@ -4,7 +4,13 @@ The Instapaper half of the reader's read-later app: a FastAPI service
 (uvicorn, port 8080 inside the container, `bridge.app:app`) that holds a
 user's Instapaper OAuth token, asks Instapaper what changed, turns article
 HTML into the flat text the panel draws, and serves it to the device. Runs on
-the Orange Pi at `/srv/readbridge` behind a Cloudflare Tunnel.
+the Orange Pi at `/srv/readbridge`, published at **https://read.ma-r-s.com**
+through the `readbridge` Cloudflare Tunnel.
+
+The host is ONE label below the apex on purpose. The zone's free-plan
+Universal SSL certificate covers `ma-r-s.com` and `*.ma-r-s.com` and nothing
+deeper, so a name like `read.crossplay.ma-r-s.com` gets no certificate and
+fails the TLS handshake outright. See `scripts/DEPLOY-RUNBOOK.md` step 4.
 
 The design and its arguments live in `docs/apps/instapaper-plan.md`. The two
 things worth knowing before reading any code here:
@@ -89,7 +95,12 @@ ssh orange 'bash -s' < scripts/isolation_test.sh
 ```
 
 Every private-network probe must time out and egress to instapaper.com must
-work; the script exits nonzero on any breach.
+work; the script exits nonzero on any breach. It probes from **two** vantage
+points: inside the service container, and from a throwaway container on
+cloudflared's pinned subnet. cloudflared is distroless and cannot probe from
+inside itself, and it is the container facing the internet, so the run that
+covered only the service was reporting clean about the half nobody had
+checked.
 
 ## Operating it
 

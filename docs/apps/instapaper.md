@@ -10,7 +10,7 @@ network is for syncing, not for reading.
 
 1. Open **Apps > INSTAPAPER** and press **SYNC**. The device shows a code and
    a QR.
-2. On a phone or a laptop, sign in at **read.crossplay.ma-r-s.com** with your Instapaper
+2. On a phone or a laptop, sign in at **read.ma-r-s.com** with your Instapaper
    account, then scan the QR (or type the code).
 3. The device asks **IS THIS YOU?** and shows the account name. Press the pill
    only if the name is yours.
@@ -78,7 +78,7 @@ login. Nothing is wrong with the reader.
 **"NOT ON THE CARD"** -- the article's text did not finish downloading. Sync
 again; it is picked up automatically.
 
-**"This reader was unpaired"** -- somebody removed it on read.crossplay.ma-r-s.com, or
+**"This reader was unpaired"** -- somebody removed it on read.ma-r-s.com, or
 the account was reconnected. Press SYNC and pair again.
 
 ## What it will not do

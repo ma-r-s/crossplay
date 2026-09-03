@@ -299,6 +299,10 @@ green -- but every one of those four is a belief about somebody else's server.
 If one of them is wrong, the failure is quiet: a stale row, a re-downloaded
 article, or a reading position that does not move.
 
-The other operational step, whenever it happens: a hostname for the service
-(the firmware constant says `read.crossplay.ma-r-s.com`) added to the tunnel, the way
-`sync.ma-r-s.com` was.
+The other operational step, done on 2026-09-03: a hostname for the service
+(the firmware constant says `read.ma-r-s.com`) added to the tunnel, the way
+`sync.ma-r-s.com` was. It is one label below the apex because the zone's
+free-plan certificate covers no deeper name; the constant said
+`read.crossplay.ma-r-s.com` until then, and that name fails the TLS handshake
+at Cloudflare's edge rather than resolving. See
+`server/read-bridge/scripts/DEPLOY-RUNBOOK.md` step 4.
