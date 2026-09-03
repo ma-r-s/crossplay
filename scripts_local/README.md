@@ -146,3 +146,13 @@ tree's own `fs_agent/` for scripted runs, and `../fs_mario/` at the workspace
 root for Mario's, which sits outside every tree so his saves and settings follow
 him whichever one `dev.sh` is watching. All are gitignored, as is
 `qa-artifacts/` where screenshots land.
+
+## `hooks/`: the rules that refuse instead of remind
+
+`hooks/guard.py` is wired from the workspace root's `.claude/settings.json`
+(outside git) and is inert until `<workspace>/.board/enabled` exists. It
+refuses edits in the integration tree from anyone but the integration claim
+holder, raw `pio run`, messages to any session but the orchestrator, and a
+worker's turn that ends by handing a question back to Mario without a blocker
+on its card. `docs/workflow/README.md` has the whole picture;
+`host-tests/bugflow/` drives every branch of it.
