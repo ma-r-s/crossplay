@@ -857,14 +857,17 @@ fi
 # Any branch that changes firmware AND ships site/emulator now gets the
 # warning; only $DEPLOY_BRANCH treats it as a failure, because a feature
 # branch legitimately rebuilds the 6-minute artifact once, at the end.
+# The test itself lives in scripts_local/emulator-stale.sh, shared with the CI
+# job that rebuilds the artifact after a merge, so the two cannot disagree
+# about which paths count as sources.
 if true; then
-  ART=$(git log -1 --format=%ct -- site/emulator 2>/dev/null)
-  SRC=$(git log -1 --format=%ct -- src lib assets_local tools_local/wasm 2>/dev/null)
-  if [ -n "$ART" ] && [ -n "$SRC" ] && [ "$ART" -lt "$SRC" ]; then
+  EMU_SOURCES=$(bash "$REPO/scripts_local/emulator-stale.sh" --paths | tr '\n' ' ')
+  if bash "$REPO/scripts_local/emulator-stale.sh" "$REPO" >/dev/null 2>&1; then
     echo
     echo "browser artifact is STALE"
     echo "  site/emulator/ was built at $(git log -1 --format=%h\ %s -- site/emulator | cut -c1-58)"
-    echo "  but $(git log -1 --format=%h\ %s -- src lib assets_local tools_local/wasm | cut -c1-58) came after it"
+    # shellcheck disable=SC2086
+    echo "  but $(git log -1 --format=%h\ %s -- $EMU_SOURCES | cut -c1-58) came after it"
     echo "  the live page would ship code older than this branch. Rebuild:"
     echo "    pio run -e simulator_x4_pro -t compiledb"
     echo "    source ../.emsdk/emsdk_env.sh && python3 tools_local/wasm/build.py"
