@@ -114,6 +114,11 @@ board list | grep -q "review" && ok "state moves" || bad "state did not move"
 printf '## Trivia: play the new build\nbody one\n\n## Hacker News: keep anything?\nbody two\n' > "$WORK/import.md"
 board import "$WORK/import.md" | grep -q "imported 2 cards" && ok "import makes one card per heading" || bad "import failed"
 board list | grep -q "trivia" && ok "import derives the app from the heading" || bad "app not derived"
+printf '## Anki: a card with a labelled body\nYou were building: sync.\nSince then: proven end to end.\n' > "$WORK/import2.md"
+board import "$WORK/import2.md" >/dev/null
+board ask 4 --ask "use it once" --default "unverified" >/dev/null
+board inbox | grep -q "Since: proven end to end" && ok "inbox strips the since label" || bad "inbox repeats the since label"
+board inbox | grep -q "Since: Since" && bad "inbox doubled the label" || ok "no doubled label"
 board integrator --session "$WORKER" >/dev/null 2>&1 && bad "a second integrator claim succeeded" || ok "a held integration claim refuses a second claimant"
 board integrator --session "$WORKER" --release >/dev/null 2>&1 && bad "a stranger released the claim" || ok "only the holder releases the claim"
 board integrator --session "$INTEG" --release >/dev/null && ok "the holder releases the claim" || bad "holder cannot release"
