@@ -214,6 +214,48 @@ for page in report inbox; do
   done
 done
 
+# -- the study installer's ids, spelled in two files that never see each other -
+#
+# Same failure as install.js above, on the page that was actually caught by it:
+# study.js finds every control with a $("id") helper. On 2026-09-03 the dead
+# mode tablist was removed from study/index.html, and the two $("modeInstall")
+# calls in study.js would have thrown inside goTo() on the first step change --
+# taking the whole wizard down, from an edit whose point was to remove
+# something inert. install.js, report and inbox each had this check; study, the
+# biggest page here, did not.
+SP="$ROOT/site/study/index.html"
+SJ="$ROOT/site/study/study.js"
+for f in "$SP" "$SJ"; do
+  [ -f "$f" ] || { bad "site/study is missing $(basename "$f")"; }
+done
+study_ids="$(sed -nE 's/.*\$\(["'"'"']([A-Za-z][A-Za-z0-9_-]*)["'"'"']\).*/\1/p' "$SJ" | sort -u)"
+if [ -z "$study_ids" ]; then
+  bad "study.js looks up no element ids at all"
+else
+  ok
+  for id in $study_ids; do
+    grep -q "id=\"$id\"" "$SP" && ok || bad "study.js asks for #$id and study/index.html has no such element"
+  done
+fi
+
+# -- composite ARIA roles with nothing to choose between -----------------------
+#
+# A tablist holding one tab, a radiogroup holding one radio: well-formed markup
+# that renders perfectly and lies to a screen reader about there being a choice.
+# Study shipped one for a week, styled as the page's primary button and wired to
+# a handler that re-rendered the step you were already on. Status checked as
+# well as output, for the reason spelled out two blocks above.
+if aria_bad="$(python3 "$HERE/aria_roles.py" "$ROOT" 2>&1)"; then
+  if [ -z "$aria_bad" ]; then
+    ok
+  else
+    while IFS= read -r line; do bad "$line"; done <<< "$aria_bad"
+  fi
+else
+  bad "aria_roles.py could not run, so the pages' roles went unchecked:"
+  while IFS= read -r line; do echo "      $line"; done <<< "$aria_bad"
+fi
+
 # The inbox page and serve.py must agree on the config endpoint's shape, or
 # local work passes against a key production never sends.
 grep -q 'anonKey' "$ROOT/site/api/board-config.js" && grep -q '"anonKey"' "$SERVE" && grep -q 'anonKey' "$ROOT/site/inbox/index.html" && ok || bad "board-config: api, serve.py and the inbox page do not agree on anonKey"
