@@ -4,17 +4,20 @@
 // rather than from what the builder does. The case that motivated it shipped a
 // filename containing five author names and no title at all.
 
-#include "../../src/util/OpdsFilename.h"
-
 #include <cstdio>
 #include <string>
+
+#include "../../src/util/OpdsFilename.h"
 
 namespace {
 int checks = 0, failed = 0;
 
 void expect(const bool ok, const std::string& what) {
   ++checks;
-  if (!ok) { ++failed; std::printf("  FAIL: %s\n", what.c_str()); }
+  if (!ok) {
+    ++failed;
+    std::printf("  FAIL: %s\n", what.c_str());
+  }
 }
 
 void contains(const std::string& hay, const std::string& needle, const std::string& what) {
@@ -86,6 +89,49 @@ void anEmptyAuthorDoesNotLeaveADanglingSeparator() {
   contains(name, "Alice", "title still present with no author");
 }
 
+// --- What the SAVED screen shows ---------------------------------------
+//
+// The verdict screen after a download reports the name on the card. Failure
+// used to speak and success was silent, so a reader could only tell a finished
+// download from an abandoned one by going and looking for the file. What makes
+// that screen worth anything is that the name it prints is the name that was
+// written -- and the filename is NOT the title, so recomposing it from the
+// catalog entry would print something the card does not contain.
+
+void theNameShownIsTheNameWritten() {
+  // Every awkward shape at once: a credits list, an apostrophe, and a folder.
+  const auto path = opdsBookPath("/Books", kFiveAuthors, kAlice, OpdsFilenameFormat::AuthorTitle);
+  expect(opdsPathBasename(path) == opdsBookFilename(kFiveAuthors, kAlice, OpdsFilenameFormat::AuthorTitle),
+         "the basename of the written path is exactly the composed filename");
+  expect(opdsPathFolder(path) == "/Books", "the folder half comes back whole");
+}
+
+void theSdRootHasNoFolderHalf() {
+  // The default: opdsDownloadFolder is "", so the path is "/Name.epub" and the
+  // screen must say SD root rather than print an empty directory.
+  const auto path = opdsBookPath("", "Austen, Jane", "Persuasion", OpdsFilenameFormat::AuthorTitle);
+  expect(path == "/Austen, Jane - Persuasion.epub", "root paths carry a single leading slash");
+  expect(opdsPathFolder(path).empty(), "no folder half at the SD root");
+  expect(opdsPathBasename(path) == "Austen, Jane - Persuasion.epub", "the name is still recoverable");
+}
+
+void aNestedFolderSplitsAtTheLastSlash() {
+  // rfind, not find: a reader who set "/Books/OPDS" would otherwise be told
+  // their book is called "OPDS/Austen... .epub" and shown the wrong folder.
+  const auto path = opdsBookPath("/Books/OPDS", "Austen, Jane", "Emma", OpdsFilenameFormat::AuthorTitle);
+  expect(opdsPathFolder(path) == "/Books/OPDS", "the whole nested folder is the folder half");
+  expect(opdsPathBasename(path) == "Austen, Jane - Emma.epub", "the name half holds no separator");
+}
+
+void aSlashInTheTitleCannotMoveTheSplit() {
+  // The split is only safe because sanitizeFilename turns '/' into '_'. If that
+  // ever stopped, this path would gain a separator the reader never asked for
+  // and the screen would name a file that does not exist.
+  const auto path = opdsBookPath("/Books", "Goethe", "Faust I/II", OpdsFilenameFormat::AuthorTitle);
+  expect(opdsPathFolder(path) == "/Books", "a title separator does not become a directory");
+  contains(opdsPathBasename(path), "Faust I_II", "the slash is sanitized inside the name");
+}
+
 void anEmptyTitleStillProducesAUsableName() {
   const auto name = opdsBookFilename("Austen, Jane", "", OpdsFilenameFormat::AuthorTitle);
   expect(!name.empty() && name != ".epub", "never produces a bare extension");
@@ -102,6 +148,10 @@ int main() {
   aVeryLongSingleAuthorStillLeavesRoom();
   anEmptyAuthorDoesNotLeaveADanglingSeparator();
   anEmptyTitleStillProducesAUsableName();
+  theNameShownIsTheNameWritten();
+  theSdRootHasNoFolderHalf();
+  aNestedFolderSplitsAtTheLastSlash();
+  aSlashInTheTitleCannotMoveTheSplit();
   std::printf("opdsfilename: %d checks, %d failed\n", checks, failed);
   return failed == 0 ? 0 : 1;
 }

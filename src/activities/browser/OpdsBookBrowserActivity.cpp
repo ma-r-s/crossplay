@@ -40,6 +40,7 @@ constexpr fui::ActionId ACTION_ROW = 1;
 constexpr fui::ActionId ACTION_SEARCH = 2;
 constexpr fui::ActionId ACTION_SETTINGS = 4;
 constexpr fui::ActionId ACTION_CANCEL = 3;
+constexpr fui::ActionId ACTION_SAVED_DONE = 5;
 constexpr int DOWNLOAD_PROGRESS_STEP_PERCENT = 5;
 constexpr unsigned long DOWNLOAD_PROGRESS_MIN_UPDATE_MS = 5000;
 // While no bytes have arrived there is no bar to advance, so the only thing
@@ -87,6 +88,7 @@ void OpdsBookBrowserActivity::onEnter() {
   app.on(ACTION_SEARCH, &OpdsBookBrowserActivity::onSearchEvent, this);
   app.on(ACTION_SETTINGS, &OpdsBookBrowserActivity::onSettingsEvent, this);
   app.on(ACTION_CANCEL, &OpdsBookBrowserActivity::onCancelEvent, this);
+  app.on(ACTION_SAVED_DONE, &OpdsBookBrowserActivity::onSavedDoneEvent, this);
   app.setScreen(&OpdsBookBrowserActivity::rootScreen, this);
   requestUpdate();
 
@@ -169,6 +171,26 @@ void OpdsBookBrowserActivity::onCancelEvent(const fui::ActionEvent&, void* user)
   self->cancelDownload = true;
 }
 
+void OpdsBookBrowserActivity::onSavedDoneEvent(const fui::ActionEvent&, void* user) {
+  auto* self = static_cast<OpdsBookBrowserActivity*>(user);
+  if (self->state != BrowserState::SAVED) return;
+  self->app.clearTapFlash();
+  self->leaveSavedScreen();
+}
+
+void OpdsBookBrowserActivity::leaveSavedScreen() {
+  state = BrowserState::BROWSING;
+  savedName.clear();
+  savedFolder.clear();
+  savedDwell.arm();
+  // The list's first rows land on the pixels the verdict just occupied, so
+  // shut routing until the panel has SHOWN the list. Same gate the rest of
+  // the fork uses for a screen whose meaning changed under a finger; nothing
+  // new is invented here.
+  resetUi();
+  requestUpdate();
+}
+
 void OpdsBookBrowserActivity::loop() {
   if (state == BrowserState::WIFI_SELECTION || state == BrowserState::SEARCH_INPUT) {
     return;
@@ -215,6 +237,40 @@ void OpdsBookBrowserActivity::loop() {
     // own loop() invokes, so the activity's loop() cannot be re-entered until
     // the transfer returns. Anything the wait needs must be driven from the
     // progress callback or computed when the screen is built.
+    return;
+  }
+
+  if (state == BrowserState::SAVED) {
+    // Nothing here acts until the panel has SHOWN the verdict. That is not
+    // politeness, it is the only thing standing between this screen and the
+    // input the download screen was still collecting: the progress callback
+    // pumps mappedInput itself, so a Back held across the last chunk, or a
+    // finger resting on Cancel, arrives here as a release the instant this
+    // state begins. routingReady() is the fork's existing reveal gate, armed
+    // by the resetUi() in downloadBook(); it latches open on the first paint.
+    const bool shown = routingReady();
+
+    if (shown) {
+      const auto route = routeTouch(mappedInput);
+      if (route.routed) {
+        if (app.invalidated()) requestUpdate();
+        if (route) return;  // dispatched to onSavedDoneEvent
+      }
+      if (mappedInput.wasReleased(MappedInputManager::Button::Confirm) ||
+          mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+        leaveSavedScreen();
+        return;
+      }
+    }
+
+    // The dwell counts only time the reader could actually have spent looking:
+    // shown, and with nobody's hand on the glass. A screen that starts its
+    // timer when the code decides to draw is measuring the refresh, and one
+    // that keeps counting under a thumb is measuring nothing at all.
+    int touchX = 0;
+    int touchY = 0;
+    const bool touching = mappedInput.isScreenTouchHeld(touchX, touchY);
+    if (savedDwell.expired(millis(), shown, touching, SAVED_DWELL_MS)) leaveSavedScreen();
     return;
   }
 
@@ -278,6 +334,9 @@ void OpdsBookBrowserActivity::rootScreen(UiScreen& screen, void* user) {
       break;
     case BrowserState::DOWNLOADING:
       self->buildDownloadScreen(screen);
+      break;
+    case BrowserState::SAVED:
+      self->buildSavedScreen(screen);
       break;
     default:
       self->buildStatusScreen(screen);
@@ -424,6 +483,88 @@ void OpdsBookBrowserActivity::buildDownloadScreen(UiScreen& screen) {
   screen.button(cancel, fui::Rect{static_cast<int16_t>(btnArea.x + (btnArea.width - btnW) / 2), btnArea.y, btnW, btnH});
 }
 
+void OpdsBookBrowserActivity::buildSavedScreen(UiScreen& screen) {
+  screenHeader(screen, false);
+
+  const auto& theme = screen.theme();
+  fui::TextStyle centered = theme.bodyText;
+  centered.align = fui::TextAlign::Center;
+
+  fui::TextStyle verdict = centered;
+  verdict.font = theme.fontTitle;
+  verdict.bold = true;
+
+  // Three lines, because the name is the message. opdsBookFilename budgets 100
+  // bytes and one 480px line holds roughly half that, so a single-line style
+  // would cut most real names. The SDK wraps on spaces and only ellipsises a
+  // word it cannot break, which is the honest last resort rather than a silent
+  // stop mid-title.
+  fui::TextStyle nameStyle = centered;
+  nameStyle.maxLines = 3;
+
+  fui::TextStyle quiet = centered;
+  quiet.font = theme.fontSmall;
+
+  const int16_t vlh = screen.target().lineHeight(verdict.font);
+  const int16_t lh = screen.target().lineHeight(centered.font);
+  const int16_t slh = screen.target().lineHeight(quiet.font);
+  const int16_t gap = theme.spaceMd;
+  const int16_t air = theme.spaceLg;
+  const int16_t btnH = theme.rowHeight;
+
+  const fui::Rect body = screen.body();
+  // Air at the sides: the body reaches within 3px of the panel edge, and the
+  // X4 Pro's glass hides a further pixel of it.
+  const int16_t nameW = static_cast<int16_t>(body.width > air * 2 ? body.width - air * 2 : body.width);
+  const int16_t measured = fui::measureWrappedText(screen.target(), savedName.c_str(), nameStyle, nameW).height;
+  const int16_t nameH = measured > 0 ? measured : lh;
+  const int16_t blockH = static_cast<int16_t>(vlh + air + nameH + gap + slh + air + btnH);
+
+  // Centred in the TOP HALF of the body, not in the body. That is a placement
+  // rule about the reader's finger, not about balance: this screen arrives
+  // under a hand that was last on one of two controls, and both of them live
+  // lower down. Measured on the X4 Pro at 480x800, body (3,114) 474x683:
+  //
+  //   download screen  Cancel    y 471..537
+  //   detail screen    Download  y 723..789
+  //   this screen      Done      y 327..393  (3 lines of name: 341..407)
+  //
+  // A finger still resting on either of those finds nothing here when it
+  // lifts. The reveal gate in loop() covers the same finger for the length of
+  // the refresh; it cannot cover it afterwards, and this does.
+  const int16_t half = static_cast<int16_t>(body.height / 2);
+  if (half > blockH) screen.spacer(static_cast<int16_t>((half - blockH) / 2));
+
+  screen.target().text(screen.takeTop(vlh, air), tr(STR_BOOK_SAVED), verdict);
+  screen.target().text(screen.takeTop(nameH, gap).inset(fui::Insets{0, air, 0, air}), savedName.c_str(), nameStyle);
+  // Where to look. The folder is the one ACTUALLY used, so the SD-root
+  // fallback taken when a configured folder could not be created says so --
+  // precisely the case where a reader searching the folder they set would come
+  // up empty.
+  char location[96];
+  snprintf(location, sizeof(location), tr(STR_SAVED_IN_FORMAT),
+           savedFolder.empty() ? tr(STR_OPDS_SD_ROOT) : savedFolder.c_str());
+  screen.target().text(screen.takeTop(slh, air), location, quiet);
+
+  const fui::Rect btnArea = screen.takeTop(btnH);
+  const int16_t btnW = static_cast<int16_t>(btnArea.width * 3 / 5);
+  fui::ButtonProps done;
+  done.label = tr(STR_DONE);
+  done.action = ACTION_SAVED_DONE;
+  done.text = centered;
+  // Outlined explicitly rather than left to the theme: the core theme leaves
+  // tokens.button unset, and defaultButtonStyles() paints white on white with
+  // no border in the normal state -- a label, not a control, on the one screen
+  // whose only affordance this is.
+  done.styles = fui::defaultButtonStyles();
+  done.styles.normal.border = fui::Paint::solid(fui::Color::Black);
+  done.styles.normal.borderWidth = 1;
+  done.styles.focused.border = fui::Paint::solid(fui::Color::Black);
+  done.styles.focused.borderWidth = 1;
+  done.radius = 4;
+  screen.button(done, fui::Rect{static_cast<int16_t>(btnArea.x + (btnArea.width - btnW) / 2), btnArea.y, btnW, btnH});
+}
+
 void OpdsBookBrowserActivity::buildStatusScreen(UiScreen& screen) {
   screenHeader(screen, false);
 
@@ -459,6 +600,11 @@ void OpdsBookBrowserActivity::render(RenderLock&&) {
     }
     case BrowserState::DOWNLOADING:
       labels = mappedInput.mapLabels(tr(STR_CANCEL), "", "", "");
+      break;
+    case BrowserState::SAVED:
+      // Both front buttons, because either one is the reader saying "read it".
+      // There is nothing else on this screen to press.
+      labels = mappedInput.mapLabels(tr(STR_DONE), tr(STR_DONE), "", "");
       break;
     case BrowserState::ERROR:
       labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_RETRY), "", "");
@@ -676,14 +822,11 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book) {
     haveFolder = false;
   }
 
-  // downloadToFile() needs a std::string, and titles are unbounded (a fixed
-  // char[] would truncate). Cold path (a multi-second download follows), so one
-  // reserve'd, in-place-appended owning string is the right call.
-  std::string filename;
-  filename.reserve(96);
-  if (haveFolder) filename += folder;
-  filename += '/';
-  filename += opdsBookFilename(book.author, book.title, static_cast<OpdsFilenameFormat>(SETTINGS.opdsFilenameFormat));
+  // Composed by opdsBookPath rather than concatenated here, so the verdict
+  // screen below can split THIS string and be reporting the path that was
+  // written rather than a second guess at it.
+  const std::string filename = opdsBookPath(haveFolder ? folder : "", book.author, book.title,
+                                            static_cast<OpdsFilenameFormat>(SETTINGS.opdsFilenameFormat));
   LOG_DBG("OPDS", "Downloading: %s -> %s", downloadUrl.c_str(), filename.c_str());
 
   int lastRenderedPercent = -1;
@@ -719,7 +862,19 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book) {
 
   if (result == HttpDownloader::OK) {
     clearBookCache(filename);
-    state = BrowserState::BROWSING;
+    // Split off the path that was actually written. downloadToFile() writes to
+    // exactly this string and renames nothing, so this is the name the card
+    // holds -- not the catalog's title, which opdsBookFilename() routinely
+    // rewrites (one author out of a ';'-joined list, two separate byte
+    // budgets, illegal characters replaced).
+    savedName = opdsPathBasename(filename);
+    savedFolder = opdsPathFolder(filename);
+    state = BrowserState::SAVED;
+    savedDwell.arm();
+    // Arms the reveal gate: the download screen's Cancel button was live under
+    // whatever finger is on the glass, and this screen must not answer that
+    // same contact.
+    resetUi();
   } else if (result == HttpDownloader::ABORTED) {
     // User cancelled; the partial file is already removed. Back to the list,
     // or straight home when the abort came from the home gesture.

@@ -53,3 +53,24 @@ std::string opdsBookFilename(const std::string& author, const std::string& title
       format == OpdsFilenameFormat::TitleAuthor ? titlePart + " - " + namePart : namePart + " - " + titlePart;
   return base + ".epub";
 }
+
+std::string opdsBookPath(const char* folder, const std::string& author, const std::string& title,
+                         const OpdsFilenameFormat format) {
+  std::string path;
+  path.reserve(96);
+  if (folder != nullptr) path += folder;
+  path += '/';
+  path += opdsBookFilename(author, title, format);
+  return path;
+}
+
+std::string opdsPathBasename(const std::string& path) {
+  // rfind, not find: the folder may itself be nested ("/Books/OPDS/x.epub").
+  const size_t slash = path.rfind('/');
+  return slash == std::string::npos ? path : path.substr(slash + 1);
+}
+
+std::string opdsPathFolder(const std::string& path) {
+  const size_t slash = path.rfind('/');
+  return slash == std::string::npos ? std::string() : path.substr(0, slash);
+}
