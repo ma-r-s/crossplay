@@ -258,7 +258,21 @@ fi
 
 # The inbox page and serve.py must agree on the config endpoint's shape, or
 # local work passes against a key production never sends.
-grep -q 'anonKey' "$ROOT/site/api/board-config.js" && grep -q '"anonKey"' "$SERVE" && grep -q 'anonKey' "$ROOT/site/inbox/index.html" && ok || bad "board-config: api, serve.py and the inbox page do not agree on anonKey"
+grep -q 'anonKey' "$ROOT/site/api/board-config.js" && grep -q '"anonKey"' "$SERVE" && ok || bad "board-config: api and serve.py do not agree on anonKey"
+
+# The inbox gate: a passphrase, checked by api/inbox.js against a hash. Run
+# under node with the board stubbed; the wrong passphrase must read nothing.
+if inbox_out="$(node "$HERE/inbox_fn.js" "$ROOT" 2>&1)"; then
+  ok
+  n_fail="$(printf '%s\n' "$inbox_out" | grep -c '^  FAIL' || true)"
+  [ "$n_fail" -eq 0 ] && ok || { while IFS= read -r line; do bad "inbox_fn: $line"; done < <(printf '%s\n' "$inbox_out" | grep '^  FAIL'); }
+else
+  bad "inbox_fn.js could not run, so api/inbox.js went unchecked:"
+  while IFS= read -r line; do echo "      $line"; done <<< "$inbox_out"
+fi
+# and the page talks only to that gate, never to the board directly
+grep -q '"/api/inbox"' "$ROOT/site/inbox/index.html" && ok || bad "the inbox page does not call /api/inbox"
+grep -q 'supabase.co\|/rest/v1/\|/auth/v1/' "$ROOT/site/inbox/index.html" && bad "the inbox page still talks to the board directly" || ok
 
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]
