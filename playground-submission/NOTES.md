@@ -1,5 +1,15 @@
 # CrossPlay -> reTerminal Sticky Playground submission
 
+**SENT 2026-09-03:
+[Seeed-Projects/reterminal-sticky-playground-registry#37](https://github.com/Seeed-Projects/reterminal-sticky-playground-registry/pull/37)**,
+"Add CrossPlay 1.12.11", open, 6 files, +205. `submitted-pr-37.png` is the page
+as it stood a minute after opening.
+
+CI reported `action_required` rather than running: GitHub holds workflows on a
+first-time contributor's pull request until a maintainer approves them. The
+other open outside contributions on that repository show the same state, so it
+is the gate and not this entry.
+
 The submitted entry, as sent. `firmwares/crossplay/` is a byte-for-byte copy of
 what went into the pull request against
 `Seeed-Projects/reterminal-sticky-playground-registry`, minus the firmware
