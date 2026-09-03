@@ -43,4 +43,34 @@ void buildRows(Rows& rows, const ListView view, const std::vector<Story>& storie
   rows.sourced = true;
 }
 
+EmptyState emptyState(const ListView view, const bool frontPageFailed) {
+  EmptyState state;
+  if (view == ListView::Saved) {
+    // No control, deliberately. An empty shelf on a new device is not a fault
+    // and not something a button can fix; a control here would offer to fetch
+    // the front page from the one screen that is about not needing it.
+    state.headline = "NOTHING SAVED YET";
+    // Measured in the face this actually resolves to. See buildList: the
+    // display cut's predecessors here shipped cut at 480px.
+    state.message = "Tap SAVE while you read.";
+    return state;
+  }
+  if (frontPageFailed) {
+    // Taken from the shared pair rather than written here, so this screen and
+    // the reader's own failure notice cannot promise different things about the
+    // same dropped connection. See kUnreachableMessage.
+    state.headline = kUnreachableHeadline;
+    state.message = kUnreachableMessage;
+    state.actionLabel = "TRY AGAIN";
+    return state;
+  }
+  // The state a device that has never joined a network opens in. It says what
+  // is missing and what is not, because the SAVED half sitting one tap away is
+  // the whole reason the app opens without a radio.
+  state.headline = "NOT LOADED YET";
+  state.message = "The front page needs a connection. Saved articles do not.";
+  state.actionLabel = "LOAD";
+  return state;
+}
+
 }  // namespace hn

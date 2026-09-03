@@ -49,6 +49,16 @@ enum : fui::ActionId {
   // the mark is currently showing.
   ActionSave = 308,
   ActionUnsave = 309,
+  // The empty front page's own control. Its own action rather than reusing
+  // ActionShowFrontPage: that one only says which half of the library is on
+  // screen and must stay inert on the half you are already in, while this one
+  // is the only thing in the app that asks for the network by itself.
+  ActionLoadFrontPage = 311,
+  // The notice's way BACK, carried by every notice that is not about an
+  // unreadable link. Its own action rather than reusing ActionNotice: that one
+  // always means "read the comments", and a screen that has just said the
+  // network is down must not offer to fetch a thread over it.
+  ActionNoticeBack = 312,
 };
 
 // --- The front page ------------------------------------------------------
@@ -65,6 +75,14 @@ struct ListModel {
   // device is the normal case, and a blank panel reads as a fault.
   const char* emptyHeadline = nullptr;
   const char* emptyMessage = nullptr;
+  // The way out of an empty front page, drawn under the two lines above. A
+  // labelled button rather than a hit rect over the text: an empty shelf and an
+  // unloaded front page are the same expanse of paper otherwise, and a live
+  // control drawn like a dead one is one the reader never tries. Both must be
+  // set or nothing is drawn -- an action with no label would be exactly that
+  // invisible control, and hn::emptyState decides them together.
+  const char* emptyActionLabel = nullptr;
+  fui::ActionId emptyAction = fui::NO_ACTION;
   // Built by the Activity, the way shelfui::MenuModel carries its rows: label
   // is the story, subtitle is "412 points, 88 comments", which is the only
   // metadata worth the ink.
@@ -153,11 +171,35 @@ struct NoticeModel {
   const char* message = "";
   // Drawn above the headline when set. The unreadable mark, and only that.
   const freeink::Icon* mark = nullptr;
-  // nullptr draws no button, which is what a loading notice wants: there is
-  // nothing to decide yet and Back already works.
+  // The one control on the screen. BOTH must be set or nothing is drawn, the
+  // same rule ListModel's empty-state control follows and for the same reason:
+  // a label with no action is a button that answers nothing, and an action with
+  // no label is a live control drawn like a dead one.
+  //
+  // Leaving both unset draws no button, which is what a LOADING notice wants:
+  // there is nothing to decide yet. Every other notice must set them. This
+  // screen has no segments and no list under it, so a notice with no control is
+  // a dead end whose only exit is a left-edge swipe the screen never mentions
+  // -- and the SAVED shelf, the half that needs no network, is on the far side
+  // of it. That was the state a failed article fetch left the app in.
   const char* actionLabel = nullptr;
+  fui::ActionId action = fui::NO_ACTION;
 };
 
 void buildNotice(toybox::Screen& screen, const NoticeModel& model);
+
+// The control a notice carries, from the one fact that distinguishes the two
+// kinds. It NEVER answers "none", and that is the whole point of it being a
+// function rather than a ternary at the call site: the ternary was
+// `unreadable ? "READ THE COMMENTS" : nullptr`, and the nullptr half covered
+// every failure this app can show -- a fetch that did not arrive, a card that
+// would not take a save, a saved file gone missing. Each drew a full-screen
+// dead end. Asking here instead means the caller cannot produce one by
+// forgetting a case, and host-tests/ui can ask the question directly.
+struct NoticeControl {
+  const char* label;
+  fui::ActionId action;
+};
+NoticeControl noticeControl(bool unreadable);
 
 }  // namespace hnui
