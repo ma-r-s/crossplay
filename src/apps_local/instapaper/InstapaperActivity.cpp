@@ -259,6 +259,12 @@ void InstapaperActivity::loop() {
   int tapY = 0;
   if (!mappedInput.wasScreenTapped(tapX, tapY) || !interactionsReady_) return;
 
+  // A tap that arrives within kSettleMs of this screen appearing is answering
+  // the PREVIOUS screen -- see the note beside kSettleMs. Dropped rather than
+  // queued: re-routing it once the window closes would still act on something
+  // the user had not read.
+  if (everShown_ && millis() - phaseShownAtMs_ < kSettleMs) return;
+
   fui::InputSnapshot input;
   input.touchReleased = true;
   input.touchX = static_cast<int16_t>(tapX);
@@ -844,6 +850,7 @@ void InstapaperActivity::render(RenderLock&&) {
 
   interactionsReady_ = true;
   toybox::reportOverflow(interactions_, what);
+  const bool phaseChanged = !everShown_ || phase_ != lastShownPhase_;
 
   // The two side keys do different things on the two screens that use them, so
   // the hints have to say which. Everything else here is reached by tapping,
@@ -860,4 +867,14 @@ void InstapaperActivity::render(RenderLock&&) {
   const auto labels = mappedInput.mapLabels("Back", "", reading ? "Prev" : "Up", reading ? "Next" : "Down");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
   renderer.displayBuffer();
+
+  // Stamped AFTER the panel has been written, so the settle window measures
+  // from when a person could first have seen this screen rather than from when
+  // the state changed. displayBuffer() blocks on the panel, so by here it is
+  // showing.
+  if (phaseChanged) {
+    lastShownPhase_ = phase_;
+    phaseShownAtMs_ = millis();
+    everShown_ = true;
+  }
 }

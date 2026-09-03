@@ -158,4 +158,24 @@ class InstapaperActivity final : public Activity {
 
   toybox::Interactions interactions_;
   bool interactionsReady_ = false;
+
+  // SYNC on the queue and BACK TO THE LIST on a notice compute the same rect:
+  // (16,732,448,52) on this panel, from two separate expressions that can only
+  // agree by accident. They are the control that SUMMONS a verdict and the one
+  // that DISMISSES it, on the same pixels.
+  //
+  // So a second tap across a phase change acts on a screen the user has not
+  // read yet: sync, tap again because e-ink looks like nothing happened, and
+  // the verdict -- "3 did not arrive; sync again" or the bridge's reason for
+  // refusing -- is gone before it was seen. The reverse costs a spurious sync.
+  //
+  // Not fixed by moving the button: y=732 is the fork-wide primary-action band
+  // that twenty screen files use, and the band is not the problem. Fixed by
+  // ignoring taps for a moment after a screen becomes VISIBLE, stamped after
+  // displayBuffer() rather than when the state changed, because what matters
+  // is when a person could first have seen it.
+  static constexpr uint32_t kSettleMs = 600;
+  Phase lastShownPhase_ = Phase::Queue;
+  uint32_t phaseShownAtMs_ = 0;
+  bool everShown_ = false;
 };
