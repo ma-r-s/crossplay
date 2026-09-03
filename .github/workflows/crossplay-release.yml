@@ -175,7 +175,28 @@ jobs:
             devices next to each other find one another with nothing to type --
             and they do not have to be the same device.
 
-            ### What is new in 1.12.9
+            ### What is new in 1.12.10
+
+            **A tap can no longer land on a screen you have not seen yet.** The
+            panel takes up to two seconds to redraw, and until now the new
+            screen's buttons were already listening underneath the old picture.
+            A finger resting where the last screen's button was would press
+            whatever the new one had put there. In Battleship that meant your
+            winning shot could restart the match while the screen still read
+            FIRE, and you would never learn you had won. This is fixed for every
+            game at once, in the layer they all share, rather than one game at a
+            time.
+
+            A tap on a screen that did NOT change still works immediately, so
+            nothing feels slower: holding to flag a mine and holding to peek in
+            Wavelength are untouched.
+
+            **LEAVE THE MATCH has moved off the button every game trains you to
+            press.** On a two-player game it sat exactly where PLAY AGAIN sits,
+            so the thumb already resting there after the last move would kill the
+            connection instead of starting the next game.
+
+            ### What WAS new in 1.12.9
 
             **WAVELENGTH's lock is an ordinary button now.** It used to ask you
             to HOLD, without ever saying for how long, and the lock fired while
