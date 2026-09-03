@@ -214,3 +214,59 @@ job the case does not imply, that decision comes back.
 
 Nothing here needs the device in hand. The pin map is committed, the gesture
 path is testable in the simulator, and paging is verifiable with a screenshot.
+
+## 7. A release belongs to whoever saw the press
+
+Closed 2026-09-03. Read this before writing a `wasReleased` branch, and before
+adding a `sawThePress` flag of your own -- there is one, in the framework, and
+a second one per app is how a convention acquires nine patches and no fix.
+
+**The bug it exists to stop.** A screen that finishes on the PRESS hands
+control back while the button is still down. The RELEASE lands ~77ms later on
+whatever is underneath, which never saw the press and reads it as its own
+input. `WifiSelectionActivity` is `wasPressed` throughout, and it is the screen
+apps put in front of themselves to get a network -- so on a device that has
+never joined Wi-Fi, Hacker News could not be opened at all: backing out of the
+picker shut the app, and the saved-articles shelf, the half that exists for
+having no network, needed a network to reach.
+
+Measured with a probe on every loop pass (168587fb): five clean passes go by
+between the two edges, so it is genuinely one physical press producing two
+logical events, not one latch read twice.
+
+**The rule, and where it lives.** `ButtonReleaseGate` (`src/util/`) holds a
+mask of buttons whose next release is not the current screen's to act on.
+`ActivityManager` arms it at both points `currentActivity` changes, with the
+buttons that are down right then; `MappedInputManager::readButton()` -- the one
+place a physical index is read -- drops a release for an armed button.
+Nothing an app writes has to know about it.
+
+Four things worth knowing:
+
+- **A screen that acts on the RELEASE arms nothing.** At the moment it hands
+  back, the button is already up, so the mask comes out empty. Home, the shared
+  list base and Settings are all release-based; the arm only ever fires for the
+  press-exiting screens, which is nine files.
+- **The arm cannot outlive one press.** It is cleared by a fresh press edge
+  unconditionally, by the release it was waiting for, or by the button simply
+  not being down. A gate that swallowed too much would leave Back dead, which
+  reads as a frozen device and is worse than the double-fire.
+- **Power is deliberately outside it.** Its release is consumed outside the
+  activity stack (sleep, the frontlight double-click window), and nothing in
+  `src/` finishes an activity on a Power press.
+- **The swipe was never exposed, and still is not.** For a left-edge swipe,
+  `wasPressed(Back)` and `wasReleased(Back)` are the same `wasBackGesture()`
+  call, both true in one frame -- but the child and the parent read input in
+  DIFFERENT frames (`ActivityManager::loop()` swaps the activity after the
+  outgoing screen's `loop()` and before the incoming one's), and
+  `touchReleasedEvent` is cleared by the `gpio.update()` in between. So the
+  gesture reaches exactly one reader, and the gate leaves it alone: both
+  spellings return before the gate is consulted.
+
+**What the simulator can and cannot say about this.** It reproduces the BUTTON
+case -- the five-pass measurement above was taken there -- but it does not
+compile `lib/hal` and its latch clears in `beginFrame()` rather than
+`update()`, so it cannot be used to argue about the touch one-shots or about
+anything an `update()` does, and a green simulator run is not evidence about
+the device's latches in either direction. The frame-by-frame checks are in
+`host-tests/pickerseam/`.

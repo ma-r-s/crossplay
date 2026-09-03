@@ -82,6 +82,12 @@ void ActivityManager::renderTaskLoop() {
 }
 
 void ActivityManager::loop() {
+  // Before any activity reads input, and before the early returns below, so a
+  // home gesture or a light-panel push cannot leave an arm standing. See
+  // util/ButtonReleaseGate.h: the arm is what stops one physical press being
+  // read by two activities, and this is the only thing that takes it back off.
+  mappedInput.settleReleaseGate();
+
   if (currentActivity) {
     if (!currentActivity->isHomeActivity() && mappedInput.wasHomeGesture()) {
       if (currentActivity->handleHomeGesture()) {
@@ -128,6 +134,10 @@ void ActivityManager::loop() {
         continue;  // Will launch goHome immediately
 
       } else {
+        // The screen being popped acted on a button that is still down (the
+        // Wi-Fi picker cancels on the Back PRESS). Its release is not the
+        // screen underneath's to read. See util/ButtonReleaseGate.h.
+        mappedInput.swallowNextReleaseOfHeldButtons();
         currentActivity = std::move(stackActivities.back());
         stackActivities.pop_back();
         LOG_DBG("ACT", "Popped from activity stack, new size = %zu", stackActivities.size());
@@ -169,6 +179,10 @@ void ActivityManager::loop() {
         LOG_DBG("ACT", "Pushed to activity stack, new size = %zu", stackActivities.size());
       }
       pendingAction = PendingAction::None;
+      // Same seam in the other direction: the screen that launched this one
+      // acted on a press that has not been released yet, and the new screen
+      // never saw it. See util/ButtonReleaseGate.h.
+      mappedInput.swallowNextReleaseOfHeldButtons();
       currentActivity = std::move(pendingActivity);
 
       lock.unlock();  // onEnter may acquire its own lock
