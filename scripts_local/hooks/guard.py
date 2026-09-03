@@ -119,6 +119,15 @@ class Board:
             pass
 
 
+def board_cmd(root):
+    """The board CLI as an absolute command, from wherever it currently lives."""
+    for rel in ("firmware-next/tools_local/board/board.py", "wt/bugflow/tools_local/board/board.py"):
+        p = root / rel
+        if p.exists():
+            return f"python3 {p}"
+    return "python3 <tree>/tools_local/board/board.py"
+
+
 def block(msg):
     sys.stderr.write(msg.rstrip() + "\n")
     sys.exit(2)
@@ -179,7 +188,7 @@ def pretool(board, data):
             block(
                 "Refused: that file is in firmware-next, the integration tree. Work happens in "
                 "wt/<name>/ (./scripts/wt.sh new <name>). Only the session holding the integration "
-                "claim edits here: board integrator --session <id>."
+                f"claim edits here: {board_cmd(root)} integrator --session <your id>."
             )
         return
 
@@ -200,7 +209,7 @@ def pretool(board, data):
         if re.search(r"board(\.py)?\s+ask\b", cmd) and not board.is_orchestrator(sid):
             block(
                 "Refused: only the orchestrator asks Mario. Record what you need on your card: "
-                "board block <card> --session <id> --need <desk|design|info|mario> --ask '...' --default '...'"
+                f"{board_cmd(root)} block <card> --session <id> --need <desk|design|info|mario> --ask '...' --default '...'"
             )
         return
 
@@ -221,7 +230,7 @@ def pretool(board, data):
         block(
             f"Refused: workers talk only to the orchestrator ({name or 'not named yet'}). A peer "
             "cannot resolve your blocker and cannot pass Mario's authority along. Message the "
-            "orchestrator, or record the blocker on your card with `board block`."
+            f"orchestrator, or record the blocker on your card: {board_cmd(board.root)} block <card> --session <id> ..."
         )
 
 
