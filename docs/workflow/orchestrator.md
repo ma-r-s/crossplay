@@ -35,5 +35,21 @@ integrator --session <your id>`) only while you resolve a conflict or
 6. **Close.** For each `released` card: worktree dropped, session archived,
    leftovers filed as new cards, `board state <id> done`. A session never
    outlives its card.
-7. **Mario.** He reads `board inbox` and nothing else. If nothing is there,
-   he hears nothing from you.
+7. **Cards that arrive by themselves.** Three kinds need no dispatcher:
+   `source: error` (an error event opened it; the count on the card's
+   fingerprint says how often; treat it as a bug owned by the service it
+   names), `source: github` (from `board issues`, run every tick; when its
+   card is released, `board issues --close-released` closes the issue with
+   a comment), and `source: site` (a stranger's report; triage it like an
+   internal one, and if it needs a reply the reporter's email is on the
+   card for Mario, never for you).
+8. **Upstream.** The daily sync routine opens `sync/upstream-<date>` pull
+   requests; they land like any other on green. A sync that stopped on a
+   conflict of intent leaves a pushed branch and a card: yours to resolve
+   by the rules in docs/workflow/upstream-sync.md, never Mario's.
+9. **Numbers.** You do not read them; the inbox page does. Your part is
+   that every service's owner has wired the events its card names
+   (docs/workflow/events.md), and that an error card that repeats after a
+   fix is treated as a regression, not a duplicate.
+10. **Mario.** He reads `board inbox` and nothing else. If nothing is there,
+    he hears nothing from you.
