@@ -47,7 +47,28 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if self.path.split("?")[0] == "/api/firmware":
             self.serve_firmware()
             return
+        if self.path.split("?")[0] == "/api/board-config":
+            self.serve_board_config()
+            return
         super().do_GET()
+
+    def serve_board_config(self):
+        # Mirrors api/board-config.js: the inbox page asks for the board's
+        # address and public key. Source .board/supabase.env before running
+        # serve.py to work on the inbox locally; without it the page says so.
+        import os
+
+        url = os.environ.get("SUPABASE_URL", "")
+        anon = os.environ.get("SUPABASE_ANON_KEY", "")
+        if not url or not anon:
+            self.fail(503, "The board is not set up on this deployment.")
+            return
+        body = json.dumps({"url": url, "anonKey": anon}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def serve_firmware(self):
         query = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)

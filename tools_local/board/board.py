@@ -4,10 +4,15 @@
 One card per piece of work. Sessions bind to a card, record blockers on it,
 and move it; the orchestrator reads it and asks Mario through it; Mario's
 inbox is the open blockers that need him. The hooks in scripts_local/hooks/
-read the same files to decide what a session may do.
+read a local mirror of the same facts to decide what a session may do.
 
-v0 stores JSON files under <workspace>/.board/. The web board replaces that
-directory behind this same command line; nothing that calls `board` changes.
+Two stores behind one command line. The file store keeps JSON under
+<workspace>/.board/ and is what the tests drive. The Supabase store is the
+real board (server/board/supabase/), selected automatically when
+<workspace>/.board/supabase.env holds SUPABASE_URL and
+SUPABASE_SERVICE_ROLE_KEY; BOARD_BACKEND=file forces the file store. The
+Supabase store mirrors claims, session bindings and bound cards into the
+file store so the hooks never need the network.
 
     board init
     board orchestrator --name Main --session <id>     who Mario's questions go through
@@ -22,6 +27,7 @@ directory behind this same command line; nothing that calls `board` changes.
     board owner <app> [--session <sid>] [--tree wt/x]  who owns an app (lookup with no flags)
     board route <id>                                   which session a card goes to
     board show <id> | board list [--open] | board inbox | board import <file.md>
+    board sync                                         copy the file store into Supabase, once
 
 Session ids are the ones the SessionStart hook prints; nothing else identifies
 a session from inside Bash, which is why every write that belongs to a session
@@ -37,6 +43,9 @@ import pathlib
 import re
 import subprocess
 import sys
+import urllib.error
+import urllib.parse
+import urllib.request
 
 STATES = [
     "reported",
@@ -73,8 +82,32 @@ def norm_sid(s):
     return s[6:] if s.startswith("local_") else s
 
 
-class Store:
+def read_env(path):
+    out = {}
+    try:
+        for line in pathlib.Path(path).read_text().splitlines():
+            if "=" in line and not line.lstrip().startswith("#"):
+                k, _, v = line.partition("=")
+                out[k.strip()] = v.strip()
+    except OSError:
+        pass
+    return out
+
+
+def hist(c, what):
+    c.setdefault("history", []).append({"at": now(), "what": what})
+
+
+# ----------------------------------------------------------------------------
+# The file store: JSON under <workspace>/.board/. The hooks read exactly these
+# files, so the Supabase store mirrors into it.
+
+
+class FileStore:
+    name = "file"
+
     def __init__(self, root):
+        self.root = root
         self.dir = root / ".board"
         self.cards = self.dir / "cards"
         self.sessions = self.dir / "sessions"
@@ -86,159 +119,470 @@ class Store:
         if not nid.exists():
             nid.write_text("1\n")
 
-    def _lock(self):
+    def lock(self):
         self.init()
         f = open(self.dir / ".lock", "w")
         fcntl.flock(f, fcntl.LOCK_EX)
         return f
 
-    def read(self, path):
+    def _read(self, path):
         try:
             with open(path) as f:
                 return json.load(f)
         except (OSError, ValueError):
             return None
 
-    def write(self, path, data):
+    def _write(self, path, data):
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
         with open(tmp, "w") as f:
             json.dump(data, f, indent=1, sort_keys=True)
         os.replace(tmp, path)
 
-    def next_id(self):
+    def _next_id(self):
         p = self.dir / "next_id"
         n = int((p.read_text() or "1").strip() or 1)
         p.write_text(f"{n + 1}\n")
         return n
 
-    def card_path(self, cid):
-        return self.cards / f"{int(cid)}.json"
+    # cards
+    def create_card(self, fields):
+        c = {
+            "id": fields.get("id") or self._next_id(),
+            "title": fields["title"],
+            "from": fields.get("from", "general"),
+            "kind": fields.get("kind", "task"),
+            "body": fields.get("body", ""),
+            "state": fields.get("state", "reported"),
+            "created": fields.get("created") or now(),
+            "updated": now(),
+            "tree": fields.get("tree"),
+            "branch": fields.get("branch"),
+            "session": fields.get("session"),
+            "blockers": fields.get("blockers", []),
+            "answers": fields.get("answers", []),
+            "history": fields.get("history", []),
+        }
+        self.save_card(c)
+        return c
 
-    def card(self, cid):
-        c = self.read(self.card_path(cid))
+    def get_card(self, cid):
+        c = self._read(self.cards / f"{int(cid)}.json")
         if c is None:
             sys.exit(f"board: no card #{cid}")
         return c
 
     def save_card(self, c):
         c["updated"] = now()
-        self.write(self.card_path(c["id"]), c)
+        self._write(self.cards / f"{c['id']}.json", c)
 
-    def all_cards(self):
+    def list_cards(self):
         out = []
         if self.cards.is_dir():
             for p in sorted(self.cards.glob("*.json"), key=lambda p: int(p.stem)):
-                c = self.read(p)
+                c = self._read(p)
                 if c:
                     out.append(c)
         return out
 
-    def session(self, sid):
-        return self.read(self.sessions / f"{norm_sid(sid)}.json") or {
-            "session_id": norm_sid(sid)
+    # owners, claims, sessions
+    def owners(self):
+        return self._read(self.dir / "owners.json") or {}
+
+    def set_owner(self, app, session, tree):
+        o = self.owners()
+        cur = o.get(app, {})
+        o[app] = {
+            "session": session or cur.get("session"),
+            "tree": tree or cur.get("tree"),
+            "since": now(),
         }
+        self._write(self.dir / "owners.json", o)
+        return o[app]
+
+    def claim(self, name):
+        return self._read(self.dir / f"{name}.json") or {}
+
+    def set_claim(self, name, session, display_name=None):
+        d = {"session_id": session, "since": now()}
+        if display_name:
+            d["name"] = display_name
+        self._write(self.dir / f"{name}.json", d)
+
+    def del_claim(self, name):
+        p = self.dir / f"{name}.json"
+        if p.exists():
+            p.unlink()
+
+    def session(self, sid):
+        return self._read(self.sessions / f"{sid}.json") or {"session_id": sid}
 
     def save_session(self, s):
-        self.write(self.sessions / f"{s['session_id']}.json", s)
+        self._write(self.sessions / f"{s['session_id']}.json", s)
 
 
-def cmd_owner(st, a):
-    """Record, or look up, which session owns an app."""
-    p = st.dir / "owners.json"
-    with st._lock():
-        owners = st.read(p) or {}
-        if a.session or a.tree:
-            owners[a.app.lower()] = {
-                "session": norm_sid(a.session) if a.session else owners.get(a.app.lower(), {}).get("session"),
-                "tree": a.tree or owners.get(a.app.lower(), {}).get("tree"),
-                "since": now(),
+# ----------------------------------------------------------------------------
+# The Supabase store: PostgREST with the service key. Same card shape out.
+
+
+class SupaStore:
+    name = "supabase"
+    SELECT = "*,blockers(*),history(*)"
+
+    def __init__(self, root, url, key):
+        self.root = root
+        self.url = url.rstrip("/")
+        self.key = key
+        self.mirror = FileStore(root)
+
+    def init(self):
+        self.mirror.init()
+
+    def lock(self):
+        return self.mirror.lock()
+
+    def _req(self, method, path, body=None, prefer=None):
+        data = json.dumps(body).encode() if body is not None else None
+        req = urllib.request.Request(
+            f"{self.url}/rest/v1/{path}", data=data, method=method
+        )
+        req.add_header("apikey", self.key)
+        req.add_header("Authorization", f"Bearer {self.key}")
+        req.add_header("Content-Type", "application/json")
+        req.add_header("Accept", "application/json")
+        if prefer:
+            req.add_header("Prefer", prefer)
+        try:
+            with urllib.request.urlopen(req, timeout=20) as r:
+                raw = r.read()
+                return json.loads(raw) if raw else None
+        except urllib.error.HTTPError as e:
+            sys.exit(
+                f"board: supabase {method} {path}: {e.code} {e.read().decode()[:300]}"
+            )
+        except urllib.error.URLError as e:
+            sys.exit(f"board: supabase unreachable: {e.reason}")
+
+    @staticmethod
+    def _to_card(row):
+        blockers = []
+        for b in sorted(row.get("blockers") or [], key=lambda b: b["n"]):
+            ans = None
+            if b.get("answered_at"):
+                ans = {
+                    "choice": b.get("answer_choice"),
+                    "note": b.get("answer_note") or "",
+                    "at": b["answered_at"],
+                }
+            blockers.append(
+                {
+                    "id": b["id"],
+                    "n": b["n"],
+                    "need": b["need"],
+                    "ask": b["ask"],
+                    "default": b["default"],
+                    "open": b["open"],
+                    "created": b["created_at"],
+                    "by": b.get("by_session"),
+                    "answer": ans,
+                }
+            )
+        history = [
+            {"at": h["at"], "what": h["what"]}
+            for h in sorted(row.get("history") or [], key=lambda h: h["at"])
+        ]
+        return {
+            "id": row["id"],
+            "title": row["title"],
+            "from": row["app"],
+            "kind": row["kind"],
+            "body": row["body"],
+            "state": row["state"],
+            "created": row["created_at"],
+            "updated": row["updated_at"],
+            "tree": row.get("tree"),
+            "branch": row.get("branch"),
+            "session": row.get("session"),
+            "blockers": blockers,
+            "answers": [
+                {
+                    "blocker": b["n"],
+                    "choice": b["answer"]["choice"],
+                    "note": b["answer"]["note"],
+                    "at": b["answer"]["at"],
+                }
+                for b in blockers
+                if b["answer"]
+            ],
+            "history": history,
+            "source": row.get("source"),
+            "device": row.get("device"),
+            "version": row.get("version"),
+            "reporter_email": row.get("reporter_email"),
+            "photo_path": row.get("photo_path"),
+        }
+
+    def create_card(self, fields):
+        body = {
+            "title": fields["title"],
+            "app": fields.get("from", "general"),
+            "kind": fields.get("kind", "task"),
+            "body": fields.get("body", ""),
+            "state": fields.get("state", "reported"),
+            "source": fields.get("source", "session"),
+            "tree": fields.get("tree"),
+            "branch": fields.get("branch"),
+            "session": fields.get("session"),
+        }
+        if fields.get("id"):
+            body["id"] = fields["id"]
+        if fields.get("created"):
+            body["created_at"] = fields["created"]
+        rows = self._req(
+            "POST", "cards?select=" + self.SELECT, body, prefer="return=representation"
+        )
+        c = self._to_card(rows[0])
+        for h in fields.get("history", []):
+            self._req(
+                "POST",
+                "history",
+                {"card_id": c["id"], "at": h["at"], "what": h["what"]},
+                prefer="return=minimal",
+            )
+        for b in fields.get("blockers", []):
+            self._req(
+                "POST",
+                "blockers",
+                {
+                    "card_id": c["id"],
+                    "n": b["n"],
+                    "need": b["need"],
+                    "ask": b["ask"],
+                    "default": b.get("default", ""),
+                    "open": b.get("open", True),
+                    "by_session": b.get("by"),
+                    "created_at": b.get("created") or now(),
+                    "answer_choice": (b.get("answer") or {}).get("choice"),
+                    "answer_note": (b.get("answer") or {}).get("note"),
+                    "answered_at": (b.get("answer") or {}).get("at"),
+                },
+                prefer="return=minimal",
+            )
+        return self.get_card(c["id"])
+
+    def get_card(self, cid):
+        rows = self._req("GET", f"cards?id=eq.{int(cid)}&select={self.SELECT}")
+        if not rows:
+            sys.exit(f"board: no card #{cid}")
+        return self._to_card(rows[0])
+
+    def save_card(self, c):
+        """Persist the mutable top-level fields; blockers and history have their own writers."""
+        body = {
+            "title": c["title"],
+            "app": c["from"],
+            "kind": c["kind"],
+            "body": c["body"],
+            "state": c["state"],
+            "tree": c.get("tree"),
+            "branch": c.get("branch"),
+            "session": c.get("session"),
+        }
+        self._req("PATCH", f"cards?id=eq.{c['id']}", body, prefer="return=minimal")
+        if c.get("session"):
+            self.mirror.save_card(dict(c))
+
+    def add_history(self, cid, what):
+        self._req(
+            "POST", "history", {"card_id": cid, "what": what}, prefer="return=minimal"
+        )
+
+    def add_blocker(self, cid, need, ask, default, by):
+        c = self.get_card(cid)
+        n = 1 + max([b["n"] for b in c["blockers"]] + [0])
+        self._req(
+            "POST",
+            "blockers",
+            {
+                "card_id": cid,
+                "n": n,
+                "need": need,
+                "ask": ask,
+                "default": default,
+                "by_session": by,
+            },
+            prefer="return=minimal",
+        )
+        return n
+
+    def close_blocker(self, cid, n, answer=None):
+        body = {"open": False}
+        if answer:
+            body.update(
+                {
+                    "answer_choice": answer["choice"],
+                    "answer_note": answer.get("note", ""),
+                    "answered_at": now(),
+                }
+            )
+        self._req(
+            "PATCH",
+            f"blockers?card_id=eq.{cid}&n=eq.{n}",
+            body,
+            prefer="return=minimal",
+        )
+
+    def list_cards(self):
+        rows = self._req("GET", f"cards?select={self.SELECT}&order=id.asc") or []
+        return [self._to_card(r) for r in rows]
+
+    def owners(self):
+        rows = self._req("GET", "owners?select=*") or []
+        return {
+            r["app"]: {
+                "session": r.get("session"),
+                "tree": r.get("tree"),
+                "since": r.get("since"),
             }
-            st.write(p, owners)
-    o = owners.get(a.app.lower())
-    if o:
-        print(f"{a.app}: session {o.get('session')}  tree {o.get('tree')}")
+            for r in rows
+        }
+
+    def set_owner(self, app, session, tree):
+        cur = self.owners().get(app, {})
+        row = {
+            "app": app,
+            "session": session or cur.get("session"),
+            "tree": tree or cur.get("tree"),
+            "since": now(),
+        }
+        self._req(
+            "POST", "owners", row, prefer="resolution=merge-duplicates,return=minimal"
+        )
+        self.mirror.set_owner(app, row["session"], row["tree"])
+        return row
+
+    def claim(self, name):
+        rows = self._req("GET", f"claims?name=eq.{name}&select=*") or []
+        if not rows:
+            return {}
+        r = rows[0]
+        return {
+            "session_id": r["session"],
+            "since": r["since"],
+            "name": r.get("display_name"),
+        }
+
+    def set_claim(self, name, session, display_name=None):
+        self._req(
+            "POST",
+            "claims",
+            {
+                "name": name,
+                "session": session,
+                "display_name": display_name,
+                "since": now(),
+            },
+            prefer="resolution=merge-duplicates,return=minimal",
+        )
+        self.mirror.set_claim(name, session, display_name)
+
+    def del_claim(self, name):
+        self._req("DELETE", f"claims?name=eq.{name}", prefer="return=minimal")
+        self.mirror.del_claim(name)
+
+    def session(self, sid):
+        rows = (
+            self._req("GET", f"sessions?id=eq.{urllib.parse.quote(sid)}&select=*") or []
+        )
+        if not rows:
+            return {"session_id": sid}
+        r = rows[0]
+        return {"session_id": r["id"], "cwd": r.get("cwd"), "card": r.get("card_id")}
+
+    def save_session(self, s):
+        self._req(
+            "POST",
+            "sessions",
+            {
+                "id": s["session_id"],
+                "cwd": s.get("cwd"),
+                "card_id": s.get("card"),
+                "last_seen": now(),
+            },
+            prefer="resolution=merge-duplicates,return=minimal",
+        )
+        self.mirror.save_session(s)
+
+
+def open_store(root):
+    env = read_env(root / ".board" / "supabase.env")
+    if (
+        os.environ.get("BOARD_BACKEND", "").lower() != "file"
+        and env.get("SUPABASE_URL")
+        and env.get("SUPABASE_SERVICE_ROLE_KEY")
+    ):
+        return SupaStore(root, env["SUPABASE_URL"], env["SUPABASE_SERVICE_ROLE_KEY"])
+    return FileStore(root)
+
+
+# ----------------------------------------------------------------------------
+# Commands. They speak in cards; the store decides where cards live.
+
+
+def card_history(st, c, what):
+    if isinstance(st, SupaStore):
+        st.add_history(c["id"], what)
     else:
-        print(f"{a.app}: no owner")
-
-
-def cmd_route(st, a):
-    """Where a card goes: its app's owner, or nobody."""
-    c = st.card(a.id)
-    owners = st.read(st.dir / "owners.json") or {}
-    o = owners.get(str(c.get("from", "")).lower())
-    if o and o.get("session"):
-        print(f"#{c['id']} -> {c['from']} owner session {o['session']} (tree {o.get('tree')})")
-    else:
-        print(f"#{c['id']} -> {c['from']} has no owner; start a worker")
-
-
-def hist(c, what):
-    c.setdefault("history", []).append({"at": now(), "what": what})
+        hist(c, what)
 
 
 def cmd_init(st, a):
     st.init()
-    print(f"board: ready at {st.dir}")
+    print(f"board: ready ({st.name})")
 
 
 def cmd_orchestrator(st, a):
-    with st._lock():
-        st.write(
-            st.dir / "orchestrator.json",
-            {"name": a.name, "session_id": norm_sid(a.session), "since": now()},
-        )
+    with st.lock():
+        st.set_claim("orchestrator", norm_sid(a.session), a.name)
     print(f"board: orchestrator is {a.name} ({norm_sid(a.session)})")
 
 
 def cmd_integrator(st, a):
-    p = st.dir / "integrator.json"
-    with st._lock():
+    with st.lock():
+        cur = st.claim("integrator")
         if a.release:
-            cur = st.read(p) or {}
             if cur and norm_sid(cur.get("session_id")) != norm_sid(a.session):
                 sys.exit(
                     "board: the integration claim belongs to another session; it releases it, not you"
                 )
-            if p.exists():
-                p.unlink()
+            st.del_claim("integrator")
             print("board: integration tree released")
             return
-        cur = st.read(p)
         if cur and norm_sid(cur.get("session_id")) != norm_sid(a.session):
             sys.exit(
                 f"board: integration tree is held by {cur.get('session_id')} since {cur.get('since')}; wait or ask the orchestrator"
             )
-        st.write(p, {"session_id": norm_sid(a.session), "since": now()})
+        st.set_claim("integrator", norm_sid(a.session))
     print(f"board: integration tree claimed by {norm_sid(a.session)}")
 
 
 def cmd_new(st, a):
-    with st._lock():
-        c = {
-            "id": st.next_id(),
-            "title": a.title,
-            "from": a.from_app,
-            "kind": a.kind,
-            "body": a.body or "",
-            "state": "reported",
-            "created": now(),
-            "updated": now(),
-            "tree": None,
-            "branch": None,
-            "session": None,
-            "blockers": [],
-            "answers": [],
-            "history": [],
-        }
-        hist(c, "created")
-        st.save_card(c)
+    with st.lock():
+        c = st.create_card(
+            {
+                "title": a.title,
+                "from": a.from_app,
+                "kind": a.kind,
+                "body": a.body or "",
+                "history": [{"at": now(), "what": "created"}],
+            }
+        )
     print(f"#{c['id']} {c['title']}")
 
 
 def cmd_bind(st, a):
-    with st._lock():
-        c = st.card(a.id)
+    with st.lock():
+        c = st.get_card(a.id)
         sid = norm_sid(a.session)
         c["session"] = sid
         if a.tree:
@@ -247,7 +591,9 @@ def cmd_bind(st, a):
             c["branch"] = a.branch
         if c["state"] in ("reported", "triaged"):
             c["state"] = "working"
-        hist(c, f"bound to session {sid}" + (f" in {a.tree}" if a.tree else ""))
+        card_history(
+            st, c, f"bound to session {sid}" + (f" in {a.tree}" if a.tree else "")
+        )
         st.save_card(c)
         s = st.session(sid)
         s["card"] = c["id"]
@@ -255,46 +601,63 @@ def cmd_bind(st, a):
     print(f"#{c['id']} bound to {sid}")
 
 
-def cmd_block(st, a):
-    with st._lock():
-        c = st.card(a.id)
+def _block(st, cid, need, ask, default, by):
+    c = st.get_card(cid)
+    if isinstance(st, SupaStore):
+        n = st.add_blocker(cid, need, ask, default, by)
+        st.add_history(cid, f"blocked ({need}): {ask}")
+        if c.get("session"):
+            st.mirror.save_card(st.get_card(cid))
+    else:
         n = 1 + max([b["n"] for b in c["blockers"]] + [0])
-        b = {
-            "n": n,
-            "need": a.need,
-            "ask": a.ask,
-            "default": a.default,
-            "open": True,
-            "created": now(),
-            "by": norm_sid(a.session) if a.session else "orchestrator",
-            "answer": None,
-        }
-        c["blockers"].append(b)
-        hist(c, f"blocked ({a.need}): {a.ask}")
+        c["blockers"].append(
+            {
+                "n": n,
+                "need": need,
+                "ask": ask,
+                "default": default,
+                "open": True,
+                "created": now(),
+                "by": by,
+                "answer": None,
+            }
+        )
+        hist(c, f"blocked ({need}): {ask}")
         st.save_card(c)
+    return c, n
+
+
+def cmd_block(st, a):
+    with st.lock():
+        c, n = _block(st, a.id, a.need, a.ask, a.default, norm_sid(a.session))
     print(f"#{c['id']} blocked on {a.need}: {a.ask}")
 
 
 def cmd_ask(st, a):
-    a.need = "mario"
-    a.session = None
-    cmd_block(st, a)
+    with st.lock():
+        c, n = _block(st, a.id, "mario", a.ask, a.default, "orchestrator")
+    print(f"#{c['id']} asked Mario: {a.ask}")
 
 
 def cmd_unblock(st, a):
-    with st._lock():
-        c = st.card(a.id)
+    with st.lock():
+        c = st.get_card(a.id)
         for b in c["blockers"]:
             if b["open"] and (a.n is None or b["n"] == a.n):
                 b["open"] = False
-                hist(c, f"unblocked #{b['n']}")
-        st.save_card(c)
+                if isinstance(st, SupaStore):
+                    st.close_blocker(c["id"], b["n"])
+                    st.add_history(c["id"], f"unblocked #{b['n']}")
+                else:
+                    hist(c, f"unblocked #{b['n']}")
+        if not isinstance(st, SupaStore):
+            st.save_card(c)
     print(f"#{c['id']} unblocked")
 
 
 def cmd_answer(st, a):
-    with st._lock():
-        c = st.card(a.id)
+    with st.lock():
+        c = st.get_card(a.id)
         target = None
         for b in c["blockers"]:
             if b["open"] and b["need"] == "mario":
@@ -305,28 +668,57 @@ def cmd_answer(st, a):
                     target = b
         if target is None:
             sys.exit(f"board: #{c['id']} has no open blocker to answer")
-        target["open"] = False
-        target["answer"] = {"choice": a.choice, "note": a.note or "", "at": now()}
-        c["answers"].append(
-            {
-                "blocker": target["n"],
-                "choice": a.choice,
-                "note": a.note or "",
-                "at": now(),
-            }
-        )
-        hist(c, f"answered #{target['n']}: {a.choice}")
-        st.save_card(c)
+        answer = {"choice": a.choice, "note": a.note or "", "at": now()}
+        if isinstance(st, SupaStore):
+            st.close_blocker(c["id"], target["n"], answer)
+            st.add_history(c["id"], f"answered #{target['n']}: {a.choice}")
+        else:
+            target["open"] = False
+            target["answer"] = answer
+            c["answers"].append(
+                {
+                    "blocker": target["n"],
+                    "choice": a.choice,
+                    "note": a.note or "",
+                    "at": answer["at"],
+                }
+            )
+            hist(c, f"answered #{target['n']}: {a.choice}")
+            st.save_card(c)
     print(f"#{c['id']} answered: {a.choice}")
 
 
 def cmd_state(st, a):
-    with st._lock():
-        c = st.card(a.id)
+    with st.lock():
+        c = st.get_card(a.id)
         c["state"] = a.state
-        hist(c, f"state {a.state}")
+        card_history(st, c, f"state {a.state}")
         st.save_card(c)
     print(f"#{c['id']} {a.state}")
+
+
+def cmd_owner(st, a):
+    with st.lock():
+        if a.session or a.tree:
+            st.set_owner(
+                a.app.lower(), norm_sid(a.session) if a.session else None, a.tree
+            )
+        o = st.owners().get(a.app.lower())
+    if o:
+        print(f"{a.app}: session {o.get('session')}  tree {o.get('tree')}")
+    else:
+        print(f"{a.app}: no owner")
+
+
+def cmd_route(st, a):
+    c = st.get_card(a.id)
+    o = st.owners().get(str(c.get("from", "")).lower())
+    if o and o.get("session"):
+        print(
+            f"#{c['id']} -> {c['from']} owner session {o['session']} (tree {o.get('tree')})"
+        )
+    else:
+        print(f"#{c['id']} -> {c['from']} has no owner; start a worker")
 
 
 def derived(c):
@@ -406,13 +798,13 @@ def fmt_card(c, full=False):
     if c.get("body"):
         lines.append("  " + c["body"].replace("\n", "\n  "))
     for b in c["blockers"]:
-        st = (
+        st_ = (
             "open"
             if b["open"]
             else f"closed: {b['answer']['choice'] if b.get('answer') else 'unblocked'}"
         )
         lines.append(
-            f"  blocker {b['n']} [{b['need']}, {st}] {b['ask']}  | if nothing: {b['default']}"
+            f"  blocker {b['n']} [{b['need']}, {st_}] {b['ask']}  | if nothing: {b['default']}"
         )
     for h in c.get("history", [])[-6:]:
         lines.append(f"  {h['at']}  {h['what']}")
@@ -420,11 +812,11 @@ def fmt_card(c, full=False):
 
 
 def cmd_show(st, a):
-    print(fmt_card(st.card(a.id), full=True))
+    print(fmt_card(st.get_card(a.id), full=True))
 
 
 def cmd_list(st, a):
-    cards = st.all_cards()
+    cards = st.list_cards()
     if a.open:
         cards = [c for c in cards if c["state"] not in ("done", "released", "parked")]
     if not cards:
@@ -436,7 +828,7 @@ def cmd_list(st, a):
 
 def cmd_inbox(st, a):
     n = 0
-    for c in st.all_cards():
+    for c in st.list_cards():
         for b in c["blockers"]:
             if b["open"] and b["need"] == "mario":
                 n += 1
@@ -457,7 +849,7 @@ def cmd_import(st, a):
     text = pathlib.Path(a.file).read_text()
     sections = re.split(r"^## +", text, flags=re.M)[1:]
     made = 0
-    with st._lock():
+    with st.lock():
         for s in sections:
             head, _, body = s.partition("\n")
             head = head.strip()
@@ -466,27 +858,63 @@ def cmd_import(st, a):
             frm, title = (
                 (head.split(":", 1) + [""])[:2] if ":" in head else ("general", head)
             )
-            c = {
-                "id": st.next_id(),
-                "title": title.strip() or head,
-                "from": frm.strip().lower(),
-                "kind": a.kind,
-                "body": body.strip(),
-                "state": "reported",
-                "created": now(),
-                "updated": now(),
-                "tree": None,
-                "branch": None,
-                "session": None,
-                "blockers": [],
-                "answers": [],
-                "history": [],
-            }
-            hist(c, f"imported from {pathlib.Path(a.file).name}")
-            st.save_card(c)
+            c = st.create_card(
+                {
+                    "title": title.strip() or head,
+                    "from": frm.strip().lower(),
+                    "kind": a.kind,
+                    "body": body.strip(),
+                    "source": "import",
+                    "history": [
+                        {
+                            "at": now(),
+                            "what": f"imported from {pathlib.Path(a.file).name}",
+                        }
+                    ],
+                }
+            )
             made += 1
             print(f"#{c['id']} {c['title']}")
     print(f"board: imported {made} cards")
+
+
+def cmd_sync(st, a):
+    """Copy the file store into Supabase, keeping ids. Run once, then the file store is only a mirror."""
+    if not isinstance(st, SupaStore):
+        sys.exit(
+            "board: sync needs the Supabase store (is .board/supabase.env present?)"
+        )
+    files = FileStore(st.root)
+    existing = {c["id"] for c in st.list_cards()}
+    made = 0
+    for c in files.list_cards():
+        if c["id"] in existing:
+            continue
+        st.create_card(
+            {
+                "id": c["id"],
+                "title": c["title"],
+                "from": c["from"],
+                "kind": c["kind"],
+                "body": c["body"],
+                "state": c["state"],
+                "created": c.get("created"),
+                "tree": c.get("tree"),
+                "branch": c.get("branch"),
+                "session": c.get("session"),
+                "blockers": c.get("blockers", []),
+                "history": c.get("history", []),
+                "source": "import",
+            }
+        )
+        made += 1
+    for app, o in files.owners().items():
+        st.set_owner(app, o.get("session"), o.get("tree"))
+    for name in ("orchestrator", "integrator"):
+        cl = files.claim(name)
+        if cl.get("session_id"):
+            st.set_claim(name, cl["session_id"], cl.get("name"))
+    print(f"board: synced {made} cards, {len(files.owners())} owners")
 
 
 def main(argv=None):
@@ -543,6 +971,14 @@ def main(argv=None):
     s.add_argument("id", type=int)
     s.add_argument("state", choices=STATES)
     s.set_defaults(fn=cmd_state)
+    s = sub.add_parser("owner")
+    s.add_argument("app")
+    s.add_argument("--session")
+    s.add_argument("--tree")
+    s.set_defaults(fn=cmd_owner)
+    s = sub.add_parser("route")
+    s.add_argument("id", type=int)
+    s.set_defaults(fn=cmd_route)
     s = sub.add_parser("show")
     s.add_argument("id", type=int)
     s.set_defaults(fn=cmd_show)
@@ -550,15 +986,14 @@ def main(argv=None):
     s.add_argument("--open", action="store_true")
     s.set_defaults(fn=cmd_list)
     sub.add_parser("inbox").set_defaults(fn=cmd_inbox)
-    s = sub.add_parser("owner"); s.add_argument("app"); s.add_argument("--session"); s.add_argument("--tree"); s.set_defaults(fn=cmd_owner)
-    s = sub.add_parser("route"); s.add_argument("id", type=int); s.set_defaults(fn=cmd_route)
     s = sub.add_parser("import")
     s.add_argument("file")
     s.add_argument("--kind", choices=["bug", "feature", "task"], default="task")
     s.set_defaults(fn=cmd_import)
+    sub.add_parser("sync").set_defaults(fn=cmd_sync)
 
     a = p.parse_args(argv)
-    st = Store(find_root())
+    st = open_store(find_root())
     a.fn(st, a)
 
 

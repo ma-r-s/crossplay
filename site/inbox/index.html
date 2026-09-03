@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CrossPlay Inbox</title>
+<meta name="robots" content="noindex">
+<link rel="stylesheet" href="/styles.css">
+<link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+<meta name="theme-color" content="#111110">
+<style>
+  [hidden] { display: none !important; } /* styles.css styles buttons; the attribute must still win */
+  /* One message at a time. What needs Mario, in three lines, with buttons.
+     Signed in by magic link; the board's row security decides who reads. */
+  .inbox { max-width: 34rem; margin: 0 auto; padding: 2rem var(--gutter) 5rem; }
+  .top { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; border-bottom: 2px solid var(--ink); padding-bottom: 0.6rem; margin-bottom: 1.2rem; }
+  .top h1 { font-family: var(--display); font-weight: 400; font-size: 2.6rem; margin: 0; line-height: 1; }
+  .count { font-family: var(--mono); font-size: 0.85rem; color: var(--muted); }
+  .count b { color: var(--ink); font-weight: 600; }
+  .msg { background: var(--paper-2); border: 1px solid var(--edge); border-top: 6px solid var(--ink); border-radius: 6px; padding: 1.1rem 1.2rem 1.3rem; }
+  .from { font-family: var(--mono); font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); display: flex; justify-content: space-between; gap: 0.8rem; }
+  .msg h2 { font-size: 1.4rem; line-height: 1.25; margin: 0.4rem 0 0.9rem; font-weight: 600; }
+  .row { margin: 0 0 0.7rem; }
+  .row dt { font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+  .row dd { margin: 0.1rem 0 0; }
+  .row.need dt { display: inline-block; background: var(--ink); color: var(--paper); padding: 0.05rem 0.4rem; border-radius: 3px; }
+  .answer { display: flex; gap: 0.5rem; margin-top: 1rem; }
+  .answer input { flex: 1; font: inherit; font-size: 1rem; padding: 0.65rem 0.8rem; border: 1.5px solid var(--edge); border-radius: 6px; background: var(--paper); color: var(--ink); min-width: 0; }
+  .btn { font: inherit; font-size: 0.98rem; padding: 0.65rem 1rem; border-radius: 6px; border: 1.5px solid var(--ink); background: transparent; color: var(--ink); cursor: pointer; white-space: nowrap; }
+  .btn.primary { background: var(--ink); color: var(--paper); }
+  .btn.quiet { border-color: transparent; color: var(--muted); text-decoration: underline; padding-left: 0.3rem; padding-right: 0.3rem; }
+  .btn:focus-visible, .answer input:focus { outline: 3px solid var(--ink); outline-offset: 1px; }
+  .btn[disabled] { opacity: 0.5; cursor: default; }
+  .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.7rem; align-items: center; }
+  .zero { text-align: center; padding: 2.5rem 1rem; border: 1px dashed var(--edge); border-radius: 6px; color: var(--muted); }
+  .zero h2 { font-family: var(--display); font-weight: 400; font-size: 2.2rem; margin: 0 0 0.3rem; color: var(--ink); }
+  .login { border: 1px solid var(--edge); border-radius: 6px; padding: 1.2rem; }
+  .login label { display: block; font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 0.4rem; }
+  .login .answer { margin-top: 0; }
+  .status { min-height: 1.4em; margin: 0.8rem 0 0; color: var(--muted); font-size: 0.95rem; }
+  .status.err { color: var(--ink); font-weight: 600; }
+  details { margin-top: 1.8rem; border-top: 1px solid var(--edge); padding-top: 0.8rem; }
+  summary { cursor: pointer; font-weight: 600; }
+  summary small { font-family: var(--mono); font-size: 0.78rem; color: var(--muted); margin-left: 0.5rem; font-weight: 400; }
+  .all { list-style: none; padding: 0; margin: 0.6rem 0 0; }
+  .all li { display: flex; gap: 0.8rem; align-items: baseline; padding: 0.45rem 0; border-bottom: 1px solid var(--edge); font-size: 0.95rem; }
+  .all .st { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); min-width: 5.5rem; }
+  .all .st.released, .all .st.done { color: var(--ink); }
+  .all .app { color: var(--muted); font-size: 0.82rem; margin-left: auto; white-space: nowrap; }
+  .foot { margin-top: 2rem; font-size: 0.85rem; color: var(--muted); display: flex; justify-content: space-between; gap: 1rem; }
+  .photo { max-width: 100%; border: 1px solid var(--edge); border-radius: 4px; margin-top: 0.6rem; }
+</style>
+</head>
+<body>
+<main class="inbox" id="main">
+  <div class="top">
+    <h1>Inbox</h1>
+    <span class="count" id="inbox-count"></span>
+  </div>
+
+  <section class="login" id="inbox-login" hidden>
+    <label for="inbox-email">Sign in with a link to your email</label>
+    <div class="answer">
+      <input type="email" id="inbox-email" autocomplete="email" placeholder="you@example.com">
+      <button class="btn primary" id="inbox-link">Send link</button>
+    </div>
+    <p class="status" id="inbox-login-status"></p>
+  </section>
+
+  <div id="inbox-view"></div>
+  <p class="status" id="inbox-status" role="status" aria-live="polite"></p>
+
+  <details id="inbox-everything" hidden>
+    <summary>Everything <small id="inbox-all-count"></small></summary>
+    <ul class="all" id="inbox-all"></ul>
+  </details>
+
+  <p class="foot"><span>One message at a time. A tap is the whole answer.</span><button class="btn quiet" id="inbox-signout" hidden>Sign out</button></p>
+</main>
+
+<script>
+(function () {
+  "use strict";
+  var $ = function (id) { return document.getElementById(id); };
+  var KEY = "crossplay-inbox-session";
+  var cfg = null, session = null, later = {}, items = [], all = [];
+
+  function say(text, err) { var s = $("inbox-status"); s.textContent = text || ""; s.className = "status" + (err ? " err" : ""); }
+  function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  function loadSession() { try { session = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) { session = null; } }
+  function saveSession(s) { session = s; try { if (s) localStorage.setItem(KEY, JSON.stringify(s)); else localStorage.removeItem(KEY); } catch (e) {} }
+
+  // A magic link lands here with the tokens in the fragment. Keep them, then
+  // drop them from the address bar.
+  function takeTokensFromHash() {
+    if (!location.hash || location.hash.indexOf("access_token=") < 0) return;
+    var h = new URLSearchParams(location.hash.slice(1));
+    saveSession({ access_token: h.get("access_token"), refresh_token: h.get("refresh_token"), expires_at: Date.now() + (parseInt(h.get("expires_in") || "3600", 10) * 1000) });
+    history.replaceState(null, "", location.pathname);
+  }
+
+  function authHeaders(json) {
+    var h = { apikey: cfg.anonKey, Authorization: "Bearer " + session.access_token };
+    if (json) h["Content-Type"] = "application/json";
+    return h;
+  }
+
+  function refresh() {
+    if (!session || !session.refresh_token) return Promise.reject(new Error("no session"));
+    return fetch(cfg.url + "/auth/v1/token?grant_type=refresh_token", {
+      method: "POST", headers: { apikey: cfg.anonKey, "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: session.refresh_token })
+    }).then(function (r) { if (!r.ok) throw new Error("refresh failed"); return r.json(); })
+      .then(function (j) { saveSession({ access_token: j.access_token, refresh_token: j.refresh_token, expires_at: Date.now() + j.expires_in * 1000 }); });
+  }
+
+  function api(path, init, retried) {
+    init = init || {};
+    init.headers = Object.assign(authHeaders(!!init.body), init.headers || {});
+    return fetch(cfg.url + "/rest/v1/" + path, init).then(function (r) {
+      if (r.status === 401 && !retried) return refresh().then(function () { return api(path, init, true); });
+      if (!r.ok) return r.text().then(function (t) { throw new Error(t || ("HTTP " + r.status)); });
+      return r.status === 204 ? null : r.json();
+    });
+  }
+
+  function sendLink() {
+    var email = $("inbox-email").value.trim();
+    var st = $("inbox-login-status");
+    if (!email) { st.textContent = "Your email first."; return; }
+    $("inbox-link").disabled = true;
+    fetch(cfg.url + "/auth/v1/otp?redirect_to=" + encodeURIComponent(location.origin + location.pathname), {
+      method: "POST", headers: { apikey: cfg.anonKey, "Content-Type": "application/json" },
+      body: JSON.stringify({ email: email, create_user: true })
+    }).then(function (r) {
+      st.textContent = r.ok ? "Sent. Open the link on this device." : "Could not send the link. Try again in a minute.";
+    }).catch(function () { st.textContent = "Could not reach the board."; })
+      .finally(function () { $("inbox-link").disabled = false; });
+  }
+
+  function load() {
+    say("Loading...");
+    return Promise.all([
+      api("inbox?select=*"),
+      api("cards?select=id,title,app,state,updated_at&order=id.desc")
+    ]).then(function (res) {
+      items = res[0] || []; all = res[1] || [];
+      say("");
+      render();
+    }).catch(function (err) {
+      if (/JWT|401|refresh|no session/i.test(err.message)) { saveSession(null); showLogin("Your link expired. Send a new one."); return; }
+      say("Could not read the board: " + err.message, true);
+    });
+  }
+
+  function pending() {
+    var first = items.filter(function (m) { return !later[m.blocker_id]; });
+    return first.length ? first.concat(items.filter(function (m) { return later[m.blocker_id]; })) : items;
+  }
+
+  function sinceLine(body) {
+    var lines = String(body || "").split("\n").filter(function (l) { return l.trim(); });
+    var last = lines.length ? lines[lines.length - 1] : "";
+    return last.replace(/^\s*since( then)?:\s*/i, "");
+  }
+
+  function answer(m, choice, note) {
+    say("Saving...");
+    var body = { open: false, answer_choice: choice, answer_note: note || "", answered_at: new Date().toISOString() };
+    api("blockers?card_id=eq." + m.card_id + "&n=eq." + m.n, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify(body) })
+      .then(function () { return api("history", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ card_id: m.card_id, what: "answered from the inbox: " + choice }) }); })
+      .then(function () { items = items.filter(function (x) { return x.blocker_id !== m.blocker_id; }); say("Answered."); render(); })
+      .catch(function (err) { say("Could not save that: " + err.message, true); });
+  }
+
+  function render() {
+    var list = pending();
+    var view = $("inbox-view");
+    $("inbox-count").innerHTML = list.length ? "<b>" + list.length + "</b> to answer" : "nothing to answer";
+    if (!list.length) {
+      view.innerHTML = '<div class="zero"><h2>Nothing needs you</h2><p>New messages appear here when a session is truly stuck on you.</p></div>';
+    } else {
+      var m = list[0];
+      view.innerHTML =
+        '<article class="msg">' +
+        '<div class="from"><span>From ' + esc(m.app) + ' &middot; #' + m.card_id + '</span><span>' + (items.length - list.length + 1) + ' of ' + items.length + '</span></div>' +
+        '<h2>' + esc(m.title) + '</h2>' +
+        '<dl>' +
+        (sinceLine(m.body) ? '<div class="row"><dt>Since then</dt><dd>' + esc(sinceLine(m.body)) + '</dd></div>' : '') +
+        '<div class="row need"><dt>Need from you</dt><dd>' + esc(m.ask) + '</dd></div>' +
+        '<div class="row"><dt>If you do nothing</dt><dd>' + esc(m["default"]) + '</dd></div>' +
+        '</dl>' +
+        '<div class="answer"><input type="text" id="inbox-answer" placeholder="Your answer, in a line"><button class="btn primary" id="inbox-send">Send</button></div>' +
+        '<div class="actions"><button class="btn" id="inbox-default">Take the default</button><button class="btn quiet" id="inbox-later">Later</button></div>' +
+        '</article>';
+      $("inbox-send").addEventListener("click", function () { var v = $("inbox-answer").value.trim(); if (!v) { $("inbox-answer").focus(); return; } answer(m, v, ""); });
+      $("inbox-answer").addEventListener("keydown", function (e) { if (e.key === "Enter") $("inbox-send").click(); });
+      $("inbox-default").addEventListener("click", function () { answer(m, m["default"] || "default", "took the default"); });
+      $("inbox-later").addEventListener("click", function () { later[m.blocker_id] = true; render(); });
+    }
+    var ul = $("inbox-all");
+    var order = ["reported", "triaged", "working", "review", "merged", "released", "done", "parked"];
+    all.sort(function (a, b) { return order.indexOf(a.state) - order.indexOf(b.state) || b.id - a.id; });
+    ul.innerHTML = all.map(function (c) {
+      return '<li><span class="st ' + esc(c.state) + '">' + esc(c.state) + '</span><span>#' + c.id + ' ' + esc(c.title) + '</span><span class="app">' + esc(c.app) + '</span></li>';
+    }).join("");
+    $("inbox-all-count").textContent = all.length + " cards";
+    $("inbox-everything").hidden = false;
+    $("inbox-signout").hidden = false;
+  }
+
+  function showLogin(text) {
+    $("inbox-login").hidden = false;
+    $("inbox-view").innerHTML = "";
+    $("inbox-everything").hidden = true;
+    $("inbox-signout").hidden = true;
+    $("inbox-count").textContent = "";
+    if (text) $("inbox-login-status").textContent = text;
+  }
+
+  $("inbox-link").addEventListener("click", sendLink);
+  $("inbox-email").addEventListener("keydown", function (e) { if (e.key === "Enter") sendLink(); });
+  $("inbox-signout").addEventListener("click", function () { saveSession(null); showLogin(""); });
+
+  fetch("/api/board-config").then(function (r) { if (!r.ok) throw new Error("no config"); return r.json(); })
+    .then(function (c) {
+      cfg = c;
+      takeTokensFromHash();
+      loadSession();
+      if (session && session.access_token) { $("inbox-login").hidden = true; load(); } else { showLogin(""); }
+    })
+    .catch(function () { say("The board is not set up on this deployment.", true); });
+})();
+</script>
+</body>
+</html>
