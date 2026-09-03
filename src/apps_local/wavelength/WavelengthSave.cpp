@@ -88,13 +88,16 @@ size_t pack(const Saved& in, uint8_t* out, const size_t cap) {
   *p++ = in.target;
   *p++ = in.guess;
   *p++ = in.lastPoints;
+
+  put32(p, in.bootId);
+  put32(p, in.savedAt);
   return static_cast<size_t>(p - out);
 }
 
 bool unpack(const uint8_t* in, const size_t len, Saved& out) {
   if (in == nullptr || len < kLegacyBytes) return false;
   const uint8_t version = in[0];
-  if (version != kSaveVersionLegacy && version != kSaveVersion) return false;
+  if (version != kSaveVersionLegacy && version != kSaveVersionSession && version != kSaveVersion) return false;
 
   out = Saved{};
   const uint8_t* p = in + 1;
@@ -104,10 +107,16 @@ bool unpack(const uint8_t* in, const size_t len, Saved& out) {
   out.record.bestRoundTenths = take16(p);
   for (int i = 0; i < kSeenWords; ++i) out.seen[i] = take32(p);
 
-  // A version 1 card, or a version 2 card that was truncated before the
-  // session block. The record is still good, so keep it and start the evening
-  // fresh rather than throwing away a year of rounds over a missing tail.
-  if (version == kSaveVersionLegacy || len < kSaveBytes) return true;
+  // A version 1 card, or a later card that was truncated before the session
+  // block. The record is still good, so keep it and start the evening fresh
+  // rather than throwing away a year of rounds over a missing tail.
+  //
+  // Measured against the SESSION block's length, not against the whole file.
+  // The two were the same number until v3 appended to the tail, and comparing
+  // against the whole file would have made every v2 card ever written look
+  // truncated -- silently dropping the session it was carrying, which is the
+  // loss this file exists to prevent, committed by its own upgrade.
+  if (version == kSaveVersionLegacy || len < kSessionBytes) return true;
 
   out.session.round = take16(p);
   out.session.total = take16(p);
@@ -130,6 +139,16 @@ bool unpack(const uint8_t* in, const size_t len, Saved& out) {
   out.guess = *p++;
   out.lastPoints = *p++;
 
+  // The boot and the clock stamp are v3's tail. A v2 card stops here and keeps
+  // both at zero, which resumeFor() reads as "this file cannot tell me which
+  // run of the chip wrote it" -- so the table is asked. That is the right
+  // answer for a card written by a build that never recorded it: the one thing
+  // certain about it is that it was written before this build was installed.
+  if (version >= kSaveVersion && len >= kSaveBytes) {
+    out.bootId = take32(p);
+    out.savedAt = take32(p);
+  }
+
   // A session cannot have started before its first round, and a slot that is
   // set at all has to be one the strip has. Either means the tail is not what
   // it claims, so keep the record and drop the round.
@@ -142,6 +161,30 @@ bool unpack(const uint8_t* in, const size_t len, Saved& out) {
   const bool slotsAreSane = out.target <= kSlots && out.guess <= kSlots;
   if (!slotsAreSane) out.clearRound();
   return true;
+}
+
+Resume resumeFor(const Saved& saved, const uint32_t bootId) {
+  // Is there an evening in this file at all? Four things say yes, and the
+  // screen is only one of them. A save sitting on the front door with round 7
+  // and 23 points behind it has no round in flight and is EXACTLY the reported
+  // bug one screen further out: the menu's own button says PLAY ROUND 7, and a
+  // new table taps it and adds to a score it did not earn. What goes stale is
+  // the session, not just the round.
+  const bool carryable =
+      saved.sessionStarted || saved.screen != 0 || saved.session.round > 1 || saved.session.total > 0;
+  if (!carryable) return Resume::Nothing;
+
+  // Zero on either side is "cannot know", never a match. It is what every v1
+  // and v2 card carries, and a caller that passed zero as the current boot
+  // would otherwise silently match all of them at once.
+  if (bootId == 0 || saved.bootId == 0) return Resume::Ask;
+  return saved.bootId == bootId ? Resume::Carry : Resume::Ask;
+}
+
+int minutesSince(const uint32_t savedAt, const uint32_t now) {
+  if (savedAt < kClockFloor || now < kClockFloor) return -1;
+  if (now < savedAt) return -1;  // the clock moved backwards; an NTP sync does that
+  return static_cast<int>((now - savedAt) / 60u);
 }
 
 }  // namespace wavelength

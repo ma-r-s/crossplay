@@ -50,6 +50,8 @@ enum : fui::ActionId {
   ActionBackToMenu = 17,
   ActionResume = 18,
   ActionAbandon = 19,
+  ActionCarryOn = 20,
+  ActionStartFresh = 21,
 };
 
 struct Spectrum {
@@ -118,6 +120,35 @@ struct MenuModel {
   // count the round about to start instead, so the two screens described one
   // session with two different numbers a single tap apart.
   int sessionScored = 0;
+};
+
+// The screen that asks whether the evening on the card is this table's.
+//
+// It exists because the save had no notion of going stale. A round, a hidden
+// number and a score are written on every screen change so that Home, or the
+// device sleeping mid-argument, does not cost the table its game -- and days
+// later a completely different group opened the app and was dropped into the
+// middle of the previous group's round 2, with nothing on the panel saying that
+// was what had happened. This is a party game: a different group is the normal
+// case.
+//
+// It is shown ONLY when the answer is genuinely unknown, which is when the
+// evening on the card was written by a different run of the chip
+// (wavelength::resumeFor). Within one boot the round resumes silently, so Home
+// and back still costs nothing.
+struct ResumeModel {
+  // The round CARRY ON would play, named on the button in the front door's own
+  // words so the two screens cannot describe one evening two ways.
+  int roundNumber = 1;
+  int total = 0;
+  int scored = 0;
+  // A round was mid-play rather than merely a session being open. Worth saying:
+  // carrying on means somebody has already seen a number and heard a clue.
+  bool roundInFlight = false;
+  // How long ago, or -1 when the device cannot say -- no RTC on the board, or a
+  // clock that has never been synced. The line is then simply absent, because
+  // the question stands without it.
+  int minutesAgo = -1;
 };
 
 struct SummaryModel {
@@ -195,6 +226,7 @@ int dialSlotAt(int16_t screenW, int16_t screenH, int16_t x, int16_t y);
 
 void renderHowTo(toybox::Screen& screen);
 void renderMenu(toybox::Screen& screen, const MenuModel& model);
+void renderResume(toybox::Screen& screen, const ResumeModel& model);
 void renderSummary(toybox::Screen& screen, const SummaryModel& model);
 void renderPause(toybox::Screen& screen, const PauseModel& model);
 void renderPassLeft(toybox::Screen& screen, const PassModel& model);

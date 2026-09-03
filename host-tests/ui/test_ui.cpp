@@ -1527,7 +1527,6 @@ void testACapsuleThatWasDeadMidGameAlsoWaits() {
   CHECK(out.tap(300, capsuleY).action == chessui::ActionPlayAgain);
 }
 
-
 void testBattleshipStartMenu() {
   // A row that would do nothing is not drawn, exactly as in chess: with no
   // saved game there is nothing to continue, so the first row is NEW GAME.
@@ -6549,6 +6548,32 @@ void testWavelengthNothingIsDrawnThroughAnything() {
          m.roundNumber = 12;
          wavelengthui::renderDial(screen, m);
        }},
+      {"resume",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::ResumeModel m;
+         m.roundNumber = 12;
+         m.total = 137;
+         m.scored = 11;
+         m.roundInFlight = true;
+         m.minutesAgo = 6 * 24 * 60;
+         wavelengthui::renderResume(screen, m);
+       }},
+      {"resume, nothing optional",
+       [](Rendered& out) {
+         const fui::DeviceContext ctx = device();
+         const fui::InputSnapshot noInput{};
+         toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+         toybox::Screen screen(frame, toybox::themeTokens());
+         wavelengthui::ResumeModel m;
+         m.roundNumber = 2;
+         m.total = 0;
+         m.scored = 0;
+         wavelengthui::renderResume(screen, m);
+       }},
       {"summary",
        [](Rendered& out) {
          const fui::DeviceContext ctx = device();
@@ -6870,6 +6895,164 @@ void testWavelengthTheFourThatWereDropped() {
     if (f.height > 30 && f.width > 200) ++wideBars;
   if (wideBars != 1) std::printf("  peek shows %d full-width bars before the number is seen, want 1\n", wideBars);
   CHECK(wideBars == 1);
+}
+
+// A STALE SAVE MUST NOT GREET A NEW TABLE WITH SOMEBODY ELSE'S ROUND 2.
+//
+// The round, the hidden number and the score are written to the card on every
+// screen change so that Home, or the device sleeping mid-argument, does not
+// cost the table its game. That save had no notion of going stale, so days
+// later a completely different group opened the app and was dropped into the
+// middle of the previous group's session with nothing on the panel saying so.
+//
+// The decision itself is wavelength::resumeFor and is tested exhaustively in
+// host-tests/wavelength. What is checked here is the screen it produces, and
+// above all WHERE ITS TWO ANSWERS SIT. This screen appears in the front door's
+// place, so a returning table's blind tap lands on it -- and every coordinate
+// below is read out of the two renders rather than written down, because a
+// second copy of a control's geometry is how three bugs in this app started.
+void testWavelengthAStaleGameIsOfferedNotTaken() {
+  const int16_t w = 480;
+  const int16_t h = 800;
+
+  const auto buildResume = [](Rendered& out, const wavelengthui::ResumeModel& m) {
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    wavelengthui::renderResume(screen, m);
+  };
+
+  wavelengthui::ResumeModel model;
+  model.roundNumber = 4;
+  model.total = 11;
+  model.scored = 3;
+  model.roundInFlight = true;
+  model.minutesAgo = 6 * 24 * 60;
+  Rendered ask;
+  buildResume(ask, model);
+
+  // The front door as it would look with that same evening on it, which is what
+  // this screen is standing in front of.
+  Rendered menu;
+  {
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(menu.target, ctx, noInput, menu.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    wavelengthui::MenuModel m;
+    m.sessionInProgress = true;
+    m.sessionRound = 4;
+    m.sessionTotal = 11;
+    m.sessionScored = 3;
+    wavelengthui::renderMenu(screen, m);
+  }
+
+  // 1. IT SAYS WHAT IT WOULD CARRY ON INTO, in the front door's own words and
+  // counted the front door's own way. A group that cannot see what they are
+  // being offered cannot tell it is not theirs, which is the whole failure.
+  bool namesTheRound = false;
+  bool namesTheScore = false;
+  bool datesIt = false;
+  bool saysNewGameCosts = false;
+  for (const FakeTarget::TextRun& run : ask.target.texts) {
+    if (run.text == "CARRY ON ROUND 4") namesTheRound = true;
+    if (run.text == "11 POINTS IN 3 ROUNDS") namesTheScore = true;
+    if (run.text == "6 DAYS AGO") datesIt = true;
+    if (run.text.find("DROPS THE SCORE") != std::string::npos) saysNewGameCosts = true;
+  }
+  if (!namesTheRound) std::printf("  the ask screen does not name the round it would carry on into\n");
+  if (!namesTheScore) std::printf("  the ask screen does not name the score it would carry on\n");
+  if (!datesIt) std::printf("  the ask screen has a date and does not show it\n");
+  if (!saysNewGameCosts) std::printf("  the ask screen does not say what starting a new game costs\n");
+  CHECK(namesTheRound);
+  CHECK(namesTheScore);
+  CHECK(datesIt);
+  CHECK(saysNewGameCosts);
+
+  // 2. WITH NO CLOCK IT SAYS NOTHING RATHER THAN GUESSING. Most devices here
+  // have no RTC or have never synced one, so this is the common case, not the
+  // odd one.
+  Rendered undated;
+  {
+    wavelengthui::ResumeModel m = model;
+    m.minutesAgo = -1;
+    buildResume(undated, m);
+  }
+  bool inventedADate = false;
+  for (const FakeTarget::TextRun& run : undated.target.texts)
+    if (run.text.find("AGO") != std::string::npos) inventedADate = true;
+  if (inventedADate) std::printf("  the ask screen dates a save it cannot date\n");
+  CHECK(!inventedADate);
+  // And it still offers both answers. A screen that loses a control when an
+  // optional row is absent is the shape that once left a reveal with no way
+  // forward at all.
+  bool undatedCarries = false;
+  bool undatedFreshens = false;
+  for (int16_t x = 0; x < w; x = static_cast<int16_t>(x + 4))
+    for (int16_t y = 0; y < h; y = static_cast<int16_t>(y + 4)) {
+      const fui::ActionId a = undated.tap(x, y).action;
+      if (a == wavelengthui::ActionCarryOn) undatedCarries = true;
+      if (a == wavelengthui::ActionStartFresh) undatedFreshens = true;
+    }
+  if (!undatedCarries || !undatedFreshens) std::printf("  an undated ask screen has lost one of its two answers\n");
+  CHECK(undatedCarries);
+  CHECK(undatedFreshens);
+
+  // 3. NO PIXEL THAT THROWS THE EVENING AWAY DOES ANYTHING ON THE FRONT DOOR.
+  // This screen replaces the front door, so a remembered tap aimed at any of
+  // the menu's three buttons must not be able to land on START A NEW GAME.
+  // Same pixel, different action is how this fork has destroyed data before.
+  bool freshOverlapsAMenuControl = false;
+  int freshPixels = 0;
+  for (int16_t x = 0; x < w && !freshOverlapsAMenuControl; x = static_cast<int16_t>(x + 2))
+    for (int16_t y = 0; y < h; y = static_cast<int16_t>(y + 2)) {
+      if (ask.tap(x, y).action != wavelengthui::ActionStartFresh) continue;
+      ++freshPixels;
+      if (menu.tap(x, y).action == fui::NO_ACTION) continue;
+      std::printf("  START A NEW GAME at (%d,%d) sits on a live front-door control\n", static_cast<int>(x),
+                  static_cast<int>(y));
+      freshOverlapsAMenuControl = true;
+      break;
+    }
+  if (freshPixels == 0) std::printf("  the ask screen has no way to start a new game\n");
+  CHECK(freshPixels > 0);
+  CHECK(!freshOverlapsAMenuControl);
+
+  // 4. AND THE BLIND TAP IS THE SAFE ANSWER. Everything that plays a round on
+  // the front door must, here, either carry that same round on or do nothing --
+  // never start a new one. A table coming back to a device it left mid-evening
+  // taps PLAY ROUND N without reading, and that tap has to be harmless.
+  bool blindTapIsSafe = true;
+  int carriedPixels = 0;
+  for (int16_t x = 0; x < w && blindTapIsSafe; x = static_cast<int16_t>(x + 2))
+    for (int16_t y = 0; y < h; y = static_cast<int16_t>(y + 2)) {
+      if (menu.tap(x, y).action != wavelengthui::ActionStartRound) continue;
+      const fui::ActionId here = ask.tap(x, y).action;
+      if (here == wavelengthui::ActionCarryOn) ++carriedPixels;
+      if (here == fui::NO_ACTION || here == wavelengthui::ActionCarryOn) continue;
+      std::printf("  a blind PLAY ROUND tap at (%d,%d) does something else here (action %d)\n", static_cast<int>(x),
+                  static_cast<int>(y), static_cast<int>(here));
+      blindTapIsSafe = false;
+      break;
+    }
+  CHECK(blindTapIsSafe);
+  if (carriedPixels == 0) std::printf("  no front-door play pixel carries the round on; the safe answer moved\n");
+  CHECK(carriedPixels > 0);
+
+  // 5. TWO ANSWERS AND NO THIRD. A screen with a way onward it did not mean to
+  // offer is how a group leaves by a door nobody designed.
+  bool onlyTheTwo = true;
+  for (int16_t x = 0; x < w && onlyTheTwo; x = static_cast<int16_t>(x + 2))
+    for (int16_t y = 0; y < h; y = static_cast<int16_t>(y + 2)) {
+      const fui::ActionId a = ask.tap(x, y).action;
+      if (a == fui::NO_ACTION || a == wavelengthui::ActionCarryOn || a == wavelengthui::ActionStartFresh) continue;
+      std::printf("  the ask screen offers a third action %d at (%d,%d)\n", static_cast<int>(a), static_cast<int>(x),
+                  static_cast<int>(y));
+      onlyTheTwo = false;
+      break;
+    }
+  CHECK(onlyTheTwo);
 }
 
 // THE LOCK IS AN ORDINARY BUTTON, and the stray tap it used to guard against is
@@ -7357,6 +7540,7 @@ int main() {
   testWavelengthEveryRevealOffersAWayOn();
   testWavelengthTheFourThatWereDropped();
   testWavelengthTheLockIsAnOrdinaryButton();
+  testWavelengthAStaleGameIsOfferedNotTaken();
   testWavelengthEverySlotIsTappable();
   testFitLinesCutsAnUnbreakableTokenRatherThanVanishing();
 

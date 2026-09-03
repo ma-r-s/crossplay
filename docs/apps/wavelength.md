@@ -66,6 +66,57 @@ resumes: the safe direction is the default. **Abandons are counted and shown** o
 the next PASS LEFT and on the end screen, because the board is public in this
 game and so is walking away from a target you did not like.
 
+## Whose game is on the card
+
+A round in progress is written to `/.crosspoint/wavelength.sav` on every screen
+change and every move of the marker, not on the way out. Home destroys the
+activity and deep sleep is a chip reset, so anything only written by `onExit()`
+is a round the table loses.
+
+That save had **no notion of going stale**, and this is a party game, so a
+different group is the normal case rather than the edge one. Days later a new
+table opened the app and was dropped into the middle of the previous group's
+round 2: a clue they never heard, a score they did not earn, and nothing on the
+panel saying so. **The session goes stale, not just the round in flight.** A
+save sitting on the front door with round 7 and 23 points behind it has no round
+in flight at all, and the menu's own button offers to play its round 7 into its
+score -- the same bug with one tap in front of it.
+
+**The axis is the boot, because this device cannot measure elapsed time it can
+rely on.** Wake is a chip reset, so `millis()` restarts. The wall clock is a
+fitted part on some boards and absent on others (plain X4 has no RTC), it is
+only ever set by an NTP sync over Wi-Fi, and a flat coin cell returns it to
+1970. A rule resting on it would behave differently on two devices sitting on
+the same table. So the save records which run of the chip wrote it -- a
+zero-initialised static, seeded once from `esp_random()`, which is exactly "this
+boot" because `.bss` is cleared on every reset. Within one boot the device has
+not been away: Home and back, or the shelf and back, resumes silently and costs
+nothing. Across a reset the answer is genuinely unknown.
+
+**So a stale session is neither discarded nor resumed. It is offered.** Guessing
+wrong one way drops a group into a stranger's game; guessing wrong the other
+destroys a round somebody meant to come back to. Asking is wrong in neither, and
+`IS THIS THE SAME GROUP?` costs one screen that only appears when there is
+something to ask about. `CARRY ON ROUND N` occupies **exactly the front door's
+`PLAY ROUND N` rect**, so a returning table's blind tap is the safe answer, and
+`START A NEW GAME` sits below every control the menu has, so no remembered tap
+can reach the one control that throws an evening away. Back decides neither and
+leaves the card untouched, so the question comes back.
+
+**The clock informs the question and never decides it.** When the device can
+say, the screen adds `LEFT 6 DAYS AGO`, which answers "is this ours?" outright
+where a round number does not. When it cannot -- no stamp, no clock, or a clock
+that moved backwards -- the row is simply absent and everything else is
+unchanged.
+
+Save version 3. A v2 card (any build up to this one) carries no boot id, which
+reads as "cannot know", so an upgrade mid-session asks once. A v1 card carries
+the record and no evening, and asks nothing. **Every version's length is named**
+rather than just the current one: the check deciding whether a session block is
+present used to compare against the whole file, and appending to the tail would
+have made every v2 card look truncated and silently dropped the session it was
+carrying.
+
 ## Moving the marker
 
 **A tap places the marker on the slot tapped**, the keys nudge it by one, and
@@ -232,6 +283,19 @@ inline in `render()` rather than calling a helper. An audit that assumed the
 slot names measured the title slot as `toybox_44` when it is `toybox_64`, 45%
 narrow, and reported clean.
 
+**`WavelengthSave.cpp` was compiled by nothing until 2026-09-03**, though its
+own header said the tests existed. The layer carrying a game in progress across
+a chip reset had no test of any kind, which is how it came to ship with no
+notion of a saved session going stale. It is in the run script now, and
+`pack`/`unpack` round-trip, the v1 and v2 fixtures, and every branch of
+`resumeFor` are covered.
+
+**The activity's wiring around that decision is not.** No activity in this fork
+is host-testable, so which screen a load lands on, `saveState()` refusing to
+write while the question is up, and Back deciding neither answer were verified
+by driving the simulator, not by a test. The simulator does not compile
+`lib/hal`, so that is evidence about the app's logic and not about storage.
+
 ## Traps, all of them paid for
 
 **Every string on a button is a width, not a label.** The end words on the
@@ -322,3 +386,9 @@ simulator models ghosting. This needs two minutes on a real X4 Pro: peek,
 release, look at the strip.
 
 **Whether the deck is fun**, which no test answers and which needs a table.
+
+**Whether the boot is the right axis in a real evening.** It is right in the
+cases that were reasoned about, but the friction it buys -- a table that leaves
+the device idle long enough to sleep on the front door is asked once on waking
+-- has only been seen in a simulator, where the sleep timeout and a real party's
+rhythm are both absent.

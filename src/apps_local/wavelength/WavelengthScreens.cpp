@@ -1131,6 +1131,99 @@ void renderMenu(toybox::Screen& screen, const MenuModel& model) {
   screen.button(end, fui::makeRect(toybox::kMargin, 674, inner, 54));
 }
 
+// WHOSE GAME IS THIS? The screen that stands between a new table and the
+// previous table's round.
+//
+// TWO RULES SHAPE THE LAYOUT, and both come from failures this fork has already
+// paid for.
+//
+// CARRY ON SITS EXACTLY WHERE THE FRONT DOOR'S PLAY BUTTON SITS. This screen
+// appears in the menu's place, so the blind tap a returning table makes lands
+// on it -- and it must be the SAFE answer that lands there. START A NEW GAME
+// sits below every control the menu has, so no remembered tap anywhere on that
+// screen can reach the one control here that throws an evening away.
+//
+// AND IT SAYS WHAT EACH ANSWER DOES before either is pressed. The failure being
+// fixed is not only the wrong game resuming, it is a group having no way to
+// tell that is what happened.
+void renderResume(toybox::Screen& screen, const ResumeModel& model) {
+  toybox::absoluteChrome(screen);
+  const int16_t w = screen.device().screen().width;
+  const int16_t inner = static_cast<int16_t>(w - 2 * toybox::kMargin);
+  const int16_t lineH = toybox::kButtonCut.lineHeight;
+
+  // The app still names itself, in the same slot and the same words the front
+  // door uses. A screen that opens on a question with no title reads as an
+  // error dialogue rather than as the game starting up.
+  caps(screen, fui::makeRect(toybox::kMargin, 14, inner, toybox::kDisplayCut.lineHeight), "WAVELENGTH",
+       toybox::kBodyFont, fui::TextAlign::Left);
+  caps(screen, fui::makeRect(toybox::kMargin, 88, inner, lineH), "A GAME WAS LEFT UNFINISHED.", toybox::kSmallFont,
+       fui::TextAlign::Left);
+  fill(screen, fui::makeRect(toybox::kMargin, 126, inner, toybox::kRule));
+
+  // The session in the summary's own words, counted the summary's own way. Two
+  // screens of this app once described one evening with two different numbers a
+  // tap apart; a third would be a third chance at it.
+  char state[48];
+  snprintf(state, sizeof(state), "%d POINT%s IN %d ROUND%s", model.total, model.total == 1 ? "" : "S", model.scored,
+           model.scored == 1 ? "" : "S");
+  caps(screen, fui::makeRect(toybox::kMargin, 150, inner, lineH), "THAT GAME", toybox::kSmallFont,
+       fui::TextAlign::Left);
+  caps(screen, fui::makeRect(toybox::kMargin, 150, inner, lineH), state, toybox::kSmallFont, fui::TextAlign::Right);
+
+  // The single most useful fact for the decision, and the one the device most
+  // often cannot supply. Absent rather than guessed at: "LEFT UNKNOWN AGO" is
+  // worse than a row that is not there.
+  if (model.minutesAgo >= 0) {
+    char ago[32];
+    const int minutes = model.minutesAgo;
+    if (minutes < 60) {
+      snprintf(ago, sizeof(ago), "%d MINUTE%s AGO", minutes, minutes == 1 ? "" : "S");
+    } else if (minutes < 60 * 24) {
+      const int hours = minutes / 60;
+      snprintf(ago, sizeof(ago), "%d HOUR%s AGO", hours, hours == 1 ? "" : "S");
+    } else {
+      const int days = minutes / (60 * 24);
+      snprintf(ago, sizeof(ago), "%d DAY%s AGO", days, days == 1 ? "" : "S");
+    }
+    caps(screen, fui::makeRect(toybox::kMargin, 179, inner, lineH), "LEFT", toybox::kSmallFont, fui::TextAlign::Left);
+    caps(screen, fui::makeRect(toybox::kMargin, 179, inner, lineH), ago, toybox::kSmallFont, fui::TextAlign::Right);
+  }
+  if (model.roundInFlight) {
+    caps(screen, fui::makeRect(toybox::kMargin, 208, inner, lineH), "A ROUND WAS ALREADY IN PLAY.", toybox::kSmallFont,
+         fui::TextAlign::Left);
+  }
+
+  fill(screen, fui::makeRect(toybox::kMargin, 246, inner, toybox::kRule));
+
+  // The question the device cannot answer and the table can, asked in the words
+  // a table uses. Not "resume saved session": nobody at a party is thinking
+  // about a file.
+  caps(screen, fui::makeRect(toybox::kMargin, 270, inner, toybox::kDisplayCut.lineHeight), "IS THIS THE",
+       toybox::kBodyFont, fui::TextAlign::Left);
+  caps(screen, fui::makeRect(toybox::kMargin, 334, inner, toybox::kDisplayCut.lineHeight), "SAME GROUP?",
+       toybox::kBodyFont, fui::TextAlign::Left);
+
+  caps(screen, fui::makeRect(toybox::kMargin, 410, inner, lineH), "IF IT IS, CARRY ON. THE ROUND", toybox::kSmallFont,
+       fui::TextAlign::Left);
+  caps(screen, fui::makeRect(toybox::kMargin, 439, inner, lineH), "AND THE SCORE ARE WAITING.", toybox::kSmallFont,
+       fui::TextAlign::Left);
+
+  // The same rect as the front door's PLAY ROUND N, deliberately: see the note
+  // above the function.
+  char play[24];
+  snprintf(play, sizeof(play), "CARRY ON ROUND %d", model.roundNumber);
+  action(screen, fui::makeRect(toybox::kMargin, 530, inner, 66), play, ActionCarryOn);
+
+  caps(screen, fui::makeRect(toybox::kMargin, 620, inner, lineH), "IF IT IS NOT, START A NEW GAME.", toybox::kSmallFont,
+       fui::TextAlign::Left);
+  caps(screen, fui::makeRect(toybox::kMargin, 649, inner, lineH), "THAT DROPS THE SCORE ABOVE.", toybox::kSmallFont,
+       fui::TextAlign::Left);
+  caps(screen, fui::makeRect(toybox::kMargin, 690, inner, lineH), "THE ALL-TIME RECORD IS KEPT.", toybox::kSmallFont,
+       fui::TextAlign::Left);
+  endingAction(screen, fui::makeRect(toybox::kMargin, 736, inner, 54), "START A NEW GAME", ActionStartFresh);
+}
+
 void renderSummary(toybox::Screen& screen, const SummaryModel& model) {
   toybox::absoluteChrome(screen);
   const int16_t w = screen.device().screen().width;

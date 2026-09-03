@@ -1,8 +1,13 @@
 #!/bin/sh
-# Builds and runs the WAVELENGTH rules tests. No device and no PlatformIO:
-# WavelengthCore is freestanding C++17, so the whole rulebook is checked on a
-# laptop, including the two exhaustive properties (no dominated slot, and a
-# perfect round being unbeatable).
+# Builds and runs the WAVELENGTH rules and save tests. No device and no
+# PlatformIO: WavelengthCore and WavelengthSave are both freestanding C++17, so
+# the whole rulebook is checked on a laptop, including the two exhaustive
+# properties (no dominated slot, and a perfect round being unbeatable).
+#
+# WavelengthSave.cpp was NOT compiled here until 2026-09-03, though its own
+# header said it was. The layer that carries a game in progress across a chip
+# reset had no test of any kind, which is how it came to ship with no notion of
+# a saved session going stale.
 #
 #   host-tests/wavelength/run.sh
 set -e
@@ -11,7 +16,7 @@ BUILD_DIR="${TMPDIR:-/tmp}/$(basename "${CXX:-c++}")-wavelength-tests-$(cd ../..
 mkdir -p "$BUILD_DIR"
 SRC=../../src/apps_local/wavelength
 "${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror -O2 -I$SRC \
-  test_wavelength.cpp $SRC/WavelengthCore.cpp -o "$BUILD_DIR/test_wavelength"
+  test_wavelength.cpp $SRC/WavelengthCore.cpp $SRC/WavelengthSave.cpp -o "$BUILD_DIR/test_wavelength"
 "$BUILD_DIR/test_wavelength"
 
 uv run --quiet python ../../tools_local/wavelength/check_widths.py
