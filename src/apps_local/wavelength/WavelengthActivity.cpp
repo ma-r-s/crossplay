@@ -565,6 +565,8 @@ void WavelengthActivity::render(RenderLock&&) {
       model.first = spectrumAt(choice[0]);
       model.second = spectrumAt(choice[1]);
       model.onlyOne = dealt < 2;
+      model.roundNumber = session.round;
+      model.practice = practiceRound;
       wavelengthui::renderPick(screen, model);
       break;
     }
@@ -581,6 +583,8 @@ void WavelengthActivity::render(RenderLock&&) {
     case View::Clue: {
       wavelengthui::ClueModel model;
       model.spectrum = current;
+      model.roundNumber = session.round;
+      model.practice = practiceRound;
       wavelengthui::renderClue(screen, model);
       break;
     }
@@ -589,6 +593,8 @@ void WavelengthActivity::render(RenderLock&&) {
       model.spectrum = current;
       model.guess = guess;
       model.nudgeHold = nudgeHold;
+      model.roundNumber = session.round;
+      model.practice = practiceRound;
       wavelengthui::renderDial(screen, model);
       break;
     }

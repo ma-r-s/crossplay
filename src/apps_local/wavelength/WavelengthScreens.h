@@ -61,12 +61,16 @@ struct DialModel {
   Spectrum spectrum;
   int guess = 10;
   bool nudgeHold = false;
+  int roundNumber = 1;
+  bool practice = false;
 };
 
 struct PickModel {
   Spectrum first;
   Spectrum second;
   bool onlyOne = false;  // the deck has a single unseen pair left
+  int roundNumber = 1;
+  bool practice = false;
 };
 
 struct PeekModel {
@@ -82,6 +86,8 @@ struct PeekModel {
 
 struct ClueModel {
   Spectrum spectrum;
+  int roundNumber = 1;
+  bool practice = false;
 };
 
 struct CallModel {
