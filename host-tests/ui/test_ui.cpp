@@ -5963,8 +5963,9 @@ void testWavelengthNothingIsDrawnThroughAnything() {
          toybox::Frame frame(out.target, ctx, noInput, out.interactions);
          toybox::Screen screen(frame, toybox::themeTokens());
          wavelengthui::DialModel m;
-         m.spectrum = wavelengthui::Spectrum{"HOT", "COLD"};
+         m.spectrum = wavelengthui::Spectrum{"UNDERRATED LETTER OF THE ALPHABET", "MOVIE THAT GODZILLA WOULD IMPROVE"};
          m.guess = 13;
+         m.roundNumber = 12;
          wavelengthui::renderDial(screen, m);
        }},
       {"summary",

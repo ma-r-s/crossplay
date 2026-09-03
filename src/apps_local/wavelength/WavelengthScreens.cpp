@@ -205,7 +205,26 @@ int dialSlotAt(const int16_t screenW, const int16_t screenH, const int16_t x, co
   return result < 1 ? 1 : (result > kSlots ? kSlots : result);
 }
 
+// "PRACTICE" or "ROUND N", small, in the top-right corner of a play screen.
+// The round number lived only on the pass and result screens -- the two the
+// table looks at least -- so mid-round nobody could answer "what round are we
+// on?" without backing out of it.
+void roundTag(toybox::Screen& screen, const int roundNumber, const bool practice) {
+  const int16_t w = screen.device().screen().width;
+  char tag[16];
+  if (practice) {
+    snprintf(tag, sizeof(tag), "PRACTICE");
+  } else {
+    snprintf(tag, sizeof(tag), "ROUND %d", roundNumber);
+  }
+  caps(screen,
+       fui::makeRect(static_cast<int16_t>(w / 2), 14, static_cast<int16_t>(w / 2 - toybox::kMargin),
+                     toybox::kButtonCut.lineHeight),
+       tag, toybox::kSmallFont, fui::TextAlign::Right);
+}
+
 void renderDial(toybox::Screen& screen, const DialModel& model) {
+  roundTag(screen, model.roundNumber, model.practice);
   toybox::absoluteChrome(screen);
   const Geometry g = layout(screen);
 
@@ -516,6 +535,7 @@ void renderPassLeft(toybox::Screen& screen, const PassModel& model) {
 }
 
 void renderPick(toybox::Screen& screen, const PickModel& model) {
+  roundTag(screen, model.roundNumber, model.practice);
   toybox::absoluteChrome(screen);
   const int16_t w = screen.device().screen().width;
   const int16_t inner = static_cast<int16_t>(w - 2 * toybox::kMargin);
@@ -652,6 +672,7 @@ void renderPeek(toybox::Screen& screen, const PeekModel& model) {
 }
 
 void renderClue(toybox::Screen& screen, const ClueModel& model) {
+  roundTag(screen, model.roundNumber, model.practice);
   toybox::absoluteChrome(screen);
   const int16_t w = screen.device().screen().width;
   const int16_t inner = static_cast<int16_t>(w - 2 * toybox::kMargin);
