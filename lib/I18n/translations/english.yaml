@@ -218,6 +218,8 @@ STR_RESTARTING_HINT: "Restarting... If device does not restart, hold the power b
 STR_NO_ENTRIES: "No entries found"
 STR_DOWNLOADING: "Downloading..."
 STR_DOWNLOAD_FAILED: "Download failed"
+STR_BOOK_SAVED: "Saved"
+STR_SAVED_IN_FORMAT: "in %s"
 STR_ERROR_MSG: "Error:"
 STR_UNNAMED: "Unnamed"
 STR_HOLD_OPEN_TO_DELETE: "Hold Open to Delete"
