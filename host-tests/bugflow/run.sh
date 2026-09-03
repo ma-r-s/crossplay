@@ -135,6 +135,15 @@ board integrator --session "$WORKER" >/dev/null 2>&1 && bad "a second integrator
 board integrator --session "$WORKER" --release >/dev/null 2>&1 && bad "a stranger released the claim" || ok "only the holder releases the claim"
 board integrator --session "$INTEG" --release >/dev/null && ok "the holder releases the claim" || bad "holder cannot release"
 
+echo "emulator staleness, one answer for check.sh and CI"
+STALE="$HERE/../../scripts_local/emulator-stale.sh"
+E="$WORK/emu"; mkdir -p "$E/src" "$E/site/emulator"; ( cd "$E" && git init -q -b xteink && git config user.email t@t && git config user.name t \
+  && echo a > src/a.cpp && echo w > site/emulator/crossplay.wasm && git add -A && git commit -qm "both" \
+  && sleep 1 && echo b > src/a.cpp && git add -A && git commit -qm "source moved" )
+bash "$STALE" "$E" >/dev/null && ok "a newer source makes the emulator stale" || bad "stale not detected"
+( cd "$E" && sleep 1 && echo w2 > site/emulator/crossplay.wasm && git add -A && git commit -qm "chore: emulator rebuilt" )
+bash "$STALE" "$E" >/dev/null && bad "a rebuilt emulator still reads stale" || ok "a rebuilt emulator reads fresh"
+
 echo
 echo "$((PASS+FAIL)) checks, $FAIL failed"
 [ "$FAIL" -eq 0 ]
