@@ -37,7 +37,11 @@ answers>'`. Never forward a worker's wording; write the three lines
    app's doc. One worker per app at a time.
 5. **Land.** Merges are pull requests; you hold the integration claim (`board
 integrator --session <your id>`) only while you resolve a conflict or
-   rebuild the emulator, and release it after.
+   rebuild the emulator, and release it after. **After every merge, pull:**
+   `git -C firmware-next pull --ff-only origin xteink` under the claim. The
+   hooks, the `board` command and every runbook a session reads are the
+   ones in firmware-next, so a merge nobody pulls changes nothing on this
+   Mac; the guard once stayed a version behind for a whole evening that way.
 6. **Close.** For each `released` card: worktree dropped, session archived,
    leftovers filed as new cards, `board state <id> done`. A session never
    outlives its card.
