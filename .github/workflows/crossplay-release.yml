@@ -178,7 +178,50 @@ jobs:
             devices next to each other find one another with nothing to type --
             and they do not have to be the same device.
 
-            ### What is new in 1.12.10
+            ### What is new in 1.12.11
+
+            **SUDOKU no longer throws away your saved puzzle.** Opening the
+            difficulty menu, looking through the levels and coming back to your
+            own used to leave the game offering a NEW PUZZLE over the board you
+            were still looking at. Tapping it started fresh and your game was
+            gone, with nothing asked. Saves already left in that state are
+            repaired rather than discarded.
+
+            Sudoku could also overwrite your game with no tap at all: leaving
+            the menu while a new puzzle was being generated did not stop it, and
+            it saved itself over your game a moment later.
+
+            **Every page you read costs less.** The reader was preparing the next
+            page's lettering after each turn and then throwing the work away
+            before it could be used, twice over. Removing it takes real work off
+            the moment you turn a page. There is more to find here and the
+            firmware can now report its own timings, which it previously could
+            not do in a released build at all.
+
+            **HACKER NEWS opens without Wi-Fi.** It used to put the network
+            picker in front of itself, and backing out of that closed the app --
+            so the saved-articles shelf, the half that exists for when you have
+            no signal, could not be reached without a signal. It now opens on
+            your list with the radio off and only asks for a network when you tap
+            something that needs one. Four screens that had no way forward now
+            have one.
+
+            **Typographic quotes and dashes no longer vanish.** Text taken from
+            the internet carries punctuation the fonts do not have, and those
+            characters were silently dropped, leaving holes mid-sentence.
+
+            **WAVELENGTH asks before resuming somebody else's game.** A session
+            left on the card used to greet a new table with the previous group's
+            round and score. It now says a game was left unfinished, shows what
+            it was, and asks whether this is the same group.
+
+            **A single press no longer does two things.** Leaving the Wi-Fi
+            picker registered once as you let go and again in the app underneath,
+            which is what made Hacker News exit when you cancelled. Nine screens
+            handed control back that way and fifty-five could receive the stray
+            press.
+
+            ### What WAS new in 1.12.10
 
             **A tap can no longer land on a screen you have not seen yet.** The
             panel takes up to two seconds to redraw, and until now the new
