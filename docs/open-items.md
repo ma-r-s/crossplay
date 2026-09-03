@@ -519,9 +519,21 @@ for a reason worth more than the fix: `InputManager::wasPressed()` is
 `return pressedEvents & (1 << i)`, a **pure read that does not consume**, so a
 drain built from reads is a no-op. `StudyActivity::drainInput()` works because
 of the `update()` in it, not despite it. Absorbing the edge with two spaced
-`update()` calls also changed nothing, because in a **dev build every input read
-consults the injector first** (`DEV_INPUT` in `HalGPIO.cpp`, compiled out of
-release envs) -- and `gpio.update()` cannot clear an edge the injector owns.
+`update()` calls also changed nothing.
+
+The reason first given for that was the dev-build input injector (`DEV_INPUT` in
+`lib/hal/HalGPIO.cpp`) outranking `gpio.update()`. **That explanation is wrong
+and was propagated before it was checked.** `DEV_INPUT` is real, but it is not
+in the simulator's path at all: the sim env sets `lib_ignore = hal` and the
+pinned `simulator` lib dep ships a `HalGPIO.h` that shadows ours. A sim build
+contains exactly one `HalGPIO.o`, from `lib539/simulator/`, and none from
+`lib/hal`.
+
+The conclusion survives and the mechanism does not. The simulator still tests
+different code, for a simpler reason: **it does not run `InputManager` at all.**
+Its latch clears in `beginFrame()` rather than `update()`, deliberately, so an
+edge survives every `update()` within a frame. The `touchReleasedEvent` trace
+above is correct about the **device** and is not what runs in the simulator.
 
 So the simulator exercises a mechanism that presents identically to the real one
 and is not it. A framework change touching eight apps came one green run from
@@ -529,6 +541,73 @@ shipping on a test that could not tell a fix from a no-op.
 
 **Before concluding that hardware is the only route, try a `SWIPE` token aimed
 at the left edge.** It at least drives the mechanism that ships. Nobody has.
+
+### The eight apps share a SEAM, not a symptom
+
+Do not scan for "the app exits" as the signature. What the stray release does
+depends on state the result handler happened to set before it arrives, so the
+same defect wears a different face in each app.
+
+Get Books is the worked example (found by another session, verified here in
+source). Its handler sets state away from the value the Back reader tests:
+
+```cpp
+// onWifiSelectionComplete(false), OpdsBookBrowserActivity.cpp:885
+state = BrowserState::ERROR;
+
+// the stray release then lands here, at :202
+state == BrowserState::CHECK_WIFI ? onGoHome() : navigateBack();
+```
+
+So the release reaches `navigateBack()` rather than `onGoHome()`. Had the
+handler left `state` alone, Get Books would behave exactly like Hacker News.
+
+**And `navigateBack()` is itself state-dependent, which sharpens the point
+rather than softening it.** With `navigationHistory` empty it calls `onGoHome()`
+anyway (:636), so at the root of a catalog the symptom is identical to HN's
+ejection; deeper in, it silently eats one level of back navigation. The same
+stray edge in the same app presents two different ways depending on how far the
+reader had browsed.
+
+That is why a symptom-based sweep will under-report. The seam is
+`startActivityForResult` returning across a `wasPressed`/`wasReleased` mismatch;
+everything downstream of it is local accident.
+
+### Measured, after a challenge that the probe was confounded
+
+The objection: `leaveOrShowSaved()` calls `shelf::leave()` outright on an EMPTY
+saved library, so on a fresh card Hacker News exits for a correct reason and the
+probe cannot tell the bug from right behaviour. That would have made this
+ticket's evidence worthless.
+
+**It does not apply, and the re-run says so twice over:**
+
+```
+[399]  [INF] [HN] library: 1 saved     <- non-empty; the empty branch is not taken
+[399]  Entering activity: WifiSelection
+[4038] Exiting activity: WifiSelection <- on the PRESS  (scheduled t=4000)
+[4091] Exiting activity: HackerNews    <- on the RELEASE (t=4000 + 80ms hold)
+[4225] Entering activity: ShelfFolder
+```
+
+`seed_fs()` only `mkdir`s; it never clears the card, so a seeded
+`fs_agent/.crosspoint/hn/saved.tsv` survives a run. The library loads with one
+article, so the guard takes the SAVED branch -- and the app leaves anyway.
+
+The **53ms gap is the whole argument**. A confounded exit happens inside the
+result handler, in the same millisecond as the child's. This one lands 11ms
+after the scripted release edge (`namedButton` holds for 80ms by default), a
+separate frame later. That is the release-edge mechanism, measured rather than
+argued.
+
+### One caution for anyone re-running this
+
+`sim-shot.sh` ends with `bmp_to_png` over the output directory, which converts
+**whatever BMPs are already there**. Run it with no screenshot script and the
+PNGs are rewritten with a fresh mtime and stale content: on this re-run the
+`.png` files were stamped 03:25 while their `.bmp` sources were from 02:53.
+A right filename is not a fresh file. Trust the trace, or delete the directory
+first.
 
 **8134c60a is merged and does not work.** It reads as a fix in the log. It is
 not one.
