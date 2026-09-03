@@ -410,7 +410,9 @@ def cmd_inbox(st, a):
                 n += 1
                 print(f"From {c['from']} · #{c['id']} {c['title']}")
                 if c.get("body"):
-                    print(f"  Since: {c['body'].splitlines()[-1]}")
+                    since = c["body"].splitlines()[-1]
+                    since = re.sub(r"^\s*since( then)?:\s*", "", since, flags=re.I)
+                    print(f"  Since: {since}")
                 print(f"  Need from you: {b['ask']}")
                 print(f"  If you do nothing: {b['default']}")
                 print(f"  Answer: board answer {c['id']} '<choice>'")
