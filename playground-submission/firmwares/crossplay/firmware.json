@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "id": "crossplay",
+  "name": "CrossPlay",
+  "group": "partner",
+  "catalogSection": "platform",
+  "mode": "flash",
+  "status": "beta",
+  "summary": "Games, puzzles and flashcards for e-ink, on top of a full CrossPoint e-reader.",
+  "description": "CrossPlay is a fork of CrossPoint that keeps the whole e-reader and adds the other things a screen that holds still is good at: nineteen games you think about rather than react to, among them chess, solitaire, sudoku, minesweeper, connect four and yahtzee; spaced-repetition flashcards that review Anki decks offline; the xkcd archive; Hacker News; an OPDS book browser; and a read-later queue. Nine of the games can also be played between two nearby devices over PLAY NEARBY, with nothing to set up. The same build runs on reTerminal Sticky and the Xteink X4 Pro.",
+  "author": {
+    "name": "Mario Alejandro Ruiz",
+    "url": "https://github.com/ma-r-s"
+  },
+  "origin": {
+    "name": "CrossPlay",
+    "url": "https://github.com/ma-r-s/crossplay"
+  },
+  "source": {
+    "url": "https://github.com/ma-r-s/crossplay",
+    "license": "MIT"
+  },
+  "support": {
+    "url": "https://github.com/ma-r-s/crossplay/issues"
+  },
+  "documentationUrl": "https://crossplay.ma-r-s.com",
+  "compatibility": {
+    "devices": ["reterminal-sticky"],
+    "notes": "A microSD card is required; without one the device stops at an SD card error screen. Hardware verification on reTerminal Sticky was done at version 1.4.0 (2026-08-26). Later versions, this one included, are built for the Sticky by CI but have not been re-tested on the device."
+  },
+  "assets": {
+    "logo": "assets/logo.svg",
+    "preview": "assets/preview.png",
+    "previewAlt": "CrossPlay identity card: the CrossPlay mark and wordmark above the line \"E-ink is good at waiting\""
+  },
+  "tags": ["games", "ereader", "flashcards", "partner"],
+  "flash": {
+    "versions": [
+      {
+        "version": "1.12.11",
+        "channel": "beta",
+        "manifestPath": "firmware/1.12.11/manifest.json"
+      }
+    ],
+    "notes": [
+      {
+        "title": "Device connection",
+        "description": "Connect reTerminal Sticky with a USB data cable and use desktop Chrome or Edge."
+      },
+      {
+        "title": "microSD card required",
+        "description": "Insert a microSD card before first boot. CrossPlay stores game saves, player identity, books and flashcard decks on the card, and the Sticky does not ship with one. Without a card the firmware stops at an SD card error screen."
+      },
+      {
+        "title": "Reading is unchanged",
+        "description": "The CrossPoint e-reader is kept in full. CrossPlay adds apps and games alongside it rather than replacing it."
+      },
+      {
+        "title": "Controls",
+        "description": "Touch throughout. The two side keys page the shelf and the reader, and the shared Confirm/Power key confirms on a click and sleeps on a hold. Back is a left-to-right swipe from the left edge."
+      }
+    ]
+  }
+}

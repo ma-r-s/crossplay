@@ -1,0 +1,12 @@
+# The firmware package binary is a published release asset, not something this
+# branch should carry: 6.6MB in a firmware repo forever, for a file that already
+# lives on the release and in the registry pull request.
+#
+# Reconstitute the exact package with:
+#
+#   gh release download v1.12.11 --repo ma-r-s/crossplay \
+#     --pattern 'crossplay-v1.12.11-sticky-full.bin' \
+#     --dir playground-submission/firmwares/crossplay/firmware/1.12.11/
+#
+# The manifest beside it records the size and SHA-256 to check it against.
+*.bin
