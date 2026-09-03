@@ -85,7 +85,7 @@ mk_transcript() { # mk_transcript "<last assistant text>"
 }
 mk_transcript "Fixed and gated. Want me to also port the picker fix, or leave it?"
 expect "hand-back with no card refused"          2 stop "{\"session_id\":\"$WORKER\",\"transcript_path\":\"$T\",\"stop_hook_active\":false}"
-grep -q "board bind" "$WORK/err" && ok "refusal tells it to bind" || bad "refusal does not tell it to bind"
+grep -q "board.py bind" "$WORK/err" && ok "refusal tells it to bind" || bad "refusal does not tell it to bind"
 expect "stop_hook_active never loops"            0 stop "{\"session_id\":\"$WORKER\",\"transcript_path\":\"$T\",\"stop_hook_active\":true}"
 expect "orchestrator may hand back"              0 stop "{\"session_id\":\"$ORCH\",\"transcript_path\":\"$T\",\"stop_hook_active\":false}"
 mk_transcript "Fixed, gated, pushed. PR open; card moved to review."

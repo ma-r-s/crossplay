@@ -279,18 +279,19 @@ def stop(board, data):
             if b.get("open"):
                 return
     where = f"card #{cid}" if card else "no card bound yet"
+    bc = board_cmd(board.root)
     bind = (
         ""
         if card
         else (
-            "\nBind a card first: board list, then board bind <id> --session "
-            f"{norm_sid(sid)} (or board new '<title>' --from <app> to create one)."
+            f"\nBind a card first: {bc} list, then {bc} bind <id> --session "
+            f"{norm_sid(sid)} (or {bc} new '<title>' --from <app> to create one)."
         )
     )
     block(
         f"This turn ends by handing back ('{m.group(0)}'), and a worker never hands back to Mario "
         f"({where}). Either take the next step now, or record why you cannot:\n"
-        f"  board block <card> --session {norm_sid(sid)} --need <desk|design|info|mario> "
+        f"  {bc} block <card> --session {norm_sid(sid)} --need <desk|design|info|mario> "
         "--ask '<one line>' --default '<what happens if nobody answers>'\n"
         "then end the turn with one line saying the card is blocked." + bind
     )
@@ -303,6 +304,7 @@ def session_start(board, data):
     sess = board.session(sid)
     cid = sess.get("card")
     card = board.card(cid)
+    bc = board_cmd(board.root)
     lines = []
     lines.append(f"[bugflow] Your session id is {sid}.")
     if board.is_orchestrator(sid):
@@ -314,11 +316,11 @@ def session_start(board, data):
         lines.append(f"[bugflow] You are a WORKER. The orchestrator is: {who}.")
         if card:
             lines.append(
-                f"[bugflow] Your card: #{card['id']} {card['title']} (state {card.get('state')}). Read it: board show {card['id']}"
+                f"[bugflow] Your card: #{card['id']} {card['title']} (state {card.get('state')}). Read it: {bc} show {card['id']}"
             )
         else:
             lines.append(
-                f"[bugflow] No card bound. Before any edit: board list, then board bind <id> --session {sid}."
+                f"[bugflow] No card bound. Before any edit: {bc} list, then {bc} bind <id> --session {sid}."
             )
     contract = board.root / "firmware-next" / "docs" / "workflow" / "worker-contract.md"
     here = (
