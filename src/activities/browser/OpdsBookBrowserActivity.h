@@ -63,6 +63,17 @@ class OpdsBookBrowserActivity final : public Activity, private UiAppHost {
   std::string statusMessage;
   size_t downloadProgress = 0;
   size_t downloadTotal = 0;
+  // The rest of what the wait screen shows; statusMessage already holds the
+  // title. The cover is the file the detail screen just fetched -- a download
+  // cannot be reached without passing through that screen, so it is already on
+  // the card and costs no second request.
+  std::string downloadAuthor;
+  std::string downloadCoverPath;
+  // Reserved by buildDownloadScreen, painted after renderUi() flushes the
+  // screen tree, which would otherwise paint over the bitmap.
+  freeink::ui::Rect prepCoverRect{};
+  void paintPrepareCover();
+  static std::string cachedCoverPath();
 
   OpdsServer server;  // Copied at construction — safe even if the store changes during browsing
 
