@@ -49,11 +49,47 @@ void ActivityManager::renderTaskTrampoline(void* param) {
   self->renderTaskLoop();
 }
 
+// One line, only when a repaint was slow, saying which half of it was slow.
+//
+// GitHub issue #7 reported a 4.2s page turn and could not be taken further,
+// because the only breakdown in the firmware (the reader's own "Page render"
+// lines) is LOG_DBG and every release build compiles it out -- and even in a
+// dev build it covers renderContents() alone, so a turn that spent its time
+// waiting for the RenderLock, loading the section, or building pages reported
+// a fast render and a slow device.
+//
+// This covers every screen instead of the reader only, which is what the
+// report actually described: entering and leaving the reader and opening the
+// reader menu were all slow the same way, and those share no epub layout, no
+// glyph decompression and no section cache with a page turn. All they share is
+// build-a-framebuffer-and-show-it.
+void ActivityManager::reportRepaint(const char* activityName, const uint32_t requestedAtMs,
+                                    const unsigned long repaintStartMs) const {
+  const unsigned long now = millis();
+  const unsigned long total = now - repaintStartMs;
+  // requestedAtMs == 0 means nobody stamped this repaint (an activity that
+  // paints from its own loop(), or the very first render after begin()). Say
+  // "queued" is unknown rather than reporting the whole uptime as a queue wait.
+  const unsigned long queued = requestedAtMs != 0 ? repaintStartMs - requestedAtMs : 0;
+  if (total + queued < SLOW_REPAINT_MS) return;
+  const unsigned long panel = paintclock::panelBusy().busyMs();
+  // Saturating: panel time is billed from a second clock read, so a repaint
+  // that ends mid-millisecond can bill one more to the panel than the total.
+  const unsigned long compute = total > panel ? total - panel : 0;
+  LOG_INF("PERF", "%s repaint %lums: queued %lums, panel %lums, ours %lums", activityName, total + queued, queued,
+          panel, compute);
+}
+
 void ActivityManager::renderTaskLoop() {
   while (true) {
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     // Acquire the lock before reading currentActivity to avoid a TOCTOU race
     // where the main task deletes the activity between the null-check and render().
+    // Stamped before RenderLock, not after: a background build or an idle task
+    // holding the lock is time the user spends staring at the old page, and
+    // measuring from inside the lock would report that wait as zero.
+    const unsigned long repaintStartMs = millis();
+    const uint32_t requestedAtMs = updateRequestedAtMs.exchange(0);
     RenderLock lock;
     if (currentActivity) {
       HalPowerManager::Lock powerLock;  // Ensure we don't go into low-power mode while rendering
@@ -67,7 +103,9 @@ void ActivityManager::renderTaskLoop() {
       // for every activity that does not override surfaceMeaning(). See
       // Activity::surfaceMeaning().
       currentActivity->noteSurfaceBuilt();
+      paintclock::panelBusy().reset();
       currentActivity->render(std::move(lock));
+      reportRepaint(currentActivity->name.c_str(), requestedAtMs, repaintStartMs);
     }
     // Notify any task blocked in requestUpdateAndWait() that the render is done.
     TaskHandle_t waiter = nullptr;
@@ -352,7 +390,15 @@ ScreenshotInfo ActivityManager::getScreenshotInfo() const {
   return {};
 }
 
+// First request in a burst wins. Several requestUpdate() calls in one loop
+// collapse into one render, and the wait the user feels began at the first.
+void ActivityManager::noteUpdateRequested() {
+  uint32_t expected = 0;
+  updateRequestedAtMs.compare_exchange_strong(expected, static_cast<uint32_t>(millis()));
+}
+
 void ActivityManager::requestUpdate(bool immediate) {
+  noteUpdateRequested();
   if (immediate) {
     if (renderTaskHandle) {
       xTaskNotify(renderTaskHandle, 1, eIncrement);
@@ -367,6 +413,7 @@ void ActivityManager::requestUpdateAndWait() {
   if (!renderTaskHandle) {
     return;
   }
+  noteUpdateRequested();
 
   // Atomic section to perform checks
   taskENTER_CRITICAL(&activityManagerSpinlock);
