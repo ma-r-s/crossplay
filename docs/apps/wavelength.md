@@ -36,7 +36,7 @@ passing the device back to the clue-giver for the reveal.
 | 3   | PICK ONE        | Two spectra, chosen before the target is drawn.                |
 | 4   | YOUR TARGET     | Hold to reveal. The band shows only while a thumb is down.     |
 | 5   | SAY IT OUT LOUD | Both ends large, target confirmed hidden.                      |
-| 6   | DIAL            | Flat on the table. Tap or hold to move. Hold the bar to lock.  |
+| 6   | DIAL            | Flat on the table. Tap a slot to move. One press locks.        |
 | 7   | WHICH WAY       | The end-call, worth one point.                                 |
 | 8   | REVEAL          | Full refresh. Band, guess, points, verdict.                    |
 | 9   | SESSION         | Totals against a reference, and the ornament again.            |
@@ -69,7 +69,8 @@ game and so is walking away from a target you did not like.
 ## Moving the marker
 
 **A tap places the marker on the slot tapped**, the keys nudge it by one, and
-`ENTER` locks. Nothing else moves it: hold-to-sweep was deleted rather than
+`LOCK IT IN` -- or `ENTER`, where the board has that key -- locks. Nothing else
+moves it: hold-to-sweep was deleted rather than
 repaired, because dragging 17 to 3 landed on 12 and dragging back landed on 10
 (the position is sampled on touch-down), and tap-to-place already saves the
 nineteen taps it was added for. A broken gesture earning nothing is a deletion.
@@ -114,10 +115,11 @@ by accident:
 - **A control that cannot act must not look like one that can.** Until the
   target has been seen the footer dims to LOOK FIRST, using the same
   `disabledStepperStyles()` the front door uses for END SESSION, and a bare tap
-  on either hold control relabels it PRESS AND HOLD IT. Drawn solid black and
-  silent, it read as a dead device: a cold player tapped both controls twice
-  each and stopped playing. A difference of KIND, not degree -- a subtler cue
-  gets rationalised away inside twenty minutes.
+  on the peek pad relabels it PRESS AND HOLD IT. Drawn solid black and silent,
+  it read as a dead device: a cold player tapped both controls twice each and
+  stopped playing. A difference of KIND, not degree -- a subtler cue gets
+  rationalised away inside twenty minutes. The LOCK carried the same nudge until
+  it stopped being a hold; an ordinary button does not need one.
 - **The peek is one-way.** No route back to the target once the clue is passed.
 - **The clue screen says `YOU DO NOT TOUCH IT AGAIN.`** Nothing else on the
   device stops the one person who knows the answer from dialling it in, and the
@@ -247,6 +249,47 @@ truncated to "WAVELE", and a line drawn straight through the one under it.
 `caps()` now derives the metrics from the slot so the two cannot disagree, and
 `endWord()` walks the cut ladder down because 54 of the deck's pairs do not
 fit at the display cut.
+
+**The LOCK is an ordinary button and the guard is GEOMETRY.** It was
+`HOLD TO LOCK`, a 600ms hold on a bar spanning x=80..399 -- and the strip the
+table has been tapping all round answers out to x=226, so the commit control sat
+directly under it. Two faults followed. Nothing on the panel stated the
+duration, which makes a hold a guessing game rather than a safeguard; and firing
+mid-contact drew the reveal under a finger that was still down, so the lift-off
+pressed whatever the new screen put there and four cold testers advanced past
+their own score.
+
+The bar is now `LOCK IT IN`, carries `ActionLock`, and is routed on the touch
+RELEASE by the frame like every other control. The stray tap is stopped by where
+it sits instead: `lockBarRect()` gives it only the NUMBER COLUMN's third of the
+footer. Measured off the rendered screens rather than derived by hand, every
+bound inclusive:
+
+| what | x | y |
+| --- | --- | --- |
+| strip, where `dialSlotAt` answers | 40..226 | 70..663 |
+| `LOCK IT IN`, where `ActionLock` routes | 240..399 | 722..783 |
+| the reveal's `NEXT ROUND` | 16..463 | 640..701 |
+
+So the two columns are disjoint, there are 59px of dead paper below the strip's
+lowest live row, and the bottom-left corner clearance goes from 64px to 224px
+while the right stays at 64. Nothing below the strip is live at all -- not a
+smaller target, no target.
+
+**Separate the coordinates; do not rely on the action being harmless.** The
+touch table goes live before the panel has painted the new screen, so a rect
+whose MEANING changes across a transition is the fault, not the action behind
+it. No pixel answers both tables above, and that is checked by ROUTING taps
+through them rather than by reading the source.
+
+The one place two meanings still share pixels is inbound: `SAY IT OUT LOUD`'s
+forward button is `footer(62, kMargin)` = x=16..463 y=722..783, which CONTAINS
+the lock's rect. `kSettleMs` covers exactly the window in which the change is
+invisible, because the panel has not painted yet; after it the button is visible
+and labelled. The lock is routed BELOW that window deliberately. Separating it
+would mean either reflowing the number column -- which moves the game's main
+action out of the footer every other screen trains the table to look at -- or
+shortening a label the wording pass settled, at the cost of a silent truncation.
 
 **Do not pass a sentinel slot to mean "no marker".** It drew a phantom marker at
 the foot of the strip. `drawScale` and `drawMarker` are separate for that
