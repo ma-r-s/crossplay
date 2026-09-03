@@ -4,6 +4,7 @@
 #include <Logging.h>
 #include <Memory.h>
 #include <PngToBmpConverter.h>
+#include <Utf8.h>
 #include <WiFi.h>
 
 #include <cstdio>
@@ -882,26 +883,75 @@ bool XkcdActivity::fetchOne(const uint16_t num, char* whyNot, const int whyNotCa
   // The three fields that matter, scraped without a JSON parser: this is a
   // fixed, tiny document from one server, and lib/JsonParser's SAX tokens
   // truncate at 512 bytes which the alt text can exceed.
-  const auto field = [&meta](const char* key, char* out, const int cap) {
+  // `fold` says whether this field is a sentence or an address. The lambda
+  // serves all three, and one of them is the artwork URL: folding a character
+  // in a URL does not mangle it visibly, it points it somewhere else.
+  const auto field = [&meta](const char* key, char* out, const int cap, const bool fold) {
     out[0] = '\0';
     const std::string needle = std::string("\"") + key + "\": \"";
     const size_t at = meta.find(needle);
     if (at == std::string::npos) return false;
     size_t i = at + needle.size();
-    int n = 0;
-    while (i < meta.size() && meta[i] != '"' && n + 1 < cap) {
+    // Collected whole first, THEN folded, THEN filtered. Folding needs the
+    // multi-byte sequence intact -- an em dash is three bytes and the old loop
+    // threw all three away one at a time, which is why "sonnets - a study" came
+    // off the wire as "sonnets  a study" with a gap where the dash was. Now it
+    // becomes "--".
+    std::string raw;
+    // A generous read bound rather than a tight one. The old loop bounded the
+    // OUTPUT at `cap`, which it can no longer do, because folding needs whole
+    // multi-byte sequences before it can decide anything. Four times the
+    // caller's buffer is far past the longest real title or alt text and stops
+    // a malformed response walking the whole document.
+    const size_t rawCap = static_cast<size_t>(cap) * 4;
+    while (i < meta.size() && meta[i] != '"' && raw.size() < rawCap) {
       if (meta[i] == '\\' && i + 1 < meta.size()) {
         ++i;
         if (meta[i] == 'n' || meta[i] == 't') {
-          out[n++] = ' ';
+          raw.push_back(' ');
           ++i;
           continue;
         }
+        // \uXXXX, which is how this server sends every non-ASCII character it
+        // has -- twenty sampled comics carried no raw high byte at all and one
+        // \u00b1. Decoded here because without it the backslash was dropped and
+        // the four hex digits kept, so a plus-or-minus reached the panel as the
+        // literal text "u00b1" and an em dash as "u2014". Surrogate pairs are
+        // not joined: this server has never sent one, and half a pair decodes
+        // to a codepoint no cut can draw, which the ASCII filter below removes.
+        if (meta[i] == 'u' && i + 4 < meta.size()) {
+          uint32_t codepoint = 0;
+          bool hex = true;
+          for (int d = 1; d <= 4 && hex; ++d) {
+            const char digit = meta[i + d];
+            if (digit >= '0' && digit <= '9') {
+              codepoint = codepoint * 16 + static_cast<uint32_t>(digit - '0');
+            } else if (digit >= 'a' && digit <= 'f') {
+              codepoint = codepoint * 16 + static_cast<uint32_t>(digit - 'a' + 10);
+            } else if (digit >= 'A' && digit <= 'F') {
+              codepoint = codepoint * 16 + static_cast<uint32_t>(digit - 'A' + 10);
+            } else {
+              hex = false;
+            }
+          }
+          if (hex && codepoint != 0) {
+            utf8AppendCodepoint(codepoint, raw);
+            i += 5;
+            continue;
+          }
+        }
       }
-      const char ch = meta[i++];
-      // The Toybox faces are subset to ASCII and a glyph the font lacks draws
-      // as nothing at all, so anything outside it is dropped here rather than
-      // silently disappearing on the panel.
+      raw.push_back(meta[i++]);
+    }
+    const std::string folded = fold ? utf8FoldTypography(raw) : raw;
+    int n = 0;
+    for (const char ch : folded) {
+      if (n + 1 >= cap) break;
+      // What the fold could not spell in ASCII is still dropped: this app's
+      // header title is the TITLE slot, which is a Jersey cut subset to
+      // U+0020..U+007E, and a glyph the font lacks draws as nothing at all.
+      // An accented letter is lost here and that is a known gap, recorded in
+      // host-tests/typefold/ rather than left to be rediscovered.
       if (static_cast<unsigned char>(ch) >= 32 && static_cast<unsigned char>(ch) < 127) out[n++] = ch;
     }
     out[n] = '\0';
@@ -911,12 +961,12 @@ bool XkcdActivity::fetchOne(const uint16_t num, char* whyNot, const int whyNotCa
   char img[192];
   char title[64];
   char alt[512];
-  if (!field("img", img, sizeof(img))) {
+  if (!field("img", img, sizeof(img), false)) {
     snprintf(whyNot, whyNotCap, "#%u has no artwork.", static_cast<unsigned>(num));
     return false;
   }
-  field("safe_title", title, sizeof(title));
-  field("alt", alt, sizeof(alt));
+  field("safe_title", title, sizeof(title), true);
+  field("alt", alt, sizeof(alt), true);
 
   if (HttpDownloader::downloadToFile(img, kTmpPng) != HttpDownloader::OK) {
     snprintf(whyNot, whyNotCap, "Could not download the artwork for #%u.", static_cast<unsigned>(num));

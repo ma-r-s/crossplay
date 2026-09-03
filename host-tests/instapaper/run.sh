@@ -16,6 +16,8 @@ BUILD_DIR="${TMPDIR:-/tmp}/$(basename "${CXX:-c++}")-instapaper-tests-$(cd ../..
 mkdir -p "$BUILD_DIR"
 
 "${CXX:-c++}" -std=c++17 -O2 -Wall -Wextra -Werror \
+  -I../../lib/Utf8 \
+  ../../lib/Utf8/Utf8.cpp \
   ../../src/apps_local/instapaper/InstapaperIndex.cpp \
   test_index.cpp -o "$BUILD_DIR/test_index"
 "$BUILD_DIR/test_index"

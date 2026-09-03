@@ -4,6 +4,7 @@
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <Utf8.h>
 #include <WiFi.h>
 
 #include <cstdio>
@@ -349,10 +350,15 @@ bool HackerNewsActivity::fetchFrontPage() {
   for (JsonObjectConst hit : hits) {
     if (static_cast<int>(stories_.size()) >= kMaxStories) break;
     hn::Story story;
-    story.title = hit["title"] | "";
+    // Folded here rather than at the row, because this is where somebody
+    // else's text becomes ours: Algolia sends real curly quotes and em dashes
+    // in a headline, and the reading cut has no glyph for either, so they
+    // draw as nothing at all. The URL is not folded -- it is a request, not a
+    // sentence, and changing a character in it changes where it points.
+    story.title = utf8FoldTypography(hit["title"] | "");
     if (story.title.empty()) continue;
     story.url = hit["url"] | "";
-    story.author = hit["author"] | "";
+    story.author = utf8FoldTypography(hit["author"] | "");
     story.points = hit["points"] | 0;
     story.commentCount = hit["num_comments"] | 0;
     story.id = static_cast<uint32_t>(std::strtoul(hit["objectID"] | "0", nullptr, 10));
@@ -575,6 +581,13 @@ void HackerNewsActivity::openSavedArticle(const int index) {
     requestUpdate();
     return;
   }
+  // Articles saved from today on are folded before they are written, because
+  // the fold happens where the text enters. One saved before this existed is
+  // not, and the reading cut has no glyph for what it carries, so it would keep
+  // its holes for as long as it stayed on the card. Folding on the read costs
+  // one pass over a document that is about to be word-wrapped anyway, and needs
+  // no migration.
+  document_ = utf8FoldTypography(document_);
   readerUrl_ = article.url;
   // Set AFTER showDocument, which does not know about the library: showDocument
   // is shared with the front-page path and clearing this there would make every

@@ -130,6 +130,26 @@ void testSanitising() {
   // and nothing silently changes length.
   CHECK_EQ(read[0].domain, "ex ample");
 
+  // Typographic punctuation is folded on the way OUT of the index, not only on
+  // the way in. Written this way on purpose: an index saved before the fold
+  // existed carries real curly quotes, and the reading cut has no glyph for
+  // them, so those rows would draw with holes in them until the queue was
+  // re-synced. Parsing is where the reader's copy is read, so parsing is where
+  // it is fixed -- no migration, no version bump.
+  instapaper::Article typographic = make(103, "x");
+  typographic.title =
+      "It\xe2\x80\x99"
+      "s a \xe2\x80\x9c"
+      "big\xe2\x80\x9d"
+      " one \xe2\x80\x94"
+      " really\xe2\x80\xa6";
+  typographic.domain = "caf\xc3\xa9.example.com";
+  CHECK(instapaper::parseIndex(instapaper::serializeIndex({typographic}), read));
+  CHECK_EQ(read[0].title, "It's a \"big\" one -- really...");
+  // The domain keeps its accent: the reading cut draws Latin-1, and folding it
+  // would rewrite a name the panel can show correctly.
+  CHECK_EQ(read[0].domain, "caf\xc3\xa9.example.com");
+
   // The hash and the sha reach a URL path and a filename respectively, so
   // anything that is not alphanumeric is dropped rather than escaped.
   instapaper::Article nasty = make(102, "x");

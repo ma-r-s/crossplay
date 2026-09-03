@@ -3,6 +3,7 @@
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <Utf8.h>
 #include <WiFi.h>
 
 #include <cstdio>
@@ -537,6 +538,15 @@ void InstapaperActivity::openArticle(const int64_t id) {
     showNotice("NOT SHOWABLE HERE", "This article is written in a script this reader has no letters for.", true);
     return;
   }
+
+  // The article is somebody else's prose, off somebody else's page: curly
+  // quotes, em dashes and ellipses on nearly every screen of it, none of which
+  // the reading cut has a glyph for. Folded when the file is READ rather than
+  // when it is written, so the file on the card stays exactly what the bridge
+  // sent and an article downloaded before this existed reads correctly the next
+  // time it is opened. After the two early returns above, not before: the
+  // not-showable path already knows it will draw none of this.
+  document_ = utf8FoldTypography(document_);
 
   RenderLock lock(*this);
   // Moving on to something else is the end of the undo offer: an UNDO button

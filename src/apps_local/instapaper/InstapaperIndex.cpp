@@ -1,5 +1,7 @@
 #include "InstapaperIndex.h"
 
+#include <Utf8.h>
+
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -132,8 +134,12 @@ bool parseIndex(const std::string_view text, std::vector<Article>& out) {
     a.renderable = (flags & kFlagRenderable) != 0;
     a.progressDirty = (flags & kFlagProgressDirty) != 0;
     a.archivePending = (flags & kFlagArchivePending) != 0;
-    a.domain = field(row, cursor);
-    a.title = field(row, cursor);
+    // The two columns a reader looks at, folded on the way OUT of the index as
+    // well as in. An index written before the fold existed holds real curly
+    // quotes and em dashes, and the reading cut has no glyph for either, so a
+    // queue saved last week would keep its holes until it was re-synced.
+    a.domain = utf8FoldTypography(field(row, cursor));
+    a.title = utf8FoldTypography(field(row, cursor));
 
     // A row with no id is damage rather than data. A row with no title is
     // not: an untitled bookmark is a thing Instapaper really returns, and

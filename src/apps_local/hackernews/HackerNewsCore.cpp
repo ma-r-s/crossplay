@@ -1,5 +1,7 @@
 #include "HackerNewsCore.h"
 
+#include <Utf8.h>
+
 #include <cctype>
 #include <cstdlib>
 
@@ -225,7 +227,12 @@ void decodeEntities(std::string& text) {
     // Not an entity we know: leave it exactly as written.
     out.push_back(text[i++]);
   }
-  text.swap(out);
+  // And fold what the decoding just produced. HN writes its apostrophes and
+  // quotes as numeric entities, so &#8217; and &#x201C; arrive here as ASCII
+  // and leave as U+2019 and U+201C -- codepoints the reading cut has no glyph
+  // for, which draw as NOTHING. This function is where they come into
+  // existence, so it is where they go back out. See lib/Utf8/Utf8.h.
+  text = utf8FoldTypography(out);
 }
 
 std::vector<std::string> paragraphsFromHnHtml(const std::string_view html) {
@@ -286,7 +293,7 @@ Extracted splitExtractorResponse(const std::string_view response) {
     const size_t nl = header.find('\n', i);
     const std::string_view line = header.substr(i, (nl == std::string_view::npos ? header.size() : nl) - i);
     if (startsWith(line, kTitle)) {
-      result.title = trimmed(line.substr(kTitle.size()));
+      result.title = utf8FoldTypography(trimmed(line.substr(kTitle.size())));
       break;
     }
     if (nl == std::string_view::npos) break;
@@ -354,7 +361,9 @@ std::vector<std::string> paragraphsFromMarkdown(const std::string_view markdown)
       ++i;
     }
 
-    const std::string paragraph = trimmed(flat);
+    // The extractor's Markdown comes from somebody else's page rather than from
+    // HN, so it carries real curly quotes and em dashes rather than entities.
+    const std::string paragraph = utf8FoldTypography(trimmed(flat));
     if (!paragraph.empty()) out.push_back(paragraph);
   }
   return out;
@@ -416,7 +425,7 @@ void CommentScanner::onValue() {
   Comment& comment = out_[static_cast<size_t>(owner->slot)];
 
   if (key_ == "author") {
-    comment.author = buffer_;
+    comment.author = utf8FoldTypography(buffer_);
   } else if (key_ == "text") {
     if (buffer_.size() > limits_.maxCommentBytes) buffer_.resize(limits_.maxCommentBytes);
     comment.paragraphs = paragraphsFromHnHtml(buffer_);
