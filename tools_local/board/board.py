@@ -17,7 +17,8 @@ file store so the hooks never need the network.
     board init
     board orchestrator --name Main --session <id>     who Mario's questions go through
     board integrator --session <id> [--release]       who may write firmware-next
-    board new "<title>" --from <app> [--kind bug|feature|task] [--body "..."]
+    board new "<title>" --from <app> [--kind bug|feature|task] [--body "..."] [--parent <id>]
+    board parent <id> --of <parent>                    put a card under another (subtasks)
     board bind <id> --session <sid> [--tree wt/x] [--branch app/x]
     board block <id> --session <sid> --need desk|design|info|mario --ask "..." --default "..."
     board unblock <id> [--n N]
@@ -163,6 +164,7 @@ class FileStore:
             "answers": fields.get("answers", []),
             "history": fields.get("history", []),
             "github_issue": fields.get("github_issue"),
+            "parent": fields.get("parent"),
         }
         self.save_card(c)
         return c
@@ -322,6 +324,7 @@ class SupaStore:
             "reporter_email": row.get("reporter_email"),
             "photo_path": row.get("photo_path"),
             "github_issue": row.get("github_issue"),
+            "parent": row.get("parent"),
         }
 
     def create_card(self, fields):
@@ -336,6 +339,7 @@ class SupaStore:
             "branch": fields.get("branch"),
             "session": fields.get("session"),
             "github_issue": fields.get("github_issue"),
+            "parent": fields.get("parent"),
         }
         if fields.get("id"):
             body["id"] = fields["id"]
@@ -390,6 +394,7 @@ class SupaStore:
             "tree": c.get("tree"),
             "branch": c.get("branch"),
             "session": c.get("session"),
+            "parent": c.get("parent"),
         }
         self._req("PATCH", f"cards?id=eq.{c['id']}", body, prefer="return=minimal")
         if c.get("session"):
@@ -577,6 +582,7 @@ def cmd_new(st, a):
                 "from": a.from_app,
                 "kind": a.kind,
                 "body": a.body or "",
+                "parent": a.parent,
                 "history": [{"at": now(), "what": "created"}],
             }
         )
@@ -700,6 +706,20 @@ def cmd_state(st, a):
     print(f"#{c['id']} {a.state}")
 
 
+def cmd_parent(st, a):
+    """Put a card under another card (subtasks)."""
+    with st.lock():
+        c = st.get_card(a.id)
+        if a.of is not None:
+            st.get_card(a.of)
+            if a.of == c["id"]:
+                sys.exit("board: a card cannot be its own parent")
+        c["parent"] = a.of
+        card_history(st, c, f"under #{a.of}" if a.of is not None else "no parent")
+        st.save_card(c)
+    print(f"#{c['id']} -> parent {a.of}")
+
+
 def cmd_owner(st, a):
     with st.lock():
         if a.session or a.tree:
@@ -815,7 +835,11 @@ def fmt_card(c, full=False):
 
 
 def cmd_show(st, a):
-    print(fmt_card(st.get_card(a.id), full=True))
+    c = st.get_card(a.id)
+    print(fmt_card(c, full=True))
+    for k in st.list_cards():
+        if k.get("parent") == c["id"]:
+            print("    " + fmt_card(k))
 
 
 def cmd_list(st, a):
@@ -825,8 +849,17 @@ def cmd_list(st, a):
     if not cards:
         print("board: no cards")
         return
+    by_id = {c["id"]: c for c in cards}
+    children = {}
     for c in cards:
+        if c.get("parent") in by_id:
+            children.setdefault(c["parent"], []).append(c)
+    for c in cards:
+        if c.get("parent") in by_id:
+            continue
         print(fmt_card(c))
+        for k in children.get(c["id"], []):
+            print("    " + fmt_card(k))
 
 
 def cmd_inbox(st, a):
@@ -1002,6 +1035,7 @@ def main(argv=None):
     s.set_defaults(fn=cmd_integrator)
     s = sub.add_parser("new")
     s.add_argument("title")
+    s.add_argument("--parent", type=int)
     s.add_argument("--from", dest="from_app", required=True)
     s.add_argument("--kind", choices=["bug", "feature", "task"], default="task")
     s.add_argument("--body")
@@ -1037,6 +1071,10 @@ def main(argv=None):
     s.add_argument("id", type=int)
     s.add_argument("state", choices=STATES)
     s.set_defaults(fn=cmd_state)
+    s = sub.add_parser("parent")
+    s.add_argument("id", type=int)
+    s.add_argument("--of", type=int)
+    s.set_defaults(fn=cmd_parent)
     s = sub.add_parser("owner")
     s.add_argument("app")
     s.add_argument("--session")
