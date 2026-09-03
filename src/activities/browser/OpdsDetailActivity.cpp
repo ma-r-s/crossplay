@@ -107,8 +107,12 @@ void OpdsDetailActivity::onEnter() {
   resetUi();
   app.on(ACTION_DOWNLOAD, &OpdsDetailActivity::downloadTrampoline, this);
   app.setScreen(&OpdsDetailActivity::screenTrampoline, this);
-  fetchCover();
-  coverAvailable = !coverPath.empty() && Storage.exists(coverPath.c_str());
+  // NOT fetchCover() here. It blocks on the network for seconds, and onEnter
+  // runs before anything is published, so tapping a book left the results list
+  // on the panel with no response at all -- indistinguishable from a crash,
+  // and readers reported it as one. The screen goes up first; the cover
+  // arrives in a later frame, which is what the placeholder is for.
+  coverPending = !entry.coverHref.empty();
   // The author field is where the catalog packs its metadata, so it is the
   // meta line as-is rather than something reassembled here.
   metaLine = entry.author;
@@ -294,7 +298,30 @@ void OpdsDetailActivity::loop() {
   // the app never publishes a frame.
   const auto touch = routeTouch(mappedInput);
   if (touch.routed && app.invalidated()) requestUpdate();
-  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) finish();
+
+  // Checked before the fetch below, so a Back that arrives while the cover is
+  // still pending leaves immediately instead of waiting out the network.
+  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    // Back is NOT a download. finish() on its own leaves the default result,
+    // and ActivityResult::isCancelled defaults to false -- byte for byte what
+    // downloadTrampoline() sends -- so the browser's `if (!result.isCancelled)`
+    // started a multi-megabyte transfer for a reader who only wanted their
+    // search results back.
+    ActivityResult cancelled;
+    cancelled.isCancelled = true;
+    setResult(std::move(cancelled));
+    finish();
+    return;
+  }
+
+  if (coverPending && framePresented) {
+    // Cleared first: a fetch that throws or hangs must not be retried on every
+    // pass, which would wedge the screen for as long as the reader stayed.
+    coverPending = false;
+    fetchCover();
+    coverAvailable = !coverPath.empty() && Storage.exists(coverPath.c_str());
+    requestUpdate();
+  }
 }
 
 void OpdsDetailActivity::render(RenderLock&&) {
@@ -306,4 +333,6 @@ void OpdsDetailActivity::render(RenderLock&&) {
   // Each activity publishes its own frame; without this the screen is drawn
   // into the buffer and never shown.
   renderer.displayBuffer();
+  // Only now is it safe to block: this is the frame the reader is looking at.
+  framePresented = true;
 }
