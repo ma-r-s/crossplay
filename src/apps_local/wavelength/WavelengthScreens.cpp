@@ -294,12 +294,17 @@ void renderDial(toybox::Screen& screen, const DialModel& model) {
                      toybox::kButtonCut.lineHeight),
        "BACK PAUSES", toybox::kSmallFont, fui::TextAlign::Center);
 
-  // Deliberately NOT given an action. A tap must not commit: the activity
-  // watches for a sustained hold on this exact rect instead, so the label is
-  // true and a stray touch on a device lying flat cannot end the round.
+  // An ordinary button. It carries the action, so the frame routes it on the
+  // RELEASE like every other control here, and the label says what one press
+  // does rather than asking for a duration nothing states.
+  //
+  // Measured, because the fui button truncates a label it cannot fit and this
+  // gate does not read ButtonProps: LOCK IT IN is 112px of toybox_14 in a 160px
+  // box. tools_local/wavelength/check_widths.py sees caps() draws only.
   fui::ButtonProps lock;
-  lock.label = model.nudgeHold ? "HOLD IT DOWN TO LOCK" : "HOLD TO LOCK";
+  lock.label = "LOCK IT IN";
   lock.text = toybox::buttonText(screen.theme());
+  lock.action = ActionLock;
   screen.button(lock, lockBarRect(screen.device().screen().width, screen.device().screen().height));
 }
 
@@ -578,9 +583,32 @@ void renderPick(toybox::Screen& screen, const PickModel& model) {
 }
 
 fui::Rect lockBarRect(const int16_t screenW, const int16_t screenH) {
-  const int16_t inset = static_cast<int16_t>(toybox::kMargin + 64);
-  return fui::makeRect(inset, static_cast<int16_t>(screenH - toybox::kMargin - 62),
-                       static_cast<int16_t>(screenW - 2 * inset), 62);
+  // The NUMBER COLUMN's x-range, by the same arithmetic layout() uses for
+  // g.right. It is derived rather than copied because the two must agree: the
+  // guard this rect provides IS that it sits in the column beside the strip
+  // rather than under it, and a second set of literals is how that quietly
+  // stops being true.
+  const int16_t boardW = static_cast<int16_t>(screenW * 5 / 16);
+  const int16_t rightX = static_cast<int16_t>(toybox::kMargin + 48 + boardW + 26);
+  const int16_t rightW = static_cast<int16_t>(screenW - toybox::kMargin - rightX);
+
+  // WHY THIS IS NOT A FULL-WIDTH BAR ANY MORE. It used to span the panel with a
+  // 64px inset either side and only a HOLD stopped it committing. The hold is
+  // gone -- a duration nothing on the panel states is a guessing game, not a
+  // safeguard -- so the guard is where the button is instead:
+  //
+  //   * it starts at x=240 while dialSlotAt() stops answering at x=226, so
+  //     every pixel below the strip's own column is dead paper;
+  //   * the strip's live region ends at y=663 and this starts at y=722, so a
+  //     finger sliding off the bottom of the board lands on nothing;
+  //   * the bottom-LEFT corner clearance goes from 64px to 224px and the
+  //     bottom-right stays at 64px, which is what testWavelengthTheFourThatWereDropped
+  //     already required of it for the thumb that holds a portrait slab.
+  //
+  // Being narrower than the app's other footer bars is deliberate: those mean
+  // "move on" and this one ends the round.
+  return fui::makeRect(rightX, static_cast<int16_t>(screenH - toybox::kMargin - 62), static_cast<int16_t>(rightW - 64),
+                       62);
 }
 
 fui::Rect peekPadRect(const int16_t screenW, const int16_t screenH) {

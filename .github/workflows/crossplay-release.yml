@@ -175,7 +175,20 @@ jobs:
             devices next to each other find one another with nothing to type --
             and they do not have to be the same device.
 
-            ### What is new in 1.12.8
+            ### What is new in 1.12.9
+
+            **WAVELENGTH's lock is an ordinary button now.** It used to ask you
+            to HOLD, without ever saying for how long, and the lock fired while
+            your finger was still down -- which is how the result screen came to
+            be drawn underneath the thumb that earned it. One tap locks the
+            guess, and the reveal appears with your finger already off the glass.
+
+            The stray tap that the hold was guarding against is handled by
+            moving the button instead of timing it: the lock now occupies only
+            the number column, and the strip below the board is dead space
+            rather than a smaller target.
+
+            ### What WAS new in 1.12.8
 
             **WAVELENGTH's result screen no longer disappears behind the thumb
             that earned it.** Locking a guess fired while your finger was still

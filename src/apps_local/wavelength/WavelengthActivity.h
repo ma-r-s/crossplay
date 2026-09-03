@@ -108,16 +108,15 @@ class WavelengthActivity final : public Activity {
   bool callWasRight = false;
   bool practiceRound = true;
   bool peeking = false;
-  uint32_t lockHoldStartMs = 0;
-  uint32_t confirmHoldStartMs = 0;
-  uint32_t wipeHoldStartMs = 0;
-  // Set when a HOLD fires an action. The finger is still down and the screen
-  // that replaces it puts a button under that finger, so releasing pressed it.
-  bool awaitingRelease = false;
   bool hasPeeked = false;
   bool abandoned = false;
   int abandonedCount = 0;
   View pausedFrom = View::Dial;
+  // Set when a bare tap lands on the PEEK pad, which is the one control left in
+  // this app that answers only to a held finger -- and it holds because the band
+  // shows WHILE the thumb is down, not after a duration. Silence there read as a
+  // dead device to a cold player. The lock had one of these too and no longer
+  // needs it: it is an ordinary button and a tap simply works.
   bool nudgeHold = false;
   uint32_t peekStartMs = 0;
   // How long the band must actually have been on the panel before the clue

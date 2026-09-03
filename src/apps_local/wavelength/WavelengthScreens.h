@@ -60,7 +60,6 @@ struct Spectrum {
 struct DialModel {
   Spectrum spectrum;
   int guess = 10;
-  bool nudgeHold = false;
   int roundNumber = 1;
   bool practice = false;
 };
@@ -163,16 +162,22 @@ struct PassModel {
 // separate bugs in this fork came from breaking that.
 fui::Rect peekPadRect(int16_t screenW, int16_t screenH);
 
-// The LOCK bar, exposed for the same reason: the activity tests a held finger
-// against the very rect that drew it. This button says HOLD and must mean it.
-// It shipped in v1.12.0 as a plain tap, so a brush of a sleeve ended the round
-// while a deliberate four-second press did nothing -- the exact inverse of its
-// own label, on a bar under everyone's thumb with the device flat on a table.
+// The LOCK button. An ORDINARY button: it carries ActionLock and fires on the
+// release like every other control in the fork, because a hold whose duration is
+// invisible is not a safeguard, it is a guessing game -- nothing on the panel
+// could tell you it wanted 600ms rather than 200 or 4000.
+//
+// What the hold was really guarding is that this control sits in the same
+// footer band as the strip the table has just been tapping, so a finger sliding
+// off the bottom of the board could commit the round. That is answered by
+// GEOMETRY instead: the bar no longer spans the panel, it occupies only the
+// number column's third of the footer, and everything below the strip is dead
+// paper. See lockBarRect() in the .cpp for the numbers.
+//
+// Still exposed rather than recomputed by the caller because the tests measure
+// separation against the very rect that drew it. Three bugs in this fork came
+// from a second copy of a control's geometry.
 fui::Rect lockBarRect(int16_t screenW, int16_t screenH);
-
-// How long the bar must be held. Long enough that a stray touch cannot commit,
-// short enough that nobody wonders whether it is broken.
-inline constexpr int kLockHoldMs = 600;
 
 // Which way a finger held at (x,y) on the dial is asking the marker to move:
 // +1 toward the top pole, -1 toward the bottom, 0 for neither. Lives here so

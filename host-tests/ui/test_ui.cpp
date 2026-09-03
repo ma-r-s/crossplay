@@ -6291,6 +6291,159 @@ void testWavelengthTheFourThatWereDropped() {
   CHECK(wideBars == 1);
 }
 
+// THE LOCK IS AN ORDINARY BUTTON, and the stray tap it used to guard against is
+// stopped by geometry instead of by a duration.
+//
+// It shipped as HOLD TO LOCK: the activity watched for 600ms of held finger on
+// the bar's rect and fired while the finger was still down. Two things were
+// wrong with that. Nothing on the panel said 600 -- a hold whose duration is
+// invisible is a guessing game, not a safeguard -- and firing mid-contact meant
+// the reveal drew under a finger that was already down, so the lift-off pressed
+// whatever the new screen put there. Four cold testers advanced past their own
+// score without ever seeing it.
+//
+// What the hold was really buying is that this control sits in the same footer
+// band as the strip the table has just been tapping. That is what the geometry
+// now buys instead, and these checks are the ones that go red if it drifts back.
+void testWavelengthTheLockIsAnOrdinaryButton() {
+  const int16_t w = 480;
+  const int16_t h = 800;
+  const fui::Rect lockBar = wavelengthui::lockBarRect(w, h);
+
+  Rendered dial;
+  {
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(dial.target, ctx, noInput, dial.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    wavelengthui::DialModel m;
+    m.spectrum = wavelengthui::Spectrum{"HOT", "COLD"};
+    m.guess = 13;
+    wavelengthui::renderDial(screen, m);
+  }
+
+  // 1. ONE PRESS LOCKS. The rect has to carry the action, because that is what
+  // makes the frame route it on the touch RELEASE like every other control in
+  // the fork. With no action on it the bar was inert to the router and only the
+  // activity's hold timer could commit.
+  const int16_t midX = static_cast<int16_t>(lockBar.x + lockBar.width / 2);
+  const int16_t midY = static_cast<int16_t>(lockBar.y + lockBar.height / 2);
+  if (dial.tap(midX, midY).action != wavelengthui::ActionLock)
+    std::printf("  a tap in the middle of the lock bar does not lock\n");
+  CHECK(dial.tap(midX, midY).action == wavelengthui::ActionLock);
+  // And across the whole face of it, not just the centre.
+  bool everyPixelLocks = true;
+  for (int16_t x = lockBar.x; x < lockBar.x + lockBar.width; x = static_cast<int16_t>(x + 4))
+    for (int16_t y = lockBar.y; y < lockBar.y + lockBar.height; y = static_cast<int16_t>(y + 4))
+      if (dial.tap(x, y).action != wavelengthui::ActionLock) everyPixelLocks = false;
+  CHECK(everyPixelLocks);
+
+  // 2. AND IT SAYS SO. A label asking for a hold is the thing Mario named: the
+  // player cannot know whether it wants 200ms or four seconds.
+  bool sawLabel = false;
+  bool askedForAHold = false;
+  for (const FakeTarget::TextRun& run : dial.target.texts) {
+    if (run.text == "LOCK IT IN") sawLabel = true;
+    if (run.text.find("HOLD") != std::string::npos) askedForAHold = true;
+  }
+  if (!sawLabel) std::printf("  the dial has no LOCK IT IN button\n");
+  if (askedForAHold) std::printf("  the dial still asks for a hold\n");
+  CHECK(sawLabel);
+  CHECK(!askedForAHold);
+
+  // 3. THE STRIP'S COLUMN AND THE BUTTON'S COLUMN ARE DISJOINT. This is the
+  // replacement for the hold and the only one of these checks that stops the
+  // stray tap the hold existed for: the table moves the marker by tapping the
+  // strip, dozens of times a round, and the bar used to span x=80..399 while
+  // dialSlotAt answers out to x=226. A finger sliding off the bottom of the
+  // board was over the commit control. Now nothing below the strip is live at
+  // all -- not a smaller target, no target.
+  bool sharesAColumn = false;
+  for (int16_t x = lockBar.x; x < lockBar.x + lockBar.width && !sharesAColumn; ++x)
+    for (int16_t y = 0; y < h; ++y)
+      if (wavelengthui::dialSlotAt(w, h, x, y) != 0) {
+        std::printf("  the lock button shares column x=%d with the strip (slot at y=%d)\n", static_cast<int>(x),
+                    static_cast<int>(y));
+        sharesAColumn = true;
+        break;
+      }
+  CHECK(!sharesAColumn);
+  // The other direction: nothing that moves the marker can also lock.
+  bool oneTapDoesBoth = false;
+  for (int16_t x = 0; x < w && !oneTapDoesBoth; ++x)
+    for (int16_t y = 0; y < h; y = static_cast<int16_t>(y + 3)) {
+      if (wavelengthui::dialSlotAt(w, h, x, y) == 0) continue;
+      if (dial.tap(x, y).action != wavelengthui::ActionLock) continue;
+      std::printf("  a tap at (%d,%d) both moves the marker and locks it\n", static_cast<int>(x), static_cast<int>(y));
+      oneTapDoesBoth = true;
+      break;
+    }
+  CHECK(!oneTapDoesBoth);
+
+  // 4. AND THERE IS DEAD PAPER BETWEEN THEM, not merely a column boundary: the
+  // strip's live region has to stop well above the button, or an overshoot that
+  // drifts right lands on it anyway.
+  int16_t lowestLive = 0;
+  for (int16_t y = 0; y < h; ++y)
+    for (int16_t x = 0; x < w; ++x)
+      if (wavelengthui::dialSlotAt(w, h, x, y) != 0 && y > lowestLive) lowestLive = y;
+  if (lockBar.y - lowestLive < 32)
+    std::printf("  only %dpx of paper between the strip and the lock button\n",
+                static_cast<int>(lockBar.y - lowestLive));
+  CHECK(lockBar.y - lowestLive >= 32);
+
+  // 5. NEITHER BOTTOM CORNER. Stronger than testWavelengthTheFourThatWereDropped
+  // asks for, which is the point: that test set the floor at the old 64px inset
+  // and the button no longer needs to be anywhere near the left one.
+  CHECK(lockBar.x > toybox::kMargin + 64);
+  CHECK(lockBar.x + lockBar.width <= w - toybox::kMargin - 64);
+
+  // 6. THE REVEAL PUTS NOTHING WHERE THE LOCK WAS. testWavelengthTheFourThatWereDropped
+  // checks this against the FILLS, which catches a button drawn there; this
+  // checks the routing table, which is the thing that actually fires. The rule
+  // is about the rect's MEANING changing across the transition, so separating
+  // the coordinates is the only defence -- the touch table is live before the
+  // panel has painted, so "the action is harmless" is not one.
+  Rendered reveal;
+  {
+    const fui::DeviceContext ctx = device();
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(reveal.target, ctx, noInput, reveal.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    wavelengthui::RevealModel m;
+    m.spectrum = wavelengthui::Spectrum{"HOT", "COLD"};
+    m.guess = 13;
+    m.target = 10;
+    wavelengthui::renderReveal(screen, m);
+  }
+  bool revealAnswersUnderTheLock = false;
+  for (int16_t x = lockBar.x; x < lockBar.x + lockBar.width && !revealAnswersUnderTheLock;
+       x = static_cast<int16_t>(x + 2))
+    for (int16_t y = lockBar.y; y < lockBar.y + lockBar.height; y = static_cast<int16_t>(y + 2)) {
+      const fui::ActionId landed = reveal.tap(x, y).action;
+      if (landed == 0) continue;
+      std::printf("  the reveal answers action %d at (%d,%d), inside the lock button's rect\n",
+                  static_cast<int>(landed), static_cast<int>(x), static_cast<int>(y));
+      revealAnswersUnderTheLock = true;
+      break;
+    }
+  CHECK(!revealAnswersUnderTheLock);
+  // And the reverse: the reveal's own control must not sit over anything that
+  // locks, or a double tap on NEXT ROUND would commit the next round's guess.
+  bool sharedPixel = false;
+  for (int16_t x = 0; x < w && !sharedPixel; x = static_cast<int16_t>(x + 2))
+    for (int16_t y = 0; y < h; y = static_cast<int16_t>(y + 2)) {
+      if (reveal.tap(x, y).action != wavelengthui::ActionNextRound) continue;
+      if (dial.tap(x, y).action != wavelengthui::ActionLock) continue;
+      std::printf("  NEXT ROUND and LOCK IT IN share the pixel (%d,%d)\n", static_cast<int>(x), static_cast<int>(y));
+      sharedPixel = true;
+      break;
+    }
+  CHECK(!sharedPixel);
+
+  CHECK(!dial.interactions.overflowed());
+}
+
 void testWavelengthEverySlotIsTappable() {
   const int16_t w = 480;
   const int16_t h = 800;
@@ -6609,6 +6762,7 @@ int main() {
   testWavelengthNothingIsDrawnThroughAnything();
   testWavelengthEveryRevealOffersAWayOn();
   testWavelengthTheFourThatWereDropped();
+  testWavelengthTheLockIsAnOrdinaryButton();
   testWavelengthEverySlotIsTappable();
   testFitLinesCutsAnUnbreakableTokenRatherThanVanishing();
 

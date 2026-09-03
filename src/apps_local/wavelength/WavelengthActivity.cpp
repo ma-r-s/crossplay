@@ -373,17 +373,6 @@ void WavelengthActivity::routeAction(const int action) {
 }
 
 void WavelengthActivity::loop() {
-  if (awaitingRelease) {
-    int rx = 0;
-    int ry = 0;
-    if (mappedInput.isScreenTouchHeld(rx, ry)) return;
-    awaitingRelease = false;
-    int sx = 0;
-    int sy = 0;
-    mappedInput.wasScreenTapped(sx, sy);  // consume the release that ended the hold
-    return;
-  }
-
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     if (view == View::Reveal) {
       // Checked BEFORE committed(), which is true here: the reveal is
@@ -455,45 +444,22 @@ void WavelengthActivity::loop() {
     }
   }
 
-  // A bare tap on a control that only answers to a hold says so, rather than
-  // going silent. Silence on these two reads as a broken button: a cold player
-  // tapped both, twice each, and concluded the device had died.
+  // A bare tap on the peek pad says so rather than going silent, because the pad
+  // shows the band only WHILE a thumb is down and a tap therefore reveals
+  // nothing. Silence there reads as a broken button: a cold player tapped it
+  // twice and concluded the device had died. The LOCK used to be in this branch
+  // too and is not any more -- it is an ordinary button, so a tap locks.
   {
     int tx = 0;
     int ty = 0;
-    if ((view == View::Peek || view == View::Dial) && mappedInput.wasScreenTapped(tx, ty)) {
-      const int16_t w = static_cast<int16_t>(renderer.getScreenWidth());
-      const int16_t h = static_cast<int16_t>(renderer.getScreenHeight());
-      const fui::Rect r = view == View::Peek ? wavelengthui::peekPadRect(w, h) : wavelengthui::lockBarRect(w, h);
+    if (view == View::Peek && mappedInput.wasScreenTapped(tx, ty)) {
+      const fui::Rect r = wavelengthui::peekPadRect(static_cast<int16_t>(renderer.getScreenWidth()),
+                                                    static_cast<int16_t>(renderer.getScreenHeight()));
       if (tx >= r.x && tx < r.x + r.width && ty >= r.y && ty < r.y + r.height && !nudgeHold) {
         nudgeHold = true;
         requestUpdate();
         return;
       }
-    }
-  }
-
-  // HOLD TO LOCK means hold. Tracked against the same rect the screen drew, and
-  // reset the moment the finger leaves it, so sliding off cancels rather than
-  // committing. Shipped in v1.12.0 as a tap, which was the label lying.
-  if (view == View::Dial) {
-    int hx = 0;
-    int hy = 0;
-    const fui::Rect bar = wavelengthui::lockBarRect(static_cast<int16_t>(renderer.getScreenWidth()),
-                                                    static_cast<int16_t>(renderer.getScreenHeight()));
-    const bool onBar = mappedInput.isScreenTouchHeld(hx, hy) && hx >= bar.x && hx < bar.x + bar.width && hy >= bar.y &&
-                       hy < bar.y + bar.height;
-    if (onBar) {
-      const uint32_t now = millis();
-      if (lockHoldStartMs == 0) lockHoldStartMs = now;
-      if (now - lockHoldStartMs >= static_cast<uint32_t>(wavelengthui::kLockHoldMs)) {
-        lockHoldStartMs = 0;
-        awaitingRelease = true;
-        lockIn();
-        return;
-      }
-    } else {
-      lockHoldStartMs = 0;
     }
   }
 
@@ -506,22 +472,26 @@ void WavelengthActivity::loop() {
       step(-1);
       return;
     }
-    if (mappedInput.isPressed(MappedInputManager::Button::Confirm)) {
-      const uint32_t now = millis();
-      if (confirmHoldStartMs == 0) confirmHoldStartMs = now;
-      if (now - confirmHoldStartMs >= static_cast<uint32_t>(wavelengthui::kLockHoldMs)) {
-        confirmHoldStartMs = 0;
-        lockIn();
-        return;
-      }
-    } else {
-      confirmHoldStartMs = 0;
+    // The confirm KEY locks on its release, for the same reason the bar does: a
+    // key you have to hold for a duration nothing states is the same guessing
+    // game whether it is glass or plastic. It is an alias for the tap and never
+    // the only route -- the X4 Pro has no confirm pin at all (see docs/buttons.md),
+    // and on the Sticky it is the shared confirm/power key.
+    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+      lockIn();
+      return;
     }
   }
 
   // The panel takes about half a second to show a new screen, so a tap landing
   // inside that window was aimed at the screen BEFORE it. Swallowing those is
   // what stops a double tap from crossing a screen boundary.
+  //
+  // The LOCK is routed below this line rather than above it, and that is
+  // load-bearing: the screen this dial arrives from (SAY IT OUT LOUD) puts its
+  // own forward button across the whole footer band, so the second tap of an
+  // impatient double tap lands inside the lock's rect. Nothing else separates
+  // those two, since one of them has to be in the footer.
   if (millis() - viewEnteredMs < kSettleMs) {
     int sx = 0;
     int sy = 0;
@@ -592,7 +562,6 @@ void WavelengthActivity::render(RenderLock&&) {
       wavelengthui::DialModel model;
       model.spectrum = current;
       model.guess = guess;
-      model.nudgeHold = nudgeHold;
       model.roundNumber = session.round;
       model.practice = practiceRound;
       wavelengthui::renderDial(screen, model);
