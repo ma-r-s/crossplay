@@ -1,5 +1,7 @@
 #include "HackerNewsSaved.h"
 
+#include <Utf8.h>
+
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
@@ -60,6 +62,11 @@ std::string savedThreadTitle(const std::string_view storyTitle) {
 }
 
 std::string sanitizeField(const std::string_view text) {
+  // Flattening only, and deliberately NOT folding. This runs on the URL column
+  // as well as the title, and the URL has to come back byte for byte:
+  // savedIdFor() hashes it, so a character changed here is an article that can
+  // never be unsaved again. The typography fold is applied to the title alone,
+  // at both ends -- see serializeSavedIndex and parseSavedIndex below.
   std::string out;
   out.reserve(text.size());
   bool pendingSpace = false;
@@ -90,7 +97,7 @@ std::string serializeSavedIndex(const std::vector<SavedArticle>& articles) {
     out.push_back('\t');
     out += std::to_string(article.savedAt);
     out.push_back('\t');
-    out += sanitizeField(article.title);
+    out += sanitizeField(utf8FoldTypography(article.title));
     out.push_back('\t');
     out += sanitizeField(article.url);
     out.push_back('\n');
@@ -147,7 +154,11 @@ bool parseSavedIndex(const std::string_view text, std::vector<SavedArticle>& out
       field(row, cursor);
       field(row, cursor);
     }
-    article.title = field(row, cursor);
+    // Folded on the READ side as well, which is what makes an index written
+    // before the fold existed draw correctly instead of keeping its holes for
+    // as long as it stays saved. The URL is NOT folded, for the reason
+    // sanitizeField gives.
+    article.title = utf8FoldTypography(field(row, cursor));
     article.url = field(row, cursor);
 
     // A row with no id or no title is damage rather than data. Skipping it

@@ -153,6 +153,91 @@ void testFieldsCannotSwallowEachOther() {
   CHECK_EQ(hn::sanitizeField("a\t\tb"), "a b");
   CHECK_EQ(hn::sanitizeField(""), "");
   CHECK_EQ(hn::sanitizeField("\t\n "), "");
+
+  // sanitizeField itself must NOT fold. It runs on the URL column as well as
+  // the title, savedIdFor() hashes the URL, and an article whose stored URL no
+  // longer hashes to its id can never be unsaved again.
+  CHECK_EQ(hn::sanitizeField("They\xe2\x80\x99"
+                             "re"),
+           "They\xe2\x80\x99"
+           "re");
+}
+
+void testTypographyIsFoldedButUrlsAreNot() {
+  // A title with a curly apostrophe, a curly pair, an em dash and an ellipsis.
+  // The reading cut has no glyph for any of them and draws them as nothing, so
+  // the title is folded at BOTH ends of the index: written folded, and folded
+  // again on the read, which is what makes an index saved before this existed
+  // stop having holes without a migration.
+  hn::SavedArticle article;
+  article.id = hn::savedIdFor("https://example.com/one");
+  article.savedAt = 1000;
+  article.title =
+      "It\xe2\x80\x99"
+      "s a \xe2\x80\x9c"
+      "big\xe2\x80\x9d"
+      " one \xe2\x80\x94"
+      " really\xe2\x80\xa6";
+  article.url = "https://example.com/one";
+
+  std::vector<hn::SavedArticle> read;
+  CHECK(hn::parseSavedIndex(hn::serializeSavedIndex({article}), read));
+  CHECK(read.size() == 1);
+  if (read.size() == 1) {
+    CHECK_EQ(read[0].title, "It's a \"big\" one -- really...");
+    // The URL survives byte for byte and still hashes to the id it was saved
+    // under. This is the assertion that stops the fold being applied one field
+    // to the left.
+    CHECK_EQ(read[0].url, "https://example.com/one");
+    CHECK_EQ(hn::savedIdFor(read[0].url), read[0].id);
+  }
+
+  // A URL with a real non-ASCII character in it: unencoded paths happen, and a
+  // fold would rewrite one into a different address.
+  hn::SavedArticle exotic;
+  exotic.url =
+      "https://example.com/caf\xc3\xa9\xe2\x80\x94"
+      "notes";
+  exotic.id = hn::savedIdFor(exotic.url);
+  exotic.savedAt = 2000;
+  exotic.title = "Notes";
+  CHECK(hn::parseSavedIndex(hn::serializeSavedIndex({exotic}), read));
+  CHECK(read.size() == 1);
+  if (read.size() == 1) {
+    CHECK_EQ(read[0].url, exotic.url);
+    CHECK_EQ(hn::savedIdFor(read[0].url), exotic.id);
+  }
+
+  // The read-side fold, on its own. An index WRITTEN BY AN OLDER BUILD holds
+  // the raw codepoints, and serializeSavedIndex can no longer produce one, so
+  // this is the raw bytes an old card really carries. Without the fold on the
+  // read these rows keep their holes for as long as they stay saved, and the
+  // round trip above cannot tell -- it folds on the write.
+  const std::string oldIndex =
+      "hnsaved 2\nabc123\t1000\tIt\xe2\x80\x99"
+      "s a \xe2\x80\x9c"
+      "big\xe2\x80\x9d"
+      " one\thttps://example.com/old\n";
+  CHECK(hn::parseSavedIndex(oldIndex, read));
+  CHECK(read.size() == 1);
+  if (read.size() == 1) {
+    CHECK_EQ(read[0].title, "It's a \"big\" one");
+    CHECK_EQ(read[0].url, "https://example.com/old");
+  }
+
+  // And the letters the reading cut can draw are left in the title.
+  hn::SavedArticle accented;
+  accented.url = "https://example.com/two";
+  accented.id = hn::savedIdFor(accented.url);
+  accented.savedAt = 3000;
+  accented.title =
+      "Bj\xc3\xb6"
+      "rn in a caf\xc3\xa9";
+  CHECK(hn::parseSavedIndex(hn::serializeSavedIndex({accented}), read));
+  if (read.size() == 1)
+    CHECK_EQ(read[0].title,
+             "Bj\xc3\xb6"
+             "rn in a caf\xc3\xa9");
 }
 
 void testVersionOneStillOpens() {
@@ -285,6 +370,7 @@ int main() {
   testNotOurFile();
   testDamageCostsOneEntry();
   testFieldsCannotSwallowEachOther();
+  testTypographyIsFoldedButUrlsAreNot();
   testVersionOneStillOpens();
   testUnknownVersionIsLeftAlone();
   testWeWriteTheCurrentVersion();

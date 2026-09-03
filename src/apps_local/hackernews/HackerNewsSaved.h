@@ -71,6 +71,10 @@ std::string serializeSavedIndex(const std::vector<SavedArticle>& articles);
 bool parseSavedIndex(std::string_view text, std::vector<SavedArticle>& out);
 
 // Strip anything that would break the row format, and collapse whitespace.
+// Flattens whitespace. Does NOT fold typographic punctuation, and must not:
+// this runs on the URL column as well as the title, and savedIdFor() hashes the
+// URL. The title is folded by serializeSavedIndex and parseSavedIndex instead,
+// at both ends, so an index written before the fold existed reads correctly.
 std::string sanitizeField(std::string_view text);
 
 }  // namespace hn

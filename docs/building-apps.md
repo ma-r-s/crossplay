@@ -360,12 +360,52 @@ straight through the subtitle underneath it. The component supports a wrapping
 label _or_ a subtitle, never both; put the secondary value in the `value` slot
 instead, which sits in the band beside the label.
 
-**A glyph the font does not have draws as nothing.** No box, no fallback, no
-log line. Toybox's face is subset to ASCII, so text from the web silently loses
-its curly quotes, en dashes and ellipses -- a real Hacker News comment rendered
-as "(Ive turned off duplicate detection...)" and only looking at the panel
-caught it. Fold typographic punctuation to ASCII before drawing anything that
-came from someone else's server; `hn::foldTypography` is the reference.
+**A glyph the font does not have draws as nothing.** No box, no fallback.
+`EpdFont::getGlyph` answers nullptr and the pen does not advance, so the
+character is not merely wrong, it is absent. A real Hacker News comment
+rendered as "(Ive turned off duplicate detection...)" and only looking at the
+panel caught it.
+
+The renderer does log it -- `No glyph for codepoint N`, from `renderCharImpl`
+-- and `scripts_local/sim-shot.sh` fails a run that produces one. That gate is
+worth knowing about and worth not trusting alone: it only sees the screens a
+scripted run visits, with the data that run happens to have, so a headline
+pulled live from someone else's server is exactly the case it never reaches.
+
+**Fold external text with `utf8FoldTypography` (`lib/Utf8/Utf8.h`) at the point
+it enters your app** -- the JSON field, the parsed index row, the file you just
+read off the card -- and not at the point you draw it, so nothing downstream has
+to remember. It turns curly quotes, the dash family, the ellipsis, the space
+family and the f-ligatures into the ASCII every cut carries, and it is a
+provable no-op on text that is already ASCII.
+
+Which cut you are drawing in decides what is left, and the cuts differ more than
+they look:
+
+| cut | slot it usually fills | carries |
+| --- | --- | --- |
+| `toybox_14/20/30/44/64` | button, UI, display | U+0020..U+007E and nothing else |
+| `reading_serif_*` | body, on the reading screens | ASCII plus Latin-1, and nothing above U+00FF |
+| `toybox_10`, `instrument_*` | small / tile | most of Latin-1, most of Latin Extended-A, the curly quotes, U+2013 and U+2014, U+2026, U+20AC |
+| `ubuntu_10/12` | the system UI, the OPDS browser, the Wi-Fi picker | the common punctuation, but no U+FFFD, so what it lacks is a hole like anywhere else |
+| `notosans_*`, `notoserif_*` | the EPUB reader's page | the widest set, plus a U+FFFD box for the rest |
+
+Read that third row carefully: "most of" is doing work. `toybox_10` is missing
+twelve Latin-1 codepoints and 29 of the 128 Latin Extended-A ones, and its dash
+family is U+2013 and U+2014 and nothing else. The exact answer is not in this
+table, on purpose -- `host-tests/typefold/` derives all of it from the font data
+on every run, and a number copied out of a font into prose is a number that
+rots.
+
+So an accented letter is safe in body copy and lost in a Jersey title band.
+Three gaps stay open on purpose and are asserted in that suite: Latin
+Extended-A (a Polish or Turkish name still loses a letter in the reading cut);
+any non-ASCII in a Jersey cut; and the rarer marks in the system UI, where
+`ubuntu_12` cannot draw 32 of the 67 folded codepoints and has no U+FFFD to
+show a box with. The first two are not folded because folding a letter means
+writing a DIFFERENT letter. The third is not folded because the OPDS title also
+becomes a FILENAME (`src/util/OpdsFilename.cpp`), and rewriting a character
+there renames a book on the card.
 
 **A light shape must be knocked out before it is stroked.** Drawing only an
 outline leaves the shape hollow and the surface beneath shows through. Fill with

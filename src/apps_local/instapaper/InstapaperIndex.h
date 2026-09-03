@@ -66,6 +66,10 @@ struct Article {
   std::string sha;
   std::string title;
   std::string domain;  // the row's subtitle; "saved by email" for private ones
+                       // NOTE: domain and title are folded for display on parse
+                       // (utf8FoldTypography), so what serializeIndex writes back
+                       // is the folded form. id, hash and sha never are: they are
+                       // hashed, pathed and sent back to the service.
   uint32_t savedAt = 0;
   uint32_t words = 0;
   uint16_t minutes = 0;
