@@ -59,6 +59,11 @@ class WavelengthActivity final : public Activity {
     Reveal,
     Summary,
     Paused,
+    // WHOSE GAME IS THIS? The front door for a launch that found somebody
+    // else's evening on the card. NEVER WRITTEN TO THE CARD -- it is a question
+    // about the file, not a position in the game, so saveState() refuses to
+    // write while it is up and an undecided question stays undecided.
+    Resume,
     // Not a screen, and it stays last. A load has to know whether the screen
     // number on the card is one this build has, and written as a literal that
     // was a derived fact kept where the enum could not update it: append a
@@ -68,9 +73,14 @@ class WavelengthActivity final : public Activity {
   };
   static constexpr uint8_t kViewCount = static_cast<uint8_t>(View::Count);
 
+  // The screens that hold a round somebody is in the middle of. Written as an
+  // exclusion list, so a screen appended to the enum joins it by default -- and
+  // Resume, which is a question in front of the front door and not a round at
+  // all, has to say so or it silently stops the device sleeping and reads as a
+  // round that cannot be backed out of.
   static bool committed(const View v) {
     return v != View::Menu && v != View::HowTo && v != View::PassLeft && v != View::Pick && v != View::Summary &&
-           v != View::Paused;
+           v != View::Paused && v != View::Resume;
   }
 
   void go(View next);
@@ -78,6 +88,7 @@ class WavelengthActivity final : public Activity {
   void choose(int which);
   void lockIn();
   void makeCall(wavelength::Call call);
+  void startNewSession();
   void step(int delta);
   void routeAction(int action);
   wavelengthui::Spectrum spectrumAt(int index) const;
@@ -96,7 +107,21 @@ class WavelengthActivity final : public Activity {
   // carries. A round screen with no spectrum behind it is a corrupt file, not
   // a game.
   bool resumable(View v, const wavelength::Saved& saved) const;
+  // Unix seconds, or 0 when this device cannot say. No RTC on some boards, and
+  // on the rest the clock is only ever set by an NTP sync over Wi-Fi.
+  static uint32_t nowOrZero();
+  // Which run of the chip this is. Deep sleep is a chip reset and there is no
+  // clock to rely on, so this is the only continuity question the fork can
+  // actually answer: see wavelength::resumeFor.
+  static uint32_t bootId();
   bool sessionStarted = false;
+
+  // Set only while View::Resume is up: the screen the table would return to if
+  // it says the game is theirs, and the two facts that screen puts on the
+  // panel. pendingView is never View::Resume.
+  View pendingView = View::Menu;
+  int resumeMinutesAgo = -1;
+  bool resumeRoundInFlight = false;
 
   View view = View::Menu;
   int choice[2] = {-1, -1};

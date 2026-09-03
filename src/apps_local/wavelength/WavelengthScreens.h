@@ -50,6 +50,8 @@ enum : fui::ActionId {
   ActionBackToMenu = 17,
   ActionResume = 18,
   ActionAbandon = 19,
+  ActionCarryOn = 20,
+  ActionStartFresh = 21,
 };
 
 struct Spectrum {
@@ -120,6 +122,35 @@ struct MenuModel {
   int sessionScored = 0;
 };
 
+// The screen that asks whether the evening on the card is this table's.
+//
+// It exists because the save had no notion of going stale. A round, a hidden
+// number and a score are written on every screen change so that Home, or the
+// device sleeping mid-argument, does not cost the table its game -- and days
+// later a completely different group opened the app and was dropped into the
+// middle of the previous group's round 2, with nothing on the panel saying that
+// was what had happened. This is a party game: a different group is the normal
+// case.
+//
+// It is shown ONLY when the answer is genuinely unknown, which is when the
+// evening on the card was written by a different run of the chip
+// (wavelength::resumeFor). Within one boot the round resumes silently, so Home
+// and back still costs nothing.
+struct ResumeModel {
+  // The round CARRY ON would play, named on the button in the front door's own
+  // words so the two screens cannot describe one evening two ways.
+  int roundNumber = 1;
+  int total = 0;
+  int scored = 0;
+  // A round was mid-play rather than merely a session being open. Worth saying:
+  // carrying on means somebody has already seen a number and heard a clue.
+  bool roundInFlight = false;
+  // How long ago, or -1 when the device cannot say -- no RTC on the board, or a
+  // clock that has never been synced. The line is then simply absent, because
+  // the question stands without it.
+  int minutesAgo = -1;
+};
+
 struct SummaryModel {
   const wavelength::Record* record = nullptr;
   int rounds = 0;
@@ -179,6 +210,18 @@ fui::Rect peekPadRect(int16_t screenW, int16_t screenH);
 // from a second copy of a control's geometry.
 fui::Rect lockBarRect(int16_t screenW, int16_t screenH);
 
+// The front door's primary button -- PLAY ROUND N, and the CARRY ON on the
+// screen that asks whose game is on the card. ONE rect for both, because the
+// safety of that screen IS the coincidence: it stands in the front door's
+// place, so the blind tap a returning table makes has to land on the answer
+// that continues rather than the one that throws the evening away.
+//
+// Written twice as a literal, that guarantee held only until somebody nudged
+// one of them, and no render would look wrong. Exported for the same reason
+// lockBarRect is: the test measures the two screens against the very rect that
+// drew them.
+fui::Rect frontDoorPlayRect(int16_t screenW);
+
 // Which way a finger held at (x,y) on the dial is asking the marker to move:
 // +1 toward the top pole, -1 toward the bottom, 0 for neither. Lives here so
 // the activity's repeat and the screen's drawing share one geometry rather
@@ -195,6 +238,7 @@ int dialSlotAt(int16_t screenW, int16_t screenH, int16_t x, int16_t y);
 
 void renderHowTo(toybox::Screen& screen);
 void renderMenu(toybox::Screen& screen, const MenuModel& model);
+void renderResume(toybox::Screen& screen, const ResumeModel& model);
 void renderSummary(toybox::Screen& screen, const SummaryModel& model);
 void renderPause(toybox::Screen& screen, const PauseModel& model);
 void renderPassLeft(toybox::Screen& screen, const PassModel& model);

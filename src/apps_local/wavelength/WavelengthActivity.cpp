@@ -5,6 +5,8 @@
 #include <Memory.h>
 #include <esp_random.h>
 
+#include <ctime>
+
 #include "../../components/UITheme.h"
 #include "../Shelf.h"
 #include "../ui/ToyboxFonts.h"
@@ -25,6 +27,37 @@ constexpr char kSavePath[] = "/.crosspoint/wavelength.sav";
 constexpr char kSaveTmpPath[] = "/.crosspoint/wavelength.tmp";
 
 }  // namespace
+
+uint32_t WavelengthActivity::nowOrZero() {
+  const int64_t now = static_cast<int64_t>(std::time(nullptr));
+  return now > static_cast<int64_t>(wl::kClockFloor) ? static_cast<uint32_t>(now) : 0u;
+}
+
+// One value per run of the chip, and a different one on the next run.
+//
+// A plain zero-initialised static is exactly that and nothing more is needed:
+// .bss is cleared by the startup code on every reset, and a wake from deep
+// sleep IS a reset. So it is stable while the device is on -- across the Home
+// key, across the shelf, across this activity being destroyed and rebuilt --
+// and gone the moment the chip is. Not RTC_NOINIT_ATTR, which is the opposite
+// of what is wanted here: that survives a reset, and surviving is the property
+// that would make a stale evening look like a live one.
+//
+// Written without a function-local guard on purpose. A static with a runtime
+// initialiser compiles to a thread-safe-init guard variable; this reads and
+// assigns a plain word instead, so what happens on a reset is obvious from the
+// code rather than from the ABI.
+uint32_t WavelengthActivity::bootId() {
+  static uint32_t id = 0;
+  if (id == 0) {
+    id = esp_random();
+    // Zero is reserved for "the card does not say", which is what every save
+    // written before this build carries. A boot that called itself zero would
+    // match all of them at once.
+    if (id == 0) id = 1;
+  }
+  return id;
+}
 
 std::unique_ptr<Activity> WavelengthActivity::create(GfxRenderer& renderer, MappedInputManager& mappedInput) {
   return makeUniqueNoThrow<WavelengthActivity>(renderer, mappedInput);
@@ -86,8 +119,14 @@ bool WavelengthActivity::resumable(const View v, const wl::Saved& saved) const {
     // HOW TO PLAY and the score sheet are each one tap from the front door and
     // neither is a position anybody is in the middle of. Coming back to the
     // front door with the session intact is what they resume to.
+    //
+    // And Resume is a question ABOUT a card, never a position on one. It is
+    // never written, but a card that somehow carried its number must land on
+    // the front door rather than open a question about an evening that the same
+    // load has already decided is live.
     case View::HowTo:
     case View::Summary:
+    case View::Resume:
     default:
       return false;
   }
@@ -123,31 +162,64 @@ void WavelengthActivity::loadState() {
     // them.
     view = View::Menu;
     practiceRound = session.isPractice();
-    return;
+  } else {
+    view = wanted;
+    pausedFrom = saved.resumeScreen < kViewCount ? static_cast<View>(saved.resumeScreen) : View::Dial;
+    spectrum = saved.spectrum;
+    choice[0] = saved.choice[0];
+    choice[1] = saved.choice[1];
+    dealt = saved.dealt;
+    target = saved.target;
+    guess = saved.guess >= 1 ? saved.guess : wl::kSlots / 2;
+    lastPoints = saved.lastPoints;
+    hasPeeked = saved.hasPeeked;
+    practiceRound = saved.practiceRound;
+    callWasRight = saved.callWasRight;
+    abandoned = saved.abandonedRound;
+    // A resumed round arrives over whatever the shelf left on the panel, and one
+    // of the screens it can arrive on is the peek. Spend the full refresh: a
+    // partial one there could leave a ghost of the only secret in the game, which
+    // is the same reason hiding the band costs one.
+    flashOnNextPaint = true;
   }
 
-  view = wanted;
-  pausedFrom = saved.resumeScreen < kViewCount ? static_cast<View>(saved.resumeScreen) : View::Dial;
-  spectrum = saved.spectrum;
-  choice[0] = saved.choice[0];
-  choice[1] = saved.choice[1];
-  dealt = saved.dealt;
-  target = saved.target;
-  guess = saved.guess >= 1 ? saved.guess : wl::kSlots / 2;
-  lastPoints = saved.lastPoints;
-  hasPeeked = saved.hasPeeked;
-  practiceRound = saved.practiceRound;
-  callWasRight = saved.callWasRight;
-  abandoned = saved.abandonedRound;
-  // A resumed round arrives over whatever the shelf left on the panel, and one
-  // of the screens it can arrive on is the peek. Spend the full refresh: a
-  // partial one there could leave a ghost of the only secret in the game, which
-  // is the same reason hiding the band costs one.
-  flashOnNextPaint = true;
-  LOG_INF("WAVE", "Resuming round %d on screen %u", session.round, static_cast<unsigned>(saved.screen));
+  // WHOSE EVENING IS THIS? Everything above has restored it; this decides
+  // whether to hand it to whoever just opened the app.
+  //
+  // Nothing here is discarded and nothing is silently continued across a chip
+  // reset. Guessing wrong one way drops a new group into a stranger's round 2
+  // -- the shipped bug -- and guessing wrong the other way destroys a round
+  // somebody meant to come back to. The question goes to the only party that
+  // knows the answer, and only when the answer is actually unknown.
+  const wl::Resume verdict = wl::resumeFor(saved, bootId());
+  if (verdict == wl::Resume::Ask) {
+    pendingView = view;
+    // Paused is a lid over another screen, so what says whether a number has
+    // been drawn is the screen underneath it.
+    const View under = pendingView == View::Paused ? pausedFrom : pendingView;
+    resumeRoundInFlight = committed(under);
+    resumeMinutesAgo = wl::minutesSince(saved.savedAt, nowOrZero());
+    view = View::Resume;
+    // The question arrives over whatever the shelf left on the panel, and the
+    // screen it replaces may have been the peek. Full refresh for the same
+    // reason a resumed round gets one.
+    flashOnNextPaint = true;
+  }
+  LOG_INF("WAVE", "Loaded round %d, screen %u, saved by boot %08x (this boot %08x): %s", session.round,
+          static_cast<unsigned>(saved.screen), static_cast<unsigned>(saved.bootId), static_cast<unsigned>(bootId()),
+          verdict == wl::Resume::Ask     ? "asking whose game it is"
+          : verdict == wl::Resume::Carry ? "same boot, resuming"
+                                         : "nothing to carry on");
 }
 
 void WavelengthActivity::saveState() {
+  // An UNDECIDED QUESTION STAYS UNDECIDED. While the ask is up the live state
+  // is the previous table's, and writing it back would stamp this boot on it --
+  // which is the one thing that would turn the question off. Leaving the app
+  // from here, or the device sleeping on it, must find the same question next
+  // time.
+  if (view == View::Resume) return;
+
   wl::Saved saved;
   saved.record = record;
   for (int i = 0; i < wl::kPairCountEn && i < wl::kMaxPairs; ++i)
@@ -156,6 +228,8 @@ void WavelengthActivity::saveState() {
   saved.session = session;
   saved.sessionStarted = sessionStarted;
   saved.abandoned = static_cast<uint16_t>(abandonedCount);
+  saved.bootId = bootId();
+  saved.savedAt = nowOrZero();
 
   saved.screen = static_cast<uint8_t>(view);
   saved.resumeScreen = static_cast<uint8_t>(pausedFrom);
@@ -272,6 +346,31 @@ void WavelengthActivity::makeCall(const wl::Call call) {
   go(View::Reveal);
 }
 
+// Wipe the evening and keep the history. The session resets; the record and
+// the seen set do not, because those are the table's history and the reason
+// the front door is worth looking at.
+void WavelengthActivity::startNewSession() {
+  session = wl::Session{};
+  abandonedCount = 0;
+  sessionStarted = false;
+  practiceRound = true;
+  guess = wl::kSlots / 2;
+  // And the round in flight goes with it. A round that outlived the session it
+  // belonged to would resume onto a board whose score had been cleared out from
+  // under it -- persistence causing its own bug, which is the failure this whole
+  // mechanism is one wrong line away from.
+  spectrum = -1;
+  target = 0;
+  dealt = 0;
+  choice[0] = -1;
+  choice[1] = -1;
+  hasPeeked = false;
+  abandoned = false;
+  lastPoints = 0;
+  callWasRight = false;
+  pausedFrom = View::Dial;
+}
+
 void WavelengthActivity::routeAction(const int action) {
   switch (action) {
     case wavelengthui::ActionReady:
@@ -344,28 +443,21 @@ void WavelengthActivity::routeAction(const int action) {
       go(View::PassLeft);
       break;
     case wavelengthui::ActionNewSession:
-      // The session resets; the record and the seen set do not. Those are the
-      // table's history and the reason the front door is worth looking at.
-      session = wl::Session{};
-      abandonedCount = 0;
-      sessionStarted = false;
-      practiceRound = true;
-      guess = wl::kSlots / 2;
-      // And the round in flight goes with it. A round that outlived the
-      // session it belonged to would resume onto a board whose score had been
-      // cleared out from under it -- persistence causing its own bug, which is
-      // the failure this whole mechanism is one wrong line away from.
-      spectrum = -1;
-      target = 0;
-      dealt = 0;
-      choice[0] = -1;
-      choice[1] = -1;
-      hasPeeked = false;
-      abandoned = false;
-      lastPoints = 0;
-      callWasRight = false;
-      pausedFrom = View::Dial;
+      startNewSession();
       go(View::Menu);
+      break;
+    // The table says the evening on the card is not theirs. Same wipe, same
+    // two survivors, and it goes through the same function on purpose: two
+    // controls that both start an evening, written out twice, is how one of
+    // them ends up clearing a field the other forgot.
+    case wavelengthui::ActionStartFresh:
+      startNewSession();
+      go(View::Menu);
+      break;
+    // And the table says it IS theirs. go() writes the card, which stamps this
+    // boot on it, so the question is not asked again for the rest of the night.
+    case wavelengthui::ActionCarryOn:
+      go(pendingView);
       break;
     default:
       break;
@@ -374,7 +466,14 @@ void WavelengthActivity::routeAction(const int action) {
 
 void WavelengthActivity::loop() {
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
-    if (view == View::Reveal) {
+    if (view == View::Resume) {
+      // Back answers neither way. Checked FIRST, because the branch below for a
+      // non-committed screen would have walked to the front door -- and going
+      // to the front door writes the card, which stamps this boot on somebody
+      // else's evening and adopts it silently. The one gesture that must not
+      // decide would have been the one that did.
+      shelf::leave(renderer, mappedInput);
+    } else if (view == View::Reveal) {
       // Checked BEFORE committed(), which is true here: the reveal is
       // committed for the purpose of not sleeping, and must not be for the
       // purpose of backing out. Back went FORWARD into the next round, which
@@ -620,6 +719,16 @@ void WavelengthActivity::render(RenderLock&&) {
       model.abandoned = abandoned;
       model.abandonedCount = abandonedCount;
       wavelengthui::renderPassLeft(screen, model);
+      break;
+    }
+    case View::Resume: {
+      wavelengthui::ResumeModel model;
+      model.roundNumber = session.round;
+      model.total = session.total;
+      model.scored = session.scoredRounds;
+      model.roundInFlight = resumeRoundInFlight;
+      model.minutesAgo = resumeMinutesAgo;
+      wavelengthui::renderResume(screen, model);
       break;
     }
     case View::Menu:
