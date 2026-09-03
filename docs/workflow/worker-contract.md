@@ -19,6 +19,10 @@ are enforced by hooks and will refuse rather than remind.
 - **A turn does not end on a question or a list of next steps.** It ends with
   the next step taken, or with a blocker recorded and one line saying so.
   The Stop hook refuses anything else.
+- **The device is on Wi-Fi, not a cable.** A unit in Developer Mode sits next
+  to Mario. To show him something: identify it by MAC, `wifi-flash.sh` your
+  build, drive it with `drive.py --ip`, and record one `mario` blocker saying
+  what to look at. `desk` means a person's eyes or fingers, never a cable.
 - **Done means:** the test that fails without the fix, the twin path checked,
   host suites green in your tree, pushed, a pull request open, and
   `board state <id> review`. Say in the PR what was not verified. Hardware

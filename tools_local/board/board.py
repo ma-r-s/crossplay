@@ -17,6 +17,7 @@ file store so the hooks never need the network.
     board init
     board orchestrator --name Main --session <id>     who Mario's questions go through
     board integrator --session <id> [--release]       who may write firmware-next
+    board dispatcher --name Dispatch --session <id>   the session Mario talks to; may message anyone
     board new "<title>" --from <app> [--kind bug|feature|task] [--body "..."]
     board bind <id> --session <sid> [--tree wt/x] [--branch app/x]
     board block <id> --session <sid> --need desk|design|info|mario --ask "..." --default "..."
@@ -550,6 +551,12 @@ def cmd_orchestrator(st, a):
     print(f"board: orchestrator is {a.name} ({norm_sid(a.session)})")
 
 
+def cmd_dispatcher(st, a):
+    with st.lock():
+        st.set_claim("dispatcher", norm_sid(a.session), a.name)
+    print(f"board: dispatcher is {a.name} ({norm_sid(a.session)})")
+
+
 def cmd_integrator(st, a):
     with st.lock():
         cur = st.claim("integrator")
@@ -976,7 +983,7 @@ def cmd_sync(st, a):
         made += 1
     for app, o in files.owners().items():
         st.set_owner(app, o.get("session"), o.get("tree"))
-    for name in ("orchestrator", "integrator"):
+    for name in ("orchestrator", "integrator", "dispatcher"):
         cl = files.claim(name)
         if cl.get("session_id"):
             st.set_claim(name, cl["session_id"], cl.get("name"))
@@ -996,6 +1003,10 @@ def main(argv=None):
     s.add_argument("--name", required=True)
     s.add_argument("--session", required=True)
     s.set_defaults(fn=cmd_orchestrator)
+    s = sub.add_parser("dispatcher")
+    s.add_argument("--name", required=True)
+    s.add_argument("--session", required=True)
+    s.set_defaults(fn=cmd_dispatcher)
     s = sub.add_parser("integrator")
     s.add_argument("--session", required=True)
     s.add_argument("--release", action="store_true")

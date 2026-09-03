@@ -78,6 +78,10 @@ expect "worker to orchestrator with ref allowed" 0 pretool "{\"session_id\":\"$W
 expect "worker to a peer refused"               2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"SendMessage\",\"tool_input\":{\"to\":\"xteink-ff\",\"message\":\"who owns 1.12.5\"}}"
 expect "worker to a peer via the app refused"   2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"mcp__ccd_session_mgmt__send_message\",\"tool_input\":{\"session_id\":\"local_dddd-peer\",\"message\":\"hi\"}}"
 expect "worker to orchestrator via the app allowed" 0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"mcp__ccd_session_mgmt__send_message\",\"tool_input\":{\"session_id\":\"local_$ORCH\",\"message\":\"hi\"}}"
+DISP="dddd-dispatch"; board dispatcher --name Dispatch --session "$DISP" >/dev/null
+expect "the dispatcher may message an owner"      0 pretool "{\"session_id\":\"$DISP\",\"tool_name\":\"SendMessage\",\"tool_input\":{\"to\":\"xteink-ff\",\"message\":\"card #3 is yours\"}}"
+expect "the dispatcher may still not ask Mario itself" 2 pretool "{\"session_id\":\"$DISP\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"board ask 3 --ask 'ship?' --default hold\"}}"
+expect "a heredoc mentioning the ask verb is data"  0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"python3 - <<'EOF'\\nprint('board ask 3')\\nEOF\"}}"
 expect "orchestrator to anyone allowed"         0 pretool "{\"session_id\":\"$ORCH\",\"tool_name\":\"SendMessage\",\"tool_input\":{\"to\":\"xteink-ff\",\"message\":\"take it\"}}"
 expect "worker asking Mario refused"            2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"board ask 3 --ask 'ship?' --default hold\"}}"
 expect "orchestrator asking Mario allowed"      0 pretool "{\"session_id\":\"$ORCH\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"board ask 3 --ask 'ship?' --default hold\"}}"
@@ -92,6 +96,7 @@ mk_transcript "Fixed and gated. Want me to also port the picker fix, or leave it
 expect "hand-back with no card refused"          2 stop "{\"session_id\":\"$WORKER\",\"transcript_path\":\"$T\",\"stop_hook_active\":false}"
 grep -q "board.py bind" "$WORK/err" && ok "refusal tells it to bind" || bad "refusal does not tell it to bind"
 expect "stop_hook_active never loops"            0 stop "{\"session_id\":\"$WORKER\",\"transcript_path\":\"$T\",\"stop_hook_active\":true}"
+expect "the dispatcher may end on its one question"  0 stop "{\"session_id\":\"$DISP\",\"transcript_path\":\"$T\",\"stop_hook_active\":false}"
 expect "orchestrator may hand back"              0 stop "{\"session_id\":\"$ORCH\",\"transcript_path\":\"$T\",\"stop_hook_active\":false}"
 mk_transcript "Fixed, gated, pushed. PR open; card moved to review."
 expect "a finished turn passes"                  0 stop "{\"session_id\":\"$WORKER\",\"transcript_path\":\"$T\",\"stop_hook_active\":false}"
