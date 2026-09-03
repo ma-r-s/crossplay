@@ -19,6 +19,7 @@
 #include "../../src/apps_local/chess/ChessScreens.h"
 #include "../../src/apps_local/connectfour/ConnectFourScreens.h"
 #include "../../src/apps_local/connections/ConnectionsScreens.h"
+#include "../../src/apps_local/dungeon/DungeonScreens.h"
 #include "../../src/apps_local/forehead/ForeheadScreens.h"
 #include "../../src/apps_local/hackernews/HackerNewsScreens.h"
 #include "../../src/apps_local/insider/InsiderScreens.h"
@@ -407,6 +408,73 @@ void testTheRematchShowsBothAnswers() {
     const fui::ActionEvent event = out.tap(back->rect.x + back->rect.width / 2, back->rect.y + back->rect.height / 2);
     CHECK(event.action == linkui::ActionLeaveLink);
   }
+}
+
+// The bottom band is not a style choice, and this is the assertion that says so.
+//
+// y = 800 - kMargin - kPillHeight = 732 is where every link game's board puts
+// the status capsule that becomes PLAY AGAIN at game over. This screen replaces
+// that board in the same pass that ends the game, with no announcement and no
+// settle, so whatever occupies 732 is what a thumb already on its way there
+// hits. LEAVE used to be it: the rematch tap killed the radio instead.
+//
+// Asserted as "the destructive action is nowhere in the band" rather than as a
+// literal rect, so a layout change that moves BACK back down fails here even if
+// it moves it by a different arithmetic.
+void testTheRematchBandIsNotTheWayOut() {
+  Rendered out;
+  linkui::LinkModel model;
+  model.gameTitle = "CHESS";
+  model.headline = "CHECKMATE";
+  model.yourName = "YOU";
+  model.theirName = "LUIGI";
+  model.you = linkui::SeatState::Deciding;
+  model.them = linkui::SeatState::Deciding;
+  model.linked = true;
+  model.offerPlayAgain = true;
+  buildLink(out, model);
+
+  // The band the boards hand over: the full pill, at the full content width.
+  const int bandTop = 800 - toybox::kMargin - toybox::kPillHeight;
+  const int bandBottom = 800 - toybox::kMargin;
+  for (int y = bandTop; y < bandBottom; y += 4) {
+    for (int x = toybox::kMargin; x < 480 - toybox::kMargin; x += 16) {
+      const fui::ActionEvent event = out.tap(x, y);
+      CHECK(event.action != linkui::ActionLeaveLink);
+      CHECK(event.action == linkui::ActionPlayAgain);
+    }
+  }
+  // Battleship's capsule is inset by the opponent face, so its own game-over
+  // PLAY AGAIN starts at x=76. That exact pixel must not leave the match.
+  CHECK(out.tap(76 + 4, bandTop + toybox::kPillHeight / 2).action == linkui::ActionPlayAgain);
+
+  // And BACK is still reachable, one row up, where no board draws a control.
+  const FakeTarget::TextRun* back = out.target.find("BACK");
+  CHECK(back != nullptr);
+  if (back != nullptr) {
+    CHECK(back->rect.y < bandTop);
+    const fui::ActionEvent event = out.tap(back->rect.x + back->rect.width / 2, back->rect.y + back->rect.height / 2);
+    CHECK(event.action == linkui::ActionLeaveLink);
+  }
+
+  // The two pills must not share a pixel: a leave that overlaps the rematch by
+  // one row is the same bug wearing a smaller number.
+  const FakeTarget::TextRun* again = out.target.find("PLAY AGAIN");
+  CHECK(again != nullptr);
+  if (again != nullptr && back != nullptr) {
+    CHECK(back->rect.y + back->rect.height <= again->rect.y);
+  }
+}
+
+// Alone, BACK keeps the bottom band. Nothing is at risk there -- the only
+// screens that reach this state are the search (which replaces a menu) and an
+// opponent who has already gone -- and a single pill floating one row up over
+// an empty margin reads as a layout that lost something.
+void testTheLoneWayOutKeepsTheBottomBand() {
+  Rendered out;
+  buildLink(out, searchingModel());
+  const int bandMid = 800 - toybox::kMargin - toybox::kPillHeight / 2;
+  CHECK(out.tap(240, bandMid).action == linkui::ActionLeaveLink);
 }
 
 void testAnOpponentWhoHasGoneTakesTheButtonWithThem() {
@@ -946,6 +1014,255 @@ void buildBattleshipPlace(Rendered& out, const bshipui::PlaceModel& model) {
   toybox::Screen screen(frame, toybox::themeTokens());
   bshipui::buildPlaceChrome(screen, model);
 }
+
+// The paint clock is one global counter, and every other test in this file
+// runs with it at zero -- which is exactly the "nothing has been shown yet"
+// state that leaves the gate open. A test that advances it therefore has to
+// put it back, or it silently gates the ~600 tests that come after it.
+struct PaintClockGuard {
+  uint32_t saved = paintclock::counter();
+  ~PaintClockGuard() { paintclock::counter() = saved; }
+};
+
+// The one this whole mechanism exists for.
+//
+// BattleshipScreens.cpp:160 registers the bottom capsule as
+//     gameOver ? ActionPlayAgain : (canFire ? ActionFire : NO_ACTION)
+// so one rect means FIRE for the whole game and becomes PLAY AGAIN the instant
+// the last shot lands. FIRE is tapped dozens of times a game; the player's
+// thumb lives on that pixel. The rebuild happens BEFORE displayBuffer(), which
+// blocks 0.3-2s, so without a gate the capsule is already PLAY AGAIN while the
+// panel still reads FIRE.
+//
+// This drives the real builder through that exact sequence, and it is written
+// so that "the capsule is live over a frame that still says FIRE" cannot pass.
+void testACapsuleThatChangedMeaningWaitsForThePanel() {
+  PaintClockGuard clock;
+  Rendered out;
+
+  bshipui::BoardModel firing;
+  firing.status = "FIRE";
+  firing.canFire = true;
+  firing.theirName = "LUIGI";
+
+  // Mid-game: the board is built and the panel has shown it.
+  buildBattleshipBoard(out, firing);
+  paintclock::notePainted();
+
+  // The capsule, in the bottom band. x=300 is inside it whether or not the
+  // opponent's face has taken the left strip.
+  const int capsuleY = 800 - toybox::kMargin - toybox::kPillHeight / 2;
+  CHECK(out.tap(300, capsuleY).action == bshipui::ActionFire);
+
+  // The last shot lands. The activity rebuilds and has NOT painted yet: this
+  // is the window, and the panel is still showing FIRE.
+  bshipui::BoardModel over = firing;
+  over.canFire = false;
+  over.gameOver = true;
+  over.status = "PLAY AGAIN";
+  buildBattleshipBoard(out, over);
+
+  // The rect now says PLAY AGAIN in the table. A thumb already travelling to
+  // FIRE must get nothing at all -- not FIRE (the game is over) and above all
+  // not PLAY AGAIN (a rematch nobody asked for).
+  const fui::ActionEvent duringPaint = out.tap(300, capsuleY);
+  CHECK(duringPaint.action != bshipui::ActionPlayAgain);
+  CHECK(duringPaint.action != bshipui::ActionFire);
+  CHECK(duringPaint.action == fui::NO_ACTION);
+  CHECK(!out.interactions.routable());
+
+  // The panel catches up. From here the control is real and answers.
+  paintclock::notePainted();
+  CHECK(out.interactions.routable());
+  CHECK(out.tap(300, capsuleY).action == bshipui::ActionPlayAgain);
+}
+
+// The other half, and the one that decides whether this fix is worth having:
+// input must NOT go dead. MappedInputManager::rowTouch() reports Down after
+// 90ms of contact, apps repaint to highlight the row, and then act on the
+// RELEASE of that same contact. That repaint rebuilds an identical table while
+// the finger is still down, so if an ordinary repaint gated the release, every
+// list in the fork would highlight and then do nothing.
+void testARepaintThatChangedNothingStillAnswers() {
+  PaintClockGuard clock;
+  Rendered out;
+
+  bshipui::BoardModel firing;
+  firing.status = "FIRE";
+  firing.canFire = true;
+
+  buildBattleshipBoard(out, firing);
+  paintclock::notePainted();
+  const int capsuleY = 800 - toybox::kMargin - toybox::kPillHeight / 2;
+  CHECK(out.tap(300, capsuleY).action == bshipui::ActionFire);
+
+  // Rebuilt with the same model, mid-contact, with no paint since. Same table,
+  // same meaning: the release still has to land.
+  buildBattleshipBoard(out, firing);
+  CHECK(out.interactions.routable());
+  CHECK(out.tap(300, capsuleY).action == bshipui::ActionFire);
+
+  // And repeatedly, because a highlight can repaint several times before the
+  // finger lifts. Nothing here may accumulate into a closed gate.
+  for (int repaint = 0; repaint < 5; ++repaint) {
+    buildBattleshipBoard(out, firing);
+    CHECK(out.tap(300, capsuleY).action == bshipui::ActionFire);
+  }
+}
+
+// A changed screen that is rebuilt again before it is ever painted must stay
+// gated. The panel is still showing the table from two builds ago, so adopting
+// the intermediate one as "shown" would reopen the gate on a frame nobody saw.
+void testAnUnshownRebuildDoesNotCountAsShown() {
+  PaintClockGuard clock;
+  Rendered out;
+
+  bshipui::BoardModel firing;
+  firing.status = "FIRE";
+  firing.canFire = true;
+  buildBattleshipBoard(out, firing);
+  paintclock::notePainted();
+  const int capsuleY = 800 - toybox::kMargin - toybox::kPillHeight / 2;
+  CHECK(out.tap(300, capsuleY).action == bshipui::ActionFire);
+
+  bshipui::BoardModel over = firing;
+  over.canFire = false;
+  over.gameOver = true;
+  buildBattleshipBoard(out, over);
+  CHECK(!out.interactions.routable());
+
+  // Rebuilt again, still unpainted. FIRE is what the panel shows and PLAY
+  // AGAIN is what the table says; the gate stays shut.
+  buildBattleshipBoard(out, over);
+  CHECK(!out.interactions.routable());
+  CHECK(out.tap(300, capsuleY).action == fui::NO_ACTION);
+
+  // One paint is all it takes to open, and it opens fully.
+  paintclock::notePainted();
+  CHECK(out.tap(300, capsuleY).action == bshipui::ActionPlayAgain);
+}
+
+// Chess and Sea Salt share the shape through a different door: the capsule is
+// NO_ACTION mid-game, so the table has no entry there at all, and at game over
+// one appears. Making the action safe does not survive this window -- it is
+// precisely where the two tables disagree.
+void buildWin(Rendered& out, const dungeonui::WinModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  dungeonui::buildWin(screen, model);
+}
+
+// StateDisabled is not a cosmetic bit, and the digest has to know that.
+//
+// InteractionBuffer::findTouch skips disabled entries, so flipping
+// StateDisabled changes what a tap DOES. DungeonScreens.cpp:832 registers
+// NEXT with an identical rect, action, value and inputMask and flips only
+// that bit on model.moreToPlay. A dead control becoming live under a
+// stationary finger is the same defect as FIRE becoming PLAY AGAIN, and it
+// would slip a digest that treated state as decoration.
+void testAControlComingBackToLifeAlsoWaits() {
+  PaintClockGuard clock;
+  Rendered out;
+
+  dungeonui::WinModel done;
+  done.dungeonName = "THE CELLAR";
+  done.solvedCount = 8;
+  done.total = 8;
+  done.moreToPlay = false;  // NEXT is registered, and disabled.
+
+  buildWin(out, done);
+  paintclock::notePainted();
+
+  // Find NEXT by its label so this does not hard-code the footer arithmetic.
+  const FakeTarget::TextRun* next = out.target.find("NEXT");
+  CHECK(next != nullptr);
+  if (next == nullptr) return;
+  const int nextX = next->rect.x + next->rect.width / 2;
+  const int nextY = next->rect.y + next->rect.height / 2;
+
+  // Disabled: the tap finds nothing, which is the point of the state.
+  CHECK(out.tap(nextX, nextY).action == fui::NO_ACTION);
+
+  // More dungeons arrive and the same pixel comes alive, with every other
+  // field of the interaction identical. Not yet painted, so not yet live.
+  dungeonui::WinModel more = done;
+  more.moreToPlay = true;
+  buildWin(out, more);
+  CHECK(!out.interactions.routable());
+  CHECK(out.tap(nextX, nextY).action == fui::NO_ACTION);
+
+  // Shown: now it answers.
+  paintclock::notePainted();
+  CHECK(out.tap(nextX, nextY).action == dungeonui::ActionButton);
+}
+
+// paintclock::RevealGate is the same decision UiAppHost makes, lifted out so
+// it can be tested: UiAppHost needs a GfxRenderer and an Arduino and cannot be
+// built here, and a restatement of its logic in a test would only ever agree
+// with itself. This exercises the object the firmware actually uses.
+void testTheRevealGateWaitsForOnePaintAndThenLatches() {
+  PaintClockGuard clock;
+  paintclock::RevealGate gate;
+
+  // Unarmed: never in the way.
+  CHECK(gate.revealed());
+
+  // A screen entry. Built, but the panel still shows the previous screen.
+  gate.arm();
+  gate.markBuilt();
+  CHECK(!gate.revealed());
+
+  // A render that rebuilds several times before its single paint (which is
+  // what UiListActivity does, up to 8 passes) must measure from the LAST
+  // build, or the gate opens on a paint that predates the table.
+  paintclock::notePainted();
+  gate.markBuilt();
+  CHECK(!gate.revealed());
+
+  // One paint from any source releases it.
+  paintclock::notePainted();
+  CHECK(gate.revealed());
+
+  // And it latches: a later build with no arm() must not re-close it, or an
+  // ordinary repaint would start eating input.
+  gate.markBuilt();
+  CHECK(gate.revealed());
+  CHECK(gate.revealed());
+
+  // Only a fresh screen entry closes it again.
+  gate.arm();
+  gate.markBuilt();
+  CHECK(!gate.revealed());
+  paintclock::notePainted();
+  CHECK(gate.revealed());
+}
+
+void testACapsuleThatWasDeadMidGameAlsoWaits() {
+  PaintClockGuard clock;
+  Rendered out;
+
+  chessui::BoardModel playing;
+  playing.status = "THEIR MOVE";
+  playing.gameOver = false;
+  buildBoard(out, playing);
+  paintclock::notePainted();
+
+  const int capsuleY = 800 - toybox::kMargin - toybox::kPillHeight / 2;
+  CHECK(out.tap(300, capsuleY).action == fui::NO_ACTION);
+
+  chessui::BoardModel finished = playing;
+  finished.gameOver = true;
+  finished.status = "CHECKMATE";
+  buildBoard(out, finished);
+  CHECK(!out.interactions.routable());
+  CHECK(out.tap(300, capsuleY).action != chessui::ActionPlayAgain);
+
+  paintclock::notePainted();
+  CHECK(out.tap(300, capsuleY).action == chessui::ActionPlayAgain);
+}
+
 
 void testBattleshipStartMenu() {
   // A row that would do nothing is not drawn, exactly as in chess: with no
@@ -6660,6 +6977,14 @@ int main() {
   testMurdleMenuHeadlineIsTheDoorAcrossItsWidth();
   testSeatsSayWhatEachPlayerHasDecided();
   testTheRematchShowsBothAnswers();
+  testTheRematchBandIsNotTheWayOut();
+  testTheLoneWayOutKeepsTheBottomBand();
+  testACapsuleThatChangedMeaningWaitsForThePanel();
+  testARepaintThatChangedNothingStillAnswers();
+  testAnUnshownRebuildDoesNotCountAsShown();
+  testACapsuleThatWasDeadMidGameAlsoWaits();
+  testAControlComingBackToLifeAlsoWaits();
+  testTheRevealGateWaitsForOnePaintAndThenLatches();
   testAnOpponentWhoHasGoneTakesTheButtonWithThem();
   testRowModel();
   testSettingsOpenedFromTheMenuOffersOnlyPreferences();
