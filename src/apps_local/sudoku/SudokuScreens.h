@@ -38,10 +38,6 @@ struct MenuModel {
   bool hasGame = false;
   sudoku::Game game{};
   sudoku::Record record{};
-  // Set for one visit after the level row is cycled, which is what relabels the
-  // headline from RESUME to START: a destructive setting changes in place, and
-  // the confirmation is a label you were going to read anyway.
-  bool levelChanged = false;
   int selected = -1;
 };
 
