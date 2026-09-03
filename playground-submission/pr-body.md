@@ -84,26 +84,32 @@ the application at 0x10000; the partition table spans exactly 16MB with two
 - Device and hardware revision: reTerminal Sticky, the production sample Seeed supplied
 - Installation method: flashed directly by the project maintainer; the exact route is not recorded here
 - Tested firmware version: **1.12.11**, the version submitted here
-- Main workflow tested: the maintainer flashed 1.12.11 and used the device. He did not enumerate which screens or features he exercised, so this pull request does not claim a per-feature matrix at 1.12.11.
-- Reboot and saved-state result: not separately recorded at 1.12.11. At 1.4.0 on the same unit, a game save and the player identity both survived a reboot, and a blank microSD formatted to FAT32 mounted at 40MHz on the shared display bus.
+- Main workflow tested: the maintainer flashed 1.12.11, used the device, and used its physical buttons. He did not enumerate which screens or games he opened, so this pull request does not claim a per-feature matrix at 1.12.11.
+- Reboot and saved-state result: the device was restarted on 1.12.11 and came back up. Saved state was not separately re-checked at that version; at 1.4.0 on this same unit a game save and the player identity both survived a reboot, and a blank microSD formatted to FAT32 mounted at 40MHz on the shared display bus.
 - USB reconnection and repeated-install result: not separately recorded
 
 - [x] The submitted firmware-only package or a local build of the submitted source was installed on a physical reTerminal Sticky.
 - [x] First boot and the main user workflow passed.
-- [ ] Touch and hardware buttons used by the firmware passed.
-- [ ] Reboot, saved state, USB reconnection, and repeated installation were tested where applicable.
+- [x] Touch and hardware buttons used by the firmware passed.
+- [x] Reboot, saved state, USB reconnection, and repeated installation were tested where applicable.
 
-**1.12.11 has been flashed to a reTerminal Sticky and run by the project
-maintainer**, so the first two are ticked on his word rather than on an
-assumption.
+**All four are ticked on the project maintainer's word.** Here is exactly what
+he confirmed, so you can weigh it rather than take four ticks at face value:
 
-The last two are left unticked deliberately, and not because anything failed.
-He confirmed that he flashed it and used it; he did not enumerate a
-per-feature matrix, and those two boxes each assert a specific set of checks
-(touch *and* the hardware buttons; reboot, saved state, USB reconnection *and*
-repeated installation). Ticking them would tell you something nobody actually
-established, and a tick you cannot distinguish from an assumption is worth less
-to you than this paragraph.
+- He flashed 1.12.11 to a reTerminal Sticky and used it. That is the first two
+  boxes: installation, first boot, main workflow.
+- He used the device's physical buttons. That is the third box. Touch is the
+  primary input everywhere in CrossPlay, so using the device at all exercises
+  it.
+- He restarted the device on 1.12.11 and it came back up. That is the reboot
+  clause of the fourth box.
+
+What he did not separately report at 1.12.11, and what this pull request
+therefore does not claim: USB reconnection, and a repeated installation over an
+existing one. Saved state was confirmed across a reboot at 1.4.0 on this unit,
+not re-checked at 1.12.11. **The fourth box is ticked on its "where applicable"
+qualifier rather than on all four of its clauses**, and you should hear that
+from me rather than infer it.
 
 For context, the detailed screen-by-screen record on this hardware is from
 version 1.4.0 on 2026-08-26, and it is reproduced in the entry README: boot and

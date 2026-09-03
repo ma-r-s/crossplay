@@ -67,9 +67,12 @@ rather than copied from another entry.
 ## Hardware test record
 
 **Version 1.12.11, the version packaged here, has been flashed to a reTerminal
-Sticky and run by the project maintainer.**
+Sticky by the project maintainer, run, driven with the device's physical
+buttons, and restarted.**
 
-He did not record a screen-by-screen matrix for that run, so this entry does not
+Not separately re-checked at 1.12.11: saved state across that restart, USB
+reconnection, and a repeated installation over an existing one. He did not
+record a screen-by-screen matrix for the run either, so this entry does not
 claim one at 1.12.11. What follows is the detailed record from an earlier
 version on the same hardware (the production sample Seeed supplied), version
 **1.4.0** on 2026-08-26, driven over a serial bridge with screenshots read back:

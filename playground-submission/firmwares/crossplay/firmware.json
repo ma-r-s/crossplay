@@ -28,7 +28,7 @@
     "devices": [
       "reterminal-sticky"
     ],
-    "notes": "A microSD card is required; without one the device stops at an SD card error screen. Version 1.12.11 has been flashed to reTerminal Sticky production hardware and run by the project maintainer."
+    "notes": "A microSD card is required; without one the device stops at an SD card error screen. Version 1.12.11 has been flashed to reTerminal Sticky production hardware by the project maintainer, run, driven with the physical buttons, and restarted."
   },
   "assets": {
     "logo": "assets/logo.svg",

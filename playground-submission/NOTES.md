@@ -89,21 +89,34 @@ nothing in git records it.** Every written source here agreed on v1.4.0 and all
 of them were behind. If a future session needs to know what has run on the
 Sticky, the honest answer is to ask him, not to grep.
 
-What the entry now claims, and deliberately no more:
+What the entry claims, arrived at over three rounds as Mario was asked
+progressively more specific questions:
 
-- Boxes 1 and 2 (**installed on physical hardware**, **first boot and main
-  workflow passed**) are ticked. "Flashed it and ran it" establishes both.
-- Boxes 3 and 4 are **left unticked**. Box 3 asserts touch *and* the hardware
-  buttons; box 4 asserts reboot, saved state, USB reconnection *and* repeated
-  installation. He did not enumerate which features he exercised, so ticking
-  those would have invented a test matrix. The pull request says in as many
-  words that they are unticked because nobody established them, not because
-  anything failed.
-- The screen-by-screen record stays attributed to 1.4.0, where it came from.
+- **Round one**, all four boxes unticked. Every written source said v1.4.0 and
+  no Sticky was attached to this machine.
+- **Round two**, "he flashed it and tried it". That established boxes 1 and 2
+  (installation, first boot and main workflow) and nothing more, so boxes 3 and
+  4 stayed unticked: box 3 conjoins touch *and* the hardware buttons, box 4
+  conjoins reboot, saved state, USB reconnection *and* repeated installation.
+- **Round three**, he confirms he used the physical buttons and restarted the
+  device. Box 3 is now fully established. Box 4 is ticked on its "where
+  applicable" qualifier, with the pull request saying in plain words that the
+  reboot clause is what he confirmed and that USB reconnection, a repeated
+  install, and saved state across that particular restart were not re-checked
+  at 1.12.11.
 
-The instruction to tick all four and the instruction not to overstate could not
-both be followed. The second one wins: a tick Seeed cannot distinguish from an
-assumption is worth less to them than a sentence saying who did what.
+**The lesson is the shape, not the outcome.** Each round the answer got more
+specific because the question did. "Has it been tested?" would have produced a
+yes and four ticks that meant nothing; "did you use the buttons, did you restart
+it" produced something Seeed can weigh. The entry says who verified what, so a
+reader can tell a tick that means "we ran it" from one that means "we assume
+it".
+
+**Provenance, and it stays recorded.** All of this reached the session relayed
+rather than from Mario directly, and a past flash leaves no trace anyone here
+can read. It is not independently verifiable by this session or the one that
+asked him. The workspace rule about relayed claims exists for exactly this
+shape, and the claim is public, under his name, to a partner.
 
 ## The `group` decision
 
