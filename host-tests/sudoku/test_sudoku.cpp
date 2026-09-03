@@ -616,13 +616,14 @@ void testCyclingTheLevelRowBackReadsAsResumeAgain() {
     for (int tap = 1; tap < sudoku::kLevelCount; ++tap) {
       menu = nextMenuLevel(menu);
       check(!sudoku::canResume(game, true, menu), "another level offers a new puzzle");
-      check(sudoku::switchesLevel(game, true, menu), "and the caption says it is starting fresh");
+      check(sudoku::menuOffer(game, true, menu) == sudoku::MenuOffer::OtherLevel,
+            "and the caption says it is starting fresh");
     }
 
     menu = nextMenuLevel(menu);
     checkEq(static_cast<int>(menu), static_cast<int>(saved), "four taps return the row to where it started");
     check(sudoku::canResume(game, true, menu), "and the door is RESUME again, not NEW PUZZLE");
-    check(!sudoku::switchesLevel(game, true, menu), "with nothing to start fresh from");
+    check(sudoku::menuOffer(game, true, menu) == sudoku::MenuOffer::Resume, "with nothing to start fresh from");
   }
 }
 
@@ -637,7 +638,8 @@ void testTheDoorIsHonestWithNoSaveAndWithAFinishedOne() {
   for (int i = 0; i < sudoku::kLevelCount; ++i) {
     const auto menu = static_cast<sudoku::Level>(i);
     check(!sudoku::canResume(none, false, menu), "nothing saved is never resumable");
-    check(!sudoku::switchesLevel(none, false, menu), "and has no level to be switched away from");
+    check(sudoku::menuOffer(none, false, menu) == sudoku::MenuOffer::Fresh,
+          "and reads NOT STARTED rather than as a level switch");
   }
 
   // A finished grid stays on the panel wearing SOLVED; the menu's door is the
@@ -647,8 +649,44 @@ void testTheDoorIsHonestWithNoSaveAndWithAFinishedOne() {
     sudoku::Game solved = gameCarvedAt(saved);
     solved.solvedFlag = 1;
     check(!sudoku::canResume(solved, true, saved), "a solved puzzle is not resumed");
-    check(!sudoku::switchesLevel(solved, true, saved), "and reads as solved rather than as a level change");
-    check(sudoku::switchesLevel(solved, true, nextMenuLevel(saved)), "picking another level after a solve does");
+    check(sudoku::menuOffer(solved, true, saved) == sudoku::MenuOffer::Solved,
+          "and reads as solved rather than as a level change");
+    check(sudoku::menuOffer(solved, true, nextMenuLevel(saved)) == sudoku::MenuOffer::OtherLevel,
+          "picking another level after a solve does");
+  }
+}
+
+// The offer is what the button and the caption are BOTH written from, so this
+// walks every (hasGame, solvedFlag, menu level) combination there is and pins
+// that exactly one of them opens the saved grid. A cold reviewer found the gap
+// this closes: while the door and the label were two separate predicates asked
+// separately, buildMenu could be handed the wrong argument for one of them and
+// every test still passed -- the label saying RESUME over a door that carved.
+void testExactlyOneOfferOpensTheSavedGrid() {
+  for (int saved = 0; saved < sudoku::kLevelCount; ++saved) {
+    for (int solvedFlag = 0; solvedFlag <= 1; ++solvedFlag) {
+      sudoku::Game game = gameCarvedAt(static_cast<sudoku::Level>(saved));
+      game.solvedFlag = static_cast<uint8_t>(solvedFlag);
+      for (int menu = 0; menu < sudoku::kLevelCount; ++menu) {
+        const auto level = static_cast<sudoku::Level>(menu);
+
+        // With no save the offer is Fresh whatever else is true, which is the
+        // only thing standing between an empty card and RESUME over nothing:
+        // an unset Puzzle grades as Easy and so does an unset menu, so the
+        // LEVELS match there and cannot be what rules it out.
+        check(sudoku::menuOffer(game, false, level) == sudoku::MenuOffer::Fresh,
+              "no save offers a fresh puzzle at every level");
+
+        const sudoku::MenuOffer offer = sudoku::menuOffer(game, true, level);
+        const bool sameLevel = menu == saved;
+        const sudoku::MenuOffer want = !sameLevel        ? sudoku::MenuOffer::OtherLevel
+                                       : solvedFlag != 0 ? sudoku::MenuOffer::Solved
+                                                         : sudoku::MenuOffer::Resume;
+        check(offer == want, "the offer names the one situation the save is actually in");
+        checkEq(sudoku::canResume(game, true, level) ? 1 : 0, offer == sudoku::MenuOffer::Resume ? 1 : 0,
+                "RESUME is the offer that opens the grid, and the only one");
+      }
+    }
   }
 }
 
@@ -668,7 +706,7 @@ void testAPuzzleJustCarvedIsImmediatelyResumable() {
     sudoku::Game game;
     sudoku::startGame(game, puzzle);
     check(sudoku::canResume(game, true, level), "a puzzle just carved resumes at the level it was asked for");
-    check(!sudoku::switchesLevel(game, true, level), "and is not a level change");
+    check(sudoku::menuOffer(game, true, level) == sudoku::MenuOffer::Resume, "and is not a level change");
   }
   checkEq(made, sudoku::kLevelCount, "one puzzle carved at every level");
 }
@@ -752,6 +790,7 @@ int main() {
   testTheRecordOnlyTimesUnhintedSolves();
   testCyclingTheLevelRowBackReadsAsResumeAgain();
   testTheDoorIsHonestWithNoSaveAndWithAFinishedOne();
+  testExactlyOneOfferOpensTheSavedGrid();
   testAPuzzleJustCarvedIsImmediatelyResumable();
   std::printf("Generation cost\n");
   reportGenerationCost();

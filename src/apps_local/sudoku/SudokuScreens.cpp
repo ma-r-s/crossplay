@@ -531,21 +531,27 @@ fui::Rect menuDoors(toybox::Screen& screen, const MenuModel& model, char* levelR
 void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   toyboxChrome(screen, "SUDOKU", sk::levelName(model.level));
 
-  // The same two predicates the tap runs, asked of the same three values, so
-  // the label the player reads and the door they get cannot come apart.
-  const bool switching = sk::switchesLevel(model.game, model.hasGame, model.level);
-  const bool resuming = sk::canResume(model.game, model.hasGame, model.level);
-  const char* action = resuming ? "RESUME" : "NEW PUZZLE";
+  // The button and the caption are two renderings of ONE fact, so they are
+  // written from one switch over it rather than from two predicates asked
+  // separately. Exhaustive and no default: a fifth offer fails the build rather
+  // than silently drawing a door with somebody else's label on it.
+  const sk::MenuOffer offer = sk::menuOffer(model.game, model.hasGame, model.level);
+  const char* action = offer == sk::MenuOffer::Resume ? "RESUME" : "NEW PUZZLE";
 
   char state[48];
-  if (switching) {
-    std::snprintf(state, sizeof(state), "%s, STARTING FRESH", sk::levelName(model.level));
-  } else if (resuming) {
-    std::snprintf(state, sizeof(state), "%d LEFT", sk::emptyCount(model.game));
-  } else if (model.hasGame) {
-    std::snprintf(state, sizeof(state), "LAST ONE SOLVED");
-  } else {
-    std::snprintf(state, sizeof(state), "NOT STARTED");
+  switch (offer) {
+    case sk::MenuOffer::OtherLevel:
+      std::snprintf(state, sizeof(state), "%s, STARTING FRESH", sk::levelName(model.level));
+      break;
+    case sk::MenuOffer::Resume:
+      std::snprintf(state, sizeof(state), "%d LEFT", sk::emptyCount(model.game));
+      break;
+    case sk::MenuOffer::Solved:
+      std::snprintf(state, sizeof(state), "LAST ONE SOLVED");
+      break;
+    case sk::MenuOffer::Fresh:
+      std::snprintf(state, sizeof(state), "NOT STARTED");
+      break;
   }
 
   char record[56];

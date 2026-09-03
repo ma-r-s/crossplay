@@ -208,7 +208,11 @@ void SudokuActivity::loadState() {
   }
 
   int at = 1;
-  menuLevel = static_cast<sk::Level>(header[at++] % sk::kLevelCount);
+  // Range-checked rather than reduced: header[] is a long, and a negative one
+  // survives `% kLevelCount` as a negative, which becomes Level(255) and indexes
+  // record.bestMs[255] off the end of a four-element array when the menu draws.
+  const long savedLevel = header[at++];
+  menuLevel = static_cast<sk::Level>(savedLevel >= 0 && savedLevel < sk::kLevelCount ? savedLevel : 0);
   restored.elapsedMs = static_cast<uint32_t>(header[at++]);
   restored.hintsUsed = static_cast<uint8_t>(header[at++]);
   const long armed = header[at++];
@@ -314,7 +318,18 @@ void SudokuActivity::loop() {
       shelf::leave(renderer, mappedInput);
       return;
     }
-    if (screen == sk::Screen::Board) saveState();
+    if (screen == sk::Screen::Board) {
+      // Back off a board that is still being carved CANCELS the carve, and that
+      // is not tidiness. The poll below does not look at `screen`, so an
+      // abandoned carve kept running on the menu and landed through
+      // startGame() -- replacing the saved game and rewriting the card from a
+      // screen the player was only reading, with no tap at all. The window is
+      // not a frame either: 24 attempts a pass carries roughly even odds at the
+      // scarcer levels, so MAKING ONE can sit there for several passes.
+      generating = false;
+      generateDeferred = false;
+      saveState();
+    }
     goTo(sk::back(screen));
     return;
   }
