@@ -162,6 +162,7 @@ class FileStore:
             "blockers": fields.get("blockers", []),
             "answers": fields.get("answers", []),
             "history": fields.get("history", []),
+            "github_issue": fields.get("github_issue"),
         }
         self.save_card(c)
         return c
@@ -320,6 +321,7 @@ class SupaStore:
             "version": row.get("version"),
             "reporter_email": row.get("reporter_email"),
             "photo_path": row.get("photo_path"),
+            "github_issue": row.get("github_issue"),
         }
 
     def create_card(self, fields):
@@ -333,6 +335,7 @@ class SupaStore:
             "tree": fields.get("tree"),
             "branch": fields.get("branch"),
             "session": fields.get("session"),
+            "github_issue": fields.get("github_issue"),
         }
         if fields.get("id"):
             body["id"] = fields["id"]
@@ -878,6 +881,69 @@ def cmd_import(st, a):
     print(f"board: imported {made} cards")
 
 
+def guess_app(title, labels, owners):
+    """The app an issue is about: an app:<name> label, else an owner's name in the title."""
+    for l in labels:
+        if l.lower().startswith("app:"):
+            return l[4:].strip().lower()
+    t = title.lower()
+    for app in sorted(owners, key=len, reverse=True):
+        if app and app in t:
+            return app
+    if "read" in t or "page turn" in t or "epub" in t:
+        return "reader"
+    return "unknown"
+
+
+def cmd_issues(st, a):
+    """Open GitHub issues become cards, once each; released cards close their issue."""
+    if a.from_json:
+        issues = json.loads(pathlib.Path(a.from_json).read_text())
+    else:
+        r = subprocess.run(
+            ["gh", "issue", "list", "-R", a.repo, "--state", "open", "--limit", "200",
+             "--json", "number,title,body,labels,url,author,createdAt"],
+            capture_output=True, text=True, timeout=60)
+        if r.returncode != 0:
+            sys.exit(f"board: gh issue list failed: {r.stderr.strip()[:200]}")
+        issues = json.loads(r.stdout or "[]")
+    cards = st.list_cards()
+    known = {c.get("github_issue"): c for c in cards if c.get("github_issue")}
+    owners = st.owners()
+    made = 0
+    with st.lock():
+        for i in issues:
+            labels = [l["name"] if isinstance(l, dict) else str(l) for l in (i.get("labels") or [])]
+            if i["number"] in known:
+                continue
+            kind = "feature" if any(l.lower() in ("enhancement", "feature", "idea") for l in labels) else "bug"
+            author = i.get("author")
+            author = author.get("login") if isinstance(author, dict) else author
+            body = (i.get("body") or "").strip()
+            c = st.create_card({
+                "title": i["title"].strip()[:120], "from": guess_app(i["title"], labels, owners), "kind": kind,
+                "body": f"GitHub issue #{i['number']} by {author or 'someone'}: {i.get('url', '')}\n\n{body}",
+                "state": "reported", "source": "github", "github_issue": i["number"],
+                "history": [{"at": now(), "what": f"from GitHub issue #{i['number']}"}],
+            })
+            made += 1
+            print(f"#{c['id']} <- issue #{i['number']} {c['title']}")
+    closed = 0
+    if a.close_released:
+        for c in cards:
+            if c.get("github_issue") and c["state"] in ("released", "done"):
+                msg = (f"Shipped. This is card #{c['id']} on the board and went out in a release; "
+                       "open a new issue if it comes back.")
+                r = subprocess.run(["gh", "issue", "close", str(c["github_issue"]), "-R", a.repo, "--comment", msg],
+                                   capture_output=True, text=True, timeout=60)
+                if r.returncode == 0:
+                    closed += 1
+                    card_history(st, c, f"closed GitHub issue #{c['github_issue']}")
+                    if not isinstance(st, SupaStore):
+                        st.save_card(c)
+    print(f"board: {made} new card(s) from issues, {closed} issue(s) closed")
+
+
 def cmd_sync(st, a):
     """Copy the file store into Supabase, keeping ids. Run once, then the file store is only a mirror."""
     if not isinstance(st, SupaStore):
@@ -991,6 +1057,11 @@ def main(argv=None):
     s.add_argument("--kind", choices=["bug", "feature", "task"], default="task")
     s.set_defaults(fn=cmd_import)
     sub.add_parser("sync").set_defaults(fn=cmd_sync)
+    s = sub.add_parser("issues")
+    s.add_argument("--repo", default="ma-r-s/crossplay")
+    s.add_argument("--from-json")
+    s.add_argument("--close-released", action="store_true")
+    s.set_defaults(fn=cmd_issues)
 
     a = p.parse_args(argv)
     st = open_store(find_root())

@@ -123,6 +123,14 @@ board owner sudoku --session "$WORKER" --tree wt/x >/dev/null
 board route "$CID" | grep -q "owner session $WORKER" && ok "a card routes to its app's owner" || bad "route did not find the owner"
 board route 2 | grep -q "no owner" && ok "an app with no owner says so" || bad "no-owner case wrong"
 board owner sudoku | grep -q "session $WORKER" && ok "owner lookup without flags" || bad "owner lookup failed"
+cat > "$WORK/issues.json" <<'JSON'
+[{"number":7,"title":"sometimes Slow Reader (especially page turning)","body":"4.2 s per page turn","labels":[],"url":"https://github.com/ma-r-s/crossplay/issues/7","author":{"login":"gitlias"}},
+ {"number":9,"title":"Sudoku loses my puzzle","body":"","labels":[{"name":"bug"}],"url":"https://github.com/ma-r-s/crossplay/issues/9","author":{"login":"x"}}]
+JSON
+board issues --from-json "$WORK/issues.json" | grep -q "2 new card" && ok "open issues become cards" || bad "issues did not become cards"
+board issues --from-json "$WORK/issues.json" | grep -q "0 new card" && ok "a second sweep makes no duplicates" || bad "issues sweep duplicated cards"
+board list | grep -q "reader .*Slow Reader" && ok "an issue about page turns lands on the reader" || bad "reader issue not routed to reader"
+board list | grep -q "sudoku .*Sudoku loses my puzzle" && ok "an issue names its app from the owners" || bad "sudoku issue not routed to sudoku"
 board integrator --session "$WORKER" >/dev/null 2>&1 && bad "a second integrator claim succeeded" || ok "a held integration claim refuses a second claimant"
 board integrator --session "$WORKER" --release >/dev/null 2>&1 && bad "a stranger released the claim" || ok "only the holder releases the claim"
 board integrator --session "$INTEG" --release >/dev/null && ok "the holder releases the claim" || bad "holder cannot release"
