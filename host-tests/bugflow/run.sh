@@ -143,6 +143,13 @@ board issues --from-json "$WORK/issues.json" | grep -q "2 new card" && ok "open 
 board issues --from-json "$WORK/issues.json" | grep -q "0 new card" && ok "a second sweep makes no duplicates" || bad "issues sweep duplicated cards"
 board list | grep -q "reader .*Slow Reader" && ok "an issue about page turns lands on the reader" || bad "reader issue not routed to reader"
 board list | grep -q "sudoku .*Sudoku loses my puzzle" && ok "an issue names its app from the owners" || bad "sudoku issue not routed to sudoku"
+PID=$(board new "Analytics everywhere" --from tooling | sed 's/^#\([0-9]*\).*/\1/')
+KID=$(board new "Firmware heartbeat" --from firmware --parent "$PID" | sed 's/^#\([0-9]*\).*/\1/')
+board parent "$CID" --of "$PID" >/dev/null
+board list | grep -q "^    #$KID " && ok "a child lists indented under its parent" || bad "child not indented"
+board list | grep -q "^    #$CID " && ok "board parent moves an existing card under one" || bad "parent command failed"
+board show "$PID" | grep -q "#$KID " && ok "show lists the children" || bad "show lacks children"
+board parent "$PID" --of "$PID" >/dev/null 2>&1 && bad "a card became its own parent" || ok "a card cannot be its own parent"
 board integrator --session "$WORKER" >/dev/null 2>&1 && bad "a second integrator claim succeeded" || ok "a held integration claim refuses a second claimant"
 board integrator --session "$WORKER" --release >/dev/null 2>&1 && bad "a stranger released the claim" || ok "only the holder releases the claim"
 board integrator --session "$INTEG" --release >/dev/null && ok "the holder releases the claim" || bad "holder cannot release"
