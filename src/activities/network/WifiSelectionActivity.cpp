@@ -487,6 +487,11 @@ void WifiSelectionActivity::showNetworkListFromAutoConnect() {
   WiFi.disconnect();
   autoConnecting = false;
   manualNetworkListRequested = true;
+  // The line says why auto-connect GAVE UP; the user just cancelled it
+  // instead. Whatever an earlier saved network reported belongs to an attempt
+  // they interrupted -- kept, it would explain a failure they never watched
+  // happen, next to a network the list gives them no way to connect it to.
+  autoConnectError.clear();
 
   if (networks.empty()) {
     startWifiScan(false);
@@ -639,6 +644,10 @@ void WifiSelectionActivity::loop() {
     if (autoConnecting && mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
       autoConnecting = false;
       manualNetworkListRequested = true;
+      // The same cancel as showNetworkListFromAutoConnect(), one state earlier:
+      // this one interrupts the rescan that a failure started rather than the
+      // next attempt. Same reason to drop the reason.
+      autoConnectError.clear();
       requestUpdate();
     }
     processWifiScanResults();

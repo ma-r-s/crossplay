@@ -78,6 +78,18 @@ class WifiSelectionActivity final : public Activity, private UiAppHost {
   // returns before the state assignment that draws connectionError -- so
   // without this the user waits seven seconds per saved network and is then
   // handed a bare list with no reason on it anywhere.
+  //
+  // It says why auto-connect GAVE UP, so every way the USER stops it early
+  // clears it: on entry, on a rescan they asked for, on a manual connection
+  // attempt, and on both cancels (Confirm during the attempt and Confirm
+  // during the rescan a failure started). An auto-scan is the continuation of
+  // the attempt that set it, so that one keeps it.
+  //
+  // KNOWN IMPRECISION, left deliberately: with several saved networks tried in
+  // a row and none cancelled, the line shows the LAST one's reason. Naming the
+  // SSID as well would put a user-supplied string into a band with a pixel
+  // budget, and the failed network is identifiable in the list by its saved
+  // marker.
   std::string autoConnectError;
 
   // Password to potentially save (from keyboard or saved credentials)
