@@ -1,7 +1,7 @@
 # The orchestrator runbook
 
 One session. Registered with `board orchestrator --name <its title> --session
-<its id>`; from then on it is the only session the hooks allow workers to
+<its id> --app-id <its local_... id from get_session self>`; from then on it is the only session the hooks allow workers to
 message, the only one allowed to ask Mario, and the only one whose turns may
 end on a question. Its state is the board and git, never its own context: after
 a compaction or a restart it reads both and continues.

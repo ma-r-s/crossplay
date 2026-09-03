@@ -98,20 +98,23 @@ class Board:
             return None
         return read_json(self.dir / "cards" / f"{int(cid)}.json")
 
+    @staticmethod
+    def claim_ids(claim):
+        """Both ids a claim may carry: the hook-visible session id and the desktop
+        app's local_... id. A session is addressed by either, so both count."""
+        return {norm_sid(claim.get("session_id")), norm_sid(claim.get("app_session"))} - {""}
+
     def is_orchestrator(self, sid):
-        o = norm_sid(self.orchestrator().get("session_id"))
-        return bool(o) and o == norm_sid(sid)
+        return norm_sid(sid) in self.claim_ids(self.orchestrator())
 
     def dispatcher(self):
         return read_json(self.dir / "dispatcher.json") or {}
 
     def is_dispatcher(self, sid):
-        d = norm_sid(self.dispatcher().get("session_id"))
-        return bool(d) and d == norm_sid(sid)
+        return norm_sid(sid) in self.claim_ids(self.dispatcher())
 
     def is_integrator(self, sid):
-        i = norm_sid(self.integrator().get("session_id"))
-        return bool(i) and i == norm_sid(sid)
+        return norm_sid(sid) in self.claim_ids(self.integrator())
 
     def note_session(self, sid, cwd):
         d = self.dir / "sessions"
@@ -270,9 +273,7 @@ def pretool(board, data):
         name = str(orch.get("name") or "")
         target = to.split(" [")[0].strip().lower()
         allowed = {name.lower(), "main"} if name else {"main"}
-        if target in allowed or (
-            norm_sid(to) and norm_sid(to) == norm_sid(orch.get("session_id"))
-        ):
+        if target in allowed or norm_sid(to) in Board.claim_ids(orch):
             return
         block(
             f"Refused: workers talk only to the orchestrator ({name or 'not named yet'}). A peer "
