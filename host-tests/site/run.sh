@@ -186,5 +186,37 @@ else
   while IFS= read -r line; do echo "      $line"; done <<< "$page_bad"
 fi
 
+# -- the report box and the inbox ---------------------------------------------
+#
+# api/report.js is the one place a stranger's input meets the board's write
+# key. It runs here under node with the board stubbed, and every refusal is
+# asserted, including the one thing it must never do (store a honeypot hit).
+# Status checked as well as output, same reason as the two blocks above.
+if report_out="$(node "$HERE/report_fn.js" "$ROOT" 2>&1)"; then
+  ok
+  n_fail="$(printf '%s\n' "$report_out" | grep -c '^  FAIL' || true)"
+  [ "$n_fail" -eq 0 ] && ok || { while IFS= read -r line; do bad "report_fn: $line"; done < <(printf '%s\n' "$report_out" | grep '^  FAIL'); }
+else
+  bad "report_fn.js could not run, so api/report.js went unchecked:"
+  while IFS= read -r line; do echo "      $line"; done <<< "$report_out"
+fi
+
+# Each of the two new pages looks its controls up by id inside its own file.
+# Same failure as install.js: a renamed id renders fine and does nothing.
+for page in report inbox; do
+  P="$ROOT/site/$page/index.html"
+  [ -f "$P" ] || { bad "site/$page/index.html is missing"; continue; }
+  page_ids="$(sed -nE 's/.*\$\(["'"'"']([A-Za-z-]+)["'"'"']\).*/\1/p' "$P" | sort -u)"
+  [ -n "$page_ids" ] || { bad "site/$page/index.html looks up no element ids"; continue; }
+  for id in $page_ids; do
+    case "$id" in inbox-answer|inbox-send|inbox-default|inbox-later) continue;; esac  # rendered by script
+    grep -q "id=\"$id\"" "$P" && ok || bad "site/$page/index.html asks for #$id and has no such element"
+  done
+done
+
+# The inbox page and serve.py must agree on the config endpoint's shape, or
+# local work passes against a key production never sends.
+grep -q 'anonKey' "$ROOT/site/api/board-config.js" && grep -q '"anonKey"' "$SERVE" && grep -q 'anonKey' "$ROOT/site/inbox/index.html" && ok || bad "board-config: api, serve.py and the inbox page do not agree on anonKey"
+
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]
