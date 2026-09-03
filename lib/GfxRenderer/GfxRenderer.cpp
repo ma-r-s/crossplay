@@ -12,6 +12,7 @@
 #include <algorithm>
 
 #include "FontCacheManager.h"
+#include "PaintClock.h"
 
 namespace {
 
@@ -1693,10 +1694,23 @@ void GfxRenderer::invertScreen() const {
   }
 }
 
+// True between a deferred displayBufferAsync() and the waitRefreshComplete()
+// that lands it. Only the deferred path leaves a paint outstanding, and only
+// that path may count its paint late; every blocking path counts its own.
+// A file static rather than a member because both paint entry points are
+// const, and because this firmware has exactly one GfxRenderer.
+namespace {
+bool deferredPaintPending = false;
+}  // namespace
+
 void GfxRenderer::displayBuffer(const HalDisplay::RefreshMode refreshMode) const {
   auto elapsed = millis() - start_ms;
   LOG_DBG("GFX", "Time = %lu ms from clearScreen to displayBuffer", elapsed);
   display.displayBuffer(refreshMode, fadingFix);
+  // The panel now shows this framebuffer. Counted HERE, after the waveform,
+  // because that is the moment the user can see what they are touching --
+  // see PaintClock.h and toybox::Interactions::route().
+  paintclock::notePainted();
 }
 
 void GfxRenderer::displayBufferAsync(const HalDisplay::RefreshMode refreshMode) const {
@@ -1704,12 +1718,24 @@ void GfxRenderer::displayBufferAsync(const HalDisplay::RefreshMode refreshMode) 
   // relies on; keep those users on the blocking path.
   if (fadingFix) {
     display.displayBuffer(refreshMode, fadingFix);
+    paintclock::notePainted();
     return;
   }
   display.displayBufferAsync(refreshMode);
+  // Deliberately NOT counted yet: the waveform is still running and the panel
+  // still shows the previous image. waitRefreshComplete() is when it lands.
+  deferredPaintPending = true;
 }
 
-void GfxRenderer::waitRefreshComplete() const { display.waitRefreshComplete(); }
+void GfxRenderer::waitRefreshComplete() const {
+  display.waitRefreshComplete();
+  // Only when one was actually outstanding. Counting an idle wait would open
+  // the touch gate for a paint that never happened.
+  if (deferredPaintPending) {
+    deferredPaintPending = false;
+    paintclock::notePainted();
+  }
+}
 
 bool GfxRenderer::supportsAsyncRefresh() const { return !fadingFix && display.supportsAsyncRefresh(); }
 
@@ -2237,6 +2263,10 @@ size_t GfxRenderer::getBufferSize() const { return frameBufferSize; }
 
 void GfxRenderer::displayGrayscaleBase(HalDisplay::RefreshMode fallback) const {
   display.displayGrayscaleBase(fallback, fadingFix);
+  // The grayscale paths land pixels on the panel just like displayBuffer(),
+  // so they count too. Missing one of these would be the bad direction: a
+  // screen whose gate never opens is a screen that stops answering taps.
+  paintclock::notePainted();
 }
 
 void GfxRenderer::preconditionGrayscale() const { display.preconditionGrayscale(); }
@@ -2263,7 +2293,10 @@ void GfxRenderer::copyGrayscaleLsbBuffers() const { display.copyGrayscaleLsbBuff
 
 void GfxRenderer::copyGrayscaleMsbBuffers() const { display.copyGrayscaleMsbBuffers(frameBuffer); }
 
-void GfxRenderer::displayGrayBuffer() const { display.displayGrayBuffer(fadingFix); }
+void GfxRenderer::displayGrayBuffer() const {
+  display.displayGrayBuffer(fadingFix);
+  paintclock::notePainted();
+}
 
 void GfxRenderer::writeGrayscalePlaneStrip(bool lsbPlane, const uint8_t* scratch, int yStart, int numRows) const {
   // Guard the uint16_t casts below: a negative would wrap to a huge length.
