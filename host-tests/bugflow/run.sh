@@ -53,6 +53,13 @@ expect "integrator edit in firmware-next allowed" 0 pretool "{\"session_id\":\"$
 expect "worker edit in its own tree allowed"    0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/wt/x/src/a.cpp\"}}"
 expect "worker bash write into firmware-next refused" 2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cd $ROOT/firmware-next && git merge app/x\"}}"
 expect "worker bash read of firmware-next allowed"    0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git -C $ROOT/firmware-next log --oneline -5\"}}"
+expect "reading the tree with 2>&1 is not a write"  0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cd $ROOT/firmware-next && git fetch -q origin 2>&1 | tail -3\"}}"
+expect "git log -C the tree to /dev/null is fine"   0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git -C $ROOT/firmware-next log --oneline -5 >/dev/null 2>&1\"}}"
+expect "a redirect into the tree is a write"        2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo x > $ROOT/firmware-next/docs/x.md\"}}"
+expect "a relative redirect after cd into the tree is a write" 2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cd $ROOT/firmware-next && cat a > docs/x.md\"}}"
+expect "cp into the tree is a write"                2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cp /tmp/a.h $ROOT/firmware-next/src/a.h\"}}"
+expect "a heredoc that merely mentions the tree is data" 0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"python3 - <<'EOF'\\ncmd = 'cd firmware-next && git merge app/x'\\nprint(cmd)\\nEOF\"}}"
+expect "cd out of the tree ends the tree context"   0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cd $ROOT/firmware-next && git status && cd $ROOT/wt/x && git commit -am x\"}}"
 expect "integrator bash merge allowed"          0 pretool "{\"session_id\":\"$INTEG\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cd $ROOT/firmware-next && git merge app/x\"}}"
 
 echo "the build lock"

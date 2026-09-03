@@ -35,11 +35,14 @@ HANDBACK = re.compile(
     re.IGNORECASE,
 )
 
-WRITE_IN_TREE = re.compile(
-    r"(>{1,2}|\bsed\s+-i|\btee\b|\bcp\b|\bmv\b|\brm\b|\btouch\b|\bmkdir\b|"
-    r"\bgit\s+(merge|commit|checkout|reset|rebase|cherry-pick|tag|push|pull|switch|stash|apply|am)\b|"
+WRITE_VERB = re.compile(
+    r"(\bsed\s+-i|\btee\b|\bcp\b|\bmv\b|\brm\b|\btouch\b|\bmkdir\b|\bln\b|\btruncate\b|"
+    r"\bgit\s+(merge|commit|checkout|reset|rebase|cherry-pick|tag|push|pull|switch|stash|apply|am|clean|restore)\b|"
     r"\bpio\s+run|\bbuild\.py|\bprecompress\.py)"
 )
+# A redirect whose TARGET is a file (2>&1 and >/dev/null are not writes into anything of ours).
+REDIRECT = re.compile(r"(?<![0-9&<])>{1,2}\s*(?!&)(\S+)")
+HEREDOC = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?[^\n]*\n.*?\n\s*\1\s*(?=\n|$)", re.S)
 
 RAW_PIO = re.compile(r"(^|[;&|(]\s*|&&\s*)pio\s+run\b")
 
@@ -135,6 +138,35 @@ def under_integration_tree(root, path):
         return False
 
 
+def writes_into_tree(cmd):
+    """Does this shell command change something under firmware-next?
+
+    Segments are split on && || ; and |, a `cd` into the tree makes later
+    segments count as inside it, heredoc bodies are data and are ignored, and
+    `2>&1` or `>/dev/null` are not writes. Reading the tree is always fine.
+    """
+    body = HEREDOC.sub(" ", cmd)
+    in_tree = False
+    for seg in re.split(r"&&|\|\||;|\|", body):
+        seg = seg.strip()
+        if not seg:
+            continue
+        m = re.match(r"cd\s+(\S+)", seg)
+        if m:
+            in_tree = "firmware-next" in m.group(1)
+            continue
+        names_tree = "firmware-next" in seg
+        if WRITE_VERB.search(seg) and (in_tree or names_tree):
+            return True
+        for r in REDIRECT.finditer(seg):
+            target = r.group(1).strip("\"'")
+            if target.startswith("/dev/"):
+                continue
+            if "firmware-next" in target or (in_tree and not target.startswith("/")):
+                return True
+    return False
+
+
 def pretool(board, data):
     sid = data.get("session_id", "")
     tool = data.get("tool_name", "")
@@ -159,9 +191,7 @@ def pretool(board, data):
                 "tree's build. Use ./scripts_local/check.sh (or dev.sh / sim-shot.sh) from your tree."
             )
         if (
-            "firmware-next" in cmd
-            and WRITE_IN_TREE.search(cmd)
-            and not board.is_integrator(sid)
+            writes_into_tree(cmd) and not board.is_integrator(sid)
         ):
             block(
                 "Refused: that command writes into firmware-next, the integration tree. Reading it "
