@@ -379,3 +379,37 @@ Trivia invented its own spelling and shipped the bug. Four independent
 rediscoveries of one idiom is the signal: a `Storage.ensureDir(path)` would mean
 the sixth caller inherits the contract instead of inventing it. Not urgent, but
 the next one will get it wrong the same way.
+
+## `app/crossplayhosts` would break Study sync and Get Books
+
+Added 2026-09-03, found while publishing the Instapaper bridge.
+
+That branch moves `sync.ma-r-s.com` to `sync.crossplay.ma-r-s.com` and
+`books.ma-r-s.com` to `books.crossplay.ma-r-s.com`. Both new names are TWO
+labels below the apex, and **this zone cannot serve a two-label name over
+HTTPS.** ma-r-s.com is on Cloudflare's free plan, whose Universal SSL
+certificate has exactly two SANs, `ma-r-s.com` and `*.ma-r-s.com`. Anything
+deeper gets no certificate at all: the edge answers the handshake with alert
+40 and no peer certificate. You can see it in one command, without deploying
+anything:
+
+    echo | openssl s_client -connect 104.21.2.163:443 \
+      -servername sync.crossplay.ma-r-s.com     # alert 40, no peer certificate
+
+So merging that branch would not produce a slow rollout or a redirect to fix
+later. It would produce two shipped, compiled-in hostnames that fail TLS on
+devices already in the field, whose owners have no way to learn why -- the
+exact failure `StudySync.h`'s own comment exists to prevent, arriving through
+the certificate rather than through DNS.
+
+The Instapaper bridge hit this first because its constant named
+`read.crossplay.ma-r-s.com`, and it was free to fix: nothing had ever paired,
+because that name had never resolved. It is now `read.ma-r-s.com` and live.
+Study and Get Books do not have that freedom.
+
+**Two ways out, and one of them costs money.** Buy Advanced Certificate
+Manager (about $10/month) and order a certificate covering
+`*.crossplay.ma-r-s.com` BEFORE changing any constant; or drop the
+`crossplay.` level and keep one-label names, which is what all three working
+services use today. That is Mario's call, not a code decision, and until it is
+made the branch should not be merged.
