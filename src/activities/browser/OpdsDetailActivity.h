@@ -32,6 +32,14 @@ class OpdsDetailActivity final : public Activity, private UiAppHost {
   void drawPlaceholder(UiScreen& screen, const freeink::ui::Rect& box);
   void paintCover();
 
+  // Shared with the browser's wait screen, which draws the same cached
+  // cover: two copies of the BMP-then-decoder fallback would drift apart the
+  // first time one of them learned a new format. Returns false when nothing
+  // was drawn, so a caller that already reserved the space can fill it.
+ public:
+  static bool paintCoverFile(GfxRenderer& renderer, const std::string& path, const freeink::ui::Rect& box);
+
+ private:
   static void downloadTrampoline(const freeink::ui::ActionEvent& event, void* user);
   void fetchCover();
 

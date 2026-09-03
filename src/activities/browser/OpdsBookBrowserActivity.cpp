@@ -369,45 +369,67 @@ void OpdsBookBrowserActivity::buildBrowsingScreen(UiScreen& screen) {
 void OpdsBookBrowserActivity::buildDownloadScreen(UiScreen& screen) {
   screenHeader(screen, false);
 
-  // Centered block: status line, book title, progress bar, cancel button.
   const auto& theme = screen.theme();
+  const bool preparing = downloadTotal == 0;
+
   fui::TextStyle centered = theme.bodyText;
   centered.align = fui::TextAlign::Center;
+  fui::TextStyle titleStyle = centered;
+  titleStyle.font = theme.fontTitle;
+  titleStyle.maxLines = 2;
+  fui::TextStyle quiet = centered;
+  quiet.font = theme.fontSmall;
+
   const int16_t lh = screen.target().lineHeight(centered.font);
+  const int16_t tlh = screen.target().lineHeight(titleStyle.font);
+  const int16_t slh = screen.target().lineHeight(quiet.font);
   const int16_t gap = theme.spaceMd;
   const int16_t barH = 16;
   const int16_t btnH = theme.rowHeight;
-  const int16_t blockH = static_cast<int16_t>(lh * 2 + barH + btnH + gap * 3);
   const fui::Rect body = screen.body();
-  if (body.height > blockH) screen.spacer(static_cast<int16_t>((body.height - blockH) / 2));
 
-  if (downloadTotal == 0) {
-    // "Preparing" rather than "Downloading", because nothing is downloading
-    // yet and saying so is what makes the wait feel broken.
-    // Derived from elapsed time HERE rather than from a counter advanced in
-    // loop(), because loop() is exactly what the download blocks: downloadBook()
-    // runs inside the result handler ActivityManager::loop() invokes, so this
-    // activity's loop() cannot run again until the transfer returns. The tick
-    // that lived there could never fire during the wait it was written for, and
-    // the screen redrew an unchanging frame every 5s -- spending e-ink refreshes
-    // to say nothing. Computed at build time, the dots advance for whoever
-    // triggers the repaint.
+  prepCoverRect = fui::Rect{};
+  const bool haveCover = !downloadCoverPath.empty();
+
+  // Derived at build time, not from a counter in loop(): loop() is exactly
+  // what the download blocks, so a tick advanced there could never fire during
+  // the wait it was written for.
+  char waiting[64];
+  if (preparing) {
     const uint8_t dots = static_cast<uint8_t>((millis() / WAIT_TICK_MS) % 4);
-    char waiting[64];
     snprintf(waiting, sizeof(waiting), "%s%.*s", tr(STR_PREPARING_BOOK), dots, "...");
-    screen.target().text(screen.takeTop(lh, gap), waiting, centered);
   } else {
-    screen.target().text(screen.takeTop(lh, gap), tr(STR_DOWNLOADING), centered);
+    snprintf(waiting, sizeof(waiting), "%s", tr(STR_DOWNLOADING));
   }
-  screen.target().text(screen.takeTop(lh, gap), statusMessage.c_str(), centered);
 
-  const fui::Rect bar = screen.takeTop(barH, gap).inset(fui::Insets{0, 50, 0, 50});
-  if (downloadTotal == 0) {
-    // The bar's slot carries the reason for the wait instead of an empty gap.
-    fui::TextStyle hint = centered;
-    screen.target().text(bar, tr(STR_PREPARING_HINT), hint);
+  // The slot under the status line: a bar once a total is known, the reason
+  // for the wait before that. They are not the same height, and measuring the
+  // block with the wrong one mis-centres the screen.
+  const int16_t slotH = preparing ? lh : barH;
+
+  const int16_t coverW = 168, coverH = 252;
+  const int16_t drawnCoverH = haveCover ? coverH : 0;
+  const int16_t blockH =
+      static_cast<int16_t>(drawnCoverH + tlh * 2 + slh + lh + slotH + btnH + gap * (haveCover ? 6 : 5));
+  if (body.height > blockH) screen.spacer(static_cast<int16_t>((body.height - blockH) / 2));
+  if (haveCover) {
+    const fui::Rect slot = screen.takeTop(coverH, gap);
+    prepCoverRect = fui::Rect{static_cast<int16_t>(slot.x + (slot.width - coverW) / 2), slot.y, coverW, coverH};
   }
-  if (downloadTotal > 0) {
+  screen.target().text(screen.takeTop(static_cast<int16_t>(tlh * 2), gap), statusMessage.c_str(), titleStyle);
+  screen.target().text(screen.takeTop(slh, gap), downloadAuthor.c_str(), quiet);
+  screen.spacer(gap);
+  screen.target().text(screen.takeTop(lh, gap), waiting, centered);
+
+  if (preparing) {
+    // Its own full line, NOT the 16px bar slot. A line box is clipped by the
+    // box it is handed rather than by the font, so the hint lost every
+    // descender it had -- "catalog" printed without the tail of its g. Full
+    // body width too: the sentence does not wrap, so a 50px inset each side
+    // was spending budget it did not have.
+    screen.target().text(screen.takeTop(lh, gap), tr(STR_PREPARING_HINT), quiet);
+  } else {
+    const fui::Rect bar = screen.takeTop(barH, gap).inset(fui::Insets{0, 40, 0, 40});
     fui::ProgressBarProps progress;
     progress.value = static_cast<int32_t>(downloadProgress);
     progress.max = static_cast<int32_t>(downloadTotal);
@@ -416,11 +438,15 @@ void OpdsBookBrowserActivity::buildDownloadScreen(UiScreen& screen) {
     fui::progressBar(screen.frame(), bar, progress);
   }
 
+  // Wide enough to read as a control. At width/3 it was a bordered word, and
+  // on a screen whose only other affordance is a progress bar that is not
+  // enough to say "this is the way out".
   const fui::Rect btnArea = screen.takeTop(btnH);
-  const int16_t btnW = static_cast<int16_t>(btnArea.width / 3);
+  const int16_t btnW = static_cast<int16_t>(btnArea.width * 3 / 5);
   fui::ButtonProps cancel;
   cancel.label = tr(STR_CANCEL);
   cancel.action = ACTION_CANCEL;
+  cancel.text = centered;
   screen.button(cancel, fui::Rect{static_cast<int16_t>(btnArea.x + (btnArea.width - btnW) / 2), btnArea.y, btnW, btnH});
 }
 
@@ -470,6 +496,7 @@ void OpdsBookBrowserActivity::render(RenderLock&&) {
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderUi();
+  if (state == BrowserState::DOWNLOADING) paintPrepareCover();
   renderer.displayBuffer();
 }
 
@@ -653,9 +680,31 @@ void OpdsBookBrowserActivity::navigateBack() {
   }
 }
 
+std::string OpdsBookBrowserActivity::cachedCoverPath() {
+  // Whatever extension the detail screen saved it under.
+  static constexpr const char* kExtensions[] = {".bmp", ".jpg", ".jpeg", ".png"};
+  for (const char* extension : kExtensions) {
+    std::string path = std::string("/.crosspoint/opds-cover") + extension;
+    if (Storage.exists(path.c_str())) return path;
+  }
+  return "";
+}
+
+void OpdsBookBrowserActivity::paintPrepareCover() {
+  if (prepCoverRect.width <= 0 || prepCoverRect.height <= 0) return;
+  if (OpdsDetailActivity::paintCoverFile(renderer, downloadCoverPath, prepCoverRect)) return;
+  // The file existed but would not decode -- Gutenberg serves JPEG, and a
+  // format this build cannot read is indistinguishable from a corrupt one.
+  // The space is already reserved by then, so draw the outline rather than
+  // leave a 250px hole in the middle of the screen.
+  renderer.drawRect(prepCoverRect.x, prepCoverRect.y, prepCoverRect.width, prepCoverRect.height, 1, true);
+}
+
 void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book) {
   state = BrowserState::DOWNLOADING;
   statusMessage = book.title;
+  downloadAuthor = book.author;
+  downloadCoverPath = cachedCoverPath();
   downloadProgress = downloadTotal = 0;
   cancelDownload = false;
   goHomeAfterCancel = false;

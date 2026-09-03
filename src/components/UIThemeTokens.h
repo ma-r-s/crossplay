@@ -14,6 +14,23 @@ inline freeink::ui::ThemeTokens uiThemeTokens(const freeink::ui::GfxRendererTarg
   const ThemeMetrics& metrics = UITheme::getInstance().getMetrics();
 
   fui::ThemeTokens tokens = fui::themeTokensForLineHeight(target.lineHeight(fui::GfxRendererTarget::FONT_BODY));
+  // Left unset, this falls through to defaultButtonStyles(), which paints a
+  // white background, black text and NO border -- on a white screen that is a
+  // label, not a control. Only the selected and active states carry any fill,
+  // and a finger never selects anything, so a touch reader saw no button at
+  // all. Toybox sets its own tokens.button for the same reason; this is that
+  // fix at the same seam, outlined rather than inverted so it matches the
+  // hairline list rows this theme already draws.
+  tokens.button = fui::defaultButtonStyles();
+  for (fui::BoxStyle* box : {&tokens.button.normal, &tokens.button.focused, &tokens.button.disabled}) {
+    box->border = fui::Paint::solid(fui::Color::Black);
+    box->borderWidth = 1;
+  }
+  tokens.button.disabled.border = fui::Paint::dither(fui::Color::LightGray);
+  for (fui::BoxStyle* box : {&tokens.button.normal, &tokens.button.selected, &tokens.button.focused,
+                             &tokens.button.active, &tokens.button.disabled}) {
+    box->radius = 4;
+  }
   tokens.listRowGap = static_cast<int16_t>(metrics.listRowGap);
   tokens.listRowRadius = static_cast<uint8_t>(metrics.listRowRadius);
   tokens.listInset = static_cast<int16_t>(metrics.listInset);

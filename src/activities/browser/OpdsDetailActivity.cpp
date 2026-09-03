@@ -150,7 +150,13 @@ void OpdsDetailActivity::drawCover(UiScreen& screen, const fui::Rect& box) {
 }
 
 void OpdsDetailActivity::paintCover() {
-  if (!coverAvailable || coverRect.width <= 0 || coverRect.height <= 0) return;
+  if (!coverAvailable) return;
+  paintCoverFile(renderer, coverPath, coverRect);
+}
+
+bool OpdsDetailActivity::paintCoverFile(GfxRenderer& renderer, const std::string& coverPath,
+                                        const freeink::ui::Rect& coverRect) {
+  if (coverPath.empty() || coverRect.width <= 0 || coverRect.height <= 0) return false;
 
   // BMP first, because it needs no decoder at all: the Get Books service
   // serves 8-bit greyscale BMP for exactly that reason, and it is the only
@@ -167,7 +173,7 @@ void OpdsDetailActivity::paintCover() {
         const int drawnH = static_cast<int>(probe.getHeight() * scale);
         renderer.drawBitmap(probe, coverRect.x + (coverRect.width - drawnW) / 2,
                             coverRect.y + (coverRect.height - drawnH) / 2, coverRect.width, coverRect.height);
-        return;
+        return true;
       }
     }
   }
@@ -187,10 +193,11 @@ void OpdsDetailActivity::paintCover() {
       // grey levels have nowhere to go in this draw path.
       config.useGrayscale = false;
       config.useDithering = true;
-      if (decoder->decodeToFramebuffer(coverPath, renderer, config)) return;
+      if (decoder->decodeToFramebuffer(coverPath, renderer, config)) return true;
       LOG_DBG("OPDS", "cover decode failed: %s", decoder->getFormatName());
     }
   }
+  return false;
 }
 
 void OpdsDetailActivity::screenTrampoline(UiScreen& screen, void* user) {
