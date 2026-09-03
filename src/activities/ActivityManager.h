@@ -43,6 +43,9 @@ class ActivityManager {
   std::unique_ptr<Activity> currentActivity;
 
   void exitActivity(const RenderLock& lock);
+  // The only way currentActivity is assigned. Arms the release gate first --
+  // see the definition, and util/ButtonReleaseGate.h for the seam.
+  void setCurrentActivity(std::unique_ptr<Activity>&& next);
 
   // Pending activity to be launched on next loop iteration
   std::unique_ptr<Activity> pendingActivity;

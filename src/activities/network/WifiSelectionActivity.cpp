@@ -128,6 +128,7 @@ void WifiSelectionActivity::onEnter() {
   selectedSSID.clear();
   connectedIP.clear();
   connectionError.clear();
+  autoConnectError.clear();
   enteredPassword.clear();
   usedSavedPassword = false;
   savePromptSelection = 0;
@@ -207,6 +208,11 @@ void WifiSelectionActivity::onExit() {
 }
 
 void WifiSelectionActivity::startWifiScan(const bool autoScan) {
+  // A rescan the USER asked for is a fresh start, so an old auto-connect
+  // reason must not outlive it. An auto-scan is the continuation of the
+  // attempt that set the reason (handleAutoConnectFailure calls this), so it
+  // keeps it.
+  if (!autoScan) autoConnectError.clear();
   autoConnecting = autoScan;
   manualNetworkListRequested = false;
   listNav.reset();
@@ -453,7 +459,13 @@ bool WifiSelectionActivity::tryNextSavedNetworkFromScan() {
 }
 
 void WifiSelectionActivity::handleAutoConnectFailure() {
-  LOG_DBG("WIFI", "Saved network failed: %s", selectedSSID.c_str());
+  LOG_DBG("WIFI", "Saved network failed: %s (%s)", selectedSSID.c_str(), connectionError.c_str());
+  // Both callers set connectionError immediately before calling this, and this
+  // is the only route out of an auto-connect attempt -- so carrying it over
+  // here rather than at each call site means a third failure branch cannot
+  // land without the reason coming with it. The user never sees
+  // CONNECTION_FAILED on this path; the network list shows it instead.
+  autoConnectError = connectionError;
   WiFi.disconnect();
 
   if (!networks.empty()) {
@@ -475,6 +487,11 @@ void WifiSelectionActivity::showNetworkListFromAutoConnect() {
   WiFi.disconnect();
   autoConnecting = false;
   manualNetworkListRequested = true;
+  // The line says why auto-connect GAVE UP; the user just cancelled it
+  // instead. Whatever an earlier saved network reported belongs to an attempt
+  // they interrupted -- kept, it would explain a failure they never watched
+  // happen, next to a network the list gives them no way to connect it to.
+  autoConnectError.clear();
 
   if (networks.empty()) {
     startWifiScan(false);
@@ -491,6 +508,9 @@ void WifiSelectionActivity::attemptConnection() {
   connectionStartTime = millis();
   connectedIP.clear();
   connectionError.clear();
+  // A manual attempt supersedes whatever auto-connect had to report; an
+  // auto-connect attempt is still the run that will set it if it fails.
+  if (!autoConnecting) autoConnectError.clear();
   requestUpdate();
 
   WiFi.persistent(false);  // Credentials are managed by WifiCredentialStore; suppress SDK NVS auto-connect
@@ -624,6 +644,10 @@ void WifiSelectionActivity::loop() {
     if (autoConnecting && mappedInput.wasPressed(MappedInputManager::Button::Confirm)) {
       autoConnecting = false;
       manualNetworkListRequested = true;
+      // The same cancel as showNetworkListFromAutoConnect(), one state earlier:
+      // this one interrupts the rescan that a failure started rather than the
+      // next attempt. Same reason to drop the reason.
+      autoConnectError.clear();
       requestUpdate();
     }
     processWifiScanResults();
@@ -873,10 +897,18 @@ void WifiSelectionActivity::render(RenderLock&&) {
   snprintf(countStr, sizeof(countStr), tr(STR_NETWORKS_FOUND), realNetworkCount);
   GUI.drawHeader(renderer, Rect{screen.x, screen.y + metrics.topPadding, screen.width, metrics.headerHeight},
                  tr(STR_WIFI_NETWORKS), countStr);
+  // Why the remembered network failed, on the screen the user is actually
+  // handed. Auto-connect returns to the list rather than to CONNECTION_FAILED,
+  // so this line is the only place the reason is ever visible -- the log line
+  // that carries it is LOG_DBG, which is compiled out of every release build.
+  // The MAC keeps its slot (the right-hand label): it is what a user needs
+  // when the router filters by address, which is one of the ways this fails.
+  const bool showingAutoConnectError = state == WifiSelectionState::NETWORK_LIST && !autoConnectError.empty();
   GUI.drawSubHeader(
       renderer,
       Rect{screen.x, screen.y + metrics.topPadding + metrics.headerHeight, screen.width, metrics.tabBarHeight},
-      cachedMacAddress.c_str());
+      showingAutoConnectError ? autoConnectError.c_str() : cachedMacAddress.c_str(),
+      showingAutoConnectError ? cachedMacAddress.c_str() : nullptr);
 
   switch (state) {
     case WifiSelectionState::AUTO_CONNECTING:

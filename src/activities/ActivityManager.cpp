@@ -82,6 +82,12 @@ void ActivityManager::renderTaskLoop() {
 }
 
 void ActivityManager::loop() {
+  // Before any activity reads input, and before the early returns below, so a
+  // home gesture or a light-panel push cannot leave an arm standing. See
+  // util/ButtonReleaseGate.h: the arm is what stops one physical press being
+  // read by two activities, and this is the only thing that takes it back off.
+  mappedInput.settleReleaseGate();
+
   if (currentActivity) {
     if (!currentActivity->isHomeActivity() && mappedInput.wasHomeGesture()) {
       if (currentActivity->handleHomeGesture()) {
@@ -128,7 +134,7 @@ void ActivityManager::loop() {
         continue;  // Will launch goHome immediately
 
       } else {
-        currentActivity = std::move(stackActivities.back());
+        setCurrentActivity(std::move(stackActivities.back()));
         stackActivities.pop_back();
         LOG_DBG("ACT", "Popped from activity stack, new size = %zu", stackActivities.size());
         // Handle result if necessary
@@ -169,7 +175,7 @@ void ActivityManager::loop() {
         LOG_DBG("ACT", "Pushed to activity stack, new size = %zu", stackActivities.size());
       }
       pendingAction = PendingAction::None;
-      currentActivity = std::move(pendingActivity);
+      setCurrentActivity(std::move(pendingActivity));
 
       lock.unlock();  // onEnter may acquire its own lock
       currentActivity->onEnter();
@@ -188,6 +194,22 @@ void ActivityManager::loop() {
   }
 }
 
+// The ONE place the activity on top is installed. The screen being replaced
+// may have acted on a button that is still down -- WifiSelectionActivity
+// cancels on the Back PRESS -- and that button's release is not the incoming
+// screen's to read, so the gate is armed here rather than at each caller. See
+// util/ButtonReleaseGate.h.
+//
+// A setter rather than a call at every site because the call sites are what
+// failed: the arm was written at the two sites an audit enumerated and missed
+// the third (the immediate branch of replaceActivity), which is the one a
+// crash report pops back through. host-tests/pickerseam asserts that no
+// assignment to currentActivity exists outside this function.
+void ActivityManager::setCurrentActivity(std::unique_ptr<Activity>&& next) {
+  mappedInput.swallowNextReleaseOfHeldButtons();
+  currentActivity = std::move(next);
+}
+
 void ActivityManager::exitActivity(const RenderLock& lock) {
   // Note: lock must be held by the caller
   if (currentActivity) {
@@ -204,8 +226,10 @@ void ActivityManager::replaceActivity(std::unique_ptr<Activity>&& newActivity) {
     pendingActivity = std::move(newActivity);
     pendingAction = PendingAction::Replace;
   } else {
-    // No current activity, safe to launch immediately
-    currentActivity = std::move(newActivity);
+    // No current activity, safe to launch immediately. Reached whenever the
+    // stack emptied first: popActivity() -> goHome(), which is how Back leaves
+    // the crash report.
+    setCurrentActivity(std::move(newActivity));
     currentActivity->onEnter();
   }
 }
