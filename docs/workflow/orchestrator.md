@@ -20,7 +20,13 @@ show <id>` derives what git and GitHub say (commits ahead, dirty files, PR
      Mario's (product, taste, money, his hands, his credentials) convert it:
      `board ask <id> --ask '<one line>' --default '<what happens if nobody
 answers>'`. Never forward a worker's wording; write the three lines
-     yourself.
+     yourself. **If the ask is a thing to do (flash, open, play, download, sign in), it
+     carries `--steps`: numbered lines, one per line, that he can follow on
+     the couch.** An ask without them for a thing to do is a defect: he went
+     back to old conversations to find out how, once, and that is the failure
+     the inbox exists to remove. A "needs-steps" answer from him reopens the
+     card to its owner as an `info` blocker; the owner writes the steps and
+     asks again.
    - `mario`: it is already in his inbox. Do nothing until `board answer`
      lands, then unblock the worker with the answer.
 3. **Infrastructure.** A red gate, a full disk, a lock, a merge conflict:

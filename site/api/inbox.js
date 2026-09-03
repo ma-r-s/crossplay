@@ -121,6 +121,21 @@ async function opAnswer(body) {
       what: `answered from the inbox: ${choice}`,
     }),
   });
+  // "Tell me how": the card goes back to its owner with Mario's words, as an
+  // info blocker the orchestrator routes; it returns to the inbox with steps.
+  if (choice === "needs-steps") {
+    const existing = await rest(`blockers?card_id=eq.${cardId}&select=n`);
+    const next = 1 + Math.max(0, ...(existing || []).map((b) => b.n));
+    await rest("blockers", {
+      method: "POST",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify({
+        card_id: cardId, n: next, need: "info", by_session: "mario",
+        ask: `Mario needs the steps before he can do this${note ? ": " + note : ""}. Write them (numbered, one per line) and re-ask him with --steps.`,
+        default: "The card waits until the steps come back.",
+      }),
+    });
+  }
   return { ok: true };
 }
 
