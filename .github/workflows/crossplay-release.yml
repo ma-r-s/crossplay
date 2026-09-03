@@ -178,7 +178,24 @@ jobs:
             devices next to each other find one another with nothing to type --
             and they do not have to be the same device.
 
-            ### What is new in 1.12.12
+            ### What is new in 1.12.13
+
+            **INSTAPAPER works now, from the device, with nothing to set up
+            first.** Open it, press SYNC, and the screen tells you where to sign
+            in and shows a code to scan. It could not work before: the address on
+            that screen pointed at a host that did not exist, and could never
+            have existed -- it was one level too deep for the certificate the
+            domain carries, so it would have failed even once created. The
+            service is live at the corrected address.
+
+            **GET BOOKS says when a download finished.** It shows SAVED, the
+            filename actually written to the card, and which folder it went to.
+            Before, a finished download looked exactly like one that gave up:
+            the screen simply vanished. The message waits for five seconds you
+            could actually have seen it -- the clock does not start until the
+            page has drawn, and stops while a finger is on the glass.
+
+            ### What WAS new in 1.12.12
 
             **GET BOOKS: BACK no longer downloads the book.** Pressing back on a
             book's page started the download instead of leaving it.
