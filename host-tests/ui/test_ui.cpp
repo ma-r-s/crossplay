@@ -1527,7 +1527,6 @@ void testACapsuleThatWasDeadMidGameAlsoWaits() {
   CHECK(out.tap(300, capsuleY).action == chessui::ActionPlayAgain);
 }
 
-
 void testBattleshipStartMenu() {
   // A row that would do nothing is not drawn, exactly as in chess: with no
   // saved game there is nothing to continue, so the first row is NEW GAME.
@@ -5631,6 +5630,58 @@ void testTheSudokuUndoDimsRatherThanVanishing() {
   CHECK(used.target.find("UNDO") != nullptr);
 }
 
+// The front door destroys the saved puzzle unless it says RESUME, so the label
+// and the caption above it have to agree about which case this is. They are
+// written from one switch on sudoku::menuOffer, but nothing in the rules suite
+// can see buildMenu -- host-tests/sudoku links only SudokuCore.cpp. So the
+// pairing is asserted HERE, on the drawn strings, where a wrong label is
+// exactly what a player would read.
+void testTheSudokuDoorAgreesWithItsCaption() {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  const sudoku::Game medium = aSudokuGame(sudoku::Level::Medium);
+
+  struct Case {
+    const char* what;
+    bool hasGame;
+    bool solved;
+    sudoku::Level menuLevel;
+    const char* action;
+    const char* caption;
+  };
+  const Case cases[] = {
+      {"no save at all", false, false, sudoku::Level::Medium, "NEW PUZZLE", "NOT STARTED"},
+      {"an unsolved game at its own level", true, false, sudoku::Level::Medium, "RESUME", nullptr},
+      {"the same game, menu moved away", true, false, sudoku::Level::Hard, "NEW PUZZLE", "HARD, STARTING FRESH"},
+      {"a finished game at its own level", true, true, sudoku::Level::Medium, "NEW PUZZLE", "LAST ONE SOLVED"},
+  };
+
+  for (const auto& one : cases) {
+    sudokuui::MenuModel model;
+    model.hasGame = one.hasGame;
+    model.game = medium;
+    model.game.solvedFlag = one.solved ? 1 : 0;
+    model.level = one.menuLevel;
+    Rendered out;
+    toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    sudokuui::buildMenu(screen, model);
+
+    // RESUME appears when and ONLY when the door opens the saved grid. The
+    // shipped bug was a door labelled one thing and wired to another.
+    const bool resumes = sudoku::canResume(model.game, model.hasGame, model.level);
+    CHECK(resumes == (std::strcmp(one.action, "RESUME") == 0));
+    CHECK(out.target.find(one.action) != nullptr);
+    CHECK(out.target.find(resumes ? "NEW PUZZLE" : "RESUME") == nullptr);
+    if (one.caption != nullptr) {
+      CHECK(out.target.find(one.caption) != nullptr);
+    }
+    // "STARTING FRESH" is the warning that the door replaces the grid, so it
+    // must never sit over a RESUME.
+    CHECK(!(resumes && out.target.find("STARTING FRESH") != nullptr));
+  }
+}
+
 void testEverySudokuScreenStaysOnThePanel() {
   const fui::DeviceContext ctx = device();
   const fui::InputSnapshot noInput{};
@@ -7228,6 +7279,7 @@ int main() {
   testTheSudokuBoardSpendsThreeInteractions();
   testTheSudokuCapsuleIsInertUntilTheGridIsFinished();
   testTheSudokuUndoDimsRatherThanVanishing();
+  testTheSudokuDoorAgreesWithItsCaption();
   testEverySudokuScreenStaysOnThePanel();
   testEverySudokuLessonPagesAndClearsItsButton();
   testTheSudokuOrnamentCarriesTheGame();

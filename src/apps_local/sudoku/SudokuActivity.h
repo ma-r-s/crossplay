@@ -29,9 +29,21 @@ class SudokuActivity final : public Activity {
   void loop() override;
   void render(RenderLock&&) override;
 
+  // The Home gesture leaves without passing through Back, and ActivityManager
+  // DEFERS the swap: goHome() sets a pending action and returns before the
+  // drain, so this activity's loop() runs one more time after the player has
+  // gone. With a carve in flight that pass lands it, replacing the saved game
+  // and rewriting the card from a screen nobody is looking at. This hook runs
+  // BEFORE goHome(), which is the only place early enough to stop it. Returns
+  // false so the gesture still goes home.
+  bool handleHomeGesture() override;
+
  private:
   void goTo(sudoku::Screen next);
   void beginGame();
+  // Abandon an in-flight carve, keeping the saved game. Every route off the
+  // board while `generating` is true has to call this.
+  void cancelCarve();
   void takeHint();
   void recordResult();
   void loadState();

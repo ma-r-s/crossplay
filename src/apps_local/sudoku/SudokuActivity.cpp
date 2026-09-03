@@ -79,6 +79,24 @@ void SudokuActivity::beginGame() {
   goTo(sk::Screen::Board);
 }
 
+void SudokuActivity::cancelCarve() {
+  generating = false;
+  generateDeferred = false;
+  // beginGame() cleared this on the way in, so restore what the surviving game
+  // actually is. Otherwise cancelling a new puzzle started over a SOLVED one
+  // leaves solvedFlag set with resultRecorded false, and the board would record
+  // that solve a second time. Unreachable today only because canResume()
+  // refuses to re-open a solved game -- one menu row away from being live.
+  resultRecorded = game.solvedFlag != 0;
+}
+
+bool SudokuActivity::handleHomeGesture() {
+  cancelCarve();
+  // saveState() is not needed here: onExit() runs on the way out and writes the
+  // game this call just protected.
+  return false;
+}
+
 void SudokuActivity::tickClock() {
   const unsigned long now = millis();
   const unsigned long since = now - lastTickMs;
@@ -326,8 +344,7 @@ void SudokuActivity::loop() {
       // screen the player was only reading, with no tap at all. The window is
       // not a frame either: 24 attempts a pass carries roughly even odds at the
       // scarcer levels, so MAKING ONE can sit there for several passes.
-      generating = false;
-      generateDeferred = false;
+      cancelCarve();
       saveState();
     }
     goTo(sk::back(screen));
