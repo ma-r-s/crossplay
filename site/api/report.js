@@ -195,6 +195,19 @@ async function createReport(req, res) {
       what: `reported from the site (${kind}, ${device})`,
     }),
   });
+  // The report is also an event, so the Numbers page counts reports next to
+  // installs and heartbeats. A failed count must not fail the report.
+  await rest("events", {
+    method: "POST",
+    headers: { Prefer: "return=minimal" },
+    body: JSON.stringify({
+      service: "site",
+      event: "report",
+      version: version || null,
+      board: device === "unknown" ? null : device,
+      props: { card: id, kind },
+    }),
+  }).catch(() => null);
   return json(res, 201, { id });
 }
 

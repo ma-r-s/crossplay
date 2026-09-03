@@ -21,6 +21,15 @@ on:
 permissions:
   contents: read
 
+# One run per branch at a time. A push on top of a pull request supersedes
+# the run for the commit it replaced; five runs of one branch were once
+# sharing the runners while a merge waited on its own build. On xteink the
+# same rule folds two quick merges into one run, and the autorelease that
+# listens for this workflow releases them together.
+concurrency:
+  group: crossplay-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest

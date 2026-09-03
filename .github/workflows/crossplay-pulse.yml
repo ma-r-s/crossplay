@@ -1,0 +1,39 @@
+# The outside pulse. Every 30 minutes, from GitHub's own runners, probe every
+# host in server/pulse/hosts.txt and post the answer to the board. A host that
+# does not answer opens a card by the board's error rule, so an outage becomes
+# work within half an hour with nobody watching. The same run checks that the
+# daily upstream sync has not gone quiet.
+#
+# Scheduled workflows run from the default branch only, so this file has to be
+# on xteink to run at all. The board address and public key are repository
+# variables (SUPABASE_URL, SUPABASE_ANON_KEY); the key can only insert.
+name: CrossPlay pulse
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: crossplay-pulse
+  cancel-in-progress: true
+
+jobs:
+  pulse:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Probe every host and the upstream sync
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          PULSE_UPSTREAM: "1"
+        run: bash server/pulse/pulse.sh server/pulse/hosts.txt
