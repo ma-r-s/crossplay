@@ -25,15 +25,22 @@
   },
   "documentationUrl": "https://crossplay.ma-r-s.com",
   "compatibility": {
-    "devices": ["reterminal-sticky"],
-    "notes": "A microSD card is required; without one the device stops at an SD card error screen. Hardware verification on reTerminal Sticky was done at version 1.4.0 (2026-08-26). Later versions, this one included, are built for the Sticky by CI but have not been re-tested on the device."
+    "devices": [
+      "reterminal-sticky"
+    ],
+    "notes": "A microSD card is required; without one the device stops at an SD card error screen. Version 1.12.11 has been flashed to reTerminal Sticky production hardware and run by the project maintainer."
   },
   "assets": {
     "logo": "assets/logo.svg",
     "preview": "assets/preview.png",
     "previewAlt": "CrossPlay identity card: the CrossPlay mark and wordmark above the line \"E-ink is good at waiting\""
   },
-  "tags": ["games", "ereader", "flashcards", "partner"],
+  "tags": [
+    "games",
+    "ereader",
+    "flashcards",
+    "partner"
+  ],
   "flash": {
     "versions": [
       {

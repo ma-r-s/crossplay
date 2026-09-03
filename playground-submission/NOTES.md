@@ -5,6 +5,10 @@
 "Add CrossPlay 1.12.11", open, 6 files, +205. `submitted-pr-37.png` is the page
 as it stood a minute after opening.
 
+Updated the same day with the 1.12.11 hardware test (see below); the pull
+request now carries two commits and `submitted-pr-37.png` is the page after
+that correction.
+
 CI reported `action_required` rather than running: GitHub holds workflows on a
 first-time contributor's pull request until a maintainer approves them. The
 other open outside contributions on that repository show the same state, so it
@@ -68,18 +72,38 @@ carried over from the draft:
 - **Licence, URLs, SD requirement, button map.** All confirmed; the four links
   in the entry were fetched and return 200.
 
-## The one thing not settled
+## The hardware test, and how it was nearly reported wrong
 
-**The submitted 1.12.11 package has not been flashed to a Sticky.** The
-registry's checklist wants the packaged firmware installed on real hardware
-before review, and the newest recorded Sticky verification is v1.4.0
-(2026-08-26). No Sticky was connected to this machine, and reflashing a shared
-desk device is Mario's call, not a session's.
+The entry first went out with the four physical-device boxes unticked, because
+the newest hardware verification anywhere in the repository or the memory files
+was **v1.4.0 (2026-08-26)**, and no Sticky was attached to this machine.
 
-This is stated plainly in the entry README and in the pull request body rather
-than papered over, and the physical-device checkboxes are left unticked. If the
-maintainers want it closed before publication, the device test is the remaining
-work.
+That was a stale RECORD, not the state of the world: Mario had flashed
+**1.12.11** to a Sticky and run it, and the fact lived only with him. It reached
+this session relayed through the coordinator, who confirmed it with him directly
+because the claim goes to a third party under his name.
+
+Worth keeping, because the repository could not have told anyone this: **the
+newest hardware verification is a fact about what Mario did last week, and
+nothing in git records it.** Every written source here agreed on v1.4.0 and all
+of them were behind. If a future session needs to know what has run on the
+Sticky, the honest answer is to ask him, not to grep.
+
+What the entry now claims, and deliberately no more:
+
+- Boxes 1 and 2 (**installed on physical hardware**, **first boot and main
+  workflow passed**) are ticked. "Flashed it and ran it" establishes both.
+- Boxes 3 and 4 are **left unticked**. Box 3 asserts touch *and* the hardware
+  buttons; box 4 asserts reboot, saved state, USB reconnection *and* repeated
+  installation. He did not enumerate which features he exercised, so ticking
+  those would have invented a test matrix. The pull request says in as many
+  words that they are unticked because nobody established them, not because
+  anything failed.
+- The screen-by-screen record stays attributed to 1.4.0, where it came from.
+
+The instruction to tick all four and the instruction not to overstate could not
+both be followed. The second one wins: a tick Seeed cannot distinguish from an
+assumption is worth less to them than a sentence saying who did what.
 
 ## The `group` decision
 

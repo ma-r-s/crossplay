@@ -82,27 +82,41 @@ the application at 0x10000; the partition table spans exactly 16MB with two
 ### Physical-device test
 
 - Device and hardware revision: reTerminal Sticky, the production sample Seeed supplied
-- Installation method: serial bridge (`esptool`), **not this package**
-- Tested firmware version: **1.4.0** (2026-08-26), not the submitted 1.12.11
-- Main workflow tested: boot to Home; shelf paging on the two side keys; a full game of Chess against the on-device engine; Solitaire in landscape with the orientation-mapped Back swipe; Study's empty state; Settings; PLAY NEARBY radio init and discovery, and a chess opening exchanged in both directions with an Xteink X4 Pro
-- Reboot and saved-state result: pass. A blank microSD formatted to FAT32 mounts at 40MHz on the shared display bus; a game save and the player identity both survived a reboot. Heap approximately 243KB free idle, 216KB with the radio up.
-- USB reconnection and repeated-install result: not recorded
+- Installation method: flashed directly by the project maintainer; the exact route is not recorded here
+- Tested firmware version: **1.12.11**, the version submitted here
+- Main workflow tested: the maintainer flashed 1.12.11 and used the device. He did not enumerate which screens or features he exercised, so this pull request does not claim a per-feature matrix at 1.12.11.
+- Reboot and saved-state result: not separately recorded at 1.12.11. At 1.4.0 on the same unit, a game save and the player identity both survived a reboot, and a blank microSD formatted to FAT32 mounted at 40MHz on the shared display bus.
+- USB reconnection and repeated-install result: not separately recorded
 
-- [ ] The submitted firmware-only package or a local build of the submitted source was installed on a physical reTerminal Sticky.
-- [ ] First boot and the main user workflow passed.
+- [x] The submitted firmware-only package or a local build of the submitted source was installed on a physical reTerminal Sticky.
+- [x] First boot and the main user workflow passed.
 - [ ] Touch and hardware buttons used by the firmware passed.
 - [ ] Reboot, saved state, USB reconnection, and repeated installation were tested where applicable.
 
-**These four are deliberately left unticked, and I would rather say so than tick
-them.** The verification above is real but it is at version 1.4.0. Versions
-after that are built for the Sticky by CI on every release and are covered by
-the project's host test suite and stack-budget checks, but no 1.12.11 install
-onto a Sticky is recorded, so I cannot honestly claim the submitted bytes have
-run on the device.
+**1.12.11 has been flashed to a reTerminal Sticky and run by the project
+maintainer**, so the first two are ticked on his word rather than on an
+assumption.
 
-If you would like that closed before the entry is published, say so here and I
-will flash this exact package to the Sticky and report back with the result. I
-am equally happy for the entry to wait until then.
+The last two are left unticked deliberately, and not because anything failed.
+He confirmed that he flashed it and used it; he did not enumerate a
+per-feature matrix, and those two boxes each assert a specific set of checks
+(touch *and* the hardware buttons; reboot, saved state, USB reconnection *and*
+repeated installation). Ticking them would tell you something nobody actually
+established, and a tick you cannot distinguish from an assumption is worth less
+to you than this paragraph.
+
+For context, the detailed screen-by-screen record on this hardware is from
+version 1.4.0 on 2026-08-26, and it is reproduced in the entry README: boot and
+shelf paging, a full game of Chess against the engine, Solitaire in landscape,
+Study, Settings, PLAY NEARBY discovery and pairing with an Xteink X4 Pro, and
+microSD formatting with a save and the player identity surviving a reboot.
+
+Every release, 1.12.11 included, is built for the Sticky by CI and covered by
+the project's host test suite and a stack-budget check that runs against the
+`sticky` build specifically.
+
+PLAY NEARBY between *two* Stickys remains untested, for want of a second unit.
+Sticky-to-X4-Pro is the verified path.
 
 ---
 
@@ -124,8 +138,8 @@ generated from CrossPlay's own mark and typefaces by a script committed in the
 upstream repository. It deliberately carries no screenshot, so nothing in it can
 be mistaken for a photograph of a Sticky. `assets/logo.svg` is the same mark with
 the colour resolved rather than inherited, since it renders standalone here. If
-you would prefer a real photo of the device running CrossPlay once the device
-test above is done, I can supply one.
+you would prefer a real photo of the device running CrossPlay instead, I can
+supply one.
 
 **Support.** Issues are enabled and watched at
 https://github.com/ma-r-s/crossplay/issues. The firmware is MIT, and both the

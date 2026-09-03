@@ -66,13 +66,13 @@ rather than copied from another entry.
 
 ## Hardware test record
 
-**Read this before reviewing: the submitted 1.12.11 package has not itself been
-flashed to a reTerminal Sticky.** What follows is the verification that does
-exist, and it is at an earlier version.
+**Version 1.12.11, the version packaged here, has been flashed to a reTerminal
+Sticky and run by the project maintainer.**
 
-Verified on reTerminal Sticky production hardware (the sample Seeed supplied) on
-2026-08-26, running **version 1.4.0**, driven over a serial bridge with
-screenshots read back:
+He did not record a screen-by-screen matrix for that run, so this entry does not
+claim one at 1.12.11. What follows is the detailed record from an earlier
+version on the same hardware (the production sample Seeed supplied), version
+**1.4.0** on 2026-08-26, driven over a serial bridge with screenshots read back:
 
 - boot to Home, and shelf paging with the two side keys;
 - a full game of Chess against the on-device engine;
@@ -85,14 +85,11 @@ screenshots read back:
   display bus; a game save and the player identity both survived a reboot;
 - heap approximately 243KB free idle, 216KB with the radio up.
 
+Every release, 1.12.11 included, is built for the Sticky by CI and covered by
+the project's host test suite and its stack-budget check, which runs against the
+`sticky` build specifically.
+
 Not verified:
 
-- **This 1.12.11 package on hardware.** Versions after 1.4.0 are built for the
-  Sticky by CI on every release and are covered by the project's host test suite
-  and stack-budget checks, but no 1.12.11 install onto the Sticky is recorded.
 - **PLAY NEARBY between two Stickys.** Only one Sticky exists here, and
   two-device play needs two. Sticky-to-X4-Pro is the verified path.
-
-I would rather say this plainly than tick the box. If you want the device test
-completed against this exact package before the entry is published, say so on
-the pull request and I will flash it and report back.
