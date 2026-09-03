@@ -191,6 +191,11 @@ jobs:
             nothing feels slower: holding to flag a mine and holding to peek in
             Wavelength are untouched.
 
+            **Two taps that were being read as the wrong answer entirely are
+            fixed too.** A tap that landed on nothing looked identical to a tap
+            on empty space, so a menu could read it as "close this" and Murdle
+            could read it as striking out a clue you never touched.
+
             **LEAVE THE MATCH has moved off the button every game trains you to
             press.** On a two-player game it sat exactly where PLAY AGAIN sits,
             so the thumb already resting there after the last move would kill the
