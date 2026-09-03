@@ -577,17 +577,10 @@ void OpdsBookBrowserActivity::buildSavedScreen(UiScreen& screen) {
   fui::ButtonProps done;
   done.label = tr(STR_DONE);
   done.action = ACTION_SAVED_DONE;
+  // Left to the theme: uiThemeTokens() now outlines tokens.button, so this
+  // reads as a control rather than as a label on white. Restating the border
+  // here would pin this one screen to the shape the theme had today.
   done.text = centered;
-  // Outlined explicitly rather than left to the theme: the core theme leaves
-  // tokens.button unset, and defaultButtonStyles() paints white on white with
-  // no border in the normal state -- a label, not a control, on the one screen
-  // whose only affordance this is.
-  done.styles = fui::defaultButtonStyles();
-  done.styles.normal.border = fui::Paint::solid(fui::Color::Black);
-  done.styles.normal.borderWidth = 1;
-  done.styles.focused.border = fui::Paint::solid(fui::Color::Black);
-  done.styles.focused.borderWidth = 1;
-  done.radius = 4;
   screen.button(done, fui::Rect{static_cast<int16_t>(btnArea.x + (btnArea.width - btnW) / 2), btnArea.y, btnW, btnH});
 }
 
