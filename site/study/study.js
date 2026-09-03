@@ -1226,7 +1226,6 @@ worker.onmessage = function (event) {
       if (mine === step) button.setAttribute("aria-current", "step");
       else button.removeAttribute("aria-current");
     });
-    $("stepper").classList.remove("is-hidden");
   }
 
   stepButtons.forEach(function (button) {

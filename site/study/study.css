@@ -84,10 +84,6 @@
   opacity: 0.45;
 }
 
-.wiz-stepper.is-hidden {
-  visibility: hidden;
-}
-
 /* --- the step area -------------------------------------------------------- */
 
 .wiz-body {
@@ -365,15 +361,13 @@
   display: block;
 }
 
-/* --- step 4 and sync ------------------------------------------------------- */
+/* --- step 4 --------------------------------------------------------------- */
 
-.wiz-write,
-.wiz-sync {
+.wiz-write {
   max-width: 46rem;
 }
 
-.wiz-write p,
-.wiz-sync p {
+.wiz-write p {
   font-size: 0.95rem;
   margin-top: 0;
 }
