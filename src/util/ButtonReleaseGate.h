@@ -47,7 +47,11 @@ class ButtonReleaseGate {
   void arm(const uint8_t heldMask) { armed = static_cast<uint8_t>(armed | heldMask); }
 
   // Once per frame, BEFORE the activity reads any input, with this frame's
-  // edges and levels. Order inside matters and is asserted by the tests.
+  // edges and levels. THAT order is the load-bearing one and the tests do
+  // assert it: settle after the read and the frame carrying the release has
+  // already been acted on. The order of the two lines inside settle() is not
+  // load-bearing and no test can see it -- both are AND-masks over the same
+  // byte, so they commute. Do not write an invariant there.
   void settle(uint8_t pressEdges, uint8_t releaseEdges, uint8_t heldMask);
 
   // True when this button's release edge is the other half of a press some

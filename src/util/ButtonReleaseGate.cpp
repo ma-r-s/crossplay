@@ -4,10 +4,16 @@ void ButtonReleaseGate::settle(const uint8_t pressEdges, const uint8_t releaseEd
   // A fresh press starts a fresh cycle, so whatever we were waiting to swallow
   // is gone and THIS press's release belongs to the activity now on top.
   //
-  // First, and unconditionally, because it is the only line that guarantees a
-  // button cannot stay dead: however the arm was set and whatever the caller
-  // then does, one press clears it. A Back that never works reads as a frozen
-  // device, which is worse than the double-fire this gate exists to stop.
+  // What guarantees a button cannot stay dead is that this clear is
+  // UNCONDITIONAL -- it is subject to no state but the press edge itself, so
+  // however the arm was set and whatever the caller then does, one press takes
+  // it off. A Back that never works reads as a frozen device, which is worse
+  // than the double-fire this gate exists to stop.
+  //
+  // Its POSITION is not part of that guarantee: both statements here are
+  // AND-masks over the same byte, so swapping them lands on the same value and
+  // the suite cannot tell the difference. The reason it reads first is that it
+  // is the sentence to read first.
   armed = static_cast<uint8_t>(armed & ~pressEdges);
 
   // Keep the arm through the frame that CARRIES the release edge -- settle()

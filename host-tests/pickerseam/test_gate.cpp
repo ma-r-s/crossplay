@@ -45,6 +45,7 @@ void expect(const bool got, const bool want, const std::string& what) {
 constexpr uint8_t BTN_BACK = 0;
 constexpr uint8_t BTN_CONFIRM = 1;
 constexpr uint8_t BTN_DOWN = 5;
+constexpr uint8_t BTN_POWER = 6;
 
 constexpr uint8_t bit(const uint8_t index) { return static_cast<uint8_t>(1u << index); }
 
@@ -61,18 +62,34 @@ struct Latch {
   }
 };
 
+// The buttons an arm may cover, mirroring MappedInputManager's GATED_BUTTONS
+// -- and, more to the point, mirroring what it LEAVES OUT. Power's release is
+// consumed outside the activity stack (sleep in main.cpp, the frontlight
+// double-click window), so an arm on it could swallow a sleep. Three of the
+// six gated buttons are enough for every case here.
+//
+// This list is the shape the wiring has to have; it is not the pin. The
+// constant itself lives in MappedInputManager.h, and run.sh asserts there that
+// it still excludes BTN_POWER.
+constexpr uint8_t GATED[] = {BTN_BACK, BTN_CONFIRM, BTN_DOWN};
+// Everything the screen reads, gated or not.
+constexpr uint8_t READ[] = {BTN_BACK, BTN_CONFIRM, BTN_DOWN, BTN_POWER};
+
 // One main-loop pass, in ActivityManager's order.
 //
 //   gpio.update()                  -> latch.poll()
 //   mappedInput.settleReleaseGate()
 //   currentActivity->loop()        -> the reads below
-//   ...the pending push/pop        -> arm, with the buttons down right then
+//   ...the pending push/pop        -> arm, with the GATED buttons down then
 struct Rig {
   Latch latch;
   ButtonReleaseGate gate;
-  // What the screen on top saw this frame.
+  // What the screen on top saw this frame. Presses and levels are read raw,
+  // the way readButton() reads them: the gate is asked about the release edge
+  // and nothing else.
   uint8_t sawPress = 0;
   uint8_t sawRelease = 0;
+  uint8_t sawHeld = 0;
 
   // Runs a frame at the given button levels. `finishesOnPress` is the screen
   // acting on a press edge and handing control back, the way
@@ -82,8 +99,9 @@ struct Rig {
     gate.settle(latch.pressEdges, latch.releaseEdges, latch.level);
 
     sawPress = latch.pressEdges;
+    sawHeld = latch.level;
     sawRelease = 0;
-    for (const uint8_t index : {BTN_BACK, BTN_CONFIRM, BTN_DOWN}) {
+    for (const uint8_t index : READ) {
       if ((latch.releaseEdges & bit(index)) && !gate.swallowsRelease(index)) {
         sawRelease = static_cast<uint8_t>(sawRelease | bit(index));
       }
@@ -91,7 +109,7 @@ struct Rig {
 
     if (finishesOnPress && (latch.pressEdges & finishesOnPress)) {
       uint8_t held = 0;
-      for (const uint8_t index : {BTN_BACK, BTN_CONFIRM, BTN_DOWN}) {
+      for (const uint8_t index : GATED) {
         if ((latch.level | latch.pressEdges) & bit(index)) held = static_cast<uint8_t>(held | bit(index));
       }
       gate.arm(held);
@@ -297,6 +315,81 @@ void aBlockingFlowCanStillCancel() {
   expect(gate.swallowsRelease(BTN_BACK), false, "the cancel reaches the download");
 }
 
+// -- 12. A second arm does not drop the one already standing ---------------
+//
+// Case 7 is called armingTwiceStillClears and never lands a second arm while a
+// first is still up: each arm there is fully spent before the next one
+// arrives. So `armed = heldMask` in place of the OR passes it, and the mask
+// quietly stops being a mask.
+//
+// The class has to hold this itself rather than lean on its caller's care.
+// swallowNextReleaseOfHeldButtons() reads isPressed OR wasPressed exactly
+// because it does not trust the HAL to keep guaranteeing that a press edge
+// implies the level; the frame that stops being true is the frame a second arm
+// arrives without a button whose release is still owed.
+void aSecondArmDoesNotDropAStandingOne() {
+  ButtonReleaseGate gate;
+  gate.arm(bit(BTN_BACK));           // the first swap: Back down, release owed
+  gate.settle(0, 0, bit(BTN_BACK));  // still down, so nothing is spent
+  expect(gate.swallowsRelease(BTN_BACK), true, "the first arm is still standing");
+
+  gate.arm(bit(BTN_CONFIRM));  // the second swap, with a mask that lacks Back
+  expect(gate.swallowsRelease(BTN_BACK), true, "a second arm does not drop the first");
+  expect(gate.swallowsRelease(BTN_CONFIRM), true, "and the second button is armed too");
+
+  // Both releases are still owed, and both are swallowed.
+  gate.settle(0, bit(BTN_BACK) | bit(BTN_CONFIRM), 0);
+  expect(gate.swallowsRelease(BTN_BACK), true, "the first button's release is swallowed");
+  expect(gate.swallowsRelease(BTN_CONFIRM), true, "the second button's release is swallowed");
+  gate.settle(0, 0, 0);
+  expect(gate.armedMask() == 0, true, "and both arms are gone once nothing is pending");
+}
+
+// -- 13. Power is outside the gate -----------------------------------------
+//
+// Its release is consumed outside the activity stack -- sleep in main.cpp, the
+// frontlight double-click window -- so an arm on Power could swallow a sleep,
+// and nothing in src/ finishes an activity on a Power press. The carve-out is
+// the GATED list an arm is derived from, not a special case inside the gate:
+// the gate arms whatever mask it is handed. run.sh pins that
+// MappedInputManager's own list still leaves BTN_POWER out.
+void powerIsNeverArmed() {
+  Rig rig;
+  // Power is held (the user is on their way to sleeping the device) when the
+  // screen changes on a Back press.
+  rig.frame(bit(BTN_BACK) | bit(BTN_POWER), /*finishesOnPress=*/bit(BTN_BACK));
+  expect(rig.gate.swallowsRelease(BTN_BACK), true, "Back, which caused the swap, is armed");
+  expect(rig.gate.swallowsRelease(BTN_POWER), false, "Power, held across the same swap, is not");
+
+  rig.frame(0);  // both released together
+  expect(rig.sawRelease == bit(BTN_POWER), true, "the Power release lands; the Back release does not");
+}
+
+// -- 14. An armed button is not a dead button ------------------------------
+//
+// The gate answers about ONE edge. readButton() consults it for wasReleased
+// and reads presses and levels raw, so an armed button still reads as held and
+// a fresh press still arrives. Ask it about a level too and the button reads as
+// UP while the user is holding it down -- a genuinely stuck button, the exact
+// failure this design is bounded against, and every case above still passes.
+//
+// This is the symptom, in the rig's shape. The pin on readButton's own
+// condition is a source assertion in run.sh.
+void anArmedButtonStillReadsAsHeld() {
+  Rig rig;
+  rig.frame(bit(BTN_BACK), /*finishesOnPress=*/bit(BTN_BACK));
+  expect(rig.gate.swallowsRelease(BTN_BACK), true, "Back is armed");
+
+  rig.frame(bit(BTN_BACK));  // the user is still holding it
+  expect(rig.sawHeld == bit(BTN_BACK), true, "an armed button still reads as held");
+  expect(rig.sawRelease == 0, true, "and has not released");
+
+  rig.frame(0);              // the owed release, swallowed
+  rig.frame(bit(BTN_BACK));  // and the user presses again
+  expect(rig.sawPress == bit(BTN_BACK), true, "a fresh press on an armed button still arrives");
+  expect(rig.sawHeld == bit(BTN_BACK), true, "and it reads as held while it is down");
+}
+
 }  // namespace
 
 int main() {
@@ -311,6 +404,9 @@ int main() {
   anUnarmedGateChangesNothing();
   twoSettlesInOneFrameAgree();
   aBlockingFlowCanStillCancel();
+  aSecondArmDoesNotDropAStandingOne();
+  powerIsNeverArmed();
+  anArmedButtonStillReadsAsHeld();
 
   std::printf("%d checks, %d failed\n", checks, failed);
   return failed == 0 ? 0 : 1;
