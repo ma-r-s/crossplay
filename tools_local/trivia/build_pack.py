@@ -93,18 +93,139 @@ ABBREV = [
     (re.compile(r"\bLt\."), "Lieutenant"),     (re.compile(r"\bSgt\."), "Sergeant"),
     (re.compile(r"\bMt\."), "Mount"),          (re.compile(r"\bMts\."), "Mountains"),
     (re.compile(r"\bFt\."), "Fort"),           (re.compile(r"\bSt\.(?=\s[A-Z])"), "Saint"),
-    (re.compile(r"\bN\.(?=\s[A-Z])"), "North"), (re.compile(r"\bS\.(?=\s[A-Z])"), "South"),
-    (re.compile(r"\bE\.(?=\s[A-Z])"), "East"),  (re.compile(r"\bW\.(?=\s[A-Z])"), "West"),
     (re.compile(r"\bcent\.(?=\s|$)"), "century"), (re.compile(r"\bpop\.(?=\s\d)"), "population"),
     (re.compile(r"\bmil\.(?=[\s,;.]|$)"), "million"), (re.compile(r"\bbil\.(?=[\s,;.]|$)"), "billion"),
     (re.compile(r"\byrs\."), "years"),         (re.compile(r"\bc\.\s*(?=\d)"), "circa "),
     (re.compile(r"\bno\.\s*(?=\d)", re.I), "number "),
 ]
 
+# The four compass initials cannot be a plain search-and-replace, and being one
+# corrupted 350 clues: "U.S. Army" shipped as "U.South Army" (280 times) and
+# "Robert E. Lee" as "Robert East Lee" (20). A bare \bS\. matches the tail of
+# an initialism and any middle initial, because neither is distinguishable from
+# a compass point by shape alone -- only by what sits either side of it.
+_DIRECTION = {"N": "North", "S": "South", "E": "East", "W": "West"}
+_DIR_RX = re.compile(r"\b([NSEW])\.(?=\s[A-Z])")
+_INITIALISM = re.compile(r"[A-Za-z]\.\s*$")        # "U.S." , "P.W."
+_NAME_LEAD = re.compile(r"\b[A-Z][a-z]+\s+$")      # "Robert E." , "Harry S."
+# Words that make the initial a compass point no matter what precedes it, so
+# "This N. Korean city" still expands while "Robert E. Lee" does not.
+_GEO_TAIL = re.compile(
+    r"(Korea|Dakota|Carolina|Virginia|German|Vietnam|America|Africa|Asia|"
+    r"Pacific|Atlantic|Yemen|Ireland|Zealand|Hemisphere|Pole|Coast|Indies|"
+    r"India|Island|Sea|Bank|Wales|England|Europe)"
+)
+
+def expand_direction(s):
+    """Expand a compass initial ONLY where it is really a compass point.
+
+    Errs toward leaving it alone: an unexpanded "N." costs a quizmaster one
+    spoken letter, while a wrong expansion rewrites somebody's name and is
+    invisible afterwards. test_pack's abbreviation check does not look at
+    these four, so leaving one costs nothing there either.
+    """
+    def repl(m):
+        before = s[: m.start()]
+        after = s[m.end():].lstrip()
+        if _INITIALISM.search(before):
+            return m.group(0)
+        if _GEO_TAIL.match(after):
+            return _DIRECTION[m.group(1)]
+        if _NAME_LEAD.search(before):
+            return m.group(0)
+        return _DIRECTION[m.group(1)]
+    return _DIR_RX.sub(repl, s)
+
+
 def expand_abbrev(s):
     for rx, full in ABBREV:
         s = rx.sub(full, s)
+    s = expand_direction(s)
     return re.sub(r'\s+', ' ', s).strip()
+
+
+# Repairing what the old rule already wrote into the shipped pack. The Jeopardy
+# source is not in this repo, and rebuilding from it would recompute difficulty
+# and break index stability (pack.state is addressed by index), so the pack is
+# repaired in place instead -- clue text only, never d/y/answer.
+_GLUED = re.compile(r"\b([A-Z])\.(North|South|East|West)\b")
+_UNGLUE = {"North": "N", "South": "S", "East": "E", "West": "W"}
+
+# Hand-checked, one trigram at a time, against the clue each appears in. A
+# pattern cannot do this half: "Alfred North Whitehead" is the philosopher's
+# real name and has exactly the shape of the damage, so it is deliberately
+# ABSENT here and a test asserts it stays absent.
+_NAME_FIXES = {
+    "Robert East Lee": "Robert E. Lee",
+    "Harry South Truman": "Harry S. Truman",
+    "George South Kaufman": "George S. Kaufman",
+    "George West Bush": "George W. Bush",
+    "James West Christy": "James W. Christy",
+    "Milton South Hershey": "Milton S. Hershey",
+    "Thomas South Lubbock": "Thomas S. Lubbock",
+    "Adlai East Stevenson": "Adlai E. Stevenson",
+    "Alfred East Smith": "Alfred E. Smith",
+    "Before North Webster": "Before N. Webster",
+    "Caspar West Collins": "Caspar W. Collins",
+    "Charles North Haskell": "Charles N. Haskell",
+    "Charles West Eliot": "Charles W. Eliot",
+    "Chester West Nimitz": "Chester W. Nimitz",
+    "Clyde West Tombaugh": "Clyde W. Tombaugh",
+    "Evan South Connell": "Evan S. Connell",
+    "Francis East Warren": "Francis E. Warren",
+    "General East Richardson": "General E. Richardson",
+    "Harold South Vanderbilt": "Harold S. Vanderbilt",
+    "Harvey South Firestone": "Harvey S. Firestone",
+    "House North Longworth": "House N. Longworth",
+    "Hunter South Thompson": "Hunter S. Thompson",
+    "Jann South Wenner": "Jann S. Wenner",
+    "John South Brook": "John S. Brook",
+    "John South Smith": "John S. Smith",
+    "Larson East Whipsnade": "Larson E. Whipsnade",
+    "Lil East Tee": "Lil E. Tee",
+    "Louis South St": "Louis S. St",
+    "Mount East Hubbard": "Mount E. Hubbard",
+    "Ole East Rolvaag": "Ole E. Rolvaag",
+    "Pearl South Buck": "Pearl S. Buck",
+    "Philip West Bonsal": "Philip W. Bonsal",
+    "Pieter West Botha": "Pieter W. Botha",
+    "Richard East Byrd": "Richard E. Byrd",
+    "Richard West Riley": "Richard W. Riley",
+    "Robert East Sherwood": "Robert E. Sherwood",
+    "Robert West Service": "Robert W. Service",
+    "Thomas East Dewey": "Thomas E. Dewey",
+    "Ulysses South Grant": "Ulysses S. Grant",
+    "Warren East Burger": "Warren E. Burger",
+    "William East Borah": "William E. Borah",
+    "William South Burroughs": "William S. Burroughs",
+    "Actor North Shelley": "Actor N. Shelley",
+    # The one case where restoring the initial would leave an abbreviation
+    # mid-sentence, so it takes the word the expander should have produced.
+    "in South South America": "in southern South America",
+}
+
+
+def repair_expansions(items):
+    """Undo the damage the old directional rule wrote into clue text.
+
+    Returns the number of clues changed. Clue text only: d, y, answer and
+    every option are untouched, so difficulty stays exactly as built and the
+    record at each index still asks the same question.
+    """
+    n = 0
+    for x in items:
+        q = x.get("q")
+        if not q:
+            continue
+        was = q
+        q = _GLUED.sub(lambda m: f"{m.group(1)}.{_UNGLUE[m.group(2)]}.", q)
+        for bad, good in _NAME_FIXES.items():
+            if bad in q:
+                q = q.replace(bad, good)
+        if q != was:
+            x["q"] = q
+            n += 1
+    return n
 
 # Answer types and option selection live in distractors.py, which
 # redistract.py also imports. They were duplicated here once; the copy in this

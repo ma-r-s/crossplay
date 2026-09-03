@@ -171,6 +171,64 @@ def phrases(clue):
 
 
 # Heads that name no kind of thing: the pool would be everything.
+# Heads that name several different KINDS of thing, so the bare pool is a grab
+# bag while the MODIFIED sub-pools are fine. Measured on the shipped pack, not
+# guessed: bare `body` held Moon, Sun and Pluto beside Senate, Supreme Court
+# and the League of Nations -- which is how "this dense cosmic body" came to
+# offer the Supreme Court as a wrong answer. `body of water` in the same pack
+# is English Channel, Red Sea, Caspian Sea, and is left alone.
+#
+# Only the BARE key is refused, so this is not TYPE_STOP: a word in TYPE_STOP
+# is not a head at all and would take its sub-pools down with it. `organ`
+# looks like it belongs here and does NOT: its 158 clues are Liver, Heart,
+# Brain, Kidneys, Eyes -- one coherent kind.
+# One place under two names. No stemmer reaches these -- "Holland" and
+# "Netherlands" share no letters -- and a set offering both is a set where the
+# option marked wrong is as right as the one marked right. Found by reading,
+# then counted: 42 sets, 22 with the answer as half the pair.
+#
+# Merging is the safe direction here as everywhere in twins(): it only ever
+# removes a candidate, so the cost of a wrong merge is one distractor.
+SAME_PLACE = [
+    {"holland", "the netherlands", "netherlands"},
+    {"burma", "myanmar"},
+    {"persia", "iran"},
+    {"siam", "thailand"},
+    {"ceylon", "sri lanka"},
+    {"formosa", "taiwan"},
+    {"rhodesia", "zimbabwe"},
+    {"abyssinia", "ethiopia"},
+    {"zaire", "congo", "the congo"},
+    {"peking", "beijing"},
+    {"bombay", "mumbai"},
+    {"constantinople", "istanbul", "byzantium"},
+    {"leningrad", "petrograd", "st. petersburg", "saint petersburg"},
+    {"stalingrad", "volgograd"},
+    {"saigon", "ho chi minh city"},
+    {"u.s.a.", "usa", "u.s.", "united states", "the united states", "america"},
+    {"great britain", "britain", "united kingdom", "u.k.", "uk"},
+    {"czechoslovakia", "czech republic"},
+    {"soviet union", "ussr", "u.s.s.r.", "russia"},
+]
+_SAME_PLACE = {}
+for _i, _g in enumerate(SAME_PLACE):
+    for _n in _g:
+        _SAME_PLACE.setdefault(_n, set()).add(_i)
+
+
+def same_place(a, b):
+    """True when two option strings name one place."""
+    ga = _SAME_PLACE.get(a.casefold().strip())
+    gb = _SAME_PLACE.get(b.casefold().strip())
+    return bool(ga and gb and (ga & gb))
+
+
+BARE_TYPE_STOP = {
+    "body",
+    "object",
+    "member",
+}
+
 TYPE_STOP = {
     "many",
     "one",
@@ -497,7 +555,13 @@ class TypeIndex:
                 break
         if len(found) != 1:
             return None
-        return found.pop()
+        key = found.pop()
+        # A grab-bag head with nothing to narrow it gets no options at all.
+        # Refusing beats a coarse pool: the memory of this file is that every
+        # hypernym worth the name merges kinds a player tells apart on sight.
+        if not key[0] and key[1] in BARE_TYPE_STOP:
+            return None
+        return key
 
     # -- places --------------------------------------------------------------
     def _learn_places(self, items):
@@ -996,6 +1060,9 @@ def twins(a, b):
         return True
     # a plural, or a faith named after its adherents, is the same option twice
     if stems(fa) & stems(fb):
+        return True
+    # and so is one place under two names, which no stemming can see
+    if same_place(a, b) or same_place(fa, fb):
         return True
     # one inside the other on word boundaries, at either end: "Congo" /
     # "Congo River", and "Elizabeth I" / "Queen Elizabeth I"

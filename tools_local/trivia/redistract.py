@@ -25,7 +25,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import distractors  # noqa: E402
 import pack_format  # noqa: E402
-from build_pack import dedash, norm_key  # noqa: E402
+from build_pack import dedash, norm_key, repair_expansions  # noqa: E402
 
 
 def load(path):
@@ -63,11 +63,15 @@ def main():
             before[w.lower()] += 1
 
     dashed = dedash(items)
+    # Before re-typing anything: answer_type() reads the clue, so a clue saying
+    # "U.South Army" is typed off corrupt text as well as read off it.
+    repaired = repair_expansions(items)
     index, kept, dropped, used = distractors.redistract(items, random.Random(20260901))
     size = pack_format.write(items, dst)
 
     print(f"  records            {len(items)}")
     print(f"  dashes replaced    {dashed}")
+    print(f"  clues repaired     {repaired}")
     print(
         f"  types found        {len(index.pools)}  ({sum(1 for k in index.keys if k)} clues typed)"
     )
