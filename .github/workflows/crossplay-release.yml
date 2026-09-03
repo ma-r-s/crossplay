@@ -178,7 +178,16 @@ jobs:
             devices next to each other find one another with nothing to type --
             and they do not have to be the same device.
 
-            ### What is new in 1.12.11
+            ### What is new in 1.12.12
+
+            **GET BOOKS: BACK no longer downloads the book.** Pressing back on a
+            book's page started the download instead of leaving it.
+
+            **And tapping a book no longer looks dead.** The page waited for the
+            cover before drawing anything, so a tap seemed to do nothing until
+            the picture arrived. It draws first and fills the cover in after.
+
+            ### What WAS new in 1.12.11
 
             **SUDOKU no longer throws away your saved puzzle.** Opening the
             difficulty menu, looking through the levels and coming back to your
