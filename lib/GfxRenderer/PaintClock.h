@@ -21,6 +21,15 @@
 // layer includes it by relative path so the screen builders stay host-testable
 // with only the SDK on the include path (host-tests/ui/run.sh).
 //
+// One invariant this rests on, unstated until now and worth failing loudly on.
+// The count is of ANY paint, not of a paint of any particular screen, so it
+// says "the panel has moved on" rather than "your table is what is showing".
+// That is only equivalent because every screen in this fork builds its table
+// and paints it in the same function, as adjacent statements. A path that
+// builds a table and returns WITHOUT painting would mark it revealed at the
+// next unrelated paint -- a pushed panel, a popup drawn over a game. If you
+// are adding one, gate it yourself or do not route against it.
+//
 // Not atomic. The render task writes it and the loop task reads it, and on
 // this target a 32-bit aligned load or store is single-instruction anyway. A
 // torn read cannot happen; a stale read can, and the consequence of a stale
@@ -28,6 +37,8 @@
 // the behaviour this file exists to produce.
 
 #include <stdint.h>
+
+#include <atomic>
 
 namespace paintclock {
 
@@ -46,5 +57,41 @@ inline void notePainted() { ++counter(); }
 // anything, which on a device is only true before the boot splash and in the
 // host tests, where nothing paints at all.
 inline uint32_t painted() { return counter(); }
+
+// "Has the panel shown the screen I just built?", as a latch.
+//
+// Split out of UiAppHost so it can be tested at all: UiAppHost needs a
+// GfxRenderer and an Arduino, and cannot be built on the host, while this is
+// the entire decision it makes and is freestanding. host-tests/ui exercises
+// this object, not a restatement of it.
+//
+// Two tasks touch it -- the render task arms and stamps, the loop task asks --
+// so the two fields are atomic. revealed() latches: once a paint has landed it
+// stops asking, so a later unrelated paint cannot re-arm it.
+class RevealGate {
+ public:
+  // A new screen exists in memory. It is not live until the panel shows it.
+  void arm() { awaiting_.store(true); }
+
+  // The table for the pending screen was (re)built just now. Called on every
+  // build while a reveal is pending, so a render that rebuilds several times
+  // before its single paint measures from the LAST build, not the first.
+  void markBuilt() {
+    if (awaiting_.load()) builtAt_.store(painted());
+  }
+
+  // True once a paint has landed since the last markBuilt(), and true forever
+  // after until the next arm().
+  bool revealed() const {
+    if (!awaiting_.load()) return true;
+    if (painted() == builtAt_.load()) return false;
+    awaiting_.store(false);
+    return true;
+  }
+
+ private:
+  mutable std::atomic<bool> awaiting_{false};
+  std::atomic<uint32_t> builtAt_{0};
+};
 
 }  // namespace paintclock

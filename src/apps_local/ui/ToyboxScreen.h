@@ -69,12 +69,18 @@ constexpr size_t kMaxInteractions = 24;
 // has landed since that change. Three consequences, all deliberate:
 //
 //   * an UNCHANGED table always routes. That is what keeps touch-down feedback
-//     working: MappedInputManager::rowTouch() reports Down at 90ms, apps
-//     repaint to highlight the row, and act on the release of that SAME
-//     contact. Those repaints rebuild an identical table, so nothing is
-//     gated, and the release still lands. Suppressing the contact outright
-//     would have made every list highlight and then do nothing, which reads
-//     as a frozen device and is worse than the bug being fixed.
+//     working. The in-scope cases are MinesweeperActivity.cpp:153-165 and
+//     SudokuActivity.cpp:333-341: a held contact moves the cell outline,
+//     requestUpdate() repaints, and the LIFT of that same contact is what
+//     digs or writes. Those repaints draw the outline straight to target()
+//     and register no interaction at all, so the table really is identical
+//     across them and nothing is gated. (WavelengthActivity.cpp:432-435
+//     records what the other answer costs: an early return there "ate every
+//     tap on this screen".) Suppressing the contact outright -- the obvious
+//     fix -- would have been far worse than eating a release, because
+//     InputManager::suppressTouchContact() also gates isTouchTapCandidate,
+//     isTouchHeldAt and wasSwipe, so it would cancel those holds WHILE the
+//     finger is still down.
 //   * the gate is held by a CHANGE, not by a timer, and it opens on the very
 //     next completed paint. There is no threshold to tune and no path where a
 //     slow refresh leaves input dead longer than the refresh itself.
@@ -86,7 +92,18 @@ constexpr size_t kMaxInteractions = 24;
 // state or focusOrder: a selection highlight changes how a row draws, never
 // what tapping it means, and gating on it would break the case above.
 //
-// What this does NOT cover, because nothing here can reach it: the two screens
+// What this does NOT cover, and the gap is worth knowing before assuming a
+// tap is safe: the eight apps that hit-test their play surface against
+// GEOMETRY rather than against this buffer, because an 80-cell board does not
+// fit 24 slots -- MinesweeperActivity.cpp:195, SudokuActivity.cpp:370,
+// ChessActivity.cpp:828, CheckersActivity.cpp:252, BattleshipActivity.cpp:758
+// and :915, MurdleActivity.cpp:313, DungeonActivity.cpp:110. Those taps never
+// reach route(), so nothing here gates them: tapping Minesweeper's FLAG
+// capsule flips flagMode and repaints, and during that paint a grid tap flags
+// instead of digging while the panel still reads DIG. Same bug class, not
+// reachable from here, and not to be papered over locally either.
+//
+// Nor does it cover, because nothing here can reach it: the two screens
 // built on a raw freeink::ui::InteractionBuffer rather than on this --
 // src/components/OptionPopup.h and src/activities/util/KeyboardEntryActivity
 // -- and the whole non-toybox FreeInkApp stack behind src/components/
@@ -172,6 +189,15 @@ class Interactions {
       mix(static_cast<uint32_t>(slot.action));
       mix(static_cast<uint32_t>(static_cast<uint16_t>(slot.value)) |
           (static_cast<uint32_t>(slot.inputMask) << 16));
+      // StateDisabled and ONLY StateDisabled. It looks like a cosmetic bit and
+      // is not one: InteractionBuffer::findTouch skips disabled entries
+      // outright, so flipping it changes what a tap DOES. DungeonScreens.cpp
+      // registers its NEXT button with an identical rect, action, value and
+      // inputMask and flips only this bit on model.moreToPlay, so a dead
+      // control becoming live would otherwise slip through the digest
+      // unchanged. The focus/active/flash bits stay excluded, because those
+      // really are only how a row draws.
+      mix(static_cast<uint32_t>(slot.state & freeink::ui::StateDisabled));
     }
     return hash;
   }

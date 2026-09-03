@@ -19,6 +19,7 @@
 #include "../../src/apps_local/chess/ChessScreens.h"
 #include "../../src/apps_local/connectfour/ConnectFourScreens.h"
 #include "../../src/apps_local/connections/ConnectionsScreens.h"
+#include "../../src/apps_local/dungeon/DungeonScreens.h"
 #include "../../src/apps_local/forehead/ForeheadScreens.h"
 #include "../../src/apps_local/hackernews/HackerNewsScreens.h"
 #include "../../src/apps_local/insider/InsiderScreens.h"
@@ -1145,6 +1146,99 @@ void testAnUnshownRebuildDoesNotCountAsShown() {
 // NO_ACTION mid-game, so the table has no entry there at all, and at game over
 // one appears. Making the action safe does not survive this window -- it is
 // precisely where the two tables disagree.
+void buildWin(Rendered& out, const dungeonui::WinModel& model) {
+  const fui::DeviceContext ctx = device();
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  dungeonui::buildWin(screen, model);
+}
+
+// StateDisabled is not a cosmetic bit, and the digest has to know that.
+//
+// InteractionBuffer::findTouch skips disabled entries, so flipping
+// StateDisabled changes what a tap DOES. DungeonScreens.cpp:832 registers
+// NEXT with an identical rect, action, value and inputMask and flips only
+// that bit on model.moreToPlay. A dead control becoming live under a
+// stationary finger is the same defect as FIRE becoming PLAY AGAIN, and it
+// would slip a digest that treated state as decoration.
+void testAControlComingBackToLifeAlsoWaits() {
+  PaintClockGuard clock;
+  Rendered out;
+
+  dungeonui::WinModel done;
+  done.dungeonName = "THE CELLAR";
+  done.solvedCount = 8;
+  done.total = 8;
+  done.moreToPlay = false;  // NEXT is registered, and disabled.
+
+  buildWin(out, done);
+  paintclock::notePainted();
+
+  // Find NEXT by its label so this does not hard-code the footer arithmetic.
+  const FakeTarget::TextRun* next = out.target.find("NEXT");
+  CHECK(next != nullptr);
+  if (next == nullptr) return;
+  const int nextX = next->rect.x + next->rect.width / 2;
+  const int nextY = next->rect.y + next->rect.height / 2;
+
+  // Disabled: the tap finds nothing, which is the point of the state.
+  CHECK(out.tap(nextX, nextY).action == fui::NO_ACTION);
+
+  // More dungeons arrive and the same pixel comes alive, with every other
+  // field of the interaction identical. Not yet painted, so not yet live.
+  dungeonui::WinModel more = done;
+  more.moreToPlay = true;
+  buildWin(out, more);
+  CHECK(!out.interactions.routable());
+  CHECK(out.tap(nextX, nextY).action == fui::NO_ACTION);
+
+  // Shown: now it answers.
+  paintclock::notePainted();
+  CHECK(out.tap(nextX, nextY).action == dungeonui::ActionButton);
+}
+
+// paintclock::RevealGate is the same decision UiAppHost makes, lifted out so
+// it can be tested: UiAppHost needs a GfxRenderer and an Arduino and cannot be
+// built here, and a restatement of its logic in a test would only ever agree
+// with itself. This exercises the object the firmware actually uses.
+void testTheRevealGateWaitsForOnePaintAndThenLatches() {
+  PaintClockGuard clock;
+  paintclock::RevealGate gate;
+
+  // Unarmed: never in the way.
+  CHECK(gate.revealed());
+
+  // A screen entry. Built, but the panel still shows the previous screen.
+  gate.arm();
+  gate.markBuilt();
+  CHECK(!gate.revealed());
+
+  // A render that rebuilds several times before its single paint (which is
+  // what UiListActivity does, up to 8 passes) must measure from the LAST
+  // build, or the gate opens on a paint that predates the table.
+  paintclock::notePainted();
+  gate.markBuilt();
+  CHECK(!gate.revealed());
+
+  // One paint from any source releases it.
+  paintclock::notePainted();
+  CHECK(gate.revealed());
+
+  // And it latches: a later build with no arm() must not re-close it, or an
+  // ordinary repaint would start eating input.
+  gate.markBuilt();
+  CHECK(gate.revealed());
+  CHECK(gate.revealed());
+
+  // Only a fresh screen entry closes it again.
+  gate.arm();
+  gate.markBuilt();
+  CHECK(!gate.revealed());
+  paintclock::notePainted();
+  CHECK(gate.revealed());
+}
+
 void testACapsuleThatWasDeadMidGameAlsoWaits() {
   PaintClockGuard clock;
   Rendered out;
@@ -6735,6 +6829,8 @@ int main() {
   testARepaintThatChangedNothingStillAnswers();
   testAnUnshownRebuildDoesNotCountAsShown();
   testACapsuleThatWasDeadMidGameAlsoWaits();
+  testAControlComingBackToLifeAlsoWaits();
+  testTheRevealGateWaitsForOnePaintAndThenLatches();
   testAnOpponentWhoHasGoneTakesTheButtonWithThem();
   testRowModel();
   testSettingsOpenedFromTheMenuOffersOnlyPreferences();
