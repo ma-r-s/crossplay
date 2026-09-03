@@ -209,7 +209,7 @@ for page in report inbox; do
   page_ids="$(sed -nE 's/.*\$\(["'"'"']([A-Za-z-]+)["'"'"']\).*/\1/p' "$P" | sort -u)"
   [ -n "$page_ids" ] || { bad "site/$page/index.html looks up no element ids"; continue; }
   for id in $page_ids; do
-    case "$id" in inbox-answer|inbox-send|inbox-default|inbox-later) continue;; esac  # rendered by script
+    case "$id" in inbox-answer|inbox-send|inbox-default|inbox-how|inbox-later) continue;; esac  # rendered by script
     grep -q "id=\"$id\"" "$P" && ok || bad "site/$page/index.html asks for #$id and has no such element"
   done
 done

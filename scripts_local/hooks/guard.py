@@ -102,6 +102,13 @@ class Board:
         o = norm_sid(self.orchestrator().get("session_id"))
         return bool(o) and o == norm_sid(sid)
 
+    def dispatcher(self):
+        return read_json(self.dir / "dispatcher.json") or {}
+
+    def is_dispatcher(self, sid):
+        d = norm_sid(self.dispatcher().get("session_id"))
+        return bool(d) and d == norm_sid(sid)
+
     def is_integrator(self, sid):
         i = norm_sid(self.integrator().get("session_id"))
         return bool(i) and i == norm_sid(sid)
@@ -208,7 +215,7 @@ def pretool(board, data):
                 "is fine; changing it is the integrator's job. Work in wt/<name>/, or if you are "
                 f"integrating, claim the tree first: {board_cmd(root)} integrator --session {norm_sid(sid)}"
             )
-        if re.search(r"board(\.py)?\s+ask\b", cmd) and not board.is_orchestrator(sid):
+        if re.search(r"board(\.py)?\s+ask\b", HEREDOC.sub(" ", cmd)) and not board.is_orchestrator(sid):
             block(
                 "Refused: only the orchestrator asks Mario. Record what you need on your card: "
                 f"{board_cmd(root)} block <card> --session {norm_sid(sid)} --need <desk|design|info|mario> --ask '...' --default '...'"
@@ -216,7 +223,7 @@ def pretool(board, data):
         return
 
     if tool in ("SendMessage", "mcp__ccd_session_mgmt__send_message"):
-        if board.is_orchestrator(sid):
+        if board.is_orchestrator(sid) or board.is_dispatcher(sid):
             return
         orch = board.orchestrator()
         if not orch:
@@ -267,7 +274,7 @@ def stop(board, data):
     if data.get("stop_hook_active"):
         return
     sid = data.get("session_id", "")
-    if board.is_orchestrator(sid):
+    if board.is_orchestrator(sid) or board.is_dispatcher(sid):
         return
     text = last_assistant_text(data.get("transcript_path", ""))
     m = HANDBACK.search(text)
@@ -313,6 +320,8 @@ def session_start(board, data):
         lines.append(
             "[bugflow] You are the ORCHESTRATOR. Runbook: docs/workflow/orchestrator.md in the tree."
         )
+    elif board.is_dispatcher(sid):
+        lines.append("[bugflow] You are DISPATCH: Mario talks to you; you file cards and hand them to their owners. Runbook: docs/workflow/dispatch.md.")
     else:
         who = orch.get("name") or "not registered yet"
         lines.append(f"[bugflow] You are a WORKER. The orchestrator is: {who}.")

@@ -33,6 +33,8 @@
   .btn.quiet { border-color: transparent; color: var(--muted); text-decoration: underline; padding-left: 0.3rem; padding-right: 0.3rem; }
   .btn:focus-visible, .answer input:focus { outline: 3px solid var(--ink); outline-offset: 1px; }
   .btn[disabled] { opacity: 0.5; cursor: default; }
+  ol.how { margin: 0.6rem 0 0; padding-left: 1.4rem; }
+  ol.how li { margin: 0.25rem 0; }
   .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.7rem; align-items: center; }
   .zero { text-align: center; padding: 2.5rem 1rem; border: 1px dashed var(--edge); border-radius: 6px; color: var(--muted); }
   .zero h2 { font-family: var(--display); font-weight: 400; font-size: 2.2rem; margin: 0 0 0.3rem; color: var(--ink); }
@@ -148,7 +150,7 @@
   function answer(m, choice, note) {
     say("Saving...");
     api("answer", { card_id: m.card_id, n: m.n, choice: choice, note: note || "" })
-      .then(function () { items = items.filter(function (x) { return x.blocker_id !== m.blocker_id; }); say("Answered."); render(); })
+      .then(function () { items = items.filter(function (x) { return x.blocker_id !== m.blocker_id; }); say(choice === "needs-steps" ? "Sent back for steps. It returns here with them." : "Answered."); render(); })
       .catch(function (err) { say("Could not save that: " + err.message, true); });
   }
 
@@ -169,12 +171,14 @@
         '<div class="row need"><dt>Need from you</dt><dd>' + esc(m.ask) + '</dd></div>' +
         '<div class="row"><dt>If you do nothing</dt><dd>' + esc(m["default"]) + '</dd></div>' +
         '</dl>' +
+        (m.steps ? '<ol class="how">' + String(m.steps).split("\n").filter(function (l) { return l.trim(); }).map(function (l) { return '<li>' + esc(l.replace(/^\s*\d+[.)]\s*/, "")) + '</li>'; }).join("") + '</ol>' : '') +
         '<div class="answer"><input type="text" id="inbox-answer" placeholder="Your answer, in a line"><button class="btn primary" id="inbox-send">Send</button></div>' +
-        '<div class="actions"><button class="btn" id="inbox-default">Take the default</button><button class="btn quiet" id="inbox-later">Later</button></div>' +
+        '<div class="actions"><button class="btn" id="inbox-default">Take the default</button><button class="btn" id="inbox-how">Tell me how</button><button class="btn quiet" id="inbox-later">Later</button></div>' +
         '</article>';
       $("inbox-send").addEventListener("click", function () { var v = $("inbox-answer").value.trim(); if (!v) { $("inbox-answer").focus(); return; } answer(m, v, ""); });
       $("inbox-answer").addEventListener("keydown", function (e) { if (e.key === "Enter") $("inbox-send").click(); });
       $("inbox-default").addEventListener("click", function () { answer(m, m["default"] || "default", "took the default"); });
+      $("inbox-how").addEventListener("click", function () { answer(m, "needs-steps", $("inbox-answer").value.trim()); });
       $("inbox-later").addEventListener("click", function () { later[m.blocker_id] = true; render(); });
     }
     // Everything: parents first, their children indented, in state order.
