@@ -409,6 +409,73 @@ void testTheRematchShowsBothAnswers() {
   }
 }
 
+// The bottom band is not a style choice, and this is the assertion that says so.
+//
+// y = 800 - kMargin - kPillHeight = 732 is where every link game's board puts
+// the status capsule that becomes PLAY AGAIN at game over. This screen replaces
+// that board in the same pass that ends the game, with no announcement and no
+// settle, so whatever occupies 732 is what a thumb already on its way there
+// hits. LEAVE used to be it: the rematch tap killed the radio instead.
+//
+// Asserted as "the destructive action is nowhere in the band" rather than as a
+// literal rect, so a layout change that moves BACK back down fails here even if
+// it moves it by a different arithmetic.
+void testTheRematchBandIsNotTheWayOut() {
+  Rendered out;
+  linkui::LinkModel model;
+  model.gameTitle = "CHESS";
+  model.headline = "CHECKMATE";
+  model.yourName = "YOU";
+  model.theirName = "LUIGI";
+  model.you = linkui::SeatState::Deciding;
+  model.them = linkui::SeatState::Deciding;
+  model.linked = true;
+  model.offerPlayAgain = true;
+  buildLink(out, model);
+
+  // The band the boards hand over: the full pill, at the full content width.
+  const int bandTop = 800 - toybox::kMargin - toybox::kPillHeight;
+  const int bandBottom = 800 - toybox::kMargin;
+  for (int y = bandTop; y < bandBottom; y += 4) {
+    for (int x = toybox::kMargin; x < 480 - toybox::kMargin; x += 16) {
+      const fui::ActionEvent event = out.tap(x, y);
+      CHECK(event.action != linkui::ActionLeaveLink);
+      CHECK(event.action == linkui::ActionPlayAgain);
+    }
+  }
+  // Battleship's capsule is inset by the opponent face, so its own game-over
+  // PLAY AGAIN starts at x=76. That exact pixel must not leave the match.
+  CHECK(out.tap(76 + 4, bandTop + toybox::kPillHeight / 2).action == linkui::ActionPlayAgain);
+
+  // And BACK is still reachable, one row up, where no board draws a control.
+  const FakeTarget::TextRun* back = out.target.find("BACK");
+  CHECK(back != nullptr);
+  if (back != nullptr) {
+    CHECK(back->rect.y < bandTop);
+    const fui::ActionEvent event = out.tap(back->rect.x + back->rect.width / 2, back->rect.y + back->rect.height / 2);
+    CHECK(event.action == linkui::ActionLeaveLink);
+  }
+
+  // The two pills must not share a pixel: a leave that overlaps the rematch by
+  // one row is the same bug wearing a smaller number.
+  const FakeTarget::TextRun* again = out.target.find("PLAY AGAIN");
+  CHECK(again != nullptr);
+  if (again != nullptr && back != nullptr) {
+    CHECK(back->rect.y + back->rect.height <= again->rect.y);
+  }
+}
+
+// Alone, BACK keeps the bottom band. Nothing is at risk there -- the only
+// screens that reach this state are the search (which replaces a menu) and an
+// opponent who has already gone -- and a single pill floating one row up over
+// an empty margin reads as a layout that lost something.
+void testTheLoneWayOutKeepsTheBottomBand() {
+  Rendered out;
+  buildLink(out, searchingModel());
+  const int bandMid = 800 - toybox::kMargin - toybox::kPillHeight / 2;
+  CHECK(out.tap(240, bandMid).action == linkui::ActionLeaveLink);
+}
+
 void testAnOpponentWhoHasGoneTakesTheButtonWithThem() {
   // A button that cannot work is worse than one that is not there.
   Rendered out;
@@ -6506,6 +6573,8 @@ int main() {
   testMurdleMenuHeadlineIsTheDoorAcrossItsWidth();
   testSeatsSayWhatEachPlayerHasDecided();
   testTheRematchShowsBothAnswers();
+  testTheRematchBandIsNotTheWayOut();
+  testTheLoneWayOutKeepsTheBottomBand();
   testAnOpponentWhoHasGoneTakesTheButtonWithThem();
   testRowModel();
   testSettingsOpenedFromTheMenuOffersOnlyPreferences();
