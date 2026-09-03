@@ -40,6 +40,7 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "images/LoadingIcon.h"
+#include "network/Heartbeat.h"
 #include "nvs.h"
 #include "util/ButtonNavigator.h"
 #include "util/ScreenshotUtil.h"
@@ -448,6 +449,9 @@ void setup() {
   HalSystem::checkPanic();
 
   SETTINGS.loadFromFile();
+  // After checkPanic() so the panic record is still there to read, and after
+  // the settings so the toggle is known. Reads one card file; never the radio.
+  heartbeat::begin(rebootedFromPanic);
   APP_STATE.loadFromFile();
   RECENT_BOOKS.loadFromFile();
   I18N.setLanguage(static_cast<Language>(SETTINGS.language));
@@ -687,6 +691,7 @@ void loop() {
   }
 
   devmode::update();
+  heartbeat::update();
 
 #if CROSSPOINT_DEV_SERIAL_BRIDGE
   // Dev builds route all serial commands (screenshot included) through the

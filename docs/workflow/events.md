@@ -51,11 +51,43 @@ timeout).
 
 ## The heartbeat
 
-Once a day, when the device has Wi-Fi, the firmware posts one event:
-`{"service":"firmware","event":"heartbeat","device":"<hash>","version":"1.12.9","board":"x4pro","props":{"apps":["trivia","hackernews"],"uptime_h":31}}`.
-`apps` is the set opened since the last heartbeat. That single event answers
-"how many devices are on which version" and "how many use each app". A
-switch in Settings turns it off, and the site says so in one sentence.
+Once a day, when the device has Wi-Fi up for some other reason (Developer
+Mode, an app that went online; it never brings the radio up for this), the
+firmware posts one event:
+
+```
+{"service":"firmware","event":"heartbeat","device":"<hash>","version":"1.12.12","board":"x4pro",
+ "props":{"apps":["trivia","hackernews"],"uptime_h":31,"battery_pct":84,"heap_min_kb":112,
+          "ota":{"attempted":true,"ok":false,"error":"too_large"}}}
+```
+
+`apps` is the set opened since the last heartbeat (shelf titles, lowercased,
+`HACKER NEWS` is `hackernews`). `uptime_h` is hours since boot, and deep
+sleep is a boot. `heap_min_kb` is the lowest free heap since boot. `ota` is
+the install attempted since the last heartbeat: `ok` is inferred from the
+version having moved, never from what the install screen said, so an
+install that "succeeded" into the same version reads as not ok with no
+error. That single event answers "how many devices are on which version",
+"how many use each app", "which version drains faster" and "who cannot
+update" (the 6.25MB slots of a device flashed before v1.5.3 come back as
+`too_large`).
+
+A boot after a panic posts one more event, `{"event":"crash","level":"error",
+"props":{"message":"<panic reason>","backtrace":"<first two stack lines>"}}`,
+once, so a crash in the field opens a card by itself.
+
+`device` is sha256(MAC + a fixed salt); the MAC is never sent. The address
+and the public key come from the site's `/api/board-config`, fetched once and
+cached on the card as `/.crosspoint/board.json`, fetched again when the board
+answers 401 or 403 (a key rotation is a Vercel setting, not a release).
+Between heartbeats the apps set, the OTA record and a pending crash live in
+`/.crosspoint/heartbeat.json`, written once per first open and once per send.
+
+Settings > System > "Send a daily heartbeat" (default on) turns all of it
+off; the site says so in one sentence beside the Install button. The rules
+are `src/network/HeartbeatCore.{h,cpp}` and `host-tests/heartbeat` pins
+them; `src/network/Heartbeat.cpp` is the clock, the card, the radio and the
+TLS. The serial log says which decision was taken and why under `HEARTBEAT`.
 
 ## Reading the numbers
 
