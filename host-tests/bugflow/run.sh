@@ -94,6 +94,7 @@ mk_transcript() { # mk_transcript "<last assistant text>"
 }
 mk_transcript "Fixed and gated. Want me to also port the picker fix, or leave it?"
 expect "hand-back with no card refused"          2 stop "{\"session_id\":\"$WORKER\",\"transcript_path\":\"$T\",\"stop_hook_active\":false}"
+[ -s "$ROOT/.board/refusals.log" ] && grep -q " $WORKER Bash " "$ROOT/.board/refusals.log" && grep -q " $WORKER stop " "$ROOT/.board/refusals.log" && ok "every refusal leaves a line in refusals.log with the session and the tool" || bad "refusals.log is missing a line for a Bash or a Stop refusal"
 grep -q "board.py bind" "$WORK/err" && ok "refusal tells it to bind" || bad "refusal does not tell it to bind"
 expect "stop_hook_active never loops"            0 stop "{\"session_id\":\"$WORKER\",\"transcript_path\":\"$T\",\"stop_hook_active\":true}"
 expect "the dispatcher may end on its one question"  0 stop "{\"session_id\":\"$DISP\",\"transcript_path\":\"$T\",\"stop_hook_active\":false}"

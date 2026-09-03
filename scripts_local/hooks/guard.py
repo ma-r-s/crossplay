@@ -136,7 +136,45 @@ def board_cmd(root):
     return "python3 <tree>/tools_local/board/board.py"
 
 
+CURRENT = {"root": None, "sid": "", "tool": ""}
+
+
+def note_refusal(msg):
+    """One line per refusal in <workspace>/.board/refusals.log, and the same as a
+    workflow event on the board when its address is at hand. A refusal is the
+    hooks doing their job; how often they fire, and on what, is the number that
+    says whether the rules are teaching or merely obstructing. Never raises."""
+    root = CURRENT.get("root")
+    if root is None:
+        return
+    first = msg.strip().splitlines()[0][:160] if msg.strip() else "refused"
+    sid, tool = CURRENT.get("sid") or "?", CURRENT.get("tool") or "?"
+    try:
+        with open(root / ".board" / "refusals.log", "a") as f:
+            f.write(f"{dt.datetime.now(dt.timezone.utc).isoformat()} {sid} {tool} {first}\n")
+    except Exception:
+        pass
+    try:
+        env = {}
+        for line in (root / ".board" / "supabase.env").read_text().splitlines():
+            if "=" in line and not line.startswith("#"):
+                k, v = line.split("=", 1)
+                env[k.strip()] = v.strip().strip("\"'")
+        url, key = env.get("SUPABASE_URL"), env.get("SUPABASE_ANON_KEY")
+        if url and key:
+            import urllib.request
+            body = json.dumps({"service": "workflow", "event": "refusal",
+                               "props": {"session": sid, "tool": tool, "rule": first}}).encode()
+            req = urllib.request.Request(url.rstrip("/") + "/rest/v1/events", data=body, method="POST",
+                                         headers={"apikey": key, "Authorization": "Bearer " + key,
+                                                  "Content-Type": "application/json", "Prefer": "return=minimal"})
+            urllib.request.urlopen(req, timeout=2).read()
+    except Exception:
+        pass
+
+
 def block(msg):
+    note_refusal(msg)
     sys.stderr.write(msg.rstrip() + "\n")
     sys.exit(2)
 
@@ -364,6 +402,7 @@ def main():
         data = json.load(sys.stdin)
     except ValueError:
         return
+    CURRENT.update(root=root, sid=norm_sid(data.get("session_id")), tool=data.get("tool_name") or mode)
     if mode == "pretool":
         pretool(board, data)
     elif mode == "stop":

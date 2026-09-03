@@ -197,7 +197,7 @@
     $("inbox-signout").hidden = false;
   }
 
-  // Numbers: the four views over events, and GitHub's own download counts.
+  // Numbers: the views over events and over the board itself, and GitHub's own download counts.
   // Every figure names its window, because a count without one reads as
   // "always".
   function loadNumbers() {
@@ -228,6 +228,12 @@
         return [r.tag_name, (r.published_at || "").slice(0, 10), d];
       }));
       h += '<p class="nums-h">Errors seen, latest first</p>' + tbl(["service", "message", "times", "card"], (n.errors || []).map(function (e) { return [e.service, (e.message || "").slice(0, 60), e.count, e.card_id ? "#" + e.card_id : ""]; }));
+      h += '<p class="nums-h">Services answering, 7 days</p>' + tbl(["host", "now", "up %", "median ms", "failures"], (n.pulse || []).map(function (r) { return [r.host, r.up_now ? "up" : "DOWN", r.uptime_7d, r.ms_median == null ? "" : Math.round(r.ms_median), r.failures_7d]; }));
+      var L = n.latency || null;
+      h += '<p class="nums-h">Your inbox</p>' + tbl(["waiting now", "oldest, hours", "median answer, hours, 30 days", "answered, 7 days"], L ? [[L.open_now, L.oldest_open_h == null ? "" : L.oldest_open_h, L.median_answer_h == null ? "" : L.median_answer_h, L.answered_7d]] : []);
+      h += '<p class="nums-h">The workflow, by week</p>' + tbl(["week", "opened", "closed", "asks to you", "answers", "error cards", "refusals", "releases"], (n.weekly || []).map(function (r) { return [r.week, r.cards_opened, r.cards_closed, r.asks_to_mario, r.answers_from_mario, r.error_cards, r.refusals, r.releases]; }));
+      h += '<p class="nums-h">Hours a card sits in each state, 30 days</p>' + tbl(["state", "cards", "median", "longest"], (n.dwell || []).map(function (r) { return [r.state, r.n, r.median_h, r.max_h]; }));
+      h += '<p class="nums-h">Open cards by app</p>' + tbl(["app", "open", "untriaged", "oldest, days"], (n.byApp || []).map(function (r) { return [r.app, r.open, r.untriaged, r.oldest_d]; }));
       if (!(n.byVersion || []).length && !(n.services || []).length) h += '<p class="status">No events yet. Devices and services start posting once their owners wire the heartbeat and the events in docs/workflow/events.md.</p>';
       body.innerHTML = h;
     });
