@@ -22,17 +22,30 @@ by an attacker with many addresses, by construction and by their own docstring.
 Open it when BOTH are true: the review is approved, and the Cloudflare rules
 exist.
 
-## Status: deployed 2026-08-31, NOT yet public
+## Status: published 2026-09-03 at https://read.ma-r-s.com, allowlist still CLOSED
 
-Steps 1-3 are done. `/srv/readbridge` holds the service, the container is
-healthy, the firewall is installed and enabled, and the isolation test passes
-with every private probe timing out and egress to instapaper.com working.
+Steps 1-4 are done. `/srv/readbridge` holds the service, both containers are
+up, the firewall is installed and enabled, and the isolation test passes from
+BOTH vantage points with every private probe timing out and egress to
+instapaper.com working. The tunnel is `readbridge`
+(`43692df2-e226-4e7f-bc72-72cfdf326572`), its single ingress rule maps
+`read.ma-r-s.com` to `http://readbridge:8080`, and the zone holds a proxied
+CNAME to `<tunnel-id>.cfargotunnel.com` exactly like `sync` and `books`.
 
-What remains is step 4 and it is the only thing between here and a working
-sync: no `CLOUDFLARE_TUNNEL_TOKEN`, so `readbridge-cloudflared` has been
-STOPPED rather than left crash-looping, and nothing is published on the host.
-The service is reachable only from inside the pi. That is the correct state to
-be in while the hostname is still being sequenced.
+Verified from a laptop, not from a deploy command's exit status:
+`/healthz` 200, the sign-in page renders, `POST /api/pair/start` returns a
+code and a pollToken, `GET /api/pair/poll` answers `{"pending":true}`, and
+`POST /api/pair/abandon` cleans the code up.
+
+What remains is step 5 (nobody has signed in and paired a real reader) and
+step 6 (opening the allowlist). **`READ_ALLOWLIST` is untouched and still the
+owner's address only.** Publishing the hostname does not change who may sign
+in, and it must not: see step 6.
+
+The kill switch is one command, and it leaves everything else on the box
+alone:
+
+    ssh orange 'cd /srv/readbridge && docker compose stop cloudflared'
 
 **A THING THE FIRST DEPLOY GOT WRONG, so the next one does not.** `deploy.sh`
 ships the service and starts it; it does NOT install the firewall. The
@@ -75,15 +88,57 @@ so it is never copied up and never overwritten.
 Every private-network probe must time out and egress to instapaper.com must
 work. Nonzero exit is a breach; do not continue.
 
-## 4. The hostname
+## 4. The hostname, and the reason it is not the one this file used to name
 
-`read.crossplay.ma-r-s.com` into the tunnel, the way `sync.ma-r-s.com` was. The firmware
+`read.ma-r-s.com` into the tunnel, the way `sync.ma-r-s.com` was. The firmware
 constant is `kBridgeHost` in `src/apps_local/instapaper/InstapaperSync.h`, and
 the device build has NO override -- it can only ever reach that one name.
 
+**It said `read.crossplay.ma-r-s.com` until 2026-09-03, and that name can
+never work on this account.** ma-r-s.com is on Cloudflare's free plan, whose
+Universal SSL certificate covers exactly `ma-r-s.com` and `*.ma-r-s.com`: ONE
+label. The edge answers a TLS handshake for a deeper name with alert 40 and no
+certificate at all, which you can see without deploying anything:
+
+    echo | openssl s_client -connect 104.21.2.163:443 \
+      -servername read.crossplay.ma-r-s.com
+    # ... tls alert handshake failure ... no peer certificate available
+
+So the DNS record was never the missing piece on its own. A CNAME for that
+name would have resolved and then failed TLS in the browser and on the device,
+which is a worse failure than a missing record because it looks like a broken
+service rather than an unfinished one. Covering `*.crossplay.ma-r-s.com` needs
+Advanced Certificate Manager, which is paid; a one-label name is free and is
+what both working siblings already use.
+
+Two consequences worth carrying:
+
+- **`app/crossplayhosts` would break Study sync and Get Books the same way.**
+  It moves `sync.ma-r-s.com` to `sync.crossplay.ma-r-s.com` and
+  `books.ma-r-s.com` to `books.crossplay.ma-r-s.com`. Both are two labels
+  deep. Do not ship it without buying the certificate first.
+- The certificate now served for `read.ma-r-s.com` is the SAME certificate,
+  same serial, that `sync.ma-r-s.com` presents -- and the device's wolfSSL
+  root store is already proven against that chain by Study sync on hardware.
+  One less unknown in step 5.
+
+Created with the Cloudflare REST API (the `cf` CLI has no `tunnel` command;
+its stored OAuth token works as a Bearer):
+
+    POST /accounts/<acct>/cfd_tunnel            {"name":"readbridge","config_src":"cloudflare"}
+    PUT  /accounts/<acct>/cfd_tunnel/<id>/configurations
+         {"config":{"ingress":[{"hostname":"read.ma-r-s.com","service":"http://readbridge:8080"},
+                               {"service":"http_status:404"}],"warp-routing":{"enabled":false}}}
+    POST /zones/<zone>/dns_records              CNAME read -> <id>.cfargotunnel.com, proxied
+
+The tunnel token goes into `/srv/readbridge/.env` and nowhere else. Pipe it;
+do not paste it, and do not let it reach a terminal:
+
+    GET /accounts/<acct>/cfd_tunnel/<id>/token  |  ssh orange 'umask 077 && cat >> /srv/readbridge/.env'
+
 ## 5. Then, and only then, the thing nobody has run
 
-Sign in at `https://read.crossplay.ma-r-s.com` with the owner's account, pair a reader,
+Sign in at `https://read.ma-r-s.com` with the owner's account, pair a reader,
 and sync. That path has never executed: the wolfSSL handshake, the ~35KB heap
 floor it needs, certificate verification against Cloudflare's chain, and the
 four assumptions about Instapaper's API in `docs/apps/instapaper-plan.md`.
@@ -112,6 +167,7 @@ name: no `~/.ssh/config` entry, and `known_hosts` holding 192.168.68.x,
 192.168.20.0/24.
 
 So: a failing `ssh` says nothing about the pi. Check the tunnel before
-concluding anything about the box, and note that `read.crossplay.ma-r-s.com` failing with
-a DNS error rather than a connection error means step 4 has not been done --
-not that anything is broken.
+concluding anything about the box, and read the failure carefully: a DNS error
+on `read.ma-r-s.com` means the record is gone, a TLS alert means the name is
+too deep for the zone's certificate (step 4), and a 502 means the tunnel is up
+but cannot reach the service container. Those are three different repairs.

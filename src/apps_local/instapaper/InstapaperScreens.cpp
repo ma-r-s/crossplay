@@ -381,12 +381,15 @@ fui::Rect buildPairQr(toybox::Screen& screen, const char* code) {
 
   // FULL body width, not inset by a margin on each side, and that is not
   // tidiness: the host is the longest unbreakable token on this screen and at
-  // the inset width it wrapped one character short, drawing
-  // "read.crossplay.ma-r-s.com/pai" with the renderer's U+2026 invisible
-  // because this cut has no glyph for it. A reader would have typed an address
-  // that does not exist and had no way to see why.
+  // the inset width the longer name this line used to carry wrapped one
+  // character short, drawing "read.crossplay.ma-r-s.com/pai" with the
+  // renderer's U+2026 invisible because this cut has no glyph for it. A reader
+  // would have typed an address that does not exist and had no way to see why.
+  // The name is shorter now and would probably fit inset; the full width stays
+  // because the failure it prevents is silent, and a host that grows by two
+  // characters would bring it straight back.
   screen.target().text(fui::makeRect(body.x, codeY + 48 + toybox::kMargin, body.width, 116),
-                       "Sign in at read.crossplay.ma-r-s.com/pair, then scan this code.",
+                       "Sign in at read.ma-r-s.com/pair, then scan this code.",
                        plain(toybox::kUiFont, fui::TextAlign::Center, fui::Color::DarkGray, 3));
   // Overflow is invisible in these cuts: the renderer appends U+2026 and the
   // face has no glyph for it, so a line too long simply stops mid-word rather
