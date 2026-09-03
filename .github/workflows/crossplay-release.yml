@@ -21,6 +21,9 @@ on:
   push:
     tags:
       - "v*"
+  # Dispatched by crossplay-autorelease.yml on the tag it just pushed, because
+  # a tag pushed with the workflow token starts nothing on its own.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -514,3 +517,17 @@ jobs:
             esptool.py --chip esp32s3 --baud 921600 write_flash 0x0 crossplay-<version>-x4pro-full.bin
             esptool.py --chip esp32s3 --baud 921600 write_flash 0x0 crossplay-<version>-sticky-full.bin
             ```
+
+      # One event per published release, so the Numbers page can line up
+      # downloads and heartbeats against release times. The address and the
+      # public key are repository variables; missing ones skip the step.
+      - name: Tell the board a release went out
+        if: vars.SUPABASE_URL != '' && vars.SUPABASE_ANON_KEY != ''
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+        run: |
+          curl -sS -o /dev/null -w "events: %{http_code}\n" -X POST "$SUPABASE_URL/rest/v1/events" \
+            -H "apikey: $SUPABASE_ANON_KEY" -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
+            -H "Content-Type: application/json" -H "Prefer: return=minimal" \
+            -d "{\"service\":\"release\",\"event\":\"release\",\"version\":\"${GITHUB_REF_NAME#v}\",\"props\":{\"tag\":\"$GITHUB_REF_NAME\"}}" || true

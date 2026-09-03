@@ -1,0 +1,104 @@
+# A release starts the moment a merge passes CI. No clock, no train.
+#
+# Runs after every completed "CrossPlay" CI run on xteink. If the run was
+# green, the tip of xteink is still the commit CI verified, and something has
+# merged since the newest tag, this bumps [crossplay] version, rewrites the
+# "What is new" block in crossplay-release.yml from the merged pull requests'
+# own lines (scripts_local/release_notes.py), commits, tags, and dispatches
+# the release workflow on that tag.
+#
+# One at a time: the concurrency group queues a second green run behind a
+# release in progress instead of cancelling either, so merges that land while
+# one release builds collapse into the next. A tip that moved since CI ran is
+# left alone; the CI run for the new tip will bring its own release.
+#
+# The brake is the repository variable RELEASE_HOLD=1. While it is set this
+# job says so and does nothing.
+#
+# The tag is pushed with the workflow's own token, which is why the release
+# workflow is dispatched explicitly below: pushes made with that token do not
+# start workflows on their own. The bump commit edits crossplay-release.yml,
+# and GitHub refuses workflow-file changes from the default token on some
+# repositories; if that happens the push step fails loudly with the reason,
+# and a fine-grained token in the RELEASE_TOKEN secret fixes it.
+name: CrossPlay autorelease
+
+on:
+  workflow_run:
+    workflows: ["CrossPlay"]
+    types: [completed]
+    branches: [xteink]
+
+permissions:
+  contents: write
+  actions: write
+  pull-requests: read
+
+concurrency:
+  group: crossplay-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'xteink'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: xteink
+          fetch-depth: 0
+          fetch-tags: true
+          token: ${{ secrets.RELEASE_TOKEN || github.token }}
+
+      - name: Decide whether to release
+        id: gate
+        env:
+          VERIFIED: ${{ github.event.workflow_run.head_sha }}
+          HOLD: ${{ vars.RELEASE_HOLD }}
+        run: |
+          if [ "$HOLD" = "1" ]; then
+            echo "RELEASE_HOLD is set: not releasing. Clear the repository variable to resume."
+            echo "go=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          tip="$(git rev-parse HEAD)"
+          if [ "$tip" != "$VERIFIED" ]; then
+            echo "xteink moved past the commit CI verified ($VERIFIED -> $tip); the run for the new tip releases it."
+            echo "go=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          echo "go=true" >> "$GITHUB_OUTPUT"
+
+      - name: Write the version and the notes
+        id: notes
+        if: steps.gate.outputs.go == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts_local/release_notes.py --write | tee notes.out
+          next="$(grep '^NEXT_VERSION=' notes.out | cut -d= -f2)"
+          echo "next=$next" >> "$GITHUB_OUTPUT"
+          [ -n "$next" ] || echo "Nothing merged since the newest tag; nothing to release."
+
+      - name: Commit, tag, push
+        if: steps.gate.outputs.go == 'true' && steps.notes.outputs.next != ''
+        env:
+          NEXT: ${{ steps.notes.outputs.next }}
+        run: |
+          git config user.name "crossplay-release[bot]"
+          git config user.email "crossplay-release@users.noreply.github.com"
+          git add platformio.ini .github/workflows/crossplay-release.yml
+          git commit -m "chore: crossplay $NEXT" -m "Released by crossplay-autorelease after a green CI run on xteink."
+          git tag "v$NEXT"
+          if ! git push origin xteink "v$NEXT"; then
+            echo "::error::The push was refused. If the message names workflow permissions, add a fine-grained token with contents and workflows write as the RELEASE_TOKEN secret."
+            exit 1
+          fi
+          echo "Tagged v$NEXT at $(git rev-parse --short HEAD)"
+
+      - name: Build and publish the release
+        if: steps.gate.outputs.go == 'true' && steps.notes.outputs.next != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEXT: ${{ steps.notes.outputs.next }}
+        run: |
+          gh workflow run crossplay-release.yml --ref "v$NEXT"
+          echo "Dispatched crossplay-release.yml on v$NEXT; it builds and publishes."
