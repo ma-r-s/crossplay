@@ -22,13 +22,16 @@
 #include "activities/settings/OpdsFilterActivity.h"
 #include "activities/settings/OpdsServerListActivity.h"
 #include "activities/util/KeyboardEntryActivity.h"
+#include "components/BlockingFetchInput.h"
 #include "components/UIScale.h"
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
+#include "components/UiControlChrome.h"
 #include "components/icons/search32.h"
 #include "fontIds.h"
 #include "network/HttpDownloader.h"
 #include "util/BookCacheUtils.h"
+#include "util/OpdsCoverCache.h"
 #include "util/OpdsFilename.h"
 #include "util/StringUtils.h"
 #include "util/UrlUtils.h"
@@ -320,6 +323,12 @@ void OpdsBookBrowserActivity::screenHeader(UiScreen& screen, const bool withSear
     header.leadingIcon = listIconFor(UIIcon::Library, 32);
     header.leadingAction = ACTION_SETTINGS;
   }
+  // After BOTH ends are set, and unconditional. Screen::header() would
+  // otherwise give the catalog icon the theme's outlined button (a box around
+  // it, which is what was reported) and the search icon plainStyles (no
+  // acknowledgement of a tap at all). Neither end is a button; both are
+  // chrome, and they now draw and flash alike.
+  applyHeaderActionChrome(header);
   screen.header(header);
   // Same breathing room between header and content as the legacy screens.
   screen.spacer(static_cast<int16_t>(UITheme::getInstance().getMetrics().verticalSpacing));
@@ -681,13 +690,10 @@ void OpdsBookBrowserActivity::navigateBack() {
 }
 
 std::string OpdsBookBrowserActivity::cachedCoverPath() {
-  // Whatever extension the detail screen saved it under.
-  static constexpr const char* kExtensions[] = {".bmp", ".jpg", ".jpeg", ".png"};
-  for (const char* extension : kExtensions) {
-    std::string path = std::string("/.crosspoint/opds-cover") + extension;
-    if (Storage.exists(path.c_str())) return path;
-  }
-  return "";
+  // Whatever extension the detail screen saved it under. The probe order and
+  // the set the detail screen clears on entry are ONE list -- see
+  // util/OpdsCoverCache.h for the stale-cover bug that split them.
+  return opdscover::findCached(Storage);
 }
 
 void OpdsBookBrowserActivity::paintPrepareCover() {
@@ -742,17 +748,11 @@ void OpdsBookBrowserActivity::downloadBook(const OpdsEntry& book) {
       [this, &lastRenderedPercent, &lastProgressUpdateMs](const size_t downloaded, const size_t total) {
         downloadProgress = downloaded;
         downloadTotal = total;
-        // The activity loop is blocked for the whole download; pump input here
-        // so the Cancel button or a Back press can abort mid-transfer.
-        mappedInput.update();
-        if (mappedInput.wasReleased(MappedInputManager::Button::Back)) cancelDownload = true;
-        // This update() consumes the one-shot home event before the central
-        // ActivityManager dispatch can see it, so honor it here: abort the
-        // download, then exit to home once the abort unwinds.
-        if (mappedInput.wasHomeGesture()) {
-          cancelDownload = true;
-          goHomeAfterCancel = true;
-        }
+        // The activity loop is blocked for the whole download; this callback is
+        // the only place input is still read, so Back and the home gesture are
+        // answered here or not at all. Shared with the cover fetch on the
+        // detail screen -- see components/BlockingFetchInput.h.
+        pumpBlockingFetch(mappedInput, cancelDownload, goHomeAfterCancel);
         routeTouch(mappedInput);
         const int percent = total > 0 ? static_cast<int>(static_cast<uint64_t>(downloaded) * 100 / total) : 0;
         const unsigned long now = millis();

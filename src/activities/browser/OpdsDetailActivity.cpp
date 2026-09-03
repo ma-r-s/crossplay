@@ -14,10 +14,12 @@
 #include <vector>
 
 #include "MappedInputManager.h"
+#include "components/BlockingFetchInput.h"
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
 #include "components/icons/listIcons.h"
 #include "network/HttpDownloader.h"
+#include "util/OpdsCoverCache.h"
 #include "util/UrlUtils.h"
 
 namespace fui = freeink::ui;
@@ -92,13 +94,22 @@ void OpdsDetailActivity::fetchCover() {
     const size_t query = extension.find('?');
     if (query != std::string::npos) extension.resize(query);
   }
-  const std::string dest = "/.crosspoint/opds-cover" + extension;
-  Storage.remove(dest.c_str());  // a stale file would silently show the last book's art
-  if (HttpDownloader::downloadToFile(url, dest, nullptr, nullptr, server.username, server.password) ==
-      HttpDownloader::OK) {
+  const std::string dest = opdscover::pathFor(extension.c_str());
+  // The cache was cleared on entry, not here: a book with NO cover link never
+  // reaches this function, and that is precisely the case where the previous
+  // book's file is still on the card for the wait screen to find.
+  // The progress callback is the only code that runs while this blocks, so it
+  // is the only place Back can be seen. Without it the screen cannot be left
+  // until the cover lands, which reads as a frozen device.
+  // downloadToFile removes the partial file on ABORTED, so a cancel leaves
+  // nothing half-written on the card.
+  const auto result = HttpDownloader::downloadToFile(
+      url, dest, [this](const size_t, const size_t) { pumpBlockingFetch(mappedInput, coverCancelled, coverGoHome); },
+      &coverCancelled, server.username, server.password);
+  if (result == HttpDownloader::OK) {
     coverPath = dest;
   } else {
-    LOG_DBG("OPDS", "cover fetch failed: %s", url.c_str());
+    LOG_DBG("OPDS", "cover fetch %s: %s", result == HttpDownloader::ABORTED ? "cancelled" : "failed", url.c_str());
   }
 }
 
@@ -112,6 +123,11 @@ void OpdsDetailActivity::onEnter() {
   // on the panel with no response at all -- indistinguishable from a crash,
   // and readers reported it as one. The screen goes up first; the cover
   // arrives in a later frame, which is what the placeholder is for.
+  // Unconditional, and before anything decides whether to fetch. The cached
+  // cover is per-DEVICE, not per-book: entering any book's detail screen
+  // invalidates whatever the last one left, and a book with no cover link is
+  // the case that has no other chance to clear it.
+  opdscover::clearAll(Storage);
   coverPending = !entry.coverHref.empty();
   // The author field is where the catalog packs its metadata, so it is the
   // meta line as-is rather than something reassembled here.
@@ -326,6 +342,20 @@ void OpdsDetailActivity::loop() {
     // pass, which would wedge the screen for as long as the reader stayed.
     coverPending = false;
     fetchCover();
+    if (coverCancelled) {
+      // The Back that arrived mid-fetch. It was read inside the progress
+      // callback, so the check at the top of loop() will never see it: acting
+      // on it here is what makes that press mean anything.
+      if (coverGoHome) {
+        onGoHome();
+        return;
+      }
+      ActivityResult cancelled;
+      cancelled.isCancelled = true;
+      setResult(std::move(cancelled));
+      finish();
+      return;
+    }
     coverAvailable = !coverPath.empty() && Storage.exists(coverPath.c_str());
     requestUpdate();
   }
