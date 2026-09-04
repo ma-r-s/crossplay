@@ -136,11 +136,19 @@ classify() {
 
     # THE ONE WORKFLOW THAT PUBLISHES. crossplay-release.yml builds both
     # devices, merges the images and uploads the assets a person downloads;
-    # PR #42's fix for the missing bootloader lived here. Every other workflow
-    # verifies (crossplay-ci.yml, ci.yml, pr-formatting-check.yml), schedules
-    # (crossplay-autorelease.yml decides WHEN, never what) or rebuilds the
-    # website (crossplay-emulator.yml). Checked rather than assumed: it is the
-    # only workflow in the tree that references a release-publishing action.
+    # PR #42's fix for the missing bootloader lived here.
+    #
+    # Checked rather than assumed, over all eight workflow files: it is the
+    # only one carrying softprops/action-gh-release, the only action in the
+    # tree that writes a GitHub release. The rest either verify
+    # (crossplay-ci.yml, ci.yml, pr-formatting-check.yml), schedule
+    # (crossplay-autorelease.yml decides WHEN, never what), or rebuild the
+    # website (crossplay-emulator.yml, which commits site/emulator/ -- the
+    # website deploys continuously and is not part of a release). Upstream's
+    # release.yml and release_candidate.yml do upload, but to
+    # actions/upload-artifact: files attached to a workflow RUN, which nobody's
+    # updater ever asks for, and both are filtered to tags this fork never
+    # creates besides.
     #
     # This is the whole of card #190's fix, and the separation is a file rather
     # than a judgement about a file's contents -- which is why it is clean. A
