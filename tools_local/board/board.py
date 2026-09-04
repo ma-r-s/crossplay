@@ -18,6 +18,7 @@ file store so the hooks never need the network.
     board orchestrator --name Main --session <id> [--app-id local_<id>]   who Mario's questions go through
     board integrator --session <id> [--release]       who may write firmware-next
     board dispatcher --name Dispatch --session <id>   the session Mario talks to; may message anyone
+    board pulse [add <host> <GET|POST> <url> <alive> <app> | remove <host>]   what the board probes every 30 min
     board new "<title>" --from <app> [--kind bug|feature|task] [--body "..."] [--parent <id>]
     board parent <id> --of <parent>                    put a card under another (subtasks)
     board bind <id> --session <sid> [--tree wt/x] [--branch app/x]
@@ -556,6 +557,32 @@ def cmd_init(st, a):
     print(f"board: ready ({st.name})")
 
 
+def cmd_pulse(st, a):
+    """The hosts the board probes every 30 minutes (pulse_targets)."""
+    if not hasattr(st, "_req"):
+        print("board: the pulse runs on the board; listing or changing its hosts needs the Supabase store (.board/supabase.env)")
+        return
+    if a.action == "add":
+        if not (a.host and a.method and a.url and a.alive and a.app):
+            sys.exit("usage: board pulse add <host> <GET|POST> <url> <alive> <app>")
+        st._req("POST", "pulse_targets", {"host": a.host, "method": a.method.upper(), "url": a.url,
+                                          "alive": a.alive, "app": a.app, "enabled": True},
+                prefer="resolution=merge-duplicates,return=minimal")
+        print(f"board: pulse probes {a.host} ({a.method.upper()} {a.url}, alive {a.alive}) for {a.app}")
+        return
+    if a.action == "remove":
+        if not a.host:
+            sys.exit("usage: board pulse remove <host>")
+        st._req("DELETE", f"pulse_targets?host=eq.{a.host}", prefer="return=minimal")
+        print(f"board: pulse no longer probes {a.host}")
+        return
+    rows = st._req("GET", "pulse_targets?select=*&order=host") or []
+    print(f"{'HOST':<10} {'METHOD':<6} {'ALIVE':<12} {'APP':<11} URL")
+    for r in rows:
+        flag = "" if r.get("enabled", True) else "  (disabled)"
+        print(f"{r['host']:<10} {r['method']:<6} {r['alive']:<12} {r['app']:<11} {r['url']}{flag}")
+
+
 def cmd_orchestrator(st, a):
     with st.lock():
         st.set_claim("orchestrator", norm_sid(a.session), a.name, norm_sid(a.app_id) or None)
@@ -1045,6 +1072,14 @@ def main(argv=None):
 
     sub.add_parser("init").set_defaults(fn=cmd_init)
     app_help = "the desktop app's local_... id (get_session self), so messages addressed that way reach you"
+    s = sub.add_parser("pulse")
+    s.add_argument("action", nargs="?", default="list", choices=["list", "add", "remove"])
+    s.add_argument("host", nargs="?")
+    s.add_argument("method", nargs="?")
+    s.add_argument("url", nargs="?")
+    s.add_argument("alive", nargs="?")
+    s.add_argument("app", nargs="?")
+    s.set_defaults(fn=cmd_pulse)
     s = sub.add_parser("orchestrator")
     s.add_argument("--name", required=True)
     s.add_argument("--session", required=True)
