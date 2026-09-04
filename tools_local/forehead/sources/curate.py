@@ -257,10 +257,17 @@ ADD = {
         "MERLIN", "HERCULES", "ZEUS", "NOAH", "MOSES", "ADAM AND EVE",
         "BUDDHA", "GALILEO", "ISAAC NEWTON", "CHARLES DARWIN",
     ],
+    # PLACES is geography: countries, cities, landmarks, natural features. The
+    # everyday venues that used to seed it (SUPERMARKET, FARM, HOSPITAL, ...)
+    # were added as an easy tier and contradicted the category's own hint,
+    # "PLACES AND LANDMARKS". They live in kids now, which is where an easy
+    # thing-you-can-point-at belongs.
     "places": [
-        "BEACH", "PARK", "SCHOOL", "HOSPITAL", "AIRPORT", "STATION", "MUSEUM",
-        "LIBRARY", "ZOO", "FARM", "CHURCH", "CASTLE", "BRIDGE", "MARKET",
-        "RESTAURANT", "HOTEL", "CINEMA", "SUPERMARKET", "BANK", "POST OFFICE",
+        "MACHU PICCHU", "MOUNT FUJI", "NIAGARA FALLS", "VICTORIA FALLS",
+        "KILIMANJARO", "SANTORINI", "PRAGUE", "BUDAPEST", "COPENHAGEN",
+        "MARRAKESH", "PATAGONIA", "GALAPAGOS", "YELLOWSTONE",
+        "MOUNT RUSHMORE", "ANGKOR WAT", "PETRA", "THE LOUVRE",
+        "GREAT BARRIER REEF", "PANAMA CANAL", "BORA BORA",
     ],
     "science": [
         "ROCKET", "PLANET", "STAR", "MOON", "SUN", "EARTH", "GRAVITY",

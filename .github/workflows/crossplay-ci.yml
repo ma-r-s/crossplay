@@ -112,6 +112,12 @@ jobs:
       # stack and crashed on the first device that ever ran it. Nothing here
       # measured stack, and nothing on a host could: frame sizes belong to the
       # target ABI. This reads the numbers the firmware compiler just emitted.
+      #
+      # Both checks now read build directories that nothing between them
+      # removes. stack_budget.py refuses rather than passing empty -- it exits
+      # on no frames and fails a task whose entry is missing -- so the old
+      # arrangement would have gone red rather than quiet. That is why this is
+      # a fragility fix and not a bug fix.
       - name: Stack fits its task (x4pro)
         run: python3 scripts_local/stack_budget.py --build-dir .pio/build/gh_release_x4pro
 
