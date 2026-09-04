@@ -55,6 +55,12 @@ class OpdsDetailActivity final : public Activity, private UiAppHost {
   // whole fetch and the app reads as hung.
   bool coverPending = false;
   bool framePresented = false;
+  // Written from inside the fetch's progress callback, which is the only code
+  // that runs while the transfer blocks the loop. HttpDownloader reads
+  // coverCancelled as its cancel flag and drops the partial file; loop() acts
+  // on it once the abort unwinds.
+  bool coverCancelled = false;
+  bool coverGoHome = false;
   // Where buildScreen() reserved the cover. The image is painted after
   // renderUi() flushes the screen tree, which would otherwise paint over it.
   freeink::ui::Rect coverRect{};
