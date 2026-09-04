@@ -35,7 +35,12 @@ PlayBase::Ending toEnding(const Session::EndReason reason) {
 
 }  // namespace
 
-Transport& PlayBase::link() { return testLink_ != nullptr ? *testLink_ : radio_; }
+Transport& PlayBase::link() {
+  // Two statements, not a conditional expression: cppcheck reads the ternary
+  // over two lvalue types as a temporary and flags a dangling reference.
+  if (testLink_ != nullptr) return *testLink_;
+  return radio_;
+}
 
 bool PlayBase::start(const GameId gameId, const char* yourName) {
   stop();

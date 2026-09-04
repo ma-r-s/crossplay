@@ -21,8 +21,10 @@ on:
   push:
     tags:
       - "v*"
-  # Dispatched by crossplay-autorelease.yml on the tag it just pushed, because
-  # a tag pushed with the workflow token starts nothing on its own.
+  # Also dispatchable by hand, and by crossplay-autorelease.yml -- but only
+  # when it pushed the tag with GITHUB_TOKEN, which starts nothing on its own.
+  # With RELEASE_TOKEN set the push above IS the trigger, and autorelease skips
+  # its dispatch; doing both built v1.12.16 twice, concurrently, for nothing.
   workflow_dispatch:
 
 permissions:

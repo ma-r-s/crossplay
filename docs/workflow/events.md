@@ -199,6 +199,84 @@ and GitHub does not run `schedule:` workflows in forks (five slots passed
 in silence with the workflow "active"). `workflow_dispatch` was never
 affected, but a pulse that has to be dispatched is not a pulse.
 
+## The release watcher: what looks at the pipeline
+
+The same machinery, pointed at the release chain
+(`20260904001200_release_watch.sql`, `relwatch_fire` at :10 and :40,
+`relwatch_collect` three minutes later). It exists because on 2026-09-04 two
+releases failed, four workflow runs over five hours, and every visible signal
+said healthy: the autorelease reported success (correctly, its own three steps
+worked), tags appeared, the board stayed clean, and a session read a bump commit
+and told Mario 1.12.15 had shipped. The only detector in the system was Mario's
+e-reader saying there was no update. Automating the release automated away its
+only observer.
+
+Four unauthenticated GitHub requests per pass -- the runs of
+`crossplay-release.yml` and `crossplay-autorelease.yml`, `/releases/latest`, and
+the newest commits on `xteink` -- and four things it says:
+
+There are two layers and they do not touch. The **health verdict**
+(`release|owed|<version>`) asks one question -- the pipeline said it was
+shipping X, is X published? -- and the **hygiene finding**
+(`release|dup|<version>`) reports more than one run on a tag without being any
+evidence about whether the release worked.
+
+| What it sees                                                    | When it says so                                   |
+| --------------------------------------------------------------- | ------------------------------------------------- |
+| A tag whose every run has ended and none succeeded, unpublished  | at once, no clock at all                          |
+| A `chore: crossplay X` bump, or a tag with a run, and nothing building it | 15 minutes (a build starts within 3 seconds) |
+| A tag still building, or built green, and still unpublished      | 60 minutes (48/48 healthy releases took under 20) |
+| An autorelease run that ended anything but `success`/`skipped`   | at once: no release was even started              |
+| More than one run on one tag (hygiene, not health)               | at once, on its own card                          |
+| No answer out of GitHub at all                                   | 3 hours, six missed passes                        |
+
+**A tag's runs are resolved as a set and no single run is ever the verdict.**
+One finishing does not mean the release is done while a sibling is still going;
+one failing does not mean the release failed, because another may be the one
+that published; and a version at or below the newest published release has
+shipped whatever its runs did. A set of one is a set -- nothing requires or
+assumes two. That matters because on 2026-09-04 a tag produced two runs
+(v1.12.16: 33884760714 by push and 33884760111 by dispatch, the same second,
+both green), and judging either alone would have called a healthy release
+broken the moment one lost the race to publish the same assets.
+
+The duplicate is reported separately because it is invisible to every other
+signal: both runs exit 0, every step reports success, and the losing upload
+clobbers identical bytes built from the same commit, so "did a run fail" and
+"do the assets exist" both read healthy. Multiplicity is the only observable
+there is, and after the dispatch was made conditional on `RELEASE_TOKEN` a
+second run means that guard regressed.
+
+The clocks are measured, not chosen: the 53 runs of `crossplay-release.yml`
+published 48 releases, the slowest 19.9 minutes after its run was created, and
+the longest any run ever occupied -- including a 16.9-minute wait for a runner
+-- is 29.4 minutes. Sixty is twice the worst ever seen, and a generous margin is
+cheap because it is only the backstop: a failed build is reported without
+waiting for anything.
+
+Three things it deliberately does not do. It does not collapse: each release
+attempt is its own card, because the fault was that it failed and said nothing,
+four times over. Two runs of ONE tag are one attempt and collapse correctly;
+1.12.14 and 1.12.15 are two attempts and never merge. It does not treat an empty `conclusion` as a
+success -- a run that is `completed` carrying no conclusion is *not knowing*,
+and not knowing for longer than a release has ever taken is itself a fault. And
+it does not confuse an old failure with a new one: every fault key it has
+adjudicated is in `release_seen`, and the pass that arrives adjudicates the
+history silently rather than opening a backlog. Arming requires having actually
+seen GitHub, because a pass that saw nothing and armed anyway makes the pass
+after it read the whole record as new.
+
+It counts bump commits rather than tags on purpose: a tag deleted after a failed
+build (which is what happened to v1.12.15) takes the evidence with it, and
+`release_pending` remembers an owed version so it does not go quiet when its
+bump scrolls out of the commit window. An owed version publishing posts the
+`info` event that closes its own card.
+
+`board release` says whether it is armed, when it last got an answer, and what
+it is still owed. `host-tests/relwatch` drives the whole decision on a real
+postgres running these same migrations, against the captured API payloads of
+that morning.
+
 ## The sync run
 
 The daily upstream-sync routine ends every run with one

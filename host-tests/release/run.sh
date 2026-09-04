@@ -880,6 +880,15 @@ fi
 
 # One pio run invocation for both devices, and the reason is three files away.
 #
+# Read this before deciding a local gate would have caught it: it could not,
+# structurally. check.sh builds one environment at a time, in a tree that
+# already contains the generated headers. The wipe needs a SECOND pio run in a
+# tree where the first one created them -- which is a fresh checkout, i.e. CI
+# and only CI. The gate was blind to the exact failure it exists to prevent,
+# and stayed green through four failed releases while being blind to it. That
+# is why this assertion lives here, reading the workflow text, rather than
+# being left to a build that cannot reach the condition.
+#
 # pio run calls clean_build_dir() once per invocation against the whole
 # .pio/build root, and rmtree's it when compute_project_checksum() differs from
 # the stored one. That checksum covers the .h files under src/ and include/,
@@ -898,6 +907,42 @@ if [ "$runs" -eq 1 ] && grep -q "pio run -e gh_release_x4pro -e gh_release_stick
 else
   failed=$((failed + 1))
   echo "FAIL release  the release must build both devices in ONE pio run invocation (found $runs); a second invocation wipes the first one's .pio/build"
+fi
+
+# The release must not be started twice for one tag.
+#
+# crossplay-release.yml triggers on a tag push AND on workflow_dispatch. A tag
+# pushed with GITHUB_TOKEN starts nothing, so autorelease dispatches; a tag
+# pushed with RELEASE_TOKEN starts it, and dispatching as well builds the same
+# tag twice. v1.12.16 did: event=push and event=workflow_dispatch, one second
+# apart, both ~14 minutes, both exiting 0 having raced to publish the same
+# assets. Silent in both directions, which is why it needs asserting.
+checks=$((checks + 1))
+AR="$ROOT/.github/workflows/crossplay-autorelease.yml"
+if ! grep -q "gh workflow run crossplay-release.yml" "$AR"; then
+  ok  # nothing dispatches, so nothing can double up
+elif grep -q "RELEASE_TOKEN != ''" "$AR"; then
+  ok
+else
+  failed=$((failed + 1))
+  echo "FAIL release  crossplay-autorelease.yml dispatches crossplay-release.yml unconditionally; with RELEASE_TOKEN set the tag push starts it too, and the tag builds twice"
+fi
+
+# And the other direction, which is worse. Skipping the dispatch is only safe
+# because the tag push starts the build instead. Remove that trigger and
+# NOTHING starts it: no duplicate, no build, no release, and no error either --
+# strictly worse than the double build this guards against. So the skip and the
+# trigger are asserted together, or the skip is not safe to assert at all.
+checks=$((checks + 1))
+if grep -q "secrets.RELEASE_TOKEN" "$AR"; then
+  if awk '/^on:/,/^jobs:/' "$WF" | grep -q '"v\*"'; then
+    ok
+  else
+    failed=$((failed + 1))
+    echo "FAIL release  autorelease skips its dispatch when RELEASE_TOKEN is set, but crossplay-release.yml has no push trigger on v* tags, so nothing would start the build at all"
+  fi
+else
+  ok
 fi
 
 echo "$checks checks, $failed failed"
