@@ -5,7 +5,9 @@
 # can reach a device image has merged since the newest tag, this bumps [crossplay] version, rewrites the
 # "What is new" block in docs/release-notes.md from the merged pull requests'
 # own lines (scripts_local/release_notes.py), commits, tags, and dispatches
-# the release workflow on that tag.
+# the release workflow on that tag. Only the pull requests that can reach a
+# device image become lines -- the same rule the gate below uses -- and the
+# rest are named in this job's log rather than in the notes.
 #
 # One at a time: the concurrency group queues a second green run behind a
 # release in progress instead of cancelling either, so merges that land while
