@@ -424,7 +424,7 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   // belongs beside their face in the capsule, not in the chrome.
   header.title = "KNUCKLEBONES";
   header.borderEdges = fui::EdgesNone;
-  screen.header(header);
+  toybox::headerBand(screen, header);
 
   // The same 16px bottom margin every other screen here has, so the capsule
   // sits off the bezel instead of in it. This screen shipped without one.
@@ -527,7 +527,7 @@ void buildResult(toybox::Screen& screen, const ResultModel& model) {
   fui::HeaderProps header;
   header.title = drew ? "A DRAW" : (won ? "YOU WIN" : "THEY WIN");
   header.borderEdges = fui::EdgesNone;
-  screen.header(header);
+  toybox::headerBand(screen, header);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 
   char line[48];

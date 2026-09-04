@@ -40,6 +40,7 @@
 #include "../../src/apps_local/ui/ToyboxIcons.h"
 #include "../../src/apps_local/ui/ToyboxText.h"
 #include "../../src/apps_local/wavelength/WavelengthScreens.h"
+#include "../../src/apps_local/xkcd/XkcdScreens.h"
 
 namespace fui = freeink::ui;
 
@@ -7721,7 +7722,178 @@ void testTriviaAlwaysOffersAWayOut() {
   }
 }
 
+// --- the header band under the bezel ---------------------------------------
+//
+// Every other test in this file builds against device(), whose safeArea is
+// empty -- which pins the same geometry with and without the glass BY
+// CONSTRUCTION, and is exactly why nothing here could see this. The X4 Pro's
+// bezel covers the panel's top ten rows and one column each side
+// (docs/bezel-insets.md), and a band that starts painting below them leaves
+// paper where the eye expects ink. Head-on that strip is under the glass and
+// invisible; from below, the glass sits above the panel and the eye sees past
+// its edge, so a white line appears over every black header in the fork. Mario
+// reported it off-axis on APPS and GAMES; it was on every toybox band in the
+// fork -- 41 call sites across 27 files.
+
+// The X4 Pro's frame WITH its measured insets. Only a context that has them can
+// fail the checks below.
+fui::DeviceContext bezelDevice() {
+  fui::DeviceContext ctx = device();
+  ctx.safeArea = fui::Insets{10, 1, 0, 1};
+  return ctx;
+}
+
+bool blackPaintCovers(const FakeTarget& target, const int16_t x, const int16_t y) {
+  for (size_t i = 0; i < target.fills.size() && i < target.fillPaints.size(); ++i) {
+    const fui::Paint& paint = target.fillPaints[i];
+    if (paint.kind == fui::PaintKind::Solid && paint.color == fui::Color::Black && target.fills[i].contains(x, y)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// No paper anywhere in the covered rows, across the full panel width. Asserted
+// per pixel row rather than as one rect: the band is assembled from more than
+// one fill, and what matters is the union leaving no gap.
+void checkBandReachesThePanelTop(const FakeTarget& target, const char* what) {
+  const fui::DeviceContext ctx = bezelDevice();
+  bool covered = true;
+  for (int16_t y = 0; y < ctx.safeArea.top; ++y) {
+    for (const int16_t x :
+         {static_cast<int16_t>(0), static_cast<int16_t>(ctx.width / 2), static_cast<int16_t>(ctx.width - 1)}) {
+      if (!blackPaintCovers(target, x, y)) covered = false;
+    }
+  }
+  check(covered, what, __LINE__);
+}
+
+template <typename Model, void (*Build)(toybox::Screen&, const Model&)>
+void renderWithBezel(Rendered& out, const Model& model) {
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, bezelDevice(), noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  Build(screen, model);
+}
+
+void testNoPaperAboveAnyHeaderBand() {
+  // The shelf: absolute chrome, the band's bottom pinned at kHeaderHeight. This
+  // is the screen Mario was looking at.
+  {
+    fui::ListItem items[2] = {};
+    items[0].label = "CHESS";
+    items[1].label = "BATTLESHIP";
+    shelfui::MenuModel model;
+    model.title = "GAMES";
+    model.items = items;
+    model.count = 2;
+    Rendered out;
+    renderWithBezel<shelfui::MenuModel, shelfui::buildMenu>(out, model);
+    checkBandReachesThePanelTop(out.target, "shelf folder: band reaches the panel top");
+  }
+
+  // The five game screens that took their band from the safe rect instead, so
+  // it was inset on three sides: a white strip above it AND a white column down
+  // each side. Their menus never were, which is what made the seam show up
+  // between a game's own screens.
+  {
+    c4ui::BoardModel model;
+    connectfour::start(model.game);
+    model.open = connectfour::openColumns(model.game);
+    Rendered out;
+    renderWithBezel<c4ui::BoardModel, c4ui::buildBoard>(out, model);
+    checkBandReachesThePanelTop(out.target, "connect four board: band reaches the panel top");
+  }
+  {
+    checkui::BoardModel model;
+    checkers::start(model.game);
+    Rendered out;
+    renderWithBezel<checkui::BoardModel, checkui::buildBoard>(out, model);
+    checkBandReachesThePanelTop(out.target, "checkers board: band reaches the panel top");
+  }
+  {
+    mineui::BoardModel model;
+    Rendered out;
+    renderWithBezel<mineui::BoardModel, mineui::buildBoard>(out, model);
+    checkBandReachesThePanelTop(out.target, "minesweeper board: band reaches the panel top");
+  }
+  {
+    knuckleui::BoardModel model;
+    Rendered out;
+    renderWithBezel<knuckleui::BoardModel, knuckleui::buildBoard>(out, model);
+    checkBandReachesThePanelTop(out.target, "knucklebones board: band reaches the panel top");
+  }
+  {
+    xkcdui::MenuModel model;
+    Rendered out;
+    renderWithBezel<xkcdui::MenuModel, xkcdui::buildMenu>(out, model);
+    checkBandReachesThePanelTop(out.target, "xkcd menu: band reaches the panel top");
+  }
+}
+
+// The other half of the split: paint bleeds under the glass, ink does not. A
+// band filled to row 0 by a fix that also moved the title up there would pass
+// the check above and be a worse bug than the one it closed.
+void testTheHeaderTitleStaysOutOfTheCoveredRows() {
+  fui::ListItem items[1] = {};
+  items[0].label = "CHESS";
+  shelfui::MenuModel model;
+  model.title = "GAMES";
+  model.items = items;
+  model.count = 1;
+
+  Rendered out;
+  renderWithBezel<shelfui::MenuModel, shelfui::buildMenu>(out, model);
+  const FakeTarget::TextRun* title = out.target.find("GAMES");
+  CHECK(title != nullptr);
+  if (title != nullptr) {
+    // Centred in the VISIBLE part, not in the whole band: equal air above and
+    // below, measured from the bezel's safe top rather than from row 0. Filling
+    // the band to row 0 and centring the title over all of it passes every
+    // coverage check above and drops the title's air into rows nobody can see,
+    // which is the bug this fix could easily have introduced.
+    const fui::Rect ink = inkBandOf(*title);
+    const int above = ink.y - bezelDevice().safeArea.top;
+    const int below = toybox::kHeaderHeight - ink.bottom();
+    CHECK(above > 0);
+    CHECK(above - below <= 1 && below - above <= 1);
+  }
+}
+
+// And the third: the band's BOTTOM edge is what every layout below it is tuned
+// against, so widening the paint upward must not move it. Under absolute chrome
+// that edge is kHeaderHeight, with or without the glass.
+void testTheHeaderBandBottomIgnoresTheBezel() {
+  fui::ListItem items[1] = {};
+  items[0].label = "CHESS";
+  shelfui::MenuModel model;
+  model.title = "GAMES";
+  model.items = items;
+  model.count = 1;
+
+  Rendered bare;
+  {
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(bare.target, device(), noInput, bare.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    shelfui::buildMenu(screen, model);
+  }
+  Rendered glassed;
+  renderWithBezel<shelfui::MenuModel, shelfui::buildMenu>(glassed, model);
+
+  const FakeTarget::TextRun* bare0 = bare.target.find("CHESS");
+  const FakeTarget::TextRun* glassed0 = glassed.target.find("CHESS");
+  CHECK(bare0 != nullptr);
+  CHECK(glassed0 != nullptr);
+  if (bare0 != nullptr && glassed0 != nullptr) {
+    CHECK(bare0->rect.y == glassed0->rect.y);
+  }
+}
+
 int main() {
+  testNoPaperAboveAnyHeaderBand();
+  testTheHeaderTitleStaysOutOfTheCoveredRows();
+  testTheHeaderBandBottomIgnoresTheBezel();
   testTriviaOptionsCarryTheirIndex();
   testTriviaAlwaysOffersAWayOut();
   testTriviaDrawsNoOptionsWithoutAQuestion();
