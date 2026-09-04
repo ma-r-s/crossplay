@@ -134,3 +134,41 @@ Each service has a card on the board naming the events it should post and
 where in its code. The firmware heartbeat is `src/network`; Get Books, the
 Anki bridge and the Instapaper bridge post from the pi; the site posts
 `install` and `report`. The pipe is built; the sending is the owner's.
+
+## The pulse: what looks from outside
+
+A service that is down posts nothing, and on this table "no events" reads
+as "no usage". So one thing looks from outside: `server/pulse/pulse.sh`,
+run by `.github/workflows/crossplay-pulse.yml` every 30 minutes on GitHub's
+runners, probes every line of `server/pulse/hosts.txt` and posts one
+`pulse`/`probe` event per host, `info` when the host answers with a status
+its line allows, `error` otherwise. The error carries a fixed fingerprint
+per host, so an outage is one card however long it lasts, and a fresh card
+when it comes back after the first was closed. The same run checks the
+daily upstream sync: upstream commits xteink lacks, older than 30 hours,
+with no `sync/upstream-*` pull request open, is an error.
+
+**When your service goes live, add its line to `hosts.txt`** with the
+method, the path, and the status it really answers there (a 401 from a
+Basic-auth root is fine, and is what proves the service is up). A host
+listed before it exists opens a card every half hour.
+
+## The workflow's own numbers
+
+The board watches itself through five views: `pulse_hosts` (up now, uptime
+and median latency per host, 7 days), `workflow_weekly` (cards opened and
+closed, asks to Mario and his answers, error cards, hook refusals,
+releases, by week), `state_dwell` (hours a card sits in each state, 30
+days), `inbox_latency` (what waits on Mario now, and how long an answer
+takes), `open_cards_by_app`. The hooks post a `workflow`/`refusal` event on
+every refusal and write the same line to `<workspace>/.board/refusals.log`;
+that count is the one that says whether the rules teach or merely obstruct.
+
+## Retention
+
+Raw events are kept 90 days. A nightly job (`pg_cron`, 04:17 UTC, in
+`20260903000600_observability.sql`) folds the days before today into
+`events_rollup` (day, service, event, level, count, distinct devices) and
+deletes the raw rows past 90 days. `error_fingerprints` keeps its counts
+regardless. Anything that wants a number older than 90 days reads the
+rollup.

@@ -15,14 +15,15 @@ Supabase store mirrors claims, session bindings and bound cards into the
 file store so the hooks never need the network.
 
     board init
-    board orchestrator --name Main --session <id>     who Mario's questions go through
+    board orchestrator --name Main --session <id> [--app-id local_<id>]   who Mario's questions go through
     board integrator --session <id> [--release]       who may write firmware-next
+    board dispatcher --name Dispatch --session <id>   the session Mario talks to; may message anyone
     board new "<title>" --from <app> [--kind bug|feature|task] [--body "..."] [--parent <id>]
     board parent <id> --of <parent>                    put a card under another (subtasks)
     board bind <id> --session <sid> [--tree wt/x] [--branch app/x]
     board block <id> --session <sid> --need desk|design|info|mario --ask "..." --default "..."
     board unblock <id> [--n N]
-    board ask <id> --ask "..." --default "..."        orchestrator only (the hook enforces it)
+    board ask <id> --ask "..." --default "..." [--steps "1. ...\n2. ..."]   orchestrator only; steps for a thing to do
     board answer <id> "<choice>" [--note "..."]
     board state <id> reported|triaged|working|review|merged|released|done|parked
     board owner <app> [--session <sid>] [--tree wt/x]  who owns an app (lookup with no flags)
@@ -206,10 +207,12 @@ class FileStore:
     def claim(self, name):
         return self._read(self.dir / f"{name}.json") or {}
 
-    def set_claim(self, name, session, display_name=None):
+    def set_claim(self, name, session, display_name=None, app_session=None):
         d = {"session_id": session, "since": now()}
         if display_name:
             d["name"] = display_name
+        if app_session:
+            d["app_session"] = app_session
         self._write(self.dir / f"{name}.json", d)
 
     def del_claim(self, name):
@@ -287,6 +290,7 @@ class SupaStore:
                     "open": b["open"],
                     "created": b["created_at"],
                     "by": b.get("by_session"),
+                    "steps": b.get("steps"),
                     "answer": ans,
                 }
             )
@@ -368,6 +372,7 @@ class SupaStore:
                     "default": b.get("default", ""),
                     "open": b.get("open", True),
                     "by_session": b.get("by"),
+                    "steps": b.get("steps"),
                     "created_at": b.get("created") or now(),
                     "answer_choice": (b.get("answer") or {}).get("choice"),
                     "answer_note": (b.get("answer") or {}).get("note"),
@@ -405,7 +410,7 @@ class SupaStore:
             "POST", "history", {"card_id": cid, "what": what}, prefer="return=minimal"
         )
 
-    def add_blocker(self, cid, need, ask, default, by):
+    def add_blocker(self, cid, need, ask, default, by, steps=None):
         c = self.get_card(cid)
         n = 1 + max([b["n"] for b in c["blockers"]] + [0])
         self._req(
@@ -417,7 +422,7 @@ class SupaStore:
                 "need": need,
                 "ask": ask,
                 "default": default,
-                "by_session": by,
+                "by_session": by, "steps": steps,
             },
             prefer="return=minimal",
         )
@@ -478,9 +483,10 @@ class SupaStore:
             "session_id": r["session"],
             "since": r["since"],
             "name": r.get("display_name"),
+            "app_session": r.get("app_session"),
         }
 
-    def set_claim(self, name, session, display_name=None):
+    def set_claim(self, name, session, display_name=None, app_session=None):
         self._req(
             "POST",
             "claims",
@@ -488,11 +494,12 @@ class SupaStore:
                 "name": name,
                 "session": session,
                 "display_name": display_name,
+                "app_session": app_session,
                 "since": now(),
             },
             prefer="resolution=merge-duplicates,return=minimal",
         )
-        self.mirror.set_claim(name, session, display_name)
+        self.mirror.set_claim(name, session, display_name, app_session)
 
     def del_claim(self, name):
         self._req("DELETE", f"claims?name=eq.{name}", prefer="return=minimal")
@@ -551,8 +558,14 @@ def cmd_init(st, a):
 
 def cmd_orchestrator(st, a):
     with st.lock():
-        st.set_claim("orchestrator", norm_sid(a.session), a.name)
-    print(f"board: orchestrator is {a.name} ({norm_sid(a.session)})")
+        st.set_claim("orchestrator", norm_sid(a.session), a.name, norm_sid(a.app_id) or None)
+    print(f"board: orchestrator is {a.name} ({norm_sid(a.session)}{', app ' + norm_sid(a.app_id) if a.app_id else ''})")
+
+
+def cmd_dispatcher(st, a):
+    with st.lock():
+        st.set_claim("dispatcher", norm_sid(a.session), a.name, norm_sid(a.app_id) or None)
+    print(f"board: dispatcher is {a.name} ({norm_sid(a.session)}{', app ' + norm_sid(a.app_id) if a.app_id else ''})")
 
 
 def cmd_integrator(st, a):
@@ -570,7 +583,7 @@ def cmd_integrator(st, a):
             sys.exit(
                 f"board: integration tree is held by {cur.get('session_id')} since {cur.get('since')}; wait or ask the orchestrator"
             )
-        st.set_claim("integrator", norm_sid(a.session))
+        st.set_claim("integrator", norm_sid(a.session), None, norm_sid(a.app_id) or None)
     print(f"board: integration tree claimed by {norm_sid(a.session)}")
 
 
@@ -610,10 +623,10 @@ def cmd_bind(st, a):
     print(f"#{c['id']} bound to {sid}")
 
 
-def _block(st, cid, need, ask, default, by):
+def _block(st, cid, need, ask, default, by, steps=None):
     c = st.get_card(cid)
     if isinstance(st, SupaStore):
-        n = st.add_blocker(cid, need, ask, default, by)
+        n = st.add_blocker(cid, need, ask, default, by, steps)
         st.add_history(cid, f"blocked ({need}): {ask}")
         if c.get("session"):
             st.mirror.save_card(st.get_card(cid))
@@ -627,7 +640,7 @@ def _block(st, cid, need, ask, default, by):
                 "default": default,
                 "open": True,
                 "created": now(),
-                "by": by,
+                "by": by, "steps": steps,
                 "answer": None,
             }
         )
@@ -638,13 +651,13 @@ def _block(st, cid, need, ask, default, by):
 
 def cmd_block(st, a):
     with st.lock():
-        c, n = _block(st, a.id, a.need, a.ask, a.default, norm_sid(a.session))
+        c, n = _block(st, a.id, a.need, a.ask, a.default, norm_sid(a.session), a.steps)
     print(f"#{c['id']} blocked on {a.need}: {a.ask}")
 
 
 def cmd_ask(st, a):
     with st.lock():
-        c, n = _block(st, a.id, "mario", a.ask, a.default, "orchestrator")
+        c, n = _block(st, a.id, "mario", a.ask, a.default, "orchestrator", a.steps)
     print(f"#{c['id']} asked Mario: {a.ask}")
 
 
@@ -829,6 +842,8 @@ def fmt_card(c, full=False):
         lines.append(
             f"  blocker {b['n']} [{b['need']}, {st_}] {b['ask']}  | if nothing: {b['default']}"
         )
+        if b.get("steps"):
+            lines.append("    how: " + " / ".join(l.strip() for l in str(b["steps"]).splitlines() if l.strip()))
     for h in c.get("history", [])[-6:]:
         lines.append(f"  {h['at']}  {h['what']}")
     return "\n".join(lines)
@@ -875,6 +890,10 @@ def cmd_inbox(st, a):
                     print(f"  Since: {since}")
                 print(f"  Need from you: {b['ask']}")
                 print(f"  If you do nothing: {b['default']}")
+                if b.get("steps"):
+                    for line in str(b["steps"]).splitlines():
+                        if line.strip():
+                            print(f"  How: {line.strip()}")
                 print(f"  Answer: board answer {c['id']} '<choice>'")
                 print()
     if not n:
@@ -1009,7 +1028,7 @@ def cmd_sync(st, a):
         made += 1
     for app, o in files.owners().items():
         st.set_owner(app, o.get("session"), o.get("tree"))
-    for name in ("orchestrator", "integrator"):
+    for name in ("orchestrator", "integrator", "dispatcher"):
         cl = files.claim(name)
         if cl.get("session_id"):
             st.set_claim(name, cl["session_id"], cl.get("name"))
@@ -1025,12 +1044,20 @@ def main(argv=None):
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("init").set_defaults(fn=cmd_init)
+    app_help = "the desktop app's local_... id (get_session self), so messages addressed that way reach you"
     s = sub.add_parser("orchestrator")
     s.add_argument("--name", required=True)
     s.add_argument("--session", required=True)
+    s.add_argument("--app-id", help=app_help)
     s.set_defaults(fn=cmd_orchestrator)
+    s = sub.add_parser("dispatcher")
+    s.add_argument("--name", required=True)
+    s.add_argument("--session", required=True)
+    s.add_argument("--app-id", help=app_help)
+    s.set_defaults(fn=cmd_dispatcher)
     s = sub.add_parser("integrator")
     s.add_argument("--session", required=True)
+    s.add_argument("--app-id", help=app_help)
     s.add_argument("--release", action="store_true")
     s.set_defaults(fn=cmd_integrator)
     s = sub.add_parser("new")
@@ -1052,11 +1079,13 @@ def main(argv=None):
     s.add_argument("--need", choices=NEEDS, required=True)
     s.add_argument("--ask", required=True)
     s.add_argument("--default", required=True)
+    s.add_argument("--steps", help="numbered lines, one per line, for a thing Mario must do")
     s.set_defaults(fn=cmd_block)
     s = sub.add_parser("ask")
     s.add_argument("id", type=int)
     s.add_argument("--ask", required=True)
     s.add_argument("--default", required=True)
+    s.add_argument("--steps", help="numbered lines, one per line, for a thing Mario must do")
     s.set_defaults(fn=cmd_ask)
     s = sub.add_parser("unblock")
     s.add_argument("id", type=int)

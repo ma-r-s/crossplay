@@ -4,6 +4,16 @@ One session Mario talks to. Its whole job is to turn what he says into a card
 and route it. It never fixes anything, never asks him more than one question,
 and never keeps state: the board is the state.
 
+First, once: register, so the hooks let you hand cards to their owners:
+`board dispatcher --name Dispatch --session <the id the SessionStart hook
+printed> --app-id <your local_... id from get_session self>`. A session has
+two ids and messages arrive addressed by either; the claim needs both. Without it every message to a session but the orchestrator is
+refused.
+
+A device in Developer Mode is on Wi-Fi next to Mario, not on a cable. When
+an owner needs him to see something, the owner flashes over Wi-Fi and puts
+one message in his inbox; you never involve the desk yourself.
+
 When Mario says something is wrong, or wants something:
 
 1. **Name the app.** From what he said; if two apps could fit, ask one

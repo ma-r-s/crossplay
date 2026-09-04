@@ -98,13 +98,23 @@ class Board:
             return None
         return read_json(self.dir / "cards" / f"{int(cid)}.json")
 
+    @staticmethod
+    def claim_ids(claim):
+        """Both ids a claim may carry: the hook-visible session id and the desktop
+        app's local_... id. A session is addressed by either, so both count."""
+        return {norm_sid(claim.get("session_id")), norm_sid(claim.get("app_session"))} - {""}
+
     def is_orchestrator(self, sid):
-        o = norm_sid(self.orchestrator().get("session_id"))
-        return bool(o) and o == norm_sid(sid)
+        return norm_sid(sid) in self.claim_ids(self.orchestrator())
+
+    def dispatcher(self):
+        return read_json(self.dir / "dispatcher.json") or {}
+
+    def is_dispatcher(self, sid):
+        return norm_sid(sid) in self.claim_ids(self.dispatcher())
 
     def is_integrator(self, sid):
-        i = norm_sid(self.integrator().get("session_id"))
-        return bool(i) and i == norm_sid(sid)
+        return norm_sid(sid) in self.claim_ids(self.integrator())
 
     def note_session(self, sid, cwd):
         d = self.dir / "sessions"
@@ -129,7 +139,45 @@ def board_cmd(root):
     return "python3 <tree>/tools_local/board/board.py"
 
 
+CURRENT = {"root": None, "sid": "", "tool": ""}
+
+
+def note_refusal(msg):
+    """One line per refusal in <workspace>/.board/refusals.log, and the same as a
+    workflow event on the board when its address is at hand. A refusal is the
+    hooks doing their job; how often they fire, and on what, is the number that
+    says whether the rules are teaching or merely obstructing. Never raises."""
+    root = CURRENT.get("root")
+    if root is None:
+        return
+    first = msg.strip().splitlines()[0][:160] if msg.strip() else "refused"
+    sid, tool = CURRENT.get("sid") or "?", CURRENT.get("tool") or "?"
+    try:
+        with open(root / ".board" / "refusals.log", "a") as f:
+            f.write(f"{dt.datetime.now(dt.timezone.utc).isoformat()} {sid} {tool} {first}\n")
+    except Exception:
+        pass
+    try:
+        env = {}
+        for line in (root / ".board" / "supabase.env").read_text().splitlines():
+            if "=" in line and not line.startswith("#"):
+                k, v = line.split("=", 1)
+                env[k.strip()] = v.strip().strip("\"'")
+        url, key = env.get("SUPABASE_URL"), env.get("SUPABASE_ANON_KEY")
+        if url and key:
+            import urllib.request
+            body = json.dumps({"service": "workflow", "event": "refusal",
+                               "props": {"session": sid, "tool": tool, "rule": first}}).encode()
+            req = urllib.request.Request(url.rstrip("/") + "/rest/v1/events", data=body, method="POST",
+                                         headers={"apikey": key, "Authorization": "Bearer " + key,
+                                                  "Content-Type": "application/json", "Prefer": "return=minimal"})
+            urllib.request.urlopen(req, timeout=2).read()
+    except Exception:
+        pass
+
+
 def block(msg):
+    note_refusal(msg)
     sys.stderr.write(msg.rstrip() + "\n")
     sys.exit(2)
 
@@ -208,7 +256,7 @@ def pretool(board, data):
                 "is fine; changing it is the integrator's job. Work in wt/<name>/, or if you are "
                 f"integrating, claim the tree first: {board_cmd(root)} integrator --session {norm_sid(sid)}"
             )
-        if re.search(r"board(\.py)?\s+ask\b", cmd) and not board.is_orchestrator(sid):
+        if re.search(r"board(\.py)?\s+ask\b", HEREDOC.sub(" ", cmd)) and not board.is_orchestrator(sid):
             block(
                 "Refused: only the orchestrator asks Mario. Record what you need on your card: "
                 f"{board_cmd(root)} block <card> --session {norm_sid(sid)} --need <desk|design|info|mario> --ask '...' --default '...'"
@@ -216,7 +264,7 @@ def pretool(board, data):
         return
 
     if tool in ("SendMessage", "mcp__ccd_session_mgmt__send_message"):
-        if board.is_orchestrator(sid):
+        if board.is_orchestrator(sid) or board.is_dispatcher(sid):
             return
         orch = board.orchestrator()
         if not orch:
@@ -225,9 +273,7 @@ def pretool(board, data):
         name = str(orch.get("name") or "")
         target = to.split(" [")[0].strip().lower()
         allowed = {name.lower(), "main"} if name else {"main"}
-        if target in allowed or (
-            norm_sid(to) and norm_sid(to) == norm_sid(orch.get("session_id"))
-        ):
+        if target in allowed or norm_sid(to) in Board.claim_ids(orch):
             return
         block(
             f"Refused: workers talk only to the orchestrator ({name or 'not named yet'}). A peer "
@@ -267,7 +313,7 @@ def stop(board, data):
     if data.get("stop_hook_active"):
         return
     sid = data.get("session_id", "")
-    if board.is_orchestrator(sid):
+    if board.is_orchestrator(sid) or board.is_dispatcher(sid):
         return
     text = last_assistant_text(data.get("transcript_path", ""))
     m = HANDBACK.search(text)
@@ -313,6 +359,8 @@ def session_start(board, data):
         lines.append(
             "[bugflow] You are the ORCHESTRATOR. Runbook: docs/workflow/orchestrator.md in the tree."
         )
+    elif board.is_dispatcher(sid):
+        lines.append("[bugflow] You are DISPATCH: Mario talks to you; you file cards and hand them to their owners. Runbook: docs/workflow/dispatch.md.")
     else:
         who = orch.get("name") or "not registered yet"
         lines.append(f"[bugflow] You are a WORKER. The orchestrator is: {who}.")
@@ -355,6 +403,7 @@ def main():
         data = json.load(sys.stdin)
     except ValueError:
         return
+    CURRENT.update(root=root, sid=norm_sid(data.get("session_id")), tool=data.get("tool_name") or mode)
     if mode == "pretool":
         pretool(board, data)
     elif mode == "stop":

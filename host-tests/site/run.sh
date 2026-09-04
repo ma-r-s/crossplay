@@ -209,7 +209,7 @@ for page in report inbox; do
   page_ids="$(sed -nE 's/.*\$\(["'"'"']([A-Za-z-]+)["'"'"']\).*/\1/p' "$P" | sort -u)"
   [ -n "$page_ids" ] || { bad "site/$page/index.html looks up no element ids"; continue; }
   for id in $page_ids; do
-    case "$id" in inbox-answer|inbox-send|inbox-default|inbox-later) continue;; esac  # rendered by script
+    case "$id" in inbox-answer|inbox-send|inbox-default|inbox-how|inbox-later) continue;; esac  # rendered by script
     grep -q "id=\"$id\"" "$P" && ok || bad "site/$page/index.html asks for #$id and has no such element"
   done
 done
@@ -261,6 +261,14 @@ fi
 grep -q 'anonKey' "$ROOT/site/api/board-config.js" && grep -q '"anonKey"' "$SERVE" && ok || bad "board-config: api and serve.py do not agree on anonKey"
 
 # The inbox gate: a passphrase, checked by api/inbox.js against a hash. Run
+# install.js reads the board's address from api/board-config.js by two field
+# names; a rename on either side leaves an installer that reports nothing and
+# says nothing about it.
+for field in url anonKey; do
+  grep -q "cfg\.$field" "$ROOT/site/assets/install.js" && grep -q "$field" "$ROOT/site/api/board-config.js" \
+    && ok || bad "install.js and board-config.js disagree on the field '$field'"
+done
+
 # under node with the board stubbed; the wrong passphrase must read nothing.
 if inbox_out="$(node "$HERE/inbox_fn.js" "$ROOT" 2>&1)"; then
   ok
