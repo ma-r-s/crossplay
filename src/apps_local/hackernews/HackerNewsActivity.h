@@ -30,6 +30,7 @@
 
 #include "../../activities/Activity.h"
 #include "../ui/ToyboxScreen.h"
+#include "../ui/ToyboxWrappedText.h"
 #include "HackerNewsCore.h"
 #include "HackerNewsLibrary.h"
 #include "HackerNewsRows.h"
@@ -115,6 +116,10 @@ class HackerNewsActivity final : public Activity {
 
   // The flattened document the reader draws, and where in it we are.
   std::string document_;
+  // The document wrapped to the reader's width, kept between paints. No copy
+  // of the text, and it re-wraps itself when the panel, the cut or the text
+  // stops matching what it wrapped; see ToyboxWrappedText.h.
+  toybox::WrappedText wrap_;
   std::string readerTitle_;
   // The article's own URL, which is the library's key. Held because the reader
   // has to be able to say whether what it is showing is saved, and a title is

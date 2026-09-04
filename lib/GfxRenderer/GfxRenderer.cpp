@@ -1718,9 +1718,16 @@ struct PanelSpan {
 };
 }  // namespace
 
-void GfxRenderer::displayBuffer(const HalDisplay::RefreshMode refreshMode) const {
+HalDisplay::RefreshMode GfxRenderer::applyPromotedRefresh(const HalDisplay::RefreshMode refreshMode) const {
+  if (!promotedRefreshPending_) return refreshMode;
+  promotedRefreshPending_ = false;
+  return promotedRefresh_;
+}
+
+void GfxRenderer::displayBuffer(HalDisplay::RefreshMode refreshMode) const {
   auto elapsed = millis() - start_ms;
   LOG_DBG("GFX", "Time = %lu ms from clearScreen to displayBuffer", elapsed);
+  refreshMode = applyPromotedRefresh(refreshMode);
   {
     PanelSpan span;
     display.displayBuffer(refreshMode, fadingFix);
@@ -1731,7 +1738,8 @@ void GfxRenderer::displayBuffer(const HalDisplay::RefreshMode refreshMode) const
   paintclock::notePainted();
 }
 
-void GfxRenderer::displayBufferAsync(const HalDisplay::RefreshMode refreshMode) const {
+void GfxRenderer::displayBufferAsync(HalDisplay::RefreshMode refreshMode) const {
+  refreshMode = applyPromotedRefresh(refreshMode);
   // The async path has no turn-off-screen hook, which the sunlight fading fix
   // relies on; keep those users on the blocking path.
   if (fadingFix) {
@@ -2400,7 +2408,7 @@ bool GfxRenderer::storeBwBuffer() {
  * It should be called to restore the BW buffer state after grayscale rendering is complete.
  * Uses chunked restoration to match chunked storage.
  */
-void GfxRenderer::restoreBwBuffer() {
+void GfxRenderer::restoreBwBuffer(const bool resyncPanelBaseline) {
   // Check if all chunks are allocated
   bool missingChunks = false;
   for (const auto& bwBufferChunk : bwBufferChunks) {
@@ -2421,7 +2429,7 @@ void GfxRenderer::restoreBwBuffer() {
     memcpy(frameBuffer + offset, bwBufferChunks[i], chunkSize);
   }
 
-  {
+  if (resyncPanelBaseline) {
     PanelSpan span;
     display.cleanupGrayscaleBuffers(frameBuffer);
   }

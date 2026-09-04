@@ -6,7 +6,17 @@ repo does not have and must never contain, and because a suite that cannot
 run without someone's live reading list is a suite nobody runs.
 
 It implements the five endpoints the bridge uses, the `have` delta rules, and
--- the part that earns its keep -- OAuth signature verification. The
+-- the part that earns its keep -- OAuth signature verification.
+
+THE RESPONSE SHAPES HERE ARE COPIED FROM THE LIVE API, NOT FROM THE DOCS.
+That sentence is the whole lesson of the first real sync. bookmarks/list used
+to answer with {"bookmarks": [...], "delete_ids": [...]} here, because that is
+what the documentation implies, and the client was written to require exactly
+that -- so the suite passed, in agreement with the client, about a shape
+Instapaper has never sent. The real answer is a JSON ARRAY of typed objects
+whose deletions ride in the meta element as a COMMA-SEPARATED STRING. A fake
+derived from the same assumption as the client cannot falsify the client. When
+this file and the live API disagree, this file is wrong. The
 verification is written out here rather than imported from
 bridge/instapaper.py on purpose: a fake that checks signatures with the
 client's own function agrees with every mistake the client makes. The
@@ -153,6 +163,7 @@ def public(bm: dict) -> dict:
         "progress_timestamp": bm.get("progress_timestamp", 0),
         "starred": bm.get("starred", "0"),
         "private_source": bm.get("private_source", ""),
+        "tags": bm.get("tags", []),
     }
     out["hash"] = bookmark_hash(bm)
     return out
@@ -183,7 +194,16 @@ async def access_token(request: Request):
 @app.post("/api/1/account/verify_credentials")
 async def verify(request: Request):
     _, _, user = await authed(request)
-    return JSONResponse([{"type": "user", "user_id": 1, "username": user["username"]}])
+    return JSONResponse(
+        [
+            {
+                "type": "user",
+                "user_id": 1,
+                "username": user["username"],
+                "subscription_is_active": "1",
+            }
+        ]
+    )
 
 
 @app.post("/api/1/bookmarks/list")
@@ -235,13 +255,25 @@ async def bookmarks_list(request: Request):
 
     window_ids = {b["bookmark_id"] for b in window}
     delete_ids = [bid for bid in have if bid not in window_ids]
+
+    # The live shape: [meta, user, bookmark...]. delete_ids is a
+    # comma-separated STRING inside meta, and the key is absent entirely when
+    # there is nothing to delete -- both of those are how the real API
+    # behaved on 2026-09-03, and both are load-bearing for the client.
+    meta = {"type": "meta"}
+    if delete_ids:
+        meta["delete_ids"] = ",".join(str(bid) for bid in delete_ids)
     return JSONResponse(
-        {
-            "user": {"type": "user", "user_id": 1, "username": user["username"]},
-            "bookmarks": out,
-            "highlights": [],
-            "delete_ids": delete_ids,
-        }
+        [
+            meta,
+            {
+                "type": "user",
+                "user_id": 1,
+                "username": user["username"],
+                "subscription_is_active": "1",
+            },
+        ]
+        + out
     )
 
 

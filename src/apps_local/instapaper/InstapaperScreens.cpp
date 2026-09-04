@@ -210,7 +210,12 @@ fui::Rect readerBody(const fui::DeviceContext& device) {
                        static_cast<int16_t>(device.height - bottom - kBodyTop));
 }
 
-void buildReader(toybox::Screen& screen, const ReaderModel& model) {
+uint32_t readerLineCount(const fui::DrawTarget& target, const fui::DeviceContext& device, ReaderBody& body) {
+  if (body.wrap == nullptr) return 0;
+  return body.wrap->lineCount(target, readerBody(device).width, body.text, body.style);
+}
+
+uint32_t buildReader(toybox::Screen& screen, const ReaderModel& model, ReaderBody& body) {
   // The band carries the article's own title. Within this app chrome is Jersey
   // and content is the reading face, and a title is content -- somebody's
   // sentence, in its own case -- so the band borrows the reading cut in paper,
@@ -292,12 +297,16 @@ void buildReader(toybox::Screen& screen, const ReaderModel& model) {
   // decide what a page turn does AND to compute the reading position it sends
   // back to Instapaper. Two ways of arriving at the same rectangle is how a
   // page turn starts eating a line.
-  fui::TextAreaProps body;
-  body.text = model.text;
-  body.topLine = model.topLine;
-  body.showCaret = false;
-  body.style = screen.theme().bodyText;
-  fui::textArea(screen.frame(), readerBody(device), body);
+  //
+  // Through the wrap rather than fui::textArea(), which walks the article from
+  // byte zero to find the twenty lines it is about to draw -- so the cost of
+  // drawing page forty was the cost of wrapping pages one to forty as well,
+  // and it was paid again on the next turn. The wrap draws the same lines the
+  // same way; what it does not do is rediscover them.
+  if (body.wrap == nullptr) return 0;
+  body.wrap->draw(screen.target(), readerBody(device), body.text, body.style, model.topLine);
+  // Asked AFTER the drawing, and cheap because the wrap has just answered it.
+  return body.wrap->lineCount(screen.target(), readerBody(device).width, body.text, body.style);
 }
 
 // --- Notices -------------------------------------------------------------

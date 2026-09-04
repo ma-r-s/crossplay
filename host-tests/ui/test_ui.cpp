@@ -39,7 +39,9 @@
 #include "../../src/apps_local/trivia/TriviaScreens.h"
 #include "../../src/apps_local/ui/ToyboxIcons.h"
 #include "../../src/apps_local/ui/ToyboxText.h"
+#include "../../src/apps_local/ui/ToyboxWrappedText.h"
 #include "../../src/apps_local/wavelength/WavelengthScreens.h"
+#include "../../src/apps_local/xkcd/XkcdScreens.h"
 
 namespace fui = freeink::ui;
 
@@ -114,8 +116,63 @@ class FakeTarget final : public fui::DrawTarget {
   // line, where a hardcoded box overflows exactly as it does on the device.
   int16_t lineH = 20;
 
-  fui::Size measureText(const fui::FontId, const char* text, const fui::TextStyle) const override {
-    return fui::Size{static_cast<int16_t>(text ? std::strlen(text) * 10 : 0), lineH};
+  // Every measureText this target is asked for, counted. This is the
+  // instrument the reader's cost is stated in: textAreaWalk() asks for one
+  // measurement per candidate character position, so the count is the work a
+  // wrap does, and it is the same number before and after a change. A device
+  // stopwatch is not available to a host suite; an operation count is.
+  mutable long measureCalls = 0;
+
+  // A character's width. Ten unless a test is asking what happens when the
+  // reading size changes under a wrap that has already been taken.
+  int16_t charW = 10;
+  // Per-font and per-weight widths. BOTH DEFAULT TO OFF, so the eighty
+  // thousand checks that assume a uniform ten-pixel cell are untouched.
+  //
+  // They exist because a staleness test that only moves `charW` cannot tell
+  // whether the code under test passes `style` to measureText at all: every
+  // font and every weight would answer the same, so a fingerprint that
+  // ignored the style entirely would still change. These can tell.
+  std::vector<std::pair<fui::FontId, int16_t>> fontWidths;
+  int16_t boldBonus = 0;
+  // Extra width whenever `kernSeq` appears in the run. A target whose answer
+  // depends on which characters are ADJACENT, which is what kerning is: it
+  // cannot be predicted from the width of each character on its own, and it is
+  // therefore the one metrics change a per-character fingerprint can miss.
+  std::string kernSeq;
+  int16_t kernBonus = 0;
+  // More than one pair, and a pair may get NARROWER. A real change of cut
+  // moves pair widths in both directions, and it is the compensating case --
+  // one paragraph gaining a line while another loses one -- that a check
+  // counting lines cannot see at all.
+  std::vector<std::pair<std::string, int16_t>> kerns;
+
+  fui::Size measureText(const fui::FontId font, const char* text, const fui::TextStyle style) const override {
+    ++measureCalls;
+    if (text == nullptr) return fui::Size{0, lineH};
+    int16_t cell = charW;
+    for (const auto& entry : fontWidths) {
+      if (entry.first == font) {
+        cell = entry.second;
+        break;
+      }
+    }
+    if (style.bold) cell = static_cast<int16_t>(cell + boldBonus);
+    int32_t w = static_cast<int32_t>(std::strlen(text)) * cell;
+    if ((kernBonus != 0 && !kernSeq.empty()) || !kerns.empty()) {
+      const std::string run(text);
+      if (kernBonus != 0 && !kernSeq.empty()) {
+        for (size_t at = run.find(kernSeq); at != std::string::npos; at = run.find(kernSeq, at + 1)) w += kernBonus;
+      }
+      for (const auto& pair : kerns) {
+        if (pair.first.empty()) continue;
+        for (size_t at = run.find(pair.first); at != std::string::npos; at = run.find(pair.first, at + 1)) {
+          w += pair.second;
+        }
+      }
+    }
+    if (w < 0) w = 0;
+    return fui::Size{static_cast<int16_t>(w), lineH};
   }
   int16_t lineHeight(const fui::FontId) const override { return lineH; }
 
@@ -272,6 +329,16 @@ const toybattle::Draft kFreshDraft{};
 struct Rendered {
   FakeTarget target;
   toybox::Interactions interactions;
+  // One per rendered screen, which is what an Activity holds: a reader keeps
+  // its wrap between paints, so a test that wants to ask "did the second paint
+  // wrap again" has to reuse the same Rendered.
+  toybox::WrappedText wrap;
+  // The words themselves, which used to ride on the model. Kept here so the
+  // helpers below hand the SAME pointer and style to the counting and the
+  // drawing, which is the whole point of bundling them. Defaulted to a
+  // sentence that wraps, so the reader tests that only care about the chrome
+  // still have a body to draw.
+  const char* bodyText = "Some words that go on for a while and wrap onto more than one line of the panel.";
 
   // Routes a tap at logical (x, y) against what was just drawn, which is the
   // whole point: the table under test is the one the paint produced.
@@ -2744,7 +2811,11 @@ void buildHnReader(Rendered& out, const hnui::ReaderModel& model) {
   const fui::InputSnapshot noInput{};
   toybox::Frame frame(out.target, ctx, noInput, out.interactions);
   toybox::Screen screen(frame, toybox::themeTokens());
-  hnui::buildReader(screen, model);
+  hnui::ReaderBody body;
+  body.text = out.bodyText;
+  body.style = toybox::themeTokens().bodyText;
+  body.wrap = &out.wrap;
+  hnui::buildReader(screen, model, body);
 }
 
 void buildHnNotice(Rendered& out, const hnui::NoticeModel& model) {
@@ -2758,7 +2829,7 @@ void buildHnNotice(Rendered& out, const hnui::NoticeModel& model) {
 hnui::ReaderModel articleModel() {
   hnui::ReaderModel model;
   model.title = "A tiny e-ink game console";
-  model.text = "Some words that go on for a while and wrap onto more than one line of the panel.";
+  // set on the Rendered by the caller; see buildInstaReader/buildHnReader
   model.pageLabel = "1/3";
   model.showingComments = false;
   model.swapAvailable = true;
@@ -6592,17 +6663,691 @@ void buildInstaReader(Rendered& out, const instapaperui::ReaderModel& model) {
   const fui::InputSnapshot noInput{};
   toybox::Frame frame(out.target, ctx, noInput, out.interactions);
   toybox::Screen screen(frame, toybox::themeTokens());
-  instapaperui::buildReader(screen, model);
+  instapaperui::ReaderBody body;
+  body.text = out.bodyText;
+  body.style = toybox::themeTokens().bodyText;
+  body.wrap = &out.wrap;
+  instapaperui::buildReader(screen, model, body);
 }
 
 instapaperui::ReaderModel instaArticleModel() {
   instapaperui::ReaderModel model;
   model.title = "What the panel does with a long article";
-  model.text = "Some words that go on for a while and wrap onto more than one line of the panel.";
+  // set on the Rendered by the caller; see buildInstaReader/buildHnReader
   model.pageLabel = "1 / 3";
   model.canPagePrev = false;
   model.canPageNext = true;
   return model;
+}
+
+// --- What a paint of the reader costs -------------------------------------
+//
+// Mario reported it from real use: a long article takes a long time to open,
+// and every page turn pays the same again. The instrument is the count of
+// measureText() calls one paint asks the target for, because that is the work
+// a word wrap is made of -- textAreaWalk() asks for one measurement per
+// candidate character position -- and a host suite has no device stopwatch.
+//
+// The number is stated per paint and against document length, so it can be
+// read as "does the cost of a page turn depend on how long the article is",
+// which is the actual question.
+
+// A magazine feature's worth of prose, built rather than pasted so the cost
+// can be asked at more than one length.
+//
+// Deliberately NON-REPEATING. A corpus built by rotating a handful of
+// sentences wraps periodically, and a wrap read from the WRONG offset then
+// lands on a line identical to the right one -- so a staleness test compares
+// two different answers, gets the same text back, and passes because it cannot
+// tell them apart. That happened here: the kerning test below was green
+// against a repeating corpus before this was changed.
+std::string longArticle(const size_t bytes) {
+  static const char* kWords[] = {
+      "the",  "panel", "is",    "a",     "page",   "of",          "text", "and",  "reader", "holds",  "it",     "still",
+      "wrap", "walks", "every", "byte",  "asking", "font",        "how",  "wide", "each",   "prefix", "paying", "once",
+      "cost", "twice", "bug",   "three", "none",   "constraints", "said", "walk", "had",    "happen"};
+  std::string doc;
+  uint32_t seed = 12345u;
+  size_t i = 0;
+  char stamp[24];
+  while (doc.size() < bytes) {
+    // Every stretch carries its own number, then a run of words of
+    // unpredictable length, so no two parts of the document wrap alike.
+    std::snprintf(stamp, sizeof(stamp), "[%zu]", i);
+    doc += stamp;
+    seed = seed * 1103515245u + 12345u;
+    const int run = 4 + static_cast<int>((seed >> 16) % 11);
+    for (int w = 0; w < run; ++w) {
+      seed = seed * 1103515245u + 12345u;
+      doc += ' ';
+      doc += kWords[(seed >> 16) % 34];
+    }
+    doc += ' ';
+    if (++i % 6 == 0) doc += '\n';
+  }
+  return doc;
+}
+
+// One paint of Phase::Reading, in the order InstapaperActivity::render() does
+// it: count the lines of the whole document against readerBody()'s width, then
+// build the screen. Returns what that paint asked the target to measure.
+// `out` is held ACROSS paints on purpose: an Activity keeps its wrap between
+// them, so a page turn measured against a fresh one would be measuring an
+// opening and would have reported the fix as no fix at all.
+long readerPaintCost(Rendered& out, const std::string& doc, const uint32_t topLine, uint32_t* lineCountOut = nullptr) {
+  const fui::DeviceContext ctx = device();
+  const fui::ThemeTokens& tokens = toybox::themeTokens();
+
+  out.target.measureCalls = 0;
+  // The SAME words the drawing will get. Handing the counting one document
+  // and the drawing another is what the bundling exists to prevent, and doing
+  // it here would make the wrap thrash between two texts and read as no fix
+  // at all -- which is exactly what this instrument reported when the two were
+  // briefly allowed to differ.
+  out.bodyText = doc.c_str();
+  instapaperui::ReaderBody counted;
+  counted.text = out.bodyText;
+  counted.style = tokens.bodyText;
+  counted.wrap = &out.wrap;
+  const uint32_t lines = instapaperui::readerLineCount(out.target, ctx, counted);
+  if (lineCountOut != nullptr) *lineCountOut = lines;
+
+  instapaperui::ReaderModel model;
+  model.title = "A long article";
+
+  model.topLine = topLine;
+  model.pageLabel = "3 / 40";
+  model.canPagePrev = topLine > 0;
+  model.canPageNext = true;
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, tokens);
+  instapaperui::ReaderBody body;
+  body.text = out.bodyText;
+  body.style = toybox::themeTokens().bodyText;
+  body.wrap = &out.wrap;
+  instapaperui::buildReader(screen, model, body);
+  return out.target.measureCalls;
+}
+
+void reportReaderPaintCost() {
+  const size_t kSizes[] = {4u * 1024u, 16u * 1024u, 64u * 1024u};
+  for (const size_t bytes : kSizes) {
+    const std::string doc = longArticle(bytes);
+    uint32_t lines = 0;
+    Rendered out;  // one reader, opened once and then paged, as on the device
+    const long opening = readerPaintCost(out, doc, 0, &lines);
+    const long deep = readerPaintCost(out, doc, lines > 40 ? lines - 40 : 0);
+    std::printf("READER COST  %6zu bytes  %5u lines   open %8ld   page-turn %8ld  measureText calls\n", doc.size(),
+                static_cast<unsigned>(lines), opening, deep);
+  }
+}
+
+// What fui::textArea() would have put on the panel, for the same rect, text,
+// style and topLine. The wrap is only allowed to be faster; a single line of
+// difference here is a page turn that skips or repeats a line, and Instapaper
+// computes the reading position it sends to a real account from exactly this.
+std::vector<std::string> linesFromTextArea(FakeTarget& target, const fui::Rect rect, const char* text,
+                                           const fui::TextStyle& style, const uint32_t topLine) {
+  toybox::Interactions interactions;
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(target, device(), noInput, interactions);
+  fui::TextAreaProps props;
+  props.text = text;
+  props.topLine = topLine;
+  props.showCaret = false;
+  props.style = style;
+  target.texts.clear();
+  fui::textArea(frame, rect, props);
+  std::vector<std::string> out;
+  for (const auto& run : target.texts) {
+    char where[48];
+    std::snprintf(where, sizeof(where), "%d,%d|", static_cast<int>(run.rect.x), static_cast<int>(run.rect.y));
+    out.push_back(std::string(where) + run.text);
+  }
+  return out;
+}
+
+std::vector<std::string> linesFromWrap(FakeTarget& target, toybox::WrappedText& wrap, const fui::Rect rect,
+                                       const char* text, const fui::TextStyle& style, const uint32_t topLine) {
+  target.texts.clear();
+  wrap.draw(target, rect, text, style, topLine);
+  std::vector<std::string> out;
+  for (const auto& run : target.texts) {
+    char where[48];
+    std::snprintf(where, sizeof(where), "%d,%d|", static_cast<int>(run.rect.x), static_cast<int>(run.rect.y));
+    out.push_back(std::string(where) + run.text);
+  }
+  return out;
+}
+
+// The whole promise, and the reason the count and the drawing come from one
+// object: what the window draws is what wrapping the entire document would
+// have drawn, at every page of it, in the same place, to the byte.
+void testTheWindowDrawsWhatTheWholeDocumentWouldHave() {
+  const std::string doc = longArticle(24u * 1024u);
+  const fui::TextStyle style = toybox::themeTokens().bodyText;
+  const fui::Rect body = instapaperui::readerBody(device());
+
+  FakeTarget slow;
+  FakeTarget fast;
+  toybox::WrappedText wrap;
+  const uint32_t total = wrap.lineCount(fast, body.width, doc.c_str(), style);
+  CHECK(total > 400);
+
+  const uint16_t visible = fui::textAreaVisibleLines(body, fast.lineHeight(style.font));
+  CHECK(visible > 0);
+  // Every page, not a sample of them: the first, the last, the one that ends
+  // exactly on a checkpoint and the one that straddles two.
+  int pages = 0;
+  for (uint32_t top = 0; top < total; top += visible) {
+    ++pages;
+    CHECK(linesFromWrap(fast, wrap, body, doc.c_str(), style, top) ==
+          linesFromTextArea(slow, body, doc.c_str(), style, top));
+  }
+  CHECK(pages > 10);
+  // And the awkward tops a page turn never lands on but a restored reading
+  // position does: one line in, one line short of the end, past the end.
+  const uint32_t odd[] = {1u, 2u, 15u, 16u, 17u, total > 1 ? total - 1 : 0, total};
+  for (const uint32_t top : odd) {
+    CHECK(linesFromWrap(fast, wrap, body, doc.c_str(), style, top) ==
+          linesFromTextArea(slow, body, doc.c_str(), style, top));
+  }
+}
+
+// The reported bug, as a number. Before this existed, opening a 64KB article
+// and turning one page of it cost the same 136,952 measurements each, because
+// both wrapped the whole article twice. A page turn must now cost a page.
+void testAPageTurnDoesNotCostTheWholeArticle() {
+  const std::string small = longArticle(4u * 1024u);
+  const std::string large = longArticle(64u * 1024u);
+
+  Rendered shortRead;
+  uint32_t shortLines = 0;
+  readerPaintCost(shortRead, small, 0, &shortLines);
+  const long shortTurn = readerPaintCost(shortRead, small, shortLines > 40 ? shortLines - 40 : 0);
+
+  Rendered longRead;
+  uint32_t longLines = 0;
+  const long longOpen = readerPaintCost(longRead, large, 0, &longLines);
+  const long longTurn = readerPaintCost(longRead, large, longLines > 40 ? longLines - 40 : 0);
+
+  CHECK(longLines > shortLines * 10);  // the article really is much longer
+  // Stated as a shape rather than a threshold: turning a page of the long
+  // article costs what turning a page of the short one costs. A wrap that
+  // crept back onto the render path would make this grow with longLines and
+  // there is no constant to tune that would hide it.
+  CHECK(longTurn < shortTurn * 2);
+  // And the opening, which does have to wrap once, is worlds away from it.
+  CHECK(longTurn * 20 < longOpen);
+}
+
+// Once per opening is the fix; once per paint is the bug. Asked of the wrap
+// itself so that a future change that keeps the cost down by some other route
+// still has to say out loud that it is not re-wrapping.
+void testAnArticleIsWrappedOnceHoweverManyPagesAreTurned() {
+  const std::string doc = longArticle(32u * 1024u);
+  const fui::TextStyle style = toybox::themeTokens().bodyText;
+  const fui::Rect body = instapaperui::readerBody(device());
+  FakeTarget target;
+  toybox::WrappedText wrap;
+
+  const uint32_t total = wrap.lineCount(target, body.width, doc.c_str(), style);
+  CHECK(wrap.wraps() == 1);
+  const uint16_t visible = fui::textAreaVisibleLines(body, target.lineHeight(style.font));
+  for (uint32_t top = 0; top < total; top += visible) {
+    wrap.draw(target, body, doc.c_str(), style, top);
+    wrap.lineCount(target, body.width, doc.c_str(), style);
+  }
+  CHECK(wrap.wraps() == 1);
+}
+
+// --- The failure this fix INTRODUCES ---------------------------------------
+//
+// Everything above is about the bug being gone. These are about the new one: a
+// wrap kept after the thing it describes has moved. It is silent by nature --
+// the lines still draw, the page label still counts, and the reading position
+// that goes to somebody's Instapaper account is simply wrong -- so each of
+// these turns a silent wrong answer into an assertion.
+
+// A rotation is a different width, and a width is the whole wrap.
+void testANarrowerPanelIsNotDrawnFromTheWiderPanelsWrap() {
+  const std::string doc = longArticle(16u * 1024u);
+  const fui::TextStyle style = toybox::themeTokens().bodyText;
+  FakeTarget target;
+  toybox::WrappedText wrap;
+
+  const uint32_t wide = wrap.lineCount(target, 440, doc.c_str(), style);
+  const uint32_t narrow = wrap.lineCount(target, 260, doc.c_str(), style);
+  CHECK(wrap.wraps() == 2);
+  CHECK(narrow > wide);
+  // Not just a different number: the narrow panel's own answer.
+  toybox::WrappedText fresh;
+  FakeTarget clean;
+  CHECK(narrow == fresh.lineCount(clean, 260, doc.c_str(), style));
+  // And back again, so this is not one-way.
+  CHECK(wrap.lineCount(target, 440, doc.c_str(), style) == wide);
+}
+
+// A bigger reading size, or a different cut installed off the SD card: the
+// width is the same and the style object is the same, and every line of the
+// article is somewhere else. Nothing in the app announces this, which is why
+// the key asks the target instead of waiting to be told.
+void testABiggerReadingSizeIsNotDrawnFromTheSmallerOnesWrap() {
+  const std::string doc = longArticle(16u * 1024u);
+  const fui::TextStyle style = toybox::themeTokens().bodyText;
+  const fui::Rect body = instapaperui::readerBody(device());
+  FakeTarget target;
+  toybox::WrappedText wrap;
+
+  const uint32_t small = wrap.lineCount(target, body.width, doc.c_str(), style);
+  target.charW = 16;
+  const uint32_t big = wrap.lineCount(target, body.width, doc.c_str(), style);
+  CHECK(wrap.wraps() == 2);
+  CHECK(big > small);
+
+  toybox::WrappedText fresh;
+  FakeTarget clean;
+  clean.charW = 16;
+  CHECK(big == fresh.lineCount(clean, body.width, doc.c_str(), style));
+  // What is drawn moves with it, not only what is counted.
+  FakeTarget slow;
+  slow.charW = 16;
+  CHECK(linesFromWrap(target, wrap, body, doc.c_str(), style, 40) ==
+        linesFromTextArea(slow, body, doc.c_str(), style, 40));
+}
+
+// The next article, which a reader reaches by opening it -- and which can land
+// in the same buffer, at the same address, at the same length. A key made of a
+// pointer and a length would call this the same document and page through the
+// previous one's line breaks.
+void testAnotherArticleOfTheSameLengthIsNotDrawnFromTheFirstsWrap() {
+  const fui::TextStyle style = toybox::themeTokens().bodyText;
+  const fui::Rect body = instapaperui::readerBody(device());
+  FakeTarget target;
+  toybox::WrappedText wrap;
+
+  std::string first = longArticle(8u * 1024u);
+  const uint32_t firstLines = wrap.lineCount(target, body.width, first.c_str(), style);
+  // Same buffer, same length, different words: one long unbroken run wraps
+  // into a very different number of lines from prose of the same size.
+  std::string second = first;
+  for (char& c : second) c = (c == ' ' || c == '\n') ? 'x' : c;
+  CHECK(second.size() == first.size());
+  CHECK(second != first);
+  const uint32_t secondLines = wrap.lineCount(target, body.width, second.c_str(), style);
+  CHECK(wrap.wraps() == 2);
+  CHECK(secondLines != firstLines);
+
+  toybox::WrappedText fresh;
+  FakeTarget clean;
+  CHECK(secondLines == fresh.lineCount(clean, body.width, second.c_str(), style));
+}
+
+// The gap the key cannot close, and the layer that closes it.
+//
+// The key measures every character the document is written in, one at a time
+// and then all of them run together. A target whose answer depends on which
+// characters sit NEXT TO each other -- kerning -- can move a wrap while every
+// one of those probes comes back with the number it came back with before, as
+// long as the pair does not happen to occur in the probe run. That is a real
+// metrics change the fingerprint does not see.
+//
+// So the window walk has to catch it: the walk that draws is the walk that
+// disagrees, and a disagreement rebuilds rather than draws.
+void testAKernPairTheKeyCannotSeeIsCaughtByTheWindow() {
+  // "zqx" never appears in the probe run, which is the document's alphabet in
+  // code-point order, so widening it moves the wrap and not the key.
+  // Real prose with the pair sprinkled through it, so a window read from the
+  // wrong offset shows visibly different words rather than the same sentence
+  // one repeat over.
+  std::string doc = longArticle(24u * 1024u);
+  for (size_t at = 40; at + 3 < doc.size(); at += 97) {
+    doc[at] = 'z';
+    doc[at + 1] = 'q';
+    doc[at + 2] = 'x';
+  }
+  const fui::TextStyle style = toybox::themeTokens().bodyText;
+  const fui::Rect body = instapaperui::readerBody(device());
+
+  FakeTarget target;
+  toybox::WrappedText wrap;
+  const uint32_t before = wrap.lineCount(target, body.width, doc.c_str(), style);
+  const uint32_t wrapsBefore = wrap.wraps();
+
+  target.kernSeq = "zqx";
+  target.kernBonus = 90;
+  // The key is genuinely blind to it: asking for the count alone still
+  // believes the old wrap. This CHECK is the point of the test -- if it ever
+  // fails, layer 1 grew to cover this and layer 2 is no longer load-bearing
+  // here, which is worth knowing rather than silently enjoying.
+  CHECK(wrap.lineCount(target, body.width, doc.c_str(), style) == before);
+  CHECK(wrap.wraps() == wrapsBefore);
+
+  // Drawing is what notices, and it rebuilds before it draws anything.
+  FakeTarget slow;
+  slow.kernSeq = "zqx";
+  slow.kernBonus = 90;
+  const std::vector<std::string> drawn = linesFromWrap(target, wrap, body, doc.c_str(), style, 120);
+  CHECK(wrap.wraps() > wrapsBefore);
+  CHECK(drawn == linesFromTextArea(slow, body, doc.c_str(), style, 120));
+  // And the count it hands the pager afterwards is the new panel's count.
+  toybox::WrappedText fresh;
+  FakeTarget clean;
+  clean.kernSeq = "zqx";
+  clean.kernBonus = 90;
+  CHECK(wrap.lineCount(target, body.width, doc.c_str(), style) ==
+        fresh.lineCount(clean, body.width, doc.c_str(), style));
+}
+
+// Every page of the article, one after another, as the reader would see them.
+std::string everyPageConcatenated(FakeTarget& target, toybox::WrappedText& wrap, const fui::Rect rect, const char* text,
+                                  const fui::TextStyle& style) {
+  const uint16_t visible = fui::textAreaVisibleLines(rect, target.lineHeight(style.font));
+  const uint32_t total = wrap.lineCount(target, rect.width, text, style);
+  std::string seen;
+  for (uint32_t top = 0; top < total; top += visible) {
+    target.texts.clear();
+    wrap.draw(target, rect, text, style, top);
+    for (const auto& run : target.texts) seen += run.text;
+  }
+  return seen;
+}
+
+// Nothing is dropped between one page and the next.
+//
+// Asked of the DOCUMENT rather than of fui::textArea, which matters: every
+// other test here compares the wrap against the SDK, so a fault the two share
+// is invisible to all of them. This one knows what the article says. The SDK
+// promises each source byte belongs to exactly one visual line and that a
+// consumed '\n' is the only thing dropped, so the pages read end to end are
+// the article with its newlines removed -- and a break that moves under a
+// stale index deletes a word from between two pages without changing how many
+// lines there are.
+void testEveryPageTogetherIsTheWholeArticle() {
+  const std::string doc = longArticle(24u * 1024u);
+  const fui::TextStyle style = toybox::themeTokens().bodyText;
+  const fui::Rect body = instapaperui::readerBody(device());
+  FakeTarget target;
+  toybox::WrappedText wrap;
+
+  std::string want;
+  for (const char c : doc) {
+    if (c != '\n') want += c;
+  }
+  CHECK(everyPageConcatenated(target, wrap, body, doc.c_str(), style) == want);
+}
+
+// The one the previous version of this file could not ask.
+//
+// The old layer 2 compared how many lines the window produced against how many
+// the index recorded. A metrics change that moves where the breaks fall while
+// leaving the COUNT alone therefore slipped through it completely: the window
+// was cut at a byte the stale index chose and re-wrapped with the new metrics,
+// so the page began in the wrong place and the text between two pages was
+// simply never shown.
+//
+// The adversarial case is SEARCHED FOR rather than assumed. A hand-picked
+// kern delta that happens to change the line count tests the thing layer 2
+// already measured, which is how this survived: the test was derived from the
+// code's own assumption. Here the test hunts for a delta that preserves the
+// count and changes the words, and says so out loud if it cannot find one.
+// A document of even paragraphs, each its own block of lines, so that widening
+// one and narrowing another are independent events whose effects on a line
+// COUNT can cancel exactly.
+std::string paragraphedArticle() {
+  std::string doc;
+  char stamp[32];
+  for (int p = 0; p < 400; ++p) {
+    std::snprintf(stamp, sizeof(stamp), "[%d] ", p);
+    doc += stamp;
+    for (int w = 0; w < 14; ++w) doc += "wordy ";
+    doc += '\n';
+  }
+  return doc;
+}
+
+void testABreakThatMovesWithoutChangingTheCountIsStillCaught() {
+  // Not guessed: hunted for offline against the SDK's own wrap, then pinned
+  // here. Paragraph 5 gains a line when "zqx" widens by 52, paragraph 6 loses
+  // one when "wjv" narrows by 4, and the result is that the byte the index
+  // recorded for line 16 IS NO LONGER THE START OF A LINE -- while the number
+  // of lines between that byte and the one recorded for line 48 still comes
+  // out at 32. So a page drawn from it begins in the middle of a line, and
+  // counting the lines it produced says everything is fine.
+  //
+  // Four earlier versions of this test looked for the case and reported PASS
+  // without ever finding one. Two of them searched with a single planted
+  // token, which shifts one paragraph and changes the stretch's length -- the
+  // one thing the count check does see. The third required the stretch's ENDS
+  // to agree, which is the case that comes out right anyway, because the draw
+  // re-wraps from the end it starts at. The case that matters is the one where
+  // the START moved and the count did not.
+  std::string doc = paragraphedArticle();
+  char ka[32], kb[32];
+  std::snprintf(ka, sizeof(ka), "[%d] ", 5);
+  std::snprintf(kb, sizeof(kb), "[%d] ", 6);
+  const size_t a = doc.find(ka);
+  const size_t b = doc.find(kb);
+  CHECK(a != std::string::npos);
+  CHECK(b != std::string::npos);
+  doc.replace(a + std::strlen(ka), 3, "zqx");
+  doc.replace(b + std::strlen(kb), 3, "wjv");
+
+  const fui::TextStyle style = toybox::themeTokens().bodyText;
+  const fui::Rect body = instapaperui::readerBody(device());
+
+  // A wrap taken before the cut changed.
+  FakeTarget stale;
+  toybox::WrappedText held;
+  const uint32_t was = held.lineCount(stale, body.width, doc.c_str(), style);
+  const uint32_t wrapsBefore = held.wraps();
+
+  // The cut changes. Neither pair appears in the fingerprint's run, which is
+  // the document's alphabet in code-point order, so layer 1 is genuinely
+  // blind -- and that is the point of the test, not an accident of it.
+  const std::vector<std::pair<std::string, int16_t>> cut = {{"zqx", 52}, {"wjv", -4}};
+  stale.kerns = cut;
+  FakeTarget truth;
+  truth.kerns = cut;
+  toybox::WrappedText fresh;
+  const uint32_t now = fresh.lineCount(truth, body.width, doc.c_str(), style);
+  CHECK(now == was);  // the count really is unchanged; that is the trap
+  CHECK(held.wraps() == wrapsBefore);
+
+  // Every page across the disturbed stretch must be the page the changed panel
+  // really has, not one begun at a byte the old wrap chose.
+  // EVERY top line, not every page. A reader restoring a saved position lands
+  // on an arbitrary line, and more to the point the disturbance here is two
+  // paragraphs wide: sampling only page starts stepped straight over it and
+  // read as a pass, because paragraphs realign the wrap within a few lines of
+  // any change and a window that begins past them comes out right.
+  int wrong = 0;
+  uint32_t firstWrong = 0;
+  for (uint32_t top = 0; top < 128; ++top) {
+    if (linesFromWrap(stale, held, body, doc.c_str(), style, top) !=
+        linesFromWrap(truth, fresh, body, doc.c_str(), style, top)) {
+      if (wrong == 0) firstWrong = top;
+      ++wrong;
+    }
+  }
+  CHECK(wrong == 0);
+  if (wrong != 0) {
+    std::printf("     %d page(s) drawn from a stale wrap, first at line %u\n", wrong,
+                static_cast<unsigned>(firstWrong));
+  }
+
+  // And the same page reached COLD, with no earlier page drawn first.
+  //
+  // The sweep above starts at line 0, and drawing that page walks through the
+  // first bad checkpoint and rebuilds -- so by the time it reaches the page
+  // that matters, the index has already been repaired and the test passes
+  // whatever the window does about its own starting byte. A reader reopening
+  // an article does not read from line 0: topLineFor() drops them straight
+  // onto their saved position, which is the case where the window's first
+  // checkpoint has never been walked into and is simply believed.
+  FakeTarget cold;
+  toybox::WrappedText coldWrap;
+  coldWrap.lineCount(cold, body.width, doc.c_str(), style);
+  cold.kerns = cut;
+  CHECK(linesFromWrap(cold, coldWrap, body, doc.c_str(), style, 16) ==
+        linesFromWrap(truth, fresh, body, doc.c_str(), style, 16));
+
+  // And nothing has gone missing from between the pages.
+  std::string want;
+  for (const char c : doc) {
+    if (c != '\n') want += c;
+  }
+  FakeTarget after;
+  after.kerns = cut;
+  CHECK(everyPageConcatenated(after, held, body, doc.c_str(), style) == want);
+}
+
+// A different reading size is a different FONT, not the same font drawn wider.
+// The earlier version of this moved `charW`, which every font answered to --
+// so it passed even against a fingerprint that never passed `style` to
+// measureText at all. This moves one font id and one weight.
+// The count a caller is allowed to keep is the one the PANEL was drawn from.
+//
+// buildReader() draws through the wrap, and drawing is where a wrap that no
+// longer describes this panel is caught and rebuilt. A caller that keeps the
+// count it took a moment earlier is holding the length of an article this
+// screen is not showing -- and in Instapaper that number is divided into the
+// top line and sent to somebody's real account, with nothing on screen to say
+// it was wrong. So buildReader returns the count rather than leaving it to be
+// asked for again, and this is the test that the returned one is the drawn one.
+void testTheCountBuildReaderReturnsIsTheOneItDrew() {
+  // A change of cut the fingerprint cannot see that DOES move the line count.
+  // The pinned case used elsewhere in this file is the opposite -- built so
+  // the count survives -- and against that one this test can prove nothing,
+  // because the number taken before the drawing and the number after it are
+  // equal whether the ordering is right or wrong.
+  std::string doc = longArticle(24u * 1024u);
+  for (size_t at = 40; at + 3 < doc.size(); at += 97) {
+    doc[at] = 'z';
+    doc[at + 1] = 'q';
+    doc[at + 2] = 'x';
+  }
+  const std::vector<std::pair<std::string, int16_t>> cut = {{"zqx", 90}};
+
+  Rendered out;
+  out.bodyText = doc.c_str();
+  const fui::DeviceContext ctx = device();
+  const fui::ThemeTokens& tokens = toybox::themeTokens();
+
+  instapaperui::ReaderBody bodyText;
+  bodyText.text = out.bodyText;
+  bodyText.style = tokens.bodyText;
+  bodyText.wrap = &out.wrap;
+
+  // A wrap taken before the cut changed, then the cut changes.
+  const uint32_t before = instapaperui::readerLineCount(out.target, ctx, bodyText);
+  out.target.kerns = cut;
+  // The count taken BEFORE the drawing still believes the old wrap: neither
+  // the width nor the text moved, and the fingerprint cannot see a pair.
+  const uint32_t taken = instapaperui::readerLineCount(out.target, ctx, bodyText);
+  CHECK(taken == before);
+
+  instapaperui::ReaderModel model;
+  model.title = "A long article";
+  model.topLine = 120;
+  model.pageLabel = "2 / 40";
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, tokens);
+  const uint32_t drawn = instapaperui::buildReader(screen, model, bodyText);
+
+  // What a fresh wrap of the same document under the same cut says.
+  FakeTarget clean;
+  clean.kerns = cut;
+  toybox::WrappedText fresh;
+  const uint32_t honest = fresh.lineCount(clean, instapaperui::readerBody(ctx).width, doc.c_str(), tokens.bodyText);
+
+  CHECK(drawn == honest);
+  // And it really was a different number from the one taken beforehand, or
+  // this test would pass without the ordering mattering at all.
+  CHECK(drawn != taken);
+}
+
+void testTheFingerprintReadsTheStyleAndNotJustTheTarget() {
+  const std::string doc = longArticle(16u * 1024u);
+  const fui::TextStyle style = toybox::themeTokens().bodyText;
+  const fui::Rect body = instapaperui::readerBody(device());
+
+  FakeTarget target;
+  toybox::WrappedText wrap;
+  const uint32_t before = wrap.lineCount(target, body.width, doc.c_str(), style);
+
+  // Only THIS font gets wider. A fingerprint that ignored style.font would
+  // measure with some other id and see nothing move.
+  target.fontWidths.push_back({style.font, 16});
+  const uint32_t after = wrap.lineCount(target, body.width, doc.c_str(), style);
+  CHECK(wrap.wraps() == 2);
+  CHECK(after > before);
+
+  // And the weight, which is a style field rather than a font id.
+  FakeTarget weight;
+  toybox::WrappedText boldWrap;
+  fui::TextStyle plain = style;
+  plain.bold = false;
+  const uint32_t light = boldWrap.lineCount(weight, body.width, doc.c_str(), plain);
+  weight.boldBonus = 8;
+  fui::TextStyle heavy = style;
+  heavy.bold = true;
+  const uint32_t heavyCount = boldWrap.lineCount(weight, body.width, doc.c_str(), heavy);
+  CHECK(heavyCount > light);
+  CHECK(boldWrap.wraps() == 2);
+}
+
+// A document that ends in a newline has an empty final line, and the whole
+// document's wrap counts it. The slice the last page is cut from runs to the
+// end of the document, so it must NOT have that newline trimmed off -- and
+// nothing above would notice if it did, because the rebuild that follows
+// repairs the page and only the wrap COUNT gives it away.
+void testADocumentEndingInANewlineIsStillWrappedOnce() {
+  std::string doc = longArticle(24u * 1024u);
+  while (!doc.empty() && doc.back() == '\n') doc.pop_back();
+  doc += '\n';
+  CHECK(doc.back() == '\n');
+
+  const fui::TextStyle style = toybox::themeTokens().bodyText;
+  const fui::Rect body = instapaperui::readerBody(device());
+  FakeTarget target;
+  toybox::WrappedText wrap;
+  const uint32_t total = wrap.lineCount(target, body.width, doc.c_str(), style);
+  const uint16_t visible = fui::textAreaVisibleLines(body, target.lineHeight(style.font));
+  for (uint32_t top = 0; top < total; top += visible) {
+    wrap.draw(target, body, doc.c_str(), style, top);
+  }
+  // Once. A trim that ate the empty final line would make the last page
+  // disagree with the index and rebuild, every time it was drawn.
+  CHECK(wrap.wraps() == 1);
+}
+
+// The same shape in the other reader. Hacker News flattens a whole comment
+// thread into one buffer and pages through it, and it had the identical two
+// walks with not even a branch to hang a cache on.
+void testTheHackerNewsReaderAlsoWrapsOncePerDocument() {
+  const std::string doc = longArticle(32u * 1024u);
+  const fui::TextStyle style = toybox::themeTokens().bodyText;
+  const fui::Rect body = hnui::readerBody(device());
+  FakeTarget target;
+  toybox::WrappedText wrap;
+
+  hnui::ReaderBody counted;
+  counted.text = doc.c_str();
+  counted.style = style;
+  counted.wrap = &wrap;
+  const uint32_t total = hnui::readerLineCount(target, device(), counted);
+  CHECK(total > 400);
+  CHECK(wrap.wraps() == 1);
+  const uint16_t visible = fui::textAreaVisibleLines(body, target.lineHeight(style.font));
+  FakeTarget slow;
+  for (uint32_t top = 0; top < total; top += visible) {
+    CHECK(linesFromWrap(target, wrap, body, doc.c_str(), style, top) ==
+          linesFromTextArea(slow, body, doc.c_str(), style, top));
+  }
+  CHECK(wrap.wraps() == 1);
 }
 
 // An empty queue still has to offer the door. It is the one moment a reader
@@ -7721,7 +8466,229 @@ void testTriviaAlwaysOffersAWayOut() {
   }
 }
 
+// --- the header band under the bezel ---------------------------------------
+//
+// Every other test in this file builds against device(), whose safeArea is
+// empty -- which pins the same geometry with and without the glass BY
+// CONSTRUCTION, and is exactly why nothing here could see this. The X4 Pro's
+// bezel covers the panel's top ten rows and one column each side
+// (docs/bezel-insets.md), and a band that starts painting below them leaves
+// paper where the eye expects ink. Head-on that strip is under the glass and
+// invisible; from below, the glass sits above the panel and the eye sees past
+// its edge, so a white line appears over every black header in the fork. Mario
+// reported it off-axis on APPS and GAMES; it was on every toybox band in the
+// fork -- 41 call sites across 27 files.
+
+// The X4 Pro's frame WITH its measured insets. Only a context that has them can
+// fail the checks below.
+fui::DeviceContext bezelDevice() {
+  fui::DeviceContext ctx = device();
+  ctx.safeArea = fui::Insets{10, 1, 0, 1};
+  return ctx;
+}
+
+bool blackPaintCovers(const FakeTarget& target, const int16_t x, const int16_t y) {
+  for (size_t i = 0; i < target.fills.size() && i < target.fillPaints.size(); ++i) {
+    const fui::Paint& paint = target.fillPaints[i];
+    if (paint.kind == fui::PaintKind::Solid && paint.color == fui::Color::Black && target.fills[i].contains(x, y)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// No paper anywhere in the covered rows, across the full panel width. Asserted
+// per pixel row rather than as one rect: the band is assembled from more than
+// one fill, and what matters is the union leaving no gap.
+void checkBandReachesThePanelTop(const FakeTarget& target, const char* what) {
+  const fui::DeviceContext ctx = bezelDevice();
+  bool covered = true;
+  for (int16_t y = 0; y < ctx.safeArea.top; ++y) {
+    for (const int16_t x :
+         {static_cast<int16_t>(0), static_cast<int16_t>(ctx.width / 2), static_cast<int16_t>(ctx.width - 1)}) {
+      if (!blackPaintCovers(target, x, y)) covered = false;
+    }
+  }
+  check(covered, what, __LINE__);
+}
+
+// The other two sides. A band taken off the safe rect was inset on THREE edges,
+// and a check that only reads the covered rows calls half of that fixed: the
+// white columns down the sides are the same defect seen from the side of the
+// device rather than from below. Sampled just under the covered rows, where the
+// band is certainly still band whatever height the chrome gave it.
+void checkBandReachesThePanelSides(const FakeTarget& target, const char* what) {
+  const fui::DeviceContext ctx = bezelDevice();
+  const int16_t y = static_cast<int16_t>(ctx.safeArea.top + 1);
+  const bool covered =
+      blackPaintCovers(target, 0, y) && blackPaintCovers(target, static_cast<int16_t>(ctx.width - 1), y);
+  check(covered, what, __LINE__);
+}
+
+template <typename Model, void (*Build)(toybox::Screen&, const Model&)>
+void renderWithBezel(Rendered& out, const Model& model) {
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, bezelDevice(), noInput, out.interactions);
+  toybox::Screen screen(frame, toybox::themeTokens());
+  Build(screen, model);
+}
+
+void testNoPaperAboveAnyHeaderBand() {
+  // The shelf: absolute chrome, the band's bottom pinned at kHeaderHeight. This
+  // is the screen Mario was looking at.
+  {
+    fui::ListItem items[2] = {};
+    items[0].label = "CHESS";
+    items[1].label = "BATTLESHIP";
+    shelfui::MenuModel model;
+    model.title = "GAMES";
+    model.items = items;
+    model.count = 2;
+    Rendered out;
+    renderWithBezel<shelfui::MenuModel, shelfui::buildMenu>(out, model);
+    checkBandReachesThePanelTop(out.target, "shelf folder: band reaches the panel top");
+    checkBandReachesThePanelSides(out.target, "shelf folder: band reaches the panel sides");
+  }
+
+  // The five game screens that took their band from the safe rect instead, so
+  // it was inset on three sides: a white strip above it AND a white column down
+  // each side. Their menus never were, which is what made the seam show up
+  // between a game's own screens.
+  {
+    c4ui::BoardModel model;
+    connectfour::start(model.game);
+    model.open = connectfour::openColumns(model.game);
+    Rendered out;
+    renderWithBezel<c4ui::BoardModel, c4ui::buildBoard>(out, model);
+    checkBandReachesThePanelTop(out.target, "connect four board: band reaches the panel top");
+    checkBandReachesThePanelSides(out.target, "connect four board: band reaches the panel sides");
+  }
+  {
+    checkui::BoardModel model;
+    checkers::start(model.game);
+    Rendered out;
+    renderWithBezel<checkui::BoardModel, checkui::buildBoard>(out, model);
+    checkBandReachesThePanelTop(out.target, "checkers board: band reaches the panel top");
+    checkBandReachesThePanelSides(out.target, "checkers board: band reaches the panel sides");
+  }
+  {
+    mineui::BoardModel model;
+    Rendered out;
+    renderWithBezel<mineui::BoardModel, mineui::buildBoard>(out, model);
+    checkBandReachesThePanelTop(out.target, "minesweeper board: band reaches the panel top");
+    checkBandReachesThePanelSides(out.target, "minesweeper board: band reaches the panel sides");
+  }
+  {
+    knuckleui::BoardModel model;
+    Rendered out;
+    renderWithBezel<knuckleui::BoardModel, knuckleui::buildBoard>(out, model);
+    checkBandReachesThePanelTop(out.target, "knucklebones board: band reaches the panel top");
+    checkBandReachesThePanelSides(out.target, "knucklebones board: band reaches the panel sides");
+  }
+  {
+    xkcdui::MenuModel model;
+    Rendered out;
+    renderWithBezel<xkcdui::MenuModel, xkcdui::buildMenu>(out, model);
+    checkBandReachesThePanelTop(out.target, "xkcd menu: band reaches the panel top");
+    checkBandReachesThePanelSides(out.target, "xkcd menu: band reaches the panel sides");
+  }
+}
+
+// The other half of the split: paint bleeds under the glass, ink does not. A
+// band filled to row 0 by a fix that also moved the title up there would pass
+// the check above and be a worse bug than the one it closed.
+void testTheHeaderTitleStaysOutOfTheCoveredRows() {
+  fui::ListItem items[1] = {};
+  items[0].label = "CHESS";
+  shelfui::MenuModel model;
+  model.title = "GAMES";
+  model.items = items;
+  model.count = 1;
+
+  Rendered out;
+  renderWithBezel<shelfui::MenuModel, shelfui::buildMenu>(out, model);
+  const FakeTarget::TextRun* title = out.target.find("GAMES");
+  CHECK(title != nullptr);
+  if (title != nullptr) {
+    // Centred in the VISIBLE part, not in the whole band: equal air above and
+    // below, measured from the bezel's safe top rather than from row 0. Filling
+    // the band to row 0 and centring the title over all of it passes every
+    // coverage check above and drops the title's air into rows nobody can see,
+    // which is the bug this fix could easily have introduced.
+    const fui::Rect ink = inkBandOf(*title);
+    const int above = ink.y - bezelDevice().safeArea.top;
+    const int below = toybox::kHeaderHeight - ink.bottom();
+    CHECK(above > 0);
+    CHECK(above - below <= 1 && below - above <= 1);
+  }
+}
+
+// And the third: the band's BOTTOM edge is what every layout below it is tuned
+// against, so widening the paint upward must not move it. Under absolute chrome
+// that edge is kHeaderHeight, with or without the glass.
+void testTheHeaderBandBottomIgnoresTheBezel() {
+  fui::ListItem items[1] = {};
+  items[0].label = "CHESS";
+  shelfui::MenuModel model;
+  model.title = "GAMES";
+  model.items = items;
+  model.count = 1;
+
+  Rendered bare;
+  {
+    const fui::InputSnapshot noInput{};
+    toybox::Frame frame(bare.target, device(), noInput, bare.interactions);
+    toybox::Screen screen(frame, toybox::themeTokens());
+    shelfui::buildMenu(screen, model);
+  }
+  Rendered glassed;
+  renderWithBezel<shelfui::MenuModel, shelfui::buildMenu>(glassed, model);
+
+  const FakeTarget::TextRun* bare0 = bare.target.find("CHESS");
+  const FakeTarget::TextRun* glassed0 = glassed.target.find("CHESS");
+  CHECK(bare0 != nullptr);
+  CHECK(glassed0 != nullptr);
+  if (bare0 != nullptr && glassed0 != nullptr) {
+    CHECK(bare0->rect.y == glassed0->rect.y);
+  }
+}
+
+// The ink rule again, for the labels apps draw on the band THEMSELVES.
+//
+// The header component centres each run on its own line box, so an app whose
+// right label uses a different cut from the title draws it by hand -- and then
+// owns the centring headerBand() would have done. Boxed over the whole band it
+// centres partly in rows the bezel covers and sits above the title beside it,
+// which is the same bug as the white strip wearing the other face: paint that
+// stops at the safe top, ink that starts at the panel top.
+void testAHandDrawnRightLabelSitsOnTheTitlesLine() {
+  triviaui::QuestionModel model;
+  model.clue = "WHAT IS THE CAPITAL OF PERU";
+  model.difficulty = 3;
+
+  Rendered out;
+  renderWithBezel<triviaui::QuestionModel, triviaui::buildQuestion>(out, model);
+  const FakeTarget::TextRun* title = out.target.find("TRIVIA");
+  const FakeTarget::TextRun* label = out.target.find("QUESTION");
+  CHECK(title != nullptr);
+  CHECK(label != nullptr);
+  if (title != nullptr && label != nullptr) {
+    // Their ink centres agree. Not their rects: the two runs use different cuts
+    // on purpose, and it is the ink the eye lines up, which is the whole reason
+    // the label is drawn by hand rather than handed to HeaderProps.
+    const fui::Rect titleInk = inkBandOf(*title);
+    const fui::Rect labelInk = inkBandOf(*label);
+    const int titleMid = titleInk.y + titleInk.height / 2;
+    const int labelMid = labelInk.y + labelInk.height / 2;
+    CHECK(titleMid - labelMid <= 2 && labelMid - titleMid <= 2);
+  }
+}
+
 int main() {
+  testNoPaperAboveAnyHeaderBand();
+  testAHandDrawnRightLabelSitsOnTheTitlesLine();
+  testTheHeaderTitleStaysOutOfTheCoveredRows();
+  testTheHeaderBandBottomIgnoresTheBezel();
   testTriviaOptionsCarryTheirIndex();
   testTriviaAlwaysOffersAWayOut();
   testTriviaDrawsNoOptionsWithoutAQuestion();
@@ -7872,6 +8839,20 @@ int main() {
   testMurdleGridResolvesEveryCellItDrew();
   testTheCellYouTapIsTheCellTheRulesGet();
 
+  reportReaderPaintCost();
+  testTheWindowDrawsWhatTheWholeDocumentWouldHave();
+  testAPageTurnDoesNotCostTheWholeArticle();
+  testAnArticleIsWrappedOnceHoweverManyPagesAreTurned();
+  testANarrowerPanelIsNotDrawnFromTheWiderPanelsWrap();
+  testABiggerReadingSizeIsNotDrawnFromTheSmallerOnesWrap();
+  testAnotherArticleOfTheSameLengthIsNotDrawnFromTheFirstsWrap();
+  testAKernPairTheKeyCannotSeeIsCaughtByTheWindow();
+  testEveryPageTogetherIsTheWholeArticle();
+  testABreakThatMovesWithoutChangingTheCountIsStillCaught();
+  testTheCountBuildReaderReturnsIsTheOneItDrew();
+  testTheFingerprintReadsTheStyleAndNotJustTheTarget();
+  testADocumentEndingInANewlineIsStillWrappedOnce();
+  testTheHackerNewsReaderAlsoWrapsOncePerDocument();
   testTheEmptyQueueStillOffersSync();
   testTappingAQueueRowOpensThatArticle();
   testTheQueueTitleWidthLeavesRoomForThePosition();

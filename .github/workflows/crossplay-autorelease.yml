@@ -62,8 +62,16 @@ jobs:
           fi
           tip="$(git rev-parse HEAD)"
           if [ "$tip" != "$VERIFIED" ]; then
-            echo "xteink moved past the commit CI verified ($VERIFIED -> $tip); the run for the new tip releases it."
-            echo "go=false" >> "$GITHUB_OUTPUT"; exit 0
+            # CI's own emulator rebuild commits to xteink right after a merge and
+            # is pushed with the workflow token, so no CI run ever comes for it.
+            # A tip that moved only by such commits is the verified commit plus
+            # site/ bytes no device sees: release from it. Anything else moved
+            # the tip for real and its own run brings its own release.
+            if git log --format=%s "$VERIFIED..$tip" | grep -vq '^chore: emulator rebuilt'; then
+              echo "xteink moved past the commit CI verified ($VERIFIED -> $tip); the run for the new tip releases it."
+              echo "go=false" >> "$GITHUB_OUTPUT"; exit 0
+            fi
+            echo "xteink moved past $VERIFIED only by emulator rebuilds; releasing from $tip."
           fi
           # A merge that cannot change a device image (docs, site, tooling,
           # workflows) is not a release: no bump, no tag, no update prompt on
