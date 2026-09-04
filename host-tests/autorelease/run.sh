@@ -509,6 +509,26 @@ grep -q "A note" docs/release-body.md && ok "a hand-cut release with nothing dev
 echo "$out" | grep -q "excluded from the notes" && bad "the fallback still counted exclusions" || ok "the fallback adds no count line"
 echo "$out" | grep -q "nothing since the tag reaches a user" && ok "the fallback says why it listed everything" || bad "the fallback stood down silently: $out"
 
+# A HALF-WRITE, which the autorelease step cannot see. `python3 ... | tee` puts
+# tee's exit status on the pipeline, so a crash here does not fail the step
+# under GitHub's `bash -e`; the commit is skipped only because NEXT_VERSION is
+# then missing from the output. What must never happen in between is a bumped
+# platformio.ini and a rewritten body beside an untouched history -- a half
+# release for the next run to inherit.
+RH="$WORK/halfwrite"; mkdir -p "$RH/docs"; cd "$RH" || exit 1
+q git init -q -b xteink
+q git config user.email t@t; q git config user.name t
+printf '[crossplay]\nversion = 5.0.0\n' > platformio.ini
+lay_out_docs "$RH" 5.0.0 "old"
+# the history loses its insertion marker
+grep -v 'releases, newest first' docs/release-notes.md > docs/rn.tmp && mv docs/rn.tmp docs/release-notes.md
+q git add -A; q git commit -qm base; q git tag v5.0.0
+q git checkout -qb app/real; mkdir -p src; echo 'int x;' > src/x.cpp; q git add -A; q git commit -qm "fix: something real"
+q git checkout -q xteink; q git merge -q --no-ff app/real -m "Merge pull request #1 from ma-r-s/app/real"
+python3 "$TOOL" --repo-dir "$RH" --pr-json "$WORK/none.json" --write >/dev/null 2>&1
+grep -q "version = 5.0.0" platformio.ini && ok "a history it cannot write leaves the version alone" || bad "platformio.ini was bumped for a release the history never recorded"
+grep -q "### What is new in 5.0.0" docs/release-body.md && ok "and leaves the body alone" || bad "the body was rewritten for a release the history never recorded"
+
 echo
 echo "release-needed.sh"
 mkdir -p "$R/scripts_local"

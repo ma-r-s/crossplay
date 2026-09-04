@@ -463,17 +463,23 @@ def main():
         print(f"{n} landing{'' if n == 1 else 's'} excluded from the notes, named above.")
     print(f"NEXT_VERSION={nxt}")
     if a.write:
-        ini.write_text(
-            re.sub(
-                r"(^\[crossplay\]\s*\n(?:.*\n)*?version\s*=\s*)\S+",
-                lambda m: m.group(1) + nxt,
-                ini.read_text(),
-                count=1,
-                flags=re.M,
-            )
+        # BOTH texts before EITHER write. Each of these raises SystemExit on a
+        # file it cannot find its anchor in, and writing as we went would leave
+        # a bumped platformio.ini and a rewritten body beside an untouched
+        # history -- a half-release for the next run to inherit, in a step
+        # whose failure `| tee` already hides from `set -e`.
+        new_ini = re.sub(
+            r"(^\[crossplay\]\s*\n(?:.*\n)*?version\s*=\s*)\S+",
+            lambda m: m.group(1) + nxt,
+            ini.read_text(),
+            count=1,
+            flags=re.M,
         )
-        body.write_text(rewrite_notes(body.read_text(), nxt, bullets))
-        history.write_text(prepend_history(history.read_text(), nxt, bullets))
+        new_body = rewrite_notes(body.read_text(), nxt, bullets)
+        new_history = prepend_history(history.read_text(), nxt, bullets)
+        ini.write_text(new_ini)
+        body.write_text(new_body)
+        history.write_text(new_history)
         print("written")
 
 
