@@ -215,4 +215,4 @@ When editing related source assets, regenerate via normal build steps/scripts.
 Before implementing larger ideas, check:
 
 - [SCOPE.md](../../SCOPE.md)
-- [GOVERNANCE.md](../../GOVERNANCE.md)
+- [GOVERNANCE.md](https://github.com/crosspoint-reader/crosspoint-reader/blob/develop/GOVERNANCE.md)

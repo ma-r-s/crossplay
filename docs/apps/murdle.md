@@ -1,7 +1,7 @@
 # Murdle: a murder-mystery deduction game
 
-The design, settled before any code. Read [building-apps.md](building-apps.md)
-for the method and [design-language.md](design-language.md) for the look.
+The design, settled before any code. Read [building-apps.md](../building-apps.md)
+for the method and [design-language.md](../design-language.md) for the look.
 
 The mechanic is **Murdle**'s, by G.T. Karber, and the name is kept because it is
 the name of the thing. Everything else is ours: the cast, the fixtures and the
