@@ -48,12 +48,19 @@ trap 'docker rm -f "$CID" >/dev/null 2>&1; rm -rf "$WORK"' EXIT
 
 psql() { docker exec -i "$CID" psql -U postgres -d board -v ON_ERROR_STOP=1 -qtA "$@"; }
 
-for _ in $(seq 1 60); do
+# 180 rather than 60: this suite runs on a CI runner that is building four
+# device images at the same time, and 60s of a loaded runner is not 60s of an
+# idle laptop. A postgres that was merely slow used to fail a pull request whose
+# diff could not touch it -- seen 2026-09-04 on a forehead word-list change.
+for _ in $(seq 1 180); do
   docker exec "$CID" pg_isready -U postgres -d board >/dev/null 2>&1 && break
   sleep 1
 done
 if ! docker exec "$CID" pg_isready -U postgres -d board >/dev/null 2>&1; then
-  echo "FAIL relwatch  postgres never came up"
+  # Say WHY. "never came up" names no cause, and the next person to read it is
+  # looking at a red build on an unrelated diff with nothing to go on.
+  echo "FAIL relwatch  postgres never came up within 180s; its own log follows"
+  docker logs "$CID" 2>&1 | tail -20 | sed 's/^/    /'
   exit 1
 fi
 
