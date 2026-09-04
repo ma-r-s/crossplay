@@ -115,14 +115,25 @@ and the public key come from the site's `/api/board-config`, fetched once and
 cached on the card as `/.crosspoint/board.json`, fetched again when the board
 answers 401 or 403 (a key rotation is a Vercel setting, not a release).
 Between heartbeats the apps set, the OTA record and a pending crash live in
-`/.crosspoint/heartbeat.json`, written once per first open and once per send.
+`/.crosspoint/heartbeat.json`, written whenever the state changes: a first
+open, an OTA note (the attempt and the failure), a recorded panic, a failed
+request and the answer that ends a run of them, a send, and the toggle
+going back on.
 
-The post runs inline in `loop()`, so it is bounded: every network wait is
-5s, one request per loop pass (the board config on one pass, the event on
-the next), and a request that fails is not tried again for 15 minutes, then
-not before the next UTC day, one try a day until one is accepted. That wait
-(`retry`, `fails`) is in the state file, because deep sleep is a boot and a
-device that sleeps often would otherwise pay the stall at every boot.
+The post runs inline in `loop()`, with input and the power button waiting
+behind it, and the 5 s timeout is per wait, not per request. `SecureClient`
+makes two connect attempts (a TLS 1.3-capable hello, then a TLS 1.2-only
+one), each a blocking DNS lookup the timeout does not cover, then up to 5 s
+for TCP and up to 5 s for the handshake. A silent :443 therefore costs about
+10 s plus DNS (a dropped SYN spends the two TCP waits and never reaches the
+handshake; a port that accepts and says nothing spends the two handshake
+waits) and up to 20 s plus DNS when both run to the deadline. One request
+per loop pass (the board config on one pass, the event on the next). The
+real bound is the persisted backoff: a request that fails is not tried again
+for 15 minutes, then not before the next UTC day, one try a day until one is
+accepted. That wait (`retry`, `fails`) is in the state file, because deep
+sleep is a boot and a device that sleeps often would otherwise pay the stall
+at every boot.
 
 Settings > System > "Send a daily heartbeat" (default on) turns all of it
 off, and off records nothing: no app open, no OTA note, no panic is written

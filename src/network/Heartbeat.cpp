@@ -56,11 +56,15 @@ constexpr char kStatePath[] = "/.crosspoint/heartbeat.json";
 // board refuses the key (a rotation is a Vercel setting, not a release).
 constexpr char kBoardPath[] = "/.crosspoint/board.json";
 constexpr unsigned long kHeapRetryMs = 60UL * 1000UL;
-// Per network wait, and SecureClient spends it up to four times on one
-// request (TCP connect, then the handshake, then both again with a TLS
-// 1.2-only hello), all of it inline in loop() with input and the power
-// button waiting behind it. 5s bounds a blackholed :443 at 10s once, and the
-// persisted backoff below makes once mean once.
+// Per network wait, not per request. SecureClient makes two connect attempts
+// (a TLS 1.3-capable hello, then a TLS 1.2-only one), each a blocking DNS
+// lookup this timeout does not cover, then up to 5s for TCP and up to 5s for
+// the handshake, all of it inline in loop() with input and the power button
+// waiting behind it. A silent :443 costs about 10s plus DNS (a dropped SYN
+// spends the two TCP waits and never reaches the handshake; a port that
+// accepts and says nothing spends the two handshake waits) and up to 20s
+// plus DNS when both run to the deadline. The real bound is the persisted
+// backoff below: 15 minutes, then the rest of the day, then once a day.
 constexpr uint32_t kNetTimeoutMs = 5000;
 constexpr size_t kUrlSize = 160;
 constexpr size_t kKeySize = 320;
