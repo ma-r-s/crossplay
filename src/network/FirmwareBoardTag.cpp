@@ -1,5 +1,7 @@
 #include "FirmwareBoardTag.h"
 
+#include <BoardConfig.h>
+
 #include <cstring>
 
 namespace board_tag {

@@ -137,7 +137,7 @@ class Screen : public freeink::ui::Screen<kMaxInteractions> {
 };
 
 // Toybox chrome opts OUT of the device safe area: call FIRST in a screen
-// builder, before screen.header(). The header band is paint and may bleed
+// builder, before headerBand(). The header band is paint and may bleed
 // under the bezel -- its title ink sits well below the covered rows -- and
 // every layout in these apps is tuned against the band at panel row 0.
 // Shifting the chrome down by the insets ate the gaps those layouts were
@@ -147,18 +147,38 @@ class Screen : public freeink::ui::Screen<kMaxInteractions> {
 // safe rect through its own path and does not use this.
 inline void absoluteChrome(Screen& screen) { screen.setContentMarginAbsolute(freeink::ui::Insets{}); }
 
-// The header band under absolute chrome: its BOTTOM edge stays at the tuned
-// kHeaderHeight so nothing below it moves, but its visible top is the bezel's
-// safe top, and the title (and any right label) centres in that visible part
-// rather than in rows nobody can see. The band's covered rows stay paper --
-// they are under the glass on every board, by the board's own measurement.
-// Call in place of screen.header(props) after absoluteChrome().
+// The header band. Paint and ink are placed by different rules, and the split
+// is the whole point.
+//
+// The PAINT starts at the panel's physical top-left corner and spans the full
+// width, covering the rows and columns the bezel hides. Those pixels are not
+// invisible, they are only invisible HEAD-ON: the glass sits above the panel,
+// so an eye below the device sees past the bezel's edge, and paper left there
+// reads as a white strip above a black band. Full-bleed is the same rule
+// headerRule() already follows -- paint may run under the bezel, content may
+// not.
+//
+// The INK stays in the visible part: the title (and any right label) centres
+// between the bezel's safe top and the band's bottom, never in rows nobody can
+// read.
+//
+// The band's bottom edge is wherever the chrome put it, taken from the content
+// rect exactly as screen.header(props) would take it, so nothing below moves --
+// under absolute chrome (bottom at the tuned kHeaderHeight) or under the safe
+// area alike. Call in place of screen.header(props).
 inline void headerBand(Screen& screen, const freeink::ui::HeaderProps& props) {
   namespace fui = freeink::ui;
-  const int16_t visibleTop = screen.frame().safeRect().y;
   const fui::Rect band = screen.takeTop(screen.theme().headerHeight);
-  screen.header(props, fui::makeRect(band.x, static_cast<int16_t>(band.y + visibleTop), band.width,
-                                     static_cast<int16_t>(band.height - visibleTop)));
+  const int16_t safeTop = screen.frame().safeRect().y;
+  const int16_t inkTop = band.y > safeTop ? band.y : safeTop;
+  const fui::StyleSet& styles = props.styles.unset() ? screen.theme().popup : props.styles;
+  // Paint first, ink second: header() fills its own rect in the same colour, so
+  // the two agree wherever they overlap. Square and borderless, which every
+  // band in this fork is (popup radius 0, headerUnderline 0): a rounded or
+  // top-bordered band would need its corners and its rule carried up here too.
+  screen.target().fill(fui::makeRect(0, 0, screen.device().screen().width, band.bottom()),
+                       styles.resolve(fui::StateNormal).background);
+  screen.header(props, fui::makeRect(band.x, inkTop, band.width, static_cast<int16_t>(band.bottom() - inkTop)));
 }
 
 // Vertical top for an element of height h centred in the VISIBLE part of the
@@ -166,7 +186,8 @@ inline void headerBand(Screen& screen, const freeink::ui::HeaderProps& props) {
 // tallies, face doors). Matches headerBand()'s centring.
 inline int16_t bandCenterY(Screen& screen, const int16_t elementH) {
   const int16_t visibleTop = screen.frame().safeRect().y;
-  return static_cast<int16_t>(visibleTop + (kHeaderHeight - visibleTop - elementH) / 2);
+  const int16_t bandH = screen.theme().headerHeight;
+  return static_cast<int16_t>(visibleTop + (bandH - visibleTop - elementH) / 2);
 }
 
 // The rule under the header band. Full-bleed on purpose -- paint may run

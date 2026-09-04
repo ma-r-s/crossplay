@@ -43,8 +43,14 @@ sync CrossPoint develop (<n> commits)`, body: what came in (their commit
    `sync/sdk-<YYYYMMDD>` in the SDK fork, pushes it, and resolves the
    submodule conflict in the crossplay merge to that commit. A conflict in
    intent inside the SDK stops the run the same way as one in crossplay.
-   `.gitmodules` names a branch (`x4pro-measured-insets`) that is stale; the
-   pin is what matters, and the fork's `main` is not the line.
+   `.gitmodules` named `x4pro-measured-insets` until 2026-09-04, by which
+   point that branch had been DELETED on the fork -- so a
+   `fetch --recurse-submodules` failed with `upload-pack: not our ref`. It now
+   names `fix/sd-free-space`, which is where the pinned commit actually lives.
+   The pin is still what matters, and the fork's `main` is still not the line:
+   `main` sits 40 commits behind the pin. Whoever renames that branch to
+   something durable should fast-forward `main` to the pin in the same move,
+   so the fork's default branch stops lying about where its work is.
 8. **The board hears every run.** The cloud checkout has no board, so the
    old "file a card" step never ran and the first run's stop went unseen for
    a day. Now every run ends by posting one event through the public

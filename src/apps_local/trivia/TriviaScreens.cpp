@@ -62,9 +62,14 @@ void chrome(toybox::Screen& screen, const char* title, const char* rightLabel) {
   // so sharing the band leaves their ink visibly apart. Every app in this fork
   // that passes a right label has this.
   if (rightLabel != nullptr && *rightLabel != '\0') {
+    // From the band's VISIBLE top, matching headerBand()'s own centring. Boxed
+    // over the whole band instead, the label centres partly in rows the bezel
+    // covers and rides above the title it is meant to sit beside.
     const int16_t bandTop = static_cast<int16_t>(screen.body().y - toybox::kHeaderHeight);
-    const fui::Rect box{static_cast<int16_t>(screen.body().x), bandTop,
-                        static_cast<int16_t>(screen.body().width - kMargin), toybox::kHeaderHeight};
+    const int16_t visibleTop = screen.frame().safeRect().y;
+    const fui::Rect box{static_cast<int16_t>(screen.body().x), static_cast<int16_t>(bandTop + visibleTop),
+                        static_cast<int16_t>(screen.body().width - kMargin),
+                        static_cast<int16_t>(toybox::kHeaderHeight - visibleTop)};
     drawLabel(screen, box, rightLabel, toybox::kSmallFont, fui::TextAlign::Right, toybox::kButtonCut,
               fui::Color::White);
   }

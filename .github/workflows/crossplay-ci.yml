@@ -23,12 +23,27 @@ permissions:
 
 # One run per branch at a time. A push on top of a pull request supersedes
 # the run for the commit it replaced; five runs of one branch were once
-# sharing the runners while a merge waited on its own build. On xteink the
-# same rule folds two quick merges into one run, and the autorelease that
-# listens for this workflow releases them together.
+# sharing the runners while a merge waited on its own build.
+#
+# Not on xteink, and this is the whole reason for the expression below.
+# Superseding was meant to fold two quick merges into one run that releases
+# them together, which works when a run survives to the end. It does not
+# survive a STREAM of merges: on the night of 2026-09-03 they landed at
+# 22:58, 23:05, 23:42, 23:47 (three), 23:56, 00:16 and 00:29 -- every 13 to
+# 20 minutes, and this build takes longer than that. Each merge cancelled the
+# previous merge's run, three in a row reached no conclusion at all, and
+# crossplay-autorelease.yml fires on `workflow_run` with conclusion success.
+# A cancelled run is not a success, so nothing released for six merges while
+# RELEASE_HOLD was 0 and nobody was holding anything. Every individual
+# cancellation looked exactly like this rule working correctly.
+#
+# So pull requests still supersede, and xteink queues. crossplay-emulator.yml
+# already does the second thing (cancel-in-progress: false), which is why its
+# run for 2b9f3a84 finished while this workflow's run for the same commit was
+# cancelled -- the same merge, the two rules, two outcomes.
 concurrency:
   group: crossplay-ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/xteink' }}
 
 jobs:
   build:

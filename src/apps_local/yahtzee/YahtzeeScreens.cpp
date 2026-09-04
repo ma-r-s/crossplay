@@ -408,7 +408,7 @@ void buildCard(toybox::Screen& screen, const CardModel& model) {
   fui::HeaderProps header;
   header.title = "YAHTZEE";
   header.borderEdges = fui::EdgesNone;
-  screen.header(header);
+  toybox::headerBand(screen, header);
   screen.insetContent(fui::Insets{toybox::kGutter, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 
   const fui::DeviceContext device = screen.device();
@@ -579,7 +579,7 @@ void buildResult(toybox::Screen& screen, const ResultModel& model) {
   fui::HeaderProps header;
   header.title = drawn ? "A TIE" : (won ? "YOU WIN" : "THEY WIN");
   header.borderEdges = fui::EdgesNone;
-  screen.header(header);
+  toybox::headerBand(screen, header);
   screen.insetContent(fui::Insets{toybox::kGutter * 2, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 
   fui::ButtonProps done;

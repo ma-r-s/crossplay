@@ -243,7 +243,14 @@ static const EpdFontData toybox_14 = {
     nullptr,
     nullptr,
     nullptr,
+    nullptr,  // kernLeftCodepoints: this cut has no kerning data at all
+    nullptr,  // kernLeftClassIds
+    nullptr,  // kernRightCodepoints
+    nullptr,  // kernRightClassIds
     nullptr,
+    nullptr,  // kernRowOffsets: this cut has no kerning data at all
+    nullptr,  // kernSparseCols
+    nullptr,  // kernSparseValues
     0,
     0,
     0,

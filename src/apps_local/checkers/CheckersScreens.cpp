@@ -326,7 +326,7 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   fui::HeaderProps header;
   header.title = "CHECKERS";
   header.borderEdges = fui::EdgesNone;
-  screen.header(header);
+  toybox::headerBand(screen, header);
   screen.insetContent(fui::Insets{toybox::kGutter * 2, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 
   const fui::DeviceContext device = screen.device();
@@ -461,7 +461,7 @@ void buildResult(toybox::Screen& screen, const ResultModel& model) {
   fui::HeaderProps header;
   header.title = model.outcome == ck::Outcome::Draw ? "A DRAW" : (won ? "YOU WIN" : "THEY WIN");
   header.borderEdges = fui::EdgesNone;
-  screen.header(header);
+  toybox::headerBand(screen, header);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 
   fui::ButtonProps done;
