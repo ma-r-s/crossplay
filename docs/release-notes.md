@@ -12,10 +12,11 @@ Knucklebones, Battleship, Jaipur, Sea Salt and Toy Battle. Two
 devices next to each other find one another with nothing to type --
 and they do not have to be the same device.
 
-### What is new in 1.12.19
+### What is new in 1.12.20
 
-- The notes list only what a device can see
-- Plus 3 changes nothing on the device can see.
+- Check: --committed works in any argument position
+- Trivia: the parts of the difficulty work that outlived the ratings
+- Plus 2 changes nothing on the device can see.
 
 ### What WAS new in 1.12.12
 
