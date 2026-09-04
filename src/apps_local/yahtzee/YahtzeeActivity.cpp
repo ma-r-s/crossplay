@@ -137,10 +137,12 @@ void YahtzeeActivity::onMatchStart(const bool goesFirst) {
   // The follower waits for the leader's first state to arrive, which it will,
   // because the whole game travels on every move.
   //
-  // Starting on a zeroed Game here is safe in a way it was not in Checkers: an
-  // empty Yahtzee card is not a finished game, so over() is false and nothing
-  // announces a winner before the first roll.
-  if (goesFirst) yz::start(game, toybox::seed());
+  // BOTH sides start a card; only the leader's dice are the ones that count,
+  // and they arrive in its first state. The follower used to keep whatever it
+  // was holding, and a kept card is a FULL card -- kUnscored is -1, so a game
+  // left over from before is over() and the new match opened on the old score
+  // sheet with the old result counted a second time.
+  yz::start(game, toybox::seed());
   goTo(yz::Screen::Card);
 }
 
@@ -151,6 +153,14 @@ void YahtzeeActivity::onRematch() { onMatchStart(play.goesFirst()); }
 void YahtzeeActivity::onLinkEnded() {
   seat = 0;
   goTo(yz::Screen::Menu);
+}
+
+void YahtzeeActivity::onMatchEnded() {
+  recordResult();
+  // The same screen the solo game ends on. In a match it used to be
+  // unreachable, so the finished board went straight to ANOTHER GAME? and the
+  // loser saw nothing at all of the move that beat them.
+  goTo(yz::Screen::Result);
 }
 
 void YahtzeeActivity::gameLoop() {
@@ -285,6 +295,14 @@ void YahtzeeActivity::gameLoop() {
       return;
 
     case yzui::ActionDone:
+      // DONE on a finished MATCH means done with the match, not just with the
+      // screen: the radio is still up and the link screen would slam over the
+      // menu the moment the hold ended. leaveLink() is what puts the app back
+      // on its own menu, and it tells the other device on the way out.
+      if (inMatch()) {
+        leaveLink();
+        return;
+      }
       goTo(yz::Screen::Menu);
       return;
 

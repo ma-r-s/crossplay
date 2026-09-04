@@ -209,6 +209,14 @@ uint32_t CheckersActivity::surfaceMeaning() const {
   return paintclock::mixMeaning(withSeat, live ? 1u : 0u);
 }
 
+void CheckersActivity::onMatchEnded() {
+  recordResult();
+  // The same screen the solo game ends on. In a match it used to be
+  // unreachable, so the finished board went straight to ANOTHER GAME? and the
+  // loser saw nothing at all of the move that beat them.
+  goTo(ck::Screen::Result);
+}
+
 void CheckersActivity::gameLoop() {
   namespace fui = freeink::ui;
 
@@ -349,6 +357,14 @@ void CheckersActivity::gameLoop() {
       return;
 
     case checkui::ActionDone:
+      // DONE on a finished MATCH means done with the match, not just with the
+      // screen: the radio is still up and the link screen would slam over the
+      // menu the moment the hold ended. leaveLink() is what puts the app back
+      // on its own menu, and it tells the other device on the way out.
+      if (inMatch()) {
+        leaveLink();
+        return;
+      }
       goTo(ck::Screen::Menu);
       return;
 

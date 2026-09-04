@@ -81,10 +81,13 @@ void SeaSaltActivity::onMatchStart(const bool goesFirst) {
   // The dealer deals and sends; the other device adopts the state whole, so
   // both play the same shuffle without a seed ever crossing on its own.
   seat = goesFirst ? 0 : 1;
-  if (goesFirst) {
-    game.newGame(nextSeed(), 0);
-    link.play(game);
-  }
+  // BOTH sides clear the table; only the dealer's deal is the one that counts,
+  // and it arrives in the first packet. The follower used to keep whatever it
+  // was holding, so a match begun after a finished game started with
+  // matchGameOver() already true -- which counted that old game a second time
+  // and put its score screen up as the new match's opening view.
+  game.newGame(nextSeed(), 0);
+  if (goesFirst) link.play(game);
   statsCounted = false;
   clearSelection();
   report[0] = '\0';
@@ -964,6 +967,13 @@ void SeaSaltActivity::routeCall() {
 
 void SeaSaltActivity::routeRoundOver() {
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+    // The same guard routeBoard() has twenty lines up. Without it Back here
+    // walks to the front door with the radio still up and the opponent never
+    // told, and the link screen arrives over the menu a moment later.
+    if (linkRequested()) {
+      leaveLink();
+      return;
+    }
     goToMenu();
     return;
   }
@@ -1001,6 +1011,13 @@ void SeaSaltActivity::routeRoundOver() {
     return;
   }
   if (event.action == seasaltui::ActionPlayAgain) {
+    // In a match this button is drawn live and reachable, and startNewGame()
+    // would deal a fresh local game over a link the opponent is still on --
+    // they would never see it. A rematch is asked, the same as everywhere else.
+    if (inMatch()) {
+      proposeRematch();
+      return;
+    }
     startNewGame();
   }
 }

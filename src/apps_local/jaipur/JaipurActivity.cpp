@@ -247,10 +247,11 @@ const char* JaipurActivity::linkHeadline() const {
 
 void JaipurActivity::onMatchStart(const bool goesFirst) {
   seat = goesFirst ? 0 : 1;
-  if (goesFirst) {
-    game.newGame(nextSeed(), 0);
-    link.play(game);
-  }
+  // Both sides clear the table; only the dealer's deal travels. The follower
+  // used to keep the previous game, so a match begun after a finished one
+  // opened on the old scoreline until the first packet landed.
+  game.newGame(nextSeed(), 0);
+  if (goesFirst) link.play(game);
   clearSelection();
   view = View::Board;
   requestUpdate();
@@ -1417,9 +1418,17 @@ void JaipurActivity::routeRoundOver() {
     if (inMatch()) link.play(game);
     if (opponentIsBrain() && game.currentPhase() == jaipur::Phase::Playing && !myTurn()) opponentPending = true;
     requestUpdate();
-  } else if (action == jaipurui::ActionPlayAgain && !inMatch()) {
-    // Never in a match: a rematch is asked and answered through the link's own
-    // screen, which is what both devices are looking at by then.
+  } else if (action == jaipurui::ActionPlayAgain) {
+    // It used to be true that both devices were already looking at the link
+    // screen by the time this could be tapped, so the match case was excluded
+    // and the button was never drawn. The finished board now stays up for a
+    // couple of seconds first, and the button is drawn live on it -- a tap that
+    // did nothing would read exactly like a crash. Asking is the same question
+    // the link screen is about to ask, only sooner.
+    if (inMatch()) {
+      proposeRematch();
+      return;
+    }
     startNewGame();
   }
 }

@@ -45,6 +45,11 @@ class SeaSaltActivity final : public linkplay::LinkActivity {
   void onRematch() override;
   void onLinkEnded() override;
   bool matchGameOver() const override { return game.currentPhase() == seasalt::Phase::GameOver; }
+  // Sea Salt already counts a match from both takeOpponentState() and
+  // afterHumanAction(), so this is insurance rather than the fix -- and free
+  // insurance, because countMatchEnd() is guarded by statsCounted and a second
+  // call does nothing. See link/LinkEndgame.h.
+  void onMatchEnded() override { countMatchEnd(); }
   void drawLinkArt(const Rect& slot) override;
   void gameLoop() override;
   void gameRender() override;
