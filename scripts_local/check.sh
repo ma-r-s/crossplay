@@ -466,7 +466,7 @@ fi
 # which is exactly when nobody is looking.
 for entry in \
   "server/study-bridge:bridge:12:tests/test_engine.py tests/test_api.py tests/test_window.py tests/test_events.py tests/test_pages.py" \
-  "server/read-bridge:readbridge:8:tests/test_oauth.py tests/test_article.py tests/test_window.py tests/test_lockout.py tests/test_engine.py tests/test_api.py tests/test_events.py tests/test_pages.py"
+  "server/read-bridge:readbridge:8:tests/test_oauth.py tests/test_article.py tests/test_listing.py tests/test_window.py tests/test_lockout.py tests/test_engine.py tests/test_api.py tests/test_events.py tests/test_pages.py"
 do
   BRIDGE_DIR="$REPO/${entry%%:*}"
   rest="${entry#*:}"
