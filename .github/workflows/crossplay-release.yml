@@ -180,6 +180,15 @@ jobs:
 
             ### What is new in 1.12.13
 
+            **The box around the books icon is gone.** 1.12.12 gave real buttons
+            an outline so they would look like buttons, and that outline reached
+            one icon that is not a button.
+
+            **BACK works while a book cover is loading**, once the connection is
+            made. The cover was fetched in a way that read no input at all, so
+            the screen could not be left. A cover left over from a previously
+            opened book could also be shown for the wrong one; that is fixed.
+
             **INSTAPAPER works now, from the device, with nothing to set up
             first.** Open it, press SYNC, and the screen tells you where to sign
             in and shows a code to scan. It could not work before: the address on
