@@ -264,8 +264,9 @@ it needs the source columns. `assemble_pack.py` starts from the output of that
 work -- the decoded pack -- and only re-decides difficulty and options.
 
 ```text
-build_pack.py     Jeopardy TSV      -> pack     difficulty from the dollar value
-assemble_pack.py  corpus + ratings  -> pack     difficulty from the local rater
+build_pack.py       Jeopardy TSV      -> pack   difficulty from the dollar value
+assemble_pack.py    corpus + ratings  -> pack   difficulty from the local rater
+calibrate_levels.py corpus + ratings  -> advice which r maps to which level
 ```
 
 ### The command sequence, in order
@@ -280,7 +281,8 @@ tree holding the rating run.
 #    prints the same thing with a verdict. This line needs nothing but the run.)
 echo "$(cut -d'"' -f4 .rate/enriched.jsonl | sort -u | wc -l) rated of $(wc -l < .rate/rest40383.ids)"
 
-# 2. Assemble. --kick-us also drops US-centric questions; without it they stay.
+# 2. Assemble. US-centric questions are dropped by default; --keep-us includes
+#    them. Nothing is deleted from the corpus or the ratings either way.
 python3 tools_local/trivia/assemble_pack.py \
     --corpus .rate/corpus_repaired.jsonl \
     --enriched .rate/enriched.jsonl \
@@ -315,13 +317,21 @@ count, and until 2026-09-04 that check only caught a state file that was too
 SHORT. An assembled pack is SMALLER than the 50,000 it replaces, so the state
 file left behind is too LONG, which was the case the check could not see.
 
-**And the finished pack will miss by a handful, not by thousands**, which is the
-worst version of it. The run's worklist is `rest40383.ids` plus the 9,617
-already rated, i.e. the whole 50,000 corpus, so at completion the only questions
-missing are the ones `assemble_pack.py` rejects as unanswerable -- 9 of the
-first 25,875. A pack of roughly 49,98x against a 50,000-byte state file is a
-misalignment nothing on screen can show and nobody would think to look for.
-(Mid-run it is blunter: 25,866 questions at 25,875 ratings.)
+**Until 2026-09-04 the finished pack would have missed by a handful, not by
+thousands**, which was the worst version of it. The run's worklist is
+`rest40383.ids` plus the 9,617 already rated, i.e. the whole 50,000 corpus, so
+the only questions it dropped were the ones `assemble_pack.py` rejects as
+unanswerable -- 9 of the first 25,875. A pack of roughly 49,98x against a
+50,000-byte state file is a misalignment nothing on screen can show and nobody
+would think to look for.
+
+**Dropping US-centric questions made that gap loud rather than subtle**, and
+did not make it go away. They are 22.7% of the rated rows, so the finished pack
+lands near 38,600 rather than 49,98x, and a stale 50,000-entry state file now
+misses by more than eleven thousand. That is easier for the length check to
+catch, not harder -- but the check is still the only thing catching it, and a
+device on older firmware is in exactly the same trouble it was before, just
+further out of alignment.
 
 Fixed at `PackState::open` and `TriviaActivity::ensureState`; a device on
 firmware older than that will reuse stale `FLAGGED` bytes against the new record
@@ -336,12 +346,25 @@ gap -- is computed from `r`, and `d` is CUT from `r`, so those are arithmetic.
 Shuffle the ratings across questions and they all still pass; the panel drops to
 34%.
 
-| ratings                                              | panel agreement |
-| ---------------------------------------------------- | --------------- |
-| the cloud judge's, which the pairs were sampled from | 50/50 = 100%    |
-| the LOCAL run, which builds the shipping pack        | 36/50 = 72%     |
-| the local run, raw `r`, thresholds removed           | 38/50 = 76%     |
-| the local run, shuffled across questions             | 17/50 = 34%     |
+| ratings | panel agreement |
+| --- | --- |
+| the cloud judge's, which the pairs were sampled from | 50/50 = 100% |
+| the LOCAL run, which builds the shipping pack | 35/50 = 70% |
+| the local run, raw `r`, thresholds removed | 38/50 = 76% |
+| the local run, shuffled across questions | 17/50 = 34% |
+
+That second row was 36/50 until the levels were recalibrated for the
+international-only pack on 2026-09-04. Measured on one snapshot with only the
+thresholds changed, the old floors score 36/50 with 5 tied pairs and the new
+ones 35/50 with **10** tied pairs; raw `r` is 38/50 either way, so all of it is
+the cut and none of it is the rater. The doubling is the more interesting half:
+level 5 has to span r 0-4 to be populated at all once the US-centric questions
+are gone, and a band that wide stops separating pairs the old cut told apart at
+the hard end. That is the price of the recalibration, and it is paid where the
+pack has least data. No candidate that kept the hard end sharper also passed
+the difficulty-spread check on every view of the run -- see "Recalibrating the
+thresholds" -- so this is a trade that was forced, not chosen. Worth revisiting
+against a fresh panel when the run finishes.
 
 **Do not read that first row as quality, and do not read the second as a
 verdict on the local rater.** Candidates were sampled as level 1 against level 5
@@ -407,6 +430,7 @@ applies the international correction through `r` even where its own flag missed.
 One bad row was one bad row.
 
 ### Three rules in that tool, each of which fails silently when undone
+### Four rules in that tool, each of which fails silently when undone
 
 **Join on the corpus's stored id. Never re-derive it.** Ids are a sha1 of
 normalised clue text and `pack_format.py` re-derives them, which is right when
@@ -426,14 +450,86 @@ Without the key the question is quizmaster-only and completely correct. Topping
 these up is board card #172.
 
 **`r` maps to `d` by fixed absolute thresholds, never by quantile.** Each level
-is a two-point band on the rater's own 0-10 scale (`LEVELS` in the tool). A
-quantile mapping would be perfectly balanced and would redefine every level each
-time the run is re-cut, so "level 3" would mean one thing at 18,000 rated rows
-and another at 40,000, and a player's difficulty setting would mean nothing
-across builds.
+is a band on the rater's own 0-10 scale (`LEVELS` in the tool). A quantile
+mapping would be perfectly balanced and would redefine every level each time the
+run is re-cut, so "level 3" would mean one thing at 20,000 rated rows and
+another at 40,000, and a player's difficulty setting would mean nothing across
+builds.
 
-`test_assemble.py` exists to make undoing any of the three loud, and
+Fixed does not mean arbitrary. The constants are still chosen on a population,
+and when that population changes they have to be chosen again -- as fixed
+numbers, on the new population. See "Recalibrating the thresholds" below.
+
+**US-centric questions do not ship, and are not deleted.** Mario's call on
+2026-09-04: they should not show up, until and unless a toggle is written for
+them. The filter is therefore at the pack build and nowhere upstream of it.
+`enrich_pack.py` still writes `us` as a field rather than a deletion, every
+US-centric row keeps its rating, and `--keep-us` rebuilds the inclusive pack
+from exactly the same inputs. **When the toggle is written, nothing needs
+re-rating.** Deleting the rows instead would cost 5,905 ratings that took hours
+of local model time and cannot be recovered from the pack.
+
+`test_assemble.py` exists to make undoing any of the four loud, and
 `check.sh --tests` runs it.
+
+### Recalibrating the thresholds
+
+Dropping the US-centric questions broke the difficulty spread, and the reason is
+real rather than a bug: **for an international table, the US-centric questions
+genuinely are the hard ones.** Measured on the 2026-09-04 run, mean `r` was 1.30
+for them against 6.36 for the rest, and under the old floors 86% of them sat in
+level 5. Take them out and level 5 goes from 5,926 questions to 845, a 4.2%
+tier, and `test_pack.py` fails `difficulty reasonably spread` at 20/21.
+
+The fix is different fixed numbers measured on the international-only
+population, so that a level means "hard for an international table" -- which is
+what the ratings measure and what the pack now contains. `LEVELS` moved from
+floors `(9, 7, 5, 3)` to `(9, 8, 7, 5)`:
+
+| level | r band | before (US kept) | after |
+| ----- | ------ | ---------------- | ----- |
+| 1     | 9-10   | 3,772            | 3,754 |
+| 2     | 8      | 6,883            | 3,849 |
+| 3     | 7      | 5,165            | 3,022 |
+| 4     | 5-6    | 4,222            | 5,101 |
+| 5     | 0-4    | 5,926            | 4,337 |
+
+Bands are narrow at the easy end and wide at the hard end because that is where
+the international mass sits. Level 1 still means "9 or 10 groups in 10 get it"
+and level 5 still means "at most 4 do"; the numbers are absolute, not quantiles.
+
+**The wide bottom band has a measured cost**, recorded rather than buried: it
+separates fewer of the blind panel's hard pairs than the old cut did, doubling
+the tied pairs from 5 to 10. No candidate that kept the hard end sharper also
+passed the spread check on every view, so the trade was forced. See "The levels
+against a blind panel" below, and revisit it against a fresh panel drawn from
+this rater once the run finishes.
+
+**These constants are provisional.** They were chosen at 25,977 rated rows of a
+run that will finish near 50,000, so re-derive them when it does -- one command,
+which prints how the shipped constants stand on the current data and what it
+would choose instead:
+
+```bash
+python3 tools_local/trivia/calibrate_levels.py \
+    --corpus .rate/corpus_repaired.jsonl \
+    --enriched .rate/enriched.jsonl
+```
+
+It prints rather than edits, deliberately: constants a build step rewrites are
+quantiles with extra steps. Adopting a new set means editing `LEVELS`, updating
+the `CALIBRATED ON` comment above it with the date and population, rebuilding
+and re-running `test_pack.py`.
+
+It scores candidates by their **worst** spread ratio across three views of the
+run -- all rated rows, the half rated first, the half rated last -- not by the
+best on the pooled data. `enriched.jsonl` is append-ordered and mixes rows rated
+under different shot configurations, so its halves genuinely disagree: on
+2026-09-04 `r=5` was 20.1% of the first half and 7.7% of the second. A candidate
+tuned to the pooled distribution can look best and then fail on the rows still
+to come, and the half rated last is the closest proxy for those. On that day
+`(9, 8, 7, 5)` was the only candidate that passed on all three views (worst
+1.98); the runner-up already failed at 2.70.
 
 ### The longest-option defect, and why banding alone did not fix it
 
@@ -496,28 +592,36 @@ the real writer as well.
 
 ### What a run of this looks like
 
-At 20,706 of 40,383 rated:
+At 25,977 rated, with US-centric questions dropped:
 
 ```text
 corpus            : 50,000
-ratings           : 20,706
+ratings           : 25,977
   ids that moved  : 349 rows carry a pre-repair id
-  re-derive would : lose 156 ratings SILENTLY (card #146)
-  dropped  29,294  unrated (not yet reached by the run)
-  dropped       8  rejected: unanswerable
+  re-derive would : lose 193 ratings SILENTLY (card #146)
+  dropped  24,023  unrated (not yet reached by the run)
+  dropped   5,905  rejected: us_centric (default; --keep-us to include)
+  dropped       9  rejected: unanswerable
 
-pack              : 20,698
-  solo MC ready   : 15,945 (3 stored options each)
-  read-aloud only : 4,753 (no sound option set; card #172)
-  difficulty      : {1: 3041, 2: 5701, 3: 4120, 4: 3137, 5: 4699}
+pack              : 20,063
+  solo MC ready   : 15,244 (3 stored options each)
+  read-aloud only : 4,819 (no sound option set; card #172)
+  difficulty      : {1: 3754, 2: 3849, 3: 3022, 4: 5101, 5: 4337}
 ```
 
 `test_pack.py` passes 21/21 on that pack.
 
 **Watch the difficulty spread as the run finishes.** The gate wants no tier more
-than 2.5x the smallest, and the fixed thresholds put that at 5,701 against 3,041
--- a ratio of 1.87. That is comfortable but it is not guaranteed: the thresholds
-are absolute by design, so a second half of the run that rates differently from
-the first will move the tiers. If `difficulty reasonably spread` fails, the
-answer is to look at the r histogram and move `LEVELS`, once, deliberately, and
-say so here. It is not to switch to quantiles.
+than 2.5x the smallest, and the current thresholds put that at 5,101 against
+3,022 -- a ratio of 1.69. That is comfortable but it is not guaranteed: the
+thresholds are absolute by design, so a second half of the run that rates
+differently from the first will move the tiers, and this run's two halves
+already do disagree.
+
+This has now happened once, which is what "Recalibrating the thresholds" above
+is about. When `difficulty reasonably spread` fails, look at the r histogram and
+move `LEVELS`, once, deliberately, and say so here. **It is not to switch to
+quantiles, and it is not to weaken the check** -- the check exists because
+levels 1 and 5 feeling identical is the complaint that started this work.
+`calibrate_levels.py` is the histogram-reading step, written down so the next
+person does not have to re-derive the method along with the numbers.
