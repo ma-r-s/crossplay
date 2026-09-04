@@ -15,9 +15,29 @@ sync waits on:
 - post() never blocks the caller. The request runs on its own daemon thread
   with a short timeout, so the worst case costs the process one idle thread
   for TIMEOUT_S and the sync nothing at all.
-- The device field is a hash, never an identifier. device_id() folds the
-  caller's id (a token hash, an account id) through sha256 with a fixed salt,
-  so the board can count devices and nothing on it names one.
+- The device field is a hash, never an identifier. A device names itself with
+  the pseudonymous id in its X-CrossPlay-Device header; when it does not,
+  device_id() folds the caller's id (a token hash, an account id) through
+  sha256 with a fixed salt, so the board can count devices and nothing on it
+  names one.
+
+The device headers. A device never makes a request just to report; every
+request it makes to a CrossPlay service carries what it has to say
+(docs/workflow/events.md, "What a device sends"):
+
+    X-CrossPlay-Device: <64 hex>          the same id on every request
+    X-CrossPlay-Board:  x4pro | sticky
+    X-CrossPlay-Report: {"battery_pct":N,"heap_min_kb":N,"uptime_h":N,
+                         "crash":{...}, "ota":{...}}    compact JSON
+
+and its firmware version rides in User-Agent: CrossPlay-ESP32-<version>.
+client_of() reads all of it off a request without trusting any of it: an id
+that is not 64 hex is no id, a board that is not a short word is no board, a
+report over REPORT_MAX bytes or not a JSON object is ignored with one debug
+line, and only numbers are copied out of the health fields. The usage event
+the service posts anyway (a sync) then carries the device, its board and
+version and the three health numbers; Client.report() posts the crash and the
+update attempt the device is carrying as firmware events of their own.
 
 Byte-identical twin of the other bridge's bridge/events.py (study-bridge and
 read-bridge). Neither Dockerfile can COPY a file from outside its own
@@ -29,8 +49,10 @@ import hashlib
 import json
 import logging
 import os
+import re
 import threading
 import urllib.request
+from dataclasses import dataclass, field
 
 log = logging.getLogger("bridge.events")
 
@@ -41,6 +63,16 @@ TIMEOUT_S = 3.0
 # from elsewhere (a token hash in a state file, an account id in a log) cannot
 # be matched to a row on the board by hashing it once more.
 SALT = "crossplay-events"
+
+# The report header is at most 600 bytes from the firmware; anything past
+# this cap is not a report, whatever it says it is.
+REPORT_MAX = 1000
+# The three numbers every report carries, copied onto the usage event.
+HEALTH_KEYS = ("battery_pct", "heap_min_kb", "uptime_h")
+
+_HEX64 = re.compile(r"^[0-9a-fA-F]{64}$")
+_BOARD = re.compile(r"^[a-z0-9]{1,16}$")
+_UA = re.compile(r"^CrossPlay-ESP32-(\S{1,32})")
 
 # The whole HTTP layer, as one name the tests replace.
 _urlopen = urllib.request.urlopen
@@ -72,6 +104,8 @@ def post(
     device: str = "",
     level: str = "info",
     props: dict | None = None,
+    version: str = "",
+    board: str = "",
 ) -> threading.Thread | None:
     """Queue one event for the board. Never raises, never blocks.
 
@@ -83,6 +117,10 @@ def post(
         record = {"service": service, "event": event, "level": level}
         if device:
             record["device"] = device
+        if version:
+            record["version"] = version
+        if board:
+            record["board"] = board
         record["props"] = props or {}
         body = json.dumps(record).encode()
         url = os.environ["SUPABASE_URL"].strip().rstrip("/") + "/rest/v1/events"
@@ -117,3 +155,143 @@ def _deliver(url: str, key: str, body: bytes) -> None:
             resp.close()
     except Exception as e:
         log.warning("event dropped, the board did not take it: %s", e)
+
+
+# ------------------------------------------------------------ the device
+@dataclass
+class Client:
+    """What one request says about the device that made it.
+
+    Every field may be empty: a browser, a curl, an old firmware. device is
+    the header's id when it was a valid one, else the fallback the service
+    passed (its own hash of the token), else nothing. health holds whichever
+    of HEALTH_KEYS the report carried as numbers. crash and ota are the
+    report's objects of those names, verbatim, or None."""
+
+    device: str = ""
+    board: str = ""
+    version: str = ""
+    health: dict = field(default_factory=dict)
+    crash: dict | None = None
+    ota: dict | None = None
+
+    def props(self, base: dict | None = None) -> dict:
+        """The props of a usage event: the caller's, plus the health numbers.
+        The caller's win on a shared key."""
+        p = dict(self.health)
+        p.update(base or {})
+        return p
+
+    def report(self, via: str) -> int:
+        """Post what the device is carrying: one firmware/crash event at level
+        error, one firmware/update event. via names the service that relayed
+        it. Returns how many events went out. Never raises: a request must
+        not fail because of what rode along with it."""
+        n = 0
+        try:
+            if self.crash is not None:
+                c = self.crash
+                post(
+                    "firmware",
+                    "crash",
+                    level="error",
+                    device=self.device,
+                    # The version that crashed, written down at the boot after
+                    # the panic; the running one when the record lacks it.
+                    version=str(c.get("version") or self.version),
+                    board=self.board,
+                    props={
+                        "message": str(c.get("message") or ""),
+                        "backtrace": str(c.get("backtrace") or ""),
+                        "app": "firmware",
+                        "via": via,
+                    },
+                )
+                log.info("device report via %s: crash on %s", via, c.get("version"))
+                n += 1
+            if self.ota is not None:
+                o = self.ota
+                props = dict(o)
+                props["app"] = "firmware"
+                level = "info"
+                if o.get("ok") is False and o.get("error"):
+                    level = "error"
+                    props["message"] = (
+                        f"update failed: {o.get('error')} ({o.get('path') or 'unknown'})"
+                    )
+                post(
+                    "firmware",
+                    "update",
+                    level=level,
+                    device=self.device,
+                    version=self.version,
+                    board=self.board,
+                    props=props,
+                )
+                log.info("device report via %s: update %s", via, level)
+                n += 1
+        except Exception as e:  # a report shaped to break str() or dict()
+            log.warning("device report via %s dropped: %s", via, e)
+        return n
+
+
+def client_of(headers, default_device: str = "") -> Client:
+    """Read the device headers off a request. headers is anything with .get()
+    keyed case-insensitively (Starlette's Headers) or by lowercase name (a
+    dict in a test). Never raises."""
+    c = Client(device=default_device)
+    try:
+        get = lambda name: str(headers.get(name) or "")  # noqa: E731
+        dev = get("x-crossplay-device").strip()
+        if _HEX64.match(dev):
+            c.device = dev.lower()
+        board = get("x-crossplay-board").strip().lower()
+        if _BOARD.match(board):
+            c.board = board
+        m = _UA.match(get("user-agent"))
+        if m:
+            c.version = m.group(1)
+        raw = get("x-crossplay-report")
+        if raw:
+            report = _parse_report(raw)
+            if report is not None:
+                for k in HEALTH_KEYS:
+                    v = report.get(k)
+                    if isinstance(v, (int, float)) and not isinstance(v, bool):
+                        c.health[k] = v
+                if isinstance(report.get("crash"), dict):
+                    c.crash = report["crash"]
+                if isinstance(report.get("ota"), dict):
+                    c.ota = report["ota"]
+    except Exception as e:
+        log.debug("device headers ignored: %s", e)
+    return c
+
+
+def client_for(request, default_device: str = "") -> Client:
+    """client_of(), once per request. The Client rides the ASGI scope, so the
+    handler that posts the usage event and the middleware that posts the
+    device's report read the headers once and say so once; the handler runs
+    first, so its default_device is the one both see."""
+    c = request.scope.get("crossplay_client")
+    if c is None:
+        c = client_of(request.headers, default_device)
+        request.scope["crossplay_client"] = c
+    return c
+
+
+def _parse_report(raw: str) -> dict | None:
+    # Header values are one byte per character on the wire, so the length of
+    # the string is the length of the header.
+    if len(raw) > REPORT_MAX:
+        log.debug("X-CrossPlay-Report ignored: %d bytes, the cap is %d", len(raw), REPORT_MAX)
+        return None
+    try:
+        report = json.loads(raw)
+    except ValueError as e:
+        log.debug("X-CrossPlay-Report ignored: not JSON (%s)", e)
+        return None
+    if not isinstance(report, dict):
+        log.debug("X-CrossPlay-Report ignored: not an object")
+        return None
+    return report
