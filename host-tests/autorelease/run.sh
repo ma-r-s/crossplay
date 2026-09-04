@@ -31,27 +31,19 @@ version = 1.5.0
 [crossplay]
 version = 1.12.9
 INI
-cat > .github/workflows/crossplay-release.yml <<'YML'
-name: CrossPlay release
-jobs:
-  release:
-    steps:
-      - name: Publish
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/*
-          body: |
-            Games and small tools for the device.
+mkdir -p docs
+cat > docs/release-notes.md <<'MD'
+Games and small tools for the device.
 
-            ### What is new in 1.12.9
+### What is new in 1.12.9
 
-            - The old note
-            - Another old note
+- The old note
+- Another old note
 
-            ### Installing
+### Installing
 
-            Flash it.
-YML
+Flash it.
+MD
 echo base > a.txt; q git add -A; q git commit -qm "base"; q git tag v1.12.9
 # two landings: one through a pull request with a What is new line, one plain merge
 q git checkout -qb app/one; echo one > one.txt; q git add -A; q git commit -qm "feat(trivia): options that do not give the answer away"
@@ -78,17 +70,18 @@ grep -q "version = 1.12.9" platformio.ini && ok "dry run writes nothing" || bad 
 q python3 "$TOOL" --repo-dir "$R" --pr-json "$WORK/prs.json" --write
 grep -q "^version = 1.12.10" platformio.ini && ok "platformio.ini bumped" || bad "platformio.ini not bumped"
 grep -q "^version = 1.5.0" platformio.ini && ok "upstream's version key untouched" || bad "upstream's version key changed"
-Y=.github/workflows/crossplay-release.yml
+Y=docs/release-notes.md
 grep -q "### What is new in 1.12.10" "$Y" && ok "the notes heading names the new version" || bad "heading not rewritten"
+git diff --quiet --exit-code -- .github/ && ok "no workflow file is touched by the bump" || bad "the bump touched a workflow file, which the default token may not push"
 grep -q "The old note" "$Y" && bad "the old notes survived" || ok "the old notes are gone"
 grep -q "### Installing" "$Y" && grep -q "Flash it." "$Y" && ok "the rest of the body is intact" || bad "the body lost text outside the block"
 grep -q "Games and small tools" "$Y" && ok "the preamble is intact" || bad "preamble lost"
-python3 - "$Y" <<'PY' && ok "the block keeps the yaml indentation" || bad "indentation broke the yaml block"
-import sys,re
+python3 - "$Y" <<'PY' && ok "the block starts at column 0" || bad "the block picked up an indent"
+import sys
 t=open(sys.argv[1]).read()
 i=t.index("### What is new in 1.12.10"); blk=t[t.rfind("\n", 0, i) + 1:t.index("### Installing")]
 lines=[l for l in blk.splitlines() if l.strip()]
-sys.exit(0 if all(l.startswith("            ") for l in lines) else 1)
+sys.exit(0 if all(not l.startswith(" ") for l in lines) else 1)
 PY
 
 # a minor label on any merged pull request bumps the minor instead
