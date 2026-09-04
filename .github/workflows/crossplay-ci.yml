@@ -17,6 +17,24 @@ name: CrossPlay
 on:
   push:
     branches: [xteink]
+    # CI's OWN emulator rebuild is not a change to test, and running it costs
+    # a whole release cycle. After every merge, crossplay-emulator.yml commits
+    # site/emulator/{BUILT_FROM,crossplay.js,crossplay.wasm} back to xteink --
+    # three files, no byte of which reaches a device. That push started a
+    # SECOND CrossPlay run which cancelled the merge's own run, so every merge
+    # cost two full builds and the first was always thrown away. Seen
+    # 2026-09-04: merge 52b2a677 at 17:02:13, emulator commit eb79a542 at
+    # 17:07:20, the 17:02 run cancelled five minutes in, and the autorelease
+    # that fired at 17:07:23 skipped because a cancelled run is not a success.
+    #
+    # crossplay-autorelease.yml already assumed this could not happen -- its
+    # comment reads "pushed with the workflow token, so no CI run ever comes
+    # for it" -- and built the right behaviour on that assumption: a tip that
+    # moved only by emulator rebuilds releases from the tip. The assumption
+    # stopped being true; this restores it explicitly rather than by relying
+    # on a token's side effect.
+    paths-ignore:
+      - 'site/emulator/**'
   pull_request:
   workflow_dispatch:
 
