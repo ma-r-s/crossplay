@@ -27,3 +27,7 @@ are enforced by hooks and will refuse rather than remind.
   host suites green in your tree, pushed, a pull request open, and
   `board state <id> review`. Say in the PR what was not verified. Hardware
   always counts as not verified.
+- **Review means merge on green.** To stop a merge, move the card first
+  (`board state <id> working`, or a blocker) and only then say why: the
+  orchestrator merges from cards, and a message reaches it after its
+  current merge, not before.

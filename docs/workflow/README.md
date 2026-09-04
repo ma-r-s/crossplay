@@ -34,9 +34,13 @@ integrator`), and the card a session bound (`board bind`).
 ## What the store is
 
 The board is a Supabase project (`server/board/supabase/`: the schema and
-row security as migrations, `config.toml` for the auth addresses; apply
-with `supabase db push` or `psql -f` against the project, `supabase config
-push` for the auth part). Every session, hook and page reaches it in one of
+row security as migrations, `config.toml` for the auth addresses; apply a
+new file with `psql -f` against the project, then `notify pgrst, 'reload
+schema'`; `supabase config push` for the auth part). The project has no
+migration tracking: every file was applied by hand, so `supabase db push`
+would replay all of them from the first, which has never been tried. Apply
+the new file only, in name order, and keep version prefixes unique (two
+files once shared one). Every session, hook and page reaches it in one of
 three ways:
 
 - `board` (the CLI) with the service key from `<workspace>/.board/supabase.env`,
