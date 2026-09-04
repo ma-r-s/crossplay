@@ -1,10 +1,10 @@
-#include "HeartbeatCore.h"
+#include "DeviceReportCore.h"
 
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
-namespace heartbeat {
+namespace devreport {
 
 namespace {
 
@@ -62,15 +62,20 @@ void compress(uint32_t h[8], const uint8_t block[64]) {
 }
 
 // The fallback when the device has no secret. Fixed for the life of the id:
-// changing it renames every such device on the board.
+// changing it renames every such device on the board. The word "heartbeat"
+// stays because the ids made under it must stay.
 constexpr char kSalt[] = "crossplay-heartbeat-2026";
 
 // --- A JSON writer that cannot overrun: one bounded buffer, and a single
 // "did it all fit" answer at the end instead of a check per field.
+//
+// `asciiOnly` is for a value that travels as an HTTP header: every byte
+// outside printable ASCII is escaped, so the value is one line of 7-bit text
+// whatever a panic message held.
 
 class Writer {
  public:
-  Writer(char* buf, const size_t size) : buf_(buf), size_(size) {
+  Writer(char* buf, const size_t size, const bool asciiOnly = false) : buf_(buf), size_(size), asciiOnly_(asciiOnly) {
     if (size_ > 0) buf_[0] = '\0';
   }
 
@@ -82,21 +87,18 @@ class Writer {
     std::snprintf(t, sizeof(t), "%ld", v);
     raw(t);
   }
-  void num64(const long long v) {
-    char t[24];
-    std::snprintf(t, sizeof(t), "%lld", v);
-    raw(t);
-  }
   void boolean(const bool b) { raw(b ? "true" : "false"); }
-  void str(const char* s) {
+  void str(const char* s) { str(s, std::strlen(s)); }
+  void str(const char* s, const size_t len) {
     put('"');
-    for (; *s != '\0'; ++s) escaped(*s);
+    for (size_t i = 0; i < len; ++i) escaped(s[i]);
     put('"');
   }
   void key(const char* name) {
     str(name);
     put(':');
   }
+  bool fits() const { return ok_; }
   size_t finish() {
     if (!ok_ || size_ == 0) {
       if (size_ > 0) buf_[0] = '\0';
@@ -115,6 +117,7 @@ class Writer {
     buf_[used_++] = c;
   }
   void escaped(const char c) {
+    const unsigned char u = static_cast<unsigned char>(c);
     switch (c) {
       case '"':
         raw("\\\"");
@@ -132,9 +135,9 @@ class Writer {
         raw("\\t");
         break;
       default:
-        if (static_cast<unsigned char>(c) < 0x20) {
+        if (u < 0x20 || (asciiOnly_ && u >= 0x7f)) {
           char t[8];
-          std::snprintf(t, sizeof(t), "\\u%04x", static_cast<unsigned>(static_cast<unsigned char>(c)));
+          std::snprintf(t, sizeof(t), "\\u%04x", static_cast<unsigned>(u));
           raw(t);
         } else {
           put(c);
@@ -144,14 +147,15 @@ class Writer {
 
   char* buf_;
   size_t size_;
+  bool asciiOnly_;
   size_t used_ = 0;
   bool ok_ = true;
 };
 
-// --- A JSON reader for the two fixed shapes this module writes and receives.
-// Keys are looked up by name anywhere in the text: every key the two files
-// use is unique, and a value can never contain a bare `"name":` because every
-// quote inside a value is written escaped.
+// --- A JSON reader for the one fixed shape this module writes. Keys are
+// looked up by name anywhere in the text: every key the file uses is unique,
+// and a value can never contain a bare `"name":` because every quote inside a
+// value is written escaped.
 
 const char* skipWs(const char* p) {
   while (*p == ' ' || *p == '\n' || *p == '\r' || *p == '\t') ++p;
@@ -230,13 +234,58 @@ void readStringField(const char* json, const char* key, char* out, const size_t 
   if (p != nullptr) readString(p, out, outSize);
 }
 
-void writeApps(Writer& w, const State& s) {
-  w.raw("[");
-  for (int i = 0; i < s.appCount; ++i) {
-    if (i > 0) w.raw(",");
-    w.str(s.apps[i]);
+char lower(const char c) { return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c; }
+
+// One attempt at the report. `messageLen` is how much of the crash message to
+// carry (0 with `withCrash` still true is a message cut to nothing, which is
+// still a crash); `withTrace` whether the backtrace rides along.
+size_t formatReport(const State& s, const char* runningVersion, const unsigned batteryPct, const unsigned heapMinKb,
+                    const unsigned uptimeHours, const bool withCrash, const bool withTrace, const size_t messageLen,
+                    char* out, const size_t outSize) {
+  const OtaProps ota = otaProps(s, runningVersion);
+  Writer w(out, outSize, true);
+  w.raw("{");
+  w.key("battery_pct");
+  w.num(static_cast<long>(batteryPct));
+  w.raw(",");
+  w.key("heap_min_kb");
+  w.num(static_cast<long>(heapMinKb));
+  w.raw(",");
+  w.key("uptime_h");
+  w.num(static_cast<long>(uptimeHours));
+  if (withCrash) {
+    w.raw(",");
+    w.key("crash");
+    w.raw("{");
+    w.key("message");
+    w.str(s.crashMessage, messageLen);
+    w.raw(",");
+    w.key("version");
+    w.str(s.crashVersion[0] != '\0' ? s.crashVersion : (runningVersion == nullptr ? "" : runningVersion));
+    w.raw(",");
+    w.key("backtrace");
+    w.str(withTrace ? s.crashTrace : "");
+    w.raw("}");
   }
-  w.raw("]");
+  if (ota.attempted) {
+    w.raw(",");
+    w.key("ota");
+    w.raw("{");
+    w.key("attempted");
+    w.boolean(true);
+    w.raw(",");
+    w.key("ok");
+    w.boolean(ota.ok);
+    w.raw(",");
+    w.key("error");
+    w.str(ota.error);
+    w.raw(",");
+    w.key("path");
+    w.str(ota.path);
+    w.raw("}");
+  }
+  w.raw("}");
+  return w.finish();
 }
 
 }  // namespace
@@ -291,42 +340,6 @@ void deviceId(const uint8_t mac[6], const uint8_t* secret, size_t secretLen, cha
   out[kIdLen] = '\0';
 }
 
-bool appKey(const char* title, char out[kMaxAppKey + 1]) {
-  out[0] = '\0';
-  if (title == nullptr) return false;
-  size_t n = 0;
-  for (const char* p = title; *p != '\0' && n < kMaxAppKey; ++p) {
-    const char c = *p;
-    if (c >= 'a' && c <= 'z') {
-      out[n++] = c;
-    } else if (c >= 'A' && c <= 'Z') {
-      out[n++] = static_cast<char>(c - 'A' + 'a');
-    } else if (c >= '0' && c <= '9') {
-      out[n++] = c;
-    }
-  }
-  out[n] = '\0';
-  return n > 0;
-}
-
-bool addApp(State& s, const char* key) {
-  if (key == nullptr || key[0] == '\0' || std::strlen(key) > kMaxAppKey) return false;
-  for (int i = 0; i < s.appCount; ++i) {
-    if (std::strcmp(s.apps[i], key) == 0) return false;
-  }
-  if (s.appCount >= kMaxApps) return false;
-  std::snprintf(s.apps[s.appCount], sizeof(s.apps[0]), "%s", key);
-  ++s.appCount;
-  return true;
-}
-
-bool noteAppOpen(State& s, const bool enabled, const char* title) {
-  if (!enabled) return false;
-  char key[kMaxAppKey + 1];
-  if (!appKey(title, key)) return false;
-  return addApp(s, key);
-}
-
 bool recordCrash(State& s, const bool enabled, const char* message, const char* trace, const char* version) {
   if (!enabled || message == nullptr || message[0] == '\0') return false;
   std::snprintf(s.crashMessage, sizeof(s.crashMessage), "%s", message);
@@ -350,76 +363,47 @@ bool recordOtaFailure(State& s, const bool enabled, const char* error) {
 }
 
 void noteSwitchedOn(State& s) {
-  s.appCount = 0;
-  std::memset(s.apps, 0, sizeof(s.apps));
+  clearOta(s);
+  clearCrash(s);
+}
+
+bool hasPending(const State& s) { return s.otaFrom[0] != '\0' || s.crashMessage[0] != '\0'; }
+
+bool noteDelivered(State& s, const int httpStatus) {
+  if (!accepted(httpStatus) || !hasPending(s)) return false;
+  clearOta(s);
+  clearCrash(s);
+  return true;
+}
+
+void clearCrash(State& s) {
+  s.crashMessage[0] = '\0';
+  s.crashTrace[0] = '\0';
+  s.crashVersion[0] = '\0';
+}
+
+void clearOta(State& s) {
   s.otaFrom[0] = '\0';
   s.otaError[0] = '\0';
   s.otaPath[0] = '\0';
-  clearCrash(s);
 }
 
 bool parseState(const char* json, State& out) {
   out = State{};
   if (json == nullptr) return false;
-
-  const char* p = findKey(json, "day");
-  if (p == nullptr) return false;
-  char* end = nullptr;
-  const long day = std::strtol(p, &end, 10);
-  if (end == p) return false;
-  out.lastDay = day < 0 ? -1 : day;
-
-  if (const char* a = findKey(json, "apps"); a != nullptr && *a == '[') {
-    ++a;
-    for (;;) {
-      a = skipWs(a);
-      if (*a == ']' || *a == '\0') break;
-      char raw[kMaxAppKey + 1];
-      a = readString(a, raw, sizeof(raw));
-      if (a == nullptr) break;
-      // Normalised again on the way in: the file outlives firmware versions,
-      // and a word the board would not count is not worth carrying.
-      char key[kMaxAppKey + 1];
-      if (appKey(raw, key)) addApp(out, key);
-      a = skipWs(a);
-      if (*a != ',') break;
-      ++a;
-    }
-  }
-
+  if (findKey(json, "ota") == nullptr && findKey(json, "crash") == nullptr) return false;
   readStringField(json, "from", out.otaFrom, sizeof(out.otaFrom));
   readStringField(json, "error", out.otaError, sizeof(out.otaError));
   readStringField(json, "path", out.otaPath, sizeof(out.otaPath));
   readStringField(json, "message", out.crashMessage, sizeof(out.crashMessage));
   readStringField(json, "trace", out.crashTrace, sizeof(out.crashTrace));
   readStringField(json, "version", out.crashVersion, sizeof(out.crashVersion));
-
-  if (const char* r = findKey(json, "retry"); r != nullptr) {
-    const long long retryAt = std::strtoll(r, &end, 10);
-    if (end != r && retryAt > 0) out.retryAt = retryAt;
-  }
-  if (const char* f = findKey(json, "fails"); f != nullptr) {
-    const long fails = std::strtol(f, &end, 10);
-    if (end != f && fails > 0) out.fails = fails > 1000 ? 1000 : static_cast<int>(fails);
-  }
   return true;
 }
 
 size_t formatState(const State& s, char* out, const size_t outSize) {
   Writer w(out, outSize);
   w.raw("{");
-  w.key("day");
-  w.num(s.lastDay);
-  w.raw(",");
-  w.key("apps");
-  writeApps(w, s);
-  w.raw(",");
-  w.key("retry");
-  w.num64(s.retryAt);
-  w.raw(",");
-  w.key("fails");
-  w.num(static_cast<long>(s.fails));
-  w.raw(",");
   w.key("ota");
   w.raw("{");
   w.key("from");
@@ -445,68 +429,6 @@ size_t formatState(const State& s, char* out, const size_t outSize) {
   return w.finish();
 }
 
-long dayFromEpoch(const long long epochSeconds) {
-  constexpr long long kFirstPlausible = 1735689600LL;  // 2025-01-01T00:00:00Z
-  if (epochSeconds < kFirstPlausible) return -1;
-  return static_cast<long>(epochSeconds / 86400);
-}
-
-bool backingOff(const unsigned long nowMs, const unsigned long notBeforeMs) {
-  if (notBeforeMs == 0) return false;
-  const uint32_t elapsed = static_cast<uint32_t>(nowMs) - static_cast<uint32_t>(notBeforeMs);
-  return static_cast<int32_t>(elapsed) < 0;
-}
-
-void noteFailed(State& s, const long long epochNow) {
-  if (s.fails < 1000) ++s.fails;
-  if (s.fails >= 2) {
-    // The rest of the UTC day: the day after today's, at midnight.
-    s.retryAt = (epochNow / 86400 + 1) * 86400;
-  } else {
-    s.retryAt = epochNow + kRetryS;
-  }
-}
-
-bool clearBackoff(State& s) {
-  if (s.retryAt == 0 && s.fails == 0) return false;
-  s.retryAt = 0;
-  s.fails = 0;
-  return true;
-}
-
-bool backingOffAt(const long long epochNow, const long long retryAt) {
-  if (retryAt <= epochNow) return false;
-  return retryAt - epochNow <= kMaxBackoffS;
-}
-
-Decision decide(const bool enabled, const long today, const long long epochNow, const State& s,
-                const bool crashPending) {
-  if (!enabled) return Decision::Off;
-  if (today < 0) return Decision::NoClock;
-  if (backingOffAt(epochNow, s.retryAt)) return Decision::Backoff;
-  if (crashPending) return Decision::Send;
-  // Not "today > lastDay": a clock that stepped backwards (a re-sync, a
-  // replaced battery) would otherwise silence the device until it caught up.
-  if (today == s.lastDay) return Decision::AlreadyToday;
-  return Decision::Send;
-}
-
-const char* decisionName(const Decision d) {
-  switch (d) {
-    case Decision::Send:
-      return "send";
-    case Decision::Off:
-      return "off";
-    case Decision::NoClock:
-      return "no clock";
-    case Decision::Backoff:
-      return "backoff";
-    case Decision::AlreadyToday:
-      return "already today";
-  }
-  return "?";
-}
-
 OtaProps otaProps(const State& s, const char* runningVersion) {
   OtaProps o;
   o.attempted = s.otaFrom[0] != '\0';
@@ -519,54 +441,78 @@ OtaProps otaProps(const State& s, const char* runningVersion) {
   return o;
 }
 
-size_t formatHeartbeat(const char* device, const Sample& sample, const State& s, char* out, const size_t outSize) {
-  const OtaProps ota = otaProps(s, sample.version);
-  Writer w(out, outSize);
-  w.raw("{");
-  w.key("service");
-  w.str("firmware");
-  w.raw(",");
-  w.key("event");
-  w.str("heartbeat");
-  w.raw(",");
-  w.key("device");
-  w.str(device);
-  w.raw(",");
-  w.key("version");
-  w.str(sample.version);
-  w.raw(",");
-  w.key("board");
-  w.str(sample.board);
-  w.raw(",");
-  w.key("props");
-  w.raw("{");
-  w.key("apps");
-  writeApps(w, s);
-  w.raw(",");
-  w.key("uptime_h");
-  w.num(static_cast<long>(sample.uptimeHours));
-  w.raw(",");
-  w.key("battery_pct");
-  w.num(static_cast<long>(sample.batteryPct));
-  w.raw(",");
-  w.key("heap_min_kb");
-  w.num(static_cast<long>(sample.heapMinKb));
-  w.raw(",");
-  w.key("ota");
-  w.raw("{");
-  w.key("attempted");
-  w.boolean(ota.attempted);
-  w.raw(",");
-  w.key("ok");
-  w.boolean(ota.ok);
-  w.raw(",");
-  w.key("error");
-  w.str(ota.error);
-  w.raw(",");
-  w.key("path");
-  w.str(ota.path);
-  w.raw("}}}");
-  return w.finish();
+size_t buildReportHeader(const State& s, const char* runningVersion, const unsigned batteryPct,
+                         const unsigned heapMinKb, const unsigned uptimeHours, char* out, const size_t outSize) {
+  // The cap is on the bytes written, so the writer sees one byte more for the
+  // terminator; a caller's smaller buffer is honoured below that.
+  const size_t size = outSize < kMaxReportBytes + 1 ? outSize : kMaxReportBytes + 1;
+  const bool crash = s.crashMessage[0] != '\0';
+  size_t messageLen = std::strlen(s.crashMessage);
+  // Full first; then without the backtrace; then the message halved until it
+  // fits; then, if even a bare crash object cannot fit, without the crash.
+  size_t n = formatReport(s, runningVersion, batteryPct, heapMinKb, uptimeHours, crash, true, messageLen, out, size);
+  if (n > 0 || !crash) return n;
+  n = formatReport(s, runningVersion, batteryPct, heapMinKb, uptimeHours, true, false, messageLen, out, size);
+  while (n == 0 && messageLen > 0) {
+    messageLen /= 2;
+    n = formatReport(s, runningVersion, batteryPct, heapMinKb, uptimeHours, true, false, messageLen, out, size);
+  }
+  if (n > 0) return n;
+  return formatReport(s, runningVersion, batteryPct, heapMinKb, uptimeHours, false, false, 0, out, size);
+}
+
+bool hostOf(const char* url, char* out, const size_t outSize) {
+  if (outSize == 0) return false;
+  out[0] = '\0';
+  if (url == nullptr) return false;
+  const char* p = url;
+  if (const char* scheme = std::strstr(url, "://"); scheme != nullptr) p = scheme + 3;
+  // The authority ends at the path, the query or the fragment.
+  size_t len = 0;
+  while (p[len] != '\0' && p[len] != '/' && p[len] != '?' && p[len] != '#') ++len;
+  // Userinfo, if any, ends at the last '@' of the authority.
+  for (size_t i = len; i > 0; --i) {
+    if (p[i - 1] == '@') {
+      p += i;
+      len -= i;
+      break;
+    }
+  }
+  size_t hostLen = 0;
+  if (len > 0 && p[0] == '[') {
+    // A bracketed IPv6 literal: the host is what the brackets hold.
+    ++p;
+    --len;
+    while (hostLen < len && p[hostLen] != ']') ++hostLen;
+    if (hostLen == len) return false;
+  } else {
+    while (hostLen < len && p[hostLen] != ':') ++hostLen;
+  }
+  while (hostLen > 0 && p[hostLen - 1] == '.') --hostLen;
+  if (hostLen == 0 || hostLen >= outSize) return false;
+  for (size_t i = 0; i < hostLen; ++i) out[i] = lower(p[i]);
+  out[hostLen] = '\0';
+  return true;
+}
+
+bool isOwnHost(const char* host) {
+  if (host == nullptr) return false;
+  const size_t hostLen = std::strlen(host);
+  constexpr size_t zoneLen = sizeof(kOwnZone) - 1;
+  if (hostLen < zoneLen) return false;
+  // The zone itself, or a name whose last label boundary is exactly at it.
+  const size_t at = hostLen - zoneLen;
+  if (at > 0 && host[at - 1] != '.') return false;
+  for (size_t i = 0; i < zoneLen; ++i) {
+    if (lower(host[at + i]) != kOwnZone[i]) return false;
+  }
+  return true;
+}
+
+bool reportsTo(const bool enabled, const char* url) {
+  if (!enabled) return false;
+  char host[kMaxHost];
+  return hostOf(url, host, sizeof(host)) && isOwnHost(host);
 }
 
 size_t formatCrashMessage(const bool reasonRecorded, const char* reason, const char* reset, const char* lastTag,
@@ -654,71 +600,4 @@ bool lastLogTagBeforeReset(const char* panicInfo, char* out, const size_t outSiz
   return true;
 }
 
-size_t formatCrash(const char* device, const char* runningVersion, const char* board, const State& s, char* out,
-                   const size_t outSize) {
-  if (s.crashMessage[0] == '\0') {
-    if (outSize > 0) out[0] = '\0';
-    return 0;
-  }
-  Writer w(out, outSize);
-  w.raw("{");
-  w.key("service");
-  w.str("firmware");
-  w.raw(",");
-  w.key("event");
-  w.str("crash");
-  w.raw(",");
-  w.key("level");
-  w.str("error");
-  w.raw(",");
-  w.key("device");
-  w.str(device);
-  w.raw(",");
-  w.key("version");
-  w.str(s.crashVersion[0] != '\0' ? s.crashVersion : runningVersion);
-  w.raw(",");
-  w.key("board");
-  w.str(board);
-  w.raw(",");
-  w.key("props");
-  w.raw("{");
-  w.key("message");
-  w.str(s.crashMessage);
-  w.raw(",");
-  w.key("backtrace");
-  w.str(s.crashTrace);
-  w.raw("}}");
-  return w.finish();
-}
-
-void noteSent(State& s, const long today) {
-  s.lastDay = today;
-  s.appCount = 0;
-  std::memset(s.apps, 0, sizeof(s.apps));
-  s.otaFrom[0] = '\0';
-  s.otaError[0] = '\0';
-  s.otaPath[0] = '\0';
-  clearBackoff(s);
-}
-
-void clearCrash(State& s) {
-  s.crashMessage[0] = '\0';
-  s.crashTrace[0] = '\0';
-  s.crashVersion[0] = '\0';
-}
-
-bool parseBoardConfig(const char* json, char* url, const size_t urlSize, char* key, const size_t keySize) {
-  if (json == nullptr || urlSize == 0 || keySize == 0) return false;
-  url[0] = '\0';
-  key[0] = '\0';
-  const char* u = findKey(json, "url");
-  const char* k = findKey(json, "anonKey");
-  if (u == nullptr || k == nullptr) return false;
-  if (readString(u, url, urlSize) == nullptr || readString(k, key, keySize) == nullptr) return false;
-  if (std::strncmp(url, "https://", 8) != 0 || url[8] == '\0' || key[0] == '\0') return false;
-  // A value that did not fit is a value we would send wrong; refuse it.
-  if (std::strlen(url) + 1 >= urlSize || std::strlen(key) + 1 >= keySize) return false;
-  return true;
-}
-
-}  // namespace heartbeat
+}  // namespace devreport

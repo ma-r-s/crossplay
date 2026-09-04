@@ -26,7 +26,6 @@
 #include "knucklebones/KnucklebonesActivity.h"
 #include "minesweeper/MinesweeperActivity.h"
 #include "murdle/MurdleActivity.h"
-#include "network/Heartbeat.h"
 #include "player/PlayerActivity.h"
 #include "seasalt/SeaSaltActivity.h"
 #include "solitaire/SolitaireActivity.h"
@@ -309,9 +308,6 @@ bool openItem(const int folder, const int item, GfxRenderer& renderer, MappedInp
     setOpenTitle(nullptr);
     return false;
   }
-  // Counted after the launch succeeded, by title: the daily heartbeat's
-  // "apps" is the set of these since the last one.
-  heartbeat::noteAppOpened(parent.items[item].title);
   return true;
 }
 
