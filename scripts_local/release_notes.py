@@ -15,6 +15,15 @@ where host-tests/release insists they live, and `[crossplay] version` in
 platformio.ini goes up one patch (one minor if any merged pull request carries
 the `release:minor` label).
 
+Only landings that can change a byte a device runs become notes. v1.12.17
+listed all seven merges since the previous tag; six were CI, a guard hook, a
+release-pipeline fix and a server-side bridge, and Mario read the update
+prompt on his device and asked why a release had happened at all. The one line
+that did reach the firmware -- an upstream sync -- named the operation and not
+one thing it changed. Both halves are fixed here: reaches_device() asks the one
+rule that already knows (scripts_local/device-build-needed.sh), and a sync's
+body is read for the upstream subjects its title hides.
+
 Every input can be replaced for tests: --repo-dir, --pr-json (a file of pull
 requests instead of gh), --last-tag.
 """
@@ -31,6 +40,17 @@ NEW_LINE = re.compile(
     r"^\s*(?:[-*]\s*)?(?:\*\*)?what is new(?:\*\*)?\s*[:\-]\s*(.+)$", re.I
 )
 NEW_HEAD = re.compile(r"^#{1,4}\s*what is new\b.*$", re.I)
+
+# A sync's body carries the upstream commits its title only counts, one
+# `- `sha` subject` bullet each, per docs/workflow/upstream-sync.md step 5.
+UPSTREAM_COMMIT = re.compile(r"^\s*[-*]\s+`([0-9a-f]{7,40})`\s+(\S.*?)\s*$")
+# Upstream's own pull request number, which in these notes reads as one of ours.
+UPSTREAM_PR = re.compile(r"\s*\(#\d+\)\s*$")
+VERSION_BUMP = re.compile(r"^bump version\b|^v?\d+\.\d+", re.I)
+
+# The one definition of "can this reach a device image" in this repository.
+# ASKED, never restated: see reaches_device().
+RULE = pathlib.Path(__file__).resolve().parent / "device-build-needed.sh"
 
 
 def run(cmd, cwd):
@@ -118,6 +138,91 @@ def what_is_new(pr):
     return found or None
 
 
+def reaches_device(repo, sha):
+    """Can what this landing brought in change a byte a device runs?
+
+    v1.12.17 announced seven changes. Four of them -- a board watcher, a
+    server-side bridge and two release-pipeline fixes -- cannot alter a byte a
+    device runs, and they were the lines a reader met first. The release itself
+    was right: an upstream sync moved the SDK, the SD font loader and about
+    thirty translations. Only the notes were wrong.
+
+    The question is the one scripts_local/device-build-needed.sh already
+    answers for the build gate and for release-needed.sh, and it is ASKED here
+    rather than restated. Its path allowlist is the only definition of "reaches
+    a device image" in this repository, and a second copy of it in Python would
+    drift the first time somebody adds a top-level directory -- silently, since
+    the only symptom would be notes that quietly stopped mentioning something.
+
+    `sha^1..sha` is the mainline parent against the merge, which is exactly
+    what the landing added to xteink. --range diffs from the merge base, and
+    the merge base of a merge and its own first parent is that parent, so this
+    is the same range either way.
+
+    Fail-safe is INCLUDE, the direction the script itself fails in: exit 1 is
+    its only "no", and everything else -- an unreadable range, a missing
+    script, a crash -- means the bullet is printed. A bullet shown needlessly
+    is noise; a bullet hidden wrongly is the bug this function exists to fix.
+
+    NOTE the rule is deliberately conservative for the build, and inherits that
+    here. scripts_local/ is on its live side because two files there are `pre:`
+    extra_scripts that run inside every device build, so a hooks change lands a
+    note it does not really need. That over-reports by one line rather than
+    under-reporting, and narrowing it here would be the second definition this
+    whole function exists to avoid.
+    """
+    if not RULE.exists():
+        return True
+    parent = subprocess.run(
+        ["git", "rev-parse", "-q", "--verify", f"{sha}^1"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+    if parent.returncode != 0:
+        return True
+    r = subprocess.run(
+        ["bash", str(RULE), "--range", f"{sha}^1..{sha}", "--quiet"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+    return r.returncode != 1
+
+
+def upstream_lines(pr):
+    """A sync's body, which lists what came in, instead of its title, which counts it.
+
+    "Sync CrossPoint develop (6 commits) and FreeInk SDK" was the only line in
+    v1.12.17 that reached the firmware, and it named the operation rather than
+    anything that changed: language-specific fonts, thirty updated
+    translations, a new Bulgarian UI and a fix keeping the glyph arena usable
+    under heap pressure were all in it and none of them were said.
+
+    docs/workflow/upstream-sync.md step 5 tells the sync run to put the
+    upstream commit subjects in the body, one `- `sha` subject` bullet each, so
+    they are already there. Two or more of them, or this leaves the title
+    alone: one such line is as likely to be a commit mentioned in prose.
+
+    Version bumps are dropped -- they are the sync's own bookkeeping. Nothing
+    else is filtered by type: "chore: update translations" is a chore and is
+    the most visible thing in that list, so a type filter would be wrong in
+    both directions on this very PR.
+    """
+    if "sync" not in (pr.get("title") or "").lower():
+        return None
+    out = []
+    for line in (pr.get("body") or "").splitlines():
+        m = UPSTREAM_COMMIT.match(line)
+        if not m:
+            continue
+        s = humanize(UPSTREAM_PR.sub("", m.group(2)))
+        if VERSION_BUMP.match(s):
+            continue
+        out.append(s)
+    return out if len(out) >= 2 else None
+
+
 def branch_subject(repo, sha):
     """For a merge commit, the first real subject on the branch it merged; else None."""
     r = subprocess.run(["git", "log", "--format=%s", f"{sha}^1..{sha}^2"], cwd=repo, capture_output=True, text=True)
@@ -197,7 +302,7 @@ def main():
         print("NEXT_VERSION=")
         return
     prs = prs_for({sha for sha, _ in merges}, a.repo, a.pr_json)
-    bullets = []
+    kept, dropped = [], []
     minor = False
     for sha, subject in merges:
         pr = prs.get(sha)
@@ -206,19 +311,52 @@ def main():
                 (l.get("name") if isinstance(l, dict) else l) == "release:minor"
                 for l in pr.get("labels") or []
             ):
+                # The label is about the version, not about the notes: a
+                # tooling pull request that declares itself a minor still is
+                # one, whether or not it earns a line.
                 minor = True
-            lines = what_is_new(pr) or [humanize(pr.get("title") or subject)]
-            bullets.extend(lines)
+            title = pr.get("title") or subject
+            lines = what_is_new(pr) or upstream_lines(pr) or [humanize(title)]
         else:
-            bullets.append(humanize(branch_subject(repo, sha) or subject))
-    seen = set()
-    bullets = [b for b in bullets if not (b in seen or seen.add(b))]
+            title = branch_subject(repo, sha) or subject
+            lines = [humanize(title)]
+        (kept if reaches_device(repo, sha) else dropped).append(
+            (humanize(title), lines)
+        )
+
+    def dedupe(seq):
+        seen = set()
+        return [b for b in seq if not (b in seen or seen.add(b))]
+
+    bullets = dedupe([b for _, lines in kept for b in lines])
+    if not bullets:
+        # Nothing merged since the tag reaches a device image. The automatic
+        # path cannot get here -- release-needed.sh gates the release on
+        # exactly this question -- but a release cut by hand can, and a
+        # "What is new" heading with no bullets under it is worse than a noisy
+        # one: it reads as a broken generator and tells nobody anything. So the
+        # filter stands down and every line goes in, as before this change.
+        print("nothing since the tag reaches a device image: listing every merge")
+        bullets = dedupe([b for _, lines in kept + dropped for b in lines])
+        dropped = []
+    elif dropped:
+        # The excluded ones do not vanish: one line with a count, no titles.
+        # Somebody comparing the notes against the merge log needs to see that
+        # the difference is deliberate, and a reader on the device needs one
+        # short line rather than four they cannot act on. The titles go to
+        # stdout below, where the autorelease log keeps them.
+        n = len(dropped)
+        bullets.append(
+            f"Plus {n} change{'' if n == 1 else 's'} nothing on the device can see."
+        )
 
     cur = current_version(ini.read_text())
     nxt = bump(cur, minor)
     print(f"last tag {tag}, {len(merges)} merge(s), {cur} -> {nxt}")
     for b in bullets:
         print(f"  - {b}")
+    for title, _ in dropped:
+        print(f"  (not a note, reaches no device image) {title}")
     print(f"NEXT_VERSION={nxt}")
     if a.write:
         ini.write_text(
