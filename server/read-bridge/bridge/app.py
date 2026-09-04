@@ -23,7 +23,7 @@ import time
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
-from . import accounts, engine, jobs, pairing, store
+from . import accounts, engine, events, jobs, pairing, store
 from .ratelimit import Lockout, Window
 
 log = logging.getLogger("bridge.app")
@@ -394,7 +394,16 @@ async def start_sync(request: Request, dev=Depends(require_device)):
         st.save_state(fresh)
         return summary
 
-    job = jobs.JOBS.start(uid, work)
+    job = jobs.JOBS.start(
+        uid,
+        work,
+        service="instapaper",
+        # The account id (itself a hash of the address), salted once more: the
+        # board counts accounts and can name none of them.
+        device=events.device_id(uid),
+        # articles: what came down this sync, new or changed.
+        props=lambda s: {"articles": len(s["articles"])},
+    )
     jobs.JOBS.gc()
     return {"job": job.id}
 
@@ -436,6 +445,9 @@ async def article_file(bookmark_id: int, bookmark_hash: str, dev=Depends(require
 @app.on_event("startup")
 async def startup():
     logging.basicConfig(level=logging.INFO)
+    # Says "events are off" once when the two variables are not both set.
+    if events.enabled():
+        log.info("events on: syncs and failures post to the board")
     try:
         import bridge.instapaper as ip
 

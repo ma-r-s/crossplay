@@ -269,6 +269,160 @@ async def run(tmp, state_file):
         r = await client.get("/api/sync/status?job=nope", headers=headers)
         ok(r.status_code == 200 and "restarted" in r.json()["message"], "a forgotten job is explained")
 
+        # --- events: what a finished sync tells the board, and what a board
+        # that is down costs it (nothing). The HTTP layer is stubbed at the one
+        # name events.py sends through, so these assert the exact body.
+        import urllib.error
+        import urllib.request
+
+        import bridge.app as app_mod
+        from bridge import engine as engine_mod
+        from bridge import events
+        from bridge import jobs as jobs_mod
+        from bridge import store as store_mod
+        from bridge.ratelimit import Window
+
+        os.environ["SUPABASE_URL"] = "https://board.test"
+        os.environ["SUPABASE_ANON_KEY"] = "anon-test-key"
+        posted = []
+
+        class Taken:
+            def read(self):
+                return b""
+
+            def close(self):
+                pass
+
+        def take(req, timeout):
+            posted.append(req)
+            return Taken()
+
+        def refuse(req, timeout):
+            posted.append(req)
+            raise urllib.error.URLError("connection refused")
+
+        async def settle(n):
+            # The post rides its own thread; give it a moment to land.
+            for _ in range(50):
+                if len(posted) >= n:
+                    return
+                await asyncio.sleep(0.1)
+
+        events._urlopen = take
+        # Each job reads the clock twice; pinned so `seconds` is asserted
+        # exactly rather than as "some number".
+        ticks = iter([100.0, 102.5, 200.0, 200.4, 300.0, 300.1, 400.0, 400.2])
+        jobs_mod._clock = lambda: next(ticks, time.monotonic())
+        # The syncs above spent this user's window; this block gets a fresh
+        # one with the same limits.
+        app_mod.SYNC_USER = Window(6, 300)
+        expected_device = events.device_id(store_mod.uid_for(USER))
+
+        r = await client.post(
+            "/api/sync", json={"have": [], "archive": []}, headers=headers
+        )
+        result = await poll_job(client, headers, r.json()["job"])
+        ok(
+            result["status"] == "done",
+            f"the events sync finishes ({result.get('message', '')})",
+        )
+        came_down = len(result["summary"]["articles"])
+        ok(came_down > 0, "and delivered something, so the count below is not a zero")
+        await settle(1)
+        ok(len(posted) == 1, f"a finished sync posts one event, got {len(posted)}")
+        wire_body = json.loads(posted[0].data)
+        ok(
+            wire_body
+            == {
+                "service": "instapaper",
+                "event": "sync",
+                "level": "info",
+                "device": expected_device,
+                "props": {"articles": came_down, "seconds": 2.5},
+            },
+            f"a sync posts the contract's body, got {wire_body}",
+        )
+        ok(
+            posted[0].full_url == "https://board.test/rest/v1/events",
+            "to the events table",
+        )
+        ok(posted[0].get_header("Apikey") == "anon-test-key", "with the public key")
+        ok(
+            USER not in posted[0].data.decode()
+            and store_mod.uid_for(USER) not in posted[0].data.decode(),
+            "neither the address nor the account id is in the event",
+        )
+
+        # A board that refuses the event cannot fail the sync.
+        events._urlopen = refuse
+        r = await client.post(
+            "/api/sync", json={"have": [], "archive": []}, headers=headers
+        )
+        result = await poll_job(client, headers, r.json()["job"])
+        ok(
+            result["status"] == "done" and "articles" in result["summary"],
+            f"a board that is down does not fail the sync, got {result['status']}",
+        )
+        await settle(2)
+        ok(len(posted) == 2, "and the event was attempted, not skipped")
+
+        # A sync that dies posts what it died of: an Instapaper refusal ...
+        events._urlopen = take
+        real_cycle = engine_mod.sync_cycle
+
+        def refused(*a, **kw):
+            raise jobs_mod.Refused("Instapaper refused: 1041 for bookmark 77")
+
+        engine_mod.sync_cycle = refused
+        try:
+            r = await client.post(
+                "/api/sync", json={"have": [], "archive": []}, headers=headers
+            )
+            result = await poll_job(client, headers, r.json()["job"])
+        finally:
+            engine_mod.sync_cycle = real_cycle
+        ok(result["status"] == "error", f"the refused sync fails, got {result}")
+        await settle(3)
+        wire_body = json.loads(posted[2].data)
+        ok(
+            wire_body
+            == {
+                "service": "instapaper",
+                "event": "sync",
+                "level": "error",
+                "device": expected_device,
+                "props": {
+                    "message": "Refused: Instapaper refused: 1041 for bookmark 77"
+                },
+            },
+            f"a refusal posts its sentence at level error, got {wire_body}",
+        )
+
+        # ... and a bridge fault.
+        def dead(*a, **kw):
+            raise RuntimeError("disk full")
+
+        engine_mod.sync_cycle = dead
+        try:
+            r = await client.post(
+                "/api/sync", json={"have": [], "archive": []}, headers=headers
+            )
+            result = await poll_job(client, headers, r.json()["job"])
+        finally:
+            engine_mod.sync_cycle = real_cycle
+        ok(result["status"] == "error", f"the broken sync fails, got {result}")
+        await settle(4)
+        wire_body = json.loads(posted[3].data)
+        ok(
+            wire_body["level"] == "error"
+            and wire_body["props"] == {"message": "RuntimeError: disk full"},
+            f"a bridge fault posts its cause at level error, got {wire_body}",
+        )
+
+        events._urlopen = urllib.request.urlopen
+        jobs_mod._clock = time.monotonic
+        del os.environ["SUPABASE_URL"], os.environ["SUPABASE_ANON_KEY"]
+
         # --- revocation
         page = await client.get("/devices")
         token_hash = page.text.split("name=token_hash value='")[1].split("'")[0]

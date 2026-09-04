@@ -38,6 +38,11 @@ services:
       BRIDGE_DATA: /data
       BRIDGE_FERNET_KEY: ${BRIDGE_FERNET_KEY}
       BRIDGE_ALLOWLIST: ${BRIDGE_ALLOWLIST}
+      # Where sync and error events go (docs/workflow/events.md). Both
+      # optional: with either unset the service posts nothing and logs so
+      # once at startup. The anon key can only insert.
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
     volumes:
       - ./data:/data
     # uid 10002: 10001 is getbooks on the same box, and shared uids would let
