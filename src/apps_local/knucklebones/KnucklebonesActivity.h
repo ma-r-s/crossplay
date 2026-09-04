@@ -42,6 +42,11 @@ class KnucklebonesActivity final : public linkplay::LinkActivity {
   void onRematch() override;
   void onLinkEnded() override;
   bool matchGameOver() const override { return knucklebones::over(game); }
+  // Counted here and nowhere else in a match. It used to be counted in an
+  // else-if arm of gameLoop() that multiplayer returns before reaching, so no
+  // link game was ever recorded and no final board was ever shown. See
+  // link/LinkEndgame.h.
+  void onMatchEnded() override;
   void gameLoop() override;
   void gameRender() override;
 

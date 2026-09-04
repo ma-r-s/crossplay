@@ -61,3 +61,10 @@ SRC=../../src/apps_local/link
   ../../src/apps_local/toybattle/ToyBattleCore.cpp ../../src/apps_local/toybattle/ToyBattleBrain.cpp \
   test_toybattlelink.cpp -o "$BUILD_DIR/test_toybattlelink"
 "$BUILD_DIR/test_toybattlelink"
+
+# The end of a match: the record that was never written and the final board the
+# loser was never shown. Real link, real Connect Four rules, real Endgame; see
+# test_endgame.cpp for what it does and does not cover.
+"${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror -O2 $SRC/LinkProtocol.cpp $SRC/LinkSession.cpp \
+  $SRC/LinkRadio.cpp $SRC/LinkPlay.cpp test_endgame.cpp -o "$BUILD_DIR/test_endgame"
+"$BUILD_DIR/test_endgame"
