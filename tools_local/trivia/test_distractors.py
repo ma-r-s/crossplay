@@ -189,6 +189,58 @@ def main():
     )
     check("New Guinea / Papua New Guinea", D.twins("New Guinea", "Papua New Guinea"))
     check("Spain / France are two things", not D.twins("Spain", "France"))
+    # A plural is the same answer, and so is the -ism form of a faith. Both
+    # shipped: "Eye" beside "Eyes" and "Hindu" beside "Hinduism", each a set
+    # where the option marked wrong is as right as the one marked right.
+    check("Eye / Eyes", D.twins("Eye", "Eyes"))
+    check("Bat / Bats", D.twins("Bat", "Bats"))
+    check("Potato / Potatoes", D.twins("Potato", "Potatoes"))
+    check("Bicycle / Bicycles", D.twins("Bicycle", "Bicycles"))
+    check("Earthquake / Earthquakes", D.twins("Earthquake", "Earthquakes"))
+    check("Hindu / Hinduism", D.twins("Hindu", "Hinduism"))
+    check("Shinto / Shintoism", D.twins("Shinto", "Shintoism"))
+    check("Islam / Islamic", D.twins("Islam", "Islamic"))
+    # and the stemming must not fuse two things a player tells apart
+    check("Austria / Australia stay apart", not D.twins("Austria", "Australia"))
+    check("Mars / Mercury stay apart", not D.twins("Mars", "Mercury"))
+    check("Iran / Iraq stay apart", not D.twins("Iran", "Iraq"))
+    check("Glass / Grass stay apart", not D.twins("Glass", "Grass"))
+    check("Buddha / Buddhism stay apart", not D.twins("Buddha", "Buddhism"))
+
+    print("\nclue text the abbreviation expander damaged")
+    import build_pack as B
+    # A: the tail of an initialism. "U.S. Army" became "U.South Army" in 280
+    # places, and no legitimate English looks like "U.South", so this half is
+    # exactly reversible.
+    check("U.S. survives expansion", B.expand_abbrev("the U.S. Army") == "the U.S. Army")
+    check("P.W. survives expansion", B.expand_abbrev("P.W. Botha resigned") == "P.W. Botha resigned")
+    # B: a personal middle initial. This is the half that rewrote names.
+    check("Robert E. Lee keeps his name",
+          B.expand_abbrev("Robert E. Lee rode") == "Robert E. Lee rode")
+    check("Harry S. Truman keeps his",
+          B.expand_abbrev("Harry S. Truman said") == "Harry S. Truman said")
+    check("George W. Bush keeps his",
+          B.expand_abbrev("George W. Bush won") == "George W. Bush won")
+    # and a real compass point still expands, which is why the rule exists
+    check("N. Korea still expands",
+          B.expand_abbrev("This N. Korean city") == "This North Korean city")
+    check("a lowercase lead still expands",
+          B.expand_abbrev("way up in N. Dakota") == "way up in North Dakota")
+
+    print("\nrepairing a pack built before that fix")
+    r = [{"q": "In 1969 the U.South Destroyer Evans sank", "a": "x"},
+         {"q": "Robert East Lee surrendered here", "a": "x"},
+         {"q": "Alfred North Whitehead said this", "a": "x"},
+         {"q": "Mount Kosciuszko in New South Wales", "a": "x"},
+         {"q": "P.West Botha resigned", "a": "x"}]
+    n = B.repair_expansions(r)
+    check("U.South is put back", r[0]["q"] == "In 1969 the U.S. Destroyer Evans sank", r[0]["q"])
+    check("Robert E. Lee is put back", r[1]["q"] == "Robert E. Lee surrendered here", r[1]["q"])
+    check("Alfred North Whitehead is LEFT ALONE -- it is his actual name",
+          r[2]["q"] == "Alfred North Whitehead said this", r[2]["q"])
+    check("New South Wales is left alone", r[3]["q"] == "Mount Kosciuszko in New South Wales", r[3]["q"])
+    check("P.West is put back", r[4]["q"] == "P.W. Botha resigned", r[4]["q"])
+    check("the repair reports how much it touched", n == 3, f"reported {n}")
 
     print("\nperiod")
     check(
@@ -202,6 +254,49 @@ def main():
     check("no Hawaii as a state in 1900", not D.existed("Hawaii", 1900))
     check("Egypt in 1818 is fine", D.existed("Egypt", 1818))
     check("an undated clue rejects nothing", D.existed("Soviet Union", None))
+
+    print("\none place under two names")
+    # A stemmer cannot reach these: the two strings share no letters. Found by
+    # reading a set that offered "Holland" and "Netherlands" for the same
+    # country, then counted exhaustively -- 42 sets, 22 of them with the answer
+    # as half the pair, which makes a wrong option right.
+    check("Holland / Netherlands", D.twins("Holland", "Netherlands"))
+    check("Persia / Iran", D.twins("Persia", "Iran"))
+    check("Burma / Myanmar", D.twins("Burma", "Myanmar"))
+    check("Peking / Beijing", D.twins("Peking", "Beijing"))
+    check("Constantinople / Istanbul", D.twins("Constantinople", "Istanbul"))
+    check("USSR / Soviet Union", D.twins("USSR", "Soviet Union"))
+    check("Czechoslovakia / Czech Republic",
+          D.twins("Czechoslovakia", "Czech Republic"))
+    # neighbours and look-alikes must still be two different answers
+    check("Iran / Iraq stay apart still", not D.twins("Iran", "Iraq"))
+    check("Austria / Australia stay apart still", not D.twins("Austria", "Australia"))
+    check("Norway / Sweden stay apart", not D.twins("Norway", "Sweden"))
+    check("Beijing / Shanghai stay apart", not D.twins("Beijing", "Shanghai"))
+
+    print("\na head that means several kinds of thing")
+    # Measured on the pack: the bare `body` pool held Moon, Sun and Pluto beside
+    # Senate, Supreme Court and the League of Nations, which is how "this dense
+    # cosmic body" came to offer the Supreme Court. The MODIFIED pools are fine
+    # and must survive -- `body of water` is English Channel, Red Sea, Caspian.
+    check("body is refused bare", "body" in D.BARE_TYPE_STOP)
+    check("object is refused bare", "object" in D.BARE_TYPE_STOP)
+    check("member is refused bare", "member" in D.BARE_TYPE_STOP)
+    check("organ is NOT refused -- that pool is coherent (Liver, Heart, Brain)",
+          "organ" not in D.BARE_TYPE_STOP)
+    check("country is NOT refused", "country" not in D.BARE_TYPE_STOP)
+    mini = []
+    for i in range(12):
+        mini.append({"q": f"Clue {i} about this body", "a": f"A{i}"})
+        mini.append({"q": f"Clue {i} about this body of water", "a": f"W{i}"})
+        mini.append({"q": f"Clue {i} naming this river", "a": f"R{i}"})
+    ti = D.TypeIndex(mini)
+    bare = ti._key("Clue about this body")
+    withmod = ti._key("Clue about this body of water")
+    check("a bare `this body` clue gets NO type", bare is None, f"got {bare}")
+    check("`this body of water` still types", withmod is not None, f"got {withmod}")
+    check("and it is a body-of-water pool",
+          withmod is not None and "of:water" in withmod[0], f"got {withmod}")
 
     print("\nend to end")
     D.redistract(items, random.Random(1))
