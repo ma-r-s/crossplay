@@ -295,7 +295,7 @@ uint32_t readerLineCount(const fui::DrawTarget& target, const fui::DeviceContext
   return body.wrap->lineCount(target, readerBody(device).width, body.text, body.style);
 }
 
-void buildReader(toybox::Screen& screen, const ReaderModel& model, ReaderBody& body) {
+uint32_t buildReader(toybox::Screen& screen, const ReaderModel& model, ReaderBody& body) {
   // The band carries the story's own headline. Within this app chrome is
   // Jersey and content is the reading face, and a title is content --
   // somebody's sentence, in its own case -- so the band borrows the reading
@@ -355,9 +355,10 @@ void buildReader(toybox::Screen& screen, const ReaderModel& model, ReaderBody& b
   // is tens of kilobytes and textArea() walks it from byte zero to find the
   // twenty lines it draws, so paging into the middle of a thread cost the
   // whole thread -- twice per paint, counting the measure above.
-  if (body.wrap != nullptr) {
-    body.wrap->draw(screen.target(), readerBody(device), body.text, body.style, model.topLine);
-  }
+  if (body.wrap == nullptr) return 0;
+  body.wrap->draw(screen.target(), readerBody(device), body.text, body.style, model.topLine);
+  // Asked AFTER the drawing, and cheap because the wrap has just answered it.
+  return body.wrap->lineCount(screen.target(), readerBody(device).width, body.text, body.style);
 }
 
 // --- Notices -------------------------------------------------------------

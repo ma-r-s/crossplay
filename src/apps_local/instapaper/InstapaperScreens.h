@@ -104,7 +104,14 @@ struct ReaderModel {
 // build this screen without one. The alternative was a nullable pointer with a
 // fall-back to wrapping the whole article again, which would have brought the
 // bug back the first time somebody wrote a new call site.
-void buildReader(toybox::Screen& screen, const ReaderModel& model, ReaderBody& body);
+// RETURNS THE LINE COUNT THE PANEL WAS ACTUALLY DRAWN FROM, which is not
+// necessarily the one readerLineCount() gave a moment ago: drawing is where a
+// wrap that no longer describes this panel is caught and rebuilt. Returned
+// rather than left for the caller to ask again, because the caller that
+// forgets to ask sends a reading position computed against an article this
+// screen is not showing -- and that is a wrong number on somebody's phone with
+// nothing on screen to say so. Take this value; do not keep the earlier one.
+uint32_t buildReader(toybox::Screen& screen, const ReaderModel& model, ReaderBody& body);
 
 // The article's length in lines, wrapped to the width the reader will really
 // draw it at. The Activity needs it before it can say which page it is on and

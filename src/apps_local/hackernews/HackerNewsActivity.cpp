@@ -934,11 +934,11 @@ void HackerNewsActivity::render(RenderLock&&) {
       // was. Empty only until the first fetch has answered.
       model.canSave = !readerUrl_.empty();
       model.saved = model.canSave && library_.contains(readerUrl_);
-      hnui::buildReader(screen, model, bodyText);
-      // Re-read after the drawing; see the twin in InstapaperActivity.cpp. No
-      // reading position goes anywhere from here, but the page label and the
-      // forward control were both computed from the old count.
-      lineCount_ = hnui::readerLineCount(target, device, bodyText);
+      // The count the panel was drawn from; see the twin in
+      // InstapaperActivity.cpp. No reading position goes anywhere from here,
+      // but the page label and the forward control were both computed from
+      // the count taken before the drawing.
+      lineCount_ = hnui::buildReader(screen, model, bodyText);
       if (lineCount_ != measured) requestUpdate();
       what = "HN reader";
       break;

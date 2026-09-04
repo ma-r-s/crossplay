@@ -752,9 +752,8 @@ void InstapaperActivity::render(RenderLock&&) {
       model.pageLabel = pageLabel_;
       model.canPagePrev = topLine_ > 0;
       model.canPageNext = visibleLines_ > 0 && topLine_ + visibleLines_ < lineCount_;
-      instapaperui::buildReader(screen, model, bodyText);
-
-      // Re-read AFTER the drawing, never before it.
+      // The count the PANEL was drawn from, which is not always `measured`
+      // above.
       //
       // The drawing is where a wrap that no longer describes this panel is
       // caught: buildReader() goes through the same wrap, and the wrap throws
@@ -766,10 +765,9 @@ void InstapaperActivity::render(RenderLock&&) {
       // on screen to say so, which is the exact failure the whole cache was
       // built to avoid.
       //
-      // Cheap: the wrap has just been asked this question, so this is a hit.
       // A change asks for one more paint, because the page label and the
       // forward control were computed from the old count too.
-      lineCount_ = instapaperui::readerLineCount(target, device, bodyText);
+      lineCount_ = instapaperui::buildReader(screen, model, bodyText);
       if (lineCount_ != measured) {
         LOG_INF("INSTA", "wrap changed under the paint: %lu lines, was %lu", static_cast<unsigned long>(lineCount_),
                 static_cast<unsigned long>(measured));

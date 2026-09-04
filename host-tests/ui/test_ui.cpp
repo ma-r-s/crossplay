@@ -7190,6 +7190,68 @@ void testABreakThatMovesWithoutChangingTheCountIsStillCaught() {
 // The earlier version of this moved `charW`, which every font answered to --
 // so it passed even against a fingerprint that never passed `style` to
 // measureText at all. This moves one font id and one weight.
+// The count a caller is allowed to keep is the one the PANEL was drawn from.
+//
+// buildReader() draws through the wrap, and drawing is where a wrap that no
+// longer describes this panel is caught and rebuilt. A caller that keeps the
+// count it took a moment earlier is holding the length of an article this
+// screen is not showing -- and in Instapaper that number is divided into the
+// top line and sent to somebody's real account, with nothing on screen to say
+// it was wrong. So buildReader returns the count rather than leaving it to be
+// asked for again, and this is the test that the returned one is the drawn one.
+void testTheCountBuildReaderReturnsIsTheOneItDrew() {
+  // A change of cut the fingerprint cannot see that DOES move the line count.
+  // The pinned case used elsewhere in this file is the opposite -- built so
+  // the count survives -- and against that one this test can prove nothing,
+  // because the number taken before the drawing and the number after it are
+  // equal whether the ordering is right or wrong.
+  std::string doc = longArticle(24u * 1024u);
+  for (size_t at = 40; at + 3 < doc.size(); at += 97) {
+    doc[at] = 'z';
+    doc[at + 1] = 'q';
+    doc[at + 2] = 'x';
+  }
+  const std::vector<std::pair<std::string, int16_t>> cut = {{"zqx", 90}};
+
+  Rendered out;
+  out.bodyText = doc.c_str();
+  const fui::DeviceContext ctx = device();
+  const fui::ThemeTokens& tokens = toybox::themeTokens();
+
+  instapaperui::ReaderBody bodyText;
+  bodyText.text = out.bodyText;
+  bodyText.style = tokens.bodyText;
+  bodyText.wrap = &out.wrap;
+
+  // A wrap taken before the cut changed, then the cut changes.
+  const uint32_t before = instapaperui::readerLineCount(out.target, ctx, bodyText);
+  out.target.kerns = cut;
+  // The count taken BEFORE the drawing still believes the old wrap: neither
+  // the width nor the text moved, and the fingerprint cannot see a pair.
+  const uint32_t taken = instapaperui::readerLineCount(out.target, ctx, bodyText);
+  CHECK(taken == before);
+
+  instapaperui::ReaderModel model;
+  model.title = "A long article";
+  model.topLine = 120;
+  model.pageLabel = "2 / 40";
+  const fui::InputSnapshot noInput{};
+  toybox::Frame frame(out.target, ctx, noInput, out.interactions);
+  toybox::Screen screen(frame, tokens);
+  const uint32_t drawn = instapaperui::buildReader(screen, model, bodyText);
+
+  // What a fresh wrap of the same document under the same cut says.
+  FakeTarget clean;
+  clean.kerns = cut;
+  toybox::WrappedText fresh;
+  const uint32_t honest = fresh.lineCount(clean, instapaperui::readerBody(ctx).width, doc.c_str(), tokens.bodyText);
+
+  CHECK(drawn == honest);
+  // And it really was a different number from the one taken beforehand, or
+  // this test would pass without the ordering mattering at all.
+  CHECK(drawn != taken);
+}
+
 void testTheFingerprintReadsTheStyleAndNotJustTheTarget() {
   const std::string doc = longArticle(16u * 1024u);
   const fui::TextStyle style = toybox::themeTokens().bodyText;
@@ -8548,6 +8610,7 @@ int main() {
   testAKernPairTheKeyCannotSeeIsCaughtByTheWindow();
   testEveryPageTogetherIsTheWholeArticle();
   testABreakThatMovesWithoutChangingTheCountIsStillCaught();
+  testTheCountBuildReaderReturnsIsTheOneItDrew();
   testTheFingerprintReadsTheStyleAndNotJustTheTarget();
   testADocumentEndingInANewlineIsStillWrappedOnce();
   testTheHackerNewsReaderAlsoWrapsOncePerDocument();

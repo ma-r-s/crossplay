@@ -215,7 +215,7 @@ uint32_t readerLineCount(const fui::DrawTarget& target, const fui::DeviceContext
   return body.wrap->lineCount(target, readerBody(device).width, body.text, body.style);
 }
 
-void buildReader(toybox::Screen& screen, const ReaderModel& model, ReaderBody& body) {
+uint32_t buildReader(toybox::Screen& screen, const ReaderModel& model, ReaderBody& body) {
   // The band carries the article's own title. Within this app chrome is Jersey
   // and content is the reading face, and a title is content -- somebody's
   // sentence, in its own case -- so the band borrows the reading cut in paper,
@@ -303,9 +303,10 @@ void buildReader(toybox::Screen& screen, const ReaderModel& model, ReaderBody& b
   // drawing page forty was the cost of wrapping pages one to forty as well,
   // and it was paid again on the next turn. The wrap draws the same lines the
   // same way; what it does not do is rediscover them.
-  if (body.wrap != nullptr) {
-    body.wrap->draw(screen.target(), readerBody(device), body.text, body.style, model.topLine);
-  }
+  if (body.wrap == nullptr) return 0;
+  body.wrap->draw(screen.target(), readerBody(device), body.text, body.style, model.topLine);
+  // Asked AFTER the drawing, and cheap because the wrap has just answered it.
+  return body.wrap->lineCount(screen.target(), readerBody(device).width, body.text, body.style);
 }
 
 // --- Notices -------------------------------------------------------------
