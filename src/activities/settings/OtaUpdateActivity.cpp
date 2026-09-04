@@ -182,7 +182,7 @@ void OtaUpdateActivity::runUpdateInstall() {
   requestUpdateAndWait();
   // Recorded before the install: success reboots the device, so the next
   // heartbeat infers it from the version that comes up.
-  heartbeat::noteOtaAttempt();
+  heartbeat::noteOtaAttempt("ota");
   const auto res = updater.installUpdate(
       [](void* ctx) {
         // immediate=true notifies the render task directly. The default deferred path only

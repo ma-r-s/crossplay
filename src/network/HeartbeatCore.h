@@ -19,6 +19,7 @@ constexpr int kMaxApps = 32;
 constexpr size_t kMaxAppKey = 24;
 constexpr size_t kMaxVersion = 32;
 constexpr size_t kMaxOtaError = 32;
+constexpr size_t kMaxOtaPath = 4;  // "ota" or "sd"
 constexpr size_t kMaxCrashMessage = 160;
 constexpr size_t kMaxCrashTrace = 240;
 // The one request body, sized so the longest heartbeat and the longest
@@ -47,6 +48,9 @@ struct State {
   // from the version that boots afterwards differing from this one.
   char otaFrom[kMaxVersion] = {};
   char otaError[kMaxOtaError] = {};
+  // Which install: "ota" (the update screen, over Wi-Fi) or "sd" (a .bin
+  // picked from the card). The same device can fail one and not the other.
+  char otaPath[kMaxOtaPath] = {};
   // A panic recorded at the boot after it, cleared once the board has it.
   // The version is the one that crashed: the record outlives reboots and an
   // OTA in between, and the version running when it is finally posted may
@@ -73,7 +77,7 @@ bool addApp(State& s, const char* key);
 // writing.
 bool noteAppOpen(State& s, bool enabled, const char* title);
 bool recordCrash(State& s, bool enabled, const char* message, const char* trace, const char* version);
-bool recordOtaAttempt(State& s, bool enabled, const char* from);
+bool recordOtaAttempt(State& s, bool enabled, const char* from, const char* path);
 bool recordOtaFailure(State& s, bool enabled, const char* error);
 
 // The toggle went from off to on: whatever the file still holds from before
@@ -131,6 +135,7 @@ struct OtaProps {
   bool attempted;
   bool ok;
   const char* error;  // "" when none
+  const char* path;   // "ota", "sd", or "" when nothing was attempted
 };
 OtaProps otaProps(const State& s, const char* runningVersion);
 

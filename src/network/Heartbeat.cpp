@@ -16,6 +16,7 @@
 #endif
 
 #include "CrossPointSettings.h"
+#include "FirmwareFlasher.h"
 #include "HeartbeatCore.h"
 #include "OtaUpdater.h"
 
@@ -452,10 +453,10 @@ void noteAppOpened(const char* title) {
   save();
 }
 
-void noteOtaAttempt() {
+void noteOtaAttempt(const char* path) {
   if (!loaded) return;
-  if (!recordOtaAttempt(state, SETTINGS.heartbeat != 0, CROSSPOINT_VERSION)) return;
-  LOG_INF(kTag, "ota attempt from %s recorded", state.otaFrom);
+  if (!recordOtaAttempt(state, SETTINGS.heartbeat != 0, CROSSPOINT_VERSION, path)) return;
+  LOG_INF(kTag, "%s install attempt from %s recorded", state.otaPath, state.otaFrom);
   save();
 }
 
@@ -486,6 +487,39 @@ const char* otaErrorName(const int otaUpdaterError) {
       return "wrong_device";
     case OtaUpdater::TOO_LARGE_ERROR:
       return "too_large";
+  }
+  return "unknown";
+}
+
+const char* flashErrorName(const int firmwareFlashResult) {
+  using firmware_flash::Result;
+  switch (static_cast<Result>(firmwareFlashResult)) {
+    case Result::OK:
+      return "";
+    case Result::TOO_LARGE:
+      return "too_large";
+    case Result::TOO_SMALL:
+      return "too_small";
+    case Result::BAD_CHIP:
+    case Result::WRONG_BOARD:
+      return "wrong_device";
+    case Result::OOM:
+      return "oom";
+    case Result::OPEN_FAIL:
+    case Result::READ_FAIL:
+      return "read";
+    case Result::BAD_MAGIC:
+    case Result::BAD_SEGMENTS:
+    case Result::BAD_CHECKSUM:
+    case Result::BAD_SHA:
+    case Result::BAD_SIZE:
+      return "invalid";
+    case Result::NO_PARTITION:
+      return "no_partition";
+    case Result::ERASE_FAIL:
+    case Result::WRITE_FAIL:
+    case Result::OTADATA_FAIL:
+      return "write";
   }
   return "unknown";
 }

@@ -126,6 +126,7 @@ void testStateRoundTrip() {
   heartbeat::addApp(s, "hackernews");
   std::snprintf(s.otaFrom, sizeof(s.otaFrom), "1.12.11");
   std::snprintf(s.otaError, sizeof(s.otaError), "too_large");
+  std::snprintf(s.otaPath, sizeof(s.otaPath), "sd");
   std::snprintf(s.crashMessage, sizeof(s.crashMessage), "assert failed: q \"x\"\\ line\n1709");
   std::snprintf(s.crashTrace, sizeof(s.crashTrace), "0x3FCA: 0x1 0x2|0x3FCB: 0x4");
   std::snprintf(s.crashVersion, sizeof(s.crashVersion), "1.12.10");
@@ -135,8 +136,8 @@ void testStateRoundTrip() {
   check(n > 0 && n == std::strlen(text), "state formats");
   checkStr(text,
            "{\"day\":20699,\"apps\":[\"trivia\",\"hackernews\"],\"retry\":0,\"fails\":0,\"ota\":{\"from\":\"1.12.11\","
-           "\"error\":\"too_large\"},\"crash\":{\"message\":\"assert failed: q \\\"x\\\"\\\\ line\\n1709\",\"trace\":"
-           "\"0x3FCA: 0x1 0x2|0x3FCB: 0x4\",\"version\":\"1.12.10\"}}",
+           "\"error\":\"too_large\",\"path\":\"sd\"},\"crash\":{\"message\":\"assert failed: q \\\"x\\\"\\\\ line\\n1709\","
+           "\"trace\":\"0x3FCA: 0x1 0x2|0x3FCB: 0x4\",\"version\":\"1.12.10\"}}",
            "state file is the documented shape");
 
   heartbeat::State back;
@@ -147,6 +148,7 @@ void testStateRoundTrip() {
   checkStr(back.apps[1], "hackernews", "second app survives");
   checkStr(back.otaFrom, "1.12.11", "ota from survives");
   checkStr(back.otaError, "too_large", "ota error survives");
+  checkStr(back.otaPath, "sd", "ota path survives");
   checkStr(back.crashMessage, "assert failed: q \"x\"\\ line\n1709", "crash message survives its own escaping");
   checkStr(back.crashTrace, "0x3FCA: 0x1 0x2|0x3FCB: 0x4", "trace survives");
   checkStr(back.crashVersion, "1.12.10", "the crashed version survives");
@@ -155,8 +157,8 @@ void testStateRoundTrip() {
   heartbeat::State fresh;
   heartbeat::formatState(fresh, text, sizeof(text));
   checkStr(text,
-           "{\"day\":-1,\"apps\":[],\"retry\":0,\"fails\":0,\"ota\":{\"from\":\"\",\"error\":\"\"},\"crash\":{\"message\":"
-           "\"\",\"trace\":\"\",\"version\":\"\"}}",
+           "{\"day\":-1,\"apps\":[],\"retry\":0,\"fails\":0,\"ota\":{\"from\":\"\",\"error\":\"\",\"path\":\"\"},\"crash\":{"
+           "\"message\":\"\",\"trace\":\"\",\"version\":\"\"}}",
            "fresh state");
   heartbeat::State freshBack;
   freshBack.lastDay = 5;
@@ -312,11 +314,13 @@ void testBackoff() {
 void testOtaProps() {
   heartbeat::State s;
   heartbeat::OtaProps o = heartbeat::otaProps(s, "1.12.12");
-  check(!o.attempted && !o.ok && o.error[0] == '\0', "no attempt");
+  check(!o.attempted && !o.ok && o.error[0] == '\0' && o.path[0] == '\0', "no attempt");
 
   std::snprintf(s.otaFrom, sizeof(s.otaFrom), "1.12.12");
+  std::snprintf(s.otaPath, sizeof(s.otaPath), "sd");
   o = heartbeat::otaProps(s, "1.12.12");
   check(o.attempted && !o.ok, "attempted, same version afterwards: did not take");
+  checkStr(o.path, "sd", "the path is carried");
 
   o = heartbeat::otaProps(s, "1.12.13");
   check(o.attempted && o.ok, "attempted, version moved: ok");
@@ -332,6 +336,7 @@ void testHeartbeatBody() {
   heartbeat::addApp(s, "trivia");
   heartbeat::addApp(s, "hackernews");
   std::snprintf(s.otaFrom, sizeof(s.otaFrom), "1.12.11");
+  std::snprintf(s.otaPath, sizeof(s.otaPath), "ota");
   heartbeat::Sample sample;
   sample.version = "1.12.12";
   sample.board = "x4pro";
@@ -344,14 +349,15 @@ void testHeartbeatBody() {
   checkStr(body,
            "{\"service\":\"firmware\",\"event\":\"heartbeat\",\"device\":\"abc123\",\"version\":\"1.12.12\","
            "\"board\":\"x4pro\",\"props\":{\"apps\":[\"trivia\",\"hackernews\"],\"uptime_h\":31,\"battery_pct\":84,"
-           "\"heap_min_kb\":112,\"ota\":{\"attempted\":true,\"ok\":true,\"error\":\"\"}}}",
+           "\"heap_min_kb\":112,\"ota\":{\"attempted\":true,\"ok\":true,\"error\":\"\",\"path\":\"ota\"}}}",
            "heartbeat body is the documented shape");
 
   // Nothing opened, nothing attempted: the common day.
   heartbeat::State quiet;
   heartbeat::formatHeartbeat("abc123", sample, quiet, body, sizeof(body));
   check(std::strstr(body, "\"apps\":[]") != nullptr, "empty apps is an empty array");
-  check(std::strstr(body, "\"ota\":{\"attempted\":false,\"ok\":false,\"error\":\"\"}") != nullptr, "no ota");
+  check(std::strstr(body, "\"ota\":{\"attempted\":false,\"ok\":false,\"error\":\"\",\"path\":\"\"}") != nullptr,
+        "no ota");
 
   // The worst day: every slot full, and it still fits the device's buffer.
   heartbeat::State full;
@@ -365,6 +371,7 @@ void testHeartbeatBody() {
   }
   std::memset(full.otaFrom, 'v', sizeof(full.otaFrom) - 1);
   std::memset(full.otaError, 'e', sizeof(full.otaError) - 1);
+  std::memset(full.otaPath, 'p', sizeof(full.otaPath) - 1);
   char id[heartbeat::kIdLen + 1];
   std::memset(id, 'f', heartbeat::kIdLen);
   id[heartbeat::kIdLen] = '\0';
@@ -484,9 +491,9 @@ void testToggle() {
   check(s.appCount == 0, "off: apps stay empty");
   check(!heartbeat::recordCrash(s, false, "boom", "0x1|0x2", "1.0.0"), "off: a panic is not recorded");
   check(s.crashMessage[0] == '\0' && s.crashTrace[0] == '\0' && s.crashVersion[0] == '\0', "off: crash stays empty");
-  check(!heartbeat::recordOtaAttempt(s, false, "1.0.0"), "off: an ota attempt is not recorded");
-  check(!heartbeat::recordOtaFailure(s, false, "http"), "off: an ota failure is not recorded");
-  check(s.otaFrom[0] == '\0' && s.otaError[0] == '\0', "off: ota stays empty");
+  check(!heartbeat::recordOtaAttempt(s, false, "1.0.0", "sd"), "off: an install attempt is not recorded");
+  check(!heartbeat::recordOtaFailure(s, false, "http"), "off: an install failure is not recorded");
+  check(s.otaFrom[0] == '\0' && s.otaError[0] == '\0' && s.otaPath[0] == '\0', "off: ota stays empty");
 
   // On records, and says when the card needs writing.
   check(heartbeat::noteAppOpen(s, true, "Trivia"), "on: a first open is a change");
@@ -498,14 +505,16 @@ void testToggle() {
   checkStr(s.crashTrace, "0x1|0x2", "on: the trace");
   checkStr(s.crashVersion, "1.0.0", "on: the version");
   check(!heartbeat::recordCrash(s, true, "", "t", "1.0.0"), "an empty message is no record");
-  check(heartbeat::recordOtaAttempt(s, true, "1.0.0"), "on: an ota attempt is recorded");
+  check(heartbeat::recordOtaAttempt(s, true, "1.0.0", "ota"), "on: an install attempt is recorded");
   checkStr(s.otaFrom, "1.0.0", "on: from");
+  checkStr(s.otaPath, "ota", "on: the path");
   check(heartbeat::recordOtaFailure(s, true, "http"), "on: an ota failure is recorded");
   checkStr(s.otaError, "http", "on: the error");
   heartbeat::recordOtaFailure(s, true, nullptr);
   checkStr(s.otaError, "unknown", "a null error is unknown");
-  heartbeat::recordOtaAttempt(s, true, "1.0.1");
+  heartbeat::recordOtaAttempt(s, true, "1.0.1", "sd");
   check(s.otaError[0] == '\0', "a new attempt clears the old error");
+  checkStr(s.otaPath, "sd", "and names its own path");
 
   // The off-to-on edge forgets what the file still held, keeps the day and
   // the backoff: those are about the board, not about the user's choice.
@@ -513,7 +522,7 @@ void testToggle() {
   heartbeat::noteFailed(s, 1000000);
   heartbeat::noteSwitchedOn(s);
   check(s.appCount == 0 && s.apps[0][0] == '\0', "on edge: apps forgotten");
-  check(s.otaFrom[0] == '\0' && s.otaError[0] == '\0', "on edge: ota forgotten");
+  check(s.otaFrom[0] == '\0' && s.otaError[0] == '\0' && s.otaPath[0] == '\0', "on edge: ota forgotten");
   check(s.crashMessage[0] == '\0' && s.crashTrace[0] == '\0' && s.crashVersion[0] == '\0', "on edge: crash forgotten");
   check(s.lastDay == 5, "on edge: the day is kept");
   check(s.fails == 1 && s.retryAt == 1000000 + 15 * 60, "on edge: the backoff is kept");
@@ -524,12 +533,13 @@ void testNoteSent() {
   heartbeat::addApp(s, "trivia");
   std::snprintf(s.otaFrom, sizeof(s.otaFrom), "1.0.0");
   std::snprintf(s.otaError, sizeof(s.otaError), "http");
+  std::snprintf(s.otaPath, sizeof(s.otaPath), "ota");
   std::snprintf(s.crashMessage, sizeof(s.crashMessage), "boom");
   std::snprintf(s.crashVersion, sizeof(s.crashVersion), "1.0.0");
   heartbeat::noteSent(s, 20334);
   check(s.lastDay == 20334, "sent day recorded");
   check(s.appCount == 0 && s.apps[0][0] == '\0', "apps forgotten");
-  check(s.otaFrom[0] == '\0' && s.otaError[0] == '\0', "ota forgotten");
+  check(s.otaFrom[0] == '\0' && s.otaError[0] == '\0' && s.otaPath[0] == '\0', "ota forgotten");
   checkStr(s.crashMessage, "boom", "a pending crash is not the heartbeat's to clear");
   heartbeat::clearCrash(s);
   check(s.crashMessage[0] == '\0' && s.crashTrace[0] == '\0' && s.crashVersion[0] == '\0', "crash cleared on its own");

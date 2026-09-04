@@ -58,16 +58,19 @@ firmware posts one event:
 ```
 {"service":"firmware","event":"heartbeat","device":"<hash>","version":"1.12.12","board":"x4pro",
  "props":{"apps":["trivia","hackernews"],"uptime_h":31,"battery_pct":84,"heap_min_kb":112,
-          "ota":{"attempted":true,"ok":false,"error":"too_large"}}}
+          "ota":{"attempted":true,"ok":false,"error":"too_large","path":"sd"}}}
 ```
 
 `apps` is the set opened since the last heartbeat (shelf titles, lowercased,
 `HACKER NEWS` is `hackernews`). `uptime_h` is hours since boot, and deep
 sleep is a boot. `heap_min_kb` is the lowest free heap since boot. `ota` is
-the install attempted since the last heartbeat: `ok` is inferred from the
-version having moved, never from what the install screen said, so an
-install that "succeeded" into the same version reads as not ok with no
-error. That single event answers "how many devices are on which version",
+the install attempted since the last heartbeat, from the update screen
+(`path` `ota`) or from a `.bin` picked off the card (`path` `sd`; a file
+refused before the confirmation prompt counts, it is an install the user
+could not have): `ok` is inferred from the version having moved, never from
+what the install screen said, so an install that "succeeded" into the same
+version reads as not ok with no error. That single event answers "how many
+devices are on which version",
 "how many use each app", "which version drains faster" and "who cannot
 update" (the 6.25MB slots of a device flashed before v1.5.3 come back as
 `too_large`).

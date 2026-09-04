@@ -325,10 +325,11 @@ bool recordCrash(State& s, const bool enabled, const char* message, const char* 
   return true;
 }
 
-bool recordOtaAttempt(State& s, const bool enabled, const char* from) {
+bool recordOtaAttempt(State& s, const bool enabled, const char* from, const char* path) {
   if (!enabled) return false;
   std::snprintf(s.otaFrom, sizeof(s.otaFrom), "%s", from == nullptr ? "" : from);
   s.otaError[0] = '\0';
+  std::snprintf(s.otaPath, sizeof(s.otaPath), "%s", path == nullptr ? "" : path);
   return true;
 }
 
@@ -343,6 +344,7 @@ void noteSwitchedOn(State& s) {
   std::memset(s.apps, 0, sizeof(s.apps));
   s.otaFrom[0] = '\0';
   s.otaError[0] = '\0';
+  s.otaPath[0] = '\0';
   clearCrash(s);
 }
 
@@ -377,6 +379,7 @@ bool parseState(const char* json, State& out) {
 
   readStringField(json, "from", out.otaFrom, sizeof(out.otaFrom));
   readStringField(json, "error", out.otaError, sizeof(out.otaError));
+  readStringField(json, "path", out.otaPath, sizeof(out.otaPath));
   readStringField(json, "message", out.crashMessage, sizeof(out.crashMessage));
   readStringField(json, "trace", out.crashTrace, sizeof(out.crashTrace));
   readStringField(json, "version", out.crashVersion, sizeof(out.crashVersion));
@@ -414,6 +417,9 @@ size_t formatState(const State& s, char* out, const size_t outSize) {
   w.raw(",");
   w.key("error");
   w.str(s.otaError);
+  w.raw(",");
+  w.key("path");
+  w.str(s.otaPath);
   w.raw("},");
   w.key("crash");
   w.raw("{");
@@ -493,6 +499,7 @@ OtaProps otaProps(const State& s, const char* runningVersion) {
   OtaProps o;
   o.attempted = s.otaFrom[0] != '\0';
   o.error = s.otaError;
+  o.path = s.otaPath;
   // An install that reported no error and still boots the same version did
   // not happen, whatever the screen said; "ok" is the version having moved.
   o.ok = o.attempted && s.otaError[0] == '\0' && runningVersion != nullptr && std::strcmp(s.otaFrom, runningVersion) != 0;
@@ -542,6 +549,9 @@ size_t formatHeartbeat(const char* device, const Sample& sample, const State& s,
   w.raw(",");
   w.key("error");
   w.str(ota.error);
+  w.raw(",");
+  w.key("path");
+  w.str(ota.path);
   w.raw("}}}");
   return w.finish();
 }
@@ -674,6 +684,7 @@ void noteSent(State& s, const long today) {
   std::memset(s.apps, 0, sizeof(s.apps));
   s.otaFrom[0] = '\0';
   s.otaError[0] = '\0';
+  s.otaPath[0] = '\0';
   clearBackoff(s);
 }
 

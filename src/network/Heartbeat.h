@@ -30,13 +30,18 @@ void update();
 // heartbeat, nothing afterwards.
 void noteAppOpened(const char* title);
 
-// An OTA install is about to run, or failed with this error. Success is
-// never recorded: the install reboots, and the next heartbeat infers it from
-// the version that came up.
-void noteOtaAttempt();
+// A firmware install is about to run, or failed with this error. `path` is
+// "ota" (the update screen) or "sd" (a .bin picked from the card): both land
+// in the same partition and the same 6.25MB slots refuse both, but a device
+// can fail one and not the other. Success is never recorded: the install
+// reboots, and the next heartbeat infers it from the version that came up.
+void noteOtaAttempt(const char* path);
 void noteOtaFailed(const char* error);
 
 // OtaUpdater::OtaUpdaterError as the word the board will show.
 const char* otaErrorName(int otaUpdaterError);
+// firmware_flash::Result as the word the board will show; the same word as
+// otaErrorName() where the meaning is the same (too_large, wrong_device, oom).
+const char* flashErrorName(int firmwareFlashResult);
 
 }  // namespace heartbeat
