@@ -476,6 +476,49 @@ void testCrashMessage() {
   checkStr(small, "TRI", "cut to fit");
 }
 
+void testToggle() {
+  heartbeat::State s;
+  // Off records nothing: not merely posts nothing, because a backlog
+  // gathered while off would go out the moment it came back on.
+  check(!heartbeat::noteAppOpen(s, false, "Trivia"), "off: an open is not recorded");
+  check(s.appCount == 0, "off: apps stay empty");
+  check(!heartbeat::recordCrash(s, false, "boom", "0x1|0x2", "1.0.0"), "off: a panic is not recorded");
+  check(s.crashMessage[0] == '\0' && s.crashTrace[0] == '\0' && s.crashVersion[0] == '\0', "off: crash stays empty");
+  check(!heartbeat::recordOtaAttempt(s, false, "1.0.0"), "off: an ota attempt is not recorded");
+  check(!heartbeat::recordOtaFailure(s, false, "http"), "off: an ota failure is not recorded");
+  check(s.otaFrom[0] == '\0' && s.otaError[0] == '\0', "off: ota stays empty");
+
+  // On records, and says when the card needs writing.
+  check(heartbeat::noteAppOpen(s, true, "Trivia"), "on: a first open is a change");
+  checkStr(s.apps[0], "trivia", "on: the open is keyed");
+  check(!heartbeat::noteAppOpen(s, true, "TRIVIA"), "on: the same app again is not a change");
+  check(!heartbeat::noteAppOpen(s, true, "---"), "on: junk is not a change");
+  check(heartbeat::recordCrash(s, true, "boom", "0x1|0x2", "1.0.0"), "on: a panic is recorded");
+  checkStr(s.crashMessage, "boom", "on: the message");
+  checkStr(s.crashTrace, "0x1|0x2", "on: the trace");
+  checkStr(s.crashVersion, "1.0.0", "on: the version");
+  check(!heartbeat::recordCrash(s, true, "", "t", "1.0.0"), "an empty message is no record");
+  check(heartbeat::recordOtaAttempt(s, true, "1.0.0"), "on: an ota attempt is recorded");
+  checkStr(s.otaFrom, "1.0.0", "on: from");
+  check(heartbeat::recordOtaFailure(s, true, "http"), "on: an ota failure is recorded");
+  checkStr(s.otaError, "http", "on: the error");
+  heartbeat::recordOtaFailure(s, true, nullptr);
+  checkStr(s.otaError, "unknown", "a null error is unknown");
+  heartbeat::recordOtaAttempt(s, true, "1.0.1");
+  check(s.otaError[0] == '\0', "a new attempt clears the old error");
+
+  // The off-to-on edge forgets what the file still held, keeps the day and
+  // the backoff: those are about the board, not about the user's choice.
+  s.lastDay = 5;
+  heartbeat::noteFailed(s, 1000000);
+  heartbeat::noteSwitchedOn(s);
+  check(s.appCount == 0 && s.apps[0][0] == '\0', "on edge: apps forgotten");
+  check(s.otaFrom[0] == '\0' && s.otaError[0] == '\0', "on edge: ota forgotten");
+  check(s.crashMessage[0] == '\0' && s.crashTrace[0] == '\0' && s.crashVersion[0] == '\0', "on edge: crash forgotten");
+  check(s.lastDay == 5, "on edge: the day is kept");
+  check(s.fails == 1 && s.retryAt == 1000000 + 15 * 60, "on edge: the backoff is kept");
+}
+
 void testNoteSent() {
   heartbeat::State s;
   heartbeat::addApp(s, "trivia");
@@ -544,6 +587,7 @@ int main() {
   testHeartbeatBody();
   testCrashBody();
   testCrashMessage();
+  testToggle();
   testNoteSent();
   testBoardConfig();
   testAccepted();

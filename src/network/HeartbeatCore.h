@@ -66,6 +66,21 @@ struct State {
 // full, so the caller writes the card only for a first open.
 bool addApp(State& s, const char* key);
 
+// The three things the device records between heartbeats, each gated on the
+// Settings toggle so that "off" records nothing at all, not merely posts
+// nothing: a backlog gathered while off would go out the moment it came
+// back on. Each returns true when the state changed and the card needs
+// writing.
+bool noteAppOpen(State& s, bool enabled, const char* title);
+bool recordCrash(State& s, bool enabled, const char* message, const char* trace, const char* version);
+bool recordOtaAttempt(State& s, bool enabled, const char* from);
+bool recordOtaFailure(State& s, bool enabled, const char* error);
+
+// The toggle went from off to on: whatever the file still holds from before
+// it went off (apps, the OTA record, a crash) was never the board's to have,
+// and is forgotten. The backoff stays; it is about the board, not the user.
+void noteSwitchedOn(State& s);
+
 // `out` is reset to defaults first. False when the file has no usable "day",
 // which is what a truncated or foreign file looks like.
 bool parseState(const char* json, State& out);

@@ -65,6 +65,9 @@ constexpr size_t kKeySize = 320;
 State state;
 bool loaded = false;
 bool crashPending = false;
+// The toggle as last seen, so the off-to-on edge can forget what the file
+// still holds from before it went off.
+bool lastEnabled = true;
 unsigned long notBefore = 0;
 Decision lastLogged = Decision::Send;
 long lastLoggedDay = -2;
@@ -147,31 +150,37 @@ const char* resetReasonName() {
 // reason (or, without one, the reset and the last logger before it), and
 // the first two lines of the stack dump /api/dev/crash serves.
 void capturePanic() {
+  const bool on = SETTINGS.heartbeat != 0;
+  if (!on) {
+    LOG_INF(kTag, "panic seen; heartbeat is off, so nothing is recorded");
+    return;
+  }
   const std::string reason = HalSystem::getPanicInfo(false);
   const std::string full = HalSystem::getPanicInfo(true);
   char lastTag[16] = {};
   lastLogTagBeforeReset(full.c_str(), lastTag, sizeof(lastTag));
-  formatCrashMessage(reason.c_str(), resetReasonName(), lastTag, state.crashMessage, sizeof(state.crashMessage));
-  // A panic reset boots the same partition, so the version running now is
-  // the one that crashed; the record may be posted from a later one.
-  std::snprintf(state.crashVersion, sizeof(state.crashVersion), "%s", CROSSPOINT_VERSION);
-  state.crashTrace[0] = '\0';
+  char message[kMaxCrashMessage];
+  formatCrashMessage(reason.c_str(), resetReasonName(), lastTag, message, sizeof(message));
+  char trace[kMaxCrashTrace] = {};
   static constexpr char kStackHeader[] = "Stack memory:\n";
   const char* p = std::strstr(full.c_str(), kStackHeader);
   if (p != nullptr) {
     p += sizeof(kStackHeader) - 1;
     size_t n = 0;
     int lines = 0;
-    for (; *p != '\0' && lines < 2 && n + 1 < sizeof(state.crashTrace); ++p) {
+    for (; *p != '\0' && lines < 2 && n + 1 < sizeof(trace); ++p) {
       if (*p == '\n') {
         ++lines;
-        if (lines < 2) state.crashTrace[n++] = '|';
+        if (lines < 2) trace[n++] = '|';
       } else {
-        state.crashTrace[n++] = *p;
+        trace[n++] = *p;
       }
     }
-    state.crashTrace[n] = '\0';
+    trace[n] = '\0';
   }
+  // A panic reset boots the same partition, so the version running now is
+  // the one that crashed; the record may be posted from a later one.
+  if (!recordCrash(state, on, message, trace, CROSSPOINT_VERSION)) return;
   crashPending = true;
   LOG_INF(kTag, "panic recorded for the board: %s", state.crashMessage);
   save();
@@ -378,6 +387,7 @@ void logDecision(const Decision d, const long today) {
 void begin(const bool rebootedFromPanic) {
   computeId();
   load();
+  lastEnabled = SETTINGS.heartbeat != 0;
   LOG_INF(kTag, "%s; device %.8s..; last sent day %ld; %d app(s) pending", SETTINGS.heartbeat ? "on" : "off", id,
           state.lastDay, state.appCount);
   if (rebootedFromPanic) {
@@ -390,7 +400,19 @@ void begin(const bool rebootedFromPanic) {
 
 void update() {
   if (!loaded) return;
-  if (SETTINGS.heartbeat == 0) {
+  const bool on = SETTINGS.heartbeat != 0;
+  if (on != lastEnabled) {
+    lastEnabled = on;
+    if (on) {
+      // Off recorded nothing, but the file may still hold what was gathered
+      // before it went off; that was never the board's to have.
+      noteSwitchedOn(state);
+      crashPending = false;
+      save();
+      LOG_INF(kTag, "switched on; starting from nothing");
+    }
+  }
+  if (!on) {
     logDecision(Decision::Off, -1);
     return;
   }
@@ -425,24 +447,21 @@ void update() {
 
 void noteAppOpened(const char* title) {
   if (!loaded) return;
-  char key[kMaxAppKey + 1];
-  if (!appKey(title, key)) return;
-  if (!addApp(state, key)) return;
-  LOG_DBG(kTag, "first open of %s since the last heartbeat", key);
+  if (!noteAppOpen(state, SETTINGS.heartbeat != 0, title)) return;
+  LOG_DBG(kTag, "first open of %s since the last heartbeat", state.apps[state.appCount - 1]);
   save();
 }
 
 void noteOtaAttempt() {
   if (!loaded) return;
-  std::snprintf(state.otaFrom, sizeof(state.otaFrom), "%s", CROSSPOINT_VERSION);
-  state.otaError[0] = '\0';
+  if (!recordOtaAttempt(state, SETTINGS.heartbeat != 0, CROSSPOINT_VERSION)) return;
   LOG_INF(kTag, "ota attempt from %s recorded", state.otaFrom);
   save();
 }
 
 void noteOtaFailed(const char* error) {
   if (!loaded) return;
-  std::snprintf(state.otaError, sizeof(state.otaError), "%s", error == nullptr ? "unknown" : error);
+  if (!recordOtaFailure(state, SETTINGS.heartbeat != 0, error)) return;
   LOG_INF(kTag, "ota failure recorded: %s", state.otaError);
   save();
 }

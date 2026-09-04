@@ -310,6 +310,42 @@ bool addApp(State& s, const char* key) {
   return true;
 }
 
+bool noteAppOpen(State& s, const bool enabled, const char* title) {
+  if (!enabled) return false;
+  char key[kMaxAppKey + 1];
+  if (!appKey(title, key)) return false;
+  return addApp(s, key);
+}
+
+bool recordCrash(State& s, const bool enabled, const char* message, const char* trace, const char* version) {
+  if (!enabled || message == nullptr || message[0] == '\0') return false;
+  std::snprintf(s.crashMessage, sizeof(s.crashMessage), "%s", message);
+  std::snprintf(s.crashTrace, sizeof(s.crashTrace), "%s", trace == nullptr ? "" : trace);
+  std::snprintf(s.crashVersion, sizeof(s.crashVersion), "%s", version == nullptr ? "" : version);
+  return true;
+}
+
+bool recordOtaAttempt(State& s, const bool enabled, const char* from) {
+  if (!enabled) return false;
+  std::snprintf(s.otaFrom, sizeof(s.otaFrom), "%s", from == nullptr ? "" : from);
+  s.otaError[0] = '\0';
+  return true;
+}
+
+bool recordOtaFailure(State& s, const bool enabled, const char* error) {
+  if (!enabled) return false;
+  std::snprintf(s.otaError, sizeof(s.otaError), "%s", error == nullptr || error[0] == '\0' ? "unknown" : error);
+  return true;
+}
+
+void noteSwitchedOn(State& s) {
+  s.appCount = 0;
+  std::memset(s.apps, 0, sizeof(s.apps));
+  s.otaFrom[0] = '\0';
+  s.otaError[0] = '\0';
+  clearCrash(s);
+}
+
 bool parseState(const char* json, State& out) {
   out = State{};
   if (json == nullptr) return false;

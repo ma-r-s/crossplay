@@ -104,7 +104,10 @@ not before the next UTC day, one try a day until one is accepted. That wait
 device that sleeps often would otherwise pay the stall at every boot.
 
 Settings > System > "Send a daily heartbeat" (default on) turns all of it
-off; the site says so in one sentence beside the Install button. The rules
+off, and off records nothing: no app open, no OTA note, no panic is written
+to the card while it is off, and switching it back on forgets whatever the
+file still held from before, so there is never a backlog waiting to go out.
+The site says so in one sentence beside the Install button. The rules
 are `src/network/HeartbeatCore.{h,cpp}` and `host-tests/heartbeat` pins
 them; `src/network/Heartbeat.cpp` is the clock, the card, the radio and the
 TLS. The serial log says which decision was taken and why under `HEARTBEAT`.
