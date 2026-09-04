@@ -17,7 +17,10 @@ namespace heartbeat {
 
 // After the card is mounted, HalSystem::checkPanic() has run and settings are
 // loaded. Reads the state file and, on a boot after a panic, records it.
-void begin(bool rebootedFromPanic);
+// `panicReasonRecorded` is HalSystem::panicReasonRecorded() as read BEFORE
+// checkPanic() cleared the marker: false means the reason in RTC memory is a
+// previous crash's, and the record names only the reset and the last logger.
+void begin(bool rebootedFromPanic, bool panicReasonRecorded);
 
 // Once per loop(). At most one request per call (the board config on one
 // pass, the post on the next), each network wait bounded to 5s, and only

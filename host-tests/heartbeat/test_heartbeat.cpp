@@ -472,21 +472,33 @@ void testCrashBody() {
 void testCrashMessage() {
   char msg[heartbeat::kMaxCrashMessage];
   // An assert keeps its own words in front, where the fingerprint reads them.
-  heartbeat::formatCrashMessage("assert failed: xQueueSemaphoreTake queue.c:1709", "panic", "READER", msg, sizeof(msg));
+  heartbeat::formatCrashMessage(true, "assert failed: xQueueSemaphoreTake queue.c:1709", "panic", "READER", msg,
+                                sizeof(msg));
   checkStr(msg, "assert failed: xQueueSemaphoreTake queue.c:1709 (reset: panic)", "an assert keeps its reason");
   // A CPU exception on the S3 has no reason: the reset and the last logger
   // are what tells two apart.
-  heartbeat::formatCrashMessage("", "panic", "READER", msg, sizeof(msg));
+  heartbeat::formatCrashMessage(true, "", "panic", "READER", msg, sizeof(msg));
   checkStr(msg, "panic without a recorded reason (reset: panic; last log: READER)", "no reason: reset and last log");
-  heartbeat::formatCrashMessage("", "panic", "TRIVIA", msg, sizeof(msg));
+  heartbeat::formatCrashMessage(true, "", "panic", "TRIVIA", msg, sizeof(msg));
   checkStr(msg, "panic without a recorded reason (reset: panic; last log: TRIVIA)", "another subsystem, another card");
-  heartbeat::formatCrashMessage(nullptr, "cpu_lockup", "", msg, sizeof(msg));
+  heartbeat::formatCrashMessage(true, nullptr, "cpu_lockup", "", msg, sizeof(msg));
   checkStr(msg, "panic without a recorded reason (reset: cpu_lockup)", "no last log: the reset alone");
-  heartbeat::formatCrashMessage("", "", nullptr, msg, sizeof(msg));
+  heartbeat::formatCrashMessage(true, "", "", nullptr, msg, sizeof(msg));
   checkStr(msg, "panic without a recorded reason (reset: unknown)", "nothing at all still says so");
+  // The text in RTC memory outlives the crash that wrote it: an assert, then
+  // a CPU exception before any clean boot, leaves the assert's words under
+  // the exception. Only a set marker says the words are this crash's.
+  heartbeat::formatCrashMessage(false, "assert failed: xQueueSemaphoreTake queue.c:1709", "panic", "READER", msg,
+                                sizeof(msg));
+  checkStr(msg, "panic without a recorded reason (reset: panic; last log: READER)",
+           "marker not set: the stored reason is a previous crash's and is not used");
+  heartbeat::formatCrashMessage(false, "assert failed: xQueueSemaphoreTake queue.c:1709", "int_wdt", "", msg,
+                                sizeof(msg));
+  checkStr(msg, "panic without a recorded reason (reset: int_wdt)", "marker not set, no last log: the reset alone");
   // Cut, never overrun.
   char tiny[24];
-  const size_t n = heartbeat::formatCrashMessage("assert failed: something long", "panic", "", tiny, sizeof(tiny));
+  const size_t n =
+      heartbeat::formatCrashMessage(true, "assert failed: something long", "panic", "", tiny, sizeof(tiny));
   check(n == sizeof(tiny) - 1 && std::strlen(tiny) == sizeof(tiny) - 1, "a long message is cut to the buffer");
 
   char tag[16];

@@ -180,18 +180,28 @@ const char* resetReasonName() {
 // The panic HalSystem kept in RTC memory, cut to what a card needs: the
 // reason (or, without one, the reset and the last logger before it), and
 // the first two lines of the stack dump /api/dev/crash serves.
-void capturePanic() {
+//
+// The reason is used only when `reasonRecorded` says this crash wrote it.
+// panicMessage outlives the crash it belongs to (checkPanic() clears the
+// marker and keeps the text for CrashActivity; only a clean boot clears the
+// text), and on Xtensa a CPU exception writes nothing there, so an exception
+// after an assert with no clean boot between would otherwise be fingerprinted
+// as that assert.
+void capturePanic(const bool reasonRecorded) {
   const bool on = SETTINGS.heartbeat != 0;
   if (!on) {
     LOG_INF(kTag, "panic seen; heartbeat is off, so nothing is recorded");
     return;
   }
   const std::string reason = HalSystem::getPanicInfo(false);
+  if (!reasonRecorded && !reason.empty()) {
+    LOG_INF(kTag, "reason in RTC memory is a previous crash's; not used: %.40s", reason.c_str());
+  }
   const std::string full = HalSystem::getPanicInfo(true);
   char lastTag[16] = {};
   lastLogTagBeforeReset(full.c_str(), lastTag, sizeof(lastTag));
   char message[kMaxCrashMessage];
-  formatCrashMessage(reason.c_str(), resetReasonName(), lastTag, message, sizeof(message));
+  formatCrashMessage(reasonRecorded, reason.c_str(), resetReasonName(), lastTag, message, sizeof(message));
   char trace[kMaxCrashTrace] = {};
   static constexpr char kStackHeader[] = "Stack memory:\n";
   const char* p = std::strstr(full.c_str(), kStackHeader);
@@ -423,14 +433,14 @@ void logDecision(const Decision d, const long today) {
 
 }  // namespace
 
-void begin(const bool rebootedFromPanic) {
+void begin(const bool rebootedFromPanic, const bool panicReasonRecorded) {
   computeId();
   load();
   lastEnabled = SETTINGS.heartbeat != 0;
   LOG_INF(kTag, "%s; device %.8s..; last sent day %ld; %d app(s) pending", SETTINGS.heartbeat ? "on" : "off", id,
           state.lastDay, state.appCount);
   if (rebootedFromPanic) {
-    capturePanic();
+    capturePanic(panicReasonRecorded);
   } else if (state.crashMessage[0] != '\0') {
     // Recorded at an earlier boot and never delivered.
     crashPending = true;

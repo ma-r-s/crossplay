@@ -157,9 +157,14 @@ size_t formatHeartbeat(const char* device, const Sample& sample, const State& s,
 // assert or abort leaves a reason behind (HalSystem.cpp captures the message
 // only in __wrap_panic_abort), so a CPU exception arrives with none; the
 // reset reason and the subsystem that logged last before the reset are what
-// is left to tell two of them apart. `reason` may be empty, `reset` is the
-// esp_reset_reason() name, `lastTag` may be empty.
-size_t formatCrashMessage(const char* reason, const char* reset, const char* lastTag, char* out, size_t outSize);
+// is left to tell two of them apart. `reasonRecorded` is whether THIS crash
+// wrote `reason` (the capture marker, read before checkPanic() clears it):
+// the text in RTC memory outlives the crash it belongs to, and an exception
+// after an assert with no clean boot between must not inherit the assert's
+// words. `reason` may be empty, `reset` is the esp_reset_reason() name,
+// `lastTag` may be empty.
+size_t formatCrashMessage(bool reasonRecorded, const char* reason, const char* reset, const char* lastTag, char* out,
+                          size_t outSize);
 
 // The tag ("[ms] [LVL] [TAG] ...") of the last line the previous boot wrote
 // to the RTC log ring, out of HalSystem::getPanicInfo(true). The ring is

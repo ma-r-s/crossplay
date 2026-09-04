@@ -569,9 +569,10 @@ size_t formatHeartbeat(const char* device, const Sample& sample, const State& s,
   return w.finish();
 }
 
-size_t formatCrashMessage(const char* reason, const char* reset, const char* lastTag, char* out, const size_t outSize) {
+size_t formatCrashMessage(const bool reasonRecorded, const char* reason, const char* reset, const char* lastTag,
+                          char* out, const size_t outSize) {
   if (outSize == 0) return 0;
-  const bool hasReason = reason != nullptr && reason[0] != '\0';
+  const bool hasReason = reasonRecorded && reason != nullptr && reason[0] != '\0';
   const bool hasTag = lastTag != nullptr && lastTag[0] != '\0';
   if (reset == nullptr || reset[0] == '\0') reset = "unknown";
   int n;

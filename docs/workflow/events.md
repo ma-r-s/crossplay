@@ -96,8 +96,13 @@ StoreProhibited, IllegalInstruction) therefore posts `"panic without a
 recorded reason (reset: panic; last log: READER)"`: the `esp_reset_reason()`
 name and the subsystem that logged last before the reset are what the
 fingerprint has to tell two of them apart, and `backtrace` is empty. An
-assert reads `"assert failed: ... (reset: panic)"`. Carrying the program
-counter and the exception cause is a card, not a limitation of the pipe.
+assert reads `"assert failed: ... (reset: panic)"`. The reason is used only
+when the capture marker was still set at boot (`HalSystem::panicReasonRecorded()`,
+read in `main.cpp` before `checkPanic()` clears it): the text in RTC memory
+outlives the crash that wrote it, so an exception after an assert with no
+clean boot between posts as "without a recorded reason", not as that assert.
+Carrying the program counter and the exception cause is a card, not a
+limitation of the pipe.
 
 `device` is sha256(MAC + a 16-byte secret the device made once from its
 hardware RNG and keeps in NVS, namespace `crossplay`, key `hbsecret`); the
