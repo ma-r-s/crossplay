@@ -3,7 +3,7 @@ _language_code: "BG"
 _order: "31"
 _bcp47: "bg"
 
-STR_CROSSPOINT: "CrossPoint"
+STR_CROSSPLAY: "CrossPlay"
 STR_BOOTING: "ЗАРЕЖДАНЕ"
 STR_SLEEPING: "СПЯЩ РЕЖИМ"
 STR_ENTERING_SLEEP: "Преминаване в спящ режим"
