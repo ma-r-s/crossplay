@@ -32,7 +32,7 @@ from the shipped pack; the ids are content-addressed off the clue text, so they
 join to `difficulty.tsv` across a corpus refresh.
 """
 
-import argparse, json, math, os, queue, re, sys, threading, time
+import argparse, json, math, os, queue, random, re, sys, threading, time
 import urllib.error
 import urllib.request
 
@@ -66,6 +66,43 @@ Use the whole range. Do not cluster everything in the middle.
 Answer with the integer alone. No words, no punctuation, no explanation."""
 
 USER = "{q}\nANSWER: {a}"
+
+
+def build_shots(path, k, exclude, corpus, seed=99):
+    """K already-rated questions as prior turns, so the model sees the scale
+    applied to THIS corpus rather than only described.
+
+    The seven anchors in SCALE are prose examples chosen by hand; measured on
+    600 questions they left qwen2.5-14b compressed into the middle and 0.8
+    softer than the ratings they were meant to reproduce. Real items with real
+    ratings are the same scale stated in the only form a small model reliably
+    copies. They are drawn ONLY from ids the caller excludes from evaluation,
+    so nothing being scored has ever been shown as an example, and the draw is
+    seeded so every candidate model sees the identical examples in the
+    identical order -- a model must not win by getting a friendlier draw.
+
+    The shots are the same on every call and sit directly after the system
+    prompt, so they extend the cached prefix instead of costing per question.
+    """
+    rated = load_ratings_tsv(path)
+    by_id = {x["id"]: x for x in corpus}
+    pool = sorted((set(rated) & set(by_id)) - set(exclude))
+    rng = random.Random(seed)
+    # Spread over the scale rather than sampled from it: a uniform draw is
+    # mostly 2s and 3s (the corpus is hard), and a model shown eight examples
+    # of "2" learns to say 2.
+    picked, per = [], max(1, k // 11)
+    for band in range(11):
+        band_ids = [i for i in pool if round(rated[i]) == band]
+        rng.shuffle(band_ids)
+        picked += band_ids[:per]
+    rng.shuffle(picked)
+    msgs = []
+    for qid in picked[:k]:
+        x = by_id[qid]
+        msgs.append({"role": "user", "content": USER.format(q=x["q"], a=x["a"])})
+        msgs.append({"role": "assistant", "content": str(int(round(rated[qid])))})
+    return msgs, picked[:k]
 
 
 def load_corpus(path):
@@ -166,10 +203,11 @@ def expected_value(logprobs, content):
 
 
 class Ollama:
-    def __init__(self, host, model, mode="ev", timeout=180):
+    def __init__(self, host, model, mode="ev", shots=(), timeout=180):
         self.url = host.rstrip("/") + "/api/chat"
         self.model = model
         self.mode = mode
+        self.shots = list(shots)
         self.timeout = timeout
 
     def score(self, q, a):
@@ -177,10 +215,11 @@ class Ollama:
         all; the caller records it as missing rather than as a number."""
         body = {
             "model": self.model,
-            "messages": [
-                {"role": "system", "content": SCALE},
-                {"role": "user", "content": USER.format(q=q, a=a)},
-            ],
+            "messages": (
+                [{"role": "system", "content": SCALE}]
+                + self.shots
+                + [{"role": "user", "content": USER.format(q=q, a=a)}]
+            ),
             "stream": False,
             "think": False,
             "options": {
@@ -235,7 +274,20 @@ def run(a):
     if not todo:
         return 0
 
-    client = Ollama(a.host, a.model, a.mode)
+    shots, shot_ids = ((), [])
+    if a.shots:
+        if not a.shots_from:
+            sys.exit("--shots needs --shots-from (a rated TSV to draw examples from)")
+        # Excluded from the draw: everything being rated in this run, plus any
+        # id file the caller names. An example that is also a question under
+        # test is the model reading the answer off its own prompt.
+        excl = {x["id"] for x in todo}
+        for f in a.shots_exclude:
+            excl |= {l.strip() for l in open(f, encoding="utf-8") if l.strip()}
+        shots, shot_ids = build_shots(a.shots_from, a.shots, excl, corpus)
+        print(f"  {len(shot_ids)} example turns from {os.path.basename(a.shots_from)}, "
+              f"none of them under test", flush=True)
+    client = Ollama(a.host, a.model, a.mode, shots)
     work = queue.Queue()
     for x in todo:
         work.put(x)
@@ -315,6 +367,11 @@ def main():
                          "greedy: the single integer it says.")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--report", type=int, default=200)
+    ap.add_argument("--shots", type=int, default=0,
+                    help="prepend N already-rated questions as example turns")
+    ap.add_argument("--shots-from", default="", help="rated TSV to draw the examples from")
+    ap.add_argument("--shots-exclude", action="append", default=[],
+                    help="id file whose questions must never be used as an example")
     ap.add_argument("--only", default="", help="file of ids; rate only these")
     ap.add_argument(
         "--skip-rated", default="", help="a ratings TSV whose ids to leave alone"

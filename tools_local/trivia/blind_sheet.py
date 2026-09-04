@@ -96,20 +96,39 @@ def cmd_make(a):
     print(f"  key    -> {a.key}   (keep this away from whoever rates)")
 
 
+# A rated file is s<sheet>.txt, or s<sheet>-<judge>.txt when more than one
+# judge rated the same sheet. Two judges on one sheet is the measurement that
+# says how much of the disagreement is the rater rather than the questions, and
+# without the second form the second judge's item numbers resolve against a
+# key entry that does not exist: every line drops, and the file scores zero
+# items without saying so.
+RAW_RE = re.compile(r"s(\d+)(?:-([A-Za-z0-9]+))?\.txt$")
+
+
 def cmd_score(a):
     key = json.load(open(a.key))
     per = collections.defaultdict(dict)
     for name in sorted(os.listdir(a.raw)):
-        m = re.match(r"s(\d+)\.txt$", name)
+        m = RAW_RE.match(name)
         if not m:
             continue
-        j = int(m.group(1))
+        sheet = int(m.group(1))
+        judge = f"{sheet}-{m.group(2)}" if m.group(2) else str(sheet)
+        got = 0
         for line in open(os.path.join(a.raw, name), encoding="utf-8"):
             p = line.split()
             if len(p) == 2 and p[0].isdigit() and p[1].lstrip("-").isdigit():
-                qid = key.get(f"{j}:{int(p[0])}")
+                qid = key.get(f"{sheet}:{int(p[0])}")
                 if qid:
-                    per[j][qid] = max(0, min(10, int(p[1])))
+                    per[judge][qid] = max(0, min(10, int(p[1])))
+                    got += 1
+        if not got:
+            sys.exit(
+                f"{name}: not one of its item numbers is in the key under "
+                f"sheet {sheet}. Either it rates a sheet this key does not "
+                f"describe, or it is a second judge on another sheet and "
+                f"should be named s<that sheet>-<judge>.txt."
+            )
     if not per:
         sys.exit(f"no rated sheets under {a.raw} (expected s0.txt, s1.txt ...)")
     for j in sorted(per):
