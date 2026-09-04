@@ -74,7 +74,9 @@ update" (the 6.25MB slots of a device flashed before v1.5.3 come back as
 
 A boot after a panic posts one more event, `{"event":"crash","level":"error",
 "props":{"message":"<panic reason>","backtrace":"<first two stack lines>"}}`,
-once, so a crash in the field opens a card by itself.
+once, so a crash in the field opens a card by itself. Its `version` is the
+one that crashed, written down at the boot after the panic: the record waits
+for Wi-Fi, and an OTA can land in between.
 
 `device` is sha256(MAC + a fixed salt); the MAC is never sent. The address
 and the public key come from the site's `/api/board-config`, fetched once and

@@ -128,6 +128,7 @@ void testStateRoundTrip() {
   std::snprintf(s.otaError, sizeof(s.otaError), "too_large");
   std::snprintf(s.crashMessage, sizeof(s.crashMessage), "assert failed: q \"x\"\\ line\n1709");
   std::snprintf(s.crashTrace, sizeof(s.crashTrace), "0x3FCA: 0x1 0x2|0x3FCB: 0x4");
+  std::snprintf(s.crashVersion, sizeof(s.crashVersion), "1.12.10");
 
   char text[heartbeat::kBodySize];
   const size_t n = heartbeat::formatState(s, text, sizeof(text));
@@ -135,7 +136,7 @@ void testStateRoundTrip() {
   checkStr(text,
            "{\"day\":20699,\"apps\":[\"trivia\",\"hackernews\"],\"retry\":0,\"fails\":0,\"ota\":{\"from\":\"1.12.11\","
            "\"error\":\"too_large\"},\"crash\":{\"message\":\"assert failed: q \\\"x\\\"\\\\ line\\n1709\",\"trace\":"
-           "\"0x3FCA: 0x1 0x2|0x3FCB: 0x4\"}}",
+           "\"0x3FCA: 0x1 0x2|0x3FCB: 0x4\",\"version\":\"1.12.10\"}}",
            "state file is the documented shape");
 
   heartbeat::State back;
@@ -148,13 +149,14 @@ void testStateRoundTrip() {
   checkStr(back.otaError, "too_large", "ota error survives");
   checkStr(back.crashMessage, "assert failed: q \"x\"\\ line\n1709", "crash message survives its own escaping");
   checkStr(back.crashTrace, "0x3FCA: 0x1 0x2|0x3FCB: 0x4", "trace survives");
+  checkStr(back.crashVersion, "1.12.10", "the crashed version survives");
 
   // Defaults write as defaults and read back as defaults.
   heartbeat::State fresh;
   heartbeat::formatState(fresh, text, sizeof(text));
   checkStr(text,
            "{\"day\":-1,\"apps\":[],\"retry\":0,\"fails\":0,\"ota\":{\"from\":\"\",\"error\":\"\"},\"crash\":{\"message\":"
-           "\"\",\"trace\":\"\"}}",
+           "\"\",\"trace\":\"\",\"version\":\"\"}}",
            "fresh state");
   heartbeat::State freshBack;
   freshBack.lastDay = 5;
@@ -382,13 +384,19 @@ void testCrashBody() {
 
   std::snprintf(s.crashMessage, sizeof(s.crashMessage), "assert failed: xQueueSemaphoreTake queue.c:1709 (( pxQueue ))");
   std::snprintf(s.crashTrace, sizeof(s.crashTrace), "0x3FCEBD40: 0x00000001|0x3FCEBD60: 0x00000002");
+  std::snprintf(s.crashVersion, sizeof(s.crashVersion), "1.12.11");
+  // Posted from 1.12.12 (the record survived an OTA), blamed on 1.12.11.
   const size_t n = heartbeat::formatCrash("abc", "1.12.12", "sticky", s, body, sizeof(body));
   check(n > 0, "crash formats");
   checkStr(body,
-           "{\"service\":\"firmware\",\"event\":\"crash\",\"level\":\"error\",\"device\":\"abc\",\"version\":\"1.12.12\","
+           "{\"service\":\"firmware\",\"event\":\"crash\",\"level\":\"error\",\"device\":\"abc\",\"version\":\"1.12.11\","
            "\"board\":\"sticky\",\"props\":{\"message\":\"assert failed: xQueueSemaphoreTake queue.c:1709 (( pxQueue "
            "))\",\"backtrace\":\"0x3FCEBD40: 0x00000001|0x3FCEBD60: 0x00000002\"}}",
-           "crash body is level=error with props.message");
+           "crash body carries the version that crashed, not the one posting");
+  // A record from a build that wrote no version: the running one is all there is.
+  s.crashVersion[0] = '\0';
+  heartbeat::formatCrash("abc", "1.12.12", "sticky", s, body, sizeof(body));
+  check(std::strstr(body, "\"version\":\"1.12.12\"") != nullptr, "no crashed version recorded: the running one");
 
   // A panic reason with the characters JSON cares about.
   std::snprintf(s.crashMessage, sizeof(s.crashMessage), "Guru \"Meditation\"\\ Error\n\ttab\x01");
@@ -399,6 +407,7 @@ void testCrashBody() {
   // The longest crash that can be recorded fits the buffer.
   std::memset(s.crashMessage, 'm', sizeof(s.crashMessage) - 1);
   std::memset(s.crashTrace, 't', sizeof(s.crashTrace) - 1);
+  std::memset(s.crashVersion, 'v', sizeof(s.crashVersion) - 1);
   check(heartbeat::formatCrash("abc", "1.12.12", "sticky", s, body, sizeof(body)) > 0, "the longest crash fits");
   // And so does the widest foreign input: a message made entirely of
   // characters that escape to six bytes, with a full hex trace beside it.
@@ -417,13 +426,14 @@ void testNoteSent() {
   std::snprintf(s.otaFrom, sizeof(s.otaFrom), "1.0.0");
   std::snprintf(s.otaError, sizeof(s.otaError), "http");
   std::snprintf(s.crashMessage, sizeof(s.crashMessage), "boom");
+  std::snprintf(s.crashVersion, sizeof(s.crashVersion), "1.0.0");
   heartbeat::noteSent(s, 20334);
   check(s.lastDay == 20334, "sent day recorded");
   check(s.appCount == 0 && s.apps[0][0] == '\0', "apps forgotten");
   check(s.otaFrom[0] == '\0' && s.otaError[0] == '\0', "ota forgotten");
   checkStr(s.crashMessage, "boom", "a pending crash is not the heartbeat's to clear");
   heartbeat::clearCrash(s);
-  check(s.crashMessage[0] == '\0' && s.crashTrace[0] == '\0', "crash cleared on its own");
+  check(s.crashMessage[0] == '\0' && s.crashTrace[0] == '\0' && s.crashVersion[0] == '\0', "crash cleared on its own");
 }
 
 void testBoardConfig() {

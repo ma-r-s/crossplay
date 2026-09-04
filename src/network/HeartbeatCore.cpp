@@ -343,6 +343,7 @@ bool parseState(const char* json, State& out) {
   readStringField(json, "error", out.otaError, sizeof(out.otaError));
   readStringField(json, "message", out.crashMessage, sizeof(out.crashMessage));
   readStringField(json, "trace", out.crashTrace, sizeof(out.crashTrace));
+  readStringField(json, "version", out.crashVersion, sizeof(out.crashVersion));
 
   if (const char* r = findKey(json, "retry"); r != nullptr) {
     const long long retryAt = std::strtoll(r, &end, 10);
@@ -385,6 +386,9 @@ size_t formatState(const State& s, char* out, const size_t outSize) {
   w.raw(",");
   w.key("trace");
   w.str(s.crashTrace);
+  w.raw(",");
+  w.key("version");
+  w.str(s.crashVersion);
   w.raw("}}");
   return w.finish();
 }
@@ -506,7 +510,7 @@ size_t formatHeartbeat(const char* device, const Sample& sample, const State& s,
   return w.finish();
 }
 
-size_t formatCrash(const char* device, const char* version, const char* board, const State& s, char* out,
+size_t formatCrash(const char* device, const char* runningVersion, const char* board, const State& s, char* out,
                    const size_t outSize) {
   if (s.crashMessage[0] == '\0') {
     if (outSize > 0) out[0] = '\0';
@@ -527,7 +531,7 @@ size_t formatCrash(const char* device, const char* version, const char* board, c
   w.str(device);
   w.raw(",");
   w.key("version");
-  w.str(version);
+  w.str(s.crashVersion[0] != '\0' ? s.crashVersion : runningVersion);
   w.raw(",");
   w.key("board");
   w.str(board);
@@ -555,6 +559,7 @@ void noteSent(State& s, const long today) {
 void clearCrash(State& s) {
   s.crashMessage[0] = '\0';
   s.crashTrace[0] = '\0';
+  s.crashVersion[0] = '\0';
 }
 
 bool parseBoardConfig(const char* json, char* url, const size_t urlSize, char* key, const size_t keySize) {

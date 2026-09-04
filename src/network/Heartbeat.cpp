@@ -107,6 +107,9 @@ void capturePanic() {
   const std::string reason = HalSystem::getPanicInfo(false);
   std::snprintf(state.crashMessage, sizeof(state.crashMessage), "%s",
                 reason.empty() ? "(no panic reason recorded)" : reason.c_str());
+  // A panic reset boots the same partition, so the version running now is
+  // the one that crashed; the record may be posted from a later one.
+  std::snprintf(state.crashVersion, sizeof(state.crashVersion), "%s", CROSSPOINT_VERSION);
   state.crashTrace[0] = '\0';
   const std::string full = HalSystem::getPanicInfo(true);
   static constexpr char kStackHeader[] = "Stack memory:\n";

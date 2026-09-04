@@ -48,8 +48,12 @@ struct State {
   char otaFrom[kMaxVersion] = {};
   char otaError[kMaxOtaError] = {};
   // A panic recorded at the boot after it, cleared once the board has it.
+  // The version is the one that crashed: the record outlives reboots and an
+  // OTA in between, and the version running when it is finally posted may
+  // not be the one to blame.
   char crashMessage[kMaxCrashMessage] = {};
   char crashTrace[kMaxCrashTrace] = {};
+  char crashVersion[kMaxVersion] = {};
   // After a request fails: the epoch second before which nothing is tried
   // again, and how many failures in a row got it there. On the card, so a
   // device that boots often (deep sleep is a boot) does not pay the stall
@@ -119,7 +123,9 @@ OtaProps otaProps(const State& s, const char* runningVersion);
 size_t formatHeartbeat(const char* device, const Sample& sample, const State& s, char* out, size_t outSize);
 
 // The level=error event for a recorded panic. 0 when there is none to send.
-size_t formatCrash(const char* device, const char* version, const char* board, const State& s, char* out,
+// `runningVersion` is used only for a record from a build that did not write
+// the crashed version down.
+size_t formatCrash(const char* device, const char* runningVersion, const char* board, const State& s, char* out,
                    size_t outSize);
 
 // The board accepted the heartbeat: the apps and the OTA record are its now,
