@@ -58,8 +58,17 @@ letter-spacing:.14em;text-transform:uppercase;opacity:.75;white-space:nowrap}
 
 main{max-width:31rem;margin:0 auto;padding:1.6rem var(--gutter) 4rem}
 /* On a desktop the column is the whole page, so it gets the site's own
-   measure and room under the band rather than sitting jammed against it. */
-@media(min-width:760px){main{max-width:34rem;padding-top:3.4rem}}
+   measure -- and it is centred in the window rather than hanging from the
+   band. Half these pages are four lines long; left at the top of a 1440px
+   screen, a short one stops reading as spare and starts reading as a page
+   that failed to finish loading, which is the exact complaint the confirm
+   page already earned once. margin-block:auto only centres what is short:
+   a page taller than the window still just fills it. */
+@media(min-width:760px){
+main{max-width:34rem;padding-top:2.4rem;margin-block:auto}
+body{min-height:100svh;display:flex;flex-direction:column}
+.band,.rule{flex:none}
+}
 
 /* The step rail. Three discs and the line between them, in the order the
    thing actually happens. It is the whole answer to "what is going on and
