@@ -122,6 +122,21 @@ OtaProps otaProps(const State& s, const char* runningVersion);
 // The heartbeat body, exactly as docs/workflow/events.md describes it.
 size_t formatHeartbeat(const char* device, const Sample& sample, const State& s, char* out, size_t outSize);
 
+// The crash message the board fingerprints. On the ESP32-S3 boards only an
+// assert or abort leaves a reason behind (HalSystem.cpp captures the message
+// only in __wrap_panic_abort), so a CPU exception arrives with none; the
+// reset reason and the subsystem that logged last before the reset are what
+// is left to tell two of them apart. `reason` may be empty, `reset` is the
+// esp_reset_reason() name, `lastTag` may be empty.
+size_t formatCrashMessage(const char* reason, const char* reset, const char* lastTag, char* out, size_t outSize);
+
+// The tag ("[ms] [LVL] [TAG] ...") of the last line the previous boot wrote
+// to the RTC log ring, out of HalSystem::getPanicInfo(true). The ring is
+// oldest to newest and this boot has already logged into it, so the previous
+// boot ends where the millis() stamp drops. False when no such drop is in
+// the text: the ring is all this boot's, or all the previous one's.
+bool lastLogTagBeforeReset(const char* panicInfo, char* out, size_t outSize);
+
 // The level=error event for a recorded panic. 0 when there is none to send.
 // `runningVersion` is used only for a record from a build that did not write
 // the crashed version down.

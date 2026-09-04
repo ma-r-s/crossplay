@@ -510,6 +510,91 @@ size_t formatHeartbeat(const char* device, const Sample& sample, const State& s,
   return w.finish();
 }
 
+size_t formatCrashMessage(const char* reason, const char* reset, const char* lastTag, char* out,
+                          const size_t outSize) {
+  if (outSize == 0) return 0;
+  const bool hasReason = reason != nullptr && reason[0] != '\0';
+  const bool hasTag = lastTag != nullptr && lastTag[0] != '\0';
+  if (reset == nullptr || reset[0] == '\0') reset = "unknown";
+  int n;
+  if (hasReason) {
+    n = std::snprintf(out, outSize, "%s (reset: %s)", reason, reset);
+  } else if (hasTag) {
+    n = std::snprintf(out, outSize, "panic without a recorded reason (reset: %s; last log: %s)", reset, lastTag);
+  } else {
+    n = std::snprintf(out, outSize, "panic without a recorded reason (reset: %s)", reset);
+  }
+  if (n < 0) {
+    out[0] = '\0';
+    return 0;
+  }
+  return static_cast<size_t>(n) < outSize ? static_cast<size_t>(n) : outSize - 1;
+}
+
+bool lastLogTagBeforeReset(const char* panicInfo, char* out, const size_t outSize) {
+  if (outSize == 0) return false;
+  out[0] = '\0';
+  if (panicInfo == nullptr) return false;
+  static constexpr char kHeader[] = "Last logs:\n";
+  const char* p = std::strstr(panicInfo, kHeader);
+  if (p == nullptr) return false;
+  p += sizeof(kHeader) - 1;
+
+  unsigned long prevMs = 0;
+  bool havePrev = false;
+  const char* prevTagStart = nullptr;
+  size_t prevTagLen = 0;
+  const char* found = nullptr;
+  size_t foundLen = 0;
+  for (; *p != '\0'; ) {
+    const char* lineEnd = std::strchr(p, '\n');
+    const size_t lineLen = lineEnd == nullptr ? std::strlen(p) : static_cast<size_t>(lineEnd - p);
+    if (lineLen == 0) break;  // the blank line before "Stack memory:"
+    // "[ms] [LVL] [TAG] ..."
+    const char* tagStart = nullptr;
+    size_t tagLen = 0;
+    unsigned long ms = 0;
+    if (p[0] == '[') {
+      char* end = nullptr;
+      ms = std::strtoul(p + 1, &end, 10);
+      if (end != p + 1 && *end == ']') {
+        const char* q = end + 1;
+        int bracket = 0;
+        for (; q < p + lineLen && bracket < 2; ++q) {
+          if (*q == '[') {
+            ++bracket;
+            if (bracket == 2) {
+              const char* close = static_cast<const char*>(std::memchr(q + 1, ']', lineLen - (q + 1 - p)));
+              if (close != nullptr) {
+                tagStart = q + 1;
+                tagLen = static_cast<size_t>(close - tagStart);
+              }
+              break;
+            }
+          }
+        }
+      }
+    }
+    if (tagStart != nullptr) {
+      if (havePrev && ms < prevMs && prevTagStart != nullptr) {
+        found = prevTagStart;
+        foundLen = prevTagLen;
+      }
+      prevMs = ms;
+      havePrev = true;
+      prevTagStart = tagStart;
+      prevTagLen = tagLen;
+    }
+    if (lineEnd == nullptr) break;
+    p = lineEnd + 1;
+  }
+  if (found == nullptr || foundLen == 0) return false;
+  if (foundLen >= outSize) foundLen = outSize - 1;
+  std::memcpy(out, found, foundLen);
+  out[foundLen] = '\0';
+  return true;
+}
+
 size_t formatCrash(const char* device, const char* runningVersion, const char* board, const State& s, char* out,
                    const size_t outSize) {
   if (s.crashMessage[0] == '\0') {

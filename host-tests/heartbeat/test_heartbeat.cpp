@@ -420,6 +420,62 @@ void testCrashBody() {
   check(body[0] == '\0', "and leaves an empty body");
 }
 
+void testCrashMessage() {
+  char msg[heartbeat::kMaxCrashMessage];
+  // An assert keeps its own words in front, where the fingerprint reads them.
+  heartbeat::formatCrashMessage("assert failed: xQueueSemaphoreTake queue.c:1709", "panic", "READER", msg, sizeof(msg));
+  checkStr(msg, "assert failed: xQueueSemaphoreTake queue.c:1709 (reset: panic)", "an assert keeps its reason");
+  // A CPU exception on the S3 has no reason: the reset and the last logger
+  // are what tells two apart.
+  heartbeat::formatCrashMessage("", "panic", "READER", msg, sizeof(msg));
+  checkStr(msg, "panic without a recorded reason (reset: panic; last log: READER)", "no reason: reset and last log");
+  heartbeat::formatCrashMessage("", "panic", "TRIVIA", msg, sizeof(msg));
+  checkStr(msg, "panic without a recorded reason (reset: panic; last log: TRIVIA)", "another subsystem, another card");
+  heartbeat::formatCrashMessage(nullptr, "cpu_lockup", "", msg, sizeof(msg));
+  checkStr(msg, "panic without a recorded reason (reset: cpu_lockup)", "no last log: the reset alone");
+  heartbeat::formatCrashMessage("", "", nullptr, msg, sizeof(msg));
+  checkStr(msg, "panic without a recorded reason (reset: unknown)", "nothing at all still says so");
+  // Cut, never overrun.
+  char tiny[24];
+  const size_t n = heartbeat::formatCrashMessage("assert failed: something long", "panic", "", tiny, sizeof(tiny));
+  check(n == sizeof(tiny) - 1 && std::strlen(tiny) == sizeof(tiny) - 1, "a long message is cut to the buffer");
+
+  char tag[16];
+  // This boot (ms 12, 40, 900) after the previous one (ms 5000, 61000, 61010):
+  // the previous boot's last line is the one before the stamp drops.
+  const char* info =
+      "CrossPlay version: 1.12.12\n\nPanic reason: \n\nLast logs:\n"
+      "[5000] [INF] [MAIN] Device: x4pro\n"
+      "[61000] [INF] [SHELF] open trivia\n"
+      "[61010] [ERR] [TRIVIA] deck missing\n"
+      "[12] [INF] [MAIN] Hardware detect: X4\n"
+      "[40] [INF] [SYS] Dumped panic info to SD card\n"
+      "[900] [INF] [HEARTBEAT] on; device abcdef12..\n"
+      "\n\nStack memory:\n";
+  check(heartbeat::lastLogTagBeforeReset(info, tag, sizeof(tag)), "a boundary is found");
+  checkStr(tag, "TRIVIA", "the last logger before the reset");
+  // A ring that is all this boot's (the previous boot's lines scrolled out).
+  const char* allNew =
+      "Last logs:\n[12] [INF] [MAIN] a\n[40] [INF] [SYS] b\n[900] [INF] [HEARTBEAT] c\n\n\nStack memory:\n";
+  check(!heartbeat::lastLogTagBeforeReset(allNew, tag, sizeof(tag)), "no drop, no tag");
+  check(tag[0] == '\0', "and the tag is empty");
+  // Two boots ago is not the answer: the LAST drop wins.
+  const char* twoBoots =
+      "Last logs:\n[90000] [INF] [XKCD] old\n[10] [INF] [MAIN] up\n[7000] [ERR] [CHESS] bad\n[20] [INF] [MAIN] up again\n\n";
+  check(heartbeat::lastLogTagBeforeReset(twoBoots, tag, sizeof(tag)), "two boots parse");
+  checkStr(tag, "CHESS", "the most recent boundary");
+  // Lines that are not log lines are skipped, not misread.
+  const char* odd = "Last logs:\n[5000] [INF] [MAIN] a\ngarbage line\n[7] [INF] [SYS] b\n\n";
+  check(heartbeat::lastLogTagBeforeReset(odd, tag, sizeof(tag)), "a foreign line is skipped");
+  checkStr(tag, "MAIN", "the tag is still read");
+  check(!heartbeat::lastLogTagBeforeReset("no logs section", tag, sizeof(tag)), "no section, no tag");
+  check(!heartbeat::lastLogTagBeforeReset(nullptr, tag, sizeof(tag)), "null, no tag");
+  // A tag longer than the buffer is cut, never overrun.
+  char small[4];
+  check(heartbeat::lastLogTagBeforeReset(info, small, sizeof(small)), "a small buffer still answers");
+  checkStr(small, "TRI", "cut to fit");
+}
+
 void testNoteSent() {
   heartbeat::State s;
   heartbeat::addApp(s, "trivia");
@@ -487,6 +543,7 @@ int main() {
   testOtaProps();
   testHeartbeatBody();
   testCrashBody();
+  testCrashMessage();
   testNoteSent();
   testBoardConfig();
   testAccepted();

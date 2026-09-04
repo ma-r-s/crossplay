@@ -11,6 +11,10 @@
 #include <ctime>
 #include <string>
 
+#if defined(ARDUINO_ARCH_ESP32) && !defined(SIMULATOR)
+#include <esp_system.h>
+#endif
+
 #include "CrossPointSettings.h"
 #include "HeartbeatCore.h"
 #include "OtaUpdater.h"
@@ -101,17 +105,57 @@ void computeId() {
   deviceId(mac, id);
 }
 
+// esp_reset_reason() as a word. It survives the reset when nothing else
+// does: on the ESP32-S3 boards a CPU exception leaves no reason behind
+// (HalSystem.cpp writes panicMessage only from __wrap_panic_abort) and no
+// stack (its __wrap_panic_print_backtrace returns before capturing on
+// anything but RISC-V), so this and the last logger are the fingerprint.
+const char* resetReasonName() {
+#if defined(ARDUINO_ARCH_ESP32) && !defined(SIMULATOR)
+  switch (esp_reset_reason()) {
+    case ESP_RST_PANIC:
+      return "panic";
+    case ESP_RST_INT_WDT:
+      return "int_wdt";
+    case ESP_RST_TASK_WDT:
+      return "task_wdt";
+    case ESP_RST_WDT:
+      return "wdt";
+    case ESP_RST_CPU_LOCKUP:
+      return "cpu_lockup";
+    case ESP_RST_BROWNOUT:
+      return "brownout";
+    case ESP_RST_SW:
+      return "sw";
+    case ESP_RST_POWERON:
+      return "poweron";
+    case ESP_RST_EXT:
+      return "ext";
+    case ESP_RST_DEEPSLEEP:
+      return "deepsleep";
+    case ESP_RST_SDIO:
+      return "sdio";
+    default:
+      return "unknown";
+  }
+#else
+  return "sim";
+#endif
+}
+
 // The panic HalSystem kept in RTC memory, cut to what a card needs: the
-// reason, and the first two lines of the stack dump /api/dev/crash serves.
+// reason (or, without one, the reset and the last logger before it), and
+// the first two lines of the stack dump /api/dev/crash serves.
 void capturePanic() {
   const std::string reason = HalSystem::getPanicInfo(false);
-  std::snprintf(state.crashMessage, sizeof(state.crashMessage), "%s",
-                reason.empty() ? "(no panic reason recorded)" : reason.c_str());
+  const std::string full = HalSystem::getPanicInfo(true);
+  char lastTag[16] = {};
+  lastLogTagBeforeReset(full.c_str(), lastTag, sizeof(lastTag));
+  formatCrashMessage(reason.c_str(), resetReasonName(), lastTag, state.crashMessage, sizeof(state.crashMessage));
   // A panic reset boots the same partition, so the version running now is
   // the one that crashed; the record may be posted from a later one.
   std::snprintf(state.crashVersion, sizeof(state.crashVersion), "%s", CROSSPOINT_VERSION);
   state.crashTrace[0] = '\0';
-  const std::string full = HalSystem::getPanicInfo(true);
   static constexpr char kStackHeader[] = "Stack memory:\n";
   const char* p = std::strstr(full.c_str(), kStackHeader);
   if (p != nullptr) {

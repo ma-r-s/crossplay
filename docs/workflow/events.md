@@ -78,6 +78,17 @@ once, so a crash in the field opens a card by itself. Its `version` is the
 one that crashed, written down at the boot after the panic: the record waits
 for Wi-Fi, and an OTA can land in between.
 
+On `x4pro` and `sticky` (ESP32-S3, Xtensa) only an assert or abort panic
+carries a reason, and none carries a trace: `lib/hal/HalSystem.cpp` writes
+the reason from `__wrap_panic_abort` alone and its backtrace wrap captures
+the stack only on RISC-V. A CPU exception (LoadProhibited,
+StoreProhibited, IllegalInstruction) therefore posts `"panic without a
+recorded reason (reset: panic; last log: READER)"`: the `esp_reset_reason()`
+name and the subsystem that logged last before the reset are what the
+fingerprint has to tell two of them apart, and `backtrace` is empty. An
+assert reads `"assert failed: ... (reset: panic)"`. Carrying the program
+counter and the exception cause is a card, not a limitation of the pipe.
+
 `device` is sha256(MAC + a fixed salt); the MAC is never sent. The address
 and the public key come from the site's `/api/board-config`, fetched once and
 cached on the card as `/.crosspoint/board.json`, fetched again when the board
