@@ -48,8 +48,13 @@ constexpr char kStatePath[] = "/.crosspoint/heartbeat.json";
 // key are one fetch per card rather than one per day, and refetched when the
 // board refuses the key (a rotation is a Vercel setting, not a release).
 constexpr char kBoardPath[] = "/.crosspoint/board.json";
-constexpr unsigned long kRetryMs = 15UL * 60UL * 1000UL;
 constexpr unsigned long kHeapRetryMs = 60UL * 1000UL;
+// Per network wait, and SecureClient spends it up to four times on one
+// request (TCP connect, then the handshake, then both again with a TLS
+// 1.2-only hello), all of it inline in loop() with input and the power
+// button waiting behind it. 5s bounds a blackholed :443 at 10s once, and the
+// persisted backoff below makes once mean once.
+constexpr uint32_t kNetTimeoutMs = 5000;
 constexpr size_t kUrlSize = 160;
 constexpr size_t kKeySize = 320;
 
@@ -145,7 +150,7 @@ int postEvent(const char* payload, const size_t len) {
   if (heapTooLow()) return -1;
   freeink::SecureHttpClient http;
   http.setCACert(study::kBridgeCaRoots);
-  http.setTimeout(20000);
+  http.setTimeout(kNetTimeoutMs);
   std::string url = boardUrl;
   url += "/rest/v1/events";
   if (!http.begin(url)) {
@@ -161,11 +166,16 @@ int postEvent(const char* payload, const size_t len) {
   return status < 0 ? 0 : status;
 }
 
-bool fetchBoardConfig() {
+// True when the site answered and the answer parsed. `made` says whether a
+// request went out at all (false: heap too low), so the caller can tell a
+// failure that cost a stall from one that did not.
+bool fetchBoardConfig(bool& made) {
+  made = false;
   if (heapTooLow()) return false;
+  made = true;
   freeink::SecureHttpClient http;
   http.setCACert(study::kBridgeCaRoots);
-  http.setTimeout(20000);
+  http.setTimeout(kNetTimeoutMs);
   if (!http.begin(std::string(CROSSPLAY_BOARD_CONFIG_URL))) {
     LOG_ERR(kTag, "config address did not make sense: %s", CROSSPLAY_BOARD_CONFIG_URL);
     return false;
@@ -200,29 +210,29 @@ int postEvent(const char* payload, const size_t len) {
   return 0;
 }
 
-bool fetchBoardConfig() {
+bool fetchBoardConfig(bool& made) {
+  made = true;
   LOG_INF(kTag, "simulator has no transport; no board config");
   return false;
 }
 
 #endif
 
-bool ensureBoardConfig() {
+// The cached config, without a request. False means the next pass's request
+// is the fetch.
+bool loadBoardConfig() {
   if (boardLoaded) return true;
-  if (Storage.exists(kBoardPath)) {
-    const size_t n = Storage.readFileToBuffer(kBoardPath, body, sizeof(body));
-    if (n > 0) {
-      body[n < sizeof(body) ? n : sizeof(body) - 1] = '\0';
-      if (parseBoardConfig(body, boardUrl, sizeof(boardUrl), boardKey, sizeof(boardKey))) {
-        boardLoaded = true;
-        LOG_DBG(kTag, "board is %s (from card)", boardUrl);
-        return true;
-      }
-      LOG_ERR(kTag, "%s unreadable; fetching again", kBoardPath);
-    }
+  if (!Storage.exists(kBoardPath)) return false;
+  const size_t n = Storage.readFileToBuffer(kBoardPath, body, sizeof(body));
+  if (n == 0) return false;
+  body[n < sizeof(body) ? n : sizeof(body) - 1] = '\0';
+  if (parseBoardConfig(body, boardUrl, sizeof(boardUrl), boardKey, sizeof(boardKey))) {
+    boardLoaded = true;
+    LOG_DBG(kTag, "board is %s (from card)", boardUrl);
+    return true;
   }
-  boardLoaded = fetchBoardConfig();
-  return boardLoaded;
+  LOG_ERR(kTag, "%s unreadable; fetching again", kBoardPath);
+  return false;
 }
 
 void forgetBoardConfig(const char* why) {
@@ -231,10 +241,22 @@ void forgetBoardConfig(const char* why) {
   Storage.remove(kBoardPath);
 }
 
+// A request that went out and came back with nothing usable: the wait
+// escalates and is written down, so a reboot does not pay the stall again.
+void failed(const char* what, const long long epoch) {
+  noteFailed(state, epoch);
+  if (state.fails >= 2) {
+    LOG_ERR(kTag, "%s failed (%d in a row); not before tomorrow", what, state.fails);
+  } else {
+    LOG_ERR(kTag, "%s failed; retry in %lld min", what, kRetryS / 60);
+  }
+  save();
+}
+
 // One request. On a 2xx the caller's `onAccepted` runs; anything else backs
-// off. -1 (no request made) backs off for a minute, not fifteen.
+// off. -1 (no request made) waits a minute in RAM, not fifteen on the card.
 template <typename Accepted>
-void send(const char* what, const size_t len, const unsigned long now, Accepted onAccepted) {
+void send(const char* what, const size_t len, const unsigned long now, const long long epoch, Accepted onAccepted) {
   const int status = postEvent(body, len);
   if (status == -1) {
     notBefore = now + kHeapRetryMs;
@@ -242,20 +264,16 @@ void send(const char* what, const size_t len, const unsigned long now, Accepted 
   }
   if (accepted(status)) {
     LOG_INF(kTag, "%s sent (HTTP %d)", what, status);
-    notBefore = 0;
+    clearBackoff(state);
     onAccepted();
     return;
   }
   if (status == 401 || status == 403) forgetBoardConfig(what);
-  LOG_ERR(kTag, "%s not sent: HTTP %d; retry in %lu min", what, status, kRetryMs / 60000UL);
-  notBefore = now + kRetryMs;
+  LOG_ERR(kTag, "%s not sent: HTTP %d", what, status);
+  failed(what, epoch);
 }
 
-void sendCrash(const unsigned long now) {
-  if (!ensureBoardConfig()) {
-    notBefore = now + kRetryMs;
-    return;
-  }
+void sendCrash(const unsigned long now, const long long epoch) {
   const size_t len = formatCrash(id, CROSSPOINT_VERSION, HEARTBEAT_BOARD, state, body, sizeof(body));
   if (len == 0) {
     // Nothing to send: either no message after all, or a record that cannot
@@ -266,18 +284,14 @@ void sendCrash(const unsigned long now) {
     save();
     return;
   }
-  send("crash report", len, now, [] {
+  send("crash report", len, now, epoch, [] {
     crashPending = false;
     clearCrash(state);
     save();
   });
 }
 
-void sendHeartbeat(const unsigned long now, const long today) {
-  if (!ensureBoardConfig()) {
-    notBefore = now + kRetryMs;
-    return;
-  }
+void sendHeartbeat(const unsigned long now, const long long epoch, const long today) {
   Sample sample;
   sample.version = CROSSPOINT_VERSION;
   sample.board = HEARTBEAT_BOARD;
@@ -286,15 +300,18 @@ void sendHeartbeat(const unsigned long now, const long today) {
   sample.heapMinKb = static_cast<unsigned>(ESP.getMinFreeHeap() / 1024);
   const size_t len = formatHeartbeat(id, sample, state, body, sizeof(body));
   if (len == 0) {
-    LOG_ERR(kTag, "body did not fit %u bytes", static_cast<unsigned>(sizeof(body)));
-    notBefore = now + kRetryMs;
+    // Cannot happen with the suite's fullest heartbeat fitting; if it does,
+    // the day is written off rather than retried into the same wall.
+    LOG_ERR(kTag, "body did not fit %u bytes; skipping day %ld", static_cast<unsigned>(sizeof(body)), today);
+    noteSent(state, today);
+    save();
     return;
   }
   const OtaProps ota = otaProps(state, CROSSPOINT_VERSION);
   LOG_INF(kTag, "posting day %ld: %d app(s), ota %s, battery %u%%, heap min %uKB", today, state.appCount,
           ota.attempted ? (ota.ok ? "ok" : (ota.error[0] ? ota.error : "did not take")) : "none", sample.batteryPct,
           sample.heapMinKb);
-  send("heartbeat", len, now, [today] {
+  send("heartbeat", len, now, epoch, [today] {
     noteSent(state, today);
     save();
   });
@@ -333,14 +350,30 @@ void update() {
   if (WiFi.status() != WL_CONNECTED) return;
   const unsigned long now = millis();
   if (backingOff(now, notBefore)) return;
-  if (crashPending) {
-    sendCrash(now);
+  const long long epoch = static_cast<long long>(time(nullptr));
+  const long today = dayFromEpoch(epoch);
+  const Decision d = decide(true, today, epoch, state, crashPending);
+  logDecision(d, today);
+  if (d != Decision::Send) return;
+  // Strictly one request per pass: the config fetch is a pass of its own,
+  // and the post is the next one.
+  if (!loadBoardConfig()) {
+    bool made = false;
+    boardLoaded = fetchBoardConfig(made);
+    if (!boardLoaded) {
+      if (made) {
+        failed("board config", epoch);
+      } else {
+        notBefore = now + kHeapRetryMs;
+      }
+    }
     return;
   }
-  const long today = dayFromEpoch(static_cast<long long>(time(nullptr)));
-  const Decision d = decide(true, today, state.lastDay, now, notBefore);
-  logDecision(d, today);
-  if (d == Decision::Send) sendHeartbeat(now, today);
+  if (crashPending) {
+    sendCrash(now, epoch);
+  } else {
+    sendHeartbeat(now, epoch, today);
+  }
 }
 
 void noteAppOpened(const char* title) {

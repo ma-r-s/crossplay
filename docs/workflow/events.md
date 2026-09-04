@@ -83,6 +83,13 @@ answers 401 or 403 (a key rotation is a Vercel setting, not a release).
 Between heartbeats the apps set, the OTA record and a pending crash live in
 `/.crosspoint/heartbeat.json`, written once per first open and once per send.
 
+The post runs inline in `loop()`, so it is bounded: every network wait is
+5s, one request per loop pass (the board config on one pass, the event on
+the next), and a request that fails is not tried again for 15 minutes, then
+not before the next UTC day, one try a day until one is accepted. That wait
+(`retry`, `fails`) is in the state file, because deep sleep is a boot and a
+device that sleeps often would otherwise pay the stall at every boot.
+
 Settings > System > "Send a daily heartbeat" (default on) turns all of it
 off; the site says so in one sentence beside the Install button. The rules
 are `src/network/HeartbeatCore.{h,cpp}` and `host-tests/heartbeat` pins

@@ -133,9 +133,9 @@ void testStateRoundTrip() {
   const size_t n = heartbeat::formatState(s, text, sizeof(text));
   check(n > 0 && n == std::strlen(text), "state formats");
   checkStr(text,
-           "{\"day\":20699,\"apps\":[\"trivia\",\"hackernews\"],\"ota\":{\"from\":\"1.12.11\",\"error\":\"too_large\"},"
-           "\"crash\":{\"message\":\"assert failed: q \\\"x\\\"\\\\ line\\n1709\",\"trace\":\"0x3FCA: 0x1 0x2|0x3FCB: "
-           "0x4\"}}",
+           "{\"day\":20699,\"apps\":[\"trivia\",\"hackernews\"],\"retry\":0,\"fails\":0,\"ota\":{\"from\":\"1.12.11\","
+           "\"error\":\"too_large\"},\"crash\":{\"message\":\"assert failed: q \\\"x\\\"\\\\ line\\n1709\",\"trace\":"
+           "\"0x3FCA: 0x1 0x2|0x3FCB: 0x4\"}}",
            "state file is the documented shape");
 
   heartbeat::State back;
@@ -152,7 +152,9 @@ void testStateRoundTrip() {
   // Defaults write as defaults and read back as defaults.
   heartbeat::State fresh;
   heartbeat::formatState(fresh, text, sizeof(text));
-  checkStr(text, "{\"day\":-1,\"apps\":[],\"ota\":{\"from\":\"\",\"error\":\"\"},\"crash\":{\"message\":\"\",\"trace\":\"\"}}",
+  checkStr(text,
+           "{\"day\":-1,\"apps\":[],\"retry\":0,\"fails\":0,\"ota\":{\"from\":\"\",\"error\":\"\"},\"crash\":{\"message\":"
+           "\"\",\"trace\":\"\"}}",
            "fresh state");
   heartbeat::State freshBack;
   freshBack.lastDay = 5;
@@ -207,24 +209,102 @@ void testDay() {
 void testDecide() {
   using heartbeat::Decision;
   using heartbeat::decide;
-  check(decide(false, 100, 99, 0, 0) == Decision::Off, "off wins over everything");
-  check(decide(true, -1, 99, 0, 0) == Decision::NoClock, "no clock, no heartbeat");
-  check(decide(true, 100, -1, 0, 0) == Decision::Send, "never sent: send");
-  check(decide(true, 100, 99, 0, 0) == Decision::Send, "a new day: send");
-  check(decide(true, 100, 100, 0, 0) == Decision::AlreadyToday, "same day: not again");
-  check(decide(true, 98, 100, 0, 0) == Decision::Send, "clock stepped back: still one per day");
-  check(decide(true, 100, 99, 1000, 5000) == Decision::Backoff, "inside the backoff: wait");
-  check(decide(true, 100, 99, 5000, 5000) == Decision::Send, "backoff over: send");
-  check(decide(true, 100, 99, 6000, 5000) == Decision::Send, "past the backoff: send");
-  // millis() wraps every 49 days; the comparison is signed for exactly that.
-  check(decide(true, 100, 99, 10, 0xFFFFFFF0UL) == Decision::Send, "backoff across the millis wrap");
-  check(decide(true, 100, 100, 1000, 5000) == Decision::Backoff, "backoff reported before already-today");
+  // Day 100 is epoch 8640000..8726399.
+  constexpr long long kNoon = 100LL * 86400 + 43200;
+  heartbeat::State s;
+  s.lastDay = 99;
+  check(decide(false, 100, kNoon, s, false) == Decision::Off, "off wins over everything");
+  check(decide(false, 100, kNoon, s, true) == Decision::Off, "off wins over a pending crash");
+  check(decide(true, -1, 0, s, false) == Decision::NoClock, "no clock, no heartbeat");
+  check(decide(true, -1, 0, s, true) == Decision::NoClock, "no clock, no crash report either");
+  s.lastDay = -1;
+  check(decide(true, 100, kNoon, s, false) == Decision::Send, "never sent: send");
+  s.lastDay = 99;
+  check(decide(true, 100, kNoon, s, false) == Decision::Send, "a new day: send");
+  s.lastDay = 100;
+  check(decide(true, 100, kNoon, s, false) == Decision::AlreadyToday, "same day: not again");
+  check(decide(true, 100, kNoon, s, true) == Decision::Send, "same day, crash pending: send it");
+  check(decide(true, 98, kNoon - 2 * 86400, s, false) == Decision::Send, "clock stepped back: still one per day");
+  s.lastDay = 99;
+  s.retryAt = kNoon + 60;
+  check(decide(true, 100, kNoon, s, false) == Decision::Backoff, "inside the backoff: wait");
+  check(decide(true, 100, kNoon, s, true) == Decision::Backoff, "inside the backoff: the crash waits too");
+  check(decide(true, 100, kNoon + 60, s, false) == Decision::Send, "backoff over: send");
+  check(decide(true, 100, kNoon + 61, s, false) == Decision::Send, "past the backoff: send");
+  s.lastDay = 100;
+  check(decide(true, 100, kNoon, s, false) == Decision::Backoff, "backoff reported before already-today");
   check(!heartbeat::backingOff(1000, 0), "no backoff set");
   check(heartbeat::backingOff(1000, 5000), "before the backoff");
   check(!heartbeat::backingOff(5000, 5000), "at the backoff");
   check(heartbeat::backingOff(0xFFFFFF00UL, 0x00000010UL), "a backoff set just after the wrap, now just before it");
   check(!heartbeat::backingOff(0x00000020UL, 0xFFFFFF00UL), "a backoff set before the wrap, now past it");
   checkStr(heartbeat::decisionName(Decision::AlreadyToday), "already today", "decision has a name");
+}
+
+void testBackoff() {
+  using heartbeat::backingOffAt;
+  constexpr long long kNoon = 100LL * 86400 + 43200;
+  constexpr long long kTomorrow = 101LL * 86400;
+  heartbeat::State s;
+  check(!backingOffAt(kNoon, 0), "no failure, no backoff");
+
+  // The first failure of a run: fifteen minutes.
+  heartbeat::noteFailed(s, kNoon);
+  check(s.fails == 1, "one failure counted");
+  check(s.retryAt == kNoon + 15 * 60, "first failure: 15 minutes");
+  check(backingOffAt(kNoon + 1, s.retryAt), "a minute later: still waiting");
+  check(backingOffAt(kNoon + 15 * 60 - 1, s.retryAt), "a second before: still waiting");
+  check(!backingOffAt(kNoon + 15 * 60, s.retryAt), "at the mark: try again");
+
+  // The second: the rest of the UTC day, whatever the hour.
+  heartbeat::noteFailed(s, kNoon + 15 * 60);
+  check(s.fails == 2, "two failures counted");
+  check(s.retryAt == kTomorrow, "second failure: not before tomorrow");
+  check(backingOffAt(kTomorrow - 1, s.retryAt), "23:59:59: still waiting");
+  check(!backingOffAt(kTomorrow, s.retryAt), "midnight UTC: try again");
+
+  // A failure a second before midnight still waits for midnight, not a day.
+  heartbeat::State late;
+  heartbeat::noteFailed(late, kTomorrow - 1);
+  heartbeat::noteFailed(late, kTomorrow - 1);
+  check(late.retryAt == kTomorrow, "two failures at 23:59:59 wait one second");
+
+  // The third and every later one: one try a day until something lands.
+  heartbeat::noteFailed(s, kTomorrow + 100);
+  check(s.fails == 3 && s.retryAt == 102LL * 86400, "third failure: the day after");
+
+  // Anything accepted ends it.
+  heartbeat::clearBackoff(s);
+  check(s.fails == 0 && s.retryAt == 0, "accepted: backoff over");
+  heartbeat::noteFailed(s, kNoon);
+  heartbeat::noteSent(s, 100);
+  check(s.fails == 0 && s.retryAt == 0, "a sent heartbeat ends the backoff too");
+
+  // A clock that stepped back would read an old retryAt as far in the future;
+  // that is ignored rather than silencing the device until it catches up.
+  check(!backingOffAt(kNoon - 2 * 86400, kTomorrow), "retryAt more than a day out: ignored");
+  check(backingOffAt(kTomorrow - 86400 - 15 * 60, kTomorrow), "exactly the longest legal wait: honoured");
+
+  // It survives the state file, which is the point: a reboot must not pay
+  // the stall again.
+  heartbeat::State before;
+  heartbeat::noteFailed(before, kNoon);
+  heartbeat::noteFailed(before, kNoon + 900);
+  char text[heartbeat::kBodySize];
+  check(heartbeat::formatState(before, text, sizeof(text)) > 0, "failed state formats");
+  check(std::strstr(text, "\"retry\":8726400,\"fails\":2") != nullptr, "retry and fails are in the file");
+  heartbeat::State after;
+  check(heartbeat::parseState(text, after), "failed state parses");
+  check(after.retryAt == kTomorrow && after.fails == 2, "retry and fails survive a reboot");
+  check(heartbeat::decide(true, 100, kNoon + 1000, after, false) == heartbeat::Decision::Backoff,
+        "and the reboot still waits for tomorrow");
+  check(heartbeat::decide(true, 101, kTomorrow, after, false) == heartbeat::Decision::Send, "tomorrow it tries once");
+
+  // A file from a build that knew no backoff, or a hand-edited one.
+  check(heartbeat::parseState("{\"day\":3,\"apps\":[]}", after), "old file parses");
+  check(after.retryAt == 0 && after.fails == 0, "no backoff fields: no backoff");
+  check(heartbeat::parseState("{\"day\":3,\"apps\":[],\"retry\":-5,\"fails\":-1}", after), "negative fields parse");
+  check(after.retryAt == 0 && after.fails == 0, "negative backoff fields read as none");
 }
 
 void testOtaProps() {
@@ -393,6 +473,7 @@ int main() {
   testStateSurvivesDamage();
   testDay();
   testDecide();
+  testBackoff();
   testOtaProps();
   testHeartbeatBody();
   testCrashBody();

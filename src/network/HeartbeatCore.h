@@ -50,6 +50,12 @@ struct State {
   // A panic recorded at the boot after it, cleared once the board has it.
   char crashMessage[kMaxCrashMessage] = {};
   char crashTrace[kMaxCrashTrace] = {};
+  // After a request fails: the epoch second before which nothing is tried
+  // again, and how many failures in a row got it there. On the card, so a
+  // device that boots often (deep sleep is a boot) does not pay the stall
+  // again at every boot.
+  long long retryAt = 0;
+  int fails = 0;
 };
 
 // True when `key` was added; false when it was already counted or the set is
@@ -70,10 +76,28 @@ long dayFromEpoch(long long epochSeconds);
 enum class Decision : uint8_t { Send, Off, NoClock, Backoff, AlreadyToday };
 
 // millis() is 32 bits and wraps every 49 days; a host's unsigned long is not,
-// so the comparison is spelled once, in 32 bits, and shared.
+// so the comparison is spelled once, in 32 bits, and shared. This is the
+// RAM-only wait after a request that was never made (heap too low); the wait
+// after a request that failed is `retryAt`, below.
 bool backingOff(unsigned long nowMs, unsigned long notBeforeMs);
 
-Decision decide(bool enabled, long today, long lastDay, unsigned long nowMs, unsigned long notBeforeMs);
+// A failed request costs the user a stall (TCP connect and TLS handshake each
+// wait the timeout, and SecureClient tries twice), so the wait escalates: 15
+// minutes after the first failure, the rest of the UTC day after the second,
+// and one try a day until something is accepted.
+constexpr long long kRetryS = 15 * 60;
+// The longest wait the rules above can set. A retryAt further away than that
+// is a clock that stepped back (or a foreign file), and is ignored rather
+// than silencing the device until the clock catches up.
+constexpr long long kMaxBackoffS = 86400 + kRetryS;
+void noteFailed(State& s, long long epochNow);
+void clearBackoff(State& s);
+bool backingOffAt(long long epochNow, long long retryAt);
+
+// The one decision per loop pass. A pending crash is sent whatever the day,
+// but never without a clock and never inside the backoff: the stall it risks
+// is the same stall, and the wait it earns needs a date to be written down.
+Decision decide(bool enabled, long today, long long epochNow, const State& s, bool crashPending);
 const char* decisionName(Decision d);
 
 struct Sample {
@@ -98,7 +122,8 @@ size_t formatHeartbeat(const char* device, const Sample& sample, const State& s,
 size_t formatCrash(const char* device, const char* version, const char* board, const State& s, char* out,
                    size_t outSize);
 
-// The board accepted the heartbeat: the apps and the OTA record are its now.
+// The board accepted the heartbeat: the apps and the OTA record are its now,
+// and the backoff is over.
 void noteSent(State& s, long today);
 void clearCrash(State& s);
 

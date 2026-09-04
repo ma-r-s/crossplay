@@ -19,8 +19,11 @@ namespace heartbeat {
 // loaded. Reads the state file and, on a boot after a panic, records it.
 void begin(bool rebootedFromPanic);
 
-// Once per loop(). At most one request per call, and only while
-// WiFi.status() says connected; cheap otherwise.
+// Once per loop(). At most one request per call (the board config on one
+// pass, the post on the next), each network wait bounded to 5s, and only
+// while WiFi.status() says connected; cheap otherwise. A request that fails
+// is not tried again for 15 minutes, then not before the next UTC day, and
+// that wait is on the card so a reboot does not pay the stall again.
 void update();
 
 // A shelf item was opened. One card write the first time since the last

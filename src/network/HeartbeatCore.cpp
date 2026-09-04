@@ -81,6 +81,11 @@ class Writer {
     std::snprintf(t, sizeof(t), "%ld", v);
     raw(t);
   }
+  void num64(const long long v) {
+    char t[24];
+    std::snprintf(t, sizeof(t), "%lld", v);
+    raw(t);
+  }
   void boolean(const bool b) { raw(b ? "true" : "false"); }
   void str(const char* s) {
     put('"');
@@ -338,6 +343,15 @@ bool parseState(const char* json, State& out) {
   readStringField(json, "error", out.otaError, sizeof(out.otaError));
   readStringField(json, "message", out.crashMessage, sizeof(out.crashMessage));
   readStringField(json, "trace", out.crashTrace, sizeof(out.crashTrace));
+
+  if (const char* r = findKey(json, "retry"); r != nullptr) {
+    const long long retryAt = std::strtoll(r, &end, 10);
+    if (end != r && retryAt > 0) out.retryAt = retryAt;
+  }
+  if (const char* f = findKey(json, "fails"); f != nullptr) {
+    const long fails = std::strtol(f, &end, 10);
+    if (end != f && fails > 0) out.fails = fails > 1000 ? 1000 : static_cast<int>(fails);
+  }
   return true;
 }
 
@@ -349,6 +363,12 @@ size_t formatState(const State& s, char* out, const size_t outSize) {
   w.raw(",");
   w.key("apps");
   writeApps(w, s);
+  w.raw(",");
+  w.key("retry");
+  w.num64(s.retryAt);
+  w.raw(",");
+  w.key("fails");
+  w.num(static_cast<long>(s.fails));
   w.raw(",");
   w.key("ota");
   w.raw("{");
@@ -381,14 +401,35 @@ bool backingOff(const unsigned long nowMs, const unsigned long notBeforeMs) {
   return static_cast<int32_t>(elapsed) < 0;
 }
 
-Decision decide(const bool enabled, const long today, const long lastDay, const unsigned long nowMs,
-                const unsigned long notBeforeMs) {
+void noteFailed(State& s, const long long epochNow) {
+  if (s.fails < 1000) ++s.fails;
+  if (s.fails >= 2) {
+    // The rest of the UTC day: the day after today's, at midnight.
+    s.retryAt = (epochNow / 86400 + 1) * 86400;
+  } else {
+    s.retryAt = epochNow + kRetryS;
+  }
+}
+
+void clearBackoff(State& s) {
+  s.retryAt = 0;
+  s.fails = 0;
+}
+
+bool backingOffAt(const long long epochNow, const long long retryAt) {
+  if (retryAt <= epochNow) return false;
+  return retryAt - epochNow <= kMaxBackoffS;
+}
+
+Decision decide(const bool enabled, const long today, const long long epochNow, const State& s,
+                const bool crashPending) {
   if (!enabled) return Decision::Off;
   if (today < 0) return Decision::NoClock;
-  if (backingOff(nowMs, notBeforeMs)) return Decision::Backoff;
+  if (backingOffAt(epochNow, s.retryAt)) return Decision::Backoff;
+  if (crashPending) return Decision::Send;
   // Not "today > lastDay": a clock that stepped backwards (a re-sync, a
   // replaced battery) would otherwise silence the device until it caught up.
-  if (today == lastDay) return Decision::AlreadyToday;
+  if (today == s.lastDay) return Decision::AlreadyToday;
   return Decision::Send;
 }
 
@@ -508,6 +549,7 @@ void noteSent(State& s, const long today) {
   std::memset(s.apps, 0, sizeof(s.apps));
   s.otaFrom[0] = '\0';
   s.otaError[0] = '\0';
+  clearBackoff(s);
 }
 
 void clearCrash(State& s) {
