@@ -108,11 +108,34 @@ jobs:
           fi
           echo "Tagged v$NEXT at $(git rev-parse --short HEAD)"
 
+      # Dispatch ONLY when the tag push cannot have started the build itself.
+      #
+      # crossplay-release.yml triggers on `push: tags:` as well as on
+      # workflow_dispatch. A tag pushed with GITHUB_TOKEN starts nothing --
+      # that is GitHub's loop guard, and it is why this step exists. But the
+      # checkout above now takes `secrets.RELEASE_TOKEN || github.token`, so
+      # once that secret exists the push IS a real push, it starts the release
+      # on its own, and dispatching as well builds the same tag twice.
+      #
+      # v1.12.16 did exactly that: run 33884760714 (event=push) and 33884760111
+      # (event=workflow_dispatch), same tag, one second apart, both ~14 minutes
+      # of runner, both racing to publish the same assets. Both exited 0 and
+      # neither said anything, so nothing downstream could have noticed.
+      #
+      # Conditional rather than deleted, so the no-token path still works:
+      # without the secret the push is silent and the dispatch is the only
+      # thing that starts a build.
       - name: Build and publish the release
         if: steps.gate.outputs.go == 'true' && steps.notes.outputs.next != ''
         env:
           GH_TOKEN: ${{ github.token }}
           NEXT: ${{ steps.notes.outputs.next }}
+          PUSH_STARTS_IT: ${{ secrets.RELEASE_TOKEN != '' }}
         run: |
-          gh workflow run crossplay-release.yml --ref "v$NEXT"
-          echo "Dispatched crossplay-release.yml on v$NEXT; it builds and publishes."
+          if [ "$PUSH_STARTS_IT" = "true" ]; then
+            echo "v$NEXT was pushed with RELEASE_TOKEN, so its push already started"
+            echo "crossplay-release.yml; not dispatching a second build of the same tag."
+          else
+            gh workflow run crossplay-release.yml --ref "v$NEXT"
+            echo "Dispatched crossplay-release.yml on v$NEXT; it builds and publishes."
+          fi

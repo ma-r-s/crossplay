@@ -41,7 +41,7 @@ HANDBACK = re.compile(
 # a file, it does not edit one). Both refused read-only commands on 2026-09-04.
 WRITE_VERB = re.compile(
     r"((?<![\w-])sed\s+-i|(?<![\w-])(tee|cp|mv|rm|touch|mkdir|ln|truncate)(?![\w-])|"
-    r"(?<![\w-])git\s+(merge|commit|checkout|reset|rebase|cherry-pick|tag|push|pull|switch|stash|apply|am|clean|restore)\b|"
+    r"(?<![\w-])git\s+(merge|commit|checkout|reset|rebase|cherry-pick|tag(?!\s+(?:-l|-n|--list|--contains|--no-contains|--merged|--no-merged|--points-at)\b)|push|pull|switch|stash|apply|am|clean|restore)\b|"
     r"(?<![\w-])pio\s+run|\bbuild\.py|\bprecompress\.py)"
 )
 QUOTED = re.compile(r"'[^']*'|\"[^\"]*\"")
@@ -206,8 +206,14 @@ def writes_into_tree(cmd):
     Segments are split on && || ; and |, a `cd` into the tree makes later
     segments count as inside it, heredoc bodies are data and are ignored, and
     `2>&1` or `>/dev/null` are not writes. Reading the tree is always fine.
+
+    Quoted strings go before the split. Splitting first cut "$(git tag
+    --contains x | tr ...)" at its pipe and left an unbalanced quote around
+    a verb, which refused four read-only commands on 2026-09-04. A quoted
+    string never carries a verb; it may carry the tree's path, which stays.
     """
     body = HEREDOC.sub(" ", cmd)
+    body = QUOTED.sub(lambda m: " firmware-next " if "firmware-next" in m.group(0) else " ", body)
     in_tree = False
     for seg in re.split(r"&&|\|\||;|\|", body):
         seg = seg.strip()
@@ -219,7 +225,7 @@ def writes_into_tree(cmd):
             continue
         names_tree = "firmware-next" in seg
         # Verbs are looked for outside quotes; the tree's name anywhere counts.
-        if WRITE_VERB.search(QUOTED.sub(" ", seg)) and (in_tree or names_tree):
+        if WRITE_VERB.search(seg) and (in_tree or names_tree):
             return True
         for r in REDIRECT.finditer(seg):
             target = r.group(1).strip("\"'")

@@ -19,6 +19,7 @@ file store so the hooks never need the network.
     board integrator --session <id> [--release]       who may write firmware-next
     board dispatcher --name Dispatch --session <id>   the session Mario talks to; may message anyone
     board pulse [add <host> <GET|POST> <url> <alive> <app> | remove <host>]   what the board probes every 30 min
+    board release                                     is the release watcher awake, and what is it owed
     board new "<title>" --from <app> [--kind bug|feature|task] [--body "..."] [--parent <id>]
     board parent <id> --of <parent>                    put a card under another (subtasks)
     board bind <id> --session <sid> [--tree wt/x] [--branch app/x]
@@ -593,6 +594,33 @@ def cmd_pulse(st, a):
         print(f"{r['host']:<10} {r['method']:<6} {r['alive']:<12} {r['app']:<11} {r['url']}{flag}")
 
 
+def cmd_release(st, a):
+    """What the release watcher can see: whether it is armed, when it last got
+    an answer out of GitHub, what it is still owed, and every fault it has
+    already had its say about. The watcher opens its own cards; this is for the
+    question those cards cannot answer, which is whether it is still awake."""
+    if not hasattr(st, "_req"):
+        print("board: the release watcher runs on the board; reading it needs the Supabase store (.board/supabase.env)")
+        return
+    rows = st._req("GET", "release_state?select=*") or []
+    if not rows:
+        print("board: the release watcher is not installed on this board")
+        return
+    st8 = rows[0]
+    armed = "armed" if st8.get("seeded") else "NOT ARMED (its next pass adjudicates the history)"
+    print(f"watcher   {armed}, last answer from GitHub {st8.get('last_ok_at')}")
+    pend = st._req("GET", "release_pending?select=*&order=version") or []
+    if pend:
+        print("owed      " + ", ".join(f"{r['version']} (tagged {r.get('at')})" for r in pend))
+    else:
+        print("owed      nothing: every version the pipeline tagged is published")
+    seen = st._req("GET", "release_seen?select=*&order=first_seen.desc&limit=12") or []
+    if seen:
+        print(f"{'SAID ITS SAY ABOUT':<28} WHEN")
+        for r in seen:
+            print(f"{r['key']:<28} {str(r.get('first_seen'))[:19]}  {(r.get('note') or '')[:60]}")
+
+
 def cmd_orchestrator(st, a):
     with st.lock():
         app = _kept_app_id(st, "orchestrator", a.app_id)
@@ -1092,6 +1120,7 @@ def main(argv=None):
     s.add_argument("alive", nargs="?")
     s.add_argument("app", nargs="?")
     s.set_defaults(fn=cmd_pulse)
+    sub.add_parser("release").set_defaults(fn=cmd_release)
     s = sub.add_parser("orchestrator")
     s.add_argument("--name", required=True)
     s.add_argument("--session", required=True)

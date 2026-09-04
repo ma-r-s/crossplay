@@ -76,6 +76,13 @@ expect "raw pio run refused"                    2 pretool "{\"session_id\":\"$WO
 expect "check.sh allowed"                       0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cd wt/x && ./scripts_local/check.sh --tests\"}}"
 expect "pio in a word is not pio run"           0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"grep -rn 'pio run' docs\"}}"
 
+echo "quotes are stripped before the command is split"
+bashjson() { python3 -c 'import json,sys; print(json.dumps({"session_id": sys.argv[1], "tool_name": "Bash", "tool_input": {"command": sys.argv[2]}}))' "$WORKER" "$1"; }
+expect "a pipe inside quotes does not cut the quotes"     0 pretool "$(bashjson "cd $ROOT/firmware-next && echo \"in: \$(git tag --contains abc | tr '\\n' ' ')\"")"
+expect "git tag --contains is a read"                     0 pretool "$(bashjson "cd $ROOT/firmware-next && git tag --contains abc")"
+expect "git tag <name> is still a write"                  2 pretool "$(bashjson "cd $ROOT/firmware-next && git tag v9")"
+expect "a quoted redirect target in the tree is a write"  2 pretool "$(bashjson "echo x > \"$ROOT/firmware-next/docs/x.md\"")"
+
 echo "who may talk to whom"
 expect "worker to orchestrator allowed"         0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"SendMessage\",\"tool_input\":{\"to\":\"Main\",\"message\":\"blocked\"}}"
 expect "worker to orchestrator with ref allowed" 0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"SendMessage\",\"tool_input\":{\"to\":\"Main [1a2b3c]\",\"message\":\"blocked\"}}"
