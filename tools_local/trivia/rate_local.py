@@ -203,11 +203,12 @@ def expected_value(logprobs, content):
 
 
 class Ollama:
-    def __init__(self, host, model, mode="ev", shots=(), timeout=180):
+    def __init__(self, host, model, mode="ev", shots=(), num_ctx=4096, timeout=180):
         self.url = host.rstrip("/") + "/api/chat"
         self.model = model
         self.mode = mode
         self.shots = list(shots)
+        self.num_ctx = num_ctx
         self.timeout = timeout
 
     def score(self, q, a):
@@ -226,7 +227,13 @@ class Ollama:
                 "temperature": 0.0,
                 "top_p": 1.0,
                 "num_predict": 8,
-                "num_ctx": 1024,
+                # MUST exceed rubric + examples + question. 22 examples put the
+                # prompt at ~1,020 tokens against a 1,024 window: the server
+                # then evicts and rebuilds its context checkpoint on nearly
+                # every call, and anything over the line is silently dropped
+                # off the FRONT -- which is where the rubric lives. A rater
+                # whose scale got truncated still returns a confident integer.
+                "num_ctx": self.num_ctx,
                 "seed": 7,
             },
         }
@@ -299,7 +306,7 @@ def run(a):
         shots, shot_ids = build_shots(a.shots_from, a.shots, excl, corpus)
         print(f"  {len(shot_ids)} example turns from {os.path.basename(a.shots_from)}, "
               f"none of them under test", flush=True)
-    client = Ollama(a.host, a.model, a.mode, shots)
+    client = Ollama(a.host, a.model, a.mode, shots, a.num_ctx)
     work = queue.Queue()
     for x in todo:
         work.put(x)
@@ -389,6 +396,8 @@ def main():
                          "greedy: the single integer it says.")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--report", type=int, default=200)
+    ap.add_argument("--num-ctx", type=int, default=4096,
+                    help="context window; must exceed rubric + examples + question")
     ap.add_argument("--shots", type=int, default=0,
                     help="prepend N already-rated questions as example turns")
     ap.add_argument("--shots-from", default="", help="rated TSV to draw the examples from")
