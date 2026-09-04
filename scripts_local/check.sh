@@ -602,8 +602,12 @@ if [ "${1:-}" != "--tests" ]; then
   # this is only ever allowed to drop DEVICE envs.
   #
   # scripts_local/device-build-needed.sh owns the rule and host-tests/gatepath
-  # owns its tests; this is only the wiring. The rule is an allowlist of paths
-  # that CANNOT reach a device image, so anything it has never heard of builds.
+  # owns its tests; this is only the wiring. The rule is a classification table
+  # with two columns, and this reads the `builds` one: a path in no row of it
+  # builds, loudly, because skipping verification is the worse way to be wrong.
+  # (The other column, `ships`, REFUSES on an unclassified path rather than
+  # defaulting -- but a refusal there stops a release, and stopping a build is
+  # not something this wiring may do.)
   #
   # ONLY exit code 1 skips, and that is the whole safety of the wiring. The
   # tool documents 0 as "needed -- and also the answer whenever anything is
