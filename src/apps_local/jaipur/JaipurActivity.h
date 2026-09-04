@@ -49,6 +49,11 @@ class JaipurActivity final : public linkplay::LinkActivity {
   void onRematch() override;
   void onLinkEnded() override;
   bool matchGameOver() const override { return game.currentPhase() == jaipur::Phase::GameOver; }
+  // Nothing to record: Jaipur keeps no played/won counter (its menu draws one,
+  // and it has never been anything but zero -- filed separately). The screen
+  // half applies though: viewForPhase() puts View::RoundOver up at GameOver,
+  // and until now nobody ever saw it in a match. See link/LinkEndgame.h.
+  void onMatchEnded() override {}
   // The link screen's ornament, and after a match its result: it takes the
   // screen the moment the game ends, so this is where the final position is
   // reported.

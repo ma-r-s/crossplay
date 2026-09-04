@@ -43,6 +43,11 @@ class ChessActivity final : public linkplay::LinkActivity {
   void onRematch() override;
   void onLinkEnded() override;
   bool matchGameOver() const override { return gameOver; }
+  // Chess keeps no W/L tally to write, so the only half of this that applies is
+  // the screen -- and the board it is already on IS the final position, with
+  // the mating move on it. Verified 2026-09-04: ChessActivity has kSettingsPath
+  // and kSavePath and no played/won counter anywhere. See link/LinkEndgame.h.
+  void onMatchEnded() override {}
   void onLinkPhaseChanged() override { refreshTurnLabel(); }
   void drawLinkArt(const Rect& slot) override { drawMiniBoard(slot); }
   void gameLoop() override;

@@ -24,6 +24,7 @@
 //   onRematch()        both sides said yes
 //   onLinkEnded()      back to solo: restore what was saved
 //   matchGameOver()    whether the game has finished
+//   onMatchEnded()     it just finished: count it and put the final board up
 //   gameLoop() / gameRender()   what loop() and render() used to be
 //
 // What it must NOT write: the searching screen, the disconnect screen, the
@@ -38,6 +39,7 @@
 #include "../../activities/Activity.h"
 #include "../../components/UITheme.h"  // Rect
 #include "../ui/ToyboxScreen.h"
+#include "LinkEndgame.h"
 #include "LinkPlay.h"
 #include "LinkScreens.h"
 
@@ -87,6 +89,17 @@ class LinkActivity : public Activity {
   // The match is over and the app is solo again: put the saved game back.
   virtual void onLinkEnded() = 0;
   virtual bool matchGameOver() const = 0;
+  // The match has just ended, on the pass it ended, on BOTH devices. Two jobs,
+  // and they are one moment: record the result, and go to whatever screen shows
+  // the finished game. The layer then keeps that screen on the panel for a
+  // couple of seconds before it offers another game -- see LinkEndgame.h.
+  //
+  // Pure rather than defaulted, and that is the whole point of it. Every game
+  // recorded its result in an else-if arm of gameLoop() that multiplayer
+  // returns before reaching, so no link match was ever counted in any of them.
+  // A hook with a default body would have been forgotten in exactly the same
+  // silence; this one makes the compiler ask each game the question.
+  virtual void onMatchEnded() = 0;
   virtual void gameLoop() = 0;
   virtual void gameRender() = 0;
 
@@ -141,10 +154,13 @@ class LinkActivity : public Activity {
   // Which side of the screen handover we were on last pass, so the shared hit
   // table can be invalidated exactly when the screen changes hands.
   bool ownedScreen_ = false;
-  // The rematch screen is up. Reached by a finished game, or by either player
-  // asking for a new one -- which is the same question either way, so it is the
-  // same screen.
+  // The rematch screen is up. Reached by a finished game once its final board
+  // has had its couple of seconds, or by either player asking for a new one --
+  // which is the same question either way, so it is the same screen.
   bool rematch_ = false;
+  // The seconds between the last move and ANOTHER GAME?, and the one place a
+  // link match is counted. See LinkEndgame.h.
+  Endgame endgame_;
   linkui::SeatState you_ = linkui::SeatState::Ready;
   linkui::SeatState them_ = linkui::SeatState::Looking;
 

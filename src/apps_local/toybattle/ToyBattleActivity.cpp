@@ -185,6 +185,22 @@ const char* ToyBattleActivity::promptText() const {
   return "";
 }
 
+void ToyBattleActivity::recordResult() {
+  if (recorded) return;
+  recorded = true;
+  ++played;
+  if (game.winner == seat) ++won;
+  hasSave = false;
+  if (Storage.exists(kSavePath)) Storage.remove(kSavePath);
+  requestUpdate();
+}
+
+// In a match this is the ONLY caller: gameLoop() stops running the moment the
+// link layer notices the battle is over, so the block above never reaches a
+// finished match. The board itself is already the right thing to look at -- it
+// stays up by design -- so there is no screen to change, only a result to count.
+void ToyBattleActivity::onMatchEnded() { recordResult(); }
+
 void ToyBattleActivity::gameLoop() {
   namespace fui = freeink::ui;
 
@@ -236,14 +252,7 @@ void ToyBattleActivity::gameLoop() {
     //
     // Still the one place a result is recorded and the save is cleared: a
     // finished game must not be offered as one to continue.
-    if (!recorded) {
-      recorded = true;
-      ++played;
-      if (game.winner == seat) ++won;
-      hasSave = false;
-      if (Storage.exists(kSavePath)) Storage.remove(kSavePath);
-      requestUpdate();
-    }
+    recordResult();
     return;
   }
 

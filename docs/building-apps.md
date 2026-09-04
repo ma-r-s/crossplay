@@ -564,6 +564,7 @@ class MyActivity final : public linkplay::LinkActivity {
   void onRematch() override;                      // both said yes
   void onLinkEnded() override;                    // back to solo
   bool matchGameOver() const override;
+  void onMatchEnded() override;                   // count it, and show it
   void gameLoop() override;                       // what loop() used to be
   void gameRender() override;                     // what render() used to be
 
@@ -573,6 +574,20 @@ class MyActivity final : public linkplay::LinkActivity {
 
 `enterLink(GameId::MyGame)` when the player taps PLAY NEARBY, and that is the
 whole integration.
+
+#### `onMatchEnded()` is where a link game is recorded
+
+Record the result there and go to whatever screen shows the finished game. Do
+**not** record it in `gameLoop()`: the moment the match ends, the link layer
+stops giving your game the pass, so anything at the end of `gameLoop()` is
+unreachable in multiplayer. Five games were written that way and none of them
+ever counted a single link match -- no crash, no log, just a tally that stayed
+at zero -- which is why the hook is pure virtual rather than defaulted.
+
+The layer then keeps your final screen on the panel for a couple of seconds
+before it offers another game, so the player who just lost sees the move that
+beat them. You get that for free; you only have to put something worth looking
+at on the screen. See `src/apps_local/link/LinkEndgame.h`.
 
 The row is called **PLAY NEARBY** in every game, and it carries the mark below.
 Do not invent another wording: "click where it says multiplayer" only works if

@@ -195,6 +195,14 @@ void ConnectFourActivity::onLinkEnded() {
   goTo(c4::Screen::Menu);
 }
 
+void ConnectFourActivity::onMatchEnded() {
+  recordResult();
+  // The same screen the solo game ends on. In a match it used to be
+  // unreachable, so the finished board went straight to ANOTHER GAME? and the
+  // loser saw nothing at all of the move that beat them.
+  goTo(c4::Screen::Result);
+}
+
 void ConnectFourActivity::gameLoop() {
   namespace fui = freeink::ui;
 

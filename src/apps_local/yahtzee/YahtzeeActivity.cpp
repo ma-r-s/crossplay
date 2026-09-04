@@ -153,6 +153,14 @@ void YahtzeeActivity::onLinkEnded() {
   goTo(yz::Screen::Menu);
 }
 
+void YahtzeeActivity::onMatchEnded() {
+  recordResult();
+  // The same screen the solo game ends on. In a match it used to be
+  // unreachable, so the finished board went straight to ANOTHER GAME? and the
+  // loser saw nothing at all of the move that beat them.
+  goTo(yz::Screen::Result);
+}
+
 void YahtzeeActivity::gameLoop() {
   namespace fui = freeink::ui;
 
