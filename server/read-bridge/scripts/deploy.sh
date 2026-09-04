@@ -11,6 +11,17 @@ SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # --exclude .env and --exclude data/ are load-bearing: .env exists only on the
 # pi (secrets, mode 600) and data/ is the live credential store; with --delete
 # and without them, this line would erase both.
+# Stamp the commit being shipped, so the running service can be asked what it
+# is rather than assumed to be current. A fix that is merged and not deployed
+# looks exactly like a fix that does not work -- that is what happened on
+# 2026-09-03 and cost a real sync.
+BUILD_ID="$(git -C "$SRC" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+if [ -n "$(git -C "$SRC" status --porcelain -- "$SRC" 2>/dev/null)" ]; then
+  BUILD_ID="$BUILD_ID-dirty"
+fi
+printf '%s\n' "$BUILD_ID" > "$SRC/bridge/BUILD"
+echo "shipping build $BUILD_ID"
+
 rsync -a --delete \
   --exclude .venv --exclude data/ --exclude .env --exclude __pycache__ \
   --exclude tests \

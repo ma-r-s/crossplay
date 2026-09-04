@@ -140,9 +140,28 @@ async def device_reports(request: Request, call_next):
 
 
 # -------------------------------------------------------------------- healthz
+def build_id() -> str:
+    """The commit this service was deployed from, or "unknown".
+
+    Written by scripts/deploy.sh into bridge/BUILD at deploy time. It exists
+    because on 2026-09-03 a real sync failed against a bug that had ALREADY
+    been fixed, reviewed and merged three commits deep -- the fix was simply
+    never deployed, and nothing anywhere could say so. The running code and the
+    repository disagreed silently, which is the state this file makes visible.
+    """
+    try:
+        return (pathlib.Path(__file__).with_name("BUILD").read_text().strip() or "unknown")[:64]
+    except OSError:
+        return "unknown"
+
+
 @app.get("/healthz")
 async def healthz():
-    return {"ok": True}
+    # The build rides on healthz rather than a new endpoint so that the thing
+    # already polled every 30 minutes is the thing that reveals a stale deploy.
+    # Still no per-user state and no Instapaper call, so it stays safe to serve
+    # unauthenticated through the tunnel.
+    return {"ok": True, "build": build_id()}
 
 
 # ------------------------------------------------------------------ the pages
