@@ -12,9 +12,11 @@ Everything above the marker is written by hand.
 <!-- releases, newest first -->
 
 ### 1.12.21
+
 - Trivia: a blind panel drawn from the local rater, and what it found
 
 ### 1.12.12
+
 **GET BOOKS: BACK no longer downloads the book.** Pressing back on a
 book's page started the download instead of leaving it.
 
@@ -23,6 +25,7 @@ cover before drawing anything, so a tap seemed to do nothing until
 the picture arrived. It draws first and fills the cover in after.
 
 ### 1.12.11
+
 **SUDOKU no longer throws away your saved puzzle.** Opening the
 difficulty menu, looking through the levels and coming back to your
 own used to leave the game offering a NEW PUZZLE over the board you
@@ -65,6 +68,7 @@ handed control back that way and fifty-five could receive the stray
 press.
 
 ### 1.12.10
+
 **A tap can no longer land on a screen you have not seen yet.** The
 panel takes up to two seconds to redraw, and until now the new
 screen's buttons were already listening underneath the old picture.
@@ -90,6 +94,7 @@ so the thumb already resting there after the last move would kill the
 connection instead of starting the next game.
 
 ### 1.12.9
+
 **WAVELENGTH's lock is an ordinary button now.** It used to ask you
 to HOLD, without ever saying for how long, and the lock fired while
 your finger was still down -- which is how the result screen came to
@@ -102,6 +107,7 @@ the number column, and the strip below the board is dead space
 rather than a smaller target.
 
 ### 1.12.8
+
 **WAVELENGTH's result screen no longer disappears behind the thumb
 that earned it.** Locking a guess fired while your finger was still
 down, the score drew underneath it, and lifting off landed on the
@@ -127,6 +133,7 @@ game were reconciled. They are verified by name on the shipped
 build this time, rather than assumed to have survived.
 
 ### 1.12.7
+
 **WAVELENGTH no longer asks a question nobody can answer.** It used
 to ask whether the number was nearer one end or the other, after the
 table had already committed to a number. In the original game that
@@ -160,6 +167,7 @@ republished** -- the questions live on the SD card, not in the
 firmware.
 
 ### 1.12.6
+
 **CHESS no longer flashes a wrong board while the computer is
 thinking.** After you moved, the board showed a position that was
 not yours and not the computer's for about half a second, then
@@ -184,6 +192,7 @@ written moves but not what is needed to unwind them, so take-back
 now stops at the point you resumed from instead of guessing.
 
 ### 1.12.5
+
 **Trivia's wrong answers no longer give the game away**, its em
 dashes render as hyphens instead of vanishing mid-word, the front
 door was rebuilt, and it now tracks how far through the pack you
@@ -222,6 +231,7 @@ is highlighted any more: nothing on this device can move or open a
 highlight, so it was a cursor for something that does not exist.
 
 ### 1.12.4
+
 **The games list comes back to the page you left it on.** It used to
 reopen on whichever page held the game you last played, which is a
 different thing and looked like a fault: browse to page two, go read
@@ -257,6 +267,7 @@ not load can be kept by its discussion instead, and a swipe pages
 the list.
 
 ### 1.12.3
+
 **The games list stopped opening the wrong game.** Reaching page 2
 or 3 was unreliable and about two attempts in three landed in a game
 you had not chosen. The cause was not the key: the folder reopens on
@@ -304,6 +315,7 @@ showing a still screen that was indistinguishable from a hang, and
 it no longer loses a book's title when saving it to the card.
 
 ### 1.12.2
+
 **Trivia asks whether there is room before it downloads.** The
 question pack is about 6 MB, and until now the app wrote it without
 checking. On a nearly full card that fails somewhere in the middle,
@@ -320,6 +332,7 @@ before, which is most of why 1.11.1 and 1.12.0 shipped with a light
 that would not turn on: the firmware reported success either way.
 
 ### 1.12.1
+
 **The front light works again on the X4 Pro.** If you installed
 1.11.1 or 1.12.0, the light stopped turning on: the panel opened,
 the sun filled in, the setting remembered you had asked, and nothing
