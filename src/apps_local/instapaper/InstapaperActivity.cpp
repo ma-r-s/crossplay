@@ -713,11 +713,20 @@ void InstapaperActivity::render(RenderLock&&) {
       // the same rect the text is drawn into: readerBody() is the one function
       // that owns that rectangle, so a page turn cannot skip a line and the
       // progress sent to Instapaper is computed against what was really shown.
+      //
+      // It used to wrap the WHOLE article here, on every paint, and then
+      // buildReader() wrapped it again to draw one page of it. Opening a long
+      // read was slow and every page turn was slow again by exactly the same
+      // amount, which is what Mario reported. wrap_ wraps once per opening and
+      // hands both this count and the drawing the same answer; it re-wraps by
+      // itself if anything about the panel, the cut or the text moves under
+      // it, because a count that stopped describing the page would send a
+      // wrong reading position to a real account. See ToyboxWrappedText.h.
       const fui::Rect body = instapaperui::readerBody(device);
       const int16_t lineHeight = target.lineHeight(tokens.bodyText.font);
       visibleLines_ = fui::textAreaVisibleLines(body, lineHeight);
       const uint32_t measured =
-          fui::textAreaMeasure(target, body.width, document_.c_str(), tokens.bodyText, 0).lineCount;
+          instapaperui::readerLineCount(target, device, tokens.bodyText, document_.c_str(), wrap_);
 
       if (lineCount_ == 0 && measured > 0) {
         // First paint of this opening: put the reader back where they were.
@@ -741,7 +750,7 @@ void InstapaperActivity::render(RenderLock&&) {
       model.pageLabel = pageLabel_;
       model.canPagePrev = topLine_ > 0;
       model.canPageNext = visibleLines_ > 0 && topLine_ + visibleLines_ < lineCount_;
-      instapaperui::buildReader(screen, model);
+      instapaperui::buildReader(screen, model, wrap_);
       what = "Instapaper reader";
       break;
     }

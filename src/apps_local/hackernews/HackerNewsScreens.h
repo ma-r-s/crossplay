@@ -24,6 +24,7 @@
 #include <string>
 
 #include "../ui/ToyboxScreen.h"
+#include "../ui/ToyboxWrappedText.h"
 
 namespace hnui {
 
@@ -157,7 +158,16 @@ struct ReaderModel {
   bool saved = false;
 };
 
-void buildReader(toybox::Screen& screen, const ReaderModel& model);
+// The wrap is a required argument for the same reason as Instapaper's: a
+// nullable one with a fall-back to re-wrapping the whole document is the bug
+// this removes, and it would come back the first time somebody added a call
+// site without noticing. See ToyboxWrappedText.h.
+void buildReader(toybox::Screen& screen, const ReaderModel& model, toybox::WrappedText& wrap);
+
+// The document's length in lines, wrapped to the width the reader really draws
+// it at, from the same object and the same rect as the drawing.
+uint32_t readerLineCount(const fui::DrawTarget& target, const fui::DeviceContext& device,
+                         const fui::TextStyle& style, const char* text, toybox::WrappedText& wrap);
 
 // Where the reader's text goes. Exported for the same reason as listBand():
 // the Activity pages by counting the lines that fit in this exact rect, and a

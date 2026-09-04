@@ -888,10 +888,16 @@ void HackerNewsActivity::render(RenderLock&&) {
       // Measured here because measuring needs a draw target, and measured from
       // the same rect the text is drawn into: readerBody() is the one function
       // that owns that rectangle, so a page turn cannot skip a line.
+      //
+      // Through wrap_ rather than textAreaMeasure(), which wrapped the whole
+      // document on every single paint with not even a branch to hang a cache
+      // on. An article is long and a flattened comment thread is longer; both
+      // were re-wrapped twice per page turn. Instapaper was reported first and
+      // this is the same bug in the same shape. See ToyboxWrappedText.h.
       const fui::Rect body = hnui::readerBody(device);
       const int16_t lineHeight = target.lineHeight(tokens.bodyText.font);
       visibleLines_ = fui::textAreaVisibleLines(body, lineHeight);
-      lineCount_ = fui::textAreaMeasure(target, body.width, document_.c_str(), tokens.bodyText, 0).lineCount;
+      lineCount_ = hnui::readerLineCount(target, device, tokens.bodyText, document_.c_str(), wrap_);
 
       const uint32_t pages = visibleLines_ > 0 ? (lineCount_ + visibleLines_ - 1) / visibleLines_ : 1;
       const uint32_t page = visibleLines_ > 0 ? topLine_ / visibleLines_ + 1 : 1;
@@ -924,7 +930,7 @@ void HackerNewsActivity::render(RenderLock&&) {
       // was. Empty only until the first fetch has answered.
       model.canSave = !readerUrl_.empty();
       model.saved = model.canSave && library_.contains(readerUrl_);
-      hnui::buildReader(screen, model);
+      hnui::buildReader(screen, model, wrap_);
       what = "HN reader";
       break;
     }

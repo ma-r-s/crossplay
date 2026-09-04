@@ -25,6 +25,7 @@
 #include <string>
 
 #include "../ui/ToyboxScreen.h"
+#include "../ui/ToyboxWrappedText.h"
 
 namespace instapaperui {
 
@@ -88,7 +89,20 @@ struct ReaderModel {
   bool canPageNext = false;
 };
 
-void buildReader(toybox::Screen& screen, const ReaderModel& model);
+// The wrap is passed rather than kept, and it is a reference rather than a
+// field of the model, so that a caller cannot build this screen without one.
+// The alternative was a nullable pointer with a fall-back to wrapping the
+// whole article again, which is the bug this exists to remove and would have
+// come back silently the first time somebody wrote a new call site.
+void buildReader(toybox::Screen& screen, const ReaderModel& model, toybox::WrappedText& wrap);
+
+// The article's length in lines, wrapped to the width the reader will really
+// draw it at. The Activity needs it before it can say which page it is on and
+// what reading position to send back to Instapaper, and it comes from the same
+// object and the same rect the drawing does -- so the two cannot disagree
+// about where a line ends, which is the whole reason readerBody() is exported.
+uint32_t readerLineCount(const fui::DrawTarget& target, const fui::DeviceContext& device,
+                         const fui::TextStyle& style, const char* text, toybox::WrappedText& wrap);
 
 // Where the reader's text goes. Exported for the same reason as queueBand():
 // the Activity pages by counting the lines that fit in this exact rect, and a
