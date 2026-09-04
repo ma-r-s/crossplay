@@ -282,8 +282,7 @@ void testManyGames() {
     const int total = a.moves + b.moves;
     if (total < fewest) fewest = total;
   }
-  std::printf("  soak: %d/%d games agreed, %d played to a result, fewest %d moves\n", agreed, kGames, finished,
-              fewest);
+  std::printf("  soak: %d/%d games agreed, %d played to a result, fewest %d moves\n", agreed, kGames, finished, fewest);
   CHECK(agreed == kGames);
   // Agreeing by never starting would pass everything above.
   CHECK(fewest >= 10);

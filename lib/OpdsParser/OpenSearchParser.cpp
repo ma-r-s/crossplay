@@ -77,8 +77,7 @@ void OpenSearchParser::finish() {
   }
 }
 
-void XMLCALL OpenSearchParser::startElement(void* userData, const XML_Char* name,
-                                            const XML_Char** atts) {
+void XMLCALL OpenSearchParser::startElement(void* userData, const XML_Char* name, const XML_Char** atts) {
   auto* const self = static_cast<OpenSearchParser*>(userData);
 
   // Namespaced documents are common, so match the local name too.

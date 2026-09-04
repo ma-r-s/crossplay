@@ -479,10 +479,10 @@ void testRoomFor() {
   CHECK(trivia::roomFor(false, floor - 1, floor) == Room::Unknown);
 
   // A successful query decides on the number alone.
-  CHECK(trivia::roomFor(true, floor, floor) == Room::Ok);          // exactly the floor fits
+  CHECK(trivia::roomFor(true, floor, floor) == Room::Ok);  // exactly the floor fits
   CHECK(trivia::roomFor(true, floor + 1, floor) == Room::Ok);
   CHECK(trivia::roomFor(true, floor - 1, floor) == Room::TooSmall);
-  CHECK(trivia::roomFor(true, 0, floor) == Room::TooSmall);        // a genuinely empty-of-room card
+  CHECK(trivia::roomFor(true, 0, floor) == Room::TooSmall);  // a genuinely empty-of-room card
 
   // The floor must leave real headroom above today's pack, or it is not a floor
   // at all -- it is the pack size wearing a different name, and the next pack

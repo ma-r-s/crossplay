@@ -1,4 +1,3 @@
-#include "DevMode.h"
 #include "KOReaderAuthActivity.h"
 
 #include <GfxRenderer.h>
@@ -6,6 +5,7 @@
 #include <Logging.h>
 #include <WiFi.h>
 
+#include "DevMode.h"
 #include "KOReaderCredentialStore.h"
 #include "KOReaderSyncClient.h"
 #include "MappedInputManager.h"

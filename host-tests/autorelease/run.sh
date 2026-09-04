@@ -101,5 +101,20 @@ q git checkout -q v1.12.9 2>/dev/null; q git checkout -q -b quiet
 python3 "$TOOL" --repo-dir "$R" --pr-json "$WORK/prs.json" --dry-run 2>&1 | grep -q "NEXT_VERSION=$" && ok "nothing since the tag means no version" || bad "released with nothing merged"
 
 echo
+echo "release-needed.sh"
+mkdir -p "$R/scripts_local"
+cp "$HERE/../../scripts_local/device-build-needed.sh" "$HERE/../../scripts_local/release-needed.sh" "$R/scripts_local/"
+chmod +x "$R"/scripts_local/*.sh
+cdd "$R"
+q git add -A; q git commit -qm "chore: scripts"
+q git tag v1.12.10
+bash scripts_local/release-needed.sh >/dev/null 2>&1; [ $? -eq 1 ] && ok "nothing merged since the tag: no release" || bad "released with nothing since the tag"
+mkdir -p docs; echo words > docs/note.md; q git add -A; q git commit -qm "docs: a note"
+bash scripts_local/release-needed.sh >/dev/null 2>&1; [ $? -eq 1 ] && ok "a docs-only merge since the tag is not a release" || bad "a docs-only change would release"
+mkdir -p src; echo 'int x;' > src/x.cpp; q git add -A; q git commit -qm "fix: something a device can see"
+bash scripts_local/release-needed.sh >/dev/null 2>&1; [ $? -eq 0 ] && ok "a src change since the tag releases" || bad "a src change did not release"
+q git tag -d v1.12.10; q git tag -d v1.12.9
+bash scripts_local/release-needed.sh >/dev/null 2>&1; [ $? -eq 0 ] && ok "no tag at all means release" || bad "no tag refused to release"
+
 echo "$((PASS+FAIL)) checks, $FAIL failed"
 [ "$FAIL" -eq 0 ]

@@ -26,7 +26,7 @@ enum : fui::ActionId {
   ActionMenuRow = 1,  // the front door's list; ListItem carries which row
   ActionReveal = 2,   // quizmaster: turn the answer over
   ActionNext = 3,
-  ActionFlag = 4,    // "this question is bad" -- the whole curation loop
+  ActionFlag = 4,  // "this question is bad" -- the whole curation loop
   // Carries which of the four in the event VALUE. Frame::hit's value parameter
   // defaults to 0, so a caller that forgets it makes every option read as the
   // first one -- which shipped in v1.12.0 and made solo play a coin toss. This

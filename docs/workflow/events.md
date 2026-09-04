@@ -26,8 +26,8 @@ variables. The public key can only insert; it cannot read anything back.
 
 | Field     | What goes in it                                                                                                                                      |
 | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `service` | `firmware`, `getbooks`, `anki`, `instapaper`, `site`, `release`. One word, lowercase, the same word every time.                                      |
-| `event`   | What happened: `download`, `search`, `sync`, `install`, `report`, `crash`, `update`, `probe`. Same rule.                                            |
+| `service` | `firmware`, `getbooks`, `anki`, `instapaper`, `site`, `release`, `pulse`, `upstream-sync`, `workflow`. One word, lowercase, the same word every time.                                    |
+| `event`   | What happened: `download`, `search`, `sync`, `install`, `report`, `crash`, `update`, `probe`, `run`. Same rule.                                          |
 | `level`   | `info` (default) or `error`.                                                                                                                         |
 | `device`  | The id from the device's `X-CrossPlay-Device` header (below): pseudonymous, the same on every request from one device, and not matchable to a MAC without that device's secret. Never the MAC, never a name. A service whose request carried no id may use its own salted hash of an account or token instead, or leave it out. |
 | `version` | Firmware version as printed, `1.12.9`. Optional.                                                                                                     |

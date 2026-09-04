@@ -53,7 +53,6 @@
 //     of mode bits the hit-test reads, and only the app knows them.
 
 #include <FreeInkUI.h>
-
 #include <stddef.h>
 #include <stdint.h>
 
@@ -151,8 +150,7 @@ class RevealedInteractions {
       mix(static_cast<uint32_t>(static_cast<uint16_t>(slot.rect.width)) |
           (static_cast<uint32_t>(static_cast<uint16_t>(slot.rect.height)) << 16));
       mix(static_cast<uint32_t>(slot.action));
-      mix(static_cast<uint32_t>(static_cast<uint16_t>(slot.value)) |
-          (static_cast<uint32_t>(slot.inputMask) << 16));
+      mix(static_cast<uint32_t>(static_cast<uint16_t>(slot.value)) | (static_cast<uint32_t>(slot.inputMask) << 16));
       // StateDisabled and ONLY StateDisabled. It looks like a cosmetic bit and
       // is not one: InteractionBuffer::findTouch skips disabled entries
       // outright, so flipping it changes what a tap DOES. DungeonScreens.cpp

@@ -340,5 +340,51 @@ fi
 grep -q '"/api/inbox"' "$ROOT/site/inbox/index.html" && ok || bad "the inbox page does not call /api/inbox"
 grep -q 'supabase.co\|/rest/v1/\|/auth/v1/' "$ROOT/site/inbox/index.html" && bad "the inbox page still talks to the board directly" || ok
 
+# -- the inbox fixture, spelled in three files that never see each other -------
+#
+# serve.py answers /api/inbox from inbox/fixture.json so the page can be laid
+# out without a passphrase. Three things can drift and none of them fails
+# loudly: an operation api/inbox.js handles that serve.py does not (the page
+# gets a 400 locally and works in production, or the reverse), a numbers key
+# the page starts reading that the fixture lacks (the section renders
+# "nothing yet" and looks like an empty board), and a fixture that stopped
+# being JSON (every local load shows a 500 dressed as a board error).
+INBOX_HTML="$ROOT/site/inbox/index.html"
+FIXTURE="$ROOT/site/inbox/fixture.json"
+ops="$(grep -oE 'body\.op === "[a-z]+"' "$ROOT/site/api/inbox.js" | grep -oE '"[a-z]+"' | tr -d '"' | sort -u)"
+if [ -z "$ops" ]; then
+  bad "api/inbox.js handles no operations at all"
+else
+  ok
+  for op in $ops; do
+    grep -qE "op == \"$op\"" "$SERVE" && ok || bad "api/inbox.js handles op '$op' and serve.py's fixture does not"
+  done
+fi
+if [ -f "$FIXTURE" ]; then
+  ok
+  num_keys="$(grep -oE '\bn\.[A-Za-z]+' "$INBOX_HTML" | sed 's/^n\.//' | sort -u)"
+  if fixture_bad="$(python3 - "$FIXTURE" $num_keys <<'PY' 2>&1
+import json, sys
+fx = json.load(open(sys.argv[1]))
+for part in ("list", "numbers"):
+    if part not in fx:
+        print(f"fixture.json has no '{part}' object")
+for k in ("inbox", "cards"):
+    if not fx.get("list", {}).get(k):
+        print(f"fixture.json list.{k} is empty")
+for key in sys.argv[2:]:
+    if key not in fx.get("numbers", {}):
+        print(f"inbox/index.html reads n.{key} and fixture.json numbers has no '{key}'")
+PY
+  )"; then
+    if [ -z "$fixture_bad" ]; then ok; else while IFS= read -r line; do bad "$line"; done <<< "$fixture_bad"; fi
+  else
+    bad "fixture.json could not be checked:"
+    while IFS= read -r line; do echo "      $line"; done <<< "$fixture_bad"
+  fi
+else
+  bad "site/inbox/fixture.json is missing, so the inbox cannot be looked at without a passphrase"
+fi
+
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]
