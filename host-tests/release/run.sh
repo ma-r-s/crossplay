@@ -878,5 +878,31 @@ else
   fi
 fi
 
+# Every image merged at 0x0 needs a bootloader that exists by then.
+#
+# It used to exist because compiling the Arduino IDF produced it as a
+# by-product. e31dcbb0 stopped that compile, the firmware builds carried on
+# passing because only merge-bin ever reads the file, and v1.12.14 tagged and
+# then could not publish. So: whatever supplies bootloader.bin, a step must
+# supply it BEFORE the step that merges it, and this asserts that order rather
+# than the mechanism.
+for env_name in gh_release_x4pro gh_release_sticky; do
+  checks=$((checks + 1))
+  consumer=$(grep -n "0x0 *\.pio/build/$env_name/bootloader\.bin" "$WF" | head -1 | cut -d: -f1)
+  producer=$(grep -n "^ *out=\"\.pio/build/\$env_name/bootloader\.bin\"\|elf2image" "$WF" | head -1 | cut -d: -f1)
+  if [ -z "$consumer" ]; then
+    failed=$((failed + 1))
+    echo "FAIL release  nothing merges a bootloader at 0x0 for $env_name"
+  elif [ -z "$producer" ]; then
+    failed=$((failed + 1))
+    echo "FAIL release  $env_name merges .pio/build/$env_name/bootloader.bin at 0x0, but no step in the workflow produces it; the IDF has not been compiled since e31dcbb0"
+  elif [ "$producer" -gt "$consumer" ]; then
+    failed=$((failed + 1))
+    echo "FAIL release  the bootloader for $env_name is produced (line $producer) after it is merged (line $consumer)"
+  else
+    ok
+  fi
+done
+
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]
