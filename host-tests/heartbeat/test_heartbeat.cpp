@@ -157,11 +157,12 @@ void testStateRoundTrip() {
   char text[heartbeat::kBodySize];
   const size_t n = heartbeat::formatState(s, text, sizeof(text));
   check(n > 0 && n == std::strlen(text), "state formats");
-  checkStr(text,
-           "{\"day\":20699,\"apps\":[\"trivia\",\"hackernews\"],\"retry\":0,\"fails\":0,\"ota\":{\"from\":\"1.12.11\","
-           "\"error\":\"too_large\",\"path\":\"sd\"},\"crash\":{\"message\":\"assert failed: q \\\"x\\\"\\\\ line\\n1709\","
-           "\"trace\":\"0x3FCA: 0x1 0x2|0x3FCB: 0x4\",\"version\":\"1.12.10\"}}",
-           "state file is the documented shape");
+  checkStr(
+      text,
+      "{\"day\":20699,\"apps\":[\"trivia\",\"hackernews\"],\"retry\":0,\"fails\":0,\"ota\":{\"from\":\"1.12.11\","
+      "\"error\":\"too_large\",\"path\":\"sd\"},\"crash\":{\"message\":\"assert failed: q \\\"x\\\"\\\\ line\\n1709\","
+      "\"trace\":\"0x3FCA: 0x1 0x2|0x3FCB: 0x4\",\"version\":\"1.12.10\"}}",
+      "state file is the documented shape");
 
   heartbeat::State back;
   check(heartbeat::parseState(text, back), "state parses");
@@ -179,10 +180,11 @@ void testStateRoundTrip() {
   // Defaults write as defaults and read back as defaults.
   heartbeat::State fresh;
   heartbeat::formatState(fresh, text, sizeof(text));
-  checkStr(text,
-           "{\"day\":-1,\"apps\":[],\"retry\":0,\"fails\":0,\"ota\":{\"from\":\"\",\"error\":\"\",\"path\":\"\"},\"crash\":{"
-           "\"message\":\"\",\"trace\":\"\",\"version\":\"\"}}",
-           "fresh state");
+  checkStr(
+      text,
+      "{\"day\":-1,\"apps\":[],\"retry\":0,\"fails\":0,\"ota\":{\"from\":\"\",\"error\":\"\",\"path\":\"\"},\"crash\":{"
+      "\"message\":\"\",\"trace\":\"\",\"version\":\"\"}}",
+      "fresh state");
   heartbeat::State freshBack;
   freshBack.lastDay = 5;
   check(heartbeat::parseState(text, freshBack), "fresh parses");
@@ -234,8 +236,8 @@ void testDay() {
 }
 
 void testDecide() {
-  using heartbeat::Decision;
   using heartbeat::decide;
+  using heartbeat::Decision;
   // Day 100 is epoch 8640000..8726399.
   constexpr long long kNoon = 100LL * 86400 + 43200;
   heartbeat::State s;
@@ -412,17 +414,19 @@ void testCrashBody() {
   char body[heartbeat::kBodySize];
   check(heartbeat::formatCrash("abc", "1.12.12", "sticky", s, body, sizeof(body)) == 0, "no crash, no body");
 
-  std::snprintf(s.crashMessage, sizeof(s.crashMessage), "assert failed: xQueueSemaphoreTake queue.c:1709 (( pxQueue ))");
+  std::snprintf(s.crashMessage, sizeof(s.crashMessage),
+                "assert failed: xQueueSemaphoreTake queue.c:1709 (( pxQueue ))");
   std::snprintf(s.crashTrace, sizeof(s.crashTrace), "0x3FCEBD40: 0x00000001|0x3FCEBD60: 0x00000002");
   std::snprintf(s.crashVersion, sizeof(s.crashVersion), "1.12.11");
   // Posted from 1.12.12 (the record survived an OTA), blamed on 1.12.11.
   const size_t n = heartbeat::formatCrash("abc", "1.12.12", "sticky", s, body, sizeof(body));
   check(n > 0, "crash formats");
-  checkStr(body,
-           "{\"service\":\"firmware\",\"event\":\"crash\",\"level\":\"error\",\"device\":\"abc\",\"version\":\"1.12.11\","
-           "\"board\":\"sticky\",\"props\":{\"message\":\"assert failed: xQueueSemaphoreTake queue.c:1709 (( pxQueue "
-           "))\",\"backtrace\":\"0x3FCEBD40: 0x00000001|0x3FCEBD60: 0x00000002\"}}",
-           "crash body carries the version that crashed, not the one posting");
+  checkStr(
+      body,
+      "{\"service\":\"firmware\",\"event\":\"crash\",\"level\":\"error\",\"device\":\"abc\",\"version\":\"1.12.11\","
+      "\"board\":\"sticky\",\"props\":{\"message\":\"assert failed: xQueueSemaphoreTake queue.c:1709 (( pxQueue "
+      "))\",\"backtrace\":\"0x3FCEBD40: 0x00000001|0x3FCEBD60: 0x00000002\"}}",
+      "crash body carries the version that crashed, not the one posting");
   // A record from a build that wrote no version: the running one is all there is.
   s.crashVersion[0] = '\0';
   heartbeat::formatCrash("abc", "1.12.12", "sticky", s, body, sizeof(body));
@@ -446,7 +450,8 @@ void testCrashBody() {
   check(heartbeat::formatCrash("abc", "1.12.12", "sticky", s, body, sizeof(body)) > 0, "the widest escaping fits");
   // A record only a hand-edited file could hold formats nothing, and overruns nothing.
   std::memset(s.crashTrace, '\x02', sizeof(s.crashTrace) - 1);
-  check(heartbeat::formatCrash("abc", "1.12.12", "sticky", s, body, sizeof(body)) == 0, "an impossible record is refused");
+  check(heartbeat::formatCrash("abc", "1.12.12", "sticky", s, body, sizeof(body)) == 0,
+        "an impossible record is refused");
   check(body[0] == '\0', "and leaves an empty body");
 }
 
@@ -491,7 +496,8 @@ void testCrashMessage() {
   check(tag[0] == '\0', "and the tag is empty");
   // Two boots ago is not the answer: the LAST drop wins.
   const char* twoBoots =
-      "Last logs:\n[90000] [INF] [XKCD] old\n[10] [INF] [MAIN] up\n[7000] [ERR] [CHESS] bad\n[20] [INF] [MAIN] up again\n\n";
+      "Last logs:\n[90000] [INF] [XKCD] old\n[10] [INF] [MAIN] up\n[7000] [ERR] [CHESS] bad\n[20] [INF] [MAIN] up "
+      "again\n\n";
   check(heartbeat::lastLogTagBeforeReset(twoBoots, tag, sizeof(tag)), "two boots parse");
   checkStr(tag, "CHESS", "the most recent boundary");
   // Lines that are not log lines are skipped, not misread.

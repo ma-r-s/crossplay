@@ -372,7 +372,8 @@ void sendCrash(const unsigned long now, const long long epoch) {
   if (len == 0) {
     // Nothing to send: either no message after all, or a record that cannot
     // be formatted. Either way it is dropped rather than kept pending forever.
-    if (state.crashMessage[0] != '\0') LOG_ERR(kTag, "crash record did not fit %u bytes; dropped", static_cast<unsigned>(sizeof(body)));
+    if (state.crashMessage[0] != '\0')
+      LOG_ERR(kTag, "crash record did not fit %u bytes; dropped", static_cast<unsigned>(sizeof(body)));
     crashPending = false;
     clearCrash(state);
     save();

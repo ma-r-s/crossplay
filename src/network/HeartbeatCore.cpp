@@ -512,7 +512,8 @@ OtaProps otaProps(const State& s, const char* runningVersion) {
   o.path = s.otaPath;
   // An install that reported no error and still boots the same version did
   // not happen, whatever the screen said; "ok" is the version having moved.
-  o.ok = o.attempted && s.otaError[0] == '\0' && runningVersion != nullptr && std::strcmp(s.otaFrom, runningVersion) != 0;
+  o.ok =
+      o.attempted && s.otaError[0] == '\0' && runningVersion != nullptr && std::strcmp(s.otaFrom, runningVersion) != 0;
   return o;
 }
 
@@ -566,8 +567,7 @@ size_t formatHeartbeat(const char* device, const Sample& sample, const State& s,
   return w.finish();
 }
 
-size_t formatCrashMessage(const char* reason, const char* reset, const char* lastTag, char* out,
-                          const size_t outSize) {
+size_t formatCrashMessage(const char* reason, const char* reset, const char* lastTag, char* out, const size_t outSize) {
   if (outSize == 0) return 0;
   const bool hasReason = reason != nullptr && reason[0] != '\0';
   const bool hasTag = lastTag != nullptr && lastTag[0] != '\0';
@@ -602,7 +602,7 @@ bool lastLogTagBeforeReset(const char* panicInfo, char* out, const size_t outSiz
   size_t prevTagLen = 0;
   const char* found = nullptr;
   size_t foundLen = 0;
-  for (; *p != '\0'; ) {
+  for (; *p != '\0';) {
     const char* lineEnd = std::strchr(p, '\n');
     const size_t lineLen = lineEnd == nullptr ? std::strlen(p) : static_cast<size_t>(lineEnd - p);
     if (lineLen == 0) break;  // the blank line before "Stack memory:"
