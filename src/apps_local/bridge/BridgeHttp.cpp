@@ -12,6 +12,7 @@
 
 // One bundle for every bridge behind the same tunnel. See BridgeHttp.h.
 #include "../study/StudySyncRoots.h"
+#include "network/DeviceReport.h"
 #else
 #include <unistd.h>
 
@@ -56,6 +57,16 @@ const char* caRoots(const Endpoint& endpoint) {
     }
   }
   return sdRoots.empty() ? study::kBridgeCaRoots : sdRoots.c_str();
+}
+
+// The firmware version, which every request to one of our hosts carries the
+// way HttpDownloader's do; and the device report headers, when the toggle is
+// on. Version alone names no device.
+void identify(freeink::SecureHttpClient& http, const std::string& url) {
+  http.setUserAgent("CrossPlay-ESP32-" CROSSPOINT_VERSION);
+  devreport::Header report[devreport::kHeaderCount];
+  const int n = devreport::headersFor(url.c_str(), report);
+  for (int i = 0; i < n; ++i) http.addHeader(report[i].name, report[i].value);
 }
 
 // TLS wants ~35KB free with a 20KB block (the KOSync numbers, measured with
@@ -103,13 +114,16 @@ int request(const Endpoint& endpoint, const char* method, const std::string& pat
   http.setCACert(caRoots(endpoint));
   http.setTimeout(30000);
   http.setFollowRedirects(2);
-  if (!http.begin(base(endpoint) + path)) {
+  const std::string url = base(endpoint) + path;
+  if (!http.begin(url)) {
     message = "The sync service address did not make sense. Update the firmware.";
     return 0;
   }
   if (!token.empty()) http.addHeader("Authorization", std::string("Bearer ") + token);
+  identify(http, url);
   LOG_INF(endpoint.tag, "%s %s (verified TLS)", method, path.c_str());
   const int status = body ? http.sendRequest(method, body, bodyLen) : http.sendRequest(method, std::string());
+  devreport::delivered(url.c_str(), status);
   if (status <= 0) {
     LOG_ERR(endpoint.tag, "%s %s failed: %d", method, path.c_str(), status);
     message = "Could not reach the sync service. Check Wi-Fi and try again.";
@@ -153,11 +167,13 @@ bool streamToFile(const Endpoint& endpoint, const std::string& path, const std::
   http.setCACert(caRoots(endpoint));
   http.setTimeout(30000);
   http.setFollowRedirects(2);
-  if (!http.begin(base(endpoint) + path)) {
+  const std::string url = base(endpoint) + path;
+  if (!http.begin(url)) {
     message = "The sync service address did not make sense.";
     return false;
   }
   http.addHeader("Authorization", std::string("Bearer ") + token);
+  identify(http, url);
   size_t written = 0;
   const int status = http.GET(
       [&](const uint8_t* data, size_t len) {
@@ -168,6 +184,7 @@ bool streamToFile(const Endpoint& endpoint, const std::string& path, const std::
       [&]() { return cancel && *cancel; });
   http.end();
   out.close();
+  devreport::delivered(url.c_str(), status);
   if (cancel && *cancel) {
     message = "Stopped.";
     return false;

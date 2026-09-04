@@ -107,6 +107,14 @@ knew: the version alone for Get Books, a salted hash of the token or the
 account for the bridges. Settings > System on the device turns the headers
 off; off sends nothing and records nothing.
 
+
+Three rules the firmware keeps that the table above only implies: the
+headers go to hosts in `ma-r-s.com` and to no other host (never Hacker News,
+xkcd or GitHub); a 2xx from one of those hosts clears the pending crash and
+install record, any other answer leaves them for the next request; and a
+crash whose full record would not fit the 600 bytes loses its backtrace
+first, then has its message cut, and never disappears for being long.
+
 ## What each service posts
 
 The three services share one reader for the headers (`bridge/events.py` in

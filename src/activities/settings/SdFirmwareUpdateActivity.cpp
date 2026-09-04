@@ -12,18 +12,18 @@
 #include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "network/DeviceReport.h"
 #include "network/FirmwareFlasher.h"
-#include "network/Heartbeat.h"
 
 namespace {
 
-// The SD install is the OTA screen's twin for the daily heartbeat: a file
+// The SD install is the OTA screen's twin for the device report: a file
 // refused before the confirmation prompt is still an install the user tried
 // and could not have, and "who cannot update" must count it. The flash
 // itself notes its own attempt before writing.
 void noteRefused(const char* error) {
-  heartbeat::noteOtaAttempt("sd");
-  heartbeat::noteOtaFailed(error);
+  devreport::noteOtaAttempt("sd");
+  devreport::noteOtaFailed(error);
 }
 
 }  // namespace
@@ -118,7 +118,7 @@ bool SdFirmwareUpdateActivity::validateFirmware() {
   const auto vr = firmware_flash::validateImageFile(firmwarePath.c_str(), partitionLimit);
   if (vr != firmware_flash::Result::OK) {
     LOG_ERR("FW", "image validation failed: %s", firmware_flash::resultName(vr));
-    noteRefused(heartbeat::flashErrorName(static_cast<int>(vr)));
+    noteRefused(devreport::flashErrorName(static_cast<int>(vr)));
     if (vr == firmware_flash::Result::TOO_LARGE) {
       errorMessage = tr(STR_FIRMWARE_TOO_LARGE);
     } else if (vr == firmware_flash::Result::TOO_SMALL) {
@@ -187,12 +187,12 @@ void SdFirmwareUpdateActivity::performUpdate() {
   // for callers (e.g. an OTA staging path) where the same byte stream was
   // just hashed and there's no removable-media gap.
   // Recorded before the flash: success reboots the device, so the next
-  // heartbeat infers it from the version that comes up.
-  heartbeat::noteOtaAttempt("sd");
+  // device report infers it from the version that comes up.
+  devreport::noteOtaAttempt("sd");
   const auto result = firmware_flash::flashFromSdPath(firmwarePath.c_str(), progressCb, this);
   if (result != firmware_flash::Result::OK) {
     LOG_ERR("FW", "flash failed: %s", firmware_flash::resultName(result));
-    heartbeat::noteOtaFailed(heartbeat::flashErrorName(static_cast<int>(result)));
+    devreport::noteOtaFailed(devreport::flashErrorName(static_cast<int>(result)));
     // BAD_CHIP / WRONG_BOARD here is the TOCTOU re-validation catching a
     // wrong-device image the pre-confirmation pass missed (e.g. the SD card
     // was swapped).
