@@ -215,12 +215,37 @@ Four unauthenticated GitHub requests per pass -- the runs of
 `crossplay-release.yml` and `crossplay-autorelease.yml`, `/releases/latest`, and
 the newest commits on `xteink` -- and four things it says:
 
+There are two layers and they do not touch. The **health verdict**
+(`release|owed|<version>`) asks one question -- the pipeline said it was
+shipping X, is X published? -- and the **hygiene finding**
+(`release|dup|<version>`) reports more than one run on a tag without being any
+evidence about whether the release worked.
+
 | What it sees                                                    | When it says so                                   |
 | --------------------------------------------------------------- | ------------------------------------------------- |
-| A run of either release workflow ended anything but `success`, `skipped` or `neutral` | at once, no clock at all      |
-| A `chore: crossplay X` bump on `xteink` with no run building it  | 15 minutes (a build starts within 3 seconds)      |
-| A bump still unpublished, whatever its builds are doing          | 60 minutes (48/48 healthy releases took under 20) |
+| A tag whose every run has ended and none succeeded, unpublished  | at once, no clock at all                          |
+| A `chore: crossplay X` bump, or a tag with a run, and nothing building it | 15 minutes (a build starts within 3 seconds) |
+| A tag still building, or built green, and still unpublished      | 60 minutes (48/48 healthy releases took under 20) |
+| An autorelease run that ended anything but `success`/`skipped`   | at once: no release was even started              |
+| More than one run on one tag (hygiene, not health)               | at once, on its own card                          |
 | No answer out of GitHub at all                                   | 3 hours, six missed passes                        |
+
+**A tag's runs are resolved as a set and no single run is ever the verdict.**
+One finishing does not mean the release is done while a sibling is still going;
+one failing does not mean the release failed, because another may be the one
+that published; and a version at or below the newest published release has
+shipped whatever its runs did. A set of one is a set -- nothing requires or
+assumes two. That matters because on 2026-09-04 a tag produced two runs
+(v1.12.16: 33884760714 by push and 33884760111 by dispatch, the same second,
+both green), and judging either alone would have called a healthy release
+broken the moment one lost the race to publish the same assets.
+
+The duplicate is reported separately because it is invisible to every other
+signal: both runs exit 0, every step reports success, and the losing upload
+clobbers identical bytes built from the same commit, so "did a run fail" and
+"do the assets exist" both read healthy. Multiplicity is the only observable
+there is, and after the dispatch was made conditional on `RELEASE_TOKEN` a
+second run means that guard regressed.
 
 The clocks are measured, not chosen: the 53 runs of `crossplay-release.yml`
 published 48 releases, the slowest 19.9 minutes after its run was created, and
@@ -229,9 +254,10 @@ the longest any run ever occupied -- including a 16.9-minute wait for a runner
 cheap because it is only the backstop: a failed build is reported without
 waiting for anything.
 
-Three things it deliberately does not do. It does not collapse: four failed runs
-are four cards, one per run id, because the fault was that it failed four times
-and said nothing four times. It does not treat an empty `conclusion` as a
+Three things it deliberately does not do. It does not collapse: each release
+attempt is its own card, because the fault was that it failed and said nothing,
+four times over. Two runs of ONE tag are one attempt and collapse correctly;
+1.12.14 and 1.12.15 are two attempts and never merge. It does not treat an empty `conclusion` as a
 success -- a run that is `completed` carrying no conclusion is *not knowing*,
 and not knowing for longer than a release has ever taken is itself a fault. And
 it does not confuse an old failure with a new one: every fault key it has

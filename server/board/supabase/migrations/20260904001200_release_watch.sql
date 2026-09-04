@@ -155,6 +155,9 @@ declare
   at         timestamptz;
   mins       int;
   n_runs     int;
+  n_live     int;
+  n_ok       int;
+  n_bad      int;
   outcomes   text;
 begin
   latest     := nullif(p_latest ->> 'tag_name', '');
@@ -166,6 +169,17 @@ begin
   -- remembered row may only carry the minute we first looked.
   for v in select * from jsonb_array_elements(coalesce(p_pending, '[]'::jsonb)) loop
     pend := pend || jsonb_build_object(v ->> 'version', v);
+  end loop;
+  -- A tag a release run is building counts even with no bump commit in the
+  -- window: a tag pushed by hand has none, and a bump whose commit scrolled
+  -- away has none either. The run's created_at is the tag push to the second.
+  for r in select * from jsonb_array_elements(coalesce(p_runs, '[]'::jsonb)) loop
+    ver := substring(coalesce(r ->> 'head_branch', '') from '^v([0-9]+\.[0-9]+\.[0-9]+)$');
+    if ver is not null and (pend -> ver) is null then
+      pend := pend || jsonb_build_object(ver, jsonb_build_object(
+        'version', ver, 'at', r ->> 'created_at', 'sha', r ->> 'head_sha',
+        'first_seen', to_char(p_now, 'YYYY-MM-DD"T"HH24:MI:SSOF')));
+    end if;
   end loop;
   for c in select * from jsonb_array_elements(coalesce(p_commits, '[]'::jsonb)) loop
     ver := substring(split_part(coalesce(c -> 'commit' ->> 'message', ''), E'\n', 1)
@@ -198,7 +212,13 @@ begin
 
   -- Every run of the release chain. A run says three different things and only
   -- one of them is "fine".
+  -- Runs that are not building a tag: the autorelease on xteink, which has no
+  -- siblings and whose failure means no release was even started. A run that IS
+  -- building a tag is never judged alone -- see the set below.
   for r in select * from jsonb_array_elements(coalesce(p_runs, '[]'::jsonb)) loop
+    if coalesce(r ->> 'head_branch', '') ~ '^v[0-9]+\.[0-9]+\.[0-9]+$' then
+      continue;
+    end if;
     key     := 'release|run|' || (r ->> 'id');
     status  := r ->> 'status';
     concl   := r ->> 'conclusion';      -- ->> is NULL for JSON null, which is the point
@@ -237,6 +257,51 @@ begin
     end if;
   end loop;
 
+  -- Exactly one release run per tag. Since the autorelease's dispatch was made
+  -- conditional on RELEASE_TOKEN being absent (2026-09-04) a tag can start the
+  -- release workflow once and only once; before that the token's push and the
+  -- explicit dispatch both fired, and every tag got two full four-device
+  -- builds (v1.12.16: 33884760714 by push and 33884760111 by dispatch, the
+  -- same second, both green).
+  --
+  -- This is CHECKED rather than tolerated, because the duplicate is invisible
+  -- to every other signal: both runs exit 0, every step reports success, and
+  -- the assets are right afterwards, since the losing upload clobbers
+  -- identical bytes built from the same commit. "Did a run fail" reads healthy
+  -- and "do the assets exist" reads healthy. Multiplicity is the only
+  -- observable signature there is, so a watcher that shrugged at it would
+  -- absorb that fix regressing -- the secret removed, the `if` dropped in a
+  -- refactor, GitHub changing what a token push starts -- and nobody would
+  -- learn. A set of one is the normal case and says nothing at all.
+  --
+  -- A re-run of a failed build is not this: GitHub bumps run_attempt on the
+  -- same run id rather than making a second run. A human dispatching the
+  -- workflow again by hand does show up here, and should.
+  for v in
+    select jsonb_build_object('version', ref, 'n', n, 'ids', ids) from (
+      select substring(x ->> 'head_branch' from '^v([0-9]+\.[0-9]+\.[0-9]+)$') as ref,
+             count(*) as n,
+             string_agg((x ->> 'id') || ' (' || coalesce(x ->> 'event', '?') || ')', ', '
+                        order by x ->> 'id') as ids
+        from jsonb_array_elements(coalesce(p_runs, '[]'::jsonb)) x
+       where coalesce(x ->> 'head_branch', '') ~ '^v[0-9]+\.[0-9]+\.[0-9]+$'
+       group by 1 having count(*) > 1) t
+  loop
+    key := 'release|dup|' || (v ->> 'version');
+    if not (seen ? key) then
+      out_v := out_v || jsonb_build_array(jsonb_build_object(
+        'key', key, 'level', 'error',
+        'message', (v ->> 'n') || ' release builds started for v' || (v ->> 'version') ||
+                   ' where exactly one is expected: ' || (v ->> 'ids') ||
+                   '. The release itself is unaffected -- whether it shipped is judged'
+                   ' separately, on whether the assets exist -- this is wasted runner time'
+                   ' and a signal that the one-dispatch guard has regressed. Both runs exit 0'
+                   ' and publish the same bytes, so nothing else can see it',
+        'props', jsonb_build_object('version', v ->> 'version', 'runs', (v ->> 'n')::int,
+                                    'ids', v ->> 'ids')));
+    end if;
+  end loop;
+
   -- Versions the pipeline owes. This is the check that answers from outside:
   -- it does not care whether a run failed, was never dispatched, or vanished.
   -- It survives the tag being deleted afterwards, which is what happened to
@@ -246,30 +311,72 @@ begin
     key  := 'release|owed|' || ver;
     at   := coalesce((v ->> 'at')::timestamptz, (v ->> 'first_seen')::timestamptz, p_now);
     mins := (extract(epoch from p_now - at) / 60)::int;
-    select count(*), string_agg(distinct coalesce(x ->> 'conclusion', x ->> 'status'), ', ')
-      into n_runs, outcomes
-      from jsonb_array_elements(coalesce(p_runs, '[]'::jsonb)) x
-      where x ->> 'head_branch' = 'v' || ver;
     if seen ? key then
       continue;
-    elsif n_runs = 0 and p_now - at > p_stall then
+    end if;
+    -- A tag's runs are resolved as a SET and no single run is ever the
+    -- verdict. One finishing does not mean the release is done while a sibling
+    -- is still going; one failing does not mean the release failed, because a
+    -- sibling may be the one that publishes; and a version that IS published
+    -- has already left this loop above, whatever its runs did. A set of one is
+    -- a set: with a single run every branch below reads the same way.
+    select count(*),
+           count(*) filter (where x ->> 'status' is distinct from 'completed'
+                               or x ->> 'conclusion' is null),
+           count(*) filter (where x ->> 'status' = 'completed' and x ->> 'conclusion' = 'success'),
+           count(*) filter (where x ->> 'status' = 'completed' and x ->> 'conclusion' is not null
+                               and x ->> 'conclusion' not in ('success', 'skipped', 'neutral')),
+           string_agg((x ->> 'id') || ' ' ||
+                      coalesce(x ->> 'conclusion', x ->> 'status', '?'), ', ' order by x ->> 'id')
+      into n_runs, n_live, n_ok, n_bad, outcomes
+      from jsonb_array_elements(coalesce(p_runs, '[]'::jsonb)) x
+     where x ->> 'head_branch' = 'v' || ver;
+
+    if n_live > 0 then
+      -- Still building. Only the clock can call this a fault.
+      if p_now - at > p_overdue then
+        out_v := out_v || jsonb_build_array(jsonb_build_object(
+          'key', key, 'level', 'error',
+          'message', 'crossplay ' || ver || ' was tagged ' || mins ||
+                     ' minutes ago and is still building (' || n_runs || ' run(s): ' ||
+                     coalesce(outcomes, '?') || '); the slowest healthy release took 20',
+          'props', jsonb_build_object('version', ver, 'age_min', mins, 'builds', n_runs,
+                                      'outcomes', outcomes, 'state', 'building',
+                                      'published', coalesce(latest, 'none'))));
+      end if;
+    elsif n_ok > 0 then
+      -- A build went green and there is still no release. This is the shape
+      -- that got read as "1.12.15 shipped": green is not published.
+      if p_now - at > p_overdue then
+        out_v := out_v || jsonb_build_array(jsonb_build_object(
+          'key', key, 'level', 'error',
+          'message', 'crossplay ' || ver || ' built green ' || mins ||
+                     ' minutes ago and no release is published (' || n_runs || ' run(s): ' ||
+                     coalesce(outcomes, '?') || '). Newest published is ' || coalesce(latest, 'none'),
+          'props', jsonb_build_object('version', ver, 'age_min', mins, 'builds', n_runs,
+                                      'outcomes', outcomes, 'state', 'green-unpublished',
+                                      'published', coalesce(latest, 'none'))));
+      end if;
+    elsif n_bad > 0 then
+      -- Every run that was going to build this tag has ended and not one of
+      -- them succeeded. No clock: the release is not coming.
+      out_v := out_v || jsonb_build_array(jsonb_build_object(
+        'key', key, 'level', 'error',
+        'message', 'every release build for crossplay ' || ver || ' failed (' || n_runs ||
+                   ' run(s): ' || coalesce(outcomes, '?') ||
+                   '); nothing else was going to say so. Newest published is ' ||
+                   coalesce(latest, 'none'),
+        'props', jsonb_build_object('version', ver, 'age_min', mins, 'builds', n_runs,
+                                    'outcomes', outcomes, 'state', 'failed',
+                                    'published', coalesce(latest, 'none'))));
+    elsif p_now - at > p_stall then
+      -- Nothing is building it, or everything that was skipped itself.
       out_v := out_v || jsonb_build_array(jsonb_build_object(
         'key', key, 'level', 'error',
         'message', 'crossplay ' || ver || ' was tagged ' || mins ||
                    ' minutes ago and no release build has started; a build starts within seconds',
-        'props', jsonb_build_object('version', ver, 'sha', v ->> 'sha',
-                                    'age_min', mins, 'builds', 0,
-                                    'published', coalesce(latest, 'none'))));
-    elsif n_runs > 0 and p_now - at > p_overdue then
-      out_v := out_v || jsonb_build_array(jsonb_build_object(
-        'key', key, 'level', 'error',
-        'message', 'crossplay ' || ver || ' was tagged ' || mins ||
-                   ' minutes ago and is still not published; ' || n_runs ||
-                   ' build(s), ' || coalesce(outcomes, 'no outcome') ||
-                   '. Newest published is ' || coalesce(latest, 'none'),
-        'props', jsonb_build_object('version', ver, 'sha', v ->> 'sha',
-                                    'age_min', mins, 'builds', n_runs,
-                                    'outcomes', outcomes,
+        'props', jsonb_build_object('version', ver, 'sha', v ->> 'sha', 'age_min', mins,
+                                    'builds', n_runs, 'outcomes', outcomes, 'state', 'nothing-started',
                                     'published', coalesce(latest, 'none'))));
     end if;
   end loop;
