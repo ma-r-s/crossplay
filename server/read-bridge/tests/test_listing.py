@@ -202,6 +202,20 @@ def main():
         ok(key in line, f"the log names the key {key!r}")
     ok("int" in line and "str[3]" in line and "dict{1}" in line, "the log names each value's type")
 
+    # A wrapper object is the shape where the element keys matter MOST -- the
+    # payload is one level down, and "items: list[2]" alone says nothing about
+    # what is in it. One level of descent, so the log names the keys of what a
+    # nested list and a nested object hold.
+    cap.lines.clear()
+    try:
+        ip.normalise_listing({"results": [bookmark(1, "aa"), bookmark(2, "bb")], "page": {"next": "x"}})
+    except ip.ApiError:
+        pass
+    line = " ".join(cap.lines)
+    ok("results: list[2]" in line, "a nested list is named with its length")
+    ok("bookmark_id: int" in line, "AND the keys of what it holds")
+    ok("next: str[1]" in line, "a nested object's keys too")
+
     described = ip.describe_shape(LIVE_SHAPE)
     ok(described.startswith("list[4]"), "a list is described with its length")
     ok("bookmark_id: int" in described, "and with the field names of its elements")

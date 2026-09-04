@@ -195,15 +195,45 @@ def _kind(v) -> str:
     return type(v).__name__
 
 
-def _fields(d: dict) -> str:
+def _fields(d: dict, depth: int = 0) -> str:
+    """The field names and value types of one object.
+
+    Descends ONE level into a nested list or object, because a wrapper is the
+    shape where the answer is one level down: "results: list[2]" on its own
+    says nothing about what results holds, and that is precisely the body
+    somebody will be staring at."""
     out = []
     for k in sorted(d):
         v = d[k]
         if k == "type" and isinstance(v, str) and 0 < len(v) <= 24 and set(v) <= _TYPE_CHARS:
             out.append(f"type={v!r}")
+        elif depth < 1 and isinstance(v, dict) and v:
+            out.append(f"{k}: {_kind(v)} " + _fields(v, depth + 1))
+        elif depth < 1 and isinstance(v, list) and v:
+            out.append(f"{k}: {_kind(v)} of [{_elements(v, depth + 1)}]")
         else:
             out.append(f"{k}: {_kind(v)}")
     return "{" + ", ".join(out) + "}"
+
+
+def _elements(items: list, depth: int = 0, max_shapes: int = 5) -> str:
+    """Each DISTINCT element shape in a list, with how many share it. Distinct
+    rather than just the first, because the element that differs is usually the
+    one that explains the body -- the meta object is element zero exactly once."""
+    shapes: dict = {}
+    other = 0
+    for item in items:
+        sig = tuple(sorted(item)) if isinstance(item, dict) else _kind(item)
+        if sig in shapes:
+            shapes[sig][1] += 1
+        elif len(shapes) < max_shapes:
+            shapes[sig] = [_fields(item, depth) if isinstance(item, dict) else _kind(item), 1]
+        else:
+            other += 1
+    inner = ", ".join(f"{desc} x{n}" for desc, n in shapes.values())
+    if other:
+        inner += f", +{other} of further shapes"
+    return inner
 
 
 def describe_shape(data, max_shapes: int = 5) -> str:
@@ -222,20 +252,7 @@ def describe_shape(data, max_shapes: int = 5) -> str:
         return f"dict{{{len(data)}}} " + _fields(data)
     if not isinstance(data, list):
         return _kind(data)
-    shapes: dict = {}
-    other = 0
-    for item in data:
-        sig = tuple(sorted(item)) if isinstance(item, dict) else _kind(item)
-        if sig in shapes:
-            shapes[sig][1] += 1
-        elif len(shapes) < max_shapes:
-            shapes[sig] = [_fields(item) if isinstance(item, dict) else _kind(item), 1]
-        else:
-            other += 1
-    inner = ", ".join(f"{desc} x{n}" for desc, n in shapes.values())
-    if other:
-        inner += f", +{other} of further shapes"
-    return f"list[{len(data)}] of [{inner}]"
+    return f"list[{len(data)}] of [{_elements(data, 0, max_shapes)}]"
 
 
 def parse_delete_ids(raw) -> list[int]:
