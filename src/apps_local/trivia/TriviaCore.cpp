@@ -101,8 +101,10 @@ bool Pack::read(const uint32_t index, Question& out) const {
 }
 
 // One chunked pass when the state file is opened, answering both counts. A byte
-// at a time would be 50,000 reads through the storage mutex; a 256-byte window
-// is 196 of them and the buffer is small enough for the stack.
+// at a time would be one read per question through the storage mutex; a
+// 256-byte window is a 256th of that, and the buffer is small enough for the
+// stack. No question count written down here: the pack is as big as the rating
+// run that built it.
 void PackState::scanCounts() {
   seenCount_ = 0;
   flaggedCount_ = 0;
@@ -123,9 +125,17 @@ bool PackState::open(WritableByteSource& source, const uint32_t count) {
   source_ = nullptr;
   count_ = 0;
   if (count == 0) return false;
-  // A state file shorter than the pack means a pack was replaced under it. The
-  // caller rewrites rather than reading garbage for the tail.
-  if (source.size() < count) return false;
+  // The state file is one byte per pack index, so its length and the pack's
+  // count are the same fact written twice. ANY disagreement means a pack was
+  // replaced under it; the caller rewrites rather than reading bytes that
+  // describe questions no longer at those indices.
+  //
+  // `!=`, not `<`. A LONGER file used to be accepted, on the reasoning that
+  // every index still had a byte -- but a stale FLAGGED byte landing on an
+  // arbitrary question hides it from every draw, with nothing on screen and no
+  // way for a player to clear it. That is what a pack SHRINKING does, which is
+  // what a rated pack does to the 50,000 it replaces.
+  if (source.size() != count) return false;
   source_ = &source;
   count_ = count;
   // Counted here, not lazily: without this the totals start at zero every boot
