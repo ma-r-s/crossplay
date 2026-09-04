@@ -12,8 +12,11 @@ Knucklebones, Battleship, Jaipur, Sea Salt and Toy Battle. Two
 devices next to each other find one another with nothing to type --
 and they do not have to be the same device.
 
-### What is new in 1.12.15
+### What is new in 1.12.16
 
+- Capture each device's artefacts before the next build removes them
+- Trivia: rate the pack locally, on a scale that means something
+- Make the repo presentable: front page, dead links, stale facts
 - The release takes the bootloader from the framework package
 - Release: the notes live in docs/release-notes.md, so the bump touches no workflow file
 - Reading: wrap an article once, not on every page turn
