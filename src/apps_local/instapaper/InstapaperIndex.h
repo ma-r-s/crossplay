@@ -126,6 +126,20 @@ MergePlan mergeSummary(std::vector<Article>& local, const std::vector<Article>& 
                        const std::vector<int64_t>& deleted, const std::vector<int64_t>& archived,
                        const std::vector<int64_t>& hasText);
 
+// What this reader may claim to hold, out of everything its index lists.
+//
+// `have` is a delta: an id in it means "I hold this", and Instapaper answers
+// by suppressing the article. The summary then carries no size for it, and a
+// download with no size is refused, because the length is the only proof a
+// file arrived whole. So a row whose text is missing must not be claimed --
+// otherwise it is suppressed, its size never comes back, and its download is
+// refused on every sync from then on.
+//
+// The rule is the same `hasText` mergeSummary uses, and deliberately so: the
+// set this sync claims and the set it clears progress flags for have to be
+// one set, or a reading position is dropped without ever being sent.
+std::vector<Article> composeHave(const std::vector<Article>& local, const std::vector<int64_t>& hasText);
+
 // The queue's reading order: newest saved first, which is Instapaper's own
 // unread order and the one a reader expects to find their last save at the
 // top of.

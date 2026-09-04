@@ -375,10 +375,14 @@ bool InstapaperActivity::doSyncStart() {
     if (a.archivePending) archive.push_back(a.id);
   }
 
+  // Only the rows whose text is really on the card: claiming one whose file
+  // is missing suppresses it at Instapaper and deadlocks its download. See
+  // composeHave in InstapaperIndex.h.
+  std::vector<instapaper::Article> have = instapaper::composeHave(library_.articles(), library_.presentIds());
+
   // A clock that has never been set must not stamp a reading position. The
   // index keeps the progress either way -- it is only the timestamp that is
   // withheld, and without one the bridge leaves Instapaper's own value alone.
-  std::vector<instapaper::Article> have = library_.articles();
   if (nowOrZero() == 0) {
     for (instapaper::Article& a : have) a.progressAt = 0;
   }
