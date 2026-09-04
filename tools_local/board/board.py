@@ -557,6 +557,16 @@ def cmd_init(st, a):
     print(f"board: ready ({st.name})")
 
 
+def _kept_app_id(st, name, given):
+    """A re-registration without --app-id keeps the app id already on the claim.
+    The hook-visible id changes when a session restarts; the desktop app's id
+    does not, and dropping it silently cut every worker off from Main once."""
+    if given:
+        return norm_sid(given)
+    cur = st.claim(name) or {}
+    return norm_sid(cur.get("app_session")) or None
+
+
 def cmd_pulse(st, a):
     """The hosts the board probes every 30 minutes (pulse_targets)."""
     if not hasattr(st, "_req"):
@@ -585,14 +595,16 @@ def cmd_pulse(st, a):
 
 def cmd_orchestrator(st, a):
     with st.lock():
-        st.set_claim("orchestrator", norm_sid(a.session), a.name, norm_sid(a.app_id) or None)
-    print(f"board: orchestrator is {a.name} ({norm_sid(a.session)}{', app ' + norm_sid(a.app_id) if a.app_id else ''})")
+        app = _kept_app_id(st, "orchestrator", a.app_id)
+        st.set_claim("orchestrator", norm_sid(a.session), a.name, app)
+    print(f"board: orchestrator is {a.name} ({norm_sid(a.session)}{', app ' + app if app else ''})")
 
 
 def cmd_dispatcher(st, a):
     with st.lock():
-        st.set_claim("dispatcher", norm_sid(a.session), a.name, norm_sid(a.app_id) or None)
-    print(f"board: dispatcher is {a.name} ({norm_sid(a.session)}{', app ' + norm_sid(a.app_id) if a.app_id else ''})")
+        app = _kept_app_id(st, "dispatcher", a.app_id)
+        st.set_claim("dispatcher", norm_sid(a.session), a.name, app)
+    print(f"board: dispatcher is {a.name} ({norm_sid(a.session)}{', app ' + app if app else ''})")
 
 
 def cmd_integrator(st, a):
@@ -610,7 +622,7 @@ def cmd_integrator(st, a):
             sys.exit(
                 f"board: integration tree is held by {cur.get('session_id')} since {cur.get('since')}; wait or ask the orchestrator"
             )
-        st.set_claim("integrator", norm_sid(a.session), None, norm_sid(a.app_id) or None)
+        st.set_claim("integrator", norm_sid(a.session), None, _kept_app_id(st, "integrator", a.app_id))
     print(f"board: integration tree claimed by {norm_sid(a.session)}")
 
 

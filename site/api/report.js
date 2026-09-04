@@ -12,6 +12,13 @@
 // ten reports an hour, counted against a salted hash of the address so the
 // address itself is never stored.
 //
+// `device` names one or both of the two boards the fork runs on, comma-joined
+// ("x4pro", "sticky", "x4pro,sticky"). There is no "not sure": a person
+// reporting from a device knows which one they hold, and a report naming
+// neither is refused rather than filed under a value nobody can act on. The
+// card keeps the joined string, in a fixed order, so two reports about both
+// boards read the same.
+//
 // The photo comes in a second request because a buffered Vercel request body
 // is capped at 4.5MB and a phone photo is bigger than that until the page
 // resizes it. The page sends the report first, gets its id, then the photo.
@@ -34,7 +41,7 @@ const PHOTO_TYPES = {
   "image/png": "png",
   "image/webp": "webp",
 };
-const DEVICES = new Set(["x4pro", "sticky", "unknown"]);
+const DEVICES = ["x4pro", "sticky"];
 const VERSION = /^v?\d{1,3}\.\d{1,3}\.\d{1,3}$/;
 const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,190}$/;
 
@@ -98,6 +105,22 @@ function clean(s, max) {
     .slice(0, max);
 }
 
+// "x4pro", "sticky" or both, in any order and any case, with stray spaces.
+// Returns the devices in DEVICES order, or null when the value names anything
+// else or nothing at all.
+function parseDevices(raw) {
+  const picked = new Set(
+    clean(raw, 40)
+      .toLowerCase()
+      .split(",")
+      .map((d) => d.trim())
+      .filter(Boolean),
+  );
+  if (!picked.size) return null;
+  for (const d of picked) if (!DEVICES.includes(d)) return null;
+  return DEVICES.filter((d) => picked.has(d));
+}
+
 async function recentCount(hash) {
   const since = new Date(Date.now() - 3600 * 1000).toISOString();
   const r = await rest(
@@ -135,7 +158,12 @@ async function createReport(req, res) {
   if (what.length < MIN_WHAT)
     return json(res, 400, { error: "Say a little more about what happened." });
   const kind = body.kind === "idea" ? "feature" : "bug";
-  const device = DEVICES.has(body.device) ? body.device : "unknown";
+  const devices = parseDevices(body.device);
+  if (!devices)
+    return json(res, 400, {
+      error: "Which device? Pick X4 Pro, Sticky or both.",
+    });
+  const device = devices.join(",");
   const version = clean(body.version, 16);
   if (version && !VERSION.test(version))
     return json(res, 400, {
@@ -192,11 +220,13 @@ async function createReport(req, res) {
     headers: { Prefer: "return=minimal" },
     body: JSON.stringify({
       card_id: id,
-      what: `reported from the site (${kind}, ${device})`,
+      what: `reported from the site (${kind}, ${devices.join(" and ")})`,
     }),
   });
   // The report is also an event, so the Numbers page counts reports next to
-  // installs and the services' events. A failed count must not fail the report.
+  // installs and the services' events. A failed count must not fail the report. The
+  // board column holds one board; a report about both leaves it empty and
+  // says so in props, rather than inventing a third value for that column.
   await rest("events", {
     method: "POST",
     headers: { Prefer: "return=minimal" },
@@ -204,8 +234,8 @@ async function createReport(req, res) {
       service: "site",
       event: "report",
       version: version || null,
-      board: device === "unknown" ? null : device,
-      props: { card: id, kind },
+      board: devices.length === 1 ? devices[0] : null,
+      props: { card: id, kind, devices },
     }),
   }).catch(() => null);
   return json(res, 201, { id });
