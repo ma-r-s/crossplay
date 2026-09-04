@@ -47,10 +47,10 @@ for _ in $(seq 50); do curl -s -o /dev/null "http://127.0.0.1:$PORT/ok" && break
 export SUPABASE_URL="http://127.0.0.1:$PORT" SUPABASE_ANON_KEY=test PULSE_TIMEOUT=1
 cat > "$WORK/hosts.txt" <<H
 # name method url alive
-site   GET  http://127.0.0.1:$PORT/ok     200
-inbox  POST http://127.0.0.1:$PORT/login  401
-books  GET  http://127.0.0.1:$PORT/auth   2xx,401
-bad    GET  http://127.0.0.1:$PORT/bad    200
+site   GET  http://127.0.0.1:$PORT/ok     200      site
+inbox  POST http://127.0.0.1:$PORT/login  401      site
+books  GET  http://127.0.0.1:$PORT/auth   2xx,401  getbooks
+bad    GET  http://127.0.0.1:$PORT/bad    200      getbooks
 gone   GET  http://127.0.0.1:$PORT/slow   200
 H
 : > "$WORK/events.log"
@@ -61,7 +61,7 @@ grep -q "ok   inbox 401" "$WORK/out" && ok "a POST answered 401 where 401 is exp
 grep -q "ok   books 401" "$WORK/out" && ok "a class list (2xx,401) accepts 401" || bad "books not up"
 grep -q "DOWN bad answered 500" "$WORK/out" && ok "a 500 is down, and says the status" || bad "bad not down"
 grep -q "DOWN gone no answer in 1s" "$WORK/out" && ok "a timeout is down, and says so" || bad "gone not down"
-python3 - "$WORK/events.log" <<'PY' && ok "posted three info and two error events with fixed fingerprints" || bad "the posted events are not what the board expects"
+python3 - "$WORK/events.log" <<'PY' && ok "posted three info and two error events with fixed fingerprints and the owning app" || bad "the posted events are not what the board expects"
 import json, sys
 ev = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
 info = [e for e in ev if e.get("level", "info") == "info"]
@@ -70,10 +70,14 @@ assert len(ev) == 5, ev
 assert all(e["service"] == "pulse" and e["event"] == "probe" for e in ev)
 assert sorted(e["props"]["host"] for e in info) == ["books", "inbox", "site"], info
 assert all(isinstance(e["props"]["ms"], int) and e["props"]["status"] for e in info)
+assert all(e.get("fingerprint") == "pulse|" + e["props"]["host"] for e in info), info  # an ok carries the fingerprint so the board can close the card
 assert sorted(e["fingerprint"] for e in err) == ["pulse|bad", "pulse|gone"], err
 msgs = {e["props"]["host"]: e["props"]["message"] for e in err}
 assert "answered 500" in msgs["bad"] and "/bad" in msgs["bad"], msgs
 assert "no answer in 1s" in msgs["gone"], msgs
+apps = {e["props"]["host"]: e["props"].get("app") for e in ev}
+assert apps["bad"] == "getbooks" and apps["site"] == "site", apps
+assert apps["gone"] == "tooling", apps  # no app column: tooling owns it
 PY
 
 # Without a board address it still probes, and posts nothing.

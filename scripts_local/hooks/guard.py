@@ -270,6 +270,11 @@ def pretool(board, data):
         if not orch:
             return
         to = str(inp.get("to") or inp.get("session_id") or "")
+        # A session's own subagents (Agent tool) are addressed by a bare agent
+        # id, not a session name or a local_ id; they are this session, not a
+        # peer, and the review cycle runs through them.
+        if re.fullmatch(r"a[0-9a-f]{16}", to):
+            return
         name = str(orch.get("name") or "")
         target = to.split(" [")[0].strip().lower()
         allowed = {name.lower(), "main"} if name else {"main"}

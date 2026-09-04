@@ -45,6 +45,13 @@ like any other card. Every later occurrence adds one to the count in
 `error_fingerprints` and attaches to the same card. A fingerprint whose card
 was closed and that comes back opens a new card: that is a regression.
 
+An `info` event that carries a `fingerprint` says that problem is gone:
+the open card for it closes by itself with a "recovered" line. The pulse
+does this on every host that answers; a service that can tell its own
+error is over may do the same.
+
+Send `props.app` when the card belongs to another app's owner than the
+poster (the pulse posts as `pulse`; a dead books host is Get Books').
 Send a `fingerprint` yourself when you know better than the message what
 makes two errors the same (for example the book id is what matters, not the
 timeout).
@@ -85,7 +92,8 @@ daily upstream sync: upstream commits xteink lacks, older than 30 hours,
 with no `sync/upstream-*` pull request open, is an error.
 
 **When your service goes live, add its line to `hosts.txt`** with the
-method, the path, and the status it really answers there (a 401 from a
+method, the path, the status it really answers there, and your app's name
+(the card for an outage lands on that app's owner) (a 401 from a
 Basic-auth root is fine, and is what proves the service is up). A host
 listed before it exists opens a card every half hour.
 
