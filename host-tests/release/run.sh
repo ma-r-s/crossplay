@@ -878,50 +878,26 @@ else
   fi
 fi
 
-# Every image merged at 0x0 needs a bootloader that exists by then.
+# One pio run invocation for both devices, and the reason is three files away.
 #
-# It used to exist because compiling the Arduino IDF produced it as a
-# by-product. e31dcbb0 stopped that compile, the firmware builds carried on
-# passing because only merge-bin ever reads the file, and v1.12.14 tagged and
-# then could not publish. So: whatever supplies bootloader.bin, a step must
-# supply it BEFORE the step that merges it, and this asserts that order rather
-# than the mechanism.
-for env_name in gh_release_x4pro gh_release_sticky; do
-  checks=$((checks + 1))
-  consumer=$(grep -n "0x0 *\.pio/build/$env_name/bootloader\.bin" "$WF" | head -1 | cut -d: -f1)
-  producer=$(grep -n "^ *out=\"\.pio/build/\$env_name/bootloader\.bin\"\|elf2image" "$WF" | head -1 | cut -d: -f1)
-  if [ -z "$consumer" ]; then
-    failed=$((failed + 1))
-    echo "FAIL release  nothing merges a bootloader at 0x0 for $env_name"
-  elif [ -z "$producer" ]; then
-    failed=$((failed + 1))
-    echo "FAIL release  $env_name merges .pio/build/$env_name/bootloader.bin at 0x0, but no step in the workflow produces it; the IDF has not been compiled since e31dcbb0"
-  elif [ "$producer" -gt "$consumer" ]; then
-    failed=$((failed + 1))
-    echo "FAIL release  the bootloader for $env_name is produced (line $producer) after it is merged (line $consumer)"
-  else
-    ok
-  fi
-done
-
-# Each device's artefacts must be captured before the NEXT build runs.
+# pio run calls clean_build_dir() once per invocation against the whole
+# .pio/build root, and rmtree's it when compute_project_checksum() differs from
+# the stored one. That checksum covers the .h files under src/ and include/,
+# and this project generates some of those during the build -- gitignored, so
+# absent on a fresh checkout. A SECOND invocation therefore always wipes the
+# first one's output before compiling anything. That is what emptied
+# .pio/build/gh_release_x4pro/ under v1.12.14 and v1.12.15, taking firmware.bin
+# and partitions.bin with the bootloader.
 #
-# The second build tears down the first's output directory -- the sticky build
-# logs "[ComponentManager] Updated build file (55 total removals)" and
-# .pio/build/gh_release_x4pro/ does not survive it. Naming both devices at the
-# end therefore reads files that are gone, which is how v1.12.14 tagged and
-# then failed to publish three times.
+# Splitting the build back into one invocation per device restores it exactly,
+# whether or not the artefacts are named in between.
 checks=$((checks + 1))
-name_x4=$(grep -n "name: Name the x4pro artefacts" "$WF" | head -1 | cut -d: -f1)
-build_sticky=$(grep -n "run: pio run -e gh_release_sticky" "$WF" | head -1 | cut -d: -f1)
-if [ -z "$name_x4" ] || [ -z "$build_sticky" ]; then
-  failed=$((failed + 1))
-  echo "FAIL release  cannot find the x4pro naming step or the sticky build"
-elif [ "$name_x4" -gt "$build_sticky" ]; then
-  failed=$((failed + 1))
-  echo "FAIL release  the sticky build (line $build_sticky) runs before the x4pro artefacts are named (line $name_x4); it removes .pio/build/gh_release_x4pro"
-else
+runs=$(grep -c "run: pio run -e gh_release" "$WF")
+if [ "$runs" -eq 1 ] && grep -q "pio run -e gh_release_x4pro -e gh_release_sticky" "$WF"; then
   ok
+else
+  failed=$((failed + 1))
+  echo "FAIL release  the release must build both devices in ONE pio run invocation (found $runs); a second invocation wipes the first one's .pio/build"
 fi
 
 echo "$checks checks, $failed failed"
