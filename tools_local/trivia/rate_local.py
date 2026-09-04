@@ -241,15 +241,27 @@ class Ollama:
         with urllib.request.urlopen(req, timeout=self.timeout) as r:
             out = json.loads(r.read())
         txt = (out.get("message") or {}).get("content", "")
+        # Ollama 0.33+ reports how much of the prompt came from the KV cache.
+        # The rubric plus the example turns is ~2,000 tokens that never change,
+        # so on a 50,000-question run it is either paid once per slot or paid
+        # 50,000 times, a difference of hours. Assuming which is a good way to
+        # discover it was the second one at question 40,000.
+        # Absent is not zero. Older servers do not report the cached count at
+        # all, and treating a missing field as 0 prints "prefix-cache 0%" --
+        # a confident claim that caching is broken, made by a build that
+        # cannot see it either way.
+        raw = out.get("prompt_eval_cached_count")
+        cached = -1 if raw is None else raw
+        total = out.get("prompt_eval_count") or 0
         if self.mode == "ev":
             v = expected_value(out.get("logprobs"), txt)
             if v is not None:
-                return v, txt
+                return v, txt, total, cached
             # No usable distribution (a server that dropped logprobs, or a
             # reply with no digit in its top-20). Fall through to the integer
             # rather than silently returning nothing.
         v = parse_score(txt)
-        return (float(v) if v is not None else None), txt
+        return (float(v) if v is not None else None), txt, total, cached
 
 
 def run(a):
@@ -294,7 +306,8 @@ def run(a):
     lock = threading.Lock()
     out = open(a.out, "a", encoding="utf-8")
     bad = open(a.out + ".bad", "a", encoding="utf-8")
-    state = {"n": 0, "bad": 0, "err": 0, "t0": time.time()}
+    state = {"n": 0, "bad": 0, "err": 0, "ptok": 0, "pcached": 0,
+             "nocache_field": 0, "t0": time.time()}
     stop = threading.Event()
 
     def worker():
@@ -304,7 +317,7 @@ def run(a):
             except queue.Empty:
                 return
             try:
-                s, txt = client.score(x["q"], x["a"])
+                s, txt, ptok, pcached = client.score(x["q"], x["a"])
             except (urllib.error.URLError, OSError, json.JSONDecodeError) as e:
                 with lock:
                     state["err"] += 1
@@ -312,6 +325,11 @@ def run(a):
                     bad.flush()
                 continue
             with lock:
+                state["ptok"] += ptok
+                if pcached < 0:
+                    state["nocache_field"] += 1
+                else:
+                    state["pcached"] += pcached
                 if s is None:
                     state["bad"] += 1
                     bad.write(f"{x['id']}\tUNPARSED\t{(txt or '')[:200]!r}\n")
@@ -325,8 +343,12 @@ def run(a):
                     el = time.time() - state["t0"]
                     rate = n / el if el else 0
                     left = (len(todo) - n) / rate if rate else 0
+                    hit = ("n/a" if state["nocache_field"]
+                           else f"{100.0 * state['pcached'] / state['ptok']:.0f}%"
+                           if state["ptok"] else "n/a")
                     print(
                         f"  {n:,}/{len(todo):,}  {rate:.2f}/s  "
+                        f"prefix-cache {hit}  "
                         f"bad {state['bad']} err {state['err']}  "
                         f"eta {left / 3600:.1f}h",
                         flush=True,
