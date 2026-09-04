@@ -22,6 +22,19 @@ rewrites its `### What is new in <version>` block from the merged pull
 requests, the autorelease workflow commits it, and `crossplay-release.yml`
 passes it as the release body. Edit the tooling, not the file.
 
+Only landings that can change a byte a device runs become notes, and the
+question is put to `scripts_local/device-build-needed.sh` -- the same rule
+`release-needed.sh` uses to decide whether to release at all, asked rather than
+copied. v1.12.17 announced seven changes of which four were a board watcher, a
+server-side bridge and two release-pipeline fixes; the excluded ones are
+counted in one trailing line and named in the autorelease job's log. A sync's
+notes come from its body, which lists the upstream commit subjects, rather than
+from a title that only counts them.
+
+This text is read on the GitHub release page. The device never shows it: it
+parses `tag_name` and the asset's name, url and size, and the update screen
+draws two version numbers. What a device raises is "there is a release".
+
 `install.md` is the reader-facing one: everything about getting the firmware
 onto a device except the one-click browser install, which stays on the front
 page because it is what almost everybody wants. It exists so the README does

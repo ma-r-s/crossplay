@@ -12,35 +12,10 @@ Knucklebones, Battleship, Jaipur, Sea Salt and Toy Battle. Two
 devices next to each other find one another with nothing to type --
 and they do not have to be the same device.
 
-### What is new in 1.12.16
+### What is new in 1.12.21
 
-- Capture each device's artefacts before the next build removes them
-- Trivia: rate the pack locally, on a scale that means something
-- Make the repo presentable: front page, dead links, stale facts
-- The release takes the bootloader from the framework package
-- Release: the notes live in docs/release-notes.md, so the bump touches no workflow file
-- Reading: wrap an article once, not on every page turn
-- Autorelease: an emulator rebuild does not count as the tip moving
-- Finish the upstream sync: adopt upstream's margin API, merge the SDK fork with Free-Ink main
-- The black header band reaches the panel's top row
-- Instapaper: parse the article list the API actually sends
-- Ci: xteink queues its runs instead of cancelling them, so releases fire
-- The device never makes a request of its own to report
-- Guard: a write verb counts only as a command word, outside quotes
-- The Anki and Instapaper sign-in pages look like CrossPlay, and say what to do
-- The upstream sync carries the FreeInk SDK and tells the board when it stops
-- Inbox: a desktop layout from 900px, and a fixture to look at it without a passphrase
-- Autorelease: a merge that cannot reach a device is not a release
-- Board: a re-registration keeps the claim's app id
-- Site: the report box is a dialog behind a corner button, not a page
-- Devices report on the requests they already make; services post the events
-- Heartbeat: the device makes no request of its own for reporting
-- The pulse runs on the board, not on GitHub's cron
-- Board: a nightly check opens a card if no device heartbeat ever arrives
-- Daily heartbeat and crash report to the board (cards 18, 103)
-- Assemble the Sticky Playground submission
-- A plural and an -ism are the same option twice
-- Wt.sh prune drops every merged, clean, idle tree at once
+- Trivia: a blind panel drawn from the local rater, and what it found
+- Plus 1 change nothing on the device can see.
 
 ### What WAS new in 1.12.12
 

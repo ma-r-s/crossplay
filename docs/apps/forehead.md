@@ -170,7 +170,7 @@ as large. Deliberately not done: see the note at the end of this file.
 
 ## 5. The words
 
-**2460 entries across 17 categories**, in flash as a `constexpr` table.
+**2474 entries across 17 categories**, in flash as a `constexpr` table.
 
 Generated from `tools_local/forehead/words/*.txt` by `gen_forehead_words.py`, in
 the same shape as Insider's. Edit a `.txt`, run the script, commit both -- the

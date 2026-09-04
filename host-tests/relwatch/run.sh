@@ -48,12 +48,28 @@ trap 'docker rm -f "$CID" >/dev/null 2>&1; rm -rf "$WORK"' EXIT
 
 psql() { docker exec -i "$CID" psql -U postgres -d board -v ON_ERROR_STOP=1 -qtA "$@"; }
 
-for _ in $(seq 1 60); do
+# 420, and the number is evidence rather than a guess.
+#
+# It was 60, then 180. At 180 the diagnostic below finally printed postgres's
+# own log, and it showed the container still running its INITIALISATION at the
+# moment we gave up: temp server started, CREATE DATABASE done, "database
+# system is shut down" -- the shutdown that precedes the real start. So the
+# container had not finished setting itself up, let alone become ready. This
+# suite shares a runner with the firmware build, and under that load a
+# postgres image needs minutes, not seconds.
+#
+# The cost of waiting is CI time on a slow day. The cost of not waiting is a
+# red build on a pull request whose diff cannot touch a database, which is
+# what this has already done twice.
+for _ in $(seq 1 420); do
   docker exec "$CID" pg_isready -U postgres -d board >/dev/null 2>&1 && break
   sleep 1
 done
 if ! docker exec "$CID" pg_isready -U postgres -d board >/dev/null 2>&1; then
-  echo "FAIL relwatch  postgres never came up"
+  # Say WHY. "never came up" names no cause, and the next person to read it is
+  # looking at a red build on an unrelated diff with nothing to go on.
+  echo "FAIL relwatch  postgres never came up within 420s; its own log follows"
+  docker logs "$CID" 2>&1 | tail -20 | sed 's/^/    /'
   exit 1
 fi
 

@@ -1,8 +1,9 @@
 #!/bin/bash
 # Do the cross-compiled device builds need to run for this change?
 #
-# Why this exists: check.sh runs four device builds for every change, behind a
-# workspace-wide lock, taking roughly twenty minutes. It runs them for a
+# Why this exists: check.sh runs the cross-compiled device builds for every
+# change, behind a workspace-wide lock, taking many minutes. (Four of them, when
+# this was written; two since app/gatetrim, in one `pio run`.) It runs them for a
 # documentation edit and for a release-notes rewrite exactly as it runs them for
 # a change to src/. With several trees working at once that is most of the
 # contention in the workspace: sessions queue on a lock for builds that cannot

@@ -203,6 +203,15 @@ Pages pagesFor(const uint32_t topLine, const uint32_t visibleLines, const uint32
   return out;
 }
 
+std::vector<Article> composeHave(const std::vector<Article>& local, const std::vector<int64_t>& hasText) {
+  std::vector<Article> out;
+  out.reserve(hasText.size());
+  for (const Article& a : local) {
+    if (std::find(hasText.begin(), hasText.end(), a.id) != hasText.end()) out.push_back(a);
+  }
+  return out;
+}
+
 MergePlan mergeSummary(std::vector<Article>& local, const std::vector<Article>& incoming,
                        const std::vector<int64_t>& deleted, const std::vector<int64_t>& archived,
                        const std::vector<int64_t>& hasText) {
@@ -211,11 +220,15 @@ MergePlan mergeSummary(std::vector<Article>& local, const std::vector<Article>& 
     return std::find(ids.begin(), ids.end(), id) != ids.end();
   };
 
-  // Every article in the index was in the `have` string this sync sent, so a
-  // sync that reached `done` has delivered every dirty progress value. It is
-  // cleared here rather than per article, because the confirmation is the
-  // sync completing and not any particular row coming back.
-  for (Article& a : local) a.progressDirty = false;
+  // Only what this sync actually claimed. `have` carries the dirty progress
+  // up, and composeHave leaves out any row whose text is missing, so those
+  // rows were never sent and their flags must survive to be sent later. This
+  // used to clear every row on the stated assumption that `have` held them
+  // all; when that stopped being true the flag would have been dropped
+  // without the position ever reaching Instapaper.
+  for (Article& a : local) {
+    if (names(hasText, a.id)) a.progressDirty = false;
+  }
 
   for (const Article& in : incoming) {
     auto it = std::find_if(local.begin(), local.end(), [&](const Article& a) { return a.id == in.id; });

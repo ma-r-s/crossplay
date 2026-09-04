@@ -130,5 +130,93 @@ case "$cip" in
     ;;
 esac
 
+# The release is built once per tag. host-tests/release asserts the SHAPE
+# (the dispatch is conditional on RELEASE_TOKEN, and crossplay-release.yml
+# keeps its tag trigger); this runs the step's own text, lifted from the
+# yaml, with a fake gh that records every call, so a condition that is
+# present but inverted fails here and nowhere else. v1.12.16 was built and
+# published twice on 2026-09-04, one run per path, before either existed.
+AYML="$HERE/../../.github/workflows/crossplay-autorelease.yml"
+python3 - "$AYML" 'Build and publish the release' >"$WORK/publish.sh" <<'PY'
+import sys
+lines = open(sys.argv[1]).read().splitlines()
+i = next(i for i, l in enumerate(lines) if l.strip() == '- name: ' + sys.argv[2])
+j = next(j for j in range(i, len(lines)) if lines[j].strip() == 'run: |')
+body, indent = [], None
+for l in lines[j + 1:]:
+    if not l.strip():
+        body.append('')
+        continue
+    cur = len(l) - len(l.lstrip())
+    if indent is None:
+        indent = cur
+    if cur < indent:
+        break
+    body.append(l[indent:])
+print('\n'.join(body))
+PY
+[ -s "$WORK/publish.sh" ] || { echo "FAIL could not extract the publish step from crossplay-autorelease.yml"; exit 1; }
+mkdir -p "$WORK/bin"
+printf '#!/bin/sh\necho "gh $*" >> "%s/gh.calls"\n' "$WORK" >"$WORK/bin/gh"; chmod +x "$WORK/bin/gh"
+publish() {  # label, PUSH_STARTS_IT value, wanted number of dispatches
+  rm -f "$WORK/gh.calls"
+  ( cd "$WORK" && PATH="$WORK/bin:$PATH" PUSH_STARTS_IT="$2" NEXT=1.2.3 bash -eo pipefail publish.sh >"$WORK/out" 2>&1 )
+  local n; n=$(grep -c 'workflow run crossplay-release.yml --ref v1.2.3' "$WORK/gh.calls" 2>/dev/null || true); [ -n "$n" ] || n=0
+  checks=$((checks + 1))
+  if [ "$n" -ne "$3" ]; then
+    failed=$((failed + 1))
+    echo "FAIL ci-autorelease  $1: crossplay-release.yml dispatched $n times, wanted $3"
+    sed 's/^/       /' "$WORK/out"
+  fi
+}
+publish "a tag pushed with RELEASE_TOKEN is not dispatched again"      true  0
+publish "a tag pushed with the workflow token is dispatched once"      false 1
+publish "no flag at all (no secret, older text) still dispatches once" ""    1
+
+# The two stack-checked device envs build in ONE pio run invocation.
+#
+# pio run wipes the whole .pio/build root on every invocation
+# (clean_build_dir, whose checksum changes because the build generates
+# gitignored headers). Split across two invocations, the x4pro stack check
+# passes only because it is sequenced before the sticky build that deletes its
+# directory -- correct today, guaranteed by nothing, and one moved step from
+# reading a directory that no longer exists.
+#
+# Asserting the grouping rather than the spacing, because the spacing is
+# satisfied by the broken arrangement too: each check already follows its own
+# build. What is missing there is the guarantee, not the order.
+#
+# stack_budget.py refuses rather than passing empty (it exits on no frames and
+# fails an unchecked task), so the split would have gone red rather than
+# silent. That is why this is fragility and not a defect -- and why it is
+# asserted here instead of waiting for someone to trip it.
+checks=$((checks + 1))
+stack_builds=$(grep -c 'fstack-usage.*pio run' "$YML")
+if [ "$stack_builds" -ne 1 ]; then
+  failed=$((failed + 1))
+  echo "FAIL ci  expected ONE stack-flagged pio run covering both device envs, found $stack_builds; each extra invocation wipes .pio/build and leaves the stack checks depending on step order"
+else
+  # Which envs must that invocation cover? Ask the stack checks, do not name
+  # them. They were x4pro and sticky, they are gh_release_x4pro and
+  # gh_release_sticky now that CI builds only what ships, and a hardcoded pair
+  # here would have gone quietly wrong at exactly that rename -- asserting a
+  # grouping over envs the workflow no longer builds.
+  stack_line=$(grep 'fstack-usage.*pio run' "$YML")
+  for env in $(grep -o -- '--build-dir \.pio/build/[A-Za-z0-9_]*' "$YML" | sed 's#.*/##'); do
+    checks=$((checks + 1))
+    case "$stack_line" in
+      *"-e $env"*) ;;
+      *)
+        failed=$((failed + 1))
+        echo "FAIL ci  $env has a stack check but is not built by the stack-flagged invocation"
+        ;;
+    esac
+  done
+  if [ -z "$(grep -o -- '--build-dir \.pio/build/[A-Za-z0-9_]*' "$YML")" ]; then
+    failed=$((failed + 1))
+    echo "FAIL ci  no stack checks found at all; this assertion just checked nothing"
+  fi
+fi
+
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]

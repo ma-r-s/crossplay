@@ -41,7 +41,26 @@ dirty_count() {
 # check ran green because they sat unstaged, and xteink HEAD did not compile for
 # three commits. --committed is the answer; this banner is so you know to reach
 # for it.
-if [ "${1:-}" = "--committed" ]; then
+# --committed ANYWHERE in the arguments, not only as $1.
+#
+# It used to be `[ "${1:-}" = "--committed" ]`, so `check.sh --tests
+# --committed` silently ran a WORKING-TREE check and still printed "all
+# green". The only difference in the output was the absence of the
+# "verifying HEAD (<sha>)" line -- an absence, which is exactly what nobody
+# notices. Someone could push believing HEAD was verified when it never was.
+# Seen 2026-09-04; it cost a session a full run.
+#
+# The remaining arguments are normalised into $1 so the rest of the script,
+# and the throwaway worktree it re-invokes, see the mode flag where they
+# expect it.
+_committed=0
+_rest=""
+for _a in "$@"; do
+  if [ "$_a" = "--committed" ]; then _committed=1; else _rest="$_rest $_a"; fi
+done
+# shellcheck disable=SC2086
+set -- $_rest
+if [ "$_committed" = "1" ]; then
   # One trial directory PER RUN ($$), never shared. It used to be per tree,
   # which serialised nothing: sessions never close here, and two of them
   # verifying the same tree -- the integration tree, at release time, which is
@@ -164,8 +183,12 @@ if [ "${1:-}" = "--committed" ]; then
   # for the first time by the release workflow, AFTER the tag exists. A typo
   # there costs a delete-and-retag. --committed is the mode you run because you
   # are about to rely on the result, so it builds them.
+  #
+  # It builds them INSTEAD of the dev pair, not as well as it. See the swap at
+  # the build-env list below for why: the dev pair's extra code is the serial
+  # bridge, whose breakage costs a developer and never a user.
   export CHECK_BUILD_RELEASE_ENVS=1
-  (cd "$TRIAL" && ./scripts_local/check.sh "${2:-}")
+  (cd "$TRIAL" && ./scripts_local/check.sh "${1:-}")
   exit $?
 fi
 
@@ -452,6 +475,19 @@ else
   FAILED=1
 fi
 
+# The rating-fed assembler. Same argument as above, plus one of its own: three
+# of its rules fail SILENTLY when undone -- a dropped rating, a short option
+# set and a refitted difficulty level all produce a pack that builds, ships and
+# reads fine, so only a test says the rule is still there.
+if (cd "$REPO" && python3 tools_local/trivia/test_assemble.py) \
+    > "$LOGS/trivia-assemble.log" 2>&1; then
+  printf "  %-12s ok\n" "assemble"
+else
+  printf "  %-12s FAILED\n" "assemble"
+  tail -10 "$LOGS/trivia-assemble.log" | sed 's/^/      /'
+  FAILED=1
+fi
+
 # The sync bridge server suites. Their venvs are not committed; uv rebuilds them
 # in a --committed trial worktree (warm uv cache makes that cheap). A missing
 # toolchain FAILS rather than skips: a bridge change riding a green gate whose
@@ -536,13 +572,24 @@ if [ "${1:-}" != "--tests" ]; then
   FW_LOCK="${PLATFORMIO_BUILD_CACHE_DIR:-$WS/.pio-cache}/x4pro.lock"
 
   BUILD_ENVS="simulator_x4_pro x4pro sticky"
-  # See the note in the --committed block: these are the only builds that
-  # compile the release-path serial code at all.
-  [ -n "${CHECK_BUILD_RELEASE_ENVS:-}" ] && BUILD_ENVS="$BUILD_ENVS gh_release_x4pro gh_release_sticky"
-
-  # ---- do these four builds need to run for THIS change at all? ------------
+  # --committed SWAPS the dev pair for the release pair. It used to APPEND, and
+  # built four device images where two would do.
   #
-  # Four cross-compiled builds, behind a workspace-wide lock, about ten
+  # x4pro and sticky are dev builds: they define CROSSPOINT_DEV_SERIAL_BRIDGE,
+  # and the code that is theirs alone is the serial bridge. A break in it costs
+  # the next person who wants to drive a device over the cable -- a real cost,
+  # but a deferred one, and not one worth gating every landing on. The release
+  # pair is different in kind (see the note in the --committed block): it is
+  # otherwise compiled for the FIRST time by the release workflow, after the tag
+  # exists, where a typo costs a delete and a retag.
+  #
+  # A plain check.sh still builds the dev pair, so a broken debug path surfaces
+  # on the next routine run rather than never.
+  [ -n "${CHECK_BUILD_RELEASE_ENVS:-}" ] && BUILD_ENVS="simulator_x4_pro gh_release_x4pro gh_release_sticky"
+
+  # ---- do these builds need to run for THIS change at all? ----------------
+  #
+  # Cross-compiled builds, behind a workspace-wide lock, several minutes
   # minutes -- and for a change to site/index.html and site/styles.css not one
   # byte of the result can differ. That happened four times in one day, and one
   # session cherry-picked a site-only change through a throwaway worktree to
@@ -606,25 +653,65 @@ if [ "${1:-}" != "--tests" ]; then
     echo "device builds: needed (no usable rule at ${_scope:-<no repo>}; nothing was skipped)"
   fi
 
-  # Every env here except the native simulator reaches into the shared
-  # ~/.platformio, so the lock must SPAN from the first of them to the last.
-  # Both ends are derived from the list rather than named, because naming them
-  # is how this broke: gh_release_x4pro and gh_release_sticky were appended in
-  # 2f860bee and the hardcoded release on "sticky" was not moved with them, so
-  # for a week both release builds ran with no lock at all. That makes a release
-  # gate and any other tree's device build collide by design, and it surfaces as
-  # a missing framework header naming no file of ours -- WiFi.h on 2026-08-29,
-  # the same shape as the sdkconfig.h failure that has cost two sessions.
-  FIRST_FW_ENV="$(printf '%s\n' $BUILD_ENVS | grep -v '^simulator' | head -1)"
-  LAST_FW_ENV="$(printf '%s\n' $BUILD_ENVS | grep -v '^simulator' | tail -1)"
-  for env in $BUILD_ENVS; do
-    printf "build: %-18s %s ...\n" "$env" "$(date +%H:%M:%S)"
+  # ONE `pio run` for every firmware env, and it is not an optimisation.
+  #
+  # PlatformIO decides whether to wipe .pio/build ONCE PER INVOCATION, before it
+  # looks at a single env: run/cli.py calls clean_build_dir() on the build ROOT,
+  # which rmtree's all of it when compute_project_checksum() differs from the
+  # checksum stored inside it. That checksum is over the FILE LIST under src/,
+  # include/ and lib/ -- and this project's pre-scripts (build_html.py,
+  # gen_i18n.py) write gitignored sources into exactly those directories as the
+  # build runs. So on a fresh checkout the checksum changes DURING invocation
+  # #1, and invocation #2 opens by deleting invocation #1's output. Measured in
+  # this tree: 3b39195a before gen_i18n.py ran, d6a9a8f2 after.
+  #
+  # That is what broke v1.12.14 and v1.12.15: the release job built x4pro, built
+  # sticky, and then could not find .pio/build/gh_release_x4pro/bootloader.bin,
+  # because the DIRECTORY was gone. PRs #40 and #41 route around it by capturing
+  # each device's artefacts before the next build starts, which is correct and
+  # is an ordering rule nothing asserts at the point it matters. One invocation
+  # removes the hazard instead of avoiding it: clean_build_dir runs once, sees
+  # one checksum, and no env can delete another's output.
+  #
+  # A unit is one invocation. Simulator envs go one at a time -- native, no
+  # lock, and the build everybody actually waits on -- and every firmware env
+  # goes in a single unit, comma-joined, expanded back into repeated -e below.
+  #
+  # Every env in that firmware unit reaches into the shared ~/.platformio, so
+  # the lock must SPAN it. The unit is derived from the list rather than named,
+  # because naming is how this broke before: gh_release_x4pro and
+  # gh_release_sticky were appended in 2f860bee and the hardcoded release on
+  # "sticky" was not moved with them, so for a week both release builds ran with
+  # no lock at all. That makes a release gate and any other tree's device build
+  # collide by design, and it surfaces as a missing framework header naming no
+  # file of ours -- WiFi.h on 2026-08-29.
+  FW_ENVS="$(printf '%s\n' $BUILD_ENVS | grep -v '^simulator' | tr '\n' ' ' | sed 's/ *$//')"
+  BUILD_UNITS="$(printf '%s\n' $BUILD_ENVS | grep '^simulator' | tr '\n' ' ' | sed 's/ *$//')"
+  [ -n "$FW_ENVS" ] && BUILD_UNITS="$BUILD_UNITS $(printf '%s' "$FW_ENVS" | tr ' ' ',')"
+  # Both ends still derived, never named, and still two names rather than one.
+  # Today the grouping makes them the same unit; the moment a firmware env has
+  # to be built on its own again they diverge, and a span that was written as
+  # "the one unit" would silently stop covering the others. That is the exact
+  # shape of the 2f860bee bug, one refactor later.
+  FIRST_FW_UNIT="$(printf '%s\n' $BUILD_UNITS | grep -v '^simulator' | head -1)"
+  LAST_FW_UNIT="$(printf '%s\n' $BUILD_UNITS | grep -v '^simulator' | tail -1)"
+  for unit in $BUILD_UNITS; do
+    unit_envs="$(printf '%s' "$unit" | tr ',' ' ')"
+    # Repeated -e, built from the unit. `pio run -e a -e b` builds them in
+    # order in one process and exits non-zero if EITHER failed, so nothing about
+    # the gate's verdict changes.
+    unit_args=""
+    for e in $unit_envs; do unit_args="$unit_args -e $e"; done
+    # The log is named for the unit so a two-env unit does not overwrite one
+    # env's log with the other's; commas would be legal but read as a list.
+    UNIT_LOG="$LOGS/$(printf '%s' "$unit" | tr ',' '+').log"
+    printf "build: %-18s %s ...\n" "$(printf '%s' "$unit" | tr ',' '+')" "$(date +%H:%M:%S)"
     BUILD_T0=$(date +%s)
-    if [ "$env" = "$FIRST_FW_ENV" ] && [ -d "$(dirname "$FW_LOCK")" ]; then
+    if [ "$unit" = "$FIRST_FW_UNIT" ] && [ -d "$(dirname "$FW_LOCK")" ]; then
       # A lock is stale when its HOLDER is gone, never merely when it is old.
       # This used to `rm -rf` the lock after 900s with no liveness test at all,
-      # and 900s is shorter than a cold --committed run's four device builds --
-      # so a queued tree stole the lock from a live release gate BY DESIGN and
+      # and 900s is shorter than a cold --committed run's device builds -- so a
+      # queued tree stole the lock from a live release gate BY DESIGN and
       # both then raced ~/.platformio. Seen 2026-08-31: the thief died on
       # `ComponentManager/.../index.lock: File exists`, an error naming no file
       # of ours. The lock now records its holder's pid so a waiter can ask.
@@ -745,11 +832,16 @@ if [ "${1:-}" != "--tests" ]; then
           # a tree whose check.sh predates the owner file, with a plain mkdir,
           # and such a holder cannot tell us whether it is alive -- so assume it
           # is. Treating it as dead and falling through to the builds_alive test
-          # is not safe: a --committed run builds four device envs in sequence,
-          # and between them no `pio run` exists at all, so a waiter landing in
-          # that gap would reclaim a live holder's lock and both would then race
-          # ~/.platformio. Seen on 2026-08-31, an empty x4pro.lock held by a
-          # live pre-owner-file check.sh while another tree waited on it.
+          # is not safe: a holder owns the lock for longer than it runs `pio`.
+          # It holds it across the queue, the cache trim and the gaps between
+          # build units, and in each of those windows no `pio run` exists at
+          # all, so a waiter landing there would reclaim a live holder's lock
+          # and both would then race ~/.platformio. Seen on 2026-08-31, an empty
+          # x4pro.lock held by a live pre-owner-file check.sh while another tree
+          # waited on it. (That run built four device envs in sequence, which
+          # made the window between them the widest one; grouping them into a
+          # single invocation narrowed that particular gap and closed none of
+          # the others.)
           #
           # The cost is that a genuinely dead ownerless lock never self-clears.
           # That is the pre-owner-file status quo, and it is the right way round:
@@ -853,20 +945,29 @@ if [ "${1:-}" != "--tests" ]; then
         fi
       fi
     fi
-    if pio run -e "$env" > "$LOGS/$env.log" 2>&1; then
+    # shellcheck disable=SC2086
+    if pio run $unit_args > "$UNIT_LOG" 2>&1; then
       # The native build reports no RAM/Flash. Say "ok" rather than printing
       # nothing, or a clean build reads like a swallowed failure.
-      grep -E "^(RAM|Flash):" "$LOGS/$env.log" | sed 's/^/  /' || true
+      # Attributed to its env, because one invocation prints both devices'
+      # figures in sequence and four unlabelled numbers are not a flash budget.
+      awk '/^Processing /{e=$2} /^(RAM|Flash):/{printf "  %-18s %s\n", e, $0}' "$UNIT_LOG" || true
       echo "  ok ($(( $(date +%s) - BUILD_T0 ))s)"
     else
       echo "  FAILED ($(( $(date +%s) - BUILD_T0 ))s)"
-      grep -E "error:" "$LOGS/$env.log" | head -5 | sed 's/^/    /'
+      # Five error lines PER ENV, not five per unit. A grouped unit puts both
+      # devices in one log, and a flat `head -5` means the second env's failure
+      # can be entirely absent from the terminal whenever the first produced
+      # five or more -- the diagnostics cost of the grouping, paid back by the
+      # same `Processing` marker the sizes above are split on.
+      awk 'BEGIN{e="(before any env)"}
+           /^Processing /{e=$2; n=0}
+           /error:/{if (n<5) {printf "    %s: %s\n", e, $0; n++}}' "$UNIT_LOG"
       FAILED=1
     fi
-    # Released as soon as the last firmware build is done rather than at exit,
-    # so a tree that still has other work to print does not hold every other
-    # tree up.
-    if [ "$env" = "$LAST_FW_ENV" ]; then
+    # Released as soon as the firmware build is done rather than at exit, so a
+    # tree that still has other work to print does not hold every other tree up.
+    if [ "$unit" = "$LAST_FW_UNIT" ]; then
       # rm -rf, matching the trap: the lock holds an owner file now, so the
       # rmdir this replaced could not empty it and failed into 2>/dev/null --
       # the early release silently stopped happening and every other tree kept
@@ -961,8 +1062,8 @@ fi
 echo
 if [ "$FAILED" -eq 0 ]; then
   # SCOPE_NOTE: a withheld verdict is the stronger statement and wins the line,
-  # but it must still SAY that four builds did not run. Two reasons to distrust
-  # a result are not one reason, and whoever fixes the drift would otherwise get
+  # but it must still SAY that the device builds did not run. Two reasons to
+  # distrust a result are not one, and whoever fixes the drift would otherwise get
   # a clean-looking rerun that is still missing the builds.
   #
   # These two assignments are CONTIGUOUS, with no comment between them, and that
@@ -993,7 +1094,7 @@ if [ "$FAILED" -eq 0 ]; then
     #
     # It must not contain the string "all green", for the reason spelled out
     # above: every grep written before this line existed matches that phrase
-    # and would fail OPEN on a run that skipped four builds. Anything looking
+    # and would fail OPEN on a run that skipped the device builds. Anything looking
     # for the unqualified form finds nothing here and has to read the line.
     echo "HOST GREEN, DEVICE BUILDS SKIPPED ($DEVICE_BUILDS_SKIPPED) -- nothing in this diff reaches a device image, so none was built. logs in $LOGS"
   else

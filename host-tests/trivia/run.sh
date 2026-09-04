@@ -38,8 +38,13 @@ for i in range(300):
           'a': f'Answer {i}', 'd': 1 + i % 5, 'y': 1984 + i % 42}
     if i % 3 == 0:
         it['alt'] = [f'The Answer {i}']
+    # Three shapes must round-trip through the real writer: 6 distractors (the
+    # shipped pack), 3 (what assemble_pack.py now stores, STORED = 3), and no
+    # `w` key at all (read-aloud only).
     if i % 2 == 0:
         it['w'] = [f'Wrong {i}.{w}' for w in range(6)]
+    elif i % 4 == 1:
+        it['w'] = [f'Wrong {i}.{w}' for w in range(3)]
     items.append(it)
 pack_format.write(items, os.path.join(build, 'real.dat'))
 with open(os.path.join(build, 'real.tsv'), 'w', encoding='utf-8') as f:

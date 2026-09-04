@@ -1,8 +1,15 @@
 # TRIVIA
 
-50,000 questions on the card, two ways to play them. The questions and how they
-were chosen are in [../trivia-curation.md](../trivia-curation.md); the on-card
-format is [trivia-pack-format.md](trivia-pack-format.md). This is the app.
+A pack of questions on the card, two ways to play them. The questions and how
+they were chosen are in [../trivia-curation.md](../trivia-curation.md); the
+on-card format is [trivia-pack-format.md](trivia-pack-format.md). This is the
+app.
+
+**No question count is written down here on purpose.** The shipped pack is
+50,000 clues whose difficulty is Jeopardy's dollar value; the pack
+`assemble_pack.py` builds holds exactly the questions a rating run has reached,
+so it is a different and SMALLER number on every build. The front door reads the
+count off the card.
 
 ## Two modes, because the pack is not uniform
 
@@ -13,9 +20,13 @@ works alone too, the way a flashcard does.
 **SOLO** adds four options and keeps score, because with nobody else in the room
 something has to judge you.
 
-They are not two skins on one mode. Only **18,485 of the 50,000** carry
-distractors, so solo draws from under a third of the pack. The chooser is told
-`requireChoice` and skips the rest.
+They are not two skins on one mode. Not every question carries distractors, so
+solo draws from part of the pack and the chooser is told `requireChoice` and
+skips the rest. How large that part is depends on which builder made the pack:
+**18,485 of the shipped 50,000** (under a third), against **76.6%** of a pack
+assembled from the local rating run, which generates its own candidate options
+rather than drawing them from questions of the same type. That share is flat
+across the five levels (72.7% to 82.5%), so no level is short of solo material.
 
 ## The question screen
 
