@@ -185,6 +185,19 @@ directory it lives in, so run it from whichever worktree you want to look at
 and give each one its own port. That is how to see a change before it deploys,
 which beats finding out in production.
 
+The inbox page (`/inbox/`) needs a passphrase and a board, and a layout
+change needs neither. `serve.py` answers `POST /api/inbox` from a JSON file
+when `INBOX_FIXTURE` names one, whatever passphrase is typed:
+
+```bash
+INBOX_FIXTURE=site/inbox/fixture.json python3 site/serve.py 8099
+```
+
+`site/inbox/fixture.json` holds three open asks, forty cards and every table
+the Numbers section reads; `host-tests/site/run.sh` fails when the page starts
+reading a key the fixture lacks. Dev only: production is `api/inbox.js` and
+never runs `serve.py`, so the fixture cannot leak.
+
 Changes must be _looked at_, not reasoned about -- the same rule the device
 apps follow. `pageshot.py` renders full-page and sliced captures at any width
 and colour scheme through the Chrome already installed:

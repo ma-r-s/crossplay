@@ -1,0 +1,897 @@
+{
+  "_comment": "Dev-only fixture for site/inbox/. serve.py answers POST /api/inbox from this file when INBOX_FIXTURE names it, whatever the passphrase. Shapes follow api/inbox.js: list -> {inbox, cards}, numbers -> the nine views. Production never reads it.",
+  "list": {
+    "inbox": [
+      {
+        "blocker_id": 41,
+        "n": 2,
+        "card_id": 118,
+        "title": "Wireless flashing for the second X4 Pro",
+        "app": "developer-mode",
+        "kind": "task",
+        "state": "working",
+        "body": "The first unit flashes over Wi-Fi from three trees. The second has never been paired, so every session that needs it still queues for the cable.\nsince: wifi-flash.sh --pair works on unit A; unit B untouched",
+        "ask": "Pair the unit by the window. It needs its six-digit code read off the screen once; after that no session touches the cable.",
+        "default": "The second unit stays on the cable and sessions that need it queue for the desk.",
+        "steps": "1. On the device: Settings > System > Developer Mode > On\n2. Read the six digits it shows under the title\n3. Type them in the answer box and Send\n4. Leave it on the desk, off the cable; the session flashes it over Wi-Fi from here",
+        "created_at": "2026-09-01T20:50:00Z"
+      },
+      {
+        "blocker_id": 44,
+        "n": 1,
+        "card_id": 131,
+        "title": "Wavelength ships the retail deck",
+        "app": "wavelength",
+        "kind": "feature",
+        "state": "review",
+        "body": "The prototype's prompt pairs were typed from the retail Wavelength deck during the design round, and nothing in the repository records permission to ship them. The game is otherwise done: two cold critics played it to the end, the board is public as agreed, and the four ideas the critic rounds killed stay dead.\nsince: 120 original pairs written on app/wavelength-deck and reviewed; three rewritten for being too close to retail wording",
+        "ask": "Two decks exist and one has to ship in v1.13. The retail deck is the 96 pairs typed from the box, funnier, and not ours; shipping it means a credit line in About and a risk nobody here can size. The original deck is 120 pairs written on app/wavelength-deck, reviewed twice, three pairs rewritten for reading like the retail ones, and it is ours outright. Playtests split: the retail pairs got more laughs, the original pairs produced fewer stalls where the psychic could not place the clue at all. Which deck ships, or should both ship with retail behind a toggle that defaults off?",
+        "default": "v1.13 ships the original deck; the retail pairs stay on a branch that never merges.",
+        "steps": null,
+        "created_at": "2026-09-02T19:20:00Z"
+      },
+      {
+        "blocker_id": 47,
+        "n": 1,
+        "card_id": 140,
+        "title": "Trivia category label on the shelf",
+        "app": "trivia",
+        "kind": "task",
+        "state": "working",
+        "body": "since: 50k questions on the card, category filter built and tested",
+        "ask": "Say 'Jeopardy' on the shelf tile, or 'Trivia'? The questions are Jeopardy's and the name may not be ours to print.",
+        "default": "It ships as Trivia.",
+        "steps": null,
+        "created_at": "2026-09-03T11:20:00Z"
+      }
+    ],
+    "cards": [
+      {
+        "id": 140,
+        "title": "Trivia category label on the shelf",
+        "app": "trivia",
+        "state": "working",
+        "parent": 136,
+        "updated_at": "2026-09-03T12:20:00Z"
+      },
+      {
+        "id": 139,
+        "title": "Inbox reads well on a desktop browser",
+        "app": "site",
+        "state": "working",
+        "parent": null,
+        "updated_at": "2026-09-03T06:50:00Z"
+      },
+      {
+        "id": 138,
+        "title": "Everything tree pages past 24 cards",
+        "app": "site",
+        "state": "reported",
+        "parent": null,
+        "updated_at": "2026-09-03T01:20:00Z"
+      },
+      {
+        "id": 137,
+        "title": "Question text overflows the answer band at cut 10",
+        "app": "trivia",
+        "state": "reported",
+        "parent": 136,
+        "updated_at": "2026-09-02T19:50:00Z"
+      },
+      {
+        "id": 136,
+        "title": "Trivia",
+        "app": "trivia",
+        "state": "working",
+        "parent": null,
+        "updated_at": "2026-09-02T14:20:00Z"
+      },
+      {
+        "id": 135,
+        "title": "Numbers tables overflow the phone",
+        "app": "site",
+        "state": "triaged",
+        "parent": 139,
+        "updated_at": "2026-09-02T08:50:00Z"
+      },
+      {
+        "id": 134,
+        "title": "check.sh: a withheld verdict exits zero",
+        "app": "workflow",
+        "state": "review",
+        "parent": null,
+        "updated_at": "2026-09-02T03:20:00Z"
+      },
+      {
+        "id": 133,
+        "title": "Heartbeat posts twice after a wake",
+        "app": "general",
+        "state": "reported",
+        "parent": null,
+        "updated_at": "2026-09-01T21:50:00Z"
+      },
+      {
+        "id": 132,
+        "title": "Clue timer draws over the band",
+        "app": "wavelength",
+        "state": "working",
+        "parent": 129,
+        "updated_at": "2026-09-01T16:20:00Z"
+      },
+      {
+        "id": 131,
+        "title": "Wavelength ships the retail deck",
+        "app": "wavelength",
+        "state": "review",
+        "parent": 129,
+        "updated_at": "2026-09-01T10:50:00Z"
+      },
+      {
+        "id": 130,
+        "title": "Psychic's screen after a tie",
+        "app": "wavelength",
+        "state": "triaged",
+        "parent": 129,
+        "updated_at": "2026-09-01T05:20:00Z"
+      },
+      {
+        "id": 129,
+        "title": "Wavelength",
+        "app": "wavelength",
+        "state": "working",
+        "parent": null,
+        "updated_at": "2026-08-31T23:50:00Z"
+      },
+      {
+        "id": 128,
+        "title": "Pencil marks vanish on wake",
+        "app": "sudoku",
+        "state": "triaged",
+        "parent": null,
+        "updated_at": "2026-08-31T18:20:00Z"
+      },
+      {
+        "id": 127,
+        "title": "Review after sync reads an empty deck",
+        "app": "study",
+        "state": "merged",
+        "parent": null,
+        "updated_at": "2026-08-31T12:50:00Z"
+      },
+      {
+        "id": 126,
+        "title": "Index sync wipes a reading list when the server is empty",
+        "app": "instapaper",
+        "state": "released",
+        "parent": null,
+        "updated_at": "2026-08-31T07:20:00Z"
+      },
+      {
+        "id": 125,
+        "title": "OPDS feed with one entry opens the wrong screen",
+        "app": "getbooks",
+        "state": "released",
+        "parent": null,
+        "updated_at": "2026-08-31T01:50:00Z"
+      },
+      {
+        "id": 124,
+        "title": "Saved articles: the four-column parser",
+        "app": "hackernews",
+        "state": "released",
+        "parent": null,
+        "updated_at": "2026-08-30T20:20:00Z"
+      },
+      {
+        "id": 123,
+        "title": "Comic 1000 pans on both axes",
+        "app": "xkcd",
+        "state": "done",
+        "parent": null,
+        "updated_at": "2026-08-30T14:50:00Z"
+      },
+      {
+        "id": 122,
+        "title": "Promotion menu ignores a tap on the knight",
+        "app": "chess",
+        "state": "reported",
+        "parent": null,
+        "updated_at": "2026-08-30T09:20:00Z"
+      },
+      {
+        "id": 121,
+        "title": "Landscape header hides the score",
+        "app": "solitaire",
+        "state": "triaged",
+        "parent": null,
+        "updated_at": "2026-08-30T03:50:00Z"
+      },
+      {
+        "id": 120,
+        "title": "Link drops after the host sleeps",
+        "app": "battleship",
+        "state": "working",
+        "parent": 115,
+        "updated_at": "2026-08-29T22:20:00Z"
+      },
+      {
+        "id": 119,
+        "title": "Turn discarded on Back",
+        "app": "murdle",
+        "state": "merged",
+        "parent": null,
+        "updated_at": "2026-08-29T16:50:00Z"
+      },
+      {
+        "id": 118,
+        "title": "Wireless flashing for the second X4 Pro",
+        "app": "developer-mode",
+        "state": "working",
+        "parent": 116,
+        "updated_at": "2026-08-29T11:20:00Z"
+      },
+      {
+        "id": 117,
+        "title": "/api/dev/crash returns the last panic",
+        "app": "developer-mode",
+        "state": "released",
+        "parent": 116,
+        "updated_at": "2026-08-29T05:50:00Z"
+      },
+      {
+        "id": 116,
+        "title": "Developer Mode",
+        "app": "developer-mode",
+        "state": "working",
+        "parent": null,
+        "updated_at": "2026-08-29T00:20:00Z"
+      },
+      {
+        "id": 115,
+        "title": "Linkplay",
+        "app": "link",
+        "state": "working",
+        "parent": null,
+        "updated_at": "2026-08-28T18:50:00Z"
+      },
+      {
+        "id": 114,
+        "title": "Handshake timeout on a crowded channel",
+        "app": "link",
+        "state": "review",
+        "parent": 115,
+        "updated_at": "2026-08-28T13:20:00Z"
+      },
+      {
+        "id": 113,
+        "title": "Terrain 7 traced wrong",
+        "app": "toybattle",
+        "state": "done",
+        "parent": null,
+        "updated_at": "2026-08-28T07:50:00Z"
+      },
+      {
+        "id": 112,
+        "title": "Emulator rebuild commits by CI",
+        "app": "site",
+        "state": "merged",
+        "parent": null,
+        "updated_at": "2026-08-28T02:20:00Z"
+      },
+      {
+        "id": 111,
+        "title": "Release notes name the wrong slot size",
+        "app": "workflow",
+        "state": "done",
+        "parent": null,
+        "updated_at": "2026-08-27T20:50:00Z"
+      },
+      {
+        "id": 110,
+        "title": "Report box: a honeypot hit must never store",
+        "app": "site",
+        "state": "released",
+        "parent": null,
+        "updated_at": "2026-08-27T15:20:00Z"
+      },
+      {
+        "id": 109,
+        "title": "Frontlight PWM never attaches on RC_FAST",
+        "app": "general",
+        "state": "parked",
+        "parent": null,
+        "updated_at": "2026-08-27T09:50:00Z"
+      },
+      {
+        "id": 108,
+        "title": "Port the Pint & Play prototype",
+        "app": "insider",
+        "state": "parked",
+        "parent": null,
+        "updated_at": "2026-08-27T04:20:00Z"
+      },
+      {
+        "id": 107,
+        "title": "Study installer: Pyodide fetch stalled by a Vercel challenge",
+        "app": "study",
+        "state": "merged",
+        "parent": null,
+        "updated_at": "2026-08-26T22:50:00Z"
+      },
+      {
+        "id": 106,
+        "title": "Layout rule after six rounds of patching",
+        "app": "seasalt",
+        "state": "review",
+        "parent": null,
+        "updated_at": "2026-08-26T17:20:00Z"
+      },
+      {
+        "id": 105,
+        "title": "Hooks refuse a raw pio run",
+        "app": "workflow",
+        "state": "released",
+        "parent": null,
+        "updated_at": "2026-08-26T11:50:00Z"
+      },
+      {
+        "id": 104,
+        "title": "What two cold critics found after \"finished\"",
+        "app": "knucklebones",
+        "state": "done",
+        "parent": null,
+        "updated_at": "2026-08-26T06:20:00Z"
+      },
+      {
+        "id": 103,
+        "title": "Crash report to the board",
+        "app": "general",
+        "state": "working",
+        "parent": 102,
+        "updated_at": "2026-08-26T00:50:00Z"
+      },
+      {
+        "id": 102,
+        "title": "Observability",
+        "app": "general",
+        "state": "working",
+        "parent": null,
+        "updated_at": "2026-08-25T19:20:00Z"
+      },
+      {
+        "id": 101,
+        "title": "Pulse: one probe per host every 30 minutes",
+        "app": "general",
+        "state": "review",
+        "parent": 102,
+        "updated_at": "2026-08-25T13:50:00Z"
+      }
+    ]
+  },
+  "numbers": {
+    "byVersion": [
+      {
+        "board": "sticky",
+        "version": "1.12.13",
+        "devices": 2
+      },
+      {
+        "board": "x4pro",
+        "version": "1.12.13",
+        "devices": 31
+      },
+      {
+        "board": "x4pro",
+        "version": "1.12.12",
+        "devices": 9
+      },
+      {
+        "board": "x4pro",
+        "version": "1.12.9",
+        "devices": 4
+      },
+      {
+        "board": "x4pro",
+        "version": "1.11.2",
+        "devices": 1
+      },
+      {
+        "board": "unknown",
+        "version": "unknown",
+        "devices": 1
+      }
+    ],
+    "daily": [
+      {
+        "day": "2026-09-03",
+        "devices": 34
+      },
+      {
+        "day": "2026-09-02",
+        "devices": 41
+      },
+      {
+        "day": "2026-09-01",
+        "devices": 39
+      },
+      {
+        "day": "2026-08-31",
+        "devices": 43
+      },
+      {
+        "day": "2026-08-30",
+        "devices": 38
+      },
+      {
+        "day": "2026-08-29",
+        "devices": 36
+      },
+      {
+        "day": "2026-08-28",
+        "devices": 40
+      },
+      {
+        "day": "2026-08-27",
+        "devices": 37
+      },
+      {
+        "day": "2026-08-26",
+        "devices": 35
+      },
+      {
+        "day": "2026-08-25",
+        "devices": 33
+      },
+      {
+        "day": "2026-08-24",
+        "devices": 38
+      },
+      {
+        "day": "2026-08-23",
+        "devices": 36
+      },
+      {
+        "day": "2026-08-22",
+        "devices": 34
+      },
+      {
+        "day": "2026-08-21",
+        "devices": 31
+      },
+      {
+        "day": "2026-08-20",
+        "devices": 30
+      },
+      {
+        "day": "2026-08-19",
+        "devices": 33
+      },
+      {
+        "day": "2026-08-18",
+        "devices": 29
+      },
+      {
+        "day": "2026-08-17",
+        "devices": 28
+      },
+      {
+        "day": "2026-08-16",
+        "devices": 31
+      },
+      {
+        "day": "2026-08-15",
+        "devices": 27
+      },
+      {
+        "day": "2026-08-14",
+        "devices": 26
+      },
+      {
+        "day": "2026-08-13",
+        "devices": 29
+      },
+      {
+        "day": "2026-08-12",
+        "devices": 25
+      },
+      {
+        "day": "2026-08-11",
+        "devices": 24
+      },
+      {
+        "day": "2026-08-10",
+        "devices": 26
+      },
+      {
+        "day": "2026-08-09",
+        "devices": 23
+      },
+      {
+        "day": "2026-08-08",
+        "devices": 22
+      },
+      {
+        "day": "2026-08-07",
+        "devices": 21
+      },
+      {
+        "day": "2026-08-06",
+        "devices": 24
+      },
+      {
+        "day": "2026-08-05",
+        "devices": 20
+      }
+    ],
+    "services": [
+      {
+        "service": "getbooks",
+        "devices_7d": 6,
+        "events_7d": 41
+      },
+      {
+        "service": "hackernews",
+        "devices_7d": 11,
+        "events_7d": 188
+      },
+      {
+        "service": "instapaper",
+        "devices_7d": 4,
+        "events_7d": 37
+      },
+      {
+        "service": "pulse",
+        "devices_7d": 0,
+        "events_7d": 1344
+      },
+      {
+        "service": "release",
+        "devices_7d": 0,
+        "events_7d": 3
+      },
+      {
+        "service": "study",
+        "devices_7d": 9,
+        "events_7d": 265
+      },
+      {
+        "service": "workflow",
+        "devices_7d": 0,
+        "events_7d": 212
+      },
+      {
+        "service": "xkcd",
+        "devices_7d": 7,
+        "events_7d": 93
+      }
+    ],
+    "errors": [
+      {
+        "service": "getbooks",
+        "message": "opds: feed https://books.orange-pi/opds timed out after N ms",
+        "count": 14,
+        "last_seen": "2026-09-03T13:08:00Z",
+        "card_id": 125
+      },
+      {
+        "service": "study",
+        "message": "sync: deck N has no cards after pull",
+        "count": 9,
+        "last_seen": "2026-09-03T10:20:00Z",
+        "card_id": 127
+      },
+      {
+        "service": "firmware",
+        "message": "panic: assert failed in HalFile::open (reading /study/index.bin)",
+        "count": 6,
+        "last_seen": "2026-09-03T07:20:00Z",
+        "card_id": 103
+      },
+      {
+        "service": "hackernews",
+        "message": "saved: expected 4 columns, got N",
+        "count": 5,
+        "last_seen": "2026-09-02T14:20:00Z",
+        "card_id": 124
+      },
+      {
+        "service": "instapaper",
+        "message": "index: server returned 0 bookmarks, refusing to wipe N local",
+        "count": 3,
+        "last_seen": "2026-09-02T08:20:00Z",
+        "card_id": 126
+      },
+      {
+        "service": "pulse",
+        "message": "probe ankibridge.orange-pi: connect refused",
+        "count": 29,
+        "last_seen": "2026-09-03T13:50:00Z",
+        "card_id": null
+      },
+      {
+        "service": "firmware",
+        "message": "heartbeat: posted twice within N s of wake",
+        "count": 2,
+        "last_seen": "2026-09-01T14:20:00Z",
+        "card_id": 133
+      },
+      {
+        "service": "xkcd",
+        "message": "image N: bmp wider than the panel and taller than the panel",
+        "count": 1,
+        "last_seen": "2026-08-31T14:20:00Z",
+        "card_id": null
+      }
+    ],
+    "pulse": [
+      {
+        "host": "ankibridge.orange-pi",
+        "last_at": "2026-09-03T13:56:00Z",
+        "up_now": false,
+        "uptime_7d": 91.4,
+        "ms_median": 1120.0,
+        "failures_7d": 29
+      },
+      {
+        "host": "board.supabase",
+        "last_at": "2026-09-03T13:56:00Z",
+        "up_now": true,
+        "uptime_7d": 100.0,
+        "ms_median": 212.5,
+        "failures_7d": 0
+      },
+      {
+        "host": "crossplay.ma-r-s.com",
+        "last_at": "2026-09-03T13:56:00Z",
+        "up_now": true,
+        "uptime_7d": 100.0,
+        "ms_median": 96.0,
+        "failures_7d": 0
+      },
+      {
+        "host": "getbooks.orange-pi",
+        "last_at": "2026-09-03T13:56:00Z",
+        "up_now": true,
+        "uptime_7d": 98.8,
+        "ms_median": 840.0,
+        "failures_7d": 4
+      },
+      {
+        "host": "instapaper-bridge.orange-pi",
+        "last_at": "2026-09-03T13:56:00Z",
+        "up_now": true,
+        "uptime_7d": 99.7,
+        "ms_median": 640.0,
+        "failures_7d": 1
+      }
+    ],
+    "weekly": [
+      {
+        "week": "2026-08-31",
+        "cards_opened": 14,
+        "cards_closed": 9,
+        "asks_to_mario": 6,
+        "answers_from_mario": 4,
+        "error_cards": 3,
+        "refusals": 27,
+        "releases": 1
+      },
+      {
+        "week": "2026-08-24",
+        "cards_opened": 22,
+        "cards_closed": 17,
+        "asks_to_mario": 11,
+        "answers_from_mario": 10,
+        "error_cards": 5,
+        "refusals": 41,
+        "releases": 3
+      },
+      {
+        "week": "2026-08-17",
+        "cards_opened": 19,
+        "cards_closed": 21,
+        "asks_to_mario": 8,
+        "answers_from_mario": 8,
+        "error_cards": 2,
+        "refusals": 35,
+        "releases": 2
+      },
+      {
+        "week": "2026-08-10",
+        "cards_opened": 25,
+        "cards_closed": 18,
+        "asks_to_mario": 13,
+        "answers_from_mario": 12,
+        "error_cards": 4,
+        "refusals": 52,
+        "releases": 4
+      },
+      {
+        "week": "2026-08-03",
+        "cards_opened": 17,
+        "cards_closed": 15,
+        "asks_to_mario": 7,
+        "answers_from_mario": 7,
+        "error_cards": 1,
+        "refusals": 19,
+        "releases": 2
+      },
+      {
+        "week": "2026-07-27",
+        "cards_opened": 12,
+        "cards_closed": 10,
+        "asks_to_mario": 5,
+        "answers_from_mario": 5,
+        "error_cards": 0,
+        "refusals": 8,
+        "releases": 1
+      },
+      {
+        "week": "2026-07-20",
+        "cards_opened": 9,
+        "cards_closed": 6,
+        "asks_to_mario": 3,
+        "answers_from_mario": 3,
+        "error_cards": 0,
+        "refusals": 4,
+        "releases": 1
+      },
+      {
+        "week": "2026-07-13",
+        "cards_opened": 4,
+        "cards_closed": 1,
+        "asks_to_mario": 1,
+        "answers_from_mario": 1,
+        "error_cards": 0,
+        "refusals": 0,
+        "releases": 0
+      }
+    ],
+    "dwell": [
+      {
+        "state": "merged",
+        "n": 14,
+        "median_h": 5.2,
+        "max_h": 61.0
+      },
+      {
+        "state": "reported",
+        "n": 38,
+        "median_h": 9.5,
+        "max_h": 212.0
+      },
+      {
+        "state": "review",
+        "n": 21,
+        "median_h": 3.1,
+        "max_h": 48.7
+      },
+      {
+        "state": "released",
+        "n": 11,
+        "median_h": 30.4,
+        "max_h": 190.2
+      },
+      {
+        "state": "triaged",
+        "n": 29,
+        "median_h": 18.0,
+        "max_h": 156.3
+      },
+      {
+        "state": "working",
+        "n": 27,
+        "median_h": 14.6,
+        "max_h": 98.9
+      }
+    ],
+    "latency": {
+      "open_now": 3,
+      "oldest_open_h": 41.5,
+      "median_answer_h": 6.2,
+      "answered_7d": 11
+    },
+    "byApp": [
+      {
+        "app": "wavelength",
+        "open": 4,
+        "untriaged": 0,
+        "oldest_d": 12.3
+      },
+      {
+        "app": "site",
+        "open": 4,
+        "untriaged": 1,
+        "oldest_d": 6.1
+      },
+      {
+        "app": "general",
+        "open": 4,
+        "untriaged": 1,
+        "oldest_d": 21.0
+      },
+      {
+        "app": "trivia",
+        "open": 3,
+        "untriaged": 1,
+        "oldest_d": 4.4
+      },
+      {
+        "app": "developer-mode",
+        "open": 2,
+        "untriaged": 0,
+        "oldest_d": 9.8
+      },
+      {
+        "app": "link",
+        "open": 2,
+        "untriaged": 0,
+        "oldest_d": 33.5
+      },
+      {
+        "app": "study",
+        "open": 2,
+        "untriaged": 0,
+        "oldest_d": 8.2
+      },
+      {
+        "app": "workflow",
+        "open": 1,
+        "untriaged": 0,
+        "oldest_d": 2.7
+      },
+      {
+        "app": "sudoku",
+        "open": 1,
+        "untriaged": 0,
+        "oldest_d": 5.0
+      },
+      {
+        "app": "chess",
+        "open": 1,
+        "untriaged": 1,
+        "oldest_d": 1.3
+      },
+      {
+        "app": "solitaire",
+        "open": 1,
+        "untriaged": 0,
+        "oldest_d": 7.7
+      },
+      {
+        "app": "battleship",
+        "open": 1,
+        "untriaged": 0,
+        "oldest_d": 15.2
+      },
+      {
+        "app": "murdle",
+        "open": 1,
+        "untriaged": 0,
+        "oldest_d": 3.9
+      },
+      {
+        "app": "seasalt",
+        "open": 1,
+        "untriaged": 0,
+        "oldest_d": 11.6
+      }
+    ],
+    "battery": [
+      {
+        "board": "x4pro",
+        "version": "1.12.13",
+        "battery_pct": 71.5,
+        "devices": 12,
+        "n": 40
+      },
+      {
+        "board": "sticky",
+        "version": "1.12.13",
+        "battery_pct": 64.0,
+        "devices": 2,
+        "n": 5
+      }
+    ]
+  }
+}
