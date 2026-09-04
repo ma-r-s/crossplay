@@ -130,10 +130,17 @@ std::string fitLines(const fui::DrawTarget& target, const char* text, int16_t wi
 
 // --- The reader, for both an article and a thread ------------------------
 
+// The reader's body: the words, the cut they are set in, and the wrap that
+// counts AND draws them. One object rather than three arguments that must
+// agree; see the twin in InstapaperScreens.h for what disagreeing costs.
+struct ReaderBody {
+  const char* text = "";
+  fui::TextStyle style{};
+  toybox::WrappedText* wrap = nullptr;
+};
+
 struct ReaderModel {
   const char* title = "";
-  // The whole document, NUL-terminated and contiguous, as textArea wants it.
-  const char* text = "";
   uint32_t topLine = 0;
   // "3 / 12". Built by the Activity because only it knows the line count.
   const char* pageLabel = "";
@@ -158,16 +165,15 @@ struct ReaderModel {
   bool saved = false;
 };
 
-// The wrap is a required argument for the same reason as Instapaper's: a
+// The body is a required argument for the same reason as Instapaper's: a
 // nullable one with a fall-back to re-wrapping the whole document is the bug
 // this removes, and it would come back the first time somebody added a call
 // site without noticing. See ToyboxWrappedText.h.
-void buildReader(toybox::Screen& screen, const ReaderModel& model, toybox::WrappedText& wrap);
+void buildReader(toybox::Screen& screen, const ReaderModel& model, ReaderBody& body);
 
 // The document's length in lines, wrapped to the width the reader really draws
-// it at, from the same object and the same rect as the drawing.
-uint32_t readerLineCount(const fui::DrawTarget& target, const fui::DeviceContext& device, const fui::TextStyle& style,
-                         const char* text, toybox::WrappedText& wrap);
+// it at, from the same object, rect and style as the drawing.
+uint32_t readerLineCount(const fui::DrawTarget& target, const fui::DeviceContext& device, ReaderBody& body);
 
 // Where the reader's text goes. Exported for the same reason as listBand():
 // the Activity pages by counting the lines that fit in this exact rect, and a

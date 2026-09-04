@@ -725,8 +725,11 @@ void InstapaperActivity::render(RenderLock&&) {
       const fui::Rect body = instapaperui::readerBody(device);
       const int16_t lineHeight = target.lineHeight(tokens.bodyText.font);
       visibleLines_ = fui::textAreaVisibleLines(body, lineHeight);
-      const uint32_t measured =
-          instapaperui::readerLineCount(target, device, tokens.bodyText, document_.c_str(), wrap_);
+      instapaperui::ReaderBody bodyText;
+      bodyText.text = document_.c_str();
+      bodyText.style = tokens.bodyText;
+      bodyText.wrap = &wrap_;
+      const uint32_t measured = instapaperui::readerLineCount(target, device, bodyText);
 
       if (lineCount_ == 0 && measured > 0) {
         // First paint of this opening: put the reader back where they were.
@@ -745,12 +748,33 @@ void InstapaperActivity::render(RenderLock&&) {
 
       instapaperui::ReaderModel model;
       model.title = readerTitle_.c_str();
-      model.text = document_.c_str();
       model.topLine = topLine_;
       model.pageLabel = pageLabel_;
       model.canPagePrev = topLine_ > 0;
       model.canPageNext = visibleLines_ > 0 && topLine_ + visibleLines_ < lineCount_;
-      instapaperui::buildReader(screen, model, wrap_);
+      instapaperui::buildReader(screen, model, bodyText);
+
+      // Re-read AFTER the drawing, never before it.
+      //
+      // The drawing is where a wrap that no longer describes this panel is
+      // caught: buildReader() goes through the same wrap, and the wrap throws
+      // its index away and rebuilds if the window disagrees with it. So on the
+      // one paint where that happens, `measured` above is the count of an
+      // article this panel is not showing -- and closeArticle() would compute
+      // the reading position from THAT and send it to a real Instapaper
+      // account. The fraction would be wrong on somebody's phone, with nothing
+      // on screen to say so, which is the exact failure the whole cache was
+      // built to avoid.
+      //
+      // Cheap: the wrap has just been asked this question, so this is a hit.
+      // A change asks for one more paint, because the page label and the
+      // forward control were computed from the old count too.
+      lineCount_ = instapaperui::readerLineCount(target, device, bodyText);
+      if (lineCount_ != measured) {
+        LOG_INF("INSTA", "wrap changed under the paint: %lu lines, was %lu", static_cast<unsigned long>(lineCount_),
+                static_cast<unsigned long>(measured));
+        requestUpdate();
+      }
       what = "Instapaper reader";
       break;
     }

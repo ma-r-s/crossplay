@@ -44,21 +44,50 @@
 //    paint, because the text cannot change without the content hash changing
 //    -- and that is in the key too.
 //
-// 2. THE INDEX CHECKS ITSELF AGAINST THE DOCUMENT. Drawing a window re-wraps
-//    it from the checkpoint below it, so the walk that draws is also a walk
-//    that can DISAGREE: when the lines between two checkpoints stop coming out
-//    at the count the index recorded, the index is wrong about the world and
-//    is thrown away before anything is drawn. It costs nothing, because the
-//    window had to be walked anyway.
+// 2. THE INDEX CHECKS ITSELF AGAINST THE DOCUMENT. Drawing a window starts one
+//    checkpoint BELOW the one it needs and walks into it, so the walk that
+//    draws is also a walk that can DISAGREE -- and what it compares is WHERE
+//    EVERY CHECKPOINT IT PASSES THROUGH FALLS, not how many lines came out.
+//    Any checkpoint landing on a byte the index did not record means the index
+//    is describing a panel this is not, and it is thrown away before anything
+//    is drawn. The extra stride is the whole cost, and it is what makes the
+//    window's own starting byte checkable instead of assumed.
 //
-//    What layer 2 covers is the window, which is what is on the panel. It
-//    cannot see a divergence elsewhere in the document, so it narrows the gap
-//    left by layer 1 rather than closing it. Both layers, stated plainly, are
-//    the honest position: this is very hard to make stale and it is not
-//    provably impossible.
+//    It compared the COUNT until a review caught it. A change of cut that adds
+//    a line to one paragraph and takes one from the next leaves the count of a
+//    stretch exactly as it was while the byte recorded for a line inside it
+//    stops being the start of a line at all -- so the page was drawn from the
+//    middle of a word and the check said everything was fine. Two pages of a
+//    test document, silently. A count is a proxy for where the breaks fall;
+//    this now checks where the breaks fall.
 //
-// Disagreement therefore costs a rebuild, never a wrong page. That is the
-// property to preserve if this is ever changed.
+// WHAT IS STILL NOT COVERED, stated plainly rather than talked around:
+//
+//   - Layer 1's fingerprint measures the document's characters one at a time
+//     and then all of them run together. It cannot see a change that moves
+//     only a PAIR that does not occur in that run -- kerning. Layer 2 catches
+//     such a change once it disturbs a checkpoint the window passes through,
+//     which is one paint later at worst and only where the reader is looking.
+//
+//   - Layer 2 anchors on checkpoints. A change that is consistent across a
+//     whole stride boundary -- every checkpoint still where it was, breaks
+//     moved in between and back again -- would pass both, and the lines drawn
+//     from a correct checkpoint are correct anyway.
+//
+//   - WHAT ACTUALLY HOLDS THIS SHUT TODAY IS NOT THE KEY. The reading cut is
+//     compiled in: kReadingFontId resolves to reading_serif_14 through
+//     renderer.insertFont() at boot, and there is no runtime path that changes
+//     it. So pair kerning cannot move mid-session and the gap above is not
+//     reachable in this firmware. IF THE READER BODY IS EVER SET IN A CUT
+//     LOADED FROM THE SD CARD -- the motivating example three paragraphs up --
+//     that stops being true, and layer 1 needs to fingerprint pairs rather
+//     than characters before it is.
+//
+// Disagreement costs a rebuild, never a wrong page. And a rebuild changes the
+// line count, so whoever asked for that count has to ask again AFTER the
+// drawing: see InstapaperActivity's Phase::Reading, where getting that order
+// wrong sent a reading position computed against the wrong length to a real
+// account. That is the property to preserve if this is ever changed.
 // ---------------------------------------------------------------------------
 
 #include <FreeInkUI.h>
@@ -119,19 +148,36 @@ class WrappedText {
       // it.
       spans_.clear();
       uint32_t produced = 0;
+      bool agrees = true;
       fui::textAreaWalk(target, rect.width, slice_.c_str(), style,
                         [&](const uint32_t idx, const fui::TextAreaLine& ln) {
                           ++produced;
                           const uint32_t line = firstLine + idx;
+                          // EVERY checkpoint the walk passes through has to be
+                          // where the index says it is. Counting the lines the
+                          // walk produced is not this: a change of cut that
+                          // adds a line to one paragraph and takes one from the
+                          // next leaves the count of the whole stretch exactly
+                          // as it was, while the byte the index recorded for a
+                          // line in between is no longer the start of a line at
+                          // all -- so the page was drawn from the middle of a
+                          // word and the count said everything was fine.
+                          if (line % kStride == 0) {
+                            const uint32_t which = line / kStride;
+                            if (which >= checkpoints_.size() || checkpoints_[which] != sliceStart_ + ln.start) {
+                              agrees = false;
+                            }
+                          }
                           if (line < topLine || line >= topLine + visible) return;
                           spans_.push_back(Span{ln.start, ln.len});
                         });
+      if (produced != expected) agrees = false;
 
       // On the last attempt the index was just built from this very target, so
       // a disagreement there is impossible unless the wrap is not a function
       // of its inputs. Draw anyway rather than return: a reader who is handed
       // a blank page has been handed a crash.
-      if (produced != expected && attempt == 0) {
+      if (!agrees && attempt == 0) {
         key_.built = false;
         continue;
       }
@@ -305,6 +351,13 @@ class WrappedText {
     if (checkpoints_.empty() || lineCount_ == 0) return false;
     uint32_t first = topLine / kStride;
     if (first >= checkpoints_.size()) first = static_cast<uint32_t>(checkpoints_.size() - 1);
+    // One checkpoint FURTHER BACK than the window needs. The extra stride is
+    // what makes the window's own starting byte checkable rather than assumed:
+    // walking into it from the checkpoint below proves that byte is still
+    // where a line begins. Without it the walk starts at the byte the index
+    // chose and can only ever agree with itself, which is how a page drawn
+    // from the middle of a word passed every check there was.
+    if (first > 0) --first;
     uint32_t last = (topLine + visible + kStride - 1) / kStride;
     if (last <= first) last = first + 1;
 
@@ -337,6 +390,7 @@ class WrappedText {
     // few-kilobyte allocation each time is how a long reading session
     // fragments a microcontroller's heap.
     slice_.assign(text + startByte, n);
+    sliceStart_ = startByte;
     firstLine = first * kStride;
     return true;
   }
@@ -351,6 +405,7 @@ class WrappedText {
   // article is open, and a second copy of it is a second copy of the reason
   // this app runs out of memory.
   std::string slice_;
+  uint32_t sliceStart_ = 0;
   std::vector<uint32_t> checkpoints_;
   std::vector<Span> spans_;
   uint32_t ascii_[4] = {0, 0, 0, 0};

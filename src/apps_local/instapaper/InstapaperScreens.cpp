@@ -210,12 +210,12 @@ fui::Rect readerBody(const fui::DeviceContext& device) {
                        static_cast<int16_t>(device.height - bottom - kBodyTop));
 }
 
-uint32_t readerLineCount(const fui::DrawTarget& target, const fui::DeviceContext& device, const fui::TextStyle& style,
-                         const char* text, toybox::WrappedText& wrap) {
-  return wrap.lineCount(target, readerBody(device).width, text, style);
+uint32_t readerLineCount(const fui::DrawTarget& target, const fui::DeviceContext& device, ReaderBody& body) {
+  if (body.wrap == nullptr) return 0;
+  return body.wrap->lineCount(target, readerBody(device).width, body.text, body.style);
 }
 
-void buildReader(toybox::Screen& screen, const ReaderModel& model, toybox::WrappedText& wrap) {
+void buildReader(toybox::Screen& screen, const ReaderModel& model, ReaderBody& body) {
   // The band carries the article's own title. Within this app chrome is Jersey
   // and content is the reading face, and a title is content -- somebody's
   // sentence, in its own case -- so the band borrows the reading cut in paper,
@@ -303,7 +303,9 @@ void buildReader(toybox::Screen& screen, const ReaderModel& model, toybox::Wrapp
   // drawing page forty was the cost of wrapping pages one to forty as well,
   // and it was paid again on the next turn. The wrap draws the same lines the
   // same way; what it does not do is rediscover them.
-  wrap.draw(screen.target(), readerBody(device), model.text, screen.theme().bodyText, model.topLine);
+  if (body.wrap != nullptr) {
+    body.wrap->draw(screen.target(), readerBody(device), body.text, body.style, model.topLine);
+  }
 }
 
 // --- Notices -------------------------------------------------------------

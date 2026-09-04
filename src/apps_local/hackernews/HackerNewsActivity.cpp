@@ -897,7 +897,12 @@ void HackerNewsActivity::render(RenderLock&&) {
       const fui::Rect body = hnui::readerBody(device);
       const int16_t lineHeight = target.lineHeight(tokens.bodyText.font);
       visibleLines_ = fui::textAreaVisibleLines(body, lineHeight);
-      lineCount_ = hnui::readerLineCount(target, device, tokens.bodyText, document_.c_str(), wrap_);
+      hnui::ReaderBody bodyText;
+      bodyText.text = document_.c_str();
+      bodyText.style = tokens.bodyText;
+      bodyText.wrap = &wrap_;
+      lineCount_ = hnui::readerLineCount(target, device, bodyText);
+      const uint32_t measured = lineCount_;
 
       const uint32_t pages = visibleLines_ > 0 ? (lineCount_ + visibleLines_ - 1) / visibleLines_ : 1;
       const uint32_t page = visibleLines_ > 0 ? topLine_ / visibleLines_ + 1 : 1;
@@ -909,7 +914,6 @@ void HackerNewsActivity::render(RenderLock&&) {
       // is the useful fact, and the footer's swap button already names the
       // mode. The builder fits it to the band.
       model.title = readerTitle_.c_str();
-      model.text = document_.c_str();
       model.topLine = topLine_;
       model.pageLabel = pageLabel_;
       model.showingComments = readingComments_;
@@ -930,7 +934,12 @@ void HackerNewsActivity::render(RenderLock&&) {
       // was. Empty only until the first fetch has answered.
       model.canSave = !readerUrl_.empty();
       model.saved = model.canSave && library_.contains(readerUrl_);
-      hnui::buildReader(screen, model, wrap_);
+      hnui::buildReader(screen, model, bodyText);
+      // Re-read after the drawing; see the twin in InstapaperActivity.cpp. No
+      // reading position goes anywhere from here, but the page label and the
+      // forward control were both computed from the old count.
+      lineCount_ = hnui::readerLineCount(target, device, bodyText);
+      if (lineCount_ != measured) requestUpdate();
       what = "HN reader";
       break;
     }
