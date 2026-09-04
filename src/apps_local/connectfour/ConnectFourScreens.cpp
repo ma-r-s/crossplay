@@ -509,7 +509,7 @@ void buildBoard(toybox::Screen& screen, const BoardModel& model) {
   fui::HeaderProps header;
   header.title = "CONNECT FOUR";
   header.borderEdges = fui::EdgesNone;
-  screen.header(header);
+  toybox::headerBand(screen, header);
   screen.insetContent(fui::Insets{toybox::kGutter * 2, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 
   // The capsule first, so the board can never grow into it.
@@ -600,7 +600,7 @@ void buildResult(toybox::Screen& screen, const ResultModel& model) {
   fui::HeaderProps header;
   header.title = headline;
   header.borderEdges = fui::EdgesNone;
-  screen.header(header);
+  toybox::headerBand(screen, header);
   screen.insetContent(fui::Insets{toybox::kGutter, toybox::kMargin, toybox::kMargin, toybox::kMargin});
 
   fui::ButtonProps done;

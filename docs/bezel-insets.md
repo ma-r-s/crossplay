@@ -68,19 +68,47 @@ the glass by default.
 opt back out** via `toybox::absoluteChrome(screen)` followed by
 `toybox::headerBand(screen, props)`: every layout in those apps is tuned
 against the band's BOTTOM edge at `kHeaderHeight`, so that edge stays put
-and nothing below moves -- but the band's visible TOP is the bezel's safe
-top, and the title (plus any right label, and the decorations positioned
-with `toybox::bandCenterY`) centres in the visible part rather than in
-rows nobody can see. Mario's design, arrived at the hard way: the first
-flip moved the whole chrome down by the insets, which ate the gaps the
-layouts were tuned for (boards touched the divider rule, folder icons
-drifted off their rows, Toy Battle's helper text crowded the rule) while
-protecting nothing, because no game ever drew content in the covered rows.
-Cut the hidden millimetre from the band and recentre; do not push the
-screen down. Found on the device, not in the sim, both times. What keeps
-the full safe-area treatment: xkcd (its comic and menus reach the panel
-edge), the readers, and every screen laid out from
-`UITheme::getScreenSafeArea`.
+and nothing below moves -- but the title (plus any right label, and the
+decorations positioned with `toybox::bandCenterY`) centres between the
+bezel's safe top and that bottom edge, rather than in rows nobody can see.
+Mario's design, arrived at the hard way: the first flip moved the whole
+chrome down by the insets, which ate the gaps the layouts were tuned for
+(boards touched the divider rule, folder icons drifted off their rows, Toy
+Battle's helper text crowded the rule) while protecting nothing, because no
+game ever drew content in the covered rows. Cut the hidden millimetre from
+the band and recentre; do not push the screen down. Found on the device,
+not in the sim, both times. What keeps the full safe-area treatment: xkcd
+(its comic and menus reach the panel edge), the readers, and every screen
+laid out from `UITheme::getScreenSafeArea`.
+
+**The band's PAINT, though, starts at the panel's physical top-left corner
+and spans the full width -- ink centring is the only thing the insets move.**
+That is the second half of the same rule and it was missing until
+2026-09-03: `headerBand()` filled from the safe top, so the covered rows
+stayed paper. A covered row is not an invisible row. It is invisible
+HEAD-ON: the glass sits above the panel, so an eye below the device sees
+past the bezel's edge and reads a white strip above every black header in
+the fork. Mario reported it looking up at APPS and GAMES; it was on all 41
+toybox band call sites across 27 files, and no gate could see it because the sim renders the same
+strip and nobody had looked at the top ten rows.
+
+Two consequences worth keeping straight when touching that helper:
+
+- **Paint may bleed under the bezel, ink may not.** The band, the rule
+  under it and Forehead's key bands are paint. The title is ink. A fix that
+  fills to row 0 and then centres the title over the whole band buries the
+  title's air in rows nobody can see; `host-tests/ui` pins the ink centring
+  against exactly that.
+- **`headerBand()` is now the ONLY way a toybox screen draws its band.**
+  Eleven screens (the checkers, connect four, knucklebones, minesweeper and
+  yahtzee boards and results, plus xkcd's `chrome()`) called
+  `screen.header(props)` straight and were missed by the flip: their band
+  came off the safe rect, inset on three sides, so it had a white strip
+  above it AND a white column down each side, and its bottom edge sat 10px
+  below their own menus'. The paint is fixed; the bottom-edge difference is
+  not -- those eleven still lack `absoluteChrome`, and giving it to them
+  moves their content up by the top inset, which is a layout change to be
+  rendered and judged rather than smuggled into a paint fix.
 
 What made the flip safe for the screens that DO honor it, in the order the
 traps were found:
@@ -93,15 +121,23 @@ traps were found:
    to plain `setContentMargin()`; that applies the safe area twice.
 2. **The divider rule** under header bands is `toybox::headerRule(screen)`
    (ToyboxScreen.h), derived from `screen.body().y` right after
-   `screen.header(...)`. The old idiom (a fill at absolute
+   `toybox::headerBand(...)`. The old idiom (a fill at absolute
    `kHeaderHeight + 4`) would sit inside the shifted band and vanish.
 3. **Decorations riding the header band** (the shelf's folder mark, toy
    battle's medal tally, murdle's face doors, connections' and murdle's
    header-door hit rects) position from the band's real top
    (`body().y - kHeaderHeight` right after header(), or `safeRect().y`),
-   never from y=0.
+   never from y=0. Two were missed and fixed on 2026-09-03 with the paint:
+   trivia's hand-drawn right label boxed itself over the whole band, and
+   chess's gear centred on `(kHeaderHeight - size) / 2`. Both centred partly
+   in covered rows and rode about 5px above the title beside them. The rule
+   for anything drawn on the band by hand is `toybox::bandCenterY`, or the
+   same arithmetic where there is no `Screen` to hand (`ChessActivity`
+   reads `getOrientedViewableTRBL` for it).
 4. **Deliberate full-bleed stays full-bleed**: band fills and rules span the
-   panel width (paint may run under the bezel; content may not), the XKCD
+   panel width AND reach its top row (paint may run under the bezel; content
+   may not -- and a band that stopped short of that row is the bug the
+   section above describes), the XKCD
    reader bar and its map stay on the true bottom edge, Connections'
    tap-anywhere hit rect covers the whole panel (the digitizer works over
    the covered strip). The BEZEL ruler app was the other exception, drawing
@@ -111,10 +147,19 @@ traps were found:
    landscape, the insets put 1px on the logical top/bottom and the 10px
    strip inside its side margins, all absorbed. Its chrome shifts by 1px.
 
-Verified by rendering every app's entry screen plus the shelf, both folders
-and PLAYER in the simulator (21 screens) -- the ui host-tests cannot catch
-any of this: they construct `DeviceContext` with `safeArea = {}`, which also
-means they pin the same geometry before and after the flip by construction.
+Verified by rendering every app's ENTRY screen plus the shelf, both folders
+and PLAYER in the simulator (21 screens). Note what an entry screen is: a
+menu, and every menu goes through `headerBand()`. That is why the eleven
+board and result screens that did not were not among the 21 and kept a
+three-sided inset band for a fortnight. A sweep scoped to "the screen each
+app opens on" cannot see the screen you spend the whole game looking at.
+
+The ui host-tests could not catch any of it either, and still cannot by
+default: `device()` in `host-tests/ui/test_ui.cpp` constructs a
+`DeviceContext` with `safeArea = {}`, which pins the same geometry with and
+without the glass BY CONSTRUCTION. `bezelDevice()` beside it carries the
+measured `{10, 1, 0, 1}`; a check about chrome and the bezel has to use it,
+or it is asserting about a device that does not exist.
 
 ## Measuring another unit
 
