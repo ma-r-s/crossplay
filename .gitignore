@@ -58,3 +58,6 @@ qa-artifacts/
 
 # upstream (1.6.0rc): nix flake outputs
 flake.*
+
+# scratch for tools_local/trivia/rate_local.py: corpus, venv, per-model runs
+.rate/
