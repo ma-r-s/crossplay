@@ -456,6 +456,19 @@ else
   FAILED=1
 fi
 
+# The rating-fed assembler. Same argument as above, plus one of its own: three
+# of its rules fail SILENTLY when undone -- a dropped rating, a short option
+# set and a refitted difficulty level all produce a pack that builds, ships and
+# reads fine, so only a test says the rule is still there.
+if (cd "$REPO" && python3 tools_local/trivia/test_assemble.py) \
+    > "$LOGS/trivia-assemble.log" 2>&1; then
+  printf "  %-12s ok\n" "assemble"
+else
+  printf "  %-12s FAILED\n" "assemble"
+  tail -10 "$LOGS/trivia-assemble.log" | sed 's/^/      /'
+  FAILED=1
+fi
+
 # The sync bridge server suites. Their venvs are not committed; uv rebuilds them
 # in a --committed trial worktree (warm uv cache makes that cheap). A missing
 # toolchain FAILS rather than skips: a bridge change riding a green gate whose
