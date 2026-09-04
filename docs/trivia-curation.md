@@ -18,15 +18,15 @@ Measured with `tools_local/trivia/audit_options.py`, which deals 400 sets the
 way the device does (the answer plus three of the six stored distractors) and
 counts what could be used:
 
-| | shipped pack | rebuilt | how it was counted |
-| --- | --- | --- | --- |
-| two options that are one thing | 5.3% | **0.0%** | every stored set |
-| options not capitalised alike | 9.9% | **0.0%** | every stored set |
-| a region named, one option in it | 15.5% | **5.5%** | 400 dealt sets |
-| an option of another kind | 12.8% | **1.0%** | 400 dealt sets, see caveat |
-| an option out of its own time | 2.2% | 1.8% | 400 dealt sets, independent half only |
-| answer is the longest option (chance 25%) | 13.5% | 13.5% | 400 dealt sets |
-| playable as multiple choice | 14,388 | **18,485** | |
+|                                           | shipped pack | rebuilt    | how it was counted                    |
+| ----------------------------------------- | ------------ | ---------- | ------------------------------------- |
+| two options that are one thing            | 5.3%         | **0.0%**   | every stored set                      |
+| options not capitalised alike             | 9.9%         | **0.0%**   | every stored set                      |
+| a region named, one option in it          | 15.5%        | **5.5%**   | 400 dealt sets                        |
+| an option of another kind                 | 12.8%        | **1.0%**   | 400 dealt sets, see caveat            |
+| an option out of its own time             | 2.2%         | 1.8%       | 400 dealt sets, independent half only |
+| answer is the longest option (chance 25%) | 13.5%        | 13.5%      | 400 dealt sets                        |
+| playable as multiple choice               | 14,388       | **18,485** |                                       |
 
 Seeds 1/2/3, so none of it is one lucky draw: kind 12.8/9.0/10.8 -> 1.0/2.2/1.5,
 region 15.5/14.8/12.0 -> 5.5/5.2/5.0, period 2.2/1.8/2.8 -> 1.8/2.2/1.5.
@@ -71,14 +71,14 @@ season every July) costs one command.
 
 Already dropped, with counts from the 544,110-clue source:
 
-| Dropped | Why |
-| --- | --- |
-| 72,867 | wordplay category -- the category IS the puzzle (`WO"RR"DS`, `____UM`) |
-| 60,845 | category-dependent -- no demonstrative, meaningless standalone |
-| 14,057 | too long or too short for the screen |
-| 10,745 | media clue or presenter aside (`(Hi, I'm Marvin Hamlisch...)`) |
-| 9,079 | **the show itself declares a constraint** (see below) |
-| 6,981 | no usable difficulty (daily doubles, unscored) |
+| Dropped | Why                                                                    |
+| ------- | ---------------------------------------------------------------------- |
+| 72,867  | wordplay category -- the category IS the puzzle (`WO"RR"DS`, `____UM`) |
+| 60,845  | category-dependent -- no demonstrative, meaningless standalone         |
+| 14,057  | too long or too short for the screen                                   |
+| 10,745  | media clue or presenter aside (`(Hi, I'm Marvin Hamlisch...)`)         |
+| 9,079   | **the show itself declares a constraint** (see below)                  |
+| 6,981   | no usable difficulty (daily doubles, unscored)                         |
 
 The 9,079 are worth calling out. The dataset's `comments` column carries Alex's
 spoken category explainers -- "Each correct response will begin with that letter
@@ -93,15 +93,15 @@ ignoring.
 from special events. These are exactly the "special edition I don't want to play"
 category:
 
-| Event | Clues | Why it matters |
-| --- | --- | --- |
-| Tournament of Champions | 20,969 | much harder than a normal game |
-| Teen | 15,995 | easier, and skewed to teen pop culture |
-| College | 15,218 | skewed to campus/current topics |
-| Champions Wildcard | 6,220 | hard |
-| Teachers | 5,937 | skewed academic |
-| Celebrity | 4,012 | much easier, celebrity-focused |
-| Kids | 3,665 | easiest |
+| Event                   | Clues  | Why it matters                         |
+| ----------------------- | ------ | -------------------------------------- |
+| Tournament of Champions | 20,969 | much harder than a normal game         |
+| Teen                    | 15,995 | easier, and skewed to teen pop culture |
+| College                 | 15,218 | skewed to campus/current topics        |
+| Champions Wildcard      | 6,220  | hard                                   |
+| Teachers                | 5,937  | skewed academic                        |
+| Celebrity               | 4,012  | much easier, celebrity-focused         |
+| Kids                    | 3,665  | easiest                                |
 
 Every question in the pack carries its event tag (`ev`, empty for a regular
 game), so any of these can be included or excluded with a switch rather than a
@@ -126,14 +126,14 @@ india, california, mexico, canada` -- which is what general knowledge looks like
 
 It sorts convincingly. Top of the ranking:
 
-- *To prevent Portugal from claiming the Spice Islands, he set out to sail around the world* = **Magellan**
-- *Prometheus' brother, cursed to bear the sky upon his back* = **Atlas**
-- *Lausanne in this country is home to the International Olympic Committee* = **Switzerland**
+- _To prevent Portugal from claiming the Spice Islands, he set out to sail around the world_ = **Magellan**
+- _Prometheus' brother, cursed to bear the sky upon his back_ = **Atlas**
+- _Lausanne in this country is home to the International Olympic Committee_ = **Switzerland**
 
 Bottom:
 
-- *Contrary to Whittier's poem, Mary Quantrill, not this title woman, waved the Union flag* = **Barbara Frietchie**
-- *As indicated in Daniel 9:3, they're what a penitent person is said to be wearing* = **sackcloth and ashes**
+- _Contrary to Whittier's poem, Mary Quantrill, not this title woman, waved the Union flag_ = **Barbara Frietchie**
+- _As indicated in Daniel 9:3, they're what a penitent person is said to be wearing_ = **sackcloth and ashes**
 
 **The score ranks, it does not delete.** Nothing is thrown away; the pack is
 sorted and you ship the top slice. Recommended slice: **top 50,000**, which is
@@ -174,7 +174,7 @@ a model would decide alone.
 ## What this does NOT solve
 
 Nobody fact-checks this corpus and neither does any of the above. The generality
-score measures how *often* an answer recurs, not whether the clue is *correct*.
+score measures how _often_ an answer recurs, not whether the clue is _correct_.
 Old clues also age: "this Yugoslavian republic", "the current world record". The
 `y` field carries the air year so a recency filter is available, but no automatic
 check will catch a clue that was true in 1994.
@@ -201,7 +201,7 @@ full pack's median (8.8), so it really is the general-knowledge core rather than
 an arbitrary cut.
 
 5,507 questions carry alternate accepted answers, parsed out of Jeopardy's own
-notation: `(Luther) Burbank` yields *Burbank* plus *Luther Burbank*, `spores (or
+notation: `(Luther) Burbank` yields _Burbank_ plus _Luther Burbank_, `spores (or
 seeds)` yields both. That recovers the alias capability I had said only TriviaQA
 had.
 
@@ -246,3 +246,162 @@ ones that have gone off.
 
 Nothing here fact-checks the corpus. The generality score measures how often an
 answer recurs, not whether the clue is right.
+
+---
+
+## Building the pack from a local rating run
+
+Everything above builds the pack from the Jeopardy TSV, where difficulty is the
+clue's dollar value. That source is **not in this repo and not on this machine**,
+and the dollar value is a fact about a 1994 television show rather than about
+four people in a bar. `tools_local/trivia/enrich_pack.py` rates the corpus
+locally instead, and `tools_local/trivia/assemble_pack.py` turns that rating run
+into a pack.
+
+Two builds, two files, on purpose. `build_pack.py` still owns the TSV path: it
+holds every filter that turns 544k raw clues into 50k shippable ones, and all of
+it needs the source columns. `assemble_pack.py` starts from the output of that
+work -- the decoded pack -- and only re-decides difficulty and options.
+
+```text
+build_pack.py     Jeopardy TSV      -> pack     difficulty from the dollar value
+assemble_pack.py  corpus + ratings  -> pack     difficulty from the local rater
+```
+
+### The command sequence, in order
+
+The rating run appends to `.rate/enriched.jsonl` as it goes and the file is
+usable at any point; a partial run just makes a smaller pack. Run this from the
+tree holding the rating run.
+
+```bash
+# 1. Is the run finished? Rated rows against the worklist it was given.
+#    (The rating tree may also hold its own untracked rate_status.py, which
+#    prints the same thing with a verdict. This line needs nothing but the run.)
+echo "$(cut -d'"' -f4 .rate/enriched.jsonl | sort -u | wc -l) rated of $(wc -l < .rate/rest40383.ids)"
+
+# 2. Assemble. --kick-us also drops US-centric questions; without it they stay.
+python3 tools_local/trivia/assemble_pack.py \
+    --corpus .rate/corpus_repaired.jsonl \
+    --enriched .rate/enriched.jsonl \
+    --out .rate/out/pack.jsonl \
+    --dat .rate/out/pack.dat
+
+# 3. The gate. All 21 must pass; the pack is not shippable at 20/21.
+python3 tools_local/trivia/test_pack.py .rate/out/pack.jsonl
+
+# 4. What a cold player could exploit without knowing anything.
+python3 tools_local/trivia/audit_options.py .rate/out/pack.jsonl
+
+# 5. On the card, beside the .state file the build wrote next to it.
+cp .rate/out/pack.dat  <sd>/trivia/pack.dat
+cp .rate/out/pack.state <sd>/trivia/pack.state
+```
+
+**`pack.state` must be replaced together with `pack.dat`.** State is fixed-width
+and addressed by index, so a state file left over from a different pack marks
+the wrong questions seen. `assemble_pack.py --dat` writes a fresh zeroed one
+beside the pack every time; copy both or neither.
+
+### Three rules in that tool, each of which fails silently when undone
+
+**Join on the corpus's stored id. Never re-derive it.** Ids are a sha1 of
+normalised clue text and `pack_format.py` re-derives them, which is right when
+the text is the text the id was made from. It is wrong here:
+`corpus_repaired.jsonl` deliberately carries pre-repair ids beside post-repair
+clue text, because the pack is addressed by index and moving an id moves a
+question out from under `pack.state`. **349 rows are in that state.** Re-deriving
+drops their ratings, an unrated question is simply excluded, and the result is
+a slightly smaller pack with no error anywhere. The tool prints what re-deriving
+would have cost on every run, which is the only place that number is visible.
+Board card #146.
+
+**A question with fewer than three sound options loses the `w` key entirely.**
+Not a shortened key: no key. A two-option set fails `test_pack.py`'s "every MC
+has at least 3 distractors" and would put two choices on a four-option screen.
+Without the key the question is quizmaster-only and completely correct. Topping
+these up is board card #172.
+
+**`r` maps to `d` by fixed absolute thresholds, never by quantile.** Each level
+is a two-point band on the rater's own 0-10 scale (`LEVELS` in the tool). A
+quantile mapping would be perfectly balanced and would redefine every level each
+time the run is re-cut, so "level 3" would mean one thing at 18,000 rated rows
+and another at 40,000, and a player's difficulty setting would mean nothing
+across builds.
+
+`test_assemble.py` exists to make undoing any of the three loud, and
+`check.sh --tests` runs it.
+
+### The longest-option defect, and why banding alone did not fix it
+
+Model-generated options failed `test_pack.py`'s guessability check: the answer
+was **strictly the longest of the four options 20.6% of the time**, against a bar
+of 15% and a chance rate of 25%. An answer visibly longer than every option is a
+tell a player uses without knowing the subject at all.
+
+Head to head on the same 7,768 questions, the old rule-based picker was 4.2%
+strictly longest and 72.2% tied-longest; the model 20.7% strict and 12.4% tied.
+**Mean option length was 7.5 characters against a 7.7-character answer in both.**
+The model is not writing short options. It is writing options of scattered
+lengths -- stdev 1.63 against the picker's 0.49 -- and scatter is what leaves the
+answer alone at the top. The cause is spread, not bias, and that is why raising
+the option lengths would not have helped.
+
+`distractors.length_ok` is the band the rule-based picker already uses. Applying
+it moved 20.6% to 15.7%: better, and still failing. **Banding cannot finish the
+job, because "the answer is the longest" is a property of the SET.** Three
+options each individually inside the band can still all be shorter than the
+answer.
+
+So the guarantee is constructed rather than sampled for: **every option set
+carries at least one option at least as long as the answer**, and the set is
+then filled by closeness in length. The answer is never strictly longest, on
+every draw the device can make, rather than on average. A question whose
+candidates cannot supply a covering option keeps its clue and loses its options.
+
+Rule-based candidates top up the model's three, so a set that cannot reach three
+in band on model options alone usually still can.
+
+### Exactly three options are stored, where the TSV build stores six
+
+`build_pack.py` stores six and lets the device draw three, so replaying a
+question varies. `assemble_pack.py` stores three. Two reasons, and the trade is
+deliberate:
+
+- **Six is not available for half the pack.** 8,582 of 16,680 questions with a
+  sound option set have only three candidates that survive the band at all.
+- **With three stored, the set on the panel is the set the gate checked.** The
+  cover guarantee is then exact rather than a property of one sampled draw of
+  three from six. Storing six leaves the answer strictly longest on about 4.6%
+  of possible draws while the first three read 0.0%, which is precisely the kind
+  of number that passes a test and reaches a player anyway.
+
+The cost is that replaying a question shows the same three options.
+
+### What a run of this looks like
+
+At 20,706 of 40,383 rated:
+
+```text
+corpus            : 50,000
+ratings           : 20,706
+  ids that moved  : 349 rows carry a pre-repair id
+  re-derive would : lose 156 ratings SILENTLY (card #146)
+  dropped  29,294  unrated (not yet reached by the run)
+  dropped       8  rejected: unanswerable
+
+pack              : 20,698
+  solo MC ready   : 15,945 (3 stored options each)
+  read-aloud only : 4,753 (no sound option set; card #172)
+  difficulty      : {1: 3041, 2: 5701, 3: 4120, 4: 3137, 5: 4699}
+```
+
+`test_pack.py` passes 21/21 on that pack.
+
+**Watch the difficulty spread as the run finishes.** The gate wants no tier more
+than 2.5x the smallest, and the fixed thresholds put that at 5,701 against 3,041
+-- a ratio of 1.87. That is comfortable but it is not guaranteed: the thresholds
+are absolute by design, so a second half of the run that rates differently from
+the first will move the tiers. If `difficulty reasonably spread` fails, the
+answer is to look at the r histogram and move `LEVELS`, once, deliberately, and
+say so here. It is not to switch to quantiles.
