@@ -29,7 +29,7 @@ variables. The public key can only insert; it cannot read anything back.
 | `service` | `firmware`, `getbooks`, `anki`, `instapaper`, `site`, `release`. One word, lowercase, the same word every time.                                      |
 | `event`   | What happened: `heartbeat`, `download`, `search`, `sync`, `install`, `report`, `update`, `error`. Same rule.                                         |
 | `level`   | `info` (default) or `error`.                                                                                                                         |
-| `device`  | A hash of the MAC with a fixed salt, the same on every post from one device. Never the MAC, never a name. Optional for services that have no device. |
+| `device`  | sha256 of the MAC and a secret the device made once and keeps in NVS: pseudonymous, the same on every post from one device, and not matchable to a MAC without that device's secret. Never the MAC, never a name. Optional for services that have no device. |
 | `version` | Firmware version as printed, `1.12.9`. Optional.                                                                                                     |
 | `board`   | `x4pro` or `sticky`. Optional.                                                                                                                       |
 | `props`   | Anything else, small: a format, a byte count, a duration, a book id. For errors, `message` is required.                                              |
@@ -58,11 +58,91 @@ timeout).
 
 ## The heartbeat
 
-Once a day, when the device has Wi-Fi, the firmware posts one event:
-`{"service":"firmware","event":"heartbeat","device":"<hash>","version":"1.12.9","board":"x4pro","props":{"apps":["trivia","hackernews"],"uptime_h":31}}`.
-`apps` is the set opened since the last heartbeat. That single event answers
-"how many devices are on which version" and "how many use each app". A
-switch in Settings turns it off, and the site says so in one sentence.
+Once a day, when the device has Wi-Fi up for some other reason (Developer
+Mode, an app that went online; it never brings the radio up for this), the
+firmware posts one event:
+
+```
+{"service":"firmware","event":"heartbeat","device":"<hash>","version":"1.12.12","board":"x4pro",
+ "props":{"apps":["trivia","hackernews"],"uptime_h":31,"battery_pct":84,"heap_min_kb":112,
+          "ota":{"attempted":true,"ok":false,"error":"too_large","path":"sd"}}}
+```
+
+`apps` is the set opened since the last heartbeat (shelf titles, lowercased,
+`HACKER NEWS` is `hackernews`). `uptime_h` is hours since boot, and deep
+sleep is a boot. `heap_min_kb` is the lowest free heap since boot. `ota` is
+the install attempted since the last heartbeat, from the update screen
+(`path` `ota`) or from a `.bin` picked off the card (`path` `sd`; a file
+refused before the confirmation prompt counts, it is an install the user
+could not have): `ok` is inferred from the version having moved, never from
+what the install screen said, so an install that "succeeded" into the same
+version reads as not ok with no error. That single event answers "how many
+devices are on which version",
+"how many use each app", "which version drains faster" and "who cannot
+update" (the 6.25MB slots of a device flashed before v1.5.3 come back as
+`too_large`).
+
+A boot after a panic posts one more event, `{"event":"crash","level":"error",
+"props":{"message":"<panic reason>","backtrace":"<first two stack lines>"}}`,
+once, so a crash in the field opens a card by itself. Its `version` is the
+one that crashed, written down at the boot after the panic: the record waits
+for Wi-Fi, and an OTA can land in between.
+
+On `x4pro` and `sticky` (ESP32-S3, Xtensa) only an assert or abort panic
+carries a reason, and none carries a trace: `lib/hal/HalSystem.cpp` writes
+the reason from `__wrap_panic_abort` alone and its backtrace wrap captures
+the stack only on RISC-V. A CPU exception (LoadProhibited,
+StoreProhibited, IllegalInstruction) therefore posts `"panic without a
+recorded reason (reset: panic; last log: READER)"`: the `esp_reset_reason()`
+name and the subsystem that logged last before the reset are what the
+fingerprint has to tell two of them apart, and `backtrace` is empty. An
+assert reads `"assert failed: ... (reset: panic)"`. The reason is used only
+when the capture marker was still set at boot (`HalSystem::panicReasonRecorded()`,
+read in `main.cpp` before `checkPanic()` clears it): the text in RTC memory
+outlives the crash that wrote it, so an exception after an assert with no
+clean boot between posts as "without a recorded reason", not as that assert.
+Carrying the program counter and the exception cause is a card, not a
+limitation of the pipe.
+
+`device` is sha256(MAC + a 16-byte secret the device made once from its
+hardware RNG and keeps in NVS, namespace `crossplay`, key `hbsecret`); the
+MAC and the secret are never sent, and without the secret the id cannot be
+matched to a MAC (a vendor prefix leaves 2^24 MACs, seconds of work against
+a salt that is in this repository). When NVS gives no secret the device
+falls back to sha256(MAC + that fixed salt) and logs it. A full flash erase
+makes a new secret, so the device comes back as a new id. The address
+and the public key come from the site's `/api/board-config`, fetched once and
+cached on the card as `/.crosspoint/board.json`, fetched again when the board
+answers 401 or 403 (a key rotation is a Vercel setting, not a release).
+Between heartbeats the apps set, the OTA record and a pending crash live in
+`/.crosspoint/heartbeat.json`, written whenever the state changes: a first
+open, an OTA note (the attempt and the failure), a recorded panic, a failed
+request and the answer that ends a run of them, a send, and the toggle
+going back on.
+
+The post runs inline in `loop()`, with input and the power button waiting
+behind it, and the 5 s timeout is per wait, not per request. `SecureClient`
+makes two connect attempts (a TLS 1.3-capable hello, then a TLS 1.2-only
+one), each a blocking DNS lookup the timeout does not cover, then up to 5 s
+for TCP and up to 5 s for the handshake. A silent :443 therefore costs about
+10 s plus DNS (a dropped SYN spends the two TCP waits and never reaches the
+handshake; a port that accepts and says nothing spends the two handshake
+waits) and up to 20 s plus DNS when both run to the deadline. One request
+per loop pass (the board config on one pass, the event on the next). The
+real bound is the persisted backoff: a request that fails is not tried again
+for 15 minutes, then not before the next UTC day, one try a day until one is
+accepted. That wait (`retry`, `fails`) is in the state file, because deep
+sleep is a boot and a device that sleeps often would otherwise pay the stall
+at every boot.
+
+Settings > System > "Send a daily heartbeat" (default on) turns all of it
+off, and off records nothing: no app open, no OTA note, no panic is written
+to the card while it is off, and switching it back on forgets whatever the
+file still held from before, so there is never a backlog waiting to go out.
+The site says so in one sentence beside the Install button. The rules
+are `src/network/HeartbeatCore.{h,cpp}` and `host-tests/heartbeat` pins
+them; `src/network/Heartbeat.cpp` is the clock, the card, the radio and the
+TLS. The serial log says which decision was taken and why under `HEARTBEAT`.
 
 ## Reading the numbers
 

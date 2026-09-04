@@ -40,6 +40,7 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "images/LoadingIcon.h"
+#include "network/Heartbeat.h"
 #include "nvs.h"
 #include "util/ButtonNavigator.h"
 #include "util/ScreenshotUtil.h"
@@ -370,6 +371,10 @@ void setup() {
   // checkPanic() clears the watchdog capture marker after a successful SD
   // dump, so retain the boot classification for the later activity route.
   const bool rebootedFromPanic = HalSystem::isRebootFromPanic();
+  // And whether that panic wrote its reason down: the same marker, read
+  // before checkPanic() clears it, so the heartbeat can tell this crash's
+  // reason from the last abort's.
+  const bool panicReasonRecorded = HalSystem::panicReasonRecorded();
 
   // Read-and-clear so a panic later in setup() doesn't loop into silent reboot.
   // Bound the target range too — RTC_NOINIT memory is uninitialized on cold boot.
@@ -448,6 +453,9 @@ void setup() {
   HalSystem::checkPanic();
 
   SETTINGS.loadFromFile();
+  // After checkPanic() so the panic record is still there to read, and after
+  // the settings so the toggle is known. Reads one card file; never the radio.
+  heartbeat::begin(rebootedFromPanic, panicReasonRecorded);
   APP_STATE.loadFromFile();
   RECENT_BOOKS.loadFromFile();
   I18N.setLanguage(static_cast<Language>(SETTINGS.language));
@@ -687,6 +695,7 @@ void loop() {
   }
 
   devmode::update();
+  heartbeat::update();
 
 #if CROSSPOINT_DEV_SERIAL_BRIDGE
   // Dev builds route all serial commands (screenshot included) through the

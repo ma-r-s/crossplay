@@ -242,6 +242,28 @@ patch(
 )
 
 
+# lib/hal/HalSystem.h gained panicReasonRecorded() so the heartbeat can tell a
+# fresh panic reason from a stale one (the capture marker, read before
+# checkPanic() clears it). The simulator ships its own HalSystem, and its
+# copy never panics: no reason is ever recorded, so it answers false.
+patch(
+    src / "HalSystem.h",
+    "bool isRebootFromPanic();",
+    "bool isRebootFromPanic();\nbool panicReasonRecorded();",
+    "HalSystem::panicReasonRecorded (header)",
+    marker="panicReasonRecorded",
+)
+
+patch(
+    src / "HalSystem.cpp",
+    "bool HalSystem::isRebootFromPanic() { return false; }",
+    "bool HalSystem::isRebootFromPanic() { return false; }\n"
+    "bool HalSystem::panicReasonRecorded() { return false; }",
+    "HalSystem::panicReasonRecorded (impl)",
+    marker="HalSystem::panicReasonRecorded",
+)
+
+
 # -- the seam, checked rather than remembered -------------------------------
 #
 # lib/hal/HalStorage.h declares one surface; the simulator ships a SECOND
