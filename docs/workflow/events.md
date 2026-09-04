@@ -208,21 +208,30 @@ owner's.
 ## The pulse: what looks from outside
 
 A service that is down posts nothing, and on this table "no events" reads
-as "no usage". So one thing looks from outside: `server/pulse/pulse.sh`,
-run by `.github/workflows/crossplay-pulse.yml` every 30 minutes on GitHub's
-runners, probes every line of `server/pulse/hosts.txt` and posts one
-`pulse`/`probe` event per host, `info` when the host answers with a status
-its line allows, `error` otherwise. The error carries a fixed fingerprint
-per host, so an outage is one card however long it lasts, and a fresh card
-when it comes back after the first was closed. The same run checks the
-daily upstream sync: upstream commits xteink lacks, older than 30 hours,
-with no `sync/upstream-*` pull request open, is an error.
+as "no usage". So the board itself looks from outside: every 30 minutes its
+scheduler (`pg_cron`) fires one HTTP request per row of `pulse_targets`
+through `pg_net`, and three minutes later reads the answers
+(`20260904001000_pulse_on_the_board.sql`). A host that answers with a
+status its row allows is an `info` `pulse`/`probe` event; anything else, a
+timeout included, is an `error` with a fixed fingerprint per host, so an
+outage is one card however long it lasts, closed by the next ok probe and
+reopened as a new card if it returns. The same pass checks the daily
+upstream sync through GitHub's public compare API: upstream commits xteink
+lacks, older than 30 hours, with no `sync/upstream-*` pull request open,
+is an error on `tooling`.
 
-**When your service goes live, add its line to `hosts.txt`** with the
-method, the path, the status it really answers there, and your app's name
-(the card for an outage lands on that app's owner) (a 401 from a
-Basic-auth root is fine, and is what proves the service is up). A host
-listed before it exists opens a card every half hour.
+It runs on the board and not on GitHub because this repository is a fork,
+and GitHub does not run `schedule:` workflows in forks (five slots passed
+in silence with the workflow "active"). `workflow_dispatch` was never
+affected, but a pulse that has to be dispatched is not a pulse.
+
+**When your service goes live, add its row:** `board pulse add <host>
+<GET|POST> <url> <alive> <app>`, where `alive` is the statuses that mean
+up (`200`, `2xx,401`, ...; a 401 from a Basic-auth root is what proves the
+service is up) and `app` is whose card an outage becomes. `board pulse`
+lists the rows; `board pulse remove <host>` drops one. A host added before
+it exists opens a card every half hour. The board records status, not
+latency, so `ms` in `pulse_hosts` is empty for these probes.
 
 ## The workflow's own numbers
 
