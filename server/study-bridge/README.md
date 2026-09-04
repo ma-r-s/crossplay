@@ -96,3 +96,22 @@ and the optional `SUPABASE_URL` / `SUPABASE_ANON_KEY` pair above.
 It is never rsync'd in either direction (`deploy.sh` excludes it, and that
 exclude is load-bearing) and never pasted into commands, where it would land
 in shell history and `ps` output. Edit it in place on the pi.
+
+## The pages people see
+
+`bridge/chrome.py` is the whole look: the band, the three-step rail, the
+figures, the CSS. `bridge/app.py` only decides which words and which step.
+
+It is the site's aesthetic (`site/styles.css`) restated inline, because this
+service is on its own subdomain and cannot link that stylesheet. The two
+typefaces are vendored under `bridge/static/` with their licences and are
+served by an allowlisted `/assets/<name>` route; the Dockerfile's `COPY
+bridge` and the deploy rsync both carry them with no extra step.
+
+The file is the same in both bridges apart from three strings at the top
+(`SERVICE`, `ACCOUNT`, and the hostname in the docstring). `tests/test_pages.py`
+asserts that, so a change to one that is not made to the other goes red.
+
+Every SVG attribute in there is quoted. An unquoted one eats the tag's own
+self-closing slash and the figure renders as an empty box with a caption under
+it, with every suite still green; the same test file refuses that too.
