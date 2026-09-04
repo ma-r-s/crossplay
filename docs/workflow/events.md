@@ -285,7 +285,7 @@ is one card until the next good run closes it. `info` with a pull request
 URL in `props.result`, plus the pull request's `title` and `summary`, opens
 one task card in `review` with source `sync`, so the pull request is on the
 board where the orchestrator's critic finds it; a `result` of `nothing new`
-opens nothing (`20260904001200_sync_pr_card.sql`).
+opens nothing (`20260904001300_sync_pr_card.sql`).
 
 **When your service goes live, add its row:** `board pulse add <host>
 <GET|POST> <url> <alive> <app>`, where `alive` is the statuses that mean

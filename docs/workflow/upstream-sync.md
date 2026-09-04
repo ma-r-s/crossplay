@@ -36,7 +36,7 @@ sync CrossPoint develop (<n> commits)`, body: what came in (their commit
    subjects), what was resolved and by which rule, what was not verified
    (device builds are CI's). The run's `info` event carries the pull
    request's URL, title and summary, and the board opens a task card in
-   `review` from it (`20260904001200_sync_pr_card.sql`); that card is where
+   `review` from it (`20260904001300_sync_pr_card.sql`); that card is where
    the orchestrator's critic finds the pull request. CI gates it; the critic
    reviews it; it merges on green like any other pull request.
 6. **The X4 Pro branch is not this.** Upstream's X4 Pro branch is a sit-down
