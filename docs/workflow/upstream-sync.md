@@ -73,6 +73,11 @@ sync CrossPoint develop (<n> commits)`, body: what came in (their commit
 9. **One stopped branch at a time.** While a `sync/upstream-*` branch from a
    stopped run exists on origin, the run posts the error again and does not
    start another; a person finishes that merge first (it is a firmware card).
+   A `sync/upstream-*` branch that is already merged into `xteink` is a
+   leftover, not a stop: the run deletes it and continues. GitHub deletes
+   merged branches by itself since 2026-09-04 (`delete_branch_on_merge`, the
+   repository setting), so that is the fallback; PR #43's branch outlived its
+   merge by an hour before the setting existed.
 10. **Shallow clones.** The cloud checkout is shallow; `git fetch --unshallow
     origin` first, or the merge reports unrelated histories.
 
