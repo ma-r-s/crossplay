@@ -101,8 +101,10 @@ bool Pack::read(const uint32_t index, Question& out) const {
 }
 
 // One chunked pass when the state file is opened, answering both counts. A byte
-// at a time would be 50,000 reads through the storage mutex; a 256-byte window
-// is 196 of them and the buffer is small enough for the stack.
+// at a time would be one read per question through the storage mutex; a
+// 256-byte window is a 256th of that, and the buffer is small enough for the
+// stack. No question count written down here: the pack is as big as the rating
+// run that built it.
 void PackState::scanCounts() {
   seenCount_ = 0;
   flaggedCount_ = 0;
