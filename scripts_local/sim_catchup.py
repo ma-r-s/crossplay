@@ -98,6 +98,45 @@ patch(
 # Unsupported. That is a real state the enum already carries and the UI
 # already has to handle, not a pretend success. beginUsbDrive() returning
 # false means "this board cannot", which is the truth here.
+# Simulator dep drift, 2026-09-04: upstream crosspoint changed
+# HalGPIO::verifyPowerButtonWakeup() to take no arguments (it reads the settings
+# itself now), and main.cpp calls it that way. The published simulator package
+# still declares the older two-argument form, so the sim build fails on a call
+# that is correct for lib/hal. Bring the simulator's copy to the current
+# signature; its body was already a constant true, because the host wake path is
+# synthetic and there is no button to hold.
+patch(
+    src / "HalGPIO.h",
+    "  bool verifyPowerButtonWakeup(uint16_t requiredDurationMs,\n"
+    "                               bool shortPressAllowed);",
+    "  bool verifyPowerButtonWakeup();",
+    "HalGPIO::verifyPowerButtonWakeup (drop the removed arguments)",
+    marker="verifyPowerButtonWakeup();",
+)
+
+patch(
+    src / "HalGPIO.cpp",
+    "bool HalGPIO::verifyPowerButtonWakeup(uint16_t /*requiredDurationMs*/,\n"
+    "                                      bool /*shortPressAllowed*/) {",
+    "bool HalGPIO::verifyPowerButtonWakeup() {",
+    "HalGPIO::verifyPowerButtonWakeup impl (drop the removed arguments)",
+    marker="verifyPowerButtonWakeup() {",
+)
+
+# Upstream's X4 Classic support (2026-09-04 sync) calls BoardConfig::isX4Classic()
+# from the reader. The simulator ships its own BoardConfig.h that shadows the
+# SDK's, and its Board enum has no XteinkX4Classic at all -- the simulator is an
+# X4 Pro. So the honest answer here is a constant false, not a board test: there
+# is no X4 Classic to be.
+patch(
+    src / "BoardConfig.h",
+    "inline bool hasTouch()",
+    "inline bool isX4Classic() { return false; }  // no X4 Classic profile in the simulator\n"
+    "inline bool hasTouch()",
+    "BoardConfig::isX4Classic (simulator has no such board)",
+    marker="isX4Classic",
+)
+
 patch(
     src / "HalStorage.h",
     "class HalFile;",

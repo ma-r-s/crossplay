@@ -100,6 +100,7 @@ void OpdsServerListActivity::rebuildRowItems() {
     addServer.actionValue = static_cast<int16_t>(serverCount);
     addServer.icon = listIconFor(UIIcon::Library);
     rowItems_.push_back(addServer);
+  }
 
   if (!pickerMode) {
     fui::ListItem folder;
