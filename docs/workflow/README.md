@@ -44,8 +44,9 @@ three ways:
   project ref, the database password, the anon key and the service key.
 - The site's `api/report.js` with the same service key from Vercel's
   environment, for strangers' reports.
-- The inbox page (`site/inbox/`) as a signed-in user, by magic link. Row
-  security admits only the emails in `allowed_users`.
+- The inbox page (`site/inbox/`) through `site/api/inbox.js`, which checks a
+  passphrase against `INBOX_PASSPHRASE_HASH` and only then touches the board
+  with the service key. The page never holds a board key.
 
 The CLI mirrors claims, session bindings and bound cards into
 `<workspace>/.board/` as JSON, and the hooks read only that mirror, so a
