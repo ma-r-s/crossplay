@@ -491,7 +491,23 @@ async def start_sync(request: Request, dev=Depends(require_device)):
     token, secret = accounts.credentials_of(state)
 
     def work():
+        # Counts, never content. Three passes were spent on one sync failure
+        # because the log said only that Instapaper had been called: it could
+        # not say how many rows the reader claimed to hold, how many it was
+        # about to be offered, or whether the summary it never acted on was
+        # empty or twenty-one long. Each of those distinguishes a different
+        # bug, and none of them was recoverable afterwards.
+        log.info("sync start: have=%d archive=%d", len(have), len(archive_ids))
         summary = engine.sync_cycle(st, token, secret, have, archive_ids)
+        log.info(
+            "sync done: articles=%d bytes=%d failed=%d archived=%d deleted=%d withheld=%d",
+            len(summary["articles"]),
+            sum(a.get("bytes", 0) for a in summary["articles"]),
+            len(summary["failed"]),
+            len(summary["archived"]),
+            len(summary["deleteIds"]),
+            summary["withheld"],
+        )
         fresh = st.load_state()
         fresh["status"] = "ok"
         fresh["last_sync"] = int(time.time())

@@ -66,18 +66,49 @@ PASSWORD="pw"
 
 "$PY" - "$WORK/fake.json" <<'PYEOF'
 import json, sys
-prose = "<p>" + ("The panel refreshes in about three hundred milliseconds, which is long "
-                 "enough to see and short enough not to mind. " * 8) + "</p>"
+
+# Sized from Mario's real account on 2026-09-04, because the shape that broke
+# was not three short articles: 21 bookmarks, titles up to 125 characters,
+# urls up to 164, one body of 78KB and 419KB of text in total. A fixture of
+# three 700-byte articles exercises none of the limits a real library hits --
+# the index write, the summary parse, the download loop's length -- so it
+# agreed with every version of this stack, working or not.
+SENTENCE = ("The panel refreshes in about three hundred milliseconds, which is long "
+            "enough to see and short enough not to mind. ")
+
+
+def body(target_bytes):
+    reps = max(1, target_bytes // len(SENTENCE))
+    return "<p>" + (SENTENCE * reps) + "</p>"
+
+
+# One 78KB outlier, the rest spread the way the real ones are.
+sizes = [78566] + [20000, 14000, 9000] + [7000 - (i * 120) for i in range(17)]
+bookmarks = []
+for i, size in enumerate(sizes):
+    n = i + 1
+    # Long enough to reach the same title and url lengths the live account has.
+    title = f"Article {n}: " + ("a headline that keeps going " * 4)[: 125 - 12]
+    url = f"https://example.com/{n}/" + ("path-segment/" * 11)[: 164 - 25]
+    bookmarks.append({
+        "bookmark_id": 2014390000 + n, "url": url, "title": title,
+        "description": "", "time": 1756000000 + n, "progress": 0.0, "progress_timestamp": 0,
+        "folder": "unread", "text": body(size),
+    })
+
 json.dump({
     "users": {"mario@example.com": {"password": "pw", "token": "tok-1", "secret": "sec-1"}},
-    "bookmarks": [
-        {"bookmark_id": 500 + i, "url": f"https://example.com/{i}", "title": f"Article {i}",
-         "description": "", "time": 1756000000 + i, "progress": 0.0, "progress_timestamp": 0,
-         "folder": "unread", "text": prose}
-        for i in range(1, 4)
-    ],
+    "bookmarks": bookmarks,
 }, open(sys.argv[1], "w"))
 PYEOF
+
+# Derived from the fixture, never typed. The counts below used to be the
+# literals 2 and 3 and the id 503; growing the fixture to a realistic library
+# would have left them asserting the old numbers and passing for the wrong
+# reason, which is the failure mode this file has already had twice.
+TOTAL="$("$PY" -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["bookmarks"]))' "$WORK/fake.json")"
+NEWEST="$("$PY" -c 'import json,sys; b=json.load(open(sys.argv[1]))["bookmarks"]; print(max(b, key=lambda x: x["time"])["bookmark_id"])' "$WORK/fake.json")"
+REMAIN=$((TOTAL - 1))
 
 export FAKE_INSTAPAPER_STATE="$WORK/fake.json" FAKE_CONSUMER_KEY=k FAKE_CONSUMER_SECRET=s
 export PYTHONPATH="$SERVICE"
@@ -215,17 +246,20 @@ CARD="$REPO/fs_agent/.crosspoint/instapaper"
 # if it was downloaded, and the progress it pushed up says it was read.
 COUNT="$(grep -c '^[0-9]' "$CARD/index.tsv" 2>/dev/null || echo 0)"
 COUNT="${COUNT//[^0-9]/}"
-[ "$COUNT" -eq 2 ] && say "the two unarchived articles are in the index" \
-  || fail "index holds $COUNT rows, expected 2 after archiving one of three"
+[ "$COUNT" -eq "$REMAIN" ] && say "the $REMAIN unarchived articles are in the index" \
+  || fail "index holds $COUNT rows, expected $REMAIN after archiving one of $TOTAL"
 # find, not ls: under `set -o pipefail` an `ls` that matches nothing fails the
 # whole substitution and kills the script -- which is how the "no .part files"
 # check below, the one that PASSES by matching nothing, silently ended the run
 # three assertions early and still looked like a clean finish.
 FILES="$(find "$CARD" -maxdepth 1 -name 'a*.txt' | wc -l | tr -d ' ')"
-[ "$FILES" -eq 2 ] && say "and both have their text on the card" || fail "$FILES article files, expected 2"
-for id in 501 502; do
+[ "$FILES" -eq "$REMAIN" ] && say "and every one has its text on the card" \
+  || fail "$FILES article files, expected $REMAIN"
+# Every row the index claims must have text behind it: a row whose file is
+# missing or empty opens a blank screen, which reads as a crash.
+while read -r id; do
   if [ -s "$CARD/a$id.txt" ]; then :; else fail "a$id.txt is missing or empty"; fi
-done
+done < <(cut -f1 "$CARD/index.tsv" | grep '^[0-9]')
 # A .part left behind means a download was never committed, and the row it
 # belongs to would open nothing.
 PARTS="$(find "$CARD" -maxdepth 1 -name '*.part' | wc -l | tr -d ' ')"
@@ -234,23 +268,23 @@ if grep -q "INSTA] paired" "$SIMLOG"; then say "the reader confirmed the pairing
 
 # --- phase two: did a press on the device reach the account? ---------------
 #
-# 503 is the newest bookmark, so it is the row the reader opened. Archiving it
+# The newest bookmark, so it is the row the reader opened. Archiving it
 # has to move it out of `unread` on Instapaper's side, take its row off the
 # card, and take its text with it.
 REMOTE="$(curl -sS "http://127.0.0.1:$FAKE_PORT/_test/state")"
 FOLDER="$(printf '%s' "$REMOTE" | "$PY" -c '
 import json,sys
 s=json.load(sys.stdin)
-b=[x for x in s["bookmarks"] if x["bookmark_id"]==503]
-print(b[0].get("folder","?") if b else "missing")')"
+b=[x for x in s["bookmarks"] if x["bookmark_id"]==int(sys.argv[1])]
+print(b[0].get("folder","?") if b else "missing")' "$NEWEST")"
 [ "$FOLDER" = "archive" ] && say "ARCHIVE on the reader archived it on Instapaper" \
-  || fail "bookmark 503 is in folder '$FOLDER', expected archive"
+  || fail "bookmark $NEWEST is in folder '$FOLDER', expected archive"
 
 PROGRESS="$(printf '%s' "$REMOTE" | "$PY" -c '
 import json,sys
 s=json.load(sys.stdin)
-b=[x for x in s["bookmarks"] if x["bookmark_id"]==503]
-print(b[0].get("progress",0) if b else 0)')"
+b=[x for x in s["bookmarks"] if x["bookmark_id"]==int(sys.argv[1])]
+print(b[0].get("progress",0) if b else 0)' "$NEWEST")"
 # Paged twice before archiving, so this must be past the first screen and not
 # the 0.0 a device that never banked its position would send.
 "$PY" -c "import sys; sys.exit(0 if float('$PROGRESS') > 0.0 else 1)" \
@@ -259,8 +293,9 @@ print(b[0].get("progress",0) if b else 0)')"
 
 LEFT="$(grep -c '^[0-9]' "$CARD/index.tsv" 2>/dev/null || echo 0)"
 LEFT="${LEFT//[^0-9]/}"
-[ "$LEFT" -eq 2 ] && say "the archived row is off the card" || fail "index holds $LEFT rows after archiving, expected 2"
-[ ! -f "$CARD/a503.txt" ] && say "and its text was deleted with it" || fail "a503.txt is still on the card"
+[ "$LEFT" -eq "$REMAIN" ] && say "the archived row is off the card" \
+  || fail "index holds $LEFT rows after archiving, expected $REMAIN"
+[ ! -f "$CARD/a$NEWEST.txt" ] && say "and its text was deleted with it" || fail "a$NEWEST.txt is still on the card"
 # A glyph the cut does not carry draws as NOTHING, so this is the only way an
 # overflowing line announces itself. See the font-cuts memory.
 if grep -q "No glyph" "$SIMLOG"; then fail "something drew a glyph these cuts do not have"; else say "no missing glyphs in anything drawn"; fi
