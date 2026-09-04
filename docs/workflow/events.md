@@ -26,7 +26,7 @@ variables. The public key can only insert; it cannot read anything back.
 
 | Field     | What goes in it                                                                                                                                      |
 | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `service` | `firmware`, `getbooks`, `anki`, `instapaper`, `site`, `release`. One word, lowercase, the same word every time.                                      |
+| `service` | `firmware`, `getbooks`, `anki`, `instapaper`, `site`, `release`, `pulse`, `upstream-sync`, `workflow`. One word, lowercase, the same word every time.                                      |
 | `event`   | What happened: `heartbeat`, `download`, `search`, `sync`, `install`, `report`, `update`, `error`. Same rule.                                         |
 | `level`   | `info` (default) or `error`.                                                                                                                         |
 | `device`  | sha256 of the MAC and a secret the device made once and keeps in NVS: pseudonymous, the same on every post from one device, and not matchable to a MAC without that device's secret. Never the MAC, never a name. Optional for services that have no device. |
