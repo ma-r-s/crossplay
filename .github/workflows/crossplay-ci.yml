@@ -6,10 +6,12 @@
 # `xteink` once did not build for three commits because every local check.sh ran
 # against a dirty tree.
 #
-# Deliberately narrow. It builds the firmware and the simulator and runs the
-# host suites, and it does not try to reproduce clang-format or cppcheck --
-# those are upstream's jobs, they run on every pull request already, and a
-# second copy would only drift.
+# It builds the firmware and the simulator and runs the host suites. Since
+# 2026-09-04 it also carries clang-format, the cmake unit tests and cppcheck:
+# those were upstream's ci.yml's jobs, which ran on every pull request until
+# that workflow was disabled (red on the fork's own code for a week, and read
+# by nobody). Its four device builds duplicated the one below, so the workflow
+# stays off and the three jobs the fork had nowhere else live here.
 name: CrossPlay
 
 on:
@@ -137,3 +139,81 @@ jobs:
           for suite in host-tests/*/run.sh; do
             bash "$suite"
           done
+
+  # check.sh runs the same formatter check (clang-format 21, pinned there too)
+  # and the same cmake suite locally; CI is the copy nobody can skip.
+  clang-format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Install clang-format-21
+        run: |
+          wget -q https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 21
+          sudo apt-get update
+          sudo apt-get install -y clang-format-21
+
+      - name: Every file is formatted
+        run: |
+          PATH="/usr/lib/llvm-21/bin:$PATH" ./bin/clang-format-fix
+          git diff --exit-code || (echo "Run bin/clang-format-fix with clang-format 21 and commit the result" && exit 1)
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build
+
+      - name: Cache googletest source
+        uses: actions/cache@v4
+        with:
+          path: build/test/_deps/googletest-src
+          key: ${{ runner.os }}-googletest-${{ hashFiles('test/CMakeLists.txt') }}
+
+      - name: Configure
+        run: cmake -S test -B build/test -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build/test
+
+      - name: Run tests
+        run: ctest --test-dir build/test --output-on-failure -j
+
+  # High severity blocks: that is the class that names a real bug (a reference
+  # to a temporary, in the one finding the fork had). The medium and low
+  # findings (18 and 374 on 2026-09-04) are card #136's backlog; this job's log
+  # lists them on every run, so the number is never a guess.
+  cppcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+
+      - name: Install PlatformIO Core
+        run: uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
+
+      - name: Cache PlatformIO packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+
+      - name: cppcheck, high severity blocks
+        run: pio check --fail-on-defect high
