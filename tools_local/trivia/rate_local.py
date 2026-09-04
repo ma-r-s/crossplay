@@ -65,6 +65,34 @@ Use the whole range. Do not cluster everything in the middle.
 
 Answer with the integer alone. No words, no punctuation, no explanation."""
 
+SCALE_INTL = """THE SCALE. Picture ten separate groups of four ordinary adults sitting in a bar. Not trivia specialists. Mixed ages, mixed backgrounds, general education, no phones. THE GROUP IS INTERNATIONALLY MIXED: people from different countries and continents, not from any one nation. Someone reads the clue aloud. The group has 20 seconds and must produce the answer out loud. There are no multiple choice options.
+
+Give ONE integer 0 to 10: how many of those ten groups get it right.
+
+THIS CORPUS IS AMERICAN AND THE TABLE IS NOT. The questions come from a United States quiz show, so they constantly assume American general knowledge. That assumption is wrong here. Anything that needs US civics, US state geography, US sports, US brands, US television, US school-curriculum history or an American turn of phrase is NEAR ZERO at this table, however ordinary it looks to an American. Judge every clue by what a room of people from many countries would actually produce.
+
+CALIBRATION ANCHORS. Use these to fix the scale:
+
+ 9  This canal opened in 1914 links the Atlantic and Pacific across Central America -> Panama Canal
+ 8  The Greek historian Herodotus called this country "The Gift of the Nile" -> Egypt
+ 7  The wall dividing this city was opened in November 1989 -> Berlin
+ 5  This element, chemical symbol Fe, is the main ingredient of steel -> Iron
+ 4  This Portuguese navigator led the first expedition to sail around the world -> Magellan
+ 2  His discovery of energy quanta earned him the 1918 Nobel Prize for Physics -> Max Planck
+ 2  Missing cowboys looking to start over were often described as "G.T.T.": Gone to this state -> Texas
+ 1  In February 1861 he was chosen provisional president of the Confederacy -> Jefferson Davis
+ 0  Her "Death Comes for the Archbishop" was inspired by the letters of Father Machebeuf -> Willa Cather
+ 0  A perjury charge growing out of this evangelist\'s 1926 disappearance was later dismissed -> Aimee Semple McPherson
+
+FOUR OF THOSE ANCHORS ARE THE POINT. Texas, Jefferson Davis, Willa Cather and Aimee Semple McPherson are the American ones, and they sit at 2, 1, 0 and 0. An American-facing rater would put them far higher. Do not.
+
+Be harsh. Most people know far less than a well-read person assumes. A clue whose only handhold is a name the group has never heard is a 0 or 1 even if the answer itself is famous. A clue that names something everyone associates with the answer is high even if the topic sounds academic. Opera, classical composers beyond the three or four famous ones, poets, and pre-1960 film and television all score low.
+
+Use the whole range. Do not cluster everything in the middle.
+
+Answer with the integer alone. No words, no punctuation, no explanation."""
+
+
 USER = "{q}\nANSWER: {a}"
 
 
@@ -203,12 +231,14 @@ def expected_value(logprobs, content):
 
 
 class Ollama:
-    def __init__(self, host, model, mode="ev", shots=(), num_ctx=4096, timeout=180):
+    def __init__(self, host, model, mode="ev", shots=(), num_ctx=4096,
+                 scale=None, timeout=180):
         self.url = host.rstrip("/") + "/api/chat"
         self.model = model
         self.mode = mode
         self.shots = list(shots)
         self.num_ctx = num_ctx
+        self.scale = scale or SCALE
         self.timeout = timeout
 
     def score(self, q, a):
@@ -217,7 +247,7 @@ class Ollama:
         body = {
             "model": self.model,
             "messages": (
-                [{"role": "system", "content": SCALE}]
+                [{"role": "system", "content": self.scale}]
                 + self.shots
                 + [{"role": "user", "content": USER.format(q=q, a=a)}]
             ),
@@ -306,7 +336,8 @@ def run(a):
         shots, shot_ids = build_shots(a.shots_from, a.shots, excl, corpus)
         print(f"  {len(shot_ids)} example turns from {os.path.basename(a.shots_from)}, "
               f"none of them under test", flush=True)
-    client = Ollama(a.host, a.model, a.mode, shots, a.num_ctx)
+    client = Ollama(a.host, a.model, a.mode, shots, a.num_ctx,
+                    SCALE_INTL if a.scale == "intl" else SCALE)
     work = queue.Queue()
     for x in todo:
         work.put(x)
@@ -396,6 +427,9 @@ def main():
                          "greedy: the single integer it says.")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--report", type=int, default=200)
+    ap.add_argument("--scale", choices=("us", "intl"), default="us",
+                    help="us: the original prompt, whose bar is American by default. "
+                         "intl: the same scale with an internationally mixed table.")
     ap.add_argument("--num-ctx", type=int, default=4096,
                     help="context window; must exceed rubric + examples + question")
     ap.add_argument("--shots", type=int, default=0,
