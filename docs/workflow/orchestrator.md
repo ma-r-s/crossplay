@@ -44,7 +44,9 @@ integrator --session <your id>`) only while you resolve a conflict or
    Mac; the guard once stayed a version behind for a whole evening that way.
 6. **Close.** For each `released` card: worktree dropped, session archived,
    leftovers filed as new cards, `board state <id> done`. A session never
-   outlives its card.
+   outlives its card. Once a tick, `./scripts/wt.sh prune`: it drops every
+   tree that is merged, clean and idle, and nothing else; a tree it keeps
+   has work in it, and that work has a card or needs one.
 7. **Cards that arrive by themselves.** Three kinds need no dispatcher:
    `source: error` (an error event opened it; the count on the card's
    fingerprint says how often; treat it as a bug owned by the service it
