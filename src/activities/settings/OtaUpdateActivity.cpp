@@ -10,7 +10,7 @@
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
-#include "network/Heartbeat.h"
+#include "network/DeviceReport.h"
 #include "network/OtaUpdater.h"
 
 void OtaUpdateActivity::onWifiSelectionComplete(const bool success) {
@@ -181,8 +181,8 @@ void OtaUpdateActivity::runUpdateInstall() {
   }
   requestUpdateAndWait();
   // Recorded before the install: success reboots the device, so the next
-  // heartbeat infers it from the version that comes up.
-  heartbeat::noteOtaAttempt("ota");
+  // device report infers it from the version that comes up.
+  devreport::noteOtaAttempt("ota");
   const auto res = updater.installUpdate(
       [](void* ctx) {
         // immediate=true notifies the render task directly. The default deferred path only
@@ -194,7 +194,7 @@ void OtaUpdateActivity::runUpdateInstall() {
 
   if (res != OtaUpdater::OK) {
     LOG_DBG("OTA", "Update failed: %d", res);
-    heartbeat::noteOtaFailed(heartbeat::otaErrorName(res));
+    devreport::noteOtaFailed(devreport::otaErrorName(res));
     {
       RenderLock lock(*this);
       failedDetail = res == OtaUpdater::WRONG_DEVICE_ERROR ? tr(STR_FIRMWARE_WRONG_DEVICE)

@@ -10,6 +10,8 @@
 #include <functional>
 #include <string>
 
+#include "DeviceReport.h"
+
 #if defined(FREEINK_NET_WOLFSSL)
 #include <SecureHttpClient.h>
 
@@ -113,6 +115,10 @@ HttpDownloader::DownloadError runGetWolf(const std::string& startUrl, const std:
       const String encoded = base64::encode(credentials.c_str());
       http.addHeader("Authorization", std::string("Basic ") + encoded.c_str());
     }
+    // Per hop, so a redirect off one of our hosts carries nothing onward.
+    devreport::Header report[devreport::kHeaderCount];
+    const int reportHeaders = devreport::headersFor(url.c_str(), report);
+    for (int i = 0; i < reportHeaders; ++i) http.addHeader(report[i].name, report[i].value);
 
     LOG_DBG("HTTP", "wolfSSL GET: %s", url.c_str());
     unsigned long lastPumpMs = 0;
@@ -128,6 +134,7 @@ HttpDownloader::DownloadError runGetWolf(const std::string& startUrl, const std:
         [&sink, &lastPumpMs]() { return abortPoll(sink, lastPumpMs); });
 
     g_lastStatus = status < 0 ? 0 : status;
+    devreport::delivered(url.c_str(), status);
     if (http.aborted()) return HttpDownloader::ABORTED;
     if (status < 0) {
       LOG_ERR("HTTP", "wolfSSL request failed: %s", url.c_str());
@@ -163,6 +170,9 @@ HttpDownloader::DownloadError runGetWolf(const std::string& startUrl, const std:
 // pushes the whole body through an event callback and reports a chunked body
 // that ends early as ESP_ERR_HTTP_INCOMPLETE_DATA, whereas the read loop streams
 // large/slow files and surfaces a short read directly.
+//
+// No device report headers on this path: every device env builds wolfSSL, so
+// this is the simulator's transport, and the simulator is not a device.
 HttpDownloader::DownloadError runGet(const std::string& url, const std::string& username, const std::string& password,
                                      Sink& sink) {
   WifiPowerSaveGuard psGuard;
