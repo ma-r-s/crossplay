@@ -16,13 +16,23 @@ platformio.ini goes up one patch (one minor if any merged pull request carries
 the `release:minor` label).
 
 Only landings that can change a byte a device runs become notes. v1.12.17
-listed all seven merges since the previous tag; six were CI, a guard hook, a
-release-pipeline fix and a server-side bridge, and Mario read the update
-prompt on his device and asked why a release had happened at all. The one line
-that did reach the firmware -- an upstream sync -- named the operation and not
+listed all seven merges since the previous tag, and four of them -- a board
+watcher, a server-side bridge and two release-pipeline fixes -- cannot alter a
+byte a device runs. Mario got the update prompt on his device, read this file's
+output for that version, and asked why a release had happened at all. The one
+line that did reach the firmware, an upstream sync, named the operation and not
 one thing it changed. Both halves are fixed here: reaches_device() asks the one
 rule that already knows (scripts_local/device-build-needed.sh), and a sync's
 body is read for the upstream subjects its title hides.
+
+WHERE THIS TEXT IS READ, checked rather than assumed: the GitHub release page
+only (crossplay-release.yml passes it as body_path). The device shows two
+version numbers and nothing else -- ReleaseJsonParser.cpp parses tag_name, the
+asset name, its url and its size, and OtaUpdateActivity.cpp draws
+STR_CURRENT_VERSION and STR_NEW_VERSION. So the prompt a device raises is
+"there is a release", and this file answers "and here is what is in it"
+somewhere else. That is still the sentence being fixed; it is just not on the
+panel, and a check written as though it were would be measuring nothing.
 
 Every input can be replaced for tests: --repo-dir, --pr-json (a file of pull
 requests instead of gh), --last-tag.
@@ -44,9 +54,30 @@ NEW_HEAD = re.compile(r"^#{1,4}\s*what is new\b.*$", re.I)
 # A sync's body carries the upstream commits its title only counts, one
 # `- `sha` subject` bullet each, per docs/workflow/upstream-sync.md step 5.
 UPSTREAM_COMMIT = re.compile(r"^\s*[-*]\s+`([0-9a-f]{7,40})`\s+(\S.*?)\s*$")
+# The sync run's own title, fixed by that runbook's step 5. Anchored, and not
+# a substring search for "sync": this branch REPLACES a pull request's title
+# with lines lifted out of its body, and `"sync" in title` is true of
+# `fix: the deck reopens after sync; review no longer panics` -- a real subject
+# from this history, whose notes would then have become whatever sha-shaped
+# bullets its body happened to contain. Four more branches here (app/syncard,
+# app/upsync, app/syncsdk, app/clocksync) match the substring too.
+SYNC_TITLE = re.compile(r"^\s*chore(?:\([^)]*\))?:\s*sync\b", re.I)
+# A fence in the body. The commit list is one section of a sync's write-up and
+# the rest is prose, so a code block that happens to hold `- `deadbeef` ...`
+# lines is reachable, and it must not become the release's notes.
+FENCE = re.compile(r"^\s*(?:```|~~~)")
 # Upstream's own pull request number, which in these notes reads as one of ours.
 UPSTREAM_PR = re.compile(r"\s*\(#\d+\)\s*$")
-VERSION_BUMP = re.compile(r"^bump version\b|^v?\d+\.\d+", re.I)
+# The sync's own bookkeeping. Anchored to a WHOLE version, because `^v?\d+\.\d+`
+# unanchored also eats `feat: 1.5x zoom on the page view` and `fix: 3.5mm jack
+# detection` -- humanize() has already stripped the type prefix by the time this
+# runs, so the subject really does start with a digit and a dot. Silently, with
+# no count and no log line: exactly the failure this whole file is about.
+VERSION_BUMP = re.compile(r"^bump version\b|^v?\d+\.\d+\.\d+\s*$", re.I)
+# Upstream writes em-dashes and GitHub truncates long subjects with an ellipsis.
+# Both land verbatim on a public page now that a sync yields N of its own lines
+# rather than one of ours, so the dash becomes a comma on the way through.
+DASH = re.compile(r"\s+[\u2013\u2014]\s+")
 
 # The one definition of "can this reach a device image" in this repository.
 # ASKED, never restated: see reaches_device().
@@ -208,18 +239,29 @@ def upstream_lines(pr):
     else is filtered by type: "chore: update translations" is a chore and is
     the most visible thing in that list, so a type filter would be wrong in
     both directions on this very PR.
+
+    Three narrow gates, each of which was wide once and each of which turns a
+    pull request's own title into somebody else's text when it is: the title
+    must be the sync run's (SYNC_TITLE, not "sync" anywhere in it), the bullets
+    must be outside every code fence, and there must be at least two.
     """
-    if "sync" not in (pr.get("title") or "").lower():
+    if not SYNC_TITLE.match(pr.get("title") or ""):
         return None
     out = []
+    fenced = False
     for line in (pr.get("body") or "").splitlines():
+        if FENCE.match(line):
+            fenced = not fenced
+            continue
+        if fenced:
+            continue
         m = UPSTREAM_COMMIT.match(line)
         if not m:
             continue
         s = humanize(UPSTREAM_PR.sub("", m.group(2)))
         if VERSION_BUMP.match(s):
             continue
-        out.append(s)
+        out.append(DASH.sub(", ", s))
     return out if len(out) >= 2 else None
 
 
