@@ -349,7 +349,6 @@ static void testEveryRefusalAgreesWithTheRules(int matches) {
   printf("refusals   %ld slots lit, %ld refused, every one agreeing with the rules\n", lit, refused);
 }
 
-
 // --- continuing -------------------------------------------------------------
 
 static void testASaveSurvivesOnlyIfItIsIntact() {

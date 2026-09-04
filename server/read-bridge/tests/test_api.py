@@ -311,7 +311,7 @@ async def run(tmp, state_file):
         events._urlopen = take
         # Each job reads the clock twice; pinned so `seconds` is asserted
         # exactly rather than as "some number".
-        ticks = iter([100.0, 102.5, 200.0, 200.4, 300.0, 300.1, 400.0, 400.2])
+        ticks = iter([100.0, 102.5, 200.0, 200.4, 300.0, 300.1, 400.0, 400.2, 500.0, 502.0, 600.0, 600.5])
         jobs_mod._clock = lambda: next(ticks, time.monotonic())
         # The syncs above spent this user's window; this block gets a fresh
         # one with the same limits.
@@ -418,6 +418,105 @@ async def run(tmp, state_file):
             and wire_body["props"] == {"message": "RuntimeError: disk full"},
             f"a bridge fault posts its cause at level error, got {wire_body}",
         )
+
+        # --- the device headers: a reader that says who it is, and what it
+        # has to report, on the request it was making anyway. The sync event
+        # is counted under the header's id, not the account hash, and carries
+        # the health numbers; the crash and the update post as firmware
+        # events of their own, from the middleware, whatever the endpoint.
+        del posted[:]
+        app_mod.SYNC_USER = Window(6, 300)
+        DEV = "0" * 64
+        report = {
+            "battery_pct": 50,
+            "heap_min_kb": 100,
+            "uptime_h": 1,
+            "crash": {"message": "assert failed: x (reset: panic)", "version": "1.12.12", "backtrace": ""},
+            "ota": {"attempted": True, "ok": False, "error": "too_large", "path": "ota"},
+        }
+        talking = {
+            **headers,
+            "User-Agent": "CrossPlay-ESP32-1.12.13",
+            "X-CrossPlay-Device": DEV,
+            "X-CrossPlay-Board": "x4pro",
+            "X-CrossPlay-Report": json.dumps(report, separators=(",", ":")),
+        }
+        r = await client.post("/api/sync", json={"have": [], "archive": []}, headers=talking)
+        ok(r.status_code == 200, f"a sync with the device headers is accepted, got {r.status_code}")
+        result = await poll_job(client, headers, r.json()["job"])
+        ok(result["status"] == "done", f"and finishes, got {result}")
+        came_down = len(result["summary"]["articles"])
+        await settle(3)
+        ok(len(posted) == 3, f"the sync, the crash and the update are three events, got {len(posted)}")
+        bodies = sorted((json.loads(p.data) for p in posted), key=lambda b: (b["service"], b["event"]))
+        ok(
+            bodies[0]
+            == {
+                "service": "firmware",
+                "event": "crash",
+                "level": "error",
+                "device": DEV,
+                "version": "1.12.12",
+                "board": "x4pro",
+                "props": {"message": "assert failed: x (reset: panic)", "backtrace": "", "app": "firmware", "via": "instapaper"},
+            },
+            f"the crash posts as the firmware's, via instapaper, got {bodies[0]}",
+        )
+        ok(
+            bodies[1]
+            == {
+                "service": "firmware",
+                "event": "update",
+                "level": "error",
+                "device": DEV,
+                "version": "1.12.13",
+                "board": "x4pro",
+                "props": {"attempted": True, "ok": False, "error": "too_large", "path": "ota", "app": "firmware", "message": "update failed: too_large (ota)"},
+            },
+            f"the failed update posts as an error with its message, got {bodies[1]}",
+        )
+        ok(
+            bodies[2]
+            == {
+                "service": "instapaper",
+                "event": "sync",
+                "level": "info",
+                "device": DEV,
+                "version": "1.12.13",
+                "board": "x4pro",
+                "props": {"articles": came_down, "seconds": 2.0, "battery_pct": 50, "heap_min_kb": 100, "uptime_h": 1},
+            },
+            f"the sync is counted under the device's own id with its health, got {bodies[2]}",
+        )
+        ok(expected_device not in "".join(p.data.decode() for p in posted), "the account hash is not used when the device names itself")
+
+        # A report past the cap is not a report; the request is still served
+        # and still counted, without health, and nothing else posts.
+        del posted[:]
+        oversize = dict(talking)
+        oversize["X-CrossPlay-Report"] = json.dumps({"battery_pct": 50, "crash": {"message": "x" * 1180}})
+        ok(len(oversize["X-CrossPlay-Report"]) >= 1200, "the oversize report is at least 1200 bytes")
+        r = await client.post("/api/sync", json={"have": [], "archive": []}, headers=oversize)
+        ok(r.status_code == 200, f"an oversize report does not fail the request, got {r.status_code}")
+        result = await poll_job(client, headers, r.json()["job"])
+        ok(result["status"] == "done", f"and the sync finishes, got {result}")
+        await settle(1)
+        await asyncio.sleep(0.3)
+        ok(len(posted) == 1, f"only the sync posts, got {len(posted)}")
+        wire_body = json.loads(posted[0].data)
+        ok(
+            wire_body["device"] == DEV and wire_body["board"] == "x4pro"
+            and wire_body["props"] == {"articles": len(result["summary"]["articles"]), "seconds": 0.5},
+            f"counted under the id, with no health from the ignored report, got {wire_body}",
+        )
+
+        # A crash on a request the service refuses is not posted: the device
+        # will carry it again, and posting it now would count it twice.
+        del posted[:]
+        r = await client.post("/api/sync", json={"have": []}, headers={k: v for k, v in talking.items() if k != "Authorization"})
+        ok(r.status_code == 401, "no token is still refused, headers or not")
+        await asyncio.sleep(0.3)
+        ok(posted == [], f"and a refused request posts nothing, got {len(posted)}")
 
         events._urlopen = urllib.request.urlopen
         jobs_mod._clock = time.monotonic

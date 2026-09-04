@@ -92,24 +92,35 @@ TEST(OpdsFeed, DescriptionDocumentIsRememberedSeparately) {
   EXPECT_EQ(parser.getSearchDescriptionUrl(), "/opensearch");
 }
 
-TEST(OpdsFeed, PrefersTheThumbnailOverTheFullCover) {
-  // A small box on the detail screen; a 2000px cover costs seconds to fetch
-  // and decode for no visible gain.
+TEST(OpdsFeed, PrefersTheFullCoverOverTheThumbnail) {
+  // The reverse of what this asserted until 7e72b5e9. Gutenberg's thumbnail is
+  // 66x93; scaled into the detail screen's 200-wide box it dithers to a black
+  // blob, and nothing upscales, so a too-small source cannot be recovered
+  // while a too-large one costs only bytes. The rule is in OpdsParser.cpp.
   const auto entries =
       parse(feedAround(std::string("<title>A Book</title>") +
                        R"(<link rel="http://opds-spec.org/image" href="/big.jpg" type="image/jpeg"/>)"
                        R"(<link rel="http://opds-spec.org/image/thumbnail" href="/thumb.jpg" type="image/jpeg"/>)" +
                        EPUB_LINK));
   ASSERT_EQ(entries.size(), 1u);
-  EXPECT_EQ(entries[0].coverHref, "/thumb.jpg");
+  EXPECT_EQ(entries[0].coverHref, "/big.jpg");
 }
 
-TEST(OpdsFeed, ThumbnailWinsEvenWhenItComesFirst) {
+TEST(OpdsFeed, TheFullCoverWinsEvenWhenTheThumbnailComesFirst) {
   const auto entries =
       parse(feedAround(std::string("<title>A Book</title>") +
                        R"(<link rel="http://opds-spec.org/image/thumbnail" href="/thumb.jpg" type="image/jpeg"/>)"
                        R"(<link rel="http://opds-spec.org/image" href="/big.jpg" type="image/jpeg"/>)" +
                        EPUB_LINK));
+  ASSERT_EQ(entries.size(), 1u);
+  EXPECT_EQ(entries[0].coverHref, "/big.jpg");
+}
+
+TEST(OpdsFeed, AThumbnailIsUsedWhenItIsTheOnlyImage) {
+  // Still better than no cover at all, and the flag says which it is.
+  const auto entries = parse(feedAround(
+      std::string("<title>A Book</title>") +
+      R"(<link rel="http://opds-spec.org/image/thumbnail" href="/thumb.jpg" type="image/jpeg"/>)" + EPUB_LINK));
   ASSERT_EQ(entries.size(), 1u);
   EXPECT_EQ(entries[0].coverHref, "/thumb.jpg");
 }

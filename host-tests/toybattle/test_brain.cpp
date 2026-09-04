@@ -62,7 +62,8 @@ enum class Player { Random, Recruit, Sergeant, General };
 static Move moveFor(const Game& g, Player p) {
   if (p == Player::Random) return randomLegalMove(g);
   const Observation obs = observe(g, g.turn);
-  const Skill skill = p == Player::Recruit ? Skill::Recruit : (p == Player::Sergeant ? Skill::Sergeant : Skill::General);
+  const Skill skill =
+      p == Player::Recruit ? Skill::Recruit : (p == Player::Sergeant ? Skill::Sergeant : Skill::General);
   return chooseMove(obs, skill);
 }
 

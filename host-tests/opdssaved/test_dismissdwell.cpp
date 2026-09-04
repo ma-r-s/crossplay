@@ -9,10 +9,10 @@
 //
 // So the cases below are about the hand and the refresh, not about arithmetic.
 
-#include "../../src/util/DismissDwell.h"
-
 #include <cstdio>
 #include <string>
+
+#include "../../src/util/DismissDwell.h"
 
 namespace {
 int checks = 0, failed = 0;

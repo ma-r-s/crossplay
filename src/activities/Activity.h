@@ -10,8 +10,8 @@
 #include "ActivityResult.h"
 #include "GfxRenderer.h"
 #include "MappedInputManager.h"
-#include "RevealedInteractions.h"
 #include "RenderLock.h"
+#include "RevealedInteractions.h"
 #include "util/ScreenshotInfo.h"
 
 class Activity {
