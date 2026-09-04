@@ -11,7 +11,7 @@
 //
 // Operations:
 //   list     -> {inbox: [open blockers that need Mario, with their card], cards: [every card]}
-//   numbers  -> {byVersion, daily, services, errors}
+//   numbers  -> {byVersion, daily, services, errors, pulse, weekly, dwell, latency, byApp}
 //   answer   -> closes one blocker: {card_id, n, choice, note}
 
 const crypto = require("node:crypto");
@@ -81,15 +81,40 @@ async function opList() {
 
 async function opNumbers() {
   const q = (p) => rest(p).catch(() => []);
-  const [byVersion, daily, services, errors] = await Promise.all([
+  const [
+    byVersion,
+    daily,
+    services,
+    errors,
+    pulse,
+    weekly,
+    dwell,
+    latency,
+    byApp,
+  ] = await Promise.all([
     q("devices_by_version?select=*"),
     q("daily_active_devices?select=*"),
     q("service_users?select=*"),
     q(
       "error_fingerprints?select=service,message,count,last_seen,card_id&order=last_seen.desc&limit=20",
     ),
+    q("pulse_hosts?select=*"),
+    q("workflow_weekly?select=*"),
+    q("state_dwell?select=*"),
+    q("inbox_latency?select=*"),
+    q("open_cards_by_app?select=*"),
   ]);
-  return { byVersion, daily, services, errors };
+  return {
+    byVersion,
+    daily,
+    services,
+    errors,
+    pulse,
+    weekly,
+    dwell,
+    latency: (latency || [])[0] || null,
+    byApp,
+  };
 }
 
 async function opAnswer(body) {
@@ -130,7 +155,10 @@ async function opAnswer(body) {
       method: "POST",
       headers: { Prefer: "return=minimal" },
       body: JSON.stringify({
-        card_id: cardId, n: next, need: "info", by_session: "mario",
+        card_id: cardId,
+        n: next,
+        need: "info",
+        by_session: "mario",
         ask: `Mario needs the steps before he can do this${note ? ": " + note : ""}. Write them (numbered, one per line) and re-ask him with --steps.`,
         default: "The card waits until the steps come back.",
       }),

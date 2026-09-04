@@ -6,7 +6,8 @@ and never keeps state: the board is the state.
 
 First, once: register, so the hooks let you hand cards to their owners:
 `board dispatcher --name Dispatch --session <the id the SessionStart hook
-printed>`. Without it every message to a session but the orchestrator is
+printed> --app-id <your local_... id from get_session self>`. A session has
+two ids and messages arrive addressed by either; the claim needs both. Without it every message to a session but the orchestrator is
 refused.
 
 A device in Developer Mode is on Wi-Fi next to Mario, not on a cable. When

@@ -15,7 +15,7 @@ Supabase store mirrors claims, session bindings and bound cards into the
 file store so the hooks never need the network.
 
     board init
-    board orchestrator --name Main --session <id>     who Mario's questions go through
+    board orchestrator --name Main --session <id> [--app-id local_<id>]   who Mario's questions go through
     board integrator --session <id> [--release]       who may write firmware-next
     board dispatcher --name Dispatch --session <id>   the session Mario talks to; may message anyone
     board new "<title>" --from <app> [--kind bug|feature|task] [--body "..."] [--parent <id>]
@@ -207,10 +207,12 @@ class FileStore:
     def claim(self, name):
         return self._read(self.dir / f"{name}.json") or {}
 
-    def set_claim(self, name, session, display_name=None):
+    def set_claim(self, name, session, display_name=None, app_session=None):
         d = {"session_id": session, "since": now()}
         if display_name:
             d["name"] = display_name
+        if app_session:
+            d["app_session"] = app_session
         self._write(self.dir / f"{name}.json", d)
 
     def del_claim(self, name):
@@ -481,9 +483,10 @@ class SupaStore:
             "session_id": r["session"],
             "since": r["since"],
             "name": r.get("display_name"),
+            "app_session": r.get("app_session"),
         }
 
-    def set_claim(self, name, session, display_name=None):
+    def set_claim(self, name, session, display_name=None, app_session=None):
         self._req(
             "POST",
             "claims",
@@ -491,11 +494,12 @@ class SupaStore:
                 "name": name,
                 "session": session,
                 "display_name": display_name,
+                "app_session": app_session,
                 "since": now(),
             },
             prefer="resolution=merge-duplicates,return=minimal",
         )
-        self.mirror.set_claim(name, session, display_name)
+        self.mirror.set_claim(name, session, display_name, app_session)
 
     def del_claim(self, name):
         self._req("DELETE", f"claims?name=eq.{name}", prefer="return=minimal")
@@ -554,14 +558,14 @@ def cmd_init(st, a):
 
 def cmd_orchestrator(st, a):
     with st.lock():
-        st.set_claim("orchestrator", norm_sid(a.session), a.name)
-    print(f"board: orchestrator is {a.name} ({norm_sid(a.session)})")
+        st.set_claim("orchestrator", norm_sid(a.session), a.name, norm_sid(a.app_id) or None)
+    print(f"board: orchestrator is {a.name} ({norm_sid(a.session)}{', app ' + norm_sid(a.app_id) if a.app_id else ''})")
 
 
 def cmd_dispatcher(st, a):
     with st.lock():
-        st.set_claim("dispatcher", norm_sid(a.session), a.name)
-    print(f"board: dispatcher is {a.name} ({norm_sid(a.session)})")
+        st.set_claim("dispatcher", norm_sid(a.session), a.name, norm_sid(a.app_id) or None)
+    print(f"board: dispatcher is {a.name} ({norm_sid(a.session)}{', app ' + norm_sid(a.app_id) if a.app_id else ''})")
 
 
 def cmd_integrator(st, a):
@@ -579,7 +583,7 @@ def cmd_integrator(st, a):
             sys.exit(
                 f"board: integration tree is held by {cur.get('session_id')} since {cur.get('since')}; wait or ask the orchestrator"
             )
-        st.set_claim("integrator", norm_sid(a.session))
+        st.set_claim("integrator", norm_sid(a.session), None, norm_sid(a.app_id) or None)
     print(f"board: integration tree claimed by {norm_sid(a.session)}")
 
 
@@ -1040,16 +1044,20 @@ def main(argv=None):
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("init").set_defaults(fn=cmd_init)
+    app_help = "the desktop app's local_... id (get_session self), so messages addressed that way reach you"
     s = sub.add_parser("orchestrator")
     s.add_argument("--name", required=True)
     s.add_argument("--session", required=True)
+    s.add_argument("--app-id", help=app_help)
     s.set_defaults(fn=cmd_orchestrator)
     s = sub.add_parser("dispatcher")
     s.add_argument("--name", required=True)
     s.add_argument("--session", required=True)
+    s.add_argument("--app-id", help=app_help)
     s.set_defaults(fn=cmd_dispatcher)
     s = sub.add_parser("integrator")
     s.add_argument("--session", required=True)
+    s.add_argument("--app-id", help=app_help)
     s.add_argument("--release", action="store_true")
     s.set_defaults(fn=cmd_integrator)
     s = sub.add_parser("new")

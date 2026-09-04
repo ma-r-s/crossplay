@@ -77,6 +77,10 @@ expect "worker to orchestrator allowed"         0 pretool "{\"session_id\":\"$WO
 expect "worker to orchestrator with ref allowed" 0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"SendMessage\",\"tool_input\":{\"to\":\"Main [1a2b3c]\",\"message\":\"blocked\"}}"
 expect "worker to a peer refused"               2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"SendMessage\",\"tool_input\":{\"to\":\"xteink-ff\",\"message\":\"who owns 1.12.5\"}}"
 expect "worker to a peer via the app refused"   2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"mcp__ccd_session_mgmt__send_message\",\"tool_input\":{\"session_id\":\"local_dddd-peer\",\"message\":\"hi\"}}"
+expect "worker to the orchestrator's app id, unregistered, refused" 2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"mcp__ccd_session_mgmt__send_message\",\"tool_input\":{\"session_id\":\"local_bbbb-app\",\"message\":\"hi\"}}"
+board orchestrator --name Main --session "$ORCH" --app-id local_bbbb-app >/dev/null
+expect "worker to the orchestrator's app id, registered, allowed" 0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"mcp__ccd_session_mgmt__send_message\",\"tool_input\":{\"session_id\":\"local_bbbb-app\",\"message\":\"hi\"}}"
+expect "the orchestrator is still known by its hook id" 0 pretool "{\"session_id\":\"$ORCH\",\"tool_name\":\"SendMessage\",\"tool_input\":{\"to\":\"xteink-ff\",\"message\":\"card #3 is yours\"}}"
 expect "worker to orchestrator via the app allowed" 0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"mcp__ccd_session_mgmt__send_message\",\"tool_input\":{\"session_id\":\"local_$ORCH\",\"message\":\"hi\"}}"
 DISP="dddd-dispatch"; board dispatcher --name Dispatch --session "$DISP" >/dev/null
 expect "the dispatcher may message an owner"      0 pretool "{\"session_id\":\"$DISP\",\"tool_name\":\"SendMessage\",\"tool_input\":{\"to\":\"xteink-ff\",\"message\":\"card #3 is yours\"}}"
@@ -94,6 +98,7 @@ mk_transcript() { # mk_transcript "<last assistant text>"
 }
 mk_transcript "Fixed and gated. Want me to also port the picker fix, or leave it?"
 expect "hand-back with no card refused"          2 stop "{\"session_id\":\"$WORKER\",\"transcript_path\":\"$T\",\"stop_hook_active\":false}"
+[ -s "$ROOT/.board/refusals.log" ] && grep -q " $WORKER Bash " "$ROOT/.board/refusals.log" && grep -q " $WORKER stop " "$ROOT/.board/refusals.log" && ok "every refusal leaves a line in refusals.log with the session and the tool" || bad "refusals.log is missing a line for a Bash or a Stop refusal"
 grep -q "board.py bind" "$WORK/err" && ok "refusal tells it to bind" || bad "refusal does not tell it to bind"
 expect "stop_hook_active never loops"            0 stop "{\"session_id\":\"$WORKER\",\"transcript_path\":\"$T\",\"stop_hook_active\":true}"
 expect "the dispatcher may end on its one question"  0 stop "{\"session_id\":\"$DISP\",\"transcript_path\":\"$T\",\"stop_hook_active\":false}"

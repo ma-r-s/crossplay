@@ -130,6 +130,19 @@ const expect = (label, got, want) =>
   let r = await call("POST", good);
   expect("a good report is created", r.status, 201);
   expect("and answers with its id", r.json && r.json.id, 42);
+  const ev = calls.find(
+    (c) => c.url.endsWith("/rest/v1/events") && c.method === "POST",
+  );
+  expect(
+    "and posts one site/report event",
+    ev ? JSON.parse(ev.body).event : null,
+    "report",
+  );
+  expect(
+    "naming the card it became",
+    ev ? JSON.parse(ev.body).props.card : null,
+    42,
+  );
   const insert = calls.find((c) => c.url.endsWith("/rest/v1/cards?select=id"));
   const row = insert ? JSON.parse(insert.body) : {};
   expect(
