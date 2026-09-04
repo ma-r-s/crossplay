@@ -41,7 +41,26 @@ dirty_count() {
 # check ran green because they sat unstaged, and xteink HEAD did not compile for
 # three commits. --committed is the answer; this banner is so you know to reach
 # for it.
-if [ "${1:-}" = "--committed" ]; then
+# --committed ANYWHERE in the arguments, not only as $1.
+#
+# It used to be `[ "${1:-}" = "--committed" ]`, so `check.sh --tests
+# --committed` silently ran a WORKING-TREE check and still printed "all
+# green". The only difference in the output was the absence of the
+# "verifying HEAD (<sha>)" line -- an absence, which is exactly what nobody
+# notices. Someone could push believing HEAD was verified when it never was.
+# Seen 2026-09-04; it cost a session a full run.
+#
+# The remaining arguments are normalised into $1 so the rest of the script,
+# and the throwaway worktree it re-invokes, see the mode flag where they
+# expect it.
+_committed=0
+_rest=""
+for _a in "$@"; do
+  if [ "$_a" = "--committed" ]; then _committed=1; else _rest="$_rest $_a"; fi
+done
+# shellcheck disable=SC2086
+set -- $_rest
+if [ "$_committed" = "1" ]; then
   # One trial directory PER RUN ($$), never shared. It used to be per tree,
   # which serialised nothing: sessions never close here, and two of them
   # verifying the same tree -- the integration tree, at release time, which is
@@ -169,7 +188,7 @@ if [ "${1:-}" = "--committed" ]; then
   # the build-env list below for why: the dev pair's extra code is the serial
   # bridge, whose breakage costs a developer and never a user.
   export CHECK_BUILD_RELEASE_ENVS=1
-  (cd "$TRIAL" && ./scripts_local/check.sh "${2:-}")
+  (cd "$TRIAL" && ./scripts_local/check.sh "${1:-}")
   exit $?
 fi
 
