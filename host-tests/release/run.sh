@@ -738,7 +738,7 @@ fi
 # nobody, and it was found days later by someone reading the published page
 # rather than by anything here.
 #
-# The notes are hand-written inside the workflow file, which is exactly the kind
+# The notes live in docs/release-notes.md, which is exactly the kind
 # of place a version number goes stale: nothing about tagging touches them, and
 # the release still builds and publishes perfectly. So assert the one thing that
 # cannot be true of stale notes -- that they name the version being released.
@@ -754,7 +754,8 @@ else
   # file-wide version of this with a one-line YAML comment -- `# TODO: What is
   # new in 1.6.4 -- write the notes` satisfied the gate while every bullet
   # below it stayed the previous release's.
-  NOTES_BODY="$(awk '/^ *body: \|/{f=1;next} f && /^ *[a-z_-]+:/{f=0} f' "$WF")"
+  NOTES_FILE="$ROOT/docs/release-notes.md"
+  NOTES_BODY="$(cat "$NOTES_FILE" 2>/dev/null)"
   # Escaped dots AND a boundary. Two attempts got this wrong: an unanchored grep
   # treats . as a wildcard, and a "not followed by a dot" guard still passed
   # "1.6.31" because what follows 1.6.3 there is a digit. The version must be the
@@ -762,7 +763,7 @@ else
   # or a dot.
   ESCAPED="$(printf '%s' "$NOTES_VERSION" | sed 's/\./\\./g')"
   if ! printf '%s' "$NOTES_BODY" | grep -qE "What is new in $ESCAPED([^0-9.]|$)"; then
-    bad "the release notes in $(basename "$WF") do not say \"What is new in $NOTES_VERSION\" -- they are the previous release's, and the tag will publish them"
+    bad "the release notes in docs/release-notes.md do not say \"What is new in $NOTES_VERSION\" -- they are the previous release's, and the tag will publish them"
   else
     ok
   fi
@@ -782,15 +783,21 @@ else
     grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | grep -vx "v$NOTES_VERSION" | head -1)"
   if [ -z "$PREV_TAG" ]; then
     skip "no previous tag to compare the notes against"
-  elif ! git -C "$ROOT" cat-file -e "$PREV_TAG:.github/workflows/crossplay-release.yml" 2>/dev/null; then
-    skip "$PREV_TAG has no release workflow to compare against"
+  elif ! git -C "$ROOT" cat-file -e "$PREV_TAG:docs/release-notes.md" 2>/dev/null &&
+       ! git -C "$ROOT" cat-file -e "$PREV_TAG:.github/workflows/crossplay-release.yml" 2>/dev/null; then
+    skip "$PREV_TAG has no release notes to compare against"
   else
     # Whitespace-normalised on both sides. Comparing raw text let one inserted
     # blank line pass a body that was otherwise the previous release's word for
     # word -- which is the same mistake with one keystroke of camouflage.
     norm() { grep -v 'What is new in' | tr -s '[:space:]' ' ' | sed 's/^ //; s/ $//'; }
-    PREV_BODY="$(git -C "$ROOT" show "$PREV_TAG:.github/workflows/crossplay-release.yml" |
-      awk '/^ *body: \|/{f=1;next} f && /^ *[a-z_-]+:/{f=0} f' | norm)"
+    # Tags before the move kept the body inside the workflow; read whichever exists.
+    if git -C "$ROOT" cat-file -e "$PREV_TAG:docs/release-notes.md" 2>/dev/null; then
+      PREV_BODY="$(git -C "$ROOT" show "$PREV_TAG:docs/release-notes.md" | norm)"
+    else
+      PREV_BODY="$(git -C "$ROOT" show "$PREV_TAG:.github/workflows/crossplay-release.yml" |
+        awk '/^ *body: \|/{f=1;next} f && /^ *[a-z_-]+:/{f=0} f' | norm)"
+    fi
     THIS_BODY="$(printf '%s' "$NOTES_BODY" | norm)"
     if [ "$PREV_BODY" = "$THIS_BODY" ]; then
       bad "the release notes are byte-identical to $PREV_TAG's below the heading -- only the version was renamed, and $NOTES_VERSION would publish that tag's text again"
