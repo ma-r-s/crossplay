@@ -85,43 +85,42 @@ jobs:
       - name: Install the simulator's host libraries
         run: sudo apt-get update && sudo apt-get install -y libsdl2-dev libssl-dev
 
-      # The two flags only add .su and .ci files beside the objects; they change
-      # no code, so this is still the build the next step checks. Asking for them
-      # here rather than in a second build keeps CI one firmware compile long.
-      - name: Build the x4pro firmware
-        run: PLATFORMIO_BUILD_FLAGS="-fstack-usage -fcallgraph-info=su" pio run -e x4pro
+      # ONE BUILD STEP. Five envs in five invocations became three in one.
+      #
+      # CI used to build x4pro and sticky (dev) as well. Their only extra code
+      # is CROSSPOINT_DEV_SERIAL_BRIDGE, and a break in it costs the next
+      # person who wants to drive a device over the cable -- never a user. That
+      # is a real cost but a deferred one, and it is not worth paying on every
+      # pull request when a plain local check.sh still builds both.
+      #
+      # ONE invocation for all three, and that is not an optimisation. `pio run`
+      # calls clean_build_dir() once per INVOCATION against the whole
+      # .pio/build root, and wipes it when compute_project_checksum() differs.
+      # This project's pre-scripts write gitignored headers into src/ and lib/
+      # as the build runs, so on a fresh checkout invocation #2 opens by
+      # deleting invocation #1's output. That is what broke v1.12.14 and
+      # v1.12.15. One invocation, one checksum, nothing to delete.
+      #
+      # The flags only add .su and .ci files beside the objects; they change no
+      # code, so this is still the build the checks below read. Measuring the
+      # RELEASE images rather than the dev ones is also strictly better: it is
+      # the stack of the binary a user actually runs.
+      - name: Build everything
+        run: PLATFORMIO_BUILD_FLAGS="-fstack-usage -fcallgraph-info=su" pio run -e gh_release_x4pro -e gh_release_sticky -e simulator_x4_pro
 
       # v1.0.0 shipped a render task that needed 8016 bytes of an 8192-byte
       # stack and crashed on the first device that ever ran it. Nothing here
       # measured stack, and nothing on a host could: frame sizes belong to the
       # target ABI. This reads the numbers the firmware compiler just emitted.
       - name: Stack fits its task (x4pro)
-        run: python3 scripts_local/stack_budget.py --build-dir .pio/build/x4pro
+        run: python3 scripts_local/stack_budget.py --build-dir .pio/build/gh_release_x4pro
 
       # The Sticky compiles SDK code the x4pro build never sees (mic, buzzer,
       # sensors, IMU) and carries its own device flag, so a green x4pro build
       # does not prove the sticky env compiles. Same stack discipline, same
       # reasons.
-      - name: Build the sticky firmware
-        run: PLATFORMIO_BUILD_FLAGS="-fstack-usage -fcallgraph-info=su" pio run -e sticky
-
       - name: Stack fits its task (sticky)
-        run: python3 scripts_local/stack_budget.py --build-dir .pio/build/sticky
-
-      - name: Build the simulator
-        run: pio run -e simulator_x4_pro
-
-      # THE ENVS THAT ACTUALLY SHIP. x4pro and sticky above define
-      # CROSSPOINT_DEV_SERIAL_BRIDGE, so every release-only branch in main.cpp
-      # is preprocessed away in both of them -- and until this step existed,
-      # gh_release_* was compiled for the first time by the release workflow,
-      # i.e. after the tag was already pushed. A typo in release-only code cost
-      # a delete-and-retag to find.
-      - name: Build the release firmware (x4pro)
-        run: pio run -e gh_release_x4pro
-
-      - name: Build the release firmware (sticky)
-        run: pio run -e gh_release_sticky
+        run: python3 scripts_local/stack_budget.py --build-dir .pio/build/gh_release_sticky
 
       # Nothing is forgiven. ui:paperOnTheBand was a real baseline failure
       # once, and this step carried a carefully shaped exemption for it until
