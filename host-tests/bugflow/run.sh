@@ -50,6 +50,7 @@ echo "the guard fails open on its own trouble"
 printf 'not json' | python3 "$GUARD" pretool >/dev/null 2>&1; [ $? -eq 0 ] && ok "unreadable input is no opinion" || bad "unreadable input blocked"
 printf '{"session_id":"x","tool_name":"Bash","tool_input":{"command":"ls"}}' | BOARD_ROOT=/nonexistent python3 "$GUARD" pretool >/dev/null 2>&1; [ $? -eq 0 ] && ok "a missing board is no opinion" || bad "a missing board blocked"
 
+board pulse 2>&1 | grep -q "needs the Supabase store" && ok "pulse on the file store says what it needs" || bad "pulse on the file store did not explain itself"
 echo "the integration tree"
 expect "worker edit in firmware-next refused"   2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/firmware-next/src/a.cpp\"}}"
 grep -q "integrator --session $WORKER" "$WORK/err" && ok "the refusal carries the remedy with the session id filled in" || bad "refusal lacks the substituted remedy: $(head -c 200 "$WORK/err")"

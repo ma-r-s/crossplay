@@ -453,6 +453,11 @@ void begin(const bool rebootedFromPanic, const bool panicReasonRecorded) {
 
 void update() {
   if (!loaded) return;
+  // Nothing is posted from here. A device must never spend its radio on
+  // reporting (Mario, 2026-09-04): device info rides on the requests the
+  // device already makes to CrossPlay's own services, and those services post
+  // the events. This module only records until that rework replaces it.
+  return;
   const bool on = SETTINGS.heartbeat != 0;
   if (on != lastEnabled) {
     lastEnabled = on;
