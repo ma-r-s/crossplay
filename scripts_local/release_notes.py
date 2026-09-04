@@ -10,7 +10,7 @@ xteink, and by hand for a look:
 It reads the merges on the first-parent line since the newest v* tag, asks
 GitHub for each merge's pull request, takes the pull request's "What is new"
 line(s), and falls back to the merge's own subject. The notes replace the
-`### What is new in <version>` block inside crossplay-release.yml, which is
+`### What is new in <version>` block in docs/release-notes.md, which is
 where host-tests/release insists they live, and `[crossplay] version` in
 platformio.ini goes up one patch (one minor if any merged pull request carries
 the `release:minor` label).
@@ -151,16 +151,16 @@ def current_version(ini_text):
     return m.group(1)
 
 
-def rewrite_notes(yml, version, bullets):
-    """Replace the `### What is new in X` block (to the next ### or the end of the body) inside the workflow."""
-    lines = yml.splitlines(keepends=True)
+def rewrite_notes(text, version, bullets):
+    """Replace the `### What is new in X` block (to the next ### or the end) in docs/release-notes.md."""
+    lines = text.splitlines(keepends=True)
     start = next(
         (i for i, l in enumerate(lines) if re.match(r"^\s*### What is new in ", l)),
         None,
     )
     if start is None:
         raise SystemExit(
-            "release_notes: the workflow has no '### What is new in' heading"
+            "release_notes: docs/release-notes.md has no '### What is new in' heading"
         )
     indent = re.match(r"^(\s*)", lines[start]).group(1)
     end = start + 1
@@ -188,7 +188,7 @@ def main():
     a = ap.parse_args()
     repo = pathlib.Path(a.repo_dir).resolve()
     ini = repo / "platformio.ini"
-    yml = repo / ".github" / "workflows" / "crossplay-release.yml"
+    notes = repo / "docs" / "release-notes.md"
 
     tag = last_tag(repo, a.last_tag)
     merges = merges_since(repo, tag)
@@ -230,7 +230,7 @@ def main():
                 flags=re.M,
             )
         )
-        yml.write_text(rewrite_notes(yml.read_text(), nxt, bullets))
+        notes.write_text(rewrite_notes(notes.read_text(), nxt, bullets))
         print("written")
 
 

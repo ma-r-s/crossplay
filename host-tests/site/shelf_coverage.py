@@ -79,7 +79,7 @@ spaced = [re.sub(r"(?<!^)(?=[A-Z])", " ", name) for name in ids]
 
 prose = {
     "the README": (root / "README.md").read_text(),
-    "the release notes": (root / ".github/workflows/crossplay-release.yml").read_text(),
+    "the release notes": (root / "docs/release-notes.md").read_text(),
 }
 for where, text in prose.items():
     near = " ".join(par for par in re.split(r"\n\s*\n", text) if "PLAY NEARBY" in par)

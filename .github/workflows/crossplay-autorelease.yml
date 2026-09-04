@@ -3,7 +3,7 @@
 # Runs after every completed "CrossPlay" CI run on xteink. If the run was
 # green, the tip of xteink is still the commit CI verified, and something that
 # can reach a device image has merged since the newest tag, this bumps [crossplay] version, rewrites the
-# "What is new" block in crossplay-release.yml from the merged pull requests'
+# "What is new" block in docs/release-notes.md from the merged pull requests'
 # own lines (scripts_local/release_notes.py), commits, tags, and dispatches
 # the release workflow on that tag.
 #
@@ -17,10 +17,9 @@
 #
 # The tag is pushed with the workflow's own token, which is why the release
 # workflow is dispatched explicitly below: pushes made with that token do not
-# start workflows on their own. The bump commit edits crossplay-release.yml,
-# and GitHub refuses workflow-file changes from the default token on some
-# repositories; if that happens the push step fails loudly with the reason,
-# and a fine-grained token in the RELEASE_TOKEN secret fixes it.
+# start workflows on their own. The bump commit touches platformio.ini and
+# docs/release-notes.md only: GitHub refuses workflow-file changes from the
+# default token, which is why the notes do not live in the release workflow.
 name: CrossPlay autorelease
 
 on:
@@ -100,11 +99,11 @@ jobs:
         run: |
           git config user.name "crossplay-release[bot]"
           git config user.email "crossplay-release@users.noreply.github.com"
-          git add platformio.ini .github/workflows/crossplay-release.yml
+          git add platformio.ini docs/release-notes.md
           git commit -m "chore: crossplay $NEXT" -m "Released by crossplay-autorelease after a green CI run on xteink."
           git tag "v$NEXT"
           if ! git push origin xteink "v$NEXT"; then
-            echo "::error::The push was refused. If the message names workflow permissions, add a fine-grained token with contents and workflows write as the RELEASE_TOKEN secret."
+            echo "::error::The push was refused. The bump touches platformio.ini and docs/release-notes.md only; if the message names workflow permissions, something put a workflow file in the commit."
             exit 1
           fi
           echo "Tagged v$NEXT at $(git rev-parse --short HEAD)"
