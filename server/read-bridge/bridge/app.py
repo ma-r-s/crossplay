@@ -122,6 +122,21 @@ def require_device(request: Request) -> tuple[str, str]:
     return uid, th
 
 
+# ------------------------------------------------------------ device reports
+@app.middleware("http")
+async def device_reports(request: Request, call_next):
+    """A device never makes a request just to report. Whatever it has to say
+    (a crash, an update attempt) rides the X-CrossPlay-Report header of the
+    request it was making anyway, on every endpoint, so it is read here and
+    not in one handler. Posted after the answer, and only for an answer the
+    device will count as delivered, so a request it retries does not post
+    the same crash twice. events.Client.report never raises."""
+    response = await call_next(request)
+    if response.status_code < 400:
+        events.client_for(request).report(via="instapaper")
+    return response
+
+
 # -------------------------------------------------------------------- healthz
 @app.get("/healthz")
 async def healthz():
@@ -398,9 +413,11 @@ async def start_sync(request: Request, dev=Depends(require_device)):
         uid,
         work,
         service="instapaper",
-        # The account id (itself a hash of the address), salted once more: the
-        # board counts accounts and can name none of them.
-        device=events.device_id(uid),
+        # The device's own id, board, version and health, read off its
+        # headers. A reader that sends no id is counted under the account id
+        # (itself a hash of the address), salted once more: the board can
+        # name none of them.
+        client=events.client_for(request, default_device=events.device_id(uid)),
         # articles: what came down this sync, new or changed.
         props=lambda s: {"articles": len(s["articles"])},
     )

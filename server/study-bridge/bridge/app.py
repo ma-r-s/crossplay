@@ -16,15 +16,13 @@ pairing-code scans (A3), not to be fair schedulers.
 """
 
 import asyncio
-import base64
-import hashlib
 import json
 import logging
 import secrets
 import struct
 import time
 
-from fastapi import Depends, FastAPI, Request, Response
+from fastapi import Depends, FastAPI, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
 from . import accounts, decks, engine, events, jobs, pairing, store, wire
@@ -103,6 +101,21 @@ def require_device(request: Request) -> tuple[str, str]:
             "This device is not paired anymore. Pair it again from Study."
         )
     return uid, th
+
+
+# ------------------------------------------------------------ device reports
+@app.middleware("http")
+async def device_reports(request: Request, call_next):
+    """A device never makes a request just to report. Whatever it has to say
+    (a crash, an update attempt) rides the X-CrossPlay-Report header of the
+    request it was making anyway, on every endpoint, so it is read here and
+    not in one handler. Posted after the answer, and only for an answer the
+    device will count as delivered, so a request it retries does not post
+    the same crash twice. events.Client.report never raises."""
+    response = await call_next(request)
+    if response.status_code < 400:
+        events.client_for(request).report(via="anki")
+    return response
 
 
 # -------------------------------------------------------------------- healthz
@@ -492,9 +505,11 @@ async def start_sync(request: Request, dev=Depends(require_device)):
         uid,
         work,
         service="anki",
-        # The token hash, salted once more: the board counts readers and can
-        # name none of them, and the raw token never reaches this line at all.
-        device=events.device_id(th),
+        # The device's own id, board, version and health, read off its
+        # headers. A reader that sends no id is counted under its token hash,
+        # salted once more: the board can name none of them, and the raw
+        # token never reaches this line at all.
+        client=events.client_for(request, default_device=events.device_id(th)),
         # cards: what the reader posted, its whole hand across the chosen
         # decks; reviews: what this sync carried up into the collection.
         props=lambda s: {"cards": len(device_cards), "reviews": s["applied"]},
