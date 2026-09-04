@@ -6,13 +6,13 @@ CrossPoint is open-source e-reader firmware - community-built, fully hackable, f
 
 **Now running on:** ESP32C3-based Xteink [X4](https://www.xteink.com/products/xteink-x4) and [X3](https://www.xteink.com/products/xteink-x3).
 
-![CrossPoint Reader running on Xteink device](./docs/images/cover.jpg)
+![CrossPoint Reader running on Xteink device](images/cover.jpg)
 
 > If you're planning to buy an Xteink device, consider purchasing an **X3/X4 Developer Edition** through https://crosspointreader.com. CrossPoint receives a small share of each sale, helping fund development costs.
 
 ## What can CrossPoint do?
 
-- **Reader engine**: EPUB 2/3 rendering with embedded-style option, image handling, hyphenation, kerning, chapter navigation, footnotes, bookmarks, dictionary lookups ([StarDict](docs/dictionary.md)), go-to-percent, auto page turn, orientation control, focus reading, KOReader progress sync and more. 
+- **Reader engine**: EPUB 2/3 rendering with embedded-style option, image handling, hyphenation, kerning, chapter navigation, footnotes, bookmarks, dictionary lookups ([StarDict](dictionary.md)), go-to-percent, auto page turn, orientation control, focus reading, KOReader progress sync and more. 
 
 - **Various formats**: native handling for `.epub`, `.xtc/.xtch`, `.txt`, and `.bmp`.
 
@@ -133,12 +133,12 @@ Conversion runs the firmware repo's `lib/EpdFont/scripts/fontconvert_sdcard.py` 
 
 ## Documentation
 
-- [User Guide](./USER_GUIDE.md)
-- [Web server usage](./docs/webserver.md)
-- [Web server endpoints](./docs/webserver-endpoints.md)
-- [Project scope](./SCOPE.md)
-- [Contributing docs](./docs/contributing/README.md)
-- [Touch and UI development](./docs/contributing/touch-and-ui.md) - how to build new screens on the FreeInkUI activity bases (UiListActivity and friends), plus build envs for the non-Xteink touch devices
+- [User Guide](../USER_GUIDE.md)
+- [Web server usage](webserver.md)
+- [Web server endpoints](webserver-endpoints.md)
+- [Project scope](../SCOPE.md)
+- [Contributing docs](contributing/README.md)
+- [Touch and UI development](contributing/touch-and-ui.md) - how to build new screens on the FreeInkUI activity bases (UiListActivity and friends), plus build envs for the non-Xteink touch devices
 
 ---
 
@@ -246,21 +246,21 @@ cache. This cache directory exists at `.crosspoint` on the SD card. The structur
 
 Removing `/.crosspoint` clears all cached metadata and forces a full regeneration on next open. Book deletes, overwrites, and moves done through the firmware or web UI clear or re-key matching caches; manual SD-card edits may leave stale cache directories behind.
 
-For more details on the internal file structures, see the [file formats document](./docs/file-formats.md).
+For more details on the internal file structures, see the [file formats document](file-formats.md).
 
 ---
 
 ## Contributing
 
-Contributions are welcome. If you're new to the codebase, start with the [contributing docs](./docs/contributing/README.md). For things to work on, check the [ideas discussion board](https://github.com/crosspoint-reader/crosspoint-reader/discussions/categories/ideas) — leave a comment before starting so we don't duplicate effort.
+Contributions are welcome. If you're new to the codebase, start with the [contributing docs](contributing/README.md). For things to work on, check the [ideas discussion board](https://github.com/crosspoint-reader/crosspoint-reader/discussions/categories/ideas) — leave a comment before starting so we don't duplicate effort.
 
-Everyone here is a volunteer, so please be respectful and patient. For governance and community expectations, see [GOVERNANCE.md](./GOVERNANCE.md).
+Everyone here is a volunteer, so please be respectful and patient. For governance and community expectations, see [GOVERNANCE.md](https://github.com/crosspoint-reader/crosspoint-reader/blob/develop/GOVERNANCE.md).
 
 ---
 
 ## Community forks
 
-One of the best things about open source is that anyone can take the code in a different direction. If you need something outside CrossPoint's [scope](./SCOPE.md), check out the community forks:
+One of the best things about open source is that anyone can take the code in a different direction. If you need something outside CrossPoint's [scope](../SCOPE.md), check out the community forks:
 
 - [CrossInk](https://github.com/uxjulia/CrossInk) — Typography and reading tracking: Bionic Reading (bolds word stems to create fixation points), guide dots between words, improved paragraph indents, and replaces the default fonts with ChareInk/Lexend/Bitter.
 

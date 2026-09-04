@@ -13,8 +13,13 @@ origin/xteink..crosspoint/develop | wc -l`. Zero: post nothing, stop.
 3. **Merge** `crosspoint/develop`. Conflicts are resolved by these rules, in
    order, and nothing else:
    - Files listed in `LOCAL_SCOPE.md` as fork-owned keep the fork's side.
-   - `CLAUDE.md`, `SCOPE.md`, `README.md` and upstream's docs take upstream's
-     side; fork-specific notes in them live in `LOCAL_SCOPE.md` or `docs/`.
+   - Upstream's docs take upstream's side; fork-specific notes about them
+     live in `LOCAL_SCOPE.md` or `docs/`. `README.md`, `AGENTS.md` (=
+     `CLAUDE.md`) and `SCOPE.md` are NOT in that group: `LOCAL_SCOPE.md`
+     lists all three as fork-owned, so the rule above already keeps our
+     side. Taking upstream's would replace this fork's front page with
+     CrossPoint's and drop the read-this-first banner from the agent
+     guide.
    - `src/apps_local/`, `tools_local/`, `scripts_local/`, `host-tests/`,
      `site/`, `docs/workflow/`, `server/`: the fork's side, always.
    - Anything else: read both sides; if upstream fixed the same problem the

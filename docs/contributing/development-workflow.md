@@ -42,4 +42,4 @@ If `clang-format` is missing or too old locally, see [Getting Started](./getting
 - Keep discussions technical and respectful
 - Assume good intent and focus on code-level feedback
 
-For community expectations, see [GOVERNANCE.md](../../GOVERNANCE.md).
+For community expectations, see [GOVERNANCE.md](https://github.com/crosspoint-reader/crosspoint-reader/blob/develop/GOVERNANCE.md).

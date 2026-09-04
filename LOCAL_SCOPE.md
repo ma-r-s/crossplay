@@ -30,17 +30,28 @@ how much upstream-owned code it touches.
 - **Everything we add lives in new files**: `src/apps_local/`, `host-tests/`,
   `scripts_local/`, `tools_local/`, and our own `docs/`. New files never
   conflict.
-- **Twenty-eight upstream files know we exist.** Half are the fork's identity
-  (README, LICENSE, templates, workflows); the code seams are in the table
-  below, and none of them grows when we add an app. `sync.sh` no longer keeps
-  a copy of this list: it computes the conflict set from git, so it cannot go
-  stale the way the hand-kept list did (it sat at seven entries while the
-  truth grew past twenty).
+- **A countable set of upstream files knows we exist**, and it is counted
+  rather than remembered. Part of it is the fork's identity (README, LICENSE,
+  templates, workflows); the code seams are in the table below, and none of
+  them grows when we add an app. `sync.sh` keeps no copy of the list: it
+  computes the conflict set from git, so it cannot go stale the way the
+  hand-kept list did (it sat at seven entries while the truth grew past
+  twenty). Do not write the total down here either, for the same reason.
 - **Before editing any other upstream file, stop and ask whether it can be done
   in `src/apps_local/` instead.** If it genuinely cannot, keep the edit as small
   and as structurally stable as possible, and add it to the table below.
 
-`git diff base..xteink` is the whole fork. Keep reading that number.
+The whole fork is the diff from the newest upstream commit `xteink` already
+contains:
+
+```bash
+git diff --stat $(git merge-base HEAD crosspoint/develop)..HEAD
+```
+
+Keep reading that number. It is written against `merge-base` rather than
+against `base` on purpose: `base` is a local branch that has to be
+fast-forwarded by hand, it is not pushed to `origin`, and when it lags the
+diff quietly reports upstream's own progress as though it were ours.
 
 ### The upstream files we own
 
@@ -59,7 +70,7 @@ The code seams, each a deliberate, commented edit:
 | `lib/GfxRenderer/PaintClock.h`                                                                                                                                                                                                                                                            | New file. A count of completed paints, and the `RevealGate` latch built on it, so a tap is never routed against a screen the panel has not shown yet; see `src/apps_local/ui/ToyboxScreen.h`. Lives beside the renderer because the renderer is what knows the fact, and is freestanding so the toybox headers stay host-testable                                                                                        | new file                                                                  |
 | `src/components/UiAppHost.{h,cpp}`                                                                                                                                                                                                                                                        | The `uiReady` handshake waits for the panel, not just for the rebuild: `resetUi()` arms a `RevealGate` and routing stays closed until one paint lands. Screen entry only, so ordinary repaints still route                                                                                                                                                                                                               | 3 lines + 1 member                                                        |
 | `lib/GfxRenderer/RevealedInteractions.h`                                                                                                                                                                                                                                                  | New file. `RevealedInteractions<N>` (the table digest, lifted out of `ToyboxScreen.h` and made capacity-generic so the 17- and 48-slot components can use it) and `SurfaceGate` (the same rule for a board hit-tested against geometry, which never reaches `route()`)                                                                                                                                                   | new file                                                                  |
-| `src/activities/Activity.h`                                                                                                                                                                                                                                                               | `surfaceMeaning()` / `surfaceRevealed()` / `noteSurfaceBuilt()` and a `SurfaceGate` member: the opt-in every geometry-hit-tested play surface inherits, so eight games do not each grow their own                                                                                                                                                                                                                        | 3 methods + 1 member                                                      |
+| `src/activities/Activity.h`                                                                                                                                                                                                                                                               | `surfaceMeaning()` / `surfaceRevealed()` / `noteSurfaceBuilt()` and a `SurfaceGate` member: the opt-in every geometry-hit-tested play surface inherits, so the games that hit-test a play surface do not each grow their own                                                                                                                                                                                             | 3 methods + 1 member                                                      |
 | `src/components/OptionPopup.h`                                                                                                                                                                                                                                                            | Holds a `RevealedInteractions` rather than a raw `InteractionBuffer`, and asks the gate BEFORE routing so a suppressed tap cannot fall through to the dismiss-on-outside-tap branch                                                                                                                                                                                                                                      | 3 lines + 1 type                                                          |
 | `src/activities/util/KeyboardEntryActivity.{h,cpp}`                                                                                                                                                                                                                                       | A `RevealGate` armed on screen entry, so a tap during the first paint belongs to the screen that pushed the keyboard rather than to a key. Entry only, deliberately: digesting this table would gate every layer change, and shift swaps the whole layout                                                                                                                                                                | 3 lines + 1 member                                                        |
 | `lib/PngToBmpConverter/PngToBmpConverter.*`                                                                                                                                                                                                                                               | `...FitWithin()`: contain, not cover, for bounding downloaded images                                                                                                                                                                                                                                                                                                                                                     | 1 method                                                                  |
@@ -68,13 +79,16 @@ The code seams, each a deliberate, commented edit:
 | `src/main.cpp`, `src/CrossPointSettings.h`, `src/SettingsList.h`, `src/activities/settings/OtaUpdateActivity.cpp`, `src/activities/settings/SdFirmwareUpdateActivity.cpp`, `src/network/HttpDownloader.cpp`, `src/apps_local/bridge/BridgeHttp.cpp`, `src/apps_local/study/StudySync.cpp` | The device report's hooks: `devreport::begin()` after the settings load, one settings field and its row, the install attempt/failure notes on both install screens (the SD one is the OTA one's twin), and `devreport::headersFor()`/`delivered()` around each request in the three transports that reach CrossPlay's own hosts; the module itself is `src/network/DeviceReport*.{h,cpp}`. See `docs/workflow/events.md` | 1 call + 1 field + 1 row + the notes on 2 screens + 2 calls per transport |
 | `.gitignore`                                                                                                                                                                                                                                                                              | Ignore `qa-artifacts/` and the simulator's SD cards                                                                                                                                                                                                                                                                                                                                                                      | 3 lines, append-only                                                      |
 | `platformio.ini`                                                                                                                                                                                                                                                                          | One `extra_configs` line pulling in `platformio.sim.ini`                                                                                                                                                                                                                                                                                                                                                                 | 1 line                                                                    |
-| `.skills/SKILL.md` (= `CLAUDE.md`)                                                                                                                                                                                                                                                        | The read-this-first banner pointing here, so agents find the fork rules                                                                                                                                                                                                                                                                                                                                                  | ~20 lines                                                                 |
+| `AGENTS.md` (= `CLAUDE.md`)                                                                                                                                                                                                                                                               | The read-this-first banner pointing here, so agents find the fork rules                                                                                                                                                                                                                                                                                                                                                  | ~20 lines                                                                 |
 | `SCOPE.md`                                                                                                                                                                                                                                                                                | One-line pointer here; it is the file that says "no games"                                                                                                                                                                                                                                                                                                                                                               | 2 lines                                                                   |
 
-The rest of the twenty-eight are identity, not seams: `README.md`, `LICENSE`,
-`GOVERNANCE.md`, `ROADMAP.md`, `.github/` templates, funding and workflows,
-`.claude/skills/README.md`. They are this fork's front matter and merge
-trivially or not at all.
+The rest are identity, not seams: `README.md`, `LICENSE`, `.github/`
+templates, funding and workflows, `.skills/README.md`. They are this fork's
+front matter and merge trivially or not at all. `GOVERNANCE.md` and
+`ROADMAP.md` are not on that list because the fork does not carry them at all:
+c8360519 deleted both rather than owning them, upstream's governance file
+having routed harassment reports to a maintainer who never agreed to receive
+them.
 
 None of the seams grows when an app is added -- the two theme edits are per
 _folder_, and there are two folders. Both are appends: values at the end of an
@@ -138,6 +152,10 @@ coverage without a device.
 ./scripts_local/check.sh --tests  # suites only, fast
 ```
 
+**Every suite green is the only green; nothing here is a known failure.** A
+suite that is allowed to stay red stops being read, and then so do the ones
+beside it.
+
 (Inside a worktree always call `./scripts_local/`; the workspace-root
 `./scripts/` symlinks resolve back to the integration tree.)
 
@@ -156,13 +174,14 @@ over, is in [docs/open-items.md](docs/open-items.md).
 - **`xteink`** is the integration branch. `base` merges into it, never the
   reverse.
 
-Because `base` is a pure mirror, `git diff base..xteink` is exactly what this
-fork owns, and building `base` gives a clean upstream binary for answering "is
-this bug mine or theirs".
+Building `base` gives a clean upstream binary for answering "is this bug mine
+or theirs". It is only as good as its last fast-forward: `base` lives on this
+machine and not on `origin`, so check it is current before trusting a diff
+against it.
 
 ```bash
-./scripts/sync.sh           # report what changed upstream, change nothing
-./scripts/sync.sh --apply   # merge and verify in a trial worktree, then land
+./scripts_local/sync.sh           # report what changed upstream, change nothing
+./scripts_local/sync.sh --apply   # merge and verify in a trial worktree, then land
 ```
 
 ### The base branch died, and this fork inherited it
@@ -172,7 +191,7 @@ beta branch, the only place X4 Pro and touch support lived. Upstream deleted
 that branch without merging it. Its content is not in `develop`, not in
 `master`, not anywhere upstream -- `xteink` is its only living continuation,
 and our pushed copy survives as `origin/feat-touch-ui`. The touch layer this
-fork's twenty-one apps sit on is therefore ours to carry now, not a passthrough.
+fork's apps sit on is therefore ours to carry now, not a passthrough.
 
 `base` now tracks **`crosspoint/develop`**, the durable trunk, re-founded at
 `v1.5.0` (`e00f5958`): the last develop commit fully contained in `xteink`.

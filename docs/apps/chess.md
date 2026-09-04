@@ -7,7 +7,7 @@ first and make the code match it.
 
 Chess does not know that `Games` is its parent. It calls `shelf::leave()` and
 the shelf decides; the edge is drawn here because that is where you end up, not
-because chess names it. See [shelf.md](shelf.md).
+because chess names it. See [shelf.md](../shelf.md).
 
 ```mermaid
 stateDiagram-v2

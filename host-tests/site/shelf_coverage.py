@@ -90,3 +90,51 @@ for where, text in prose.items():
     for name in spaced:
         if " " + flat(name).strip() + " " not in near:
             print(f"{name} plays over PLAY NEARBY and {where} leaves it out of the list")
+
+
+# ---------------------------------------------------------------------------
+# The names above are checked; the totals beside them were not, and a total is
+# the easiest thing in the file to leave behind. The README says "19 games and
+# 5 apps" and "Nine of the games play over PLAY NEARBY", and both are facts
+# about Shelf.cpp and LinkPlay.h written out as literals. The name checks do
+# not catch a stale one: add a twentieth game and every name check still
+# passes while the sentence goes on saying nineteen.
+# ---------------------------------------------------------------------------
+
+WORDS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+    "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+    "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16,
+    "seventeen": 17, "eighteen": 18, "nineteen": 19, "twenty": 20,
+}
+
+
+def as_number(token):
+    return int(token) if token.isdigit() else WORDS.get(token.lower())
+
+
+readme = (root / "README.md").read_text()
+
+shelf_total = re.search(
+    r"\*\*(\d+|[A-Za-z]+) games and (\d+|[A-Za-z]+) apps\*\*", readme
+)
+if not shelf_total:
+    print("the README no longer states an 'N games and M apps' total, so it cannot be checked")
+else:
+    for stated, table, kind in (
+        (shelf_total.group(1), "kGames", "games"),
+        (shelf_total.group(2), "kApps", "apps"),
+    ):
+        want = len(titles(table))
+        got = as_number(stated)
+        if got != want:
+            print(f"the README says {stated} {kind} and {table} in Shelf.cpp has {want}")
+
+nearby = re.search(r"(\d+|[A-Za-z]+) of the games play over \*\*PLAY NEARBY\*\*", readme)
+if not nearby:
+    print("the README no longer counts the PLAY NEARBY games, so the count cannot be checked")
+elif ids and as_number(nearby.group(1)) != len(ids):
+    print(
+        f"the README says {nearby.group(1)} games play over PLAY NEARBY "
+        f"and LinkPlay.h's GameId has {len(ids)}"
+    )

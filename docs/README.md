@@ -17,6 +17,17 @@ buttons (`buttons.md`), what scale does to games (`games-at-scale.md`), how to
 reflash and inspect a device over Wi-Fi with no cable
 (`developer-mode.md`), and what is knowingly unfinished (`open-items.md`).
 
+`release-notes.md` is not written by hand. `scripts_local/release_notes.py`
+rewrites its `### What is new in <version>` block from the merged pull
+requests, the autorelease workflow commits it, and `crossplay-release.yml`
+passes it as the release body. Edit the tooling, not the file.
+
+`install.md` is the reader-facing one: everything about getting the firmware
+onto a device except the one-click browser install, which stays on the front
+page because it is what almost everybody wants. It exists so the README does
+not have to carry esptool invocations, the update-an-existing-install rules and
+Developer Mode's pairing flow above the fold.
+
 `developer-mode.md` covers a runtime setting and the routes it exposes. It is a
 fork doc rather than a section in upstream's `webserver-*.md` because those stay
 untouched so merges from CrossPoint stay cheap.
