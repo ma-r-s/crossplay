@@ -50,6 +50,9 @@ capability. Open it when the review lands, and not before.
 uv venv .venv && uv pip install --python .venv/bin/python -r requirements.txt
 .venv/bin/python tests/test_oauth.py     # signing, against RFC 5849's vector
 .venv/bin/python tests/test_article.py   # HTML -> flat text, rule by rule
+.venv/bin/python tests/test_listing.py   # the REAL bookmarks/list shape, as a fixture
+.venv/bin/python tests/test_window.py    # the rate limiter's memory
+.venv/bin/python tests/test_lockout.py   # sign-in lockout
 .venv/bin/python tests/test_engine.py    # the three silent-failure rules
 .venv/bin/python tests/test_api.py       # the whole surface, end to end
 .venv/bin/python tests/test_events.py    # the board poster, HTTP stubbed
@@ -57,7 +60,15 @@ uv venv .venv && uv pip install --python .venv/bin/python -r requirements.txt
 
 `tests/fake_instapaper.py` stands in for the real API and **verifies OAuth
 signatures**, so the suites prove the signing without a consumer key or a
-network. `check.sh` runs all four and FAILS rather than skips when it cannot.
+network. `check.sh` runs them all and FAILS rather than skips when it cannot.
+
+**The fake's response shapes are copied from the live API, not from the
+docs.** They did not start that way and it cost the first real sync: the fake
+answered `bookmarks/list` with the object the documentation implies, the client
+required that same object, and so every suite passed in agreement about a shape
+Instapaper has never sent. A fake written from the same source as the code it
+tests cannot falsify that code. When this fake and the live API disagree, the
+fake is wrong -- see `tests/test_listing.py` for the recorded shape.
 
 One more, deliberately outside the gate because it builds and drives the
 simulator:
