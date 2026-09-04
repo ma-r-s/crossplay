@@ -22,8 +22,9 @@
 ![CrossPlay on the Xteink X4 Pro](site/assets/shots/og.png)
 
 The **Xteink X4 Pro** and the **Seeed reTerminal Sticky** are cheap e-ink
-devices, and [CrossPoint](https://crosspointreader.com/) already makes them
-good at reading. CrossPlay is firmware that keeps all of that and adds the
+devices with an 800x480 panel, capacitive touch and two physical buttons, and
+[CrossPoint](https://crosspointreader.com/) already makes them good at
+reading. CrossPlay is firmware that keeps all of that and adds the
 other things a screen that holds still is good at: **19 games and 5 apps**,
 spaced-repetition flashcards, comics, a read-later queue, and two devices that
 play together with nothing to set up.
@@ -35,10 +36,11 @@ in the browser: the same `src/` and `lib/` the device build compiles, put
 through `em++` instead of `g++`, against an SD card of its own. Click the screen
 in the hero, or ask for two devices and watch them find each other.
 
-It is the whole thing, not a video and not a mock-up. The browser build fakes
-three things, all listed in [site/README.md](site/README.md): the network
-answers from a snapshot, Study's headword font is a smaller cut standing in for
-the large one, and sleep is off.
+It is the real thing rather than a video, with three things faked, all listed
+in [site/README.md](site/README.md): the network answers from a snapshot,
+Study's headword font is a smaller cut standing in for the large one, and sleep
+is off. The snapshot is why Connections is the one game that does not play in
+the browser: it fetches the day's board and nothing can be canned for it.
 
 ## What is on it
 
@@ -92,13 +94,17 @@ are only two: [docs/buttons.md](docs/buttons.md).
 
 ## Install it
 
-> **Check which device you have.** CrossPlay is for the Xteink **X4 Pro** and
-> the Seeed reTerminal Sticky, both ESP32-S3. The plain **X4** and the **X3**
-> are ESP32-C3: these binaries are not for them, and flashing one there is a
-> cross-chip flash. Install [CrossPoint](https://crosspointreader.com/) on
-> those instead. Between the two S3 devices the firmware protects you: every
-> image carries its board name, and both updaters refuse an image built for the
-> other board.
+> **The X4 Pro is not the X4.** CrossPlay is for the Xteink **X4 Pro** and the
+> Seeed reTerminal Sticky, both ESP32-S3. The plain **X4** and the **X3** are
+> ESP32-C3, and writing an S3 image to one of those used to brick it. Install
+> [CrossPoint](https://crosspointreader.com/) on those instead: it is excellent,
+> and it is what this is built on.
+>
+> **You do not have to work out which you have.** The browser installer below
+> reads the chip off the device before it writes anything, and stops with
+> "Nothing was written" if it is a C3. Between the two S3 devices every image
+> carries its board name and both updaters refuse an image built for the other
+> board.
 
 Open [**crossplay.ma-r-s.com/#get**](https://crossplay.ma-r-s.com/#get) in
 Chrome or Edge on a computer, plug the device in, wake it, and press **Install**.
@@ -130,14 +136,16 @@ Most of the shelf never touches the network. Of the parts that do:
   CrossPlay over CrossPoint does not orphan an existing sync. The address is a
   setting and can be pointed at any KOSync server.
 - **Connections, xkcd, Hacker News, Trivia, Get Books and Instapaper** fetch
-  what you ask them for, when you ask. CrossPlay ships no puzzle content of its
-  own.
+  what you ask them for, when you ask. Connections downloads each board from
+  the New York Times as you open it and CrossPlay ships none of them; Trivia's
+  question pack and xkcd's comics are downloaded once onto the card.
 - **Opening a Hacker News article sends its URL to a third party.** The story
   list comes from the public [Algolia API](https://hn.algolia.com/api), and
   opening an article proxies it through [r.jina.ai](https://r.jina.ai) to get
   readable text back, so that service learns what you read. It is a choice, not
   an accident, which is why it is written here.
-- **Developer Mode is off** until you turn it on, and says so on the panel.
+- **Developer Mode is off** until you turn it on. While it is on the device
+  will not deep-sleep, and the panel says so.
 
 ## Build it
 
@@ -169,9 +177,10 @@ fetched by the device from [xkcd.com](https://xkcd.com). Connections puzzles are
 the New York Times'; CrossPlay ships none of them and downloads only what you
 ask for. Type is Jersey 25 and Instrument Serif, both SIL OFL.
 
-Jaipur, Insider, Murdle, Battleship, Connections, Knucklebones, Sea Salt &
-Paper and Toy Battle are trademarks of their respective owners. Sea Salt & Paper
-was designed by Bruno Cathala and Theo Riviere and is published by Bombyx. Toy
-Battle was designed by Paolo Mori and Alessandro Zucchini and is published by
-Repos Production. CrossPlay implements the games; it is not affiliated with,
-endorsed by or sponsored by any of them.
+Where a game on the shelf carries the name of a published game, that name is
+its owner's trademark and is used to say what the thing is; game mechanics are
+not copyrightable. Sea Salt & Paper was designed by Bruno Cathala and Theo
+Riviere and is published by Bombyx. Toy Battle was designed by Paolo Mori and
+Alessandro Zucchini and is published by Repos Production. CrossPlay implements
+the games; it is not affiliated with, endorsed by or sponsored by any of their
+owners.

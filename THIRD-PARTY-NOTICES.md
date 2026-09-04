@@ -73,10 +73,16 @@ texts ship beside the fonts at `site/assets/fonts/OFL-Jersey25.txt` and
 
 ## Games
 
-Jaipur, Insider, Murdle, Battleship and Connections are trademarks of their
-respective owners. CrossPlay implements the games; it is not affiliated with,
-endorsed by or sponsored by any of them. Game mechanics are not copyrightable;
-the names are used to say what the thing is.
+Where a game on the shelf carries the name of a published game, that name is
+its owner's trademark. CrossPlay implements the games; it is not affiliated
+with, endorsed by or sponsored by any of their owners. Game mechanics are not
+copyrightable; the names are used to say what the thing is.
+
+Named rather than enumerated on purpose. The list here read "Jaipur, Insider,
+Murdle, Battleship and Connections" and had not grown with the shelf: it was
+missing Knucklebones, Sea Salt & Paper, Toy Battle, Yahtzee and Wavelength, all
+of which ship. A list of trademarks is exactly the kind that goes stale
+silently, and being incomplete is the one way this notice can do harm.
 
 ## Something missing
 
