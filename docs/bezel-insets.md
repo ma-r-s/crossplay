@@ -118,6 +118,11 @@ traps were found:
    Since the 2026-09-04 upstream sync they call upstream's
    `setContentMarginFromScreen()`. Never hand absolute margins to plain
    `setContentMargin()`; that applies the safe area twice.
+   `host-tests/marginguard` reads the source for exactly that shape (a plain
+   `setContentMargin(` whose arguments mention `safe.`, `getScreenSafeArea`
+   or `safeRect`) and fails on it, because upstream's convention is the
+   opposite and every sync imports screens written their way; the ui suite
+   cannot see a doubled safe area of zero.
 
    `setContentMarginFromScreen()` does NOT apply it twice, which is why the
    fork could adopt it and delete its own `setContentMarginAbsolute()` from
