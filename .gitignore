@@ -64,3 +64,6 @@ flake.*
 
 # scratch for tools_local/trivia/assemble_pack.py: corpus snapshot, built packs
 .pack/
+
+# scratch snapshots copied out of a live rating run; derived, large, not history
+.panel/

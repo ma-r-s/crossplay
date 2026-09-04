@@ -368,7 +368,7 @@ against a fresh panel when the run finishes.
 
 **Do not read that first row as quality, and do not read the second as a
 verdict on the local rater.** Candidates were sampled as level 1 against level 5
-*as the cloud file cut them*, so that file is being scored on its own extremes
+_as the cloud file cut them_, so that file is being scored on its own extremes
 and every other rater on somebody else's. No threshold here transfers.
 
 The cloud file is also the noisy one, which is the finding that put PR #19 on
@@ -385,6 +385,51 @@ bar, draw a fresh panel from the shipping rater's own extremes.** Until then
 `panel_score.py` prints numbers and no verdict, exits 0, and is not in
 `check.sh`.
 
+### The fresh panel, drawn from the local rater (2026-09-04)
+
+That last instruction was carried out. `make_local_panel.py` drew 90 pairs from
+the local run's own 27,301-row snapshot, one judge decided them blind, and
+`local_panel_score.py` scored them. Panel and verdicts are in
+`tools_local/trivia/local_panel/`; it is not in `check.sh` either, for the same
+reason plus a sharper one: the bar is now **one** judge's opinion, not three.
+
+**The headline is 73/88 = 83%, and the headline is not the evidence.** Sample a
+panel from the extremes alone and any ordered rater approaches 100%; sample it
+from adjacent levels and every rater alive approaches 50%. So the pairs were
+stratified by how far apart the rater put them, because a rater emitting
+well-spread NOISE scores ~50% in every band and only a rater carrying signal
+falls as the band narrows:
+
+| gap band           | pairs | agreement |
+| ------------------ | ----- | --------- |
+| wide, \|dr\| >= 6  | 30    | 96.7%     |
+| mid, \|dr\| 4-5    | 30    | 90.0%     |
+| narrow, \|dr\| 2-3 | 30    | 60.7%     |
+
+Monotone, and the judge's own confidence -- written down before the key was
+opened -- tracks it: 97.6% on the calls marked high, 42.1% on the ones marked
+low. The disagreements are concentrated in the pairs the judge already knew were
+guesses. **The mechanism works. The levels are not noise.**
+
+**One real defect, measured rather than inferred from the panel.** Fifteen
+disagreements are far too few to read a pattern off, so each hunch was turned
+into a corpus-wide query that could come back negative (`local_panel_probes.py`,
+which keeps both outcomes). The one that held: on 156 rows where the clue NAMES
+the answer's country and the answer is that country's capital -- Oslo from "this
+Norwegian capital" -- **23% still ship at level 3 or worse.** The rater grades
+the obscurity of the clue's wrapper (a museum, a librarian, a theme park)
+instead of asking whether the answer is reachable from the words the player
+sees. It costs a slab of genuinely easy questions to the middle tiers; it does
+not reorder the scale.
+
+The hunch that did NOT hold is kept in the same tool: a Pentagon clue rated
+easiest in the panel suggested the rater's floor of general knowledge was
+American, but across 442 rows whose clue says "U.S." or "American" outright and
+whose `us` flag said false, mean `r` is 5.39 against the rest at 6.35. The rater
+applies the international correction through `r` even where its own flag missed.
+One bad row was one bad row.
+
+### Three rules in that tool, each of which fails silently when undone
 ### Four rules in that tool, each of which fails silently when undone
 
 **Join on the corpus's stored id. Never re-derive it.** Ids are a sha1 of
