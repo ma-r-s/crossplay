@@ -42,6 +42,14 @@
 --     A detector that has quietly gone blind looks exactly like a green one,
 --     which is the failure this file exists to stop repeating.
 --
+-- What it cannot see, said here so a clean board is not read as more than it
+-- is. It watches releases that were STARTED. If crossplay-autorelease.yml runs
+-- green and its gate decides go=false every time -- a rule in
+-- release-needed.sh going wrong, RELEASE_HOLD left at 1 -- there is no bump
+-- commit, nothing is owed, and this watcher is silent while merges pile up
+-- unreleased. Its own failing runs are caught, which is why both workflows'
+-- runs are read; a gate that quietly always says no is not.
+--
 -- What it does NOT do is collapse. Four failed runs are four cards, not one
 -- summary: the fault was that it failed four times and said nothing four
 -- times, and a watcher that answers with a single tidy notification has
