@@ -154,6 +154,22 @@ jobs:
       # repo already got burned by. A forgiven suite that no longer fails is a
       # door held open for the next regression.
       #
+      # Pull postgres BEFORE the firmware build, not when the suite wants it.
+      #
+      # host-tests/relwatch runs a real postgres in docker. Twice today it
+      # failed a pull request whose diff could not touch a database, and the
+      # diagnostic showed why: the container was still running its
+      # INITIALISATION when the suite gave up, i.e. it had started late. The
+      # image pull competes with a firmware build for the same runner IO.
+      #
+      # Pulling here costs seconds on a warm runner and removes the race
+      # entirely: by the time the suite runs, the image is local and the
+      # container only has to start. `|| true` because a pull failure must not
+      # fail the build -- the suite still pulls on demand and reports properly
+      # if that fails.
+      - name: Pre-pull the relwatch database image
+        run: docker pull postgres:16-alpine || true
+
       # host-tests/ci/run.sh executes this step's actual text (extracted from
       # this yaml, not copied) and asserts the no-forgiveness shape, so drift
       # here fails a suite there.
