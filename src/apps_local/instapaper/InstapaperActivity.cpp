@@ -35,6 +35,16 @@ constexpr int64_t kClockFloor = 1700000000;
 // converts a handful of articles, so this is seconds rather than tens of them,
 // and each poll is one HTTP round trip on a battery.
 constexpr uint32_t kPollIntervalMs = 1500;
+// Consecutive polls that never reached the bridge before a sync is called off.
+// Six of them is nine seconds of silence, which is longer than any hiccup this
+// reader survives on the desk and shorter than a reader will wait for a screen
+// that is lying about being busy.
+// A poll that fails at the transport carries a 30s timeout of its own
+// (BridgeHttp), so counting misses would have bounded this by anything
+// between nine seconds and three minutes depending on HOW they failed. The
+// bound a reader actually experiences is time, so time is what is measured:
+// three quarters of a minute of no contact ends the sync.
+constexpr uint32_t kPollMissWindowMs = 45000;
 
 }  // namespace
 
@@ -356,16 +366,23 @@ bool InstapaperActivity::doPairPoll() {
 // --- Syncing -------------------------------------------------------------
 
 bool InstapaperActivity::doSyncStart() {
+  // Per sync, not per poll: a miss left over from a previous attempt would
+  // spend this one's tolerance before it had lost anything.
+  pollMissedSinceMs_ = 0;
   library_.load();
   std::vector<int64_t> archive;
   for (const instapaper::Article& a : library_.articles()) {
     if (a.archivePending) archive.push_back(a.id);
   }
 
+  // Only the rows whose text is really on the card: claiming one whose file
+  // is missing suppresses it at Instapaper and deadlocks its download. See
+  // composeHave in InstapaperIndex.h.
+  std::vector<instapaper::Article> have = instapaper::composeHave(library_.articles(), library_.presentIds());
+
   // A clock that has never been set must not stamp a reading position. The
   // index keeps the progress either way -- it is only the timestamp that is
   // withheld, and without one the bridge leaves Instapaper's own value alone.
-  std::vector<instapaper::Article> have = library_.articles();
   if (nowOrZero() == 0) {
     for (instapaper::Article& a : have) a.progressAt = 0;
   }
@@ -427,15 +444,35 @@ bool InstapaperActivity::doSyncPoll() {
     return true;
   }
   if (status == "running" || status == "queued") {
+    pollMissedSinceMs_ = 0;
     delay(kPollIntervalMs);
     request(Step::SyncPoll, "SYNCING");
     return true;
+  }
+  // An empty verdict is a request that never reached the bridge -- no answer,
+  // no refusal, nothing to show a reader. The job on the other side is not
+  // affected by it: it keeps fetching, and its summary is waiting whenever
+  // the next poll gets through. A full sync takes fifteen seconds of Wi-Fi
+  // over a tunnel, so treating the first lost packet as the end of the sync
+  // threw away work that had already succeeded and said NOT SYNCED about it.
+  if (status.empty()) {
+    // 0 is the sentinel for "getting through", so never store it as a time.
+    if (pollMissedSinceMs_ == 0) pollMissedSinceMs_ = millis() | 1u;
+    if (millis() - pollMissedSinceMs_ < kPollMissWindowMs) {
+      delay(kPollIntervalMs);
+      request(Step::SyncPoll, "SYNCING");
+      return true;
+    }
   }
   if (sync_.unpaired) {
     bridge_ = instapaper::BridgeState{};
     library_.clearBridgeState();
   }
-  showNotice("NOT SYNCED", message.empty() ? "The service stopped answering. Try again." : message);
+  if (message.empty()) {
+    message = status.empty() ? "The reader lost contact with the service. Try syncing again."
+                             : "The service stopped answering. Try again.";
+  }
+  showNotice("NOT SYNCED", message);
   return false;
 }
 

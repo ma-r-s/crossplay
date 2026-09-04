@@ -215,6 +215,48 @@ void testMergeMissingFileIsDownloaded() {
   CHECK(holds(plan.download, 101));
 }
 
+// ------------------------------------------------- what a sync may claim
+void testComposeHaveOmitsARowWithNoText() {
+  // The deadlock this function exists to break, and it cost a live account a
+  // day of "1 did not arrive; sync again". `have` is a delta: claiming 102
+  // makes Instapaper suppress it, the summary then carries no size for it,
+  // and a download with no size is refused because the length is the only
+  // proof the file arrived whole. Claim it once and it can never be fetched
+  // again, however many times the sync is repeated.
+  std::vector<instapaper::Article> local = {make(101, "On the card"), make(102, "Row without a file")};
+  const std::vector<instapaper::Article> have = instapaper::composeHave(local, {101});
+  CHECK(have.size() == 1);
+  CHECK(have[0].id == 101);
+}
+
+void testComposeHaveCarriesTheRowItClaims() {
+  // Claiming is also how a reading position travels, so the entry has to
+  // arrive whole and not as a bare id.
+  std::vector<instapaper::Article> local = {make(101, "On the card")};
+  local[0].progress = 0.5f;
+  local[0].progressAt = 4242;
+  local[0].progressDirty = true;
+  const std::vector<instapaper::Article> have = instapaper::composeHave(local, {101});
+  CHECK(have.size() == 1);
+  CHECK(have[0].progressAt == 4242);
+  CHECK(have[0].progress > 0.4f);
+}
+
+void testMergeKeepsProgressUnsentForARowItCouldNotClaim() {
+  // The twin of the rule above, and the reason both take the same hasText.
+  // A row left out of `have` had its position sent nowhere, so clearing its
+  // dirty flag on a completed sync would drop a reading the reader did.
+  std::vector<instapaper::Article> local = {make(101, "On the card"), make(102, "Row without a file")};
+  for (instapaper::Article& a : local) {
+    a.progress = 0.5f;
+    a.progressAt = 4242;
+    a.progressDirty = true;
+  }
+  instapaper::mergeSummary(local, {}, {}, {}, {101});
+  CHECK(!find(local, 101)->progressDirty);
+  CHECK(find(local, 102)->progressDirty);
+}
+
 void testMergeProgressConflict() {
   std::vector<instapaper::Article> local = {make(101, "Read here"), make(102, "Read on the phone")};
   local[0].progress = 0.60f;
@@ -378,6 +420,9 @@ int main() {
   testMergeNewAndChanged();
   testMergeMetadataOnlyChangeDoesNotDownload();
   testMergeMissingFileIsDownloaded();
+  testComposeHaveOmitsARowWithNoText();
+  testComposeHaveCarriesTheRowItClaims();
+  testMergeKeepsProgressUnsentForARowItCouldNotClaim();
   testMergeProgressConflict();
   testMergeArchiveAndDelete();
   testMergeUnconfirmedArchiveStaysPending();
