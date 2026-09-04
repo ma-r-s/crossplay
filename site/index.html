@@ -18,6 +18,7 @@
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="assets/report.css">
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 <!-- iOS ignores SVG manifest icons, and Add to Home Screen is the only real
      full screen an iPhone gets, so the home-screen icon ships as a PNG. -->
@@ -460,7 +461,7 @@
       on my own desk, joined on 2026-08-25 by a reTerminal Sticky, and
       releases are flashed to both before they ship. That is still a
       small record:
-      <a href="/report/">say what you
+      <a href="/report/" data-report-open>say what you
       find</a>, either way. One box, under a minute, no account.
     </p>
     <!-- The button that does the whole thing. It is first, and short, because
@@ -571,10 +572,50 @@
   </div>
 </footer>
 
+<!-- The report box. A round button, fixed in the bottom-right corner on top
+     of everything, opens the form in a dialog so saying what happened never
+     means leaving the page. assets/report.js draws the form into the mount
+     below and wires the dialog; the same script draws the same form into
+     /report/, which stays a page of its own for the links and QR codes that
+     point there. The button is a link to that page, so a browser without
+     scripts or without <dialog> still gets somewhere; report.js turns the
+     click into the dialog. The icon is Lucide's bug, the set the device
+     itself draws its icons from. -->
+<a class="report-fab" id="report-open" href="/report/" data-report-open
+   aria-haspopup="dialog" aria-label="Report a bug or an idea" title="Report a bug or an idea">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+    <path d="M12 20v-9" />
+    <path d="M14 7a4 4 0 0 1 4 4v3a6 6 0 0 1-12 0v-3a4 4 0 0 1 4-4z" />
+    <path d="M14.12 3.88 16 2" />
+    <path d="M21 21a4 4 0 0 0-3.81-4" />
+    <path d="M21 5a4 4 0 0 1-3.55 3.97" />
+    <path d="M22 13h-4" />
+    <path d="M3 21a4 4 0 0 1 3.81-4" />
+    <path d="M3 5a4 4 0 0 0 3.55 3.97" />
+    <path d="M6 13H2" />
+    <path d="m8 2 1.88 1.88" />
+    <path d="M9 7.13V6a3 3 0 1 1 6 0v1.13" />
+  </svg>
+</a>
+<dialog class="report-dialog" id="report-dialog" aria-labelledby="report-title">
+  <div class="report-sheet">
+    <div class="report-head">
+      <div>
+        <h2 class="report-title" id="report-title">Tell CrossPlay what happened</h2>
+        <p class="report-lead">Say it however it comes out. No account, under a minute.</p>
+      </div>
+      <button class="report-close" id="report-close" type="button" aria-label="Close">&times;</button>
+    </div>
+    <div data-report-mount></div>
+  </div>
+</dialog>
+
 <!-- The Install button, and the release stamp it also fills in. It pulls
      assets/esptool.bundle.js in only when someone presses Install, so the
      175KB library costs the people just reading the page nothing. -->
 <script src="assets/install.js"></script>
+<script src="assets/report.js"></script>
 <script src="assets/avatar-data.js"></script>
 <!-- ?v=2 defeats a poisoned cache entry, not a normal cache miss. Until
      2026-08-09 /assets/ was served immutable for a year, so every browser

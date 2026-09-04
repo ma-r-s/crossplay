@@ -25,9 +25,14 @@ is what gets counted here -- per container and by real nesting, because a
 file-level count would pass a page holding one honest tablist and one leftover.
 
 The table is deliberately short. Both rows are exercised by markup on this site
-(study had the tablist, report has two radiogroups), so neither is a rule
+(study had the tablist, the report form has a radiogroup), so neither is a rule
 nobody has ever seen run. Add a row when a page grows a new composite, not
 before.
+
+The report form is not in any .html file: assets/report.js draws it from a
+template literal into the front page's dialog and into /report/. A sweep of
+.html alone would have quietly stopped checking the one form this site has, so
+the backtick literals in that script are parsed as markup too.
 
 Children are counted by their EFFECTIVE role, implicit included: an
 <input type="radio"> is a radio to every screen reader without saying so, and a
@@ -42,6 +47,7 @@ lines and checks the exit status.
 
 import html.parser
 import pathlib
+import re
 import sys
 
 # A role that promises siblings -> the role those siblings carry, and how many
@@ -153,11 +159,27 @@ class Roles(html.parser.HTMLParser):
             )
 
 
+# Scripts that carry markup in template literals. Listed, not discovered: the
+# vendored bundles under site/assets hold backticks that are not HTML, and a
+# parse of those would be noise passing as coverage.
+TEMPLATED = ["site/assets/report.js"]
+
+
 def pages(root):
     for page in sorted(root.glob("site/**/*.html")):
         if any(part in SKIP for part in page.relative_to(root).parts):
             continue
-        yield page
+        yield page, page.read_text()
+    for name in TEMPLATED:
+        script = root / name
+        if not script.exists():
+            print(f"{name} is listed as carrying markup and does not exist")
+            continue
+        literals = re.findall(r"`([^`]*)`", script.read_text())
+        if not literals:
+            print(f"{name} is listed as carrying markup and has no template literal")
+            continue
+        yield script, "\n".join(literals)
 
 
 def main():
@@ -166,10 +188,10 @@ def main():
     root = pathlib.Path(sys.argv[1])
 
     seen = 0
-    for page in pages(root):
+    for page, text in pages(root):
         seen += 1
         parser = Roles()
-        parser.feed(page.read_text())
+        parser.feed(text)
         parser.finish()
         rel = page.relative_to(root)
         for finding in parser.findings:
