@@ -81,8 +81,9 @@ class Question {
   char bytes_[kMaxRecordBytes] = {};
 };
 
-// The pack file. Holds NO index in RAM: 195KB of offsets for a 50k pack is
-// memory the device does not have, so an index entry is itself a read.
+// The pack file. Holds NO index in RAM: four bytes per question plus a sentinel
+// is memory the device does not have to spare at any pack size, so an index
+// entry is itself a read.
 class Pack {
  public:
   bool open(ByteSource& source);
@@ -199,7 +200,8 @@ enum class Room : uint8_t { Ok, Unknown, TooSmall };
 // the server's Content-Length -- after the point where refusing is still free.
 // So this is a deliberate over-estimate with room for a larger pack and for the
 // FAT to record it. Raise it if the pack approaches it; never pin it to the
-// current byte count.
+// current byte count -- and do NOT lower it when a pack shrinks. The number
+// sizes by who else needs the card, not by what this download writes.
 constexpr uint64_t kPackFreeFloorBytes = 12ull * 1024 * 1024;
 
 // queryOk mirrors HalStorage::freeBytes()'s return exactly: false means the card

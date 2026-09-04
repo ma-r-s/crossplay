@@ -78,10 +78,19 @@ std::unique_ptr<Activity> TriviaActivity::create(GfxRenderer& renderer, MappedIn
 
 bool TriviaActivity::ensureState(const uint32_t count) {
   g_stateFile = Storage.open(kStatePath, O_RDWR);
-  if (!g_stateFile.isOpen() || static_cast<uint32_t>(g_stateFile.size()) < count) {
-    // Missing, or shorter than the pack because the pack was replaced under it.
-    // Rewriting loses which questions have been seen, which is the right trade:
-    // reading a stale byte for a question it does not describe is worse.
+  if (!g_stateFile.isOpen() || static_cast<uint32_t>(g_stateFile.size()) != count) {
+    // Missing, or a DIFFERENT length from the pack because the pack was
+    // replaced under it. Rewriting loses which questions have been seen, which
+    // is the right trade: reading a stale byte for a question it does not
+    // describe is worse.
+    //
+    // `!=`, not `<`. A pack that SHRANK left a longer state file, size() >= count
+    // held, and every byte was reused against a pack whose record order had
+    // changed -- so SEEN bits deprioritised arbitrary questions and, worse,
+    // FLAGGED bits made arbitrary questions permanently unservable with no way
+    // for the player to clear them. Both this call site and PackState::open
+    // check the length; the guard is at the boundary as well as at the caller
+    // because this is the only caller today and will not be the last.
     HalFile fresh;
     if (!Storage.openFileForWrite("TRIVIA", kStatePath, fresh)) {
       LOG_ERR("TRIVIA", "Cannot create %s", kStatePath);

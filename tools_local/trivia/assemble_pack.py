@@ -26,7 +26,11 @@ Inputs:
         --out pack.jsonl --dat pack.dat
     python3 tools_local/trivia/test_pack.py pack.jsonl
 
-Three rules here were each paid for. Do not quietly undo any of them; the tests
+US-centric questions are DROPPED BY DEFAULT (rule 4). `--keep-us` builds the
+inclusive pack from the same inputs; nothing is deleted from the corpus or from
+the ratings, so a future in-app toggle needs no re-rating.
+
+Four rules here were each paid for. Do not quietly undo any of them; the tests
 in test_assemble.py exist to make undoing one loud.
 """
 
@@ -63,16 +67,35 @@ def rederive(clue):
 
 
 # --- rule 3: r -> d by fixed absolute thresholds, never by quantile ----------
-# Each level is a two-point band on the rater's own 0-10 scale. Absolute, so
-# "level 3" means the same question difficulty in a pack built from 18,000
-# rated rows and in one built from 40,000. Quantile bands would be balanced by
-# construction and would silently redefine every level each time the run is
-# re-cut, which makes a difficulty setting meaningless across builds.
+# Each level is a band on the rater's own 0-10 scale. Absolute, so "level 3"
+# means the same question difficulty in a pack built from 20,000 rated rows and
+# in one built from 40,000. Quantile bands would be balanced by construction
+# and would silently redefine every level each time the run is re-cut, which
+# makes a difficulty setting meaningless across builds.
 #
 # r is "out of ten groups, how many get it right", so HIGH r is EASY and level
 # 1 is the easiest tier -- the same direction as build_pack.py's dollar tiers.
-# The bottom band is three points wide because 11 values do not split into 5.
-LEVELS = ((9, 1), (7, 2), (5, 3), (3, 4))
+#
+# CALIBRATED ON: the INTERNATIONAL half of the rating run, 2026-09-04, 20,063
+# surviving rows (25,968 rated, minus the 5,905 flagged us_centric that no
+# longer ship). That population is the whole reason these numbers changed. The
+# previous floors (9, 7, 5, 3) were chosen when US-centric questions still
+# shipped, and for an international table those questions genuinely ARE the
+# hard ones: 68% of them rate r<=1, against 2% of the rest. Dropping them took
+# level 5 from 5,926 questions to 845 and the pack failed test_pack.py's
+# difficulty spread. These floors are the same fixed-constant scheme measured
+# against the population that actually ships.
+#
+# Bands are narrow at the easy end and wide at the hard end because that is
+# where the international mass sits, not as a balancing trick: level 1 still
+# means "9 or 10 groups in 10 get it" and level 5 still means "at most 4 do".
+#
+# Re-derive them in one command when the rating run finishes:
+#     python3 tools_local/trivia/calibrate_levels.py \
+#         --corpus .rate/corpus_repaired.jsonl --enriched .rate/enriched.jsonl
+# It prints how these constants stand on the current data and what it would
+# choose instead. See docs/trivia-curation.md.
+LEVELS = ((9, 1), (8, 2), (7, 3), (5, 4))
 
 
 def level(r):
@@ -156,15 +179,29 @@ def pick_options(answer, alts, model_w, rule_w, want=3):
 STORED = 3
 
 
-def assemble(corpus, enriched, kick_us=False, seed=20260904):
-    """corpus and enriched are lists/dicts of already-parsed rows."""
-    stats = collections.Counter()
+# --- rule 4: US-centric questions do not ship, and are not deleted either -----
+# Mario's call, 2026-09-04: "US centric trivia needs to go. At least for now.
+# Not removed from our data, but for now and until we decide to write a toggle.
+# They shouldn't show up."
+#
+# So the filter lives HERE, at the pack build, and nowhere upstream of it.
+# enrich_pack.py still writes `us` as a field rather than a deletion, the
+# ratings file still carries every US-centric row with its rating intact, and
+# --keep-us rebuilds the inclusive pack from exactly the same inputs. When the
+# toggle is written, nothing needs re-rating.
+KICK_US_BY_DEFAULT = True
 
-    # Pass 1: which questions survive, on ratings alone. The rule-based picker
-    # draws from the SHIPPED slice, so it has to be indexed over the survivors
-    # rather than over the corpus -- an option must be an answer the player
-    # could otherwise have met.
-    keep = []
+
+def survivors(corpus, enriched, kick_us=KICK_US_BY_DEFAULT, stats=None):
+    """Yield (corpus_row, rating_row) for every question that reaches the pack.
+
+    Split out of assemble() so that calibrate_levels.py measures the population
+    that actually SHIPS rather than a second, hand-copied idea of it. A
+    calibration run against a different filter would choose thresholds for a
+    pack nobody builds, and would look exactly like a correct one.
+    """
+    if stats is None:
+        stats = collections.Counter()
     for x in corpus:
         e = enriched.get(x["id"])
         if e is None:
@@ -177,8 +214,21 @@ def assemble(corpus, enriched, kick_us=False, seed=20260904):
             stats["rejected: unanswerable"] += 1
             continue
         if kick_us and e.get("us"):
-            stats["rejected: us_centric (--kick-us)"] += 1
+            stats["rejected: us_centric (default; --keep-us to include)"] += 1
             continue
+        yield x, e
+
+
+def assemble(corpus, enriched, kick_us=KICK_US_BY_DEFAULT, seed=20260904):
+    """corpus and enriched are lists/dicts of already-parsed rows."""
+    stats = collections.Counter()
+
+    # Pass 1: which questions survive, on ratings alone. The rule-based picker
+    # draws from the SHIPPED slice, so it has to be indexed over the survivors
+    # rather than over the corpus -- an option must be an answer the player
+    # could otherwise have met.
+    keep = []
+    for x, e in survivors(corpus, enriched, kick_us, stats):
         item = {
             "id": x["id"],
             "q": x["q"],
@@ -252,6 +302,24 @@ def load_enriched(path):
     return out, dupes
 
 
+def apply_verdicts(corpus, path):
+    """Drop every id a person marked `bad`, whatever the rater said about it.
+
+    Hand verdicts outrank the rater in both directions of trust: a person
+    looked at the question. Applied before assembly so a `bad` id can never
+    reach the pack through a rating that liked it. Shared with
+    calibrate_levels.py so both see the same corpus.
+    """
+    if not path or not os.path.exists(path):
+        return list(corpus)
+    bad = set()
+    for line in open(path, encoding="utf-8"):
+        parts = line.strip().split("\t")
+        if len(parts) >= 2 and not line.startswith("#") and parts[1].strip() == "bad":
+            bad.add(parts[0].strip())
+    return [x for x in corpus if x["id"] not in bad]
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument(
@@ -261,9 +329,9 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--dat", default="", help="also write the on-card binary pack")
     ap.add_argument(
-        "--kick-us",
+        "--keep-us",
         action="store_true",
-        help="also drop us_centric questions (default: keep them)",
+        help="include us_centric questions (default: they are dropped)",
     )
     ap.add_argument(
         "--verdicts",
@@ -277,25 +345,11 @@ def main():
     if not enriched:
         sys.exit(f"{a.enriched}: no usable records")
 
-    # Hand verdicts outrank the rater in both directions of trust: a person
-    # looked at the question. Applied before assembly so a `bad` id can never
-    # reach the pack through a rating that liked it.
-    n_verdict = 0
-    if a.verdicts and os.path.exists(a.verdicts):
-        bad = set()
-        for line in open(a.verdicts, encoding="utf-8"):
-            parts = line.strip().split("\t")
-            if (
-                len(parts) >= 2
-                and not line.startswith("#")
-                and parts[1].strip() == "bad"
-            ):
-                bad.add(parts[0].strip())
-        before = len(corpus)
-        corpus = [x for x in corpus if x["id"] not in bad]
-        n_verdict = before - len(corpus)
+    before = len(corpus)
+    corpus = apply_verdicts(corpus, a.verdicts)
+    n_verdict = before - len(corpus)
 
-    pack, stats = assemble(corpus, enriched, a.kick_us)
+    pack, stats = assemble(corpus, enriched, kick_us=not a.keep_us)
 
     # What re-deriving the ids would have cost, printed whether or not it is
     # zero. It is the number card #146 is about and it is invisible everywhere

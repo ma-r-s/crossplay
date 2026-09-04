@@ -9,11 +9,24 @@ with an offset index and a trailing sentinel, mutable state in a separate
 fixed-width file. `tools_local/trivia/pack_format.py` is both the writer and a
 reference reader, so the format is executable rather than only described.
 
+It reads a pack back out too, which matters because the season TSVs
+`build_pack.py --src` wants are not in this repo and not on this machine, so a
+published `pack.dat` is the only surviving copy of its corpus:
+
+```bash
+python3 tools_local/trivia/pack_format.py pack.dat > corpus.jsonl
+```
+
+The `id` that comes back is RE-DERIVED from clue text, which is not a safe join
+key for ratings; the module's own comment says why, at length.
+
 ## Why there is a pack at all
 
-50,000 questions is 5.37 MB. The app partition is 7.94 MB total and the image
-already uses most of it, so the questions cannot ride in flash. They live on the
-card, like study decks and the xkcd archive.
+The shipped 50,000 questions are 5.37 MB. The app partition is 7.94 MB total and
+the image already uses most of it, so the questions cannot ride in flash. They
+live on the card, like study decks and the xkcd archive. The argument holds at
+any pack size and the megabyte figure is not current: a pack assembled from the
+local rating run was 3.39 MB at 25,866 questions.
 
 ## Two files
 
@@ -66,19 +79,53 @@ bit 1 `FLAGGED`. Marking a question is one seek and one byte, never a rewrite,
 so a power loss mid-write can lose at most one question's state and can never
 touch the question text — the same durability rule study follows.
 
-49 KB for a 50,000-question pack.
+One byte per question: 49 KB for the shipped 50,000.
+
+**Its length and the pack's count are the same fact written twice, so any
+disagreement means the pack was replaced and the file is rewritten from zero.**
+Not "shorter than the pack" -- a LONGER file is stale in exactly the same way,
+and it is the case that actually happens, because a rated pack is smaller than
+the 50,000 it replaces. A stale `FLAGGED` byte landing on an arbitrary question
+hides it from every draw with nothing on screen and no way to clear it.
+`PackState::open` and `TriviaActivity::ensureState` both compare with `!=`.
+
+**The device's own download replaces `pack.dat` and nothing else.** It never
+fetches a state file, so crossing a pack rebuild is entirely that comparison's
+job. Copying a pack to a card by hand is the other case, and there both files
+are copied together; see ../trivia-curation.md.
+
+**The residual: length is a proxy, not an identity.** A pack replaced by one
+with the SAME question count keeps its state file, and every byte then describes
+whichever question now sits at that index. The header carries no content hash to
+compare, so nothing on the device can see it. It is not worth a format bump
+today because a rebuild changes the count, but it is the case this check cannot
+cover.
 
 `FLAGGED` is the in-play "this question is bad" button. Those indices are read
 back off the card and merged into `tools_local/trivia/verdicts.tsv`, which the
 next build applies. That is the loop that improves the pack through play rather
 than through a curation project.
 
-## Difficulty is derived, not stored upstream
+## Difficulty comes from the builder, and the two builders disagree
 
-Jeopardy doubled its clue values on 2001-11-26, so raw `clue_value` is not
-comparable across the 42 seasons. The builder doubles pre-2001 values, halves
-Double Jeopardy to the round-one scale, and calls Final Jeopardy tier 5. The
-result is an even spread; raw values would not be.
+`d` is one byte, 1 to 5, and the record says nothing about where it came from.
+Two tools write it and they mean different things by it:
+
+- **`build_pack.py`** derives it from Jeopardy's clue value. Jeopardy doubled
+  its values on 2001-11-26, so raw `clue_value` is not comparable across the 42
+  seasons; the builder doubles pre-2001 values, halves Double Jeopardy to the
+  round-one scale, and calls Final Jeopardy tier 5. The result is an even
+  spread, which raw values would not be. This is what the shipped pack carries.
+- **`assemble_pack.py`** cuts it from a stored 0-10 rating by fixed absolute
+  thresholds, so level 3 means the same thing in a pack built from 18,000 rated
+  rows and one built from 40,000. See ../trivia-curation.md.
+
+A clue's value is its ROW ON A BOARD, picked relative to the other five clues in
+its category that night -- a category the pack throws away. Whether that is a
+usable proxy for how hard a question is, and whether the rating run's number is
+better, is the open question ../trivia-curation.md tracks. **The format cannot
+tell you which builder made a pack**, which is why the level a player picks
+means whatever the last build meant by it.
 
 ## The clue cap is measured in pixels, not characters
 
@@ -120,8 +167,16 @@ complete, so a torn download leaves the card exactly as it was.
 
 ## Solo multiple choice
 
-18,485 of the 50,000 carry precomputed distractors. The rest are quizmaster-only,
-which is why both modes exist rather than one.
+Not every question carries precomputed distractors; the rest are
+quizmaster-only, which is why both modes exist rather than one. **18,485 of the
+shipped 50,000**, against 76.6% of a pack assembled from the local rating run.
+
+**How MANY are stored differs too, and the device is at its boundary.**
+`build_pack.py` stores up to 6 and the draw picks 3 of them; `assemble_pack.py`
+stores exactly 3 or exactly 0, because a set of three is the set the gate
+checked. `playableAsChoice()` is `wrongCount_ >= kOptions - 1`, so 3 is correct
+with zero margin and 1 or 2 would be undefined -- unreachable twice over, and
+pinned by `testChoicesAtThreeOptions()` in host-tests/trivia.
 
 **The type comes from the clue itself.** A Jeopardy clue names what its answer
 is -- "this **country**", "this **writer**", "this **metal**" -- so distractors

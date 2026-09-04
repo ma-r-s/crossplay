@@ -12,18 +12,10 @@ Knucklebones, Battleship, Jaipur, Sea Salt and Toy Battle. Two
 devices next to each other find one another with nothing to type --
 and they do not have to be the same device.
 
-### What is new in 1.12.18
+### What is new in 1.12.19
 
-- Ci: group the pio run invocations, so the stack checks stop depending on order
-- Ci: let postgres take longer than 60s, and say why when it does not
-- Trivia: a pack the rating run can actually produce
-- Forehead: PLACES is geography again
-- Instapaper: a fileless row deadlocked its own download
-- Marginguard: a folded margin handed to plain setContentMargin() fails a suite
-- Review means merge on green; a hold is a card state, not a message
-- Board: a sync run that opened a pull request is a card in review
-- Autorelease: the token and trigger relationship at the top, and the publish step run under test
-- Two firmware builds in the committed gate, in one pio invocation
+- The notes list only what a device can see
+- Plus 3 changes nothing on the device can see.
 
 ### What WAS new in 1.12.12
 
