@@ -378,6 +378,19 @@ deliberate:
 
 The cost is that replaying a question shows the same three options.
 
+Three is the exact boundary of the device's draw, so it is covered rather than
+assumed. `buildChoices()` runs a partial Fisher-Yates `kOptions - 1` times over
+the stored pool, which at three stored is a COMPLETE shuffle: every stored
+distractor is used, and the option set is forced to be the answer plus all
+three. One fewer and the loop would index a slot of `pool[]` it never
+initialised, so `playableAsChoice()` (`wrongCount_ >= kOptions - 1`) is
+load-bearing and not cosmetic -- it is the only thing that keeps a short `w` out
+of the draw, which is the second reason rule 2 above drops the key entirely
+rather than storing two. `testChoicesAtThreeOptions()` in
+`host-tests/trivia/test_trivia.cpp` pins both shapes (three, and `w` absent),
+and `host-tests/trivia/run.sh` now round-trips a three-distractor record through
+the real writer as well.
+
 ### What a run of this looks like
 
 At 20,706 of 40,383 rated:

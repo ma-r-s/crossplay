@@ -114,6 +114,26 @@ int main(int argc, char** argv) {
     CHECK(q.year() == rows[i].year);
     CHECK(q.alternateCount() == rows[i].nalt);
     CHECK(q.distractorCount() == rows[i].nwrong);
+
+    // A record written by the real writer must also DRAW correctly, at every
+    // stored-distractor count the writer can emit. distractorCount() agreeing
+    // with the manifest only proves the bytes parsed; it says nothing about
+    // whether the option set the player is offered is well formed.
+    CHECK(q.playableAsChoice() == (rows[i].nwrong >= kOptions - 1));
+    if (q.playableAsChoice()) {
+      Rng rng(static_cast<uint32_t>(i) + 1u);
+      Choices c;
+      CHECK(buildChoices(q, rng, c));
+      int answers = 0;
+      for (int a = 0; a < kOptions; ++a) {
+        CHECK(c.option[a] != nullptr && c.option[a][0] != '\0');
+        if (c.option[a] != nullptr && std::strcmp(c.option[a], q.answer()) == 0) ++answers;
+        for (int b = a + 1; b < kOptions; ++b) {
+          CHECK(c.option[a] != nullptr && c.option[b] != nullptr && std::strcmp(c.option[a], c.option[b]) != 0);
+        }
+      }
+      CHECK(answers == 1);
+    }
   }
 
   std::printf("%d checks, %d failed\n", checks, failures);

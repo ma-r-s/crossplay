@@ -195,9 +195,27 @@ stack_builds=$(grep -c 'fstack-usage.*pio run' "$YML")
 if [ "$stack_builds" -ne 1 ]; then
   failed=$((failed + 1))
   echo "FAIL ci  expected ONE stack-flagged pio run covering both device envs, found $stack_builds; each extra invocation wipes .pio/build and leaves the stack checks depending on step order"
-elif ! grep -q 'fstack-usage.*pio run -e x4pro -e sticky' "$YML"; then
-  failed=$((failed + 1))
-  echo "FAIL ci  the stack-flagged build does not cover both x4pro and sticky in one invocation"
+else
+  # Which envs must that invocation cover? Ask the stack checks, do not name
+  # them. They were x4pro and sticky, they are gh_release_x4pro and
+  # gh_release_sticky now that CI builds only what ships, and a hardcoded pair
+  # here would have gone quietly wrong at exactly that rename -- asserting a
+  # grouping over envs the workflow no longer builds.
+  stack_line=$(grep 'fstack-usage.*pio run' "$YML")
+  for env in $(grep -o -- '--build-dir \.pio/build/[A-Za-z0-9_]*' "$YML" | sed 's#.*/##'); do
+    checks=$((checks + 1))
+    case "$stack_line" in
+      *"-e $env"*) ;;
+      *)
+        failed=$((failed + 1))
+        echo "FAIL ci  $env has a stack check but is not built by the stack-flagged invocation"
+        ;;
+    esac
+  done
+  if [ -z "$(grep -o -- '--build-dir \.pio/build/[A-Za-z0-9_]*' "$YML")" ]; then
+    failed=$((failed + 1))
+    echo "FAIL ci  no stack checks found at all; this assertion just checked nothing"
+  fi
 fi
 
 echo "$checks checks, $failed failed"
