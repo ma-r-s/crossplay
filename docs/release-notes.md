@@ -12,8 +12,9 @@ Knucklebones, Battleship, Jaipur, Sea Salt and Toy Battle. Two
 devices next to each other find one another with nothing to type --
 and they do not have to be the same device.
 
-### What is new in 1.12.14
+### What is new in 1.12.15
 
+- The release takes the bootloader from the framework package
 - Release: the notes live in docs/release-notes.md, so the bump touches no workflow file
 - Reading: wrap an article once, not on every page turn
 - Autorelease: an emulator rebuild does not count as the tip moving
