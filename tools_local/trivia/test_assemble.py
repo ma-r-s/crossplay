@@ -14,6 +14,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import assemble_pack as A  # noqa: E402
+import calibrate_levels as CAL  # noqa: E402
 
 FAILED = []
 
@@ -241,6 +242,149 @@ def test_pack_shape():
     )
 
 
+# --- rule 4: US-centric is filtered at the build, never deleted ---------------
+def us_row(flag):
+    corpus = [
+        {
+            "id": "d" * 12,
+            "q": "This president appears on the United States one-dollar bill",
+            "a": "Washington",
+            "y": 1995,
+            "alt": [],
+            "w": [],
+        }
+    ]
+    enriched = {
+        "d" * 12: {"id": "d" * 12, "r": 2, "w": [], "bad": False, "us": flag},
+    }
+    return corpus, enriched
+
+
+def test_us_default():
+    corpus, enriched = us_row(True)
+    pack, stats = A.assemble(corpus, enriched)
+    check(
+        "a us_centric question does NOT ship by default",
+        len(pack) == 0,
+        f"{len(pack)} rows reached the pack",
+    )
+    check(
+        "and the drop is counted rather than silent",
+        any(k.startswith("rejected: us_centric") for k in stats),
+        str(dict(stats)),
+    )
+    # Checked on the KICKING path, which is the only path that reads the flag.
+    # Asserting this after a --keep-us run instead proves nothing: `kick_us and
+    # e.get("us")` short-circuits there, so a filter that consumed the flag
+    # would never run and the check would pass. Two paths, one of them live.
+    check(
+        "kicking reads the flag without consuming it",
+        enriched["d" * 12].get("us") is True,
+        "the default path mutated the ratings; --keep-us could not restore it",
+    )
+    # Not vacuous: the identical row without the flag must ship, or the check
+    # above would pass for any reason at all.
+    corpus, enriched = us_row(False)
+    check(
+        "the same question without the flag still ships",
+        len(A.assemble(corpus, enriched)[0]) == 1,
+    )
+    # Mario's decision was "not removed from our data". --keep-us must rebuild
+    # the inclusive pack from the very same inputs, with no re-rating.
+    corpus, enriched = us_row(True)
+    pack, _ = A.assemble(corpus, enriched, kick_us=False)
+    check("--keep-us brings it back from the same inputs", len(pack) == 1)
+    check(
+        "the rating record still carries its us flag afterwards",
+        enriched["d" * 12].get("us") is True,
+        "assemble() mutated the ratings; a future toggle would need re-rating",
+    )
+    check(
+        "the corpus row is untouched too",
+        corpus[0]["q"].startswith("This president"),
+    )
+    check("kicking is the default, not the flag", A.KICK_US_BY_DEFAULT is True)
+
+
+# --- the thresholds are re-derivable, not hand-tuned --------------------------
+def test_calibrator_models_the_shipped_mapping():
+    """calibrate_levels must score the function that actually ships.
+
+    If the two mappings drift apart the calibration is about a different tool,
+    and it would still print a confident recommendation.
+    """
+    floors = tuple(f for f, _ in A.LEVELS)
+    check(
+        "the calibrator's mapping agrees with assemble_pack.level for every r",
+        all(CAL.level_with(r, floors) == A.level(r) for r in range(11)),
+        str([(r, CAL.level_with(r, floors), A.level(r)) for r in range(11)]),
+    )
+    check(
+        "the shipped floors are strictly descending",
+        all(floors[i] > floors[i + 1] for i in range(len(floors) - 1)),
+        str(floors),
+    )
+    check(
+        "the shipped floors are a candidate the calibrator can reach",
+        len(floors) == 4 and all(1 <= f <= 11 for f in floors),
+        str(floors),
+    )
+
+
+def test_calibration_is_minimax():
+    """The chooser must optimise the WORST view, not the pooled one.
+
+    Thresholds get chosen on a partial run, so a set that is best on the rows
+    rated so far and falls apart on a shifted population is the failure mode
+    this rule exists to prevent. Scoring on the pooled distribution instead
+    passes every other check in this file.
+    """
+    w1 = [44, 52, 7, 12, 8, 56, 31, 18, 51, 58, 50]
+    w2 = [10, 43, 50, 46, 59, 14, 4, 53, 22, 39, 48]
+    rows = [r for r in range(11) for _ in range(w1[r])]
+    rows += [r for r in range(11) for _ in range(w2[r])]
+    samples = CAL.views(rows)
+    scored = CAL.choose(samples)
+    winner = scored[0][1]
+
+    pooled_best = min(
+        ((CAL.spread(rows, f)[1], f) for _, f, _ in scored), key=lambda t: (t[0], t[1])
+    )
+    worst_of_pooled = next(w for w, f, _ in scored if f == pooled_best[1])
+
+    # The fixture must actually separate the two rules, or the test is vacuous.
+    check(
+        "the case really separates pooled from minimax",
+        pooled_best[1] != winner
+        and pooled_best[0] < CAL.spread(rows, winner)[1]
+        and worst_of_pooled > CAL.SPREAD_LIMIT,
+        f"pooled-best {list(pooled_best[1])} @ {pooled_best[0]:.3f}, "
+        f"minimax {list(winner)}",
+    )
+    check(
+        "the pooled-best candidate is refused because a view fails",
+        winner != pooled_best[1],
+        f"picked {list(winner)}, the pooled favourite",
+    )
+    check(
+        "the chosen set passes the spread check on every view",
+        all(r <= CAL.SPREAD_LIMIT for r in scored[0][2].values()),
+        str({k: round(v, 3) for k, v in scored[0][2].items()}),
+    )
+    check(
+        "choose() is deterministic",
+        [f for _, f, _ in CAL.choose(samples)] == [f for _, f, _ in scored],
+    )
+    # An empty tier is not a difficulty level: a candidate that leaves one
+    # unpopulated must never be offered, however balanced the rest looks.
+    counts, ratio = CAL.spread([10] * 50, (9, 8, 7, 5))
+    check(
+        "a candidate with an empty level scores as unusable",
+        ratio == float("inf"),
+        f"{dict(counts)} scored {ratio}",
+    )
+
+
 def main():
     print("assemble_pack invariants\n")
     for t in (
@@ -250,6 +394,9 @@ def main():
         test_answer_never_longest,
         test_band_holds,
         test_pack_shape,
+        test_us_default,
+        test_calibrator_models_the_shipped_mapping,
+        test_calibration_is_minimax,
     ):
         t()
     print(f"\n{len(FAILED)} failed")

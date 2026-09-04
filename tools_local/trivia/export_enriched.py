@@ -16,16 +16,23 @@ question softer than the archive, and the international framing then pushes the
 American questions back down. Averaging them would produce a number on neither
 scale. Point the build at one file or the other.
 
-KICKING IS A FLAG, NOT A DEFAULT. --kick-us adds us_centric questions to the
-verdicts file; without it only `bad` is kicked. A US-inclusive pack stays
-buildable from exactly the same data, which is the reason enrich_pack.py stored
-the two as separate fields in the first place.
+KICKING IS A FLAG HERE, AND A DEFAULT IN THE PACK BUILD. --kick-us adds
+us_centric questions to the verdicts file; without it only `bad` is kicked. This
+tool exports RATINGS, so it stays inclusive by default: a US-inclusive pack has
+to remain buildable from exactly the same data, which is why enrich_pack.py
+stored the two as separate fields in the first place.
+
+The decision about what SHIPS lives in assemble_pack.py, which drops us_centric
+by default (rule 4) and takes --keep-us to put them back. The two defaults point
+opposite ways on purpose: nothing is removed from the data, and nothing
+US-centric reaches a player. See docs/trivia-curation.md.
 
     python3 tools_local/trivia/export_enriched.py --enriched .rate/enriched.jsonl \\
         --out-ratings .rate/local_difficulty.tsv \\
         --out-verdicts .rate/local_verdicts.tsv \\
         --out-options .rate/local_options.jsonl
 """
+
 import argparse, collections, json, statistics, sys
 
 
@@ -57,16 +64,26 @@ def main():
     ap.add_argument("--out-ratings", default="")
     ap.add_argument("--out-verdicts", default="")
     ap.add_argument("--out-options", default="")
-    ap.add_argument("--kick-us", action="store_true",
-                    help="also kick us_centric questions (default: only `bad`)")
-    ap.add_argument("--min-options", type=int, default=3,
-                    help="only export option sets with at least this many (default 3)")
+    ap.add_argument(
+        "--kick-us",
+        action="store_true",
+        help="also kick us_centric questions (default: only `bad`)",
+    )
+    ap.add_argument(
+        "--min-options",
+        type=int,
+        default=3,
+        help="only export option sets with at least this many (default 3)",
+    )
     a = ap.parse_args()
 
     recs, dupes = load(a.enriched)
     if not recs:
         sys.exit(f"{a.enriched}: no usable records")
-    print(f"{len(recs):,} questions read" + (f"  ({dupes} duplicate ids, last kept)" if dupes else ""))
+    print(
+        f"{len(recs):,} questions read"
+        + (f"  ({dupes} duplicate ids, last kept)" if dupes else "")
+    )
 
     if a.out_ratings:
         rated = {i: r["r"] for i, r in recs.items() if r.get("r") is not None}
@@ -77,8 +94,10 @@ def main():
             for i in sorted(rated):
                 f.write(f"{i}\t{float(rated[i]):.2f}\t1\n")
         v = sorted(rated.values())
-        print(f"  ratings  -> {a.out_ratings}  {len(rated):,} "
-              f"(mean {statistics.mean(v):.2f}, median {statistics.median(v):.2f})")
+        print(
+            f"  ratings  -> {a.out_ratings}  {len(rated):,} "
+            f"(mean {statistics.mean(v):.2f}, median {statistics.median(v):.2f})"
+        )
 
     if a.out_verdicts:
         bad = {i for i, r in recs.items() if r.get("bad")}
@@ -88,10 +107,15 @@ def main():
             f.write("# id\tverdict\n")
             for i in sorted(kick):
                 f.write(f"{i}\tbad\n")
-        print(f"  verdicts -> {a.out_verdicts}  {len(kick):,} kicked "
-              f"({len(bad):,} unanswerable"
-              + (f" + {len(us - bad):,} us_centric)" if a.kick_us
-                 else f"; {len(us):,} us_centric NOT kicked, pass --kick-us)"))
+        print(
+            f"  verdicts -> {a.out_verdicts}  {len(kick):,} kicked "
+            f"({len(bad):,} unanswerable"
+            + (
+                f" + {len(us - bad):,} us_centric)"
+                if a.kick_us
+                else f"; {len(us):,} us_centric NOT kicked, pass --kick-us)"
+            )
+        )
 
     if a.out_options:
         n = 0
@@ -99,12 +123,18 @@ def main():
             for i in sorted(recs):
                 w = recs[i].get("w") or []
                 if len(w) >= a.min_options:
-                    f.write(json.dumps({"id": i, "w": w[:3]}, ensure_ascii=False) + "\n")
+                    f.write(
+                        json.dumps({"id": i, "w": w[:3]}, ensure_ascii=False) + "\n"
+                    )
                     n += 1
-        print(f"  options  -> {a.out_options}  {n:,} sets of >={a.min_options} "
-              f"({100*n/len(recs):.1f}% of what was rated)")
+        print(
+            f"  options  -> {a.out_options}  {n:,} sets of >={a.min_options} "
+            f"({100 * n / len(recs):.1f}% of what was rated)"
+        )
 
-    topics = collections.Counter(r.get("topic") for r in recs.values() if r.get("topic"))
+    topics = collections.Counter(
+        r.get("topic") for r in recs.values() if r.get("topic")
+    )
     print("  topics   : " + ", ".join(f"{t} {c:,}" for t, c in topics.most_common(8)))
 
 
