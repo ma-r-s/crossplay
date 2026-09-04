@@ -6,214 +6,25 @@
 <title>Tell CrossPlay what happened</title>
 <meta name="description" content="Report a bug or send an idea for CrossPlay in under a minute. No account needed.">
 <link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="/assets/report.css">
 <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
 <meta name="theme-color" content="#111110">
-<style>
-  [hidden] { display: none !important; } /* styles.css styles buttons; the attribute must still win */
-  /* One column, one box, big targets. Everything optional is visibly optional
-     and below the one thing that matters. Tokens come from /styles.css. */
-  .report { max-width: 34rem; margin: 0 auto; padding: 2.5rem var(--gutter) 5rem; }
-  .report h1 { font-family: var(--display); font-weight: 400; font-size: clamp(2.4rem, 8vw, 3.4rem); line-height: 1; margin: 0 0 0.5rem; letter-spacing: 0.01em; }
-  .report .lead { font-family: var(--serif); font-size: 1.25rem; color: var(--muted); margin: 0 0 1.75rem; }
-  .field { display: flex; flex-direction: column; gap: 0.4rem; margin: 0 0 1.25rem; }
-  .field > label, .field > .label { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
-  .field .hint { font-size: 0.9rem; color: var(--muted); margin: 0; }
-  textarea, input[type="text"], input[type="email"] {
-    font: inherit; font-size: 1.05rem; color: var(--ink); background: var(--paper-2);
-    border: 1.5px solid var(--edge); border-radius: 6px; padding: 0.8rem 0.9rem; width: 100%;
-  }
-  textarea { min-height: 9.5rem; resize: vertical; line-height: 1.45; }
-  textarea:focus, input:focus { outline: 3px solid var(--ink); outline-offset: 1px; }
-  .chips { display: flex; flex-wrap: wrap; gap: 0.5rem; }
-  .chips label { position: relative; }
-  .chips input { position: absolute; opacity: 0; inset: 0; }
-  .chips span { display: inline-block; padding: 0.55rem 0.9rem; border: 1.5px solid var(--edge); border-radius: 999px; font-size: 0.98rem; cursor: pointer; user-select: none; }
-  .chips input:checked + span { background: var(--ink); color: var(--paper); border-color: var(--ink); }
-  .chips input:focus-visible + span { outline: 3px solid var(--ink); outline-offset: 2px; }
-  .chips.big span { font-size: 1.1rem; padding: 0.75rem 1.1rem; }
-  .photo { display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap; }
-  .photo input { position: absolute; opacity: 0; width: 1px; height: 1px; }
-  .btn { font: inherit; font-size: 1rem; padding: 0.7rem 1.1rem; border-radius: 6px; border: 1.5px solid var(--ink); background: transparent; color: var(--ink); cursor: pointer; }
-  .btn.primary { background: var(--ink); color: var(--paper); font-size: 1.15rem; padding: 0.9rem 1.5rem; }
-  .btn:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
-  .btn[disabled] { opacity: 0.55; cursor: default; }
-  .thumb { max-height: 5rem; max-width: 8rem; border: 1px solid var(--edge); border-radius: 4px; }
-  .status { min-height: 1.4em; margin: 0.9rem 0 0; color: var(--muted); }
-  .status.err { color: var(--ink); font-weight: 600; }
-  .done { border: 1.5px solid var(--ink); border-radius: 8px; padding: 1.4rem 1.5rem; }
-  .done h2 { font-family: var(--display); font-weight: 400; font-size: 2.2rem; margin: 0 0 0.4rem; line-height: 1; }
-  .done .num { font-family: var(--mono); font-size: 1.6rem; }
-  .done p { margin: 0.4rem 0; }
-  .hp { position: absolute; left: -10000px; top: auto; width: 1px; height: 1px; overflow: hidden; }
-  .back { display: inline-block; margin-top: 2rem; color: var(--muted); }
-</style>
 </head>
 <body>
-<main class="report" id="main">
-  <h1>Tell CrossPlay what happened</h1>
-  <p class="lead">One box. Say it however it comes out. No account, under a minute.</p>
+<!-- The same form the front page opens in a dialog, as a page of its own for
+     the links and QR codes that point here. The form itself is drawn by
+     assets/report.js into the mount below; this file is only the surroundings.
+     The device's web UI can prefill it: /report/?device=x4pro&v=1.12.9&app=trivia&kind=bug -->
+<main class="report-page" id="main">
+  <h1 class="report-title">Tell CrossPlay what happened</h1>
+  <p class="report-lead">One box. Say it however it comes out. No account, under a minute.</p>
 
-  <form id="report-form" novalidate>
-    <div class="field">
-      <span class="label">This is</span>
-      <div class="chips big" role="radiogroup" aria-label="Bug or idea">
-        <label><input type="radio" name="kind" value="bug" checked><span>Something broke</span></label>
-        <label><input type="radio" name="kind" value="idea"><span>An idea</span></label>
-      </div>
-    </div>
+  <div data-report-mount></div>
 
-    <div class="field">
-      <label for="report-what">What happened</label>
-      <textarea id="report-what" name="what" required maxlength="4000"
-        placeholder="What were you doing, what happened, and what did you expect instead?"></textarea>
-    </div>
-
-    <div class="field">
-      <span class="label">Which device</span>
-      <div class="chips" role="radiogroup" aria-label="Device">
-        <label><input type="radio" name="device" value="x4pro"><span>X4 Pro</span></label>
-        <label><input type="radio" name="device" value="sticky"><span>Sticky</span></label>
-        <label><input type="radio" name="device" value="unknown" checked><span>Not sure</span></label>
-      </div>
-    </div>
-
-    <div class="field">
-      <label for="report-version">Firmware version <span style="text-transform:none;letter-spacing:0">(optional)</span></label>
-      <input type="text" id="report-version" name="version" inputmode="decimal" placeholder="1.12.9" autocomplete="off">
-      <p class="hint">Settings &gt; About on the device, if you have it handy.</p>
-    </div>
-
-    <div class="field">
-      <span class="label">A photo <span style="text-transform:none;letter-spacing:0">(optional)</span></span>
-      <div class="photo">
-        <label class="btn" for="report-photo">Add a photo</label>
-        <input type="file" id="report-photo" name="photo" accept="image/*">
-        <img id="report-thumb" class="thumb" alt="" hidden>
-        <button type="button" class="btn" id="report-photo-clear" hidden>Remove</button>
-      </div>
-      <p class="hint">Of the screen, if the problem is something you can see. It gets resized before it is sent.</p>
-    </div>
-
-    <div class="field">
-      <label for="report-email">Your email <span style="text-transform:none;letter-spacing:0">(optional, only if you want a reply)</span></label>
-      <input type="email" id="report-email" name="email" autocomplete="email" placeholder="you@example.com">
-    </div>
-
-    <div class="hp" aria-hidden="true">
-      <label for="report-website">Leave this empty</label>
-      <input type="text" id="report-website" name="website" tabindex="-1" autocomplete="off">
-    </div>
-
-    <input type="hidden" id="report-app" name="app" value="">
-
-    <button type="submit" class="btn primary" id="report-send">Send</button>
-    <p class="status" id="report-status" role="status" aria-live="polite"></p>
-  </form>
-
-  <section class="done" id="report-done" hidden>
-    <h2>Got it.</h2>
-    <p>Your report is <span class="num" id="report-id"></span>.</p>
-    <p>Save that number if you ever write in about it. That is all there is to do.</p>
-    <p id="report-photo-note" hidden>The photo did not make it, but the report did. You can send it again with the number above in the text.</p>
-    <p><button type="button" class="btn" id="report-again">Send another</button></p>
-  </section>
-
-  <a class="back" href="/">Back to CrossPlay</a>
+  <a class="report-back" href="/">Back to CrossPlay</a>
 </main>
 
-<script>
-(function () {
-  "use strict";
-  var $ = function (id) { return document.getElementById(id); };
-  var form = $("report-form"), what = $("report-what"), version = $("report-version"), email = $("report-email");
-  var photo = $("report-photo"), thumb = $("report-thumb"), clear = $("report-photo-clear");
-  var send = $("report-send"), status = $("report-status"), done = $("report-done"), idOut = $("report-id");
-  var photoNote = $("report-photo-note"), again = $("report-again"), website = $("report-website"), app = $("report-app");
-  var pickedBlob = null;
-
-  // The device's own web UI can open this page with everything it knows
-  // filled in: /report/?device=x4pro&v=1.12.9&app=trivia&kind=bug
-  var q = new URLSearchParams(location.search);
-  if (q.get("v")) version.value = q.get("v").replace(/^v/, "");
-  if (q.get("device")) { var d = form.querySelector('input[name="device"][value="' + q.get("device") + '"]'); if (d) d.checked = true; }
-  if (q.get("kind") === "idea") form.querySelector('input[name="kind"][value="idea"]').checked = true;
-  if (q.get("app")) app.value = q.get("app");
-
-  function say(text, err) { status.textContent = text; status.className = "status" + (err ? " err" : ""); }
-
-  // Resize on the phone, not the server: a buffered request is capped at
-  // 4.5MB and a camera photo is bigger than that. 1600px on the long side is
-  // plenty to read an e-ink screen.
-  function shrink(file) {
-    return new Promise(function (resolve) {
-      var img = new Image();
-      var url = URL.createObjectURL(file);
-      img.onload = function () {
-        var max = 1600, w = img.naturalWidth, h = img.naturalHeight;
-        var s = Math.min(1, max / Math.max(w, h));
-        var c = document.createElement("canvas");
-        c.width = Math.round(w * s); c.height = Math.round(h * s);
-        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-        URL.revokeObjectURL(url);
-        c.toBlob(function (b) { resolve(b || file); }, "image/jpeg", 0.85);
-      };
-      img.onerror = function () { URL.revokeObjectURL(url); resolve(null); };
-      img.src = url;
-    });
-  }
-
-  photo.addEventListener("change", function () {
-    var f = photo.files && photo.files[0];
-    if (!f) return;
-    shrink(f).then(function (b) {
-      if (!b) { say("That file is not a photo we can read.", true); photo.value = ""; return; }
-      pickedBlob = b;
-      thumb.src = URL.createObjectURL(b); thumb.hidden = false; clear.hidden = false;
-      say("");
-    });
-  });
-  clear.addEventListener("click", function () { pickedBlob = null; photo.value = ""; thumb.hidden = true; clear.hidden = true; });
-
-  form.addEventListener("submit", function (ev) {
-    ev.preventDefault();
-    var text = what.value.trim();
-    if (text.length < 8) { say("Say a little more about what happened.", true); what.focus(); return; }
-    send.disabled = true; say("Sending...");
-    var body = {
-      kind: form.querySelector('input[name="kind"]:checked').value,
-      what: text,
-      device: form.querySelector('input[name="device"]:checked').value,
-      version: version.value.trim(),
-      email: email.value.trim(),
-      app: app.value,
-      website: website.value
-    };
-    fetch("/api/report", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
-      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
-      .then(function (res) {
-        if (!res.ok) throw new Error(res.j && res.j.error || "Something went wrong sending it.");
-        var id = res.j.id;
-        if (!pickedBlob || !id) return { id: id, photoOk: true };
-        say("Sending the photo...");
-        return fetch("/api/report?photo=" + id, { method: "PUT", headers: { "Content-Type": "image/jpeg" }, body: pickedBlob })
-          .then(function (r) { return { id: id, photoOk: r.ok }; }, function () { return { id: id, photoOk: false }; });
-      })
-      .then(function (out) {
-        form.hidden = true; done.hidden = false;
-        idOut.textContent = "#" + out.id;
-        photoNote.hidden = out.photoOk;
-        say("");
-        done.scrollIntoView({ block: "start" });
-      })
-      .catch(function (err) { say(err.message || "Something went wrong sending it.", true); send.disabled = false; });
-  });
-
-  again.addEventListener("click", function () {
-    form.reset(); pickedBlob = null; thumb.hidden = true; clear.hidden = true; send.disabled = false;
-    done.hidden = true; form.hidden = false; what.focus();
-  });
-})();
-</script>
+<script src="/assets/report.js"></script>
 </body>
 </html>

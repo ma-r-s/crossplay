@@ -85,8 +85,8 @@ int main(int argc, char** argv) {
 
   printf("branching, %d games per condition, General, probe buffer %d\n", games, kProbe);
   printf("shipped kMaxCandidates = %d\n\n", detail::kMaxCandidatesShipped);
-  printf("%-18s %-6s %11s %10s %9s %7s %8s\n", "board", "bases", "candidates", "positions", "worst ms",
-         "turns", "ceiling");
+  printf("%-18s %-6s %11s %10s %9s %7s %8s\n", "board", "bases", "candidates", "positions", "worst ms", "turns",
+         "ceiling");
 
   int worstOverall = 0;
   uint32_t hits = 0;

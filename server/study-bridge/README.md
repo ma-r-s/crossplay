@@ -56,13 +56,21 @@ converted output) to `/mnt/hdd/backups/ankibridge`. **TODO: wiring not done.**
 ## Events
 
 Every finished sync posts one event to the board (`docs/workflow/events.md`):
-`anki`/`sync` with `{cards, reviews, seconds}` under a salted hash of the
-device's token hash, or the same event at level `error` with `{message}` when
-the job died or froze. `bridge/events.py` sends from its own thread with a
-3 s timeout and drops the event after one log line if the board does not take
-it, so a board outage cannot slow or fail a sync (`tests/test_api.py` proves
-both). The module is a byte-identical twin of `read-bridge/bridge/events.py`;
-`tests/test_events.py` fails if the two drift.
+`anki`/`sync` with `{cards, reviews, seconds}`, or the same event at level
+`error` with `{message}` when the job died or froze. It is counted under the
+device's own id when the request carried one (`X-CrossPlay-Device`, with
+`X-CrossPlay-Board` and the version from the User-Agent, and the report's
+`battery_pct`, `heap_min_kb`, `uptime_h` copied into the props), else under
+a salted hash of the token hash. Whatever the device had to report rides the
+same headers on every request, so a middleware reads them on every accepted
+answer and posts `firmware`/`crash` and `firmware`/`update` events for a
+crash or an OTA attempt the report carries (`events.Client.report`).
+`bridge/events.py` sends from its own thread with a 3 s timeout and drops
+the event after one log line if the board does not take it, so a board
+outage cannot slow or fail a sync (`tests/test_api.py` proves both, and the
+header bodies). The module is a byte-identical twin of
+`read-bridge/bridge/events.py`; `tests/test_events.py` fails if the two
+drift.
 
 Where to post comes from two more `.env` keys, both optional:
 
@@ -88,3 +96,22 @@ and the optional `SUPABASE_URL` / `SUPABASE_ANON_KEY` pair above.
 It is never rsync'd in either direction (`deploy.sh` excludes it, and that
 exclude is load-bearing) and never pasted into commands, where it would land
 in shell history and `ps` output. Edit it in place on the pi.
+
+## The pages people see
+
+`bridge/chrome.py` is the whole look: the band, the three-step rail, the
+figures, the CSS. `bridge/app.py` only decides which words and which step.
+
+It is the site's aesthetic (`site/styles.css`) restated inline, because this
+service is on its own subdomain and cannot link that stylesheet. The two
+typefaces are vendored under `bridge/static/` with their licences and are
+served by an allowlisted `/assets/<name>` route; the Dockerfile's `COPY
+bridge` and the deploy rsync both carry them with no extra step.
+
+The file is the same in both bridges apart from three strings at the top
+(`SERVICE`, `ACCOUNT`, and the hostname in the docstring). `tests/test_pages.py`
+asserts that, so a change to one that is not made to the other goes red.
+
+Every SVG attribute in there is quoted. An unquoted one eats the tag's own
+self-closing slash and the figure renders as an empty box with a caption under
+it, with every suite still green; the same test file refuses that too.

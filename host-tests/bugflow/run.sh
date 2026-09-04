@@ -50,6 +50,7 @@ echo "the guard fails open on its own trouble"
 printf 'not json' | python3 "$GUARD" pretool >/dev/null 2>&1; [ $? -eq 0 ] && ok "unreadable input is no opinion" || bad "unreadable input blocked"
 printf '{"session_id":"x","tool_name":"Bash","tool_input":{"command":"ls"}}' | BOARD_ROOT=/nonexistent python3 "$GUARD" pretool >/dev/null 2>&1; [ $? -eq 0 ] && ok "a missing board is no opinion" || bad "a missing board blocked"
 
+board pulse 2>&1 | grep -q "needs the Supabase store" && ok "pulse on the file store says what it needs" || bad "pulse on the file store did not explain itself"
 echo "the integration tree"
 expect "worker edit in firmware-next refused"   2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/firmware-next/src/a.cpp\"}}"
 grep -q "integrator --session $WORKER" "$WORK/err" && ok "the refusal carries the remedy with the session id filled in" || bad "refusal lacks the substituted remedy: $(head -c 200 "$WORK/err")"
@@ -81,6 +82,9 @@ expect "worker to its own subagent allowed"        0 pretool "{\"session_id\":\"
 expect "worker to the orchestrator's app id, unregistered, refused" 2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"mcp__ccd_session_mgmt__send_message\",\"tool_input\":{\"session_id\":\"local_bbbb-app\",\"message\":\"hi\"}}"
 board orchestrator --name Main --session "$ORCH" --app-id local_bbbb-app >/dev/null
 expect "worker to the orchestrator's app id, registered, allowed" 0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"mcp__ccd_session_mgmt__send_message\",\"tool_input\":{\"session_id\":\"local_bbbb-app\",\"message\":\"hi\"}}"
+board orchestrator --name Main --session "bbbb-orch-restarted" >/dev/null
+expect "a re-registration without --app-id keeps the app id" 0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"mcp__ccd_session_mgmt__send_message\",\"tool_input\":{\"session_id\":\"local_bbbb-app\",\"message\":\"hi\"}}"
+board orchestrator --name Main --session "$ORCH" --app-id local_bbbb-app >/dev/null
 expect "the orchestrator is still known by its hook id" 0 pretool "{\"session_id\":\"$ORCH\",\"tool_name\":\"SendMessage\",\"tool_input\":{\"to\":\"xteink-ff\",\"message\":\"card #3 is yours\"}}"
 expect "worker to orchestrator via the app allowed" 0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"mcp__ccd_session_mgmt__send_message\",\"tool_input\":{\"session_id\":\"local_$ORCH\",\"message\":\"hi\"}}"
 DISP="dddd-dispatch"; board dispatcher --name Dispatch --session "$DISP" >/dev/null
@@ -179,7 +183,14 @@ E="$WORK/emu"; mkdir -p "$E/src" "$E/site/emulator"; ( cd "$E" && git init -q -b
 bash "$STALE" "$E" >/dev/null && ok "a newer source makes the emulator stale" || bad "stale not detected"
 ( cd "$E" && sleep 1 && echo w2 > site/emulator/crossplay.wasm && git add -A && git commit -qm "chore: emulator rebuilt" )
 bash "$STALE" "$E" >/dev/null && bad "a rebuilt emulator still reads stale" || ok "a rebuilt emulator reads fresh"
-bash "$STALE" --paths | grep -qx "src" && bash "$STALE" --paths | grep -qx "tools_local/wasm" && ok "--paths names the source list" || bad "--paths is missing sources"
+# A herestring, not a pipe. Under `set -o pipefail`, `grep -q` exits on its
+# first match and the producer's remaining write gets EPIPE, so the pipeline
+# returns 141 and an intact list reads as a missing one. It only loses that
+# race when the machine is busy, which is exactly inside check.sh. A
+# herestring has no producer process to kill, and keeps the -x exact match.
+PATHS="$(bash "$STALE" --paths)"
+grep -qx "src" <<< "$PATHS" && grep -qx "tools_local/wasm" <<< "$PATHS" \
+  && ok "--paths names the source list" || bad "--paths is missing sources"
 grep -q 'emulator-stale.sh' "$HERE/../../scripts_local/check.sh" && ok "check.sh asks the shared script" || bad "check.sh still carries its own staleness test"
 
 echo

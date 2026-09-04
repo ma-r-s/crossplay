@@ -94,8 +94,7 @@ struct Header {
   size_t bytes;
 };
 
-constexpr size_t kHeaderBytes = sizeof(Header) < alignof(std::max_align_t) ? alignof(std::max_align_t)
-                                                                          : sizeof(Header);
+constexpr size_t kHeaderBytes = sizeof(Header) < alignof(std::max_align_t) ? alignof(std::max_align_t) : sizeof(Header);
 
 }  // namespace
 
@@ -126,9 +125,7 @@ void* operator new(const size_t size, const std::nothrow_t&) noexcept {
 }
 
 void* operator new[](const size_t size) { return operator new(size); }
-void* operator new[](const size_t size, const std::nothrow_t& tag) noexcept {
-  return operator new(size, tag);
-}
+void* operator new[](const size_t size, const std::nothrow_t& tag) noexcept { return operator new(size, tag); }
 
 void operator delete(void* p) noexcept {
   if (p == nullptr) return;

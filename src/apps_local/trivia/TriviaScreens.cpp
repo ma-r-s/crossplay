@@ -92,8 +92,8 @@ void drawDifficulty(toybox::Screen& screen, const int16_t x, const int16_t y, co
   // "question N of 5" -- a cold tester was certain of that reading and chased a
   // phantom auto-advance bug for two rounds before doubting it. Filled-of-five
   // is the universal shape for progress, so the meter has to name itself.
-  const fui::Rect box{static_cast<int16_t>(x + trivia::kDifficulties * (kPip + kGap) + 6),
-                      static_cast<int16_t>(y - 5), 220, static_cast<int16_t>(kPip + 10)};
+  const fui::Rect box{static_cast<int16_t>(x + trivia::kDifficulties * (kPip + kGap) + 6), static_cast<int16_t>(y - 5),
+                      220, static_cast<int16_t>(kPip + 10)};
   drawLabel(screen, box, "DIFFICULTY", toybox::kSmallFont, fui::TextAlign::Left, toybox::kButtonCut);
 }
 
@@ -134,9 +134,8 @@ void drawAsideAction(toybox::Screen& screen, const char* label, const fui::Actio
 // Primary, plus TWO narrower outlined ones. Quizmaster needs three: advance,
 // reject the question, and leave. Widths derive from the same constants as the
 // pair so the right-hand control lines up across every screen in the app.
-void drawActionTrio(toybox::Screen& screen, const char* primary, const fui::ActionId primaryAction,
-                    const char* second, const fui::ActionId secondAction, const char* third,
-                    const fui::ActionId thirdAction) {
+void drawActionTrio(toybox::Screen& screen, const char* primary, const fui::ActionId primaryAction, const char* second,
+                    const fui::ActionId secondAction, const char* third, const fui::ActionId thirdAction) {
   const fui::Rect body = screen.body();
   const int16_t top = static_cast<int16_t>(footerTop(screen) + 16);
   const int16_t full = static_cast<int16_t>(body.width - kMargin * 2);
@@ -282,10 +281,10 @@ void modeCard(toybox::Screen& screen, const fui::Rect& box, const char* title, c
   // tall card puts the name at the top and the line at the bottom with a hole
   // between them, and reads as an empty panel with two captions.
   const int16_t mid = static_cast<int16_t>(box.y + box.height / 2);
-  drawLabel(screen, fui::Rect{box.x, static_cast<int16_t>(mid - 44), box.width, 46}, title,
-            toybox::kDisplayFont, fui::TextAlign::Center, toybox::kLargeCut, ink);
-  drawLabel(screen, fui::Rect{box.x, static_cast<int16_t>(mid + 8), box.width, 34}, under,
-            toybox::kSmallFont, fui::TextAlign::Center, toybox::kButtonCut, ink);
+  drawLabel(screen, fui::Rect{box.x, static_cast<int16_t>(mid - 44), box.width, 46}, title, toybox::kDisplayFont,
+            fui::TextAlign::Center, toybox::kLargeCut, ink);
+  drawLabel(screen, fui::Rect{box.x, static_cast<int16_t>(mid + 8), box.width, 34}, under, toybox::kSmallFont,
+            fui::TextAlign::Center, toybox::kButtonCut, ink);
   screen.frame().hit(box, action, value);
 }
 
@@ -306,17 +305,17 @@ void buildMenu(toybox::Screen& screen, const MenuModel& model) {
   const int16_t diffY = static_cast<int16_t>(footerTop(screen) - diffH - 18);
   const int16_t cardH = static_cast<int16_t>((diffY - top - 16 - 20) / 2);
 
-  modeCard(screen, fui::Rect{left, top, wide, cardH}, "QUIZMASTER", "Read it out, argue, reveal",
-           ActionMenuRow, 0, true);
-  modeCard(screen, fui::Rect{left, static_cast<int16_t>(top + cardH + 16), wide, cardH}, "SOLO",
-           "Four options, scored", ActionMenuRow, 1, false);
+  modeCard(screen, fui::Rect{left, top, wide, cardH}, "QUIZMASTER", "Read it out, argue, reveal", ActionMenuRow, 0,
+           true);
+  modeCard(screen, fui::Rect{left, static_cast<int16_t>(top + cardH + 16), wide, cardH}, "SOLO", "Four options, scored",
+           ActionMenuRow, 1, false);
 
   const fui::Rect diffBox{left, diffY, wide, diffH};
   screen.target().stroke(diffBox, fui::Paint::solid(fui::Color::Black), 1);
-  drawLabel(screen, fui::Rect{static_cast<int16_t>(left + 16), diffBox.y, 200, diffH}, "DIFFICULTY",
-            toybox::kSmallFont, fui::TextAlign::Left, toybox::kButtonCut);
-  drawLabel(screen, fui::Rect{left, diffBox.y, static_cast<int16_t>(wide - 16), diffH}, diff,
-            toybox::kSmallFont, fui::TextAlign::Right, toybox::kButtonCut);
+  drawLabel(screen, fui::Rect{static_cast<int16_t>(left + 16), diffBox.y, 200, diffH}, "DIFFICULTY", toybox::kSmallFont,
+            fui::TextAlign::Left, toybox::kButtonCut);
+  drawLabel(screen, fui::Rect{left, diffBox.y, static_cast<int16_t>(wide - 16), diffH}, diff, toybox::kSmallFont,
+            fui::TextAlign::Right, toybox::kButtonCut);
   screen.frame().hit(diffBox, ActionMenuRow, 2);
 
   if (model.packCount > 0) {
@@ -358,7 +357,8 @@ void buildChoice(toybox::Screen& screen, const ChoiceModel& model) {
   if (model.option[0] != nullptr) {
     int16_t y = static_cast<int16_t>(footerTop(screen) - optionsHeight);
     for (int i = 0; i < trivia::kOptions; ++i) {
-      const fui::Rect box{static_cast<int16_t>(body.x + kMargin), y, static_cast<int16_t>(body.width - kMargin * 2), 62};
+      const fui::Rect box{static_cast<int16_t>(body.x + kMargin), y, static_cast<int16_t>(body.width - kMargin * 2),
+                          62};
       const bool isCorrect = model.chosen >= 0 && i == model.correct;
       const bool isWrongPick = model.chosen == i && i != model.correct;
 
@@ -370,26 +370,26 @@ void buildChoice(toybox::Screen& screen, const ChoiceModel& model) {
       drawLabel(screen, box, model.option[i] != nullptr ? model.option[i] : "", toybox::kSmallFont,
                 fui::TextAlign::Center, toybox::kButtonCut, isCorrect ? fui::Color::White : fui::Color::Black);
 
-        // The player's own pick, marked so it cannot be missed. Until now the only
-        // difference was a 3px stroke against a 1px one, and a cold tester read
-        // that as a leftover focus ring and trained themselves to ignore it -- so
-        // when the solid box was not where they had tapped, they could not tell
-        // whether they had mis-tapped, misremembered, or been scored wrongly.
-        // That ambiguity is what makes someone quietly conclude they are bad at
-        // trivia instead of reporting a bug. White on the correct box, which is
-        // already solid black; black on any other.
-        if (model.chosen == i) {
-          const fui::Rect tab{static_cast<int16_t>(box.x + 5), static_cast<int16_t>(box.y + 5), 7,
-                              static_cast<int16_t>(box.height - 10)};
-          screen.target().fill(tab, fui::Paint::solid(isCorrect ? fui::Color::White : fui::Color::Black));
-        }
+      // The player's own pick, marked so it cannot be missed. Until now the only
+      // difference was a 3px stroke against a 1px one, and a cold tester read
+      // that as a leftover focus ring and trained themselves to ignore it -- so
+      // when the solid box was not where they had tapped, they could not tell
+      // whether they had mis-tapped, misremembered, or been scored wrongly.
+      // That ambiguity is what makes someone quietly conclude they are bad at
+      // trivia instead of reporting a bug. White on the correct box, which is
+      // already solid black; black on any other.
+      if (model.chosen == i) {
+        const fui::Rect tab{static_cast<int16_t>(box.x + 5), static_cast<int16_t>(box.y + 5), 7,
+                            static_cast<int16_t>(box.height - 10)};
+        screen.target().fill(tab, fui::Paint::solid(isCorrect ? fui::Color::White : fui::Color::Black));
+      }
 
-        // The index MUST be passed. Frame::hit's value parameter defaults to 0,
-        // so all four options registered as option 1 -- and the handler, which
-        // reads value correctly, scored the top slot wherever the finger landed.
-        // Solo play was decided entirely by whether the answer happened to be
-        // first: 3/12 measured, which is chance. Buttons were unaffected, which
-        // is why every check passed.
+      // The index MUST be passed. Frame::hit's value parameter defaults to 0,
+      // so all four options registered as option 1 -- and the handler, which
+      // reads value correctly, scored the top slot wherever the finger landed.
+      // Solo play was decided entirely by whether the answer happened to be
+      // first: 3/12 measured, which is chance. Buttons were unaffected, which
+      // is why every check passed.
       if (model.chosen < 0) screen.frame().hit(box, ActionOption, static_cast<int16_t>(i));
       y = static_cast<int16_t>(y + 70);
     }

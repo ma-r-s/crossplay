@@ -178,20 +178,80 @@ const expect = (label, got, want) =>
   expect("a version that is not three numbers is refused", r.status, 400);
   r = await call("POST", Object.assign({}, good, { email: "not an email" }));
   expect("a bad email is refused", r.status, 400);
-  r = await call(
-    "POST",
-    Object.assign({}, good, { kind: "idea", device: "toaster" }),
-  );
+
   calls = [];
-  r = await call(
-    "POST",
-    Object.assign({}, good, { kind: "idea", device: "toaster" }),
-  );
+  r = await call("POST", Object.assign({}, good, { kind: "idea" }));
   const row2 = JSON.parse(
     calls.find((c) => c.url.endsWith("/rest/v1/cards?select=id")).body,
   );
   expect("an idea is a feature card", row2.kind, "feature");
-  expect("an unknown device is 'unknown'", row2.device, "unknown");
+  const ev1 = calls.find(
+    (c) => c.url.endsWith("/rest/v1/events") && c.method === "POST",
+  );
+  expect(
+    "one device is the event's board",
+    ev1 ? JSON.parse(ev1.body).board : null,
+    "x4pro",
+  );
+
+  // The device: one or both of the two boards, nothing else, never none.
+  calls = [];
+  r = await call(
+    "POST",
+    Object.assign({}, good, { device: " Sticky , x4pro " }),
+  );
+  expect("both devices are accepted", r.status, 201);
+  const row3 = JSON.parse(
+    calls.find((c) => c.url.endsWith("/rest/v1/cards?select=id")).body,
+  );
+  expect(
+    "and stored comma-joined in a fixed order, whatever order they came in",
+    row3.device,
+    "x4pro,sticky",
+  );
+  const hist = calls.find(
+    (c) => c.url.endsWith("/rest/v1/history") && c.method === "POST",
+  );
+  expect(
+    "the history line names both",
+    hist ? JSON.parse(hist.body).what : null,
+    "reported from the site (bug, x4pro and sticky)",
+  );
+  const ev2 = calls.find(
+    (c) => c.url.endsWith("/rest/v1/events") && c.method === "POST",
+  );
+  expect(
+    "the event leaves board empty for two boards",
+    ev2 ? JSON.parse(ev2.body).board : "missing",
+    null,
+  );
+  expect(
+    "and lists them in props instead",
+    ev2 ? JSON.parse(ev2.body).props.devices.join(",") : null,
+    "x4pro,sticky",
+  );
+
+  calls = [];
+  r = await call("POST", Object.assign({}, good, { device: "sticky" }));
+  expect("the Sticky alone is accepted", r.status, 201);
+  expect(
+    "and stored as itself",
+    JSON.parse(
+      calls.find((c) => c.url.endsWith("/rest/v1/cards?select=id")).body,
+    ).device,
+    "sticky",
+  );
+
+  for (const wrong of ["", ",", "unknown", "toaster", "x4pro,toaster"]) {
+    calls = [];
+    r = await call("POST", Object.assign({}, good, { device: wrong }));
+    expect(`device ${JSON.stringify(wrong)} is refused`, r.status, 400);
+    expect("and stores nothing", calls.length, 0);
+  }
+  calls = [];
+  r = await call("POST", { kind: "bug", what: good.what });
+  expect("a report with no device at all is refused", r.status, 400);
+  expect("and stores nothing", calls.length, 0);
 
   recent = 10;
   r = await call("POST", good);

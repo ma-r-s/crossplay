@@ -190,6 +190,9 @@ const expect = (label, got, want) =>
   r = await call({ pass: "open sesame", op: "numbers" });
   expect("numbers answers", r.status, 200);
   [
+    "devices_by_version",
+    "daily_active_devices",
+    "battery_by_version",
     "pulse_hosts",
     "workflow_weekly",
     "state_dwell",
@@ -207,6 +210,11 @@ const expect = (label, got, want) =>
   expect(
     "with the pulse in the answer",
     Array.isArray(r.json && r.json.pulse),
+    true,
+  );
+  expect(
+    "and the battery table",
+    Array.isArray(r.json && r.json.battery),
     true,
   );
 

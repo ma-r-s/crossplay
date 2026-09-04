@@ -19,13 +19,13 @@ namespace {
 int checks = 0;
 int failures = 0;
 
-#define CHECK(cond)                                                        \
-  do {                                                                     \
-    ++checks;                                                              \
-    if (!(cond)) {                                                         \
-      ++failures;                                                          \
-      std::printf("FAIL %s:%d  %s\n", __FILE__, __LINE__, #cond);          \
-    }                                                                      \
+#define CHECK(cond)                                               \
+  do {                                                            \
+    ++checks;                                                     \
+    if (!(cond)) {                                                \
+      ++failures;                                                 \
+      std::printf("FAIL %s:%d  %s\n", __FILE__, __LINE__, #cond); \
+    }                                                             \
   } while (0)
 
 uint32_t nextRandom(uint32_t& state) {
@@ -103,8 +103,10 @@ void testNothingCanFloat() {
       for (int column = 0; column < kColumns; ++column) {
         bool sawEmpty = false;
         for (int row = 0; row < kRows; ++row) {
-          if (game.cell[column][row] == kEmpty) sawEmpty = true;
-          else CHECK(!sawEmpty);
+          if (game.cell[column][row] == kEmpty)
+            sawEmpty = true;
+          else
+            CHECK(!sawEmpty);
         }
       }
     }
@@ -686,9 +688,12 @@ void testTheBrainBeatsARandomMoverConvincingly() {
     }
     const bool brainWon = (game.outcome == Outcome::LightWins && brainSide == kLight) ||
                           (game.outcome == Outcome::DarkWins && brainSide == kDark);
-    if (game.outcome == Outcome::Draw) ++draws;
-    else if (brainWon) ++brainWins;
-    else ++randomWins;
+    if (game.outcome == Outcome::Draw)
+      ++draws;
+    else if (brainWon)
+      ++brainWins;
+    else
+      ++randomWins;
   }
   std::printf("  brain vs random: %d - %d (%d draws) of %d\n", brainWins, randomWins, draws, kGames);
   // Not "more than half". A brain looking seven plies ahead against a mover

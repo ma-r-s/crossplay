@@ -1,8 +1,8 @@
 # A release starts the moment a merge passes CI. No clock, no train.
 #
 # Runs after every completed "CrossPlay" CI run on xteink. If the run was
-# green, the tip of xteink is still the commit CI verified, and something has
-# merged since the newest tag, this bumps [crossplay] version, rewrites the
+# green, the tip of xteink is still the commit CI verified, and something that
+# can reach a device image has merged since the newest tag, this bumps [crossplay] version, rewrites the
 # "What is new" block in crossplay-release.yml from the merged pull requests'
 # own lines (scripts_local/release_notes.py), commits, tags, and dispatches
 # the release workflow on that tag.
@@ -63,6 +63,13 @@ jobs:
           tip="$(git rev-parse HEAD)"
           if [ "$tip" != "$VERIFIED" ]; then
             echo "xteink moved past the commit CI verified ($VERIFIED -> $tip); the run for the new tip releases it."
+            echo "go=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          # A merge that cannot change a device image (docs, site, tooling,
+          # workflows) is not a release: no bump, no tag, no update prompt on
+          # every device for nothing. scripts_local/release-needed.sh asks the
+          # one rule that knows which paths reach an image.
+          if ! bash scripts_local/release-needed.sh; then
             echo "go=false" >> "$GITHUB_OUTPUT"; exit 0
           fi
           echo "go=true" >> "$GITHUB_OUTPUT"

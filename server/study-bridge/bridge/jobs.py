@@ -22,24 +22,28 @@ log = logging.getLogger("bridge.jobs")
 _clock = time.monotonic
 
 
-def _report(service, device, failure, summary, props, elapsed):
-    """One event per finished job: what it moved, or what it died of. Never
-    raises -- the job is already done or failed on its own terms, and the
-    board is not allowed to change that."""
+def _report(service, client, failure, summary, props, elapsed):
+    """One event per finished job: what it moved, or what it died of, under
+    the device that asked (its header id, board, version and health numbers;
+    events.Client). Never raises -- the job is already done or failed on its
+    own terms, and the board is not allowed to change that."""
     try:
         if failure is None:
             p = dict(props(summary) if props else {})
             p["seconds"] = round(elapsed, 1)
-            events.post(service, "sync", device=device, props=p)
+            level = "info"
         else:
-            message = f"{type(failure).__name__}: {failure}"[:200]
-            events.post(
-                service,
-                "sync",
-                device=device,
-                level="error",
-                props={"message": message},
-            )
+            p = {"message": f"{type(failure).__name__}: {failure}"[:200]}
+            level = "error"
+        events.post(
+            service,
+            "sync",
+            device=client.device,
+            version=client.version,
+            board=client.board,
+            level=level,
+            props=client.props(p),
+        )
     except Exception:
         log.exception("event for a %s job not posted", service)
 
@@ -70,7 +74,7 @@ class Jobs:
         return None
 
     def start(
-        self, uid: str, work, *, service: str = "", device: str = "", props=None
+        self, uid: str, work, *, service: str = "", client=None, props=None
     ) -> Job:
         """work: a blocking callable run in a thread under the user lock.
         Returns the existing job instead when one is already in flight.
@@ -78,10 +82,13 @@ class Jobs:
         service names the board's row for this job (events.py): when set,
         the job's end posts one event -- `sync` with props(summary) plus the
         seconds it took, or `sync` at level error with what it died of.
-        device is the hashed id the event is counted under."""
+        client is the events.Client the request came from: the id the event
+        is counted under, the board, the version, the health numbers."""
         existing = self.active_for(uid)
         if existing:
             return existing
+        if client is None:
+            client = events.Client()
         job = Job(uid)
         self._jobs[job.id] = job
         self._active[uid] = job.id
@@ -109,7 +116,7 @@ class Jobs:
                     failure = e
                 if service:
                     _report(
-                        service, device, failure, job.summary, props, _clock() - started
+                        service, client, failure, job.summary, props, _clock() - started
                     )
 
         asyncio.get_running_loop().create_task(run())
