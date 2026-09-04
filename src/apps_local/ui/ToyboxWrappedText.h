@@ -69,10 +69,27 @@
 //     such a change once it disturbs a checkpoint the window passes through,
 //     which is one paint later at worst and only where the reader is looking.
 //
-//   - Layer 2 anchors on checkpoints. A change that is consistent across a
-//     whole stride boundary -- every checkpoint still where it was, breaks
-//     moved in between and back again -- would pass both, and the lines drawn
-//     from a correct checkpoint are correct anyway.
+//   - A CHANGE CONFINED TO AN EARLIER PART OF THE DOCUMENT IS INVISIBLE HERE,
+//     and this is the real limit rather than a corner. If the cut changes the
+//     width of something on line 30 and nothing after it, then from line 40
+//     onward the wrap is locally IDENTICAL to the one the index recorded:
+//     every byte the index holds is still a line start, every stretch still
+//     holds the number of lines it held, and the walk agrees with itself
+//     perfectly. What actually moved is the line NUMBER of everything after
+//     line 30, which cannot be discovered without walking from byte zero --
+//     which is the cost this whole file exists to avoid. Only layer 1 can
+//     trigger a rebuild for that, so layer 1 is the one that has to be right;
+//     layer 2 is a net under the window, not a second opinion on the document.
+//     Confirmed by construction, not assumed: a test that hunted for this case
+//     found it, and no check here fires on it.
+//
+//   - The byte comparison is belt and braces. Every case reachable in testing
+//     is already caught by starting a stride lower and counting, because a
+//     walk entering from a sound anchor reproduces the true wrap. Kept because
+//     it is three lines and an integer compare on a path where being wrong
+//     sends a wrong number to somebody's account -- but NO TEST FAILS WITHOUT
+//     IT, and that is worth knowing before trusting it. What closes the bug it
+//     was written for is the extra stride.
 //
 //   - WHAT ACTUALLY HOLDS THIS SHUT TODAY IS NOT THE KEY. The reading cut is
 //     compiled in: kReadingFontId resolves to reading_serif_14 through
