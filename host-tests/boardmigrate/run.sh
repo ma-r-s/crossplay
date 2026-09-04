@@ -30,8 +30,14 @@ WORK="$(mktemp -d)"
 CID="$(docker run --rm -d -e POSTGRES_PASSWORD=x -e POSTGRES_DB=board "$IMAGE" -c fsync=off 2>/dev/null)"
 [ -n "$CID" ] || { echo "FAIL boardmigrate  could not start $IMAGE"; exit 1; }
 trap 'docker rm -f "$CID" >/dev/null 2>&1; rm -rf "$WORK"' EXIT
-for _ in $(seq 1 60); do docker exec "$CID" pg_isready -U postgres -d board >/dev/null 2>&1 && break; sleep 0.5; done
-docker exec "$CID" pg_isready -U postgres -d board >/dev/null 2>&1 || { echo "FAIL boardmigrate  postgres never came up"; exit 1; }
+# Two minutes: a GitHub runner took more than the 30 seconds this first
+# allowed (relwatch allows 60), and the failure said only "never came up".
+for _ in $(seq 1 120); do docker exec "$CID" pg_isready -U postgres -d board >/dev/null 2>&1 && break; sleep 1; done
+if ! docker exec "$CID" pg_isready -U postgres -d board >/dev/null 2>&1; then
+  echo "FAIL boardmigrate  postgres never came up in 120s; its last lines:"
+  docker logs --tail 15 "$CID" 2>&1 | sed 's/^/  /'
+  exit 1
+fi
 # The image answers pg_isready during its first-run initialisation, then
 # restarts the server once; the first real connection can land in that gap.
 for _ in $(seq 1 40); do docker exec -i "$CID" psql -U postgres -d board -qtA -c 'select 1' >/dev/null 2>&1 && break; sleep 0.5; done
