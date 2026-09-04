@@ -63,25 +63,48 @@ void testSha256() {
 
 void testDeviceId() {
   const uint8_t mac[6] = {0x34, 0x85, 0x18, 0xab, 0xcd, 0xef};
+  const uint8_t secret[heartbeat::kSecretLen] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
   char a[heartbeat::kIdLen + 1];
   char b[heartbeat::kIdLen + 1];
-  heartbeat::deviceId(mac, a);
-  heartbeat::deviceId(mac, b);
+  heartbeat::deviceId(mac, secret, sizeof(secret), a);
+  heartbeat::deviceId(mac, secret, sizeof(secret), b);
   check(std::strlen(a) == 64, "id is 64 hex chars");
-  checkStr(a, b, "the same device hashes to the same id");
+  checkStr(a, b, "the same device and secret hash to the same id");
   for (const char* p = a; *p; ++p) check((*p >= '0' && *p <= '9') || (*p >= 'a' && *p <= 'f'), "id is lowercase hex");
   // Neither the MAC's bytes nor its hex spelling appear in the id.
   check(std::strstr(a, "348518abcdef") == nullptr, "id does not contain the MAC");
   check(std::strstr(a, "34:85:18") == nullptr, "id does not contain the MAC with colons");
+  check(std::strstr(a, "0102030405060708090a0b0c0d0e0f10") == nullptr, "id does not contain the secret");
 
   const uint8_t other[6] = {0x34, 0x85, 0x18, 0xab, 0xcd, 0xee};
   char c[heartbeat::kIdLen + 1];
-  heartbeat::deviceId(other, c);
+  heartbeat::deviceId(other, secret, sizeof(secret), c);
   check(std::strcmp(a, c) != 0, "one bit of MAC changes the id");
 
-  // Pinned: a changed salt or hash renames every device on the board, and
-  // this is the line that would say so.
-  checkStr(a, "2b369f70d4d9337c721a4bd06c0528b709ef31df646752166f47b809d9038a01", "id pinned");
+  // Two secrets are two ids for one MAC: that is what stops the 2^24 MACs
+  // behind a vendor prefix being tried against the table.
+  uint8_t secret2[heartbeat::kSecretLen];
+  std::memcpy(secret2, secret, sizeof(secret2));
+  secret2[15] ^= 1;
+  char d[heartbeat::kIdLen + 1];
+  heartbeat::deviceId(mac, secret2, sizeof(secret2), d);
+  check(std::strcmp(a, d) != 0, "one bit of secret changes the id");
+
+  // No secret: the fixed-salt fallback. Pinned, because a changed salt or
+  // hash renames every such device on the board.
+  char e[heartbeat::kIdLen + 1];
+  heartbeat::deviceId(mac, nullptr, 0, e);
+  checkStr(e, "2b369f70d4d9337c721a4bd06c0528b709ef31df646752166f47b809d9038a01", "fallback id pinned");
+  heartbeat::deviceId(mac, secret, 0, e);
+  checkStr(e, "2b369f70d4d9337c721a4bd06c0528b709ef31df646752166f47b809d9038a01", "a zero-length secret is no secret");
+  check(std::strcmp(a, e) != 0, "with a secret the id is not the fallback");
+
+  // An oversized secret is cut, never overrun, and still hashes.
+  uint8_t big[200];
+  std::memset(big, 0xab, sizeof(big));
+  char f[heartbeat::kIdLen + 1];
+  heartbeat::deviceId(mac, big, sizeof(big), f);
+  check(std::strlen(f) == 64, "an oversized secret still gives an id");
 }
 
 void testAppKey() {

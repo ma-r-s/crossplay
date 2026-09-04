@@ -12,6 +12,8 @@
 #include <string>
 
 #if defined(ARDUINO_ARCH_ESP32) && !defined(SIMULATOR)
+#include <Preferences.h>
+#include <esp_random.h>
 #include <esp_system.h>
 #endif
 
@@ -98,15 +100,43 @@ void load() {
   if (!parseState(body, state)) LOG_ERR(kTag, "%s unreadable; starting over", kStatePath);
 }
 
+#if defined(ARDUINO_ARCH_ESP32) && !defined(SIMULATOR)
+// The secret the id is hashed with: made once from the hardware RNG and
+// kept in NVS, never on the card and never sent. False when NVS would not
+// give one, in which case the id falls back to the fixed salt.
+bool loadOrMakeSecret(uint8_t out[kSecretLen]) {
+  Preferences prefs;
+  if (!prefs.begin("crossplay", false)) return false;
+  bool ok = prefs.getBytesLength("hbsecret") == kSecretLen && prefs.getBytes("hbsecret", out, kSecretLen) == kSecretLen;
+  if (!ok) {
+    esp_fill_random(out, kSecretLen);
+    ok = prefs.putBytes("hbsecret", out, kSecretLen) == kSecretLen;
+    if (ok) LOG_INF(kTag, "made the device secret");
+  }
+  prefs.end();
+  return ok;
+}
+#endif
+
 void computeId() {
   uint8_t mac[6] = {};
+  const uint8_t* secret = nullptr;
+  size_t secretLen = 0;
 #if defined(ARDUINO_ARCH_ESP32) && !defined(SIMULATOR)
   // The factory MAC out of eFuse: needs no radio, and is what the station
-  // MAC derives from. Hashed with a fixed salt before it goes anywhere.
+  // MAC derives from. Hashed with the device's own secret before it goes
+  // anywhere.
   const uint64_t raw = ESP.getEfuseMac();
   for (int i = 0; i < 6; ++i) mac[i] = static_cast<uint8_t>(raw >> (8 * i));
+  static uint8_t nvsSecret[kSecretLen];
+  if (loadOrMakeSecret(nvsSecret)) {
+    secret = nvsSecret;
+    secretLen = kSecretLen;
+  } else {
+    LOG_ERR(kTag, "no NVS secret; the id falls back to the fixed salt");
+  }
 #endif
-  deviceId(mac, id);
+  deviceId(mac, secret, secretLen, id);
 }
 
 // esp_reset_reason() as a word. It survives the reset when nothing else

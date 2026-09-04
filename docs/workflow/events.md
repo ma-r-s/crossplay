@@ -29,7 +29,7 @@ variables. The public key can only insert; it cannot read anything back.
 | `service` | `firmware`, `getbooks`, `anki`, `instapaper`, `site`, `release`. One word, lowercase, the same word every time.                                      |
 | `event`   | What happened: `heartbeat`, `download`, `search`, `sync`, `install`, `report`, `update`, `error`. Same rule.                                         |
 | `level`   | `info` (default) or `error`.                                                                                                                         |
-| `device`  | A hash of the MAC with a fixed salt, the same on every post from one device. Never the MAC, never a name. Optional for services that have no device. |
+| `device`  | sha256 of the MAC and a secret the device made once and keeps in NVS: pseudonymous, the same on every post from one device, and not matchable to a MAC without that device's secret. Never the MAC, never a name. Optional for services that have no device. |
 | `version` | Firmware version as printed, `1.12.9`. Optional.                                                                                                     |
 | `board`   | `x4pro` or `sticky`. Optional.                                                                                                                       |
 | `props`   | Anything else, small: a format, a byte count, a duration, a book id. For errors, `message` is required.                                              |
@@ -92,7 +92,13 @@ fingerprint has to tell two of them apart, and `backtrace` is empty. An
 assert reads `"assert failed: ... (reset: panic)"`. Carrying the program
 counter and the exception cause is a card, not a limitation of the pipe.
 
-`device` is sha256(MAC + a fixed salt); the MAC is never sent. The address
+`device` is sha256(MAC + a 16-byte secret the device made once from its
+hardware RNG and keeps in NVS, namespace `crossplay`, key `hbsecret`); the
+MAC and the secret are never sent, and without the secret the id cannot be
+matched to a MAC (a vendor prefix leaves 2^24 MACs, seconds of work against
+a salt that is in this repository). When NVS gives no secret the device
+falls back to sha256(MAC + that fixed salt) and logs it. A full flash erase
+makes a new secret, so the device comes back as a new id. The address
 and the public key come from the site's `/api/board-config`, fetched once and
 cached on the card as `/.crosspoint/board.json`, fetched again when the board
 answers 401 or 403 (a key rotation is a Vercel setting, not a release).

@@ -29,9 +29,16 @@ constexpr size_t kBodySize = 2048;
 
 void sha256(const uint8_t* data, size_t len, uint8_t out[32]);
 
-// sha256(MAC || fixed salt) as 64 lowercase hex digits. The same device hashes
-// to the same id on every post, and nothing about the MAC can be read back.
-void deviceId(const uint8_t mac[6], char out[kIdLen + 1]);
+// sha256(MAC || secret) as 64 lowercase hex digits, where the secret is
+// kSecretLen random bytes the device made once and keeps in NVS. The id is
+// pseudonymous: the same device is the same id on every post, and without
+// that device's own secret the id cannot be matched to a MAC (a vendor
+// prefix leaves 2^24 MACs, seconds of work against a fixed salt). With no
+// secret (secretLen 0: NVS unavailable) it is sha256(MAC || fixed salt),
+// and the device logs that it fell back. A full flash erase makes a new
+// secret, so the device comes back as a new id.
+constexpr size_t kSecretLen = 16;
+void deviceId(const uint8_t mac[6], const uint8_t* secret, size_t secretLen, char out[kIdLen + 1]);
 
 // A shelf title as the word the board counts: "HACKER NEWS" -> "hackernews".
 // Lowercase letters and digits only, cut at kMaxAppKey. False when nothing

@@ -61,7 +61,8 @@ void compress(uint32_t h[8], const uint8_t block[64]) {
   h[7] += hh;
 }
 
-// Fixed for the life of the id. Changing it renames every device on the board.
+// The fallback when the device has no secret. Fixed for the life of the id:
+// changing it renames every such device on the board.
 constexpr char kSalt[] = "crossplay-heartbeat-2026";
 
 // --- A JSON writer that cannot overrun: one bounded buffer, and a single
@@ -267,12 +268,21 @@ void sha256(const uint8_t* data, const size_t len, uint8_t out[32]) {
   }
 }
 
-void deviceId(const uint8_t mac[6], char out[kIdLen + 1]) {
-  uint8_t input[6 + sizeof(kSalt) - 1];
+void deviceId(const uint8_t mac[6], const uint8_t* secret, size_t secretLen, char out[kIdLen + 1]) {
+  constexpr size_t kMaxSecret = 64;
+  uint8_t input[6 + kMaxSecret];
   std::memcpy(input, mac, 6);
-  std::memcpy(input + 6, kSalt, sizeof(kSalt) - 1);
+  size_t len = 6;
+  if (secret != nullptr && secretLen > 0) {
+    if (secretLen > kMaxSecret) secretLen = kMaxSecret;
+    std::memcpy(input + 6, secret, secretLen);
+    len += secretLen;
+  } else {
+    std::memcpy(input + 6, kSalt, sizeof(kSalt) - 1);
+    len += sizeof(kSalt) - 1;
+  }
   uint8_t digest[32];
-  sha256(input, sizeof(input), digest);
+  sha256(input, len, digest);
   static constexpr char kHex[] = "0123456789abcdef";
   for (int i = 0; i < 32; ++i) {
     out[2 * i] = kHex[digest[i] >> 4];
