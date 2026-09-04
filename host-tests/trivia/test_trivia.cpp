@@ -223,6 +223,21 @@ void testState() {
   MemorySource small(std::vector<uint8_t>(10, 0));
   PackState mismatched;
   CHECK(!mismatched.open(small, 50));
+
+  // And so does a LONGER one, which is the half that had no coverage. The pack
+  // is addressed by index and the state file is one byte per index, so the two
+  // lengths are the same fact written twice; any disagreement means the pack
+  // under the state file changed. A SHORTER file was rejected and a longer one
+  // was accepted, on the reasoning that every index still had a byte -- but the
+  // bytes describe questions that are no longer at those indices. A FLAGGED bit
+  // landing on an arbitrary question hides it from every draw with nothing on
+  // screen and no way for a player to clear it.
+  //
+  // Reachable as soon as a pack SHRINKS, which is what a rated pack does to the
+  // 50,000 it replaces.
+  MemorySource oversized(std::vector<uint8_t>(90, 0));
+  PackState stale;
+  CHECK(!stale.open(oversized, 50));
 }
 
 // --- chooser --------------------------------------------------------------
