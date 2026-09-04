@@ -155,7 +155,7 @@ void OpdsFilterActivity::buildScreen(UiScreen& screen) {
   // Content sits below the header band and above the button hints, derived
   // from the safe area so bezel insets apply -- same as the server list.
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  screen.setContentMarginAbsolute(
+  screen.setContentMarginFromScreen(
       fui::Insets{static_cast<int16_t>(safe.y + metrics.topPadding + metrics.headerHeight),
                   static_cast<int16_t>(renderer.getScreenWidth() - (safe.x + safe.width)),
                   static_cast<int16_t>(renderer.getScreenHeight() - (safe.y + safe.height) + metrics.buttonHintsHeight),

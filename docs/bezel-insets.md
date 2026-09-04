@@ -113,12 +113,44 @@ Two consequences worth keeping straight when touching that helper:
 What made the flip safe for the screens that DO honor it, in the order the
 traps were found:
 
-1. **The ~23 absolute-margin `setContentMargin` sites** (reader menus,
-   settings lists, wifi, sliders) build margins in the full screen frame
-   from `getScreenSafeArea()`. They now call `setContentMarginAbsolute()`,
-   which insets from `screen()` rather than `safeRect()` -- same geometry as
-   before the flip, insets applied exactly once. Never hand absolute margins
-   to plain `setContentMargin()`; that applies the safe area twice.
+1. **The ~23 absolute-margin sites** (reader menus, settings lists, wifi,
+   sliders) build margins in the full screen frame from `getScreenSafeArea()`.
+   Since the 2026-09-04 upstream sync they call upstream's
+   `setContentMarginFromScreen()`. Never hand absolute margins to plain
+   `setContentMargin()`; that applies the safe area twice.
+
+   `setContentMarginFromScreen()` does NOT apply it twice, which is why the
+   fork could adopt it and delete its own `setContentMarginAbsolute()` from
+   every screen upstream also has. The arithmetic, from `FreeInkApp.h`:
+
+   ```
+   marginBeyondSafeArea(m, s) = m > s ? m - s : 0
+   setContentMarginFromScreen(m) -> screen inset by s + max(0, m - s) = max(m, s)
+   setContentMarginAbsolute(m)   -> screen inset by m
+   ```
+
+   `max(m, s)` is idempotent: a margin that already folds the safe area in
+   (every one of these sites does, they derive from `getScreenSafeArea()`)
+   comes back unchanged. The two calls differ only where a margin is BELOW
+   the safe area on some side.
+
+   **That one difference is why `setContentMarginAbsolute()` still exists**,
+   with exactly two callers left, both in `src/apps_local/`:
+
+   - `toybox::absoluteChrome()` passes `Insets{}` -- all zeros, deliberately
+     the full frame. `FromScreen({})` would give `max(0, safe)` = the safe
+     rect, pushing every game's chrome down by the top inset. That is the
+     regression described above, found on the device twice.
+   - `XkcdScreens.cpp` passes a band that may sit on the true panel edge.
+     On the X4 Pro `safe.bottom` is 0 so the two agree, but on a board using
+     the inherited `{9, 3, 3, 3}` default `max(m, s)` would clamp a
+     deliberate full-bleed bottom by 3px.
+
+   Upstream has no way to express "content rect = the full frame": `Screen`
+   seeds `content_` from `safeRect()`, and both upstream calls inset from
+   `safeRect()`. So this is a capability the fork needs, not a style
+   preference -- but it is now confined to fork-only screens, and no screen
+   shared with upstream diverges.
 2. **The divider rule** under header bands is `toybox::headerRule(screen)`
    (ToyboxScreen.h), derived from `screen.body().y` right after
    `toybox::headerBand(...)`. The old idiom (a fill at absolute

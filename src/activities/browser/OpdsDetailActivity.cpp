@@ -227,7 +227,7 @@ void OpdsDetailActivity::buildScreen(UiScreen& screen) {
   // Without a content margin the body rect is empty, every takeTop() returns a
   // zero-height slice, and the screen draws nothing at all.
   const Rect safe = UITheme::getInstance().getScreenSafeArea(renderer, true, false);
-  screen.setContentMarginAbsolute(
+  screen.setContentMarginFromScreen(
       fui::Insets{static_cast<int16_t>(safe.y + metrics.topPadding + metrics.headerHeight),
                   static_cast<int16_t>(renderer.getScreenWidth() - (safe.x + safe.width) + SIDE_PADDING),
                   static_cast<int16_t>(renderer.getScreenHeight() - (safe.y + safe.height) + metrics.buttonHintsHeight),
