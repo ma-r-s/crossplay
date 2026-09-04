@@ -7,6 +7,31 @@ One exception, and it is deliberate: `api/firmware.js`, a single Vercel
 function that exists so the Install button can work at all. See **The Install
 button** below before touching it.
 
+## When it deploys, and when it does not
+
+`vercel.json` carries `"ignoreCommand": "git diff --quiet HEAD^ HEAD ./"`.
+Vercel runs it from this directory: **exit 0 skips the build, non-zero builds**.
+`git diff --quiet` exits 0 when nothing here changed, so a commit that does not
+touch `site/` never deploys.
+
+This is not tidiness. On 2026-09-04 the account hit its deployment rate limit
+and every pull request in the fork went red on a Vercel check, including ones
+whose diff was a word list or a shell script. Of the 305 commits on `xteink`
+that day, **57 touched `site/`** -- so four deploys in five built nothing new
+and the fifth could not run.
+
+Two properties worth keeping if you edit it:
+
+- **It fails towards building.** If the command errors -- a shallow clone with
+  no `HEAD^`, a git that is not there -- it exits non-zero and the deploy
+  proceeds. Never skip when unsure.
+- **`./` means this directory, not the repository root**, because the Vercel
+  project root is `site/`. Changing the project root without changing this
+  path silently stops every deploy.
+
+The emulator rebuild CI commits after a firmware merge DOES touch `site/`, so
+it still deploys. That is correct: the page really did change.
+
 ## Before it deploys
 
 Two steps, both of which fail silently if skipped:
