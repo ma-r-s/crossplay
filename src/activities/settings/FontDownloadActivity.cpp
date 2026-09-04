@@ -8,10 +8,10 @@
 #include <WiFi.h>
 #include <esp_rom_crc.h>
 
-#include "DevMode.h"
 #include <algorithm>
 #include <cstring>
 
+#include "DevMode.h"
 #include "MappedInputManager.h"
 #include "SdCardFontSystem.h"
 #include "SilentRestart.h"

@@ -1,5 +1,5 @@
-#include <DevInputInjector.h>
 #include <BatteryMonitor.h>
+#include <DevInputInjector.h>
 #include <HalGPIO.h>
 #include <Logging.h>
 #include <PowerManager.h>

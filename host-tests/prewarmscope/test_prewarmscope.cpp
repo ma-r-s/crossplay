@@ -93,9 +93,9 @@ int main() {
     scope.endScanAndPrewarm();
     eq(counts.prewarms, 1, "ending the scan prewarms once for the font it saw");
     // Upstream (2026-09-04) hands prewarm the DEDUPLICATED, sorted character
-  // set rather than the raw run, so the same glyph is not decompressed twice
-  // on a page that uses it twice. "hello" scans as its four distinct chars.
-  eqs(counts.lastText, "ehlo", "and prewarms exactly the distinct characters scanned");
+    // set rather than the raw run, so the same glyph is not decompressed twice
+    // on a page that uses it twice. "hello" scans as its four distinct chars.
+    eqs(counts.lastText, "ehlo", "and prewarms exactly the distinct characters scanned");
     eq(counts.clears, 1, "prewarming does not clear what it just loaded");
   }
   // -- and does not survive it ----------------------------------------------
