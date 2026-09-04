@@ -21,7 +21,10 @@ fact.
 **Closed, and counted on every stored option rather than sampled:** two options
 that are one thing 5.3% -> 0.0%, options not capitalised alike 9.9% -> 0.0%.
 **Improved, sampled:** a region named with only one option in it 15.5% -> 5.5%.
-Playable questions went 14,388 -> 18,485.
+Playable questions went 14,388 -> 18,485 **on the shipped 50,000**, whose
+options come from questions of the same type. A pack assembled from the local
+rating run uses that run's own candidate options and lands at 76.6% playable,
+flat across the five levels (72.7% to 82.5%).
 
 **What is still open, in the order it will be noticed:**
 
