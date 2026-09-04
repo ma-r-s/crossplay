@@ -81,6 +81,9 @@ expect "worker to its own subagent allowed"        0 pretool "{\"session_id\":\"
 expect "worker to the orchestrator's app id, unregistered, refused" 2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"mcp__ccd_session_mgmt__send_message\",\"tool_input\":{\"session_id\":\"local_bbbb-app\",\"message\":\"hi\"}}"
 board orchestrator --name Main --session "$ORCH" --app-id local_bbbb-app >/dev/null
 expect "worker to the orchestrator's app id, registered, allowed" 0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"mcp__ccd_session_mgmt__send_message\",\"tool_input\":{\"session_id\":\"local_bbbb-app\",\"message\":\"hi\"}}"
+board orchestrator --name Main --session "bbbb-orch-restarted" >/dev/null
+expect "a re-registration without --app-id keeps the app id" 0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"mcp__ccd_session_mgmt__send_message\",\"tool_input\":{\"session_id\":\"local_bbbb-app\",\"message\":\"hi\"}}"
+board orchestrator --name Main --session "$ORCH" --app-id local_bbbb-app >/dev/null
 expect "the orchestrator is still known by its hook id" 0 pretool "{\"session_id\":\"$ORCH\",\"tool_name\":\"SendMessage\",\"tool_input\":{\"to\":\"xteink-ff\",\"message\":\"card #3 is yours\"}}"
 expect "worker to orchestrator via the app allowed" 0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"mcp__ccd_session_mgmt__send_message\",\"tool_input\":{\"session_id\":\"local_$ORCH\",\"message\":\"hi\"}}"
 DISP="dddd-dispatch"; board dispatcher --name Dispatch --session "$DISP" >/dev/null
