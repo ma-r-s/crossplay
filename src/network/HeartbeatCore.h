@@ -121,7 +121,11 @@ constexpr long long kRetryS = 15 * 60;
 // than silencing the device until the clock catches up.
 constexpr long long kMaxBackoffS = 86400 + kRetryS;
 void noteFailed(State& s, long long epochNow);
-void clearBackoff(State& s);
+// The board answered: the run of failures is over. The config fetch counts
+// as an answer (a 200 there is not a failure; carried forward, one failed
+// fetch, one 200 fetch and one failed post read as two in a row and the
+// rest of the day). True when the state changed and the card needs writing.
+bool clearBackoff(State& s);
 bool backingOffAt(long long epochNow, long long retryAt);
 
 // The one decision per loop pass. A pending crash is sent whatever the day,

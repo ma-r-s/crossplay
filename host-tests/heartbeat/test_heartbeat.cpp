@@ -309,6 +309,20 @@ void testBackoff() {
   heartbeat::noteSent(s, 100);
   check(s.fails == 0 && s.retryAt == 0, "a sent heartbeat ends the backoff too");
 
+  // Any answer ends it, the board config fetch included: a failed fetch, a
+  // 200 fetch and a failed post is one failure and fifteen minutes, not two
+  // in a row and the rest of the day.
+  heartbeat::State run;
+  heartbeat::noteFailed(run, kNoon);
+  check(run.fails == 1, "the fetch failed once");
+  check(heartbeat::clearBackoff(run), "the fetch answered: the state changed and is written");
+  check(run.fails == 0 && run.retryAt == 0, "an answer ends the run of failures");
+  heartbeat::noteFailed(run, kNoon + 20 * 60);
+  check(run.fails == 1 && run.retryAt == kNoon + 20 * 60 + heartbeat::kRetryS,
+        "the post's failure starts a new run: fifteen minutes, not tomorrow");
+  heartbeat::State clean;
+  check(!heartbeat::clearBackoff(clean), "nothing to clear is no change, and no card write");
+
   // A clock that stepped back would read an old retryAt as far in the future;
   // that is ignored rather than silencing the device until it catches up.
   check(!backingOffAt(kNoon - 2 * 86400, kTomorrow), "retryAt more than a day out: ignored");

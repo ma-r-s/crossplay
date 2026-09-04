@@ -467,9 +467,11 @@ void noteFailed(State& s, const long long epochNow) {
   }
 }
 
-void clearBackoff(State& s) {
+bool clearBackoff(State& s) {
+  if (s.retryAt == 0 && s.fails == 0) return false;
   s.retryAt = 0;
   s.fails = 0;
+  return true;
 }
 
 bool backingOffAt(const long long epochNow, const long long retryAt) {

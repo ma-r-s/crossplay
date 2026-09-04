@@ -468,12 +468,15 @@ void update() {
   if (!loadBoardConfig()) {
     bool made = false;
     boardLoaded = fetchBoardConfig(made);
-    if (!boardLoaded) {
-      if (made) {
-        failed("board config", epoch);
-      } else {
-        notBefore = now + kHeapRetryMs;
-      }
+    if (boardLoaded) {
+      // The site answered, so a failure before it is not one the post
+      // inherits: carried forward, a failed fetch, a 200 fetch and a failed
+      // post counted as two in a row and sent the device to tomorrow.
+      if (clearBackoff(state)) save();
+    } else if (made) {
+      failed("board config", epoch);
+    } else {
+      notBefore = now + kHeapRetryMs;
     }
     return;
   }
