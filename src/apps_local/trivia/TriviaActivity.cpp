@@ -260,15 +260,13 @@ void TriviaActivity::runPackDownload() {
       std::snprintf(body, sizeof(body),
                     "The questions need about %u MB free and the card has %u MB. "
                     "Delete something from the card, then try again. Nothing was written.",
-                    static_cast<unsigned>(trivia::kPackFreeFloorBytes >> 20),
-                    static_cast<unsigned>(freeNow >> 20));
+                    static_cast<unsigned>(trivia::kPackFreeFloorBytes >> 20), static_cast<unsigned>(freeNow >> 20));
       showNotice("NO ROOM", body, "TRY AGAIN", triviaui::ActionGetPack);
       return;
     }
     case trivia::Room::Ok:
       break;
   }
-
 
   g_packFile.close();
   g_stateFile.close();
@@ -453,8 +451,7 @@ void TriviaActivity::routeAction(const int action, const int value) {
         // had any effect at all and stopped pressing it.
         flagReturn_ = view_;
         char body[160];
-        std::snprintf(body, sizeof(body),
-                      "That question will not come back. %u hidden so far.",
+        std::snprintf(body, sizeof(body), "That question will not come back. %u hidden so far.",
                       static_cast<unsigned>(state_.flaggedCount()));
         showNotice("HIDDEN", body, "NEXT QUESTION", triviaui::ActionNext);
       }

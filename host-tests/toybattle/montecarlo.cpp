@@ -80,7 +80,10 @@ int rollout(Game g, Rng& rng) {
           for (int r = 0; r < b.regionCount; ++r) {
             if (g.regionsTaken & (1u << r)) continue;
             const uint32_t need = b.regions[r].bases;
-            if ((need & bit) && (need & ~(mine | bit)) == 0) { pick = j; break; }
+            if ((need & bit) && (need & ~(mine | bit)) == 0) {
+              pick = j;
+              break;
+            }
           }
         }
       }
@@ -117,8 +120,10 @@ Move flatMonteCarlo(const Observation& obs, int playouts, Rng& rng, uint32_t& ro
     for (int p = 0; p < each; ++p) {
       const int w = rollout(after, rng);
       ++rolloutsDone;
-      if (w == seat) wins += 2;
-      else if (w == kNoSeat) wins += 1;  // a draw is half a win, as in the tournament
+      if (w == seat)
+        wins += 2;
+      else if (w == kNoSeat)
+        wins += 1;  // a draw is half a win, as in the tournament
     }
     if (wins > bestScore) {
       bestScore = wins;
@@ -146,8 +151,7 @@ void diagnoseRollouts(int n) {
   int shortest = 1 << 30;
   for (int i = 0; i < n; ++i) {
     Game g;
-    g.newGame(0xA5A5u + static_cast<uint32_t>(i) * 2654435761u, static_cast<int>(TerrainId::CastleField), i & 1,
-              true);
+    g.newGame(0xA5A5u + static_cast<uint32_t>(i) * 2654435761u, static_cast<int>(TerrainId::CastleField), i & 1, true);
     const Terrain& b = g.board();
     Step steps[96];
     int moves = 0;
@@ -167,7 +171,10 @@ void diagnoseRollouts(int n) {
             for (int r = 0; r < b.regionCount; ++r) {
               if (g.regionsTaken & (1u << r)) continue;
               const uint32_t need = b.regions[r].bases;
-              if ((need & bit) && (need & ~(mine | bit)) == 0) { pick = j; break; }
+              if ((need & bit) && (need & ~(mine | bit)) == 0) {
+                pick = j;
+                break;
+              }
             }
           }
         }
@@ -182,10 +189,14 @@ void diagnoseRollouts(int n) {
     }
     totalLen += moves;
     if (moves < shortest) shortest = moves;
-    if (g.currentPhase() != Phase::GameOver) ++unfinished;
-    else if (g.ending == static_cast<uint8_t>(Ending::HqCaptured)) ++byHq;
-    else if (g.ending == static_cast<uint8_t>(Ending::MedalsObjective)) ++byMedals;
-    else ++byStuck;
+    if (g.currentPhase() != Phase::GameOver)
+      ++unfinished;
+    else if (g.ending == static_cast<uint8_t>(Ending::HqCaptured))
+      ++byHq;
+    else if (g.ending == static_cast<uint8_t>(Ending::MedalsObjective))
+      ++byMedals;
+    else
+      ++byStuck;
   }
   printf("%d random playouts on CASTLE FIELD, bases on:\n", n);
   printf("  ended by H.Q. capture   %6.1f%%\n", 100.0 * byHq / n);
@@ -241,9 +252,12 @@ int main(int argc, char** argv) {
           if (!g.apply(m) && !g.apply(Move::draw())) break;
           ++turns;
         }
-        if (g.winner == kNoSeat) ++tally.draws;
-        else if (g.winner == mcSeat) ++tally.mcWins;
-        else ++tally.brainWins;
+        if (g.winner == kNoSeat)
+          ++tally.draws;
+        else if (g.winner == mcSeat)
+          ++tally.mcWins;
+        else
+          ++tally.brainWins;
         ++tally.games;
       }
       printf("%-18s %-6s %7.1f%% %8d %8d %10.1f\n", terrainAt(t).name, s ? "on" : "off", 100.0 * tally.points(),

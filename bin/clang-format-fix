@@ -19,6 +19,16 @@ if [[ "${1:-}" == "-g" ]]; then
   GIT_LS_FILES_FLAGS="--modified"
 fi
 
+# --check reports instead of rewriting, over the same list. CI formats the
+# WHOLE tree and fails on the diff, while everyone locally runs -g and only
+# ever formats what they touched, so files nobody touches drift and detonate
+# on the next person's pull request. scripts_local/check.sh runs this so that
+# stops being something CI discovers.
+CLANG_FORMAT_ACTION=(-i)
+if [[ "${1:-}" == "--check" ]]; then
+  CLANG_FORMAT_ACTION=(--dry-run -Werror)
+fi
+
 CLANG_FORMAT_VERSION_RAW="$(${CLANG_FORMAT_BIN} --version)"
 CLANG_FORMAT_MAJOR="$(printf '%s\n' "${CLANG_FORMAT_VERSION_RAW}" | grep -oE '[0-9]+' | head -n1)"
 
@@ -48,6 +58,13 @@ git ls-files  --exclude-standard ${GIT_LS_FILES_FLAGS} \
     | grep -v -E '^lib/Epub/Epub/hyphenation/generated/' \
     | grep -v -E '^lib/uzlib/' \
     | grep -v -E '^lib/miniz/third_party/' \
-    | xargs -r "${CLANG_FORMAT_BIN}" -style=file -i
+    | xargs -r "${CLANG_FORMAT_BIN}" -style=file "${CLANG_FORMAT_ACTION[@]}"
+CLANG_FORMAT_STATUS=${PIPESTATUS[6]}
 # Restore strict pipeline failure handling for the rest of the script.
 set -o pipefail
+
+# Only --check has a verdict to return: -i rewrites and says nothing.
+if [[ "${1:-}" == "--check" && "${CLANG_FORMAT_STATUS}" -ne 0 ]]; then
+  echo "Formatting is not clean. Run ./bin/clang-format-fix (no flags) to fix it."
+  exit 1
+fi

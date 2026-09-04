@@ -27,11 +27,11 @@
 #include "../../src/apps_local/forehead/ForeheadScreens.h"
 #include "../../src/apps_local/insider/InsiderScreens.h"
 #include "../../src/apps_local/instapaper/InstapaperScreens.h"
-#include "../../src/apps_local/trivia/TriviaScreens.h"
 #include "../../src/apps_local/link/LinkScreens.h"
-#include "../../src/apps_local/study/StudyScreens.h"
 #include "../../src/apps_local/minesweeper/MinesweeperScreens.h"
+#include "../../src/apps_local/study/StudyScreens.h"
 #include "../../src/apps_local/sudoku/SudokuScreens.h"
+#include "../../src/apps_local/trivia/TriviaScreens.h"
 #include "../../src/apps_local/ui/ToyboxScreen.h"
 #include "../../src/apps_local/wavelength/WavelengthScreens.h"
 
@@ -262,10 +262,10 @@ void report(const Probe& probe) {
     }
     const int fromArea = areaOf(fromRuns[0], o.fromAction, o.fromValue);
     const int pct = fromArea > 0 ? (o.points * 100) / fromArea : 0;
-    std::printf("   action %d/%d  ->  action %d/%d   %d%% of the source control (%d of %d lattice pts)\n",
-                o.fromAction, o.fromValue, o.toAction, o.toValue, pct, o.points, fromArea);
-    std::printf("      overlap box x[%d..%d] y[%d..%d]   %s\n", o.minX, o.maxX + kStep - 1, o.minY,
-                o.maxY + kStep - 1, stable ? "stable at both text metrics" : "METRIC-DEPENDENT -- do not quote");
+    std::printf("   action %d/%d  ->  action %d/%d   %d%% of the source control (%d of %d lattice pts)\n", o.fromAction,
+                o.fromValue, o.toAction, o.toValue, pct, o.points, fromArea);
+    std::printf("      overlap box x[%d..%d] y[%d..%d]   %s\n", o.minX, o.maxX + kStep - 1, o.minY, o.maxY + kStep - 1,
+                stable ? "stable at both text metrics" : "METRIC-DEPENDENT -- do not quote");
   }
 }
 

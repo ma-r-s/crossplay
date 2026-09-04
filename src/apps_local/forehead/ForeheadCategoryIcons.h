@@ -13,23 +13,10 @@ namespace forehead {
 
 inline const freeink::Icon* categoryIcon(const int category) {
   static const freeink::Icon* const kIcons[kCategoryCount] = {
-      &icon_cat_animals_32,
-      &icon_cat_act_32,
-      &icon_cat_sound_32,
-      &icon_cat_food_32,
-      &icon_cat_movies_32,
-      &icon_cat_people_32,
-      &icon_cat_music_32,
-      &icon_cat_jobs_32,
-      &icon_cat_sports_32,
-      &icon_cat_house_32,
-      &icon_cat_places_32,
-      &icon_cat_nature_32,
-      &icon_cat_science_32,
-      &icon_cat_myths_32,
-      &icon_cat_story_32,
-      &icon_cat_kids_32,
-      &icon_cat_tricky_32,
+      &icon_cat_animals_32, &icon_cat_act_32,    &icon_cat_sound_32,   &icon_cat_food_32,   &icon_cat_movies_32,
+      &icon_cat_people_32,  &icon_cat_music_32,  &icon_cat_jobs_32,    &icon_cat_sports_32, &icon_cat_house_32,
+      &icon_cat_places_32,  &icon_cat_nature_32, &icon_cat_science_32, &icon_cat_myths_32,  &icon_cat_story_32,
+      &icon_cat_kids_32,    &icon_cat_tricky_32,
   };
   return category >= 0 && category < kCategoryCount ? kIcons[category] : kIcons[0];
 }
