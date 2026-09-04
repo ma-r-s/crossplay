@@ -28,6 +28,7 @@ Run: .venv/bin/python tests/test_listing.py
 """
 
 import logging
+import os
 import pathlib
 import sys
 
@@ -230,6 +231,34 @@ def main():
         pass
     for secret in SECRETS:
         ok(all(secret not in line for line in cap.lines), f"the REFUSAL log omits {secret[:18]!r}...")
+
+    # ------------------------------------------- the same blindness, twin path
+    # get_text's last refusal had the identical bug: a non-200 with no error
+    # element, reported to the user and recorded nowhere. Reachable only by
+    # standing in for the transport, which is why no suite had been through it.
+    os.environ.setdefault("READ_CONSUMER_KEY", "test-key")
+    os.environ.setdefault("READ_CONSUMER_SECRET", "test-secret")
+
+    class FakeResponse:
+        status_code = 502
+        content = b'{"unexpected": [1, 2, 3], "note": "html error page"}'
+        text = ""
+
+        def json(self):
+            return {"unexpected": [1, 2, 3], "note": "html error page"}
+
+    client = ip.Instapaper("t", "s")
+    client._post = lambda *a, **k: FakeResponse()
+    cap.lines.clear()
+    try:
+        client.get_text(1)
+        ok(False, "get_text refuses a 502 with no error element")
+    except ip.ApiError:
+        ok(True, "get_text refuses a 502 with no error element")
+    line = " ".join(cap.lines)
+    ok("502" in line, "and the log names the status it got")
+    ok("unexpected" in line and "note" in line, "and the keys it got")
+    ok("html error page" not in line, "and not the values")
 
     print(f"{checks} checks, {failures} failed")
     return 1 if failures else 0

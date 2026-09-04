@@ -424,6 +424,14 @@ class Instapaper:
                 if isinstance(item, dict) and item.get("type") == "error":
                     code = int(item.get("error_code") or 0)
                     raise ApiError(FRIENDLY.get(code, "Instapaper could not send this article."), code)
+        # A non-200 carrying no error element: the same blind refusal that
+        # cost a day on bookmarks/list, in the twin path. Say what arrived.
+        log.warning(
+            "get_text answered %s with %d bytes and no error element; shape was %s",
+            r.status_code,
+            len(r.content),
+            describe_shape(items) if items else "not JSON",
+        )
         raise ApiError("Instapaper could not send this article.")
 
     def archive(self, bookmark_id: int) -> None:
