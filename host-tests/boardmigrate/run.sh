@@ -32,6 +32,9 @@ CID="$(docker run --rm -d -e POSTGRES_PASSWORD=x -e POSTGRES_DB=board "$IMAGE" -
 trap 'docker rm -f "$CID" >/dev/null 2>&1; rm -rf "$WORK"' EXIT
 for _ in $(seq 1 60); do docker exec "$CID" pg_isready -U postgres -d board >/dev/null 2>&1 && break; sleep 0.5; done
 docker exec "$CID" pg_isready -U postgres -d board >/dev/null 2>&1 || { echo "FAIL boardmigrate  postgres never came up"; exit 1; }
+# The image answers pg_isready during its first-run initialisation, then
+# restarts the server once; the first real connection can land in that gap.
+for _ in $(seq 1 40); do docker exec -i "$CID" psql -U postgres -d board -qtA -c 'select 1' >/dev/null 2>&1 && break; sleep 0.5; done
 
 export MIGRATE_PSQL="docker exec -i $CID psql -U postgres -d board"
 export MIGRATE_DIR="$WORK/mig"; mkdir -p "$MIGRATE_DIR"

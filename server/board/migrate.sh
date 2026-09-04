@@ -70,10 +70,11 @@ if [ -n "$dups" ]; then
   exit 1
 fi
 
+ERR="$(mktemp)"; trap 'rm -f "$ERR"' EXIT
 if ! run_psql -c "create table if not exists board_migrations (
       version text primary key, name text not null,
-      applied_at timestamptz not null default now())" >/dev/null 2>&1; then
-  echo "migrate: cannot reach the board (or cannot create board_migrations)"; exit 1
+      applied_at timestamptz not null default now())" >/dev/null 2>"$ERR"; then
+  echo "migrate: cannot reach the board, or cannot create board_migrations:"; sed 's/^/  /' "$ERR"; exit 1
 fi
 applied="$(run_psql -c "select version from board_migrations order by version")"
 pending=()
@@ -100,7 +101,7 @@ case "$MODE" in
 esac
 
 if [ ${#pending[@]} -eq 0 ]; then echo "up to date: $(count) applied, nothing pending"; exit 0; fi
-OUT="$(mktemp)"; trap 'rm -f "$OUT"' EXIT
+OUT="$(mktemp)"; trap 'rm -f "$OUT" "$ERR"' EXIT
 for f in "${pending[@]}"; do
   n="$(basename "$f")"; v="$(version_of "$f")"
   if run_psql --single-transaction <"$f" >"$OUT" 2>&1; then
