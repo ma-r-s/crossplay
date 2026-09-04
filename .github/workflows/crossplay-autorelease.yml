@@ -15,11 +15,14 @@
 # The brake is the repository variable RELEASE_HOLD=1. While it is set this
 # job says so and does nothing.
 #
-# The tag is pushed with the workflow's own token, which is why the release
-# workflow is dispatched explicitly below: pushes made with that token do not
-# start workflows on their own. The bump commit touches platformio.ini and
-# docs/release-notes.md only: GitHub refuses workflow-file changes from the
-# default token, which is why the notes do not live in the release workflow.
+# The tag is pushed with RELEASE_TOKEN when that secret exists, and a tag
+# pushed that way starts the release workflow like any tag push. Without the
+# secret the push is made with the workflow's own token, which starts nothing,
+# and the job dispatches the release workflow itself. Never both: on
+# 2026-09-04 v1.12.16 was built and published twice, once per path. The bump
+# commit touches platformio.ini and docs/release-notes.md only: GitHub refuses
+# workflow-file changes from the default token, which is why the notes do not
+# live in the release workflow.
 name: CrossPlay autorelease
 
 on:
@@ -113,6 +116,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           NEXT: ${{ steps.notes.outputs.next }}
+          # "true" when the tag went out with RELEASE_TOKEN, whose push already
+          # started crossplay-release.yml; a dispatch on top builds the release twice.
+          PUSH_STARTS_WORKFLOWS: ${{ secrets.RELEASE_TOKEN != '' }}
         run: |
-          gh workflow run crossplay-release.yml --ref "v$NEXT"
-          echo "Dispatched crossplay-release.yml on v$NEXT; it builds and publishes."
+          if [ "$PUSH_STARTS_WORKFLOWS" = "true" ]; then
+            echo "The tag push started crossplay-release.yml on v$NEXT; nothing to dispatch."
+          else
+            gh workflow run crossplay-release.yml --ref "v$NEXT"
+            echo "Dispatched crossplay-release.yml on v$NEXT; it builds and publishes."
+          fi
