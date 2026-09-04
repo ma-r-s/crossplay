@@ -904,5 +904,25 @@ for env_name in gh_release_x4pro gh_release_sticky; do
   fi
 done
 
+# Each device's artefacts must be captured before the NEXT build runs.
+#
+# The second build tears down the first's output directory -- the sticky build
+# logs "[ComponentManager] Updated build file (55 total removals)" and
+# .pio/build/gh_release_x4pro/ does not survive it. Naming both devices at the
+# end therefore reads files that are gone, which is how v1.12.14 tagged and
+# then failed to publish three times.
+checks=$((checks + 1))
+name_x4=$(grep -n "name: Name the x4pro artefacts" "$WF" | head -1 | cut -d: -f1)
+build_sticky=$(grep -n "run: pio run -e gh_release_sticky" "$WF" | head -1 | cut -d: -f1)
+if [ -z "$name_x4" ] || [ -z "$build_sticky" ]; then
+  failed=$((failed + 1))
+  echo "FAIL release  cannot find the x4pro naming step or the sticky build"
+elif [ "$name_x4" -gt "$build_sticky" ]; then
+  failed=$((failed + 1))
+  echo "FAIL release  the sticky build (line $build_sticky) runs before the x4pro artefacts are named (line $name_x4); it removes .pio/build/gh_release_x4pro"
+else
+  ok
+fi
+
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]
