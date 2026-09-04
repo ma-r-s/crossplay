@@ -61,3 +61,6 @@ flake.*
 
 # scratch for tools_local/trivia/rate_local.py: corpus, venv, per-model runs
 .rate/
+
+# scratch for tools_local/trivia/assemble_pack.py: corpus snapshot, built packs
+.pack/
