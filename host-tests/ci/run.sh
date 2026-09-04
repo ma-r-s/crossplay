@@ -105,5 +105,30 @@ for ini in "$HERE/../.."/platformio*.ini; do
   done < <(grep -oE '^[^;#]*=(https?|git)://[^ ]*#[0-9a-f]+' "$ini" | sed 's/.*#//')
 done
 
+# The release trigger, which is a concurrency setting three files away.
+#
+# crossplay-autorelease.yml fires on `workflow_run` with conclusion success.
+# A run cancelled by the next merge has no conclusion, so it releases nothing.
+# With cancel-in-progress true on xteink, a stream of merges arriving faster
+# than this build takes cancels every run in turn and NOTHING ever releases,
+# while each individual cancellation looks like the concurrency rule working.
+# That ran for six merges on 2026-09-03 with RELEASE_HOLD at 0.
+#
+# Superseding is still right on a pull request, so this asserts the shape
+# rather than the absence: cancellation must be conditional on the ref.
+checks=$((checks + 1))
+cip=$(grep -A 2 '^concurrency:' "$YML" | grep 'cancel-in-progress:' | cut -d: -f2- | tr -d ' ')
+case "$cip" in
+  true|"")
+    failed=$((failed + 1))
+    echo "FAIL ci  crossplay-ci.yml cancels in progress unconditionally: a merge on xteink kills the previous merge's run, and the autorelease only fires on a run that reached success"
+    ;;
+  *xteink*) ;;
+  *)
+    failed=$((failed + 1))
+    echo "FAIL ci  crossplay-ci.yml's cancel-in-progress ('$cip') does not mention xteink, so it cannot be exempting the branch the autorelease listens to"
+    ;;
+esac
+
 echo "$checks checks, $failed failed"
 [ "$failed" -eq 0 ]
