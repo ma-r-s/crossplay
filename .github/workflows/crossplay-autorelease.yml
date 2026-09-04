@@ -15,11 +15,15 @@
 # The brake is the repository variable RELEASE_HOLD=1. While it is set this
 # job says so and does nothing.
 #
-# The tag is pushed with the workflow's own token, which is why the release
-# workflow is dispatched explicitly below: pushes made with that token do not
-# start workflows on their own. The bump commit touches platformio.ini and
-# docs/release-notes.md only: GitHub refuses workflow-file changes from the
-# default token, which is why the notes do not live in the release workflow.
+# The tag is pushed with RELEASE_TOKEN when that secret exists, and a tag
+# pushed that way starts the release workflow like any tag push. Without the
+# secret the push is made with the workflow's own token, which starts nothing,
+# and the job dispatches the release workflow itself (the last step, which
+# says why it is conditional). Never both: on 2026-09-04 v1.12.16 was built
+# and published twice, once per path. The bump commit touches platformio.ini
+# and docs/release-notes.md only: GitHub refuses workflow-file changes from
+# the default token, which is why the notes do not live in the release
+# workflow.
 name: CrossPlay autorelease
 
 on:
