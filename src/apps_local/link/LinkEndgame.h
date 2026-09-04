@@ -34,6 +34,12 @@
 //                                per finished match, and it is the only place
 //                                a link match is ever recorded
 //   void onEndgameChanged()      repaint
+//
+// On tasks: update(), reset() and skip() belong to the LOOP task, notePainted()
+// to the RENDER task, and only the timestamp crosses between them, atomically.
+// The stage byte is written by the loop and read by the render task through
+// showingFinal(), the same way requested_ and rematch_ already are in
+// LinkActivity: a single byte, and a stale read costs one frame.
 
 #include <atomic>
 #include <cstdint>
@@ -119,7 +125,17 @@ class Endgame {
   // not the task that runs update(), so the stamp is atomic and everything that
   // reads it happens on the next pass of the loop. Zero means nothing pending,
   // so a millis() of 0 -- the first millisecond after boot -- is stamped as 1.
-  void notePainted(const uint32_t now) { pendingPaintMs_.store(now == 0 ? 1 : now); }
+  //
+  // `stageAtBuild` is the stage as it was when this frame STARTED being drawn,
+  // and it is the whole reason this takes an argument. requestUpdate() only
+  // notifies the render task, so a repaint of the old board can already be in
+  // flight when the match ends; reporting that one would start the hold from a
+  // frame that never showed the final position. A frame that began before the
+  // end is not the final board, however it ends up on the panel.
+  void notePainted(const Stage stageAtBuild, const uint32_t now) {
+    if (stageAtBuild != Stage::Final) return;
+    pendingPaintMs_.store(now == 0 ? 1 : now);
+  }
 
   // The player has asked for another game while the board was still up. They
   // have seen everything the hold exists to show them, so stop holding.

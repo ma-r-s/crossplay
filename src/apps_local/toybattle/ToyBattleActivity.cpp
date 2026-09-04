@@ -220,6 +220,14 @@ void ToyBattleActivity::gameLoop() {
       return;
     }
     if (screen == tb::Screen::Board) {
+      // In a match, Back is leaving the match. Every other game on the link
+      // layer says so; this one walked to its own menu with the radio up and
+      // the opponent never told, and the link screen arrived over the menu a
+      // moment later. saveGame() is a no-op in a match anyway.
+      if (inMatch()) {
+        leaveLink();
+        return;
+      }
       // Leaving the board writes it, the same as leaving the app does. onExit
       // is the call that matters because sleep makes it when the player does
       // nothing, but a board abandoned by Back and then never slept would

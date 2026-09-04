@@ -164,6 +164,8 @@ struct Seat {
   }
 
   void render(const uint32_t nowMs) {
+    // Read before the frame is built, exactly as LinkActivity::render() does.
+    const Endgame::Stage stageAtBuild = endgame.stage();
     if (linkOwnsScreen()) {
       if (c4::over(game)) {
         framesOfOfferScreen++;
@@ -176,7 +178,7 @@ struct Seat {
       framesOfFinalBoard++;
       if (firstFinalPaintMs == 0) firstFinalPaintMs = nowMs;
     }
-    endgame.notePainted(nowMs);
+    endgame.notePainted(stageAtBuild, nowMs);
   }
 };
 
@@ -322,7 +324,7 @@ void aSoloGameIsNeverCountedByTheLayer() {
   CHECK(c4::over(a.game));
   for (uint32_t now = 0; now < 20000; now += 10) {
     a.endgame.update(a, a.inMatch(), now);
-    a.endgame.notePainted(now);
+    a.endgame.notePainted(a.endgame.stage(), now);
   }
   CHECK(a.recordCalls == 0);
   CHECK(!a.endgame.showingFinal());
@@ -347,7 +349,7 @@ void aPaintFromBeforeTheEndDoesNotCountAsTheFinalBoard() {
   // 1000ms of a live game, painting all the way.
   for (uint32_t now = 0; now < 1000; now += 10) {
     endgame.update(host, true, now);
-    endgame.notePainted(now);
+    endgame.notePainted(endgame.stage(), now);
   }
   CHECK(host.ended == 0);
   // It ends at 1000, and nothing is painted after that.
@@ -362,6 +364,39 @@ void aPaintFromBeforeTheEndDoesNotCountAsTheFinalBoard() {
   endgame.update(host, true, 1000 + Endgame::kUnpaintedHoldMs);
   CHECK(endgame.offering());
   (void)a;
+}
+
+// A repaint of the old board can already be in flight when the match ends.
+// Reporting it as the final board would start the hold from a frame that never
+// showed the winning move -- the original bug, wearing a timer.
+void aRepaintInFlightWhenTheMatchEndsIsNotTheFinalBoard() {
+  struct Host {
+    bool over = false;
+    int ended = 0;
+    bool matchGameOver() const { return over; }
+    void onMatchEnded() { ended++; }
+    void onEndgameChanged() {}
+  } host;
+  Endgame endgame;
+  // A frame starts being drawn at 900, while the game is still running.
+  const Endgame::Stage stageAtBuild = endgame.stage();
+  CHECK(stageAtBuild == Endgame::Stage::Live);
+  // The match ends at 1000, before that frame reaches the panel.
+  host.over = true;
+  endgame.update(host, true, 1000);
+  CHECK(endgame.showingFinal());
+  // Now it lands. It is not the final board, so it starts nothing.
+  endgame.notePainted(stageAtBuild, 1100);
+  endgame.update(host, true, 1110);
+  endgame.update(host, true, 1100 + Endgame::kHoldMs);
+  CHECK(endgame.showingFinal());
+  // The real final board lands at 2000 and gets its full hold from there.
+  endgame.notePainted(Endgame::Stage::Final, 2000);
+  endgame.update(host, true, 2010);
+  endgame.update(host, true, 2000 + Endgame::kHoldMs - 10);
+  CHECK(endgame.showingFinal());
+  endgame.update(host, true, 2000 + Endgame::kHoldMs);
+  CHECK(endgame.offering());
 }
 
 // A rematch is a different end of a game, so the next one is counted too.
@@ -379,7 +414,7 @@ void aRematchIsCountedAgain() {
   host.over = true;
   endgame.update(host, true, 100);
   CHECK(host.ended == 1);
-  endgame.notePainted(200);
+  endgame.notePainted(Endgame::Stage::Final, 200);
   endgame.update(host, true, 210);
   endgame.update(host, true, 200 + Endgame::kHoldMs);
   CHECK(endgame.offering());
@@ -419,7 +454,7 @@ void theHoldSurvivesAMillisRollover() {
   const uint32_t justBeforeWrap = 0xFFFFFFFFu - 1000;
   endgame.update(host, true, justBeforeWrap);
   CHECK(host.ended == 1);
-  endgame.notePainted(justBeforeWrap);
+  endgame.notePainted(Endgame::Stage::Final, justBeforeWrap);
   endgame.update(host, true, justBeforeWrap + 10);
   CHECK(endgame.showingFinal());
   // Past the wrap but inside the hold.
@@ -459,6 +494,7 @@ int main() {
   askingForAnotherGameSkipsTheHold();
   aSoloGameIsNeverCountedByTheLayer();
   aPaintFromBeforeTheEndDoesNotCountAsTheFinalBoard();
+  aRepaintInFlightWhenTheMatchEndsIsNotTheFinalBoard();
   aRematchIsCountedAgain();
   theHoldSurvivesAMillisRollover();
   leavingDuringTheHoldResets();

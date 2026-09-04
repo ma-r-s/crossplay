@@ -295,12 +295,16 @@ void LinkActivity::render(RenderLock&&) {
     renderer.displayBuffer();
     return;
   }
+  // Read BEFORE the frame is built and reported after: a repaint of the old
+  // board can already be in flight when the match ends, and a hold started from
+  // that frame is a hold the player never saw.
+  const Endgame::Stage stageAtBuild = endgame_.stage();
   gameRender();
-  // Stamped after gameRender() rather than before, because gameRender() ends in
-  // displayBuffer(): this is the moment the frame is actually on the panel, and
-  // drawn is not seen until it is. Endgame decides whether this was the final
-  // board; it is stamped on every frame so that decision has one home.
-  endgame_.notePainted(millis());
+  // Reported after gameRender() rather than before, because gameRender() ends
+  // in displayBuffer(): this is the moment the frame is actually on the panel,
+  // and drawn is not seen until it is. Endgame decides whether this was the
+  // final board; every frame is reported so that decision has one home.
+  endgame_.notePainted(stageAtBuild, millis());
 }
 
 }  // namespace linkplay
