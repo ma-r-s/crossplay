@@ -12,3 +12,4 @@ report   GET   https://crossplay.ma-r-s.com/report/     200            site
 inbox    POST  https://crossplay.ma-r-s.com/api/inbox   401            site
 books    GET   https://books.ma-r-s.com/                2xx,401        getbooks
 anki     GET   https://sync.ma-r-s.com/                 2xx,3xx,4xx    anki
+read     GET   https://read.ma-r-s.com/                 2xx,3xx,4xx    instapaper
