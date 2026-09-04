@@ -303,10 +303,12 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // reflashed and driven without a cable. Off is the shipped default and turns
   // all of it off again; see src/DevMode.h.
   uint8_t devMode = 0;
-  // Daily heartbeat to the board (0 = off, 1 = on): version, board and the
-  // apps opened, under a hashed id, once a day when Wi-Fi is up anyway. On by
-  // default and off means nothing is posted; see src/network/Heartbeat.h.
-  uint8_t heartbeat = 1;
+  // Anonymous device info on requests to CrossPlay's own services (0 = off,
+  // 1 = on): a hashed id, the board and a small report ride as headers on
+  // requests the device was making anyway; it never makes one to report. On
+  // by default and off means nothing is added and nothing is recorded; see
+  // src/network/DeviceReport.h.
+  uint8_t deviceReport = 1;
   // Image rendering mode in EPUB reader
   uint8_t imageRendering = IMAGES_DISPLAY;
   // Tilt-based page turning (X3 only — requires QMI8658 IMU)

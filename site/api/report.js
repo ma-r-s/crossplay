@@ -224,7 +224,7 @@ async function createReport(req, res) {
     }),
   });
   // The report is also an event, so the Numbers page counts reports next to
-  // installs and heartbeats. A failed count must not fail the report. The
+  // installs and the services' events. A failed count must not fail the report. The
   // board column holds one board; a report about both leaves it empty and
   // says so in props, rather than inventing a third value for that column.
   await rest("events", {
