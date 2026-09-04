@@ -222,12 +222,19 @@ void capturePanic() {
 // TLS wants ~35KB free with a 20KB block (the sync bridge's numbers). A
 // heartbeat is never worth an OOM in whatever app brought the radio up.
 bool heapTooLow() {
+  // One line per episode, not one per minute: the RTC log ring is 16
+  // lines, LOG_INF ships in releases, and a line a minute erased the tail
+  // of whatever had crashed before.
+  static bool announced = false;
   const uint32_t freeHeap = ESP.getFreeHeap();
   const uint32_t maxBlock = ESP.getMaxAllocHeap();
   if (freeHeap < 35000 || maxBlock < 20000) {
-    LOG_INF(kTag, "heap too low for TLS (free=%u block=%u); later", freeHeap, maxBlock);
+    if (!announced) LOG_INF(kTag, "heap too low for TLS (free=%u block=%u); waiting", freeHeap, maxBlock);
+    announced = true;
     return true;
   }
+  if (announced) LOG_INF(kTag, "heap is enough again (free=%u block=%u)", freeHeap, maxBlock);
+  announced = false;
   return false;
 }
 
