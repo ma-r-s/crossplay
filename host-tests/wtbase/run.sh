@@ -121,6 +121,13 @@ echo "wt.sh prune"
 ./scripts_local/wt.sh new merged1 >/dev/null 2>&1
 ./scripts_local/wt.sh new dirtyone >/dev/null 2>&1
 echo edit >> "$WORK/wt/dirtyone/file.txt"
+# Age merged1 past the activity window. `git worktree add` stamps every file
+# with the current time, so a tree is "recently written to" the instant it
+# exists -- prune keeps it, correctly, because a tree somebody just made is a
+# tree somebody is about to use. The fixture has to say "abandoned" out loud
+# rather than relying on merged-and-clean, which a QA tree is by definition
+# and permanently. That gap is what deleted wt/usertest twice mid-run.
+find "$WORK/wt/merged1" -exec touch -t 202001010000 {} + 2>/dev/null || true
 DRY="$(./scripts_local/wt.sh prune --dry-run 2>&1)"
 case "$DRY" in
   *"would drop merged1"*) ok "dry run names the merged, clean tree" ;;
@@ -136,6 +143,20 @@ case "$OUT" in
   *"1 dropped, 3 kept"*) ok "and says what it did" ;;
   *) bad "summary line wrong: $OUT" ;;
 esac
+
+# A tree somebody is WORKING IN is merged and clean the whole time it is being
+# worked in. A QA or review tree never commits -- reading, building and
+# screenshotting is the job -- so merged-and-clean is its permanent state and
+# every other keep-condition says "safe to delete". wt/usertest and
+# wt/usertest2 were deleted mid-run this way, twice, taking their screenshots.
+#
+# Written from the other side deliberately: the fixture above has to be AGED to
+# be droppable, so without this a rule that ignored activity entirely would
+# still pass every check in this file.
+./scripts_local/wt.sh new livetree >/dev/null 2>&1
+OUT2="$(./scripts_local/wt.sh prune 2>&1)"
+[ -d "$WORK/wt/livetree" ] && ok "prune keeps a tree written to just now" \
+  || bad "prune dropped a live tree: $OUT2"
 
 echo "$((PASS+FAIL)) checks, $FAIL failed"
 [ "$FAIL" -eq 0 ]
