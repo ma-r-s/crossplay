@@ -623,7 +623,7 @@ jobs:
             ```
 
       # One event per published release, so the Numbers page can line up
-      # downloads and heartbeats against release times. The address and the
+      # downloads and device versions against release times. The address and the
       # public key are repository variables; missing ones skip the step.
       - name: Tell the board a release went out
         if: vars.SUPABASE_URL != '' && vars.SUPABASE_ANON_KEY != ''

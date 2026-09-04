@@ -234,7 +234,7 @@
       h += '<p class="nums-h">The workflow, by week</p>' + tbl(["week", "opened", "closed", "asks to you", "answers", "error cards", "refusals", "releases"], (n.weekly || []).map(function (r) { return [r.week, r.cards_opened, r.cards_closed, r.asks_to_mario, r.answers_from_mario, r.error_cards, r.refusals, r.releases]; }));
       h += '<p class="nums-h">Hours a card sits in each state, 30 days</p>' + tbl(["state", "cards", "median", "longest"], (n.dwell || []).map(function (r) { return [r.state, r.n, r.median_h, r.max_h]; }));
       h += '<p class="nums-h">Open cards by app</p>' + tbl(["app", "open", "untriaged", "oldest, days"], (n.byApp || []).map(function (r) { return [r.app, r.open, r.untriaged, r.oldest_d]; }));
-      if (!(n.byVersion || []).length && !(n.services || []).length) h += '<p class="status">No events yet. Devices and services start posting once their owners wire the heartbeat and the events in docs/workflow/events.md.</p>';
+      if (!(n.byVersion || []).length && !(n.services || []).length) h += '<p class="status">No events yet. The services start posting once their owners wire the events in docs/workflow/events.md; devices report through them, never on their own.</p>';
       body.innerHTML = h;
     });
   }

@@ -40,7 +40,7 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "images/LoadingIcon.h"
-#include "network/Heartbeat.h"
+#include "network/DeviceReport.h"
 #include "nvs.h"
 #include "util/ButtonNavigator.h"
 #include "util/ScreenshotUtil.h"
@@ -372,7 +372,7 @@ void setup() {
   // dump, so retain the boot classification for the later activity route.
   const bool rebootedFromPanic = HalSystem::isRebootFromPanic();
   // And whether that panic wrote its reason down: the same marker, read
-  // before checkPanic() clears it, so the heartbeat can tell this crash's
+  // before checkPanic() clears it, so the device report can tell this crash's
   // reason from the last abort's.
   const bool panicReasonRecorded = HalSystem::panicReasonRecorded();
 
@@ -455,7 +455,7 @@ void setup() {
   SETTINGS.loadFromFile();
   // After checkPanic() so the panic record is still there to read, and after
   // the settings so the toggle is known. Reads one card file; never the radio.
-  heartbeat::begin(rebootedFromPanic, panicReasonRecorded);
+  devreport::begin(rebootedFromPanic, panicReasonRecorded);
   APP_STATE.loadFromFile();
   RECENT_BOOKS.loadFromFile();
   I18N.setLanguage(static_cast<Language>(SETTINGS.language));
@@ -695,7 +695,6 @@ void loop() {
   }
 
   devmode::update();
-  heartbeat::update();
 
 #if CROSSPOINT_DEV_SERIAL_BRIDGE
   // Dev builds route all serial commands (screenshot included) through the

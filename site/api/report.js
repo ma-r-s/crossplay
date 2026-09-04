@@ -196,7 +196,7 @@ async function createReport(req, res) {
     }),
   });
   // The report is also an event, so the Numbers page counts reports next to
-  // installs and heartbeats. A failed count must not fail the report.
+  // installs and the services' events. A failed count must not fail the report.
   await rest("events", {
     method: "POST",
     headers: { Prefer: "return=minimal" },

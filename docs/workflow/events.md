@@ -24,15 +24,15 @@ The address and the key come from `/api/board-config` on the site or from
 `<workspace>/.board/supabase.env`; the pi services get them as environment
 variables. The public key can only insert; it cannot read anything back.
 
-| Field     | What goes in it                                                                                                                                      |
-| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `service` | `firmware`, `getbooks`, `anki`, `instapaper`, `site`, `release`. One word, lowercase, the same word every time.                                      |
-| `event`   | What happened: `heartbeat`, `download`, `search`, `sync`, `install`, `report`, `update`, `error`. Same rule.                                         |
-| `level`   | `info` (default) or `error`.                                                                                                                         |
+| Field     | What goes in it                                                                                                                                                                                                                                              |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `service` | `firmware`, `getbooks`, `anki`, `instapaper`, `site`, `release`. One word, lowercase, the same word every time.                                                                                                                                              |
+| `event`   | What happened: `download`, `search`, `sync`, `install`, `report`, `update`, `crash`, `error`. Same rule.                                                                                                                                                     |
+| `level`   | `info` (default) or `error`.                                                                                                                                                                                                                                 |
 | `device`  | sha256 of the MAC and a secret the device made once and keeps in NVS: pseudonymous, the same on every post from one device, and not matchable to a MAC without that device's secret. Never the MAC, never a name. Optional for services that have no device. |
-| `version` | Firmware version as printed, `1.12.9`. Optional.                                                                                                     |
-| `board`   | `x4pro` or `sticky`. Optional.                                                                                                                       |
-| `props`   | Anything else, small: a format, a byte count, a duration, a book id. For errors, `message` is required.                                              |
+| `version` | Firmware version as printed, `1.12.9`. Optional.                                                                                                                                                                                                             |
+| `board`   | `x4pro` or `sticky`. Optional.                                                                                                                                                                                                                               |
+| `props`   | Anything else, small: a format, a byte count, a duration, a book id. For errors, `message` is required.                                                                                                                                                      |
 
 ## Errors become cards
 
@@ -56,43 +56,87 @@ Send a `fingerprint` yourself when you know better than the message what
 makes two errors the same (for example the book id is what matters, not the
 timeout).
 
-## The heartbeat
+## Device reports: headers on the requests a device makes anyway
 
-Once a day, when the device has Wi-Fi up for some other reason (Developer
-Mode, an app that went online; it never brings the radio up for this), the
-firmware posts one event:
+The device never makes a request of its own to report. When the firmware
+talks to one of CrossPlay's own services for some other reason (Get Books at
+`books.ma-r-s.com`, the Anki bridge at `sync.ma-r-s.com`, the Instapaper
+bridge at `read.ma-r-s.com`: any host in `ma-r-s.com`, and no other host, not
+Hacker News, not xkcd, not GitHub), that request carries three headers
+beside the `User-Agent` it already had:
 
 ```
-{"service":"firmware","event":"heartbeat","device":"<hash>","version":"1.12.12","board":"x4pro",
- "props":{"apps":["trivia","hackernews"],"uptime_h":31,"battery_pct":84,"heap_min_kb":112,
-          "ota":{"attempted":true,"ok":false,"error":"too_large","path":"sd"}}}
+User-Agent: CrossPlay-ESP32-1.12.14
+X-CrossPlay-Device: 9f1c...64 hex...
+X-CrossPlay-Board: x4pro
+X-CrossPlay-Report: {"battery_pct":84,"heap_min_kb":112,"uptime_h":31}
 ```
 
-`apps` is the set opened since the last heartbeat (shelf titles, lowercased,
-`HACKER NEWS` is `hackernews`). `uptime_h` is hours since boot, and deep
-sleep is a boot. `heap_min_kb` is the lowest free heap since boot. `ota` is
-the install attempted since the last heartbeat, from the update screen
-(`path` `ota`) or from a `.bin` picked off the card (`path` `sd`; a file
-refused before the confirmation prompt counts, it is an install the user
-could not have): `ok` is inferred from the version having moved, never from
-what the install screen said, so an install that "succeeded" into the same
-version reads as not ok with no error. That single event answers "how many
-devices are on which version",
-"how many use each app", "which version drains faster" and "who cannot
-update" (the 6.25MB slots of a device flashed before v1.5.3 come back as
-`too_large`).
+`X-CrossPlay-Device` is the pseudonymous id (below). `X-CrossPlay-Board` is
+`x4pro` or `sticky`. The version is in the `User-Agent`, where it always
+was. `X-CrossPlay-Report` is compact JSON and never more than 600 bytes:
+always `battery_pct`, `heap_min_kb` (the lowest free heap since boot) and
+`uptime_h` (hours since boot; deep sleep is a boot), and, only while
+something waits to be delivered, one or both of
 
-A boot after a panic posts one more event, `{"event":"crash","level":"error",
-"props":{"message":"<panic reason>","backtrace":"<first two stack lines>"}}`,
-once, so a crash in the field opens a card by itself. Its `version` is the
-one that crashed, written down at the boot after the panic: the record waits
-for Wi-Fi, and an OTA can land in between.
+```
+"crash":{"message":"assert failed: ... (reset: panic)","version":"1.12.13","backtrace":"0x3FCE...|0x3FCE..."}
+"ota":{"attempted":true,"ok":false,"error":"too_large","path":"ota"}
+```
+
+A 2xx from one of our hosts clears both: the service has them. Any other
+answer (a refusal, no answer) leaves them for the next request. A crash whose
+full record would not fit loses its backtrace first, then has its message
+cut; it never disappears for being long.
+
+### What the services post
+
+The device posts nothing. A service that sees the headers posts, with the
+same public key as everything else on this page:
+
+- `firmware`/`crash`, `level: error`, with `device` and `board` from the
+  headers, `version` from `crash.version` (the version that crashed, which is
+  not always the one making the request: the record survives an update in
+  between), `props.message` and `props.backtrace`. The fingerprint rule
+  above makes one card of it.
+- `firmware`/`update` with `device`, `board`, `version` (from the
+  `User-Agent`) and `props` as the `ota` object: `attempted`, `ok`, `error`,
+  `path`. `ok` is inferred by the device from the version having moved, never
+  from what its install screen said, so an install that "succeeded" into the
+  same version arrives as not ok with no error; a 6.25MB slot on a device
+  flashed before v1.5.3 arrives as `too_large`.
+- `device`, `board` and `version` on its own usage events
+  (`getbooks`/`download`, `anki`/`sync`, `instapaper`/`sync`) whenever the
+  headers are present. That is what "how many devices are on which version"
+  and "which board" read from. A device that never touches a service is never
+  counted, and that is the design: the count is of devices using CrossPlay's
+  services, not of devices that exist.
+
+The headers are input from the internet: parse the JSON defensively (a
+device can be old, anyone can send anything), cap what is stored, and never
+fail the request over them.
+
+### The id
+
+`device` is sha256(MAC + a 16-byte secret the device made once from its
+hardware RNG and keeps in NVS, namespace `crossplay`, key `hbsecret`); the
+MAC and the secret are never sent, and without the secret the id cannot be
+matched to a MAC (a vendor prefix leaves 2^24 MACs, seconds of work against
+a salt that is in this repository). When NVS gives no secret the device
+falls back to sha256(MAC + that fixed salt) and logs it once. A full flash
+erase makes a new secret, so the device comes back as a new id.
+
+### The crash record
+
+A boot after a panic writes the record down, once, at that boot: the
+version running is the one that crashed, and the record waits for the next
+request to one of our hosts, an OTA in between notwithstanding.
 
 On `x4pro` and `sticky` (ESP32-S3, Xtensa) only an assert or abort panic
 carries a reason, and none carries a trace: `lib/hal/HalSystem.cpp` writes
 the reason from `__wrap_panic_abort` alone and its backtrace wrap captures
 the stack only on RISC-V. A CPU exception (LoadProhibited,
-StoreProhibited, IllegalInstruction) therefore posts `"panic without a
+StoreProhibited, IllegalInstruction) therefore arrives as `"panic without a
 recorded reason (reset: panic; last log: READER)"`: the `esp_reset_reason()`
 name and the subsystem that logged last before the reset are what the
 fingerprint has to tell two of them apart, and `backtrace` is empty. An
@@ -100,49 +144,50 @@ assert reads `"assert failed: ... (reset: panic)"`. The reason is used only
 when the capture marker was still set at boot (`HalSystem::panicReasonRecorded()`,
 read in `main.cpp` before `checkPanic()` clears it): the text in RTC memory
 outlives the crash that wrote it, so an exception after an assert with no
-clean boot between posts as "without a recorded reason", not as that assert.
-Carrying the program counter and the exception cause is a card, not a
-limitation of the pipe.
+clean boot between arrives as "without a recorded reason", not as that
+assert. Carrying the program counter and the exception cause is a card, not
+a limitation of the pipe.
 
-`device` is sha256(MAC + a 16-byte secret the device made once from its
-hardware RNG and keeps in NVS, namespace `crossplay`, key `hbsecret`); the
-MAC and the secret are never sent, and without the secret the id cannot be
-matched to a MAC (a vendor prefix leaves 2^24 MACs, seconds of work against
-a salt that is in this repository). When NVS gives no secret the device
-falls back to sha256(MAC + that fixed salt) and logs it. A full flash erase
-makes a new secret, so the device comes back as a new id. The address
-and the public key come from the site's `/api/board-config`, fetched once and
-cached on the card as `/.crosspoint/board.json`, fetched again when the board
-answers 401 or 403 (a key rotation is a Vercel setting, not a release).
-Between heartbeats the apps set, the OTA record and a pending crash live in
-`/.crosspoint/heartbeat.json`, written whenever the state changes: a first
-open, an OTA note (the attempt and the failure), a recorded panic, a failed
-request and the answer that ends a run of them, a send, and the toggle
-going back on.
+### The install record
 
-The post runs inline in `loop()`, with input and the power button waiting
-behind it, and the 5 s timeout is per wait, not per request. `SecureClient`
-makes two connect attempts (a TLS 1.3-capable hello, then a TLS 1.2-only
-one), each a blocking DNS lookup the timeout does not cover, then up to 5 s
-for TCP and up to 5 s for the handshake. A silent :443 therefore costs about
-10 s plus DNS (a dropped SYN spends the two TCP waits and never reaches the
-handshake; a port that accepts and says nothing spends the two handshake
-waits) and up to 20 s plus DNS when both run to the deadline. One request
-per loop pass (the board config on one pass, the event on the next). The
-real bound is the persisted backoff: a request that fails is not tried again
-for 15 minutes, then not before the next UTC day, one try a day until one is
-accepted. That wait (`retry`, `fails`) is in the state file, because deep
-sleep is a boot and a device that sleeps often would otherwise pay the stall
-at every boot.
+`ota` is the install attempted since the last delivery, from the update
+screen (`path` `ota`) or from a `.bin` picked off the card (`path` `sd`; a
+file refused before the confirmation prompt counts, it is an install the
+user could not have). The attempt is written before the flash, because a
+flash that works reboots the device; the failure is written when the screen
+learns of it.
 
-Settings > System > "Send a daily heartbeat" (default on) turns all of it
-off, and off records nothing: no app open, no OTA note, no panic is written
-to the card while it is off, and switching it back on forgets whatever the
-file still held from before, so there is never a backlog waiting to go out.
-The site says so in one sentence beside the Install button. The rules
-are `src/network/HeartbeatCore.{h,cpp}` and `host-tests/heartbeat` pins
-them; `src/network/Heartbeat.cpp` is the clock, the card, the radio and the
-TLS. The serial log says which decision was taken and why under `HEARTBEAT`.
+### The toggle and the file
+
+Settings > System > "Include anonymous device info when using CrossPlay
+services" (default on) turns all of it off. Off adds nothing to any request
+and records nothing: no panic and no install note is written to the card
+while it is off, and switching it back on forgets whatever the file still
+held from before, so there is never a backlog waiting to go out. The site
+says so in one sentence beside the Install button.
+
+Between requests the pending crash and install record live in
+`/.crosspoint/devreport.json`, written whenever the state changes: a
+recorded panic, an install attempt or failure, the 2xx that delivered them,
+the toggle going back on. A device coming from the heartbeat firmware
+(v1.12.13 and before) reads what `/.crosspoint/heartbeat.json` held into the
+new file once and deletes it, and deletes the `/.crosspoint/board.json` the
+heartbeat cached, which nothing reads any more.
+
+The rules are `src/network/DeviceReportCore.{h,cpp}` and
+`host-tests/devreport` pins them: the header content and its 600-byte cap,
+the crash and the install present only while pending, our hosts and the
+look-alikes that are not, the toggle, and the clearing on a 2xx.
+`src/network/DeviceReport.cpp` is the card and the settings;
+`src/network/HttpDownloader.cpp`, `src/apps_local/bridge/BridgeHttp.cpp` and
+`src/apps_local/study/StudySync.cpp` are where the headers go onto a request
+and where the answer is read back. The serial log says what rode on which
+request under `DEVREPORT`.
+
+What the heartbeat had and this does not, on purpose: the daily post, the
+board address and key fetched from the site and cached on the card, the TLS
+client the firmware opened for itself, the backoff and the stall it put in
+`loop()`, and the set of apps opened. Nothing in the firmware calls home.
 
 ## Reading the numbers
 
@@ -154,9 +199,11 @@ under "Numbers", next to GitHub's own download counts per release.
 ## What each owner sends (the cards)
 
 Each service has a card on the board naming the events it should post and
-where in its code. The firmware heartbeat is `src/network`; Get Books, the
-Anki bridge and the Instapaper bridge post from the pi; the site posts
-`install` and `report`. The pipe is built; the sending is the owner's.
+where in its code. The firmware posts nothing (see "Device reports" above);
+Get Books, the Anki bridge and the Instapaper bridge post from the pi, and
+they are the ones that turn the device's headers into `firmware` events; the
+site posts `install` and `report`. The pipe is built; the sending is the
+owner's.
 
 ## The pulse: what looks from outside
 
