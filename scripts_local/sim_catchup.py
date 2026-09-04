@@ -156,20 +156,20 @@ patch(
 
 patch(
     src / "HalStorage.h",
-    "  bool freeBytes(uint64_t &out);",
-    "  bool freeBytes(uint64_t &out);\n"
+    "  bool removeDir(const char *path);",
     "  void prepareForDeepSleep();\n"
     "  bool beginUsbDrive();\n"
     "  bool disconnectUsbDriveHost();\n"
     "  void endUsbDrive();\n"
-    "  UsbDriveState usbDriveState() const;",
+    "  UsbDriveState usbDriveState() const;\n"
+    "  bool removeDir(const char *path);",
     "HalStorage USB Drive + deep sleep (header)",
     marker="usbDriveState",
 )
 
 patch(
     src / "HalStorage.cpp",
-    "bool HalStorage::freeBytes(uint64_t &out) {",
+    "bool HalStorage::begin() {",
     "void HalStorage::prepareForDeepSleep() {}\n"
     "bool HalStorage::beginUsbDrive() { return false; }\n"
     "bool HalStorage::disconnectUsbDriveHost() { return false; }\n"
@@ -178,7 +178,7 @@ patch(
     "  return UsbDriveState::Unsupported;\n"
     "}\n"
     "\n"
-    "bool HalStorage::freeBytes(uint64_t &out) {",
+    "bool HalStorage::begin() {",
     "HalStorage USB Drive + deep sleep (impl)",
     marker="HalStorage::usbDriveState",
 )
