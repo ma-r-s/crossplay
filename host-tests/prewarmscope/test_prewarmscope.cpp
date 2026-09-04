@@ -42,6 +42,12 @@ void SdCardFont::clearCache() { counts.clears++; }
 void SdCardFont::releaseResidentCaches() { counts.clears++; }
 void SdCardFont::resetStats() { counts.resets++; }
 void SdCardFont::logStats(const char*) {}
+// Upstream's FontCacheManager::resolveScanStyle() (2026-09-04 sync) asks the
+// SD font to fold a requested style down to one it actually HAS, so a page
+// that draws bold in a regular-only face does not pay for a second prewarm
+// pass. This fake is a single-face font -- that is the premise of the
+// "one font is one prewarm" case below -- so every style folds to regular.
+uint8_t SdCardFont::resolveStyle(uint8_t) const { return 0; }
 int SdCardFont::prewarm(const char* utf8Text, const uint8_t styleMask, bool, bool) {
   counts.prewarms++;
   counts.lastText = utf8Text ? utf8Text : "";
@@ -86,7 +92,10 @@ int main() {
 
     scope.endScanAndPrewarm();
     eq(counts.prewarms, 1, "ending the scan prewarms once for the font it saw");
-    eqs(counts.lastText, "hello", "and prewarms exactly the text that was scanned");
+    // Upstream (2026-09-04) hands prewarm the DEDUPLICATED, sorted character
+  // set rather than the raw run, so the same glyph is not decompressed twice
+  // on a page that uses it twice. "hello" scans as its four distinct chars.
+  eqs(counts.lastText, "ehlo", "and prewarms exactly the distinct characters scanned");
     eq(counts.clears, 1, "prewarming does not clear what it just loaded");
   }
   // -- and does not survive it ----------------------------------------------
@@ -131,8 +140,12 @@ int main() {
 
   // -- styles accumulate into one pass per font -----------------------------
   //
-  // Bold and italic runs on one page are one prewarm with both bits set, not
-  // one pass each: an SD font pays per pass, not per glyph.
+  // Bold and italic runs on one page are ONE prewarm for a face that has only
+  // one style: an SD font pays per pass, not per glyph. Upstream buckets the
+  // scan by RESOLVED style (resolveScanStyle -> SdCardFont::resolveStyle), so
+  // a style the face does not have folds into the one it does instead of
+  // costing a second pass. A face that really has both would now get one pass
+  // each, which is the point: you pay only for styles that exist.
   {
     counts = Counts{};
     auto scope = fcm.createPrewarmScope();
@@ -140,8 +153,8 @@ int main() {
     fcm.recordText("bold", 7, EpdFontFamily::BOLD);
     scope.endScanAndPrewarm();
     eq(counts.prewarms, 1, "one font is one prewarm however many styles it draws");
-    eq(counts.lastStyleMask, 0x03, "and the pass asks for every style the page used");
-    eqs(counts.lastText, "plain bold", "over all of the page's text");
+    eq(counts.lastStyleMask, 0x01, "and the pass asks only for the style the face has");
+    eqs(counts.lastText, " abdilnop", "over the distinct characters of all of it");
   }
 
   std::printf("prewarmscope: %d checks, %d failed\n", checks, failed);

@@ -95,10 +95,9 @@ void ActivityManager::renderTaskLoop() {
     RenderLock lock;
     if (currentActivity) {
       HalPowerManager::Lock powerLock;  // Ensure we don't go into low-power mode while rendering
-      // Night mode inverts only the reading surfaces (appliesNightMode):
-      // resolving the output polarity here, per render, means menus, popups,
-      // and every other activity revert to normal automatically.
-      display.setInverted(SETTINGS.screenInverted != 0 && currentActivity->appliesNightMode());
+      // Night mode is a global output polarity applied to every activity.
+      // The sleep screen forces normal polarity itself (SleepActivity).
+      display.setInverted(SETTINGS.screenInverted != 0);
       // Stamp what a tap on the play surface will mean in the frame about to
       // be built, before render() blocks in displayBuffer(). Taken here rather
       // than inside each render() so a new screen cannot forget it; a no-op

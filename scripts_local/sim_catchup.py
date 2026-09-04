@@ -87,6 +87,63 @@ patch(
     marker="freeBytes",
 )
 
+# The 2026-09-04 upstream sync brought USB Drive (mass storage) in: lib/hal
+# gained prepareForDeepSleep(), beginUsbDrive(), disconnectUsbDriveHost(),
+# endUsbDrive() and usbDriveState(), plus the UsbDriveState enum they answer
+# with. The simulator ships its own HalStorage that shadows lib/hal, so it
+# needs all six or the build stops dead -- which is exactly what happened.
+#
+# These ARE stubs, unlike freeBytes above, and deliberately so: there is no
+# USB host attached to a host-side simulator, so the honest answer is
+# Unsupported. That is a real state the enum already carries and the UI
+# already has to handle, not a pretend success. beginUsbDrive() returning
+# false means "this board cannot", which is the truth here.
+patch(
+    src / "HalStorage.h",
+    "class HalFile;",
+    "class HalFile;\n"
+    "\n"
+    "enum class UsbDriveState : uint8_t {\n"
+    "  Unsupported,\n"
+    "  WaitingForHost,\n"
+    "  Connected,\n"
+    "  Ejected,\n"
+    "  Disconnected,\n"
+    "  IoError,\n"
+    "};",
+    "UsbDriveState enum (header)",
+    marker="enum class UsbDriveState",
+)
+
+patch(
+    src / "HalStorage.h",
+    "  bool freeBytes(uint64_t &out);",
+    "  bool freeBytes(uint64_t &out);\n"
+    "  void prepareForDeepSleep();\n"
+    "  bool beginUsbDrive();\n"
+    "  bool disconnectUsbDriveHost();\n"
+    "  void endUsbDrive();\n"
+    "  UsbDriveState usbDriveState() const;",
+    "HalStorage USB Drive + deep sleep (header)",
+    marker="usbDriveState",
+)
+
+patch(
+    src / "HalStorage.cpp",
+    "bool HalStorage::freeBytes(uint64_t &out) {",
+    "void HalStorage::prepareForDeepSleep() {}\n"
+    "bool HalStorage::beginUsbDrive() { return false; }\n"
+    "bool HalStorage::disconnectUsbDriveHost() { return false; }\n"
+    "void HalStorage::endUsbDrive() {}\n"
+    "UsbDriveState HalStorage::usbDriveState() const {\n"
+    "  return UsbDriveState::Unsupported;\n"
+    "}\n"
+    "\n"
+    "bool HalStorage::freeBytes(uint64_t &out) {",
+    "HalStorage USB Drive + deep sleep (impl)",
+    marker="HalStorage::usbDriveState",
+)
+
 patch(
     src / "HalStorage.cpp",
     "#include <sys/stat.h>",

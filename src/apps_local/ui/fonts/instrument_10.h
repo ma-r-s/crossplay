@@ -1318,7 +1318,14 @@ static const EpdFontData instrument_10 = {
     nullptr,
     instrument_10KernLeftClasses,
     instrument_10KernRightClasses,
+    nullptr,  // kernLeftCodepoints: this cut uses the packed class maps above
+    nullptr,  // kernLeftClassIds
+    nullptr,  // kernRightCodepoints
+    nullptr,  // kernRightClassIds
     instrument_10KernMatrix,
+    nullptr,  // kernRowOffsets: this cut uses the dense kernMatrix above
+    nullptr,  // kernSparseCols
+    nullptr,  // kernSparseValues
     255,
     255,
     67,
