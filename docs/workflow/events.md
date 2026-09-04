@@ -199,6 +199,58 @@ and GitHub does not run `schedule:` workflows in forks (five slots passed
 in silence with the workflow "active"). `workflow_dispatch` was never
 affected, but a pulse that has to be dispatched is not a pulse.
 
+## The release watcher: what looks at the pipeline
+
+The same machinery, pointed at the release chain
+(`20260904001200_release_watch.sql`, `relwatch_fire` at :10 and :40,
+`relwatch_collect` three minutes later). It exists because on 2026-09-04 two
+releases failed, four workflow runs over five hours, and every visible signal
+said healthy: the autorelease reported success (correctly, its own three steps
+worked), tags appeared, the board stayed clean, and a session read a bump commit
+and told Mario 1.12.15 had shipped. The only detector in the system was Mario's
+e-reader saying there was no update. Automating the release automated away its
+only observer.
+
+Four unauthenticated GitHub requests per pass -- the runs of
+`crossplay-release.yml` and `crossplay-autorelease.yml`, `/releases/latest`, and
+the newest commits on `xteink` -- and four things it says:
+
+| What it sees                                                    | When it says so                                   |
+| --------------------------------------------------------------- | ------------------------------------------------- |
+| A run of either release workflow ended anything but `success`, `skipped` or `neutral` | at once, no clock at all      |
+| A `chore: crossplay X` bump on `xteink` with no run building it  | 15 minutes (a build starts within 3 seconds)      |
+| A bump still unpublished, whatever its builds are doing          | 60 minutes (48/48 healthy releases took under 20) |
+| No answer out of GitHub at all                                   | 3 hours, six missed passes                        |
+
+The clocks are measured, not chosen: the 53 runs of `crossplay-release.yml`
+published 48 releases, the slowest 19.9 minutes after its run was created, and
+the longest any run ever occupied -- including a 16.9-minute wait for a runner
+-- is 29.4 minutes. Sixty is twice the worst ever seen, and a generous margin is
+cheap because it is only the backstop: a failed build is reported without
+waiting for anything.
+
+Three things it deliberately does not do. It does not collapse: four failed runs
+are four cards, one per run id, because the fault was that it failed four times
+and said nothing four times. It does not treat an empty `conclusion` as a
+success -- a run that is `completed` carrying no conclusion is *not knowing*,
+and not knowing for longer than a release has ever taken is itself a fault. And
+it does not confuse an old failure with a new one: every fault key it has
+adjudicated is in `release_seen`, and the pass that arrives adjudicates the
+history silently rather than opening a backlog. Arming requires having actually
+seen GitHub, because a pass that saw nothing and armed anyway makes the pass
+after it read the whole record as new.
+
+It counts bump commits rather than tags on purpose: a tag deleted after a failed
+build (which is what happened to v1.12.15) takes the evidence with it, and
+`release_pending` remembers an owed version so it does not go quiet when its
+bump scrolls out of the commit window. An owed version publishing posts the
+`info` event that closes its own card.
+
+`board release` says whether it is armed, when it last got an answer, and what
+it is still owed. `host-tests/relwatch` drives the whole decision on a real
+postgres running these same migrations, against the captured API payloads of
+that morning.
+
 **When your service goes live, add its row:** `board pulse add <host>
 <GET|POST> <url> <alive> <app>`, where `alive` is the statuses that mean
 up (`200`, `2xx,401`, ...; a 401 from a Basic-auth root is what proves the

@@ -1,0 +1,502 @@
+[
+  {
+    "sha": "58f7f31bd162bb8e6508bfe51cc6761ab48ea7aa",
+    "node_id": "C_kwDOTxqJYNoAKDU4ZjdmMzFiZDE2MmJiOGU2NTA4YmZlNTFjYzY3NjFhYjQ4ZWE3YWE",
+    "commit": {
+      "author": {
+        "name": "Mario Alejandro Ruiz",
+        "email": "56364082+ma-r-s@users.noreply.github.com",
+        "date": "2026-09-04T13:57:34Z"
+      },
+      "committer": {
+        "name": "GitHub",
+        "email": "noreply@github.com",
+        "date": "2026-09-04T13:57:34Z"
+      },
+      "message": "Merge pull request #41 from ma-r-s/app/bootloader\n\nfix: capture each device's artefacts before the next build removes them",
+      "tree": {
+        "sha": "8edbbc54713d0bc77b8be2e81edf818e04999220",
+        "url": "https://api.github.com/repos/ma-r-s/crossplay/git/trees/8edbbc54713d0bc77b8be2e81edf818e04999220"
+      },
+      "url": "https://api.github.com/repos/ma-r-s/crossplay/git/commits/58f7f31bd162bb8e6508bfe51cc6761ab48ea7aa",
+      "comment_count": 0,
+      "verification": {
+        "verified": true,
+        "reason": "valid",
+        "signature": "-----BEGIN PGP SIGNATURE-----\n\nwsFcBAABCAAQBQJqms5OCRC1aQ7uu5UhlAAAMk0QAAOQaVjKWqv2EzzL+6vIZQIf\n03iea1ROJLRywutUPJ+RiMCR9yUj3ZUXrxLSpb5koNZeTHsfMjwOooem39vaeNFq\nGOLnaTcmcSIq3cdit9IFVwsFamOWcybby1fIlhdXok1EBMrEYAb6WmGLwJ+OwiCc\n1GZZebsguZ0qlOzKWe4b4rzPIJDMQOP3WypZvm1mcKIknnbVCeXNUD8x2wLAZV2A\n4PgPC0+3Fj8RYzes52F98tBOJ2Mm+8nYGaGgGRXJsaNU0PBMgJQ1HaBqMkXyrWTE\nzriGN4dvkcKWFxn7xzxLd2ZAw5Uc4HAWur9u3pWByYAGX7WJyUB1MCLBOL3R7hat\nPUeQmqBsbb6y91CxRCG0olU2YFnTGaqVtmB7+aEiaZOtD1+YS6zaEMafhM/6YYM2\nZMe5PA/Ikon2VcalP8vapP08MICdTiv0YiIHgjNzR2On7QBhM2HhKnsr3s/VnPSP\nsoihxtcwD6K8vyXNppMpXDO7k3g/mVPQaVUIb7VZXhFZDMfRyP7eLjehbKPEXZfM\nUI3vII3ke/hK/ZKVkDRnXdk1GeRCCoDxXjgA2hRkriUCQX+3JV0q7c9R31D41iK6\ns04XUjkz6aU5Bf8BcZvE2owHqFlnaW0MCphW/EWkzhccG2U2jGXip0xw2NkaJg7T\n22ZoSzZa1v3YQOJqBe/I\n=ZxCD\n-----END PGP SIGNATURE-----\n",
+        "payload": "tree 8edbbc54713d0bc77b8be2e81edf818e04999220\nparent a1ca1f5fddc5f74bacd10cd1153ce780bf0d46fa\nparent 52419dca1c3a0692a19aa8ac678ae260f7145118\nauthor Mario Alejandro Ruiz <56364082+ma-r-s@users.noreply.github.com> 1788530254 -0500\ncommitter GitHub <noreply@github.com> 1788530254 -0500\n\nMerge pull request #41 from ma-r-s/app/bootloader\n\nfix: capture each device's artefacts before the next build removes them",
+        "verified_at": "2026-09-04T13:57:35Z"
+      }
+    },
+    "url": "https://api.github.com/repos/ma-r-s/crossplay/commits/58f7f31bd162bb8e6508bfe51cc6761ab48ea7aa",
+    "html_url": "https://github.com/ma-r-s/crossplay/commit/58f7f31bd162bb8e6508bfe51cc6761ab48ea7aa",
+    "comments_url": "https://api.github.com/repos/ma-r-s/crossplay/commits/58f7f31bd162bb8e6508bfe51cc6761ab48ea7aa/comments",
+    "parents": [
+      {
+        "sha": "a1ca1f5fddc5f74bacd10cd1153ce780bf0d46fa",
+        "url": "https://api.github.com/repos/ma-r-s/crossplay/commits/a1ca1f5fddc5f74bacd10cd1153ce780bf0d46fa",
+        "html_url": "https://github.com/ma-r-s/crossplay/commit/a1ca1f5fddc5f74bacd10cd1153ce780bf0d46fa"
+      },
+      {
+        "sha": "52419dca1c3a0692a19aa8ac678ae260f7145118",
+        "url": "https://api.github.com/repos/ma-r-s/crossplay/commits/52419dca1c3a0692a19aa8ac678ae260f7145118",
+        "html_url": "https://github.com/ma-r-s/crossplay/commit/52419dca1c3a0692a19aa8ac678ae260f7145118"
+      }
+    ]
+  },
+  {
+    "sha": "a1ca1f5fddc5f74bacd10cd1153ce780bf0d46fa",
+    "node_id": "C_kwDOTxqJYNoAKGExY2ExZjVmZGRjNWY3NGJhY2QxMGNkMTE1M2NlNzgwYmYwZDQ2ZmE",
+    "commit": {
+      "author": {
+        "name": "crossplay-release[bot]",
+        "email": "crossplay-release@users.noreply.github.com",
+        "date": "2026-09-04T13:47:16Z"
+      },
+      "committer": {
+        "name": "crossplay-release[bot]",
+        "email": "crossplay-release@users.noreply.github.com",
+        "date": "2026-09-04T13:47:16Z"
+      },
+      "message": "chore: emulator rebuilt for 23527e2c\n\nRebuilt by crossplay-emulator.yml after a push to xteink.",
+      "tree": {
+        "sha": "9c7449e037fdc92834b0e8acc61b6ed22b6f3eb2",
+        "url": "https://api.github.com/repos/ma-r-s/crossplay/git/trees/9c7449e037fdc92834b0e8acc61b6ed22b6f3eb2"
+      },
+      "url": "https://api.github.com/repos/ma-r-s/crossplay/git/commits/a1ca1f5fddc5f74bacd10cd1153ce780bf0d46fa",
+      "comment_count": 0,
+      "verification": {
+        "verified": false,
+        "reason": "unsigned",
+        "signature": null,
+        "payload": null,
+        "verified_at": null
+      }
+    },
+    "url": "https://api.github.com/repos/ma-r-s/crossplay/commits/a1ca1f5fddc5f74bacd10cd1153ce780bf0d46fa",
+    "html_url": "https://github.com/ma-r-s/crossplay/commit/a1ca1f5fddc5f74bacd10cd1153ce780bf0d46fa",
+    "comments_url": "https://api.github.com/repos/ma-r-s/crossplay/commits/a1ca1f5fddc5f74bacd10cd1153ce780bf0d46fa/comments",
+    "parents": [
+      {
+        "sha": "23527e2c7f3e05557f691af2d56089bc1172230d",
+        "url": "https://api.github.com/repos/ma-r-s/crossplay/commits/23527e2c7f3e05557f691af2d56089bc1172230d",
+        "html_url": "https://github.com/ma-r-s/crossplay/commit/23527e2c7f3e05557f691af2d56089bc1172230d"
+      }
+    ]
+  },
+  {
+    "sha": "23527e2c7f3e05557f691af2d56089bc1172230d",
+    "node_id": "C_kwDOTxqJYNoAKDIzNTI3ZTJjN2YzZTA1NTU3ZjY5MWFmMmQ1NjA4OWJjMTE3MjIzMGQ",
+    "commit": {
+      "author": {
+        "name": "Mario Alejandro Ruiz",
+        "email": "56364082+ma-r-s@users.noreply.github.com",
+        "date": "2026-09-04T13:42:45Z"
+      },
+      "committer": {
+        "name": "GitHub",
+        "email": "noreply@github.com",
+        "date": "2026-09-04T13:42:45Z"
+      },
+      "message": "Merge pull request #38 from ma-r-s/app/localrate\n\nTrivia: rate the pack locally, on a scale that means something",
+      "tree": {
+        "sha": "4937ef5aaf9403b7c5887166de58c88ec321a494",
+        "url": "https://api.github.com/repos/ma-r-s/crossplay/git/trees/4937ef5aaf9403b7c5887166de58c88ec321a494"
+      },
+      "url": "https://api.github.com/repos/ma-r-s/crossplay/git/commits/23527e2c7f3e05557f691af2d56089bc1172230d",
+      "comment_count": 0,
+      "verification": {
+        "verified": true,
+        "reason": "valid",
+        "signature": "-----BEGIN PGP SIGNATURE-----\n\nwsFcBAABCAAQBQJqmsrVCRC1aQ7uu5UhlAAAyHQQAHXp+qLyG9ixXz5iE/qVOsaq\nV8xFsspLO7tckEzu3GaXSYFVU70z1cF3E0ZOVZrVolva8t5G0K3kr6pFf/J9a7Ry\nFUPSC1p5XqqV15182EnN8a2FONDFpVzyeqgkqGshfDR1mCw7avncZZLQf5XaNb/X\nCECrnadLoubu4mxNUpNvtCSIHQCGYONkknDSYxs+Vlre0zfsQRnQN+ogYOLa06eV\nDXpejnp64lCMwD/6T9Eh/IV++nDKgIq35V7z0fdSXlvKFVUMbloh4djrtQ5GvvLZ\nj//f9MFtZYy01Ipd+ECQ+F2iWX842CA+FJLlmMNn/A8Zfw91vMzhiq7h+QS1qaVZ\n2dy8VJcozWxkHOkYskfhOAmmQwa5jHp2T0R2UJAC00T+UFtTfLYpqCi+QaKbjMvf\nyLSZ4iKk728ro+0tnFQCqj9gdtgIYBWp2LiuJPblNjRuULC1jdGCc4ER6DN6QJlE\njqbdoChvKE1C84FQpaB3VN5PFT8NmrLPY/VALKllEv7jWa5zbzwxZjNM2Ua/vOTf\npwHqv98BoGQ1tvgxA7669QRFkjtvCQgCyyvkc+91Ywq/vppTi9k5Ar75W0CsmfiC\nCoKRc3O9/Y2bk/hqXtyE2NlCOyNeRvN1c5spz66UyUyguKjQdGKD0NK2k32a1PZf\n3WSqcFUl1WCNt4oHA65L\n=kNII\n-----END PGP SIGNATURE-----\n",
+        "payload": "tree 4937ef5aaf9403b7c5887166de58c88ec321a494\nparent fac71b8bcb4f2e0bca10127eac92e2c85b2b871f\nparent c48e06cc66b3fae8b324c1a45ea2ac669a26e11e\nauthor Mario Alejandro Ruiz <56364082+ma-r-s@users.noreply.github.com> 1788529365 -0500\ncommitter GitHub <noreply@github.com> 1788529365 -0500\n\nMerge pull request #38 from ma-r-s/app/localrate\n\nTrivia: rate the pack locally, on a scale that means something",
+        "verified_at": "2026-09-04T13:42:46Z"
+      }
+    },
+    "url": "https://api.github.com/repos/ma-r-s/crossplay/commits/23527e2c7f3e05557f691af2d56089bc1172230d",
+    "html_url": "https://github.com/ma-r-s/crossplay/commit/23527e2c7f3e05557f691af2d56089bc1172230d",
+    "comments_url": "https://api.github.com/repos/ma-r-s/crossplay/commits/23527e2c7f3e05557f691af2d56089bc1172230d/comments",
+    "parents": [
+      {
+        "sha": "fac71b8bcb4f2e0bca10127eac92e2c85b2b871f",
+        "url": "https://api.github.com/repos/ma-r-s/crossplay/commits/fac71b8bcb4f2e0bca10127eac92e2c85b2b871f",
+        "html_url": "https://github.com/ma-r-s/crossplay/commit/fac71b8bcb4f2e0bca10127eac92e2c85b2b871f"
+      },
+      {
+        "sha": "c48e06cc66b3fae8b324c1a45ea2ac669a26e11e",
+        "url": "https://api.github.com/repos/ma-r-s/crossplay/commits/c48e06cc66b3fae8b324c1a45ea2ac669a26e11e",
+        "html_url": "https://github.com/ma-r-s/crossplay/commit/c48e06cc66b3fae8b324c1a45ea2ac669a26e11e"
+      }
+    ]
+  },
+  {
+    "sha": "fac71b8bcb4f2e0bca10127eac92e2c85b2b871f",
+    "node_id": "C_kwDOTxqJYNoAKGZhYzcxYjhiY2I0ZjJlMGJjYTEwMTI3ZWFjOTJlMmM4NWIyYjg3MWY",
+    "commit": {
+      "author": {
+        "name": "Mario Alejandro Ruiz",
+        "email": "56364082+ma-r-s@users.noreply.github.com",
+        "date": "2026-09-04T13:42:41Z"
+      },
+      "committer": {
+        "name": "GitHub",
+        "email": "noreply@github.com",
+        "date": "2026-09-04T13:42:41Z"
+      },
+      "message": "Merge pull request #39 from ma-r-s/app/tidy\n\ndocs: make the repo presentable: front page, dead links, stale facts",
+      "tree": {
+        "sha": "bb00aca23fab08b3bc101e07e5d40439aba446ee",
+        "url": "https://api.github.com/repos/ma-r-s/crossplay/git/trees/bb00aca23fab08b3bc101e07e5d40439aba446ee"
+      },
+      "url": "https://api.github.com/repos/ma-r-s/crossplay/git/commits/fac71b8bcb4f2e0bca10127eac92e2c85b2b871f",
+      "comment_count": 0,
+      "verification": {
+        "verified": true,
+        "reason": "valid",
+        "signature": "-----BEGIN PGP SIGNATURE-----\n\nwsFcBAABCAAQBQJqmsrRCRC1aQ7uu5UhlAAA9vAQAFPWTneHjiufDAZVp74ZFkFI\nmDeXeSph2MrNdm5lhl2Et80n2ZyFqNwMJKfE85dn3bxiksHET6UiJkPTMDe5Swtb\nh2P+/tdEYb7vWGqxUUMPbGqkMQfaUqcTAO3PVypmb6IeNWo5K1Qs5mXRTFRrF9p6\n5B21brbxexAwj5CeKZSdXVOOi6ZWn+RPdIFieNwybGi+KhddF7yXUJBtky8kmI3g\nbUuVKXV+mt4bioOQcN4WKQLTjBlR0Vykmbb+wYMcnNeoXeDATEs7yuUWvZyAw/+y\n8lpUzXWbJTf+0k4Z1RKewI/aZOgOmo0Xu8OEMgFMiWMws5yYo2RGUoxh0I8ZskEu\nMHu/kAUp5nWErkhAevonjvfdiZl45pQnFDK+0ghOdTaUfV+281gKX5909XHjTO3S\nYEWYd0PBwmFXNL9GQ4TcQ0rm2ff5QMP5BvuvawWDpcB5b6o+IyYyZZMN1WG3Kp8y\ns072I9IPY9mlF8JY9mwORyE5otUPc/0gkxJQ7Qd23r6JSYBM9Gb7eB3dz4t4VLXL\n+up9b+XmyIPOGMTXbiuow4qYwFtMGFo82w2gHYGSePkUaipC/23WYJCEBd+e3P4n\n3oYHbwibmjQ9LlyB+J0KzJ0b7oZO9Xd+XmIKbLY5Y5X20yWHHJjUxcx8kzXpUTDx\nnmptZEF8FOCoVdFEhLFo\n=7Km6\n-----END PGP SIGNATURE-----\n",
+        "payload": "tree bb00aca23fab08b3bc101e07e5d40439aba446ee\nparent b7e9c49e8fe13c0436f24683202539f1e5a5be62\nparent 13462c6f3b88a324c9eef3b5c6935f9754ec844c\nauthor Mario Alejandro Ruiz <56364082+ma-r-s@users.noreply.github.com> 1788529361 -0500\ncommitter GitHub <noreply@github.com> 1788529361 -0500\n\nMerge pull request #39 from ma-r-s/app/tidy\n\ndocs: make the repo presentable: front page, dead links, stale facts",
+        "verified_at": "2026-09-04T13:42:42Z"
+      }
+    },
+    "url": "https://api.github.com/repos/ma-r-s/crossplay/commits/fac71b8bcb4f2e0bca10127eac92e2c85b2b871f",
+    "html_url": "https://github.com/ma-r-s/crossplay/commit/fac71b8bcb4f2e0bca10127eac92e2c85b2b871f",
+    "comments_url": "https://api.github.com/repos/ma-r-s/crossplay/commits/fac71b8bcb4f2e0bca10127eac92e2c85b2b871f/comments",
+    "parents": [
+      {
+        "sha": "b7e9c49e8fe13c0436f24683202539f1e5a5be62",
+        "url": "https://api.github.com/repos/ma-r-s/crossplay/commits/b7e9c49e8fe13c0436f24683202539f1e5a5be62",
+        "html_url": "https://github.com/ma-r-s/crossplay/commit/b7e9c49e8fe13c0436f24683202539f1e5a5be62"
+      },
+      {
+        "sha": "13462c6f3b88a324c9eef3b5c6935f9754ec844c",
+        "url": "https://api.github.com/repos/ma-r-s/crossplay/commits/13462c6f3b88a324c9eef3b5c6935f9754ec844c",
+        "html_url": "https://github.com/ma-r-s/crossplay/commit/13462c6f3b88a324c9eef3b5c6935f9754ec844c"
+      }
+    ]
+  },
+  {
+    "sha": "52419dca1c3a0692a19aa8ac678ae260f7145118",
+    "node_id": "C_kwDOTxqJYNoAKDUyNDE5ZGNhMWMzYTA2OTJhMTlhYThhYzY3OGFlMjYwZjcxNDUxMTg",
+    "commit": {
+      "author": {
+        "name": "Mario Ruiz",
+        "email": "marioalejandroruizsarmiento@gmail.com",
+        "date": "2026-09-04T13:21:30Z"
+      },
+      "committer": {
+        "name": "Mario Ruiz",
+        "email": "marioalejandroruizsarmiento@gmail.com",
+        "date": "2026-09-04T13:26:54Z"
+      },
+      "message": "fix: capture each device's artefacts before the next build removes them\n\nThe previous commit was half a fix. It supplied the bootloader that stopped\nbeing built, and the v1.12.15 run then failed one step earlier, writing it:\n\n  FileNotFoundError: [Errno 2] No such file or directory:\n    '.pio/build/gh_release_x4pro/bootloader.bin'\n\nNot the file this time. The DIRECTORY. After both builds, x4pro's output\ndirectory does not exist, and the sticky build says so in passing:\n\n  [ComponentManager] Updated build file (55 total removals)\n\nSo there were two faults stacked, and fixing the visible one exposed the\nother. Naming both devices' artefacts at the end reads the second build's\nleftovers for the first, and firmware.bin and partitions.bin were as exposed\nas the bootloader; merge-bin just happened to name the bootloader first.\n\nEach device is now built, given its bootloader, and named, before the next\nbuild starts. That is robust without knowing exactly what ComponentManager\nremoves or why, which is the right shape of fix for a teardown nobody here\ncontrols.\n\nhost-tests/release asserts the order that broke: the sticky build must not run\nbefore the x4pro artefacts are named. Watched it fail with the old order put\nback, naming both line numbers, and pass restored.\n\nBoard card #155.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>",
+      "tree": {
+        "sha": "032c9531615136f7adb924f2a6021b842ab36cad",
+        "url": "https://api.github.com/repos/ma-r-s/crossplay/git/trees/032c9531615136f7adb924f2a6021b842ab36cad"
+      },
+      "url": "https://api.github.com/repos/ma-r-s/crossplay/git/commits/52419dca1c3a0692a19aa8ac678ae260f7145118",
+      "comment_count": 0,
+      "verification": {
+        "verified": false,
+        "reason": "unsigned",
+        "signature": null,
+        "payload": null,
+        "verified_at": null
+      }
+    },
+    "url": "https://api.github.com/repos/ma-r-s/crossplay/commits/52419dca1c3a0692a19aa8ac678ae260f7145118",
+    "html_url": "https://github.com/ma-r-s/crossplay/commit/52419dca1c3a0692a19aa8ac678ae260f7145118",
+    "comments_url": "https://api.github.com/repos/ma-r-s/crossplay/commits/52419dca1c3a0692a19aa8ac678ae260f7145118/comments",
+    "parents": [
+      {
+        "sha": "b7e9c49e8fe13c0436f24683202539f1e5a5be62",
+        "url": "https://api.github.com/repos/ma-r-s/crossplay/commits/b7e9c49e8fe13c0436f24683202539f1e5a5be62",
+        "html_url": "https://github.com/ma-r-s/crossplay/commit/b7e9c49e8fe13c0436f24683202539f1e5a5be62"
+      }
+    ]
+  },
+  {
+    "sha": "b7e9c49e8fe13c0436f24683202539f1e5a5be62",
+    "node_id": "C_kwDOTxqJYNoAKGI3ZTljNDllOGZlMTNjMDQzNmYyNDY4MzIwMjUzOWYxZTVhNWJlNjI",
+    "commit": {
+      "author": {
+        "name": "crossplay-release[bot]",
+        "email": "crossplay-release@users.noreply.github.com",
+        "date": "2026-09-04T13:08:06Z"
+      },
+      "committer": {
+        "name": "crossplay-release[bot]",
+        "email": "crossplay-release@users.noreply.github.com",
+        "date": "2026-09-04T13:08:06Z"
+      },
+      "message": "chore: crossplay 1.12.15\n\nReleased by crossplay-autorelease after a green CI run on xteink.",
+      "tree": {
+        "sha": "635b3b8aa4c5fe9d087f31cd45674599fbde83d7",
+        "url": "https://api.github.com/repos/ma-r-s/crossplay/git/trees/635b3b8aa4c5fe9d087f31cd45674599fbde83d7"
+      },
+      "url": "https://api.github.com/repos/ma-r-s/crossplay/git/commits/b7e9c49e8fe13c0436f24683202539f1e5a5be62",
+      "comment_count": 0,
+      "verification": {
+        "verified": false,
+        "reason": "unsigned",
+        "signature": null,
+        "payload": null,
+        "verified_at": null
+      }
+    },
+    "url": "https://api.github.com/repos/ma-r-s/crossplay/commits/b7e9c49e8fe13c0436f24683202539f1e5a5be62",
+    "html_url": "https://github.com/ma-r-s/crossplay/commit/b7e9c49e8fe13c0436f24683202539f1e5a5be62",
+    "comments_url": "https://api.github.com/repos/ma-r-s/crossplay/commits/b7e9c49e8fe13c0436f24683202539f1e5a5be62/comments",
+    "parents": [
+      {
+        "sha": "70241df980ba44dfe2d71532c76de87f2db0c1d3",
+        "url": "https://api.github.com/repos/ma-r-s/crossplay/commits/70241df980ba44dfe2d71532c76de87f2db0c1d3",
+        "html_url": "https://github.com/ma-r-s/crossplay/commit/70241df980ba44dfe2d71532c76de87f2db0c1d3"
+      }
+    ]
+  },
+  {
+    "sha": "70241df980ba44dfe2d71532c76de87f2db0c1d3",
+    "node_id": "C_kwDOTxqJYNoAKDcwMjQxZGY5ODBiYTQ0ZGZlMmQ3MTUzMmM3NmRlODdmMmRiMGMxZDM",
+    "commit": {
+      "author": {
+        "name": "Mario Alejandro Ruiz",
+        "email": "56364082+ma-r-s@users.noreply.github.com",
+        "date": "2026-09-04T12:40:25Z"
+      },
+      "committer": {
+        "name": "GitHub",
+        "email": "noreply@github.com",
+        "date": "2026-09-04T12:40:25Z"
+      },
+      "message": "Merge pull request #40 from ma-r-s/app/bootloader\n\nfix: the release takes the bootloader from the framework package",
+      "tree": {
+        "sha": "6d2ffa6849d973ce939c01f11c12a388dffa672c",
+        "url": "https://api.github.com/repos/ma-r-s/crossplay/git/trees/6d2ffa6849d973ce939c01f11c12a388dffa672c"
+      },
+      "url": "https://api.github.com/repos/ma-r-s/crossplay/git/commits/70241df980ba44dfe2d71532c76de87f2db0c1d3",
+      "comment_count": 0,
+      "verification": {
+        "verified": true,
+        "reason": "valid",
+        "signature": "-----BEGIN PGP SIGNATURE-----\n\nwsFcBAABCAAQBQJqmrw5CRC1aQ7uu5UhlAAA6AwQALF0xV/sRX7fieOuZeer//co\n332PwCB+xrKCQt3M66jcao/oYYK6A9fSzBMwiFxwoMM5AQTkBkiaFZjG1U2Co29l\n5/BO1IoMKH61cenVErACS7XHSl4VbdmxXFrKkAI+rRirK3q+hfJFxNlSdBomwxlt\nHhIUWeHbAVdBnUmh8sVJS+Ge2D8Zwl65zgoB1tS1js/lpHQBo38/CVYhatCPSMzn\nTsCR8H0CRkHEhaEuZyULvxQsQXl553WvTcGr1x1l4YBezQk5s6RltyInUJSScCDC\ndHlLEGZxeBgCS3MqzgkcSEg1862F6MUH1/Xb34zt24fgZLlnBW6+fJ0/BFCcClqM\nkfeoO6i/D+Dz63ReEvhxP1cPcqnn7XuHADFxWJaRHMxsn2HersMwFTx7YDrFiyky\ndH4+vCpu3pTLoEEK+UF1O3zpSSakBBp1xmWBZwtX9ZerjADxqFFLVCvftVX+ZxC4\ncTYYvyM43jOEEm3A2+9QedooM/RWjb71RtNP2xzQWJYYp1Ft0MVKrrd4t08ikWCq\nvMvTB5XKnA3YA9+1yzx023Brj7YHopsTi9yOHNsqrjpuahxqhYXBM+Fb4ErnV/7C\nfvZoGPye6ftknanAdEIEJ7OuOvqJgUO1KKx0mneoQKqYockTm8mBfTg8tW83VHxI\ngzFnQmf7xKtxFKcZd0i6\n=CbT4\n-----END PGP SIGNATURE-----\n",
+        "payload": "tree 6d2ffa6849d973ce939c01f11c12a388dffa672c\nparent 61803bd8647e5d19b8540c825c5ef5c1aae452bf\nparent a9d6f35448cdf8888975eb150595ae52f8da417c\nauthor Mario Alejandro Ruiz <56364082+ma-r-s@users.noreply.github.com> 1788525625 -0500\ncommitter GitHub <noreply@github.com> 1788525625 -0500\n\nMerge pull request #40 from ma-r-s/app/bootloader\n\nfix: the release takes the bootloader from the framework package",
+        "verified_at": "2026-09-04T12:40:26Z"
+      }
+    },
+    "url": "https://api.github.com/repos/ma-r-s/crossplay/commits/70241df980ba44dfe2d71532c76de87f2db0c1d3",
+    "html_url": "https://github.com/ma-r-s/crossplay/commit/70241df980ba44dfe2d71532c76de87f2db0c1d3",
+    "comments_url": "https://api.github.com/repos/ma-r-s/crossplay/commits/70241df980ba44dfe2d71532c76de87f2db0c1d3/comments",
+    "parents": [
+      {
+        "sha": "61803bd8647e5d19b8540c825c5ef5c1aae452bf",
+        "url": "https://api.github.com/repos/ma-r-s/crossplay/commits/61803bd8647e5d19b8540c825c5ef5c1aae452bf",
+        "html_url": "https://github.com/ma-r-s/crossplay/commit/61803bd8647e5d19b8540c825c5ef5c1aae452bf"
+      },
+      {
+        "sha": "a9d6f35448cdf8888975eb150595ae52f8da417c",
+        "url": "https://api.github.com/repos/ma-r-s/crossplay/commits/a9d6f35448cdf8888975eb150595ae52f8da417c",
+        "html_url": "https://github.com/ma-r-s/crossplay/commit/a9d6f35448cdf8888975eb150595ae52f8da417c"
+      }
+    ]
+  },
+  {
+    "sha": "a9d6f35448cdf8888975eb150595ae52f8da417c",
+    "node_id": "C_kwDOTxqJYNoAKGE5ZDZmMzU0NDhjZGY4ODg4OTc1ZWIxNTA1OTVhZTUyZjhkYTQxN2M",
+    "commit": {
+      "author": {
+        "name": "Mario Ruiz",
+        "email": "marioalejandroruizsarmiento@gmail.com",
+        "date": "2026-09-04T12:06:40Z"
+      },
+      "committer": {
+        "name": "Mario Ruiz",
+        "email": "marioalejandroruizsarmiento@gmail.com",
+        "date": "2026-09-04T12:06:40Z"
+      },
+      "message": "fix: the release takes the bootloader from the framework package\n\nv1.12.14 tagged and then could not publish. crossplay-release.yml failed at\nmerge-bin, deterministically, three runs including a rerun:\n\n  [Errno 2] No such file or directory: '.pio/build/gh_release_x4pro/bootloader.bin'\n\ne31dcbb0 (\"don't recompile Arduino IDF libs\", upstream #3242) stopped\ncompiling the IDF, and that file was a by-product of the compile. The firmware\nbuilds still pass without it, because only merge-bin ever reads it, so this\nwas invisible everywhere except the one job that publishes.\n\nRuled out first, each with evidence rather than reasoning: esptool (the\nworkflow upgrades it unpinned and got 5.4.0 where v1.12.13 used 5.1.2, but\n5.4.0 runs that exact command correctly on dummy files here); the PlatformIO\ncache (both runs logged \"Cache not found\"); the platform (pinned to 55.03.37\nand identical in both); and patch_pioarduino_cache.py silently no-opping (it\nraises when neither string matches, and the builds succeeded). The tell was in\nthe logs: the v1.12.13 run compiled dozens of bootloader_support/src/*.o and\nthe v1.12.14 runs compile none.\n\nThe framework package ships the same bootloader prebuilt, one ELF per flash\nmode. Both envs are dio at 80m, so both take bootloader_dio_80m.elf.\n\nThis writes what lands at 0x0 on a first install, which is the exact class of\nmistake recorded in this file's own comments from v1.0.0 and v1.0.1, so it is\nverified rather than reasoned about. Converted with elf2image from\nframework-arduinoespressif32-libs 5.5.0+sha.87912cd291 -- the version CI now\nresolves -- the result is byte-identical to the bootloader in BOTH published\nv1.12.13 full images:\n\n  prebuilt        09c6a477ac9b33721e9ea455fda1e29dc5b2f35c85d0b858b693defcab6f19fb\n  x4pro shipped   09c6a477ac9b33721e9ea455fda1e29dc5b2f35c85d0b858b693defcab6f19fb\n  sticky shipped  09c6a477ac9b33721e9ea455fda1e29dc5b2f35c85d0b858b693defcab6f19fb\n\nThe step keeps a bootloader.bin that a build did produce, so if the IDF\ncompile ever comes back this becomes a no-op rather than an override.\n\nhost-tests/release asserts the ordering rather than the mechanism: whatever\nsupplies the file must supply it before the step that merges it. Watched it\nfail with the step removed, naming both envs, and pass when restored.\n\nBoard card #155.\n\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>",
+      "tree": {
+        "sha": "6d2ffa6849d973ce939c01f11c12a388dffa672c",
+        "url": "https://api.github.com/repos/ma-r-s/crossplay/git/trees/6d2ffa6849d973ce939c01f11c12a388dffa672c"
+      },
+      "url": "https://api.github.com/repos/ma-r-s/crossplay/git/commits/a9d6f35448cdf8888975eb150595ae52f8da417c",
+      "comment_count": 0,
+      "verification": {
+        "verified": false,
+        "reason": "unsigned",
+        "signature": null,
+        "payload": null,
+        "verified_at": null
+      }
+    },
+    "url": "https://api.github.com/repos/ma-r-s/crossplay/commits/a9d6f35448cdf8888975eb150595ae52f8da417c",
+    "html_url": "https://github.com/ma-r-s/crossplay/commit/a9d6f35448cdf8888975eb150595ae52f8da417c",
+    "comments_url": "https://api.github.com/repos/ma-r-s/crossplay/commits/a9d6f35448cdf8888975eb150595ae52f8da417c/comments",
+    "parents": [
+      {
+        "sha": "61803bd8647e5d19b8540c825c5ef5c1aae452bf",
+        "url": "https://api.github.com/repos/ma-r-s/crossplay/commits/61803bd8647e5d19b8540c825c5ef5c1aae452bf",
+        "html_url": "https://github.com/ma-r-s/crossplay/commit/61803bd8647e5d19b8540c825c5ef5c1aae452bf"
+      }
+    ]
+  },
+  {
+    "sha": "61803bd8647e5d19b8540c825c5ef5c1aae452bf",
+    "node_id": "C_kwDOTxqJYNoAKDYxODAzYmQ4NjQ3ZTVkMTliODU0MGM4MjVjNWVmNWMxYWFlNDUyYmY",
+    "commit": {
+      "author": {
+        "name": "crossplay-release[bot]",
+        "email": "crossplay-release@users.noreply.github.com",
+        "date": "2026-09-04T11:30:30Z"
+      },
+      "committer": {
+        "name": "crossplay-release[bot]",
+        "email": "crossplay-release@users.noreply.github.com",
+        "date": "2026-09-04T11:30:30Z"
+      },
+      "message": "chore: crossplay 1.12.14\n\nReleased by crossplay-autorelease after a green CI run on xteink.",
+      "tree": {
+        "sha": "b75e8ceacdd5bf7ad78fea7a6dfc6586979a7a3b",
+        "url": "https://api.github.com/repos/ma-r-s/crossplay/git/trees/b75e8ceacdd5bf7ad78fea7a6dfc6586979a7a3b"
+      },
+      "url": "https://api.github.com/repos/ma-r-s/crossplay/git/commits/61803bd8647e5d19b8540c825c5ef5c1aae452bf",
+      "comment_count": 0,
+      "verification": {
+        "verified": false,
+        "reason": "unsigned",
+        "signature": null,
+        "payload": null,
+        "verified_at": null
+      }
+    },
+    "url": "https://api.github.com/repos/ma-r-s/crossplay/commits/61803bd8647e5d19b8540c825c5ef5c1aae452bf",
+    "html_url": "https://github.com/ma-r-s/crossplay/commit/61803bd8647e5d19b8540c825c5ef5c1aae452bf",
+    "comments_url": "https://api.github.com/repos/ma-r-s/crossplay/commits/61803bd8647e5d19b8540c825c5ef5c1aae452bf/comments",
+    "parents": [
+      {
+        "sha": "0aa62dd99382ef70cd4ee19c759b840f486fddb2",
+        "url": "https://api.github.com/repos/ma-r-s/crossplay/commits/0aa62dd99382ef70cd4ee19c759b840f486fddb2",
+        "html_url": "https://github.com/ma-r-s/crossplay/commit/0aa62dd99382ef70cd4ee19c759b840f486fddb2"
+      }
+    ]
+  },
+  {
+    "sha": "13462c6f3b88a324c9eef3b5c6935f9754ec844c",
+    "node_id": "C_kwDOTxqJYNoAKDEzNDYyYzZmM2I4OGEzMjRjOWVlZjNiNWM2OTM1Zjk3NTRlYzg0NGM",
+    "commit": {
+      "author": {
+        "name": "Mario Ruiz",
+        "email": "marioalejandroruizsarmiento@gmail.com",
+        "date": "2026-09-04T10:53:42Z"
+      },
+      "committer": {
+        "name": "Mario Ruiz",
+        "email": "marioalejandroruizsarmiento@gmail.com",
+        "date": "2026-09-04T10:53:42Z"
+      },
+      "message": "docs: link the fork's own user guide from the front page\n\nUSER_GUIDE.md is titled \"CrossPlay User Guide\" and was adapted for this\nfork, and nothing on the front page pointed at it. The only links to it\nare from three docs a reader reaches after already knowing it exists.\nSomeone who has just flashed a device has nowhere to go for the controls,\nthe reader or the web server.\n\nIts opening line also still named only the X4 Pro, a release after the\nSticky started shipping in the same images.\n\nDocs: this is the docs fix. Triage: no card. Dream check: unchanged.",
+      "tree": {
+        "sha": "04628b6be579a84327969b76d430be8382d7786d",
+        "url": "https://api.github.com/repos/ma-r-s/crossplay/git/trees/04628b6be579a84327969b76d430be8382d7786d"
+      },
+      "url": "https://api.github.com/repos/ma-r-s/crossplay/git/commits/13462c6f3b88a324c9eef3b5c6935f9754ec844c",
+      "comment_count": 0,
+      "verification": {
+        "verified": false,
+        "reason": "unsigned",
+        "signature": null,
+        "payload": null,
+        "verified_at": null
+      }
+    },
+    "url": "https://api.github.com/repos/ma-r-s/crossplay/commits/13462c6f3b88a324c9eef3b5c6935f9754ec844c",
+    "html_url": "https://github.com/ma-r-s/crossplay/commit/13462c6f3b88a324c9eef3b5c6935f9754ec844c",
+    "comments_url": "https://api.github.com/repos/ma-r-s/crossplay/commits/13462c6f3b88a324c9eef3b5c6935f9754ec844c/comments",
+    "parents": [
+      {
+        "sha": "8e864cc8ba85c61e7fc7045b5592ea2980dc879b",
+        "url": "https://api.github.com/repos/ma-r-s/crossplay/commits/8e864cc8ba85c61e7fc7045b5592ea2980dc879b",
+        "html_url": "https://github.com/ma-r-s/crossplay/commit/8e864cc8ba85c61e7fc7045b5592ea2980dc879b"
+      }
+    ]
+  },
+  {
+    "sha": "8e864cc8ba85c61e7fc7045b5592ea2980dc879b",
+    "node_id": "C_kwDOTxqJYNoAKDhlODY0Y2M4YmE4NWM2MWU3ZmM3MDQ1YjU1OTJlYTI5ODBkYzg3OWI",
+    "commit": {
+      "author": {
+        "name": "Mario Ruiz",
+        "email": "marioalejandroruizsarmiento@gmail.com",
+        "date": "2026-09-04T10:52:51Z"
+      },
+      "committer": {
+        "name": "Mario Ruiz",
+        "email": "marioalejandroruizsarmiento@gmail.com",
+        "date": "2026-09-04T10:52:51Z"
+      },
+      "message": "fix: six accuracy faults a cold reader found in the new README\n\nA stranger read the rewritten front page with no context. Four of these\nare mine, made in the rewrite; two were already there.\n\n**The touch panel went missing, and it is what makes the shelf parse.**\nThe old README said \"both ESP32-S3 with the same 800x480 panel and\ncapacitive touch\" and the rewrite dropped it while compressing the device\nsection. Without it \"Minesweeper: tap to dig, hold to flag\" and \"Connect\nFour: seven columns, one tap each\" read as metaphors for a button press,\nand the reader is left believing seven columns are driven by two keys.\nThe lede now carries the panel, the touch and the two buttons.\n\n**\"It is the whole thing, not a video and not a mock-up\" was too strong.**\nsite/README.md:218 has always said Connections fetches its board at\nruntime and nothing is canned for it, so the daily grid does not work in\nthe browser. One of the nineteen games does not run in the demo the\nsection is pitching. It says so now, and says why.\n\n**\"CrossPlay ships no puzzle content of its own\" is false as written.**\nThe original sentence was about Connections and the rewrite generalised\nit across the whole section, two paragraphs under \"D&Diagrams: 64 of\nthem\" and \"Trivia: 50,000 questions\". Scoped back, and it now\ndistinguishes fetch-as-you-open from downloaded-once-onto-the-card.\n\n**The wrong-chip warning named the hazard and hid the reassurance.** It\nsaid flashing a C3 \"is a cross-chip flash\", which names the mistake\nwithout naming the outcome, then followed with \"the firmware protects\nyou\", which covers only the S3-to-S3 case and reads as general comfort.\nIt now says what the mistake used to cost (a bricked device) and that\ninstall.js reads the chip and stops with \"Nothing was written\" before\nwriting anything, which also answers the question the heading asked and\nnever did: how to tell an X4 Pro from an X4. You do not have to; the\ninstaller does.\n\n**\"Developer Mode is off until you turn it on, and says so on the panel.\"**\nWhat the panel says is that the device will not deep-sleep while it is\non, which is docs/install.md's version and the true one.\n\n**The trademark list was incomplete, and a list is the wrong shape.**\nBoth the README and THIRD-PARTY-NOTICES enumerated owners and neither\nhad grown with the shelf: the README omitted Yahtzee and Wavelength, the\nnotices additionally omitted Knucklebones, Sea Salt & Paper and Toy\nBattle. Both now cover any shelf game carrying a published game's name,\nwhich cannot go stale when the twentieth game lands. The specific\ndesigner and publisher credits stay, because those are attributions\nrather than a list.\n\nDocs: THIRD-PARTY-NOTICES.md changed in the same commit. Triage: no card.\nDream check: unchanged; this is the same front page, told true.",
+      "tree": {
+        "sha": "01b51c8ff089ff11e719fee12a60d5f5fb27cba7",
+        "url": "https://api.github.com/repos/ma-r-s/crossplay/git/trees/01b51c8ff089ff11e719fee12a60d5f5fb27cba7"
+      },
+      "url": "https://api.github.com/repos/ma-r-s/crossplay/git/commits/8e864cc8ba85c61e7fc7045b5592ea2980dc879b",
+      "comment_count": 0,
+      "verification": {
+        "verified": false,
+        "reason": "unsigned",
+        "signature": null,
+        "payload": null,
+        "verified_at": null
+      }
+    },
+    "url": "https://api.github.com/repos/ma-r-s/crossplay/commits/8e864cc8ba85c61e7fc7045b5592ea2980dc879b",
+    "html_url": "https://github.com/ma-r-s/crossplay/commit/8e864cc8ba85c61e7fc7045b5592ea2980dc879b",
+    "comments_url": "https://api.github.com/repos/ma-r-s/crossplay/commits/8e864cc8ba85c61e7fc7045b5592ea2980dc879b/comments",
+    "parents": [
+      {
+        "sha": "13f1249d519134fabd0b4a13387ac768b7f48340",
+        "url": "https://api.github.com/repos/ma-r-s/crossplay/commits/13f1249d519134fabd0b4a13387ac768b7f48340",
+        "html_url": "https://github.com/ma-r-s/crossplay/commit/13f1249d519134fabd0b4a13387ac768b7f48340"
+      }
+    ]
+  },
+  {
+    "sha": "13f1249d519134fabd0b4a13387ac768b7f48340",
+    "node_id": "C_kwDOTxqJYNoAKDEzZjEyNDlkNTE5MTM0ZmFiZDBiNGExMzM4N2FjNzY4YjdmNDgzNDA",
+    "commit": {
+      "author": {
+        "name": "Mario Ruiz",
+        "email": "marioalejandroruizsarmiento@gmail.com",
+        "date": "2026-09-04T10:50:41Z"
+      },
+      "committer": {
+        "name": "Mario Ruiz",
+        "email": "marioalejandroruizsarmiento@gmail.com",
+        "date": "2026-09-04T10:50:41Z"
+      },
+      "message": "test: bind the README's shelf counts to Shelf.cpp and LinkPlay.h\n\nshelf_coverage.py already checked that every shelf item is NAMED in the\nREADME and on the site. It did not check the totals beside them, and a\ntotal is the easiest thing in the file to leave behind: add a twentieth\ngame and every name check still passes while the sentence goes on saying\nnineteen. That is the failure this suite exists for, one level up.\n\nTwo counts are now derived rather than trusted: \"19 games and 5 apps\"\nagainst the kGames and kApps tables, and \"Nine of the games play over\nPLAY NEARBY\" against LinkPlay.h's GameId enum. Both accept a digit or a\nnumber word, because the README uses one of each. If either sentence is\nreworded out of existence the check says so rather than passing on a\nregex that stopped matching.\n\nSeen to fail before being trusted: with the README mutated to \"18 games\"\nand \"Eight of the games\", the suite prints both gaps; restored, it is\ngreen and `git diff` on the README is empty.\n\nThis exists because the same commit put \"19 games and 5 apps\" on the\nfront page, which is a fact about Shelf.cpp written out as a literal, and\nthe project has paid for that shape repeatedly.\n\nDocs: none affected, the suite documents itself in its header. Triage: no\ncard. Dream check: unchanged.",
+      "tree": {
+        "sha": "200100e037b3b4c79ffcedffcf20335f0d2b9588",
+        "url": "https://api.github.com/repos/ma-r-s/crossplay/git/trees/200100e037b3b4c79ffcedffcf20335f0d2b9588"
+      },
+      "url": "https://api.github.com/repos/ma-r-s/crossplay/git/commits/13f1249d519134fabd0b4a13387ac768b7f48340",
+      "comment_count": 0,
+      "verification": {
+        "verified": false,
+        "reason": "unsigned",
+        "signature": null,
+        "payload": null,
+        "verified_at": null
+      }
+    },
+    "url": "https://api.github.com/repos/ma-r-s/crossplay/commits/13f1249d519134fabd0b4a13387ac768b7f48340",
+    "html_url": "https://github.com/ma-r-s/crossplay/commit/13f1249d519134fabd0b4a13387ac768b7f48340",
+    "comments_url": "https://api.github.com/repos/ma-r-s/crossplay/commits/13f1249d519134fabd0b4a13387ac768b7f48340/comments",
+    "parents": [
+      {
+        "sha": "b9e12f3dd8ac4d9df647ecf114ac11ed4695a87b",
+        "url": "https://api.github.com/repos/ma-r-s/crossplay/commits/b9e12f3dd8ac4d9df647ecf114ac11ed4695a87b",
+        "html_url": "https://github.com/ma-r-s/crossplay/commit/b9e12f3dd8ac4d9df647ecf114ac11ed4695a87b"
+      }
+    ]
+  }
+]
