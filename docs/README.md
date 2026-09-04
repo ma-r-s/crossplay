@@ -17,6 +17,12 @@ buttons (`buttons.md`), what scale does to games (`games-at-scale.md`), how to
 reflash and inspect a device over Wi-Fi with no cable
 (`developer-mode.md`), and what is knowingly unfinished (`open-items.md`).
 
+`install.md` is the reader-facing one: everything about getting the firmware
+onto a device except the one-click browser install, which stays on the front
+page because it is what almost everybody wants. It exists so the README does
+not have to carry esptool invocations, the update-an-existing-install rules and
+Developer Mode's pairing flow above the fold.
+
 `developer-mode.md` covers a runtime setting and the routes it exposes. It is a
 fork doc rather than a section in upstream's `webserver-*.md` because those stay
 untouched so merges from CrossPoint stay cheap.
