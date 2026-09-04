@@ -54,9 +54,18 @@ python3 scripts/debugging_monitor.py
 workspace-wide lock, taking about ten minutes. It ran them for a change to
 `site/index.html` exactly as for a change to `src/`. Since `app/gatescope` it
 asks `scripts_local/device-build-needed.sh --build-loop` first, and drops the
-four when nothing in the diff can reach a device image.
+device envs when nothing in the diff can reach a device image.
 
-Three things about it are worth knowing before you trust or debug it:
+Since `app/gatetrim` there are two of them, not four. A plain `check.sh` builds
+the dev pair `x4pro` and `sticky`; `--committed` builds the release pair
+`gh_release_x4pro` and `gh_release_sticky` INSTEAD of it, rather than as well as
+it. The difference between a dev env and its release twin is
+`CROSSPOINT_DEV_SERIAL_BRIDGE`, whose breakage costs the next person who wants
+to drive a device over the cable and never costs a user, so a routine run is
+soon enough to catch it. The release pair keeps its place because nothing else
+compiles it before the release workflow does, after the tag exists.
+
+Four things about it are worth knowing before you trust or debug it:
 
 **The saving is only available in one direction.** `site/emulator/` is a wasm
 build of the firmware, so a firmware change genuinely can change the site --
@@ -76,9 +85,21 @@ loop must not be verified by a run that skipped the build loop.
 grep written before this existed finds nothing and fails closed rather than
 open. Override it with `CHECK_FORCE_DEVICE_BUILDS=1`.
 
+**Every firmware env is built in ONE `pio run`.** Not for speed. PlatformIO's
+`clean_build_dir()` runs once per invocation against the whole `.pio/build`
+root and deletes all of it when the project checksum has moved; the checksum is
+over the file list under `src/`, `include/` and `lib/`, and this project's
+`pre:` scripts write generated sources into those directories as the build
+runs. So on a fresh checkout the checksum moves during the first invocation and
+the second one opens by deleting the first one's output. That is what broke
+v1.12.14 and v1.12.15 in the release workflow. `pio run -e a -e b` builds both
+in one process, exits non-zero if either failed, and cannot delete its own
+output.
+
 Its rule is tested by `host-tests/gatepath/`; the wiring that acts on the rule
 is tested by `host-tests/checksh/`, including every way the rule could fail
-(missing, crashing, non-executable) without the wiring noticing.
+(missing, crashing, non-executable) without the wiring noticing, which envs
+each mode actually builds, and that they shared one invocation.
 
 ## The environment a check runs in is part of the check
 
