@@ -974,10 +974,10 @@ void KeyboardEntryActivity::render(RenderLock&&) {
     action.action = ACTION_KEY;
     action.value = KEY_HEADER_ACTION;
     action.minTouchSize = 44;
-    fui::button(frame,
-                fui::Rect{static_cast<int16_t>(pageWidth - side - 4), static_cast<int16_t>(metrics.topPadding + 4),
-                          side, side},
-                action);
+    fui::button(
+        frame,
+        fui::Rect{static_cast<int16_t>(pageWidth - side - 4), static_cast<int16_t>(metrics.topPadding + 4), side, side},
+        action);
   }
   interactions.publish();
   interactionsReady = true;

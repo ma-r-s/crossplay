@@ -508,10 +508,10 @@ void testPlausibleRejectsWhatPlayCannotProduce() {
     // doing the rejecting. That is exactly how the suite's own "floating disc"
     // board in Connect Four turned out to be testing something else.
     const int8_t kBadValues[][2] = {
-        {static_cast<int8_t>(Category::SmallStraight), 17},  {static_cast<int8_t>(Category::Yahtzee), 25},
-        {static_cast<int8_t>(Category::FullHouse), 13},      {static_cast<int8_t>(Category::LargeStraight), 7},
-        {static_cast<int8_t>(Category::Twos), 3},            {static_cast<int8_t>(Category::Sixes), 7},
-        {static_cast<int8_t>(Category::ThreeOfAKind), 2},    {static_cast<int8_t>(Category::Chance), 3},
+        {static_cast<int8_t>(Category::SmallStraight), 17}, {static_cast<int8_t>(Category::Yahtzee), 25},
+        {static_cast<int8_t>(Category::FullHouse), 13},     {static_cast<int8_t>(Category::LargeStraight), 7},
+        {static_cast<int8_t>(Category::Twos), 3},           {static_cast<int8_t>(Category::Sixes), 7},
+        {static_cast<int8_t>(Category::ThreeOfAKind), 2},   {static_cast<int8_t>(Category::Chance), 3},
     };
     for (const auto& entry : kBadValues) {
       Game bad = good;
@@ -869,9 +869,12 @@ void testTheBrainBeatsANaiveMoverConvincingly() {
     }
     const int brainScore = total(game.card[brainSeat]);
     const int naiveScore = total(game.card[1 - brainSeat]);
-    if (brainScore > naiveScore) ++brainWins;
-    else if (naiveScore > brainScore) ++naiveWins;
-    else ++ties;
+    if (brainScore > naiveScore)
+      ++brainWins;
+    else if (naiveScore > brainScore)
+      ++naiveWins;
+    else
+      ++ties;
   }
   std::printf("  brain vs naive: %d - %d (%d ties) of %d\n", brainWins, naiveWins, ties, kGames);
   // Two thirds, not "more than half". A bound a coin could pass is not a bound.

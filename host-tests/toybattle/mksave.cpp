@@ -2,6 +2,7 @@
 // LOOKED at. isWellFormed checks per-kind conservation against the SEED's own
 // shuffle, so the position is dealt from that shuffle rather than invented.
 #include <cstdio>
+
 #include "ToyBattleCore.h"
 #include "ToyBattleFlow.h"
 using namespace toybattle;
@@ -17,14 +18,19 @@ int main(int, char** argv) {
     int parent[kMaxSlots];
     for (int i = 0; i < kMaxSlots; ++i) parent[i] = -2;
     int q[kMaxSlots], head = 0, tail = 0;
-    q[tail++] = hq; parent[hq] = -1;
+    q[tail++] = hq;
+    parent[hq] = -1;
     int grave = -1;
     while (head < tail && grave < 0) {
       const int at = q[head++];
       for (int n = 0; n < b.baseCount; ++n) {
         if (parent[n] != -2 || !(b.adj[at] & (uint64_t{1} << n))) continue;
-        parent[n] = at; q[tail++] = n;
-        if (b.specialAt(n) == Special::Exhume) { grave = n; break; }
+        parent[n] = at;
+        q[tail++] = n;
+        if (b.specialAt(n) == Special::Exhume) {
+          grave = n;
+          break;
+        }
       }
     }
     int path[kMaxSlots], len = 0;
@@ -44,7 +50,10 @@ int main(int, char** argv) {
       g.placeTile[g.placementCount] = static_cast<uint8_t>((0 << 3) | static_cast<int>(drawn[i]));
       ++g.placementCount;
     }
-    for (int k = 0; k < kTroopKinds; ++k) { g.rack[0][k] = 0; g.discarded[0][k] = 0; }
+    for (int k = 0; k < kTroopKinds; ++k) {
+      g.rack[0][k] = 0;
+      g.discarded[0][k] = 0;
+    }
     ++g.discarded[0][static_cast<int>(drawn[len])];
     ++g.discarded[0][static_cast<int>(drawn[len + 1])];
     ++g.rack[0][static_cast<int>(drawn[take - 1])];
@@ -69,8 +78,8 @@ int main(int, char** argv) {
     fwrite(bytes, 1, static_cast<size_t>(n), f);
     fclose(f);
     printf("seed %u, grave slot %d, path %d long, well-formed=1\n", seed, grave, len);
-    printf("discard holds %d kinds\n", (g.discarded[0][static_cast<int>(drawn[len])] > 0) +
-                                        (drawn[len] != drawn[len + 1]));
+    printf("discard holds %d kinds\n",
+           (g.discarded[0][static_cast<int>(drawn[len])] > 0) + (drawn[len] != drawn[len + 1]));
     printf("TAPS: rack Roxy then grave at %d,%d\n", 46 + b.x[grave] * 388 / 1000, 142 + b.y[grave] * 458 / 1000);
     return 0;
   }

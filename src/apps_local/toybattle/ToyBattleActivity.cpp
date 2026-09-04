@@ -249,8 +249,7 @@ void ToyBattleActivity::gameLoop() {
 
   // The brain only plays when there is nobody on the other end. In a match the
   // opposite seat is a person, and their move arrives through the link.
-  if (!inMatch() && screen == tb::Screen::Board && game.currentPhase() == tb::Phase::Playing &&
-      game.turn != seat) {
+  if (!inMatch() && screen == tb::Screen::Board && game.currentPhase() == tb::Phase::Playing && game.turn != seat) {
     notice = nullptr;
     takeOpponentTurn();
     return;
@@ -467,13 +466,13 @@ void ToyBattleActivity::gameRender() {
     case tb::Screen::HowTo: {
       tbui::HowToModel model;
       model.page = howToPage;
-          tbui::buildHowTo(surface, model);
+      tbui::buildHowTo(surface, model);
       break;
     }
     case tb::Screen::MapPick: {
       tbui::MapPickModel model;
       model.page = mapPage;
-          tbui::buildMapPick(surface, model);
+      tbui::buildMapPick(surface, model);
       break;
     }
     case tb::Screen::Setup: {
@@ -481,7 +480,7 @@ void ToyBattleActivity::gameRender() {
       model.options = options;
       model.selected = setupSelected;
       model.forLink = options.mode == tb::Mode::Link;
-          tbui::buildSetup(surface, model);
+      tbui::buildSetup(surface, model);
       break;
     }
     case tb::Screen::Lobby:
@@ -640,8 +639,9 @@ void ToyBattleActivity::drawLinkArt(const Rect& area) {
   static toybox::Interactions scratch;
   toybox::Frame frame(target, device, noInput, scratch);
   toybox::Screen surface(frame);
-  tbui::miniBoard(surface, fui::makeRect(static_cast<int16_t>(area.x), static_cast<int16_t>(area.y),
-                                         static_cast<int16_t>(area.width), static_cast<int16_t>(area.height)),
+  tbui::miniBoard(surface,
+                  fui::makeRect(static_cast<int16_t>(area.x), static_cast<int16_t>(area.y),
+                                static_cast<int16_t>(area.width), static_cast<int16_t>(area.height)),
                   game.board(), &game, 0);
 }
 

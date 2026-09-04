@@ -54,8 +54,8 @@ int main() {
   // UTF-8 safety is by construction (every ASCII whitespace byte is < 0x80, so
   // none can appear inside a multi-byte sequence) and this is the check that
   // says so: a continuation byte must never be mistaken for whitespace.
-  eq(utf8CollapseWhitespace("Sea Salt\n& Paper \xE2\x80\x94 d\xC3\xA9j\xC3\xA0"), "Sea Salt & Paper \xE2\x80\x94 d\xC3\xA9j\xC3\xA0",
-     "multi-byte characters survive byte-for-byte");
+  eq(utf8CollapseWhitespace("Sea Salt\n& Paper \xE2\x80\x94 d\xC3\xA9j\xC3\xA0"),
+     "Sea Salt & Paper \xE2\x80\x94 d\xC3\xA9j\xC3\xA0", "multi-byte characters survive byte-for-byte");
 
   // -- the bookmark summary, which is the same text one screen over ---------
   eq(BookmarkUtil::sanitizeBookmarkSummary("call me\nIshmael"), "call me Ishmael",
