@@ -31,6 +31,7 @@
 
 #include "../../activities/Activity.h"
 #include "../ui/ToyboxScreen.h"
+#include "../ui/ToyboxWrappedText.h"
 #include "InstapaperIndex.h"
 #include "InstapaperLibrary.h"
 #include "InstapaperScreens.h"
@@ -124,6 +125,11 @@ class InstapaperActivity final : public Activity {
   // Reading.
   int64_t openId_ = 0;
   std::string document_;
+  // The article wrapped to the reader's width, kept between paints. It holds
+  // no copy of the document and re-wraps itself whenever the panel, the cut or
+  // the text stops matching what it wrapped; see ToyboxWrappedText.h for why
+  // that is probed rather than announced.
+  toybox::WrappedText wrap_;
   std::string readerTitle_;
   uint32_t topLine_ = 0;
   uint32_t lineCount_ = 0;

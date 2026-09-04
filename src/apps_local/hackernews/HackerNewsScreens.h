@@ -24,6 +24,7 @@
 #include <string>
 
 #include "../ui/ToyboxScreen.h"
+#include "../ui/ToyboxWrappedText.h"
 
 namespace hnui {
 
@@ -129,10 +130,17 @@ std::string fitLines(const fui::DrawTarget& target, const char* text, int16_t wi
 
 // --- The reader, for both an article and a thread ------------------------
 
+// The reader's body: the words, the cut they are set in, and the wrap that
+// counts AND draws them. One object rather than three arguments that must
+// agree; see the twin in InstapaperScreens.h for what disagreeing costs.
+struct ReaderBody {
+  const char* text = "";
+  fui::TextStyle style{};
+  toybox::WrappedText* wrap = nullptr;
+};
+
 struct ReaderModel {
   const char* title = "";
-  // The whole document, NUL-terminated and contiguous, as textArea wants it.
-  const char* text = "";
   uint32_t topLine = 0;
   // "3 / 12". Built by the Activity because only it knows the line count.
   const char* pageLabel = "";
@@ -157,7 +165,22 @@ struct ReaderModel {
   bool saved = false;
 };
 
-void buildReader(toybox::Screen& screen, const ReaderModel& model);
+// The body is a required argument for the same reason as Instapaper's: a
+// nullable one with a fall-back to re-wrapping the whole document is the bug
+// this removes, and it would come back the first time somebody added a call
+// site without noticing. See ToyboxWrappedText.h.
+// RETURNS THE LINE COUNT THE PANEL WAS ACTUALLY DRAWN FROM, which is not
+// necessarily the one readerLineCount() gave a moment ago: drawing is where a
+// wrap that no longer describes this panel is caught and rebuilt. Returned
+// rather than left for the caller to ask again, because the caller that
+// forgets to ask sends a reading position computed against an article this
+// screen is not showing -- and that is a wrong number on somebody's phone with
+// nothing on screen to say so. Take this value; do not keep the earlier one.
+uint32_t buildReader(toybox::Screen& screen, const ReaderModel& model, ReaderBody& body);
+
+// The document's length in lines, wrapped to the width the reader really draws
+// it at, from the same object, rect and style as the drawing.
+uint32_t readerLineCount(const fui::DrawTarget& target, const fui::DeviceContext& device, ReaderBody& body);
 
 // Where the reader's text goes. Exported for the same reason as listBand():
 // the Activity pages by counting the lines that fit in this exact rect, and a
