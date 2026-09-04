@@ -6648,18 +6648,36 @@ instapaperui::ReaderModel instaArticleModel() {
 
 // A magazine feature's worth of prose, built rather than pasted so the cost
 // can be asked at more than one length.
+//
+// Deliberately NON-REPEATING. A corpus built by rotating a handful of
+// sentences wraps periodically, and a wrap read from the WRONG offset then
+// lands on a line identical to the right one -- so a staleness test compares
+// two different answers, gets the same text back, and passes because it cannot
+// tell them apart. That happened here: the kerning test below was green
+// against a repeating corpus before this was changed.
 std::string longArticle(const size_t bytes) {
-  static const char* kLines[] = {
-      "The panel is a page of text and the reader is a person holding it still. ",
-      "Nothing about the article changes while it is being read, which is the whole opening. ",
-      "A wrap is a walk over every byte, asking the font how wide each prefix is. ",
-      "Paying for that walk once is a cost; paying for it on every page turn is a bug. ",
-      "There were three constraints and none of them said the walk had to happen twice. ",
-  };
+  static const char* kWords[] = {"the",    "panel",       "is",     "a",     "page",   "of",     "text",
+                                 "and",    "reader",      "holds",  "it",    "still",  "wrap",   "walks",
+                                 "every",  "byte",        "asking", "font",  "how",    "wide",   "each",
+                                 "prefix", "paying",      "once",   "cost",  "twice",  "bug",    "three",
+                                 "none",   "constraints", "said",   "walk",  "had",    "happen"};
   std::string doc;
+  uint32_t seed = 12345u;
   size_t i = 0;
+  char stamp[24];
   while (doc.size() < bytes) {
-    doc += kLines[i % 5];
+    // Every stretch carries its own number, then a run of words of
+    // unpredictable length, so no two parts of the document wrap alike.
+    std::snprintf(stamp, sizeof(stamp), "[%zu]", i);
+    doc += stamp;
+    seed = seed * 1103515245u + 12345u;
+    const int run = 4 + static_cast<int>((seed >> 16) % 11);
+    for (int w = 0; w < run; ++w) {
+      seed = seed * 1103515245u + 12345u;
+      doc += ' ';
+      doc += kWords[(seed >> 16) % 34];
+    }
+    doc += ' ';
     if (++i % 6 == 0) doc += '\n';
   }
   return doc;
@@ -6922,8 +6940,15 @@ void testAnotherArticleOfTheSameLengthIsNotDrawnFromTheFirstsWrap() {
 void testAKernPairTheKeyCannotSeeIsCaughtByTheWindow() {
   // "zqx" never appears in the probe run, which is the document's alphabet in
   // code-point order, so widening it moves the wrap and not the key.
-  std::string doc;
-  while (doc.size() < 24u * 1024u) doc += "the zqx of it and the zqx of that and a longer stretch of plain words ";
+  // Real prose with the pair sprinkled through it, so a window read from the
+  // wrong offset shows visibly different words rather than the same sentence
+  // one repeat over.
+  std::string doc = longArticle(24u * 1024u);
+  for (size_t at = 40; at + 3 < doc.size(); at += 97) {
+    doc[at] = 'z';
+    doc[at + 1] = 'q';
+    doc[at + 2] = 'x';
+  }
   const fui::TextStyle style = toybox::themeTokens().bodyText;
   const fui::Rect body = instapaperui::readerBody(device());
 
