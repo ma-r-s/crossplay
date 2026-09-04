@@ -7176,6 +7176,22 @@ void testABreakThatMovesWithoutChangingTheCountIsStillCaught() {
                 static_cast<unsigned>(firstWrong));
   }
 
+  // And the same page reached COLD, with no earlier page drawn first.
+  //
+  // The sweep above starts at line 0, and drawing that page walks through the
+  // first bad checkpoint and rebuilds -- so by the time it reaches the page
+  // that matters, the index has already been repaired and the test passes
+  // whatever the window does about its own starting byte. A reader reopening
+  // an article does not read from line 0: topLineFor() drops them straight
+  // onto their saved position, which is the case where the window's first
+  // checkpoint has never been walked into and is simply believed.
+  FakeTarget cold;
+  toybox::WrappedText coldWrap;
+  coldWrap.lineCount(cold, body.width, doc.c_str(), style);
+  cold.kerns = cut;
+  CHECK(linesFromWrap(cold, coldWrap, body, doc.c_str(), style, 16) ==
+        linesFromWrap(truth, fresh, body, doc.c_str(), style, 16));
+
   // And nothing has gone missing from between the pages.
   std::string want;
   for (const char c : doc) {
