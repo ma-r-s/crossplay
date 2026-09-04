@@ -77,6 +77,7 @@ expect "worker to orchestrator allowed"         0 pretool "{\"session_id\":\"$WO
 expect "worker to orchestrator with ref allowed" 0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"SendMessage\",\"tool_input\":{\"to\":\"Main [1a2b3c]\",\"message\":\"blocked\"}}"
 expect "worker to a peer refused"               2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"SendMessage\",\"tool_input\":{\"to\":\"xteink-ff\",\"message\":\"who owns 1.12.5\"}}"
 expect "worker to a peer via the app refused"   2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"mcp__ccd_session_mgmt__send_message\",\"tool_input\":{\"session_id\":\"local_dddd-peer\",\"message\":\"hi\"}}"
+expect "worker to its own subagent allowed"        0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"SendMessage\",\"tool_input\":{\"to\":\"aaab5d61709dbe8a4\",\"message\":\"apply the review\"}}"
 expect "worker to the orchestrator's app id, unregistered, refused" 2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"mcp__ccd_session_mgmt__send_message\",\"tool_input\":{\"session_id\":\"local_bbbb-app\",\"message\":\"hi\"}}"
 board orchestrator --name Main --session "$ORCH" --app-id local_bbbb-app >/dev/null
 expect "worker to the orchestrator's app id, registered, allowed" 0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"mcp__ccd_session_mgmt__send_message\",\"tool_input\":{\"session_id\":\"local_bbbb-app\",\"message\":\"hi\"}}"

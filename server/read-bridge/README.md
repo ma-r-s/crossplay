@@ -52,6 +52,7 @@ uv venv .venv && uv pip install --python .venv/bin/python -r requirements.txt
 .venv/bin/python tests/test_article.py   # HTML -> flat text, rule by rule
 .venv/bin/python tests/test_engine.py    # the three silent-failure rules
 .venv/bin/python tests/test_api.py       # the whole surface, end to end
+.venv/bin/python tests/test_events.py    # the board poster, HTTP stubbed
 ```
 
 `tests/fake_instapaper.py` stands in for the real API and **verifies OAuth
@@ -110,12 +111,40 @@ ssh orange 'cd /srv/readbridge && docker compose logs -f'       # sync activity
 ssh orange 'cd /srv/readbridge && docker compose stop cloudflared'  # kill switch
 ```
 
+## Events
+
+Every finished sync posts one event to the board (`docs/workflow/events.md`):
+`instapaper`/`sync` with `{articles, seconds}` under a salted hash of the
+account id, or the same event at level `error` with `{message}` when the job
+was refused or died. `bridge/events.py` sends from its own thread with a 3 s
+timeout and drops the event after one log line if the board does not take
+it, so a board outage cannot slow or fail a sync (`tests/test_api.py` proves
+both). The module is a byte-identical twin of `study-bridge/bridge/events.py`;
+`tests/test_events.py` fails if the two drift.
+
+Where to post comes from two more `.env` keys, both optional:
+
+```sh
+SUPABASE_URL=https://<project>.supabase.co
+SUPABASE_ANON_KEY=<the public anon key, the one that can only insert>
+```
+
+They are the URL and ANON key from `<workspace>/.board/supabase.env` (never
+the service role key). With either missing the service runs exactly as
+before and logs `events are off` once at startup. To turn them on: append
+the two lines to `/srv/readbridge/.env` on the pi, ship this code with
+`./scripts/deploy.sh` (once it is running there, a bare `ssh orange 'cd
+/srv/readbridge && docker compose up -d'` is enough, because an `.env`
+change is a recreate and not a rebuild), then check for `events on` in
+`docker compose logs readbridge`.
+
 ## Secrets
 
 `.env` lives on the pi only, at `/srv/readbridge/.env`, mode 600, never in
 git, never rsync'd in either direction (`deploy.sh` excludes it). Keys:
 `READ_FERNET_KEY`, `READ_ALLOWLIST`, `READ_CONSUMER_KEY`,
-`READ_CONSUMER_SECRET`, `CLOUDFLARE_TUNNEL_TOKEN`.
+`READ_CONSUMER_SECRET`, `CLOUDFLARE_TUNNEL_TOKEN`, and the optional
+`SUPABASE_URL` / `SUPABASE_ANON_KEY` pair above.
 
 Generate the Fernet key **on the pi** so it never lands in a transcript:
 

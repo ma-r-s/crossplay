@@ -71,6 +71,13 @@ so it is never copied up and never overwritten.
     ENV
     ssh orange 'chmod 600 /srv/readbridge/.env && ls -l /srv/readbridge/.env'
 
+Optional, for the board's numbers (`docs/workflow/events.md`; the values are
+the URL and ANON key in `<workspace>/.board/supabase.env`, never the service
+role key). Without both, the service posts nothing and logs so once:
+
+    SUPABASE_URL=https://<project>.supabase.co
+    SUPABASE_ANON_KEY=<the public anon key>
+
 `READ_FERNET_KEY` is generated ON the pi and never leaves it:
 
     ssh orange "docker run --rm python:3.13-slim sh -c \
