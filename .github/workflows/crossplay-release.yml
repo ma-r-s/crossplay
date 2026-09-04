@@ -169,11 +169,18 @@ jobs:
           # have listed 1,319 commits, most of them CrossPoint's, as "what is
           # new in CrossPlay". A release note is a thing you write.
           generate_release_notes: false
-          # The body lives in docs/release-notes.md, not here. The autorelease bumps
+          # The body lives in docs/release-body.md, not here. The autorelease bumps
           # the version and rewrites the 'What is new' block there; a commit that
           # touched this workflow file would need a token with workflows write, and
           # the default token has none: v1.12.14 was refused exactly that way.
-          body_path: docs/release-notes.md
+          #
+          # THIS RELEASE ONLY. docs/release-notes.md is the history and is not
+          # published: while the two were one file, every release page carried
+          # every earlier release -- v1.12.21's was 20,402 characters and opened
+          # with a standing catalogue, then said what was new in 1.12.21, then
+          # what WAS new in 1.12.12, 1.12.11, 1.12.10, 1.12.9, 1.12.8 and
+          # 1.12.7. The body links to the history instead.
+          body_path: docs/release-body.md
       # One event per published release, so the Numbers page can line up
       # downloads and device versions against release times. The address and the
       # public key are repository variables; missing ones skip the step.

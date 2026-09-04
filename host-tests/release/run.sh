@@ -754,8 +754,37 @@ else
   # file-wide version of this with a one-line YAML comment -- `# TODO: What is
   # new in 1.6.4 -- write the notes` satisfied the gate while every bullet
   # below it stayed the previous release's.
-  NOTES_FILE="$ROOT/docs/release-notes.md"
+  # docs/release-BODY.md, which is what body_path publishes. docs/release-notes.md
+  # is the history and is deliberately not this file: they were one until
+  # 2026-09-04, and every release page carried every earlier release.
+  NOTES_FILE="$ROOT/docs/release-body.md"
   NOTES_BODY="$(cat "$NOTES_FILE" 2>/dev/null)"
+  # The workflow must publish the body, not the history. A body_path pointing
+  # back at docs/release-notes.md would restore the 20,402-character page and
+  # every check below would still pass, because the history's newest block does
+  # name the version being released.
+  if grep -qE '^ *body_path: *docs/release-body\.md *$' "$WF"; then
+    ok
+  else
+    bad "$(basename "$WF") does not publish docs/release-body.md; if it publishes the history, every release page carries every earlier release"
+  fi
+  # And the body carries THIS release only. One "What is new in" heading, and
+  # no `### <version>` heading of the kind the history uses.
+  HEADS="$(printf '%s' "$NOTES_BODY" | grep -cE '^### What is new in ' || true)"
+  OLDHEADS="$(printf '%s' "$NOTES_BODY" | grep -cE '^### (What (WAS|was) new in|[0-9]+\.[0-9]+\.[0-9]+ *$)' || true)"
+  if [ "$HEADS" = "1" ] && [ "$OLDHEADS" = "0" ]; then
+    ok
+  else
+    bad "docs/release-body.md carries $HEADS 'What is new' heading(s) and $OLDHEADS past-release heading(s); a release page says what changed in THAT release"
+  fi
+  # The history has to exist, and has to hold what the body no longer does.
+  if [ -f "$ROOT/docs/release-notes.md" ] &&
+     grep -q '<!-- releases, newest first -->' "$ROOT/docs/release-notes.md" &&
+     [ "$(grep -cE '^### [0-9]+\.[0-9]+\.[0-9]+ *$' "$ROOT/docs/release-notes.md")" -ge 2 ]; then
+    ok
+  else
+    bad "docs/release-notes.md is not a history with an insertion marker and at least two releases in it; the body links to it and the link would go nowhere useful"
+  fi
   # Escaped dots AND a boundary. Two attempts got this wrong: an unanchored grep
   # treats . as a wildcard, and a "not followed by a dot" guard still passed
   # "1.6.31" because what follows 1.6.3 there is a digit. The version must be the
@@ -783,7 +812,8 @@ else
     grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | grep -vx "v$NOTES_VERSION" | head -1)"
   if [ -z "$PREV_TAG" ]; then
     skip "no previous tag to compare the notes against"
-  elif ! git -C "$ROOT" cat-file -e "$PREV_TAG:docs/release-notes.md" 2>/dev/null &&
+  elif ! git -C "$ROOT" cat-file -e "$PREV_TAG:docs/release-body.md" 2>/dev/null &&
+       ! git -C "$ROOT" cat-file -e "$PREV_TAG:docs/release-notes.md" 2>/dev/null &&
        ! git -C "$ROOT" cat-file -e "$PREV_TAG:.github/workflows/crossplay-release.yml" 2>/dev/null; then
     skip "$PREV_TAG has no release notes to compare against"
   else
@@ -791,8 +821,12 @@ else
     # blank line pass a body that was otherwise the previous release's word for
     # word -- which is the same mistake with one keystroke of camouflage.
     norm() { grep -v 'What is new in' | tr -s '[:space:]' ' ' | sed 's/^ //; s/ $//'; }
-    # Tags before the move kept the body inside the workflow; read whichever exists.
-    if git -C "$ROOT" cat-file -e "$PREV_TAG:docs/release-notes.md" 2>/dev/null; then
+    # The body has lived in three places: inside the workflow, then
+    # docs/release-notes.md, then docs/release-body.md. Read whichever the
+    # previous tag had.
+    if git -C "$ROOT" cat-file -e "$PREV_TAG:docs/release-body.md" 2>/dev/null; then
+      PREV_BODY="$(git -C "$ROOT" show "$PREV_TAG:docs/release-body.md" | norm)"
+    elif git -C "$ROOT" cat-file -e "$PREV_TAG:docs/release-notes.md" 2>/dev/null; then
       PREV_BODY="$(git -C "$ROOT" show "$PREV_TAG:docs/release-notes.md" | norm)"
     else
       PREV_BODY="$(git -C "$ROOT" show "$PREV_TAG:.github/workflows/crossplay-release.yml" |

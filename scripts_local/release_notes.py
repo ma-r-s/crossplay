@@ -1,35 +1,55 @@
 #!/usr/bin/env python3
-"""Write the next release's notes and version, from what merged since the last tag.
+"""Write the next release: its version, the page it publishes, and the history.
 
 Run by .github/workflows/crossplay-autorelease.yml after every green CI run on
 xteink, and by hand for a look:
 
     scripts_local/release_notes.py --dry-run           # print what it would do
-    scripts_local/release_notes.py --write             # bump platformio.ini and the notes
+    scripts_local/release_notes.py --write             # bump and write both files
 
 It reads the merges on the first-parent line since the newest v* tag, asks
 GitHub for each merge's pull request, takes the pull request's "What is new"
-line(s), and falls back to the merge's own subject. The notes replace the
-`### What is new in <version>` block in docs/release-notes.md, which is
-where host-tests/release insists they live, and `[crossplay] version` in
+line(s), and falls back to the merge's own subject. `[crossplay] version` in
 platformio.ini goes up one patch (one minor if any merged pull request carries
-the `release:minor` label).
+the `release:minor` label), and TWO files are written:
 
-Only landings that can change a byte a device runs become notes. v1.12.17
-listed all seven merges since the previous tag, and four of them -- a board
-watcher, a server-side bridge and two release-pipeline fixes -- cannot alter a
-byte a device runs. Mario got the update prompt on his device, read this file's
-output for that version, and asked why a release had happened at all. The one
-line that did reach the firmware, an upstream sync, named the operation and not
-one thing it changed. Both halves are fixed here: reaches_device() asks the one
-rule that already knows (scripts_local/device-build-needed.sh), and a sync's
-body is read for the upstream subjects its title hides.
+    docs/release-body.md    the page this release publishes. Its
+                            `### What is new in <version>` block is replaced;
+                            everything else in it (how to install, which file
+                            to download) is left exactly as written.
+    docs/release-notes.md   the history. The same block is PREPENDED, so every
+                            release is kept and no release page carries anybody
+                            else's.
+
+That split is the fix for a body of 20,402 characters. docs/release-notes.md
+was both the page and the archive, so v1.12.21's release page opened with a
+standing catalogue of nineteen games, said what was new in 1.12.21, and then
+said what WAS new in 1.12.12, 1.12.11, 1.12.10, 1.12.9, 1.12.8 and 1.12.7.
+Every release page carried the entire history. A release page says what changed
+in THAT release and links to the rest.
+
+Only landings a person could receive anything different from become notes.
+v1.12.17 listed all seven merges since the previous tag, and four of them -- a
+board watcher, a server-side bridge and two release-pipeline fixes -- change
+nothing anybody receives. Mario got the update prompt on his device, read this
+file's output for that version, and asked why a release had happened at all.
+The one line that did reach the firmware, an upstream sync, named the operation
+and not one thing it changed. Both halves are fixed here: reaches_a_user() asks
+the one table that already classifies paths
+(scripts_local/device-build-needed.sh --ships), and a sync's body is read for
+the upstream subjects its title hides.
+
+The excluded landings are named on stdout, where the autorelease log keeps
+them, and NOT in the published body. They used to be a bullet -- "Plus 4
+changes nothing on the device can see." -- which is itself a line a player
+cannot act on, on a page written for players. The reader who needs to know why
+the notes and the merge log differ is a developer reading the job log.
 
 WHERE THIS TEXT IS READ, checked rather than assumed: the GitHub release page
-only (crossplay-release.yml passes it as body_path). The device shows two
-version numbers and nothing else -- ReleaseJsonParser.cpp parses tag_name, the
-asset name, its url and its size, and OtaUpdateActivity.cpp draws
-STR_CURRENT_VERSION and STR_NEW_VERSION. So the prompt a device raises is
+only (crossplay-release.yml passes docs/release-body.md as body_path). The
+device shows two version numbers and nothing else -- ReleaseJsonParser.cpp
+parses tag_name, the asset name, its url and its size, and OtaUpdateActivity.cpp
+draws STR_CURRENT_VERSION and STR_NEW_VERSION. So the prompt a device raises is
 "there is a release", and this file answers "and here is what is in it"
 somewhere else. That is still the sentence being fixed; it is just not on the
 panel, and a check written as though it were would be measuring nothing.
@@ -79,8 +99,9 @@ VERSION_BUMP = re.compile(r"^bump version\b|^v?\d+\.\d+\.\d+\s*$", re.I)
 # rather than one of ours, so the dash becomes a comma on the way through.
 DASH = re.compile(r"\s+[\u2013\u2014]\s+")
 
-# The one definition of "can this reach a device image" in this repository.
-# ASKED, never restated: see reaches_device().
+# The one classification table in this repository: every path prefix with two
+# independent attributes, `builds` and `ships`. This file reads the `ships`
+# column. ASKED, never restated: see reaches_a_user().
 RULE = pathlib.Path(__file__).resolve().parent / "device-build-needed.sh"
 
 
@@ -169,38 +190,36 @@ def what_is_new(pr):
     return found or None
 
 
-def reaches_device(repo, sha):
-    """Can what this landing brought in change a byte a device runs?
+def reaches_a_user(repo, sha):
+    """Could a person receive anything different because of this landing?
 
     v1.12.17 announced seven changes. Four of them -- a board watcher, a
-    server-side bridge and two release-pipeline fixes -- cannot alter a byte a
-    device runs, and they were the lines a reader met first. The release itself
+    server-side bridge and two release-pipeline fixes -- change nothing anybody
+    receives, and they were the lines a reader met first. The release itself
     was right: an upstream sync moved the SDK, the SD font loader and about
     thirty translations. Only the notes were wrong.
 
-    The question is the one scripts_local/device-build-needed.sh already
-    answers for the build gate and for release-needed.sh, and it is ASKED here
-    rather than restated. Its path allowlist is the only definition of "reaches
-    a device image" in this repository, and a second copy of it in Python would
-    drift the first time somebody adds a top-level directory -- silently, since
-    the only symptom would be notes that quietly stopped mentioning something.
+    The question is one column of the table in
+    scripts_local/device-build-needed.sh, and it is ASKED here rather than
+    restated. Two questions read that table -- "does a device build need to
+    run" and "could a person notice" -- and for one day they shared a single
+    predicate whose unknown-path default was right for the first and wrong for
+    the second. That is what cut v1.12.21 for a `.gitignore` edit. A second
+    copy of the rule in Python would drift the first time somebody adds a
+    top-level directory, silently, since the only symptom would be notes that
+    quietly stopped mentioning something.
 
     `sha^1..sha` is the mainline parent against the merge, which is exactly
     what the landing added to xteink. --range diffs from the merge base, and
     the merge base of a merge and its own first parent is that parent, so this
     is the same range either way.
 
-    Fail-safe is INCLUDE, the direction the script itself fails in: exit 1 is
-    its only "no", and everything else -- an unreadable range, a missing
-    script, a crash -- means the bullet is printed. A bullet shown needlessly
-    is noise; a bullet hidden wrongly is the bug this function exists to fix.
-
-    NOTE the rule is deliberately conservative for the build, and inherits that
-    here. scripts_local/ is on its live side because two files there are `pre:`
-    extra_scripts that run inside every device build, so a hooks change lands a
-    note it does not really need. That over-reports by one line rather than
-    under-reporting, and narrowing it here would be the second definition this
-    whole function exists to avoid.
+    Fail-safe is INCLUDE, in every direction the script can fail: exit 1 is its
+    only "no". Exit 2 is its refusal -- a changed path is in no row of the
+    table -- and everything else is an unreadable range, a missing script or a
+    crash. All of them print the bullet, and the refusal prints why. A bullet
+    shown needlessly is noise; a bullet hidden wrongly is the bug this function
+    exists to fix.
     """
     if not RULE.exists():
         return True
@@ -213,11 +232,17 @@ def reaches_device(repo, sha):
     if parent.returncode != 0:
         return True
     r = subprocess.run(
-        ["bash", str(RULE), "--range", f"{sha}^1..{sha}", "--quiet"],
+        ["bash", str(RULE), "--range", f"{sha}^1..{sha}", "--ships", "--quiet"],
         cwd=repo,
         capture_output=True,
         text=True,
     )
+    if r.returncode not in (0, 1):
+        # The refusal, and it must not be swallowed. The bullet goes in either
+        # way; what would be lost without this is the only signal that a path
+        # nobody has classified just went past.
+        print(f"  (unclassified path in {sha[:9]}; listing it) {r.stderr.strip()[:300]}")
+        return True
     return r.returncode != 1
 
 
@@ -299,7 +324,7 @@ def current_version(ini_text):
 
 
 def rewrite_notes(text, version, bullets):
-    """Replace the `### What is new in X` block (to the next ### or the end) in docs/release-notes.md."""
+    """Replace the `### What is new in X` block (to the next ### or the end) in the published body."""
     lines = text.splitlines(keepends=True)
     start = next(
         (i for i, l in enumerate(lines) if re.match(r"^\s*### What is new in ", l)),
@@ -307,7 +332,7 @@ def rewrite_notes(text, version, bullets):
     )
     if start is None:
         raise SystemExit(
-            "release_notes: docs/release-notes.md has no '### What is new in' heading"
+            "release_notes: docs/release-body.md has no '### What is new in' heading"
         )
     indent = re.match(r"^(\s*)", lines[start]).group(1)
     end = start + 1
@@ -324,6 +349,44 @@ def rewrite_notes(text, version, bullets):
     return "".join(lines[:start] + block + lines[end:])
 
 
+# The history file's entries begin here. Everything above the marker is the
+# file's own preamble and is never touched; everything below is one `### X.Y.Z`
+# block per release, newest first.
+HISTORY_MARKER = "<!-- releases, newest first -->"
+
+
+def prepend_history(text, version, bullets):
+    """Put this release at the top of the history, keeping every earlier one.
+
+    The old shape had one file being both the published page and the archive,
+    which is why a release page carried six previous releases. Here the archive
+    only ever grows, and nothing reads it at publish time.
+
+    Idempotent on the version: re-running --write for a version already at the
+    top replaces that block rather than stacking a second copy. The autorelease
+    commits and tags in one go so this should not happen, but a hand re-run
+    after a failed push is the obvious way it would, and a doubled entry is
+    silent.
+    """
+    if HISTORY_MARKER not in text:
+        raise SystemExit(
+            f"release_notes: docs/release-notes.md has no {HISTORY_MARKER!r} line; "
+            "the history has no place to insert at"
+        )
+    head, _, rest = text.partition(HISTORY_MARKER)
+    lines = rest.splitlines(keepends=True)
+    # Drop an existing block for this exact version, wherever it sits.
+    out, skipping = [], False
+    for line in lines:
+        if re.match(r"^###\s", line):
+            skipping = line.strip() == f"### {version}"
+        if not skipping:
+            out.append(line)
+    body = "".join(out).lstrip("\n")
+    block = f"### {version}\n\n" + "".join(f"- {b}\n" for b in bullets) + "\n"
+    return head + HISTORY_MARKER + "\n\n" + block + body
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--repo-dir", default=".")
@@ -335,7 +398,8 @@ def main():
     a = ap.parse_args()
     repo = pathlib.Path(a.repo_dir).resolve()
     ini = repo / "platformio.ini"
-    notes = repo / "docs" / "release-notes.md"
+    body = repo / "docs" / "release-body.md"
+    history = repo / "docs" / "release-notes.md"
 
     tag = last_tag(repo, a.last_tag)
     merges = merges_since(repo, tag)
@@ -362,7 +426,7 @@ def main():
         else:
             title = branch_subject(repo, sha) or subject
             lines = [humanize(title)]
-        (kept if reaches_device(repo, sha) else dropped).append(
+        (kept if reaches_a_user(repo, sha) else dropped).append(
             (humanize(title), lines)
         )
 
@@ -372,33 +436,31 @@ def main():
 
     bullets = dedupe([b for _, lines in kept for b in lines])
     if not bullets:
-        # Nothing merged since the tag reaches a device image. The automatic
-        # path cannot get here -- release-needed.sh gates the release on
-        # exactly this question -- but a release cut by hand can, and a
-        # "What is new" heading with no bullets under it is worse than a noisy
-        # one: it reads as a broken generator and tells nobody anything. So the
-        # filter stands down and every line goes in, as before this change.
-        print("nothing since the tag reaches a device image: listing every merge")
+        # Nothing merged since the tag reaches a user. The automatic path
+        # cannot get here -- release-needed.sh gates the release on exactly
+        # this question -- but a release cut by hand can, and a "What is new"
+        # heading with no bullets under it is worse than a noisy one: it reads
+        # as a broken generator and tells nobody anything. So the filter stands
+        # down and every line goes in.
+        print("nothing since the tag reaches a user: listing every merge")
         bullets = dedupe([b for _, lines in kept + dropped for b in lines])
         dropped = []
-    elif dropped:
-        # The excluded ones do not vanish: one line with a count, no titles.
-        # Somebody comparing the notes against the merge log needs to see that
-        # the difference is deliberate, and a reader on the device needs one
-        # short line rather than four they cannot act on. The titles go to
-        # stdout below, where the autorelease log keeps them.
-        n = len(dropped)
-        bullets.append(
-            f"Plus {n} change{'' if n == 1 else 's'} nothing on the device can see."
-        )
 
     cur = current_version(ini.read_text())
     nxt = bump(cur, minor)
     print(f"last tag {tag}, {len(merges)} merge(s), {cur} -> {nxt}")
     for b in bullets:
         print(f"  - {b}")
+    # The excluded landings, by name, HERE and not in the published body. They
+    # were a bullet once -- "Plus 4 changes nothing on the device can see." --
+    # which is a line a player cannot act on, printed on a page written for
+    # players. The reader who needs to know why the notes and the merge log
+    # differ is a developer, and this is the autorelease job log they read.
     for title, _ in dropped:
-        print(f"  (not a note, reaches no device image) {title}")
+        print(f"  (not a note, reaches no user) {title}")
+    if dropped:
+        n = len(dropped)
+        print(f"{n} landing{'' if n == 1 else 's'} excluded from the notes, named above.")
     print(f"NEXT_VERSION={nxt}")
     if a.write:
         ini.write_text(
@@ -410,7 +472,8 @@ def main():
                 flags=re.M,
             )
         )
-        notes.write_text(rewrite_notes(notes.read_text(), nxt, bullets))
+        body.write_text(rewrite_notes(body.read_text(), nxt, bullets))
+        history.write_text(prepend_history(history.read_text(), nxt, bullets))
         print("written")
 
 
