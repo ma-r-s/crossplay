@@ -295,7 +295,12 @@ python3 tools_local/trivia/test_pack.py .rate/out/pack.jsonl
 # 4. What a cold player could exploit without knowing anything.
 python3 tools_local/trivia/audit_options.py .rate/out/pack.jsonl
 
-# 5. On the card, beside the .state file the build wrote next to it.
+# 5. The one difficulty check the ratings cannot satisfy by construction.
+#    Reads the run's own output; see "The levels against a blind panel" below
+#    before treating a low number as a blocker.
+python3 tools_local/trivia/panel_score.py .rate/enriched.jsonl
+
+# 6. On the card, beside the .state file the build wrote next to it.
 cp .rate/out/pack.dat  <sd>/trivia/pack.dat
 cp .rate/out/pack.state <sd>/trivia/pack.state
 ```
@@ -304,6 +309,81 @@ cp .rate/out/pack.state <sd>/trivia/pack.state
 and addressed by index, so a state file left over from a different pack marks
 the wrong questions seen. `assemble_pack.py --dat` writes a fresh zeroed one
 beside the pack every time; copy both or neither.
+
+**A device crossing this rebuild over the air cannot do that**, because the
+download replaces `pack.dat` and never fetches a state file. It relies on the
+firmware noticing that the state file's length no longer matches the pack's
+count, and until 2026-09-04 that check only caught a state file that was too
+SHORT. An assembled pack is SMALLER than the 50,000 it replaces, so the state
+file left behind is too LONG, which was the case the check could not see.
+
+**Until 2026-09-04 the finished pack would have missed by a handful, not by
+thousands**, which was the worst version of it. The run's worklist is
+`rest40383.ids` plus the 9,617 already rated, i.e. the whole 50,000 corpus, so
+the only questions it dropped were the ones `assemble_pack.py` rejects as
+unanswerable -- 9 of the first 25,875. A pack of roughly 49,98x against a
+50,000-byte state file is a misalignment nothing on screen can show and nobody
+would think to look for.
+
+**Dropping US-centric questions made that gap loud rather than subtle**, and
+did not make it go away. They are 22.7% of the rated rows, so the finished pack
+lands near 38,600 rather than 49,98x, and a stale 50,000-entry state file now
+misses by more than eleven thousand. That is easier for the length check to
+catch, not harder -- but the check is still the only thing catching it, and a
+device on older firmware is in exactly the same trouble it was before, just
+further out of alignment.
+
+Fixed at `PackState::open` and `TriviaActivity::ensureState`; a device on
+firmware older than that will reuse stale `FLAGGED` bytes against the new record
+order and hide arbitrary questions from every draw.
+
+### The levels against a blind panel
+
+`difficulty_panel.tsv` is 50 pairs that three blind judges unanimously called
+(easier, harder), frozen. It is the only difficulty check here that a wrong
+rating can fail: everything else -- a stocked tier, monotone means, a wide 1-to-5
+gap -- is computed from `r`, and `d` is CUT from `r`, so those are arithmetic.
+Shuffle the ratings across questions and they all still pass; the panel drops to
+34%.
+
+| ratings | panel agreement |
+| --- | --- |
+| the cloud judge's, which the pairs were sampled from | 50/50 = 100% |
+| the LOCAL run, which builds the shipping pack | 35/50 = 70% |
+| the local run, raw `r`, thresholds removed | 38/50 = 76% |
+| the local run, shuffled across questions | 17/50 = 34% |
+
+That second row was 36/50 until the levels were recalibrated for the
+international-only pack on 2026-09-04. Measured on one snapshot with only the
+thresholds changed, the old floors score 36/50 with 5 tied pairs and the new
+ones 35/50 with **10** tied pairs; raw `r` is 38/50 either way, so all of it is
+the cut and none of it is the rater. The doubling is the more interesting half:
+level 5 has to span r 0-4 to be populated at all once the US-centric questions
+are gone, and a band that wide stops separating pairs the old cut told apart at
+the hard end. That is the price of the recalibration, and it is paid where the
+pack has least data. No candidate that kept the hard end sharper also passed
+the difficulty-spread check on every view of the run -- see "Recalibrating the
+thresholds" -- so this is a trade that was forced, not chosen. Worth revisiting
+against a fresh panel when the run finishes.
+
+**Do not read that first row as quality, and do not read the second as a
+verdict on the local rater.** Candidates were sampled as level 1 against level 5
+*as the cloud file cut them*, so that file is being scored on its own extremes
+and every other rater on somebody else's. No threshold here transfers.
+
+The cloud file is also the noisy one, which is the finding that put PR #19 on
+hold: **9,597 of its 9,617 rows are single-judge** (only the 20 anchors carry
+more), a fresh judge agrees with it at +0.58 / +0.64, and two fresh judges agree
+with **each other** at +0.92 / +0.895. The two files agree with each other at
+Spearman +0.34 on the 9,597 questions both cover, and their scales differ --
+`local/local_difficulty_intl.tsv` says so in its own header -- so their means are
+not comparable either.
+
+What survives is 50 blind pairwise verdicts, re-scorable against any future
+rater, and the shape of a check that a wrong rating can fail. **To use it as a
+bar, draw a fresh panel from the shipping rater's own extremes.** Until then
+`panel_score.py` prints numbers and no verdict, exits 0, and is not in
+`check.sh`.
 
 ### Four rules in that tool, each of which fails silently when undone
 
@@ -372,6 +452,13 @@ floors `(9, 7, 5, 3)` to `(9, 8, 7, 5)`:
 Bands are narrow at the easy end and wide at the hard end because that is where
 the international mass sits. Level 1 still means "9 or 10 groups in 10 get it"
 and level 5 still means "at most 4 do"; the numbers are absolute, not quantiles.
+
+**The wide bottom band has a measured cost**, recorded rather than buried: it
+separates fewer of the blind panel's hard pairs than the old cut did, doubling
+the tied pairs from 5 to 10. No candidate that kept the hard end sharper also
+passed the spread check on every view, so the trade was forced. See "The levels
+against a blind panel" below, and revisit it against a fresh panel drawn from
+this rater once the run finishes.
 
 **These constants are provisional.** They were chosen at 25,977 rated rows of a
 run that will finish near 50,000, so re-derive them when it does -- one command,

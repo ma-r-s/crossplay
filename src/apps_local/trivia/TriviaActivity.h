@@ -1,6 +1,11 @@
 #pragma once
 
-// TRIVIA: 50,000 questions on the card, two ways to play them.
+// TRIVIA: a pack of questions on the card, two ways to play them.
+//
+// No count here on purpose. The shipped pack is 50,000 clues levelled by
+// Jeopardy's dollar value; assemble_pack.py builds one holding whatever a
+// rating run has reached, so the figure changes on every build and the front
+// door reads it off the card. See docs/apps/trivia.md.
 //
 // The activity is the thin layer: it owns the pack files, the round and the
 // input. The format and the round logic are in TriviaCore.h (freestanding) and
