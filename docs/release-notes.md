@@ -12,31 +12,31 @@ Knucklebones, Battleship, Jaipur, Sea Salt and Toy Battle. Two
 devices next to each other find one another with nothing to type --
 and they do not have to be the same device.
 
-### What is new in 1.12.13
+### What is new in 1.12.14
 
-**The box around the books icon is gone.** 1.12.12 gave real buttons
-an outline so they would look like buttons, and that outline reached
-one icon that is not a button.
-
-**BACK works while a book cover is loading**, once the connection is
-made. The cover was fetched in a way that read no input at all, so
-the screen could not be left. A cover left over from a previously
-opened book could also be shown for the wrong one; that is fixed.
-
-**INSTAPAPER works now, from the device, with nothing to set up
-first.** Open it, press SYNC, and the screen tells you where to sign
-in and shows a code to scan. It could not work before: the address on
-that screen pointed at a host that did not exist, and could never
-have existed -- it was one level too deep for the certificate the
-domain carries, so it would have failed even once created. The
-service is live at the corrected address.
-
-**GET BOOKS says when a download finished.** It shows SAVED, the
-filename actually written to the card, and which folder it went to.
-Before, a finished download looked exactly like one that gave up:
-the screen simply vanished. The message waits for five seconds you
-could actually have seen it -- the clock does not start until the
-page has drawn, and stops while a finger is on the glass.
+- Release: the notes live in docs/release-notes.md, so the bump touches no workflow file
+- Reading: wrap an article once, not on every page turn
+- Autorelease: an emulator rebuild does not count as the tip moving
+- Finish the upstream sync: adopt upstream's margin API, merge the SDK fork with Free-Ink main
+- The black header band reaches the panel's top row
+- Instapaper: parse the article list the API actually sends
+- Ci: xteink queues its runs instead of cancelling them, so releases fire
+- The device never makes a request of its own to report
+- Guard: a write verb counts only as a command word, outside quotes
+- The Anki and Instapaper sign-in pages look like CrossPlay, and say what to do
+- The upstream sync carries the FreeInk SDK and tells the board when it stops
+- Inbox: a desktop layout from 900px, and a fixture to look at it without a passphrase
+- Autorelease: a merge that cannot reach a device is not a release
+- Board: a re-registration keeps the claim's app id
+- Site: the report box is a dialog behind a corner button, not a page
+- Devices report on the requests they already make; services post the events
+- Heartbeat: the device makes no request of its own for reporting
+- The pulse runs on the board, not on GitHub's cron
+- Board: a nightly check opens a card if no device heartbeat ever arrives
+- Daily heartbeat and crash report to the board (cards 18, 103)
+- Assemble the Sticky Playground submission
+- A plural and an -ism are the same option twice
+- Wt.sh prune drops every merged, clean, idle tree at once
 
 ### What WAS new in 1.12.12
 
