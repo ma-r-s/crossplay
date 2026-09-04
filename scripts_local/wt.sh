@@ -4,6 +4,7 @@
 #   ./scripts/wt.sh new <name> [--from <branch>]   # make one
 #   ./scripts/wt.sh list                           # what exists, and what state
 #   ./scripts/wt.sh drop <name>                    # remove it once merged
+#   ./scripts/wt.sh prune [--dry-run]              # drop every tree that is merged and clean
 #
 # Why this exists: everything used to happen in firmware-next/. Several apps
 # were built at once, so that one tree held four efforts' uncommitted work at
@@ -155,6 +156,39 @@ cmd_drop() {
   echo "dropped $name"
 }
 
+# Closing is the part nobody does. A tree whose branch is entirely in
+# origin/xteink and whose working copy is clean holds nothing: no commits, no
+# edits, and its build output and screenshots can be made again. Ninety-odd
+# such trees once sat under wt/ because dropping them was a decision per tree.
+# prune makes it one decision for all of them and never touches a tree that
+# has anything in it, is detached (wt/_land), or has a simulator running.
+cmd_prune() {
+  local dry=0
+  [ "${1:-}" = "--dry-run" ] && dry=1
+  git -C "$INTEGRATION" fetch -q origin 2>/dev/null
+  local d name branch dirty unmerged kept=0 dropped=0
+  for d in "$WT_ROOT"/*/; do
+    [ -d "$d" ] || continue
+    d="${d%/}"; name="$(basename "$d")"
+    branch="$(git -C "$d" branch --show-current 2>/dev/null)"
+    [ -n "$branch" ] || { kept=$((kept + 1)); continue; }
+    dirty="$(git -C "$d" status --porcelain --ignore-submodules=untracked 2>/dev/null | grep -c '' | tr -d ' ')"
+    unmerged="$(git -C "$INTEGRATION" rev-list --count origin/xteink.."$branch" 2>/dev/null || echo 1)"
+    if [ "$dirty" != "0" ] || [ "$unmerged" != "0" ] || pgrep -f "^$d/.pio/build/simulator_x4_pro/program" >/dev/null 2>&1; then
+      kept=$((kept + 1)); continue
+    fi
+    if [ "$dry" = 1 ]; then
+      echo "would drop $name ($branch: merged, clean)"
+    else
+      git -C "$INTEGRATION" worktree remove --force "$d" >/dev/null 2>&1 || { echo "could not remove $name" >&2; kept=$((kept + 1)); continue; }
+      git -C "$INTEGRATION" branch -D "$branch" >/dev/null 2>&1
+      echo "dropped $name ($branch: merged, clean)"
+    fi
+    dropped=$((dropped + 1))
+  done
+  [ "$dry" = 1 ] && echo "prune: $dropped would go, $kept kept" || echo "prune: $dropped dropped, $kept kept"
+}
+
 case "${1:-}" in
   new)
     shift
@@ -167,8 +201,12 @@ case "${1:-}" in
     shift
     cmd_drop "$@"
     ;;
+  prune)
+    shift
+    cmd_prune "$@"
+    ;;
   *)
-    echo "usage: wt.sh {new <name> [--from <branch>] | list | drop <name>}" >&2
+    echo "usage: wt.sh {new <name> [--from <branch>] | list | drop <name> | prune [--dry-run]}" >&2
     exit 2
     ;;
 esac

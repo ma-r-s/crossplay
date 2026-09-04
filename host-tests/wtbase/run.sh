@@ -113,5 +113,29 @@ is "--from still overrides the default" \
    "$(git rev-parse app/stacked 2>/dev/null || echo missing)" \
    "$(git rev-parse app/probe)"
 
+echo "wt.sh prune"
+
+# Four trees: probe and stacked carry a commit not in origin (kept), merged1 is
+# level and clean (goes), dirtyone is level with an edit (kept). prune must
+# never remove anything it cannot recreate.
+./scripts_local/wt.sh new merged1 >/dev/null 2>&1
+./scripts_local/wt.sh new dirtyone >/dev/null 2>&1
+echo edit >> "$WORK/wt/dirtyone/file.txt"
+DRY="$(./scripts_local/wt.sh prune --dry-run 2>&1)"
+case "$DRY" in
+  *"would drop merged1"*) ok "dry run names the merged, clean tree" ;;
+  *) bad "dry run did not name merged1: $DRY" ;;
+esac
+[ -d "$WORK/wt/merged1" ] && ok "dry run removes nothing" || bad "dry run removed merged1"
+OUT="$(./scripts_local/wt.sh prune 2>&1)"
+[ ! -d "$WORK/wt/merged1" ] && ok "prune drops the merged, clean tree" || bad "prune kept merged1: $OUT"
+git rev-parse -q --verify app/merged1 >/dev/null 2>&1 && bad "prune left the merged branch behind" || ok "and its branch"
+[ -d "$WORK/wt/probe" ] && [ -d "$WORK/wt/stacked" ] && ok "prune keeps trees with unmerged commits" || bad "prune dropped an unmerged tree: $OUT"
+[ -d "$WORK/wt/dirtyone" ] && ok "prune keeps a dirty tree" || bad "prune dropped a dirty tree: $OUT"
+case "$OUT" in
+  *"1 dropped, 3 kept"*) ok "and says what it did" ;;
+  *) bad "summary line wrong: $OUT" ;;
+esac
+
 echo "$((PASS+FAIL)) checks, $FAIL failed"
 [ "$FAIL" -eq 0 ]
