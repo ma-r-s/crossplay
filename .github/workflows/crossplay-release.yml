@@ -104,10 +104,44 @@ jobs:
       # bootloader header are the ones this build was configured with. Passing
       # them again by hand is a second copy of a fact that can drift; verified
       # byte-identical to spelling them out.
+      # The bootloader is no longer a build output. e31dcbb0 ("don't recompile
+      # Arduino IDF libs", upstream #3242) stopped compiling the IDF, and
+      # .pio/build/<env>/bootloader.bin was a by-product of that compile. The
+      # firmware builds still pass without it -- only merge-bin needs it -- so
+      # this surfaced as a release that tagged and then could not publish
+      # (v1.12.14).
+      #
+      # The framework package ships the same bootloader prebuilt, as an ELF per
+      # flash mode. Both envs are dio at 80m (board_build.flash_mode, and
+      # board_build.arduino.memory_type = dio_opi, where the opi half is the
+      # PSRAM), so both take bootloader_dio_80m.elf.
+      #
+      # This is not an assumption about equivalence: the .bin produced here was
+      # compared byte for byte against the first 18736 bytes of BOTH published
+      # v1.12.13 full images, x4pro and sticky, and is identical to each. That
+      # matters more than usual, because this is what gets written at 0x0 on a
+      # first install, and shipping the wrong thing there is what broke v1.0.0
+      # and v1.0.1.
+      - name: The bootloader, from the framework package
+        run: |
+          pip install --upgrade esptool
+          elf="$HOME/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/bin/bootloader_dio_80m.elf"
+          test -f "$elf" || { echo "::error::no prebuilt bootloader at $elf"; exit 1; }
+          for env_name in gh_release_x4pro gh_release_sticky; do
+            out=".pio/build/$env_name/bootloader.bin"
+            if [ -f "$out" ]; then
+              echo "$env_name already built its own bootloader; keeping it"
+              continue
+            fi
+            python -m esptool --chip esp32s3 elf2image \
+              --flash_mode dio --flash_freq 80m --flash_size 16MB \
+              -o "$out" "$elf"
+          done
+          sha256sum .pio/build/gh_release_*/bootloader.bin
+
       - name: Name the x4pro artefacts
         run: |
           mkdir -p dist
-          pip install --upgrade esptool
           python -m esptool --chip esp32s3 merge-bin --format raw \
             -o "dist/crossplay-${GITHUB_REF_NAME}-x4pro-full.bin" \
             -fm keep -fs keep -ff keep \
