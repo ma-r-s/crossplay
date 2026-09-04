@@ -154,6 +154,10 @@ class LinkActivity : public Activity {
   // Which side of the screen handover we were on last pass, so the shared hit
   // table can be invalidated exactly when the screen changes hands.
   bool ownedScreen_ = false;
+  // The endgame moves the game to its own final screen with nobody having
+  // tapped anything, so that handover invalidates the table for the same reason
+  // the one above does.
+  Endgame::Stage lastEndgameStage_ = Endgame::Stage::Live;
   // The rematch screen is up. Reached by a finished game once its final board
   // has had its couple of seconds, or by either player asking for a new one --
   // which is the same question either way, so it is the same screen.

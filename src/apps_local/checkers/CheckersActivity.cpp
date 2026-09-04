@@ -357,6 +357,14 @@ void CheckersActivity::gameLoop() {
       return;
 
     case checkui::ActionDone:
+      // DONE on a finished MATCH means done with the match, not just with the
+      // screen: the radio is still up and the link screen would slam over the
+      // menu the moment the hold ended. leaveLink() is what puts the app back
+      // on its own menu, and it tells the other device on the way out.
+      if (inMatch()) {
+        leaveLink();
+        return;
+      }
       goTo(ck::Screen::Menu);
       return;
 

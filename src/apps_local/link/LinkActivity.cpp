@@ -35,6 +35,7 @@ void LinkActivity::enterLink(const GameId gameId) {
   requested_ = true;
   rematch_ = false;
   endgame_.reset();
+  lastEndgameStage_ = Endgame::Stage::Live;
   lastPhase_ = Phase::Off;
   you_ = linkui::SeatState::Ready;
   them_ = linkui::SeatState::Looking;
@@ -51,6 +52,7 @@ void LinkActivity::leaveLink() {
   requested_ = false;
   rematch_ = false;
   endgame_.reset();
+  lastEndgameStage_ = Endgame::Stage::Live;
   lastPhase_ = Phase::Off;
   onLinkEnded();
 }
@@ -160,6 +162,14 @@ bool LinkActivity::driveLink() {
     interactionsReady = false;
     ownedScreen_ = owns;
   }
+  // Same invariant, second handover: onMatchEnded() sends the game to its own
+  // final screen mid-pass with nobody having touched the panel, and the table
+  // on the panel still describes the board. Without this the first tap after a
+  // game ends is routed against the screen it just left.
+  if (endgame_.stage() != lastEndgameStage_) {
+    interactionsReady = false;
+    lastEndgameStage_ = endgame_.stage();
+  }
 
   if (owns) {
     routeLinkScreen();
@@ -192,6 +202,7 @@ void LinkActivity::proposeRematch() {
 
 void LinkActivity::startRematch() {
   endgame_.reset();
+  lastEndgameStage_ = Endgame::Stage::Live;
   rematch_ = false;
   you_ = linkui::SeatState::Deciding;
   them_ = linkui::SeatState::Deciding;

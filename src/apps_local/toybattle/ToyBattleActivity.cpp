@@ -195,10 +195,12 @@ void ToyBattleActivity::recordResult() {
   requestUpdate();
 }
 
-// In a match this is the ONLY caller: gameLoop() stops running the moment the
-// link layer notices the battle is over, so the block above never reaches a
-// finished match. The board itself is already the right thing to look at -- it
-// stays up by design -- so there is no screen to change, only a result to count.
+// The first caller in a match, and for a long time there was no other: the link
+// layer used to stop giving gameLoop() the pass the moment the battle ended, so
+// the block below never ran and no link battle was ever counted. It runs again
+// now, during the couple of seconds the finished board stays up, which is
+// harmless because `recorded` latches. No screen to change either -- this game's
+// board stays put by design, and that is already the thing worth looking at.
 void ToyBattleActivity::onMatchEnded() { recordResult(); }
 
 void ToyBattleActivity::gameLoop() {
