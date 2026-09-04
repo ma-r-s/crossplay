@@ -290,8 +290,8 @@ fui::Rect readerBody(const fui::DeviceContext& device) {
                        static_cast<int16_t>(device.height - bottom - kBodyTop));
 }
 
-uint32_t readerLineCount(const fui::DrawTarget& target, const fui::DeviceContext& device,
-                         const fui::TextStyle& style, const char* text, toybox::WrappedText& wrap) {
+uint32_t readerLineCount(const fui::DrawTarget& target, const fui::DeviceContext& device, const fui::TextStyle& style,
+                         const char* text, toybox::WrappedText& wrap) {
   return wrap.lineCount(target, readerBody(device).width, text, style);
 }
 

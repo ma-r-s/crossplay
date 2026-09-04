@@ -166,8 +166,8 @@ void buildReader(toybox::Screen& screen, const ReaderModel& model, toybox::Wrapp
 
 // The document's length in lines, wrapped to the width the reader really draws
 // it at, from the same object and the same rect as the drawing.
-uint32_t readerLineCount(const fui::DrawTarget& target, const fui::DeviceContext& device,
-                         const fui::TextStyle& style, const char* text, toybox::WrappedText& wrap);
+uint32_t readerLineCount(const fui::DrawTarget& target, const fui::DeviceContext& device, const fui::TextStyle& style,
+                         const char* text, toybox::WrappedText& wrap);
 
 // Where the reader's text goes. Exported for the same reason as listBand():
 // the Activity pages by counting the lines that fit in this exact rect, and a

@@ -6656,11 +6656,10 @@ instapaperui::ReaderModel instaArticleModel() {
 // tell them apart. That happened here: the kerning test below was green
 // against a repeating corpus before this was changed.
 std::string longArticle(const size_t bytes) {
-  static const char* kWords[] = {"the",    "panel",       "is",     "a",     "page",   "of",     "text",
-                                 "and",    "reader",      "holds",  "it",    "still",  "wrap",   "walks",
-                                 "every",  "byte",        "asking", "font",  "how",    "wide",   "each",
-                                 "prefix", "paying",      "once",   "cost",  "twice",  "bug",    "three",
-                                 "none",   "constraints", "said",   "walk",  "had",    "happen"};
+  static const char* kWords[] = {
+      "the",  "panel", "is",    "a",     "page",   "of",          "text", "and",  "reader", "holds",  "it",     "still",
+      "wrap", "walks", "every", "byte",  "asking", "font",        "how",  "wide", "each",   "prefix", "paying", "once",
+      "cost", "twice", "bug",   "three", "none",   "constraints", "said", "walk", "had",    "happen"};
   std::string doc;
   uint32_t seed = 12345u;
   size_t i = 0;
@@ -6689,8 +6688,7 @@ std::string longArticle(const size_t bytes) {
 // `out` is held ACROSS paints on purpose: an Activity keeps its wrap between
 // them, so a page turn measured against a fresh one would be measuring an
 // opening and would have reported the fix as no fix at all.
-long readerPaintCost(Rendered& out, const std::string& doc, const uint32_t topLine,
-                     uint32_t* lineCountOut = nullptr) {
+long readerPaintCost(Rendered& out, const std::string& doc, const uint32_t topLine, uint32_t* lineCountOut = nullptr) {
   const fui::DeviceContext ctx = device();
   const fui::ThemeTokens& tokens = toybox::themeTokens();
 
@@ -6720,8 +6718,8 @@ void reportReaderPaintCost() {
     Rendered out;  // one reader, opened once and then paged, as on the device
     const long opening = readerPaintCost(out, doc, 0, &lines);
     const long deep = readerPaintCost(out, doc, lines > 40 ? lines - 40 : 0);
-    std::printf("READER COST  %6zu bytes  %5u lines   open %8ld   page-turn %8ld  measureText calls\n",
-                doc.size(), static_cast<unsigned>(lines), opening, deep);
+    std::printf("READER COST  %6zu bytes  %5u lines   open %8ld   page-turn %8ld  measureText calls\n", doc.size(),
+                static_cast<unsigned>(lines), opening, deep);
   }
 }
 

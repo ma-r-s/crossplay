@@ -195,16 +195,23 @@ class WrappedText {
         continue;
       }
       uint32_t n = 1;
-      if ((lead & 0xE0) == 0xC0) n = 2;
-      else if ((lead & 0xF0) == 0xE0) n = 3;
-      else if ((lead & 0xF8) == 0xF0) n = 4;
+      if ((lead & 0xE0) == 0xC0)
+        n = 2;
+      else if ((lead & 0xF0) == 0xE0)
+        n = 3;
+      else if ((lead & 0xF8) == 0xF0)
+        n = 4;
       if (i + n > len) n = len - i;
       uint32_t packed = 0;
-      for (uint32_t b = 0; b < n && b < 4; ++b) packed |= static_cast<uint32_t>(static_cast<uint8_t>(text[i + b])) << (b * 8);
+      for (uint32_t b = 0; b < n && b < 4; ++b)
+        packed |= static_cast<uint32_t>(static_cast<uint8_t>(text[i + b])) << (b * 8);
       if (wideCount_ < kAlphabet) {
         bool seen = false;
         for (uint16_t k = 0; k < wideCount_; ++k) {
-          if (wide_[k] == packed) { seen = true; break; }
+          if (wide_[k] == packed) {
+            seen = true;
+            break;
+          }
         }
         if (!seen) wide_[wideCount_++] = packed;
       }

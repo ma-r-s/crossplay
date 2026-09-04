@@ -101,8 +101,8 @@ void buildReader(toybox::Screen& screen, const ReaderModel& model, toybox::Wrapp
 // what reading position to send back to Instapaper, and it comes from the same
 // object and the same rect the drawing does -- so the two cannot disagree
 // about where a line ends, which is the whole reason readerBody() is exported.
-uint32_t readerLineCount(const fui::DrawTarget& target, const fui::DeviceContext& device,
-                         const fui::TextStyle& style, const char* text, toybox::WrappedText& wrap);
+uint32_t readerLineCount(const fui::DrawTarget& target, const fui::DeviceContext& device, const fui::TextStyle& style,
+                         const char* text, toybox::WrappedText& wrap);
 
 // Where the reader's text goes. Exported for the same reason as queueBand():
 // the Activity pages by counting the lines that fit in this exact rect, and a
