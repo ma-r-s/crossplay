@@ -453,6 +453,48 @@ else
   ok "--ships ignores CHECK_BUILD_RELEASE_ENVS"
 fi
 
+echo
+echo "the table covers this repository"
+# THE TABLE'S COMPLETENESS, asserted against the real tree rather than a
+# fixture. Every check above uses paths the fixture invents, so all of them
+# would still pass with a table that had never heard of half the repository --
+# and the only symptom would be a release refusing, weeks later, in a CI job.
+# This is the same finding at pull-request time.
+#
+# It reads classify() out of the tool rather than re-listing the rows here: a
+# second copy of the table in its own test is how the test starts agreeing with
+# a table that has gone wrong.
+#
+# Bare directory names are NOT required to be classified. git never reports one
+# in `--name-only` except a submodule gitlink, and the only submodule is
+# freeink-sdk, which has a row. A new submodule would arrive unclassified,
+# which builds and refuses to release -- loud, which is the design.
+REAL="$(cd "$HERE/../.." && pwd)"
+if [ -d "$REAL/.git" ] || [ -f "$REAL/.git" ]; then
+  awk '/^classify\(\) \{/,/^\}/' "$TOOL" > "$WORK/classify.sh"
+  if [ ! -s "$WORK/classify.sh" ]; then
+    bad "could not lift classify() out of the tool; this check read nothing"
+  else
+    # shellcheck disable=SC1090
+    . "$WORK/classify.sh"
+    missing="$(cd "$REAL" && git ls-files | while IFS= read -r f; do
+                 [ -z "$(classify "$f")" ] && echo "$f"
+               done | head -5)"
+    if [ -z "$missing" ]; then
+      ok "every tracked file in this repository is in a row of the table"
+    else
+      bad "paths in no row of the classification table (first few): $(echo "$missing" | tr '\n' ' ')"
+    fi
+    # And the lift itself has to be able to fail, or an awk that matched
+    # nothing would read as full coverage.
+    [ -z "$(classify "definitely/not/a/row/x.zzz")" ] \
+      && ok "the lifted classify() still returns nothing for an unknown path" \
+      || bad "the lifted classify() classifies everything, so the check above proves nothing"
+  fi
+else
+  bad "not run from a git checkout, so the table's coverage of the real tree was never checked"
+fi
+
 reset_tree
 echo "$((PASS+FAIL)) checks, $FAIL failed"
 [ "$FAIL" -eq 0 ]
