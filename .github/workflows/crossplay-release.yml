@@ -76,73 +76,42 @@ jobs:
       - name: Install PlatformIO
         run: pip install --upgrade platformio
 
-      - name: Build x4pro
-        run: pio run -e gh_release_x4pro
-
-      # Two .bin files per device, because the two ways of installing need
-      # different images and shipping only one of them is what went wrong
-      # before.
+      # ONE invocation for both devices, and that is load-bearing.
       #
-      #   -full.bin  bootloader + partition table + app, flashed at 0x0 over
-      #              USB. This is the one a first install needs. v1.0.0 and
-      #              v1.0.1 shipped the app on its own and told people to write
-      #              it to 0x0 -- which on an S3 is where the bootloader lives,
-      #              so it landed on top of it.
-      #   firmware.bin / firmware-sticky.bin  the app alone, one per device.
-      #              The over-the-air updater matches its own device's name
-      #              exactly (CROSSPOINT_RELEASE_ASSET); renaming one is what
-      #              silently switched both updaters off in v1.0.x.
+      # pio run calls clean_build_dir() once per invocation, against the whole
+      # .pio/build ROOT, and rmtree's all of it when compute_project_checksum()
+      # differs from .pio/build/project.checksum. That checksum includes the
+      # .h files under src/ and include/ -- and this project GENERATES some of
+      # those during the build (src/network/html/*.generated.h, lib/I18n/
+      # I18nKeys.h), all of them gitignored and so absent from a fresh
+      # checkout. So on CI the checksum after a build never matches the one
+      # stored at its start, and a SECOND pio run wipes the first one's output
+      # before compiling a byte.
       #
-      # The per-board steps are spelled out rather than looped so
-      # host-tests/release can assert offsets and filenames against literal
-      # text.
+      # That is what broke v1.12.14 and v1.12.15: bootloader.bin was built --
+      # the logs say "Building .pio/build/gh_release_x4pro/bootloader.bin" and
+      # the build reports SUCCESS -- and was gone when merge-bin looked, along
+      # with firmware.bin and partitions.bin. merge-bin only named the
+      # bootloader first.
       #
-      # -fm/-fs/-ff keep: the flash mode, size and frequency already in the
-      # bootloader header are the ones this build was configured with. Passing
-      # them again by hand is a second copy of a fact that can drift; verified
-      # byte-identical to spelling them out.
-      # Each device's artefacts are captured straight after its own build,
-      # before the next build runs. That order is load-bearing: the sticky
-      # build logs "[ComponentManager] Updated build file (55 total removals)"
-      # and .pio/build/gh_release_x4pro/ is gone afterwards, so naming both
-      # devices at the end reads the second build's leftovers for the first.
+      # v1.12.13 survived by accident: before e31dcbb0, pioarduino re-entered
+      # pio run to recompile the IDF, and that second pass stored the
+      # post-generation checksum, so the sticky invocation matched it and wiped
+      # nothing. Its log shows "Processing gh_release_x4pro" twice in one step.
+      # Removing the recompile removed the accident that was holding this shut.
       #
-      # And the bootloader is no longer a build output at all. e31dcbb0
-      # ("don't recompile Arduino IDF libs", upstream #3242) stopped compiling
-      # the IDF, and bootloader.bin was a by-product of that compile: the
-      # v1.12.13 release run compiled dozens of bootloader_support/src/*.o and
-      # the runs after it compile none. Firmware builds still pass, because
-      # only merge-bin reads the file, so v1.12.14 tagged and could not publish.
-      #
-      # The framework package ships the same bootloader prebuilt, one ELF per
-      # flash mode; both envs are dio at 80m. Not an assumption about
-      # equivalence: converted with elf2image from libs 5.5.0+sha.87912cd291,
-      # it is byte-identical to the bootloader in BOTH published v1.12.13 full
-      # images (sha256 09c6a477ac9b3372...ab6f19fb for x4pro and sticky alike).
-      # That matters because this is what lands at 0x0 on a first install,
-      # which is what broke v1.0.0 and v1.0.1.
-      #
-      # Keeping a bootloader.bin that a build did produce means this becomes a
-      # no-op if the IDF compile ever returns, rather than an override.
-      - name: The x4pro bootloader, from the framework package
-        run: |
-          pip install --upgrade esptool
-          out=".pio/build/gh_release_x4pro/bootloader.bin"
-          if [ -f "$out" ]; then
-            echo "gh_release_x4pro built its own bootloader; keeping it"
-          else
-            elf="$HOME/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/bin/bootloader_dio_80m.elf"
-            test -f "$elf" || { echo "::error::no prebuilt bootloader at $elf"; exit 1; }
-            mkdir -p "$(dirname "$out")"
-            python -m esptool --chip esp32s3 elf2image \
-              --flash_mode dio --flash_freq 80m --flash_size 16MB \
-              -o "$out" "$elf"
-          fi
-          sha256sum "$out"
+      # Interleaving build-then-name per device also works, but only because
+      # each device's files reach dist/ before the next invocation starts --
+      # an ordering rule nothing states, which the next person to move a step
+      # silently breaks. One invocation means there is no second clean to lose
+      # a race with.
+      - name: Build both devices
+        run: pio run -e gh_release_x4pro -e gh_release_sticky
 
       - name: Name the x4pro artefacts
         run: |
           mkdir -p dist
+          pip install --upgrade esptool
           python -m esptool --chip esp32s3 merge-bin --format raw \
             -o "dist/crossplay-${GITHUB_REF_NAME}-x4pro-full.bin" \
             -fm keep -fs keep -ff keep \
@@ -152,25 +121,6 @@ jobs:
           cp .pio/build/gh_release_x4pro/firmware.bin dist/firmware.bin
           cp .pio/build/gh_release_x4pro/firmware.elf \
              "dist/crossplay-${GITHUB_REF_NAME}-x4pro.elf"
-
-      - name: Build sticky
-        run: pio run -e gh_release_sticky
-
-      - name: The sticky bootloader, from the framework package
-        run: |
-          pip install --upgrade esptool
-          out=".pio/build/gh_release_sticky/bootloader.bin"
-          if [ -f "$out" ]; then
-            echo "gh_release_sticky built its own bootloader; keeping it"
-          else
-            elf="$HOME/.platformio/packages/framework-arduinoespressif32-libs/esp32s3/bin/bootloader_dio_80m.elf"
-            test -f "$elf" || { echo "::error::no prebuilt bootloader at $elf"; exit 1; }
-            mkdir -p "$(dirname "$out")"
-            python -m esptool --chip esp32s3 elf2image \
-              --flash_mode dio --flash_freq 80m --flash_size 16MB \
-              -o "$out" "$elf"
-          fi
-          sha256sum "$out"
 
       - name: Name the sticky artefacts
         run: |
