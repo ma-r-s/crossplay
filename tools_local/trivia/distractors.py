@@ -1058,6 +1058,16 @@ def twins(a, b):
         return a.lower() == b.lower()
     if fa == fb:
         return True
+    # The same string with its spacing or its inner punctuation moved.
+    # fold() turns punctuation into a space, which collides "Washington, D.C."
+    # with "Washington D.C." but SPLITS a word around its own apostrophe:
+    # "Hawai'i" folded to "hawai i" and was not a twin of "Hawaii" -- a wrong
+    # option that is the right answer with one apostrophe in it. Comparing the
+    # space-free form as well catches that, and "Coca-Cola"/"Coca Cola" with
+    # it. This only ever ADDS twins, and an extra twin costs one dropped
+    # option while a missed one ships a question that cannot be answered.
+    if fa.replace(" ", "") == fb.replace(" ", ""):
+        return True
     # a plural, or a faith named after its adherents, is the same option twice
     if stems(fa) & stems(fb):
         return True

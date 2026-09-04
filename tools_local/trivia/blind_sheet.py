@@ -178,8 +178,96 @@ def main():
     )
     s.add_argument("--out", required=True)
     s.set_defaults(fn=cmd_score)
+    o = sub.add_parser("options")
+    o.add_argument("--corpus", required=True)
+    o.add_argument("--enriched", required=True, help="enrich_pack.py jsonl")
+    o.add_argument("--out", required=True)
+    o.add_argument("--key", required=True)
+    o.add_argument("--n", type=int, default=80)
+    o.add_argument("--seed", type=int, default=20260904)
+    o.set_defaults(fn=cmd_options)
+    os_ = sub.add_parser("options-score")
+    os_.add_argument("--key", required=True)
+    os_.add_argument("--raw", required=True)
+    os_.set_defaults(fn=cmd_options_score)
     a = ap.parse_args()
     a.fn(a)
+
+
+
+
+# --- option quality, generated against rule-based -----------------------------
+def cmd_options(a):
+    """A sheet of four-option questions, half written by the model and half by
+    the existing rule-based picker, shuffled together and unlabelled.
+
+    A correlation cannot tell you an option is absurd, and neither can the twin
+    check: "Oliver!, Grease, Camelot" beside a RIVER passes every automated
+    gate in the pack, because each is a real musical, none is the answer and
+    none repeats another. The only instrument that catches it is a person
+    reading the four options and asking which they would pick. Mixing the two
+    sources into one unlabelled sheet means the reader grades the OPTIONS
+    rather than grading a source they were told to be suspicious of, and it
+    gives the rule-based picker a fair score on the same scale rather than an
+    assumed one.
+    """
+    corpus = {json.loads(l)["id"]: json.loads(l)
+              for l in open(a.corpus, encoding="utf-8")}
+    gen = {}
+    for line in open(a.enriched, encoding="utf-8"):
+        r = json.loads(line)
+        if len(r.get("w") or []) == 3:
+            gen[r["id"]] = r["w"]
+    rng = random.Random(a.seed)
+    gen_ids = sorted(gen)
+    rng.shuffle(gen_ids)
+    gen_ids = gen_ids[: a.n // 2]
+    # The rule-based half comes from questions that ALREADY ship three or more
+    # options, which is the live comparison: what a player sees today.
+    rule_ids = sorted(i for i, x in corpus.items()
+                      if len(x.get("w") or []) >= 3 and i not in gen)
+    rng.shuffle(rule_ids)
+    rule_ids = rule_ids[: a.n - len(gen_ids)]
+
+    rows = ([(i, gen[i], "gen") for i in gen_ids]
+            + [(i, corpus[i]["w"][:3], "rule") for i in rule_ids])
+    rng.shuffle(rows)
+    lines, key = [], {}
+    for n, (qid, wrong, src) in enumerate(rows, 1):
+        x = corpus[qid]
+        opts = list(wrong) + [x["a"]]
+        rng.shuffle(opts)                      # the answer is not always last
+        lines.append(f"{n}. {x['q']}\n" + "".join(f"   - {o}\n" for o in opts))
+        key[str(n)] = {"id": qid, "src": src, "answer": x["a"]}
+    os.makedirs(os.path.dirname(os.path.abspath(a.out)) or ".", exist_ok=True)
+    os.makedirs(os.path.dirname(os.path.abspath(a.key)) or ".", exist_ok=True)
+    open(a.out, "w", encoding="utf-8").write("\n".join(lines))
+    json.dump(key, open(a.key, "w"))
+    print(f"{len(rows)} questions ({len(gen_ids)} generated, {len(rule_ids)} rule-based), "
+          f"sources shuffled together and NOT marked")
+    print(f"  sheet -> {a.out}\n  key   -> {a.key}")
+
+
+def cmd_options_score(a):
+    key = json.load(open(a.key))
+    verdicts = {}
+    for line in open(a.raw, encoding="utf-8"):
+        p = line.split()
+        if len(p) >= 2 and p[0].rstrip(".").isdigit():
+            v = p[1].lower().strip(".,")
+            if v in ("good", "weak", "broken"):
+                verdicts[p[0].rstrip(".")] = v
+    tally = collections.defaultdict(collections.Counter)
+    for n, v in verdicts.items():
+        if n in key:
+            tally[key[n]["src"]][v] += 1
+    print(f"{len(verdicts)} graded")
+    for src in sorted(tally):
+        t = tally[src]
+        n = sum(t.values())
+        print(f"  {src:<5} n={n:3d}  "
+              + "  ".join(f"{k} {t[k]:3d} ({100*t[k]/n:4.1f}%)"
+                          for k in ("good", "weak", "broken")))
 
 
 if __name__ == "__main__":
