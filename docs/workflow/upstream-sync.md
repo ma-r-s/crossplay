@@ -34,8 +34,11 @@ intent" --from tooling --body "<both sides, in prose>"`, leave the
 5. **Pull request** `sync/upstream-<date>` into `xteink`, titled `chore:
 sync CrossPoint develop (<n> commits)`, body: what came in (their commit
    subjects), what was resolved and by which rule, what was not verified
-   (device builds are CI's). CI gates it; the critic reviews it; it merges on
-   green like any other pull request.
+   (device builds are CI's). The run's `info` event carries the pull
+   request's URL, title and summary, and the board opens a task card in
+   `review` from it (`20260904001300_sync_pr_card.sql`); that card is where
+   the orchestrator's critic finds the pull request. CI gates it; the critic
+   reviews it; it merges on green like any other pull request.
 6. **The X4 Pro branch is not this.** Upstream's X4 Pro branch is a sit-down
    merge per `LOCAL_SCOPE.md` and stays manual.
 
@@ -62,10 +65,19 @@ sync CrossPoint develop (<n> commits)`, body: what came in (their commit
    `/api/board-config` address: `upstream-sync`/`run`, `info` when a pull
    request opened or there was nothing to do, `error` with the branch and
    the reason when it stopped. The fingerprint `upstream-sync|stopped` is
-   fixed, so a stop is one card and the next good run closes it.
+   fixed, so a stop is one card and the next good run closes it. An `info`
+   run whose `result` is a pull request URL also carries the pull request's
+   `title` and `summary`, and the board opens one task card in `review`
+   from it, once per pull request. Without that, PR #43 sat on GitHub with
+   its URL in an event nobody reads.
 9. **One stopped branch at a time.** While a `sync/upstream-*` branch from a
    stopped run exists on origin, the run posts the error again and does not
    start another; a person finishes that merge first (it is a firmware card).
+   A `sync/upstream-*` branch that is already merged into `xteink` is a
+   leftover, not a stop: the run deletes it and continues. GitHub deletes
+   merged branches by itself since 2026-09-04 (`delete_branch_on_merge`, the
+   repository setting), so that is the fallback; PR #43's branch outlived its
+   merge by an hour before the setting existed.
 10. **Shallow clones.** The cloud checkout is shallow; `git fetch --unshallow
     origin` first, or the merge reports unrelated histories.
 
