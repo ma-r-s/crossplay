@@ -88,7 +88,6 @@ class ToyBattleActivity final : public linkplay::LinkActivity {
   // move, so a screen builder that counted a win would count several.
   bool recorded = false;
 
-
   // A move is only sent when the rules AND the link both say it is your turn.
   // Asking whether they agree is not the same question and passes on the
   // opponent's turn, which is how another game in this fork fired on the wrong

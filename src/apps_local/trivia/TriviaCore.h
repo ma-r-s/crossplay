@@ -42,7 +42,7 @@ class WritableByteSource : public ByteSource {
 inline constexpr uint32_t kMaxRecordBytes = 448;
 inline constexpr int kMaxAlternates = 4;
 inline constexpr int kMaxDistractors = 6;
-inline constexpr int kOptions = 4;          // one right, three wrong
+inline constexpr int kOptions = 4;  // one right, three wrong
 inline constexpr int kDifficulties = 5;
 
 inline constexpr uint8_t kMagic[8] = {'X', 'T', 'R', 'I', 'V', 'I', 'A', 0};
@@ -62,21 +62,15 @@ class Question {
 
   const char* clue() const { return field(0); }
   const char* answer() const { return field(1); }
-  const char* alternate(const int i) const {
-    return (i >= 0 && i < altCount_) ? field(2 + i) : nullptr;
-  }
-  const char* distractor(const int i) const {
-    return (i >= 0 && i < wrongCount_) ? field(2 + altCount_ + i) : nullptr;
-  }
+  const char* alternate(const int i) const { return (i >= 0 && i < altCount_) ? field(2 + i) : nullptr; }
+  const char* distractor(const int i) const { return (i >= 0 && i < wrongCount_) ? field(2 + altCount_ + i) : nullptr; }
   // Quizmaster questions have no distractors, so only some of the pack can be
   // played as multiple choice. That is why the app has two modes, not one.
   bool playableAsChoice() const { return wrongCount_ >= kOptions - 1; }
 
  private:
   friend class Pack;
-  const char* field(const int i) const {
-    return (i >= 0 && i < fieldCount_) ? bytes_ + offset_[i] : "";
-  }
+  const char* field(const int i) const { return (i >= 0 && i < fieldCount_) ? bytes_ + offset_[i] : ""; }
 
   uint8_t difficulty_ = 0;
   uint16_t year_ = 0;

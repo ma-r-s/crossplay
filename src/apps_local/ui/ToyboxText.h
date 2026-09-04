@@ -25,8 +25,8 @@ namespace toybox {
 
 // `text` cut to at most `lines` lines of `width`, breaking only between words
 // and ending in an ellipsis when anything was dropped.
-inline std::string fitLines(const freeink::ui::DrawTarget& target, const char* text, const int16_t width, const int lines,
-                     const freeink::ui::TextStyle& style) {
+inline std::string fitLines(const freeink::ui::DrawTarget& target, const char* text, const int16_t width,
+                            const int lines, const freeink::ui::TextStyle& style) {
   if (text == nullptr || width <= 0 || lines <= 0) return std::string();
 
   const std::string whole(text);

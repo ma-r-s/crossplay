@@ -11,7 +11,7 @@
 //
 // Operations:
 //   list     -> {inbox: [open blockers that need Mario, with their card], cards: [every card]}
-//   numbers  -> {byVersion, daily, services, errors, pulse, weekly, dwell, latency, byApp}
+//   numbers  -> {byVersion, daily, battery, services, errors, pulse, weekly, dwell, latency, byApp}
 //   answer   -> closes one blocker: {card_id, n, choice, note}
 
 const crypto = require("node:crypto");
@@ -84,6 +84,7 @@ async function opNumbers() {
   const [
     byVersion,
     daily,
+    battery,
     services,
     errors,
     pulse,
@@ -94,6 +95,7 @@ async function opNumbers() {
   ] = await Promise.all([
     q("devices_by_version?select=*"),
     q("daily_active_devices?select=*"),
+    q("battery_by_version?select=*"),
     q("service_users?select=*"),
     q(
       "error_fingerprints?select=service,message,count,last_seen,card_id&order=last_seen.desc&limit=20",
@@ -107,6 +109,7 @@ async function opNumbers() {
   return {
     byVersion,
     daily,
+    battery,
     services,
     errors,
     pulse,

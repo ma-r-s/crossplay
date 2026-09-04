@@ -44,12 +44,18 @@ struct Rng {
 
 int popcount32(uint32_t v) {
   int n = 0;
-  while (v) { v &= v - 1; ++n; }
+  while (v) {
+    v &= v - 1;
+    ++n;
+  }
   return n;
 }
 int popcount64(uint64_t v) {
   int n = 0;
-  while (v) { v &= v - 1; ++n; }
+  while (v) {
+    v &= v - 1;
+    ++n;
+  }
   return n;
 }
 
@@ -68,9 +74,9 @@ int popcount64(uint64_t v) {
 // two routes are compared on one scale instead of one being a constant.
 constexpr int kFeatures = 10;
 const char* kFeatureNames[kFeatures] = {
-    "medals_to_go",     // medals I still need, negated: bigger is closer
+    "medals_to_go",  // medals I still need, negated: bigger is closer
     "their_medals_togo",
-    "regions_ready",    // regions one placement from mine, and from theirs
+    "regions_ready",  // regions one placement from mine, and from theirs
     "their_regions_ready",
     "hq_takeable_now",  // a legal move THIS turn captures their H.Q.
     "my_hq_takeable",   // one captures mine
@@ -116,8 +122,10 @@ void features(const Game& g, int seat, int* out) {
   for (int slot = b.baseCount; slot < b.slotCount(); ++slot) {
     const bool connected = (myReach & (uint64_t{1} << slot)) != 0;
     if (b.hqOwner(slot) == foe) {
-      if (canTakeHq(g, seat, slot)) takeable = 1;
-      else if (connected) reachOnly = 1;
+      if (canTakeHq(g, seat, slot))
+        takeable = 1;
+      else if (connected)
+        reachOnly = 1;
     }
     if (b.hqOwner(slot) == seat && (theirReach & (uint64_t{1} << slot))) exposed = 1;
   }

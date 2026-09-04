@@ -231,12 +231,18 @@ int fittedScore(const Game& v, int seat, int opponentRackSize) {
   } else {
     for (int i = 0; i < b.hqCount; ++i) {
       if (b.hqSeat[i] == seat) continue;
-      if (myReach & (uint64_t{1} << (b.baseCount + i))) { score += kFitHqReach; break; }
+      if (myReach & (uint64_t{1} << (b.baseCount + i))) {
+        score += kFitHqReach;
+        break;
+      }
     }
   }
   for (int i = 0; i < b.hqCount; ++i) {
     if (b.hqSeat[i] != seat) continue;
-    if (theirReach & (uint64_t{1} << (b.baseCount + i))) { score -= kFitMyHqTakeable; break; }
+    if (theirReach & (uint64_t{1} << (b.baseCount + i))) {
+      score -= kFitMyHqTakeable;
+      break;
+    }
   }
 
   score += (popcount32(mine) - popcount32(theirs)) * kFitBases;

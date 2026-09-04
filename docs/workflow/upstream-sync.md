@@ -34,4 +34,29 @@ sync CrossPoint develop (<n> commits)`, body: what came in (their commit
 6. **The X4 Pro branch is not this.** Upstream's X4 Pro branch is a sit-down
    merge per `LOCAL_SCOPE.md` and stays manual.
 
-A run that cannot finish files a card and stops. It never messages Mario.
+7. **FreeInk first.** `freeink-sdk` is a submodule pinned to Mario's fork
+   (`ma-r-s/freeink-sdk`), which carries the X4 Pro measured insets and
+   safeArea, the frontlight RC_FAST fix and the SD free-space query; the
+   upstream pull request that would have made it unnecessary was closed, so
+   the fork is permanent. Before merging develop, the run merges the commit
+   `crosspoint/develop` pins into the commit `origin/xteink` pins, on
+   `sync/sdk-<YYYYMMDD>` in the SDK fork, pushes it, and resolves the
+   submodule conflict in the crossplay merge to that commit. A conflict in
+   intent inside the SDK stops the run the same way as one in crossplay.
+   `.gitmodules` names a branch (`x4pro-measured-insets`) that is stale; the
+   pin is what matters, and the fork's `main` is not the line.
+8. **The board hears every run.** The cloud checkout has no board, so the
+   old "file a card" step never ran and the first run's stop went unseen for
+   a day. Now every run ends by posting one event through the public
+   `/api/board-config` address: `upstream-sync`/`run`, `info` when a pull
+   request opened or there was nothing to do, `error` with the branch and
+   the reason when it stopped. The fingerprint `upstream-sync|stopped` is
+   fixed, so a stop is one card and the next good run closes it.
+9. **One stopped branch at a time.** While a `sync/upstream-*` branch from a
+   stopped run exists on origin, the run posts the error again and does not
+   start another; a person finishes that merge first (it is a firmware card).
+10. **Shallow clones.** The cloud checkout is shallow; `git fetch --unshallow
+    origin` first, or the merge reports unrelated histories.
+
+A run that cannot finish posts the error event and stops. It never messages
+Mario.

@@ -300,6 +300,50 @@ qualifier_text() {
 say_stage() { printf "  %-12s %s ...\n" "$1" "$(date +%H:%M:%S)"; }
 since() { echo "$(( $(date +%s) - $1 ))s"; }
 
+# --- formatting, over the WHOLE tree ---------------------------------------
+# CI formats every tracked file and fails on the diff. Everyone here runs
+# `./bin/clang-format-fix -g`, which only touches what they modified, so a file
+# nobody has opened since it drifted stays drifted -- and detonates on the next
+# person's pull request, naming files they never touched. That is how 43 files
+# accumulated and how one PR ate three CI cycles for other people's whitespace.
+# --check is the same file list the fixer uses, reporting instead of rewriting,
+# so it cannot drift from what CI enforces.
+echo "formatting"
+T0=$(date +%s)
+if ./bin/clang-format-fix --check > "$LOGS/clang-format.log" 2>&1; then
+  printf "  %-12s ok (%s)\n" "clang-format" "$(since $T0)"
+else
+  printf "  %-12s FAILED (%s) -- run ./bin/clang-format-fix\n" "clang-format" "$(since $T0)"
+  grep -oE '^[^:]+\.(c|cpp|h|hpp)' "$LOGS/clang-format.log" | sort -u | head -8 | sed 's/^/      /'
+  FAILED=1
+fi
+echo
+
+# --- the CMake unit tests ---------------------------------------------------
+# CI builds and runs these; nothing here did. That is how test/opds_feed went
+# uncompiled for weeks behind a missing include, taking its assertions about
+# which cover a feed shows out of service without one red line anywhere.
+# Three seconds to build, under one to run.
+if command -v cmake > /dev/null 2>&1 && command -v ninja > /dev/null 2>&1; then
+  echo "unit tests (cmake)"
+  T0=$(date +%s)
+  CMB="$LOGS/cmake-build"
+  if cmake -S test -B "$CMB" -G Ninja > "$LOGS/cmake.log" 2>&1 \
+      && cmake --build "$CMB" >> "$LOGS/cmake.log" 2>&1 \
+      && (cd "$CMB" && ctest --output-on-failure) >> "$LOGS/cmake.log" 2>&1; then
+    printf "  %-12s ok (%s)\n" "ctest" "$(since $T0)"
+  else
+    printf "  %-12s FAILED (%s)\n" "ctest" "$(since $T0)"
+    grep -E "FAILED|error:|Failed" "$LOGS/cmake.log" | head -6 | sed 's/^/      /'
+    FAILED=1
+  fi
+  echo
+else
+  echo "unit tests (cmake)"
+  echo "  ctest        SKIPPED: no cmake/ninja -- the CI unit tests did NOT run"
+  echo
+fi
+
 echo "host tests"
 for suite in host-tests/*/; do
   name=$(basename "$suite")
@@ -421,8 +465,8 @@ fi
 # takes 12. Sharing an offset would only bite when two trees gate at once,
 # which is exactly when nobody is looking.
 for entry in \
-  "server/study-bridge:bridge:12:tests/test_engine.py tests/test_api.py tests/test_window.py tests/test_events.py" \
-  "server/read-bridge:readbridge:8:tests/test_oauth.py tests/test_article.py tests/test_window.py tests/test_lockout.py tests/test_engine.py tests/test_api.py tests/test_events.py"
+  "server/study-bridge:bridge:12:tests/test_engine.py tests/test_api.py tests/test_window.py tests/test_events.py tests/test_pages.py" \
+  "server/read-bridge:readbridge:8:tests/test_oauth.py tests/test_article.py tests/test_window.py tests/test_lockout.py tests/test_engine.py tests/test_api.py tests/test_events.py tests/test_pages.py"
 do
   BRIDGE_DIR="$REPO/${entry%%:*}"
   rest="${entry#*:}"

@@ -12,16 +12,16 @@
 // they are a courtesy gate against casual crawlers, never a secret, and never
 // Mario's own login. The server holds them as a second account so they can be
 // rotated or revoked without touching his access or reflashing a device.
-static constexpr OpdsServerStore::DefaultCatalog GET_BOOKS{
-    "Get Books", "https://books.ma-r-s.com/opds", "crossplay", "r4ulp-zm4cg-awjtf-z5zfj"};
+static constexpr OpdsServerStore::DefaultCatalog GET_BOOKS{"Get Books", "https://books.ma-r-s.com/opds", "crossplay",
+                                                           "r4ulp-zm4cg-awjtf-z5zfj"};
 
 // Gutenberg advertises search through an OpenSearch description document
 // rather than an inline {searchTerms} href, which the reader follows -- see
 // OpdsBookBrowserActivity. www, not m: m.gutenberg.org answers every request
 // with a 301 to this URL, and following it costs the device a second TLS
 // handshake on a catalog whose gateway already times out often enough.
-static constexpr OpdsServerStore::DefaultCatalog GUTENBERG{
-    "Project Gutenberg", "https://www.gutenberg.org/ebooks.opds/", "", ""};
+static constexpr OpdsServerStore::DefaultCatalog GUTENBERG{"Project Gutenberg",
+                                                           "https://www.gutenberg.org/ebooks.opds/", "", ""};
 
 static constexpr OpdsServerStore::DefaultCatalog DEFAULTS[] = {GET_BOOKS, GUTENBERG};
 

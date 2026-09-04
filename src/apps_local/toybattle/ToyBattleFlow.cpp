@@ -238,7 +238,6 @@ int discardLeft(const Game& game, const Draft& draft, const int kind) {
   return left > 0 ? left : 0;
 }
 
-
 // ---------------------------------------------------------------------------
 // Composing a move
 // ---------------------------------------------------------------------------

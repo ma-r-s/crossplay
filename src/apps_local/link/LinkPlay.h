@@ -89,8 +89,8 @@ enum class GameId : uint16_t {
 // guard, but it turns a silent protocol bug into a compile error, and the
 // alternative is nothing.
 constexpr GameId kAllGameIds[] = {
-    GameId::Chess,     GameId::ConnectFour, GameId::Battleship, GameId::Jaipur,   GameId::Checkers,
-    GameId::Yahtzee,   GameId::Knucklebones, GameId::SeaSalt,   GameId::ToyBattle, GameId::Test,
+    GameId::Chess,   GameId::ConnectFour,  GameId::Battleship, GameId::Jaipur,    GameId::Checkers,
+    GameId::Yahtzee, GameId::Knucklebones, GameId::SeaSalt,    GameId::ToyBattle, GameId::Test,
 };
 
 constexpr bool gameIdsAreDistinct() {
