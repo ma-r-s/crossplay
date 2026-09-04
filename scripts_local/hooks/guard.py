@@ -36,11 +36,15 @@ HANDBACK = re.compile(
     re.IGNORECASE,
 )
 
+# A verb counts only as a command word: not inside a flag (`grep -ln` is not
+# `ln`) and not inside a quoted string (a grep PATTERN that says "sed -i" reads
+# a file, it does not edit one). Both refused read-only commands on 2026-09-04.
 WRITE_VERB = re.compile(
-    r"(\bsed\s+-i|\btee\b|\bcp\b|\bmv\b|\brm\b|\btouch\b|\bmkdir\b|\bln\b|\btruncate\b|"
-    r"\bgit\s+(merge|commit|checkout|reset|rebase|cherry-pick|tag|push|pull|switch|stash|apply|am|clean|restore)\b|"
-    r"\bpio\s+run|\bbuild\.py|\bprecompress\.py)"
+    r"((?<![\w-])sed\s+-i|(?<![\w-])(tee|cp|mv|rm|touch|mkdir|ln|truncate)(?![\w-])|"
+    r"(?<![\w-])git\s+(merge|commit|checkout|reset|rebase|cherry-pick|tag|push|pull|switch|stash|apply|am|clean|restore)\b|"
+    r"(?<![\w-])pio\s+run|\bbuild\.py|\bprecompress\.py)"
 )
+QUOTED = re.compile(r"'[^']*'|\"[^\"]*\"")
 # A redirect whose TARGET is a file (2>&1 and >/dev/null are not writes into anything of ours).
 REDIRECT = re.compile(r"(?<![0-9&<])>{1,2}\s*(?!&)(\S+)")
 HEREDOC = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?[^\n]*\n.*?\n\s*\1\s*(?=\n|$)", re.S)
@@ -214,7 +218,8 @@ def writes_into_tree(cmd):
             in_tree = "firmware-next" in m.group(1)
             continue
         names_tree = "firmware-next" in seg
-        if WRITE_VERB.search(seg) and (in_tree or names_tree):
+        # Verbs are looked for outside quotes; the tree's name anywhere counts.
+        if WRITE_VERB.search(QUOTED.sub(" ", seg)) and (in_tree or names_tree):
             return True
         for r in REDIRECT.finditer(seg):
             target = r.group(1).strip("\"'")

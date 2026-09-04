@@ -69,6 +69,9 @@ expect "cd out of the tree ends the tree context"   0 pretool "{\"session_id\":\
 expect "integrator bash merge allowed"          0 pretool "{\"session_id\":\"$INTEG\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cd $ROOT/firmware-next && git merge app/x\"}}"
 
 echo "the build lock"
+expect "grep -ln on the tree is a read, not ln"     0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"grep -ln schedule: $ROOT/firmware-next/.github/workflows/x.yml\"}}"
+expect "a quoted 'sed -i' pattern is a read"         0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"grep -n \\\"sed -i\\\" $ROOT/firmware-next/scripts/x.sh\"}}"
+expect "sed -i with a quoted tree path is a write"   2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"sed -i '' \\\"$ROOT/firmware-next/src/a.cpp\\\"\"}}"
 expect "raw pio run refused"                    2 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cd wt/x && pio run -e x4pro\"}}"
 expect "check.sh allowed"                       0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"cd wt/x && ./scripts_local/check.sh --tests\"}}"
 expect "pio in a word is not pio run"           0 pretool "{\"session_id\":\"$WORKER\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"grep -rn 'pio run' docs\"}}"
