@@ -292,13 +292,14 @@
       var devices7 = (n.byVersion || []).reduce(function (a, r) { return a + (r.devices || 0); }, 0);
       var today = (n.daily || []).length ? n.daily[0].devices : 0;
       var h = '<div class="num-grid">' +
-        '<div class="tile"><b>' + devices7 + '</b><span>devices heard from, 7 days</span></div>' +
+        '<div class="tile"><b>' + devices7 + '</b><span>devices that used a service, 7 days</span></div>' +
         '<div class="tile"><b>' + today + '</b><span>devices today</span></div>' +
         '<div class="tile"><b>' + (n.errors || []).filter(function (e) { return e.card_id; }).length + '</b><span>distinct errors with a card</span></div>' +
         '</div>';
       var L = n.latency || null;
       h += '<div class="num-cols">';
       h += block("Devices by version, 7 days", ["board", "version", "devices"], (n.byVersion || []).map(function (r) { return [r.board, r.version, r.devices]; }));
+      h += block("Battery by version, 7 days", ["board", "version", "avg %", "devices"], (n.battery || []).map(function (r) { return [r.board, r.version, r.battery_pct, r.devices]; }));
       h += block("Who uses each service, 7 days", ["service", "devices", "events"], (n.services || []).map(function (r) { return [r.service, r.devices_7d, r.events_7d]; }));
       h += block("Downloads per release, from GitHub, all time", ["release", "published", "downloads"], releases.map(function (r) {
         var d = (r.assets || []).filter(function (a) { return /firmware(-sticky)?\.bin$|-full\.bin$/.test(a.name); }).reduce(function (a, x) { return a + (x.download_count || 0); }, 0);
@@ -311,7 +312,7 @@
       h += block("Hours a card sits in each state, 30 days", ["state", "cards", "median", "longest"], (n.dwell || []).map(function (r) { return [r.state, r.n, r.median_h, r.max_h]; }));
       h += block("Open cards by app", ["app", "open", "untriaged", "oldest, days"], (n.byApp || []).map(function (r) { return [r.app, r.open, r.untriaged, r.oldest_d]; }));
       h += '</div>';
-      if (!(n.byVersion || []).length && !(n.services || []).length) h += '<p class="status">No events yet. Devices and services start posting once their owners wire the heartbeat and the events in docs/workflow/events.md.</p>';
+      if (!(n.byVersion || []).length && !(n.services || []).length) h += '<p class="status">No events yet. Devices are counted from the requests they make to the services; see docs/workflow/events.md.</p>';
       body.innerHTML = h;
     });
   }

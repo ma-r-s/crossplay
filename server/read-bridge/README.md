@@ -114,13 +114,21 @@ ssh orange 'cd /srv/readbridge && docker compose stop cloudflared'  # kill switc
 ## Events
 
 Every finished sync posts one event to the board (`docs/workflow/events.md`):
-`instapaper`/`sync` with `{articles, seconds}` under a salted hash of the
-account id, or the same event at level `error` with `{message}` when the job
-was refused or died. `bridge/events.py` sends from its own thread with a 3 s
-timeout and drops the event after one log line if the board does not take
-it, so a board outage cannot slow or fail a sync (`tests/test_api.py` proves
-both). The module is a byte-identical twin of `study-bridge/bridge/events.py`;
-`tests/test_events.py` fails if the two drift.
+`instapaper`/`sync` with `{articles, seconds}`, or the same event at level
+`error` with `{message}` when the job was refused or died. It is counted
+under the device's own id when the request carried one (`X-CrossPlay-Device`,
+with `X-CrossPlay-Board` and the version from the User-Agent, and the
+report's `battery_pct`, `heap_min_kb`, `uptime_h` copied into the props),
+else under a salted hash of the account id. Whatever the device had to
+report rides the same headers on every request, so a middleware reads them
+on every accepted answer and posts `firmware`/`crash` and `firmware`/`update`
+events for a crash or an OTA attempt the report carries
+(`events.Client.report`). `bridge/events.py` sends from its own thread with
+a 3 s timeout and drops the event after one log line if the board does not
+take it, so a board outage cannot slow or fail a sync (`tests/test_api.py`
+proves both, and the header bodies). The module is a byte-identical twin of
+`study-bridge/bridge/events.py`; `tests/test_events.py` fails if the two
+drift.
 
 Where to post comes from two more `.env` keys, both optional:
 

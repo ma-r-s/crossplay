@@ -876,6 +876,22 @@
         "untriaged": 0,
         "oldest_d": 11.6
       }
+    ],
+    "battery": [
+      {
+        "board": "x4pro",
+        "version": "1.12.13",
+        "battery_pct": 71.5,
+        "devices": 12,
+        "n": 40
+      },
+      {
+        "board": "sticky",
+        "version": "1.12.13",
+        "battery_pct": 64.0,
+        "devices": 2,
+        "n": 5
+      }
     ]
   }
 }
