@@ -173,7 +173,9 @@ inline void headerBand(Screen& screen, const freeink::ui::HeaderProps& props) {
   const int16_t inkTop = band.y > safeTop ? band.y : safeTop;
   const fui::StyleSet& styles = props.styles.unset() ? screen.theme().popup : props.styles;
   // Paint first, ink second: header() fills its own rect in the same colour, so
-  // the two agree wherever they overlap.
+  // the two agree wherever they overlap. Square and borderless, which every
+  // band in this fork is (popup radius 0, headerUnderline 0): a rounded or
+  // top-bordered band would need its corners and its rule carried up here too.
   screen.target().fill(fui::makeRect(0, 0, screen.device().screen().width, band.bottom()),
                        styles.resolve(fui::StateNormal).background);
   screen.header(props, fui::makeRect(band.x, inkTop, band.width, static_cast<int16_t>(band.bottom() - inkTop)));
@@ -184,7 +186,8 @@ inline void headerBand(Screen& screen, const freeink::ui::HeaderProps& props) {
 // tallies, face doors). Matches headerBand()'s centring.
 inline int16_t bandCenterY(Screen& screen, const int16_t elementH) {
   const int16_t visibleTop = screen.frame().safeRect().y;
-  return static_cast<int16_t>(visibleTop + (kHeaderHeight - visibleTop - elementH) / 2);
+  const int16_t bandH = screen.theme().headerHeight;
+  return static_cast<int16_t>(visibleTop + (bandH - visibleTop - elementH) / 2);
 }
 
 // The rule under the header band. Full-bleed on purpose -- paint may run

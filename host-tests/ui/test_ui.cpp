@@ -7768,6 +7768,19 @@ void checkBandReachesThePanelTop(const FakeTarget& target, const char* what) {
   check(covered, what, __LINE__);
 }
 
+// The other two sides. A band taken off the safe rect was inset on THREE edges,
+// and a check that only reads the covered rows calls half of that fixed: the
+// white columns down the sides are the same defect seen from the side of the
+// device rather than from below. Sampled just under the covered rows, where the
+// band is certainly still band whatever height the chrome gave it.
+void checkBandReachesThePanelSides(const FakeTarget& target, const char* what) {
+  const fui::DeviceContext ctx = bezelDevice();
+  const int16_t y = static_cast<int16_t>(ctx.safeArea.top + 1);
+  const bool covered =
+      blackPaintCovers(target, 0, y) && blackPaintCovers(target, static_cast<int16_t>(ctx.width - 1), y);
+  check(covered, what, __LINE__);
+}
+
 template <typename Model, void (*Build)(toybox::Screen&, const Model&)>
 void renderWithBezel(Rendered& out, const Model& model) {
   const fui::InputSnapshot noInput{};
@@ -7790,6 +7803,7 @@ void testNoPaperAboveAnyHeaderBand() {
     Rendered out;
     renderWithBezel<shelfui::MenuModel, shelfui::buildMenu>(out, model);
     checkBandReachesThePanelTop(out.target, "shelf folder: band reaches the panel top");
+    checkBandReachesThePanelSides(out.target, "shelf folder: band reaches the panel sides");
   }
 
   // The five game screens that took their band from the safe rect instead, so
@@ -7803,6 +7817,7 @@ void testNoPaperAboveAnyHeaderBand() {
     Rendered out;
     renderWithBezel<c4ui::BoardModel, c4ui::buildBoard>(out, model);
     checkBandReachesThePanelTop(out.target, "connect four board: band reaches the panel top");
+    checkBandReachesThePanelSides(out.target, "connect four board: band reaches the panel sides");
   }
   {
     checkui::BoardModel model;
@@ -7810,24 +7825,28 @@ void testNoPaperAboveAnyHeaderBand() {
     Rendered out;
     renderWithBezel<checkui::BoardModel, checkui::buildBoard>(out, model);
     checkBandReachesThePanelTop(out.target, "checkers board: band reaches the panel top");
+    checkBandReachesThePanelSides(out.target, "checkers board: band reaches the panel sides");
   }
   {
     mineui::BoardModel model;
     Rendered out;
     renderWithBezel<mineui::BoardModel, mineui::buildBoard>(out, model);
     checkBandReachesThePanelTop(out.target, "minesweeper board: band reaches the panel top");
+    checkBandReachesThePanelSides(out.target, "minesweeper board: band reaches the panel sides");
   }
   {
     knuckleui::BoardModel model;
     Rendered out;
     renderWithBezel<knuckleui::BoardModel, knuckleui::buildBoard>(out, model);
     checkBandReachesThePanelTop(out.target, "knucklebones board: band reaches the panel top");
+    checkBandReachesThePanelSides(out.target, "knucklebones board: band reaches the panel sides");
   }
   {
     xkcdui::MenuModel model;
     Rendered out;
     renderWithBezel<xkcdui::MenuModel, xkcdui::buildMenu>(out, model);
     checkBandReachesThePanelTop(out.target, "xkcd menu: band reaches the panel top");
+    checkBandReachesThePanelSides(out.target, "xkcd menu: band reaches the panel sides");
   }
 }
 
@@ -7890,8 +7909,40 @@ void testTheHeaderBandBottomIgnoresTheBezel() {
   }
 }
 
+// The ink rule again, for the labels apps draw on the band THEMSELVES.
+//
+// The header component centres each run on its own line box, so an app whose
+// right label uses a different cut from the title draws it by hand -- and then
+// owns the centring headerBand() would have done. Boxed over the whole band it
+// centres partly in rows the bezel covers and sits above the title beside it,
+// which is the same bug as the white strip wearing the other face: paint that
+// stops at the safe top, ink that starts at the panel top.
+void testAHandDrawnRightLabelSitsOnTheTitlesLine() {
+  triviaui::QuestionModel model;
+  model.clue = "WHAT IS THE CAPITAL OF PERU";
+  model.difficulty = 3;
+
+  Rendered out;
+  renderWithBezel<triviaui::QuestionModel, triviaui::buildQuestion>(out, model);
+  const FakeTarget::TextRun* title = out.target.find("TRIVIA");
+  const FakeTarget::TextRun* label = out.target.find("QUESTION");
+  CHECK(title != nullptr);
+  CHECK(label != nullptr);
+  if (title != nullptr && label != nullptr) {
+    // Their ink centres agree. Not their rects: the two runs use different cuts
+    // on purpose, and it is the ink the eye lines up, which is the whole reason
+    // the label is drawn by hand rather than handed to HeaderProps.
+    const fui::Rect titleInk = inkBandOf(*title);
+    const fui::Rect labelInk = inkBandOf(*label);
+    const int titleMid = titleInk.y + titleInk.height / 2;
+    const int labelMid = labelInk.y + labelInk.height / 2;
+    CHECK(titleMid - labelMid <= 2 && labelMid - titleMid <= 2);
+  }
+}
+
 int main() {
   testNoPaperAboveAnyHeaderBand();
+  testAHandDrawnRightLabelSitsOnTheTitlesLine();
   testTheHeaderTitleStaysOutOfTheCoveredRows();
   testTheHeaderBandBottomIgnoresTheBezel();
   testTriviaOptionsCarryTheirIndex();

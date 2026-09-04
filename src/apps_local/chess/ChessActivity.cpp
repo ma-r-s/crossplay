@@ -986,7 +986,13 @@ void ChessActivity::drawMoveList(const int top, const int height) const {
 
 Rect ChessActivity::gearRect() const {
   const int size = 40;
-  return Rect{renderer.getScreenWidth() - toybox::kMargin - size, (toybox::kHeaderHeight - size) / 2, size, size};
+  // Centred in the VISIBLE part of the band, the same rule toybox::bandCenterY
+  // gives the shelf's folder mark and toy battle's medals: the bezel covers the
+  // band's top rows, so centring over the whole band rides high on the panel.
+  int viewTop, viewRight, viewBottom, viewLeft;
+  renderer.getOrientedViewableTRBL(&viewTop, &viewRight, &viewBottom, &viewLeft);
+  return Rect{renderer.getScreenWidth() - toybox::kMargin - size,
+              viewTop + (toybox::kHeaderHeight - viewTop - size) / 2, size, size};
 }
 
 void ChessActivity::activateMenuRow(const MenuRow row) {

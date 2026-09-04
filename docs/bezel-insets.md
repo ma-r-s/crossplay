@@ -127,7 +127,13 @@ traps were found:
    battle's medal tally, murdle's face doors, connections' and murdle's
    header-door hit rects) position from the band's real top
    (`body().y - kHeaderHeight` right after header(), or `safeRect().y`),
-   never from y=0.
+   never from y=0. Two were missed and fixed on 2026-09-03 with the paint:
+   trivia's hand-drawn right label boxed itself over the whole band, and
+   chess's gear centred on `(kHeaderHeight - size) / 2`. Both centred partly
+   in covered rows and rode about 5px above the title beside them. The rule
+   for anything drawn on the band by hand is `toybox::bandCenterY`, or the
+   same arithmetic where there is no `Screen` to hand (`ChessActivity`
+   reads `getOrientedViewableTRBL` for it).
 4. **Deliberate full-bleed stays full-bleed**: band fills and rules span the
    panel width AND reach its top row (paint may run under the bezel; content
    may not -- and a band that stopped short of that row is the bug the
