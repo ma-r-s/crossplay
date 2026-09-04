@@ -353,6 +353,171 @@ async def run(tmp):
             "the buildable deck should still be built",
         )
 
+        # --- Events: what a finished sync tells the board, and what a board
+        # that is down costs it (nothing). The HTTP layer is stubbed at the one
+        # name events.py sends through, so these assert the exact body.
+        import urllib.error
+        import urllib.request
+
+        import bridge.app as app_mod
+        from bridge import engine as engine_mod
+        from bridge import events
+        from bridge import jobs as jobs_mod
+        from bridge import pairing as pairing_mod
+        from bridge.ratelimit import Window
+
+        os.environ["SUPABASE_URL"] = "https://board.test"
+        os.environ["SUPABASE_ANON_KEY"] = "anon-test-key"
+        posted = []
+
+        class Taken:
+            def read(self):
+                return b""
+
+            def close(self):
+                pass
+
+        def take(req, timeout):
+            posted.append(req)
+            return Taken()
+
+        def refuse(req, timeout):
+            posted.append(req)
+            raise urllib.error.URLError("connection refused")
+
+        async def settle(n):
+            # The post rides its own thread; give it a moment to land.
+            for _ in range(50):
+                if len(posted) >= n:
+                    return
+                await asyncio.sleep(0.1)
+
+        async def finish(job_id):
+            for _ in range(600):
+                await asyncio.sleep(0.1)
+                r = await web.get(
+                    "/api/sync/status", headers=dev, params={"job": job_id}
+                )
+                if r.json()["status"] in ("done", "error", "frozen"):
+                    break
+            return r.json()
+
+        events._urlopen = take
+        # Each job reads the clock twice; pinned so `seconds` is asserted
+        # exactly rather than as "some number".
+        ticks = iter([100.0, 102.5, 200.0, 200.4, 300.0, 300.1, 400.0, 400.2])
+        jobs_mod._clock = lambda: next(ticks, time.monotonic())
+        # The syncs above spent this user's window; this block gets a fresh
+        # one with the same limits.
+        app_mod.SYNC_USER = Window(6, 300)
+        expected_device = events.device_id(pairing_mod.token_hash(token))
+
+        r = await web.post(
+            "/api/sync",
+            headers=dev,
+            content=struct.pack("<I", len(empty_header)) + empty_header,
+        )
+        status = await finish(r.json()["job"])
+        ok(status["status"] == "done", f"the events sync should finish, got {status}")
+        await settle(1)
+        ok(len(posted) == 1, f"a finished sync posts one event, got {len(posted)}")
+        wire_body = json.loads(posted[0].data)
+        ok(
+            wire_body
+            == {
+                "service": "anki",
+                "event": "sync",
+                "level": "info",
+                "device": expected_device,
+                "props": {"cards": 0, "reviews": 0, "seconds": 2.5},
+            },
+            f"a sync posts the contract's body, got {wire_body}",
+        )
+        ok(
+            posted[0].full_url == "https://board.test/rest/v1/events",
+            "to the events table",
+        )
+        ok(posted[0].get_header("Apikey") == "anon-test-key", "with the public key")
+        ok(
+            token not in posted[0].data.decode()
+            and pairing_mod.token_hash(token) not in posted[0].data.decode(),
+            "neither the token nor its hash is in the event",
+        )
+
+        # A board that refuses the event cannot fail the sync.
+        events._urlopen = refuse
+        r = await web.post(
+            "/api/sync",
+            headers=dev,
+            content=struct.pack("<I", len(empty_header)) + empty_header,
+        )
+        status = await finish(r.json()["job"])
+        ok(
+            status["status"] == "done" and status["summary"]["manifests"],
+            f"a board that is down does not fail the sync, got {status['status']}",
+        )
+        await settle(2)
+        ok(len(posted) == 2, "and the event was attempted, not skipped")
+
+        # A sync that dies posts what it died of: the generic branch ...
+        events._urlopen = take
+        real_cycle = engine_mod.sync_cycle
+
+        def dead(*a, **kw):
+            raise RuntimeError("AnkiWeb answered 503 for user 42")
+
+        engine_mod.sync_cycle = dead
+        try:
+            r = await web.post(
+                "/api/sync",
+                headers=dev,
+                content=struct.pack("<I", len(empty_header)) + empty_header,
+            )
+            status = await finish(r.json()["job"])
+        finally:
+            engine_mod.sync_cycle = real_cycle
+        ok(status["status"] == "error", f"the broken sync should fail, got {status}")
+        await settle(3)
+        wire_body = json.loads(posted[2].data)
+        ok(
+            wire_body
+            == {
+                "service": "anki",
+                "event": "sync",
+                "level": "error",
+                "device": expected_device,
+                "props": {"message": "RuntimeError: AnkiWeb answered 503 for user 42"},
+            },
+            f"a failure posts its message at level error, got {wire_body}",
+        )
+
+        # ... and the frozen one, whose message is the sentence the reader shows.
+        def frozen(*a, **kw):
+            raise engine_mod.Frozen("AnkiWeb wants an upload.")
+
+        engine_mod.sync_cycle = frozen
+        try:
+            r = await web.post(
+                "/api/sync",
+                headers=dev,
+                content=struct.pack("<I", len(empty_header)) + empty_header,
+            )
+            status = await finish(r.json()["job"])
+        finally:
+            engine_mod.sync_cycle = real_cycle
+        ok(status["status"] == "frozen", f"the frozen sync should freeze, got {status}")
+        await settle(4)
+        wire_body = json.loads(posted[3].data)
+        ok(
+            wire_body["level"] == "error"
+            and wire_body["props"] == {"message": "Frozen: AnkiWeb wants an upload."},
+            f"a frozen sync posts its sentence at level error, got {wire_body}",
+        )
+
+        events._urlopen = urllib.request.urlopen
+        jobs_mod._clock = time.monotonic
+        del os.environ["SUPABASE_URL"], os.environ["SUPABASE_ANON_KEY"]
+
         # --- Revocation kills the token.
         th = __import__("bridge.pairing", fromlist=["token_hash"]).token_hash(token)
         store_mod.revoke_device(st.uid, th)

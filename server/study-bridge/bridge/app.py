@@ -27,7 +27,7 @@ import time
 from fastapi import Depends, FastAPI, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
-from . import accounts, decks, engine, jobs, pairing, store, wire
+from . import accounts, decks, engine, events, jobs, pairing, store, wire
 from .ratelimit import Window
 from .journal import Journal
 
@@ -488,7 +488,17 @@ async def start_sync(request: Request, dev=Depends(require_device)):
         summary["failedDecks"] = failed
         return summary
 
-    job = jobs.JOBS.start(uid, work)
+    job = jobs.JOBS.start(
+        uid,
+        work,
+        service="anki",
+        # The token hash, salted once more: the board counts readers and can
+        # name none of them, and the raw token never reaches this line at all.
+        device=events.device_id(th),
+        # cards: what the reader posted, its whole hand across the chosen
+        # decks; reviews: what this sync carried up into the collection.
+        props=lambda s: {"cards": len(device_cards), "reviews": s["applied"]},
+    )
     return {"job": job.id, "ackOffsets": acks}
 
 
@@ -542,4 +552,7 @@ async def startup():
     logging.basicConfig(level=logging.INFO)
     if decks.TOOLS is None:
         log.error("tools_local/study not found; deck builds will fail loudly")
+    # Says "events are off" once when the two variables are not both set.
+    if events.enabled():
+        log.info("events on: syncs and failures post to the board")
     log.info("bridge up; tools at %s", decks.TOOLS)
