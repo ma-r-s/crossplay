@@ -106,22 +106,38 @@ jobs:
       # The two flags only add .su and .ci files beside the objects; they change
       # no code, so this is still the build the next step checks. Asking for them
       # here rather than in a second build keeps CI one firmware compile long.
-      - name: Build the x4pro firmware
-        run: PLATFORMIO_BUILD_FLAGS="-fstack-usage -fcallgraph-info=su" pio run -e x4pro
+      # BOTH device envs in ONE invocation, and that is not tidiness.
+      #
+      # pio run calls clean_build_dir() once per invocation, against the whole
+      # .pio/build ROOT, and rmtree's it when compute_project_checksum()
+      # differs from the stored one -- which on a fresh checkout it always
+      # does, because the build generates gitignored headers that the checksum
+      # covers. So every invocation wipes the previous one's output. Building
+      # x4pro and sticky separately meant the x4pro stack check below read a
+      # directory that the sticky build was about to delete, and it passed only
+      # because it was sequenced first. The same hazard emptied
+      # .pio/build/gh_release_x4pro between two steps of crossplay-release.yml
+      # and cost v1.12.14 and v1.12.15.
+      #
+      # The Sticky compiles SDK code the x4pro build never sees (mic, buzzer,
+      # sensors, IMU) and carries its own device flag, so a green x4pro build
+      # does not prove the sticky env compiles. One invocation, both envs, no
+      # ordering rule to break.
+      - name: Build both device firmwares
+        run: PLATFORMIO_BUILD_FLAGS="-fstack-usage -fcallgraph-info=su" pio run -e x4pro -e sticky
 
       # v1.0.0 shipped a render task that needed 8016 bytes of an 8192-byte
       # stack and crashed on the first device that ever ran it. Nothing here
       # measured stack, and nothing on a host could: frame sizes belong to the
       # target ABI. This reads the numbers the firmware compiler just emitted.
+      #
+      # Both checks now read build directories that nothing between them
+      # removes. stack_budget.py refuses rather than passing empty -- it exits
+      # on no frames and fails a task whose entry is missing -- so the old
+      # arrangement would have gone red rather than quiet. That is why this is
+      # a fragility fix and not a bug fix.
       - name: Stack fits its task (x4pro)
         run: python3 scripts_local/stack_budget.py --build-dir .pio/build/x4pro
-
-      # The Sticky compiles SDK code the x4pro build never sees (mic, buzzer,
-      # sensors, IMU) and carries its own device flag, so a green x4pro build
-      # does not prove the sticky env compiles. Same stack discipline, same
-      # reasons.
-      - name: Build the sticky firmware
-        run: PLATFORMIO_BUILD_FLAGS="-fstack-usage -fcallgraph-info=su" pio run -e sticky
 
       - name: Stack fits its task (sticky)
         run: python3 scripts_local/stack_budget.py --build-dir .pio/build/sticky
@@ -135,11 +151,8 @@ jobs:
       # gh_release_* was compiled for the first time by the release workflow,
       # i.e. after the tag was already pushed. A typo in release-only code cost
       # a delete-and-retag to find.
-      - name: Build the release firmware (x4pro)
-        run: pio run -e gh_release_x4pro
-
-      - name: Build the release firmware (sticky)
-        run: pio run -e gh_release_sticky
+      - name: Build both release firmwares
+        run: pio run -e gh_release_x4pro -e gh_release_sticky
 
       # Nothing is forgiven. ui:paperOnTheBand was a real baseline failure
       # once, and this step carried a carefully shaped exemption for it until
