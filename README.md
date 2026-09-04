@@ -23,9 +23,9 @@
 
 The **Xteink X4 Pro** and the **Seeed reTerminal Sticky** are cheap e-ink
 devices with an 800x480 panel, capacitive touch and two physical buttons, and
-[CrossPoint](https://crosspointreader.com/) already makes them good at
-reading. CrossPlay is firmware that keeps all of that and adds the
-other things a screen that holds still is good at: **19 games and 5 apps**,
+[CrossPoint](https://crosspointreader.com/) already makes them good at reading.
+CrossPlay is firmware that keeps all of that and adds the other things a screen
+that holds still is good at: **19 games and 5 apps**,
 spaced-repetition flashcards, comics, a read-later queue, and two devices that
 play together with nothing to set up.
 
@@ -122,6 +122,10 @@ back where it was.
 esptool, updating a device you already flashed, and Developer Mode, which
 reflashes over Wi-Fi with no cable. If a flash goes wrong,
 [docs/fix-bricked-xteink.md](docs/fix-bricked-xteink.md) is the way back.
+
+Once it is running, [USER_GUIDE.md](USER_GUIDE.md) is the guide to the device
+itself: the controls, the reader, the web server and what to do when something
+goes wrong.
 
 Every release is flashed to a real X4 Pro and a real Sticky before it ships.
 That is still a small field record, so if you install it, please

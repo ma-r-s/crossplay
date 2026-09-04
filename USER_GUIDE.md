@@ -1,6 +1,6 @@
 # CrossPlay User Guide
 
-Welcome to the **CrossPlay** firmware, a fork of CrossPoint for the Xteink X4 Pro. This guide outlines the hardware controls, navigation, and reading features of the device.
+Welcome to the **CrossPlay** firmware, a fork of CrossPoint for the Xteink X4 Pro and the Seeed reTerminal Sticky. This guide outlines the hardware controls, navigation, and reading features of the device.
 
 - [CrossPlay User Guide](#crossplay-user-guide)
   - [1. Hardware Overview](#1-hardware-overview)
